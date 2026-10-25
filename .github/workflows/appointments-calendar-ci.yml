@@ -94,8 +94,8 @@ jobs:
       TASK_REQUEST_HMAC_KEY_ID: lab1
       CRON_SECRET: appt_ui_ci_cron_secret_synthetic_at_least_32
       AUTH_PLANE_ENABLED: "true"
-      OUT: ${{ runner.temp }}/appt-ui
-      SEED_OUT: ${{ runner.temp }}/appt-ui-seed.json
+      OUT: /tmp/appt-ui
+      SEED_OUT: /tmp/appt-ui-seed.json
       E2E_BASE: http://localhost:3700
 
     steps:
@@ -148,5 +148,5 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: appointments-calendar-screens
-          path: ${{ runner.temp }}/appt-ui
+          path: /tmp/appt-ui
           retention-days: 14

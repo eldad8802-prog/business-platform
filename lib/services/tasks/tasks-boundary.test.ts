@@ -105,11 +105,12 @@ console.log("navigation (owner-approved placement)");
   const stations = code("app/(shell)/secretary/secretary-home.tsx");
   ok("the Secretary's stations open /payables and /tasks (tasks only with the flag)", /payables: "\/payables"/.test(stations) && /tasks: "\/tasks"/.test(stations) && /\.\.\.\(tasksOn \? \[\{ key: "tasks"/.test(stations));
   const side = code("components/navigation/side-nav.tsx");
-  ok("the sidebar hides a gated destination until the flag is ON", /filter\(\(d\) => !d\.feature \|\| \(d\.feature === "daily_tasks" && tasksOn\)\)/.test(side));
+  // Another gated destination may follow daily_tasks in the same filter (appointments, milestone B).
+  ok("the sidebar hides a gated destination until the flag is ON", /filter\(\(d\) => !d\.feature \|\| \(d\.feature === "daily_tasks" && tasksOn\)/.test(side));
   const sheet = code("components/navigation/action-sheet.tsx");
   ok("\"+\" lists משימה חדשה only with the flag", /feature: "daily_tasks"/.test(sheet) && /filter\(\(a\) => !a\.feature/.test(sheet));
   const cat = code("features/tools/category-screen.tsx");
-  ok("the family screen hides a gated tool until the flag is ON", /filter\(\(t\) => !t\.feature/.test(cat));
+  ok("the family screen hides a gated tool until the flag is ON", /filter\(\s*\(t\) => !t\.feature \|\| \(t\.feature === "daily_tasks" && tasksOn\)/.test(cat));
   const sec = code("app/(shell)/secretary/page.tsx");
   // Owner 2026-10-24: opening daily_tasks gives personal tasks only — the secretary's "היום שלי" never becomes the
   // shared agenda with its automatic items (payments, leads, stock…).
