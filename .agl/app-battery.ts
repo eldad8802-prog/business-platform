@@ -87,11 +87,12 @@ function completeSignup(secret: string, businessName: string, opts: { pause?: nu
     const b = (await tx.$queryRawUnsafe(`INSERT INTO "Business" ("name","updatedAt") VALUES ($1, now()) RETURNING id`, businessName)) as Rows;
     const business = { id: Number(b[0].id) };
     const u = (await tx.$queryRawUnsafe(
-      `INSERT INTO "User" ("email","name","businessId","termsAcceptedAt","termsVersion","updatedAt")
-       VALUES ($1,$2,$3,$4,'lab', now()) RETURNING id, "tokenVersion"`,
-      spent.email, spent.name ?? businessName, business.id, now,
+      `INSERT INTO "User" ("email","name","businessId","updatedAt") VALUES ($1,$2,$3, now()) RETURNING id`,
+      spent.email, spent.name ?? businessName, business.id,
     )) as Rows;
-    const user = { id: Number(u[0].id), tokenVersion: Number(u[0].tokenVersion) };
+    // A new row starts at generation 0 (the column default); the consent columns are written by the real
+    // signup (createAccount, milestone 2) and are outside this lab's grants.
+    const user = { id: Number(u[0].id), tokenVersion: 0 };
     if (opts.failAfterSpend) throw new Error("FORCED_FAILURE");
     await attachGoogleIdentity(tx, spent.ticketId, user.id);
     const session = await issueRefreshSession(tx, { userId: user.id, tokenVersion: user.tokenVersion, now, userAgent: "agl-app-battery" });
@@ -132,8 +133,8 @@ async function main() {
   const W = typeof done === "string" ? null : done;
   ok("T11 exactly one User, one Business, one identity, one session", same(await footprint(g1.email, biz1, g1.subject), ONE),
     JSON.stringify(await footprint(g1.email, biz1, g1.subject)));
-  const wu = W ? await owner.user.findUnique({ where: { id: W.userId }, select: { password: true, emailVerifiedAt: true, termsAcceptedAt: true } }) : null;
-  ok("T11 the user has no password, a verified address and the terms record", wu?.password === null && wu?.emailVerifiedAt !== null && wu?.termsAcceptedAt !== null);
+  const wu = W ? await owner.user.findUnique({ where: { id: W.userId }, select: { password: true, emailVerifiedAt: true } }) : null;
+  ok("T11 the user has no password and a verified address", wu?.password === null && wu?.emailVerifiedAt !== null);
   if (W) {
     const token = signAuthToken(W.userId, W.tokenVersion, W.sessionId);
     const ctx = await getAuthContext(new Request("http://lab/api/home", { headers: { authorization: `Bearer ${token}` } }));
