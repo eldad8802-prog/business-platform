@@ -9,7 +9,8 @@
 #
 #   0. Evidence files are SELECT-only; the proof pins migration.sql's sha256; the migration names only its
 #      own objects, User and Business.
-#   1. Baseline (pending): PREFLIGHT passes whole; the proof refuses (no tables).
+#   1. Baseline (pending): PREFLIGHT passes all but 4 (the by-name ledger list is a PRODUCTION premise this
+#      lab's partial history cannot meet); the proof refuses (no tables).
 #   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: proof 18/18; the preflight then
 #      fails exactly its "not there yet" checks.
 #   3. Battery (.agl/battery.ts) as the real roles: privileges, issue, read, a Google signup, replay,
@@ -88,7 +89,13 @@ jobs:
           FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
           for f in "$PREFLIGHT" "$EVIDENCE"; do
             if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
           done
+          # The preflight's by-name ledger list is exactly every migration on main before this one.
+          want=$(ls -d prisma/migrations/2*/ | xargs -n1 basename | awk '$0 < "20261030090000_oauth_identity_foundation"' | sort)
+          have=$(grep -oE "^    [(]'[0-9]{14}_[a-z0-9_]+'[)]" "$PREFLIGHT" | grep -oE "[0-9]{14}_[a-z0-9_]+" | sort)
+          test "$want" = "$have" || { echo "the preflight's ledger list is not main's history before this migration"; diff <(echo "$want") <(echo "$have") || true; exit 1; }
+          echo "the preflight names all $(echo "$want" | wc -l) migrations before this one"
           sum=$(sha256sum "$AGL" | cut -d' ' -f1)
           grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
           echo "$AGL sha256 $sum (pinned)"
@@ -101,15 +108,16 @@ jobs:
           done
           echo "the migration names only UserIdentity, OAuthSignupTicket, User and Business; no other migration names its objects"
 
-      - name: 1. Baseline (pending) — PREFLIGHT passes whole; the proof refuses
+      - name: 1. Baseline (pending) — PREFLIGHT passes all but 4 (lab topology); the proof refuses
         run: |
           set -euo pipefail
           bash .agl/lab.sh agl_pre
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d agl_pre -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$PREFLIGHT" | tee /tmp/pre.out
           fails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
-          test -z "$fails" || { echo "baseline: expected the preflight whole, got FAIL: $fails"; exit 1; }
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "15" || { echo "expected 15 PASS"; exit 1; }
+          # 4 (every migration on main is finished) is a PRODUCTION premise: the lab ledger holds part of the history.
+          test "$fails" = "4 " || { echo "baseline: expected only 4 (lab topology) to fail, got: $fails"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "16" || { echo "expected 16 PASS"; exit 1; }
           if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
           echo "the proof refuses on the baseline (the tables do not exist yet)"
 
@@ -123,7 +131,7 @@ jobs:
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
           test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "18" || { echo "expected 18 PASS"; exit 1; }
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
-          test "$fails" = "2 3 4 5 6 7 " || { echo "after the release: expected '2 3 4 5 6 7 ', got: $fails"; exit 1; }
+          test "$fails" = "2 3 4 5 6 7 8 9 " || { echo "after the release: expected '2 3 4 5 6 7 8 9 ', got: $fails"; exit 1; }
 
       - name: 3. Battery — privileges, single use, ten concurrent signups, replay, rollback, attach guards (real roles)
         run: |
@@ -183,7 +191,7 @@ jobs:
           bash .agl/lab.sh agl_rb --with-agl >/dev/null
           lab agl_rb -q -f .agl/rollback.sql
           fails=$(lab agl_rb -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
-          test -z "$fails" || { echo "after rollback: expected the preflight whole, got: $fails"; exit 1; }
+          test "$fails" = "4 " || { echo "after rollback: expected only 4 (lab topology), got: $fails"; exit 1; }
           TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
           cp prisma/schema.prisma "$TMP/prisma/"; cp prisma/migrations/migration_lock.toml "$TMP/prisma/migrations/"
           for d in prisma/migrations/*/; do
