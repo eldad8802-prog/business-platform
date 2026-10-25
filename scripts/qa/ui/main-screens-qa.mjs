@@ -291,115 +291,94 @@ async function checkNav(page, linkText, expect, vp) {
 
 const FIXTURE_ROW_AMOUNTS = ["₪15", "₪3,500", "₪30", "₪50"];
 const groupHeads = (page) => page.evaluate(() => [...document.querySelectorAll("main section h2[id^='pay-group-']")].map((h) => h.innerText.replace(/[()]/g, " ").replace(/\s+/g, " ").trim()));
-const boxText = (page, id) => page.evaluate((i) => (document.getElementById(i)?.closest("section")?.innerText ?? null), id);
 
 async function payablesChecks(page, vp, scenario, run, apiLog) {
   const main = page.locator("main").first();
   const t = norm(await main.innerText().catch(() => ""));
   const c = {};
+  // Redesign (owner, 25.10.2026): no money summary, no forecast, no search; state chips + type menu + "עוד";
+  // compact cards in four groups — overdue and soon open, planned and closed folded. A card opens /payables/:id.
+  const expand = async (label) => {
+    const head = main.locator("section[aria-labelledby^='pay-group-'] h2 button", { hasText: label }).first();
+    if ((await head.getAttribute("aria-expanded")) === "false") await head.click();
+    await page.waitForTimeout(200);
+  };
   if (scenario === "prod") {
-    // Two separate boxes; every figure is a fixture field of /api/business-cost/summary:
-    // upcoming.overdue.total 3545 (3 items) · next7Days.recorded 0 · next30Days.recorded 0 · next30Days.projected · baseline.monthly 65.
-    const rec = norm(await boxText(page, "pay-sum-recorded"));
-    const fc = norm(await boxText(page, "pay-sum-forecast"));
-    c.recordedBox = rec.includes("מועדים רשומים שלא שולמו") && rec.includes("מועדים חודשיים שעוד לא נוצרו לא נכללים") && rec.includes("₪3,545") && rec.includes("3 מועדים");
-    c.forecastNotDebt = fc.includes("תחזית · לא חוב") && fc.includes("₪65") && !fc.includes("₪3,545");
-    c.forecastDashed = await page.evaluate(() => getComputedStyle(document.getElementById("pay-sum-forecast").closest("section")).borderStyle.includes("dashed"));
+    c.noSummary = (await page.locator("#pay-sum-recorded, #pay-sum-forecast").count()) === 0 && !t.includes("תחזית · לא חוב");
+    c.noSearch = (await main.getByRole("searchbox").count()) === 0;
     c.noAllDebts = !t.includes("כל החובות");
-    c.rowAmounts = FIXTURE_ROW_AMOUNTS.every((a) => t.includes(a));
     c.groups = await groupHeads(page);
-    c.groupsOk = JSON.stringify(c.groups) === JSON.stringify(["המועד עבר 3", "מתוכנן 1"]);
-    c.layout = vp.width >= 720 ? "table" : "cards";
-    c.layoutOk = vp.width >= 720 ? (await main.locator("table").count()) === 2 : (await main.locator("table").count()) === 0 && (await countRows(page, vp)) === 4;
-    if (vp.width >= 720) {
-      c.table = await page.evaluate(() => {
-        const rows = [...document.querySelectorAll("main table tbody tr")];
-        const minRow = Math.min(...rows.map((r) => r.getBoundingClientRect().height));
-        const clipped = [...document.querySelectorAll("main table tbody td")].filter((td) => td.scrollWidth > td.clientWidth + 1 && /\d/.test(td.innerText)).map((td) => td.innerText);
-        return { minRowHeight: Math.round(minRow), clippedNumbers: clipped };
-      });
-      c.tableOk = c.table.minRowHeight >= 44 && c.table.clippedNumbers.length === 0;
-    }
-    // Search + chips + "כולל שנסגרו" (the old "הצג הכול": scope=all).
-    const search = main.getByRole("searchbox", { name: "חיפוש לפי שם התחייבות או מקבל תשלום" });
-    await search.fill("דירה");
+    c.groupsOk = JSON.stringify(c.groups) === JSON.stringify(["באיחור 3", "מתוכנן 1"]);
+    c.openByDefault = (await countRows(page)) === 3; // overdue open, planned folded
+    await expand("מתוכנן");
+    const all = norm(await main.innerText());
+    c.rowAmounts = FIXTURE_ROW_AMOUNTS.every((a) => all.includes(a));
+    c.allRows = await countRows(page);
+    // State chips and the type menu.
+    const chips = main.getByRole("group", { name: "סינון לפי מצב" });
+    await chips.getByRole("button", { name: /מתוכנן/ }).click();
     await page.waitForTimeout(250);
-    c.searchRows = await countRows(page, vp);
-    await search.fill("אין כזה");
+    c.plannedOnly = JSON.stringify(await groupHeads(page)) === JSON.stringify(["מתוכנן 1"]);
+    await chips.getByRole("button", { name: /^הכול/ }).click();
     await page.waitForTimeout(250);
-    c.noResults = norm(await main.innerText()).includes("לא נמצאו התחייבויות שמתאימות לחיפוש.");
-    await main.getByRole("button", { name: "נקה חיפוש וסינון" }).click();
-    await main.getByRole("group", { name: "סינון מהיר" }).getByRole("button", { name: /^מתחדשות/ }).click();
+    await main.getByRole("button", { name: /^סוג:/ }).click();
+    await page.getByRole("menu", { name: "סוג התחייבות" }).getByRole("menuitemradio", { name: /חוזרות/ }).click();
     await page.waitForTimeout(250);
-    c.recurringRows = await countRows(page, vp);
-    await main.getByRole("group", { name: "סינון מהיר" }).getByRole("button", { name: /^הכול/ }).click();
-    const before = apiLog.length;
-    await main.getByRole("button", { name: /כולל שנסגרו/ }).click();
-    await page.waitForTimeout(800);
-    c.scopeAllRequested = apiLog.slice(before).some((l) => l.includes("/api/payables/commitments?scope=all"));
-    await main.getByRole("button", { name: /כולל שנסגרו/ }).click();
-    await page.waitForTimeout(500);
-    c.searchOk = c.searchRows === 1 && c.noResults && c.recurringRows === 2 && c.scopeAllRequested;
-    // Row open: desktop selects into the existing panel; tablet/mobile open the payment flow.
-    if (vp.width >= 1200) {
-      await main.locator("table").first().locator("tbody tr", { hasText: "דירה" }).first().click();
-      const panel = page.locator('aside[aria-label="ההתחייבות שנבחרה"]');
-      const pt = norm(await panel.innerText());
-      c.panel = { title: pt.includes("דירה"), amount: pt.includes("₪3,500"), href: await panel.getByRole("link", { name: "פתח את מהלך התשלום" }).getAttribute("href"), legacyNote: pt.includes("נמסרה דרך המזכירה") };
-      c.panelOk = c.panel.title && c.panel.amount && c.panel.href === "/payables/6" && c.panel.legacyNote;
-      await page.screenshot({ path: path.join(OUT, `payables-prod-${vp.name}-selected.png`) });
-    } else {
-      if (vp.width >= 720) await main.locator("table").first().locator("tbody tr", { hasText: "דירה" }).first().click();
-      else await main.locator("section[aria-labelledby^='pay-group-'] button", { hasText: "דירה" }).first().click();
-      c.openFlow = await page.waitForURL(/\/payables\/6$/, { timeout: 15_000 }).then(() => true).catch(() => false);
-      await page.goBack();
-      await page.waitForURL(/\/payables$/, { timeout: 15_000 }).catch(() => {});
-      await settle(page);
-      c.panelOk = c.openFlow;
-    }
-    // Toolbar + the unchanged inline form.
+    c.recurringRows = await countRows(page);
+    await main.getByRole("button", { name: /^סוג:/ }).click();
+    await page.getByRole("menu", { name: "סוג התחייבות" }).getByRole("menuitemradio", { name: /^הכול/ }).click();
+    await page.waitForTimeout(250);
+    c.filtersOk = c.plannedOnly && c.recurringRows === 2;
+    // Every commitment, closed ones included, in one request.
+    c.scopeAll = apiLog.some((l) => l.includes("/api/payables/commitments?scope=all"));
+    // A card opens the existing detail screen; back returns here.
+    await main.locator("section[aria-labelledby^='pay-group-'] li button", { hasText: "דירה" }).first().click();
+    c.openFlow = await page.waitForURL(/\/payables\/6$/, { timeout: 15_000 }).then(() => true).catch(() => false);
+    await page.goBack();
+    await page.waitForURL(/\/payables$/, { timeout: 15_000 }).catch(() => {});
+    await settle(page);
+    // "התחייבות חדשה" still opens the existing form (until the one creation path is approved).
     await main.getByRole("button", { name: "התחייבות חדשה" }).click();
     c.formOpens = await main.locator("form").first().isVisible().catch(() => false);
     await main.getByRole("button", { name: "סגור" }).click();
     c.toolbar = await checkToolbar(page, vp);
-    c.ok = c.recordedBox && c.forecastNotDebt && c.forecastDashed && c.noAllDebts && c.rowAmounts && c.groupsOk && c.layoutOk && (c.tableOk ?? true) && c.searchOk && c.panelOk && c.formOpens && c.toolbar.ok;
+    c.ok = c.noSummary && c.noSearch && c.noAllDebts && c.groupsOk && c.openByDefault && c.rowAmounts && c.allRows === 4 && c.filtersOk && c.scopeAll && c.openFlow && c.formOpens && c.toolbar.ok;
   } else if (scenario === "empty") {
     c.noBoxes = (await page.locator("#pay-sum-recorded").count()) === 0;
     c.ok = t.includes("אין עדיין התחייבויות") && c.noBoxes && !t.includes("כל החובות");
   } else if (scenario === "calm") {
     c.groups = await groupHeads(page);
-    c.ok = JSON.stringify(c.groups) === JSON.stringify(["מתוכנן 1"]) && t.includes("₪0") && t.includes("₪50");
+    await expand("מתוכנן");
+    c.ok = JSON.stringify(c.groups) === JSON.stringify(["מתוכנן 1"]) && norm(await main.innerText()).includes("₪50");
   } else if (scenario === "error") {
     c.ok = t.includes("טעינת ההתחייבויות נכשלה.") && !/Internal server error/i.test(t) && (await main.getByRole("button", { name: "נסה שוב" }).count()) > 0;
   } else if (scenario === "summaryFail") {
-    c.ok = t.includes("לא הצלחנו לטעון את תמונת המצב הכספית") && FIXTURE_ROW_AMOUNTS.every((a) => t.includes(a));
+    // The screen no longer reads the cost summary: its failure changes nothing here.
+    c.ok = !t.includes("לא הצלחנו לטעון את תמונת המצב הכספית") && ["₪15", "₪3,500", "₪30"].every((a) => t.includes(a));
   } else if (scenario === "loading") {
     c.ok = run.loadingSeen;
   }
   return c;
 }
 
-async function countRows(page, vp) {
-  return page.evaluate((wide) => (wide ? document.querySelectorAll("main table tbody tr").length : document.querySelectorAll("main section[aria-labelledby^='pay-group-'] button").length), vp.width >= 720);
+async function countRows(page) {
+  return page.evaluate(() => document.querySelectorAll("main section[aria-labelledby^='pay-group-'] li button").length);
 }
 
 async function checkToolbar(page, vp) {
   const out = { ok: false };
   try {
     for (const [name, re] of [["צ׳קים וחשבונות בנק", /\/payables\/cheques$/], ["תנועות בנק", /\/payables\/bank$/]]) {
-      if (vp.width < 720) {
-        // Phone: the two secondary tools sit in the "עוד" menu.
-        await page.locator("main").getByRole("button", { name: "עוד" }).click();
-        await page.getByRole("menu", { name: "פעולות נוספות" }).getByRole("menuitem", { name }).click();
-      } else {
-        await page.locator("main").getByRole("button", { name }).click();
-      }
+      // Every width: the two secondary tools sit in the "עוד" menu.
+      await page.locator("main").getByRole("button", { name: /^עוד/ }).click();
+      await page.getByRole("menu", { name: "פעולות נוספות" }).getByRole("menuitem", { name }).click();
       await page.waitForURL(re, { timeout: 15_000 });
       await page.goBack();
       await page.waitForURL(/\/payables$/, { timeout: 15_000 });
       await settle(page);
     }
     out.ok = true;
+    out.width = vp.name;
   } catch (e) {
     out.error = String(e.message || e).slice(0, 300);
   }

@@ -1,0 +1,205 @@
+/*
+ * "התחייבויות" — the main screen (owner-approved redesign, 25.10.2026). Dubiz Mist tokens only (--dz-*).
+ * One column of compact cards; the list stays within 920px on a wide screen so a card never stretches.
+ * A thin stripe on the card's start edge marks its group (late / soon / planned / closed). Logical properties
+ * only (RTL, LTR-ready). Phone < 720 · tablet 720–1199 · desktop ≥ 1200.
+ */
+
+.wrap { width: 100%; max-width: 920px; margin-inline: auto; display: grid; gap: 14px; align-content: start; }
+
+/* ── Title and "התחייבות חדשה" ─────────────────────────────────────────── */
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.headText { min-width: 0; display: grid; gap: 2px; }
+.title { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 800; line-height: 1.2; color: var(--dz-text-primary); }
+@media (min-width: 1200px) { .title { font-size: 27px; } }
+.subtitle { margin: 0; font-size: 14px; color: var(--dz-text-muted); }
+.newButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--dz-brand);
+  color: var(--dz-text-on-brand);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.newButton:hover { background: var(--dz-brand-hover); }
+.newButton:focus-visible { outline: 2px solid var(--dz-focus-ring-color); outline-offset: 2px; }
+@media (max-width: 719px) { .newButton { padding: 0 12px; font-size: 14px; } }
+.formPanel { padding: 16px; border: 1px solid var(--dz-border); border-radius: 18px; background: var(--dz-surface-raised-flat); }
+
+/* ── State chips ─────────────────────────────────────────────────────── */
+.chips { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+@media (min-width: 720px) { .chips { gap: 10px; } }
+.chip {
+  --ink: var(--dz-text-muted);
+  min-width: 0;
+  min-height: 60px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 3px;
+  padding: 8px 2px;
+  border: 1px solid var(--dz-border);
+  border-radius: 14px;
+  background: var(--dz-surface-raised-flat);
+  color: var(--dz-text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+.chip svg { color: var(--ink); }
+.chip[data-k="OVERDUE"] { --ink: var(--dz-danger-accent); }
+.chip[data-k="UPCOMING"] { --ink: var(--dz-warning-accent); }
+.chip[data-k="PLANNED"] { --ink: var(--dz-info-accent); }
+.chip[data-k="CLOSED"] { --ink: var(--dz-success-accent); }
+.chip:hover { border-color: var(--dz-border-strong); }
+.chip[aria-pressed="true"] { background: var(--dz-brand); border-color: var(--dz-brand); color: var(--dz-text-on-brand); }
+.chip[aria-pressed="true"] svg { color: currentColor; }
+.chip:focus-visible { outline: 2px solid var(--dz-focus-ring-color); outline-offset: 2px; }
+@media (min-width: 720px) { .chip { font-size: 14px; min-height: 64px; } }
+
+/* ── Type menu, "עוד" ────────────────────────────────────────────────── */
+.tools { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.toolButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--dz-border);
+  border-radius: 12px;
+  background: var(--dz-surface-raised-flat);
+  color: var(--dz-text-primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toolButton:hover { background: var(--dz-control-hover); }
+.toolButton:focus-visible { outline: 2px solid var(--dz-focus-ring-color); outline-offset: 2px; }
+.menu {
+  position: absolute;
+  inset-block-start: calc(100% + 6px);
+  z-index: 20;
+  min-inline-size: 220px;
+  margin: 0;
+  padding: 6px;
+  display: grid;
+  gap: 2px;
+  background: var(--dz-surface-raised-flat);
+  border: 1px solid var(--dz-border);
+  border-radius: 14px;
+  box-shadow: var(--dz-shadow-overlay);
+}
+.menuStart { inset-inline-start: 0; }
+.menuEnd { inset-inline-end: 0; }
+.menuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dz-text-primary);
+  font: inherit;
+  font-size: 14px;
+  text-align: start;
+  cursor: pointer;
+}
+.menuItem:hover, .menuItem:focus-visible { background: var(--dz-control-hover); outline: none; }
+.menuItem[aria-checked="true"] { font-weight: 700; color: var(--dz-brand); }
+
+/* ── Groups ──────────────────────────────────────────────────────────── */
+.groups { display: grid; gap: 12px; }
+.group { --accent: var(--dz-text-muted); --soft: var(--dz-surface-muted); display: grid; gap: 6px; }
+.group[data-k="OVERDUE"] { --accent: var(--dz-danger-accent); --soft: var(--dz-danger-bg-soft); }
+.group[data-k="UPCOMING"] { --accent: var(--dz-warning-accent); --soft: var(--dz-warning-bg-soft); }
+.group[data-k="PLANNED"] { --accent: var(--dz-info-accent); --soft: var(--dz-info-bg-soft); }
+.group[data-k="CLOSED"] { --accent: var(--dz-success-accent); --soft: var(--dz-success-bg-soft); }
+.groupTitle { margin: 0; font-size: inherit; }
+.groupHead {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--dz-text-primary);
+  font: inherit;
+  font-size: 15.5px;
+  font-weight: 800;
+  text-align: start;
+  cursor: pointer;
+}
+.groupHead:disabled { cursor: default; }
+.groupHead:focus-visible { outline: 2px solid var(--dz-focus-ring-color); outline-offset: 2px; }
+@media (min-width: 720px) { .groupHead { padding: 0 14px; background: var(--soft); } }
+.groupCount { margin-inline-start: 6px; font-weight: 600; color: var(--dz-text-muted); }
+.chev { color: var(--dz-text-muted); transition: transform 0.15s ease; }
+.groupHead[aria-expanded="false"] .chev { transform: rotate(90deg); }
+.cards { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+
+/* ── A commitment card ───────────────────────────────────────────────── */
+.card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "icon main side"
+    "icon amount side";
+  align-items: center;
+  gap: 2px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--dz-border);
+  border-inline-start: 4px solid var(--accent);
+  border-radius: 14px;
+  background: var(--dz-surface-raised-flat);
+  color: var(--dz-text-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.card[data-closed="HANDLED"], .card[data-closed="RELEASED"], .card[data-closed="CANCELLED"], .card[data-closed="ENDED"] { border-inline-start-color: var(--dz-border-strong); }
+.card:hover { background: var(--dz-control-hover); }
+.card:focus-visible { outline: 2px solid var(--dz-focus-ring-color); outline-offset: 2px; }
+@media (min-width: 720px) {
+  .card { grid-template-columns: 46px minmax(0, 1.4fr) minmax(96px, auto) minmax(140px, 0.8fr); grid-template-areas: "icon main amount side"; padding: 12px 16px; gap: 4px 16px; }
+}
+.cardIcon { grid-area: icon; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: var(--dz-surface-muted); font-size: 20px; line-height: 1; }
+@media (min-width: 720px) { .cardIcon { width: 46px; height: 46px; } }
+.cardMain { grid-area: main; min-width: 0; display: grid; gap: 1px; }
+.cardTitle { font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+.cardSub { font-size: 12.5px; color: var(--dz-text-muted); overflow-wrap: anywhere; }
+.cardAmount { grid-area: amount; font-size: 15.5px; font-weight: 800; font-variant-numeric: tabular-nums; unicode-bidi: isolate; white-space: nowrap; }
+@media (min-width: 720px) { .cardAmount { text-align: end; font-size: 16px; } }
+.cardSide { grid-area: side; display: grid; justify-items: end; gap: 2px; text-align: end; }
+.cardDate { font-size: 12.5px; color: var(--dz-text-muted); font-variant-numeric: tabular-nums; }
+.cardWhen { font-size: 12.5px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+.tag { display: inline-block; padding: 0 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; line-height: 22px; white-space: nowrap; background: var(--dz-surface-muted); color: var(--dz-text-muted); }
+.tagPart { background: var(--dz-warning-bg-soft); color: var(--dz-warning); }
+.tagPaid { background: var(--dz-success-bg-soft); color: var(--dz-success); }
+
+/* ── Empty, loading ──────────────────────────────────────────────────── */
+.empty { display: grid; gap: 10px; justify-items: start; padding: 18px; border: 1px dashed var(--dz-border-strong); border-radius: 16px; color: var(--dz-text-muted); }
+.empty p { margin: 0; font-size: 14.5px; }
+.skeleton { height: 64px; border-radius: 14px; background: var(--dz-surface-muted); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.55; } }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .chev { transition: none; } }

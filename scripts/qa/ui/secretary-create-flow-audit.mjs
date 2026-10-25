@@ -173,7 +173,7 @@ for (const vp of [{ n: "390", w: 390, h: 844, m: true }, { n: "1440", w: 1440, h
     await p.goto(`${BASE}/secretary`); await settle(p);
     return { ok, landed };
   });
-  await step("from Home: shortcut / \"+\" → save → \"סיימתי\" → back leaves the flow", async () => {
+  await step("from Home: shortcut / \"+\" → save → \"סיימתי\" returns Home → back leaves the flow", async () => {
     await p.goto(`${BASE}/app`); await settle(p);
     if (vp.w >= 1200) await p.getByRole("link", { name: /התחייבות חדשה/ }).first().click();
     else {
@@ -188,10 +188,12 @@ for (const vp of [{ n: "390", w: 390, h: 844, m: true }, { n: "1440", w: 1440, h
     await f.locator("input[type=date]").first().fill("2026-11-10");
     await f.locator("button[type=submit]").click(); await p.waitForTimeout(1500);
     await main(p).getByRole("button", { name: "סיימתי" }).click();
-    await p.waitForURL((u) => u.pathname === "/secretary" && !u.search, { timeout: 15000 }); await settle(p);
+    // Owner, 25.10.2026: "סיימתי" returns to the entry point — Home here.
+    const home = await p.waitForURL((u) => u.pathname === "/app", { timeout: 15000 }).then(() => true).catch(() => false);
+    await settle(p);
     await p.goBack(); await p.waitForTimeout(1500);
     const landed = path0(p.url());
-    return { ok: state.created.length === 3 && leftFlow(landed), landed };
+    return { ok: state.created.length === 3 && home && leftFlow(landed), landed };
   });
   await step("direct entry to the form → save → \"סיימתי\" → back leaves the flow", async () => {
     await p.goto(`${BASE}/secretary`); await settle(p);
@@ -211,6 +213,9 @@ for (const vp of [{ n: "390", w: 390, h: 844, m: true }, { n: "1440", w: 1440, h
   await step("9 the \"התחייבויות\" station shows both saves", async () => {
     await main(p).locator("section[aria-labelledby='sec-stations-title'] a").first().click();
     await p.waitForURL(/\/payables$/, { timeout: 15000 }); await settle(p);
+    // Planned and closed fold on arrival (redesign 25.10.2026): open every folded group first.
+    for (const head of await main(p).locator("section[aria-labelledby^='pay-group-'] h2 button[aria-expanded='false']").all()) await head.click();
+    await p.waitForTimeout(300);
     const t = (await p.locator("body").innerText()).replace(/\s+/g, " ");
     const ok = t.includes("שכירות") && t.includes("ועד בית");
     await p.goBack(); await p.waitForURL((u) => u.pathname === "/secretary", { timeout: 15000 }).catch(() => {});
