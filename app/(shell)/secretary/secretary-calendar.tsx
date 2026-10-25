@@ -17,8 +17,8 @@ import { CALENDAR_KIND_LABEL, eventsByDay, monthGrid, shiftMonth, type CalendarE
 import s from "./secretary-hub.module.css";
 
 const WEEKDAYS = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
-const KIND_CLASS: Record<CalendarKind, string> = { TASK: s.kTask, DUE: s.kDue, PAID: s.kPaid, HANDLED: s.kHandled, PROJECTED: s.kProjected };
-const KINDS: CalendarKind[] = ["TASK", "DUE", "PAID", "HANDLED", "PROJECTED"];
+const KIND_CLASS: Record<CalendarKind, string> = { TASK: s.kTask, DUE: s.kDue, PAID: s.kPaid, HANDLED: s.kHandled, PROJECTED: s.kProjected, APPOINTMENT: s.kAppt };
+const KINDS: CalendarKind[] = ["APPOINTMENT", "TASK", "DUE", "PAID", "HANDLED", "PROJECTED"];
 
 function monthTitle(year: number, month: number): string {
   return new Intl.DateTimeFormat("he-IL", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(year, month - 1, 15)));
@@ -173,9 +173,10 @@ function Chevron({ dir }: { dir: "prev" | "next" }) {
  * whose date has passed ("תשלום באיחור" — open and past due, the same rule as the briefing's OVERDUE), and,
  * when they fall in the week, paid / handled-without-payment / forecast. Nothing here changes a status.
  */
-type WeekKind = "TASK" | "DUE" | "LATE" | "PAID" | "HANDLED" | "PROJECTED";
-const WEEK_KINDS: WeekKind[] = ["TASK", "DUE", "LATE", "PAID", "HANDLED", "PROJECTED"];
+type WeekKind = "APPOINTMENT" | "TASK" | "DUE" | "LATE" | "PAID" | "HANDLED" | "PROJECTED";
+const WEEK_KINDS: WeekKind[] = ["APPOINTMENT", "TASK", "DUE", "LATE", "PAID", "HANDLED", "PROJECTED"];
 const WEEK_LABEL: Record<WeekKind, string> = {
+  APPOINTMENT: "תור",
   TASK: "משימה",
   DUE: "התחייבות",
   LATE: "תשלום באיחור",
@@ -183,7 +184,7 @@ const WEEK_LABEL: Record<WeekKind, string> = {
   HANDLED: "טופל, לא נרשם תשלום",
   PROJECTED: "תחזית",
 };
-const WEEK_CLASS: Record<WeekKind, string> = { TASK: s.wTask, DUE: s.wDue, LATE: s.wLate, PAID: s.kPaid, HANDLED: s.kHandled, PROJECTED: s.kProjected };
+const WEEK_CLASS: Record<WeekKind, string> = { APPOINTMENT: s.kAppt, TASK: s.wTask, DUE: s.wDue, LATE: s.wLate, PAID: s.kPaid, HANDLED: s.kHandled, PROJECTED: s.kProjected };
 /** Always in the legend, as in the mockup; the others only when they fall in this week. */
 const WEEK_ALWAYS = new Set<WeekKind>(["TASK", "DUE", "LATE"]);
 

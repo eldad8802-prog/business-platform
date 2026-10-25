@@ -4,7 +4,7 @@
  * "המזכירה שלי" — the main screen as management stations (owner-approved mockup, 24.10.2026).
  *
  * Top to bottom: title and date · the two create actions · the day-cost card · three management stations
- * (התחייבויות, משימות, לוח שנה) · the week strip. Nothing else: the summary cards, "מה מחכה לך היום" and the
+ * (התחייבויות, משימות, לוח שנה) · "תורים היום" (only with appointments ON — Appointments milestone B) · the week strip. Nothing else: the summary cards, "מה מחכה לך היום" and the
  * long lists left this screen; every inner screen and flow stays where it was.
  *
  *   - "הוסף משימה" (Dubiz primary green) opens the task centre's own create form (/tasks?new=1) and shows only
@@ -27,7 +27,9 @@ import { SecretaryWeek } from "./secretary-calendar";
 import { SecretaryCostDrawer } from "./secretary-cost-drawer";
 import { useHubData } from "./secretary-hub-data";
 import { noteHand } from "./secretary-fonts";
-import { calendarEvents } from "./secretary-hub-model";
+import { calendarEvents, todayAppointments, type HubAppointment } from "./secretary-hub-model";
+import { clockOf, KIND_LABEL } from "@/features/calendar/calendar-model";
+import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 import { ownerErrorText } from "./secretary-home-model";
 import { secretaryVars } from "./secretary-ui";
 import s from "./secretary-home.module.css";
@@ -53,7 +55,8 @@ export function SecretaryHome({ briefing, now = new Date() }: { briefing: Briefi
   const tasksOn = Array.isArray(data.tasks) || data.tasks === "unavailable";
   const summary = typeof data.summary === "object" ? data.summary : null;
   const obligations = typeof data.obligations === "object" ? data.obligations.list : [];
-  const events = calendarEvents({ obligations, tasks: Array.isArray(data.tasks) ? data.tasks : [], summary });
+  const appointments = Array.isArray(data.appointments) ? data.appointments : [];
+  const events = calendarEvents({ obligations, tasks: Array.isArray(data.tasks) ? data.tasks : [], summary, appointments });
 
   return (
     <main className={cx(s.page, noteHand.variable)} style={secretaryVars()} dir="rtl" aria-labelledby="secretary-title">
@@ -61,6 +64,7 @@ export function SecretaryHome({ briefing, now = new Date() }: { briefing: Briefi
       <Actions tasksOn={tasksOn} />
       <CostCard summary={data.summary} onDetails={() => setCostOpen(true)} />
       <Stations tasksOn={data.tasks !== "off"} />
+      {data.appointments !== "off" ? <TodayAppointments state={data.appointments} now={now} /> : null}
       <SecretaryWeek events={events} loading={data.obligations === "loading"} failed={data.obligations === "unavailable"} />
       <SecretaryCostDrawer open={costOpen} onClose={() => setCostOpen(false)} summary={summary} />
     </main>
@@ -195,6 +199,47 @@ function Stations({ tasksOn }: { tasksOn: boolean }) {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+/** Today's appointments — time and title; each row opens the appointment in the calendar (Appointments milestone B). */
+function TodayAppointments({ state, now }: { state: HubAppointment[] | "loading" | "unavailable"; now: Date }) {
+  const today = jerusalemDayKey(now);
+  const list = Array.isArray(state) ? todayAppointments(state, today) : [];
+  return (
+    <section className={s.appts} aria-labelledby="sec-appts-title" aria-busy={state === "loading" || undefined}>
+      <div className={s.apptHead}>
+        <h2 id="sec-appts-title" className={s.apptTitle}>
+          <CalendarIcon />
+          תורים היום
+          {list.length ? <span className={s.apptCount}>{list.length.toLocaleString("he-IL")}</span> : null}
+        </h2>
+        <Link href={`/calendar?view=day&day=${today}`} className={s.apptLink}>
+          ליומן
+          <ChevronIcon />
+        </Link>
+      </div>
+      {state === "loading" ? (
+        <span className={s.skel} style={{ blockSize: 40 }} />
+      ) : state === "unavailable" ? (
+        <p className={s.apptNone}>לא הצלחתי לטעון את התורים. אפשר לנסות שוב בעוד רגע.</p>
+      ) : list.length ? (
+        <ul className={s.apptList}>
+          {list.slice(0, 6).map((a) => (
+            <li key={a.id}>
+              <Link href={`/calendar?view=day&day=${today}&appointment=${a.id}`} className={s.apptRow}>
+                <span className={s.apptTime}>{a.endsAt && a.startsAt ? clockOf(new Date(a.startsAt)) : "—"}</span>
+                <span className={s.apptName}>{a.title?.trim() || KIND_LABEL[a.kind]}</span>
+                {a.status === "PROPOSED" ? <span className={s.apptWait}>ממתין לאישור</span> : null}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className={s.apptNone}>אין תורים היום.</p>
+      )}
+      {list.length > 6 ? <Link href={`/calendar?view=day&day=${today}`} className={s.apptLink}>ועוד {(list.length - 6).toLocaleString("he-IL")} ביומן</Link> : null}
     </section>
   );
 }

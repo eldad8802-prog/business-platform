@@ -7,7 +7,9 @@
  *   - the briefing (GET /api/obligations/briefing) — open commitments and what needs the owner;
  *   - the obligations list with closed items (GET /api/obligations?includeClosed=1) — the calendar's due dates;
  *   - the task agenda (GET /api/tasks/agenda, only with daily_tasks ON) — the owner's own tasks;
- *   - the business-cost summary (GET /api/business-cost/summary) — the day cost and the forecast dates.
+ *   - the business-cost summary (GET /api/business-cost/summary) — the day cost and the forecast dates;
+ *   - the appointments of the month around today (GET /api/appointments, only with appointments ON) — on the same
+ *     calendar, as their own kind (Appointments milestone B: no second calendar inside the Secretary).
  *
  * Rules:
  *   - Leads are not the Secretary's: only manual TASK rows reach the hub, and a task linked to a lead is left
@@ -16,18 +18,39 @@
  *     MET without that is "טופל" (no payment recorded); a task is "הושלם" only in the task centre.
  *   - A forecast is never shown as paid or as recorded: projected dates keep their own kind.
  *   - No money is computed here. Amounts are the server's strings.
+ *   - A cancelled appointment is not on the calendar; every other one opens in the calendar itself (/calendar).
  */
 
 import { obligationTitle, type BriefingApi, type ObligationApi } from "@/lib/obligations/secretary-client";
 import type { BusinessCostSummaryApi } from "@/lib/business-cost/business-cost-client";
 import type { AgendaRow, Bucket, ManualTask } from "@/lib/services/tasks/agenda-core";
-import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
+import { addCalendarDays, jerusalemDayKey } from "@/lib/utils/jerusalem-day";
+import { clockOf, KIND_LABEL, startOfDay, type AppointmentWire } from "@/features/calendar/calendar-model";
 import { displayObligeeName } from "./secretary-home-model";
 
 /** The agenda as the hub reads it (a subset of AgendaResponse). */
 export type HubAgenda = { dayKey: string; buckets: Array<{ bucket: Bucket; rows: AgendaRow[] }> };
 
 export type HubTask = { task: ManualTask; bucket: Bucket };
+
+/** An appointment as the Secretary reads it (a subset of the calendar's wire shape). */
+export type HubAppointment = Pick<AppointmentWire, "id" | "status" | "kind" | "startsAt" | "endsAt" | "title">;
+
+/**
+ * The appointments window the Secretary reads: 30 days back to 30 days ahead of today — 61 calendar days, so even
+ * with a 25-hour DST day inside it stays under the API's 62 × 24 hours.
+ */
+export function appointmentsWindow(now: Date): { from: Date; to: Date } {
+  const today = jerusalemDayKey(now);
+  return { from: startOfDay(addCalendarDays(today, -30)), to: startOfDay(addCalendarDays(today, 31)) };
+}
+
+/** Today's live appointments, earliest first (the "תורים היום" card). */
+export function todayAppointments(list: HubAppointment[], today: string): HubAppointment[] {
+  return list
+    .filter((a) => a.startsAt && (a.status === "PROPOSED" || a.status === "CONFIRMED") && jerusalemDayKey(new Date(a.startsAt)) === today)
+    .sort((a, b) => (a.startsAt! < b.startsAt! ? -1 : a.startsAt! > b.startsAt! ? 1 : a.id - b.id));
+}
 
 /** The owner's own tasks: manual TASK rows only, never a lead (linked or as a source item). */
 export function ownTasks(agenda: HubAgenda): HubTask[] {
@@ -58,7 +81,7 @@ export function todayTasks(tasks: HubTask[]): HubTask[] {
  *   HANDLED   — marked "טופל" with no payment recorded (legacy close, or handled without paying);
  *   PROJECTED — a forecast occurrence of a recurring commitment, not recorded yet.
  */
-export type CalendarKind = "TASK" | "DUE" | "PAID" | "HANDLED" | "PROJECTED";
+export type CalendarKind = "TASK" | "DUE" | "PAID" | "HANDLED" | "PROJECTED" | "APPOINTMENT";
 
 export type CalendarEvent = {
   key: string;
@@ -78,6 +101,7 @@ export const CALENDAR_KIND_LABEL: Record<CalendarKind, string> = {
   PAID: "שולם",
   HANDLED: "טופל, לא נרשם תשלום",
   PROJECTED: "תחזית",
+  APPOINTMENT: "תור",
 };
 
 function isZeroAmount(decimal: string): boolean {
@@ -98,8 +122,26 @@ export function calendarEvents(input: {
   obligations: ObligationApi[];
   tasks: HubTask[];
   summary: BusinessCostSummaryApi | null;
+  appointments?: HubAppointment[];
 }): CalendarEvent[] {
   const events: CalendarEvent[] = [];
+
+  for (const a of input.appointments ?? []) {
+    if (a.status === "CANCELED" || !a.startsAt) continue;
+    const start = new Date(a.startsAt);
+    if (Number.isNaN(start.getTime())) continue;
+    const day = jerusalemDayKey(start);
+    const what = a.title?.trim() || KIND_LABEL[a.kind];
+    events.push({
+      key: `a:${a.id}`,
+      day,
+      kind: "APPOINTMENT",
+      title: a.endsAt ? `${clockOf(start)} · ${what}` : what,
+      amount: null,
+      currency: "ILS",
+      href: `/calendar?view=day&day=${day}&appointment=${a.id}`,
+    });
+  }
 
   for (const o of input.obligations) {
     const kind = obligationKind(o);
@@ -136,7 +178,8 @@ export function calendarEvents(input: {
     }
   }
 
-  const order: Record<CalendarKind, number> = { TASK: 0, DUE: 1, HANDLED: 2, PAID: 3, PROJECTED: 4 };
+  // An appointment first in its day (its title starts with its time, so appointments sort by time); the rest unchanged.
+  const order: Record<CalendarKind, number> = { APPOINTMENT: -1, TASK: 0, DUE: 1, HANDLED: 2, PAID: 3, PROJECTED: 4 };
   return events.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : order[a.kind] - order[b.kind] || a.title.localeCompare(b.title, "he")));
 }
 
