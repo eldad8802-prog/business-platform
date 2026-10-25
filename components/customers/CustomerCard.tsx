@@ -43,8 +43,10 @@ import {
   WhatsappIcon,
 } from "@/components/customers/customer-icons";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
+import { APPOINTMENT_STATUS_LABEL } from "./appointment-status-labels";
 
 /**
  * Customer file (detail) — one continuous scroll, no tabs: identity + contact,
@@ -106,13 +108,6 @@ const CONVERSATION_STATUS_LABEL: Record<string, MessageKey> = {
   OPEN: "customers.customer.conversationStatus.open",
   CLOSED: "customers.customer.conversationStatus.closed",
   ARCHIVED: "customers.customer.conversationStatus.archived",
-};
-
-const APPOINTMENT_STATUS_LABEL: Record<string, MessageKey> = {
-  PROPOSED: "customers.customer.appointmentStatus.proposed",
-  CONFIRMED: "customers.customer.appointmentStatus.confirmed",
-  CANCELLED: "customers.customer.appointmentStatus.cancelled",
-  COMPLETED: "customers.customer.appointmentStatus.completed",
 };
 
 const ORDER_SOURCE_LABEL: Record<string, string> = {
@@ -361,6 +356,8 @@ function CustomerCardView({
   const { customer } = card;
   const lastActivity = formatDate(card.activity.lastActivityAt, locale);
   const phone = customer.phone?.trim() ? customer.phone : null;
+  // Appointments milestone B: "קבע תור" opens the calendar's create form with this customer — only with appointments ON.
+  const appointmentsOn = useFeatureEnabled("appointments");
 
   const contactLines: Array<{ key: string; tone: string; icon: ReactNode; label: string; value: string }> = [];
   if (phone) contactLines.push({ key: "phone", tone: "phone", icon: <PhoneIcon />, label: t("customers.customer.card.fields.phone"), value: formatPhoneForDisplay(phone) });
@@ -390,8 +387,14 @@ function CustomerCardView({
             </span>
           </div>
           <div className="crm-id__actions">
+            {appointmentsOn && customer.isActive ? (
+              <Link className="crm-btn crm-btn--ghost" href={`/calendar?new=1&customerId=${customer.id}`} prefetch={false}>
+                {t("customers.customer.card.bookAppointment")}
+              </Link>
+            ) : null}
             <button type="button" className="crm-btn crm-btn--ghost cust-btn-icon" onClick={onEdit}>
               <PencilIcon />
+
               {t("customers.customer.card.edit")}
             </button>
             {customer.isActive ? (

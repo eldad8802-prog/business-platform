@@ -82,6 +82,7 @@ export const customersHe = {
       notFoundBody: "ייתכן שהלקוח נמחק או שאין לך גישה אליו.",
       backToList: "לרשימת הלקוחות",
       edit: "עריכה",
+      bookAppointment: "קבע תור",
       deactivate: "השבת לקוח",
       updating: "מעדכן…",
       reactivate: "החזר לפעילות",
@@ -173,6 +174,7 @@ export const customersHe = {
       confirmed: "מאושר",
       cancelled: "בוטל",
       completed: "הושלם",
+      noShow: "לא הגיע/ה",
     },
     orderStatus: {
       placed: "התקבלה",

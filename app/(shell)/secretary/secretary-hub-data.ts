@@ -8,6 +8,8 @@
  *     once daily_tasks is known to be ON. OFF stays OFF: nothing is fetched and the hub says so.
  *   - obligations: GET /api/obligations?includeClosed=1 — the calendar's due dates, open and closed.
  *   - summary: GET /api/business-cost/summary — the day cost and the forecast dates.
+ *   - appointments: GET /api/appointments — a month back and a month ahead (the API's 62-day range), only once
+ *     appointments is known to be ON. OFF stays OFF: nothing is fetched (Appointments milestone B).
  *
  * `stamp` (the briefing's generatedAt) reloads all three after any change the page made.
  */
@@ -17,7 +19,8 @@ import { fetchBusinessCostSummary, type BusinessCostSummaryApi } from "@/lib/bus
 import { fetchObligations, type ObligationApi } from "@/lib/obligations/secretary-client";
 import { fetchAgenda } from "@/lib/tasks/tasks-client";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
-import { ownTasks, type HubTask } from "./secretary-hub-model";
+import { listAppointments, searchCustomers } from "@/features/calendar/calendar-client";
+import { appointmentsWindow, ownTasks, type HubAppointment, type HubTask } from "./secretary-hub-model";
 
 export const HUB_OBLIGATION_LIMIT = 200;
 
@@ -25,14 +28,38 @@ export type HubData = {
   tasks: HubTask[] | "loading" | "unavailable" | "off";
   obligations: { list: ObligationApi[]; truncated: boolean } | "loading" | "unavailable";
   summary: BusinessCostSummaryApi | "loading" | "unavailable";
+  appointments: HubAppointment[] | "loading" | "unavailable" | "off";
   reloadTasks: () => Promise<void>;
 };
+
 
 export function useHubData(stamp: string): HubData {
   const tasksOn = useFeatureState("daily_tasks");
   const [tasks, setTasks] = useState<HubData["tasks"]>("loading");
   const [obligations, setObligations] = useState<HubData["obligations"]>("loading");
   const [summary, setSummary] = useState<HubData["summary"]>("loading");
+  const appointmentsOn = useFeatureState("appointments");
+  const [appointments, setAppointments] = useState<HubData["appointments"]>("loading");
+
+  useEffect(() => {
+    if (!appointmentsOn) return;
+    let cancelled = false;
+    const { from, to } = appointmentsWindow(new Date());
+    listAppointments(from, to)
+      .then(async (list) => {
+        // Names for the customer appointments: the 100 most recent customers, one read; a miss shows the title alone.
+        const names = list.some((a) => a.customerId !== null)
+          ? new Map((await searchCustomers("", 100).catch(() => [])).map((c) => [c.id, c.name] as const))
+          : new Map<number, string>();
+        if (!cancelled) setAppointments(list.map((a) => ({ ...a, customerName: a.customerId !== null ? names.get(a.customerId) ?? null : null })));
+      })
+      .catch(() => {
+        if (!cancelled) setAppointments("unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appointmentsOn, stamp]);
 
   const loadTasks = useCallback(
     () =>
@@ -80,5 +107,12 @@ export function useHubData(stamp: string): HubData {
   }, [stamp]);
 
   // daily_tasks OFF stays OFF: nothing was fetched, and the hub says so.
-  return { tasks: tasksOn === false ? "off" : tasks, obligations, summary, reloadTasks: loadTasks };
+  return {
+    tasks: tasksOn === false ? "off" : tasks,
+    obligations,
+    summary,
+    // appointments OFF stays OFF the same way.
+    appointments: appointmentsOn === false ? "off" : appointments,
+    reloadTasks: loadTasks,
+  };
 }

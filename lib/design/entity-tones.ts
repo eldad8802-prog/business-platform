@@ -91,6 +91,7 @@ const ENTITY_ROLE: Record<string, EntityRole> = {
   marketing: "people",
   content: "people",
   tasks: "operations",
+  calendar: "operations",
   inventory: "operations",
   suppliers: "operations",
   pricing: "operations",

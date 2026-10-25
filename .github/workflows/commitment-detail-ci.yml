@@ -1,0 +1,33 @@
+name: commitment detail
+
+# The /payables/[id] commitment detail screen: which installment the status box
+# shows (the server list's `next` rule), what it may say when nothing is open,
+# schedule order, cheque / prepared-payment counts, Hebrew history labels for
+# every audit event type, and a guard that every previous action is still
+# reachable with the same call. Pure — no database, no network, no clock.
+
+on:
+  pull_request:
+    paths:
+      - "app/(shell)/payables/**"
+      - "lib/payables/payables-client.ts"
+      - "lib/services/payables/**"
+      - ".github/workflows/commitment-detail-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  commitment-detail:
+    name: Commitment detail (pure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run verify:commitment-detail

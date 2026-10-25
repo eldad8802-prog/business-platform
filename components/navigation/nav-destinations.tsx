@@ -2,6 +2,7 @@ import {
   IconBell,
   IconBox,
   IconCalendar,
+  IconCalendarSimple,
   IconCash,
   IconChat,
   IconFile,
@@ -90,6 +91,8 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   // ניהול העסק (Daily Tasks B, owner-approved): the task centre, the secretary and the commitments sit together —
   // a placement move only; every route, screen and permission is unchanged. Tasks appear only with daily_tasks ON.
   { key: "tasks", label: "משימות", labelKey: "nav.tasks", href: "/tasks", icon: IconTasks, group: "business", feature: "daily_tasks" },
+  // Appointments milestone B (decision 12): the calendar sits in ניהול העסק, only while appointments is ON.
+  { key: "calendar", label: "יומן ותורים", labelKey: "nav.calendar", href: "/calendar", icon: IconCalendarSimple, group: "business", feature: "appointments" },
   { key: "secretary", label: "המזכירה שלי", labelKey: "nav.secretary", href: "/secretary", icon: IconSecretary, group: "business" },
   { key: "payables", label: "התחייבויות", labelKey: "nav.payables", href: "/payables", icon: IconCalendar, group: "business" },
   { key: "inventory", label: "מלאי", labelKey: "nav.inventory", href: "/inventory", icon: IconBox, group: "business" },

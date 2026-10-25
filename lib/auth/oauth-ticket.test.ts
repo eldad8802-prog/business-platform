@@ -47,9 +47,9 @@ ok("a minted secret is a ticket secret", isTicketSecret(minted[0].secret));
 const ROOT = process.cwd();
 const src = fs.readFileSync(path.join(ROOT, "lib/auth/oauth-ticket.ts"), "utf8");
 const called = [...src.matchAll(/public\.(auth_[a-z_]+)\(/g)].map((m) => m[1]);
-ok("the module calls exactly the six definer functions (purge through its sweep entry too)",
+ok("the module calls exactly the seven definer functions (purge through its sweep entry too; cancel of 20261101090000)",
   [...new Set(called)].sort().join(",") === [
-    "auth_oauth_identity_attach", "auth_oauth_identity_resolve", "auth_oauth_ticket_consume",
+    "auth_oauth_identity_attach", "auth_oauth_identity_resolve", "auth_oauth_ticket_cancel", "auth_oauth_ticket_consume",
     "auth_oauth_ticket_issue", "auth_oauth_ticket_purge", "auth_oauth_ticket_read",
   ].join(","), called.join(","));
 ok("it never names a table (no direct read or write of OAuthSignupTicket / UserIdentity)",

@@ -67,6 +67,7 @@ export const he = {
     customers: "לקוחות",
     leads: "לידים",
     tasks: "משימות",
+    calendar: "יומן ותורים",
     secretary: "המזכירה שלי",
     payables: "התחייבויות",
     inventory: "מלאי",

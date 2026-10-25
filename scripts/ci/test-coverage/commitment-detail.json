@@ -1,0 +1,10 @@
+{
+  "note": "Commitment detail screen (/payables/[id]) redesign, owner-approved 25.10.2026: the pure status / schedule / history-label model and the capability guard.",
+  "tests": {
+    "app/(shell)/payables/[id]/commitment-detail-model.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network/clock): the status box never claims a payment is due when none is (paid / ended / handled-without-payment / released / cancelled), the current installment is the server list's `next` rule (drift-guarded against payables-read.ts), payable installments = the forms' own filter, schedule order, exact cheque and prepared-payment counts, a Hebrew label for every audit eventType the payables services write with the original summary kept, and that the screen still reaches every action of the previous screen with the same calls and reasons; run on pull_request by commitment-detail-ci.yml",
+      "notSecurityBecause": "presentation-only selection and wording over data the authenticated detail API already returned; no auth, tenant, money calculation or write path is changed"
+    }
+  }
+}

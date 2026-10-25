@@ -1,0 +1,14 @@
+{
+  "note": "Appointments milestone B (the owner's calendar screens) on the milestone A API. The screens end to end in a real browser over the PG17 lab are .appt/ui-e2e.mts in appointments-calendar-ci.yml.",
+  "tests": {
+    "features/calendar/calendar-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): the calendar's views and ranges (≤ the API's 62 days), the Israeli wall clock on both 2026 clock-change days, the day layout, the owner's actions per status and kind, the API's text limits and the Hebrew words; run on pull_request by appointments-calendar-ci.yml"
+    },
+    "features/calendar/secretary-appointments.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): appointments on the Secretary's existing calendar as their own kind, cancelled ones left out, the 61-day read window also across a DST day, today's live appointments for the תורים היום card; run on pull_request by appointments-calendar-ci.yml",
+      "notSecurityBecause": "read-only display rules over data the API already scoped to the business (the Secretary shows what /api/appointments returned); no authority, isolation or write decision is made here — those are proven by .appt/app-battery.ts and .appt/battery.ts"
+    }
+  }
+}

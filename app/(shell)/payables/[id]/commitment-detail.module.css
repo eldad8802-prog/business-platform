@@ -1,0 +1,1209 @@
+/*
+ * Commitment detail — layout and look for the three compositions.
+ *
+ * House rules, as in payables.module.css: every colour is a `--pay-*` /
+ * `--cd-*` var injected by the page from lib/design/tokens (no literal colour
+ * here), every dynamic value sits in a block box that may wrap, mixed
+ * Hebrew/Latin values are isolated, and the page never scrolls sideways.
+ *
+ * The composition is chosen by the page from the width it actually gets and
+ * written to `data-layout` (mobile | tablet | desktop); CSS follows that
+ * attribute instead of viewport media queries, so the two never disagree.
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  margin-inline: auto;
+  padding: 16px;
+  padding-bottom: calc(32px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  color: var(--pay-ink);
+}
+
+.root[data-layout="mobile"] {
+  max-width: 560px;
+}
+
+.root[data-layout="tablet"] {
+  max-width: 1000px;
+  padding: 20px 24px 40px;
+}
+
+.root[data-layout="desktop"] {
+  max-width: 1240px;
+  padding: 24px 32px 48px;
+  gap: 20px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.stackTight {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.muted {
+  margin: 0;
+  font-size: 14px;
+  color: var(--pay-muted);
+}
+
+.hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--pay-muted);
+  background: var(--pay-surface2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+}
+
+.count {
+  font-weight: 500;
+  color: var(--pay-muted);
+}
+
+/* ───────────────────────────── identity ───────────────────────────── */
+
+.ident {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.avatar {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  line-height: 1;
+  background: var(--cd-accent-soft);
+}
+
+.identText {
+  min-width: 0;
+  flex: 1;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--pay-ink);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.identLg .title {
+  font-size: 26px;
+}
+
+.identLg .avatar {
+  width: 60px;
+  height: 60px;
+}
+
+.payee {
+  display: block;
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--pay-muted);
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
+.kindRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 3px 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: var(--cd-accent-soft);
+  color: var(--pay-accent);
+}
+
+.kindQuiet {
+  background: var(--pay-surface2);
+  color: var(--pay-muted);
+}
+
+/* ───────────────────────────── status box ───────────────────────────── */
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-radius: 20px;
+  padding: 18px 20px;
+  border: 1px solid var(--pay-line-subtle);
+  min-width: 0;
+}
+
+.heroOpen {
+  background: var(--cd-accent-soft);
+  border-color: var(--pay-accent-border);
+}
+
+.heroOverdue {
+  background: var(--pay-error-bg);
+  border-color: var(--pay-error-border);
+}
+
+.heroPaid {
+  background: var(--pay-success-bg);
+  border-color: var(--pay-success-border);
+}
+
+.heroQuiet {
+  background: var(--pay-surface2);
+}
+
+.heroIcon {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--cd-overlay);
+  color: var(--pay-accent);
+}
+
+.heroOverdue .heroIcon {
+  color: var(--pay-error);
+}
+
+.heroPaid .heroIcon {
+  color: var(--pay-success);
+}
+
+.heroQuiet .heroIcon {
+  color: var(--pay-muted);
+}
+
+.heroMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.heroLabel {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--pay-muted);
+}
+
+.heroLabelStrong {
+  margin: 0 0 2px;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--pay-ink);
+}
+
+.heroAmount {
+  margin: 2px 0;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--pay-ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.root[data-layout="tablet"] .heroAmount {
+  font-size: 28px;
+}
+
+.heroWhen {
+  margin: 0;
+  font-size: 15px;
+  color: var(--pay-ink);
+  overflow-wrap: anywhere;
+}
+
+.heroExtra {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--pay-muted);
+  overflow-wrap: anywhere;
+}
+
+.heroBadge {
+  align-self: flex-start;
+  flex: 0 0 auto;
+}
+
+.progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: -6px 0 0;
+  padding: 0 4px;
+  font-size: 13.5px;
+  color: var(--pay-muted);
+}
+
+.progress b {
+  color: var(--pay-ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  unicode-bidi: isolate;
+}
+
+.noteLine {
+  margin: -8px 0 0;
+  padding: 0 4px;
+  font-size: 12.5px;
+  color: var(--pay-muted);
+}
+
+/* ───────────────────────────── badges ───────────────────────────── */
+
+.badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+  padding: 1px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.badgeOverdue {
+  background: var(--pay-error-bg);
+  color: var(--pay-error);
+  border-color: var(--pay-error-border);
+}
+
+.badgeDue {
+  background: var(--pay-warning-bg);
+  color: var(--pay-warning-ink);
+  border-color: var(--pay-warning-border);
+}
+
+.badgePartial {
+  background: var(--pay-info-bg);
+  color: var(--pay-info-ink);
+  border-color: var(--pay-info-border);
+}
+
+.badgePaid {
+  background: var(--pay-success-bg);
+  color: var(--pay-success);
+}
+
+.badgeQuiet {
+  background: var(--pay-surface2);
+  color: var(--pay-muted);
+}
+
+/* ───────────────────────────── actions ───────────────────────────── */
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.btnPrimary,
+.btnSecondary {
+  appearance: none;
+  font: inherit;
+  font-size: 15.5px;
+  font-weight: 600;
+  min-height: 52px;
+  padding: 0 18px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btnPrimary {
+  background: var(--pay-action);
+  color: var(--pay-on-action);
+  border: 0;
+}
+
+.btnPrimary:hover {
+  background: var(--cd-action-hover);
+}
+
+.btnSecondary {
+  background: var(--cd-overlay);
+  color: var(--pay-accent);
+  border: 1.5px solid var(--pay-accent);
+}
+
+.btnSecondary:hover {
+  background: var(--cd-accent-soft);
+}
+
+.btnPrimary:focus-visible,
+.btnSecondary:focus-visible,
+.row:focus-visible,
+.tableRow:focus-visible,
+.navRow:focus-visible,
+.linkBtn:focus-visible,
+.strip:focus-visible,
+.roundBtn:focus-visible,
+.panelFold > summary:focus-visible {
+  outline: 2px solid var(--pay-accent);
+  outline-offset: 2px;
+}
+
+.dangerBtn {
+  color: var(--pay-error);
+}
+
+/* ───────────────────────────── strips ───────────────────────────── */
+
+.strip {
+  appearance: none;
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--pay-info-border);
+  background: var(--pay-info-bg);
+  color: var(--pay-info-ink);
+  font-size: 14px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.stripDot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pay-info);
+}
+
+.stripText {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ───────────────────────────── schedule ───────────────────────────── */
+
+.schedule {
+  background: var(--cd-overlay);
+  border: 1px solid var(--pay-line-subtle);
+  border-radius: 18px;
+  padding: 6px 6px 4px;
+  min-width: 0;
+}
+
+.scheduleHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--pay-ink);
+}
+
+.linkBtn {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--pay-accent);
+  cursor: pointer;
+  min-height: 44px;
+  padding: 0 6px;
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rows > li + li {
+  border-top: 1px solid var(--pay-line-subtle);
+}
+
+.row {
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+
+.row:hover,
+.tableRow:hover {
+  background: var(--pay-surface2);
+}
+
+.rowCurrent,
+.rowCurrent:hover {
+  background: var(--pay-warning-bg);
+}
+
+.rowOverdue,
+.rowOverdue:hover {
+  background: var(--pay-error-bg);
+}
+
+.rowCancelled .rowAmount,
+.rowCancelled .cellMoney {
+  color: var(--pay-tertiary);
+  text-decoration: line-through;
+}
+
+.rowAmount {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.rowAmount > span:first-child {
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.rowSub {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--pay-muted);
+}
+
+.rowDate {
+  font-size: 14px;
+  color: var(--pay-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chev {
+  display: inline-grid;
+  place-items: center;
+  color: var(--pay-tertiary);
+}
+
+/* Desktop table: one grid template shared by the head and every row. */
+.scheduleWide {
+  padding: 8px 10px 6px;
+}
+
+.tableHead,
+.tableRow {
+  display: grid;
+  grid-template-columns: 44px minmax(84px, 1fr) repeat(3, minmax(88px, 1fr)) 96px 20px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+}
+
+.tableHead {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--pay-muted);
+  padding-block: 6px 8px;
+  border-bottom: 1px solid var(--pay-line);
+}
+
+.tableRow {
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  min-height: 52px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+  font-size: 14.5px;
+}
+
+.cellSeq {
+  color: var(--pay-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cellNum {
+  font-variant-numeric: tabular-nums;
+}
+
+.cellMoney,
+.cellMoneyMuted {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.cellMoneyMuted {
+  font-weight: 500;
+  color: var(--pay-muted);
+}
+
+/* ───────────────────────────── details / management rows ───────────────────────────── */
+
+.navRows {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--pay-line);
+}
+
+.navRow {
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 72px;
+  padding: 14px 4px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--pay-line);
+  text-align: start;
+  cursor: pointer;
+}
+
+.navIcon {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+.navIconSm {
+  width: 34px;
+  height: 34px;
+}
+
+.navIconGreen {
+  background: var(--cd-accent-soft);
+  color: var(--pay-accent);
+}
+
+.navIconRed {
+  background: var(--pay-error-bg);
+  color: var(--pay-error);
+}
+
+.navText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.navText b {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.navText span {
+  font-size: 13.5px;
+  color: var(--pay-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ───────────────────────────── facts / lists ───────────────────────────── */
+
+.facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.facts > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pay-line-subtle);
+  font-size: 14px;
+  min-width: 0;
+}
+
+.facts > div:last-child {
+  border-bottom: 0;
+}
+
+.facts dt {
+  color: var(--pay-muted);
+  flex: 0 0 auto;
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: left;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+  font-variant-numeric: tabular-nums;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.groupTitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--pay-muted);
+  letter-spacing: 0.01em;
+}
+
+.noteText {
+  margin: 0;
+  font-size: 14.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--pay-surface2);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.mini {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--pay-line-subtle);
+  border-radius: 12px;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.miniReversed .miniText {
+  text-decoration: line-through;
+  color: var(--pay-tertiary);
+}
+
+.miniText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 14ch;
+  overflow-wrap: anywhere;
+}
+
+.miniSub {
+  font-size: 12.5px;
+  color: var(--pay-muted);
+}
+
+.miniActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.confirmText {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--pay-error);
+}
+
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.historyRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--pay-line-subtle);
+  font-size: 14px;
+}
+
+.historyRow:last-child {
+  border-bottom: 0;
+}
+
+.historyMain {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.historyDate {
+  flex: 0 0 auto;
+  color: var(--pay-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tech > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--pay-muted);
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tech code {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  text-align: left;
+  background: var(--pay-surface2);
+  color: var(--pay-muted);
+  padding: 6px 8px;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+/* ───────────────────────────── tablet ───────────────────────────── */
+
+.tabGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+/* ───────────────────────────── desktop ───────────────────────────── */
+
+.deskHead {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.deskHead > .ident {
+  flex: 1 1 320px;
+}
+
+.deskHeadActions {
+  flex: 0 0 auto;
+}
+
+.deskHeadActions .actions {
+  grid-template-columns: auto auto;
+}
+
+.deskGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  gap: 24px;
+  align-items: start;
+}
+
+.deskMain,
+.deskSide {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.deskMain {
+  gap: 18px;
+}
+
+.panel {
+  background: var(--cd-overlay);
+  border: 1px solid var(--pay-line-subtle);
+  border-radius: 18px;
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.panelTitle {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.foldPair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.panelFold {
+  background: var(--cd-overlay);
+  border: 1px solid var(--pay-line-subtle);
+  border-radius: 18px;
+  padding: 0 18px;
+  min-width: 0;
+}
+
+.panelFold > summary {
+  cursor: pointer;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 15px;
+  list-style-position: inside;
+}
+
+.panelFold[open] {
+  padding-bottom: 14px;
+}
+
+/* ───────────────────────────── sheet / dialog ───────────────────────────── */
+
+/* The dialog itself is the dimmed layer (full viewport); the paper sits inside
+   it. `::backdrop` does not reliably inherit the page's custom properties, so
+   the dimming is not left to it. */
+.sheet {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--cd-backdrop);
+  color: var(--pay-ink);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.sheet[open] {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+}
+
+.sheet::backdrop {
+  background: transparent;
+}
+
+.sheetInner {
+  background: var(--cd-overlay);
+  border-radius: 24px 24px 0 0;
+  box-shadow: var(--cd-shadow-overlay);
+  max-height: 88dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 20px calc(24px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+  direction: rtl;
+}
+
+.grab {
+  width: 42px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--pay-line);
+  margin: 0 auto 2px;
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sheetTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.sheetSub {
+  margin: -8px 0 0;
+  font-size: 13px;
+  color: var(--pay-muted);
+}
+
+.sheetBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* The reused forms bring their own card frame; inside a sheet the sheet is the frame. */
+.sheetBody > form {
+  border: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.roundBtn {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--pay-line);
+  background: var(--cd-overlay);
+  color: var(--pay-ink);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+/* From tablet up the sheet is a centred dialog. */
+.root[data-layout="tablet"] .sheet[open],
+.root[data-layout="desktop"] .sheet[open] {
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+}
+
+.root[data-layout="tablet"] .sheetInner,
+.root[data-layout="desktop"] .sheetInner {
+  width: min(560px, 100%);
+  border-radius: 20px;
+  max-height: 86dvh;
+  padding: 20px 24px 24px;
+}
+
+.root[data-layout="tablet"] .grab,
+.root[data-layout="desktop"] .grab {
+  display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sheet[open] .sheetInner {
+    animation: cd-rise 0.18s ease-out;
+  }
+  @keyframes cd-rise {
+    from {
+      transform: translateY(14px);
+      opacity: 0.6;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+}
+
+/* ───────────────────────────── management action rows ───────────────────────────── */
+
+/* "שינוי סכום מתאריך" / "סיום ההתחייבות": two quiet rows, no surrounding frame.
+   Each opens its existing form directly beneath it. */
+.actionList {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: 1px solid var(--pay-line-subtle);
+}
+
+.actionRow {
+  appearance: none;
+  font: inherit;
+  color: var(--pay-ink);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 4px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--pay-line-subtle);
+  text-align: start;
+  cursor: pointer;
+}
+
+.actionRow:hover {
+  background: var(--pay-surface2);
+}
+
+.actionRow:focus-visible {
+  outline: 2px solid var(--pay-accent);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+.actionRow:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.actionIcon {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--cd-accent-soft);
+  color: var(--pay-accent);
+}
+
+.actionIconWarn {
+  background: var(--pay-error-bg);
+  color: var(--pay-error);
+}
+
+.actionText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.actionText b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.actionText span {
+  font-size: 12.5px;
+  color: var(--pay-muted);
+  overflow-wrap: anywhere;
+}
+
+.actionRowWarn .actionText b {
+  color: var(--pay-error);
+}
+
+.actionChev {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  color: var(--pay-tertiary);
+}
+
+.actionForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 4px 16px;
+  border-bottom: 1px solid var(--pay-line-subtle);
+  min-width: 0;
+}
+
+.actionForm > button {
+  align-self: flex-start;
+}
+
+/* Ending is a warning, not the primary action: smoky red outline. */
+.btnWarn {
+  appearance: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  background: var(--pay-error-bg);
+  color: var(--pay-error);
+  border: 1px solid var(--pay-error-border);
+  cursor: pointer;
+}
+
+.btnWarn:focus-visible {
+  outline: 2px solid var(--pay-error);
+  outline-offset: 2px;
+}
+
+.btnWarn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
