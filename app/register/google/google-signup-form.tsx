@@ -116,8 +116,9 @@ export default function GoogleSignupForm() {
   const shell = (children: React.ReactNode) => (
     <div className={styles.page}>
       <div className={styles.formSide} style={{ gridColumn: "1 / -1" }}>
-        <div className={styles.topBar}>
-          <div className={styles.topLogo}>
+        {/* Its own header at every width: the signup's top bar is shown only beside its brand panel. */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", maxWidth: 520, margin: "0 auto 8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span className={styles.logoMark} aria-hidden="true">d</span>
             <span className={styles.logoWord} dir="ltr">dubiz</span>
           </div>
@@ -166,14 +167,20 @@ export default function GoogleSignupForm() {
         <p className={styles.loginLine}>Google אישרה את הכתובת שלך. כדי לפתוח את החשבון בדוביז נשארו פרטי העסק ואישור התנאים.</p>
       </div>
 
-      <div className={styles.grid}>
-        <div className={`${styles.field} ${styles.gridWide}`}>
-          <span className={styles.label}>אימייל (מאומת על ידי Google)</span>
-          <div className={`${styles.input} ${styles.ltr}`} dir="ltr" data-testid="google-email" aria-readonly="true" style={{ display: "flex", alignItems: "center", background: "var(--dz-surface-muted)" }}>
-            {view.email}
-          </div>
+      <div className={styles.field} style={{ marginBottom: 16 }}>
+        <span className={styles.label}>אימייל (מאומת על ידי Google)</span>
+        <div
+          className={`${styles.input} ${styles.ltr}`}
+          dir="ltr"
+          data-testid="google-email"
+          aria-readonly="true"
+          style={{ display: "flex", alignItems: "center", height: "auto", minHeight: 48, padding: "12px 14px", overflowWrap: "anywhere", background: "var(--dz-surface-muted)" }}
+        >
+          {view.email}
         </div>
+      </div>
 
+      <div className={styles.grid}>
         <div className={styles.field}>
           <label className={styles.label} htmlFor="g-name">שם מלא</label>
           <input
