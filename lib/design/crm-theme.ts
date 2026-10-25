@@ -39,6 +39,8 @@ export const CRM_THEME_CSS = `
   --crm-info:${d.info};
   --crm-info-ink:${d.infoInk};
   --crm-info-bg:${d.infoBg};
+  /* Brand mark color (governed exception to the DS palette) — WhatsApp actions only. */
+  --crm-whatsapp:${TOKEN.brand.whatsapp.green};
   --crm-ring:${d.ring};
   --crm-backdrop:${d.backdrop};
   --crm-shadow-card:${d.shadowCard};

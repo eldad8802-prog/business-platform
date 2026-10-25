@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import BackButton from "@/components/ui/back-button";
 import { useParams } from "next/navigation";
@@ -25,12 +25,36 @@ import {
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { NotesThread } from "@/components/crm/NotesThread";
 import { AttachmentList } from "@/components/crm/AttachmentList";
+import { ContactAction } from "@/components/customers/ContactAction";
+import { customerInitials, mailHref, telHref, whatsAppChatHref } from "@/components/customers/customer-contact";
+import {
+  BagIcon,
+  CalendarIcon,
+  CardIcon,
+  ChatIcon,
+  ChevronIcon,
+  DocumentIcon,
+  MailIcon,
+  NoteIcon,
+  PaperclipIcon,
+  PencilIcon,
+  PhoneIcon,
+  PinIcon,
+  WhatsappIcon,
+} from "@/components/customers/customer-icons";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
 /**
- * Customer card (detail). Extracted verbatim from the /customers/[id] page — the
+ * Customer file (detail) — one continuous scroll, no tabs: identity + contact,
+ * quick actions (call / WhatsApp / email), recent documents, recent payments,
+ * notes, then everything else the card already held (files, conversations,
+ * appointments, orders, calls). There is deliberately no financial summary:
+ * the read-model has no verified per-customer balance and amounts in different
+ * currencies are never added together.
+ *
+ * Originally extracted verbatim from the /customers/[id] page — the
  * SAME single representation renders as a full page on mobile/tablet and inside
  * the desktop Master–Detail panel (the layout owns the frame; the back link is
  * CSS-hidden at ≥ the two-pane breakpoint). Only the load logic was tidied into a
@@ -317,6 +341,9 @@ export function CustomerCard() {
   );
 }
 
+/** Items shown per history section before "show more". */
+const PREVIEW_COUNT = 3;
+
 function CustomerCardView({
   card,
   onEdit,
@@ -333,25 +360,38 @@ function CustomerCardView({
   const { t, locale } = useI18n();
   const { customer } = card;
   const lastActivity = formatDate(card.activity.lastActivityAt, locale);
+  const phone = customer.phone?.trim() ? customer.phone : null;
 
-  const identityFields: Array<{ label: string; value: string | null }> = [
-    { label: t("customers.customer.card.fields.phone"), value: customer.phone ? formatPhoneForDisplay(customer.phone) : null },
-    { label: t("customers.customer.card.fields.email"), value: customer.email },
-    { label: t("customers.customer.card.fields.city"), value: customer.city },
+  const contactLines: Array<{ key: string; tone: string; icon: ReactNode; label: string; value: string }> = [];
+  if (phone) contactLines.push({ key: "phone", tone: "phone", icon: <PhoneIcon />, label: t("customers.customer.card.fields.phone"), value: formatPhoneForDisplay(phone) });
+  if (customer.email?.trim()) contactLines.push({ key: "email", tone: "mail", icon: <MailIcon />, label: t("customers.customer.card.fields.email"), value: customer.email });
+  if (customer.city?.trim()) contactLines.push({ key: "city", tone: "file", icon: <PinIcon />, label: t("customers.customer.card.fields.city"), value: customer.city });
+
+  // Tax identity is shown as before (owned by Billing, read-only here).
+  const taxFields = [
     { label: t("customers.customer.card.fields.legalName"), value: customer.legalName },
     { label: t("customers.customer.card.fields.taxId"), value: customer.taxId },
-  ];
-  const shownFields = identityFields.filter((f) => f.value && f.value.trim());
+  ].filter((f) => f.value && f.value.trim());
 
   return (
-    <>
-      <div className="crm-id">
+    <div className="cust-file">
+      {/* 1–2 · Identity, contact details and quick actions */}
+      <div className="crm-id cust-hero">
         <div className="crm-id__head">
-          <h1 className="crm-id__name">
-            <bdi>{customer.name}</bdi>
-          </h1>
+          <span className="cust-avatar cust-avatar--lg" aria-hidden>
+            {customerInitials(customer.name)}
+          </span>
+          <div className="cust-hero__title">
+            <h1 className="crm-id__name">
+              <bdi>{customer.name}</bdi>
+            </h1>
+            <span className={customer.isActive ? "crm-badge crm-badge--success" : "crm-badge"}>
+              {customer.isActive ? t("customers.customer.card.active") : t("customers.customer.card.inactive")}
+            </span>
+          </div>
           <div className="crm-id__actions">
-            <button type="button" className="crm-btn crm-btn--ghost" onClick={onEdit}>
+            <button type="button" className="crm-btn crm-btn--ghost cust-btn-icon" onClick={onEdit}>
+              <PencilIcon />
               {t("customers.customer.card.edit")}
             </button>
             {customer.isActive ? (
@@ -376,13 +416,26 @@ function CustomerCardView({
           </div>
         </div>
 
-        {shownFields.length > 0 ? (
-          <div className="crm-id__grid">
-            {shownFields.map((f) => (
+        {contactLines.length > 0 ? (
+          <ul className="cust-lines cust-lines--hero">
+            {contactLines.map((l) => (
+              <li className={`cust-line cust-tone--${l.tone}`} key={l.key}>
+                <span className="cust-line__icon" aria-hidden>
+                  {l.icon}
+                </span>
+                <span className="cust-sr">{l.label}: </span>
+                <bdi className="cust-line__value">{l.value}</bdi>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {taxFields.length > 0 ? (
+          <div className="crm-id__grid cust-hero__tax">
+            {taxFields.map((f) => (
               <div className="crm-id__field" key={f.label}>
                 <div className="crm-id__label">{f.label}</div>
-                {/* `bdi` so a phone / email / tax id keeps its own direction
-                    inside the RTL card instead of reordering against the label. */}
+                {/* `bdi` so a tax id keeps its own direction inside the RTL card. */}
                 <div className="crm-id__value">
                   <bdi>{f.value}</bdi>
                 </div>
@@ -391,72 +444,165 @@ function CustomerCardView({
           </div>
         ) : null}
 
-        <div className="crm-chips">
-          <span
-            className={customer.isActive ? "crm-badge crm-badge--success" : "crm-badge"}
-          >
-            {customer.isActive ? t("customers.customer.card.active") : t("customers.customer.card.inactive")}
-          </span>
-          {customer.taxIdType ? (
-            <span className="crm-chip">{labelT(t, TAX_ID_TYPE_LABEL, customer.taxIdType)}</span>
-          ) : null}
-          {lastActivity ? (
-            <span className="crm-chip">{t("customers.customer.card.lastActivity", { date: lastActivity })}</span>
-          ) : null}
+        {customer.taxIdType || lastActivity ? (
+          <div className="crm-chips">
+            {customer.taxIdType ? (
+              <span className="crm-chip">{labelT(t, TAX_ID_TYPE_LABEL, customer.taxIdType)}</span>
+            ) : null}
+            {lastActivity ? (
+              <span className="crm-chip">{t("customers.customer.card.lastActivity", { date: lastActivity })}</span>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="cust-quick" role="group" aria-label={t("customers.customer.card.quickActions")}>
+          <ContactAction
+            layout="stack"
+            href={telHref(phone)}
+            tone="phone"
+            icon={<PhoneIcon />}
+            label={t("customers.customer.card.quick.call")}
+            ariaLabel={t("customers.customer.row.callAria", { name: customer.name })}
+            unavailableReason={t("customers.customer.card.quick.noPhone")}
+          />
+          <ContactAction
+            layout="stack"
+            href={whatsAppChatHref(phone)}
+            tone="whatsapp"
+            icon={<WhatsappIcon />}
+            label={t("customers.customer.card.quick.whatsapp")}
+            ariaLabel={t("customers.customer.row.whatsappAria", { name: customer.name })}
+            unavailableReason={phone ? t("customers.customer.card.quick.noWhatsapp") : t("customers.customer.card.quick.noPhone")}
+          />
+          <ContactAction
+            layout="stack"
+            href={mailHref(customer.email)}
+            tone="mail"
+            icon={<MailIcon />}
+            label={t("customers.customer.card.quick.email")}
+            ariaLabel={`${t("customers.customer.card.quick.email")} · ${customer.email ?? ""}`}
+            unavailableReason={t("customers.customer.card.quick.noEmail")}
+          />
         </div>
       </div>
 
-      <div className="crm-detail-grid">
-      {customer.notes && customer.notes.trim() ? (
-        <div className="crm-note">
-          <div className="crm-note__label">{t("customers.customer.card.generalNote")}</div>
-          <div className="crm-note__body">{customer.notes}</div>
-        </div>
-      ) : null}
+      {/* 3 · Financial summary — intentionally absent: the card read-model has no
+          verified per-customer balance, and amounts are never summed here. */}
 
-      <NotesThread subjectType="CUSTOMER" subjectId={customer.id} />
-
-      <AttachmentList subjectType="CUSTOMER" subjectId={customer.id} />
-
-      {card.billingDocuments.total > 0 ? (
+      <div className="cust-file__grid">
+        {/* 4 · Recent documents */}
         <BillingDocumentsSection section={card.billingDocuments} />
-      ) : null}
 
-      {card.paymentRequests.total > 0 ? (
-        <PaymentRequestsSection section={card.paymentRequests} />
-      ) : null}
+        {/* 5 · Recent payments */}
+        <PaymentRequestsSection section={card.paymentRequests} customerId={customer.id} />
 
-      {card.conversations.total > 0 ? (
-        <ConversationsSection section={card.conversations} />
-      ) : null}
+        {/* 6 · Notes — the general note sits under the same head as the thread. */}
+        <NotesThread
+          subjectType="CUSTOMER"
+          subjectId={customer.id}
+          icon={<NoteIcon />}
+          intro={
+            customer.notes && customer.notes.trim() ? (
+              <div className="crm-note cust-general-note">
+                <div className="cust-general-note__text">
+                  <div className="crm-note__label">{t("customers.customer.card.generalNote")}</div>
+                  <div className="crm-note__body">{customer.notes}</div>
+                </div>
+                <button
+                  type="button"
+                  className="cust-icon-btn"
+                  onClick={onEdit}
+                  aria-label={t("customers.customer.card.edit")}
+                  title={t("customers.customer.card.edit")}
+                >
+                  <PencilIcon />
+                </button>
+              </div>
+            ) : null
+          }
+        />
 
-      {card.appointments.total > 0 ? (
-        <AppointmentsSection section={card.appointments} />
-      ) : null}
+        {/* Everything else the card already held stays, in the same column. */}
+        <AttachmentList subjectType="CUSTOMER" subjectId={customer.id} icon={<PaperclipIcon />} />
 
-      {card.orders.total > 0 ? <OrdersSection section={card.orders} /> : null}
+        {card.conversations.total > 0 ? (
+          <ConversationsSection section={card.conversations} />
+        ) : null}
 
-      {card.calls.total > 0 ? <CallsSection section={card.calls} /> : null}
+        {card.appointments.total > 0 ? (
+          <AppointmentsSection section={card.appointments} />
+        ) : null}
+
+        {card.orders.total > 0 ? <OrdersSection section={card.orders} /> : null}
+
+        {card.calls.total > 0 ? <CallsSection section={card.calls} /> : null}
       </div>
-
-      {!card.activity.hasAnyActivity ? (
-        <div className="crm-panel">
-          <p className="crm-panel__title">{t("customers.customer.card.noActivityTitle")}</p>
-          <p className="crm-panel__body">
-            {t("customers.customer.card.noActivityBody")}
-          </p>
-        </div>
-      ) : null}
-    </>
+    </div>
   );
 }
 
-function SectionHead({ title, count }: { title: string; count: number }) {
+/**
+ * One history section of the file: icon + title + count, the first few items
+ * in a single grouped surface, and "show more" that expands IN PLACE over the
+ * items already loaded (the read-model caps each relation, so this never loads
+ * unbounded history). When the customer has more than was loaded, the footer
+ * says so instead of pretending the list is complete.
+ */
+function HistorySection<T>({
+  icon,
+  tone,
+  title,
+  section,
+  emptyText,
+  renderItem,
+}: {
+  icon: ReactNode;
+  tone: string;
+  title: string;
+  section: { items: T[]; total: number };
+  emptyText?: string;
+  renderItem: (item: T) => ReactNode;
+}) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const { items, total } = section;
+  const shown = expanded ? items : items.slice(0, PREVIEW_COUNT);
+  const hidden = items.length - shown.length;
+
   return (
-    <div className="crm-section__head">
-      <h2 className="crm-section__title">{title}</h2>
-      <span className="crm-section__count">{count}</span>
-    </div>
+    <section className="crm-section cust-section">
+      <div className="crm-section__head">
+        <h2 className="crm-section__title">
+          <span className={`crm-section__icon cust-tone--${tone}`} aria-hidden>
+            {icon}
+          </span>
+          {title}
+        </h2>
+        <span className="crm-section__count">{total}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="crm-note-empty">{emptyText}</p>
+      ) : (
+        <div className="cust-group">
+          <div className="crm-list">{shown.map(renderItem)}</div>
+          {hidden > 0 || expanded ? (
+            <button
+              type="button"
+              className="cust-more"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? t("customers.customer.card.showLess") : t("customers.customer.card.showMore", { count: hidden })}
+            </button>
+          ) : null}
+          {expanded && total > items.length ? (
+            <p className="cust-group__note">
+              {t("customers.customer.card.showingLatest", { shown: items.length, total })}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -467,71 +613,91 @@ function BillingDocumentsSection({
 }) {
   const { t, locale } = useI18n();
   return (
-    <div className="crm-section">
-      <SectionHead title={t("customers.customer.card.sections.billingDocuments")} count={section.total} />
-      <div className="crm-list">
-        {section.items.map((d) => {
-          const dateStr = formatDate(d.issuedAt ?? d.createdAt, locale);
-          const badgeClass =
-            d.status === "ISSUED"
-              ? "crm-badge crm-badge--success"
-              : d.status === "PENDING_REVIEW"
-                ? "crm-badge crm-badge--warning"
-                : "crm-badge";
-          return (
-            <div className="crm-item" key={d.id}>
-              <div className="crm-item__main">
-                <div className="crm-item__title">
-                  {labelT(t, DOC_TYPE_LABEL, d.documentType)}
-                  {d.documentNumberFormatted ? ` · ${d.documentNumberFormatted}` : ""}
-                </div>
-                <div className="crm-item__meta">
-                  <span className={badgeClass}>{labelT(t, DOC_STATUS_LABEL, d.status)}</span>
-                  {dateStr ? <span> · {dateStr}</span> : null}
-                </div>
+    <HistorySection
+      icon={<DocumentIcon />}
+      tone="file"
+      title={t("customers.customer.card.recentDocuments")}
+      section={section}
+      emptyText={t("customers.customer.card.noDocuments")}
+      renderItem={(d) => {
+        const dateStr = formatDate(d.issuedAt ?? d.createdAt, locale);
+        const badgeClass =
+          d.status === "ISSUED"
+            ? "crm-badge crm-badge--success"
+            : d.status === "PENDING_REVIEW"
+              ? "crm-badge crm-badge--warning"
+              : "crm-badge";
+        return (
+          <Link className="crm-item cust-item" key={d.id} href={`/billing/${d.id}`}>
+            <span className="cust-item__icon cust-tone--file" aria-hidden>
+              <DocumentIcon />
+            </span>
+            <div className="crm-item__main">
+              <div className="crm-item__title">
+                {labelT(t, DOC_TYPE_LABEL, d.documentType)}
+                {d.documentNumberFormatted ? <> <bdi>{d.documentNumberFormatted}</bdi></> : null}
               </div>
-              <div className="crm-item__amount">{formatMoney(d.totalAmount, d.currency, locale)}</div>
+              <div className="crm-item__meta">
+                <span className={badgeClass}>{labelT(t, DOC_STATUS_LABEL, d.status)}</span>
+                {dateStr ? <span> · {dateStr}</span> : null}
+              </div>
             </div>
-          );
-        })}
-      </div>
-    </div>
+            <div className="crm-item__amount">
+              <bdi>{formatMoney(d.totalAmount, d.currency, locale)}</bdi>
+            </div>
+            <ChevronIcon className="cust-item__chev" />
+          </Link>
+        );
+      }}
+    />
   );
 }
 
 function PaymentRequestsSection({
   section,
+  customerId,
 }: {
   section: { items: CustomerCardPaymentRequest[]; total: number };
+  customerId: number;
 }) {
   const { t, locale } = useI18n();
   return (
-    <div className="crm-section">
-      <SectionHead title={t("customers.customer.card.sections.paymentRequests")} count={section.total} />
-      <div className="crm-list">
-        {section.items.map((p) => {
-          const dateStr = formatDate(p.paidAt ?? p.createdAt, locale);
-          const badgeClass =
-            p.status === "PAID"
-              ? "crm-badge crm-badge--success"
-              : p.status === "PENDING"
-                ? "crm-badge crm-badge--warning"
-                : "crm-badge";
-          return (
-            <div className="crm-item" key={p.id}>
-              <div className="crm-item__main">
-                <div className="crm-item__title">{t("customers.customer.card.paymentRequest")}</div>
-                <div className="crm-item__meta">
-                  <span className={badgeClass}>{labelT(t, PAYMENT_STATUS_LABEL, p.status)}</span>
-                  {dateStr ? <span> · {dateStr}</span> : null}
-                </div>
+    <HistorySection
+      icon={<CardIcon />}
+      tone="phone"
+      title={t("customers.customer.card.recentPayments")}
+      section={section}
+      emptyText={t("customers.customer.card.noPayments")}
+      renderItem={(p) => {
+        const dateStr = formatDate(p.paidAt ?? p.createdAt, locale);
+        const badgeClass =
+          p.status === "PAID"
+            ? "crm-badge crm-badge--success"
+            : p.status === "PENDING"
+              ? "crm-badge crm-badge--warning"
+              : "crm-badge";
+        return (
+          // The request opens inside the customer's collection thread, anchored
+          // to it — the same destination the legacy /payments/[id] resolves to.
+          <Link className="crm-item cust-item" key={p.id} href={`/collection/c/${customerId}?request=${p.id}`}>
+            <span className="cust-item__icon cust-tone--phone" aria-hidden>
+              <CardIcon />
+            </span>
+            <div className="crm-item__main">
+              <div className="crm-item__title">{t("customers.customer.card.paymentRequest")}</div>
+              <div className="crm-item__meta">
+                <span className={badgeClass}>{labelT(t, PAYMENT_STATUS_LABEL, p.status)}</span>
+                {dateStr ? <span> · {dateStr}</span> : null}
               </div>
-              <div className="crm-item__amount">{formatMoney(p.amount, p.currency, locale)}</div>
             </div>
-          );
-        })}
-      </div>
-    </div>
+            <div className="crm-item__amount">
+              <bdi>{formatMoney(p.amount, p.currency, locale)}</bdi>
+            </div>
+            <ChevronIcon className="cust-item__chev" />
+          </Link>
+        );
+      }}
+    />
   );
 }
 
@@ -542,25 +708,26 @@ function ConversationsSection({
 }) {
   const { t, locale } = useI18n();
   return (
-    <div className="crm-section">
-      <SectionHead title={t("customers.customer.card.sections.conversations")} count={section.total} />
-      <div className="crm-list">
-        {section.items.map((c) => {
-          const dateStr = formatDate(c.lastMessageAt ?? c.startedAt, locale);
-          return (
-            <div className="crm-item" key={c.id}>
-              <div className="crm-item__main">
-                <div className="crm-item__title">{labelT(t, CHANNEL_LABEL, c.channel)}</div>
-                <div className="crm-item__meta">
-                  <span className="crm-badge">{labelT(t, CONVERSATION_STATUS_LABEL, c.status)}</span>
-                  {dateStr ? <span> · {dateStr}</span> : null}
-                </div>
+    <HistorySection
+      icon={<ChatIcon />}
+      tone="whatsapp"
+      title={t("customers.customer.card.sections.conversations")}
+      section={section}
+      renderItem={(c) => {
+        const dateStr = formatDate(c.lastMessageAt ?? c.startedAt, locale);
+        return (
+          <div className="crm-item cust-item" key={c.id}>
+            <div className="crm-item__main">
+              <div className="crm-item__title">{labelT(t, CHANNEL_LABEL, c.channel)}</div>
+              <div className="crm-item__meta">
+                <span className="crm-badge">{labelT(t, CONVERSATION_STATUS_LABEL, c.status)}</span>
+                {dateStr ? <span> · {dateStr}</span> : null}
               </div>
             </div>
-          );
-        })}
-      </div>
-    </div>
+          </div>
+        );
+      }}
+    />
   );
 }
 
@@ -571,25 +738,26 @@ function AppointmentsSection({
 }) {
   const { t, locale } = useI18n();
   return (
-    <div className="crm-section">
-      <SectionHead title={t("customers.customer.card.sections.appointments")} count={section.total} />
-      <div className="crm-list">
-        {section.items.map((a) => {
-          const dateStr = formatDate(a.startsAt ?? a.createdAt, locale);
-          return (
-            <div className="crm-item" key={a.id}>
-              <div className="crm-item__main">
-                <div className="crm-item__title">{a.title?.trim() || t("customers.customer.card.appointmentFallback")}</div>
-                <div className="crm-item__meta">
-                  <span className="crm-badge">{labelT(t, APPOINTMENT_STATUS_LABEL, a.status)}</span>
-                  {dateStr ? <span> · {dateStr}</span> : null}
-                </div>
+    <HistorySection
+      icon={<CalendarIcon />}
+      tone="file"
+      title={t("customers.customer.card.sections.appointments")}
+      section={section}
+      renderItem={(a) => {
+        const dateStr = formatDate(a.startsAt ?? a.createdAt, locale);
+        return (
+          <div className="crm-item cust-item" key={a.id}>
+            <div className="crm-item__main">
+              <div className="crm-item__title">{a.title?.trim() || t("customers.customer.card.appointmentFallback")}</div>
+              <div className="crm-item__meta">
+                <span className="crm-badge">{labelT(t, APPOINTMENT_STATUS_LABEL, a.status)}</span>
+                {dateStr ? <span> · {dateStr}</span> : null}
               </div>
             </div>
-          );
-        })}
-      </div>
-    </div>
+          </div>
+        );
+      }}
+    />
   );
 }
 
@@ -597,29 +765,30 @@ function AppointmentsSection({
 function OrdersSection({ section }: { section: { items: CustomerCardOrder[]; total: number } }) {
   const { t, locale } = useI18n();
   return (
-    <div className="crm-section">
-      <SectionHead title={t("customers.customer.card.sections.orders")} count={section.total} />
-      <div className="crm-list">
-        {section.items.map((o) => {
-          const dateStr = formatDate(o.placedAt, locale);
-          return (
-            <div className="crm-item" key={o.id}>
-              <div className="crm-item__main">
-                <div className="crm-item__title">
-                  {o.orderNumber ? t("customers.customer.card.orderNumber", { number: o.orderNumber }) : t("customers.customer.card.order")} · {formatMinor(o.totalMinor, o.currency, locale)}
-                </div>
-                <div className="crm-item__meta">
-                  <span className="crm-badge">{labelT(t, ORDER_STATUS_LABEL, o.status)}</span>
-                  <span> · {label(ORDER_SOURCE_LABEL, o.sourceKey)}</span>
-                  {o.refundedMinor > 0 ? <span> · {t("customers.customer.card.refunded", { amount: formatMinor(o.refundedMinor, o.currency, locale) })}</span> : null}
-                  {dateStr ? <span> · {dateStr}</span> : null}
-                </div>
+    <HistorySection
+      icon={<BagIcon />}
+      tone="mail"
+      title={t("customers.customer.card.sections.orders")}
+      section={section}
+      renderItem={(o) => {
+        const dateStr = formatDate(o.placedAt, locale);
+        return (
+          <div className="crm-item cust-item" key={o.id}>
+            <div className="crm-item__main">
+              <div className="crm-item__title">
+                {o.orderNumber ? t("customers.customer.card.orderNumber", { number: o.orderNumber }) : t("customers.customer.card.order")} · {formatMinor(o.totalMinor, o.currency, locale)}
+              </div>
+              <div className="crm-item__meta">
+                <span className="crm-badge">{labelT(t, ORDER_STATUS_LABEL, o.status)}</span>
+                <span> · {label(ORDER_SOURCE_LABEL, o.sourceKey)}</span>
+                {o.refundedMinor > 0 ? <span> · {t("customers.customer.card.refunded", { amount: formatMinor(o.refundedMinor, o.currency, locale) })}</span> : null}
+                {dateStr ? <span> · {dateStr}</span> : null}
               </div>
             </div>
-          );
-        })}
-      </div>
-    </div>
+          </div>
+        );
+      }}
+    />
   );
 }
 
@@ -627,28 +796,29 @@ function OrdersSection({ section }: { section: { items: CustomerCardOrder[]; tot
 function CallsSection({ section }: { section: { items: CustomerCardCall[]; total: number } }) {
   const { t, locale } = useI18n();
   return (
-    <div className="crm-section">
-      <SectionHead title={t("customers.customer.card.sections.calls")} count={section.total} />
-      <div className="crm-list">
-        {section.items.map((c) => {
-          const dateStr = formatDate(c.startedAt, locale);
-          const owed = c.direction === "inbound" && c.outcome !== "answered" && !c.returnedAt;
-          return (
-            <div className="crm-item" key={c.id}>
-              <div className="crm-item__main">
-                <div className="crm-item__title">{c.direction === "inbound" ? t("customers.customer.card.inboundCall") : t("customers.customer.card.outboundCall")}</div>
-                <div className="crm-item__meta">
-                  <span className="crm-badge">{labelT(t, CALL_OUTCOME_LABEL, c.outcome)}</span>
-                  {c.outcome === "answered" && c.durationSec > 0 ? <span> · {t("customers.customer.card.durationMinutes", { minutes: Math.max(1, Math.round(c.durationSec / 60)) })}</span> : null}
-                  {owed ? <span> · {t("customers.customer.card.notReturned")}</span> : c.returnedAt ? <span> · {t("customers.customer.card.returned")}</span> : null}
-                  {dateStr ? <span> · {dateStr}</span> : null}
-                </div>
+    <HistorySection
+      icon={<PhoneIcon />}
+      tone="phone"
+      title={t("customers.customer.card.sections.calls")}
+      section={section}
+      renderItem={(c) => {
+        const dateStr = formatDate(c.startedAt, locale);
+        const owed = c.direction === "inbound" && c.outcome !== "answered" && !c.returnedAt;
+        return (
+          <div className="crm-item cust-item" key={c.id}>
+            <div className="crm-item__main">
+              <div className="crm-item__title">{c.direction === "inbound" ? t("customers.customer.card.inboundCall") : t("customers.customer.card.outboundCall")}</div>
+              <div className="crm-item__meta">
+                <span className="crm-badge">{labelT(t, CALL_OUTCOME_LABEL, c.outcome)}</span>
+                {c.outcome === "answered" && c.durationSec > 0 ? <span> · {t("customers.customer.card.durationMinutes", { minutes: Math.max(1, Math.round(c.durationSec / 60)) })}</span> : null}
+                {owed ? <span> · {t("customers.customer.card.notReturned")}</span> : c.returnedAt ? <span> · {t("customers.customer.card.returned")}</span> : null}
+                {dateStr ? <span> · {dateStr}</span> : null}
               </div>
             </div>
-          );
-        })}
-      </div>
-    </div>
+          </div>
+        );
+      }}
+    />
   );
 }
 

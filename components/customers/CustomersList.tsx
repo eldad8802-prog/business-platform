@@ -18,10 +18,12 @@ import { CustomerRow } from "@/components/customers/CustomerRow";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/translate";
 
+// Order follows the approved list design (הכול · פעילים · לא פעילים); the
+// default selection stays "active".
 const FILTERS: Array<{ key: CustomerLifecycleFilter; labelKey: MessageKey }> = [
+  { key: "all", labelKey: "customers.customer.list.filters.all" },
   { key: "active", labelKey: "customers.customer.list.filters.active" },
   { key: "inactive", labelKey: "customers.customer.list.filters.inactive" },
-  { key: "all", labelKey: "customers.customer.list.filters.all" },
 ];
 
 /**
@@ -141,14 +143,21 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
         </button>
       </div>
 
-      <input
-        className="crm-search"
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder={t("customers.customer.list.searchPlaceholder")}
-        inputMode="search"
-      />
+      <div className="cust-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m20 20-4.2-4.2" />
+        </svg>
+        <input
+          className="crm-search"
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t("customers.customer.list.searchPlaceholder")}
+          aria-label={t("customers.customer.list.searchPlaceholder")}
+          inputMode="search"
+        />
+      </div>
 
       <div
         style={{
@@ -232,7 +241,7 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
           ) : null}
         </div>
       ) : (
-        <div className="crm-rows">
+        <div className="cust-cards">
           {customers.map((c) => (
             <CustomerRow key={c.id} customer={c} selected={String(c.id) === selectedId} />
           ))}
