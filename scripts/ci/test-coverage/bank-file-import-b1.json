@@ -1,0 +1,10 @@
+{
+  "note": "Bank file import (revenue truth milestone B1): CSV / XLSX bank statements into the existing ExternalTransaction rows, preview first, the payables upload's own line identity. Behind bank_file_import (OFF). The database proof (.bfi/battery.ts) is a lab script run by bank-file-import-ci.yml.",
+  "tests": {
+    "lib/services/bank-file-import/bank-file-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "pure parsing and identity over in-memory synthetic files: no DB, network, session, tenant or authorization code is exercised; tenant isolation, tokens and the flag are proven AS the restricted runtime by .bfi/battery.ts in bank-file-import-ci.yml",
+      "reason": "pure (no DB/network/clock): parity with parseStatementCsv on the same CSV files (same lines, same skipped rows, same identities with and without an account), windows-1255, CSV vs Excel of one statement, header below a preamble, identity fields locked to the old parser's columns, balance chain both orders, value date and balance warnings; run on pull_request by bank-file-import-ci.yml"
+    }
+  }
+}
