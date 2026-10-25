@@ -31,7 +31,22 @@ function longDay(day: string): string {
 
 const DAY_KEY = /^d{4}-d{2}-d{2}$/;
 
-export function SecretaryCalendar({ events, notes, loading, initialDay, title = "לוח שנה" }: { events: CalendarEvent[]; notes: string[]; loading: boolean; initialDay?: string | null; title?: string }) {
+export function SecretaryCalendar({
+  events,
+  notes,
+  loading,
+  initialDay,
+  title = "לוח שנה",
+  appointments = false,
+}: {
+  events: CalendarEvent[];
+  notes: string[];
+  loading: boolean;
+  initialDay?: string | null;
+  title?: string;
+  /** Appointments milestone B: the legend names the appointment kind only while appointments is ON. */
+  appointments?: boolean;
+}) {
   const today = jerusalemDayKey(new Date());
   const start = initialDay && DAY_KEY.test(initialDay) ? initialDay : today;
   const [sy, sm] = start.split("-").map(Number);
@@ -141,7 +156,7 @@ export function SecretaryCalendar({ events, notes, loading, initialDay, title = 
       </div>
 
       <ul className={s.legend} aria-label="מקרא">
-        {KINDS.map((k) => (
+        {KINDS.filter((k) => appointments || k !== "APPOINTMENT").map((k) => (
           <li key={k}>
             <span className={`${s.mark} ${KIND_CLASS[k]}`} aria-hidden="true" />
             {CALENDAR_KIND_LABEL[k]}

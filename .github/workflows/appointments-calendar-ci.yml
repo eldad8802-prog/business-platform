@@ -1,0 +1,152 @@
+# Appointments milestone B — the owner's calendar (screens on top of the milestone A API; no migration, no new route).
+#
+# JOB unit — no database: the calendar's pure rules (views, ranges, the Israeli wall clock on both DST days, the day
+#   layout, the owner's actions, the API's text limits, Hebrew words), the Secretary showing appointments on its
+#   existing calendar, the navigation map / back navigation, the customer card's status labels.
+#
+# JOB e2e — the REAL app (`next build` + `next start`) over the Production-shaped lab (.appt/lab.sh --with-appt: the
+#   real migration by migrate deploy, the app AS app_runtime_prod), driven by Chromium on desktop and phone: business A
+#   with appointments ON (a per-business override, as a pilot is opened), business B OFF. Every step leaves a
+#   screenshot; they and the result table are this run's artifact (the visual review before merge).
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network beyond localhost.
+
+name: appointments calendar — screens (unit + real app on PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "features/calendar/**"
+      - "app/(shell)/calendar/**"
+      - "app/(shell)/secretary/**"
+      - "components/customers/**"
+      - "components/navigation/**"
+      - "features/tools/**"
+      - "lib/navigation/**"
+      - "lib/services/appointment/**"
+      - "app/api/appointments/**"
+      - ".appt/ui-*"
+      - ".github/workflows/appointments-calendar-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: calendar — rules, Secretary, navigation (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: The calendar's rules and the Secretary's appointments
+        run: |
+          set -euo pipefail
+          npx tsx features/calendar/calendar-model.test.ts
+          npx tsx features/calendar/secretary-appointments.test.ts
+          npx tsx "app/(shell)/secretary/secretary-hub.verify.test.ts"
+          npx tsx "app/(shell)/secretary/secretary-home-model.verify.test.ts"
+      - name: Navigation map, back navigation, customer card labels
+        run: |
+          set -euo pipefail
+          npx tsx lib/navigation/home-routes.test.ts
+          npx tsx lib/navigation/back-nav/back-nav.test.ts
+          npx tsx components/navigation/nav-destinations.test.tsx
+          npx tsx lib/navigation/app-title-metadata.test.ts
+          npx tsx components/customers/appointment-status-labels.test.ts
+      - name: Lint the calendar and what it touches
+        run: npx eslint features/calendar "app/(shell)/calendar" "app/(shell)/secretary" components/customers features/tools lib/navigation .appt/ui-seed.ts .appt/ui-e2e.mts
+
+  e2e:
+    name: calendar — the real app in a browser, desktop + phone (PG17 lab, appointments ON for one business)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: appt_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: appt_ci_synthetic_super_pw
+      LAB_PASSWORD: appt_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: appt-ui-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: appt-ui-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      CRON_SECRET: appt_ui_ci_cron_secret_synthetic_at_least_32
+      AUTH_PLANE_ENABLED: "true"
+      OUT: ${{ runner.temp }}/appt-ui
+      SEED_OUT: ${{ runner.temp }}/appt-ui-seed.json
+      E2E_BASE: http://localhost:3700
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Lab — the real migration in Production's role topology, then the synthetic businesses
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT"
+          bash .appt/lab.sh appt_ui --with-appt
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          {
+            echo "OWNER_URL=postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/appt_ui?$TZQ"
+            echo "DATABASE_URL=postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/appt_ui?$TZQ&connection_limit=20"
+            echo "DIRECT_URL=postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/appt_ui?$TZQ"
+            echo "AUTH_DATABASE_URL=postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/appt_ui?$TZQ"
+          } >> "$GITHUB_ENV"
+
+      - name: Seed — through the real services AS the runtime role
+        run: npx tsx .appt/ui-seed.ts
+
+      # Build BEFORE the Chromium install (next/font breaks after it — see i18n-multicurrency-ci.yml).
+      - name: Build the app
+        run: npm run build > "$OUT/build.log" 2>&1 || { tail -n 80 "$OUT/build.log"; exit 1; }
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Start the app
+        shell: bash
+        run: |
+          (nohup npx next start -p 3700 > "$OUT/server.log" 2>&1 &)
+          for i in $(seq 1 90); do curl -sf -o /dev/null http://localhost:3700/login && break; sleep 2; done
+          curl -sf -o /dev/null http://localhost:3700/login
+
+      - name: End to end — desktop and phone, ON and OFF
+        run: npx tsx .appt/ui-e2e.mts
+
+      - name: Result table
+        if: always()
+        run: '[ -f "$OUT/report.md" ] && cat "$OUT/report.md" >> "$GITHUB_STEP_SUMMARY" || true'
+
+      - name: Screenshots and logs (the visual review)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: appointments-calendar-screens
+          path: ${{ runner.temp }}/appt-ui
+          retention-days: 14

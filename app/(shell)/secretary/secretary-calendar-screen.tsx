@@ -35,7 +35,7 @@ export function SecretaryCalendarScreen({ briefing, day }: { briefing: BriefingA
     <main className={s.calPage} style={secretaryVars()} dir="rtl" aria-labelledby="sec-calendar-page-title">
       <BackButton fallback="/secretary" />
       <h1 id="sec-calendar-page-title" className={s.calPageTitle}>לוח שנה</h1>
-      <SecretaryCalendar events={events} notes={notes} loading={data.obligations === "loading"} initialDay={day} title={data.appointments === "off" ? "משימות ומועדי תשלום" : "תורים, משימות ומועדי תשלום"} />
+      <SecretaryCalendar events={events} notes={notes} loading={data.obligations === "loading"} initialDay={day} appointments={data.appointments !== "off"} title={data.appointments === "off" ? "משימות ומועדי תשלום" : "תורים, משימות ומועדי תשלום"} />
     </main>
   );
 }
