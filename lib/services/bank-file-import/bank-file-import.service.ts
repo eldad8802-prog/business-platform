@@ -30,7 +30,7 @@ import { createHash } from "node:crypto";
 
 import { Prisma } from "@prisma/client";
 import { readImportSource } from "@/lib/data-transfer/import/import-source";
-import { IMPORT_PREVIEW_TTL_SECONDS } from "@/lib/data-transfer/import/import-config";
+import { IMPORT_MAX_ROWS, IMPORT_PREVIEW_TTL_SECONDS } from "@/lib/data-transfer/import/import-config";
 import {
   BANK_STATEMENT_RUN_DOMAIN,
   completeBankStatementRunInTx,
@@ -52,6 +52,8 @@ import {
   countRepeatedLines,
   locateHeader,
   normalizeBankRows,
+  proposeBankMapping,
+  readBankCsvTable,
   resolveBankMapping,
   type BalanceCheck,
   type BankField,
@@ -126,6 +128,64 @@ type Prepared = {
   identities: { withAccount: string[]; withoutAccount: string[] };
 };
 
+/** The header was found but the mapping is not complete: what the owner needs to finish it. No token. */
+export type BankMappingRequired = {
+  status: "MAPPING_REQUIRED";
+  sheetName: string | null;
+  headerRow: number;
+  headers: string[];
+  /** What could be proposed (or what the owner sent): complete it, do not start over. */
+  mapping: BankMapping;
+  lockedFields: BankField[];
+  /** Fields more than one column could be — never chosen automatically. */
+  ambiguous: BankField[];
+  /** Required fields still unmapped: the date, and the amount (signed, or debit / credit). */
+  missing: Array<"date" | "amount">;
+  /** Why the last mapping was not accepted, when the owner sent one. */
+  problem: MappingProblem | null;
+  field: BankField | null;
+  /** Up to three values per column, so the owner recognises it. Their own data, never stored or logged. */
+  samples: string[][];
+};
+
+class MappingRequiredSignal extends Error {
+  constructor(public readonly payload: BankMappingRequired) {
+    super("MAPPING_REQUIRED");
+  }
+}
+
+function mappingRequired(
+  sheetName: string | null,
+  located: ReturnType<typeof locateHeader> & object,
+  resolved: { problem: MappingProblem; field?: BankField; mapping: BankMapping }
+): BankMappingRequired {
+  const proposal = proposeBankMapping(located.headers);
+  const missing: Array<"date" | "amount"> = [];
+  if (resolved.mapping.date === undefined) missing.push("date");
+  if (resolved.mapping.amount === undefined && resolved.mapping.debit === undefined && resolved.mapping.credit === undefined) missing.push("amount");
+  const samples = located.headers.map((_, col) =>
+    located.rows
+      .map((r) => r.cells[col])
+      .filter((c) => c !== null && c !== undefined && String(c).trim() !== "")
+      .slice(0, 3)
+      .map((c) => (c instanceof Date ? c.toISOString().slice(0, 10) : String(c).trim()).slice(0, 40))
+  );
+  const solelyIncomplete = resolved.problem === "DATE_REQUIRED" || resolved.problem === "AMOUNT_REQUIRED";
+  return {
+    status: "MAPPING_REQUIRED",
+    sheetName,
+    headerRow: located.headerRow,
+    headers: located.headers.map((h) => (h === null || h === undefined ? "" : String(h))),
+    mapping: resolved.mapping,
+    lockedFields: proposal.legacyLocked ? (["date", "amount", "debit", "credit", "description", "reference"] as BankField[]) : [],
+    ambiguous: proposal.ambiguous,
+    missing,
+    problem: solelyIncomplete ? null : resolved.problem,
+    field: solelyIncomplete ? null : resolved.field ?? null,
+    samples,
+  };
+}
+
 /** Read, locate, map, normalize. Pure apart from reading the bytes it was handed. */
 async function prepare(input: BankImportInput): Promise<Prepared> {
   if (!input.accountId || !Number.isInteger(input.accountId) || input.accountId <= 0) {
@@ -135,11 +195,20 @@ async function prepare(input: BankImportInput): Promise<Prepared> {
   if (!source.ok) {
     throw new BankImportError("FILE_UNREADABLE", 400, { reason: source.code, message: source.message });
   }
-  const located = locateHeader(source.table);
+  // readImportSource has validated the upload (size, type, row limit, a real CSV / XLSX). A CSV is read again
+  // without the import hub's trim to the first row's width, so a title line above the table loses nothing.
+  const table = source.kind === "csv" ? readBankCsvTable(input.bytes, IMPORT_MAX_ROWS + 1) : source.table;
+  const located = locateHeader(table);
   if (!located) throw new BankImportError("HEADER_NOT_FOUND", 400);
 
   const resolved = resolveBankMapping(located.headers, input.mapping ?? null);
   if (!resolved.ok) {
+    // A readable table with a header row whose required fields are missing, doubled or ambiguous: not a broken
+    // file — the owner completes the mapping (analyze answers MAPPING_REQUIRED). The old parser's locked
+    // columns are the one thing that cannot be re-mapped.
+    if (resolved.problem !== "IDENTITY_FIELD_LOCKED") {
+      throw new MappingRequiredSignal(mappingRequired(source.sheetName, located, resolved));
+    }
     throw new BankImportError("MAPPING_INVALID", 400, { problem: resolved.problem, ...(resolved.field ? { field: resolved.field } : {}) });
   }
   const normalized = normalizeBankRows(located, resolved.mapping);
@@ -221,6 +290,7 @@ export type BankPreviewLine = {
 };
 
 export type BankPreview = {
+  status: "READY";
   token: string;
   expiresAt: string;
   sheetName: string | null;
@@ -229,6 +299,8 @@ export type BankPreview = {
   mapping: BankMapping;
   /** The identity fields are fixed to the columns the payables upload reads (see bank-file-core.ts). */
   lockedFields: BankField[];
+  /** Fields another column could also be: the one used is shown, and the owner may change it (unless locked). */
+  ambiguous: BankField[];
   counts: { lines: number; new: number; existing: number; suspected: number; invalid: number; repeatedInFile: number; warnings: number };
   /** Totals of the NEW lines, in shekels (bank lines are ILS, as the payables upload records them). */
   newTotals: { currency: "ILS"; creditMinor: number; debitMinor: number };
@@ -261,8 +333,20 @@ function previewLine(l: BankLine, status: LineStatus): BankPreviewLine {
   };
 }
 
-export async function analyzeBankFile(input: BankImportInput): Promise<BankPreview> {
-  const prepared = await prepare(input);
+export type BankAnalysis = BankPreview | BankMappingRequired;
+
+export async function analyzeBankFile(input: BankImportInput): Promise<BankAnalysis> {
+  let prepared: Prepared;
+  try {
+    prepared = await prepare(input);
+  } catch (e) {
+    if (e instanceof MappingRequiredSignal) {
+      // The account is checked here too, so a mapping screen is never shown for an account that is not theirs.
+      await withTenantTransaction((tx) => assertAccount(tx, input.businessId, input.accountId as number));
+      return e.payload;
+    }
+    throw e;
+  }
   if (prepared.lines.length === 0 && prepared.errors.length === 0) throw new BankImportError("NO_LINES", 400);
 
   const { statuses, previous } = await withTenantTransaction(async (tx) => {
@@ -291,6 +375,7 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankPrevi
   const verified = verifyEnvelope<object>(TOKEN_SPEC, token);
 
   return {
+    status: "READY",
     token,
     expiresAt: verified.ok ? verified.expiresAt.toISOString() : new Date().toISOString(),
     sheetName: prepared.sheetName,
@@ -298,6 +383,7 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankPrevi
     headers: prepared.headers,
     mapping: prepared.mapping,
     lockedFields: prepared.legacyLocked ? (["date", "amount", "debit", "credit", "description", "reference"] as BankField[]) : [],
+    ambiguous: proposeBankMapping(prepared.headers).ambiguous,
     counts: {
       lines: prepared.lines.length,
       new: statuses.filter((s) => s === "NEW").length,
@@ -344,7 +430,14 @@ export async function commitBankFile(
   if (facts.b !== input.businessId || facts.u !== input.userId || facts.a !== input.accountId) {
     throw new BankImportError("TOKEN_INVALID", 400, { reason: "BINDING" });
   }
-  const prepared = await prepare(input);
+  let prepared: Prepared;
+  try {
+    prepared = await prepare(input);
+  } catch (e) {
+    // A token is only ever issued for a complete mapping; an incomplete one cannot be committed.
+    if (e instanceof MappingRequiredSignal) throw new BankImportError("MAPPING_INVALID", 400, { problem: "MAPPING_REQUIRED" });
+    throw e;
+  }
   if (prepared.contentHash !== facts.ch || prepared.mappingHash !== facts.mh || prepared.lines.length !== facts.n) {
     throw new BankImportError("FILE_CHANGED", 409);
   }

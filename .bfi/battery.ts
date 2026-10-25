@@ -323,6 +323,52 @@ async function main() {
   const eDebits = await owner.externalTransaction.count({ where: { businessId: bizE, direction: "DEBIT" } });
   ok("lines imported by this path appear in the payables list exactly like uploaded ones (debits only)", eList.length === eDebits && eList.every((l) => l.direction === "DEBIT"), `${eList.length}/${eDebits}`);
 
+  // ── M. Header recognition and the owner's mapping (real-file audit, 2026-10-25) ───────────────────
+  console.log("M. a real bank's layout is recognised; unknown titles ask for a mapping, never a guess");
+  const bizM = await business("bfi-M");
+  const userM = await user(bizM, "m");
+  const accM = await account(bizM, "M1");
+  await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'bank_file_import', 'ENABLED', now())`, bizM);
+  const utf16 = (rows: string[][]) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(rows.map((r) => r.join("\t")).join("\n") + "\n", "utf16le")]);
+  // Synthetic values in the layout of a real export: UTF-16LE + BOM, Tab, titles with ₪, newest first.
+  const realLayout = utf16([
+    ["תאריך", "יום ערך", "תיאור התנועה", "זכות/חובה ₪", "יתרה ₪", "אסמכתה", "עמלה", "ערוץ ביצוע"],
+    ["09/03/2026", "08/03/2026", "חיוב כרטיס 1111", "-1,234.56", "-87.55", "0412", "", "סניף"],
+    ["07/03/2026", "07/03/2026", "עמלת פעולה", "-6.25", "1,147.01", "411", "ערוץ ישיר", "סניף"],
+    ["05/03/2026", "06/03/2026", "משכורת חודשית", "2,500.00", "1,153.26", "410/7781", "ערוץ ישיר", "יזום מחשב"],
+    ["02/03/2026", "01/03/2026", "העברה לספק", "-1,346.74", "-1,346.74", "409", "", "אינטרנט"],
+  ]);
+  const mReal = await analyze(input(bizM, userM, accM, realLayout));
+  ok("the real layout is recognised with no owner input: READY, 4 new, balance chain OK",
+    mReal.status === "READY" && mReal.counts.new === 4 && mReal.balance.status === "OK" && mReal.mapping.amount === 3 && mReal.mapping.balance === 4, JSON.stringify({ s: mReal.status, m: (mReal as { mapping?: unknown }).mapping }));
+  const mRealC = mReal.status === "READY" ? await commit(input(bizM, userM, accM, realLayout), mReal.token) : null;
+  const mRows = await owner.externalTransaction.findMany({ where: { businessId: bizM }, orderBy: { bookedAt: "desc" } });
+  ok("…committed: 4 lines, 3 debits and 1 credit, exact amounts, value dates and references, all on the chosen account",
+    mRealC?.inserted === 4 && mRows.length === 4 && mRows.filter((r) => r.direction === "DEBIT").length === 3 && mRows[0].amount.toFixed(2) === "1234.56" &&
+    mRows[0].reference === "0412" && mRows.find((r) => r.reference === "410/7781")?.valueDate?.toISOString().slice(0, 10) === "2026-03-06" && mRows.every((r) => r.sourceBankAccountId === accM),
+    JSON.stringify(mRows.map((r) => [r.direction, r.amount.toFixed(2), r.reference])));
+  const mAgain = await analyze(input(bizM, userM, accM, realLayout));
+  ok("…the same file again: 4 already in Dubiz, 0 new", mAgain.status === "READY" && mAgain.counts.existing === 4 && mAgain.counts.new === 0);
+
+  const unknownTitles = utf16([["תאריך", "פירוט", "תנועה", "מצב חשבון"], ["02/03/2026", "קפה", "-12.00", "620.00"], ["01/03/2026", "מכירה", "300.00", "632.00"]]);
+  const before0 = await lines(bizM);
+  const need = await analyze(input(bizM, userM, accM, unknownTitles));
+  ok("unknown titles: MAPPING_REQUIRED (not an error), the amount is missing, no token, samples per column",
+    need.status === "MAPPING_REQUIRED" && need.missing.includes("amount") && !("token" in need) && need.samples.length === 4 && need.mapping.date === 0, JSON.stringify(need));
+  ok("…and nothing was written", (await lines(bizM)) === before0);
+  const mapped = await analyze(input(bizM, userM, accM, unknownTitles, "statement.csv", { amount: 2, description: 1, balance: 3 }));
+  ok("the owner maps the amount: the server checks again and answers READY (2 new, balance chain OK)", mapped.status === "READY" && mapped.counts.new === 2 && mapped.balance.status === "OK", JSON.stringify((mapped as { counts?: unknown }).counts));
+  const bad = await analyze(input(bizM, userM, accM, unknownTitles, "statement.csv", { amount: 3, balance: 3 }));
+  ok("the same column as amount and balance: still MAPPING_REQUIRED, with the problem named", bad.status === "MAPPING_REQUIRED" && bad.problem === "COLUMN_USED_TWICE", JSON.stringify(bad));
+  if (mapped.status === "READY") {
+    ok("a commit with the mapping left incomplete is refused (no token is ever valid for it)",
+      (await errorCode(() => commit(input(bizM, userM, accM, unknownTitles, "statement.csv", { amount: null }), mapped.token))) === "MAPPING_INVALID" && (await lines(bizM)) === before0);
+    const done = await commit(input(bizM, userM, accM, unknownTitles, "statement.csv", { amount: 2, description: 1, balance: 3 }), mapped.token);
+    ok("…with the complete mapping: 2 inserted", done.inserted === 2 && (await lines(bizM)) === before0 + 2);
+  }
+  ok("the mapping screen is never shown for another business's account", (await errorCode(() => analyze(input(bizM, userM, accA, unknownTitles)))) === "ACCOUNT_NOT_FOUND");
+  ok("a file with no table at all: HEADER_NOT_FOUND (not a mapping question)", (await errorCode(() => analyze(input(bizM, userM, accM, utf16([["סתם טקסט"], ["עוד טקסט"]]))))) === "HEADER_NOT_FOUND");
+
   // ── R. The old upload's entry point (old-upload routing PR) ─────────────────────────────────────
   console.log("R. the old upload is closed exactly where bank file import is open");
   ok("the business of the remaining direction (A) is ON: the old upload API refuses it (409) and its screen links to the import",
