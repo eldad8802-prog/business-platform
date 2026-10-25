@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/translate";
-import type { ObligationApi } from "@/lib/obligations/secretary-client";
+import { obligationTitle, type ObligationApi } from "@/lib/obligations/secretary-client";
 
 export type PaidDetails = { amount: string; paidAt: string; method: string };
 
@@ -74,7 +74,7 @@ export function PaidQuestionSheet({
     <div role="dialog" aria-modal="true" aria-labelledby="paid-question-title" style={backdrop}>
       <div style={sheet}>
         <h2 id="paid-question-title" style={title}>
-          {step === "ask" ? t("tasks.secretary.paid.question", { name: obligation.obligeeName }) : t("tasks.secretary.paid.detailsTitle")}
+          {step === "ask" ? t("tasks.secretary.paid.question", { name: obligationTitle(obligation) }) : t("tasks.secretary.paid.detailsTitle")}
         </h2>
 
         {step === "ask" ? (

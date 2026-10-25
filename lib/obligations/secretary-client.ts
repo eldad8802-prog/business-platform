@@ -34,7 +34,21 @@ export interface ObligationApi {
   createdAt: string;
   updatedAt: string;
   /** Present when the secretary reads the payables ledger (Phase 2). */
-  ledger?: { commitmentId: number; installmentId: number; paid: string; remaining: string } | null;
+  ledger?: { commitmentId: number; installmentId: number; paid: string; remaining: string; title?: string } | null;
+}
+
+/**
+ * The name to show for a commitment (25.10.2026): its own title when the ledger sends one, else `obligeeName`
+ * (the legacy store and older answers). Without a linked payee the two are the same.
+ */
+export function obligationTitle(o: Pick<ObligationApi, "obligeeName" | "ledger">): string {
+  return o.ledger?.title?.trim() || o.obligeeName;
+}
+
+/** The linked payee's name — `obligeeName` when it differs from the title — for a second line; else null. */
+export function obligationPayeeName(o: Pick<ObligationApi, "obligeeName" | "ledger">): string | null {
+  const payee = (o.obligeeName ?? "").trim();
+  return payee && payee !== obligationTitle(o).trim() ? payee : null;
 }
 
 export interface BriefingItemApi {

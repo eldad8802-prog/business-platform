@@ -95,6 +95,11 @@ export interface ObligationRecord {
     installmentId: number;
     paid: string;
     remaining: string;
+    /**
+     * The commitment's own name (read only, 25.10.2026). `obligeeName` is the payee snapshot, so with a linked
+     * payee it is the payee's name; the title is what the owner called this commitment.
+     */
+    title: string;
   };
 }
 

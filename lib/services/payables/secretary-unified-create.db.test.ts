@@ -244,6 +244,27 @@ async function main(): Promise<void> {
     eq("history: COMMITMENT_CREATED (as the old form)", laptopShape.audit, ["COMMITMENT_CREATED"]);
     const cost = await deriveBusinessCost({ businessId: A.id, date: "2026-11-10" });
     check("the business cost reads the plan's instalment on its day", JSON.stringify(cost).includes(String(laptop.ledger!.commitmentId)));
+
+    /* ── H ─────────────────────────────────────────────────────────────── */
+    section("H · the commitment's own name is read back (ledger.title, read only)");
+    eq("with a payee: the create answer carries the typed name; obligeeName stays the payee", [lease.ledger!.title, lease.obligeeName], ["ליסינג", "מחשבי הדר"]);
+    const evH = await events(A.id);
+    const printer = await viaSecretary(A.id, userA, (d) =>
+      secretary.recognizeObligation({ businessId: A.id, obligeeName: "מדפסת", amount: "800", dueAt: D("2026-12-05T00:00:00Z"), payeeId: payeeA.id }, d),
+    );
+    eq("a second commitment of the same payee: one event, as every creation", (await events(A.id)) - evH, 1);
+    const [cH, eH] = [await commitmentsOf(A.id), await events(A.id)];
+    const listed = await viaSecretary(A.id, userA, (d) => secretary.listObligations(A.id, d));
+    const byId = (id: number) => listed.find((o) => o.id === id);
+    eq("two commitments of one payee are told apart by their titles", [byId(lease.id)?.ledger?.title, byId(printer.id)?.ledger?.title, byId(lease.id)?.obligeeName, byId(printer.id)?.obligeeName], ["ליסינג", "מדפסת", "מחשבי הדר", "מחשבי הדר"]);
+    eq("no payee: title = obligeeName (one-off and recurring)", [byId(oneOff.id)?.ledger?.title, byId(oneOff.id)?.obligeeName, byId(rent.id)?.ledger?.title, byId(rent.id)?.obligeeName], ["טכנאי", "טכנאי", "בעל הבית", "בעל הבית"]);
+    eq("recurring with a payee", [byId(recP3.id)?.ledger?.title, byId(recP3.id)?.obligeeName], ["תחזוקה", "מחשבי הדר"]);
+    eq("a payment plan", byId(laptop.id)?.ledger?.title, "מחשב נייד");
+    const oldFormRow = listed.find((o) => o.ledger?.commitmentId === recOld.id);
+    eq("an existing commitment made by the old form reads its own title too", [oldFormRow?.ledger?.title, oldFormRow?.obligeeName], ["תחזוקה", "מחשבי הדר"]);
+    const { toObligationApi } = await import("@/lib/services/obligations/obligation-api.serializer");
+    eq("the API answer carries it inside ledger (an added field, nothing renamed)", Object.keys(toObligationApi(printer).ledger ?? {}).sort(), ["commitmentId", "installmentId", "paid", "remaining", "title"]);
+    eq("reading writes nothing (no commitment, no event)", [(await commitmentsOf(A.id)) - cH, (await events(A.id)) - eH], [0, 0]);
   } finally {
     for (const biz of [A, B]) {
       await prisma.business.delete({ where: { id: biz.id } }).catch((e) => console.error("cleanup", biz.id, e instanceof Error ? e.message : e));

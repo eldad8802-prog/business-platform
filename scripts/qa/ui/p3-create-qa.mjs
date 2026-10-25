@@ -228,10 +228,10 @@ for (const vp of VIEWPORTS) {
     await p.getByRole("link", { name: "סיימתי" }).or(p.getByRole("button", { name: "סיימתי" })).first().click().catch(() => {});
     await p.waitForURL(/\/secretary$/, { timeout: 15000 }).catch(() => {});
     check(vp.n, "'סיימתי' → the Secretary", /\/secretary$/.test(route(p)), route(p));
-    // "×" closes back to "נגדיר את ההתחייבויות"
+    // "×" closes back to "נגדיר את ההתחייבויות" — a back step (25.10.2026); opened directly, the categories are its fallback
     await p.goto(`${BASE}/secretary?screen=capture`); await settle(p);
     check(vp.n, "capture: no horizontal scroll", await noHScroll(p));
-    await p.getByRole("link", { name: "סגירת החלונית" }).click().catch(() => {});
+    await p.getByRole("button", { name: "סגירת החלונית" }).click().catch(() => {});
     await p.waitForURL(P3_START, { timeout: 15000 }).catch(() => {});
     check(vp.n, "'×' → נגדיר את ההתחייבויות", P3_START.test(route(p)), route(p));
     await ctx.close();

@@ -43,7 +43,9 @@ async function open(browser, vp) {
       if (req.method() === "POST" && u.pathname === "/api/obligations") {
         const b = JSON.parse(req.postData() || "{}");
         const id = 7000 + state.created.length;
-        const o = { id, obligeeName: b.obligeeName, amount: Number(b.amount).toFixed(2), currency: "ILS", dueAt: b.dueAt, state: "OPEN", source: "MANUAL", recurrence: b.recurrence ?? "NONE", recurrenceSeriesId: null, note: b.note ?? null, followUpAt: null, settlementAssertedBy: null, metAt: null, releasedAt: null, createdAt: FROZEN_NOW, updatedAt: FROZEN_NOW, ledger: { commitmentId: id, installmentId: id, paid: "0.00", remaining: Number(b.amount).toFixed(2) } };
+        // As the ledger answers: with a linked payee obligeeName is the payee's name, ledger.title the typed name.
+        const payeeName = { 41: "מחשבי הדר", 42: "חברת החשמל" }[b.payeeId] ?? null;
+        const o = { id, obligeeName: payeeName ?? b.obligeeName, amount: Number(b.amount).toFixed(2), currency: "ILS", dueAt: b.dueAt, state: "OPEN", source: "MANUAL", recurrence: b.recurrence ?? "NONE", recurrenceSeriesId: null, note: b.note ?? null, followUpAt: null, settlementAssertedBy: null, metAt: null, releasedAt: null, createdAt: FROZEN_NOW, updatedAt: FROZEN_NOW, ledger: { commitmentId: id, installmentId: id, paid: "0.00", remaining: Number(b.amount).toFixed(2), title: b.obligeeName } };
         state.created.push(o);
         state.bodies.push(b);
         return route.fulfill(json(o, 201));
@@ -64,7 +66,7 @@ async function open(browser, vp) {
     // Echo this run's saves where the screens read them.
     if (u.pathname === "/api/obligations") return route.fulfill(json({ obligations: [...state.created, ...body.obligations] }));
     if (u.pathname === "/api/payables/commitments") {
-      const extra = state.created.map((o) => ({ id: o.id, title: o.obligeeName, scheduleKind: "ONE_OFF", total: o.amount, paid: "0.00", remaining: o.amount, next: { id: o.id, sequence: 1, dueAt: o.dueAt, scheduled: o.amount, remaining: o.amount, state: "SCHEDULED" }, attention: "SCHEDULED", isLegacy: false, payeeId: null, payeeNameSnapshot: o.obligeeName, currency: "ILS", status: "ACTIVE", installmentCount: 1 }));
+      const extra = state.created.map((o) => ({ id: o.id, title: o.ledger.title, scheduleKind: "ONE_OFF", total: o.amount, paid: "0.00", remaining: o.amount, next: { id: o.id, sequence: 1, dueAt: o.dueAt, scheduled: o.amount, remaining: o.amount, state: "SCHEDULED" }, attention: "SCHEDULED", isLegacy: false, payeeId: null, payeeNameSnapshot: o.obligeeName, currency: "ILS", status: "ACTIVE", installmentCount: 1 }));
       return route.fulfill(json({ commitments: [...extra, ...body.commitments] }));
     }
     if (body && body.__status) return route.fulfill(json({ error: body.error }, body.__status));
@@ -296,6 +298,109 @@ for (const vp of [{ n: "390", w: 390, h: 844, m: true }, { n: "1440", w: 1440, h
     const ok = new URL(fresh.url()).pathname === "/secretary" && !new URL(fresh.url()).search;
     await fresh.close();
     return { ok };
+  });
+
+  // ── Leaving the creation flow (owner, 25.10.2026): "×" used to link forward to the categories, whose "חזרה" went
+  // back to the form — a loop with the bar hidden. Now "×" steps back, like "חזרה".
+  const toCapture = async () => {
+    await main(p).getByRole("link", { name: "צור התחייבות" }).first().click();
+    await p.waitForURL(/screen=capture$/, { timeout: 15000 }); await settle(p);
+  };
+  const fromSecretaryToCapture = async () => {
+    await p.goto(`${BASE}/secretary`); await settle(p);
+    await main(p).getByRole("link", { name: /הוסף התחייבות/ }).first().click();
+    await p.waitForURL(/screen=bank$/, { timeout: 15000 }); await settle(p);
+    await toCapture();
+  };
+  const close = () => p.getByRole("button", { name: "סגירת החלונית" }).first().click();
+  const back = () => main(p).getByRole("button", { name: "חזרה" }).first().click();
+  const chromeOn = async () => (await p.locator("[data-chrome]").first().getAttribute("data-chrome").catch(() => null)) === "on";
+  const atSecretary = (u) => u.pathname === "/secretary" && !u.search;
+  await step("nav: Secretary → \"צור התחייבות\" → \"×\" → the categories → \"חזרה\" → the Secretary, bar back (no loop)", async () => {
+    await fromSecretaryToCapture();
+    const h0 = await p.evaluate(() => history.length);
+    await close(); await p.waitForURL(/screen=bank$/, { timeout: 15000 }); await settle(p);
+    await back(); await p.waitForURL(atSecretary, { timeout: 15000 }); await settle(p);
+    const h1 = await p.evaluate(() => history.length);
+    return { ok: (await chromeOn()) && h1 <= h0, landed: path0(p.url()) };
+  });
+  await step("nav: a half-filled form — \"×\" saves nothing; \"צור התחייבות\" again opens an empty form", async () => {
+    const w0 = state.writes.length;
+    await fromSecretaryToCapture();
+    const f = p.locator("form").first();
+    await f.locator("input").first().fill("טיוטה");
+    await f.locator("input[inputmode=decimal]").first().fill("99");
+    await close(); await p.waitForURL(/screen=bank$/, { timeout: 15000 }); await settle(p);
+    const nothingSaved = state.writes.length === w0;
+    await toCapture();
+    const empty = (await p.locator("form input").first().inputValue()) === "" && (await p.locator("form input[inputmode=decimal]").first().inputValue()) === "";
+    return { ok: nothingSaved && empty };
+  });
+  await step("nav: browser back from the form → categories → Secretary; forward shows the categories, never a blank", async () => {
+    await fromSecretaryToCapture();
+    await p.goBack(); await p.waitForURL(/screen=bank$/, { timeout: 15000 }); await settle(p);
+    await p.goBack(); await p.waitForURL(atSecretary, { timeout: 15000 }); await settle(p);
+    const bar = await chromeOn();
+    await p.goForward(); await p.waitForURL(/screen=bank$/, { timeout: 15000 }); await settle(p);
+    const shown = (await main(p).getByRole("link", { name: "צור התחייבות" }).count()) > 0;
+    return { ok: bar && shown, landed: path0(p.url()) };
+  });
+  await step("nav: after a save \"הוסף עוד\" → \"×\" → categories → \"חזרה\" → the Secretary", async () => {
+    await fromSecretaryToCapture();
+    const f = p.locator("form").first();
+    await f.locator("input").first().fill("ניקיון");
+    await f.locator("input[inputmode=decimal]").first().fill("150");
+    await f.locator("input[type=date]").first().fill("2026-11-18");
+    await f.locator("button[type=submit]").click(); await p.waitForTimeout(1500);
+    await main(p).getByRole("button", { name: "הוסף עוד" }).click(); await p.waitForTimeout(800);
+    const emptyAgain = (await p.locator("form input").first().inputValue()) === "";
+    await close(); await p.waitForURL(/screen=bank$/, { timeout: 15000 }); await settle(p);
+    await back(); await p.waitForURL(atSecretary, { timeout: 15000 }); await settle(p);
+    return { ok: emptyAgain && (await chromeOn()), landed: path0(p.url()) };
+  });
+  for (const entry of [
+    { name: "Home", start: "/app", home: (u) => u.pathname === "/app", open: async () => {
+      if (vp.w >= 1200) await p.getByRole("link", { name: /התחייבות חדשה/ }).first().click();
+      else {
+        await p.getByRole("button", { name: "פעולה חדשה" }).locator("visible=true").first().click();
+        await p.getByRole("dialog", { name: "פעולות מהירות" }).getByRole("button", { name: "התחייבות חדשה" }).click();
+      }
+    } },
+    { name: "the commitments screen", start: "/payables", home: (u) => u.pathname === "/payables", open: () => main(p).getByRole("link", { name: "התחייבות חדשה" }).first().click() },
+  ]) {
+    await step(`nav: from ${entry.name} → \"צור התחייבות\" → \"×\" → \"חזרה\" returns there`, async () => {
+      await p.goto(`${BASE}${entry.start}`); await settle(p);
+      await entry.open();
+      await p.waitForURL(/screen=bank$/, { timeout: 15000 }); await settle(p);
+      await toCapture();
+      await close(); await p.waitForURL(/screen=bank$/, { timeout: 15000 }); await settle(p);
+      await back(); await p.waitForURL(entry.home, { timeout: 15000 }); await settle(p);
+      return { ok: await chromeOn(), landed: path0(p.url()) };
+    });
+  }
+  // ── The commitment's own name (owner, 25.10.2026): two commitments of one payee are told apart by their titles.
+  await step("names: a 2nd commitment of the same payee — \"מצוין\" names it; the list shows both titles and the payee", async () => {
+    await p.goto(`${BASE}/secretary?screen=capture`); await settle(p);
+    const f = p.locator("form").first();
+    await f.locator("input").first().fill("מדפסת");
+    await f.getByRole("combobox").fill("מחשבי");
+    await p.getByRole("option", { name: /מחשבי הדר/ }).first().click();
+    await f.locator("input[inputmode=decimal]").first().fill("800");
+    await f.locator("input[type=date]").first().fill("2026-12-05");
+    await f.locator("button[type=submit]").click(); await p.waitForTimeout(1500);
+    const result = await text(p);
+    const resultNamesIt = result.includes("מדפסת");
+    await p.goto(`${BASE}/secretary?screen=all`); await settle(p);
+    const list = await text(p);
+    const both = list.includes("מחשב נייד") && list.includes("מדפסת") && list.includes("מחשבי הדר");
+    const plain = list.includes("שכירות") && list.includes("ועד בית");
+    return { ok: resultNamesIt && both && plain };
+  });
+  await step("names: the detail screen leads with the title; \"למי\" is the payee", async () => {
+    const printer = state.created.find((o) => o.ledger.title === "מדפסת");
+    await p.goto(`${BASE}/secretary?screen=detail&id=${printer.id}`); await settle(p);
+    const t = await text(p);
+    return { ok: t.includes("מדפסת") && t.includes("מחשבי הדר") };
   });
 
   const writesOther = state.writes.filter((w) => w !== "POST /api/obligations" && w !== "POST /api/tasks/sync");

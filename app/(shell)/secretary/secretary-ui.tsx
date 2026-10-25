@@ -17,6 +17,7 @@ import type {
 } from "@/lib/obligations/secretary-client";
 import { formatObligationTotals, obligationTotalsByCurrency } from "./obligation-totals";
 import { findCategoryObligation, INSURANCE, NATIONAL_INSURANCE } from "./secretary-bank-categories";
+import { obligationPayeeName, obligationTitle } from "@/lib/obligations/secretary-client";
 import { PayeeField } from "../payables/payee-field";
 import { PAYABLES_THEME } from "../payables/payables-theme";
 import { fromMinorUnits, generateInstallmentPlan, toMinorUnits } from "@/lib/services/payables/payables-core";
@@ -893,7 +894,7 @@ function toInputDate(date: Date): string {
 }
 
 function emojiForObligation(item: ObligationApi): string {
-  const text = (item.obligeeName + " " + (item.note ?? "")).toLowerCase();
+  const text = (obligationTitle(item) + " " + item.obligeeName + " " + (item.note ?? "")).toLowerCase();
   if (text.includes("שכירות") || text.includes("שכר דירה") || text.includes("משכיר")) return "🏠";
   if (text.includes("ספק") || text.includes("אריז") || text.includes("קופס") || text.includes("קרטון")) return "📦";
   if (text.includes("ריהוט") || text.includes("עץ") || text.includes("עיצוב")) return "🛋️";
@@ -910,13 +911,19 @@ function emojiForObligation(item: ObligationApi): string {
   return "💼";
 }
 
+/** "מחשבי הדר · 20 בנובמבר" — the linked payee before a commitment's second line (when it is not the title). */
+function withPayee(item: ObligationApi, line: string): string {
+  const payee = obligationPayeeName(item);
+  return payee ? payee + " · " + line : line;
+}
+
 function cardFromObligation(item: ObligationApi, f: Fmt): ObligationCard {
   return {
     id: item.id,
     emoji: emojiForObligation(item),
-    title: displayName(item.obligeeName, f.t),
+    title: displayName(obligationTitle(item), f.t),
     amount: formatMoneyValue(item.amount, item.currency, f),
-    meta: obligationMeta(item, f),
+    meta: withPayee(item, obligationMeta(item, f)),
     tone: obligationTone(item),
   };
 }
@@ -1171,8 +1178,8 @@ function TimelineItem({ item, selected, onSelect }: { item: ObligationApi; selec
     >
       <span className={styles.timelineEmoji}>{emojiForObligation(item)}</span>
       <span className={styles.timelineBody}>
-        <strong>{item.obligeeName}</strong>
-        <span>{done ? f.t("tasks.secretary.handledOn", { date: formatDateValue(item.metAt ?? item.updatedAt, f) }) : <><StatusPill tone={tone}>{shortDueLabel(item, f)}</StatusPill>{recurrenceText(item.recurrence, f.t)}</>}</span>
+        <strong>{obligationTitle(item)}</strong>
+        <span>{obligationPayeeName(item) ? <>{obligationPayeeName(item)} · </> : null}{done ? f.t("tasks.secretary.handledOn", { date: formatDateValue(item.metAt ?? item.updatedAt, f) }) : <><StatusPill tone={tone}>{shortDueLabel(item, f)}</StatusPill>{recurrenceText(item.recurrence, f.t)}</>}</span>
       </span>
       <b>{formatMoneyValue(item.amount, item.currency, f)}</b>
     </button>
@@ -1261,7 +1268,7 @@ function DetailMemoryCard({ obligation }: { obligation: ObligationApi }) {
   const { t } = f;
   return (
     <section className={styles.memoryDetailCard} aria-label={t("tasks.secretary.memory.aria")}>
-      <div className={styles.memoryDetailRow}><span>{emojiForObligation(obligation)}</span><small>{t("tasks.secretary.memory.who")}</small><strong>{displayName(obligation.obligeeName, t)}</strong></div>
+      <div className={styles.memoryDetailRow}><span>{emojiForObligation(obligation)}</span><small>{t("tasks.secretary.memory.who")}</small><strong>{displayName(obligationPayeeName(obligation) ?? obligationTitle(obligation), t)}</strong></div>
       <div className={styles.memoryDetailRow}><span>💰</span><small>{t("tasks.secretary.memory.howMuch")}</small><strong>{formatMoneyValue(obligation.amount, obligation.currency, f)}</strong></div>
       <div className={styles.memoryDetailRow}><span>📅</span><small>{t("tasks.secretary.memory.when")}</small><strong>{formatDateValue(obligation.dueAt, f)}</strong></div>
       <div className={styles.memoryDetailRow}><span>🔄</span><small>{t("tasks.secretary.memory.recurrence")}</small><strong>{recurrenceText(obligation.recurrence, t)}</strong></div>
@@ -1333,7 +1340,7 @@ function DetailScreen({ obligation, obligations, onComplete, onRelease }: { obli
   const [busy, setBusy] = useState(false);
   async function run(action?: FlowAction) { if (!obligation || !action || busy) return; setBusy(true); try { await action(obligation.id); } finally { setBusy(false); } }
   if (!obligation) return <SecretaryScreen title={t("tasks.secretary.detail.title")} backHref={screenHref("all")}><EmptyMemory title={t("tasks.secretary.detail.emptyTitle")} body={t("tasks.secretary.detail.emptyBody")} /><PrimaryLink href={screenHref("capture")}>{t("tasks.secretary.detail.handOverFirst")}</PrimaryLink></SecretaryScreen>;
-  const name = displayName(obligation.obligeeName, t);
+  const name = displayName(obligationTitle(obligation), t);
   const tone = obligation.state === "MET" ? "calm" : isInstallmentObligation(obligation) ? "purple" : obligationTone(obligation);
   const isMet = obligation.state === "MET";
   const isInstallment = isInstallmentObligation(obligation);
@@ -1430,6 +1437,13 @@ function CaptureScreen({ obligations, onCreate, prefillName }: { obligations: Ob
    * creation is unchanged; saving is unchanged.
    */
   const leaveFlow = useGoBack("/secretary");
+  /**
+   * "×" closes the sheet by going BACK one step (owner, 25.10.2026) — to the categories, or wherever the form was
+   * opened from — exactly like "חזרה". It used to be a link to the categories, a new history entry: their
+   * "חזרה" then went back to this form, and the two screens looped with no way out (the bar is hidden here).
+   * Arriving directly (no earlier step in this tab), it opens the categories. Nothing is saved on close.
+   */
+  const closeSheet = useGoBack(screenHref("bank"));
   function finishCreated() {
     consumeFlowEntries((u) => {
       const url = new URL(u, window.location.origin);
@@ -1552,7 +1566,7 @@ function CaptureScreen({ obligations, onCreate, prefillName }: { obligations: Ob
       <div className={styles.captureDim} aria-hidden="true" />
       <section className={styles.captureSheet} aria-label={t("tasks.secretary.capture.newAria")}>
         <div className={styles.sheetGrip} />
-        <Link href={screenHref("bank")} className={styles.captureClose} aria-label={t("tasks.secretary.capture.closeAria")}>×</Link>
+        <button type="button" onClick={closeSheet} className={styles.captureClose} aria-label={t("tasks.secretary.capture.closeAria")}>×</button>
         {taskMode ? (
           taskSaved ? (
             <section style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
@@ -1990,7 +2004,7 @@ function nextOccurrenceLabel(iso: string, cadence: RecurrenceCadence, f: Fmt): s
 function LoopResult({ mode, obligation, createdNote, onAddMore, onDone }: { mode: "met" | "snooze" | "release" | "created"; obligation: ObligationApi | null; createdNote?: string; onAddMore?: () => void; onDone?: () => void }) {
   const f = useFmt();
   const { t } = f;
-  const name = obligation ? displayName(obligation.obligeeName, t) : t("tasks.secretary.loop.theObligation");
+  const name = obligation ? displayName(obligationTitle(obligation), t) : t("tasks.secretary.loop.theObligation");
   const amount = obligation ? formatMoneyValue(obligation.amount, obligation.currency, f) : "";
   // "created" says what Dubiz really does (no reminder is sent): the due date, and when it rises in the Secretary.
   const dueDate = obligation ? formatDateValue(obligation.dueAt, f) : "";
@@ -2074,7 +2088,7 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
         <Say>{t("tasks.secretary.remind.say")}</Say>
         <section className={styles.contextCard}>
           <span>{emojiForObligation(obligation)}</span>
-          <div><strong>{displayName(obligation.obligeeName, t)}</strong><small>{t("tasks.secretary.detail.payOn", { date: formatDateValue(obligation.dueAt, f) })}</small></div>
+          <div><strong>{displayName(obligationTitle(obligation), t)}</strong><small>{withPayee(obligation, t("tasks.secretary.detail.payOn", { date: formatDateValue(obligation.dueAt, f) }))}</small></div>
           <b>{formatMoneyValue(obligation.amount, obligation.currency, f)}</b>
         </section>
         <div className={styles.remindOptions}>
@@ -2121,7 +2135,7 @@ function NotifyScreen({ obligations }: { obligations: ObligationApi[] }) {
   const [morning, setMorning] = useState(true);
   const [quiet, setQuiet] = useState(false);
   const sample = obligations[0] ?? null;
-  return <SecretaryScreen title={t("tasks.secretary.notify.title")} backHref="/secretary"><section className={styles.notifyLock}><div className={styles.lockTime}>09:41</div><div className={styles.notificationCard}><span><PersonIcon /></span><div><strong>{t("tasks.secretary.yourSecretary")}</strong><p>{sample ? t("tasks.secretary.notify.sample", { name: sample.obligeeName }) : t("tasks.secretary.notify.noSample")}</p></div></div><div className={styles.notificationCardFaded} /></section><Say>{t("tasks.secretary.notify.say")}</Say><section className={styles.settingsGroup}><SettingRow title={t("tasks.secretary.notify.enabledTitle")} detail={t("tasks.secretary.notify.enabledDetail")} on={enabled} onClick={() => setEnabled((value) => !value)} /><SettingRow title={t("tasks.secretary.notify.morningTitle")} detail={t("tasks.secretary.notify.morningDetail")} on={morning} onClick={() => setMorning((value) => !value)} /><SettingRow title={t("tasks.secretary.notify.quietTitle")} detail={t("tasks.secretary.notify.quietDetail")} on={quiet} onClick={() => setQuiet((value) => !value)} /></section><section className={styles.feedCard}><div className={styles.smallTitle}>{t("tasks.secretary.notify.feedTitle")}</div>{obligations.slice(0, 3).map((item) => <div className={styles.feedRow} key={item.id}><span>{emojiForObligation(item)}</span><div><strong>{item.obligeeName}</strong><em>{t("tasks.secretary.notify.remindBefore", { date: formatDateValue(item.dueAt, f) })}</em></div><small>{t("tasks.secretary.notify.inTime")}</small></div>)}{obligations.length === 0 ? <p className={styles.emptyText}>{t("tasks.secretary.notify.empty")}</p> : null}</section></SecretaryScreen>;
+  return <SecretaryScreen title={t("tasks.secretary.notify.title")} backHref="/secretary"><section className={styles.notifyLock}><div className={styles.lockTime}>09:41</div><div className={styles.notificationCard}><span><PersonIcon /></span><div><strong>{t("tasks.secretary.yourSecretary")}</strong><p>{sample ? t("tasks.secretary.notify.sample", { name: obligationTitle(sample) }) : t("tasks.secretary.notify.noSample")}</p></div></div><div className={styles.notificationCardFaded} /></section><Say>{t("tasks.secretary.notify.say")}</Say><section className={styles.settingsGroup}><SettingRow title={t("tasks.secretary.notify.enabledTitle")} detail={t("tasks.secretary.notify.enabledDetail")} on={enabled} onClick={() => setEnabled((value) => !value)} /><SettingRow title={t("tasks.secretary.notify.morningTitle")} detail={t("tasks.secretary.notify.morningDetail")} on={morning} onClick={() => setMorning((value) => !value)} /><SettingRow title={t("tasks.secretary.notify.quietTitle")} detail={t("tasks.secretary.notify.quietDetail")} on={quiet} onClick={() => setQuiet((value) => !value)} /></section><section className={styles.feedCard}><div className={styles.smallTitle}>{t("tasks.secretary.notify.feedTitle")}</div>{obligations.slice(0, 3).map((item) => <div className={styles.feedRow} key={item.id}><span>{emojiForObligation(item)}</span><div><strong>{obligationTitle(item)}</strong><em>{t("tasks.secretary.notify.remindBefore", { date: formatDateValue(item.dueAt, f) })}</em></div><small>{t("tasks.secretary.notify.inTime")}</small></div>)}{obligations.length === 0 ? <p className={styles.emptyText}>{t("tasks.secretary.notify.empty")}</p> : null}</section></SecretaryScreen>;
 }
 
 function Horizon({ title, subtitle, count }: { title: string; subtitle: string; count: string }) { return <div className={styles.horizon}><EyeIcon /><span><strong>{title}</strong><em>{subtitle}</em></span><b>{count}</b></div>; }

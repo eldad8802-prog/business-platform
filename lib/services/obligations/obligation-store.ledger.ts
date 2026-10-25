@@ -152,6 +152,7 @@ export function toObligationRecord(row: Row, now: Date = new Date()): Obligation
       installmentId: row.id,
       paid: fromMinorUnits(balance.paidMinor),
       remaining: fromMinorUnits(Math.max(0, balance.remainingMinor)),
+      title: row.commitment.title,
     },
   };
 }
