@@ -472,6 +472,18 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "auth_email_token_runtime_delete", command: "DELETE", roles: ["app_runtime"], using: TENANT },
     ],
   },
+  // Google identity links. Stage 2 deletes the erased business's rows through the tenant plane's DELETE
+  // policy — the one consumer CI-AD-13 registers for it. The auth plane holds nothing on the table (it
+  // reaches it only through SECURITY DEFINER functions), so no other policy exists to reproduce.
+  {
+    table: "UserIdentity",
+    migration: "20261030090000_oauth_identity_foundation",
+    why: "stage 2 deletes the owner's Google identity links under a tenant context",
+    policies: [
+      { name: "user_identity_runtime_select", command: "SELECT", roles: ["app_runtime"], using: TENANT },
+      { name: "user_identity_runtime_delete", command: "DELETE", roles: ["app_runtime"], using: TENANT },
+    ],
+  },
   // Daily Tasks — migration 20261018090000_daily_tasks_foundation. Account erasure (stage 2) blanks the text
   // of the business's tasks and series in place (UPDATE: rows and history stay), deletes its request
   // fingerprints (the one runtime DELETE policy on the task tables), and nulls the journal's actor and digest
@@ -763,6 +775,11 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
     verbs: ["DELETE"],
     basis: "migration 20261017090000_auth_email_tokens: DELETE + SELECT (id, businessId) only",
   },
+  // Same shape: DELETE at table level, SELECT ("id", "businessId") at column level.
+  UserIdentity: {
+    verbs: ["DELETE"],
+    basis: "migration 20261030090000_oauth_identity_foundation: DELETE + SELECT (id, businessId) only",
+  },
   Task: { verbs: SIU, basis: "migration 20261018090000_daily_tasks_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
   TaskSeries: { verbs: SIU, basis: "migration 20261018090000_daily_tasks_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
   PushSubscription: { verbs: SIU, basis: "migration 20261022090000_task_reminders_push grants SELECT, INSERT, UPDATE — no DELETE" },
@@ -786,7 +803,7 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
 export const EXPECTED_RUNTIME_SEQUENCE_PRIVILEGES = ["SELECT", "USAGE"];
 
 /** Sequences the runtime holds NOTHING on in Production (it never inserts into their table). */
-export const RUNTIME_SEQUENCES_WITHOUT_PRIVILEGES = ["TransactionalEmail_id_seq"];
+export const RUNTIME_SEQUENCES_WITHOUT_PRIVILEGES = ["TransactionalEmail_id_seq", "UserIdentity_id_seq"];
 
 /**
  * SEC-F (migration 20260926140000) — the row-level-security state that migration

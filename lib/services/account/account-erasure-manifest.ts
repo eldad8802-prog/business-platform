@@ -258,6 +258,9 @@ export const DELETE_MODELS = [
   // Single-use account links (hash + the address each was sent to). Deleted under
   // the tenant context through its tenant-scoped policy, like transactionalEmail.
   "authEmailToken",
+  // Google identity links (the subject + the address it was linked with). Deleted under the tenant context
+  // through its tenant-scoped policy, like authEmailToken.
+  "userIdentity",
   // Daily Tasks request fingerprints (HMAC of a request that may have carried a title). Deleted under the
   // tenant context through its tenant-scoped DELETE policy (task_request_ledger_runtime_delete).
   "taskRequestLedger",

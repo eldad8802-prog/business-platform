@@ -460,7 +460,9 @@ export const INFRASTRUCTURE = {
     // Transactional email (WELCOME): account mail delivery, not business learning evidence.
     "TransactionalEmail",
     // Single-use account links (email verification / password reset): authentication, not business evidence.
-    "AuthEmailToken"],
+    "AuthEmailToken",
+    // "Continue with Google" (identity link + single-use signup ticket): authentication, not business evidence.
+    "UserIdentity", "OAuthSignupTicket"],
   routes: ["api/account", "api/audit", "api/auth", "api/dev", "api/health", "api/platform-admin", "api/security", "api/settings",
     "api/transactional-email",
     // Interface-language preference (dz_locale cookie): presentation configuration, not business evidence.

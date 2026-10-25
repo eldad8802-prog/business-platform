@@ -186,7 +186,12 @@ export async function POST(req: Request) {
       return failedSignIn(null);
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    // An account opened with Google has no password (User.password is NULL) until its owner sets one
+    // through the reset link. Typing a password for it is answered exactly like a wrong password: the
+    // same bcrypt work (against the equaliser, which matches nothing), the same counted failure, the
+    // same 401 — so the answer says nothing about how the account was opened.
+    const isPasswordValid =
+      (await bcrypt.compare(password, user.password ?? TIMING_EQUALISER_HASH)) && user.password !== null;
 
     if (!isPasswordValid) {
       return failedSignIn(user.businessId);

@@ -34,6 +34,12 @@ on:
       - ".agl/**"
       - ".aet/lab.sh"
       - ".github/workflows/oauth-identity-lab.yml"
+      - "lib/auth/google-id-token*.ts"
+      - "lib/auth/oauth-ticket*.ts"
+      - "lib/auth/google-sign-in-policy.ts"
+      - "app/api/auth/login/route.ts"
+      - "prisma/schema.prisma"
+      - "package-lock.json"
   workflow_dispatch:
 
 permissions:
@@ -108,6 +114,12 @@ jobs:
           done
           echo "the migration names only UserIdentity, OAuthSignupTicket, User and Business; no other migration names its objects"
 
+      - name: P. Pure suites — ID token verification (T23–T31), ticket secret + static scope + sign-in policy
+        run: |
+          set -euo pipefail
+          npx tsx lib/auth/google-id-token.test.ts
+          npx tsx lib/auth/oauth-ticket.test.ts
+
       - name: 1. Baseline (pending) — PREFLIGHT passes all but 4 (lab topology); the proof refuses
         run: |
           set -euo pipefail
@@ -140,6 +152,19 @@ jobs:
           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_post" \
           AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/agl_post" \
             npx tsx .agl/battery.ts
+
+      - name: 3b. App battery — the real modules, the real login route, ten concurrent completions (T1–T4, T11, T14, T32, T33, T37)
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh agl_app --with-agl >/dev/null
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_app"
+          OWNER_URL="$U" DIRECT_URL="$U" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_app" \
+          AUTH_DATABASE_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/agl_app?connection_limit=12&pool_timeout=60" \
+          AUTH_PLANE_ENABLED=true \
+          AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
+          RATE_LIMIT_BACKEND=memory \
+            npx tsx .agl/app-battery.ts
 
       - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
         run: |

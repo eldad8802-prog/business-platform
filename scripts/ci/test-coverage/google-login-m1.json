@@ -1,0 +1,15 @@
+{
+  "note": "feat/google-login-m1-app (PR-B): \"Continue with Google\" milestone 1 on top of migration 20261030090000_oauth_identity_foundation — ID token verification, single-use signup tickets, the Google sign-in policy and the optional password. No route, no UI, flag off.",
+  "tests": {
+    "lib/auth/google-id-token.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network), real RS256 signatures against a local JWKS: forged (unknown kid / Google's kid), altered after signing, alg none and HS256 with the client secret, expired beyond the 60 s tolerance / iat and nbf in the future / older than an hour, another client's audience (our Gmail client included) and azp mismatch, another issuer, missing or foreign nonce, email_verified false / missing / string — each refused with its reason; a valid token yields the subject and the folded address; key set unreachable never accepts; static: RS256 only, jwtVerify always, nothing logged, no DB; run by security-gate (pure lab) and oauth-identity-lab.yml"
+    },
+    "lib/auth/oauth-ticket.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): ticket secret is 32 random bytes base64url and its hash equals the database's sha256; a value that cannot be a ticket never reaches the database; static scope — only the six SECURITY DEFINER functions, never a table, SIGNUP only, tagged $queryRaw only, nothing logged, no route imports the Google modules in milestone 1; the Google sign-in policy refuses a platform admin and a business in deletion; the password login route answers a missing password like a wrong one and does not use the Google policy (F-1 separate); run by security-gate (pure lab) and oauth-identity-lab.yml"
+    }
+  }
+}

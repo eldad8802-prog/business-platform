@@ -171,6 +171,8 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   TransactionalEmail: { disposition: "ERASURE_MANAGED" },
   // Deleted by account erasure stage 2 (DELETE_MODELS) through its tenant-scoped DELETE policy.
   AuthEmailToken: { disposition: "ERASURE_MANAGED" },
+  // Deleted by account erasure stage 2 (DELETE_MODELS) through its tenant-scoped DELETE policy.
+  UserIdentity: { disposition: "ERASURE_MANAGED" },
   // C12-E1. Moved out of UNMANAGED_PERSONAL_DATA because the adapter now clears
   // their one free-text column each, not because the finding was inconvenient:
   // every other column on both models carries an explicit disposition in
@@ -565,6 +567,7 @@ const internal = (reason: string): ModelCoverage => ({ disposition: "SYSTEM_INTE
 
 const INTERNAL: Record<string, ModelCoverage> = {
   PlatformAdminMfa: internal("platform-admin MFA secret; belongs to the operator, not to a tenant"),
+  OAuthSignupTicket: internal("auth plane: a single-use Google signup ticket for a person who has NO account yet (address + name from Google, sha256 of the secret); belongs to no business, no role but the migration role reads it, it lives at most 30 minutes and auth_oauth_ticket_purge removes it once expired; a spent ticket names its user only until then (SET NULL with the User row)"),
   PlatformAdminPasskey: internal("platform-admin passkey public keys (WebAuthn); belong to the operator, not to a tenant; cascade with the User row"),
   PlatformAuditEvent: internal("platform-operator audit trail"),
   PlatformFeatureDefinition: internal("the catalogue of feature flags"),

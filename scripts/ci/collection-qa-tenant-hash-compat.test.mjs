@@ -53,7 +53,8 @@ ok(
 );
 ok(
   "login verifies with bcrypt.compare against the stored column",
-  /bcrypt\.compare\(password, user\.password\)/.test(loginSource)
+  // An account with no password (opened with Google) compares against the equaliser and is refused.
+  /bcrypt\.compare\(password, user\.password \?\? TIMING_EQUALISER_HASH\)\) && user\.password !== null/.test(loginSource)
 );
 ok(
   "login resolves the account by the folded address",
