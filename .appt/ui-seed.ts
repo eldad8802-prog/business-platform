@@ -39,8 +39,11 @@ async function main() {
   const yossi = await cust("יוסי כהן", "0522222222");
   const maya = await cust("מאיה פרץ", "0523333333");
   const ron = await cust("רון אברהם", "0524444444");
-  await owner.lead.create({ data: { businessId: bizA, customerId: ron, customerName: "רון אברהם", phone: "0524444444", status: "OPEN" } });
+  // Ron's open lead has no phone and another name: only the customer link finds it (GET /api/leads?customerId=).
+  await owner.lead.create({ data: { businessId: bizA, customerId: ron, customerName: "ר. א.", status: "OPEN" } });
   await owner.customer.create({ data: { businessId: bizB, name: "לקוח של עסק אחר", phone: "0529999999" } });
+  // 120 newer customers: the demo customers are outside any "recent 100" list — names come with the appointments.
+  await owner.customer.createMany({ data: Array.from({ length: 120 }, (_, i) => ({ businessId: bizA, name: `לקוח מילוי ${i + 1}` })) });
 
   const principal = { kind: "OWNER" as const, businessId: bizA, userId: userA };
   const shira = (await config.createStaff(principal, { displayName: "שירה", color: "#2f6fb5" })).id;

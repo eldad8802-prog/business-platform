@@ -83,7 +83,7 @@ export function AppointmentDetails({
 
   const a = data.appointment;
   const actions = actionsFor(a);
-  const customer = a.customerId !== null ? names.customers.get(a.customerId) : undefined;
+  const customer = a.customerName ?? (a.customerId !== null ? names.customers.get(a.customerId) : undefined);
   const service = a.businessServiceId !== null ? names.services.get(a.businessServiceId) : undefined;
   const staff = a.staffMemberId !== null ? names.staff.get(a.staffMemberId) : undefined;
   const minutes = durationOf(a);

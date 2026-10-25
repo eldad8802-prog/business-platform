@@ -198,6 +198,27 @@ async function main() {
     await dlg.getByRole("button", { name: "ביטול" }).last().click();
   });
 
+  await check("D16 a new service in the catalog, its length edited, and the calendar books with the new length", async () => {
+    await p.goto("/calendar/services");
+    await p.getByRole("button", { name: "+ שירות חדש" }).first().click();
+    await p.getByLabel("שם השירות", { exact: true }).first().fill("פן");
+    await p.getByLabel("משך (דקות)", { exact: true }).first().fill("40");
+    await p.getByRole("button", { name: "הוספת השירות" }).click();
+    await seen(p, "השירות נוסף");
+    await p.getByRole("button", { name: /^פן/ }).first().click();
+    const card = p.getByRole("region", { name: "פרטי השירות" });
+    await card.getByLabel("משך (דקות)", { exact: true }).fill("50");
+    await card.getByRole("button", { name: "שמירה" }).click();
+    await seen(p, "השירות עודכן");
+    await shot(p, "17-desktop-service-edit");
+    await p.goto(`/calendar?view=day&day=${seed.today}`);
+    await p.getByRole("button", { name: "תור חדש" }).first().click();
+    const dlg = p.getByRole("dialog");
+    await dlg.getByLabel("שירות", { exact: true }).selectOption({ label: "פן · 50 דק׳" });
+    if ((await dlg.getByLabel("משך (דק׳)", { exact: true }).inputValue()) !== "50") throw new Error("the form did not take the edited length");
+    await dlg.getByRole("button", { name: "ביטול" }).last().click();
+  });
+
   await check("D15 the forms enforce the server's text limits, in Hebrew", async () => {
     await p.getByRole("button", { name: "תור חדש" }).first().click();
     const dlg = p.getByRole("dialog");

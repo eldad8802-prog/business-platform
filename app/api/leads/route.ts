@@ -104,7 +104,7 @@ function toListRow(
 
 /**
  * Leads Inbox list / search.
- * GET ?q= &status= &source= &needsAction=true &limit= &cursorId=
+ * GET ?q= &status= &source= &needsAction=true &limit= &cursorId= &customerId=
  *
  * Defaults to OPEN leads: the inbox is a work queue, not an archive.
  */
@@ -133,6 +133,7 @@ export async function GET(req: NextRequest) {
               needsAction: searchParams.get("needsAction") === "true",
               limit: parseIntParam(searchParams.get("limit"), "limit"),
               cursorId: parseIntParam(searchParams.get("cursorId"), "cursorId"),
+              customerId: parseIntParam(searchParams.get("customerId"), "customerId"),
               now,
             },
             { tx }
@@ -154,6 +155,7 @@ export async function GET(req: NextRequest) {
                   businessId: user.businessId,
                   query: searchParams.get("q"),
                   sourceChannel: searchParams.get("source"),
+                  customerId: parseIntParam(searchParams.get("customerId"), "customerId"),
                   now,
                 },
                 { tx }

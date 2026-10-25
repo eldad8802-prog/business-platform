@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * "שירותים" (/calendar/services) — how each catalog service sits on the calendar (Appointments milestone B):
- * the gap before and after it, the step free times are offered in, how soon and how far ahead it may be booked,
- * and who performs it. The service itself (its name, price and length) is the catalog's; it is shown here, not
- * edited. Whether a service is open to external booking and how requests are approved belong to milestone D and are
- * not shown.
+ * "שירותים" (/calendar/services) — the catalog's services as the calendar uses them (Appointments milestone B):
+ * add a service, edit its name and length (the catalog's own POST and PATCH /api/business/services — no second
+ * service list), the gap before and after it, the step free times are offered in, how soon and how far ahead it may
+ * be booked, and who performs it. A price is set when a service is added and is not edited here. Whether a service
+ * is open to external booking and how requests are approved belong to milestone D and are not shown.
  */
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -15,16 +15,18 @@ import t from "@/features/tasks/tasks.module.css";
 
 import {
   CalendarApiError,
+  createService,
   forgetIntent,
   getPolicy,
   listServices,
   listStaff,
   savePolicy,
   setStaffServices,
+  updateService,
   type PolicyWire,
   type ServiceWire,
 } from "./calendar-client";
-import { durationLabel, errorText, type StaffWire } from "./calendar-model";
+import { durationLabel, errorText, LIMITS, textProblem, type StaffWire } from "./calendar-model";
 import s from "./calendar.module.css";
 
 export function ServicesScreen() {
@@ -32,6 +34,7 @@ export function ServicesScreen() {
   const [services, setServices] = useState<ServiceWire[] | null>(null);
   const [staff, setStaff] = useState<StaffWire[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [stamp, setStamp] = useState(0);
 
@@ -64,13 +67,24 @@ export function ServicesScreen() {
       <header className={s.top}>
         <h1 className={s.title}>שירותים ביומן</h1>
         <span className={s.grow} />
+        <button type="button" className={`${t.btn} ${t.pri}`} onClick={() => setAdding(true)}>+ שירות חדש</button>
         <Link href="/calendar" prefetch={false} className={`${t.btn} ${t.ghost}`}>חזרה ליומן</Link>
       </header>
-      <p className={s.note}>כאן קובעים איך כל שירות נכנס ליומן: מרווחים, באילו קפיצות מוצעות שעות, ומי מבצע. שם השירות, המחיר והמשך מגיעים מקטלוג השירותים של העסק.</p>
+      <p className={s.note}>אלה השירותים של העסק — אותו קטלוג שמשמש את כל דוביז. כאן מוסיפים שירות, משנים שם ומשך, וקובעים איך הוא נכנס ליומן: מרווחים, באילו קפיצות מוצעות שעות ומי מבצע.</p>
+      {adding ? (
+        <NewService
+          onCancel={() => setAdding(false)}
+          onCreated={(svc) => { setAdding(false); setSelected(svc.id); setStamp((x) => x + 1); flash("השירות נוסף"); }}
+        />
+      ) : null}
 
       {services === null ? <p className={t.hint}>טוען…</p> : null}
-      {services && !services.length ? (
-        <section className={s.empty}><h2>אין עדיין שירותים בקטלוג</h2><span>אפשר לקבוע תורים גם בלי שירות, עם משך שבוחרים בכל תור.</span></section>
+      {services && !services.length && !adding ? (
+        <section className={s.empty}>
+          <h2>אין עדיין שירותים בקטלוג</h2>
+          <span>אפשר לקבוע תורים גם בלי שירות, עם משך שבוחרים בכל תור — או להוסיף שירות עכשיו.</span>
+          <button type="button" className={`${t.btn} ${t.pri}`} onClick={() => setAdding(true)}>+ שירות חדש</button>
+        </section>
       ) : null}
 
       {services?.length ? (
@@ -85,6 +99,7 @@ export function ServicesScreen() {
           </nav>
           {current ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+              <ServiceCard key={`s:${current.id}:${current.name}:${current.durationMinutes}`} service={current} onSaved={() => { setStamp((x) => x + 1); flash("השירות עודכן"); }} />
               <PolicyCard key={`p:${current.id}`} service={current} onSaved={() => flash("הכללים נשמרו")} />
               <WhoCard key={`w:${current.id}:${stamp}`} service={current} staff={staff} onSaved={() => { setStamp((x) => x + 1); flash("השיוך נשמר"); }} />
             </div>
@@ -93,6 +108,114 @@ export function ServicesScreen() {
       ) : null}
       {toast ? <div className={t.toast} role="status"><span>{toast}</span></div> : null}
     </main>
+  );
+}
+
+/** A new service in the business's catalog: a name, a length, and a fixed price only if the owner gives one. */
+function NewService({ onCancel, onCreated }: { onCancel: () => void; onCreated: (svc: ServiceWire) => void }) {
+  const [name, setName] = useState("");
+  const [duration, setDuration] = useState("30");
+  const [price, setPrice] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    const n = name.trim();
+    const minutes = duration.trim() ? Number(duration) : null;
+    const amount = price.trim() ? Number(price) : null;
+    const problem = !n ? "צריך שם לשירות." : textProblem("השם", n, 120)
+      ?? durationProblem(minutes)
+      ?? (amount !== null && !(Number.isFinite(amount) && amount >= 0) ? "המחיר צריך להיות מספר, אפס או יותר." : null);
+    if (problem) { setError(problem); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      onCreated(await createService({ name: n, durationMinutes: minutes, priceAmount: amount }));
+    } catch (e) {
+      setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className={s.panel} aria-labelledby="new-service-title">
+      <h2 id="new-service-title">שירות חדש</h2>
+      <div className={s.numRow}>
+        <div className={t.field}>
+          <label htmlFor="svc-new-name">שם השירות</label>
+          <input id="svc-new-name" className={t.input} value={name} maxLength={140} onChange={(e) => setName(e.target.value)} autoFocus />
+        </div>
+        <div className={t.field}>
+          <label htmlFor="svc-new-duration">משך (דקות)</label>
+          <input id="svc-new-duration" type="number" inputMode="numeric" min={LIMITS.minDuration} max={LIMITS.maxDuration} step={5} className={t.input} value={duration} onChange={(e) => setDuration(e.target.value)} />
+        </div>
+        <div className={t.field}>
+          <label htmlFor="svc-new-price">מחיר בש״ח (לא חובה)</label>
+          <input id="svc-new-price" type="number" inputMode="decimal" min={0} step="any" className={t.input} value={price} onChange={(e) => setPrice(e.target.value)} />
+          <span className={t.hint}>בלי מחיר — השירות מופיע בלי מחיר פומבי.</span>
+        </div>
+      </div>
+      {error ? <p className={t.error} role="alert">{error}</p> : null}
+      <div className={t.actions}>
+        <button type="button" className={`${t.btn} ${t.pri}`} disabled={busy} onClick={() => void save()}>{busy ? "שומר…" : "הוספת השירות"}</button>
+        <button type="button" className={t.btn} disabled={busy} onClick={onCancel}>ביטול</button>
+      </div>
+    </section>
+  );
+}
+
+/** The API's bound on a length, in Hebrew; null when the length is fine or not given. */
+function durationProblem(minutes: number | null): string | null {
+  if (minutes === null) return null;
+  return Number.isInteger(minutes) && minutes >= LIMITS.minDuration && minutes <= LIMITS.maxDuration
+    ? null
+    : `המשך צריך להיות בין ${LIMITS.minDuration} ל־${LIMITS.maxDuration.toLocaleString("he-IL")} דקות.`;
+}
+
+/** A service's name and length, edited in the catalog itself (PATCH /api/business/services/[id]). */
+function ServiceCard({ service, onSaved }: { service: ServiceWire; onSaved: () => void }) {
+  const [name, setName] = useState(service.name);
+  const [duration, setDuration] = useState(service.durationMinutes ? String(service.durationMinutes) : "");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const minutes = duration.trim() ? Number(duration) : null;
+  const dirty = name.trim() !== service.name || minutes !== service.durationMinutes;
+  const save = async () => {
+    const n = name.trim();
+    const problem = !n ? "צריך שם לשירות." : textProblem("השם", n, 120) ?? durationProblem(minutes);
+    if (problem) { setError(problem); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      await updateService(service.id, {
+        ...(n !== service.name ? { name: n } : {}),
+        ...(minutes !== service.durationMinutes ? { durationMinutes: minutes } : {}),
+      });
+      onSaved();
+    } catch (e) {
+      setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className={s.panel} aria-labelledby="service-card-title">
+      <h2 id="service-card-title">פרטי השירות</h2>
+      <div className={s.numRow}>
+        <div className={t.field}>
+          <label htmlFor="svc-name">שם השירות</label>
+          <input id="svc-name" className={t.input} value={name} maxLength={140} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className={t.field}>
+          <label htmlFor="svc-duration">משך (דקות)</label>
+          <input id="svc-duration" type="number" inputMode="numeric" min={LIMITS.minDuration} max={LIMITS.maxDuration} step={5} className={t.input} value={duration} onChange={(e) => setDuration(e.target.value)} />
+          <span className={t.hint}>זה המשך שהיומן מציע בתור חדש. משך אישי לעובד נקבע ב„עובדים וזמינות”.</span>
+        </div>
+      </div>
+      {error ? <p className={t.error} role="alert">{error}</p> : null}
+      <div className={t.actions}>
+        <button type="button" className={`${t.btn} ${t.pri}`} disabled={busy || !dirty} onClick={() => void save()}>{busy ? "שומר…" : "שמירה"}</button>
+      </div>
+    </section>
   );
 }
 
@@ -155,8 +278,7 @@ function PolicyCard({ service, onSaved }: { service: ServiceWire; onSaved: () =>
 
   return (
     <section className={s.panel} aria-labelledby="policy-title">
-      <h2 id="policy-title">{service.name}</h2>
-      <p className={s.note}>משך לפי הקטלוג: {service.durationMinutes ? durationLabel(service.durationMinutes) : "לא הוגדר — בוחרים משך בכל תור"}.</p>
+      <h2 id="policy-title">איך השירות נכנס ליומן</h2>
       <div className={s.numRow}>
         {FIELDS.map((f) => (
           <div key={f.key} className={t.field}>

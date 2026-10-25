@@ -311,16 +311,23 @@ async function materialize(businessId: number, out: { appointmentId: number; rep
 
 export type ListAppointmentsInput = { from?: unknown; to?: unknown; staffMemberId?: unknown; includeCanceled?: unknown };
 
-/** Appointments that START inside [from, to) — the calendar's view of a range (≤ 62 days). */
-export async function listAppointments(principal: AppointmentPrincipal, input: ListAppointmentsInput): Promise<Appointment[]> {
+/** An appointment as the calendar lists it: the row, and its customer's name (null without a customer). */
+export type ListedAppointment = Appointment & { customerName: string | null };
+
+/**
+ * Appointments that START inside [from, to) — the calendar's view of a range (≤ 62 days) — each with its customer's
+ * name, so the calendar never fetches customers one by one. ONE extra query for the whole page, scoped to the
+ * business in its own WHERE (not only through the relation).
+ */
+export async function listAppointments(principal: AppointmentPrincipal, input: ListAppointmentsInput): Promise<ListedAppointment[]> {
   authorizeAppointmentAction(principal, "appointment.read");
   const from = parseInstant(input.from, "from");
   const to = parseInstant(input.to, "to");
   if (to.getTime() <= from.getTime() || to.getTime() - from.getTime() > MAX_RANGE_DAYS * 24 * 60 * MINUTE) throw invalid("to");
   const staffMemberId = optionalId(input.staffMemberId, "staffMemberId");
   const includeCanceled = input.includeCanceled === true || input.includeCanceled === "true";
-  return tenantTx(principal.businessId, (tx) =>
-    tx.appointment.findMany({
+  return tenantTx(principal.businessId, async (tx) => {
+    const rows = await tx.appointment.findMany({
       where: {
         businessId: principal.businessId,
         startsAt: { gte: from, lt: to },
@@ -329,14 +336,24 @@ export async function listAppointments(principal: AppointmentPrincipal, input: L
       },
       orderBy: [{ startsAt: "asc" }, { id: "asc" }],
       take: 2000,
-    }),
-  );
+    });
+    const ids = [...new Set(rows.map((r) => r.customerId).filter((id): id is number => id !== null))];
+    const customers = ids.length
+      ? await tx.customer.findMany({ where: { businessId: principal.businessId, id: { in: ids } }, select: { id: true, name: true } })
+      : [];
+    const names = new Map(customers.map((c) => [c.id, c.name]));
+    return rows.map((r) => ({ ...r, customerName: r.customerId !== null ? names.get(r.customerId) ?? null : null }));
+  });
 }
 
 export async function getAppointment(principal: AppointmentPrincipal, id: number) {
   authorizeAppointmentAction(principal, "appointment.read");
   return tenantTx(principal.businessId, async (tx) => {
-    const appointment = await loadOwn(tx, principal.businessId, id);
+    const row = await loadOwn(tx, principal.businessId, id);
+    const customer = row.customerId !== null
+      ? await tx.customer.findFirst({ where: { id: row.customerId, businessId: principal.businessId }, select: { name: true } })
+      : null;
+    const appointment: ListedAppointment = { ...row, customerName: customer?.name ?? null };
     const events = await tx.appointmentEvent.findMany({
       where: { businessId: principal.businessId, appointmentId: id },
       orderBy: { id: "desc" },

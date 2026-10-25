@@ -5,7 +5,7 @@
  *   /api/appointments/*            milestone A — behind the `appointments` flag (404 while it is OFF);
  *   /api/business/services         the catalog's services (name, default duration);
  *   /api/customers, /api/customers/[id]   search, create, a name;
- *   /api/leads?q=                  the customer's open lead (decision 11: an appointment links to it, the lead's
+ *   /api/leads?customerId=         the customer's open lead (decision 11: an appointment links to it, the lead's
  *                                  stage is never changed here).
  *
  * Every write carries an Idempotency-Key from the task client's `keyFor(intent)`: one key per intent until the
@@ -192,6 +192,27 @@ export async function listServices(): Promise<ServiceWire[]> {
     .map((o) => ({ id: o.canonicalId, name: o.name, durationMinutes: o.durationMinutes, active: o.active }));
 }
 
+/**
+ * A new catalog service (the existing POST /api/business/services): a name, a length and, when the owner gives one,
+ * a fixed price; without a price it is listed with no public price.
+ */
+export async function createService(input: { name: string; durationMinutes: number | null; priceAmount?: number | null }): Promise<ServiceWire> {
+  const r = await call<{ service: { id: number; name: string; durationMinutes: number | null; active: boolean } }>("POST", "/api/business/services", {
+    name: input.name,
+    durationMinutes: input.durationMinutes,
+    ...(input.priceAmount !== undefined && input.priceAmount !== null
+      ? { priceMode: "FIXED", priceAmount: input.priceAmount }
+      : { priceMode: "NO_PUBLIC_PRICE" }),
+  });
+  return { id: r.service.id, name: r.service.name, durationMinutes: r.service.durationMinutes, active: r.service.active };
+}
+
+/** Edit a catalog service's name and length (PATCH /api/business/services/[id]); price and status stay as they are. */
+export async function updateService(id: number, input: { name?: string; durationMinutes?: number | null }): Promise<ServiceWire> {
+  const r = await call<{ service: { id: number; name: string; durationMinutes: number | null; active: boolean } }>("PATCH", `/api/business/services/${id}`, input);
+  return { id: r.service.id, name: r.service.name, durationMinutes: r.service.durationMinutes, active: r.service.active };
+}
+
 export type CustomerWire = { id: number; name: string; phone: string | null };
 
 export function searchCustomers(q: string, limit = 20) {
@@ -209,21 +230,17 @@ export function customerName(id: number) {
   return call<{ customer: CustomerWire }>("GET", `/api/customers/${id}`).then((r) => r.customer);
 }
 
-type LeadRow = { id: number; customer: { id: number } | null; createdAt?: string };
+type LeadRow = { id: number; customer: { id: number } | null };
 
 /**
- * The customer's open lead, if the leads inbox finds one (decision 11). The inbox lists OPEN leads by default and
- * searches the lead's own name and phone; only a lead whose linked customer IS this customer counts, so nothing is
- * ever linked by a similar name. None found → no link (the appointment is booked either way).
+ * The customer's open lead (decision 11): the leads inbox filtered by this customer — open leads only, by default —
+ * newest activity first. None → no link (the appointment is booked either way). The row's own customer is checked
+ * again, so nothing is ever linked to another customer's lead.
  */
 export async function openLeadOf(customer: CustomerWire): Promise<number | null> {
-  const q = customer.phone?.trim() || customer.name.trim();
-  if (!q) return null;
   try {
-    const r = await call<{ leads?: LeadRow[]; items?: LeadRow[] }>("GET", `/api/leads?${new URLSearchParams({ q, limit: "20" })}`);
-    const rows = (r.leads ?? r.items ?? []).filter((l) => l.customer?.id === customer.id);
-    if (!rows.length) return null;
-    return rows.sort((a, b) => (a.createdAt ?? "") < (b.createdAt ?? "") ? 1 : -1)[0].id;
+    const r = await call<{ leads?: LeadRow[] }>("GET", `/api/leads?${new URLSearchParams({ customerId: String(customer.id), limit: "5" })}`);
+    return (r.leads ?? []).find((l) => l.customer?.id === customer.id)?.id ?? null;
   } catch {
     return null;
   }
