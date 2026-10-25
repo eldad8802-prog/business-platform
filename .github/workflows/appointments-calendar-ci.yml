@@ -4,7 +4,8 @@
 #   layout, the owner's actions, the API's text limits, Hebrew words), the Secretary showing appointments on its
 #   existing calendar, the navigation map / back navigation, the customer card's status labels.
 #
-# JOB e2e — the REAL app (`next build` + `next start`) over the Production-shaped lab (.appt/lab.sh --with-appt: the
+# JOB e2e — first the follow-up API battery (.appt/b-followups-battery.ts: services PATCH, leads by customer, customer
+#   names — as the runtime role, isolation, validation, performance); then the REAL app (`next build` + `next start`) over the Production-shaped lab (.appt/lab.sh --with-appt: the
 #   real migration by migrate deploy, the app AS app_runtime_prod), driven by Chromium on desktop and phone: business A
 #   with appointments ON (a per-business override, as a pilot is opened), business B OFF. Every step leaves a
 #   screenshot; they and the result table are this run's artifact (the visual review before merge).
@@ -26,7 +27,12 @@ on:
       - "lib/navigation/**"
       - "lib/services/appointment/**"
       - "app/api/appointments/**"
+      - "app/api/business/services/**"
+      - "lib/services/offering/**"
+      - "app/api/leads/**"
+      - "lib/services/crm/lead.service.ts"
       - ".appt/ui-*"
+      - ".appt/b-followups-battery.ts"
       - ".github/workflows/appointments-calendar-ci.yml"
   workflow_dispatch:
 
@@ -123,6 +129,11 @@ jobs:
 
       - name: Seed — through the real services AS the runtime role
         run: npx tsx .appt/ui-seed.ts
+
+      # The follow-up API additions AS the runtime role: PATCH a catalog service, leads by customer, customer names on
+      # the calendar — permissions, isolation between businesses, validation, regression, and a 400-appointment read.
+      - name: API battery — services PATCH, leads by customer, customer names (runtime role, real routes)
+        run: npx tsx .appt/b-followups-battery.ts
 
       - run: npx playwright install --with-deps chromium
 

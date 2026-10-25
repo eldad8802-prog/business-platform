@@ -2,19 +2,17 @@
 
 /**
  * The calendar's reads. The appointments of the range on screen (reloaded when it changes and after every write),
- * and what gives them names: the staff, the catalog's services, the business's weekly hours (the shaded closed time)
- * and the customers' names — the 100 most recent in one read, any other one by its own card, each fetched once.
+ * and what gives them names: the staff, the catalog's services and the business's weekly hours (the shaded closed
+ * time). The customers' names come with the appointments themselves (one read for the whole range).
  * Every source loads and fails on its own: names missing never hide an appointment.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  customerName,
   getAvailability,
   listAppointments,
   listServices,
   listStaff,
-  searchCustomers,
   CalendarApiError,
   type RuleWire,
   type ServiceWire,
@@ -29,7 +27,6 @@ export function useCalendarData(range: { from: Date; to: Date } | null) {
   const [services, setServices] = useState<ServiceWire[]>([]);
   const [hours, setHours] = useState<RuleWire[]>([]);
   const [customers, setCustomers] = useState<Map<number, string>>(new Map());
-  const asked = useRef<Set<number>>(new Set());
   const fromIso = range?.from.toISOString() ?? null;
   const toIso = range?.to.toISOString() ?? null;
   const seq = useRef(0);
@@ -74,16 +71,6 @@ export function useCalendarData(range: { from: Date; to: Date } | null) {
     listStaff().then((v) => { if (!cancelled) setStaff(v); }).catch(() => undefined);
     listServices().then((v) => { if (!cancelled) setServices(v); }).catch(() => undefined);
     getAvailability(null).then((v) => { if (!cancelled) setHours(v.rules); }).catch(() => undefined);
-    searchCustomers("", 100)
-      .then((rows) => {
-        if (cancelled) return;
-        setCustomers((m) => {
-          const next = new Map(m);
-          for (const c of rows) { next.set(c.id, c.name); asked.current.add(c.id); }
-          return next;
-        });
-      })
-      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -91,31 +78,21 @@ export function useCalendarData(range: { from: Date; to: Date } | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromIso !== null]);
 
-  // A name not in the recent hundred: its own read, once.
-  useEffect(() => {
-    if (appointments.status !== "ready") return;
-    const missing = [...new Set(appointments.value.map((a) => a.customerId).filter((id): id is number => id !== null))].filter(
-      (id) => !asked.current.has(id),
-    );
-    for (const id of missing.slice(0, 40)) {
-      asked.current.add(id);
-      customerName(id)
-        .then((c) => setCustomers((m) => new Map(m).set(c.id, c.name)))
-        .catch(() => undefined);
-    }
-  }, [appointments]);
-
   const names: Names = useMemo(
     () => ({
-      customers,
+      customers: new Map([
+        ...customers,
+        ...(appointments.status === "ready"
+          ? appointments.value.filter((a) => a.customerId !== null && a.customerName).map((a) => [a.customerId!, a.customerName!] as const)
+          : []),
+      ]),
       services: new Map(services.map((s) => [s.id, s.name])),
       staff: new Map(staff.map((s) => [s.id, s])),
     }),
-    [customers, services, staff],
+    [customers, services, staff, appointments],
   );
 
   const rememberCustomer = useCallback((id: number, name: string) => {
-    asked.current.add(id);
     setCustomers((m) => new Map(m).set(id, name));
   }, []);
 

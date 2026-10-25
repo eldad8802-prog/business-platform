@@ -83,6 +83,55 @@ export async function createBusinessService(input: CreateBusinessServiceInput, t
   });
 }
 
+export type UpdateBusinessServiceInput = {
+  businessId: number;
+  businessServiceId: number;
+  name?: string;
+  description?: string | null;
+  /** Minutes; null clears it (the calendar then asks for a length per appointment). */
+  durationMinutes?: number | null;
+};
+
+/** The longest a catalog service may last — the calendar's own bound for one appointment. */
+export const MAX_SERVICE_DURATION_MINUTES = 1440;
+
+/**
+ * Edits a service of THIS business: its name, description and length. Price, status, featuring and fulfilment are
+ * not edited here (a price is the catalog's public promise and stays where it was set). A service of another business
+ * — or a product, or an id that does not exist — is "not found", never a hint that it exists.
+ */
+export async function updateBusinessService(input: UpdateBusinessServiceInput, tx: Tx) {
+  if (!Number.isInteger(input.businessId) || input.businessId <= 0) {
+    throw new OfferingInputError("Invalid business");
+  }
+  if (!Number.isInteger(input.businessServiceId) || input.businessServiceId <= 0) {
+    throw new OfferingNotFoundError();
+  }
+  const data: { name?: string; description?: string | null; durationMinutes?: number | null } = {};
+  if (input.name !== undefined) {
+    const name = cleanText(input.name, 120, "name");
+    if (!name) throw new OfferingInputError("name is required");
+    data.name = name;
+  }
+  if (input.description !== undefined) data.description = cleanText(input.description, 2000, "description");
+  if (input.durationMinutes !== undefined) {
+    const minutes = cleanDuration(input.durationMinutes);
+    if (minutes !== null && minutes > MAX_SERVICE_DURATION_MINUTES) {
+      throw new OfferingInputError(`durationMinutes must be at most ${MAX_SERVICE_DURATION_MINUTES}`);
+    }
+    data.durationMinutes = minutes;
+  }
+  if (Object.keys(data).length === 0) throw new OfferingInputError("nothing to change");
+
+  // Scoped by the business in the WHERE itself: a foreign id updates nothing.
+  const changed = await tx.businessService.updateMany({
+    where: { id: input.businessServiceId, businessId: input.businessId, type: "SERVICE" },
+    data,
+  });
+  if (changed.count !== 1) throw new OfferingNotFoundError();
+  return tx.businessService.findFirstOrThrow({ where: { id: input.businessServiceId, businessId: input.businessId } });
+}
+
 export async function listBusinessServices(businessId: number, tx: Tx) {
   return tx.businessService.findMany({
     where: { businessId },

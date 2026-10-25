@@ -229,6 +229,11 @@ export type ListLeadsInput = {
   limit?: number | null;
   /** `id` of the last row of the previous page (keyset pagination). */
   cursorId?: number | null;
+  /**
+   * Only the leads linked to this customer (Appointments B: a new appointment links to the customer's open lead).
+   * ANDed with the business, so another business's customer id simply matches nothing.
+   */
+  customerId?: number | null;
   now?: Date;
 };
 
@@ -557,6 +562,12 @@ export const leadService = {
     assertBusinessId(input.businessId);
 
     const where: Prisma.LeadWhereInput = { businessId: input.businessId };
+    if (input.customerId !== undefined && input.customerId !== null) {
+      if (!Number.isInteger(input.customerId) || input.customerId <= 0) {
+        throw new ValidationError("customerId must be a positive integer");
+      }
+      where.customerId = input.customerId;
+    }
 
     const q = typeof input.query === "string" ? input.query.trim() : "";
     if (q.length > 0) {
@@ -690,6 +701,8 @@ export const leadService = {
       businessId: number;
       query?: string | null;
       sourceChannel?: string | null;
+      /** The same customer filter as the page (listLeads): candidates outside it never join the ranked list. */
+      customerId?: number | null;
       now?: Date;
     },
     options?: TxOptions
@@ -701,6 +714,7 @@ export const leadService = {
 
     const urgent: Prisma.LeadWhereInput = {
       businessId: input.businessId,
+      ...(input.customerId !== undefined && input.customerId !== null ? { customerId: input.customerId } : {}),
       status: { in: [...OPEN_LEAD_STATUSES] },
       OR: [
         // 1. lead attention — the same two clauses `needsAction` uses.

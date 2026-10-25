@@ -50,6 +50,8 @@ export type AppointmentWire = {
   bufferBeforeMinutes: number;
   bufferAfterMinutes: number;
   version: number;
+  /** The customer's name, from the same read (null without a customer; absent on a write's echo). */
+  customerName?: string | null;
 };
 
 export type HistoryWire = { type: AppointmentEventType; actor: string; at: string; payload: Record<string, unknown> };
@@ -437,7 +439,7 @@ export type Names = {
 
 /** The line an appointment shows: the customer and the service, or the title of a meeting / block. */
 export function headline(a: AppointmentWire, names: Names): string {
-  const customer = a.customerId !== null ? names.customers.get(a.customerId) : undefined;
+  const customer = a.customerName ?? (a.customerId !== null ? names.customers.get(a.customerId) : undefined);
   const service = a.businessServiceId !== null ? names.services.get(a.businessServiceId) : undefined;
   if (a.kind === "CUSTOMER") {
     const what = a.title?.trim() || service || "תור";
