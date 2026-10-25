@@ -340,6 +340,21 @@ export const TOOLS: Tool[] = [
     colorSource: "carried",
   },
 
+  // Appointments milestone B (decision 12): listed only while appointments is ON.
+  {
+    key: "calendar",
+    label: HE_T("insights.tools.items.calendar.label"),
+    labelKey: "insights.tools.items.calendar.label",
+    description: HE_T("insights.tools.items.calendar.description"),
+    descriptionKey: "insights.tools.items.calendar.description",
+    entity: "calendar",
+    href: "/calendar",
+    color: "amber",
+    group: "operations",
+    colorSource: "borrowed:secretary",
+    feature: "appointments",
+  },
+
   {
     key: "inventory",
     label: HE_T("insights.tools.items.inventory.label"),

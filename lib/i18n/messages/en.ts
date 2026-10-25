@@ -61,6 +61,7 @@ export const en: Messages = {
     customers: "Customers",
     leads: "Leads",
     tasks: "Tasks",
+    calendar: "Calendar",
     secretary: "My secretary",
     payables: "Commitments",
     inventory: "Inventory",

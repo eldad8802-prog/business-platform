@@ -67,6 +67,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/payables", root: true },
   // Daily Tasks (flag daily_tasks): the task centre. `new` opens the create form from "+"; `item` is the selection.
   { pattern: "/tasks", root: true },
+  // Appointments milestone B (flag appointments): the calendar; its settings screens return to it.
+  { pattern: "/calendar", root: true },
   { pattern: "/settings", root: true },
   // Sidebar business card (desktop / tablet) and the Settings hub.
   { pattern: "/profile", root: true },
@@ -137,6 +139,10 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/payables/bank/import", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/cheques", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/match/[documentId]", parent: "/payables", parentLabelKey: "toAllPayables" },
+
+  // ---- calendar (Appointments milestone B) --------------------------------
+  { pattern: "/calendar/staff", parent: "/calendar", parentLabelKey: "toCalendar" },
+  { pattern: "/calendar/services", parent: "/calendar", parentLabelKey: "toCalendar" },
   { pattern: "/collection/new", parent: "/collection", parentLabelKey: "toCollection", identityParams: ["step"] },
   { pattern: "/collection/c/[customerId]", parent: "/collection", parentLabelKey: "toCollection" },
 
