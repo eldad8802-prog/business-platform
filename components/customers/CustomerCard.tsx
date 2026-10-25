@@ -461,18 +461,18 @@ function CustomerCardView({
             href={telHref(phone)}
             tone="phone"
             icon={<PhoneIcon />}
-            label={t("customers.customer.card.quick.call")}
+            label={t("customers.customer.row.call")}
             ariaLabel={t("customers.customer.row.callAria", { name: customer.name })}
-            unavailableReason={t("customers.customer.card.quick.noPhone")}
+            unavailableReason={t("customers.customer.row.noPhone")}
           />
           <ContactAction
             layout="stack"
             href={whatsAppChatHref(phone)}
             tone="whatsapp"
             icon={<WhatsappIcon />}
-            label={t("customers.customer.card.quick.whatsapp")}
+            label="WhatsApp"
             ariaLabel={t("customers.customer.row.whatsappAria", { name: customer.name })}
-            unavailableReason={phone ? t("customers.customer.card.quick.noWhatsapp") : t("customers.customer.card.quick.noPhone")}
+            unavailableReason={phone ? t("customers.customer.row.noWhatsapp") : t("customers.customer.row.noPhone")}
           />
           <ContactAction
             layout="stack"

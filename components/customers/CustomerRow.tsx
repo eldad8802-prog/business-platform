@@ -89,7 +89,7 @@ export function CustomerRow({
           href={whatsapp}
           tone="whatsapp"
           icon={<WhatsappIcon />}
-          label={t("customers.customer.row.whatsapp")}
+          label="WhatsApp"
           ariaLabel={t("customers.customer.row.whatsappAria", { name: customer.name })}
           unavailableReason={phone ? t("customers.customer.row.noWhatsapp") : t("customers.customer.row.noPhone")}
         />
