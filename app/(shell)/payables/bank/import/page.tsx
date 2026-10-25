@@ -25,16 +25,21 @@ type Preview = {
   headers: string[];
   mapping: Mapping;
   lockedFields: Field[];
-  counts: { lines: number; new: number; existing: number; invalid: number; repeatedInFile: number; warnings: number };
+  counts: { lines: number; new: number; existing: number; suspected: number; invalid: number; repeatedInFile: number; warnings: number };
   newTotals: { currency: "ILS"; creditMinor: number; debitMinor: number };
   dateRange: { from: string; to: string } | null;
   balance: { status: "NOT_AVAILABLE" } | { status: "OK"; checked: number } | { status: "BROKEN"; checked: number; breaks: number[] };
   errors: Array<{ rowNumber: number; field: string }>;
   warnings: Array<{ rowNumber: number; field: string }>;
   previouslyImportedAt: string | null;
-  lines: Array<{
+  suspected: PreviewLine[];
+  lines: PreviewLine[];
+  truncatedLines: boolean;
+};
+
+type PreviewLine = {
     rowNumber: number;
-    status: "NEW" | "EXISTING";
+    status: "NEW" | "EXISTING" | "SUSPECTED";
     bookedAt: string;
     valueDate: string | null;
     direction: "DEBIT" | "CREDIT";
@@ -43,11 +48,18 @@ type Preview = {
     reference: string | null;
     counterpartyName: string | null;
     balanceMinor: number | null;
-  }>;
-  truncatedLines: boolean;
 };
 
-type CommitResult = { replayed: boolean; inserted: number; existing: number; invalid: number; committedAt: string };
+type Decision = "IMPORT" | "SKIP";
+type CommitResult = {
+  replayed: boolean;
+  inserted: number;
+  existing: number;
+  suspectedImported: number;
+  suspectedSkipped: number;
+  invalid: number;
+  committedAt: string;
+};
 
 const FIELD_LABEL: Record<Field, string> = {
   date: "תאריך",
@@ -74,6 +86,8 @@ const ERROR_TEXT: Record<string, string> = {
   ACCOUNT_NOT_FOUND: "חשבון הבנק לא נמצא. רעננו את הדף ובחרו שוב.",
   TOKEN_INVALID: "הבדיקה פגה או לא תקפה. בדקו את הקובץ שוב לפני הקליטה.",
   FILE_CHANGED: "הקובץ או השיוך השתנו מאז הבדיקה. בדקו את הקובץ שוב לפני הקליטה.",
+  DECISIONS_REQUIRED: "יש תנועות שאולי כבר קיימות ועדיין לא החלטתם עליהן. בחרו לכל אחת אם לקלוט או לדלג.",
+  DECISIONS_INVALID: "מאז הבדיקה השתנו התנועות שאולי כבר קיימות. בדקו את הקובץ שוב.",
 };
 
 const money = (minor: number) =>
@@ -83,12 +97,13 @@ const date = (iso: string) => {
   return `${d}/${m}/${y}`;
 };
 
-async function send(path: string, file: File, accountId: number, mapping: Mapping | null, token?: string) {
+async function send(path: string, file: File, accountId: number, mapping: Mapping | null, token?: string, decisions?: Record<number, Decision>) {
   const body = new FormData();
   body.set("file", file);
   body.set("accountId", String(accountId));
   if (mapping) body.set("mapping", JSON.stringify(mapping));
   if (token) body.set("token", token);
+  if (decisions && Object.keys(decisions).length) body.set("decisions", JSON.stringify(decisions));
   const res = await fetch(path, { method: "POST", body, credentials: "same-origin" });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -106,6 +121,8 @@ export default function BankImportPage() {
   const [mapping, setMapping] = useState<Mapping | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [result, setResult] = useState<CommitResult | null>(null);
+  // No default: a suspected line is imported or skipped only when the owner says so.
+  const [decisions, setDecisions] = useState<Record<number, Decision>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -136,6 +153,7 @@ export default function BankImportPage() {
     try {
       const p = (await send("/api/payables/bank-import/analyze", file, accountId, nextMapping)) as Preview;
       setPreview(p);
+      setDecisions({});
       setMapping(nextMapping);
     } catch (e) {
       setError(e instanceof Error ? e.message : "משהו השתבש. נסו שוב.");
@@ -149,7 +167,7 @@ export default function BankImportPage() {
     setBusy(true);
     setError(null);
     try {
-      setResult((await send("/api/payables/bank-import/commit", file, accountId, mapping, preview.token)) as CommitResult);
+      setResult((await send("/api/payables/bank-import/commit", file, accountId, mapping, preview.token, decisions)) as CommitResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : "משהו השתבש. נסו שוב.");
     } finally {
@@ -166,6 +184,11 @@ export default function BankImportPage() {
   }
 
   const step = result ? 3 : preview ? 2 : 1;
+  const undecided = preview ? preview.suspected.filter((l) => !decisions[l.rowNumber]).length : 0;
+  const toImport = preview ? preview.counts.new + preview.suspected.filter((l) => decisions[l.rowNumber] === "IMPORT").length : 0;
+  const decideAll = (d: Decision) => {
+    if (preview) setDecisions(Object.fromEntries(preview.suspected.map((l) => [l.rowNumber, d])));
+  };
 
   return (
     <div className={styles.page} style={PAYABLES_THEME}>
@@ -258,6 +281,9 @@ export default function BankImportPage() {
             <div className={styles.figure}><span className={styles.figureLabel}>תנועות בקובץ</span><span className={styles.figureValue}>{preview.counts.lines}</span></div>
             <div className={styles.figure}><span className={styles.figureLabel}>חדשות</span><span className={styles.figureValue}>{preview.counts.new}</span></div>
             <div className={styles.figure}><span className={styles.figureLabel}>כבר בדוביז</span><span className={styles.figureValue}>{preview.counts.existing}</span></div>
+            {preview.counts.suspected > 0 && (
+              <div className={styles.figure}><span className={styles.figureLabel}>אולי כבר קיימות</span><span className={styles.figureValue}>{preview.counts.suspected}</span></div>
+            )}
             <div className={styles.figure}><span className={styles.figureLabel}>שורות שלא נקראו</span><span className={styles.figureValue}>{preview.counts.invalid}</span></div>
             {preview.dateRange && (
               <div className={styles.figure}><span className={styles.figureLabel}>תקופה</span><span className={styles.figureValue}>{date(preview.dateRange.from)} – {date(preview.dateRange.to)}</span></div>
@@ -276,6 +302,51 @@ export default function BankImportPage() {
           {preview.balance.status === "BROKEN" && (
             <div className={styles.error}>
               היתרה לא מסתדרת בשורות {preview.balance.breaks.slice(0, 10).join(", ")}. ייתכן שחסרה תנועה או שהקובץ חלקי. בדקו מול הבנק לפני הקליטה.
+            </div>
+          )}
+
+          {preview.suspected.length > 0 && (
+            <div style={{ display: "grid", gap: 10, minWidth: 0 }}>
+              <h2 className={styles.sectionTitle}>תנועות שאולי כבר קיימות</h2>
+              <div className={styles.notice}>
+                בעבר הועלה במסך תנועות הבנק קובץ בלי לבחור חשבון, ובו תנועות זהות לאלה: אותו תאריך, סכום, תיאור ואסמכתא.
+                אין לנו דרך לדעת אם זו אותה תנועה, או תנועה אמיתית נוספת מחשבון אחר (למשל אותה עמלה באותו יום).
+                החליטו לכל תנועה אם לקלוט אותה או לדלג עליה. לא נקלוט ולא נדלג בלי החלטה שלכם.
+              </div>
+              <div className={styles.toolbar}>
+                <button type="button" className={styles.button} disabled={busy} onClick={() => decideAll("IMPORT")}>קליטת כולן</button>
+                <button type="button" className={styles.button} disabled={busy} onClick={() => decideAll("SKIP")}>דילוג על כולן</button>
+              </div>
+              <div className={own.tableWrap}>
+                <table className={own.table}>
+                  <thead>
+                    <tr><th>שורה</th><th>תאריך</th><th>סכום</th><th>תיאור</th><th>אסמכתא</th><th>החלטה</th></tr>
+                  </thead>
+                  <tbody>
+                    {preview.suspected.map((l) => (
+                      <tr key={"s" + l.rowNumber}>
+                        <td>{l.rowNumber}</td>
+                        <td>{date(l.bookedAt)}</td>
+                        <td className={l.direction === "CREDIT" ? own.credit : undefined}>{l.direction === "CREDIT" ? "+" : "−"}{money(l.amountMinor)}</td>
+                        <td className={own.wrapText}>{l.description ?? ""}</td>
+                        <td>{l.reference ?? ""}</td>
+                        <td>
+                          <fieldset className={own.decision}>
+                            <legend className={styles.srOnly}>החלטה לשורה {l.rowNumber}</legend>
+                            <label>
+                              <input type="radio" name={"d" + l.rowNumber} checked={decisions[l.rowNumber] === "IMPORT"} onChange={() => setDecisions((d) => ({ ...d, [l.rowNumber]: "IMPORT" }))} /> לקלוט
+                            </label>
+                            <label>
+                              <input type="radio" name={"d" + l.rowNumber} checked={decisions[l.rowNumber] === "SKIP"} onChange={() => setDecisions((d) => ({ ...d, [l.rowNumber]: "SKIP" }))} /> לדלג
+                            </label>
+                          </fieldset>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {undecided > 0 && <p className={styles.subtitle}>נותרו {undecided} תנועות בלי החלטה.</p>}
             </div>
           )}
 
@@ -333,8 +404,8 @@ export default function BankImportPage() {
                   <tr key={l.rowNumber}>
                     <td>{l.rowNumber}</td>
                     <td>
-                      <span className={`${styles.badge} ${l.status === "NEW" ? styles.badgePaid : styles.badgeQuiet}`}>
-                        {l.status === "NEW" ? "חדשה" : "כבר בדוביז"}
+                      <span className={`${styles.badge} ${l.status === "NEW" ? styles.badgePaid : l.status === "SUSPECTED" ? styles.badgeDue : styles.badgeQuiet}`}>
+                        {l.status === "NEW" ? "חדשה" : l.status === "SUSPECTED" ? "אולי כבר קיימת" : "כבר בדוביז"}
                       </span>
                     </td>
                     <td>{date(l.bookedAt)}</td>
@@ -353,8 +424,19 @@ export default function BankImportPage() {
           {preview.truncatedLines && <p className={styles.subtitle}>מוצגות {preview.lines.length} התנועות הראשונות.</p>}
 
           <div className={styles.formActions}>
-            <button type="button" className={styles.buttonPrimary} disabled={busy || preview.counts.new === 0} onClick={() => void commit()}>
-              {busy ? "קולטים…" : preview.counts.new === 0 ? "אין תנועות חדשות לקליטה" : `קליטת ${preview.counts.new} תנועות חדשות`}
+            <button
+              type="button"
+              className={styles.buttonPrimary}
+              disabled={busy || undecided > 0 || (toImport === 0 && preview.suspected.length === 0)}
+              onClick={() => void commit()}
+            >
+              {busy
+                ? "קולטים…"
+                : undecided > 0
+                  ? "החליטו על התנועות שאולי כבר קיימות"
+                  : toImport === 0 && preview.suspected.length === 0
+                    ? "אין תנועות חדשות לקליטה"
+                    : `קליטת ${toImport} תנועות`}
             </button>
           </div>
         </section>
@@ -364,7 +446,7 @@ export default function BankImportPage() {
         <section className={styles.notice} aria-live="polite">
           {result.replayed
             ? `הקובץ הזה כבר נקלט. אז נקלטו ${result.inserted} תנועות חדשות, ולא נקלט שום דבר נוסף עכשיו.`
-            : `נקלטו ${result.inserted} תנועות חדשות. ${result.existing} כבר היו בדוביז.`}{" "}
+            : `נקלטו ${result.inserted} תנועות. ${result.existing} לא נקלטו${result.suspectedSkipped ? `, מהן ${result.suspectedSkipped} שבחרתם לדלג עליהן` : " כי כבר היו בדוביז"}.`}{" "}
           <Link href="/payables/bank">למסך תנועות הבנק</Link>
         </section>
       )}

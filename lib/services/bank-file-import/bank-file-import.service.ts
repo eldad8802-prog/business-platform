@@ -5,22 +5,29 @@
  *             header, proposes a mapping, normalizes the lines and classifies each one against what
  *             Dubiz already holds. Writes NOTHING. Returns a signed token that binds this business, this
  *             user, this account, these exact bytes and this exact mapping — no row values.
- *   commit    the owner sends the same file and the token back. Under one transaction and a per-business
- *             lock: the run is opened (or found — a replay reports the first outcome), the lines already
- *             known are excluded, the new ones are inserted, the run is closed, one audit event is written.
- *             All of it lands or none of it does.
+ *   commit    the owner sends the same file, the token and a decision for every suspected line back. Under
+ *             one transaction and a per-business lock: the run is opened (or found — a replay reports the
+ *             first outcome), certain duplicates are excluded, suspected lines follow the owner's decision,
+ *             the rest is inserted, the run is closed, one audit event is written. All of it or none of it.
  *
  * Where it writes: `ExternalTransaction` only, through the same columns, source (OWNER_UPLOAD) and line
- * identity as the payables upload (`uploadStatement`); `ImportRun` for the run summary and the file's
- * hash (the file itself is not kept); `PayablesAuditEvent` through `writeAudit`. Nothing else.
+ * identity as the payables upload (`uploadStatement`); `ImportRun` for the run summary, the file's hash
+ * and the hash of the owner's decisions (the file itself is not kept); `PayablesAuditEvent` through
+ * `writeAudit`. Nothing else. No existing line is ever changed or removed.
  *
- * Duplicates (see bank-file-core.ts for the identity itself):
- *   - every line is checked under BOTH identities — with the chosen account, and with none (an old upload
- *     made without picking an account) — and is skipped if either exists;
- *   - the insert is ON CONFLICT DO NOTHING on (business, source, externalId), so a line the old path
- *     inserts concurrently under the same identity is still one row;
+ * Duplicates — the rule (owner, 2026-10-25): a real bank line is never lost to avoid a possible duplicate.
+ *   - EXISTING  (certain): the line's identity WITH the chosen account already exists — the same account,
+ *               the same facts, the same occurrence. Skipped; this is the existing identity mechanism.
+ *   - SUSPECTED (uncertain): only its identity WITHOUT an account exists — a line uploaded earlier with no
+ *               account chosen. That row says nothing about which account it came from, so it may be this
+ *               line or a real, identical line of another account (the same fee on the same day). Never
+ *               skipped silently: the owner decides IMPORT or SKIP for each one, there is no default, and a
+ *               commit without a decision for every suspected line is refused.
+ *   - the insert is ON CONFLICT DO NOTHING on (business, source, externalId);
  *   - commits for one business serialise on `bank-lines-ingest:<businessId>`.
  */
+import { createHash } from "node:crypto";
+
 import { Prisma } from "@prisma/client";
 import { readImportSource } from "@/lib/data-transfer/import/import-source";
 import { IMPORT_PREVIEW_TTL_SECONDS } from "@/lib/data-transfer/import/import-config";
@@ -75,7 +82,9 @@ export type BankImportErrorCode =
   | "ACCOUNT_REQUIRED"
   | "ACCOUNT_NOT_FOUND"
   | "TOKEN_INVALID"
-  | "FILE_CHANGED";
+  | "FILE_CHANGED"
+  | "DECISIONS_INVALID"
+  | "DECISIONS_REQUIRED";
 
 export class BankImportError extends Error {
   constructor(
@@ -87,6 +96,10 @@ export class BankImportError extends Error {
     this.name = "BankImportError";
   }
 }
+
+/** The owner's choice for one suspected line, keyed by its row number. */
+export type SuspectDecision = "IMPORT" | "SKIP";
+export type SuspectDecisions = Record<number, SuspectDecision>;
 
 export type BankImportInput = {
   businessId: number;
@@ -171,12 +184,25 @@ async function existingIds(tx: TenantTx, businessId: number, ids: string[]): Pro
   return found;
 }
 
-export type LineStatus = "NEW" | "EXISTING";
+export type LineStatus = "NEW" | "EXISTING" | "SUSPECTED";
 
+/** See the module note: certain duplicates by the existing identity; a "no account" match is only a suspicion. */
 function classify(prepared: Prepared, known: Set<string>): LineStatus[] {
-  return prepared.lines.map((_, i) =>
-    known.has(prepared.identities.withAccount[i]) || known.has(prepared.identities.withoutAccount[i]) ? "EXISTING" : "NEW"
-  );
+  return prepared.lines.map((_, i) => {
+    if (known.has(prepared.identities.withAccount[i])) return "EXISTING";
+    if (known.has(prepared.identities.withoutAccount[i])) return "SUSPECTED";
+    return "NEW";
+  });
+}
+
+/** Canonical form of the decisions (sorted by row), hashed: audit evidence and the identity of a re-decision. */
+export function decisionsHashOf(decisions: SuspectDecisions): string {
+  const canonical = Object.keys(decisions)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((row) => `${row}=${decisions[row]}`)
+    .join("\n");
+  return createHash("sha256").update(`bank_statement:decisions:v1\n${canonical}`, "utf8").digest("hex");
 }
 
 /* ─────────────────────────────── analyze ─────────────────────────────── */
@@ -203,7 +229,7 @@ export type BankPreview = {
   mapping: BankMapping;
   /** The identity fields are fixed to the columns the payables upload reads (see bank-file-core.ts). */
   lockedFields: BankField[];
-  counts: { lines: number; new: number; existing: number; invalid: number; repeatedInFile: number; warnings: number };
+  counts: { lines: number; new: number; existing: number; suspected: number; invalid: number; repeatedInFile: number; warnings: number };
   /** Totals of the NEW lines, in shekels (bank lines are ILS, as the payables upload records them). */
   newTotals: { currency: "ILS"; creditMinor: number; debitMinor: number };
   dateRange: { from: string; to: string } | null;
@@ -212,11 +238,28 @@ export type BankPreview = {
   warnings: RowProblem[];
   /** When this exact file was already imported into this business before. */
   previouslyImportedAt: string | null;
+  /** EVERY suspected line (each needs a decision), whatever the preview window. */
+  suspected: BankPreviewLine[];
   lines: BankPreviewLine[];
   truncatedLines: boolean;
 };
 
 const day = (d: Date) => d.toISOString().slice(0, 10);
+
+function previewLine(l: BankLine, status: LineStatus): BankPreviewLine {
+  return {
+    rowNumber: l.rowNumber,
+    status,
+    bookedAt: day(l.bookedAt),
+    valueDate: l.valueDate ? day(l.valueDate) : null,
+    direction: l.direction,
+    amountMinor: l.amountMinor,
+    description: l.description,
+    reference: l.reference,
+    counterpartyName: l.counterpartyName,
+    balanceMinor: l.balanceMinor,
+  };
+}
 
 export async function analyzeBankFile(input: BankImportInput): Promise<BankPreview> {
   const prepared = await prepare(input);
@@ -259,6 +302,7 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankPrevi
       lines: prepared.lines.length,
       new: statuses.filter((s) => s === "NEW").length,
       existing: statuses.filter((s) => s === "EXISTING").length,
+      suspected: statuses.filter((s) => s === "SUSPECTED").length,
       invalid: prepared.errors.length,
       repeatedInFile: countRepeatedLines(prepared.lines),
       warnings: prepared.warnings.length,
@@ -269,18 +313,8 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankPrevi
     errors: prepared.errors.slice(0, 50),
     warnings: prepared.warnings.slice(0, 50),
     previouslyImportedAt: previous ? previous.toISOString() : null,
-    lines: prepared.lines.slice(0, PREVIEW_ROWS).map((l, i) => ({
-      rowNumber: l.rowNumber,
-      status: statuses[i],
-      bookedAt: day(l.bookedAt),
-      valueDate: l.valueDate ? day(l.valueDate) : null,
-      direction: l.direction,
-      amountMinor: l.amountMinor,
-      description: l.description,
-      reference: l.reference,
-      counterpartyName: l.counterpartyName,
-      balanceMinor: l.balanceMinor,
-    })),
+    suspected: prepared.lines.flatMap((l, i) => (statuses[i] === "SUSPECTED" ? [previewLine(l, "SUSPECTED")] : [])),
+    lines: prepared.lines.slice(0, PREVIEW_ROWS).map((l, i) => previewLine(l, statuses[i])),
     truncatedLines: prepared.lines.length > PREVIEW_ROWS,
   };
 }
@@ -289,17 +323,21 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankPrevi
 
 export type BankCommitResult = {
   importRunId: number;
-  /** True when this file, account and mapping were already committed: nothing was done again. */
+  /** True when this file, account, mapping and decisions were already committed: nothing was done again. */
   replayed: boolean;
   inserted: number;
   existing: number;
+  suspectedImported: number;
+  suspectedSkipped: number;
   invalid: number;
   committedAt: string;
 };
 
 type TokenFacts = { b: number; u: number; a: number; ch: string; mh: string; n: number };
 
-export async function commitBankFile(input: BankImportInput & { token: unknown }): Promise<BankCommitResult> {
+export async function commitBankFile(
+  input: BankImportInput & { token: unknown; decisions?: SuspectDecisions | null }
+): Promise<BankCommitResult> {
   const verified = verifyEnvelope<TokenFacts>(TOKEN_SPEC, input.token);
   if (!verified.ok) throw new BankImportError("TOKEN_INVALID", 400, { reason: verified.reason });
   const facts = verified.facts;
@@ -310,12 +348,20 @@ export async function commitBankFile(input: BankImportInput & { token: unknown }
   if (prepared.contentHash !== facts.ch || prepared.mappingHash !== facts.mh || prepared.lines.length !== facts.n) {
     throw new BankImportError("FILE_CHANGED", 409);
   }
-
-  const retryKey = retryKeyOf({ businessId: input.businessId, contentHash: prepared.contentHash, mappingHash: prepared.mappingHash });
+  const decisions: SuspectDecisions = input.decisions ?? {};
+  const decisionsHash = decisionsHashOf(decisions);
+  // A re-decision (the same file, later importing a line skipped before) is a new run; the same decisions again
+  // are a replay. An ordinary import with nothing suspected hashes exactly as before.
+  const retryKey = retryKeyOf({
+    businessId: input.businessId,
+    contentHash: prepared.contentHash,
+    mappingHash: prepared.mappingHash,
+    overrideActionHash: Object.keys(decisions).length ? decisionsHash : null,
+  });
 
   return withTenantTransaction(
     async (tx) => {
-      // One bank-line ingest per business at a time (this path; see the old-path note in docs).
+      // One bank-line ingest per business at a time (this path).
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"bank-lines-ingest:" + String(input.businessId)}))`;
       await assertAccount(tx, input.businessId, prepared.accountId);
 
@@ -326,28 +372,37 @@ export async function commitBankFile(input: BankImportInput & { token: unknown }
           replayed: true,
           inserted: prior.createdCount ?? 0,
           existing: prior.skippedCount ?? 0,
+          suspectedImported: 0,
+          suspectedSkipped: 0,
           invalid: prior.failedCount ?? 0,
           committedAt: (prior.completedAt ?? prior.startedAt).toISOString(),
         };
       }
+
+      // Classified again under the lock: what the owner decided must match what is suspected NOW.
+      const known = await existingIds(tx, input.businessId, [...prepared.identities.withAccount, ...prepared.identities.withoutAccount]);
+      const statuses = classify(prepared, known);
+      const suspectedRows = prepared.lines.filter((_, i) => statuses[i] === "SUSPECTED").map((l) => l.rowNumber);
+      const decidedRows = Object.keys(decisions).map(Number);
+      const missing = suspectedRows.filter((r) => decisions[r] !== "IMPORT" && decisions[r] !== "SKIP");
+      if (missing.length) throw new BankImportError("DECISIONS_REQUIRED", 409, { missing: missing.length });
+      if (decidedRows.some((r) => !suspectedRows.includes(r))) throw new BankImportError("DECISIONS_INVALID", 409);
 
       const runId = await openBankStatementRunInTx(tx, {
         businessId: input.businessId,
         userId: input.userId,
         contentHash: prepared.contentHash,
         mappingHash: prepared.mappingHash,
+        decisionsHash,
         retryKey,
         sheetName: prepared.sheetName,
         totalRows: prepared.lines.length + prepared.errors.length,
       });
-      const run = { id: runId };
-      const importBatchId = `bnk-${run.id}`;
+      const importBatchId = `bnk-${runId}`;
 
-      const known = await existingIds(tx, input.businessId, [...prepared.identities.withAccount, ...prepared.identities.withoutAccount]);
-      const statuses = classify(prepared, known);
       const fresh = prepared.lines
         .map((line, i) => ({ line, externalId: prepared.identities.withAccount[i], status: statuses[i] }))
-        .filter((x) => x.status === "NEW");
+        .filter((x) => x.status === "NEW" || (x.status === "SUSPECTED" && decisions[x.line.rowNumber] === "IMPORT"));
 
       const result = fresh.length
         ? await tx.externalTransaction.createMany({
@@ -373,8 +428,10 @@ export async function commitBankFile(input: BankImportInput & { token: unknown }
 
       const inserted = result.count;
       const existing = prepared.lines.length - inserted;
+      const importedRows = suspectedRows.filter((r) => decisions[r] === "IMPORT");
+      const skippedRows = suspectedRows.filter((r) => decisions[r] === "SKIP");
       const completedAt = new Date();
-      await completeBankStatementRunInTx(tx, run.id, { created: inserted, skipped: existing, failed: prepared.errors.length, completedAt });
+      await completeBankStatementRunInTx(tx, runId, { created: inserted, skipped: existing, failed: prepared.errors.length, completedAt });
       await writeAudit(tx, {
         businessId: input.businessId,
         actorUserId: input.userId,
@@ -384,13 +441,27 @@ export async function commitBankFile(input: BankImportInput & { token: unknown }
           source: SOURCE,
           path: "bank_file_import",
           importBatchId,
-          importRunId: run.id,
+          importRunId: runId,
           offered: prepared.lines.length,
           inserted,
           invalid: prepared.errors.length,
+          // The owner's explicit decisions on suspected duplicates — row numbers only, never values.
+          suspected: suspectedRows.length,
+          suspectedImportedRows: importedRows,
+          suspectedSkippedRows: skippedRows,
+          decisionsHash,
         },
       });
-      return { importRunId: run.id, replayed: false, inserted, existing, invalid: prepared.errors.length, committedAt: completedAt.toISOString() };
+      return {
+        importRunId: runId,
+        replayed: false,
+        inserted,
+        existing,
+        suspectedImported: importedRows.length,
+        suspectedSkipped: skippedRows.length,
+        invalid: prepared.errors.length,
+        committedAt: completedAt.toISOString(),
+      };
     },
     { timeoutMs: 60_000 }
   );

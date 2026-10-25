@@ -6,9 +6,11 @@
  *   B. Commit: the new lines land in ExternalTransaction (OWNER_UPLOAD, the account, the value date), one
  *      ImportRun with the file's hash, one audit event; nothing else.
  *   C. Replays: the same commit again, a fresh analyze + commit, the same file with another mapping — 0 rows.
- *   D. Both paths, every order this path can see: old without account → new; old with account → new;
- *      new → old with the account. And the one order it cannot see (new → old WITHOUT an account), recorded
- *      as a GAP: it closes only with the proposed old-path change (docs/bank-file-import-b1.md).
+ *   D. Both paths: old with the account → new and new → old with the account are certain duplicates (0 new);
+ *      old WITHOUT an account → new is only a SUSPICION: refused without a decision, SKIP skips, IMPORT imports,
+ *      the decision is recorded (ImportRun.decisionsHash + the audit event). new → old WITHOUT an account is
+ *      recorded as a GAP: it closes by routing the old upload to this screen (separate PR).
+ *   P. Two REAL lines with identical facts on two accounts (the same fee, the same day) are never lost (P1–P3).
  *   E. Overlapping statements, identical lines, CSV then Excel of the same statement.
  *   F. Concurrency: the same file committed four times at once; two overlapping files at once; the old path
  *      and this path on the same file at once.
@@ -102,7 +104,11 @@ async function main() {
   const input = (biz: number, uid: number, acc: number | null, bytes: Buffer, filename = "statement.csv", mapping: import("@/lib/services/bank-file-import/bank-file-core").BankMapping | null = null) =>
     ({ businessId: biz, userId: uid, accountId: acc, filename, bytes, sheetName: null, mapping });
   const analyze = (i: ReturnType<typeof input>) => runWithTenantContext({ businessId: i.businessId }, () => svc.analyzeBankFile(i));
-  const commit = (i: ReturnType<typeof input>, token: unknown) => runWithTenantContext({ businessId: i.businessId }, () => svc.commitBankFile({ ...i, token }));
+  type Decisions = import("@/lib/services/bank-file-import/bank-file-import.service").SuspectDecisions;
+  const commit = (i: ReturnType<typeof input>, token: unknown, decisions: Decisions | null = null) =>
+    runWithTenantContext({ businessId: i.businessId }, () => svc.commitBankFile({ ...i, token, decisions }));
+  const decideAll = (preview: { suspected: Array<{ rowNumber: number }> }, d: "IMPORT" | "SKIP"): Decisions =>
+    Object.fromEntries(preview.suspected.map((l) => [l.rowNumber, d]));
   const importFile = async (i: ReturnType<typeof input>) => { const p = await analyze(i); return { preview: p, result: await commit(i, p.token) }; };
   const oldUpload = (biz: number, uid: number, acc: number | null, text: string) =>
     runWithTenantContext({ businessId: biz }, () => obs.uploadStatement({ businessId: biz, actorUserId: uid, sourceBankAccountId: acc, csvText: text }));
@@ -153,8 +159,25 @@ async function main() {
   const fileD1 = statement(6, 8);
   const oldNoAcc = await oldUpload(bizA, userA, null, oldCsv(fileD1));
   const afterOld = await lines(bizA);
-  const nD1 = await importFile(input(bizA, userA, accA, csv(fileD1)));
-  ok("old path WITHOUT an account, then this path: 0 inserted (both identities checked)", oldNoAcc.inserted === 3 && nD1.result.inserted === 0 && nD1.preview.counts.existing === 3 && (await lines(bizA)) === afterOld, JSON.stringify(nD1.result));
+  const pD1 = await analyze(input(bizA, userA, accA, csv(fileD1)));
+  ok("old path WITHOUT an account, then this path: the 3 lines are SUSPECTED, not certain duplicates", oldNoAcc.inserted === 3 && pD1.counts.suspected === 3 && pD1.counts.existing === 0 && pD1.counts.new === 0 && pD1.suspected.length === 3, JSON.stringify(pD1.counts));
+  ok("…a commit without a decision for every suspected line is refused (no silent skip, no silent import)", (await errorCode(() => commit(input(bizA, userA, accA, csv(fileD1)), pD1.token))) === "DECISIONS_REQUIRED" && (await lines(bizA)) === afterOld);
+  const partial = { [pD1.suspected[0].rowNumber]: "SKIP" as const };
+  ok("…a decision for only some of them is refused", (await errorCode(() => commit(input(bizA, userA, accA, csv(fileD1)), pD1.token, partial))) === "DECISIONS_REQUIRED");
+  ok("…a decision for a line that is not suspected is refused", (await errorCode(() => commit(input(bizA, userA, accA, csv(fileD1)), pD1.token, { ...decideAll(pD1, "SKIP"), 9999: "IMPORT" }))) === "DECISIONS_INVALID");
+  const skipD1 = await commit(input(bizA, userA, accA, csv(fileD1)), pD1.token, decideAll(pD1, "SKIP"));
+  ok("…SKIP on all: 0 inserted, 3 recorded as skipped by the owner", skipD1.inserted === 0 && skipD1.suspectedSkipped === 3 && (await lines(bizA)) === afterOld, JSON.stringify(skipD1));
+  const runD1 = await owner.importRun.findUnique({ where: { id: skipD1.importRunId } });
+  const auditD1 = await owner.payablesAuditEvent.findFirst({ where: { businessId: bizA }, orderBy: { id: "desc" } });
+  const metaD1 = (auditD1?.metadata ?? {}) as { suspectedSkippedRows?: number[]; decisionsHash?: string };
+  ok("…the decision is recorded: ImportRun.decisionsHash and the audit event (row numbers, never values)", !!runD1 && runD1.decisionsHash === svc.decisionsHashOf(decideAll(pD1, "SKIP")) && metaD1.decisionsHash === runD1.decisionsHash && (metaD1.suspectedSkippedRows ?? []).length === 3);
+  const againD1 = await commit(input(bizA, userA, accA, csv(fileD1)), pD1.token, decideAll(pD1, "SKIP"));
+  ok("…the same decisions again: a replay, nothing written", againD1.replayed && againD1.importRunId === skipD1.importRunId);
+  const pD1b = await analyze(input(bizA, userA, accA, csv(fileD1)));
+  const importD1 = await commit(input(bizA, userA, accA, csv(fileD1)), pD1b.token, decideAll(pD1b, "IMPORT"));
+  ok("…a later IMPORT decision is honoured: a new run inserts the 3 under the account; the earlier rows are untouched", !importD1.replayed && importD1.inserted === 3 && importD1.suspectedImported === 3 && (await lines(bizA)) === afterOld + 3 && (await owner.externalTransaction.count({ where: { businessId: bizA, sourceBankAccountId: null } })) === 3);
+  const pD1c = await analyze(input(bizA, userA, accA, csv(fileD1)));
+  ok("…and after it, the same file is a certain duplicate: 3 existing, nothing suspected", pD1c.counts.existing === 3 && pD1c.counts.suspected === 0);
 
   const fileD2 = statement(9, 11);
   const oldAcc = await oldUpload(bizA, userA, accA, oldCsv(fileD2));
@@ -171,6 +194,35 @@ async function main() {
   const oldNoAccAfterNew = await oldUpload(bizA, userA, null, oldCsv(fileD4));
   if (oldNoAccAfterNew.inserted === 0) ok("this path, then the old path WITHOUT an account: 0 inserted", true);
   else gap("this path, then the OLD path WITHOUT an account duplicates — the old path checks only its own identity", `${oldNoAccAfterNew.inserted} duplicate row(s)`);
+
+  // ── P. Two real lines with identical facts on two accounts are never lost ──────────────────────
+  console.log("P. the same fee on the same day in two accounts: both real lines are kept (P1–P3)");
+  const feeA = "תאריך,תיאור,אסמכתא,חובה,זכות\n01/10/2026,עמלת ניהול חשבון,,15.00,\n02/10/2026,ספק א,11,300.00,";
+  const feeB = "תאריך,תיאור,אסמכתא,חובה,זכות\n01/10/2026,עמלת ניהול חשבון,,15.00,\n03/10/2026,ספק ב,22,120.00,";
+  const twoAccounts = async (tag: string) => {
+    const b = await business(tag);
+    await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'bank_file_import', 'ENABLED', now())`, b);
+    return { b, u: await user(b, tag), A: await account(b, tag + "A"), B: await account(b, tag + "B") };
+  };
+  const pp1 = await twoAccounts("bfi-P1");
+  await importFile(input(pp1.b, pp1.u, pp1.A, Buffer.from(feeA, "utf8")));
+  const pp1old = await oldUpload(pp1.b, pp1.u, null, feeB);
+  ok("P1 A via this path, then B's statement via the old path without an account: 4 lines, nothing lost", pp1old.inserted === 2 && (await lines(pp1.b)) === 4, `${pp1old.inserted}/${await lines(pp1.b)}`);
+  const pp2 = await twoAccounts("bfi-P2");
+  await oldUpload(pp2.b, pp2.u, null, feeB);
+  const pp2pre = await analyze(input(pp2.b, pp2.u, pp2.A, Buffer.from(feeA, "utf8")));
+  ok("P2 B via the old path without an account, then A via this path: the identical fee is SUSPECTED, not skipped", pp2pre.counts.suspected === 1 && pp2pre.counts.new === 1 && pp2pre.counts.existing === 0, JSON.stringify(pp2pre.counts));
+  ok("P2 …no commit until the owner decides", (await errorCode(() => commit(input(pp2.b, pp2.u, pp2.A, Buffer.from(feeA, "utf8")), pp2pre.token))) === "DECISIONS_REQUIRED" && (await lines(pp2.b)) === 2);
+  const pp2done = await commit(input(pp2.b, pp2.u, pp2.A, Buffer.from(feeA, "utf8")), pp2pre.token, decideAll(pp2pre, "IMPORT"));
+  ok("P2 …the owner says it is real (IMPORT): 4 lines, nothing lost", pp2done.inserted === 2 && (await lines(pp2.b)) === 4, `${pp2done.inserted}/${await lines(pp2.b)}`);
+  const pp3 = await twoAccounts("bfi-P3");
+  await oldUpload(pp3.b, pp3.u, null, feeB);
+  const pp3old = await oldUpload(pp3.b, pp3.u, pp3.A, feeA);
+  ok("P3 B via the old path without an account, then A via the old path with account A: 4 lines (old path unchanged)", pp3old.inserted === 2 && (await lines(pp3.b)) === 4);
+  const pp4 = await twoAccounts("bfi-P4");
+  await importFile(input(pp4.b, pp4.u, pp4.A, Buffer.from(feeA, "utf8")));
+  const pp4b = await importFile(input(pp4.b, pp4.u, pp4.B, Buffer.from(feeB, "utf8")));
+  ok("P4 A then B, both via this path with their accounts: the identical fee is NEW in B (different account), 4 lines", pp4b.preview.counts.new === 2 && pp4b.preview.counts.suspected === 0 && (await lines(pp4.b)) === 4);
 
   // ── E. Overlaps, identical lines, CSV then Excel ─────────────────────────────────────────────
   console.log("E. overlapping statements, identical lines, CSV then Excel");

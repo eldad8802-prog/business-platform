@@ -7,13 +7,14 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Step 2: the same file, the same account and mapping, and the token from step 1. One transaction: new lines
- * are inserted, known lines are not, a repeated commit reports the first outcome and does nothing again.
+ * Step 2: the same file, the same account and mapping, the token from step 1, and the owner's decision (IMPORT /
+ * SKIP) for every suspected duplicate — refused without one. One transaction: new lines are inserted, certain
+ * duplicates are not, suspected lines follow the decision; a repeated commit reports the first outcome.
  */
 export async function POST(req: Request) {
   return bankImportRoute(req, async (actor) => {
-    const { input, token } = await readImportForm(req, actor);
-    const result = await commitBankFile({ ...input, token });
+    const { input, token, decisions } = await readImportForm(req, actor);
+    const result = await commitBankFile({ ...input, token, decisions });
     return json(result, result.replayed ? 200 : 201);
   });
 }

@@ -402,7 +402,8 @@ export async function findExistingRun(
  * their runs live in this ledger: domain `bank_statement`, the file's hash, the counts. They are written here,
  * because this file is the ledger's only accessor (import-ledger-guard CI-IL-14), and inside the CALLER's
  * transaction, because the bank import opens the run, writes its lines and closes the run atomically under
- * its own lock. No row markers: a bank line's own unique key is its idempotency.
+ * its own lock. No row markers: a bank line's own unique key is its idempotency. `decisionsHash` records the
+ * owner's explicit choices on suspected duplicates (import / skip, per row).
  */
 
 export const BANK_STATEMENT_RUN_DOMAIN = "bank_statement";
@@ -436,7 +437,17 @@ export async function lastBankStatementImportInTx(tx: TenantTx, businessId: numb
 /** Open a bank statement run in the caller's transaction. */
 export async function openBankStatementRunInTx(
   tx: TenantTx,
-  run: { businessId: number; userId: number; contentHash: string; mappingHash: string; retryKey: string; sheetName: string | null; totalRows: number }
+  run: {
+    businessId: number;
+    userId: number;
+    contentHash: string;
+    mappingHash: string;
+    /** The owner's decisions on suspected duplicates, canonicalized and hashed (audit evidence). */
+    decisionsHash: string;
+    retryKey: string;
+    sheetName: string | null;
+    totalRows: number;
+  }
 ): Promise<number> {
   const created = await tx.importRun.create({
     data: {
@@ -445,7 +456,7 @@ export async function openBankStatementRunInTx(
       domain: BANK_STATEMENT_RUN_DOMAIN,
       contentHash: run.contentHash,
       mappingHash: run.mappingHash,
-      decisionsHash: createHash("sha256").update("bank_statement:no-decisions", "utf8").digest("hex"),
+      decisionsHash: run.decisionsHash,
       retryKey: run.retryKey,
       sheetName: run.sheetName,
       totalRows: run.totalRows,

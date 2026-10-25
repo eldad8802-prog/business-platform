@@ -37,7 +37,17 @@ what `parseStatementCsv` read. This path writes the same table and source, so it
   parser cannot read at all;
 - **parity is tested** (`bank-file-core.test.ts`): on the same CSV files, `parseStatementCsv` and this path give
   the same lines, the same skipped rows and the same identities, with and without an account;
-- every line is checked under **both** identities — with the chosen account and with none — before insert;
+- every line is classified against what the business holds (owner rule, 2026-10-25: **a real bank line is never
+  lost to avoid a possible duplicate**):
+  - **certain duplicate** — its identity *with the chosen account* exists (same account, same facts, same
+    occurrence): skipped, as the existing identity mechanism always did;
+  - **suspected duplicate** — only its identity *without an account* exists (an earlier upload made with no
+    account chosen). That row says nothing about its account, so it may be this line or a real, identical line
+    of another account (the same fee on the same day). It is **never skipped silently**: the preview lists every
+    suspected line, the owner chooses IMPORT or SKIP for each (no default), and a commit without a decision for
+    every suspected line is refused (`DECISIONS_REQUIRED`). The decision is recorded: `ImportRun.decisionsHash`
+    and the audit event's metadata (row numbers, never values). An IMPORT inserts a new row under the account;
+    the earlier row is never changed;
 - the insert is `ON CONFLICT DO NOTHING` on `(businessId, source, externalId)`;
 - commits for one business serialise on `pg_advisory_xact_lock(hashtext('bank-lines-ingest:<businessId>'))`.
 
@@ -49,31 +59,30 @@ UTF-8. Row numbers count non-empty rows, as the old parser does.
 
 | Order | Result |
 |---|---|
-| old path without an account → this path | 0 new (the "no account" identity is checked) |
-| old path with the account → this path | 0 new |
-| this path → old path with the same account | 0 new (same identity, unique key) |
-| this path → old path **without** an account | **duplicates** — see below |
-| same file again; same file, other mapping; CSV then the Excel of it | 0 new |
+| old path with the account → this path | certain: 0 new |
+| this path → old path with the same account | certain: 0 new (same identity, unique key) |
+| old path **without** an account → this path | suspected: refused without decisions; SKIP → 0 new; IMPORT → inserted; recorded |
+| this path → old path **without** an account | **duplicates** — closed by routing the old upload to this screen (separate PR) |
+| same file again (same decisions = replay); same file, other mapping; CSV then the Excel of it | 0 new |
 | overlapping statements (days 1–10, then 5–15) | only days 11–15 |
 | identical charges (2, then a statement with 3) | 2, then 1 |
 | same file committed 4× concurrently; two overlapping files concurrently; old path + this path concurrently | exact union, no line twice |
+| P1–P4: the same fee on the same day in two accounts, every order | both real lines kept |
 
-### The one remaining direction, and the proposed change (NOT in this PR)
+### Why there is no automatic cross-account matching
 
-The old path checks only its own identity. A file imported here (always with an account) and then uploaded on
-the bank lines screen **without** choosing an account is written again. Closing it needs a change to the old
-path, which is outside the approved scope; it is prepared for a separate decision:
+A version that skipped a line whenever its facts matched a line of ANY of the business's accounts was tested
+and rejected: with the same fee on the same day in two accounts it dropped a real line in every order (P1–P3).
+A line uploaded without an account cannot be attributed to an account from its content, and a business with one
+registered account may still upload a statement of an account it never registered. Certainty exists only within
+one identity form; everything across forms is the owner's decision.
 
-- `uploadStatement` takes the same `bank-lines-ingest` lock and, before inserting, looks each line up under every
-  identity it can have: without an account → under "no account" and under each of the business's accounts; with
-  an account → also under "no account". Lines found are skipped. `ingestObservations` is split so the insert
-  runs inside that transaction. Return shape, route and screen unchanged. ~50 lines in
-  `payables-observation.service.ts`.
-- Behaviour change for the old path alone: a statement uploaded once with and once without an account no longer
-  duplicates (today it does).
-- Proof run locally: `.bfi/battery.ts` 42/42 (the gap closed) and the existing old-path suite
-  `payables-p46.db.test.ts` 77/77, on the branch with the change; the same suite 77/77 without it.
-- Until it is approved: do not open `bank_file_import` for a business, or open it only together with the change.
+### The one remaining direction
+
+The old path checks only its own identity: a file imported here and then uploaded on the bank lines screen
+**without** an account is written again. It is closed by the separate draft PR that, for a business with
+`bank_file_import` ON, sends the old upload to this screen (account required) and refuses the old upload API.
+For a business with the flag OFF nothing changes. Until both are merged: do not open the flag for a business.
 
 ## Retention and erasure — proposal only (no change to the deletion process in B1)
 
@@ -110,6 +119,6 @@ supported in B1: the owner saves it as XLSX or CSV).
 1. Merge the migration PR, then apply it with `release-migrate` (owner approval of `production-db`); evidence
    `ops/evidence/bank-file-import-feature-production-evidence.sql` (7 checks: OFF, nothing imported).
 2. Merge this PR (code is inert while the flag is OFF; the screen answers "not open").
-3. Decide the old-path change (above), and real-file validation per bank.
+3. Merge the old-upload routing PR (the remaining direction, above), and real-file validation per bank.
 4. Only then a per-business override for a pilot business; the screen has no navigation entry in B1 (reached at
    `/payables/bank/import`) — where it appears is part of the activation decision.

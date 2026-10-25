@@ -13,7 +13,7 @@ import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-fe
 import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { BANK_FIELDS, type BankMapping } from "./bank-file-core";
-import { BankImportError, type BankImportInput } from "./bank-file-import.service";
+import { BankImportError, type BankImportInput, type SuspectDecisions } from "./bank-file-import.service";
 
 const NO_STORE = { "Cache-Control": "private, no-store" } as const;
 
@@ -86,11 +86,28 @@ function parseMapping(raw: FormDataEntryValue | null): BankMapping | null {
   return out;
 }
 
+function parseDecisions(raw: FormDataEntryValue | null): SuspectDecisions | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new BankImportError("DECISIONS_INVALID", 400);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new BankImportError("DECISIONS_INVALID", 400);
+  const out: SuspectDecisions = {};
+  for (const [row, v] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!/^d+$/.test(row) || (v !== "IMPORT" && v !== "SKIP")) throw new BankImportError("DECISIONS_INVALID", 400);
+    out[Number(row)] = v;
+  }
+  return out;
+}
+
 /** The multipart body both analyze and commit take: file, account, optional sheet and mapping (and token). */
 export async function readImportForm(
   req: Request,
   actor: BankImportActor
-): Promise<{ input: BankImportInput; token: FormDataEntryValue | null }> {
+): Promise<{ input: BankImportInput; token: FormDataEntryValue | null; decisions: SuspectDecisions | null }> {
   let form: FormData;
   try {
     form = await req.formData();
@@ -122,5 +139,6 @@ export async function readImportForm(
       mapping: parseMapping(form.get("mapping")),
     },
     token: form.get("token"),
+    decisions: parseDecisions(form.get("decisions")),
   };
 }
