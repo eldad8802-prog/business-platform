@@ -337,9 +337,12 @@ async function payablesChecks(page, vp, scenario, run, apiLog) {
     await page.goBack();
     await page.waitForURL(/\/payables$/, { timeout: 15_000 }).catch(() => {});
     await settle(page);
-    // "התחייבות חדשה" still opens the existing form (until the one creation path is approved).
-    await main.getByRole("button", { name: "התחייבות חדשה" }).click();
-    c.formOpens = await main.locator("form").first().isVisible().catch(() => false);
+    // "התחייבות חדשה" opens P3, the one creation path (owner, 25.10.2026); the old form stays reachable only by its
+    // direct link (?new=1) during the transition.
+    c.newOpensP3 = (await main.getByRole("link", { name: "התחייבות חדשה" }).getAttribute("href")) === "/secretary?screen=bank";
+    await page.goto(`${BASE}/payables?new=1`);
+    await settle(page);
+    c.formOpens = c.newOpensP3 && (await main.locator("form").first().isVisible().catch(() => false));
     await main.getByRole("button", { name: "סגור" }).click();
     c.toolbar = await checkToolbar(page, vp);
     c.ok = c.noSummary && c.noSearch && c.noAllDebts && c.groupsOk && c.openByDefault && c.rowAmounts && c.allRows === 4 && c.filtersOk && c.scopeAll && c.openFlow && c.formOpens && c.toolbar.ok;

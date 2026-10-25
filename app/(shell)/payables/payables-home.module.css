@@ -29,6 +29,7 @@
   font-weight: 700;
   cursor: pointer;
 }
+.newButton { text-decoration: none; }
 .newButton:hover { background: var(--dz-brand-hover); }
 .newButton:focus-visible { outline: 2px solid var(--dz-focus-ring-color); outline-offset: 2px; }
 @media (max-width: 719px) { .newButton { padding: 0 12px; font-size: 14px; } }

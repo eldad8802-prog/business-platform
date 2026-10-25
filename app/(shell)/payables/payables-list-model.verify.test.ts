@@ -263,6 +263,8 @@ function main() {
   ok("no summary card, no search on the main screen", !page.includes("<PayablesSummary") && !page.includes('type="search"'));
   ok("cheques and bank stay reachable", page.includes('"/payables/cheques"') && page.includes('"/payables/bank"'));
   ok("a card opens the existing detail screen", page.includes("router.push(`/payables/${row.id}`)"));
+  ok("\"התחייבות חדשה\" opens P3, the one creation path", page.includes(`const P3_START = "/secretary?screen=bank";`) && (page.match(/<Link href={P3_START} className={home.newButton}>/g) ?? []).length === 2);
+  ok("the old form stays reachable only by its direct link (?new=1)", page.includes(`searchParams.get("new") === "1"`) && page.includes("<CommitmentForm"));
 
   console.log(`payables-list-model.verify.test.ts: ok (${checks} checks passed)`);
 }

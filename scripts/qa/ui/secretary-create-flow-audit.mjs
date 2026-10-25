@@ -217,6 +217,25 @@ for (const vp of [{ n: "390", w: 390, h: 844, m: true }, { n: "1440", w: 1440, h
     await p.goto(`${BASE}/secretary`); await settle(p);
     return { ok: state.created.length === 4 && leftFlow(landed), landed };
   });
+  await step("from the commitments screen: \"התחייבות חדשה\" → P3 → save → \"סיימתי\" returns there → back leaves the flow", async () => {
+    await p.goto(`${BASE}/payables`); await settle(p);
+    await main(p).getByRole("link", { name: "התחייבות חדשה" }).first().click();
+    await p.waitForURL(/screen=bank$/, { timeout: 15000 }); await settle(p);
+    await main(p).getByRole("link", { name: "צור התחייבות" }).first().click();
+    await p.waitForURL(/screen=capture/, { timeout: 15000 }); await settle(p);
+    const f = p.locator("form").first();
+    await f.locator("input").first().fill("אינטרנט");
+    await f.locator("input[inputmode=decimal]").first().fill("310");
+    await f.locator("input[type=date]").first().fill("2026-11-14");
+    await f.locator("button[type=submit]").click(); await p.waitForTimeout(1500);
+    await main(p).getByRole("button", { name: "סיימתי" }).click();
+    const back = await p.waitForURL((u) => u.pathname === "/payables", { timeout: 15000 }).then(() => true).catch(() => false);
+    await settle(p);
+    await p.goBack(); await p.waitForTimeout(1500);
+    const landed = path0(p.url());
+    await p.goto(`${BASE}/secretary`); await settle(p);
+    return { ok: state.created.length === 5 && back && leftFlow(landed), landed };
+  });
   // One creation path (owner, 25.10.2026): the two capabilities P3 took over from the old form.
   await step("payee: pick an existing payee → only its id is sent", async () => {
     await p.goto(`${BASE}/secretary?screen=capture`); await settle(p);
