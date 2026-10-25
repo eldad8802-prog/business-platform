@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import BackButton from "@/components/ui/back-button";
 import { useI18n } from "@/components/i18n/I18nProvider";
@@ -48,6 +49,18 @@ export default function BankLinesPage() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"none" | "manual" | "upload">("none");
   const [reloadToken, setReloadToken] = useState(0);
+  // Bank file import (B1): when it is open for this business, the statement upload is its screen (account
+  // required); the upload endpoint below refuses too. Closed ⇒ this screen behaves exactly as before.
+  const [fileImportOpen, setFileImportOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/payables/bank-import", { credentials: "same-origin" })
+      .then((r) => !cancelled && setFileImportOpen(r.ok))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const reload = useCallback(() => setReloadToken((n) => n + 1), []);
 
   useEffect(() => {
@@ -84,9 +97,15 @@ export default function BankLinesPage() {
           <button type="button" className={styles.buttonQuiet} onClick={() => setMode(mode === "manual" ? "none" : "manual")}>
             {mode === "manual" ? t("money.common.close") : t("money.payables.bank.addLine")}
           </button>
-          <button type="button" className={styles.buttonPrimary} onClick={() => setMode(mode === "upload" ? "none" : "upload")}>
-            {mode === "upload" ? t("money.common.close") : t("money.payables.bank.upload")}
-          </button>
+          {fileImportOpen ? (
+            <Link className={styles.buttonPrimary} href="/payables/bank/import">
+              {t("money.payables.bank.upload")}
+            </Link>
+          ) : (
+            <button type="button" className={styles.buttonPrimary} onClick={() => setMode(mode === "upload" ? "none" : "upload")}>
+              {mode === "upload" ? t("money.common.close") : t("money.payables.bank.upload")}
+            </button>
+          )}
         </div>
       </header>
 
@@ -99,7 +118,7 @@ export default function BankLinesPage() {
       {error && <div className={styles.error}>{error}</div>}
 
       {mode === "manual" && <ManualLineForm accounts={accounts} onDone={(m) => { setMode("none"); changed(m); }} />}
-      {mode === "upload" && <UploadForm accounts={accounts} onDone={(m) => { setMode("none"); changed(m); }} />}
+      {mode === "upload" && !fileImportOpen && <UploadForm accounts={accounts} onDone={(m) => { setMode("none"); changed(m); }} />}
       </section>
       <section>
 

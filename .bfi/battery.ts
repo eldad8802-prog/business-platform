@@ -68,7 +68,7 @@ function oldCsv(rows: string[][]): string {
 async function main() {
   const owner = new PrismaClient({ datasourceUrl: OWNER_URL });
   const svc = await import("@/lib/services/bank-file-import/bank-file-import.service");
-  const { bankFileImportEnabled } = await import("@/lib/services/bank-file-import/http");
+  const { bankFileImportEnabled, bankFileImportState } = await import("@/lib/services/bank-file-import/http");
   const obs = await import("@/lib/services/payables/payables-observation.service");
   const { runWithTenantContext } = await import("@/lib/tenant/context");
   const { tenantTx } = await import("@/lib/tenant/tenant-tx");
@@ -193,7 +193,7 @@ async function main() {
   await importFile(input(bizA, userA, accA, csv(fileD4)));
   const oldNoAccAfterNew = await oldUpload(bizA, userA, null, oldCsv(fileD4));
   if (oldNoAccAfterNew.inserted === 0) ok("this path, then the old path WITHOUT an account: 0 inserted", true);
-  else gap("this path, then the OLD path WITHOUT an account duplicates — the old path checks only its own identity", `${oldNoAccAfterNew.inserted} duplicate row(s)`);
+  else gap("this path, then the OLD path SERVICE without an account duplicates — closed at the entry point: for a business with the flag ON the old upload API refuses (section R, old-upload-routing.test.ts)", `${oldNoAccAfterNew.inserted} duplicate row(s) via a direct service call`);
 
   // ── P. Two real lines with identical facts on two accounts are never lost ──────────────────────
   console.log("P. the same fee on the same day in two accounts: both real lines are kept (P1–P3)");
@@ -320,6 +320,15 @@ async function main() {
   const eList = await runWithTenantContext({ businessId: bizE }, () => obs.listObservations({ businessId: bizE, scope: "open" }));
   const eDebits = await owner.externalTransaction.count({ where: { businessId: bizE, direction: "DEBIT" } });
   ok("lines imported by this path appear in the payables list exactly like uploaded ones (debits only)", eList.length === eDebits && eList.every((l) => l.direction === "DEBIT"), `${eList.length}/${eDebits}`);
+
+  // ── R. The old upload's entry point (old-upload routing PR) ─────────────────────────────────────
+  console.log("R. the old upload is closed exactly where bank file import is open");
+  ok("the business of the remaining direction (A) is ON: the old upload API refuses it (409) and its screen links to the import",
+    (await bankFileImportState(bizA)) === "ON");
+  ok("a business without the flag (K) is OFF: its old upload works exactly as before (section K)", (await bankFileImportState(bizK)) === "OFF");
+  await owner.$executeRawUnsafe(`UPDATE "PlatformFeaturePolicy" SET "emergencyDisabled" = true WHERE "featureKey" = 'bank_file_import'`);
+  ok("the emergency switch closes the import for every business, and the old upload reopens", (await bankFileImportState(bizA)) === "OFF");
+  await owner.$executeRawUnsafe(`UPDATE "PlatformFeaturePolicy" SET "emergencyDisabled" = false WHERE "featureKey" = 'bank_file_import'`);
 
   console.log(`\n${pass}/${pass + failures.length} passed${gaps.length ? `, ${gaps.length} known gap(s)` : ""}`);
   for (const g of gaps) console.log(`  GAP: ${g}`);
