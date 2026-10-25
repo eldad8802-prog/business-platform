@@ -28,6 +28,7 @@ import { AttachmentList } from "@/components/crm/AttachmentList";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
+import { APPOINTMENT_STATUS_LABEL } from "./appointment-status-labels";
 
 /**
  * Customer card (detail). Extracted verbatim from the /customers/[id] page — the
@@ -82,13 +83,6 @@ const CONVERSATION_STATUS_LABEL: Record<string, MessageKey> = {
   OPEN: "customers.customer.conversationStatus.open",
   CLOSED: "customers.customer.conversationStatus.closed",
   ARCHIVED: "customers.customer.conversationStatus.archived",
-};
-
-const APPOINTMENT_STATUS_LABEL: Record<string, MessageKey> = {
-  PROPOSED: "customers.customer.appointmentStatus.proposed",
-  CONFIRMED: "customers.customer.appointmentStatus.confirmed",
-  CANCELLED: "customers.customer.appointmentStatus.cancelled",
-  COMPLETED: "customers.customer.appointmentStatus.completed",
 };
 
 const ORDER_SOURCE_LABEL: Record<string, string> = {
