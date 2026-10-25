@@ -63,6 +63,7 @@ jobs:
           npx tsx lib/accountant/period.verify.test.ts
           npx tsx lib/accountant/package-scope.verify.test.ts
           npx tsx lib/accountant/workflow.verify.test.ts
+          npx tsx lib/accountant/package-reports.verify.test.ts
           npx tsx lib/notifications/notification-policy.verify.test.ts
           npx tsx lib/data-transfer/format/format.verify.test.ts
           npx tsx lib/reports/accountant-export-collect.verify.test.ts
@@ -141,3 +142,13 @@ jobs:
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_bf?$TZQ" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_bf?$TZQ" \
             npx tsx .acct/build-failure-battery.ts
+
+      - name: Excel download battery — the workbook taken out of the sealed ZIP, cached privately, through the real route
+        run: |
+          set -euo pipefail
+          bash .acct/lab.sh acct_xlsx --with-acct
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_xlsx?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_xlsx?$TZQ" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_xlsx?$TZQ" \
+            npx tsx .acct/excel-download-battery.ts

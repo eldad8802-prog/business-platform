@@ -89,13 +89,21 @@ export async function completeManually(token: string, periodKey: string, package
   ).period;
 }
 
-/** Downloads a stored package: a five-minute signed URL (production) or the bytes (local development). */
-export async function downloadPackage(token: string, packageId: number): Promise<void> {
-  const res = await fetch(`/api/accountant/packages/${packageId}/download`, {
+export type PackageDownloadFormat = "zip" | "xlsx";
+
+/**
+ * Downloads a stored package — the ZIP, or the report workbook taken out of it — as a five-minute signed
+ * URL (production) or the bytes (local development).
+ */
+export async function downloadPackage(token: string, packageId: number, format: PackageDownloadFormat = "zip"): Promise<void> {
+  const res = await fetch(`/api/accountant/packages/${packageId}/download?format=${format}`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
-  if (!res.ok) throw new ApiError(res.status, `HTTP_${res.status}`);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    throw new ApiError(res.status, typeof body?.error === "string" ? body.error : `HTTP_${res.status}`);
+  }
   const type = res.headers.get("content-type") ?? "";
   if (type.includes("application/json")) {
     const { url } = (await res.json()) as { url: string };
@@ -106,7 +114,7 @@ export async function downloadPackage(token: string, packageId: number): Promise
   const href = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = href;
-  a.download = `accountant-package-${packageId}.zip`;
+  a.download = format === "xlsx" ? `accountant-report-${packageId}.xlsx` : `accountant-package-${packageId}.zip`;
   a.click();
   URL.revokeObjectURL(href);
 }

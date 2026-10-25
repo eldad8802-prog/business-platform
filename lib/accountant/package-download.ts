@@ -13,13 +13,17 @@ import { getStorageService, loadStorageConfig } from "@/lib/storage";
 
 export const PACKAGE_SIGNED_URL_TTL_SECONDS = 300;
 
-export async function servePackageObject(storageKey: string, downloadName: string): Promise<Response> {
+export async function servePackageObject(
+  storageKey: string,
+  downloadName: string,
+  contentType = "application/zip"
+): Promise<Response> {
   const storage = getStorageService();
   if (loadStorageConfig().provider === "local") {
     const object = await storage.getObject(storageKey);
     return new Response(new Uint8Array(object.body), {
       headers: {
-        "Content-Type": "application/zip",
+        "Content-Type": contentType,
         "Content-Disposition": `attachment; filename="${downloadName}"`,
         "Content-Length": String(object.body.byteLength),
         "Cache-Control": "private, no-store",
