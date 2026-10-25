@@ -897,3 +897,482 @@
     flex: 0 0 520px !important;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Customers — list cards + customer file (owner-approved redesign).
+   Customer-only class names (`cust-*`), so Leads and Suppliers, which share
+   this stylesheet, are untouched. Same overflow contract as the rows above:
+   text wraps `anywhere` instead of setting a min-content floor, and LTR values
+   (phone, email, amounts) are bidi-isolated inside the RTL surface.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Accessible-only text (a field label read before its value). */
+.cust-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Icon tones: teal phone, WhatsApp green, blue file, amber mail. */
+.cust-tone--phone { --cust-tone: var(--crm-accent); --cust-tone-bg: color-mix(in srgb, var(--crm-accent) 11%, var(--crm-card)); }
+.cust-tone--whatsapp { --cust-tone: var(--crm-whatsapp); --cust-tone-bg: color-mix(in srgb, var(--crm-whatsapp) 13%, var(--crm-card)); }
+.cust-tone--file { --cust-tone: var(--crm-info); --cust-tone-bg: var(--crm-info-bg); }
+.cust-tone--mail { --cust-tone: var(--crm-warning); --cust-tone-bg: var(--crm-warning-bg); }
+
+.cust-avatar {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--crm-radius-pill);
+  background: var(--crm-surface2);
+  color: var(--crm-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: var(--crm-w-semibold);
+}
+.cust-avatar--lg {
+  width: 60px;
+  height: 60px;
+  font-size: 20px;
+}
+
+/* Search with a leading magnifier (the input keeps `.crm-search`). */
+.cust-search {
+  position: relative;
+}
+.cust-search > svg {
+  position: absolute;
+  inset-inline-start: 14px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  color: var(--crm-tertiary);
+  pointer-events: none;
+}
+.cust-search > .crm-search {
+  padding-inline-start: 42px;
+}
+
+/* ── List cards ───────────────────────────────────────────────────────── */
+.cust-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cust-card {
+  container-type: inline-size;
+  background: var(--crm-card);
+  border: 1px solid var(--crm-line);
+  border-radius: var(--crm-radius-card);
+  box-shadow: var(--crm-shadow-card);
+  transition: box-shadow 150ms ease-out;
+}
+.cust-card:hover {
+  box-shadow: var(--crm-shadow-card-hover);
+}
+.cust-card--selected {
+  border-color: var(--crm-accent);
+  box-shadow: inset 0 0 0 1px var(--crm-accent), var(--crm-shadow-card);
+}
+.cust-card__main {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 16px 14px;
+  color: var(--crm-ink);
+  text-decoration: none;
+  border-radius: var(--crm-radius-card) var(--crm-radius-card) 0 0;
+}
+.cust-card__main:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--crm-ring);
+}
+.cust-card__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cust-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.cust-card__name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  font-weight: var(--crm-w-semibold);
+  line-height: 1.3;
+}
+
+/* Contact lines: one value per line, colored icon at the start. */
+.cust-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.cust-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--crm-ink);
+}
+.cust-line__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--cust-tone);
+}
+.cust-line__icon svg {
+  width: 17px;
+  height: 17px;
+}
+.cust-line__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
+/* Footer: three actions of equal weight, divided by hairlines. */
+.cust-card__actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--crm-line);
+  padding: 8px 6px;
+}
+.cust-card__actions > * + * {
+  border-inline-start: 1px solid var(--crm-line);
+}
+
+/* One contact action (list footer = row, file quick actions = stack). */
+.cust-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 4px 6px;
+  color: var(--crm-ink);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: var(--crm-w-medium);
+}
+.cust-action--stack {
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 4px;
+}
+a.cust-action:hover .cust-action__tile {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cust-tone) 30%, transparent);
+}
+a.cust-action:focus-visible {
+  outline: none;
+  border-radius: 12px;
+  box-shadow: 0 0 0 3px var(--crm-ring);
+}
+.cust-action__tile {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cust-tone-bg);
+  color: var(--cust-tone);
+}
+.cust-action--stack .cust-action__tile {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+}
+.cust-action__tile svg {
+  width: 21px;
+  height: 21px;
+}
+/* A label is one short word or two — never broken mid-word ("WhatsA·pp").
+   Narrow cards switch to the stacked layout below instead. */
+.cust-action__label {
+  min-width: 0;
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1.2;
+}
+.cust-action__chev {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--crm-tertiary);
+}
+/* Unavailable (no phone / no usable number / no email): visibly off, not clickable. */
+.cust-action--off {
+  cursor: not-allowed;
+  color: var(--crm-tertiary);
+}
+.cust-action--off .cust-action__tile {
+  background: var(--crm-surface2);
+  color: var(--crm-tertiary);
+}
+
+/* Typical phone width: tighter tiles, chevron dropped as redundant. */
+@container (max-width: 400px) {
+  .cust-card__actions {
+    padding-inline: 2px;
+  }
+  .cust-card__actions .cust-action {
+    gap: 6px;
+    padding-inline: 2px;
+  }
+  .cust-card__actions .cust-action__tile {
+    width: 34px;
+    height: 34px;
+  }
+  .cust-card__actions .cust-action__chev {
+    display: none;
+  }
+}
+/* Narrow card (a small phone, or the desktop master pane): stack each action
+   so the labels never collide. */
+@container (max-width: 340px) {
+  .cust-card__actions .cust-action {
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+  }
+  .cust-card__actions .cust-action__chev {
+    display: none;
+  }
+}
+
+/* ── Customer file ───────────────────────────────────────────────────── */
+.cust-file {
+  container-type: inline-size;
+}
+.cust-hero.crm-id {
+  padding: 18px 18px 8px;
+}
+.cust-hero .crm-id__head {
+  align-items: center;
+}
+.cust-hero__title {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.cust-hero .crm-id__name {
+  flex: 0 1 auto;
+  margin: 0;
+}
+.cust-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cust-btn-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.cust-lines--hero {
+  margin-top: 16px;
+  gap: 10px;
+}
+.cust-lines--hero .cust-line {
+  font-size: 15px;
+}
+.cust-lines--hero .cust-line__icon svg {
+  width: 20px;
+  height: 20px;
+}
+.cust-hero__tax {
+  margin-top: 14px;
+}
+.cust-quick {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--crm-line);
+}
+.cust-quick > * + * {
+  border-inline-start: 1px solid var(--crm-line);
+}
+
+/* Sections: same order everywhere; two columns only when the file is wide. */
+.cust-file__grid {
+  display: flex;
+  flex-direction: column;
+}
+.cust-file__grid > .crm-section {
+  min-width: 0;
+}
+.cust-file .crm-section__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.crm-section__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--cust-tone, var(--crm-accent));
+}
+.crm-section__icon svg {
+  width: 20px;
+  height: 20px;
+}
+.cust-file .crm-section__title {
+  font-size: 16px;
+}
+
+/* One grouped surface per section, items divided by hairlines. */
+.cust-group {
+  background: var(--crm-card);
+  border: 1px solid var(--crm-line);
+  border-radius: var(--crm-radius-card);
+  box-shadow: var(--crm-shadow-card);
+  overflow: hidden;
+}
+.cust-group .crm-list {
+  gap: 0;
+}
+.cust-group .crm-item {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 14px 16px;
+  min-height: 56px;
+  box-sizing: border-box;
+}
+.cust-group .crm-item + .crm-item {
+  border-top: 1px solid var(--crm-line);
+}
+a.cust-item {
+  color: var(--crm-ink);
+  text-decoration: none;
+}
+a.cust-item:hover {
+  background: var(--crm-surface2);
+}
+a.cust-item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 3px var(--crm-ring);
+}
+.cust-item__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--cust-tone);
+}
+.cust-item__icon svg {
+  width: 22px;
+  height: 22px;
+}
+.cust-item__chev {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--crm-tertiary);
+}
+.cust-group .crm-item__amount {
+  unicode-bidi: isolate;
+}
+.cust-more {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-top: 1px solid var(--crm-line);
+  background: transparent;
+  color: var(--crm-accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: var(--crm-w-medium);
+  cursor: pointer;
+}
+.cust-more:hover {
+  background: var(--crm-surface2);
+}
+.cust-more:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 3px var(--crm-ring);
+}
+.cust-group__note {
+  margin: 0;
+  padding: 0 16px 12px;
+  font-size: 12px;
+  color: var(--crm-muted);
+  text-align: center;
+}
+.cust-file .crm-note-empty {
+  background: var(--crm-card);
+  border: 1px dashed var(--crm-line);
+  border-radius: var(--crm-radius-card);
+  padding: 14px 16px;
+  margin: 0;
+}
+
+/* General note under the Notes head, editable via the pencil (opens Edit). */
+.cust-general-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.cust-general-note__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cust-icon-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  margin: -8px;
+  border: 0;
+  border-radius: var(--crm-radius-pill);
+  background: transparent;
+  color: var(--crm-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.cust-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.cust-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--crm-ring);
+}
+
+@container (min-width: 760px) {
+  .cust-file__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 16px;
+    align-items: start;
+  }
+}

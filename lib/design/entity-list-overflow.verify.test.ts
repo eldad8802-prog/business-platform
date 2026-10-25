@@ -248,8 +248,9 @@ check(
 
 console.log("\n[6] A row's meta line is built from VALUES, never a joined string");
 
+// CustomerRow left this list when it became a card with one value per line;
+// it is held to the same contract by section [7b] below.
 const ROW_META_USERS = [
-  "components/customers/CustomerRow.tsx",
   "components/leads/LeadRow.tsx",
   "components/suppliers/SuppliersList.tsx",
   "components/suppliers/SupplierDuplicateNotice.tsx",
@@ -322,6 +323,46 @@ for (const file of ROW_META_USERS) {
     !nameBlocks.some((b) => b.includes("crm-badge")),
     "a badge after the clamped text is clipped away on long names",
   );
+}
+
+console.log("\n[9] Customer list cards keep the same overflow + bidi contract");
+
+/**
+ * The customer list is a card per customer: the name (clamped), a status badge
+ * beside it, then one contact value per line. The invariants are the ones the
+ * rows above carry, restated on the new classes: the text column shrinks, the
+ * name wraps and is clamped, every LTR value is isolated and wraps anywhere,
+ * and the status badge is never inside the clamped name.
+ */
+for (const [selector, prop, label] of [
+  [".cust-card__body", /flex\s*:\s*1 1 auto/, "text column takes the leftover width"],
+  [".cust-card__body", /min-width\s*:\s*0/, "text column may shrink"],
+  [".cust-card__body", /display\s*:\s*flex/, "text column blockifies its children"],
+  [".cust-avatar", /flex-shrink\s*:\s*0/, "avatar is never crushed"],
+  [".cust-card__head", /flex-wrap\s*:\s*wrap/, "badge drops below a long name"],
+  [".cust-card__name", /overflow-wrap\s*:\s*anywhere/, "name wraps anywhere"],
+  [".cust-card__name", /line-clamp\s*:\s*2/, "name is clamped to two lines"],
+  [".cust-card__name", /display\s*:\s*-webkit-box/, "clamp applies to a block box"],
+  [".cust-line__value", /overflow-wrap\s*:\s*anywhere/, "contact value wraps anywhere"],
+  [".cust-line__value", /unicode-bidi\s*:\s*isolate/, "contact value is bidi-isolated"],
+  [".cust-line__value", /min-width\s*:\s*0/, "contact value may shrink"],
+  [".cust-action__label", /white-space\s*:\s*nowrap/, "action label is never broken mid-word"],
+] as Array<[string, RegExp, string]>) {
+  check(`${selector}: ${label}`, has(ruleBody(CRM_CSS, selector), prop));
+}
+{
+  const src = read("components/customers/CustomerRow.tsx");
+  const nameBlocks = src.match(/className="cust-card__name"[\s\S]*?<\/span>/g) ?? [];
+  check("CustomerRow renders the clamped name", nameBlocks.length > 0);
+  check(
+    "CustomerRow keeps the status badge out of the clamped name",
+    !nameBlocks.some((b) => b.includes("crm-badge")),
+  );
+  check(
+    "CustomerRow never joins mixed-direction values into one run",
+    !/\.join\(\s*["'] · ["']\s*\)/.test(src),
+  );
+  check("CustomerRow isolates each contact value", /<bdi className="cust-line__value">/.test(src));
 }
 
 console.log("\n[8] The inventory rules are attached to the WIRED component");

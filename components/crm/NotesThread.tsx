@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import {
   getNotes,
   createNote,
@@ -23,9 +24,15 @@ function formatDateTime(iso: string, formatDateTimeValue: (date: Date) => string
 export function NotesThread({
   subjectType,
   subjectId,
+  icon,
+  intro,
 }: {
   subjectType: CrmSubjectType;
   subjectId: number;
+  /** Optional decorative glyph before the section title (the customer file uses one per section). */
+  icon?: ReactNode;
+  /** Optional content shown right under the section head, before the section body. */
+  intro?: ReactNode;
 }) {
   const { t, formatDate } = useI18n();
   const [notes, setNotes] = useState<CrmNoteDTO[]>([]);
@@ -126,11 +133,16 @@ export function NotesThread({
   return (
     <div className="crm-section">
       <div className="crm-section__head">
-        <h2 className="crm-section__title">{t("inbox.crm.notes.title")}</h2>
+        <h2 className="crm-section__title">
+          {icon ? <span className="crm-section__icon" aria-hidden>{icon}</span> : null}
+          {t("inbox.crm.notes.title")}
+        </h2>
         {!loading && !error ? (
           <span className="crm-section__count">{notes.length}</span>
         ) : null}
       </div>
+
+      {intro}
 
       {/* Composer */}
       <div className="crm-note-composer">
