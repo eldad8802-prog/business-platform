@@ -276,12 +276,15 @@ async function main() {
 
   // ── H. Free slots ──────────────────────────────────────────────────────────────────────────────
   console.log("H. free slots");
+  // The appointment moved to Wednesday 09:00 in E was completed in F, which frees its time; an active one takes it.
+  r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { ...c1Body, startsAt: at("09:00", WED) } }));
+  ok("H0 an active appointment on Wednesday 09:00 (where the completed one was — completion freed the time)", r.status === 201, String(r.status));
   r = await routes.slots.GET(req(`/api/appointments/slots?fromDay=${WED}&toDay=${WED}&businessServiceId=${svcA}&staffMemberId=${dana.id}`));
   const sl = await body(r);
   const starts = (sl?.slots as { startsAt: string }[] | undefined)?.map((s) => s.startsAt) ?? [];
   ok("H1 the service's length, a 30-minute step: the first free start is 10:30, twelve in all", r.status === 200 && sl.durationMinutes === 60
     && starts[0] === at("10:30", WED) && starts.length === 12, JSON.stringify(starts));
-  ok("H2 09:00 is taken (the moved appointment) and 10:00 is inside its 15-minute buffer", !starts.includes(at("09:00", WED)) && !starts.includes(at("10:00", WED)));
+  ok("H2 09:00 is taken (the active appointment) and 10:00 is inside its 15-minute buffer", !starts.includes(at("09:00", WED)) && !starts.includes(at("10:00", WED)));
   ok("H3 the last slot ends at 17:00", starts[starts.length - 1] === at("16:00", WED));
   r = await routes.slots.GET(req(`/api/appointments/slots?fromDay=${MON}&toDay=${MON}&businessServiceId=${svcA}`));
   ok("H4 the closed Monday has no slot", r.status === 200 && (await body(r))?.slots?.length === 0);
