@@ -30,6 +30,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // --- Amount + currency normalization (mirrors the payments convention) -----
 
 /** Normalize an amount to a positive, 2-decimal string. */
+/**
+ * The legacy stores keep one row per obligation and know no payee and no plan. A request that asks for either is
+ * refused BEFORE anything is written — never saved half (owner, 25.10.2026).
+ */
+export function assertLegacyStoreCanCreate(row: { payeeId?: number | null; installmentPlan?: unknown }): void {
+  if (row.payeeId != null || row.installmentPlan != null) {
+    throw new ValidationError("קישור למוטב ותוכנית תשלומים נשמרים רק בפנקס ההתחייבויות, והוא לא פעיל כאן. שום דבר לא נשמר.");
+  }
+}
+
 export function normalizeAmount(amount: string | number): string {
   const num = typeof amount === "number" ? amount : Number(amount);
   if (!Number.isFinite(num) || num <= 0) {

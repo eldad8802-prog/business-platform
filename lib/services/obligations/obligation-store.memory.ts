@@ -12,6 +12,7 @@ import type {
   ObligationStore,
   OrientationRecord,
 } from "./obligations.types";
+import { assertLegacyStoreCanCreate } from "./obligation-core";
 
 export function createInMemoryObligationStore(
   now: () => Date = () => new Date()
@@ -22,6 +23,7 @@ export function createInMemoryObligationStore(
 
   return {
     async createObligation(row: CreateObligationRow) {
+      assertLegacyStoreCanCreate(row);
       const id = nextId++;
       const t = now();
       const record: ObligationRecord = {

@@ -112,6 +112,19 @@ export interface CreateObligationRow {
   recurrenceSeriesId: string | null;
   note: string | null;
   followUpAt: Date | null;
+  /**
+   * Optional (owner-approved one creation path, 25.10.2026). A payee of THIS business to link, and a real
+   * payment plan: `amount` is then the plan's total, split by the payables plan generator. Only the ledger store
+   * can hold them; the legacy stores reject them before writing anything.
+   */
+  payeeId?: number | null;
+  installmentPlan?: InstallmentPlanInput | null;
+}
+
+/** A real payment plan: one commitment, `count` instalments, every `cadence`. */
+export interface InstallmentPlanInput {
+  count: number;
+  cadence: Exclude<RecurrenceCadence, "NONE">;
 }
 
 export interface ObligationPatch {

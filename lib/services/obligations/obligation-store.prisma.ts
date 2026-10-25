@@ -10,6 +10,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { TenantTx } from "@/lib/tenant/transaction";
+import { assertLegacyStoreCanCreate } from "./obligation-core";
 import type {
   CreateObligationRow,
   ListObligationsOptions,
@@ -77,6 +78,7 @@ export function createObligationPrismaStore(
 ): ObligationStore {
   return {
     async createObligation(row: CreateObligationRow) {
+      assertLegacyStoreCanCreate(row);
       const created = await db.businessObligation.create({
         data: {
           businessId: row.businessId,

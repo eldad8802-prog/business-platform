@@ -17,6 +17,9 @@ import type {
 } from "@/lib/obligations/secretary-client";
 import { formatObligationTotals, obligationTotalsByCurrency } from "./obligation-totals";
 import { findCategoryObligation, INSURANCE, NATIONAL_INSURANCE } from "./secretary-bank-categories";
+import { PayeeField } from "../payables/payee-field";
+import { PAYABLES_THEME } from "../payables/payables-theme";
+import { fromMinorUnits, generateInstallmentPlan, toMinorUnits } from "@/lib/services/payables/payables-core";
 import styles from "./secretary.module.css";
 
 export type TodayState = "critical" | "busy" | "calm";
@@ -58,6 +61,8 @@ const RECURRENCE_KEY: Record<RecurrenceCadence, MessageKey> = {
 const RECURRENCE_OPTIONS: Array<{ value: RecurrenceCadence; label: MessageKey }> = (
   ["NONE", "WEEKLY", "MONTHLY", "BIMONTHLY", "QUARTERLY", "SEMIANNUAL", "YEARLY"] as const
 ).map((value) => ({ value, label: RECURRENCE_KEY[value] }));
+/** A payment plan's cadence: every option but "once" (the payables plan generator needs one). */
+const PLAN_CADENCE_OPTIONS = RECURRENCE_OPTIONS.filter((o) => o.value !== "NONE") as Array<{ value: Exclude<RecurrenceCadence, "NONE">; label: MessageKey }>;
 
 const CAPTURE_KINDS: CaptureKindOption[] = [
   {
@@ -103,8 +108,10 @@ const P3_COPY = {
   checkSay: "אפשר למסור לי את פרטי הצ'ק, ואזכור את יום הפירעון.",
   checkNote: "הצ'ק נשמר כתשלום חד־פעמי ביום הפירעון, ומספר הצ'ק נכתב בהערה. הוא לא נרשם בפנקס הצ'קים.",
   checkSaved: "הצ'ק נשמר כתשלום חד־פעמי עם מספר הצ'ק בהערה, ולא בפנקס הצ'קים.",
-  installmentsNote: (count: number) => `הפריסה נשמרת כ־${count} תשלומים נפרדים, אחד בכל חודש. כל אחד מופיע בהתחייבויות בנפרד, ולא כתוכנית תשלומים אחת.`,
-  installmentsSaved: (count: number) => `הפריסה נשמרה כ־${count} תשלומים נפרדים. זה הראשון שבהם.`,
+  installmentsNote: (count: number) => `הפריסה תישמר כהתחייבות אחת עם ${count} תשלומים. במזכירה יופיע בכל פעם התשלום הבא, ובמסך ההתחייבויות התוכנית כולה.`,
+  installmentsSaved: (count: number) => `הפריסה נשמרה כהתחייבות אחת עם ${count} תשלומים. זה הראשון שבהם.`,
+  planCadence: "כל כמה זמן",
+  payeeLinkNote: "השם הזה לא קושר. כדי לקשר, בחרו ספק או מוטב מהרשימה, או צרו מוטב חדש.",
   netComputed: (days: string, date: string) => `חישבתי: שוטף+${days} יוצא לתשלום ב־${date}.`,
   createdBody: (name: string, date: string) => `שמרתי את ${name} לתשלום ב־${date}. עד אז הוא נשמר אצלי במעקב שקט, ושבוע לפני המועד הוא יעלה לראש המזכירה.`,
   createdBodyGeneric: "שמרתי. שבוע לפני המועד זה יעלה לראש המזכירה.",
@@ -1371,7 +1378,7 @@ function DetailScreen({ obligation, obligations, onComplete, onRelease }: { obli
   );
 }
 
-function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { obligations: ObligationApi[]; onCreate?: (input: CreateObligationInput) => Promise<ObligationApi | void>; onCreateMany?: (inputs: CreateObligationInput[]) => Promise<ObligationApi[]>; prefillName?: string }) {
+function CaptureScreen({ obligations, onCreate, prefillName }: { obligations: ObligationApi[]; onCreate?: (input: CreateObligationInput) => Promise<ObligationApi | void>; onCreateMany?: (inputs: CreateObligationInput[]) => Promise<ObligationApi[]>; prefillName?: string }) {
   const f = useFmt();
   const { t } = f;
   const [obligeeName, setObligeeName] = useState(prefillName ?? "");
@@ -1382,6 +1389,10 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
   const [note, setNote] = useState("");
   const [kind, setKind] = useState<CaptureKind>("regular");
   const [installmentCount, setInstallmentCount] = useState("3");
+  const [planCadence, setPlanCadence] = useState<Exclude<RecurrenceCadence, "NONE">>("MONTHLY");
+  // Optional link to an existing payee (owner, 25.10.2026). Only the id is sent; a typed name that was not chosen
+  // from the list is not a link and is not saved.
+  const [payee, setPayee] = useState<{ payeeId: number | null; payeeName: string }>({ payeeId: null, payeeName: "" });
   const [checkNumber, setCheckNumber] = useState("");
   const [termsDays, setTermsDays] = useState<"30" | "60" | "90">("30");
   const [busy, setBusy] = useState(false);
@@ -1405,6 +1416,8 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
     setNote("");
     setKind("regular");
     setInstallmentCount("3");
+    setPlanCadence("MONTHLY");
+    setPayee({ payeeId: null, payeeName: "" });
     setCheckNumber("");
     setTermsDays("30");
     router.replace(screenHref("capture"));
@@ -1437,7 +1450,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
   }, []);
   const selectedKind = CAPTURE_KINDS.find((item) => item.key === kind) ?? CAPTURE_KINDS[0];
   const installmentCountNumber = normalizeInstallmentCount(installmentCount);
-  const scheduleRows = buildInstallmentRows(amount, dueAt, installmentCountNumber, f);
+  const scheduleRows = buildInstallmentRows(amount, dueAt, installmentCountNumber, planCadence, f);
   const netDueDate = invoiceDate ? calculateNetTermsDueDate(invoiceDate, Number(termsDays), f) : null;
   const canSubmit = (() => {
     if (!obligeeName.trim() || !amount.trim()) return false;
@@ -1456,24 +1469,28 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
     }
     const trimmedName = obligeeName.trim();
     const extraNote = note.trim();
+    // Sent only when a payee was chosen: without one, the request is byte-for-byte what it was.
+    const linkedPayee = payee.payeeId != null ? { payeeId: payee.payeeId } : {};
     setBusy(true);
     setError(null);
     try {
       if (kind === "installments") {
+        // A real payment plan (owner, 25.10.2026): ONE commitment; the server splits the total exactly as the
+        // payables form does (remainder on the last instalment).
         const first = new Date(dueAt.trim() + "T09:00:00");
         if (Number.isNaN(first.getTime())) throw new Error("bad-date");
         const total = Number(amount);
         if (!Number.isFinite(total) || total <= 0) throw new Error("bad-amount");
-        const each = (total / installmentCountNumber).toFixed(2);
-        const inputs: CreateObligationInput[] = Array.from({ length: installmentCountNumber }, (_, index) => ({
+        const saved = await onCreate?.({
           obligeeName: trimmedName,
-          amount: each,
-          dueAt: addMonths(first, index).toISOString(),
-          recurrence: "NONE" as RecurrenceCadence,
-          note: `פריסת תשלומים ${index + 1}/${installmentCountNumber}` + (extraNote ? ` · ${extraNote}` : ""),
-        }));
-        const createdList = await onCreateMany?.(inputs);
-        if (createdList && createdList[0]) setCreated(createdList[0]);
+          amount,
+          dueAt: first.toISOString(),
+          recurrence: "NONE",
+          note: extraNote || null,
+          ...linkedPayee,
+          installmentPlan: { count: installmentCountNumber, cadence: planCadence },
+        });
+        if (saved) setCreated(saved);
         return;
       }
 
@@ -1499,10 +1516,12 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
         dueISO = due.toISOString();
       }
 
-      const saved = await onCreate?.({ obligeeName: trimmedName, amount, dueAt: dueISO, recurrence: recurrenceForKind, note: noteForKind });
+      const saved = await onCreate?.({ obligeeName: trimmedName, amount, dueAt: dueISO, recurrence: recurrenceForKind, note: noteForKind, ...linkedPayee });
       if (saved) setCreated(saved);
-    } catch {
-      setError(t("tasks.secretary.capture.saveFailed"));
+    } catch (e) {
+      // The server's own words when they are Hebrew (a refused payee, a store that cannot hold a plan).
+      const raw = e instanceof Error ? e.message : "";
+      setError(/[֐-׿]/.test(raw) ? raw : t("tasks.secretary.capture.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -1607,6 +1626,12 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
           <CaptureField label={kind === "postdated-check" ? t("tasks.secretary.capture.checkTo") : t("tasks.secretary.capture.payTo")}>
             <input className={styles.captureInput} value={obligeeName} onChange={(event) => setObligeeName(event.target.value)} placeholder={t("tasks.secretary.capture.namePlaceholder")} />
           </CaptureField>
+          {/* Optional: the same payee picker as the payables form — link an existing supplier or payee of this
+              business, or create one. The link is what bank accounts, payment preparation and cheques use. */}
+          <div className={styles.capturePayee} style={PAYABLES_THEME}>
+            <PayeeField payeeId={payee.payeeId} payeeName={payee.payeeName} onChange={setPayee} disabled={busy} />
+            {payee.payeeId == null && payee.payeeName.trim() ? <p className={styles.capturePayeeNote}>{P3_COPY.payeeLinkNote}</p> : null}
+          </div>
 
           {kind === "regular" ? <>
             <div className={styles.captureTwoRow}>
@@ -1643,6 +1668,16 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
               </CaptureField>
             </div>
             <CaptureDateInput label={t("tasks.secretary.capture.firstDate")} value={dueAt} fallback={t("tasks.secretary.capture.pickFirst")} onChange={setDueAt} />
+            <div className={styles.captureField}>
+              <span>{P3_COPY.planCadence}</span>
+              <div className={styles.captureSegbar} role="radiogroup" aria-label={P3_COPY.planCadence}>
+                {PLAN_CADENCE_OPTIONS.map((option) => (
+                  <button key={option.value} type="button" role="radio" aria-checked={planCadence === option.value} className={planCadence === option.value ? styles.captureSegOn : ""} onClick={() => setPlanCadence(option.value)}>
+                    {t(option.label)}
+                  </button>
+                ))}
+              </div>
+            </div>
             <section className={styles.captureSchedule} aria-label={t("tasks.secretary.capture.schedule")}>
               <strong>{t("tasks.secretary.capture.schedule")}</strong>
               {scheduleRows.length > 0 ? scheduleRows.map((row) => (
@@ -1735,16 +1770,37 @@ function normalizeInstallmentCount(value: string): number {
   return Math.max(2, Math.min(24, n));
 }
 
-function buildInstallmentRows(amount: string, firstDate: string, count: number, f: Fmt): Array<{ index: number; amount: string; date: string }> {
-  const total = Number(amount);
-  if (!Number.isFinite(total) || total <= 0 || !firstDate) return [];
+/** A plan instalment with its agorot when it has any — the remainder (333.34) must show, never round away. */
+function planAmountText(decimal: string): string {
+  const n = Number(decimal);
+  const frac = Number.isInteger(n) ? 0 : 2;
+  return new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", minimumFractionDigits: frac, maximumFractionDigits: frac }).format(n);
+}
+
+/**
+ * The plan preview — computed with the SAME generator the server uses, so the remainder lands on the last
+ * instalment here exactly as it will in the ledger (1,000 over 3 is 333.33 · 333.33 · 333.34, never 333.33 × 3).
+ */
+function buildInstallmentRows(amount: string, firstDate: string, count: number, cadence: Exclude<RecurrenceCadence, "NONE">, f: Fmt): Array<{ index: number; amount: string; date: string }> {
+  if (!firstDate || count < 2) return [];
   const first = new Date(firstDate + "T09:00:00");
   if (Number.isNaN(first.getTime())) return [];
-  const each = total / count;
-  return Array.from({ length: count }, (_, index) => {
-    const date = addMonths(first, index);
-    return { index, amount: formatMoneyValue(String(each), "ILS", f), date: formatDateValue(date.toISOString(), f) };
-  });
+  let totalMinor: number;
+  try {
+    totalMinor = toMinorUnits(amount || "0");
+  } catch {
+    return [];
+  }
+  if (totalMinor <= 0) return [];
+  try {
+    return generateInstallmentPlan({ totalMinor, count, firstDueAt: first, cadence }).map((p, index) => ({
+      index,
+      amount: planAmountText(fromMinorUnits(p.amountMinor)),
+      date: formatDateValue(p.dueAt.toISOString(), f),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function netTermsDueDateValue(invoiceDate: string, days: number): Date | null {

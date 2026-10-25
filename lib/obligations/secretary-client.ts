@@ -58,11 +58,16 @@ export interface BriefingApi {
 
 export interface CreateObligationInput {
   obligeeName: string;
+  /** With `installmentPlan`, the plan's total. */
   amount: string | number;
   currency?: string;
   dueAt: string; // ISO
   recurrence?: RecurrenceCadence;
   note?: string | null;
+  /** Optional (25.10.2026): link an existing payee of this business. */
+  payeeId?: number | null;
+  /** Optional (25.10.2026): a real payment plan — one commitment, `count` instalments every `cadence`. */
+  installmentPlan?: { count: number; cadence: Exclude<RecurrenceCadence, "NONE"> } | null;
 }
 
 export interface UpdateObligationInput {

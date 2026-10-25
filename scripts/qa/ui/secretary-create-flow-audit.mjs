@@ -31,7 +31,7 @@ const json = (body, status = 200) => ({ status, contentType: "application/json; 
 const path0 = (u) => { const x = new URL(u); return x.pathname + x.search; };
 
 async function open(browser, vp) {
-  const state = { created: [], writes: [], errors: [] };
+  const state = { created: [], bodies: [], writes: [], errors: [] };
   const ctx = await browser.newContext({ viewport: { width: vp.w, height: vp.h }, isMobile: !!vp.m, hasTouch: !!vp.m, locale: "he-IL", timezoneId: "Asia/Jerusalem" });
   await ctx.clock.setFixedTime(new Date(FROZEN_NOW));
   await ctx.addInitScript((t) => { localStorage.setItem("token", t); localStorage.setItem("user", JSON.stringify({ id: 9, name: "בעלים לדוגמה", businessName: "עסק לדוגמה" })); }, TOKEN);
@@ -45,6 +45,7 @@ async function open(browser, vp) {
         const id = 7000 + state.created.length;
         const o = { id, obligeeName: b.obligeeName, amount: Number(b.amount).toFixed(2), currency: "ILS", dueAt: b.dueAt, state: "OPEN", source: "MANUAL", recurrence: b.recurrence ?? "NONE", recurrenceSeriesId: null, note: b.note ?? null, followUpAt: null, settlementAssertedBy: null, metAt: null, releasedAt: null, createdAt: FROZEN_NOW, updatedAt: FROZEN_NOW, ledger: { commitmentId: id, installmentId: id, paid: "0.00", remaining: Number(b.amount).toFixed(2) } };
         state.created.push(o);
+        state.bodies.push(b);
         return route.fulfill(json(o, 201));
       }
       if (u.pathname === "/api/tasks/sync") return route.fulfill(json({ ok: true, syncVersion: 1 }));
@@ -52,6 +53,12 @@ async function open(browser, vp) {
     }
     if (u.pathname === "/api/home") return route.fulfill(json({ heroAction: { actionKey: "none", title: "", description: "", ctaLabel: "", ctaHref: "/app" }, quickActions: [], businessSnapshot: { businessName: "עסק לדוגמה" }, leadsAttention: { count: 0, href: "/leads" } }));
     if (u.pathname === "/api/business-status") return route.fulfill(json({ items: [] }));
+    // Existing payees of the business (the picker's search).
+    if (u.pathname === "/api/payables/payees") {
+      const q = u.searchParams.get("q") ?? "";
+      const all = [{ id: 41, displayName: "מחשבי הדר", kind: "SUPPLIER" }, { id: 42, displayName: "חברת החשמל", kind: "SUPPLIER" }];
+      return route.fulfill(json({ payees: all.filter((x) => x.displayName.includes(q)) }));
+    }
     const body = resolveApi("todayShared", "GET", u.pathname, u.searchParams);
     if (body === undefined) return route.fulfill(json({ error: "QA: not mocked" }, 404));
     // Echo this run's saves where the screens read them.
@@ -209,6 +216,40 @@ for (const vp of [{ n: "390", w: 390, h: 844, m: true }, { n: "1440", w: 1440, h
     const landed = path0(p.url());
     await p.goto(`${BASE}/secretary`); await settle(p);
     return { ok: state.created.length === 4 && leftFlow(landed), landed };
+  });
+  // One creation path (owner, 25.10.2026): the two capabilities P3 took over from the old form.
+  await step("payee: pick an existing payee → only its id is sent", async () => {
+    await p.goto(`${BASE}/secretary?screen=capture`); await settle(p);
+    const f = p.locator("form").first();
+    await f.locator("input").first().fill("מחשב נייד");
+    const picker = f.getByRole("combobox");
+    await picker.fill("מחשבי");
+    await p.getByRole("option", { name: /מחשבי הדר/ }).first().click();
+    await f.locator("input[inputmode=decimal]").first().fill("500");
+    await f.locator("input[type=date]").first().fill("2026-11-20");
+    await f.locator("button[type=submit]").click(); await p.waitForTimeout(1500);
+    const b = state.bodies[state.bodies.length - 1] ?? {};
+    await p.goto(`${BASE}/secretary`); await settle(p);
+    return { ok: b.payeeId === 41 && b.obligeeName === "מחשב נייד" && !("installmentPlan" in b), body: JSON.stringify(b) };
+  });
+  await step("plan: preview = the server split; saved as ONE request with the plan", async () => {
+    await p.goto(`${BASE}/secretary?screen=capture`); await settle(p);
+    await p.locator('[aria-label="סוג התחייבות"] button', { hasText: "פריסת תשלומים" }).first().click(); await p.waitForTimeout(300);
+    const f = p.locator("form").first();
+    await f.locator("input").first().fill("ריהוט");
+    await f.locator("input[inputmode=decimal]").first().fill("1000");
+    await f.locator("input[inputmode=numeric]").first().fill("3");
+    await f.locator("input[type=date]").first().fill("2026-11-10");
+    await f.getByRole("radio", { name: /רבעון/ }).click(); await p.waitForTimeout(300);
+    const preview = (await f.locator("section").filter({ hasText: /1\/3/ }).first().innerText().catch(() => "")).replace(/\s+/g, " ");
+    const split = (preview.match(/333\.33/g) ?? []).length === 2 && preview.includes("333.34");
+    const quarterly = preview.includes("10 בנובמבר") && preview.includes("10 בפברואר") && preview.includes("10 במאי");
+    const before = state.bodies.length;
+    await f.locator("button[type=submit]").click(); await p.waitForTimeout(1500);
+    const added = state.bodies.slice(before);
+    const b = added[0] ?? {};
+    await p.goto(`${BASE}/secretary`); await settle(p);
+    return { ok: split && quarterly && added.length === 1 && b.amount === "1000" && b.installmentPlan?.count === 3 && b.installmentPlan?.cadence === "QUARTERLY" && b.recurrence === "NONE", preview: preview.slice(0, 160), body: JSON.stringify(b) };
   });
   await step("9 the \"התחייבויות\" station shows both saves", async () => {
     await main(p).locator("section[aria-labelledby='sec-stations-title'] a").first().click();

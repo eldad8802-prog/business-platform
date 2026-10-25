@@ -71,10 +71,19 @@ check(!fn("captureSayForKind").includes("tasks.secretary.capture.say.postdatedCh
 const copyStart = ui.indexOf("const P3_COPY");
 const copy = ui.slice(copyStart, ui.indexOf("\n};", copyStart));
 check(copyStart > 0 && !/אזכיר לך|תזכורת|אזכיר:/.test(copy), "the flow's new copy promises no reminder", copy.match(/אזכיר[^"`]*/)?.[0] ?? "");
-check(copy.includes("לא נרשם בפנקס הצ'קים") && copy.includes("תשלומים נפרדים"), "cheque and payment-plan copy say exactly how they are saved");
+check(copy.includes("לא נרשם בפנקס הצ'קים") && copy.includes("כהתחייבות אחת עם"), "cheque and payment-plan copy say exactly how they are saved");
 
-// Saving is untouched: the same create path, the same payloads.
-check(capture.includes("onCreateMany?.(inputs)") && capture.includes('recurrence: "NONE" as RecurrenceCadence'), "payment plan is still saved as separate one-off payments");
+// One creation path (owner, 25.10.2026): a payment plan is ONE commitment with a real plan, through the same
+// secretary create; a payee is linked by id only.
+check(
+  capture.includes("installmentPlan: { count: installmentCountNumber, cadence: planCadence }") && !capture.includes("onCreateMany?.(inputs)"),
+  "a payment plan is saved as one commitment with a real plan (no longer separate one-off payments)",
+);
+check(
+  capture.includes("const linkedPayee = payee.payeeId != null ? { payeeId: payee.payeeId } : {};") && capture.includes("<PayeeField payeeId={payee.payeeId}"),
+  "the payee is the payables picker; only its id is sent, and only when one was chosen",
+);
+check(/generateInstallmentPlan\(\{ totalMinor, count, firstDueAt: first, cadence \}\)/.test(ui), "the plan preview uses the server's own generator");
 check(capture.includes("`צ'ק מס' ${checkNumber.trim()}`"), "post-dated cheque note unchanged");
 check(capture.includes("`שוטף+${termsDays}`"), "net-terms note unchanged");
 

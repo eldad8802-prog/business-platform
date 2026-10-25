@@ -28,6 +28,7 @@ import {
 import {
   DEFAULT_ATTENTION_WINDOW_DAYS,
   type Briefing,
+  type InstallmentPlanInput,
   type ObligationRecord,
   type ObligationStore,
   type OrientationRecord,
@@ -95,11 +96,35 @@ function sameValue(a: unknown, b: unknown): boolean {
 export interface RecognizeObligationInput {
   businessId: number;
   obligeeName: string;
+  /** The amount of the obligation; with `installmentPlan`, the plan's total. */
   amount: string | number;
   currency?: string;
   dueAt: Date;
   recurrence?: RecurrenceCadence;
   note?: string | null;
+  /** Optional: an existing payee of this business (checked where the commitment is written). */
+  payeeId?: number | null;
+  /** Optional: a real payment plan — one commitment with `count` instalments every `cadence`. */
+  installmentPlan?: InstallmentPlanInput | null;
+}
+
+const MAX_PLAN_INSTALLMENTS = 120;
+
+function validatePayeeId(value: number | null | undefined): number | null {
+  if (value == null) return null;
+  if (!Number.isInteger(value) || value <= 0) throw new ValidationError("payeeId must be a positive integer");
+  return value;
+}
+
+function validateInstallmentPlan(plan: InstallmentPlanInput | null | undefined, recurrence: RecurrenceCadence): InstallmentPlanInput | null {
+  if (plan == null) return null;
+  if (recurrence !== "NONE") throw new ValidationError("An installment plan has its own cadence; recurrence must be NONE");
+  if (!Number.isInteger(plan.count) || plan.count < 2 || plan.count > MAX_PLAN_INSTALLMENTS) {
+    throw new ValidationError(`installmentPlan.count must be an integer between 2 and ${MAX_PLAN_INSTALLMENTS}`);
+  }
+  const cadence = validateRecurrence(plan.cadence);
+  if (cadence === "NONE") throw new ValidationError("installmentPlan.cadence is required");
+  return { count: plan.count, cadence };
 }
 
 export interface UpdateObligationInput {
@@ -183,6 +208,8 @@ export async function recognizeObligation(
   const dueAt = validateDueAt(input.dueAt);
   const recurrence = validateRecurrence(input.recurrence);
   const note = normalizeNote(input.note);
+  const payeeId = validatePayeeId(input.payeeId);
+  const installmentPlan = validateInstallmentPlan(input.installmentPlan, recurrence);
 
   const created = await deps.store.createObligation({
     businessId: input.businessId,
@@ -196,10 +223,16 @@ export async function recognizeObligation(
     recurrenceSeriesId: recurrence === "NONE" ? null : defaultSeriesId(deps),
     note,
     followUpAt: null,
+    payeeId,
+    installmentPlan,
   });
 
+  // One OBLIGATION_CHANGED per successful creation, whichever way it was created. A store that refuses writes
+  // nothing and throws before this line — so no event for a failed creation.
   const fields = ["amount", "currency", "dueAt", "obligeeName", "recurrence"];
   if (note != null) fields.push("note");
+  if (payeeId != null) fields.push("payee");
+  if (installmentPlan != null) fields.push("installmentPlan");
   await emitChange(deps, {
     businessId: input.businessId,
     obligationId: created.id,
