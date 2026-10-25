@@ -30,6 +30,7 @@ on:
     branches: [main]
     paths:
       - "prisma/migrations/20261030090000_oauth_identity_foundation/**"
+      - "prisma/migrations/20261101090000_oauth_ticket_cancel/**"
       - "ops/evidence/oauth-identity-*.sql"
       - ".agl/**"
       - ".aet/lab.sh"
@@ -179,7 +180,7 @@ jobs:
       - name: 3c. Milestone 2 battery — the real Google routes and the one account transaction (consent with the real grants, replay, ten concurrent completions, fault, linked / existing / closed / admin / deletion)
         run: |
           set -euo pipefail
-          bash .agl/lab.sh agl_m2 --with-agl >/dev/null
+          bash .agl/lab.sh agl_m2 --with-cancel >/dev/null
           U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_m2"
           OWNER_URL="$U" DIRECT_URL="$U" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_m2" \
@@ -188,6 +189,19 @@ jobs:
           AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
           RATE_LIMIT_BACKEND=memory \
             npx tsx .agl/app-battery-m2.ts
+
+      - name: 3d. Server-side cancel battery — the real cancel route on real rows (a copy of the secret, both race orders, a refused database and the retry, flag OFF, purge, no secret in the logs)
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh agl_cancel --with-cancel >/dev/null
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_cancel"
+          OWNER_URL="$U" DIRECT_URL="$U" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_cancel" \
+          AUTH_DATABASE_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/agl_cancel?connection_limit=12&pool_timeout=60" \
+          AUTH_PLANE_ENABLED=true \
+          AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
+          RATE_LIMIT_BACKEND=memory \
+            npx tsx .agl/app-battery-cancel.ts
 
       - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
         run: |
@@ -292,8 +306,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: Lab database (migration applied, consent + session grants as in Production)
-        run: bash .agl/lab.sh agl_web --with-agl
+      - name: Lab database (both oauth migrations applied, consent + session grants as in Production)
+        run: bash .agl/lab.sh agl_web --with-cancel
 
       # Built before the Chromium install (see i18n-multicurrency-ci.yml: the font resolution after
       # `playwright install --with-deps`). The flag is read at request time, so one build serves ON and OFF.

@@ -15,11 +15,13 @@
  *   - single use: spending is one conditional UPDATE under the row lock, so a second spend — sequential or
  *     concurrent — gets no row; a rolled-back transaction leaves the ticket open for one spender;
  *   - attach accepts only the transaction that spent the ticket, and only the account it just created;
- *   - expiry (30 minutes), supersede, the hourly ceiling, a subject already linked.
+ *   - expiry (30 minutes), supersede, the hourly ceiling, a subject already linked;
+ *   - cancel (migration 20261101090000_oauth_ticket_cancel): the same one conditional UPDATE under the row
+ *     lock, so a cancel and a completion of one ticket cannot both win, and a copy of the secret is dead
+ *     once the cancel commits.
  * This module adds only the secret (mint + hash), the shapes, and the mapping of the answers.
  *
- * Nothing here is reachable from a route yet (milestone 1): there is no start, callback or complete
- * endpoint, and AUTH_GOOGLE_LOGIN_ENABLED stays off.
+ * Reached from the "Continue with Google" routes only, which answer 404 while AUTH_GOOGLE_LOGIN_ENABLED is off.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -105,6 +107,27 @@ export async function spendSignupTicket(tx: SqlClient, secret: unknown): Promise
   >`SELECT ticket_id, provider_subject, email, name, email_verified FROM public.auth_oauth_ticket_consume(${secret}, 'SIGNUP')`;
   if (rows.length !== 1 || rows[0].email_verified !== true) throw new SignupTicketRefusedError();
   return { ticketId: rows[0].ticket_id, subject: rows[0].provider_subject, email: rows[0].email, name: rows[0].name };
+}
+
+/**
+ * What cancelling the ticket a browser holds found. Only CANCELLED changed anything; every other answer left
+ * every row as it was (COMPLETED in particular never touches the account the completion created).
+ */
+export const TICKET_CANCEL_OUTCOMES = ["CANCELLED", "ALREADY_CANCELLED", "COMPLETED", "SUPERSEDED", "EXPIRED", "NOT_FOUND"] as const;
+export type TicketCancelOutcome = (typeof TICKET_CANCEL_OUTCOMES)[number];
+
+/**
+ * End the SIGNUP ticket on the server, so no copy of its secret can complete a signup. A value that cannot be
+ * a ticket never reaches the database (NOT_FOUND). Throws on a database failure: the caller must then NOT
+ * report the ticket as cancelled.
+ */
+export async function cancelSignupTicket(secret: unknown, client: SqlClient = authDb()): Promise<TicketCancelOutcome> {
+  if (!isTicketSecret(secret)) return "NOT_FOUND";
+  const rows = await client.$queryRaw<{ outcome: string }[]>`
+    SELECT public.auth_oauth_ticket_cancel(${secret}::text, 'SIGNUP') AS outcome`;
+  const outcome = rows[0]?.outcome;
+  if (!(TICKET_CANCEL_OUTCOMES as readonly string[]).includes(outcome ?? "")) throw new Error("oauth_ticket_cancel_unexpected_answer");
+  return outcome as TicketCancelOutcome;
 }
 
 export type AttachedIdentity = { identityId: number; emailVerifiedAt: Date | null };

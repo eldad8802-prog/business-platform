@@ -13,6 +13,13 @@
  *               6 signed out, Google again → /auth/google/done → /app, the same account, no second one
  *             once: an address of an existing, unlinked account → "existing" notice, no link, no session;
  *                   cancel at Google → "cancelled".
+ *             the server-side cancel (migration 20261101090000):
+ *               8 cancel ends the ticket; its cookie copied into another browser shows "unavailable" and
+ *                 cannot complete;
+ *               9 the database refuses the cancel → a clear message ON the form, the ticket still held;
+ *                 the retry → /login "cancelled";
+ *              10 the signup completed in another browser first → cancel shows "already completed", the
+ *                 account untouched, and leads to /login.
  *   MODE=off  the same build with the flag OFF: no button; the routes and pages answer 404.
  *
  * env: BASE, MOCK (stand-in base URL), OWNER_URL, SHOTS (screenshot directory), MODE. Synthetic only.
@@ -45,6 +52,104 @@ const nextIs = (who: { sub: string; email: string; name: string } | { cancel: tr
 const users = async (email: string) => owner.user.count({ where: { email } });
 const tickets = async (sub: string) =>
   Number(((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM "OAuthSignupTicket" WHERE "providerSubject" = $1 AND "endedAt" IS NULL`, sub)) as { c: number }[])[0].c);
+const cancelled = async (sub: string) =>
+  Number(((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM "OAuthSignupTicket" WHERE "providerSubject" = $1 AND "endedReason" = 'CANCELLED'`, sub)) as { c: number }[])[0].c);
+const TICKET_COOKIE = "dz_google_signup";
+// Each browser below arrives from its own address: the register limit (3 an hour per address) is spent by
+// the three completions above, and these flows test the cancel, not the limiter.
+let addressSeq = 0;
+const ownAddress = () => ({ "x-forwarded-for": `198.51.100.${++addressSeq}` });
+/** Google → the completion form, in a fresh browser of the given width. */
+async function toForm(browser: Browser, who: { sub: string; email: string; name: string }, width = 1440, height = 900) {
+  const ctx = await browser.newContext({ locale: "he-IL", viewport: { width, height }, extraHTTPHeaders: ownAddress() });
+  const page = await ctx.newPage();
+  await page.goto(`${BASE}/login`);
+  await nextIs(who);
+  await page.getByTestId("google-button").click();
+  await page.waitForURL(/\/register\/google$/, { timeout: 30_000 });
+  await page.getByTestId("google-signup-form").waitFor({ state: "visible" });
+  return { ctx, page };
+}
+
+async function serverCancel(browser: Browser) {
+  console.log("\n— the server-side cancel —");
+  const stamp = Date.now();
+
+  // 8 — cancel, then a copy of the ticket cookie in another browser.
+  const w8 = { sub: `browser-copy-${stamp}`, email: `agl-browser-copy-${stamp}@lab.invalid`, name: "דנה כהן" };
+  const a = await toForm(browser, w8);
+  const copy = (await a.ctx.cookies()).find((c) => c.name === TICKET_COOKIE);
+  ok("8 the ticket cookie exists (httpOnly) before the cancel", !!copy && copy.httpOnly);
+  await a.page.getByTestId("google-signup-cancel").click();
+  await a.page.waitForURL(/\/login\?google=cancelled$/);
+  await a.page.getByTestId("google-notice").waitFor({ state: "visible" });
+  ok("8 cancel → /login with the 'cancelled' notice", (await a.page.getByTestId("google-notice").getAttribute("data-notice")) === "cancelled");
+  ok("8 …the ticket is CANCELLED on the server", (await cancelled(w8.sub)) === 1 && (await tickets(w8.sub)) === 0);
+  await a.ctx.close();
+  const b = await browser.newContext({ locale: "he-IL", viewport: { width: 1440, height: 900 }, extraHTTPHeaders: ownAddress() });
+  await b.addCookies([copy!]);
+  const pageB = await b.newPage();
+  await pageB.goto(`${BASE}/register/google`);
+  await pageB.getByTestId("google-signup-expired").waitFor({ state: "visible", timeout: 30_000 });
+  ok("8 the copied cookie in another browser → the 'unavailable' screen, no form", (await pageB.getByTestId("google-signup-form").count()) === 0);
+  await shot(pageB, "desktop-8-copy-refused");
+  // The page's read (401) made this browser forget the copy; put it back, so the completion carries it.
+  await b.addCookies([copy!]);
+  const forged = await pageB.request.post(`${BASE}/api/auth/google/complete`, {
+    headers: { origin: BASE }, data: { name: "דנה כהן", businessName: `מאפייה ${stamp}`, acceptTerms: true },
+  });
+  ok("8 …and a completion with the copy is refused (409), no account", forged.status() === 409 && (await users(w8.email)) === 0);
+  await b.close();
+
+  // 9 — the database refuses the cancel; the person stays on the form and retries.
+  const w9 = { sub: `browser-fail-${stamp}`, email: `agl-browser-fail-${stamp}@lab.invalid`, name: "דנה כהן" };
+  const c = await toForm(browser, w9, 390, 844);
+  await owner.$executeRawUnsafe(`REVOKE EXECUTE ON FUNCTION public.auth_oauth_ticket_cancel(text, text) FROM app_auth`);
+  try {
+    await c.page.getByTestId("google-signup-cancel").click();
+    await c.page.getByTestId("google-signup-form-error").waitFor({ state: "visible", timeout: 30_000 });
+    ok("9 a refused cancel → a clear message on the form", (await c.page.getByTestId("google-signup-form-error").innerText()).includes("הביטול לא הושלם"));
+    ok("9 …the person stays on the form (no redirect, no 'cancelled' notice)", new URL(c.page.url()).pathname === "/register/google"
+      && (await c.page.getByTestId("google-signup-form").count()) === 1);
+    ok("9 …the ticket cookie is still held and the ticket still open", !!(await c.ctx.cookies()).find((k) => k.name === TICKET_COOKIE) && (await tickets(w9.sub)) === 1);
+    ok("9 …the cancel button is usable again", await c.page.getByTestId("google-signup-cancel").isEnabled());
+    ok("9 no horizontal overflow with the message", await noOverflow(c.page));
+    await shot(c.page, "phone-9-cancel-failed");
+  } finally {
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.auth_oauth_ticket_cancel(text, text) TO app_auth`);
+  }
+  await c.page.getByTestId("google-signup-cancel").click();
+  await c.page.waitForURL(/\/login\?google=cancelled$/, { timeout: 30_000 });
+  ok("9 the retry → /login 'cancelled', the ticket CANCELLED", (await cancelled(w9.sub)) === 1 && (await tickets(w9.sub)) === 0);
+  await c.ctx.close();
+
+  // 10 — the signup is completed in another browser first; then this one cancels.
+  const w10 = { sub: `browser-done-${stamp}`, email: `agl-browser-done-${stamp}@lab.invalid`, name: "דנה כהן" };
+  const d = await toForm(browser, w10);
+  const held = (await d.ctx.cookies()).find((k) => k.name === TICKET_COOKIE)!;
+  const e = await browser.newContext({ locale: "he-IL", viewport: { width: 1440, height: 900 }, extraHTTPHeaders: ownAddress() });
+  await e.addCookies([held]);
+  const pageE = await e.newPage();
+  await pageE.goto(`${BASE}/register/google`);
+  await pageE.getByTestId("google-signup-form").waitFor({ state: "visible", timeout: 30_000 });
+  await pageE.locator("#g-business").fill(`מאפיית דנה ${stamp}`);
+  await pageE.locator("#g-terms").check();
+  await pageE.getByTestId("google-signup-submit").click();
+  await pageE.waitForURL(/\/setup/, { timeout: 30_000 });
+  const before = await owner.user.findUnique({ where: { email: w10.email }, select: { id: true, businessId: true } });
+  await e.close();
+  await d.page.getByTestId("google-signup-cancel").click();
+  await d.page.getByTestId("google-signup-completed").waitFor({ state: "visible", timeout: 30_000 });
+  ok("10 cancel after the signup completed elsewhere → 'already completed'", (await d.page.locator("h1").innerText()).includes("ההרשמה כבר הושלמה"));
+  const after = await owner.user.findUnique({ where: { email: w10.email }, select: { id: true, businessId: true } });
+  ok("10 …the account is untouched: one user, the same business, its identity", (await users(w10.email)) === 1 && !!before
+    && after?.id === before.id && after?.businessId === before.businessId && (await owner.userIdentity.count({ where: { userId: before.id } })) === 1);
+  await shot(d.page, "desktop-10-already-completed");
+  await d.page.getByTestId("google-signup-completed-login").click();
+  await d.page.waitForURL(/\/login/, { timeout: 30_000 });
+  ok("10 …and it leads to /login", new URL(d.page.url()).pathname === "/login");
+  await d.ctx.close();
+}
 
 async function onMode(browser: Browser) {
   for (const vp of VIEWPORTS) {
@@ -84,6 +189,7 @@ async function onMode(browser: Browser) {
     await page.getByTestId("google-notice").waitFor({ state: "visible" });
     ok(`${vp.name} 4 cancel → /login with the "cancelled" notice`, (await page.getByTestId("google-notice").getAttribute("data-notice")) === "cancelled");
     ok(`${vp.name} 4 …still no account`, (await users(who.email)) === 0);
+    ok(`${vp.name} 4 …and the ticket is ended on the server (CANCELLED)`, (await tickets(who.sub)) === 0 && (await cancelled(who.sub)) === 1);
     await shot(page, `${vp.name}-4-cancelled`);
 
     await nextIs(who);
@@ -150,6 +256,7 @@ async function offMode(browser: Browser) {
     ok(`OFF: GET ${p.split("?")[0]} → 404`, (await page.request.get(`${BASE}${p}`, { maxRedirects: 0 })).status() === 404);
   }
   ok("OFF: POST /api/auth/google/complete → 404", (await page.request.post(`${BASE}/api/auth/google/complete`, { data: {} })).status() === 404);
+  ok("OFF: DELETE /api/auth/google/ticket → 404", (await page.request.delete(`${BASE}/api/auth/google/ticket`, { headers: { origin: BASE } })).status() === 404);
   for (const p of ["/register/google", "/auth/google/done"]) {
     ok(`OFF: ${p} → 404`, (await page.request.get(`${BASE}${p}`)).status() === 404);
   }
@@ -161,7 +268,10 @@ async function main() {
   const browser = await chromium.launch();
   try {
     if (MODE === "off") await offMode(browser);
-    else await onMode(browser);
+    else {
+      await onMode(browser);
+      await serverCancel(browser);
+    }
   } finally {
     await browser.close();
   }

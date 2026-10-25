@@ -28,12 +28,13 @@ export default function GoogleSignupForm() {
   const { t } = useI18n();
   const honeypotRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<View | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "expired">("loading");
+  const [state, setState] = useState<"loading" | "ready" | "expired" | "completed">("loading");
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -58,11 +59,27 @@ export default function GoogleSignupForm() {
     };
   }, []);
 
+  // The server ends the ticket; only its answer decides where the person goes. A failed cancel keeps them
+  // here with the ticket still held, so they can try again — it is never shown as done.
   const cancel = async () => {
+    setCancelling(true);
+    setErrors((p) => ({ ...p, form: undefined }));
     try {
-      await fetch("/api/auth/google/ticket", { method: "DELETE", credentials: "same-origin" });
+      const res = await fetch("/api/auth/google/ticket", { method: "DELETE", credentials: "same-origin" });
+      const body = (await res.json().catch(() => ({}))) as { code?: string };
+      if (res.ok) {
+        router.replace("/login?google=cancelled");
+        return;
+      }
+      if (body.code === "ALREADY_COMPLETED") {
+        setState("completed");
+        return;
+      }
+      setErrors({ form: "הביטול לא הושלם. ההרשמה עדיין פתוחה, ואפשר לנסות לבטל שוב." });
+    } catch {
+      setErrors({ form: "הביטול לא הושלם. ההרשמה עדיין פתוחה, ואפשר לנסות לבטל שוב." });
     } finally {
-      router.replace("/login?google=cancelled");
+      setCancelling(false);
     }
   };
 
@@ -130,6 +147,24 @@ export default function GoogleSignupForm() {
   );
 
   if (state === "loading") return <div className={styles.page} aria-busy="true" />;
+
+  // The signup was completed (in another tab or browser) before this cancel reached the server: the account
+  // exists and the cancel changed nothing.
+  if (state === "completed") {
+    return shell(
+      <div className={styles.form} data-testid="google-signup-completed">
+        <div className={styles.head}>
+          <h1 className={styles.title}>ההרשמה כבר הושלמה</h1>
+          <p className={styles.loginLine}>החשבון בדוביז כבר נפתח עם הכתובת הזו, ולכן אין מה לבטל. אפשר להתחבר אליו.</p>
+        </div>
+        <div className={styles.actions} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <Link href="/login" className={styles.submit} style={{ textAlign: "center", textDecoration: "none" }} data-testid="google-signup-completed-login">
+            מעבר להתחברות
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (state === "expired" || !view) {
     return shell(
@@ -234,14 +269,14 @@ export default function GoogleSignupForm() {
         </span>
       </label>
 
-      {errors.form ? <p role="alert" aria-live="assertive" className={styles.formError}>{errors.form}</p> : null}
+      {errors.form ? <p role="alert" aria-live="assertive" className={styles.formError} data-testid="google-signup-form-error">{errors.form}</p> : null}
 
       <div className={styles.actions} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <button type="submit" className={styles.submit} disabled={busy} data-testid="google-signup-submit">
+        <button type="submit" className={styles.submit} disabled={busy || cancelling} data-testid="google-signup-submit">
           {busy ? "פותחים את החשבון…" : "פתיחת החשבון"}
         </button>
-        <button type="button" className={styles.link} onClick={cancel} data-testid="google-signup-cancel" style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
-          ביטול וחזרה להתחברות
+        <button type="button" className={styles.link} onClick={cancel} disabled={busy || cancelling} data-testid="google-signup-cancel" style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+          {cancelling ? "מבטלים…" : "ביטול וחזרה להתחברות"}
         </button>
       </div>
     </form>

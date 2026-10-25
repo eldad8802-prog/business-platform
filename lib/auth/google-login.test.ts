@@ -5,7 +5,8 @@
  *
  * The database half — the one account transaction, single use under concurrency, replay, rollback, consent
  * recorded with the real grants, the linked / existing / closed outcomes on real rows — is .agl/app-battery-m2.ts;
- * the browser half (desktop / tablet / phone, cancel and return) is .agl/browser-m2.ts.
+ * the browser half (desktop / tablet / phone, cancel and return) is .agl/browser-m2.ts. The server-side cancel
+ * on real rows (a copy of the secret, both race orders, a database failure and retry) is .agl/app-battery-cancel.ts.
  */
 process.env.AUTH_TOKEN_SECRET ??= "pure_test_auth_token_secret_0123456789abcdef0123456789";
 
@@ -26,7 +27,7 @@ import {
 } from "./google-oauth";
 import { googleNoticeFor, GOOGLE_NOTICES } from "./google-notices";
 import { normalizeGoogleSignupInput, SignupValidationError } from "./signup-identity";
-import { SignupTicketRefusedError } from "./oauth-ticket";
+import { cancelSignupTicket, SignupTicketRefusedError, type TicketCancelOutcome } from "./oauth-ticket";
 import { EmailAlreadyRegisteredError, type CreatedGoogleAccount } from "./signup";
 import { handleGoogleStart } from "@/app/api/auth/google/start/route";
 import { handleGoogleCallback, type CallbackRouteDeps } from "@/app/api/auth/google/callback/route";
@@ -119,9 +120,11 @@ async function main() {
   ok("OFF: start → 404", (await handleGoogleStart(get("/api/auth/google/start"), { config: OFF, rateLimit: allow })).status === 404);
   const offCallback = { config: OFF, exchange: async () => "x", resolve: async () => ({ kind: "existing_account" as const }), rateLimit: allow, recordUsage: noUsage };
   ok("OFF: callback → 404", (await handleGoogleCallback(get("/api/auth/google/callback?code=c&state=s"), offCallback)).status === 404);
-  ok("OFF: ticket read / cancel → 404",
+  let offCancels = 0;
+  ok("OFF: ticket read / cancel → 404, and the cancel reaches nothing",
     (await handleTicketRead(get("/api/auth/google/ticket"), { config: OFF, read: async () => null })).status === 404
-    && (await handleTicketCancel(get("/api/auth/google/ticket"), { config: OFF, read: async () => null })).status === 404);
+    && (await handleTicketCancel(get("/api/auth/google/ticket"), { config: OFF, cancel: async () => { offCancels += 1; return "CANCELLED"; }, rateLimit: allow })).status === 404
+    && offCancels === 0);
 
   let created = 0;
   const account: CreatedGoogleAccount = {
@@ -221,7 +224,59 @@ async function main() {
   ok("ticket view: address and name only", view.status === 200 && Object.keys(await view.json()).sort().join(",") === "email,expiresAt,name");
   const gone = await handleTicketRead(get("/api/auth/google/ticket"), { config: () => config, read: async () => null });
   ok("no open ticket → 401 and the cookie cleared", gone.status === 401 && /Max-Age=0/.test(cookieOf(gone, GOOGLE_TICKET_COOKIE)));
-  ok("cancel clears the ticket cookie", /Max-Age=0/.test(cookieOf(await handleTicketCancel(get("/api/auth/google/ticket"), { config: () => config, read: async () => null }), GOOGLE_TICKET_COOKIE)));
+
+  // ── ticket cancel: ended on the server first; a failure is never answered as cancelled ──
+  const SECRET = "Ab-_".repeat(10) + "xyz"; // 43 base64url characters: the shape of a ticket secret
+  const del = (cookie: string | null, site = "same-origin") => new Request("https://app.dubiz.test/api/auth/google/ticket", {
+    method: "DELETE",
+    headers: { origin: "https://app.dubiz.test", host: "app.dubiz.test", "sec-fetch-site": site, "x-forwarded-for": "198.51.100.7",
+      ...(cookie ? { cookie: `${GOOGLE_TICKET_COOKIE}=${cookie}` } : {}) },
+  });
+  let cancels: unknown[] = [];
+  const cancelDeps = (answer: () => Promise<TicketCancelOutcome>, rateLimit: typeof allow = allow) =>
+    ({ config: () => config, cancel: async (s: unknown) => { cancels.push(s); return answer(); }, rateLimit });
+  const cleared = (res: Response) => /Max-Age=0/.test(cookieOf(res, GOOGLE_TICKET_COOKIE));
+  const untouched = (res: Response) => cookieOf(res, GOOGLE_TICKET_COOKIE) === "";
+  for (const [answer, status] of [["CANCELLED", "cancelled"], ["ALREADY_CANCELLED", "cancelled"], ["EXPIRED", "ended"], ["SUPERSEDED", "ended"], ["NOT_FOUND", "ended"]] as const) {
+    cancels = [];
+    const res = await handleTicketCancel(del(SECRET), cancelDeps(async () => answer));
+    ok(`cancel: ${answer} → 200 ${status}, the cookie cleared, the held secret sent to the server`,
+      res.status === 200 && (await res.json()).status === status && cleared(res) && cancels.length === 1 && cancels[0] === SECRET);
+  }
+  const completedFirst = await handleTicketCancel(del(SECRET), cancelDeps(async () => "COMPLETED"));
+  ok("cancel after the signup completed → 409 ALREADY_COMPLETED, the cookie cleared",
+    completedFirst.status === 409 && (await completedFirst.json()).code === "ALREADY_COMPLETED" && cleared(completedFirst));
+  const logged: string[] = [];
+  const realError = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ")); };
+  let failedRes: Response;
+  try {
+    failedRes = await handleTicketCancel(del(SECRET), cancelDeps(async () => { throw Object.assign(new Error(`permission denied (${SECRET})`), { code: "P2010" }); }));
+  } finally {
+    console.error = realError;
+  }
+  ok("cancel: the database fails → 503 CANCEL_FAILED, NOT cancelled",
+    failedRes.status === 503 && (await failedRes.json()).code === "CANCEL_FAILED");
+  ok("…the ticket cookie is KEPT (no Set-Cookie for it), so the cancel can be tried again", untouched(failedRes));
+  ok("…the failure is logged without the secret", logged.length === 1 && logged[0].includes("cancel_failed") && !logged.join("").includes(SECRET), logged.join(" | "));
+  cancels = [];
+  const limited = await handleTicketCancel(del(SECRET), cancelDeps(async () => "CANCELLED", deny));
+  ok("cancel: the rate limit → 429, nothing sent to the server, the cookie kept", limited.status === 429 && cancels.length === 0 && untouched(limited));
+  const limiterDown = await handleTicketCancel(del(SECRET), cancelDeps(async () => "CANCELLED", async () => { throw new Error("limiter down"); }));
+  ok("cancel: the limiter fails → 503, the cookie kept", limiterDown.status === 503 && untouched(limiterDown));
+  cancels = [];
+  const crossSite = await handleTicketCancel(del(SECRET, "cross-site"), cancelDeps(async () => "CANCELLED"));
+  ok("cancel: cross-site → 403, nothing sent to the server, the cookie kept", crossSite.status === 403 && cancels.length === 0 && untouched(crossSite));
+  const noOrigin = await handleTicketCancel(new Request("https://app.dubiz.test/api/auth/google/ticket", { method: "DELETE", headers: { cookie: `${GOOGLE_TICKET_COOKIE}=${SECRET}` } }), cancelDeps(async () => "CANCELLED"));
+  ok("cancel: no Origin → 403", noOrigin.status === 403 && cancels.length === 0);
+  const none = await handleTicketCancel(del(null), cancelDeps(async () => "CANCELLED"));
+  ok("cancel without a ticket → 200 ended, nothing sent to the server", none.status === 200 && (await none.json()).status === "ended" && cancels.length === 0);
+  const junk = await handleTicketCancel(del("not-a-ticket"), cancelDeps(async () => "CANCELLED"));
+  ok("cancel with a value that cannot be a ticket → 200 ended, nothing sent, the cookie cleared", junk.status === 200 && cancels.length === 0 && cleared(junk));
+  ok("cancelSignupTicket: a value that cannot be a ticket never reaches the database",
+    (await cancelSignupTicket("short", { $queryRaw: (() => { throw new Error("reached the database"); }) as never, $executeRaw: (() => 0) as never })) === "NOT_FOUND");
+  ok("cancelSignupTicket: an answer outside the vocabulary is an error, never a success",
+    await cancelSignupTicket(SECRET, { $queryRaw: (async () => [{ outcome: "OK" }]) as never, $executeRaw: (() => 0) as never }).then(() => false, () => true));
 
   // ── static scope ──────────────────────────────────────────────────────────
   const ROOT = process.cwd();
