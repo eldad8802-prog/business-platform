@@ -106,6 +106,8 @@ on:
           - 'ops/evidence/revenue-truth-foundation-production-evidence.sql'
           - 'ops/evidence/oauth-identity-preflight.sql'
           - 'ops/evidence/oauth-identity-production-evidence.sql'
+          - 'ops/evidence/appointments-foundation-preflight.sql'
+          - 'ops/evidence/appointments-foundation-production-evidence.sql'
 
 permissions:
   contents: read
