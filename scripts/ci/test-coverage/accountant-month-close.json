@@ -12,6 +12,10 @@
     "lib/accountant/workflow.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure: period status derivation (accepted is not delivered), notices and the quiet reminder policy, sweep scheduling, recipient validation, which issued PDFs may enter a package (authority gate, signing), link secrets in the fragment, and an email with no financial data; run on pull_request by accountant-month-close-ci.yml"
+    },
+    "lib/accountant/package-reports.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: the Excel report of a sealed package — its entry name inside the ZIP, its private cache key bound to the full package sha256 (next to the package, same business prefix), refusal of malformed keys, and the ASCII download name; run on pull_request by accountant-month-close-ci.yml"
     }
   }
 }

@@ -20,6 +20,9 @@ export const ERROR_HE: Record<string, string> = {
   PREPARATION_IN_PROGRESS: "החבילה בהכנה כרגע. נסו שוב בעוד רגע.",
   NOT_CANCELABLE: "השליחה כבר התחילה ואי אפשר לבטל אותה.",
   rate_limited: "יותר מדי ניסיונות. נסו שוב מאוחר יותר.",
+  PACKAGE_INTEGRITY: "הקובץ השמור של החבילה אינו תואם לחבילה שנחתמה, ולכן לא הורד דבר. בדקו שוב והכינו מחדש.",
+  REPORT_NOT_IN_PACKAGE: "בחבילה הזו אין דוח Excel. אפשר להוריד את החבילה המלאה (ZIP).",
+  INVALID_FORMAT: "סוג ההורדה אינו מוכר.",
 };
 
 export function errorHe(code: string): string {
