@@ -12,7 +12,7 @@ No open banking, no bank API: the owner uploads the file their bank exports.
 | Analyze (zero writes) and commit (one transaction) | `lib/services/bank-file-import/bank-file-import.service.ts` |
 | HTTP edge: session business, flag OFF ⇒ 404 | `lib/services/bank-file-import/http.ts`, `app/api/payables/bank-import/**` |
 | Screen (Hebrew only) | `app/(shell)/payables/bank/import/page.tsx` |
-| Flag | `bank_file_import` in `platform-feature-catalog.ts`; its rows ship in migration `20261029090000_bank_file_import_feature` (separate PR) |
+| Flag | `bank_file_import` in `platform-feature-catalog.ts`; its rows ship in migration `20261031090000_bank_file_import_feature` (separate PR) |
 
 Reused as is: the data-transfer readers (`readImportSource`: CSV in UTF-8 / UTF-16 / windows-1255, XLSX, size
 and row limits), the signed envelope, `retryKeyOf`, the payables parsers (`parseStatementDate`,
