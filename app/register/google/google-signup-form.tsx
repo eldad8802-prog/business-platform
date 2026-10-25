@@ -158,7 +158,7 @@ export default function GoogleSignupForm() {
           <p className={styles.loginLine}>החשבון בדוביז כבר נפתח עם הכתובת הזו, ולכן אין מה לבטל. אפשר להתחבר אליו.</p>
         </div>
         <div className={styles.actions} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <Link href="/login" className={styles.submit} style={{ textAlign: "center", textDecoration: "none" }} data-testid="google-signup-completed-login">
+          <Link href="/login" className={styles.submit} style={{ display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }} data-testid="google-signup-completed-login">
             מעבר להתחברות
           </Link>
         </div>
@@ -174,7 +174,7 @@ export default function GoogleSignupForm() {
           <p className={styles.loginLine}>תוקף ההרשמה פג או שכבר הושלמה. אפשר להתחיל שוב עם Google, או להתחבר אם כבר נרשמת.</p>
         </div>
         <div className={styles.actions} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <a className={styles.submit} href="/api/auth/google/start?from=register" style={{ textAlign: "center", textDecoration: "none" }}>
+          <a className={styles.submit} href="/api/auth/google/start?from=register" style={{ display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>
             להתחיל שוב עם Google
           </a>
           <Link href="/login" className={styles.link} style={{ textAlign: "center" }}>
