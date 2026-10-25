@@ -7,7 +7,7 @@
  * Pure: it only reads names and never changes data.
  */
 
-type Named = { obligeeName: string };
+type Named = { obligeeName: string; ledger?: { title?: string } | null };
 
 export type BankCategory = { keyword: string; exclude?: readonly string[] };
 
@@ -16,5 +16,6 @@ export const NATIONAL_INSURANCE: BankCategory = { keyword: "ביטוח לאומ�
 
 export function findCategoryObligation<T extends Named>(category: BankCategory | string, obligations: readonly T[]): T | null {
   const { keyword, exclude = [] } = typeof category === "string" ? { keyword: category } : category;
-  return obligations.find((item) => item.obligeeName.includes(keyword) && !exclude.some((other) => item.obligeeName.includes(other))) ?? null;
+  const named = (name: string | undefined) => Boolean(name) && name!.includes(keyword) && !exclude.some((other) => name!.includes(other));
+  return obligations.find((item) => named(item.ledger?.title) || named(item.obligeeName)) ?? null;
 }

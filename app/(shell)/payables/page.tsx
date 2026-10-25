@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
 import { useConsumeQueryFlag } from "@/hooks/useConsumeQueryFlag";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { Translator } from "@/lib/i18n/translate";
@@ -56,8 +57,13 @@ function todayISO(): string {
  * figures stay on the detail screen and in the cost engine. A card opens the existing detail screen.
  *
  * Presentation only: every group, tag and date comes from payables-list-model over the server's own fields.
- * "התחייבות חדשה" keeps opening the existing form until the one creation path (P3) is approved.
+ * "התחייבות חדשה" opens P3 ("נגדיר את ההתחייבויות") — the one creation path, with its payee link and real payment
+ * plan (owner, 25.10.2026). The old form stays in the code for the transition, reachable only by its existing direct
+ * link (/payables?new=1); its removal is a separate decision.
  */
+/** The one creation path (P3), from its first step. */
+const P3_START = "/secretary?screen=bank";
+
 export default function PayablesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -150,15 +156,15 @@ export default function PayablesPage() {
             </h1>
             <p className={home.subtitle}>כל מה שהעסק חייב, מתי וכמה.</p>
           </div>
-          <button type="button" className={home.newButton} onClick={() => setShowForm((v) => !v)} aria-expanded={showForm}>
-            {showForm ? (
-              "סגור"
-            ) : (
-              <>
-                <PlusIcon /> התחייבות חדשה
-              </>
-            )}
-          </button>
+          {showForm ? (
+            <button type="button" className={home.newButton} onClick={() => setShowForm(false)}>
+              סגור
+            </button>
+          ) : (
+            <Link href={P3_START} className={home.newButton}>
+              <PlusIcon /> התחייבות חדשה
+            </Link>
+          )}
         </header>
 
         {showForm ? (
@@ -260,9 +266,9 @@ export default function PayablesPage() {
           rows.length === 0 ? (
             <div className={home.empty}>
               <p>אין עדיין התחייבויות.</p>
-              <button type="button" className={home.newButton} onClick={() => setShowForm(true)}>
+              <Link href={P3_START} className={home.newButton}>
                 <PlusIcon /> התחייבות חדשה
-              </button>
+              </Link>
             </div>
           ) : view.groups.length === 0 ? (
             <div className={home.empty} role="status">

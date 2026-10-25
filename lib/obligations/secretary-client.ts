@@ -34,7 +34,21 @@ export interface ObligationApi {
   createdAt: string;
   updatedAt: string;
   /** Present when the secretary reads the payables ledger (Phase 2). */
-  ledger?: { commitmentId: number; installmentId: number; paid: string; remaining: string } | null;
+  ledger?: { commitmentId: number; installmentId: number; paid: string; remaining: string; title?: string } | null;
+}
+
+/**
+ * The name to show for a commitment (25.10.2026): its own title when the ledger sends one, else `obligeeName`
+ * (the legacy store and older answers). Without a linked payee the two are the same.
+ */
+export function obligationTitle(o: Pick<ObligationApi, "obligeeName" | "ledger">): string {
+  return o.ledger?.title?.trim() || o.obligeeName;
+}
+
+/** The linked payee's name — `obligeeName` when it differs from the title — for a second line; else null. */
+export function obligationPayeeName(o: Pick<ObligationApi, "obligeeName" | "ledger">): string | null {
+  const payee = (o.obligeeName ?? "").trim();
+  return payee && payee !== obligationTitle(o).trim() ? payee : null;
 }
 
 export interface BriefingItemApi {
@@ -58,11 +72,16 @@ export interface BriefingApi {
 
 export interface CreateObligationInput {
   obligeeName: string;
+  /** With `installmentPlan`, the plan's total. */
   amount: string | number;
   currency?: string;
   dueAt: string; // ISO
   recurrence?: RecurrenceCadence;
   note?: string | null;
+  /** Optional (25.10.2026): link an existing payee of this business. */
+  payeeId?: number | null;
+  /** Optional (25.10.2026): a real payment plan — one commitment, `count` instalments every `cadence`. */
+  installmentPlan?: { count: number; cadence: Exclude<RecurrenceCadence, "NONE"> } | null;
 }
 
 export interface UpdateObligationInput {

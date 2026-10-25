@@ -18,7 +18,7 @@
  *   - No money is computed here. Amounts are the server's strings.
  */
 
-import type { BriefingApi, ObligationApi } from "@/lib/obligations/secretary-client";
+import { obligationTitle, type BriefingApi, type ObligationApi } from "@/lib/obligations/secretary-client";
 import type { BusinessCostSummaryApi } from "@/lib/business-cost/business-cost-client";
 import type { AgendaRow, Bucket, ManualTask } from "@/lib/services/tasks/agenda-core";
 import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
@@ -109,7 +109,7 @@ export function calendarEvents(input: {
       key: `o:${o.id}`,
       day: jerusalemDayKey(due),
       kind,
-      title: displayObligeeName(o.obligeeName),
+      title: displayObligeeName(obligationTitle(o)),
       amount: kind === "DUE" && o.ledger ? o.ledger.remaining : o.amount,
       currency: o.currency,
       href: `/secretary?screen=detail&id=${o.id}`,

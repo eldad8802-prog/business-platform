@@ -152,6 +152,7 @@ export function toObligationRecord(row: Row, now: Date = new Date()): Obligation
       installmentId: row.id,
       paid: fromMinorUnits(balance.paidMinor),
       remaining: fromMinorUnits(Math.max(0, balance.remainingMinor)),
+      title: row.commitment.title,
     },
   };
 }
@@ -335,17 +336,23 @@ export function createObligationLedgerStore(
     async createObligation(row: CreateObligationRow): Promise<ObligationRecord> {
       return translate(async () => {
         if (row.state !== "OPEN") throw new ValidationError("A new obligation starts OPEN");
-        const recurring = row.recurrence !== "NONE";
+        // A real payment plan (owner, 25.10.2026): one commitment, the payables plan generator splits the total
+        // (remainder on the last instalment) — exactly as the payables form creates it.
+        const plan = row.installmentPlan ?? null;
+        const recurring = !plan && row.recurrence !== "NONE";
         const commitment = await createCommitmentInTx(tx, {
           businessId: row.businessId,
           actorUserId,
           title: row.obligeeName,
+          // With a payee, createCommitmentInTx checks it belongs to this business and snapshots its name.
+          payeeId: row.payeeId ?? null,
           payeeNameSnapshot: row.obligeeName,
           currency: row.currency,
-          scheduleKind: recurring ? "RECURRING" : "ONE_OFF",
+          scheduleKind: plan ? "INSTALLMENT_PLAN" : recurring ? "RECURRING" : "ONE_OFF",
           totalAmount: recurring ? null : row.amount,
           recurringAmount: recurring ? row.amount : null,
-          recurrence: row.recurrence as RecurrenceCadenceValue,
+          installmentCount: plan ? plan.count : null,
+          recurrence: (plan ? plan.cadence : row.recurrence) as RecurrenceCadenceValue,
           firstDueAt: row.dueAt,
           note: row.note,
           recurrenceSeriesId: recurring ? row.recurrenceSeriesId : null,

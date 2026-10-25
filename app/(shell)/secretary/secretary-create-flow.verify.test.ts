@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { findCategoryObligation, INSURANCE, NATIONAL_INSURANCE } from "./secretary-bank-categories";
+import { obligationPayeeName, obligationTitle } from "@/lib/obligations/secretary-client";
 
 let failures = 0;
 let checks = 0;
@@ -71,10 +72,19 @@ check(!fn("captureSayForKind").includes("tasks.secretary.capture.say.postdatedCh
 const copyStart = ui.indexOf("const P3_COPY");
 const copy = ui.slice(copyStart, ui.indexOf("\n};", copyStart));
 check(copyStart > 0 && !/אזכיר לך|תזכורת|אזכיר:/.test(copy), "the flow's new copy promises no reminder", copy.match(/אזכיר[^"`]*/)?.[0] ?? "");
-check(copy.includes("לא נרשם בפנקס הצ'קים") && copy.includes("תשלומים נפרדים"), "cheque and payment-plan copy say exactly how they are saved");
+check(copy.includes("לא נרשם בפנקס הצ'קים") && copy.includes("כהתחייבות אחת עם"), "cheque and payment-plan copy say exactly how they are saved");
 
-// Saving is untouched: the same create path, the same payloads.
-check(capture.includes("onCreateMany?.(inputs)") && capture.includes('recurrence: "NONE" as RecurrenceCadence'), "payment plan is still saved as separate one-off payments");
+// One creation path (owner, 25.10.2026): a payment plan is ONE commitment with a real plan, through the same
+// secretary create; a payee is linked by id only.
+check(
+  capture.includes("installmentPlan: { count: installmentCountNumber, cadence: planCadence }") && !capture.includes("onCreateMany?.(inputs)"),
+  "a payment plan is saved as one commitment with a real plan (no longer separate one-off payments)",
+);
+check(
+  capture.includes("const linkedPayee = payee.payeeId != null ? { payeeId: payee.payeeId } : {};") && capture.includes("<PayeeField payeeId={payee.payeeId}"),
+  "the payee is the payables picker; only its id is sent, and only when one was chosen",
+);
+check(/generateInstallmentPlan\(\{ totalMinor, count, firstDueAt: first, cadence \}\)/.test(ui), "the plan preview uses the server's own generator");
 check(capture.includes("`צ'ק מס' ${checkNumber.trim()}`"), "post-dated cheque note unchanged");
 check(capture.includes("`שוטף+${termsDays}`"), "net-terms note unchanged");
 
@@ -92,7 +102,7 @@ check(/createButton: "צור התחייבות"/.test(ui) && /otherHeading: "מש
 check(/\.createButton \{[^}]*--sand: color-mix\(in srgb, var\(--dz-warm-sand-pill\), var\(--dz-warning-accent\) 16%\)/.test(css), "\"צור התחייבות\" in the sand of \"הוסף התחייבות\"");
 check(/\.ghostFixed \{ flex: 0 0 auto; \}/.test(css) && bankScreen.includes("styles.ghostFixed"), "\"לראות את כל ההתחייבויות\" keeps its own height");
 check(
-  /const leaveFlow = useGoBack\("\/secretary"\);\s*function finishCreated\(\) \{\s*consumeFlowEntries\(/.test(ui) &&
+  /const leaveFlow = useGoBack\("\/secretary"\);[\s\S]{0,900}?function finishCreated\(\) \{\s*consumeFlowEntries\(/.test(ui) &&
     /\}\);\s*leaveFlow\(\);\s*\}/.test(ui) &&
     /screen === "bank" \|\| screen === "capture"/.test(ui) &&
     /onDone=\{finishCreated\}/.test(ui) &&
@@ -100,6 +110,36 @@ check(
   "\"סיימתי\" after a save marks the categories / form steps done and goes back to the entry point (the Secretary on a direct visit)",
 );
 check(/mode="created"[\s\S]{0,400}onAddMore=\{startAnother\}/.test(ui) && ui.includes(`config.secondary ? (onDone ? <GhostButton onClick={onDone}>`),"after a save the result screen still offers \"הוסף עוד\" and \"סיימתי\"");
+
+// "×" on the creation sheet steps back like "חזרה" (owner, 25.10.2026) — never a link forward to the categories,
+// which looped with their "חזרה" while the bar is hidden.
+check(
+  capture.includes('const closeSheet = useGoBack(screenHref("bank"));') &&
+    capture.includes("<button type=\"button\" onClick={closeSheet} className={styles.captureClose}") &&
+    !capture.includes('<Link href={screenHref("bank")} className={styles.captureClose}'),
+  "\"×\" goes back one step (useGoBack, categories as the fallback), not forward",
+);
+
+// The commitment's own name (owner, 25.10.2026): with a linked payee `obligeeName` is the payee's name; the
+// Secretary leads with the title the owner typed and shows the payee on the second line.
+const linked = { obligeeName: "מחשבי הדר", ledger: { commitmentId: 1, installmentId: 1, paid: "0.00", remaining: "10.00", title: "ליסינג" } };
+const plain = { obligeeName: "שכירות", ledger: { commitmentId: 2, installmentId: 2, paid: "0.00", remaining: "10.00", title: "שכירות" } };
+const legacy = { obligeeName: "ועד בית", ledger: null };
+check(obligationTitle(linked) === "ליסינג" && obligationPayeeName(linked) === "מחשבי הדר", "linked payee: title first, payee second");
+check(obligationTitle(plain) === "שכירות" && obligationPayeeName(plain) === null, "no payee: the same name, no second line");
+check(obligationTitle(legacy) === "ועד בית" && obligationPayeeName(legacy) === null, "legacy store / older answer (no title): obligeeName as before");
+check(findCategoryObligation("שכירות", [{ obligeeName: "יוסי כהן", ledger: { title: "שכירות משרד" } }])?.ledger?.title === "שכירות משרד", "a category saved with a payee is still found by its title");
+for (const [label, needle] of [
+  ["list cards", "title: displayName(obligationTitle(item), f.t)"],
+  ["list cards' payee line", "meta: withPayee(item, obligationMeta(item, f))"],
+  ["timeline rows", "<strong>{obligationTitle(item)}</strong>"],
+  ["detail screen", "const name = displayName(obligationTitle(obligation), t);"],
+  ["detail \"למי\" = the payee when linked", "displayName(obligationPayeeName(obligation) ?? obligationTitle(obligation), t)"],
+  ["\"מצוין, אני זוכרת\"", "const name = obligation ? displayName(obligationTitle(obligation), t)"],
+] as const) check(ui.includes(needle), `Secretary shows the title: ${label}`);
+check(read("app/(shell)/secretary/page.tsx").includes("name: displayObligeeName(obligationTitle(focus.obligation), t)"), "Secretary focus card shows the title");
+check(read("app/(shell)/secretary/paid-question.tsx").includes("{ name: obligationTitle(obligation) }"), "\"שילמת?\" names the commitment");
+check(/const name = useState\(obligation\?\.obligeeName/.test(ui) || ui.includes('useState(obligation?.obligeeName ?? "")'), "the edit form is unchanged (it still edits obligeeName — no save change)");
 
 if (failures > 0) {
   console.error(`secretary-create-flow: ${failures}/${checks} checks failed`);

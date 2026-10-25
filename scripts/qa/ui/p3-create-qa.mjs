@@ -205,8 +205,11 @@ for (const vp of VIEWPORTS) {
     await form().locator("input").first().fill("מחשב נייד");
     await fillMoney("3600"); await form().locator("input[inputmode=numeric]").first().fill("3"); await fillDate("2026-11-10");
     const planNote = await p.locator('[class*="captureCalmNote"]').first().innerText().catch(() => "");
-    check(vp.n, "plan: says it is saved as separate payments", /3 תשלומים נפרדים/.test(planNote), planNote);
-    await result("installments-3", 3);
+    // One creation path (owner, 25.10.2026): a real plan — one commitment with 3 instalments, one request.
+    check(vp.n, "plan: says it is saved as one commitment with 3 payments", /כהתחייבות אחת עם 3 תשלומים/.test(planNote), planNote);
+    await result("installments-3", 1);
+    const planBody = bodies[bodies.length - 1] ?? {};
+    check(vp.n, "plan: one request carries the plan (total, count, cadence)", planBody.amount === "3600" && planBody.installmentPlan?.count === 3 && planBody.installmentPlan?.cadence === "MONTHLY", JSON.stringify(planBody));
     await again();
     await pick("צ'ק דחוי");
     await form().locator("input").first().fill("ספק ציוד");
@@ -225,10 +228,10 @@ for (const vp of VIEWPORTS) {
     await p.getByRole("link", { name: "סיימתי" }).or(p.getByRole("button", { name: "סיימתי" })).first().click().catch(() => {});
     await p.waitForURL(/\/secretary$/, { timeout: 15000 }).catch(() => {});
     check(vp.n, "'סיימתי' → the Secretary", /\/secretary$/.test(route(p)), route(p));
-    // "×" closes back to "נגדיר את ההתחייבויות"
+    // "×" closes back to "נגדיר את ההתחייבויות" — a back step (25.10.2026); opened directly, the categories are its fallback
     await p.goto(`${BASE}/secretary?screen=capture`); await settle(p);
     check(vp.n, "capture: no horizontal scroll", await noHScroll(p));
-    await p.getByRole("link", { name: "סגירת החלונית" }).click().catch(() => {});
+    await p.getByRole("button", { name: "סגירת החלונית" }).click().catch(() => {});
     await p.waitForURL(P3_START, { timeout: 15000 }).catch(() => {});
     check(vp.n, "'×' → נגדיר את ההתחייבויות", P3_START.test(route(p)), route(p));
     await ctx.close();

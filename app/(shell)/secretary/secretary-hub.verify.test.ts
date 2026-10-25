@@ -93,6 +93,17 @@ check(!events.some((e) => e.kind === "PROJECTED" && e.title === "ארנונה"),
 check(events.find((e) => e.key === "o:1")?.amount === "500.00", "an open ledger item shows the server's remaining, not a sum");
 check(events.find((e) => e.key === "o:2")?.kind === "PAID", "a fully paid ledger item is paid");
 check(!events.some((e) => e.kind === "TASK" && e.title === "לסדר את המחסן"), "a task without a due day is not placed on a day");
+// The commitment's own name (25.10.2026): with a linked payee obligeeName is the payee, the title is the commitment.
+const named = calendarEvents({
+  obligations: [
+    ob(21, "מחשבי הדר", "OPEN", "2400.00", "2026-12-01T09:00:00Z", { commitmentId: 21, installmentId: 21, paid: "0.00", remaining: "2400.00", title: "ליסינג" }),
+    ob(22, "מחשבי הדר", "OPEN", "800.00", "2026-12-05T09:00:00Z", { commitmentId: 22, installmentId: 22, paid: "0.00", remaining: "800.00", title: "מדפסת" }),
+    ob(23, "שכירות", "OPEN", "6500.00", "2026-12-01T09:00:00Z", { commitmentId: 23, installmentId: 23, paid: "0.00", remaining: "6500.00" }),
+  ],
+  tasks: [],
+  summary: null,
+});
+check(named.map((e) => e.title).sort().join(",") === ["ליסינג", "מדפסת", "שכירות"].sort().join(","), "calendar: two commitments of one payee show their own titles; without a title, obligeeName as before", named.map((e) => e.title).join(","));
 check(events.some((e) => e.kind === "TASK" && e.day === "2026-10-27"), "an upcoming task sits on its due day");
 check(events.every((e, i) => i === 0 || events[i - 1].day <= e.day), "events are in day order");
 

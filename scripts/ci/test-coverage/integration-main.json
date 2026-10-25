@@ -240,6 +240,12 @@
       "lab": "workflow",
       "workflow": "m0-knowledge-tenant-safety.yml",
       "reason": "Business Brain bks.v2: temporal states only from proven engine artifacts (NEW_BEHAVIOR needs established history), memory never a premise, record links never identity, four cross-domain families non-causal with stock quantities excluded, Brain context carries no money or customer id; deterministic; run by m0-knowledge-tenant-safety.yml (real-DB tenant isolation of the new sources in .m0/m7-snapshot-battery.ts)"
+    },
+    "lib/services/payables/secretary-unified-create.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "secretary-ledger-ci.yml",
+      "reason": "one creation path (owner, 25.10.2026): P3 creates through the secretary with an existing payee and a real payment plan — parity with the payables form field by field, a payee of another business refused with nothing written, exactly one OBLIGATION_CHANGED per successful creation and none for a refused one, legacy store refuses before writing (secretary-ledger-ci.yml, real Postgres)"
     }
   }
 }

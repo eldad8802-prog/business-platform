@@ -15,7 +15,7 @@
  *   - No sentence promises a reminder: nothing sends one.
  */
 
-import type { AttentionReason, BriefingApi, ObligationApi, RecurrenceCadence } from "@/lib/obligations/secretary-client";
+import { obligationTitle, type AttentionReason, type BriefingApi, type ObligationApi, type RecurrenceCadence } from "@/lib/obligations/secretary-client";
 import { daysBetweenDayKeys, jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
 export type HomeGroupKey = "OVERDUE" | "DUE_TODAY" | "DUE_SOON" | "WATCHING";
@@ -82,7 +82,7 @@ export function rowFromObligation(o: ObligationApi, status: HomeRow["status"]): 
   return {
     obligation: o,
     status,
-    name: displayObligeeName(o.obligeeName),
+    name: displayObligeeName(obligationTitle(o)),
     amount: ledger ? ledger.remaining : o.amount,
     amountCaption: ledger ? "נותר" : null,
     progress: ledger && paidSomething ? { paid: ledger.paid, total: o.amount } : null,

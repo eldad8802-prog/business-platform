@@ -10,7 +10,7 @@ import { obligationServiceDeps } from "@/lib/services/obligations/obligations.de
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { toObligationApi } from "@/lib/services/obligations/obligation-api.serializer";
-import type { RecurrenceCadence } from "@/lib/services/obligations/obligations.types";
+import type { InstallmentPlanInput, RecurrenceCadence } from "@/lib/services/obligations/obligations.types";
 
 export const runtime = "nodejs";
 
@@ -46,7 +46,31 @@ function parseDueAt(value: unknown): Date {
   return date;
 }
 
-/** Create (recognize) a new obligation — the secretary begins remembering it. */
+/** Optional (25.10.2026): an existing payee of this business. Absent or null keeps the request as before. */
+function parsePayeeId(value: unknown): number | null {
+  if (value == null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new ValidationError("payeeId must be a positive integer");
+  }
+  return value;
+}
+
+/** Optional (25.10.2026): a real payment plan — `amount` is then its total. The service checks the ranges. */
+function parseInstallmentPlan(value: unknown): InstallmentPlanInput | null {
+  if (value == null) return null;
+  if (typeof value !== "object") throw new ValidationError("installmentPlan must be an object");
+  const plan = value as { count?: unknown; cadence?: unknown };
+  if (typeof plan.count !== "number") throw new ValidationError("installmentPlan.count must be a number");
+  const cadence = parseRecurrence(plan.cadence);
+  if (cadence === undefined || cadence === "NONE") throw new ValidationError("installmentPlan.cadence is required");
+  return { count: plan.count, cadence };
+}
+
+/**
+ * Create (recognize) a new obligation — the secretary begins remembering it. Optional `payeeId` and
+ * `installmentPlan` (owner-approved, 25.10.2026) make P3 the one way to create a commitment; a request without
+ * them behaves exactly as before.
+ */
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
@@ -83,6 +107,8 @@ export async function POST(req: NextRequest) {
               dueAt: parseDueAt(body.dueAt),
               recurrence: parseRecurrence(body.recurrence),
               note: typeof body.note === "string" ? body.note : null,
+              payeeId: parsePayeeId(body.payeeId),
+              installmentPlan: parseInstallmentPlan(body.installmentPlan),
             },
             obligationServiceDeps({ tx, actorUserId: user.id })
           )
