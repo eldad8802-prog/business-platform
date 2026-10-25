@@ -19,6 +19,7 @@ import JSZip from "jszip";
 import { getStorageService } from "@/lib/storage";
 
 import { AccountantError } from "./http";
+import { PACKAGE_PDF_TEMPLATE, buildPackageReportModel, renderHtmlToPdf, renderPackageReportHtml } from "./package-report-pdf";
 import { isPeriodKey } from "./period";
 
 export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -55,6 +56,21 @@ export type SealedPackage = {
 
 const sha256Of = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
+/** The stored package ZIP, opened only if it is the business's object and hashes to the sealed sha256. */
+async function openVerifiedPackage(pkg: SealedPackage): Promise<JSZip> {
+  const zip = await getStorageService().getObject(pkg.storageKey);
+  if (zip.metadata.businessId !== pkg.businessId || sha256Of(zip.body) !== pkg.sha256) {
+    throw new AccountantError(409, "PACKAGE_INTEGRITY");
+  }
+  return JSZip.loadAsync(zip.body);
+}
+
+async function readReportWorkbook(archive: JSZip, periodKey: string): Promise<Buffer> {
+  const entry = archive.file(packageReportEntryName(periodKey));
+  if (!entry) throw new AccountantError(404, "REPORT_NOT_IN_PACKAGE");
+  return entry.async("nodebuffer");
+}
+
 /**
  * Returns the storage key of the package's Excel report, extracting it from the sealed ZIP the first
  * time. Refuses (409 PACKAGE_INTEGRITY) when the stored ZIP does not hash to the sealed sha256, and
@@ -70,14 +86,8 @@ export async function ensurePackageExcel(pkg: SealedPackage): Promise<{ key: str
     return { key, cached: true };
   }
 
-  const zip = await storage.getObject(pkg.storageKey);
-  if (zip.metadata.businessId !== pkg.businessId || sha256Of(zip.body) !== pkg.sha256) {
-    throw new AccountantError(409, "PACKAGE_INTEGRITY");
-  }
-  const archive = await JSZip.loadAsync(zip.body);
-  const entry = archive.file(packageReportEntryName(pkg.periodKey));
-  if (!entry) throw new AccountantError(404, "REPORT_NOT_IN_PACKAGE");
-  const xlsx = await entry.async("nodebuffer");
+  const archive = await openVerifiedPackage(pkg);
+  const xlsx = await readReportWorkbook(archive, pkg.periodKey);
 
   await storage.putObject({
     key,
@@ -88,6 +98,88 @@ export async function ensurePackageExcel(pkg: SealedPackage): Promise<{ key: str
       domain: "exports",
       visibility: "private",
       custom: { sourceSha256: pkg.sha256, sha256: sha256Of(xlsx), kind: "accountant-report-xlsx" },
+    },
+  });
+  return { key, cached: false };
+}
+
+// ── The PDF report (R1) ──────────────────────────────────────────────────────────────────────────
+
+export const PDF_CONTENT_TYPE = "application/pdf";
+
+/** The summary text entry inside a package ZIP (lib/reports/accountant-export-zip.ts names it so). */
+export const PACKAGE_SUMMARY_ENTRY = "סיכום.txt";
+
+/**
+ * The cache key of the PDF report of one sealed package: next to the package object, bound to the
+ * package's full sha256 AND the PDF layout version (a layout change never serves an older rendering).
+ */
+export function packagePdfCacheKey(packageStorageKey: string, version: number, packageSha256: string): string {
+  return packageExcelCacheKey(packageStorageKey, version, packageSha256).replace(/\.report\.xlsx$/, `.report-${PACKAGE_PDF_TEMPLATE}.pdf`);
+}
+
+/** ASCII file name for the PDF download. */
+export function packagePdfDownloadName(periodKey: string, version: number): string {
+  return `accountant-report-${periodKey}-v${version}.pdf`;
+}
+
+export type PdfDeps = {
+  renderPdf: (html: string) => Promise<Buffer>;
+  fontDataUri: () => Promise<string>;
+};
+
+export const defaultPdfDeps: PdfDeps = {
+  renderPdf: renderHtmlToPdf,
+  // Loaded on demand: the billing renderer module pulls in Chromium, which an Excel download never needs.
+  fontDataUri: async () => (await import("@/lib/services/billing/pdf/billing-pdf-html-renderer")).getNotoSansHebrewFontDataUri(),
+};
+
+/**
+ * Returns the storage key of the package's PDF report, rendering it the first time from the package's
+ * own workbook and summary (lib/accountant/package-report-pdf.ts). Same refusals as the Excel report:
+ * 409 PACKAGE_INTEGRITY for a ZIP that does not hash to the sealed sha256, 404 REPORT_NOT_IN_PACKAGE when
+ * the workbook is missing. Never writes anything but the cached PDF.
+ */
+export async function ensurePackagePdf(pkg: SealedPackage, deps: PdfDeps = defaultPdfDeps): Promise<{ key: string; cached: boolean }> {
+  if (!isPeriodKey(pkg.periodKey)) throw new AccountantError(500, "PACKAGE_REPORT_KEY");
+  const storage = getStorageService();
+  const key = packagePdfCacheKey(pkg.storageKey, pkg.version, pkg.sha256);
+
+  const head = await storage.headObject(key);
+  if (
+    head.exists &&
+    head.metadata?.businessId === pkg.businessId &&
+    head.metadata.custom?.sourceSha256 === pkg.sha256 &&
+    head.metadata.custom?.template === PACKAGE_PDF_TEMPLATE
+  ) {
+    return { key, cached: true };
+  }
+
+  const archive = await openVerifiedPackage(pkg);
+  const xlsx = await readReportWorkbook(archive, pkg.periodKey);
+  const summary = (await archive.file(PACKAGE_SUMMARY_ENTRY)?.async("string")) ?? "";
+  const model = await buildPackageReportModel(xlsx, summary);
+  const html = renderPackageReportHtml(model, { periodKey: pkg.periodKey, version: pkg.version, sha256: pkg.sha256 }, await deps.fontDataUri());
+  let pdf: Buffer;
+  try {
+    pdf = await deps.renderPdf(html);
+  } catch (e) {
+    console.error("[accountant] package PDF render failed", { businessId: pkg.businessId, periodKey: pkg.periodKey, error: e instanceof Error ? e.name : "unknown" });
+    throw new AccountantError(500, "PDF_RENDER_FAILED");
+  }
+  if (pdf.length < 5 || pdf.subarray(0, 5).toString("latin1") !== "%PDF-") {
+    throw new AccountantError(500, "PDF_RENDER_FAILED");
+  }
+
+  await storage.putObject({
+    key,
+    body: pdf,
+    contentType: PDF_CONTENT_TYPE,
+    metadata: {
+      businessId: pkg.businessId,
+      domain: "exports",
+      visibility: "private",
+      custom: { sourceSha256: pkg.sha256, sha256: sha256Of(pdf), template: PACKAGE_PDF_TEMPLATE, kind: "accountant-report-pdf" },
     },
   });
   return { key, cached: false };

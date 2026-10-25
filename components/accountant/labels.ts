@@ -23,6 +23,7 @@ export const ERROR_HE: Record<string, string> = {
   PACKAGE_INTEGRITY: "הקובץ השמור של החבילה אינו תואם לחבילה שנחתמה, ולכן לא הורד דבר. בדקו שוב והכינו מחדש.",
   REPORT_NOT_IN_PACKAGE: "בחבילה הזו אין דוח Excel. אפשר להוריד את החבילה המלאה (ZIP).",
   INVALID_FORMAT: "סוג ההורדה אינו מוכר.",
+  PDF_RENDER_FAILED: "לא הצלחנו להפיק את דוח ה־PDF כרגע. אפשר להוריד את דוח ה־Excel או את החבילה המלאה.",
 };
 
 export function errorHe(code: string): string {

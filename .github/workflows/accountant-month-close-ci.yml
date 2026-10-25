@@ -22,6 +22,7 @@ on:
     branches: [main]
     paths:
       - "lib/accountant/**"
+      - "lib/services/billing/pdf/**"
       - "lib/reports/**"
       - "components/accountant/**"
       - "app/api/accountant/**"
@@ -64,6 +65,7 @@ jobs:
           npx tsx lib/accountant/package-scope.verify.test.ts
           npx tsx lib/accountant/workflow.verify.test.ts
           npx tsx lib/accountant/package-reports.verify.test.ts
+          npx tsx lib/accountant/package-report-pdf.verify.test.ts
           npx tsx lib/notifications/notification-policy.verify.test.ts
           npx tsx lib/data-transfer/format/format.verify.test.ts
           npx tsx lib/reports/accountant-export-collect.verify.test.ts
@@ -152,3 +154,16 @@ jobs:
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_xlsx?$TZQ" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_xlsx?$TZQ" \
             npx tsx .acct/excel-download-battery.ts
+
+      - name: Install Chromium (the PDF report renders with the same engine as the billing PDFs)
+        run: npx playwright install --with-deps chromium
+
+      - name: PDF download battery — a Hebrew A4 PDF rendered from the sealed package's own workbook, cached privately, through the real route
+        run: |
+          set -euo pipefail
+          bash .acct/lab.sh acct_pdf --with-acct
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_pdf?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_pdf?$TZQ" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_pdf?$TZQ" \
+            npx tsx .acct/pdf-download-battery.ts
