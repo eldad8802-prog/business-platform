@@ -20,11 +20,26 @@ import own from "./bank-import.module.css";
 type Field = "date" | "valueDate" | "amount" | "debit" | "credit" | "description" | "reference" | "counterparty" | "balance";
 type Mapping = Partial<Record<Field, number>>;
 
+/** The header was found but the required columns were not all recognised: the owner completes the mapping. */
+type MappingRequired = {
+  status: "MAPPING_REQUIRED";
+  headers: string[];
+  mapping: Mapping;
+  lockedFields: Field[];
+  ambiguous: Field[];
+  missing: Array<"date" | "amount">;
+  problem: string | null;
+  field: Field | null;
+  samples: string[][];
+};
+
 type Preview = {
+  status: "READY";
   token: string;
   headers: string[];
   mapping: Mapping;
   lockedFields: Field[];
+  ambiguous: Field[];
   counts: { lines: number; new: number; existing: number; suspected: number; invalid: number; repeatedInFile: number; warnings: number };
   newTotals: { currency: "ILS"; creditMinor: number; debitMinor: number };
   dateRange: { from: string; to: string } | null;
@@ -78,7 +93,7 @@ const ROW_FIELD: Record<string, string> = { date: "תאריך", amount: "סכו�
 
 const ERROR_TEXT: Record<string, string> = {
   FILE_UNREADABLE: "לא הצלחנו לקרוא את הקובץ. שמרו אותו כ-CSV או כ-Excel (XLSX) ונסו שוב.",
-  HEADER_NOT_FOUND: "לא מצאנו בקובץ שורת כותרות עם תאריך וסכום. בדקו שזה קובץ התנועות שהבנק מייצא.",
+  HEADER_NOT_FOUND: "לא מצאנו בקובץ טבלת תנועות עם שורת כותרות. בדקו שזה קובץ התנועות שהבנק מייצא, ולא קובץ אחר.",
   MAPPING_INVALID: "שיוך העמודות לא תקין. חייבים תאריך, וסכום או חובה / זכות, וכל עמודה פעם אחת.",
   TOO_MANY_LINES: "בקובץ יותר מדי תנועות. פצלו אותו לתקופות קצרות יותר.",
   NO_LINES: "לא נמצאו תנועות בקובץ.",
@@ -120,6 +135,8 @@ export default function BankImportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [mapping, setMapping] = useState<Mapping | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [needsMapping, setNeedsMapping] = useState<MappingRequired | null>(null);
+  const [draft, setDraft] = useState<Mapping>({});
   const [result, setResult] = useState<CommitResult | null>(null);
   // No default: a suspected line is imported or skipped only when the owner says so.
   const [decisions, setDecisions] = useState<Record<number, Decision>>({});
@@ -151,7 +168,15 @@ export default function BankImportPage() {
     setError(null);
     setResult(null);
     try {
-      const p = (await send("/api/payables/bank-import/analyze", file, accountId, nextMapping)) as Preview;
+      const p = (await send("/api/payables/bank-import/analyze", file, accountId, nextMapping)) as Preview | MappingRequired;
+      if (p.status === "MAPPING_REQUIRED") {
+        setNeedsMapping(p);
+        setDraft(p.mapping);
+        setPreview(null);
+        setMapping(nextMapping);
+        return;
+      }
+      setNeedsMapping(null);
       setPreview(p);
       setDecisions({});
       setMapping(nextMapping);
@@ -180,6 +205,13 @@ export default function BankImportPage() {
     const next: Mapping = { ...(mapping ?? {}) };
     if (value === "") next[field] = null as unknown as number;
     else next[field] = Number(value);
+    void analyze(next);
+  }
+
+  // A complete draft, sent as an explicit mapping (unset fields as null), for the server to check again.
+  function submitDraft() {
+    const next: Mapping = {};
+    for (const f of FIELDS) next[f] = (draft[f] ?? null) as unknown as number;
     void analyze(next);
   }
 
@@ -227,6 +259,7 @@ export default function BankImportPage() {
               onChange={(e) => {
                 setAccountId(e.target.value ? Number(e.target.value) : null);
                 setPreview(null);
+                setNeedsMapping(null);
                 setResult(null);
               }}
             >
@@ -251,6 +284,7 @@ export default function BankImportPage() {
               onChange={(e) => {
                 setFile(e.target.files?.[0] ?? null);
                 setPreview(null);
+                setNeedsMapping(null);
                 setResult(null);
                 setMapping(null);
               }}
@@ -268,6 +302,64 @@ export default function BankImportPage() {
       )}
 
       {error && <div className={styles.error} role="alert">{error}</div>}
+
+      {needsMapping && !preview && !result && (
+        <section aria-label="שיוך עמודות" style={{ display: "grid", gap: 12, minWidth: 0 }}>
+          <div className={styles.notice}>
+            לא זיהינו לבד את כל העמודות בקובץ. בחרו לכל שדה את העמודה המתאימה. חובה לבחור תאריך, ואת הסכום: עמודה אחת עם סכום
+            חיובי ושלילי, או עמודות נפרדות של חובה וזכות. אל תבחרו עמודת יתרה או עמלה בתור הסכום.
+          </div>
+          {needsMapping.problem && <div className={styles.error}>השיוך לא תקין: כל עמודה יכולה להיות משויכת לשדה אחד בלבד. בדקו את הבחירות.</div>}
+          {needsMapping.ambiguous.length > 0 && (
+            <div className={styles.notice}>
+              יותר מעמודה אחת יכולה להתאים ל: {needsMapping.ambiguous.map((f) => FIELD_LABEL[f]).join(", ")}. בחרו את הנכונה.
+            </div>
+          )}
+          <div className={own.mapping}>
+            {FIELDS.map((f) => {
+              const locked = needsMapping.lockedFields.includes(f);
+              const isMissing = (f === "date" && needsMapping.missing.includes("date")) || (f === "amount" && needsMapping.missing.includes("amount"));
+              return (
+                <div className={styles.field} key={f}>
+                  <label className={styles.label} htmlFor={`bi-req-${f}`}>
+                    {FIELD_LABEL[f]}{isMissing ? " (חובה)" : ""}
+                  </label>
+                  <select
+                    id={`bi-req-${f}`}
+                    className={styles.select}
+                    value={draft[f] ?? ""}
+                    disabled={busy || locked}
+                    onChange={(e) => setDraft((d) => {
+                      const next = { ...d };
+                      if (e.target.value === "") delete next[f];
+                      else next[f] = Number(e.target.value);
+                      return next;
+                    })}
+                  >
+                    <option value="">לא בקובץ</option>
+                    {needsMapping.headers.map((h, i) => (
+                      <option key={i} value={i}>
+                        {(h || `עמודה ${i + 1}`) + (needsMapping.samples[i]?.length ? ` (למשל: ${needsMapping.samples[i].join(", ")})` : "")}
+                      </option>
+                    ))}
+                  </select>
+                  {locked && <span className={own.lockNote}>קבוע: כך גם מסך תנועות הבנק קורא את הקובץ</span>}
+                </div>
+              );
+            })}
+          </div>
+          <div className={styles.formActions}>
+            <button
+              type="button"
+              className={styles.buttonPrimary}
+              disabled={busy || draft.date === undefined || (draft.amount === undefined && draft.debit === undefined && draft.credit === undefined)}
+              onClick={submitDraft}
+            >
+              {busy ? "בודקים…" : "בדיקת הקובץ עם השיוך הזה"}
+            </button>
+          </div>
+        </section>
+      )}
 
       {preview && !result && (
         <section aria-label="תצוגה מקדימה" style={{ display: "grid", gap: 14, minWidth: 0 }}>
@@ -347,6 +439,13 @@ export default function BankImportPage() {
                 </table>
               </div>
               {undecided > 0 && <p className={styles.subtitle}>נותרו {undecided} תנועות בלי החלטה.</p>}
+            </div>
+          )}
+
+          {preview.ambiguous.length > 0 && (
+            <div className={styles.notice}>
+              שימו לב: בקובץ יותר מעמודה אחת שיכולה להתאים ל: {preview.ambiguous.map((f) => FIELD_LABEL[f]).join(", ")}. בדקו בשיוך
+              העמודות שנבחרה העמודה הנכונה לפני הקליטה.
             </div>
           )}
 
