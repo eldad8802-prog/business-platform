@@ -102,6 +102,11 @@ jobs:
       - name: Leads W1 domain core (status, validation, follow-up due logic)
         run: npx tsx lib/services/crm/lead-core.test.ts
 
+      # Customer card: every appointment status the database can hold has a label in both dictionaries (the
+      # 2026-10-25 audit found CANCELED and NO_SHOW showing their raw keys). Pure; no DB, no secret.
+      - name: Customer card appointment status labels
+        run: npx tsx components/customers/appointment-status-labels.test.ts
+
       # Import/Export Center I-1 — the data-transfer FORMAT layer. It is in the
       # BLOCKING job for one reason: it holds the CSV formula-injection guard.
       # A regression there does not fail loudly at runtime — it silently ships

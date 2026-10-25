@@ -153,6 +153,7 @@ export const customersEn: Widen<typeof customersHe> = {
       confirmed: "Confirmed",
       cancelled: "Cancelled",
       completed: "Completed",
+      noShow: "No-show",
     },
     orderStatus: {
       placed: "Received",

@@ -1,0 +1,9 @@
+{
+  "note": "Customer card appointment status labels — the regression for the 2026-10-25 appointments audit finding (CANCELED / NO_SHOW shown as raw keys).",
+  "tests": {
+    "components/customers/appointment-status-labels.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): every AppointmentStatus value maps to a label key that resolves in the Hebrew and English dictionaries; run on every pull_request by ci-1-prisma-centralization.yml"
+    }
+  }
+}
