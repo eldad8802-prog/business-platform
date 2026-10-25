@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # OAuth identity foundation / migration 20261030090000_oauth_identity_foundation — Production-topology lab.
 #
-#   .agl/lab.sh <db-name> [--with-agl | --broken-agl]
+#   .agl/lab.sh <db-name> [--with-agl | --broken-agl | --with-cancel | --broken-cancel]
 #
 # Builds on the auth email tokens lab (.aet/lab.sh <db> --with-aet): non-superuser CREATEROLE/BYPASSRLS
 # owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, NOLOGIN app_auth (the real D2 E4 narrowing on User)
@@ -11,6 +11,8 @@
 # none of them (step 0 of the workflow asserts that). It depends on User and Business alone.
 #   --with-agl:   `prisma migrate deploy` — the release-migrate mechanism — applies it;
 #   --broken-agl: the same with it failing on its last statement (atomicity).
+#   --with-cancel:   the same, then 20261101090000_oauth_ticket_cancel after it (one `migrate deploy`);
+#   --broken-cancel: the same with the cancel migration failing on its last statement (atomicity).
 #
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional). Synthetic only. ZERO secrets. ZERO network.
 set -euo pipefail
@@ -21,6 +23,7 @@ P3E="20261013090000_p3e_landing_persistence"
 TE="20261015090000_transactional_email_foundation"
 AET="20261017090000_auth_email_tokens"
 AGL="20261030090000_oauth_identity_foundation"
+CANCEL="20261101090000_oauth_ticket_cancel"
 bash "$ROOT/.aet/lab.sh" "$DB" --with-aet >/dev/null
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
@@ -44,7 +47,7 @@ psql_owner -c 'DROP TABLE IF EXISTS "UserIdentity" CASCADE' -c 'DROP TABLE IF EX
   -c 'ALTER TABLE "User" ALTER COLUMN "password" SET NOT NULL'
 
 case "$MODE" in
-  --with-agl|--broken-agl) ;;
+  --with-agl|--broken-agl|--with-cancel|--broken-cancel) ;;
   *) echo "LAB READY: $DB (through M6 + P3-E + TE + AET; oauth identity pending)"; exit 0 ;;
 esac
 
@@ -56,9 +59,15 @@ for d in "$ROOT"/prisma/migrations/*/; do
   if [[ ! "$name" > "$M6" || "$name" == "$P3E" || "$name" == "$TE" || "$name" == "$AET" || "$name" == "$AGL" ]]; then
     cp -r "$d" "$TMP/prisma/migrations/$name"
   fi
+  if [[ "$name" == "$CANCEL" && ( "$MODE" == "--with-cancel" || "$MODE" == "--broken-cancel" ) ]]; then
+    cp -r "$d" "$TMP/prisma/migrations/$name"
+  fi
 done
 if [ "$MODE" = "--broken-agl" ]; then
   printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >> "$TMP/prisma/migrations/$AGL/migration.sql"
+fi
+if [ "$MODE" = "--broken-cancel" ]; then
+  printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >> "$TMP/prisma/migrations/$CANCEL/migration.sql"
 fi
 set +e
 ( cd "$ROOT" && DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" ) > "$TMP/deploy.log" 2>&1
@@ -66,9 +75,10 @@ rc=$?
 set -e
 grep -E "Applying migration|have been successfully applied|Error|error" "$TMP/deploy.log" | head -8
 rm -rf "$TMP"
-if [ "$MODE" = "--broken-agl" ]; then
+if [ "$MODE" = "--broken-agl" ] || [ "$MODE" = "--broken-cancel" ]; then
   [ $rc -ne 0 ] || { echo "broken migration did NOT fail"; exit 1; }
-  echo "LAB READY: $DB (oauth identity FAILED on its last statement as intended)"; exit 0
+  echo "LAB READY: $DB ($MODE: the migration FAILED on its last statement as intended)"; exit 0
 fi
 [ $rc -eq 0 ] || { echo "oauth identity deploy failed"; exit 1; }
+if [ "$MODE" = "--with-cancel" ]; then echo "LAB READY: $DB (oauth identity + ticket cancel applied)"; exit 0; fi
 echo "LAB READY: $DB (oauth identity applied)"

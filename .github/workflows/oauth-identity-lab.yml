@@ -116,9 +116,12 @@ jobs:
           for d in prisma/migrations/*/; do
             n=$(basename "$d")
             [[ "$n" != "20261030090000_oauth_identity_foundation" ]] || continue
+            # The server-side cancel builds on this one; its own lab (oauth-ticket-cancel-lab.yml) proves exactly
+            # what it touches (the end-reason vocabulary of OAuthSignupTicket and one new function).
+            [[ "$n" != "20261101090000_oauth_ticket_cancel" ]] || continue
             if grep -nE 'UserIdentity|OAuthSignupTicket|auth_oauth_' "$d/migration.sql"; then echo "$n names an oauth identity object"; exit 1; fi
           done
-          echo "the migration names only UserIdentity, OAuthSignupTicket, User and Business; no other migration names its objects"
+          echo "the migration names only UserIdentity, OAuthSignupTicket, User and Business; no other migration (but the cancel) names its objects"
 
       - name: P. Pure suites — ID token verification (T23–T31), ticket secret + static scope + sign-in policy
         run: |
