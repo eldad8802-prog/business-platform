@@ -26,7 +26,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 
 import type { GoogleIdentity } from "@/lib/auth/google-id-token";
-import { authDb } from "@/lib/prisma-auth";
+import { authDb, isAuthPlaneActive } from "@/lib/prisma-auth";
 
 type SqlClient = Pick<Prisma.TransactionClient, "$executeRaw" | "$queryRaw">;
 
@@ -133,4 +133,10 @@ export async function resolveGoogleIdentity(subject: string, client: SqlClient =
 export async function purgeExpiredTickets(client: SqlClient = authDb()): Promise<number> {
   const rows = await client.$queryRaw<{ n: number }[]>`SELECT public.auth_oauth_ticket_purge() AS n`;
   return Number(rows[0]?.n ?? 0);
+}
+
+/** The scheduled sweep's entry: only the auth plane may run the purge; without it, nothing is attempted. */
+export async function purgeExpiredTicketsOnAuthPlane(): Promise<{ purged: number } | { skipped: "auth_plane_inactive" }> {
+  if (!isAuthPlaneActive()) return { skipped: "auth_plane_inactive" };
+  return { purged: await purgeExpiredTickets() };
 }

@@ -48,8 +48,11 @@ const ALLOWLIST = new Set([
   "lib/auth/signup.ts",
 ]);
 
-/** Only the gated route may import the account-creation module. */
-const SIGNUP_MODULE_IMPORTERS = new Set(["app/api/auth/register/route.ts"]);
+/**
+ * Only the gated routes may import the account-creation module: registration, and the completion of a
+ * "Continue with Google" signup (milestone 2), whose gate is pinned the same way in 2b below.
+ */
+const SIGNUP_MODULE_IMPORTERS = new Set(["app/api/auth/register/route.ts", "app/api/auth/google/complete/route.ts"]);
 const SIGNUP_IMPORT_PATTERN = /from\s+["'][^"']*\/auth\/signup["']/;
 
 /** Prisma writes that can mint a tenant or an account. */
@@ -162,6 +165,27 @@ function main() {
   ok("closed + no valid list: answered before the body is read",
     noListAt > gateAt && admitAt > noListAt && registerSrc.indexOf("if (!admitted) return signupDisabledResponse();") > admitAt);
   ok("closed beta: the rate limiter still runs only after admission", rateLimitAt > admitAt);
+
+  // 2b. The Google completion is gated the same way: the gate first — before the rate limiter, before the
+  // body, before the account is created — and with signup closed only a listed address passes, the
+  // ticket's provider-verified one. The callback consults the same gate before it issues a ticket.
+  const googleSrc = fs.readFileSync(path.join(ROOT, "app/api/auth/google/complete/route.ts"), "utf8");
+  const gGate = googleSrc.indexOf("deps.isSignupEnabled()");
+  const gNoList = googleSrc.indexOf("if (!list.configured) return signupDisabled();");
+  const gListed = googleSrc.indexOf("if (!view || !list.has(view.email)) return signupDisabled();");
+  const gRate = googleSrc.indexOf("deps.rateLimit(");
+  const gBody = googleSrc.indexOf("req.json()");
+  const gCreate = googleSrc.indexOf("deps.createAccount(");
+  ok("google completion imports the gate", /from\s+"@\/lib\/auth\/signup-gate"/.test(googleSrc));
+  ok("google completion: gate before the rate limiter, the body and the create",
+    gGate >= 0 && gRate > gGate && gBody > gGate && gCreate > gGate && gCreate > gBody);
+  ok("google completion: closed + no list → closed answer; closed + unlisted ticket address → closed answer",
+    gNoList > gGate && gListed > gNoList && gRate > gListed);
+  ok("google completion uses the register route's rate-limit key (not a way around it)", /key: `auth:register:\$\{getClientIp\(req\)\}`/.test(googleSrc));
+  const decisionSrc = fs.readFileSync(path.join(ROOT, "lib/auth/google-sign-in.ts"), "utf8");
+  ok("google callback decision consults the same gate before issuing a ticket",
+    /if \(isPublicSignupEnabled\(\)\) return true;/.test(decisionSrc)
+    && decisionSrc.indexOf("signupAllowedFor(identity.email)") < decisionSrc.indexOf("issueSignupTicket(identity)"));
 
   // 3. Login must never consult the gate — existing users are never blocked.
   const loginSrc = fs.readFileSync(path.join(ROOT, "app/api/auth/login/route.ts"), "utf8");

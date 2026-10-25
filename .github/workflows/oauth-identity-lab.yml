@@ -36,8 +36,14 @@ on:
       - ".github/workflows/oauth-identity-lab.yml"
       - "lib/auth/google-id-token*.ts"
       - "lib/auth/oauth-ticket*.ts"
-      - "lib/auth/google-sign-in-policy.ts"
-      - "app/api/auth/login/route.ts"
+      - "lib/auth/google-*.ts"
+      - "lib/auth/signup*.ts"
+      - "app/api/auth/**"
+      - "app/login/**"
+      - "app/register/**"
+      - "app/auth/google/**"
+      - "components/auth/**"
+      - "app/api/transactional-email/sweep/**"
       - "prisma/schema.prisma"
       - "package-lock.json"
   workflow_dispatch:
@@ -119,6 +125,7 @@ jobs:
           set -euo pipefail
           npx tsx lib/auth/google-id-token.test.ts
           npx tsx lib/auth/oauth-ticket.test.ts
+          npx tsx lib/auth/google-login.test.ts
 
       - name: 1. Baseline (pending) — PREFLIGHT passes all but 4 (lab topology); the proof refuses
         run: |
@@ -165,6 +172,19 @@ jobs:
           AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
           RATE_LIMIT_BACKEND=memory \
             npx tsx .agl/app-battery.ts
+
+      - name: 3c. Milestone 2 battery — the real Google routes and the one account transaction (consent with the real grants, replay, ten concurrent completions, fault, linked / existing / closed / admin / deletion)
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh agl_m2 --with-agl >/dev/null
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_m2"
+          OWNER_URL="$U" DIRECT_URL="$U" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_m2" \
+          AUTH_DATABASE_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/agl_m2?connection_limit=12&pool_timeout=60" \
+          AUTH_PLANE_ENABLED=true \
+          AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
+          RATE_LIMIT_BACKEND=memory \
+            npx tsx .agl/app-battery-m2.ts
 
       - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
         run: |
@@ -228,3 +248,100 @@ jobs:
           got=$(lab agl_rb -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test -z "$got" || { echo "re-apply: proof not whole: $got"; exit 1; }
           echo "rollback reverted the migration whole; re-apply made the proof whole"
+
+  # "Continue with Google", milestone 2, in a real browser: this build under `next start`, the .agl lab database
+  # with the real role topology, and the local Google stand-in (.agl/mock-google.ts — honoured only with
+  # GOOGLE_LOGIN_TEST_ENDPOINTS=1 outside Vercel). Desktop, tablet and phone; cancel and return; the flag OFF.
+  browser:
+    name: oauth identity — browser (Chromium, three widths, Google stand-in, flag ON then OFF)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: agl_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: agl_ci_synthetic_super_pw
+      LAB_PASSWORD: agl_ci_synthetic_role_pw
+      SHOTS: ${{ github.workspace }}/agl-shots
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Lab database (migration applied, consent + session grants as in Production)
+        run: bash .agl/lab.sh agl_web --with-agl
+
+      # Built before the Chromium install (see i18n-multicurrency-ci.yml: the font resolution after
+      # `playwright install --with-deps`). The flag is read at request time, so one build serves ON and OFF.
+      - name: Build
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E — flag ON (three widths; new person, cancel, return, complete, sign in again; existing account; cancel at Google)
+        run: |
+          set -euo pipefail
+          export DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_web"
+          export AUTH_DATABASE_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/agl_web"
+          export AUTH_PLANE_ENABLED=true AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef
+          export PUBLIC_SIGNUP_ENABLED=true RATE_LIMIT_BACKEND=memory
+          (MOCK_GOOGLE_PORT=3901 MOCK_REDIRECT_URI=http://localhost:3611/api/auth/google/callback nohup npx tsx .agl/mock-google.ts > "$RUNNER_TEMP/mock.log" 2>&1 &)
+          (AUTH_GOOGLE_LOGIN_ENABLED=true GOOGLE_LOGIN_CLIENT_ID=lab-client.apps.googleusercontent.com GOOGLE_LOGIN_CLIENT_SECRET=lab-secret \
+           GOOGLE_LOGIN_REDIRECT_BASE_URL=http://localhost:3611 GOOGLE_LOGIN_TEST_ENDPOINTS=1 \
+           GOOGLE_LOGIN_TEST_AUTHORIZE_URL=http://localhost:3901/authorize GOOGLE_LOGIN_TEST_TOKEN_URL=http://localhost:3901/token \
+           GOOGLE_LOGIN_TEST_JWKS_URL=http://localhost:3901/jwks \
+           nohup npx next start -p 3611 > "$RUNNER_TEMP/on.log" 2>&1 &)
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3611/login && curl -sf -o /dev/null http://localhost:3901/jwks && break; sleep 2; done
+          BASE=http://localhost:3611 MOCK=http://localhost:3901 MODE=on \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_web" npx tsx .agl/browser-m2.ts
+          pkill -f "next start -p 3611" || true
+
+      - name: E2E — flag OFF (no button; every Google route and page 404)
+        run: |
+          set -euo pipefail
+          export DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_web"
+          export AUTH_DATABASE_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/agl_web"
+          export AUTH_PLANE_ENABLED=true AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef
+          export PUBLIC_SIGNUP_ENABLED=true RATE_LIMIT_BACKEND=memory
+          (nohup npx next start -p 3612 > "$RUNNER_TEMP/off.log" 2>&1 &)
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3612/login && break; sleep 2; done
+          BASE=http://localhost:3612 MODE=off OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_web" npx tsx .agl/browser-m2.ts
+          pkill -f "next start -p 3612" || true
+
+      - name: Server logs on failure
+        if: failure()
+        run: tail -n 120 "$RUNNER_TEMP/on.log" "$RUNNER_TEMP/off.log" "$RUNNER_TEMP/mock.log" 2>/dev/null || true
+
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: google-login-m2-screenshots
+          path: ${{ github.workspace }}/agl-shots
+          if-no-files-found: ignore
+          retention-days: 14

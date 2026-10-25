@@ -2,6 +2,8 @@ import Link from "next/link";
 import { isPublicSignupEnabled } from "@/lib/auth/signup-gate";
 import { getServerI18n } from "@/lib/i18n/server";
 import { CLOSED_BETA_ACCESS, readSignupAllowlist } from "@/lib/auth/signup-allowlist";
+import { googleNoticeFor } from "@/lib/auth/google-notices";
+import { isGoogleLoginEnabled } from "@/lib/auth/google-oauth";
 import RegisterForm from "./register-form";
 
 /**
@@ -92,11 +94,15 @@ export default async function RegisterPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  if (isPublicSignupEnabled()) return <RegisterForm />;
+  // "Continue with Google" is offered wherever the form is, and only when the feature is ON. A Google signup
+  // is gated again on the server (callback and completion), with the ticket's provider-verified address.
+  const { access, google } = await searchParams;
+  const googleEnabled = isGoogleLoginEnabled();
+  const googleNotice = googleNoticeFor(google);
+  if (isPublicSignupEnabled()) return <RegisterForm googleEnabled={googleEnabled} googleNotice={googleNotice} />;
 
-  const { access } = await searchParams;
   if (access === CLOSED_BETA_ACCESS && readSignupAllowlist().configured) {
-    return <RegisterForm />;
+    return <RegisterForm googleEnabled={googleEnabled} googleNotice={googleNotice} />;
   }
   return <SignupClosedNotice />;
 }

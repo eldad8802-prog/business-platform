@@ -1,0 +1,10 @@
+{
+  "note": "feat/google-login-m2: \"Continue with Google\" milestone 2 — the button, start / callback / ticket / complete routes, the completion form, the session hand-off and the ticket sweep. Flag OFF by default; routes 404 and the button is hidden while OFF.",
+  "tests": {
+    "lib/auth/google-login.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the flag is OFF unless every client value is present and the redirect base is https (or local http); lab stand-in endpoints are ignored on any Vercel deployment; the authorization request asks for exactly openid email profile (no Gmail / Drive / Calendar, no offline access) with PKCE S256, state, nonce and prompt=select_account; the signed start state refuses altered / forged / expired values; every Google route answers 404 when OFF; the callback clears its cookie and writes nothing for cancel, a foreign state, a failed exchange or a refused token, sends a new person to the completion form with ONLY a ticket cookie (no session), a linked account to /auth/google/done with the refresh cookie and no token in the URL, an existing unlinked address / admin / business in deletion / closed signup back with a reason and no session; the completion refuses cross-site, closed signup (unlisted ticket address), the rate limit (the register key), missing consent / business name and the honeypot before any account is created, and maps a spent ticket and a duplicate address to 409 without a session; static: no Google route mints a token or touches the database, the pages 404 when OFF, the button is hidden in the native shell; run by security-gate (pure lab) and oauth-identity-lab.yml"
+    }
+  }
+}

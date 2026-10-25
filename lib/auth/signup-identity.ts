@@ -134,17 +134,16 @@ export function normalizeSignupAttribution(raw: unknown): SignupAttribution | nu
  * Returns the exact values that will be persisted, so nothing downstream has to
  * re-trim or re-fold and risk disagreeing about what the identity is.
  */
-export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
-  const { email, password, name, businessName, acceptTerms, attribution } =
-    input ?? ({} as SignupInput);
-
+function checkName(name: unknown): asserts name is string {
   if (typeof name !== "string" || name.trim().length < MIN_NAME_LENGTH) {
     throw new SignupValidationError("name", "יש להזין שם מלא");
   }
   if (name.trim().length > MAX_NAME_LENGTH) {
     throw new SignupValidationError("name", `השם ארוך מדי (עד ${MAX_NAME_LENGTH} תווים)`);
   }
+}
 
+function checkBusinessName(businessName: unknown): asserts businessName is string {
   if (
     typeof businessName !== "string" ||
     businessName.trim().length < MIN_NAME_LENGTH
@@ -157,6 +156,21 @@ export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
       `שם העסק ארוך מדי (עד ${MAX_BUSINESS_NAME_LENGTH} תווים)`
     );
   }
+}
+
+function checkTerms(acceptTerms: unknown): void {
+  // Strictly `true`. A string "true", a 1 or a missing field is not consent.
+  if (acceptTerms !== true) {
+    throw new SignupValidationError("acceptTerms", "יש לאשר את תנאי השימוש ומדיניות הפרטיות");
+  }
+}
+
+export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
+  const { email, password, name, businessName, acceptTerms, attribution } =
+    input ?? ({} as SignupInput);
+
+  checkName(name);
+  checkBusinessName(businessName);
 
   if (typeof email !== "string" || !EMAIL_SHAPE.test(email.trim())) {
     throw new SignupValidationError("email", "יש להזין כתובת אימייל תקינה");
@@ -172,10 +186,7 @@ export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
     );
   }
 
-  // Strictly `true`. A string "true", a 1 or a missing field is not consent.
-  if (acceptTerms !== true) {
-    throw new SignupValidationError("acceptTerms", "יש לאשר את תנאי השימוש ומדיניות הפרטיות");
-  }
+  checkTerms(acceptTerms);
 
   return {
     email: normalizeEmail(email),
@@ -184,4 +195,20 @@ export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
     businessName: businessName.trim(),
     attribution: normalizeSignupAttribution(attribution),
   };
+}
+
+export type GoogleSignupInput = { name: unknown; businessName: unknown; acceptTerms: unknown; attribution?: unknown };
+export type NormalizedGoogleSignup = { name: string; businessName: string; attribution: SignupAttribution | null };
+
+/**
+ * The Google completion form: the same rules as signup for every field it shares (name, business name,
+ * consent). There is no address field — the address is the provider-verified one on the ticket — and no
+ * password: an account opened with Google has none until its owner sets one.
+ */
+export function normalizeGoogleSignupInput(input: GoogleSignupInput): NormalizedGoogleSignup {
+  const { name, businessName, acceptTerms, attribution } = input ?? ({} as GoogleSignupInput);
+  checkName(name);
+  checkBusinessName(businessName);
+  checkTerms(acceptTerms);
+  return { name: name.trim(), businessName: businessName.trim(), attribution: normalizeSignupAttribution(attribution) };
 }

@@ -345,6 +345,8 @@ async function main() {
       JSON.stringify(deliverers) === JSON.stringify([
         "app/api/auth/email/resend/route.ts",
         "app/api/auth/email/verify/route.ts",
+        // "Continue with Google": the completed signup's WELCOME, scheduled after the response exactly as register does.
+        "app/api/auth/google/complete/route.ts",
         "app/api/auth/password/forgot/route.ts",
         "app/api/auth/register/route.ts",
         "app/api/transactional-email/sweep/route.ts",

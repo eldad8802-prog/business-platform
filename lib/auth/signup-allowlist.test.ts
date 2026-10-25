@@ -81,7 +81,8 @@ for (const [raw, why] of [
 // ── the register page: public /register unchanged; the form only behind the explicit entry ──
 {
   const page = fs.readFileSync(path.join(process.cwd(), "app/register/page.tsx"), "utf8");
-  ok("page: public open → the form, as today", /if \(isPublicSignupEnabled\(\)\) return <RegisterForm \/>;/.test(page));
+  // The form carries the Google props (milestone 2); the gate decision is the same line as before.
+  ok("page: public open → the form, as today", /if \(isPublicSignupEnabled\(\)\) return <RegisterForm googleEnabled=\{googleEnabled\} googleNotice=\{googleNotice\} \/>;/.test(page));
   ok("page: closed → the form ONLY for ?access=beta AND a valid list",
     /access === CLOSED_BETA_ACCESS && readSignupAllowlist\(\)\.configured/.test(page) && CLOSED_BETA_ACCESS === "beta");
   ok("page: every other closed request → the closed notice", /return <SignupClosedNotice \/>;\s*\}\s*$/.test(page.trim() + "\n"));

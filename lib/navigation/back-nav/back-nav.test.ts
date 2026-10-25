@@ -213,6 +213,9 @@ const EXEMPT_PREFIXES = [
   // The accountant's download link (monthly accountant workflow): a public page outside the app shell, opened
   // from an email by someone with no Dubiz account — like the account-link pages above, never a back target.
   "/a",
+  // "Continue with Google": the landing that turns the refresh cookie into the stored session (/auth/google/done) —
+  // an auth step like /login, never a back target (/auth is a technical prefix in safe-path.ts).
+  "/auth",
 ];
 function pageRoutes(dir: string): string[] {
   const out: string[] = [];
