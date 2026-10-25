@@ -21,12 +21,17 @@
  *     inserts concurrently under the same identity is still one row;
  *   - commits for one business serialise on `bank-lines-ingest:<businessId>`.
  */
-import { createHash } from "node:crypto";
-
 import { Prisma } from "@prisma/client";
 import { readImportSource } from "@/lib/data-transfer/import/import-source";
 import { IMPORT_PREVIEW_TTL_SECONDS } from "@/lib/data-transfer/import/import-config";
-import { retryKeyOf } from "@/lib/data-transfer/import/execute/import-run-store";
+import {
+  BANK_STATEMENT_RUN_DOMAIN,
+  completeBankStatementRunInTx,
+  findBankStatementRunInTx,
+  lastBankStatementImportInTx,
+  openBankStatementRunInTx,
+  retryKeyOf,
+} from "@/lib/data-transfer/import/execute/import-run-store";
 import { signEnvelope, verifyEnvelope, type EnvelopeSpec } from "@/lib/data-transfer/import/preview/signed-envelope";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 import { fromMinorUnits } from "@/lib/services/payables/payables-core";
@@ -49,7 +54,7 @@ import {
   type RowProblem,
 } from "./bank-file-core";
 
-export const BANK_IMPORT_DOMAIN = "bank_statement";
+export const BANK_IMPORT_DOMAIN = BANK_STATEMENT_RUN_DOMAIN;
 const SOURCE = "OWNER_UPLOAD" as const;
 const PREVIEW_ROWS = 200;
 const ID_CHUNK = 1000;
@@ -220,12 +225,8 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankPrevi
   const { statuses, previous } = await withTenantTransaction(async (tx) => {
     await assertAccount(tx, input.businessId, prepared.accountId);
     const known = await existingIds(tx, input.businessId, [...prepared.identities.withAccount, ...prepared.identities.withoutAccount]);
-    const prior = await tx.importRun.findFirst({
-      where: { businessId: input.businessId, domain: BANK_IMPORT_DOMAIN, contentHash: prepared.contentHash, status: "COMPLETED" },
-      orderBy: { startedAt: "desc" },
-      select: { startedAt: true },
-    });
-    return { statuses: classify(prepared, known), previous: prior?.startedAt ?? null };
+    const previous = await lastBankStatementImportInTx(tx, input.businessId, prepared.contentHash);
+    return { statuses: classify(prepared, known), previous };
   });
 
   let creditMinor = 0;
@@ -318,7 +319,7 @@ export async function commitBankFile(input: BankImportInput & { token: unknown }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"bank-lines-ingest:" + String(input.businessId)}))`;
       await assertAccount(tx, input.businessId, prepared.accountId);
 
-      const prior = await tx.importRun.findUnique({ where: { retryKey } });
+      const prior = await findBankStatementRunInTx(tx, retryKey);
       if (prior) {
         return {
           importRunId: prior.id,
@@ -330,20 +331,16 @@ export async function commitBankFile(input: BankImportInput & { token: unknown }
         };
       }
 
-      const run = await tx.importRun.create({
-        data: {
-          businessId: input.businessId,
-          userId: input.userId,
-          domain: BANK_IMPORT_DOMAIN,
-          contentHash: prepared.contentHash,
-          mappingHash: prepared.mappingHash,
-          decisionsHash: createHash("sha256").update("bank_statement:no-decisions", "utf8").digest("hex"),
-          retryKey,
-          sheetName: prepared.sheetName,
-          totalRows: prepared.lines.length + prepared.errors.length,
-        },
-        select: { id: true },
+      const runId = await openBankStatementRunInTx(tx, {
+        businessId: input.businessId,
+        userId: input.userId,
+        contentHash: prepared.contentHash,
+        mappingHash: prepared.mappingHash,
+        retryKey,
+        sheetName: prepared.sheetName,
+        totalRows: prepared.lines.length + prepared.errors.length,
       });
+      const run = { id: runId };
       const importBatchId = `bnk-${run.id}`;
 
       const known = await existingIds(tx, input.businessId, [...prepared.identities.withAccount, ...prepared.identities.withoutAccount]);
@@ -377,16 +374,7 @@ export async function commitBankFile(input: BankImportInput & { token: unknown }
       const inserted = result.count;
       const existing = prepared.lines.length - inserted;
       const completedAt = new Date();
-      await tx.importRun.update({
-        where: { id: run.id },
-        data: {
-          status: "COMPLETED",
-          createdCount: inserted,
-          skippedCount: existing,
-          failedCount: prepared.errors.length,
-          completedAt,
-        },
-      });
+      await completeBankStatementRunInTx(tx, run.id, { created: inserted, skipped: existing, failed: prepared.errors.length, completedAt });
       await writeAudit(tx, {
         businessId: input.businessId,
         actorUserId: input.userId,

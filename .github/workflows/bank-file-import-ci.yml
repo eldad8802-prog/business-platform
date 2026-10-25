@@ -24,6 +24,7 @@ on:
       - "lib/services/payables/payables-observation.service.ts"
       - "lib/data-transfer/format/**"
       - "lib/data-transfer/import/import-source.ts"
+      - "lib/data-transfer/import/execute/import-run-store.ts"
       - "lib/services/feature-access/platform-feature-catalog.ts"
       - ".bfi/**"
       - ".rev/lab.sh"
