@@ -134,6 +134,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/billing/[id]", parent: "/billing", parentLabelKey: "toInvoiceList" },
   { pattern: "/payables/[id]", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/bank", parent: "/payables", parentLabelKey: "toAllPayables" },
+  { pattern: "/payables/bank/import", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/cheques", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/match/[documentId]", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/collection/new", parent: "/collection", parentLabelKey: "toCollection", identityParams: ["step"] },

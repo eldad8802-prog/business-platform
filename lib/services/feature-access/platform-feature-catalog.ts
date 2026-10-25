@@ -26,6 +26,7 @@ export const PLATFORM_FEATURE_KEYS = {
   TELEPHONY_VOICENTER: "telephony_voicenter",
   DAILY_TASKS: "daily_tasks",
   ACCOUNTANT_MONTH_CLOSE: "accountant_month_close",
+  BANK_FILE_IMPORT: "bank_file_import",
 } as const;
 
 export type PlatformFeatureKey =
@@ -245,6 +246,18 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "חבילה חודשית לרואה החשבון",
       category: "documents",
       description: "הכנה חודשית אוטומטית של חבילת רואה החשבון, התראה, ושליחה לרואה החשבון באישור בעל העסק",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // Bank file import (revenue truth milestone B1). OFF by default: with no policy row the resolver falls back to
+    // this default, so a deploy that reaches Production before its data migration cannot switch it on. It adds
+    // a second way to upload a bank statement (CSV / XLSX, preview first) into the same ExternalTransaction rows
+    // the payables upload writes; that upload is unchanged.
+    {
+      key: PLATFORM_FEATURE_KEYS.BANK_FILE_IMPORT,
+      displayName: "קליטת קובצי בנק",
+      category: "integrations",
+      description: "העלאת קובץ תנועות בנק (CSV או Excel) עם תצוגה מקדימה לפני קליטה",
       defaultEnabled: false,
       mutable: true,
     },

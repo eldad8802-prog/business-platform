@@ -1,0 +1,103 @@
+# Bank file import (revenue truth milestone B1) — CSV / XLSX bank statements into the existing ExternalTransaction
+# rows, preview first, one identity with the payables upload. docs/bank-file-import-b1.md
+#
+#   core      no database: the core (parity with the payables upload's own parser on the same files — same lines,
+#             same identities —, encodings, Excel, header search, mapping locks, balance chain), the payables
+#             core it reuses, the learning-coverage contract, the security-test coverage, the cross-currency guard
+#   battery   PostgreSQL 17, Production role topology (.bfi/lab.sh on .rev/lab.sh), RLS on every table touched,
+#             ExternalTransaction's immutability trigger; the service as the NOBYPASSRLS runtime (.bfi/battery.ts):
+#             idempotency, both upload paths, overlaps, concurrency, tenant isolation, tokens, the flag, the
+#             existing systems byte-identical, the payables upload unchanged
+#
+# Synthetic credentials; ZERO secrets; ZERO network. Nothing here touches a shared database.
+
+name: bank file import (PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/bank-file-import/**"
+      - "app/api/payables/bank-import/**"
+      - "app/(shell)/payables/bank/import/**"
+      - "lib/services/payables/payables-p46-core.ts"
+      - "lib/services/payables/payables-observation.service.ts"
+      - "lib/data-transfer/format/**"
+      - "lib/data-transfer/import/import-source.ts"
+      - "lib/data-transfer/import/execute/import-run-store.ts"
+      - "lib/services/feature-access/platform-feature-catalog.ts"
+      - ".bfi/**"
+      - ".rev/lab.sh"
+      - ".github/workflows/bank-file-import-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: bank file import core (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx lib/services/bank-file-import/bank-file-core.test.ts
+      - run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
+      - run: node scripts/ci/security-test-coverage.mjs
+      - run: node scripts/ci/cross-currency-sum-guard.mjs --self-test && node scripts/ci/cross-currency-sum-guard.mjs .
+      - name: The payables upload is not modified by this PR
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git fetch -q --depth=1 origin "${{ github.base_ref }}"
+          changed=$(git diff --name-only FETCH_HEAD HEAD -- lib/services/payables/ "app/(shell)/payables/bank/page.tsx" app/api/payables/bank-lines/ || true)
+          test -z "$changed" || { echo "the payables upload path changed:"; echo "$changed"; exit 1; }
+          echo "payables upload path unchanged"
+
+  battery:
+    name: bank file import battery (PG17, Production role topology, NOBYPASSRLS runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: bfi_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: bfi_ci_synthetic_super_pw
+      LAB_PASSWORD: bfi_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: bfi_ci_secret_synthetic_at_least_32_characters_long
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Lab (Production role topology, RLS on every touched table, immutability trigger)
+        run: bash .bfi/lab.sh bfi_app
+
+      - name: 2. Application battery (the service as the NOBYPASSRLS runtime)
+        run: |
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bfi_app" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bfi_app" \
+            npx tsx .bfi/battery.ts

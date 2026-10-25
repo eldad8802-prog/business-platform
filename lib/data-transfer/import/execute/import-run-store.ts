@@ -395,3 +395,91 @@ export async function findExistingRun(
     return run ? { ...toOpened(run), created: false } : null;
   });
 }
+
+/* ───────────────────── bank file import (revenue truth B1) ─────────────────────
+ *
+ * Bank statements are not a data-transfer domain (they write the payables bank lines, not a hub writer), but
+ * their runs live in this ledger: domain `bank_statement`, the file's hash, the counts. They are written here,
+ * because this file is the ledger's only accessor (import-ledger-guard CI-IL-14), and inside the CALLER's
+ * transaction, because the bank import opens the run, writes its lines and closes the run atomically under
+ * its own lock. No row markers: a bank line's own unique key is its idempotency. `decisionsHash` records the
+ * owner's explicit choices on suspected duplicates (import / skip, per row).
+ */
+
+export const BANK_STATEMENT_RUN_DOMAIN = "bank_statement";
+
+export type BankStatementRun = {
+  id: number;
+  createdCount: number | null;
+  skippedCount: number | null;
+  failedCount: number | null;
+  startedAt: Date;
+  completedAt: Date | null;
+};
+
+const BANK_RUN_SELECT = { id: true, createdCount: true, skippedCount: true, failedCount: true, startedAt: true, completedAt: true } as const;
+
+/** The run already committed under this retry key, if any (replay). */
+export async function findBankStatementRunInTx(tx: TenantTx, retryKey: string): Promise<BankStatementRun | null> {
+  return tx.importRun.findUnique({ where: { retryKey }, select: BANK_RUN_SELECT });
+}
+
+/** When this exact file was last imported into this business as a bank statement. */
+export async function lastBankStatementImportInTx(tx: TenantTx, businessId: number, contentHash: string): Promise<Date | null> {
+  const run = await tx.importRun.findFirst({
+    where: { businessId, domain: BANK_STATEMENT_RUN_DOMAIN, contentHash, status: "COMPLETED" },
+    orderBy: { startedAt: "desc" },
+    select: { startedAt: true },
+  });
+  return run?.startedAt ?? null;
+}
+
+/** Open a bank statement run in the caller's transaction. */
+export async function openBankStatementRunInTx(
+  tx: TenantTx,
+  run: {
+    businessId: number;
+    userId: number;
+    contentHash: string;
+    mappingHash: string;
+    /** The owner's decisions on suspected duplicates, canonicalized and hashed (audit evidence). */
+    decisionsHash: string;
+    retryKey: string;
+    sheetName: string | null;
+    totalRows: number;
+  }
+): Promise<number> {
+  const created = await tx.importRun.create({
+    data: {
+      businessId: run.businessId,
+      userId: run.userId,
+      domain: BANK_STATEMENT_RUN_DOMAIN,
+      contentHash: run.contentHash,
+      mappingHash: run.mappingHash,
+      decisionsHash: run.decisionsHash,
+      retryKey: run.retryKey,
+      sheetName: run.sheetName,
+      totalRows: run.totalRows,
+    },
+    select: { id: true },
+  });
+  return created.id;
+}
+
+/** Close a bank statement run, in the same transaction that wrote its lines. */
+export async function completeBankStatementRunInTx(
+  tx: TenantTx,
+  runId: number,
+  counts: { created: number; skipped: number; failed: number; completedAt: Date }
+): Promise<void> {
+  await tx.importRun.update({
+    where: { id: runId },
+    data: {
+      status: "COMPLETED",
+      createdCount: counts.created,
+      skippedCount: counts.skipped,
+      failedCount: counts.failed,
+      completedAt: counts.completedAt,
+    },
+  });
+}

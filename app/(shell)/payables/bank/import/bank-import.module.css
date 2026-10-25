@@ -1,0 +1,86 @@
+/* Bank file import (B1): the preview table and the mapping grid. Colours come from the payables theme tokens. */
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--pay-tertiary);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stepOn {
+  color: var(--pay-ink);
+  font-weight: 600;
+}
+
+.mapping {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px 14px;
+}
+
+.lockNote {
+  font-size: 11px;
+  color: var(--pay-tertiary);
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--pay-line);
+  border-radius: 10px;
+  background: var(--pay-card);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  text-align: start;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--pay-line);
+  white-space: nowrap;
+}
+
+.table th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pay-muted);
+  background: var(--pay-surface2);
+}
+
+.table tr:last-child td {
+  border-bottom: 0;
+}
+
+.wrapText {
+  white-space: normal;
+  min-width: 160px;
+  overflow-wrap: anywhere;
+}
+
+.credit {
+  color: var(--pay-success);
+}
+
+.problems {
+  margin: 0;
+  padding-inline-start: 18px;
+  font-size: 13px;
+}
+
+.decision {
+  display: flex;
+  gap: 12px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+}
