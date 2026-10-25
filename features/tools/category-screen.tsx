@@ -34,9 +34,13 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 export function CategoryScreen({ groupKey }: { groupKey: ToolGroupKey }) {
   const { t } = useI18n();
   const group = TOOL_GROUPS.find((g) => g.key === groupKey)!;
-  // A tool behind a platform feature (משימות — daily_tasks) is listed only once the flag is known to be ON.
+  // A tool behind a platform feature (משימות — daily_tasks, יומן ותורים — appointments) is listed only once the
+  // flag is known to be ON.
   const tasksOn = useFeatureEnabled("daily_tasks");
-  const tools = toolsInGroup(groupKey).filter((t) => !t.feature || (t.feature === "daily_tasks" && tasksOn));
+  const appointmentsOn = useFeatureEnabled("appointments");
+  const tools = toolsInGroup(groupKey).filter(
+    (t) => !t.feature || (t.feature === "daily_tasks" && tasksOn) || (t.feature === "appointments" && appointmentsOn),
+  );
   const [status, setStatus] = useState<GroupStatus | null>(null);
   // Desktop keeps what is waiting in this category beside its tools. Null
   // until the same business-status read that sets the chip has answered.

@@ -141,6 +141,16 @@ const DRAW: Record<string, (t: EntityTone) => ReactNode> = {
       <path d="M18.5 14.2H22M11 21h11" {...S} />
     </>
   ),
+  // the calendar — a page with its rings and a booked slot
+  calendar: (t) => (
+    <>
+      <rect x="5" y="6.5" width="22" height="21" rx="2.2" fill={PAPER} {...S} />
+      <path d="M5 8.7a2.2 2.2 0 0 1 2.2-2.2h17.6A2.2 2.2 0 0 1 27 8.7v3.8H5z" fill={t.solid} {...S} />
+      <path d="M11 4.5v4M21 4.5v4" {...S} />
+      <rect x="15.5" y="17" width="7.5" height="5.5" rx="1" fill={t.tint} {...S} />
+      <path d="M9.5 17.5h2M9.5 22h2" {...S} />
+    </>
+  ),
   inventory: (t) => (
     <>
       <path d="M16 4l11 5.5L16 15 5 9.5z" fill={t.solid} {...S} />
