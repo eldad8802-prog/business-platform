@@ -109,6 +109,7 @@ on:
           - 'ops/evidence/oauth-identity-production-evidence.sql'
           - 'ops/evidence/appointments-foundation-preflight.sql'
           - 'ops/evidence/appointments-foundation-production-evidence.sql'
+          - 'ops/evidence/bank-file-import-feature-production-evidence.sql'
 
 permissions:
   contents: read
