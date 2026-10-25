@@ -183,6 +183,8 @@ async function main() {
     await p.goto(`/secretary?screen=calendar&day=${seed.today}`);
     await seen(p, "תורים, משימות ומועדי תשלום");
     await p.getByRole("list", { name: "מקרא" }).getByText("תור").first().waitFor();
+    // today's appointments are listed under the month, with the customer's name and the time
+    await seen(p, /12:00 · נועה לוי · תספורת/);
     await shot(p, "14-desktop-secretary-calendar");
   });
 
