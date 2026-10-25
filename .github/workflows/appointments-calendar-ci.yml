@@ -97,6 +97,11 @@ jobs:
       OUT: /tmp/appt-ui
       SEED_OUT: /tmp/appt-ui-seed.json
       E2E_BASE: http://localhost:3700
+      # The lab database (built in a step below); synthetic, the same values .appt/lab.sh uses.
+      OWNER_URL: postgresql://lab_owner:appt_ci_synthetic_role_pw@localhost:5432/appt_ui?options=-c%20TimeZone%3DAsia%2FJerusalem
+      DATABASE_URL: postgresql://app_runtime_prod:appt_ci_synthetic_role_pw@localhost:5432/appt_ui?options=-c%20TimeZone%3DAsia%2FJerusalem&connection_limit=20
+      DIRECT_URL: postgresql://app_runtime_prod:appt_ci_synthetic_role_pw@localhost:5432/appt_ui?options=-c%20TimeZone%3DAsia%2FJerusalem
+      AUTH_DATABASE_URL: postgresql://lab_owner:appt_ci_synthetic_role_pw@localhost:5432/appt_ui?options=-c%20TimeZone%3DAsia%2FJerusalem
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -105,27 +110,19 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
+      # Build FIRST — before any apt or Chromium install: after a system install the Turbopack build could not resolve
+      # the next/font files (see i18n-multicurrency-ci.yml). The build needs no database.
+      - name: Build the app
+        run: mkdir -p "$OUT" && { npm run build > "$OUT/build.log" 2>&1 || { tail -n 80 "$OUT/build.log"; exit 1; }; }
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
       - name: Lab — the real migration in Production's role topology, then the synthetic businesses
         run: |
           set -euo pipefail
-          mkdir -p "$OUT"
           bash .appt/lab.sh appt_ui --with-appt
-          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
-          {
-            echo "OWNER_URL=postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/appt_ui?$TZQ"
-            echo "DATABASE_URL=postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/appt_ui?$TZQ&connection_limit=20"
-            echo "DIRECT_URL=postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/appt_ui?$TZQ"
-            echo "AUTH_DATABASE_URL=postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/appt_ui?$TZQ"
-          } >> "$GITHUB_ENV"
 
       - name: Seed — through the real services AS the runtime role
         run: npx tsx .appt/ui-seed.ts
-
-      # Build BEFORE the Chromium install (next/font breaks after it — see i18n-multicurrency-ci.yml).
-      - name: Build the app
-        run: npm run build > "$OUT/build.log" 2>&1 || { tail -n 80 "$OUT/build.log"; exit 1; }
 
       - run: npx playwright install --with-deps chromium
 
