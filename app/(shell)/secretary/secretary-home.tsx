@@ -27,8 +27,8 @@ import { SecretaryWeek } from "./secretary-calendar";
 import { SecretaryCostDrawer } from "./secretary-cost-drawer";
 import { useHubData } from "./secretary-hub-data";
 import { noteHand } from "./secretary-fonts";
-import { calendarEvents, todayAppointments, type HubAppointment } from "./secretary-hub-model";
-import { clockOf, KIND_LABEL } from "@/features/calendar/calendar-model";
+import { appointmentLine, calendarEvents, todayAppointments, type HubAppointment } from "./secretary-hub-model";
+import { clockOf } from "@/features/calendar/calendar-model";
 import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 import { ownerErrorText } from "./secretary-home-model";
 import { secretaryVars } from "./secretary-ui";
@@ -230,7 +230,7 @@ function TodayAppointments({ state, now }: { state: HubAppointment[] | "loading"
             <li key={a.id}>
               <Link href={`/calendar?view=day&day=${today}&appointment=${a.id}`} className={s.apptRow}>
                 <span className={s.apptTime}>{a.endsAt && a.startsAt ? clockOf(new Date(a.startsAt)) : "—"}</span>
-                <span className={s.apptName}>{a.title?.trim() || KIND_LABEL[a.kind]}</span>
+                <span className={s.apptName}>{appointmentLine(a)}</span>
                 {a.status === "PROPOSED" ? <span className={s.apptWait}>ממתין לאישור</span> : null}
               </Link>
             </li>

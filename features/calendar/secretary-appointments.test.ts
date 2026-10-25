@@ -7,6 +7,7 @@
  * the API's 62 days; "תורים היום" lists today's live appointments only. Pure — no React, no fetch.
  */
 import {
+  appointmentLine,
   appointmentsWindow,
   calendarEvents,
   CALENDAR_KIND_LABEL,
@@ -48,6 +49,11 @@ console.log("— appointments on the Secretary's calendar");
   const untimed = calendarEvents({ obligations: [], tasks: [], summary: null, appointments: [appt({ id: 9, startsAt: "2026-11-03T10:00:00.000Z", title: "ללא שעה" })] });
   eq("an untimed appointment shows without a time", untimed[0].title, "ללא שעה");
 }
+
+console.log("— the customer on the line");
+eq("a customer appointment with a known name reads customer · what", appointmentLine(appt({ title: "תספורת", customerName: "נועה לוי" })), "נועה לוי · תספורת");
+eq("without the name the title stands alone", appointmentLine(appt({ title: "תספורת" })), "תספורת");
+eq("a block never names a customer", appointmentLine(appt({ kind: "BLOCK", title: null, customerName: "x" })), "חסימת זמן");
 
 console.log("— the read window and today's card");
 {

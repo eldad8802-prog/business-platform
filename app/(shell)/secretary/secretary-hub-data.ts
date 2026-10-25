@@ -19,7 +19,7 @@ import { fetchBusinessCostSummary, type BusinessCostSummaryApi } from "@/lib/bus
 import { fetchObligations, type ObligationApi } from "@/lib/obligations/secretary-client";
 import { fetchAgenda } from "@/lib/tasks/tasks-client";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
-import { listAppointments } from "@/features/calendar/calendar-client";
+import { listAppointments, searchCustomers } from "@/features/calendar/calendar-client";
 import { appointmentsWindow, ownTasks, type HubAppointment, type HubTask } from "./secretary-hub-model";
 
 export const HUB_OBLIGATION_LIMIT = 200;
@@ -46,8 +46,12 @@ export function useHubData(stamp: string): HubData {
     let cancelled = false;
     const { from, to } = appointmentsWindow(new Date());
     listAppointments(from, to)
-      .then((list) => {
-        if (!cancelled) setAppointments(list);
+      .then(async (list) => {
+        // Names for the customer appointments: the 100 most recent customers, one read; a miss shows the title alone.
+        const names = list.some((a) => a.customerId !== null)
+          ? new Map((await searchCustomers("", 100).catch(() => [])).map((c) => [c.id, c.name] as const))
+          : new Map<number, string>();
+        if (!cancelled) setAppointments(list.map((a) => ({ ...a, customerName: a.customerId !== null ? names.get(a.customerId) ?? null : null })));
       })
       .catch(() => {
         if (!cancelled) setAppointments("unavailable");

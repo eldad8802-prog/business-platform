@@ -18,6 +18,7 @@ import t from "@/features/tasks/tasks.module.css";
 import {
   byDay,
   clock,
+  clockOf,
   dayNumber,
   dayShort,
   dayTitle,
@@ -243,7 +244,6 @@ export function TimeGrid({
                     width: `calc(${width}% - 4px)`,
                     ...(isDragging && drag.col !== ci ? { transform: `translateX(${drag.dx}px)` } : {}),
                   };
-                  const minutes = durationOf(a) ?? 0;
                   return (
                     <button
                       key={a.id}
@@ -263,8 +263,16 @@ export function TimeGrid({
                         onSelect(a.id);
                       }}
                     >
-                      <span className={s.blockTitle}>{headline(a, names)}</span>
-                      {h >= 34 || minutes >= 30 ? <span className={s.blockTime}>{timeLabel(a)}</span> : null}
+                      {h >= 38 ? (
+                        <>
+                          <span className={s.blockTitle}>{headline(a, names)}</span>
+                          <span className={s.blockTime}>{timeLabel(a)}</span>
+                        </>
+                      ) : (
+                        <span className={s.blockTitle}>
+                          <span className={s.blockTime}>{clockOf(new Date(a.startsAt!))}</span> {headline(a, names)}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -342,7 +350,7 @@ export function MonthGrid({
                   <>
                     {list.slice(0, 3).map((a) => (
                       <span key={a.id} className={s.cellItem} style={laneStyle(staffColor(a.staffMemberId, names))} aria-hidden="true">
-                        {a.startsAt && isTimed(a) ? `${timeLabel(a).slice(0, 5)} ` : ""}{headline(a, names)}
+                        {a.startsAt && isTimed(a) ? `${clockOf(new Date(a.startsAt))} ` : ""}{headline(a, names)}
                       </span>
                     ))}
                     {list.length > 3 ? <span className={s.cellMore} aria-hidden="true">ועוד {list.length - 3}</span> : null}
@@ -412,7 +420,7 @@ export function MobileAgenda({
             return (
               <button key={a.id} type="button" className={`${s.card} ${isTerminal(a.status) ? s.blockDone : ""}`} style={laneStyle(color)} onClick={() => onSelect(a.id)}>
                 <span className={s.cardTime}>
-                  {a.startsAt ? timeLabel(a).slice(0, 5) : "—"}
+                  {a.startsAt ? clockOf(new Date(a.startsAt)) : "—"}
                   {minutes ? <small>{minutes} דק׳</small> : null}
                 </span>
                 <span className={s.cardBody}>

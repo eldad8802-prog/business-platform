@@ -391,11 +391,15 @@ export function durationLabel(minutes: number): string {
   return m ? `${hours} ו־${m} דק׳` : hours;
 }
 
-/** "09:00–09:45" for a timed appointment, "09:00" for an untimed one with a start, "ללא שעה" otherwise. */
+/**
+ * "09:00–09:45" for a timed appointment, "09:00" for an untimed one with a start, "ללא שעה" otherwise. A range is
+ * wrapped in a left-to-right isolate (U+2066 … U+2069): inside Hebrew text the dash would otherwise flip it to
+ * "09:45–09:00".
+ */
 export function timeLabel(a: AppointmentWire): string {
   if (!a.startsAt) return "ללא שעה";
   const start = clockOf(new Date(a.startsAt));
-  return a.endsAt ? `${start}–${clockOf(new Date(a.endsAt))}` : start;
+  return a.endsAt ? `⁦${start}–${clockOf(new Date(a.endsAt))}⁩` : start;
 }
 
 // ── What the owner may do ───────────────────────────────────────────────────────────────────────

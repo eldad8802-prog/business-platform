@@ -7,7 +7,7 @@
  *            details panel beside the grid; drag an appointment to move it; click empty time to book there.
  *   tablet   the same grid; details and forms in a dialog.
  *   phone    the day's agenda under a strip of the week's days (month shows load dots); details and forms as bottom
- *            sheets; "+" always on screen.
+ *            sheets; "תור חדש" stays in the header.
  *
  * The URL holds the picture (?view=&day=&staff=&appointment=), so a link — from the Secretary, a customer card or a
  * notification later — opens exactly it. Everything shown and changed goes through the milestone A API; the page is
@@ -287,10 +287,6 @@ function CalendarBody() {
           ) : null}
         </aside>
       </div>
-
-      {bp === "mobile" ? (
-        <button type="button" className={s.fab} aria-label="תור חדש" onClick={() => setCreating({ day: anchor })}><PlusIcon size={24} /></button>
-      ) : null}
 
       <AdaptiveOverlay open={bp !== "desktop" && selectedId !== null && !moving && !creating} onClose={() => select(null)} labelledBy="appointment-details-title">
         <div style={{ padding: bp === "mobile" ? "4px 2px 12px" : 0 }}>{bp !== "desktop" ? details : null}</div>

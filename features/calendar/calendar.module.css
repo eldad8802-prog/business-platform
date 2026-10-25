@@ -100,7 +100,7 @@ button.head:hover { background: var(--dz-surface-muted); }
   border: 1px solid color-mix(in srgb, var(--lane, var(--dz-brand)) 45%, transparent);
   border-inline-start: 3px solid var(--lane, var(--dz-brand));
   color: var(--dz-text-primary); font: inherit; font-size: 12px; text-align: start; cursor: pointer;
-  display: flex; flex-direction: column; gap: 1px; touch-action: none; user-select: none;
+  display: flex; flex-direction: column; justify-content: flex-start; gap: 1px; touch-action: none; user-select: none;
 }
 .block:hover { box-shadow: 0 2px 8px rgba(35, 48, 43, 0.14); }
 .blockSel { box-shadow: 0 0 0 2px var(--dz-brand); }
@@ -156,12 +156,6 @@ button.head:hover { background: var(--dz-surface-muted); }
 .cardBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .cardTitle { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cardFact { font-size: 12.5px; color: var(--dz-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fab {
-  position: fixed; inset-inline-end: 18px; bottom: calc(88px + var(--dz-safe-bottom, 0px)); z-index: 40; width: 56px; height: 56px;
-  border-radius: 18px; border: 0; background: var(--dz-brand); color: var(--dz-text-on-brand); display: grid; place-items: center;
-  box-shadow: 0 8px 24px rgba(36, 105, 102, 0.35); cursor: pointer;
-}
-@media (min-width: 768px) { .fab { display: none; } }
 
 /* ── chips for status and kind ──────────────────────────────────────────── */
 .status { font-size: 11.5px; border-radius: 999px; padding: 0 8px; line-height: 20px; white-space: nowrap; align-self: flex-start; }
@@ -208,7 +202,7 @@ button.head:hover { background: var(--dz-surface-muted); }
 .dayName { font-weight: 600; font-size: 14px; padding-top: 8px; }
 .ranges { display: flex; flex-direction: column; gap: 6px; }
 .range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.range .time { width: 110px; }
+.range .time { width: 140px; }
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
 .swatchBtn { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; background: var(--lane); cursor: pointer; padding: 0; }
 .swatchOn { border-color: var(--dz-text-primary); box-shadow: 0 0 0 2px var(--dz-surface-raised) inset; }

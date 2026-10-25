@@ -34,7 +34,16 @@ export type HubAgenda = { dayKey: string; buckets: Array<{ bucket: Bucket; rows:
 export type HubTask = { task: ManualTask; bucket: Bucket };
 
 /** An appointment as the Secretary reads it (a subset of the calendar's wire shape). */
-export type HubAppointment = Pick<AppointmentWire, "id" | "status" | "kind" | "startsAt" | "endsAt" | "title">;
+export type HubAppointment = Pick<AppointmentWire, "id" | "status" | "kind" | "startsAt" | "endsAt" | "title"> & {
+  /** The customer's name when the hub could read it (never required: the title stands alone). */
+  customerName?: string | null;
+};
+
+/** An appointment's line: "customer · what" for a customer appointment with a known name, else what it is. */
+export function appointmentLine(a: HubAppointment): string {
+  const what = a.title?.trim() || KIND_LABEL[a.kind];
+  return a.kind === "CUSTOMER" && a.customerName ? `${a.customerName} · ${what}` : what;
+}
 
 /**
  * The appointments window the Secretary reads: 30 days back to 30 days ahead of today — 61 calendar days, so even
@@ -131,7 +140,7 @@ export function calendarEvents(input: {
     const start = new Date(a.startsAt);
     if (Number.isNaN(start.getTime())) continue;
     const day = jerusalemDayKey(start);
-    const what = a.title?.trim() || KIND_LABEL[a.kind];
+    const what = appointmentLine(a);
     events.push({
       key: `a:${a.id}`,
       day,

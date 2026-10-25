@@ -22,6 +22,7 @@ const seed = JSON.parse(readFileSync(process.env.SEED_OUT!, "utf8"));
 mkdirSync(OUT, { recursive: true });
 
 const rows: Array<{ name: string; ok: boolean; detail: string }> = [];
+let current: Page | null = null;
 async function check(name: string, fn: () => Promise<unknown>): Promise<void> {
   try {
     const r = await fn();
@@ -31,6 +32,7 @@ async function check(name: string, fn: () => Promise<unknown>): Promise<void> {
   } catch (e) {
     const detail = e instanceof Error ? e.message.split("\n")[0].slice(0, 200) : String(e);
     rows.push({ name, ok: false, detail });
+    if (current) await current.screenshot({ path: join(OUT, `FAILED-${name.split(" ")[0]}.png`) }).catch(() => undefined);
     console.log(`  [FAIL] ${name} — ${detail}`);
   }
 }
@@ -61,6 +63,7 @@ async function main() {
   console.log("desktop · appointments ON");
   const dc = await ctx(browser, t, false);
   const p = await dc.newPage();
+  current = p;
 
   await check("D1 the week shows the seeded appointments with customer and service", async () => {
     await p.goto("/calendar?view=week");
@@ -71,9 +74,7 @@ async function main() {
   await check("D2 ניהול העסק in the sidebar lists יומן ותורים", async () => p.getByRole("link", { name: "יומן ותורים" }).first().waitFor({ timeout: 15_000 }));
   await check("D3 the day view has a column per staff member", async () => {
     await p.goto(`/calendar?view=day&day=${seed.today}`);
-    await seen(p, "שירה");
-    await seen(p, "אבי");
-    await seen(p, "כללי");
+    for (const name of ["שירה", "אבי", "כללי"]) await p.locator(`span:text-is("${name}")`).first().waitFor({ timeout: 25_000 });
     await shot(p, "02-desktop-day-by-staff");
   });
   await check("D4 an appointment opens its details: status, customer, staff, actions, history", async () => {
@@ -146,14 +147,14 @@ async function main() {
     await panel.getByLabel("הסבר קצר (לא חובה)").fill("התקשר לבטל");
     await shot(p, "08-desktop-cancel");
     await panel.getByRole("button", { name: "בטל את התור" }).click();
-    await panel.getByText("בוטל").first().waitFor({ timeout: 15_000 });
+    await panel.getByText("בוטל", { exact: true }).first().waitFor({ timeout: 15_000 });
     const one = await api(t, `/api/appointments/${seed.ids.todayYossi}`);
     if (one.body.appointment.status !== "CANCELED" || one.body.appointment.cancelReason !== "CUSTOMER_CANCELED") throw new Error(JSON.stringify(one.body.appointment));
   });
 
   await check("D9 the month shows each day's appointments", async () => {
     await p.goto("/calendar?view=month");
-    await p.getByRole("button", { name: /· d+ תור/ }).first().waitFor({ timeout: 20_000 });
+    await p.getByRole("button", { name: /· [0-9]+ תור/ }).first().waitFor({ timeout: 20_000 });
     await shot(p, "09-desktop-month");
   });
 
@@ -212,6 +213,7 @@ async function main() {
   console.log("phone · appointments ON");
   const mc = await ctx(browser, t, true);
   const m = await mc.newPage();
+  current = m;
   await check("M1 the phone: the day's agenda under the week strip, + always on screen", async () => {
     await m.goto(`/calendar?day=${seed.today}`);
     await seen(m, "נועה לוי · תספורת");
@@ -233,7 +235,7 @@ async function main() {
   });
   await check("M4 the phone's month", async () => {
     await m.goto("/calendar?view=month");
-    await m.getByRole("button", { name: /· d+ תור/ }).first().waitFor({ timeout: 20_000 });
+    await m.getByRole("button", { name: /· [0-9]+ תור/ }).first().waitFor({ timeout: 20_000 });
     await shot(m, "m04-phone-month");
   });
   await check("M5 the Secretary on the phone", async () => {
@@ -247,6 +249,7 @@ async function main() {
   console.log("desktop · appointments OFF (business B)");
   const oc = await ctx(browser, seed.tokenB, false);
   const o = await oc.newPage();
+  current = o;
   await check("O1 OFF: the calendar says it is not active", async () => {
     await o.goto("/calendar");
     await seen(o, "היומן עדיין לא פעיל לעסק שלך");
