@@ -101,6 +101,7 @@ on:
           - 'ops/evidence/accountant-g2-business-9-postcheck.sql'
           - 'ops/evidence/accountant-g2-business-9-details.sql'
           - 'ops/evidence/billing-pdf-render-state.sql'
+          - 'ops/evidence/accountant-source-documents-history.sql'
           - 'ops/evidence/platform-admin-a1-preflight.sql'
           - 'ops/evidence/platform-admin-a1-production-evidence.sql'
           - 'ops/evidence/platform-admin-a1-member-classification.sql'
@@ -111,6 +112,7 @@ on:
           - 'ops/evidence/appointments-foundation-preflight.sql'
           - 'ops/evidence/appointments-foundation-production-evidence.sql'
           - 'ops/evidence/appointments-pilot-business-9.sql'
+          - 'ops/evidence/document-supplier-business-9-readonly.sql'
           - 'ops/evidence/bank-file-import-feature-production-evidence.sql'
           - 'ops/evidence/pos-rivhit-source-preflight.sql'
           - 'ops/evidence/pos-rivhit-source-production-evidence.sql'
@@ -119,6 +121,8 @@ on:
           - 'ops/evidence/oauth-identity-link-preflight.sql'
           - 'ops/evidence/oauth-identity-link-production-evidence.sql'
           - 'ops/evidence/user-email-case-audit.sql'
+          - 'ops/evidence/document-supplier-link-preflight.sql'
+          - 'ops/evidence/document-supplier-link-production-evidence.sql'
 
 permissions:
   contents: read

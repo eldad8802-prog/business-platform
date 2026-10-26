@@ -3,7 +3,7 @@ import { isPublicSignupEnabled } from "@/lib/auth/signup-gate";
 import { getServerI18n } from "@/lib/i18n/server";
 import { CLOSED_BETA_ACCESS, readSignupAllowlist } from "@/lib/auth/signup-allowlist";
 import { googleNoticeFor } from "@/lib/auth/google-notices";
-import { isGoogleLoginEnabled } from "@/lib/auth/google-oauth";
+import { googleButtonVisible, readGoogleLoginConfig } from "@/lib/auth/google-oauth";
 import RegisterForm from "./register-form";
 
 /**
@@ -97,7 +97,8 @@ export default async function RegisterPage({
   // "Continue with Google" is offered wherever the form is, and only when the feature is ON. A Google signup
   // is gated again on the server (callback and completion), with the ticket's provider-verified address.
   const { access, google } = await searchParams;
-  const googleEnabled = isGoogleLoginEnabled();
+  // Pilot: the button only on `?google=pilot`; the server decides who may actually use it.
+  const googleEnabled = googleButtonVisible(readGoogleLoginConfig(), google);
   const googleNotice = googleNoticeFor(google);
   if (isPublicSignupEnabled()) return <RegisterForm googleEnabled={googleEnabled} googleNotice={googleNotice} />;
 

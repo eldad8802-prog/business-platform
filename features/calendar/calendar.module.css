@@ -209,3 +209,17 @@ button.head:hover { background: var(--dz-surface-muted); }
 .svcRow { display: grid; grid-template-columns: 24px minmax(0, 1fr) 120px; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--dz-border-subtle); font-size: 14px; }
 .svcRow:first-child { border-top: 0; }
 .numRow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.subhead { margin: 6px 0 0; font-size: 13.5px; font-weight: 600; color: var(--dz-text-secondary); }
+
+/* What is closed (milestone B stabilization): month cells, the phone's strip and day */
+.cellClosed { background: repeating-linear-gradient(135deg, var(--dz-surface-muted) 0 6px, transparent 6px 12px); }
+.cellClosed .cellNum { color: var(--dz-text-muted); }
+.cellNote { font-size: 11px; color: var(--dz-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cellNoteDot { width: 6px; height: 6px; border-radius: 50%; background: var(--dz-warning, var(--dz-text-muted)); align-self: flex-end; }
+.stripClosed:not(.stripOn) { background: repeating-linear-gradient(135deg, var(--dz-surface-muted) 0 5px, transparent 5px 10px); color: var(--dz-text-muted); }
+.dayNotes { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; background: var(--dz-surface-muted); font-size: 13px; color: var(--dz-text-secondary); }
+.dayNoteStrong { font-weight: 600; color: var(--dz-text-primary, inherit); }
+
+.slotChips { max-height: 196px; overflow-y: auto; }
+.moreChip { font-weight: 600; color: var(--dz-brand); }
+.blockState { font-size: 10.5px; line-height: 16px; padding: 0 6px; margin-top: 2px; }
