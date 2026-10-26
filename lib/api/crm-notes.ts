@@ -63,6 +63,29 @@ export async function getNotes(
   return data.notes || [];
 }
 
+/** One page of a subject's notes (newest first). `before` = the last id already shown. */
+export async function getNotesPage(
+  subjectType: CrmSubjectType,
+  subjectId: number,
+  before?: number
+): Promise<{ notes: CrmNoteDTO[]; hasMore: boolean; total: number }> {
+  const url = before ? `${subjectBase(subjectType, subjectId)}?before=${before}` : subjectBase(subjectType, subjectId);
+  const res = await fetchWithTimeout(url, {
+    method: "GET",
+    headers: buildClientAuthHeaders(),
+    cache: "no-store",
+  });
+  if (res.status === 401) throw new Error("UNAUTHORIZED");
+  if (!res.ok) return parseError(res, "לא הצלחנו לטעון את ההערות");
+  const data = await res.json();
+  const notes: CrmNoteDTO[] = data.notes || [];
+  return {
+    notes,
+    hasMore: data.hasMore === true,
+    total: typeof data.total === "number" ? data.total : notes.length,
+  };
+}
+
 export async function createNote(
   subjectType: CrmSubjectType,
   subjectId: number,

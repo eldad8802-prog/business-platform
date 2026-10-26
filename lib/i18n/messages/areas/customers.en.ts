@@ -492,6 +492,9 @@ export const customersEn: Widen<typeof customersHe> = {
       emptySearchBody: "Try a shorter search or a different name.",
       emptyInactiveBody: "Suppliers you deactivate will appear here.",
       emptyNoneBody: "Add your first supplier to manage contact details and lead times in one place.",
+      loadMore: "Load more suppliers",
+      loadMoreError: "We couldn't load more suppliers. The ones already shown are still here.",
+      showing: "Showing {shown} of {total}",
     },
     create: {
       title: "New supplier",

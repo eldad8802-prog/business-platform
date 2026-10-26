@@ -317,6 +317,8 @@ export const inboxEn: Widen<typeof inboxHe> = {
 
   crm: {
     retry: "Try again",
+    loading: "Loading…",
+    shownOfTotal: "Showing {shown} of {total}",
     confirmDelete: "Delete?",
     deleting: "Deleting…",
     delete: "Delete",
@@ -334,6 +336,8 @@ export const inboxEn: Widen<typeof inboxHe> = {
       add: "Add note",
       none: "No notes yet. You can add the first one above.",
       unknownAuthor: "User",
+      loadMore: "Load earlier notes",
+      loadMoreFailed: "We couldn't load earlier notes. The ones already shown are still here.",
       save: "Save",
       edit: "Edit",
     },
@@ -348,6 +352,8 @@ export const inboxEn: Widen<typeof inboxHe> = {
       progress: "Upload progress",
       none: "No files yet. You can upload the first one above.",
       download: "Download",
+      loadMore: "Load earlier files",
+      loadMoreFailed: "We couldn't load earlier files. The ones already shown are still here.",
     },
   },
 };

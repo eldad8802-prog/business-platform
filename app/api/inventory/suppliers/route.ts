@@ -53,11 +53,11 @@ export async function GET(request: NextRequest) {
     const user = await getAuthenticatedUser(request);
     const { searchParams } = new URL(request.url);
 
-    const suppliers = await runWithTenantContext(
+    const page = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
         withTenantTransaction((tx) =>
-          supplierService.listSuppliers(
+          supplierService.listSuppliersPage(
             {
               businessId: user.businessId,
               status: parseStatus(searchParams.get("status")),
@@ -65,13 +65,24 @@ export async function GET(request: NextRequest) {
               limit: searchParams.get("limit")
                 ? Number(searchParams.get("limit"))
                 : null,
+              offset: searchParams.get("offset")
+                ? Number(searchParams.get("offset"))
+                : null,
             },
             { tx }
           )
         )
     );
 
-    return NextResponse.json({ suppliers });
+    // `suppliers` keeps its shape for every existing caller (pickers, tasks);
+    // `total` / `hasMore` let the list say how many there are and page on.
+    return NextResponse.json({
+      suppliers: page.rows,
+      total: page.total,
+      hasMore: page.hasMore,
+      offset: page.offset,
+      limit: page.limit,
+    });
   } catch (error) {
     return handleInventoryError(error);
   }
