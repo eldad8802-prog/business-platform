@@ -15,6 +15,17 @@
  *   A sale, receipt or settlement whose latest decision is REJECTED (recorded in error) counts nowhere: no total,
  *   no register day, no match; a link naming it closes nothing. The row itself is kept and listed in `excluded`.
  *
+ * WHICH EVIDENCE IS REGISTER EVIDENCE
+ *   Only a sale / receipt whose sourceKind is POS forms register days and counts in the sales and receipts totals
+ *   above. Everything else is kept apart in `otherSources`, by source kind, and listed in `excluded`:
+ *     - ACCOUNTING_APP (e.g. Rivhit documents) and OWNER: documents not proven to come from a till — shown as their
+ *       own totals, never as register sales, never on a register day;
+ *     - PAYMENT_PROVIDER / ACQUIRER: a charge or a settlement is not a sale — such a "sale" counts nowhere
+ *       (NOT_A_SALE_SOURCE); their receipts are shown apart, never added to the till's money;
+ *     - an ACCOUNTING_APP sale and a Dubiz document for the same deal are one deal only through a CONFIRMED
+ *       SALE_SAME_AS_DOCUMENT link (the Dubiz document stays counted; the external one is SAME_AS_DUBIZ_DOCUMENT).
+ *       Without one nothing is merged or guessed: the view warns POSSIBLE_DUPLICATE_ACROSS_SOURCES.
+ *
  * MONEY
  *   bigint minor units, kept PER CURRENCY. Nothing here adds two currencies; `requireSingleCurrency` throws
  *   CurrencyMismatchError when asked for one figure over a mixed view.
@@ -24,7 +35,7 @@
 import type { CurrencyCode } from "@/lib/money/currency";
 import { CurrencyMismatchError } from "@/lib/money/money";
 import { dayKeyIsBefore, type JerusalemDayKey } from "@/lib/utils/jerusalem-day";
-import type { DailyClose, Decision, DecisionKind, Link, RevenueInputs, TenderMethod } from "./types";
+import type { DailyClose, Decision, DecisionKind, Link, RevenueInputs, SourceKind, TenderMethod } from "./types";
 
 const ZERO = BigInt(0);
 
@@ -70,6 +81,26 @@ export type InTransit = {
   cashAwaitingDepositMinor: bigint;
 };
 
+/**
+ * Evidence from a source that is NOT register evidence, kept apart (never in `sales`, `receipts` or a register day).
+ * Sales figures exclude what a confirmed link already matched to a Dubiz document (`matchedToDubizDocumentMinor`).
+ */
+export type OtherSourceTotals = {
+  saleCount: number;
+  grossMinor: bigint;
+  discountMinor: bigint;
+  refundsMinor: bigint;
+  voidsMinor: bigint;
+  /** gross − discounts − refunds − voids, VAT included. */
+  netMinor: bigint;
+  vatMinor: bigint;
+  /** Net of this source's sales a confirmed SALE_SAME_AS_DOCUMENT link matched to a Dubiz document (counted there). */
+  matchedToDubizDocumentMinor: bigint;
+  receiptsInMinor: bigint;
+  receiptsOutMinor: bigint;
+  receiptsByMethod: Partial<Record<TenderMethod, bigint>>;
+};
+
 export type CurrencyView = {
   currency: CurrencyCode;
   sales: SalesTotals;
@@ -77,6 +108,8 @@ export type CurrencyView = {
   settlements: SettlementTotals;
   deposits: DepositTotals;
   inTransit: InTransit;
+  /** Non-register evidence by source kind (ACCOUNTING_APP, OWNER, PAYMENT_PROVIDER, ACQUIRER). */
+  otherSources: Partial<Record<Exclude<SourceKind, "POS">, OtherSourceTotals>>;
 };
 
 export type RegisterDayStatus = "CLOSED" | "CLOSED_WITH_VARIANCE" | "PROVISIONAL" | "UNCLOSED";
@@ -109,7 +142,13 @@ export type ExclusionReason =
   | "VALIDATION_FAILED"
   | "SAME_RECEIPT_AS_PAYMENT"
   /** Evidence recorded in error: its latest decision is REJECTED. */
-  | "REJECTED";
+  | "REJECTED"
+  /** Not POS: shown in `otherSources`, never as register evidence. */
+  | "NOT_REGISTER_EVIDENCE"
+  /** A "sale" from a payment provider or an acquirer: a charge / settlement is not a sale. Counts nowhere. */
+  | "NOT_A_SALE_SOURCE"
+  /** An accounting-app sale a confirmed link names as the same deal as a Dubiz document (the document counts). */
+  | "SAME_AS_DUBIZ_DOCUMENT";
 
 export type Exclusion = { kind: "SALE" | "RECEIPT" | "CLOSE" | "DOCUMENT" | "SETTLEMENT"; id: number; reason: ExclusionReason };
 export type ReadWarning = {
@@ -121,7 +160,12 @@ export type ReadWarning = {
     /** A live refund / void names a rejected sale. */
     | "UNDOES_REJECTED_SALE"
     /** A live receipt names a rejected sale (the money is still counted as money in). */
-    | "PAYS_REJECTED_SALE";
+    | "PAYS_REJECTED_SALE"
+    /**
+     * Dubiz documents and unmatched accounting-app sales in the same currency: some may be the same deal. Nothing is
+     * merged; a confirmed SALE_SAME_AS_DOCUMENT link resolves it.
+     */
+    | "POSSIBLE_DUPLICATE_ACROSS_SOURCES";
   ref: string;
 };
 
@@ -148,7 +192,20 @@ function emptyView(currency: CurrencyCode): CurrencyView {
     settlements: { grossMinor: ZERO, feesMinor: ZERO, otherDeductionsMinor: ZERO, netMinor: ZERO },
     deposits: { creditsMinor: ZERO, matchedMinor: ZERO, unmatchedMinor: ZERO },
     inTransit: { cardAwaitingSettlementMinor: ZERO, settlementAwaitingDepositMinor: ZERO, cashAwaitingDepositMinor: ZERO },
+    otherSources: {},
   };
+}
+
+function emptyOther(): OtherSourceTotals {
+  return {
+    saleCount: 0, grossMinor: ZERO, discountMinor: ZERO, refundsMinor: ZERO, voidsMinor: ZERO, netMinor: ZERO, vatMinor: ZERO,
+    matchedToDubizDocumentMinor: ZERO, receiptsInMinor: ZERO, receiptsOutMinor: ZERO, receiptsByMethod: {},
+  };
+}
+
+/** Register evidence = POS. An in-memory input without a source kind is the milestone-A shape (POS). */
+function isRegister(kind: SourceKind | undefined): boolean {
+  return (kind ?? "POS") === "POS";
 }
 
 /** One row per id: the same evidence loaded twice is still one piece of evidence. */
@@ -259,8 +316,9 @@ export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): Re
   }
   const saleById = new Map(inputs.sales.map((s) => [s.id, s]));
   const receiptById = new Map(inputs.receipts.map((r) => [r.id, r]));
-  for (const s of inputs.sales) bucket(s.sourceScope, s.registerKey, s.businessDay, s.currency).saleIds.push(s.id);
-  for (const r of inputs.receipts) bucket(r.sourceScope, r.registerKey, r.businessDay, r.currency).receiptIds.push(r.id);
+  // Only register evidence (POS) forms register days; every other source is read further down, apart.
+  for (const s of inputs.sales) if (isRegister(s.sourceKind)) bucket(s.sourceScope, s.registerKey, s.businessDay, s.currency).saleIds.push(s.id);
+  for (const r of inputs.receipts) if (isRegister(r.sourceKind)) bucket(r.sourceScope, r.registerKey, r.businessDay, r.currency).receiptIds.push(r.id);
 
   // Money objects that are COUNTED (so links on them may close them): till receipts outside closed days,
   // and the tender lines of effective Z reports.
@@ -330,9 +388,12 @@ export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): Re
   }
 
   // ── Layer 1 + 2, Dubiz documents and payments ─────────────────────────────────────────────────
-  const docsSameAsSale = new Set(
-    confirmed.filter((l) => l.linkKind === "SALE_SAME_AS_DOCUMENT" && l.billingDocumentId !== null).map((l) => l.billingDocumentId!),
-  );
+  // A Dubiz document the REGISTER already counts (a confirmed link to a POS sale, or to no named sale) is excluded.
+  // A link to a non-register sale leaves the document counted and marks that sale as the same deal (below).
+  const sameDeal = confirmed.filter((l) => l.linkKind === "SALE_SAME_AS_DOCUMENT" && l.billingDocumentId !== null);
+  const linkedSaleIsRegister = (l: Link) => l.saleId === null || isRegister(saleById.get(l.saleId)?.sourceKind);
+  const docsSameAsSale = new Set(sameDeal.filter(linkedSaleIsRegister).map((l) => l.billingDocumentId!));
+  const otherSalesMatched = new Set(sameDeal.filter((l) => !linkedSaleIsRegister(l)).map((l) => l.saleId!));
   for (const d of inputs.documents) {
     const v = view(d.currency);
     const total = abs(d.totalMinor);
@@ -360,6 +421,56 @@ export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): Re
     }
   }
   for (const p of inputs.payments) addReceipt(view(p.currency), "PAYMENT_PROVIDER", p.amountMinor);
+
+  // ── Non-register evidence, apart: never a sales total, never a receipt total, never a register day ──────
+  const other = (currency: CurrencyCode, kind: Exclude<SourceKind, "POS">) => {
+    const v = view(currency);
+    return (v.otherSources[kind] ??= emptyOther());
+  };
+  for (const s of inputs.sales) {
+    const kind = s.sourceKind ?? "POS";
+    if (kind === "POS") continue;
+    if (kind === "PAYMENT_PROVIDER" || kind === "ACQUIRER") {
+      excluded.push({ kind: "SALE", id: s.id, reason: "NOT_A_SALE_SOURCE" });
+      continue;
+    }
+    const t = other(s.currency, kind);
+    const signed = s.kind === "SALE" ? s.totalMinor : -s.totalMinor;
+    // A refund / void of a matched sale belongs with it.
+    if (otherSalesMatched.has(s.id) || (s.originalSaleId != null && otherSalesMatched.has(s.originalSaleId))) {
+      excluded.push({ kind: "SALE", id: s.id, reason: "SAME_AS_DUBIZ_DOCUMENT" });
+      t.matchedToDubizDocumentMinor += signed;
+      continue;
+    }
+    excluded.push({ kind: "SALE", id: s.id, reason: "NOT_REGISTER_EVIDENCE" });
+    if (s.kind === "SALE") {
+      t.saleCount += 1;
+      t.grossMinor += s.grossMinor;
+      t.discountMinor += s.discountMinor;
+      t.vatMinor += s.vatMinor;
+    } else {
+      if (s.kind === "REFUND") t.refundsMinor += s.totalMinor;
+      else t.voidsMinor += s.totalMinor;
+      t.vatMinor -= s.vatMinor;
+    }
+  }
+  for (const r of inputs.receipts) {
+    const kind = r.sourceKind ?? "POS";
+    if (kind === "POS") continue;
+    excluded.push({ kind: "RECEIPT", id: r.id, reason: "NOT_REGISTER_EVIDENCE" });
+    const t = other(r.currency, kind);
+    if (r.direction === "IN") {
+      t.receiptsInMinor += r.amountMinor;
+      t.receiptsByMethod[r.method] = (t.receiptsByMethod[r.method] ?? ZERO) + r.amountMinor;
+    } else t.receiptsOutMinor += r.amountMinor;
+  }
+  for (const v of views.values()) {
+    for (const t of Object.values(v.otherSources)) t.netMinor = t.grossMinor - t.discountMinor - t.refundsMinor - t.voidsMinor;
+    const accounting = v.otherSources.ACCOUNTING_APP;
+    const dubizDocs = inputs.documents.some((d) => d.currency === v.currency && !docsSameAsSale.has(d.id)
+      && (d.documentType === "TAX_INVOICE" || d.documentType === "TAX_INVOICE_RECEIPT"));
+    if (accounting && accounting.saleCount > 0 && dubizDocs) warnings.push({ code: "POSSIBLE_DUPLICATE_ACROSS_SOURCES", ref: `currency:${v.currency}` });
+  }
 
   // ── Layer 3 ──────────────────────────────────────────────────────────────────────────────────
   const countedSettlements = new Map<number, { grossMinor: bigint; netMinor: bigint; currency: CurrencyCode }>();
