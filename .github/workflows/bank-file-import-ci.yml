@@ -18,6 +18,7 @@ on:
     branches: [main]
     paths:
       - "lib/services/bank-file-import/**"
+      - "lib/bank-file-import/**"
       - "app/api/payables/bank-import/**"
       - "app/(shell)/payables/bank/import/**"
       - "lib/services/payables/payables-p46-core.ts"
@@ -50,6 +51,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npx tsx lib/services/bank-file-import/bank-file-core.test.ts
       - run: npx tsx lib/services/bank-file-import/old-upload-routing.test.ts
+      - run: npx tsx lib/services/bank-file-import/http.test.ts
+      - run: npx tsx lib/bank-file-import/bank-import-client.test.ts
       - run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
       - run: node scripts/ci/security-test-coverage.mjs
       - run: node scripts/ci/cross-currency-sum-guard.mjs --self-test && node scripts/ci/cross-currency-sum-guard.mjs .

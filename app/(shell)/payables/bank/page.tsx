@@ -23,6 +23,7 @@ import {
   type BankLineApi,
   type BankSuggestionApi,
 } from "@/lib/payables/payables-client";
+import { fetchBankImportOpen } from "@/lib/bank-file-import/bank-import-client";
 import { PAYABLES_THEME } from "../payables-theme";
 import styles from "../payables.module.css";
 
@@ -54,9 +55,8 @@ export default function BankLinesPage() {
   const [fileImportOpen, setFileImportOpen] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/payables/bank-import", { credentials: "same-origin" })
-      .then((r) => !cancelled && setFileImportOpen(r.ok))
-      .catch(() => undefined);
+    // Through bank-import-client: the status route needs the session's Bearer token like every API call.
+    fetchBankImportOpen().then((open) => !cancelled && setFileImportOpen(open));
     return () => {
       cancelled = true;
     };
