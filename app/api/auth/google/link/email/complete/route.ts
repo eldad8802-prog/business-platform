@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 import { completeGoogleLink, GoogleLinkRefusedError } from "@/lib/auth/google-link";
 import { deliverGoogleLinkEmailAfterResponse } from "@/lib/auth/google-link-delivery";
-import { clearLinkCookie, GOOGLE_LINK_COOKIE, readCookie, readGoogleLoginConfig } from "@/lib/auth/google-oauth";
+import { clearLinkCookie, GOOGLE_LINK_COOKIE, GOOGLE_NOT_IN_PILOT, googleLoginAllows, readCookie, readGoogleLoginConfig } from "@/lib/auth/google-oauth";
+import { readLinkTicket } from "@/lib/auth/oauth-ticket";
 import { checkBrowserCsrf, setRefreshCookie } from "@/lib/auth/refresh-cookie";
 import { safeErrorSummary } from "@/lib/security/log-safe-error";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
@@ -15,16 +16,18 @@ export const dynamic = "force-dynamic";
  * the LINK ticket it is bound to (the httpOnly cookie). completeGoogleLink spends the ticket, then the link
  * (which the database accepts only for that very ticket and the account it was sent to), links, and signs
  * in — one transaction. The response sets the refresh cookie (no token in the body) and forgets the ticket.
- * OFF → 404.
+ * During the pilot an unlisted ticket address is refused before anything is spent. OFF → 404.
  */
 export type LinkEmailCompleteDeps = {
   config: typeof readGoogleLoginConfig;
+  readTicket: typeof readLinkTicket;
   rateLimit: typeof consumeRateLimit;
   complete: typeof completeGoogleLink;
   deliver: typeof deliverGoogleLinkEmailAfterResponse;
 };
 const defaultDeps: LinkEmailCompleteDeps = {
   config: readGoogleLoginConfig,
+  readTicket: readLinkTicket,
   rateLimit: consumeRateLimit,
   complete: completeGoogleLink,
   deliver: deliverGoogleLinkEmailAfterResponse,
@@ -39,7 +42,8 @@ function refused(code: string, error: string, clear: boolean): NextResponse {
 }
 
 export async function handleLinkEmailComplete(req: Request, deps: LinkEmailCompleteDeps = defaultDeps): Promise<NextResponse> {
-  if (!deps.config()) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const config = deps.config();
+  if (!config) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!checkBrowserCsrf(req).ok) return NextResponse.json({ code: "FORBIDDEN" }, { status: 403, headers: noStore });
   try {
     const rl = await deps.rateLimit({ key: `auth:google-link-complete:${getClientIp(req)}`, limit: 10, windowMs: 10 * 60_000 });
@@ -50,9 +54,19 @@ export async function handleLinkEmailComplete(req: Request, deps: LinkEmailCompl
     } catch {
       return refused("LINK_INVALID", "הקישור אינו תקין.", false);
     }
+    const ticketSecret = readCookie(req, GOOGLE_LINK_COOKIE);
+    if (config.access.mode === "pilot") {
+      const ticket = await deps.readTicket(ticketSecret);
+      if (!ticket) return refused("TICKET_EXPIRED", "החיבור ל־Google בדפדפן הזה כבר לא פתוח. אפשר להתחיל שוב עם Google.", true);
+      if (!googleLoginAllows(config, ticket.email)) {
+        const res = NextResponse.json(GOOGLE_NOT_IN_PILOT, { status: 403, headers: noStore });
+        clearLinkCookie(res);
+        return res;
+      }
+    }
     const now = new Date();
     const linked = await deps.complete({
-      ticketSecret: readCookie(req, GOOGLE_LINK_COOKIE),
+      ticketSecret,
       proof: { kind: "EMAIL", token: (body as { token?: unknown } | null)?.token },
       now,
       userAgent: req.headers.get("user-agent"),

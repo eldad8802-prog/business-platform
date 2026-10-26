@@ -87,6 +87,8 @@ const ALLOWED_IMPORTERS = new Set([
   "app/api/auth/google/link/route.ts",
   "app/api/auth/google/link/password/route.ts",
   "app/api/auth/google/link/email/route.ts",
+  // The pilot: the emailed-link completion reads its ticket's address before anything is spent.
+  "app/api/auth/google/link/email/complete/route.ts",
   "lib/auth/google-link.ts",
   "app/api/transactional-email/sweep/route.ts",
   "lib/auth/google-sign-in.ts",
