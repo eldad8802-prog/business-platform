@@ -19,6 +19,23 @@ business throughout. Turning it on, even for business 9, is a separate decision 
 - **D needs C applied.** D can create `pos.rivhit` connections and `revenue` routing rows only after the migration has widened the CHECKs.
 - **Deploying D before C is harmless.** The owner API answers 404 while the flag is off, so no row is created. The order is kept anyway, following migration-first.
 
+## The #841 prerequisite (state on 2026-10-27)
+
+- #841 (`20261103090000_document_supplier_link`) is merged into `main` and **not applied**. It belongs to the
+  documents ↔ supplier project, not to S1-A. Its approval record, preflight and apply are that project's, under the
+  owner's approval. S1-A creates none of them.
+- It is **authority-changing**: the classifier finds GRANT, REVOKE, RLS, POLICY and SECURITY DEFINER. So
+  `release-migrate` needs `ops/release-approvals/20261103090000_document_supplier_link.json` plus a passing preflight
+  before it can apply it. S1-A's migration has no authority change and needs neither.
+- **Recommended:** #841 in its own window, then S1-A in the next. Bundling them would put an authority change and an
+  expand-only change behind one gate.
+- **Hard ordering:** if S1-A were applied first, #841's `20261103…` would sort before an applied migration, and the
+  prefix rule would refuse it. S1-A's preflight cannot see unapplied files on `main`, so whoever starts step 4 must
+  check this: `20261103090000_document_supplier_link` is recorded in Production first.
+- **Independence, lab-proven:** the two migrations share only the feature tables, with different keys
+  (`document_supplier_linking`, `pos_rivhit`) and `ON CONFLICT DO NOTHING`. #841 then S1-A applies cleanly. S1-A's
+  rollback leaves #841's tables and feature intact. S1-A's preflight is 9/9 in the after-#841 state.
+
 ## Steps
 
 1. **Merge #848.** `main` auto-deploys.
