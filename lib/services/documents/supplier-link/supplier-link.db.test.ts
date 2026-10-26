@@ -1,5 +1,5 @@
 /**
- * Document ↔ supplier link service — on a real PostgreSQL with migration 20261102080000 applied, through the
+ * Document ↔ supplier link service — on a real PostgreSQL with migration 20261103090000 applied, through the
  * application's own tenant transactions, as the RUNTIME role (NOSUPERUSER NOBYPASSRLS, FORCE RLS).
  *
  *   1. suggestions: same valid tax id = STRONG, same name only = WEAK, inactive flagged, the business's own

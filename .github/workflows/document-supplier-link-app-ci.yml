@@ -26,7 +26,7 @@ on:
       - "lib/services/feature-access/**"
       - "lib/knowledge/coverage/**"
       - "prisma/schema.prisma"
-      - "prisma/migrations/20261102080000_document_supplier_link/**"
+      - "prisma/migrations/20261103090000_document_supplier_link/**"
       - ".dsl/**"
       - ".appt/lab.sh"
       - ".github/workflows/document-supplier-link-app-ci.yml"

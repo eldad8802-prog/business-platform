@@ -2104,7 +2104,7 @@ model ExtractedData {
   amountConfidence    String?
   vendorConfidence    String?
   categoryConfidence  String?
-  // Issuer reading (migration 20261102080000, written only with document_supplier_linking ON): what the
+  // Issuer reading (migration 20261103090000, written only with document_supplier_linking ON): what the
   // document says about who issued it — a reading, never the owner's decision (DocumentSupplierLink).
   // issuerTaxIdSource: VENDOR_LINE | HEADER | ONLY_ON_DOCUMENT; issuerCheck: OK | NO_TAX_ID | TAX_ID_INVALID |
   // CONFLICTING_TAX_IDS | OWN_BUSINESS_ONLY (DB CHECK constraints).
@@ -2116,7 +2116,7 @@ model ExtractedData {
   document            Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
 }
 
-// The owner's decision of which supplier a document belongs to (migration 20261102080000_document_supplier_link).
+// The owner's decision of which supplier a document belongs to (migration 20261103090000_document_supplier_link).
 // One row per document; REMOVED keeps the row with no supplier (no DELETE anywhere). "version" is the
 // optimistic-concurrency counter every change names. Composite same-business keys to Document and Supplier,
 // FORCE RLS, per-command policies — all in the migration; the scalars here are deliberately relation-free.

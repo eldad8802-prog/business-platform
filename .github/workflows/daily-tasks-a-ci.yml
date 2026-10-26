@@ -32,7 +32,7 @@ on:
       - ".appt/lab.sh"
       - ".dsl/lab.sh"
       - ".dsl/prereq.sql"
-      - "prisma/migrations/20261102080000_document_supplier_link/**"
+      - "prisma/migrations/20261103090000_document_supplier_link/**"
       - ".github/workflows/daily-tasks-a-ci.yml"
   workflow_dispatch:
 
@@ -88,7 +88,7 @@ jobs:
           # monthly accountant migration (20261027090000, applied in Production 2026-10-24) by migrate deploy as well:
           # account erasure calls its accountant_erase_business(). Then the appointments foundation (20261029090000) the
           # same way: account erasure also calls appointment_erase_business(). .appt/lab.sh runs .acct/lab.sh first.
-          # And the document supplier link (20261102080000): account erasure also calls
+          # And the document supplier link (20261103090000): account erasure also calls
           # document_supplier_link_erase_business(). .dsl/lab.sh runs .appt/lab.sh first.
           bash .dsl/lab.sh dta --with-dsl
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \

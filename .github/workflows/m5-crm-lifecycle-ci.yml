@@ -42,7 +42,7 @@ on:
       - "prisma/schema.prisma"
       - "prisma/migrations/20261002090000_crm_lead_lifecycle/**"
       - "prisma/migrations/20261027090000_accountant_month_close/**"
-      - "prisma/migrations/20261102080000_document_supplier_link/**"
+      - "prisma/migrations/20261103090000_document_supplier_link/**"
       - ".m5/**"
       - ".m4/**"
       - ".github/workflows/m5-crm-lifecycle-ci.yml"
@@ -252,14 +252,14 @@ jobs:
 
       - name: 1g. Document supplier link account-erasure entry point (from the real migration)
         # Account erasure also calls document_supplier_link_erase_business() — a SECURITY DEFINER function of migration
-        # 20261102080000 (document supplier linking, milestone 1). Created from the migration's own text exactly like
+        # 20261103090000 (document supplier linking, milestone 1). Created from the migration's own text exactly like
         # 1d / 1e / 1f, EXECUTE to the runtime only. Test infrastructure only: no erasure logic changes.
         env:
           PGPASSWORD: m5_ci_synthetic_owner_pw
         run: |
           set -euo pipefail
           node -e '
-            const s = require("fs").readFileSync("prisma/migrations/20261102080000_document_supplier_link/migration.sql", "utf8");
+            const s = require("fs").readFileSync("prisma/migrations/20261103090000_document_supplier_link/migration.sql", "utf8");
             const m = s.match(/CREATE OR REPLACE FUNCTION public\.document_supplier_link_erase_business\(\)[\s\S]*?\$fn\$;/);
             if (!m) { console.error("document_supplier_link_erase_business() not found in the migration"); process.exit(1); }
             console.log(m[0]);

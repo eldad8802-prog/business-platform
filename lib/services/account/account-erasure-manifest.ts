@@ -178,7 +178,7 @@ export const ANONYMIZE_MODELS = [
     fields: { contactName: "blank", contactPhone: "null", contactEmail: "null", customerNote: "null", erasedAt: "now" },
   },
   { model: "appointmentManageToken", fields: { revokedAt: "now" } },
-  // Document ↔ supplier links (migration 20261102080000) hold no text: ids, closed tokens, versions and times.
+  // Document ↔ supplier links (migration 20261103090000) hold no text: ids, closed tokens, versions and times.
   // Who linked / removed / acted is nulled by document_supplier_link_erase_business() (the adapter calls it),
   // so neither model needs a field entry here.
 
