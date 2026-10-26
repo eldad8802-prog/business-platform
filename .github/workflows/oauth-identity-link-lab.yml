@@ -34,6 +34,8 @@ on:
       - "ops/evidence/oauth-identity-link-*.sql"
       - "ops/evidence/oauth-identity-production-evidence.sql"
       - "ops/evidence/oauth-ticket-cancel-production-evidence.sql"
+      - "ops/evidence/auth-email-tokens-production-evidence.sql"
+      - "ops/evidence/user-email-case-audit.sql"
       - ".agl/**"
       - ".aet/lab.sh"
       - ".github/workflows/oauth-identity-link-lab.yml"
@@ -78,6 +80,8 @@ jobs:
       EVIDENCE: ops/evidence/oauth-identity-link-production-evidence.sql
       M1_EVIDENCE: ops/evidence/oauth-identity-production-evidence.sql
       CANCEL_EVIDENCE: ops/evidence/oauth-ticket-cancel-production-evidence.sql
+      AET_EVIDENCE: ops/evidence/auth-email-tokens-production-evidence.sql
+      CASE_AUDIT: ops/evidence/user-email-case-audit.sql
       LINK: prisma/migrations/20261102090000_oauth_identity_link/migration.sql
 
     steps:
@@ -93,7 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
-          for f in "$PREFLIGHT" "$EVIDENCE"; do
+          for f in "$PREFLIGHT" "$EVIDENCE" "$CASE_AUDIT"; do
             if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
             grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
           done
@@ -134,7 +138,9 @@ jobs:
           lab -f "$EVIDENCE" | tee /tmp/ev.out
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
           test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "14" || { echo "expected 14 PASS"; exit 1; }
-          for f in "$M1_EVIDENCE:18" "$CANCEL_EVIDENCE:14"; do
+          # The earlier proofs stay whole after this release — including the auth-email-tokens proof, whose key
+          # and check-constraint counts follow this migration (see its header).
+          for f in "$M1_EVIDENCE:18" "$CANCEL_EVIDENCE:14" "$AET_EVIDENCE:17"; do
             file=${f%:*}; want=${f#*:}
             out=$(lab -f "$file")
             if echo "$out" | grep -qE '^ +[0-9]+ \| FAIL'; then echo "$file FAILS after this release"; echo "$out"; exit 1; fi
@@ -143,6 +149,11 @@ jobs:
           done
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test "$fails" = "2 3 4 5 7 8 9 10 " || { echo "after the release: expected '2 3 4 5 7 8 9 10 ', got: $fails"; exit 1; }
+          # The letter-case audit runs on the Production-shaped lab (the case-folded unique index replayed): whole.
+          audit=$(lab -f "$CASE_AUDIT")
+          echo "$audit"
+          if echo "$audit" | grep -qE '^ +[0-9]+ \| FAIL'; then echo "the letter-case audit fails"; exit 1; fi
+          test "$(echo "$audit" | grep -cE '^ +[0-9]+ \| PASS')" = "3" || { echo "expected 3 PASS"; exit 1; }
 
       - name: 3. Battery — both proofs, swaps, replay, ten concurrent links, rollback, administrator / deletion, unlink, cancel, purge (real roles)
         run: |
@@ -169,10 +180,10 @@ jobs:
         run: |
           set -euo pipefail
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d link_post -v ON_ERROR_STOP=1 "$@"; }
-          # The battery left link tokens behind, so 14 (nothing backfilled) fails throughout; every fault adds
-          # exactly its own check.
+          # The battery's link tokens were all issued AFTER the migration finished, so the proof is whole (14 is
+          # timeless: nothing predates the finish); every fault adds exactly its own check.
           failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
-          test "$(failing)" = "14 " || { echo "unexpected baseline: $(failing)"; exit 1; }
+          test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
           fault() {  # fault <label> <expected> <inject> <undo>
             lab -q -c "$3"; got=$(failing); lab -q -c "$4"
             test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
@@ -183,20 +194,21 @@ jobs:
           C='public.auth_oauth_link_email_consume(uuid, text, uuid)'
           P='CHECK ("purpose" IN ('"'"'EMAIL_VERIFY'"'"', '"'"'PASSWORD_RESET'"'"', '"'"'LINK_GOOGLE'"'"'))'
           B='CHECK (("purpose" = '"'"'LINK_GOOGLE'"'"') = ("oauthTicketId" IS NOT NULL))'
-          fault "EXECUTE for app_runtime" "11 14 " "GRANT EXECUTE ON FUNCTION $L TO app_runtime" "REVOKE EXECUTE ON FUNCTION $L FROM app_runtime"
-          fault "EXECUTE for PUBLIC" "11 14 " 'GRANT EXECUTE ON FUNCTION public.auth_oauth_identity_status(integer) TO PUBLIC' 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_identity_status(integer) FROM PUBLIC'
-          fault "no EXECUTE for app_auth" "11 14 " 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_identity_unlink(integer) FROM app_auth' 'GRANT EXECUTE ON FUNCTION public.auth_oauth_identity_unlink(integer) TO app_auth'
-          fault "SECURITY INVOKER" "10 14 " "ALTER FUNCTION $I SECURITY INVOKER" "ALTER FUNCTION $I SECURITY DEFINER"
-          fault "search_path not pinned" "10 14 " "ALTER FUNCTION $C RESET search_path" "ALTER FUNCTION $C SET search_path = pg_catalog, public"
-          fault "token read for app_auth" "9 14 " 'GRANT SELECT ON "AuthEmailToken" TO app_auth' 'REVOKE SELECT ON "AuthEmailToken" FROM app_auth'
-          fault "the new column for app_runtime" "8 14 " 'GRANT SELECT ("oauthTicketId") ON "AuthEmailToken" TO app_runtime' 'REVOKE SELECT ("oauthTicketId") ON "AuthEmailToken" FROM app_runtime'
-          fault "a policy on tokens" "7 14 " 'CREATE POLICY link_fault_all ON "AuthEmailToken" USING (true)' 'DROP POLICY link_fault_all ON "AuthEmailToken"'
-          fault "NO FORCE on tokens" "7 14 " 'ALTER TABLE "AuthEmailToken" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "AuthEmailToken" FORCE ROW LEVEL SECURITY'
-          fault "a wider vocabulary" "6 14 " "ALTER TABLE \"AuthEmailToken\" DROP CONSTRAINT \"AuthEmailToken_purpose\"; ALTER TABLE \"AuthEmailToken\" ADD CONSTRAINT \"AuthEmailToken_purpose\" CHECK (\"purpose\" IN ('EMAIL_VERIFY', 'PASSWORD_RESET', 'LINK_GOOGLE', 'OTHER'))" "ALTER TABLE \"AuthEmailToken\" DROP CONSTRAINT \"AuthEmailToken_purpose\"; ALTER TABLE \"AuthEmailToken\" ADD CONSTRAINT \"AuthEmailToken_purpose\" $P"
-          fault "no ticket binding" "6 14 " 'ALTER TABLE "AuthEmailToken" DROP CONSTRAINT "AuthEmailToken_oauth_ticket"' "ALTER TABLE \"AuthEmailToken\" ADD CONSTRAINT \"AuthEmailToken_oauth_ticket\" $B"
-          fault "the key without cascade" "5 14 " 'ALTER TABLE "AuthEmailToken" DROP CONSTRAINT "AuthEmailToken_oauthTicketId_fkey"; ALTER TABLE "AuthEmailToken" ADD CONSTRAINT "AuthEmailToken_oauthTicketId_fkey" FOREIGN KEY ("oauthTicketId") REFERENCES "OAuthSignupTicket"("id") ON DELETE RESTRICT' 'ALTER TABLE "AuthEmailToken" DROP CONSTRAINT "AuthEmailToken_oauthTicketId_fkey"; ALTER TABLE "AuthEmailToken" ADD CONSTRAINT "AuthEmailToken_oauthTicketId_fkey" FOREIGN KEY ("oauthTicketId") REFERENCES "OAuthSignupTicket"("id") ON DELETE CASCADE ON UPDATE CASCADE'
-          fault "an earlier function for app_runtime" "12 14 " 'GRANT EXECUTE ON FUNCTION public.auth_email_token_issue(integer, text, uuid, text) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.auth_email_token_issue(integer, text, uuid, text) FROM app_runtime'
-          test "$(failing)" = "14 " || { echo "proof not back to baseline: $(failing)"; exit 1; }
+          fault "EXECUTE for app_runtime" "11 " "GRANT EXECUTE ON FUNCTION $L TO app_runtime" "REVOKE EXECUTE ON FUNCTION $L FROM app_runtime"
+          fault "EXECUTE for PUBLIC" "11 " 'GRANT EXECUTE ON FUNCTION public.auth_oauth_identity_status(integer) TO PUBLIC' 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_identity_status(integer) FROM PUBLIC'
+          fault "no EXECUTE for app_auth" "11 " 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_identity_unlink(integer) FROM app_auth' 'GRANT EXECUTE ON FUNCTION public.auth_oauth_identity_unlink(integer) TO app_auth'
+          fault "SECURITY INVOKER" "10 " "ALTER FUNCTION $I SECURITY INVOKER" "ALTER FUNCTION $I SECURITY DEFINER"
+          fault "search_path not pinned" "10 " "ALTER FUNCTION $C RESET search_path" "ALTER FUNCTION $C SET search_path = pg_catalog, public"
+          fault "token read for app_auth" "9 " 'GRANT SELECT ON "AuthEmailToken" TO app_auth' 'REVOKE SELECT ON "AuthEmailToken" FROM app_auth'
+          fault "the new column for app_runtime" "8 " 'GRANT SELECT ("oauthTicketId") ON "AuthEmailToken" TO app_runtime' 'REVOKE SELECT ("oauthTicketId") ON "AuthEmailToken" FROM app_runtime'
+          fault "a policy on tokens" "7 " 'CREATE POLICY link_fault_all ON "AuthEmailToken" USING (true)' 'DROP POLICY link_fault_all ON "AuthEmailToken"'
+          fault "NO FORCE on tokens" "7 " 'ALTER TABLE "AuthEmailToken" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "AuthEmailToken" FORCE ROW LEVEL SECURITY'
+          fault "a wider vocabulary" "6 " "ALTER TABLE \"AuthEmailToken\" DROP CONSTRAINT \"AuthEmailToken_purpose\"; ALTER TABLE \"AuthEmailToken\" ADD CONSTRAINT \"AuthEmailToken_purpose\" CHECK (\"purpose\" IN ('EMAIL_VERIFY', 'PASSWORD_RESET', 'LINK_GOOGLE', 'OTHER'))" "ALTER TABLE \"AuthEmailToken\" DROP CONSTRAINT \"AuthEmailToken_purpose\"; ALTER TABLE \"AuthEmailToken\" ADD CONSTRAINT \"AuthEmailToken_purpose\" $P"
+          fault "no ticket binding" "6 " 'ALTER TABLE "AuthEmailToken" DROP CONSTRAINT "AuthEmailToken_oauth_ticket"' "ALTER TABLE \"AuthEmailToken\" ADD CONSTRAINT \"AuthEmailToken_oauth_ticket\" $B"
+          fault "the key without cascade" "5 " 'ALTER TABLE "AuthEmailToken" DROP CONSTRAINT "AuthEmailToken_oauthTicketId_fkey"; ALTER TABLE "AuthEmailToken" ADD CONSTRAINT "AuthEmailToken_oauthTicketId_fkey" FOREIGN KEY ("oauthTicketId") REFERENCES "OAuthSignupTicket"("id") ON DELETE RESTRICT' 'ALTER TABLE "AuthEmailToken" DROP CONSTRAINT "AuthEmailToken_oauthTicketId_fkey"; ALTER TABLE "AuthEmailToken" ADD CONSTRAINT "AuthEmailToken_oauthTicketId_fkey" FOREIGN KEY ("oauthTicketId") REFERENCES "OAuthSignupTicket"("id") ON DELETE CASCADE ON UPDATE CASCADE'
+          fault "an earlier function for app_runtime" "12 " 'GRANT EXECUTE ON FUNCTION public.auth_email_token_issue(integer, text, uuid, text) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.auth_email_token_issue(integer, text, uuid, text) FROM app_runtime'
+          fault "a link token that predates the migration (backfill)" "14 " "WITH t AS (INSERT INTO \"OAuthSignupTicket\" (\"id\",\"purpose\",\"provider\",\"providerSubject\",\"email\",\"emailVerified\",\"secretHash\",\"issuedAt\",\"expiresAt\") VALUES (gen_random_uuid(), 'LINK', 'google', 'link-fault-backfill', 'fault@lab.invalid', true, encode(sha256('link-fault-backfill'::bytea), 'hex'), timestamp '2000-01-01', timestamp '2000-01-01 00:20') RETURNING id) INSERT INTO \"AuthEmailToken\" (\"id\",\"userId\",\"businessId\",\"purpose\",\"email\",\"tokenHash\",\"createdAt\",\"expiresAt\",\"oauthTicketId\") SELECT gen_random_uuid(), u.id, u.\"businessId\", 'LINK_GOOGLE', u.email, encode(sha256('link-fault-token'::bytea), 'hex'), timestamp '2000-01-01', timestamp '2000-01-01 00:10', t.id FROM t, (SELECT * FROM \"User\" ORDER BY id LIMIT 1) u" "DELETE FROM \"OAuthSignupTicket\" WHERE \"providerSubject\" = 'link-fault-backfill'"
+          test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
 
       - name: 6. Rollback — refused while a link token exists; reverts whole otherwise; re-apply makes the proof whole
         run: |
@@ -210,7 +222,7 @@ jobs:
           lab link_rb -q -f .agl/rollback-link.sql
           fails=$(lab link_rb -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test "$fails" = "4 " || { echo "after rollback: expected only 4 (lab topology), got: $fails"; exit 1; }
-          for f in "$M1_EVIDENCE" "$CANCEL_EVIDENCE"; do
+          for f in "$M1_EVIDENCE" "$CANCEL_EVIDENCE" "$AET_EVIDENCE"; do
             got=$(lab link_rb -f "$f" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
             test -z "$got" || { echo "after rollback $f fails: $got"; exit 1; }
           done

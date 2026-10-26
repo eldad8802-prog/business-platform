@@ -43,6 +43,10 @@ done
 # records consent with the real privileges.
 psql_owner -c 'ALTER TABLE "User" DROP COLUMN IF EXISTS "termsAcceptedAt", DROP COLUMN IF EXISTS "termsVersion", DROP COLUMN IF EXISTS "signupAttribution"'
 psql_owner -f "$ROOT/prisma/migrations/20261011090100_signup_consent_business_rename/migration.sql"
+# The case-folded uniqueness of User.email (20261011090200, applied in Production): `db push` cannot build a
+# functional index, so the lab replays the migration — two accounts that differ only in letter case cannot
+# exist here, exactly as in Production.
+psql_owner -f "$ROOT/prisma/migrations/20261011090200_user_email_casefold_unique/migration.sql"
 # If schema.prisma models the tables / the optional password (the application PR), `db push` built them
 # without the migration's policies, functions and grants: put them back the way Production has them today
 # so the migration builds them the way Production will have them.

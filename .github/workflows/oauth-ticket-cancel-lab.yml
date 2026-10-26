@@ -167,10 +167,10 @@ jobs:
         run: |
           set -euo pipefail
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d tc_post -v ON_ERROR_STOP=1 "$@"; }
-          # The battery left cancelled tickets behind, so 14 (nothing backfilled) fails throughout; every fault
-          # adds exactly its own check.
+          # The battery's cancelled tickets were all cancelled AFTER the migration finished, so the proof is whole
+          # (14 is timeless: no CANCELLED end predates the finish); every fault adds exactly its own check.
           failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
-          test "$(failing)" = "14 " || { echo "unexpected baseline: $(failing)"; exit 1; }
+          test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
           fault() {  # fault <label> <expected> <inject> <undo>
             lab -q -c "$3"; got=$(failing); lab -q -c "$4"
             test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
@@ -179,20 +179,21 @@ jobs:
           F='public.auth_oauth_ticket_cancel(text, text)'
           WIDE='CHECK (("endedAt" IS NULL) = ("endedReason" IS NULL) AND ("endedReason" IS NULL OR "endedReason" IN ('"'"'CONSUMED'"'"', '"'"'SUPERSEDED'"'"', '"'"'CANCELLED'"'"')))'
           RESET="ALTER TABLE \"OAuthSignupTicket\" DROP CONSTRAINT \"OAuthSignupTicket_end\"; ALTER TABLE \"OAuthSignupTicket\" ADD CONSTRAINT \"OAuthSignupTicket_end\" $WIDE"
-          fault "EXECUTE for app_runtime" "9 10 14 " "GRANT EXECUTE ON FUNCTION $F TO app_runtime" "REVOKE EXECUTE ON FUNCTION $F FROM app_runtime"
-          fault "EXECUTE for PUBLIC" "9 10 14 " "GRANT EXECUTE ON FUNCTION $F TO PUBLIC" "REVOKE EXECUTE ON FUNCTION $F FROM PUBLIC"
-          fault "no EXECUTE for app_auth" "9 10 14 " "REVOKE EXECUTE ON FUNCTION $F FROM app_auth" "GRANT EXECUTE ON FUNCTION $F TO app_auth"
-          fault "SECURITY INVOKER" "8 14 " "ALTER FUNCTION $F SECURITY INVOKER" "ALTER FUNCTION $F SECURITY DEFINER"
-          fault "search_path not pinned" "8 14 " "ALTER FUNCTION $F RESET search_path" "ALTER FUNCTION $F SET search_path = pg_catalog, public"
-          fault "ticket read for app_auth" "11 14 " 'GRANT SELECT ON "OAuthSignupTicket" TO app_auth' 'REVOKE SELECT ON "OAuthSignupTicket" FROM app_auth'
-          fault "column change for app_auth" "11 14 " 'GRANT UPDATE ("endedReason") ON "OAuthSignupTicket" TO app_auth' 'REVOKE UPDATE ("endedReason") ON "OAuthSignupTicket" FROM app_auth'
-          fault "ticket read for app_runtime" "11 14 " 'GRANT SELECT ON "OAuthSignupTicket" TO app_runtime' 'REVOKE SELECT ON "OAuthSignupTicket" FROM app_runtime'
-          fault "a policy on tickets" "6 14 " 'CREATE POLICY tc_fault_all ON "OAuthSignupTicket" USING (true)' 'DROP POLICY tc_fault_all ON "OAuthSignupTicket"'
-          fault "NO FORCE on tickets" "6 14 " 'ALTER TABLE "OAuthSignupTicket" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "OAuthSignupTicket" FORCE ROW LEVEL SECURITY'
-          fault "a wider vocabulary" "5 14 " "ALTER TABLE \"OAuthSignupTicket\" DROP CONSTRAINT \"OAuthSignupTicket_end\"; ALTER TABLE \"OAuthSignupTicket\" ADD CONSTRAINT \"OAuthSignupTicket_end\" CHECK ((\"endedAt\" IS NULL) = (\"endedReason\" IS NULL) AND (\"endedReason\" IS NULL OR \"endedReason\" IN ('CONSUMED', 'SUPERSEDED', 'CANCELLED', 'REVOKED')))" "$RESET"
-          fault "the narrower vocabulary" "5 14 " "ALTER TABLE \"OAuthSignupTicket\" DROP CONSTRAINT \"OAuthSignupTicket_end\"; ALTER TABLE \"OAuthSignupTicket\" ADD CONSTRAINT \"OAuthSignupTicket_end\" CHECK ((\"endedAt\" IS NULL) = (\"endedReason\" IS NULL) AND (\"endedReason\" IS NULL OR \"endedReason\" IN ('CONSUMED', 'SUPERSEDED'))) NOT VALID" "$RESET"
-          fault "an earlier function for app_runtime" "12 14 " 'GRANT EXECUTE ON FUNCTION public.auth_oauth_ticket_consume(text, text) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_ticket_consume(text, text) FROM app_runtime'
-          test "$(failing)" = "14 " || { echo "proof not back to baseline: $(failing)"; exit 1; }
+          fault "EXECUTE for app_runtime" "9 10 " "GRANT EXECUTE ON FUNCTION $F TO app_runtime" "REVOKE EXECUTE ON FUNCTION $F FROM app_runtime"
+          fault "EXECUTE for PUBLIC" "9 10 " "GRANT EXECUTE ON FUNCTION $F TO PUBLIC" "REVOKE EXECUTE ON FUNCTION $F FROM PUBLIC"
+          fault "no EXECUTE for app_auth" "9 10 " "REVOKE EXECUTE ON FUNCTION $F FROM app_auth" "GRANT EXECUTE ON FUNCTION $F TO app_auth"
+          fault "SECURITY INVOKER" "8 " "ALTER FUNCTION $F SECURITY INVOKER" "ALTER FUNCTION $F SECURITY DEFINER"
+          fault "search_path not pinned" "8 " "ALTER FUNCTION $F RESET search_path" "ALTER FUNCTION $F SET search_path = pg_catalog, public"
+          fault "ticket read for app_auth" "11 " 'GRANT SELECT ON "OAuthSignupTicket" TO app_auth' 'REVOKE SELECT ON "OAuthSignupTicket" FROM app_auth'
+          fault "column change for app_auth" "11 " 'GRANT UPDATE ("endedReason") ON "OAuthSignupTicket" TO app_auth' 'REVOKE UPDATE ("endedReason") ON "OAuthSignupTicket" FROM app_auth'
+          fault "ticket read for app_runtime" "11 " 'GRANT SELECT ON "OAuthSignupTicket" TO app_runtime' 'REVOKE SELECT ON "OAuthSignupTicket" FROM app_runtime'
+          fault "a policy on tickets" "6 " 'CREATE POLICY tc_fault_all ON "OAuthSignupTicket" USING (true)' 'DROP POLICY tc_fault_all ON "OAuthSignupTicket"'
+          fault "NO FORCE on tickets" "6 " 'ALTER TABLE "OAuthSignupTicket" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "OAuthSignupTicket" FORCE ROW LEVEL SECURITY'
+          fault "a wider vocabulary" "5 " "ALTER TABLE \"OAuthSignupTicket\" DROP CONSTRAINT \"OAuthSignupTicket_end\"; ALTER TABLE \"OAuthSignupTicket\" ADD CONSTRAINT \"OAuthSignupTicket_end\" CHECK ((\"endedAt\" IS NULL) = (\"endedReason\" IS NULL) AND (\"endedReason\" IS NULL OR \"endedReason\" IN ('CONSUMED', 'SUPERSEDED', 'CANCELLED', 'REVOKED')))" "$RESET"
+          fault "the narrower vocabulary" "5 " "ALTER TABLE \"OAuthSignupTicket\" DROP CONSTRAINT \"OAuthSignupTicket_end\"; ALTER TABLE \"OAuthSignupTicket\" ADD CONSTRAINT \"OAuthSignupTicket_end\" CHECK ((\"endedAt\" IS NULL) = (\"endedReason\" IS NULL) AND (\"endedReason\" IS NULL OR \"endedReason\" IN ('CONSUMED', 'SUPERSEDED'))) NOT VALID" "$RESET"
+          fault "an earlier function for app_runtime" "12 " 'GRANT EXECUTE ON FUNCTION public.auth_oauth_ticket_consume(text, text) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_ticket_consume(text, text) FROM app_runtime'
+          fault "a cancel that predates the migration (backfill)" "14 " "INSERT INTO \"OAuthSignupTicket\" (\"id\",\"purpose\",\"provider\",\"providerSubject\",\"email\",\"emailVerified\",\"secretHash\",\"issuedAt\",\"expiresAt\",\"endedAt\",\"endedReason\") VALUES (gen_random_uuid(), 'SIGNUP', 'google', 'tc-fault-backfill', 'fault@lab.invalid', true, encode(sha256('tc-fault-backfill'::bytea), 'hex'), timestamp '2000-01-01', timestamp '2000-01-01 00:10', timestamp '2000-01-01 00:05', 'CANCELLED')" "DELETE FROM \"OAuthSignupTicket\" WHERE \"providerSubject\" = 'tc-fault-backfill'"
+          test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
 
       - name: 6. Rollback — refused while a cancelled ticket exists; reverts whole otherwise; re-apply makes the proof whole
         run: |

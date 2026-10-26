@@ -18,7 +18,8 @@
 --   * the eleven functions of the earlier migrations (four email-token, seven oauth) are unchanged in kind
 --     and in who may execute them;
 --   * the migration role carries BYPASSRLS (or is a superuser);
---   * nothing was backfilled: no LINK_GOOGLE token, no token bound to a ticket.
+--   * nothing was backfilled: no LINK_GOOGLE token and no ticket-bound token predates the migration's finish
+--     (timeless: links the product issues later never make the proof fail).
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -38,7 +39,7 @@
 \echo '11 EXECUTE on them: app_auth on all six, no other grantee; app_runtime cannot execute any (observed = foreign grantees)'
 \echo '12 the eleven earlier functions: DEFINER, pinned, EXECUTE app_auth only (observed = of 11)'
 \echo '13 the migration role carries BYPASSRLS or is a superuser'
-\echo '14 nothing backfilled: no LINK_GOOGLE token, no token bound to a ticket (observed = rows)'
+\echo '14 nothing backfilled: no LINK_GOOGLE / ticket-bound token predates the migration finish (observed = rows)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '15s';
@@ -82,6 +83,9 @@ old AS (SELECT p.oid, p.proname, p.prosecdef, p.proowner, p.proconfig, p.proacl 
           AND p.proname IN ('auth_email_token_issue', 'auth_email_token_check', 'auth_email_verify_consume', 'auth_password_reset_consume',
                             'auth_oauth_ticket_issue', 'auth_oauth_ticket_read', 'auth_oauth_ticket_consume', 'auth_oauth_identity_attach',
                             'auth_oauth_identity_resolve', 'auth_oauth_ticket_purge', 'auth_oauth_ticket_cancel')),
+-- The migration's own finish, as the UTC wall-clock the timestamp(3) columns hold.
+done AS (SELECT timezone('UTC', finished_at) AS at FROM "_prisma_migrations"
+         WHERE migration_name = '20261102090000_oauth_identity_link' AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
 old_exec AS (SELECT f.proname, x.grantee FROM old f CROSS JOIN LATERAL aclexplode(f.proacl) x WHERE x.privilege_type = 'EXECUTE'),
 checks(n, ok, observed_count) AS (
   SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261102090000_oauth_identity_link'
@@ -136,8 +140,9 @@ checks(n, ok, observed_count) AS (
                        (SELECT count(*) FROM old WHERE prosecdef AND proowner = (SELECT oid FROM me)
                           AND EXISTS (SELECT 1 FROM unnest(proconfig) c WHERE c LIKE 'search\_path=%'))
   UNION ALL SELECT 13, EXISTS (SELECT 1 FROM me WHERE rolsuper OR rolbypassrls), 1
-  UNION ALL SELECT 14, (SELECT count(*) FROM "AuthEmailToken" WHERE "purpose" = 'LINK_GOOGLE' OR "oauthTicketId" IS NOT NULL) = 0,
-                       (SELECT count(*) FROM "AuthEmailToken" WHERE "purpose" = 'LINK_GOOGLE' OR "oauthTicketId" IS NOT NULL)
+  UNION ALL SELECT 14, EXISTS (SELECT 1 FROM done)
+                       AND (SELECT count(*) FROM "AuthEmailToken" WHERE ("purpose" = 'LINK_GOOGLE' OR "oauthTicketId" IS NOT NULL) AND "createdAt" < (SELECT at FROM done)) = 0,
+                       (SELECT count(*) FROM "AuthEmailToken" WHERE ("purpose" = 'LINK_GOOGLE' OR "oauthTicketId" IS NOT NULL) AND "createdAt" < (SELECT at FROM done))
 )
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;

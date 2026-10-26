@@ -15,7 +15,8 @@
 --   * app_auth, app_runtime and PUBLIC still hold nothing on the ticket table;
 --   * the six functions of 20261030090000 are unchanged in kind and in who may execute them;
 --   * the migration role carries BYPASSRLS (or is a superuser), so the definer function sees the rows;
---   * nothing was backfilled: no ticket is CANCELLED yet (the route that cancels ships after this).
+--   * nothing was backfilled: no ticket was CANCELLED before the migration finished (timeless: tickets the
+--     product cancels later never make the proof fail).
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -35,7 +36,7 @@
 \echo '11 app_auth, app_runtime and PUBLIC hold nothing on OAuthSignupTicket (observed = privileges)'
 \echo '12 the six functions of 20261030090000: DEFINER, pinned, EXECUTE app_auth only (observed = of 6)'
 \echo '13 the migration role carries BYPASSRLS or is a superuser'
-\echo '14 nothing backfilled: no ticket is CANCELLED (observed = rows)'
+\echo '14 nothing backfilled: no ticket ended CANCELLED before the migration finish (observed = rows)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '15s';
@@ -52,6 +53,9 @@ endc AS (SELECT pg_get_constraintdef(k.oid) AS def FROM pg_constraint k
 cancel AS (SELECT p.oid, p.prosecdef, p.proowner, p.proconfig, p.proacl, p.provolatile, p.prorettype,
                   pg_get_function_identity_arguments(p.oid) AS args
            FROM pg_proc p WHERE p.pronamespace = (SELECT oid FROM pub) AND p.proname = 'auth_oauth_ticket_cancel'),
+-- The migration's own finish, as the UTC wall-clock the timestamp(3) columns hold.
+done AS (SELECT timezone('UTC', finished_at) AS at FROM "_prisma_migrations"
+         WHERE migration_name = '20261101090000_oauth_ticket_cancel' AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
 cancel_exec AS (SELECT x.grantee FROM cancel c CROSS JOIN LATERAL aclexplode(c.proacl) x WHERE x.privilege_type = 'EXECUTE'),
 fns AS (SELECT p.oid, p.proname, p.prosecdef, p.proowner, p.proconfig, p.proacl FROM pg_proc p
         WHERE p.pronamespace = (SELECT oid FROM pub)
@@ -103,8 +107,9 @@ checks(n, ok, observed_count) AS (
                        (SELECT count(*) FROM fns WHERE prosecdef AND proowner = (SELECT oid FROM me)
                           AND EXISTS (SELECT 1 FROM unnest(proconfig) c WHERE c LIKE 'search\_path=%'))
   UNION ALL SELECT 13, EXISTS (SELECT 1 FROM me WHERE rolsuper OR rolbypassrls), 1
-  UNION ALL SELECT 14, (SELECT count(*) FROM "OAuthSignupTicket" WHERE "endedReason" = 'CANCELLED') = 0,
-                       (SELECT count(*) FROM "OAuthSignupTicket" WHERE "endedReason" = 'CANCELLED')
+  UNION ALL SELECT 14, EXISTS (SELECT 1 FROM done)
+                       AND (SELECT count(*) FROM "OAuthSignupTicket" WHERE "endedReason" = 'CANCELLED' AND "endedAt" < (SELECT at FROM done)) = 0,
+                       (SELECT count(*) FROM "OAuthSignupTicket" WHERE "endedReason" = 'CANCELLED' AND "endedAt" < (SELECT at FROM done))
 )
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;

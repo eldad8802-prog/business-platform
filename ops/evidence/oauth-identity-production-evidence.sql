@@ -16,7 +16,9 @@
 --   * the six functions exist, SECURITY DEFINER with a pinned search_path, owned by the migration role;
 --     EXECUTE is held by app_auth and by no other role (PUBLIC and app_runtime included);
 --   * "User"."password" is nullable; app_auth may change neither it nor "User"."emailVerifiedAt";
---   * nothing was backfilled: no identity, no ticket, every user still has a password.
+--   * nothing was backfilled: no identity, no ticket and no password-less user predates the migration's finish.
+--     (Revised with Google M3: this was a point-in-time "no identity, no ticket, every user has a password" at
+--     apply; once Google sign-in is used it would fail forever. It now proves the same thing at any time.)
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -40,7 +42,7 @@
 \echo '15 the six functions: SECURITY DEFINER, search_path pinned, owned by the migration role (observed = of 6)'
 \echo '16 EXECUTE: app_auth on all six; no other grantee besides the owner (observed = foreign grantees)'
 \echo '17 User.password is nullable; app_auth changes neither password nor emailVerifiedAt'
-\echo '18 nothing backfilled: no identity, no ticket, no user without a password (observed = rows)'
+\echo '18 nothing backfilled: no identity, no ticket, no password-less user predates the migration finish (observed = rows)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '15s';
@@ -94,6 +96,9 @@ fns AS (SELECT p.oid, p.proname, p.prosecdef, p.proowner, p.proconfig, p.proacl 
 fn_exec AS (SELECT f.proname, x.grantee FROM fns f CROSS JOIN LATERAL aclexplode(f.proacl) x WHERE x.privilege_type = 'EXECUTE'),
 pw_col AS (SELECT a.attnotnull FROM pg_attribute a
            WHERE a.attrelid = (SELECT oid FROM usr) AND a.attname = 'password' AND NOT a.attisdropped),
+-- The migration's own finish, as the UTC wall-clock the timestamp(3) columns hold.
+done AS (SELECT timezone('UTC', finished_at) AS at FROM "_prisma_migrations"
+         WHERE migration_name = '20261030090000_oauth_identity_foundation' AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
 checks(n, ok, observed_count) AS (
   SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261030090000_oauth_identity_foundation'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL) = 1,
@@ -153,10 +158,13 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 17, EXISTS (SELECT 1 FROM pw_col WHERE NOT attnotnull)
                        AND NOT has_column_privilege('app_auth', (SELECT oid FROM usr), 'password', 'UPD' || 'ATE')
                        AND NOT has_column_privilege('app_auth', (SELECT oid FROM usr), 'emailVerifiedAt', 'UPD' || 'ATE'), 1
-  UNION ALL SELECT 18, (SELECT count(*) FROM "UserIdentity") = 0 AND (SELECT count(*) FROM "OAuthSignupTicket") = 0
-                       AND (SELECT count(*) FROM "User" WHERE "password" IS NULL) = 0,
-                       (SELECT count(*) FROM "UserIdentity") + (SELECT count(*) FROM "OAuthSignupTicket")
-                         + (SELECT count(*) FROM "User" WHERE "password" IS NULL)
+  UNION ALL SELECT 18, EXISTS (SELECT 1 FROM done)
+                       AND (SELECT count(*) FROM "UserIdentity" WHERE "linkedAt" < (SELECT at FROM done)) = 0
+                       AND (SELECT count(*) FROM "OAuthSignupTicket" WHERE "issuedAt" < (SELECT at FROM done)) = 0
+                       AND (SELECT count(*) FROM "User" WHERE "password" IS NULL AND "createdAt" < (SELECT at FROM done)) = 0,
+                       (SELECT count(*) FROM "UserIdentity" WHERE "linkedAt" < (SELECT at FROM done))
+                         + (SELECT count(*) FROM "OAuthSignupTicket" WHERE "issuedAt" < (SELECT at FROM done))
+                         + (SELECT count(*) FROM "User" WHERE "password" IS NULL AND "createdAt" < (SELECT at FROM done))
 )
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;
