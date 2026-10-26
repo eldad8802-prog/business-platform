@@ -1,0 +1,10 @@
+{
+  "note": "feat/google-link-m3-app: \"Continue with Google\" milestone 3 — linking Google to an EXISTING account after proof of ownership (the account's password under login's attempt limits, or a single-use emailed link bound to the LINK ticket), the security notices, and the settings status / disconnect. Flag OFF by default; every route answers 404 while OFF.",
+  "tests": {
+    "lib/auth/google-link.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): every link and settings route answers 404 when OFF and reaches nothing; the link screen's view carries only address / name / expiry; cancel ends the LINK ticket on the server (a failure keeps the cookie, never 'cancelled'); the password proof uses login's per-IP limit and login's own per-address ledger (reserved before any comparison; the third failure warns, the fourth locks), the equaliser for an unknown or password-less account, the account resolved from the ticket and never from the body, the ledger cleared only on success; the email request answers the same whether or not a link was issued; the check never completes; the explicit completion takes only the posted token and this browser's ticket; refusals map to 409 without a session cookie; cross-site and no Origin are refused; unlink re-authenticates on the same ledger, only for the session's own account, only with a password; the LINK_GOOGLE / GOOGLE_LINKED / GOOGLE_UNLINKED emails (Hebrew, secret derived at render and never in the payload, the Google address escaped, one notice per identity act); static: no link route holds a database client, the emailed link's page only checks on load and removes the token from the address bar, the link module reaches the tables only through the definer functions and never records a WELCOME, account erasure still removes link tokens and identities, the password login route imports no Google module; run by security-gate (pure lab) and oauth-identity-lab.yml"
+    }
+  }
+}
