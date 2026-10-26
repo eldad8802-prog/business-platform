@@ -225,21 +225,25 @@ async function forward(ctx: Ctx, kind: "document" | "receipt"): Promise<void> {
       ).filter((r) => r.type === type && r.number > after);
     };
     let listed = await list(after + FORWARD_WINDOW);
-    // Nothing in the window: either nothing new, or the numbering jumped (a new start number) — one open-ended look,
-    // so a jump can never stall the cursor. In the steady state it answers empty.
-    if (!listed.length && ctx.budget.left >= 2) listed = await list(999_999);
+    // Nothing in the window: either nothing new, or the numbering jumped (a new start number) — an open-ended look,
+    // hourly (with the rescan), so a jump can never stall the cursor without doubling every run's calls.
+    if (!listed.length && wideLookDue(ctx) && ctx.budget.left >= 2) listed = await list(999_999);
     const fresh = new Set((await unseen(ctx, kind, listed)).map((r) => r.number));
-    let cursor = after;
     for (const row of listed.sort((a, b) => a.number - b.number)) {
       if (fresh.has(row.number)) {
         if (ctx.budget.left < 1) break;
         const receipt = await readRow(ctx, kind, row);
         if (receipt) await ingest(ctx, [receipt]);
       }
-      cursor = row.number;
+      // Row by row: a failure on the next one (an outage) must not lose the progress already handed to intake.
+      ctx.state.cursor[cfgKey][String(type)] = row.number;
     }
-    if (cursor !== after) ctx.state.cursor[cfgKey][String(type)] = cursor;
   }
+}
+
+/** The open-ended look runs at most hourly — on the runs the cancellation rescan is due. */
+function wideLookDue(ctx: Ctx): boolean {
+  return !ctx.state.rescanAt || ctx.now.getTime() - new Date(ctx.state.rescanAt).getTime() >= RESCAN_EVERY_MS;
 }
 
 // 2. rescan: cancellations of what was already read

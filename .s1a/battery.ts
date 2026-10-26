@@ -127,7 +127,14 @@ async function main() {
   const { runWithTenantContext } = await import("@/lib/tenant/context");
   const { drainIntake } = await import("@/lib/intake/core/processor");
   const { intakeRegistry } = await import("@/lib/intake/sources");
-  client.setRivhitFetchForTests(async (url, init) => rivhitFake(url.slice(url.lastIndexOf("/") + 1), JSON.parse(init.body)));
+  // `outage` simulates Rivhit unreachable for chosen calls (a network failure, not an answer).
+  let outage: ((op: string, body: Record<string, unknown>) => boolean) | null = null;
+  client.setRivhitFetchForTests(async (url, init) => {
+    const op = url.slice(url.lastIndexOf("/") + 1);
+    const body = JSON.parse(init.body) as Record<string, unknown>;
+    if (outage?.(op, body)) throw new Error("lab: network down");
+    return rivhitFake(op, body);
+  });
 
   const one = async (sql: string, ...args: unknown[]) => Number(((await owner.$queryRawUnsafe(sql, ...args)) as { id: number }[])[0].id);
   const n = async (sql: string, ...args: unknown[]) => Number(((await owner.$queryRawUnsafe(sql, ...args)) as { n: number }[])[0].n);
@@ -305,6 +312,90 @@ async function main() {
   ok("the token is stored only encrypted (no plaintext in the row)", !bundles.includes(TA) && !bundles.includes(TB));
   const decisions = await n(`SELECT count(*)::int AS n FROM "RevenueLink"`);
   ok("no link was proposed or decided automatically (matching is a separate milestone)", decisions === 0);
+
+  // ── Acceptance (synthetic, a third business): outage resume, budget-bounded backfill, the real sweeper, the read model ──
+  const TC = "cccccccc-0000-4000-8000-000000000003";
+  companies.set(TC, { companyId: 901, docs: { 1: [], 2: [], 3: [] }, receipts: { 1: [], 2: [] } });
+  const C = companies.get(TC)!;
+  const bizC = await business("s1a-C");
+  const userC = await user(bizC, "c");
+  await enable(bizC);
+  const cC = (await as(bizC, () => connect.connectRivhit({ businessId: bizC, userId: userC, apiToken: TC }))).connection;
+  await as(bizC, () => connect.confirmRivhitTypes(bizC, cC.id, types));
+  const T1 = new Date("2026-10-27T15:00:00.000Z");
+  const salesC = async () => ((await owner.$queryRawUnsafe(`SELECT "externalId" FROM "RevenueSale" WHERE "businessId" = $1 ORDER BY 1`, bizC)) as Array<{ externalId: string }>).map((r) => r.externalId);
+
+  console.log("N. an outage in the middle of a run");
+  for (const n of [1, 2, 3]) C.docs[2].push({ number: n, day: "2026-10-27", time: `1${n}:00:00`, total: 11.8 * n, vat: 1.8 * n, cancelled: false, payments: [{ line: 1, amount: 11.8 * n, name: "מזומן" }] });
+  outage = (op, body) => op === "Document.Details" && body.document_number === 2;
+  const rOut = await as(bizC, () => sync.syncRivhit(bizC, { now: T1 }));
+  let stC = await as(bizC, () => connect.rivhitStatus(bizC, cC.id));
+  const conn1 = (await owner.$queryRawUnsafe(`SELECT "status" FROM "AcquisitionConnection" WHERE "id" = $1`, cC.id)) as Array<{ status: string }>;
+  ok("the document before the outage is kept, the cursor stops right after it, the connection stays ACTIVE (a passing outage is not the owner's problem)",
+    JSON.stringify(await salesC()) === '["doc:2:1"]' && stC.cursor.docs["2"] === 1 && conn1[0].status === "ACTIVE" && rOut.failures === 1, JSON.stringify({ s: await salesC(), c: stC.cursor, f: rOut.failures }));
+  outage = null;
+  await as(bizC, () => sync.syncRivhit(bizC, { now: new Date(T1.getTime() + 600_000) }));
+  stC = await as(bizC, () => connect.rivhitStatus(bizC, cC.id));
+  ok("the next run resumes from there: all three, no gap, no duplicate", JSON.stringify(await salesC()) === '["doc:2:1","doc:2:2","doc:2:3"]' && stC.cursor.docs["2"] === 3);
+
+  console.log("O. a backfill bounded by a small call budget");
+  for (const [d, n] of [["2026-10-24", 1], ["2026-10-25", 2], ["2026-10-26", 3]] as const) {
+    C.docs[1].push({ number: n, day: d, time: "09:00:00", total: 100 * n, vat: 15.25 * n, cancelled: false, payments: [] });
+    C.receipts[1].push({ number: n, day: d, time: "10:00:00", total: 100 * n, vat: 0, cancelled: false, payments: [{ line: 1, amount: 100 * n, name: "שיק", id: 1 }] });
+  }
+  await as(bizC, () => connect.requestRivhitBackfill(bizC, cC.id, "2026-10-24", T1));
+  let runs = 0;
+  for (; runs < 30; runs++) {
+    const s = await as(bizC, () => connect.rivhitStatus(bizC, cC.id));
+    if (!s.backfill) break;
+    await as(bizC, () => sync.syncRivhitConnection(bizC, cC, { connections: 0, receipts: 0, unreadable: 0, failures: 0, calls: 0 }, { now: new Date(T1.getTime() + (runs + 2) * 600_000), budget: 12 }));
+  }
+  stC = await as(bizC, () => connect.rivhitStatus(bizC, cC.id));
+  const histC = await salesC();
+  ok(`it completes across ${runs} runs of at most 12 calls each`, stC.backfill === null && runs > 1, JSON.stringify({ runs, b: stC.backfill }));
+  ok("every past document and receipt is in, once", ["doc:1:1", "doc:1:2", "doc:1:3"].every((x) => histC.filter((y) => y === x).length === 1)
+    && (await n(`SELECT count(*)::int AS n FROM "RevenueReceipt" WHERE "businessId" = $1 AND "externalId" LIKE 'rcpt:1:%'`, bizC)) === 3);
+  ok("each finished day matches Rivhit's own summary", stC.checks.filter((c) => ["2026-10-24", "2026-10-25", "2026-10-26"].includes(c.day)).every((c) => c.ok) && stC.checks.length >= 3, JSON.stringify(stC.checks));
+
+  console.log("O2. a numbering jump (a new start number) never stalls the cursor");
+  C.docs[2].push({ number: 600, day: "2026-10-27", time: "17:00:00", total: 23.6, vat: 3.6, cancelled: false, payments: [{ line: 1, amount: 23.6, name: "מזומן" }] });
+  const T2 = new Date(T1.getTime() + 20 * 3600_000);
+  await as(bizC, () => sync.syncRivhit(bizC, { now: T2 })); // an hourly run: the open-ended look is due
+  ok("the hourly open-ended look finds a document far past the window (2/600)", (await salesC()).includes("doc:2:600") && (await as(bizC, () => connect.rivhitStatus(bizC, cC.id))).cursor.docs["2"] === 600);
+  C.docs[2].push({ number: 1500, day: "2026-10-27", time: "17:05:00", total: 11.8, vat: 1.8, cancelled: false, payments: [{ line: 1, amount: 11.8, name: "מזומן" }] });
+  calls.length = 0;
+  await as(bizC, () => sync.syncRivhit(bizC, { now: new Date(T2.getTime() + 10 * 60_000) }));
+  const cheap = calls.filter((c) => c === "Document.List").length;
+  ok("ten minutes later the look is not repeated (one list call per type: cheap steady state)", !(await salesC()).includes("doc:2:1500") && cheap === 3, `Document.List calls: ${cheap}`);
+  await as(bizC, () => sync.syncRivhit(bizC, { now: new Date(T2.getTime() + 70 * 60_000) }));
+  ok("…and the next hourly run picks it up", (await salesC()).includes("doc:2:1500"));
+
+  console.log("P. the real intake sweeper");
+  C.docs[2].push({ number: 1501, day: "2026-10-27", time: "18:00:00", total: 47.2, vat: 7.2, cancelled: false, payments: [{ line: 1, amount: 47.2, name: "ויזה" }] });
+  companies.get(TB)!.docs[2].push({ number: 3, day: "2026-10-27", time: "16:00:00", total: 5.9, vat: 0.9, cancelled: false, payments: [{ line: 1, amount: 5.9, name: "מזומן" }] });
+  const salesBBefore = await sales(bizB);
+  const { runIntakeSweep } = await import("@/lib/intake/intake-sweeper");
+  const sweep = await runIntakeSweep({ now: new Date(T1.getTime() + 40 * 3600_000) });
+  ok("the sweeper polls Rivhit for the enabled business (its new document is in)", (await salesC()).includes("doc:2:1501") && sweep.revenueSources.receipts >= 1, JSON.stringify(sweep.revenueSources));
+  ok("…and not for the business whose feature is OFF (nothing new for B)", (await sales(bizB)) === salesBBefore);
+  ok("the sweep stays healthy (no business error)", sweep.businessErrors === 0, JSON.stringify(sweep));
+
+  console.log("Q. the read model: Rivhit documents are never register sales");
+  const { readRevenueView } = await import("@/lib/revenue-truth/sources");
+  const store = await import("@/lib/revenue-truth/store");
+  const win = { fromDay: "2026-10-20", toDay: "2026-10-27" };
+  const v1 = (await readRevenueView(bizC, win, T1)).view;
+  const ilsC = v1.byCurrency.get("ILS")!;
+  const accSales = await n(`SELECT count(*)::int AS n FROM "RevenueSale" WHERE "businessId" = $1 AND "kind" = 'SALE' AND "sourceKind" = 'ACCOUNTING_APP'`, bizC);
+  ok("register sales 0, no register day, till money 0 — everything from Rivhit is apart (ACCOUNTING_APP)",
+    ilsC.sales.netMinor === BigInt(0) && v1.days.length === 0 && ilsC.receipts.inMinor === BigInt(0) && ilsC.otherSources.ACCOUNTING_APP?.saleCount === accSales && accSales > 0,
+    JSON.stringify({ net: ilsC.sales.netMinor.toString(), days: v1.days.length, acc: ilsC.otherSources.ACCOUNTING_APP?.saleCount, accSales }));
+  ok("Rivhit's money (cash, card, cheques) is shown apart, never as till money", (ilsC.otherSources.ACCOUNTING_APP?.receiptsInMinor ?? BigInt(0)) > BigInt(0) && !ilsC.receipts.byChannel.CASH && !ilsC.receipts.byChannel.CARD);
+  await store.recordSale(bizC, { sourceKind: "POS", capture: "API_PUSH", sourceScope: "pos.lab", externalId: "c-pos-1", kind: "SALE", occurredAt: T1, businessDay: "2026-10-27", registerKey: "r1", currency: "ILS", grossMinor: BigInt(5000), vatMinor: BigInt(763) });
+  const v2 = (await readRevenueView(bizC, win, T1)).view;
+  ok("a real POS sale beside them: register sales are exactly that sale (5000), one register day, Rivhit figures unchanged",
+    v2.byCurrency.get("ILS")!.sales.netMinor === BigInt(5000) && v2.days.length === 1 && v2.days[0].stream === "pos.lab"
+      && v2.byCurrency.get("ILS")!.otherSources.ACCOUNTING_APP?.netMinor === ilsC.otherSources.ACCOUNTING_APP?.netMinor);
 
   console.log(`\n${pass}/${pass + failures.length} passed`);
   await owner.$disconnect();

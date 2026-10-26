@@ -62,8 +62,10 @@ Each run does three things:
 
 1. **Forward.** For each confirmed type, Dubiz asks for the numbers after the cursor (`Document.List` / `Receipt.List`
    by number range). The issue date cannot be the cursor, because documents may be dated ahead. If the window comes
-   back empty, Dubiz makes one open-ended look, so a numbering jump cannot stall the cursor. Each new number is read
-   in full (`Details`) and handed to intake. The cursor passes only what was handed over or recorded as unreadable.
+   back empty, Dubiz makes an open-ended look, at most hourly (with the rescan), so a numbering jump cannot stall the
+   cursor and the steady state costs one list call per type. Each new number is read in full (`Details`) and handed to
+   intake. The cursor advances row by row and passes only what was handed over or recorded as unreadable, so an outage
+   in the middle of a run loses no progress.
 2. **Rescan, hourly.** Dubiz re-reads the last 7 days by date, looking for cancellations of what it already read.
    Rivhit has no "changed since" filter.
 3. **Backfill, only on the owner's request.** History is read day by day (at most 366 days back). Each finished day
@@ -105,7 +107,8 @@ only through a backfill.
 | Check | Result |
 |---|---|
 | `lib/revenue-sources/rivhit/rivhit-core.test.ts` | 70/70. Pure, fake fetch. |
-| `.s1a/battery.ts` | 40/40 on the Production-topology lab, as the NOBYPASSRLS runtime, with a fake Rivhit. |
+| `.s1a/battery.ts` | 54/54 on the Production-topology lab, as the NOBYPASSRLS runtime, with a fake Rivhit. |
+| `lib/intake/routing/s1a-compat.test.ts` + the CI `compat` job | Routing identical to routing-policy@2 except CUSTOM + revenue; the unchanged M6, M7-A and M7-B/C batteries pass on a database with the S1-A migration. |
 | `scripts/revenue-sources/rivhit-demo-probe.ts` | Run locally against Rivhit's documented demo account, read-only and counts only. Results below. |
 | Migration lab (PR-A) | `.s1a/lab.sh` and `pos-rivhit-source-lab.yml`. |
 
@@ -117,7 +120,10 @@ The battery covers:
 - backfill with day checks;
 - unreadable documents;
 - tenant isolation, the flag, a rejected token and a revoked connection;
-- the absence of personal data.
+- the absence of personal data;
+- acceptance: an outage in the middle of a run (resumed with no gap and no duplicate), a backfill completed across
+  several budget-bounded runs, a numbering jump, the real intake sweeper (enabled business polled, disabled one not),
+  and the read model (Rivhit rows never register sales — requires #848).
 
 Demo probe results (2026-10-25):
 
@@ -134,5 +140,6 @@ Demo probe results (2026-10-25):
 - **A cancelled sale's tenders are not reversed.** There is no evidence the money was returned. The sale's VOID nets
   the sale.
 - **Line items are carried but not stored.** Revenue truth has no line table. Storing them is a separate decision.
-- **The revenue read model treats every `RevenueSale` as a register sale.** Nothing reads it in Production yet. Before
-  anything displays Rivhit rows, the read model must respect `sourceKind`.
+- **The revenue read model** used to treat every `RevenueSale` as a register sale. #848 fixes it: only POS forms
+  register days; Rivhit rows (ACCOUNTING_APP) are shown apart. S1-A therefore depends on #848 (merged into this branch;
+  release order in `docs/revenue-sources-s1a-release-plan.md`).
