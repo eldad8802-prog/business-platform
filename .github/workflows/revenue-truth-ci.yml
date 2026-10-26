@@ -47,12 +47,24 @@ jobs:
       - run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
       - run: npm run verify:erasure-contract -- --baseline-check
       - run: node scripts/ci/cross-currency-sum-guard.mjs --self-test && node scripts/ci/cross-currency-sum-guard.mjs .
-      - name: Nothing in the product calls lib/revenue-truth (milestone A is not connected)
+      - name: Only the S1-A revenue sources write revenue truth; nothing in the product READS it
         run: |
           set -euo pipefail
-          hits=$(grep -rlE "@/lib/revenue-truth|lib/revenue-truth/" app components features lib --include=*.ts --include=*.tsx | grep -v '^lib/revenue-truth/' || true)
-          test -z "$hits" || { echo "lib/revenue-truth is imported by product code:"; echo "$hits"; exit 1; }
-          echo "no product file imports lib/revenue-truth"
+          # S1-A (owner-approved 2026-10-26): lib/revenue-sources is the one writer — it may import the writers
+          # (store) and the types, nothing else. Every other product import of lib/revenue-truth is refused, and the
+          # read side (sources / read-model) stays unconnected for everyone until a screen is separately approved.
+          files=$(grep -rlE "@/lib/revenue-truth|lib/revenue-truth/" app components features lib --include=*.ts --include=*.tsx | grep -v '^lib/revenue-truth/' || true)
+          bad=""
+          for f in $files; do
+            case "$f" in
+              lib/revenue-sources/*)
+                other=$(grep -oE "@/lib/revenue-truth/[a-z-]+" "$f" | grep -vE "@/lib/revenue-truth/(store|types)$" || true)
+                [ -z "$other" ] || bad="$bad $f($other)";;
+              *) bad="$bad $f";;
+            esac
+          done
+          test -z "$bad" || { echo "lib/revenue-truth imported outside the allowed writer, or its read side imported:$bad"; exit 1; }
+          echo "revenue truth: written only by lib/revenue-sources (store / types); read by no product code"
 
   battery:
     name: revenue truth battery (PG17, real migration, Production role topology, NOBYPASSRLS runtime)
