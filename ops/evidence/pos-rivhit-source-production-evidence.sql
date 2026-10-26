@@ -38,9 +38,9 @@ WITH checks(n, ok, observed_count) AS (
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_pos_rivhit_source'
-                         AND checksum = '8b1d7dc54103f35d8ceefaadd94fef913ad84d07accb96dec93ece305c489a7c') = 1,
+                         AND checksum = '14b9ec72c2a9ec0d4797af83fb195d187c6ce23a98f6c210335a20497916a394') = 1,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_pos_rivhit_source'
-                         AND checksum = '8b1d7dc54103f35d8ceefaadd94fef913ad84d07accb96dec93ece305c489a7c')
+                         AND checksum = '14b9ec72c2a9ec0d4797af83fb195d187c6ce23a98f6c210335a20497916a394')
   UNION ALL SELECT 4, (SELECT count(*) FROM "PlatformFeatureDefinition" WHERE "key" = 'pos_rivhit' AND NOT "defaultEnabled" AND "mutable") = 1,
                       (SELECT count(*) FROM "PlatformFeatureDefinition" WHERE "key" = 'pos_rivhit' AND NOT "defaultEnabled" AND "mutable")
   UNION ALL SELECT 5, (SELECT count(*) FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'pos_rivhit' AND NOT "globalEnabled" AND NOT "emergencyDisabled") = 1,

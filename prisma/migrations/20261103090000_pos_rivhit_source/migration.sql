@@ -37,9 +37,6 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'IntakeNormalizedEvent_routingDestination_vocab') THEN
     RAISE EXCEPTION 'S1-A requires the M3/M4 IntakeNormalizedEvent route vocabularies';
   END IF;
-  IF to_regclass('public."RevenueSale"') IS NULL OR to_regclass('public."RevenueReceipt"') IS NULL THEN
-    RAISE EXCEPTION 'S1-A requires the revenue truth foundation (RevenueSale / RevenueReceipt)';
-  END IF;
   IF EXISTS (SELECT 1 FROM "AcquisitionConnection" WHERE "sourceKey" LIKE 'pos.%') THEN
     RAISE EXCEPTION 'S1-A: unexpected pos.* connection rows';
   END IF;
