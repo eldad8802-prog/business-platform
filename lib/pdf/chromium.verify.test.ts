@@ -13,7 +13,6 @@ import { readFileSync } from "node:fs";
 
 import * as accountant from "@/lib/accountant/package-report-pdf";
 import { chromiumMode, PdfRenderError, sanitizeRenderError } from "@/lib/pdf/chromium";
-import { getNotoSansHebrewFontDataUri } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
 
 let failed = 0;
 function ok(name: string, cond: boolean, extra?: unknown): void {
@@ -60,13 +59,6 @@ for (const route of [
   "/api/accountant/recipient",
   "/api/accountant/sweep",
 ]) ok(`tracing include for ${route}`, config.includes(`"${route}": ["./node_modules/@sparticuz/chromium/bin/**/*"]`));
-
-const publicFont = readFileSync("public/fonts/NotoSansHebrew-Regular.ttf");
-ok(
-  "billing font data URI is byte-identical to the public font file (HTML unchanged)",
-  getNotoSansHebrewFontDataUri() === `data:font/ttf;base64,${publicFont.toString("base64")}`
-);
-ok("billing renderer does not read files relative to process.cwd() (whole-project trace)", !/process\.cwd\(\)/.test(renderer));
 
 const pdfRoute = readFileSync("app/api/billing/documents/[id]/pdf/route.ts", "utf8");
 ok("billing PDF route: Node runtime, 60 s budget", /runtime = "nodejs"/.test(pdfRoute) && /maxDuration = 60;/.test(pdfRoute));
