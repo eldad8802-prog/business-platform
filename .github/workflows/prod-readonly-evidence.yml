@@ -113,6 +113,8 @@ on:
           - 'ops/evidence/bank-file-import-feature-production-evidence.sql'
           - 'ops/evidence/oauth-ticket-cancel-preflight.sql'
           - 'ops/evidence/oauth-ticket-cancel-production-evidence.sql'
+          - 'ops/evidence/oauth-identity-link-preflight.sql'
+          - 'ops/evidence/oauth-identity-link-production-evidence.sql'
 
 permissions:
   contents: read

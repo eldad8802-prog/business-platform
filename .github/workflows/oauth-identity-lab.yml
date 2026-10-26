@@ -120,6 +120,8 @@ jobs:
             # The server-side cancel builds on this one; its own lab (oauth-ticket-cancel-lab.yml) proves exactly
             # what it touches (the end-reason vocabulary of OAuthSignupTicket and one new function).
             [[ "$n" != "20261101090000_oauth_ticket_cancel" ]] || continue
+            # The same for the existing-account link (milestone 3), proven by oauth-identity-link-lab.yml.
+            [[ "$n" != "20261102090000_oauth_identity_link" ]] || continue
             if grep -nE 'UserIdentity|OAuthSignupTicket|auth_oauth_' "$d/migration.sql"; then echo "$n names an oauth identity object"; exit 1; fi
           done
           echo "the migration names only UserIdentity, OAuthSignupTicket, User and Business; no other migration (but the cancel) names its objects"

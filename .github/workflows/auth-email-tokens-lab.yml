@@ -97,6 +97,9 @@ jobs:
           for d in prisma/migrations/*/; do
             n=$(basename "$d")
             [[ "$n" != "20261017090000_auth_email_tokens" ]] || continue
+            # The Google existing-account link (20261102090000) adds the LINK_GOOGLE purpose and its ticket binding;
+            # its own lab (oauth-identity-link-lab.yml) proves exactly what it touches on AuthEmailToken.
+            [[ "$n" != "20261102090000_oauth_identity_link" ]] || continue
             if grep -nE 'AuthEmailToken|emailVerifiedAt|auth_email_token|auth_password_reset' "$d/migration.sql"; then echo "$n names an auth email token object"; exit 1; fi
           done
           echo "the migration names only AuthEmailToken, User, Business and AuthSession; no other migration names its objects"
