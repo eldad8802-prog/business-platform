@@ -117,6 +117,8 @@ on:
           - 'ops/evidence/oauth-identity-link-preflight.sql'
           - 'ops/evidence/oauth-identity-link-production-evidence.sql'
           - 'ops/evidence/user-email-case-audit.sql'
+          - 'ops/evidence/document-supplier-link-preflight.sql'
+          - 'ops/evidence/document-supplier-link-production-evidence.sql'
 
 permissions:
   contents: read

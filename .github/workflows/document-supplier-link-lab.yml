@@ -1,0 +1,199 @@
+# Document ↔ supplier link / migration 20261102080000_document_supplier_link — proof on PostgreSQL BEFORE it
+# reaches Production (ephemeral PG17). Migration only: nothing in the application reads or writes it yet, and its
+# flag document_supplier_linking is created OFF.
+#
+# .dsl/lab.sh builds Production's topology on the appointments lab chain (non-superuser CREATEROLE/BYPASSRLS
+# owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the owner's default privileges, FORCE RLS), records every
+# migration before this one in the ledger, and --with-dsl applies this one with `prisma migrate deploy`, the
+# release-migrate mechanism. 20261102090000_oauth_identity_link (owner decision pending) is left out: this
+# migration must be releasable as the FIRST pending one on its own.
+#
+#   0. Evidence files are SELECT-only and selectable; the preflight's four prior migrations are the four right
+#      before this one; the proof pins migration.sql's sha256; the migration names only the relations it should.
+#   1. Baseline (pending): PREFLIGHT 14/14; the proof cannot run (its tables do not exist).
+#   2. `prisma migrate deploy` applies exactly this migration: proof 21/21; the preflight then fails exactly its
+#      "not there yet" checks (1 4 5 6 7 13).
+#   3. Battery (.dsl/battery.ts) as the real roles: tenant isolation, cross-business keys and the same-business
+#      trigger, row shapes, a 12-way concurrent link race, the append-only trail (even for the owner), removal,
+#      ExtractedData issuer checks, erasure, flag OFF.
+#   4. Faults: each widening of RLS, of a privilege, of a function or of a constraint, and the flag turned ON, is
+#      caught by the check meant for it.
+#   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   6. Rollback: refused while links exist; on a database without data it reverts whole (preflight 14/14 again),
+#      and a re-apply makes the proof whole.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: document supplier link — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261102080000_document_supplier_link/**"
+      - "ops/evidence/document-supplier-link-*.sql"
+      - ".dsl/**"
+      - ".appt/lab.sh"
+      - ".github/workflows/document-supplier-link-lab.yml"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: document-supplier-link-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab:
+    name: document supplier link (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: dsl_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: dsl_ci_synthetic_super_pw
+      LAB_PASSWORD: dsl_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/document-supplier-link-preflight.sql
+      EVIDENCE: ops/evidence/document-supplier-link-production-evidence.sql
+      DSL: prisma/migrations/20261102080000_document_supplier_link/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable; prior migrations; checksum pinned; the migration names only its relations
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          want=$(ls -d prisma/migrations/2*/ | xargs -n1 basename | awk '$0 < "20261102080000_document_supplier_link"' | sort | tail -4)
+          have=$(grep -oE "[(]'[0-9]{14}_[a-z0-9_]+'[)]" "$PREFLIGHT" | grep -oE "[0-9]{14}_[a-z0-9_]+" | sort)
+          test "$want" = "$have" || { echo "the preflight's prior migrations are not the four right before this one"; diff <(echo "$want") <(echo "$have") || true; exit 1; }
+          sum=$(sha256sum "$DSL" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          echo "$DSL sha256 $sum (pinned)"
+          rels=$(grep -oE '"[A-Z][A-Za-z]*"' "$DSL" | sort -u | tr '\n' ' ')
+          test "$rels" = '"Business" "Document" "DocumentSupplierLink" "DocumentSupplierLinkEvent" "ExtractedData" "PlatformFeatureDefinition" "PlatformFeaturePolicy" "Supplier" "User" ' \
+            || { echo "the migration names other relations: $rels"; exit 1; }
+          if grep -inE '\b(DELETE|TRUNCATE)\b' <(sed 's/--.*$//' "$DSL") | grep -viE 'ON DELETE (CASCADE|SET NULL|NO ACTION)'; then
+            echo "the migration removes rows or grants their removal"; exit 1
+          fi
+          echo "the migration names only its own tables and the ones it references; it removes no row"
+
+      - name: 1. Baseline (pending) — PREFLIGHT 14/14; the proof cannot run yet
+        run: |
+          set -euo pipefail
+          bash .dsl/lab.sh dsl_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d dsl_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "baseline preflight FAILS"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "14" || { echo "expected 14 PASS"; exit 1; }
+          if lab -f "$EVIDENCE" > /tmp/ev0.out 2>&1; then echo "the proof ran on the baseline"; exit 1; fi
+          grep -q 'does not exist' /tmp/ev0.out || { cat /tmp/ev0.out; exit 1; }
+          echo "the proof refuses on the baseline (its tables do not exist)"
+
+      - name: 2. prisma migrate deploy applies exactly this migration — proof 21/21; preflight fails exactly its "not there yet" checks
+        run: |
+          set -euo pipefail
+          bash .dsl/lab.sh dsl_post --with-dsl | tee /tmp/post.log
+          grep -q 'Applying migration `20261102080000_document_supplier_link`' /tmp/post.log
+          test "$(grep -c 'Applying migration' /tmp/post.log)" = "1" || { echo "more than one migration applied"; exit 1; }
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d dsl_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "21" || { echo "expected 21 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "1 4 5 6 7 13 " || { echo "after the release: expected '1 4 5 6 7 13 ', got: $fails"; exit 1; }
+
+      - name: 3. Battery — isolation, cross-business keys, shapes, concurrency, append-only, removal, issuer checks, erasure, flag (real roles)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/dsl_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dsl_post" \
+            npx tsx .dsl/battery.ts
+
+      - name: 4. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d dsl_post -v ON_ERROR_STOP=1 "$@"; }
+          # The battery wrote synthetic links and issuer readings, so 18 and 19 ("nothing written") fail; every
+          # fault adds exactly its own check to that.
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test "$(failing)" = "18 19 " || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            lab -q -c "$3"; got=$(failing); lab -q -c "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          E='public.document_supplier_link_erase_business()'
+          G="\"businessId\" = NULLIF(current_setting('app.current_business_id', true), '')::int"
+          fault "NO FORCE on links" "4 18 19 " 'ALTER TABLE "DocumentSupplierLink" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "DocumentSupplierLink" FORCE ROW LEVEL SECURITY'
+          fault "a FOR ALL policy" "5 6 7 18 19 " 'CREATE POLICY dsl_fault_all ON "DocumentSupplierLink" USING (true)' 'DROP POLICY dsl_fault_all ON "DocumentSupplierLink"'
+          fault "a remove-rows policy on the trail" "5 7 18 19 " "CREATE POLICY dsl_fault_del ON \"DocumentSupplierLinkEvent\" FOR DELETE USING ($G)" 'DROP POLICY dsl_fault_del ON "DocumentSupplierLinkEvent"'
+          fault "row removal for app_runtime" "8 18 19 " 'GRANT DELETE ON "DocumentSupplierLink" TO app_runtime' 'REVOKE DELETE ON "DocumentSupplierLink" FROM app_runtime'
+          fault "trail change for app_runtime" "8 18 19 " 'GRANT UPDATE ON "DocumentSupplierLinkEvent" TO app_runtime' 'REVOKE UPDATE ON "DocumentSupplierLinkEvent" FROM app_runtime'
+          fault "a column-level privilege" "9 18 19 " 'GRANT UPDATE ("actorUserId") ON "DocumentSupplierLinkEvent" TO app_runtime' 'REVOKE UPDATE ("actorUserId") ON "DocumentSupplierLinkEvent" FROM app_runtime'
+          fault "a CHECK not validated" "11 18 19 " "ALTER TABLE \"DocumentSupplierLink\" DROP CONSTRAINT \"DocumentSupplierLink_status\"; ALTER TABLE \"DocumentSupplierLink\" ADD CONSTRAINT \"DocumentSupplierLink_status\" CHECK (\"status\" IN ('ACTIVE', 'REMOVED')) NOT VALID" 'ALTER TABLE "DocumentSupplierLink" VALIDATE CONSTRAINT "DocumentSupplierLink_status"'
+          fault "the append-only trigger disabled" "12 18 19 " 'ALTER TABLE "DocumentSupplierLinkEvent" DISABLE TRIGGER "DocumentSupplierLinkEvent_append_only"' 'ALTER TABLE "DocumentSupplierLinkEvent" ENABLE TRIGGER "DocumentSupplierLinkEvent_append_only"'
+          fault "erasure SECURITY INVOKER" "14 18 19 " "ALTER FUNCTION $E SECURITY INVOKER" "ALTER FUNCTION $E SECURITY DEFINER"
+          fault "erasure EXECUTE for PUBLIC" "15 18 19 " "GRANT EXECUTE ON FUNCTION $E TO PUBLIC" "REVOKE EXECUTE ON FUNCTION $E FROM PUBLIC"
+          fault "the flag turned ON" "17 18 19 " "UPDATE \"PlatformFeaturePolicy\" SET \"globalEnabled\" = true WHERE \"featureKey\" = 'document_supplier_linking'" "UPDATE \"PlatformFeaturePolicy\" SET \"globalEnabled\" = false WHERE \"featureKey\" = 'document_supplier_linking'"
+          test "$(failing)" = "18 19 " || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 5. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .dsl/lab.sh dsl_broken --broken-dsl
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d dsl_broken -v ON_ERROR_STOP=1 "$@"; }
+          rels=$(lab -Atc "SELECT count(*) FROM pg_class WHERE relname LIKE 'DocumentSupplierLink%'")
+          fns=$(lab -Atc "SELECT count(*) FROM pg_proc WHERE proname LIKE 'document\_supplier\_link\_%'")
+          cols=$(lab -Atc "SELECT count(*) FROM pg_attribute WHERE attrelid = '\"ExtractedData\"'::regclass AND NOT attisdropped AND attname IN ('issuerTaxId','issuerTaxIdSource','issuerTaxIdValid','issuerCheck','ownBusinessExcluded')")
+          flag=$(lab -Atc "SELECT (SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE \"key\" = 'document_supplier_linking') + (SELECT count(*) FROM \"PlatformFeaturePolicy\" WHERE \"featureKey\" = 'document_supplier_linking')")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261102080000_document_supplier_link' AND finished_at IS NULL")
+          echo "relations=$rels functions=$fns issuer-columns=$cols flag-rows=$flag unfinished=$led"
+          test "$rels" = "0" && test "$fns" = "0" && test "$cols" = "0" && test "$flag" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 6. Rollback — refused while links exist; reverts whole otherwise; re-apply makes the proof whole
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          if lab dsl_post -q -f .dsl/rollback.sql 2>/tmp/rb.err; then echo "rollback ran despite links"; exit 1; fi
+          grep -q "ROLLBACK_REFUSED" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          test "$(lab dsl_post -Atc "SELECT count(*) FROM pg_class WHERE relname = 'DocumentSupplierLink'")" = "1" || { echo "refused rollback changed something"; exit 1; }
+          echo "rollback refused while links exist; nothing changed"
+          bash .dsl/lab.sh dsl_rb --with-dsl >/dev/null
+          lab dsl_rb -q -f .dsl/rollback.sql
+          lab dsl_rb -f "$PREFLIGHT" | tee /tmp/rb-pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/rb-pre.out; then echo "after rollback the preflight is not whole"; exit 1; fi
+          bash .dsl/lab.sh dsl_rb --redeploy | tee /tmp/re.log
+          grep -q 'Applying migration `20261102080000_document_supplier_link`' /tmp/re.log
+          got=$(lab dsl_rb -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test -z "$got" || { echo "re-apply: proof not whole: $got"; exit 1; }
+          echo "rollback reverted the migration whole; re-apply made the proof whole"
