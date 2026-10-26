@@ -7,12 +7,16 @@ const nextConfig: NextConfig = {
 
   // @sparticuz/chromium resolves its compressed browser at runtime (../../bin), which file tracing cannot
   // see — include it for every route that renders a PDF through lib/pdf/chromium.ts: the accountant PDF
-  // report, the billing document PDF (view / download) and the owner's package prepare (renders missing
-  // issued-document PDFs). scripts/ci/pdf-route-tracing-guard.mjs fails the build check if one is missed.
+  // report, the billing document PDF (view / download), and every route that reaches preparePeriod — the
+  // owner's prepare and recipient change render missing issued-document PDFs; the sweep (SYSTEM actor)
+  // never renders but reaches the same code, so it carries the browser too.
+  // scripts/ci/pdf-route-tracing-guard.mjs fails CI if a route that reaches the launcher is missed.
   outputFileTracingIncludes: {
     "/api/accountant/packages/\\[packageId\\]/download": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/billing/documents/\\[id\\]/pdf": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/accountant/periods/\\[periodKey\\]/prepare": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/accountant/recipient": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/accountant/sweep": ["./node_modules/@sparticuz/chromium/bin/**/*"],
   },
 
   // Retire the legacy duplicate homepage `/corporate-home` (superseded by

@@ -56,6 +56,8 @@ for (const route of [
   "/api/accountant/packages/\\\\[packageId\\\\]/download",
   "/api/billing/documents/\\\\[id\\\\]/pdf",
   "/api/accountant/periods/\\\\[periodKey\\\\]/prepare",
+  "/api/accountant/recipient",
+  "/api/accountant/sweep",
 ]) ok(`tracing include for ${route}`, config.includes(`"${route}": ["./node_modules/@sparticuz/chromium/bin/**/*"]`));
 
 const pdfRoute = readFileSync("app/api/billing/documents/[id]/pdf/route.ts", "utf8");
