@@ -75,6 +75,7 @@ jobs:
           npx tsx lib/accountant/workflow.verify.test.ts
           npx tsx lib/accountant/package-reports.verify.test.ts
           npx tsx lib/accountant/package-report-pdf.verify.test.ts
+          npx tsx lib/reports/accountant-source-files.verify.test.ts
           npx tsx lib/pdf/chromium.verify.test.ts
           npx tsx lib/notifications/notification-policy.verify.test.ts
           npx tsx lib/data-transfer/format/format.verify.test.ts

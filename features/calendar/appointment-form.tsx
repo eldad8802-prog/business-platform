@@ -8,8 +8,9 @@
  *
  * The server decides; the form only prepares a request it will accept. Free times come from /slots for the chosen
  * day (the hours, exceptions, buffers and busy time are the server's); a taken time answers SLOT_CONFLICT and the
- * form offers the three nearest free times instead of failing. A time outside working hours is allowed (the owner's
- * calendar, the owner's call) and said once. Decision 11: a customer with an open lead is linked to it; the lead's
+ * form offers the three nearest free times instead of failing. A time outside working hours or inside a closure is
+ * allowed (the owner's calendar, the owner's call — the server books it with OUTSIDE_AVAILABILITY), but the form says so
+ * BEFORE "קבע", with the reason, and the button reads "לקבוע בכל זאת". Decision 11: a customer with an open lead is linked to it; the lead's
  * stage is not touched here.
  */
 import { useEffect, useRef, useState } from "react";
@@ -33,6 +34,7 @@ import {
   type SlotWire,
 } from "./calendar-client";
 import {
+  availabilityWarning,
   clock,
   clockOf,
   durationLabel,
@@ -44,9 +46,11 @@ import {
   LIMITS,
   LOCATION_LABEL,
   minuteInDay,
+  noSlotsReason,
   parseClock,
   textProblem,
   type AppointmentWire,
+  type Availability,
   type DayKey,
   type Names,
   type StaffWire,
@@ -85,6 +89,16 @@ const slotLabel = (x: SlotWire, day: DayKey) => {
 
 const SLOTS_SHOWN = 12;
 
+function OutsideWarning({ text }: { text: string }) {
+  return (
+    <div className={s.warnBox} role="status">
+      <strong>שימו לב: השעה לא פנויה לפי הזמינות.</strong>
+      <span>{text}</span>
+      <span>אפשר לקבוע בכל זאת — התור יירשם מחוץ לשעות הפעילות.</span>
+    </div>
+  );
+}
+
 /**
  * The day's free times as chips — all of them: the first twelve, then "עוד N שעות פנויות" opens the rest (the list
  * the server answered, never cut silently).
@@ -119,6 +133,7 @@ export function AppointmentForm({
   staff,
   services,
   names,
+  availability,
   onDone,
   onCancel,
   onCustomer,
@@ -127,6 +142,7 @@ export function AppointmentForm({
   staff: StaffWire[];
   services: ServiceWire[];
   names: Names;
+  availability: Availability;
   onDone: (out: FormDone) => void;
   onCancel: () => void;
   onCustomer: (c: CustomerWire) => void;
@@ -244,6 +260,9 @@ export function AppointmentForm({
   };
 
   const daySlots = (slots ?? []).filter((x) => jerusalemDayKey(new Date(x.startsAt)) === day);
+  const startMinute = parseClock(time);
+  // A block closes time; it is never "outside" anything (the server warns only for the other kinds).
+  const outside = kind !== "BLOCK" && startMinute !== null ? availabilityWarning(availability, staffId, day, startMinute, effectiveDuration, names) : null;
 
   return (
     <form className={t.form} onSubmit={(e) => { e.preventDefault(); void submit(); }} noValidate>
@@ -315,9 +334,10 @@ export function AppointmentForm({
           />
         </div>
       </div>
+      {outside ? <OutsideWarning text={outside} /> : null}
 
       {kind !== "BLOCK" && slots ? (
-        <SlotChips key={`${day}:${effectiveDuration}:${serviceId}:${staffId}`} slots={daySlots} time={time} onPick={setTime} emptyText="אין שעה פנויה ביום הזה לפי שעות הפעילות. אפשר לקבוע בכל זאת." />
+        <SlotChips key={`${day}:${effectiveDuration}:${serviceId}:${staffId}`} slots={daySlots} time={time} onPick={setTime} emptyText={`אין שעה פנויה ביום הזה. ${noSlotsReason(availability, staffId, day, names) ?? ""} אפשר לקבוע בכל זאת.`.replace(/\s+/g, " ")} />
       ) : null}
 
       {kind !== "BLOCK" ? (
@@ -383,7 +403,7 @@ export function AppointmentForm({
       ) : null}
 
       <div className={t.actions}>
-        <button type="submit" className={`${t.btn} ${t.pri}`} disabled={busy}>{busy ? "שומר…" : kind === "BLOCK" ? "חסום" : "קבע"}</button>
+        <button type="submit" className={`${t.btn} ${t.pri}`} disabled={busy}>{busy ? "שומר…" : kind === "BLOCK" ? "חסום" : outside ? "לקבוע בכל זאת" : "קבע"}</button>
         <button type="button" className={t.btn} onClick={onCancel} disabled={busy}>ביטול</button>
       </div>
       {names.staff.size === 0 && kind !== "BLOCK" ? <p className={t.hint}>אפשר להוסיף עובדים ושעות פעילות ב„עובדים וזמינות”.</p> : null}
@@ -471,11 +491,15 @@ function CustomerField({ value, onChange, autoFocus }: { value: CustomerWire | n
 export function MoveForm({
   appt,
   staff,
+  names,
+  availability,
   onDone,
   onCancel,
 }: {
   appt: AppointmentWire;
   staff: StaffWire[];
+  names: Names;
+  availability: Availability;
   onDone: (out: FormDone) => void;
   onCancel: () => void;
 }) {
@@ -532,6 +556,9 @@ export function MoveForm({
     }
   };
 
+  const moveMinute = parseClock(time);
+  const moveOutside = appt.kind !== "BLOCK" && moveMinute !== null ? availabilityWarning(availability, staffId, day, moveMinute, duration, names) : null;
+
   return (
     <form className={t.form} onSubmit={(e) => { e.preventDefault(); void submit(); }} noValidate>
       <h2 id="appointment-form-title">הזזת {appt.kind === "BLOCK" ? "חסימה" : appt.kind === "INTERNAL" ? "פגישה" : "תור"}</h2>
@@ -550,8 +577,9 @@ export function MoveForm({
           <input id="move-duration" type="number" inputMode="numeric" min={LIMITS.minDuration} max={LIMITS.maxDuration} step={5} className={t.input} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
         </div>
       </div>
+      {moveOutside ? <OutsideWarning text={moveOutside} /> : null}
       {appt.kind !== "BLOCK" && slots ? (
-        <SlotChips key={`${day}:${duration}:${staffId}`} slots={slots} time={time} onPick={setTime} emptyText="אין שעה פנויה אחרת ביום הזה לפי שעות הפעילות. אפשר להזיז בכל זאת." />
+        <SlotChips key={`${day}:${duration}:${staffId}`} slots={slots} time={time} onPick={setTime} emptyText={`אין שעה פנויה אחרת ביום הזה. ${noSlotsReason(availability, staffId, day, names) ?? ""} אפשר להזיז בכל זאת.`.replace(/\s+/g, " ")} />
       ) : null}
       {activeStaff.length ? (
         <div className={t.field}>
@@ -576,7 +604,7 @@ export function MoveForm({
         </div>
       ) : null}
       <div className={t.actions}>
-        <button type="submit" className={`${t.btn} ${t.pri}`} disabled={busy}>{busy ? "מזיז…" : "הזז"}</button>
+        <button type="submit" className={`${t.btn} ${t.pri}`} disabled={busy}>{busy ? "מזיז…" : moveOutside ? "להזיז בכל זאת" : "הזז"}</button>
         <button type="button" className={t.btn} onClick={onCancel} disabled={busy}>ביטול</button>
       </div>
     </form>

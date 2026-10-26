@@ -101,7 +101,8 @@ async function main() {
     await dlg.getByLabel("שעה", { exact: true }).fill("16:00");
     await shot(p, "04-desktop-create-form");
     await dlg.getByRole("button", { name: "קבע", exact: true }).click();
-    await seen(p, "נקבע");
+    // "נקבע" is also in the open details panel's history: wait for the form itself to close (it closes on success).
+    await dlg.waitFor({ state: "hidden", timeout: 20_000 });
     const list = await api(t, `/api/appointments?from=${encodeURIComponent(new Date(Date.now() - 864e5).toISOString())}&to=${encodeURIComponent(new Date(Date.now() + 3 * 864e5).toISOString())}`);
     const ron = (list.body?.appointments ?? []).find((a: { customerId: number }) => a.customerId === seed.customers.ron);
     if (!ron || ron.leadId === null) throw new Error(`no linked appointment for the lead's customer: ${JSON.stringify(ron)}`);
@@ -282,6 +283,51 @@ async function main() {
     await dlg.getByRole("button", { name: "ביטול" }).last().click();
   });
 
+  await check("D20 a time typed into a closure is flagged BEFORE booking; an open time is not", async () => {
+    await p.goto(`/calendar?view=week&day=${seed.today}`);
+    await p.getByRole("button", { name: "תור חדש" }).first().click();
+    const dlg = p.getByRole("dialog");
+    await dlg.getByRole("radio", { name: "פגישה פנימית" }).click();
+    await dlg.getByLabel("כותרת", { exact: true }).fill("בדיקת סגירה");
+    await dlg.getByLabel("תאריך", { exact: true }).fill(seed.partDay);
+    await dlg.getByLabel("שעה", { exact: true }).fill("12:30");
+    await dlg.getByText("השעה נופלת בזמן סגור").first().waitFor({ timeout: 15_000 });
+    await dlg.getByRole("button", { name: "לקבוע בכל זאת" }).waitFor();
+    await shot(p, "22-desktop-closure-warning");
+    await dlg.getByLabel("שעה", { exact: true }).fill("10:00");
+    await dlg.getByRole("button", { name: "קבע", exact: true }).waitFor({ timeout: 5_000 });
+    if (await dlg.getByText("השעה נופלת בזמן סגור").count()) throw new Error("an open time is still flagged");
+    await dlg.getByLabel("תאריך", { exact: true }).fill(seed.closedDay);
+    await dlg.getByText(/אין שעה פנויה ביום הזה\. היום סגור/).first().waitFor({ timeout: 15_000 });
+    await dlg.getByRole("button", { name: "ביטול" }).last().click();
+  });
+  await check("D21 closures are named on the day grid; the month tells closed days from booked ones (legend)", async () => {
+    await p.goto(`/calendar?view=day&day=${seed.partDay}`);
+    await p.locator('[class*="closureLabel"]').first().waitFor({ timeout: 20_000 });
+    await shot(p, "23-desktop-day-closure-named");
+    await p.goto(`/calendar?view=week&day=${seed.closedDay}`);
+    await p.locator('[class*="closureLabel"]', { hasText: "חג" }).first().waitFor({ timeout: 20_000 });
+    await shot(p, "24-desktop-week-closures-named");
+    await p.goto(`/calendar?view=month&day=${seed.closedDay}`);
+    await p.locator('[class*="legend"]').first().waitFor({ timeout: 20_000 });
+    for (const word of ["סגור", "תורים"]) await p.locator('[class*="legend"]').getByText(word, { exact: true }).first().waitFor();
+    await shot(p, "25-desktop-month-legend");
+  });
+  await check("D22 switching services with unsaved changes asks first; staying keeps them", async () => {
+    await p.goto("/calendar/services");
+    await p.getByRole("button", { name: /^תספורת/ }).first().click();
+    await p.getByRole("group", { name: "מי מבצע את השירות" }).getByRole("button", { name: /אבי/ }).click();
+    await p.getByRole("button", { name: /^ייעוץ/ }).first().click();
+    await p.getByText(/יש שינויים שלא נשמרו/).first().waitFor({ timeout: 10_000 });
+    await shot(p, "26-desktop-unsaved-changes");
+    await p.getByRole("button", { name: "להישאר ולשמור" }).click();
+    if (!(await p.getByRole("button", { name: "שמירת השינויים" }).isEnabled())) throw new Error("the unsaved change was lost");
+    await p.getByRole("button", { name: /^ייעוץ/ }).first().click();
+    await p.getByRole("button", { name: "לעבור בלי לשמור" }).click();
+    await p.getByRole("heading", { name: "ייעוץ" }).first().waitFor({ timeout: 10_000 });
+    await p.goto(`/calendar?view=week&day=${seed.today}`);
+  });
+
   await check("D15 the forms enforce the server's text limits, in Hebrew", async () => {
     await p.getByRole("button", { name: "תור חדש" }).first().click();
     const dlg = p.getByRole("dialog");
@@ -356,7 +402,59 @@ async function main() {
     if (width > 390) throw new Error(`page is ${width}px wide`);
     await shot(m, "m07-phone-closed-day");
   });
+  // Nothing on screen is covered: the bottom bar, its raised +, and the floating accessibility button.
+  type Cover = { empty: { top: number; bottom: number } | null; navTop: number | null; underNav: boolean; underFab: boolean };
+  const COVER_PROBE = `(() => {
+    const nav = [...document.querySelectorAll("nav")].map((e) => e.getBoundingClientRect()).find((r) => r.bottom >= innerHeight - 2 && r.height < 140) || null;
+    const fabEl = [...document.querySelectorAll("button")].find((x) => /נגישות/.test(x.getAttribute("aria-label") || ""));
+    const fab = fabEl ? fabEl.getBoundingClientRect() : null;
+    const emptyEl = [...document.querySelectorAll("main section button")].find((x) => (x.textContent || "").trim() === "תור חדש");
+    const empty = emptyEl ? emptyEl.getBoundingClientRect() : null;
+    const underFab = !!empty && !!fab && empty.left < fab.right && fab.left < empty.right && empty.top < fab.bottom && fab.top < empty.bottom;
+    return { empty: empty && { top: empty.top, bottom: empty.bottom }, navTop: nav ? nav.top : null, underNav: !!empty && !!nav && empty.bottom > nav.top - 24, underFab };
+  })()`;
+  const covered = (page: Page) => page.evaluate(COVER_PROBE) as Promise<Cover>;
+  await check("M8 an empty day: its \"תור חדש\" is fully on screen, clear of the bottom bar and the accessibility button", async () => {
+    await m.goto(`/calendar?view=day&day=${seed.closedDay}`);
+    await seen(m, "אין תורים ביום הזה");
+    const c = await covered(m);
+    if (!c.empty || c.underNav || c.underFab) throw new Error(JSON.stringify(c));
+    await shot(m, "m08-phone-empty-day");
+  });
+  await check("M9 the phone's day / week / month tabs: the active one is filled and marked", async () => {
+    await m.goto(`/calendar?view=day&day=${seed.today}`);
+    const tab = m.getByRole("tab", { name: "יום", exact: true });
+    await tab.waitFor({ timeout: 20_000 });
+    if ((await tab.getAttribute("aria-selected")) !== "true") throw new Error("the active tab is not marked");
+    const bg = async (name: string) => m.getByRole("tab", { name, exact: true }).evaluate((e) => getComputedStyle(e).backgroundColor);
+    if ((await bg("יום")) === (await bg("שבוע"))) throw new Error("active and inactive tabs look alike");
+    await shot(m, "m09-phone-tabs");
+  });
+  await check("M10 the phone's month: closed days and booked days look different, with a legend", async () => {
+    await m.goto(`/calendar?view=month&day=${seed.closedDay}`);
+    await m.locator('[class*="cellBadge"]', { hasText: "סגור" }).first().waitFor({ timeout: 20_000 });
+    await m.locator('[class*="legend"]').first().waitFor();
+    await shot(m, "m10-phone-month-legend");
+  });
   await mc.close();
+
+  // A small phone (375×667) and a tablet: the same — nothing covered, no sideways scroll.
+  for (const [w, h, name] of [[375, 667, "S1 small phone"], [820, 1180, "T1 tablet"]] as const) {
+    const sc = await browser.newContext({ baseURL: BASE, locale: "he-IL", timezoneId: "Asia/Jerusalem", viewport: { width: w, height: h }, isMobile: true, hasTouch: true });
+    await sc.addInitScript((tk) => { try { localStorage.setItem("token", tk); } catch { /* opaque */ } }, t);
+    const sp = await sc.newPage();
+    current = sp;
+    await check(`${name} (${w}px): an empty day's "תור חדש" is clear of the bars and buttons; no sideways scroll`, async () => {
+      await sp.goto(`/calendar?view=day&day=${seed.closedDay}`);
+      await sp.waitForTimeout(2500);
+      const c = await covered(sp);
+      if (c.empty && (c.underNav || c.underFab)) throw new Error(JSON.stringify(c));
+      const width = await sp.evaluate(() => document.documentElement.scrollWidth);
+      if (width > w) throw new Error(`page is ${width}px wide`);
+      await shot(sp, `${w}-empty-day`);
+    });
+    await sc.close();
+  }
 
   // ── Business B, appointments OFF ──────────────────────────────────────────────────────────────
   console.log("desktop · appointments OFF (business B)");

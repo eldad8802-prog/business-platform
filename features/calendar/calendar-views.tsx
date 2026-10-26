@@ -19,6 +19,7 @@ import t from "@/features/tasks/tasks.module.css";
 import {
   byDay,
   clock,
+  closureBands,
   clockOf,
   dayNumber,
   dayShort,
@@ -216,6 +217,10 @@ export function TimeGrid({
         <div className={s.lanes} ref={lanesRef} style={{ height }}>
           {columns.map((c, ci) => {
             const closed = closedBands(openWindows(availability, c.staffMemberId ?? null, c.day), first * 60, last * 60);
+            // A closure (holiday, a blocked part of the day) is named on the grid — not only stripes like off-hours.
+            const closures = closureBands(availability, c.staffMemberId ?? null, c.day, names)
+              .map((b) => ({ ...b, start: Math.max(b.start, first * 60), end: Math.min(b.end, last * 60) }))
+              .filter((b) => b.end > b.start);
             return (
               <div
                 key={c.key}
@@ -228,6 +233,11 @@ export function TimeGrid({
                 {Array.from({ length: last - first }, (_, i) => <div key={i} className={s.hourLine} data-bg="1" />)}
                 {closed.map((b, i) => (
                   <div key={i} className={s.closed} style={{ top: (b.start - first * 60) * pxPerMin, height: (b.end - b.start) * pxPerMin }} />
+                ))}
+                {closures.map((b, i) => (
+                  <div key={`x${i}`} className={s.closure} style={{ top: (b.start - first * 60) * pxPerMin, height: (b.end - b.start) * pxPerMin }} title={b.label}>
+                    {(b.end - b.start) * pxPerMin >= 18 ? <span className={s.closureLabel}>{b.label}</span> : null}
+                  </div>
                 ))}
                 {perColumn[ci].timed.map((p) => {
                   const a = p.appt;
@@ -340,12 +350,13 @@ export function MonthGrid({
             if (!d) return <span key={di} className={`${s.cell} ${s.cellOut}`} aria-hidden="true" />;
             const list = map.get(d) ?? [];
             const av = dayAvailability(availability, d, names);
-            const note = av.closed ? "סגור" : av.notes.length ? (av.notes.length === 1 ? av.notes[0] : `${av.notes.length} שינויים בשעות`) : null;
+            const note = av.notes.length ? (av.notes.length === 1 ? av.notes[0] : `${av.notes.length} שינויים בשעות`) : null;
             const label = `${dayTitle(d)}${av.closed && !av.notes.some((x) => x.startsWith("סגור כל היום")) ? " · סגור" : ""}${av.notes.length ? ` · ${av.notes.join(" · ")}` : ""}${list.length ? ` · ${list.length} ${list.length === 1 ? "תור" : "תורים"}` : " · אין תורים"}`;
             return (
               <button key={d} type="button" className={`${s.cell} ${d === today ? s.cellToday : ""} ${av.closed ? s.cellClosed : ""}`} onClick={() => onDay(d)} aria-label={label} title={av.notes.join("\n") || undefined}>
                 <span className={s.cellNum}>{dayNumber(d)}</span>
-                {note ? <span className={`${s.cellNote} ${compact ? s.cellNoteDot : ""}`} aria-hidden="true">{compact ? "" : note}</span> : null}
+                {av.closed ? <span className={s.cellBadge} aria-hidden="true">סגור</span> : note ? <span className={`${s.cellBadge} ${s.cellBadgePart}`} aria-hidden="true">{compact ? "חלקי" : "שעות שונות"}</span> : null}
+                {!compact && note && !(av.closed && note.startsWith("סגור כל היום") && !note.includes("·")) ? <span className={s.cellNote} aria-hidden="true">{note}</span> : null}
                 {compact ? (
                   list.length ? (
                     <span className={s.dots} aria-hidden="true">
@@ -367,6 +378,11 @@ export function MonthGrid({
           })}
         </div>
       ))}
+      <div className={s.legend} aria-hidden="true">
+        <span><i className={s.legendClosed} />סגור</span>
+        <span><i className={s.legendPart} />{compact ? "חלקי" : "שעות שונות"} — סגירה חלקית או שעות מיוחדות</span>
+        <span><i className={s.legendDot} />תורים</span>
+      </div>
     </div>
   );
 }
@@ -449,7 +465,7 @@ export function MobileAgenda({
           })}
         </div>
       ) : (
-        <section className={s.empty}>
+        <section className={`${s.empty} ${s.emptyCompact}`}>
           <span className={s.ring} aria-hidden="true">
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3.5" y="5" width="17" height="15" rx="2.5" /><path d="M3.5 10h17M8 3v4M16 3v4" /></svg>
           </span>

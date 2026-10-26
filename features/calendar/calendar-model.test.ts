@@ -12,6 +12,8 @@ import {
   clock,
   clockOf,
   dayAvailability,
+  availabilityWarning,
+  closureBands,
   durationLabel,
   errorText,
   exceptionText,
@@ -21,6 +23,7 @@ import {
   layoutDay,
   LIMITS,
   NO_AVAILABILITY,
+  noSlotsReason,
   openWindows,
   minuteInDay,
   parseClock,
@@ -188,6 +191,20 @@ console.log("— what is open (the free-slot rule, as shown)");
   eq("month/phone: 5.11 is closed, with its reason", dayAvailability(av, "2026-11-05", names), { closed: true, notes: ["סגור כל היום · חג"] });
   eq("month/phone: 4.11 is open, naming the part closed", dayAvailability(av, "2026-11-04", names), { closed: false, notes: ["סגור ⁦12:00–14:00⁩"] });
   eq("month/phone: a staff member's day off is named", dayAvailability(av, "2026-11-03", names).notes, ["שירה: סגור כל היום"]);
+  // Before booking: a time not offered says why (the server still accepts it, with OUTSIDE_AVAILABILITY).
+  eq("12:30 on 4.11 falls in the closure, said before booking", availabilityWarning(av, null, "2026-11-04", 750, 30, names), "השעה נופלת בזמן סגור: סגור ⁦12:00–14:00⁩.");
+  eq("…a booking that only touches the closure's edge is fine", availabilityWarning(av, null, "2026-11-04", 690, 30, names), null);
+  eq("…and one that runs into it is not", availabilityWarning(av, null, "2026-11-04", 700, 30, names)?.startsWith("השעה נופלת בזמן סגור"), true);
+  eq("a closed day names its reason", availabilityWarning(av, null, "2026-11-05", 600, 30, names), "השעה נופלת בזמן סגור: סגור · חג (כל היום).");
+  eq("a time before opening says the hours", availabilityWarning(av, null, "2026-11-03", 480, 30, names), "השעה מחוץ לשעות הפעילות ביום הזה (⁦09:00–17:00⁩).");
+  eq("Saturday: the business is not open", availabilityWarning(av, null, "2026-11-07", 600, 30, names), "העסק לא פעיל ביום הזה לפי שעות הפעילות.");
+  eq("a staff member's own day off is named with their name", availabilityWarning(av, 1, "2026-11-03", 600, 30, names), "השעה נופלת בזמן סגור: שירה: סגור (כל היום).");
+  eq("inside the hours: no warning", availabilityWarning(av, null, "2026-11-03", 600, 30, names), null);
+  eq("nothing known: no warning", availabilityWarning(NO_AVAILABILITY, null, "2026-11-03", 600, 30, names), null);
+  eq("no free time on a closed day: the reason", noSlotsReason(av, null, "2026-11-05", names), "היום סגור: סגור · חג.");
+  eq("…on an open day: none", noSlotsReason(av, null, "2026-11-04", names), null);
+  eq("the grid names a closure", closureBands(av, null, "2026-11-04", names), [{ start: 720, end: 840, label: "סגור" }]);
+  eq("…a staff lane names its own closure and the business's", closureBands(av, 1, "2026-11-03", names), [{ start: 0, end: 1440, label: "שירה: סגור" }]);
   eq("special hours read as such", exceptionText({ dayKey: "2026-11-06", kind: "OPEN_HOURS", startMinute: 600, endMinute: 780 }), "שעות מיוחדות ⁦10:00–13:00⁩");
 }
 

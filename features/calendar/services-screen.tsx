@@ -6,9 +6,11 @@
  * service list), the gap before and after it, the step free times are offered in, how soon and how far ahead it may
  * be booked, and who performs it — one form, one save. A price is set when a service is added and is not edited here.
  * Whether a service is open to external booking and how requests are approved belong to milestone D and are not shown.
+ * Leaving a service with unsaved changes (another service, back to the calendar, closing the page) asks first.
  */
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 import t from "@/features/tasks/tasks.module.css";
@@ -36,6 +38,24 @@ export function ServicesScreen() {
   const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [stamp, setStamp] = useState(0);
+  const router = useRouter();
+  // Unsaved changes in the open service, and where the owner asked to go while they were there.
+  const [dirty, setDirty] = useState(false);
+  const [leaving, setLeaving] = useState<number | "calendar" | null>(null);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  const go = (to: number | "calendar") => {
+    setLeaving(null);
+    setDirty(false);
+    if (to === "calendar") router.push("/calendar");
+    else setSelected(to);
+  };
 
   useEffect(() => {
     if (!on) return;
@@ -66,7 +86,7 @@ export function ServicesScreen() {
         <h1 className={s.title}>שירותים ביומן</h1>
         <span className={s.grow} />
         <button type="button" className={`${t.btn} ${t.pri}`} onClick={() => setAdding(true)}>+ שירות חדש</button>
-        <Link href="/calendar" prefetch={false} className={`${t.btn} ${t.ghost}`}>חזרה ליומן</Link>
+        <Link href="/calendar" prefetch={false} className={`${t.btn} ${t.ghost}`} onClick={(e) => { if (dirty) { e.preventDefault(); setLeaving("calendar"); } }}>חזרה ליומן</Link>
       </header>
       <p className={s.note}>אלה השירותים של העסק — אותו קטלוג שמשמש את כל דוביז. כאן מוסיפים שירות, משנים שם ומשך, וקובעים איך הוא נכנס ליומן: מרווחים, באילו קפיצות מוצעות שעות ומי מבצע.</p>
       {adding ? (
@@ -89,14 +109,26 @@ export function ServicesScreen() {
         <div className={s.split}>
           <nav className={s.list} aria-label="שירותים">
             {services.map((x) => (
-              <button key={x.id} type="button" className={`${s.item} ${current?.id === x.id ? s.itemOn : ""}`} onClick={() => setSelected(x.id)}>
+              <button key={x.id} type="button" className={`${s.item} ${current?.id === x.id ? s.itemOn : ""}`} onClick={() => { if (x.id === current?.id) return; if (dirty) setLeaving(x.id); else setSelected(x.id); }}>
                 <span style={{ flex: 1, minWidth: 0 }}>{x.name}</span>
                 <small style={{ color: "var(--dz-text-muted)" }}>{x.durationMinutes ? durationLabel(x.durationMinutes) : "ללא משך"}</small>
               </button>
             ))}
           </nav>
           {current ? (
-            <ServiceEditor key={current.id} service={current} onSaved={(m) => { setStamp((x) => x + 1); flash(m); }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+              {leaving !== null ? (
+                <div className={s.warnBox} role="alertdialog" aria-labelledby="unsaved-title">
+                  <strong id="unsaved-title">יש שינויים שלא נשמרו ב„{current.name}”.</strong>
+                  <span>{leaving === "calendar" ? "לחזור ליומן בלי לשמור? השינויים יאבדו." : `לעבור ל„${services.find((x) => x.id === leaving)?.name ?? "שירות אחר"}” בלי לשמור? השינויים יאבדו.`}</span>
+                  <div className={t.actions} style={{ marginTop: 6 }}>
+                    <button type="button" className={`${t.btn} ${t.pri}`} autoFocus onClick={() => setLeaving(null)}>להישאר ולשמור</button>
+                    <button type="button" className={`${t.btn} ${t.ghost}`} onClick={() => go(leaving)}>{leaving === "calendar" ? "לחזור בלי לשמור" : "לעבור בלי לשמור"}</button>
+                  </div>
+                </div>
+              ) : null}
+              <ServiceEditor key={current.id} service={current} onDirty={setDirty} onSaved={(m) => { setStamp((x) => x + 1); flash(m); }} />
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -191,7 +223,7 @@ const sameSet = (a: Set<number>, b: Set<number>) => a.size === b.size && [...a].
  * current list right before writing it and sends the version it read, so a stale screen can never remove an
  * assignment someone else made, nor touch any other service's assignment.
  */
-function ServiceEditor({ service, onSaved }: { service: ServiceWire; onSaved: (message: string) => void }) {
+function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; onSaved: (message: string) => void; onDirty: (dirty: boolean) => void }) {
   const [name, setName] = useState(service.name);
   const [duration, setDuration] = useState(service.durationMinutes ? String(service.durationMinutes) : "");
   const [policy, setPolicy] = useState<PolicyWire | null>(null);
@@ -223,6 +255,8 @@ function ServiceEditor({ service, onSaved }: { service: ServiceWire; onSaved: (m
   if (policy) for (const f of FIELDS) if (Number(draft[f.key]) !== policy[f.key]) policyChanges[f.key] = Number(draft[f.key]);
   const whoDirty = staff !== null && !sameSet(chosen, assignedTo(staff, service.id));
   const dirty = serviceDirty || Object.keys(policyChanges).length > 0 || whoDirty;
+  useEffect(() => { onDirty(dirty); }, [dirty, onDirty]);
+  useEffect(() => () => onDirty(false), [onDirty]);
 
   const save = async () => {
     const n = name.trim();
