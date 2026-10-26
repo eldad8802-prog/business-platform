@@ -398,8 +398,9 @@ export const supplierService = {
    * The list screen used to print the length of what it had loaded (a capped
    * page) as if it were the number of suppliers; a business with 80 saw "50".
    */
-  async listSuppliersPage(input: ListSuppliersInput, options?: TxOptions): Promise<SupplierListPage> {
-    const db = options?.tx ?? prisma;
+  // The tenant transaction is required: this read never falls back to the bare client.
+  async listSuppliersPage(input: ListSuppliersInput, options: { tx: Tx }): Promise<SupplierListPage> {
+    const db = options.tx;
     assertBusinessId(input.businessId);
 
     const where = supplierListWhere(input);

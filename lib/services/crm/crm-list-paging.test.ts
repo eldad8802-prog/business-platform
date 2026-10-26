@@ -16,6 +16,20 @@ import { prisma } from "@/lib/prisma";
 import { supplierService } from "@/lib/services/inventory/supplier.service";
 import { crmNotesService, NOTES_LIST_LIMIT } from "@/lib/services/crm/crm-notes.service";
 import { crmAttachmentsService, ATTACHMENTS_LIST_LIMIT } from "@/lib/services/crm/crm-attachments.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// The paged reads require the tenant transaction (no bare-client fallback): call them the way the routes do.
+const suppliersPage = (input: Parameters<typeof supplierService.listSuppliersPage>[0]) =>
+  runWithTenantContext({ businessId: input.businessId }, () =>
+    withTenantTransaction((tx) => supplierService.listSuppliersPage(input, { tx })));
+const notesPage = (input: Parameters<typeof crmNotesService.listNotesPage>[0]) =>
+  runWithTenantContext({ businessId: input.businessId }, () =>
+    withTenantTransaction((tx) => crmNotesService.listNotesPage(input, { tx })));
+const attachmentsPage = (input: Parameters<typeof crmAttachmentsService.listAttachmentsPage>[0]) =>
+  runWithTenantContext({ businessId: input.businessId }, () =>
+    withTenantTransaction((tx) => crmAttachmentsService.listAttachmentsPage(input, { tx })));
+
 
 const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -43,29 +57,29 @@ async function main() {
       data: Array.from({ length: 5 }, (_, i) => ({ businessId: b.businessId, name: `ספק ${i}` })),
     });
 
-    const p1 = await supplierService.listSuppliersPage({ businessId: a.businessId, status: "active" });
+    const p1 = await suppliersPage({ businessId: a.businessId, status: "active" });
     assert.equal(p1.total, 113, "total = every ACTIVE supplier in A, not the page length");
     assert.equal(p1.rows.length, 50, "first page = 50");
     assert.equal(p1.hasMore, true, "more pages exist");
-    const p2 = await supplierService.listSuppliersPage({ businessId: a.businessId, status: "active", offset: 50 });
-    const p3 = await supplierService.listSuppliersPage({ businessId: a.businessId, status: "active", offset: 100 });
+    const p2 = await suppliersPage({ businessId: a.businessId, status: "active", offset: 50 });
+    const p3 = await suppliersPage({ businessId: a.businessId, status: "active", offset: 100 });
     assert.equal(p3.rows.length, 13, "last page holds the remainder");
     assert.equal(p3.hasMore, false, "no page after the last");
     const ids = [...p1.rows, ...p2.rows, ...p3.rows].map((s) => s.id);
     assert.equal(new Set(ids).size, 113, "three pages = 113 distinct suppliers, nothing repeated or skipped");
     assert.ok([...p1.rows, ...p2.rows, ...p3.rows].every((s) => s.businessId === a.businessId), "no row from B");
 
-    const all = await supplierService.listSuppliersPage({ businessId: a.businessId, status: "all" });
+    const all = await suppliersPage({ businessId: a.businessId, status: "all" });
     assert.equal(all.total, 123, "status=all counts inactive too");
-    const inactive = await supplierService.listSuppliersPage({ businessId: a.businessId, status: "inactive" });
+    const inactive = await suppliersPage({ businessId: a.businessId, status: "inactive" });
     assert.equal(inactive.total, 10, "status=inactive");
-    const search = await supplierService.listSuppliersPage({ businessId: a.businessId, status: "all", query: "ספק 10" });
+    const search = await suppliersPage({ businessId: a.businessId, status: "all", query: "ספק 10" });
     assert.equal(search.total, search.rows.length, "a filtered total matches the filtered rows");
     assert.equal(search.total, 10, "search filter applies to the count too (ספק 100–109)");
-    const bPage = await supplierService.listSuppliersPage({ businessId: b.businessId });
+    const bPage = await suppliersPage({ businessId: b.businessId });
     assert.equal(bPage.total, 5, "B sees only its own 5");
     await assert.rejects(
-      supplierService.listSuppliersPage({ businessId: a.businessId, offset: -1 }),
+      suppliersPage({ businessId: a.businessId, offset: -1 }),
       /offset must be a non-negative integer/,
       "a negative offset is refused",
     );
@@ -88,7 +102,7 @@ async function main() {
     });
     const scopeA = { businessId: a.businessId, subjectType: "SUPPLIER", subjectId: s1.id, actingUserId: a.userId };
 
-    const n1 = await crmNotesService.listNotesPage(scopeA);
+    const n1 = await notesPage(scopeA);
     assert.equal(n1.total, 130, "notes total beyond the 100 page");
     assert.equal(n1.notes.length, NOTES_LIST_LIMIT, "first page = the limit");
     assert.equal(n1.hasMore, true, "older notes exist");
@@ -98,7 +112,7 @@ async function main() {
     await prisma.crmNote.create({
       data: { businessId: a.businessId, subjectType: "SUPPLIER", subjectId: s1.id, body: "added meanwhile", createdByUserId: a.userId },
     });
-    const n2 = await crmNotesService.listNotesPage({ ...scopeA, before: n1.notes.at(-1)!.id });
+    const n2 = await notesPage({ ...scopeA, before: n1.notes.at(-1)!.id });
     assert.equal(n2.notes.length, 30, "second page = the 30 older notes");
     assert.equal(n2.hasMore, false, "nothing after the second page");
     assert.equal(n2.total, 131, "total counts the note added meanwhile");
@@ -109,12 +123,12 @@ async function main() {
 
     const otherSubjectNote = await prisma.crmNote.findFirstOrThrow({ where: { subjectId: s2.id, businessId: a.businessId } });
     const foreignNote = await prisma.crmNote.findFirstOrThrow({ where: { businessId: b.businessId } });
-    const viaOther = await crmNotesService.listNotesPage({ ...scopeA, before: otherSubjectNote.id });
+    const viaOther = await notesPage({ ...scopeA, before: otherSubjectNote.id });
     assert.equal(viaOther.notes.length, 0, "a cursor from another subject → empty page");
-    const viaForeign = await crmNotesService.listNotesPage({ ...scopeA, before: foreignNote.id });
+    const viaForeign = await notesPage({ ...scopeA, before: foreignNote.id });
     assert.equal(viaForeign.notes.length, 0, "a cursor from another business → empty page");
     await assert.rejects(
-      crmNotesService.listNotesPage({ businessId: a.businessId, subjectType: "SUPPLIER", subjectId: sB.id, actingUserId: a.userId }),
+      notesPage({ businessId: a.businessId, subjectType: "SUPPLIER", subjectId: sB.id, actingUserId: a.userId }),
       undefined,
       "A cannot page B's supplier at all (subject resolver refuses)",
     );
@@ -127,11 +141,11 @@ async function main() {
         sizeBytes: 10, uploadedByUserId: a.userId, createdAt: new Date(base + i * 60_000),
       })),
     });
-    const f1 = await crmAttachmentsService.listAttachmentsPage(scopeA);
+    const f1 = await attachmentsPage(scopeA);
     assert.equal(f1.total, 104, "files total beyond the 100 page");
     assert.equal(f1.attachments.length, ATTACHMENTS_LIST_LIMIT, "first page = the limit");
     assert.equal(f1.hasMore, true, "older files exist");
-    const f2 = await crmAttachmentsService.listAttachmentsPage({ ...scopeA, before: f1.attachments.at(-1)!.id });
+    const f2 = await attachmentsPage({ ...scopeA, before: f1.attachments.at(-1)!.id });
     assert.equal(f2.attachments.length, 4, "second page = the 4 older files");
     assert.equal(f2.hasMore, false, "nothing after");
     assert.equal(new Set([...f1.attachments, ...f2.attachments].map((x) => x.id)).size, 104, "no file repeats");

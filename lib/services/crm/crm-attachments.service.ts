@@ -161,9 +161,10 @@ export const crmAttachmentsService = {
    */
   async listAttachmentsPage(
     input: ListAttachmentsInput & { before?: number | null },
-    options?: TxOptions
+    // The tenant transaction is required: this read never falls back to the bare client.
+    options: { tx: TenantTx }
   ): Promise<{ attachments: CrmAttachmentDTO[]; hasMore: boolean; total: number }> {
-    const db = options?.tx ?? prisma;
+    const db = options.tx;
     const subject = await resolveCrmSubject(
       {
         businessId: input.businessId,
