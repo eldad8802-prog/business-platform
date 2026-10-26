@@ -11,13 +11,17 @@ import {
   byDay,
   clock,
   clockOf,
+  dayAvailability,
   durationLabel,
   errorText,
+  exceptionText,
   gridHours,
   headline,
   instantAt,
   layoutDay,
   LIMITS,
+  NO_AVAILABILITY,
+  openWindows,
   minuteInDay,
   parseClock,
   shiftAnchor,
@@ -31,6 +35,7 @@ import {
   weekStart,
   windowsProblem,
   type AppointmentWire,
+  type Availability,
   type Names,
 } from "./calendar-model";
 
@@ -110,12 +115,20 @@ console.log("— the day layout");
 }
 
 console.log("— what the owner may do");
-eq("a proposed appointment: confirm, move, edit, cancel", actionsFor(appt({ status: "PROPOSED", startsAt: "2026-11-02T07:00:00Z", endsAt: "2026-11-02T08:00:00Z" })), ["confirm", "move", "edit", "cancel"]);
-eq("a confirmed one: completed, no-show, move, edit, cancel", actionsFor(appt({ startsAt: "2026-11-02T07:00:00Z", endsAt: "2026-11-02T08:00:00Z" })), ["complete", "no_show", "move", "edit", "cancel"]);
-eq("a block: move, edit, cancel — never completed", actionsFor(appt({ kind: "BLOCK", startsAt: "2026-11-02T07:00:00Z", endsAt: "2026-11-02T08:00:00Z" })), ["move", "edit", "cancel"]);
-eq("an untimed one cannot be dragged", actionsFor(appt({})).includes("move"), false);
-eq("a cancelled one: nothing", actionsFor(appt({ status: "CANCELED" })), []);
-eq("a completed one: nothing", actionsFor(appt({ status: "COMPLETED" })), []);
+const BEFORE = new Date("2026-11-02T06:00:00Z"); // an hour before the appointments below start
+const AFTER = new Date("2026-11-02T07:30:00Z"); // half an hour into them
+const timed = { startsAt: "2026-11-02T07:00:00Z", endsAt: "2026-11-02T08:00:00Z" };
+eq("a proposed appointment: confirm, move, edit, cancel", actionsFor(appt({ status: "PROPOSED", ...timed }), BEFORE), ["confirm", "move", "edit", "cancel"]);
+eq("a confirmed one that has started: completed, no-show, move, edit, cancel", actionsFor(appt(timed), AFTER), ["complete", "no_show", "move", "edit", "cancel"]);
+eq("a confirmed one still in the future: no completed, no no-show", actionsFor(appt(timed), BEFORE), ["move", "edit", "cancel"]);
+eq("…exactly at its start time it may be completed", actionsFor(appt(timed), new Date(timed.startsAt)).includes("complete"), true);
+eq("an internal item that has started: completed, but never a no-show", actionsFor(appt({ kind: "INTERNAL", ...timed }), AFTER), ["complete", "move", "edit", "cancel"]);
+eq("a block: move, edit, cancel — never completed, even after its start", actionsFor(appt({ kind: "BLOCK", ...timed }), AFTER), ["move", "edit", "cancel"]);
+eq("an untimed one cannot be dragged", actionsFor(appt({}), BEFORE).includes("move"), false);
+eq("a cancelled one: nothing", actionsFor(appt({ status: "CANCELED" }), AFTER), []);
+eq("a completed one: nothing", actionsFor(appt({ status: "COMPLETED" }), AFTER), []);
+eq("a no-show: nothing", actionsFor(appt({ status: "NO_SHOW" }), AFTER), []);
+eq("the refusal reads as a sentence", errorText("NOT_STARTED").includes("אחרי שעת התחלת התור"), true);
 
 console.log("— limits and words");
 eq("the API's limits", [LIMITS.title, LIMITS.notes, LIMITS.locationDetail, LIMITS.cancelReason, LIMITS.staffName], [200, 4000, 300, 500, 80]);
@@ -134,6 +147,48 @@ eq("windows: two separate windows pass", windowsProblem([{ startMinute: 540, end
   eq("a customer appointment reads customer · service", headline(appt({ customerId: 7, businessServiceId: 3 }), names), "דנה · תספורת");
   eq("a meeting reads its title", headline(appt({ kind: "INTERNAL", title: "ישיבת צוות" }), names), "ישיבת צוות");
   eq("a block without a title reads its kind", headline(appt({ kind: "BLOCK" }), names), "חסימת זמן");
+}
+
+console.log("— what is open (the free-slot rule, as shown)");
+{
+  // Business Sun–Thu 09:00–17:00, Fri 09:00–13:00; 4.11.2026 (Wed) closed 12:00–14:00; 5.11 (Thu) closed all day.
+  const week = [0, 1, 2, 3, 4].map((weekday) => ({ weekday, startMinute: 540, endMinute: 1020 })).concat([{ weekday: 5, startMinute: 540, endMinute: 780 }]);
+  const av: Availability = {
+    business: {
+      rules: week,
+      exceptions: [
+        { dayKey: "2026-11-04", kind: "CLOSED", startMinute: 720, endMinute: 840, label: null },
+        { dayKey: "2026-11-05", kind: "CLOSED", startMinute: null, endMinute: null, label: "חג" },
+      ],
+    },
+    staff: new Map([
+      [1, { rules: [], exceptions: [{ dayKey: "2026-11-03", kind: "CLOSED", startMinute: null, endMinute: null, label: null }] }], // inherits the business's hours
+      [2, { rules: [{ weekday: 2, startMinute: 600, endMinute: 900 }], exceptions: [] }], // own hours: Tue 10:00–15:00
+    ]),
+  };
+  const names: Names = {
+    customers: new Map(), services: new Map(),
+    staff: new Map([
+      [1, { id: 1, displayName: "שירה", color: null, active: true, sortOrder: 0, version: 1, services: [] }],
+      [2, { id: 2, displayName: "אבי", color: null, active: true, sortOrder: 1, version: 1, services: [] }],
+    ]),
+  };
+  eq("an ordinary day: the weekly hours", openWindows(av, null, "2026-11-03"), [{ startMinute: 540, endMinute: 1020 }]);
+  eq("4.11: the 12:00–14:00 closure is cut out", openWindows(av, null, "2026-11-04"), [{ startMinute: 540, endMinute: 720 }, { startMinute: 840, endMinute: 1020 }]);
+  eq("5.11: closed all day", openWindows(av, null, "2026-11-05"), []);
+  eq("Saturday: closed by the weekly hours", openWindows(av, null, "2026-11-07"), []);
+  eq("a staff member without own hours works by the business's", openWindows(av, 1, "2026-11-02"), [{ startMinute: 540, endMinute: 1020 }]);
+  eq("…and the business's closure applies to them too", openWindows(av, 1, "2026-11-04"), [{ startMinute: 540, endMinute: 720 }, { startMinute: 840, endMinute: 1020 }]);
+  eq("…and their own day off", openWindows(av, 1, "2026-11-03"), []);
+  eq("a staff member's own hours replace the business's", openWindows(av, 2, "2026-11-03"), [{ startMinute: 600, endMinute: 900 }]);
+  eq("…and on a day they have no hours, they are off", openWindows(av, 2, "2026-11-02"), []);
+  eq("the business closure still cuts their own hours", openWindows(av, 2, "2026-11-05"), []);
+  eq("nothing set at all: nothing is shaded", openWindows(NO_AVAILABILITY, null, "2026-11-03"), null);
+  eq("no weekly hours but a closure: only the closure", openWindows({ business: { rules: [], exceptions: av.business.exceptions }, staff: new Map() }, null, "2026-11-04"), [{ startMinute: 0, endMinute: 720 }, { startMinute: 840, endMinute: 1440 }]);
+  eq("month/phone: 5.11 is closed, with its reason", dayAvailability(av, "2026-11-05", names), { closed: true, notes: ["סגור כל היום · חג"] });
+  eq("month/phone: 4.11 is open, naming the part closed", dayAvailability(av, "2026-11-04", names), { closed: false, notes: ["סגור ⁦12:00–14:00⁩"] });
+  eq("month/phone: a staff member's day off is named", dayAvailability(av, "2026-11-03", names).notes, ["שירה: סגור כל היום"]);
+  eq("special hours read as such", exceptionText({ dayKey: "2026-11-06", kind: "OPEN_HOURS", startMinute: 600, endMinute: 780 }), "שעות מיוחדות ⁦10:00–13:00⁩");
 }
 
 console.log(`\n${total - failures} passed, ${failures} failed`);
