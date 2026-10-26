@@ -12,6 +12,10 @@ import { getFiscalBillingPdfForDelivery } from "@/lib/services/billing/signed-pd
 // pdfkit). Pinning the route to the Node runtime is mandatory.
 export const runtime = "nodejs";
 
+// A first render starts Chromium (a serverless cold start took ~32 s in CI); same budget as the
+// accountant PDF download.
+export const maxDuration = 60;
+
 // PDF responses are never statically optimizable; opt out of any framework
 // caching so we always go through the cache-or-render decision in the service.
 export const dynamic = "force-dynamic";

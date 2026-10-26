@@ -13,6 +13,15 @@
  */
 import ExcelJS from "exceljs";
 
+import {
+  chromiumMode,
+  launchChromium,
+  PdfRenderError,
+  sanitizeRenderError,
+  type ChromiumBrowser,
+  type ChromiumMode,
+} from "@/lib/pdf/chromium";
+
 import { escapeHtmlForPdf, renderDynamicPdfText } from "@/lib/services/billing/pdf/billing-pdf-text-policy";
 
 /** Bumped whenever the PDF layout changes, so a cached PDF of an older layout is never served. */
@@ -147,55 +156,13 @@ ${tables}
 </body></html>`;
 }
 
-/**
- * Where Chromium comes from. A Vercel / Lambda function has no browser installed (the playwright package
- * ships, its browser download does not), so there the serverless build @sparticuz/chromium (AL2023, with
- * its own system libraries and Open Sans as the Latin fallback) is launched through playwright-core. Locally
- * and in CI the browser `npx playwright install chromium` downloaded is used. Pure.
- */
-export type ChromiumMode = "serverless" | "local";
-export function chromiumMode(env: NodeJS.ProcessEnv = process.env): ChromiumMode {
-  return env.VERCEL === "1" || Boolean(env.AWS_LAMBDA_FUNCTION_NAME) ? "serverless" : "local";
-}
-
-export type PdfRenderStage = "launch" | "render" | "print";
-
-/** A rendering failure with the stage it stopped at and a short, sanitized reason (no HTML, no data). */
-export class PdfRenderError extends Error {
-  constructor(
-    public readonly stage: PdfRenderStage,
-    public readonly mode: ChromiumMode,
-    public readonly detail: string
-  ) {
-    super(`PDF render failed at ${stage} (${mode}): ${detail}`);
-    this.name = "PdfRenderError";
-  }
-}
-
-/**
- * The first line of a Chromium / Playwright error message, for the log: control characters removed,
- * whitespace collapsed, at most 240 characters. These messages carry paths and launch flags — never the
- * page's content — and the page is a data-only document built from the package's own workbook.
- */
-export function sanitizeRenderError(e: unknown): string {
-  const raw = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-  const first = raw.split(/\r?\n/)[0] ?? "";
-  return first.replace(/[\u0000-\u001F\u007F-\u009F─-╿]/g, " ").replace(/\s+/g, " ").trim().slice(0, 240);
-}
-
-async function launchChromium(mode: ChromiumMode) {
-  if (mode === "serverless") {
-    const sparticuz = (await import("@sparticuz/chromium")).default;
-    const { chromium } = await import("playwright-core");
-    return chromium.launch({ headless: true, executablePath: await sparticuz.executablePath(), args: sparticuz.args });
-  }
-  const { chromium } = await import("playwright");
-  return chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
-}
+// The launcher is shared with the billing PDFs (lib/pdf/chromium.ts); re-exported for existing importers.
+export { chromiumMode, PdfRenderError, sanitizeRenderError } from "@/lib/pdf/chromium";
+export type { ChromiumMode, PdfRenderStage } from "@/lib/pdf/chromium";
 
 /** Chromium HTML → PDF, A4, page numbers in the footer. Same engine family as the billing PDFs. */
 export async function renderHtmlToPdf(html: string, mode: ChromiumMode = chromiumMode()): Promise<Buffer> {
-  let browser: Awaited<ReturnType<typeof launchChromium>>;
+  let browser: ChromiumBrowser;
   try {
     browser = await launchChromium(mode);
   } catch (e) {

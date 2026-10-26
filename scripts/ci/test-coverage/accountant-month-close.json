@@ -24,6 +24,10 @@
     "lib/reports/accountant-source-files.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "source documents in the package, on a real ZIP from the builder: a missing or hash-mismatched original is never shown as a path (the row says so, in Excel, CSV and the PDF summary), a mismatch is not shipped and blocks the package, a file without a recorded hash is shipped and flagged, the per-file manifest (sha256, size, verified, record / billing document) matches the ZIP, and the content fingerprint ignores the hash; run on pull_request by accountant-month-close-ci.yml"
+    },
+    "lib/pdf/chromium.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "the shared Chromium launcher: serverless detection, sanitized render errors, the billing renderer launches only through it with its page/print options unchanged, and every PDF-rendering route has the serverless browser in its tracing includes; run on pull_request by accountant-month-close-ci.yml"
     }
   }
 }
