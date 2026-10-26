@@ -20,6 +20,10 @@
     "lib/accountant/package-report-pdf.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "the PDF report model on a REAL package ZIP from the package builder: every printed value equals its workbook cell as Excel shows it (no recomputation; formula totals print their stored result), issued totals stay per currency, Hebrew text escaped/isolated and never reversed, inert markup; run on pull_request by accountant-month-close-ci.yml"
+    },
+    "lib/pdf/chromium.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "the shared Chromium launcher: serverless detection, sanitized render errors, the billing renderer launches only through it with its page/print options unchanged, and every PDF-rendering route has the serverless browser in its tracing includes; run on pull_request by accountant-month-close-ci.yml"
     }
   }
 }
