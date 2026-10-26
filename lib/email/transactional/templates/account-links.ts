@@ -26,7 +26,7 @@ export function parseAccountLinkPayload(value: unknown): AccountLinkPayload | nu
   return { tokenId, firstName: typeof firstName === "string" ? firstNameOf(firstName) : null };
 }
 
-type Copy = {
+export type AccountEmailCopy = {
   subject: string;
   preheader: string;
   lines: string[];
@@ -35,7 +35,7 @@ type Copy = {
   reason: string;
 };
 
-function copyFor(purpose: EmailTokenPurpose, t: Translator): Copy {
+function copyFor(purpose: EmailTokenPurpose, t: Translator): AccountEmailCopy {
   const k = purpose === "EMAIL_VERIFY" ? "verify" : "reset";
   return {
     subject: t(`system.email.${k}.subject`),
@@ -50,8 +50,8 @@ function copyFor(purpose: EmailTokenPurpose, t: Translator): Copy {
 const HE = emailLanguage("he");
 
 /** The Hebrew copy (the approved draft). */
-export const EMAIL_VERIFY_COPY: Copy = copyFor("EMAIL_VERIFY", HE.t);
-export const PASSWORD_RESET_COPY: Copy = copyFor("PASSWORD_RESET", HE.t);
+export const EMAIL_VERIFY_COPY: AccountEmailCopy = copyFor("EMAIL_VERIFY", HE.t);
+export const PASSWORD_RESET_COPY: AccountEmailCopy = copyFor("PASSWORD_RESET", HE.t);
 
 function escapeHtml(s: string): string {
   return s
@@ -62,7 +62,8 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function render(copy: Copy, firstName: string | null, link: string, L: EmailLanguage): RenderedEmail {
+/** The account-email frame, shared with the Google link emails (templates/google-link.ts). */
+export function renderAccountEmail(copy: AccountEmailCopy, firstName: string | null, link: string, L: EmailLanguage): RenderedEmail {
   const hello = greeting(firstName, L.t);
   const signature = L.t("system.email.signature");
   const text = [hello, "", ...copy.lines, "", `${copy.cta}: ${link}`, "", ...copy.after, "", signature, "", "—", copy.reason].join("\n");
@@ -110,7 +111,7 @@ ${copy.after.map((l) => `<p style="${small}">${escapeHtml(l)}</p>`).join("\n")}
 function renderFor(purpose: EmailTokenPurpose) {
   return (payload: AccountLinkPayload, ctx: { appBaseUrl: string; locale?: string | null }): RenderedEmail => {
     const L = emailLanguage(ctx.locale);
-    return render(copyFor(purpose, L.t), payload.firstName, buildEmailLink(ctx.appBaseUrl, payload.tokenId, purpose), L);
+    return renderAccountEmail(copyFor(purpose, L.t), payload.firstName, buildEmailLink(ctx.appBaseUrl, payload.tokenId, purpose), L);
   };
 }
 

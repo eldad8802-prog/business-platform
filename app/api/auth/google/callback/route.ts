@@ -9,6 +9,7 @@ import {
   readCookie,
   readGoogleLoginConfig,
   sameState,
+  setLinkCookie,
   setTicketCookie,
   type TokenExchange,
 } from "@/lib/auth/google-oauth";
@@ -33,6 +34,8 @@ export const dynamic = "force-dynamic";
  * lib/auth/google-sign-in.ts decides, and this route only turns the decision into a redirect:
  *   linked account → refresh cookie → /auth/google/done (the page fetches its access token from /refresh)
  *   new person     → ticket cookie  → /register/google (NO account, NO session until completion)
+ *   existing, unlinked account → link cookie → /link/google (NO link, NO session until the owner proves
+ *                    ownership with the account's password or an emailed link)
  *   anything else  → /login or /register with a reason, nothing written.
  * The URL never carries a token. OFF → 404.
  */
@@ -106,6 +109,13 @@ export async function handleGoogleCallback(req: Request, deps: CallbackRouteDeps
       res.headers.set("cache-control", "no-store");
       clearStartCookie(res);
       setTicketCookie(res, outcome.secret);
+      return res;
+    }
+    case "link_ticket": {
+      const res = NextResponse.redirect(new URL("/link/google", base), 303);
+      res.headers.set("cache-control", "no-store");
+      clearStartCookie(res);
+      setLinkCookie(res, outcome.secret);
       return res;
     }
     case "existing_account":

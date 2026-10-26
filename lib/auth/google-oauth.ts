@@ -32,6 +32,8 @@ export const GOOGLE_START_COOKIE = "dz_google_oauth";
 export const GOOGLE_CALLBACK_PATH = "/api/auth/google/callback";
 export const GOOGLE_TICKET_COOKIE = "dz_google_signup";
 export const GOOGLE_TICKET_COOKIE_PATH = "/api/auth/google";
+/** The LINK ticket (an existing account's owner proving ownership) — its own cookie, beside the signup one. */
+export const GOOGLE_LINK_COOKIE = "dz_google_link";
 export const START_TTL_SECONDS = 10 * 60;
 export const TICKET_COOKIE_MAX_AGE_SECONDS = 30 * 60;
 
@@ -217,4 +219,10 @@ export function setTicketCookie(res: NextResponse, secret: string): void {
 }
 export function clearTicketCookie(res: NextResponse): void {
   res.cookies.set({ name: GOOGLE_TICKET_COOKIE, value: "", httpOnly: true, secure: secure(), sameSite: "lax", path: GOOGLE_TICKET_COOKIE_PATH, maxAge: 0 });
+}
+export function setLinkCookie(res: NextResponse, secret: string): void {
+  res.cookies.set({ name: GOOGLE_LINK_COOKIE, value: secret, httpOnly: true, secure: secure(), sameSite: "lax", path: GOOGLE_TICKET_COOKIE_PATH, maxAge: TICKET_COOKIE_MAX_AGE_SECONDS });
+}
+export function clearLinkCookie(res: NextResponse): void {
+  res.cookies.set({ name: GOOGLE_LINK_COOKIE, value: "", httpOnly: true, secure: secure(), sameSite: "lax", path: GOOGLE_TICKET_COOKIE_PATH, maxAge: 0 });
 }
