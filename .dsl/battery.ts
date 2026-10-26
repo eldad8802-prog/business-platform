@@ -1,5 +1,5 @@
 /**
- * Document ↔ supplier link — what migration 20261102080000_document_supplier_link does, measured with the real role
+ * Document ↔ supplier link — what migration 20261103090000_document_supplier_link does, measured with the real role
  * topology on a Production-shaped database:
  *   owner   (OWNER_URL: the migration role — owner of every table and function, BYPASSRLS like Production's),
  *   runtime (RUNTIME_URL: NOSUPERUSER NOBYPASSRLS, member of app_runtime — the tenant plane).

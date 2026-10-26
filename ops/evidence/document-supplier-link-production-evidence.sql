@@ -2,7 +2,7 @@
 -- document-supplier-link-production-evidence.sql
 --
 -- Read-only Production EVIDENCE after migration
---   20261102080000_document_supplier_link
+--   20261103090000_document_supplier_link
 --
 -- Proves the migration's outcome, from the catalog and counts only:
 --   * it is recorded and finished, its sha256 is the reviewed one, nothing is unfinished or rolled back;
@@ -123,13 +123,13 @@ fn_grants AS (SELECT f.proname, x.grantee FROM fns f CROSS JOIN LATERAL aclexplo
               WHERE x.privilege_type = 'EXECUTE' AND x.grantee <> f.proowner),
 mig_owner AS (SELECT relowner FROM rel WHERE nm = 'DocumentSupplierLink'),
 checks(n, ok, observed_count) AS (
-  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261102080000_document_supplier_link'
+  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_document_supplier_link'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL) = 1,
-            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261102080000_document_supplier_link'
+            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_document_supplier_link'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL)
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
-  UNION ALL SELECT 3, (SELECT checksum FROM "_prisma_migrations" WHERE migration_name = '20261102080000_document_supplier_link') = '8eedcbac61f7abe528ddfafeee2a1ed9ad60f3245428ac988f778b787aa8c8cf', 1
+  UNION ALL SELECT 3, (SELECT checksum FROM "_prisma_migrations" WHERE migration_name = '20261103090000_document_supplier_link') = '87ce27ed43d323bcf8ca75e98202fb0ccb7098c8131b4704303e2d7d532aeac3', 1
   UNION ALL SELECT 4, (SELECT count(*) FROM rel WHERE nm IN (SELECT nm FROM tables) AND relrowsecurity AND relforcerowsecurity) = 2,
                       (SELECT count(*) FROM rel WHERE nm IN (SELECT nm FROM tables) AND relrowsecurity AND relforcerowsecurity)
   UNION ALL SELECT 5, (SELECT count(*) FROM pols) = 5

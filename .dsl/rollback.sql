@@ -1,4 +1,4 @@
--- Rollback of 20261102080000_document_supplier_link — OWNER-RUN, on a database where nothing was written with it.
+-- Rollback of 20261103090000_document_supplier_link — OWNER-RUN, on a database where nothing was written with it.
 --
 -- Refuses (and changes nothing) while ANY of these exists:
 --   * a row in "DocumentSupplierLink" or "DocumentSupplierLinkEvent" — an owner's decision is never discarded;
@@ -44,6 +44,6 @@ ALTER TABLE "ExtractedData"
 DELETE FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'document_supplier_linking';
 DELETE FROM "PlatformFeatureDefinition" WHERE "key" = 'document_supplier_linking';
 
-DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261102080000_document_supplier_link';
+DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261103090000_document_supplier_link';
 
 COMMIT;

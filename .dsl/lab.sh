@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Document ↔ supplier link / migration 20261102080000_document_supplier_link — Production-topology lab.
+# Document ↔ supplier link / migration 20261103090000_document_supplier_link — Production-topology lab.
 #
 #   .dsl/lab.sh <db-name> [--with-dsl | --broken-dsl]
 #
@@ -9,8 +9,9 @@
 # `prisma migrate deploy`. Then .dsl/prereq.sql adds what Production has and `db push` cannot make (the
 # Supplier (businessId, id) unique constraint of 20261018090000).
 # The ledger is completed with EVERY other migration on this checkout that sorts before this one (real sha256), as
-# Production's is. Pending: only this migration. Migrations sorting after it (20261102090000_oauth_identity_link,
-# owner decision pending) are left out of ledger and deploy — release-migrate applies an approved prefix only.
+# Production's is (20261102090000_oauth_identity_link, the last one applied in Production, included). Pending: only
+# this migration. Any migration sorting after it is left out of ledger and deploy — release-migrate applies an
+# approved prefix only.
 # schema.prisma may model the new tables and columns (the application PR), so the `db push` inside the base lab may
 # have built them without the migration's constraints, policies, triggers, functions and grants: they are removed
 # here so the migration builds them the way Production will have them.
@@ -23,7 +24,7 @@
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DSL="20261102080000_document_supplier_link"
+DSL="20261103090000_document_supplier_link"
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
 
