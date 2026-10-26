@@ -316,11 +316,15 @@ async function main() {
   r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), token: tokenB, body: { staffMemberId: dana.id, startsAt: at("09:00"), durationMinutes: 30 } }));
   ok("G9 business B booking on A's staff member → 404 STAFF_NOT_FOUND", r.status === 404 && (await body(r))?.error === "STAFF_NOT_FOUND");
 
+  // a1 (still CONFIRMED: a future appointment cannot be completed) is cancelled — a terminal appointment frees its time (H0).
+  r = await routes.status.POST(req(`/api/appointments/${a1}/status`, { method: "POST", key: key(), body: { to: "CANCELED", cancelReason: "OWNER_CANCELED" } }), p({ id: String(a1) }));
+  ok("G10 the future appointment is cancelled instead", r.status === 200, String(r.status));
+
   // ── H. Free slots ──────────────────────────────────────────────────────────────────────────────
   console.log("H. free slots");
   // The appointment moved to Wednesday 09:00 in E was completed in F, which frees its time; an active one takes it.
   r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { ...c1Body, startsAt: at("09:00", WED) } }));
-  ok("H0 an active appointment on Wednesday 09:00 (where the completed one was — completion freed the time)", r.status === 201, String(r.status));
+  ok("H0 an active appointment on Wednesday 09:00 (where the cancelled one was — cancelling freed the time)", r.status === 201, String(r.status));
   r = await routes.slots.GET(req(`/api/appointments/slots?fromDay=${WED}&toDay=${WED}&businessServiceId=${svcA}&staffMemberId=${dana.id}`));
   const sl = await body(r);
   const starts = (sl?.slots as { startsAt: string }[] | undefined)?.map((s) => s.startsAt) ?? [];
