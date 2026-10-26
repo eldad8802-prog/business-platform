@@ -25,7 +25,7 @@ import { obligationTitle, type BriefingApi, type ObligationApi } from "@/lib/obl
 import type { BusinessCostSummaryApi } from "@/lib/business-cost/business-cost-client";
 import type { AgendaRow, Bucket, ManualTask } from "@/lib/services/tasks/agenda-core";
 import { addCalendarDays, jerusalemDayKey } from "@/lib/utils/jerusalem-day";
-import { clockOf, KIND_LABEL, startOfDay, type AppointmentWire } from "@/features/calendar/calendar-model";
+import { clockOf, KIND_LABEL, startOfDay, STATUS_LABEL, type AppointmentWire } from "@/features/calendar/calendar-model";
 import { displayObligeeName } from "./secretary-home-model";
 
 /** The agenda as the hub reads it (a subset of AgendaResponse). */
@@ -145,7 +145,8 @@ export function calendarEvents(input: {
       key: `a:${a.id}`,
       day,
       kind: "APPOINTMENT",
-      title: a.endsAt ? `${clockOf(start)} · ${what}` : what,
+      // Its state in words when it is not simply booked (מאושר): ממתין לאישור / הושלם / לא הגיע.
+      title: `${a.endsAt ? `${clockOf(start)} · ${what}` : what}${a.status !== "CONFIRMED" && a.kind !== "BLOCK" ? ` · ${STATUS_LABEL[a.status]}` : ""}`,
       amount: null,
       currency: "ILS",
       href: `/calendar?view=day&day=${day}&appointment=${a.id}`,

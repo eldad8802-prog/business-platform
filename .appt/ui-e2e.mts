@@ -81,7 +81,11 @@ async function main() {
     await p.getByRole("button", { name: /נועה לוי/ }).first().click();
     const panel = p.getByRole("complementary", { name: "פרטי התור" });
     await panel.getByText("מאושר").first().waitFor({ timeout: 15_000 });
-    for (const b of ["הושלם", "לא הגיע", "הזז", "ביטול התור"]) await panel.getByRole("button", { name: b }).waitFor();
+    for (const b of ["הזז", "ביטול התור"]) await panel.getByRole("button", { name: b }).waitFor();
+    // "הושלם" / "לא הגיע" only once it has started (10:00 Israel time) — never for a future appointment.
+    const started = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jerusalem", hour: "2-digit", hour12: false }).format(new Date())) >= 10;
+    const outcomes = await panel.getByRole("button", { name: /^(הושלם|לא הגיע)$/ }).count();
+    if (outcomes !== (started ? 2 : 0)) throw new Error(`outcome buttons: ${outcomes}, started: ${started}`);
     await panel.getByText("נקבע").first().waitFor();
     await shot(p, "03-desktop-details");
   });
@@ -206,16 +210,75 @@ async function main() {
     await p.getByRole("button", { name: "הוספת השירות" }).click();
     await seen(p, "השירות נוסף");
     await p.getByRole("button", { name: /^פן/ }).first().click();
-    const card = p.getByRole("region", { name: "פרטי השירות" });
-    await card.getByLabel("משך (דקות)", { exact: true }).fill("50");
-    await card.getByRole("button", { name: "שמירה" }).click();
-    await seen(p, "השירות עודכן");
+    await p.locator("#svc-duration").fill("50");
+    await p.getByRole("button", { name: "שמירת השינויים" }).click();
+    await seen(p, "השינויים נשמרו");
     await shot(p, "17-desktop-service-edit");
     await p.goto(`/calendar?view=day&day=${seed.today}`);
     await p.getByRole("button", { name: "תור חדש" }).first().click();
     const dlg = p.getByRole("dialog");
     await dlg.getByLabel("שירות", { exact: true }).selectOption({ label: "פן · 50 דק׳" });
     if ((await dlg.getByLabel("משך (דק׳)", { exact: true }).inputValue()) !== "50") throw new Error("the form did not take the edited length");
+    await dlg.getByRole("button", { name: "ביטול" }).last().click();
+  });
+
+  await check("D17 who performs a service: saved, shown as saved at once and after a reload, other services untouched", async () => {
+    const before = (await api(t, "/api/appointments/staff")).body.staff as Array<{ id: number; services: Array<{ businessServiceId: number }> }>;
+    await p.goto("/calendar/services");
+    await p.getByRole("button", { name: /^צבע/ }).first().click();
+    const who = p.getByRole("group", { name: "מי מבצע את השירות" });
+    const avi = who.getByRole("button", { name: /אבי/ });
+    await avi.waitFor({ timeout: 20_000 });
+    if ((await avi.getAttribute("aria-pressed")) !== "false") throw new Error("אבי should not perform צבע in the seed");
+    await avi.click();
+    await p.getByRole("button", { name: "שמירת השינויים" }).click();
+    await seen(p, "השינויים נשמרו");
+    await p.waitForTimeout(800);
+    if ((await avi.getAttribute("aria-pressed")) !== "true") throw new Error("the saved assignment is not shown as saved");
+    if (!(await p.getByRole("button", { name: "שמירת השינויים" }).isDisabled())) throw new Error("a saved form still offers to save");
+    await p.reload();
+    await p.getByRole("button", { name: /^צבע/ }).first().click();
+    await who.getByRole("button", { name: /אבי/ }).waitFor({ timeout: 20_000 });
+    await p.waitForTimeout(800);
+    if ((await who.getByRole("button", { name: /אבי/ }).getAttribute("aria-pressed")) !== "true") throw new Error("after a reload the assignment is gone");
+    const after = (await api(t, "/api/appointments/staff")).body.staff as typeof before;
+    for (const m of before) {
+      const a = after.find((x) => x.id === m.id)!;
+      const rest = (l: typeof m.services) => l.map((x) => x.businessServiceId).filter((x) => x !== seed.services.color).sort().join(",");
+      if (rest(a.services) !== rest(m.services)) throw new Error(`staff ${m.id}: another service's assignment changed`);
+    }
+    await shot(p, "18-desktop-service-who-saved");
+  });
+  await check("D18 closures show in the week, the month and the day: a closed day and 12:00–14:00", async () => {
+    await p.goto(`/calendar?view=month&day=${seed.partDay}`);
+    const label = async (day: string) => p.locator(`button[aria-label^="${new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(day + "T12:00:00Z"))}"]`).first().getAttribute("aria-label");
+    await p.locator('[class*="weekRow"]').first().waitFor({ timeout: 20_000 });
+    await p.waitForTimeout(1500);
+    const closed = (await label(seed.closedDay)) ?? "";
+    const part = (await label(seed.partDay)) ?? "";
+    if (!closed.includes("סגור כל היום")) throw new Error(`closed day reads: ${closed}`);
+    if (!/12:00.14:00/.test(part)) throw new Error(`part-day reads: ${part}`);
+    await shot(p, "19-desktop-month-closures");
+    await p.goto(`/calendar?view=week&day=${seed.partDay}`);
+    await p.waitForTimeout(1500);
+    await shot(p, "20-desktop-week-closures");
+  });
+  await check("D19 every free time is offered (show more), not only the first twelve", async () => {
+    await p.goto(`/calendar?view=week&day=${seed.today}`);
+    await p.getByRole("button", { name: "תור חדש" }).first().click();
+    const dlg = p.getByRole("dialog");
+    await dlg.getByLabel("תאריך", { exact: true }).fill(seed.partDay);
+    const hint = dlg.getByText(/שעות פנויות ביום הזה \(/).first();
+    await hint.waitFor({ timeout: 20_000 });
+    const total = Number(((await hint.textContent()) ?? "").match(/\((\d+)\)/)?.[1] ?? 0);
+    const more = dlg.locator('[class*="moreChip"]');
+    if (await more.count()) await more.click();
+    const chips = await dlg.locator('[class*="slotChips"] button[aria-pressed]').count();
+    if (!(total > 12 && chips === total)) throw new Error(`total ${total}, chips ${chips}`);
+    // nothing offered inside the 12:00–14:00 closure
+    const inside = await dlg.locator('[class*="slotChips"] button[aria-pressed]').evaluateAll((els) => els.map((e) => e.textContent ?? "").filter((x) => x >= "12:00" && x < "14:00"));
+    if (inside.length) throw new Error(`offered inside the closure: ${inside.join(",")}`);
+    await shot(p, "21-desktop-all-slots");
     await dlg.getByRole("button", { name: "ביטול" }).last().click();
   });
 
@@ -265,6 +328,33 @@ async function main() {
     await m.goto("/secretary");
     await seen(m, "תורים היום");
     await shot(m, "m05-phone-secretary");
+  });
+  await check("M6 cancel on the phone: a double tap keeps the appointment; the confirm is held a moment", async () => {
+    await m.goto(`/calendar?day=${seed.today}&appointment=${seed.ids.todayMaya}`);
+    const open = m.getByRole("button", { name: "ביטול התור" });
+    await open.waitFor({ timeout: 20_000 });
+    const box = (await open.boundingBox())!;
+    await m.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await m.waitForTimeout(60);
+    await m.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await m.waitForTimeout(1200);
+    const status = (await api(t, `/api/appointments/${seed.ids.todayMaya}`)).body.appointment.status;
+    if (status !== "CONFIRMED") throw new Error(`after a double tap the appointment is ${status}`);
+    if (!(await m.getByRole("button", { name: "כן, לבטל את התור" }).count())) await open.click();
+    const confirm = m.getByRole("button", { name: "כן, לבטל את התור" });
+    await confirm.waitFor({ timeout: 5_000 });
+    if (!(await confirm.isDisabled())) throw new Error("the confirm is live at once");
+    await m.waitForTimeout(1_000);
+    if (await confirm.isDisabled()) throw new Error("the confirm never became available");
+    await shot(m, "m06-phone-cancel");
+    await m.getByRole("button", { name: /חזרה, להשאיר/ }).click();
+  });
+  await check("M7 390px: no sideways page scroll; a closed day says so", async () => {
+    await m.goto(`/calendar?view=day&day=${seed.closedDay}`);
+    await seen(m, "העסק סגור ביום הזה");
+    const width = await m.evaluate(() => document.documentElement.scrollWidth);
+    if (width > 390) throw new Error(`page is ${width}px wide`);
+    await shot(m, "m07-phone-closed-day");
   });
   await mc.close();
 
