@@ -7,9 +7,6 @@
  * Chromium build. Only the browser changes — the HTML, the page options and the bytes' meaning do not.
  */
 
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
-
 import { launchChromium } from "@/lib/pdf/chromium";
 import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
 import { escapeHtmlForPdf } from "@/lib/services/billing/pdf/billing-pdf-text-policy";
@@ -22,18 +19,17 @@ function billingPdfDebugEnabled(): boolean {
   return process.env.BILLING_PDF_DEBUG_LOG === "1";
 }
 
+/**
+ * The embedded copy only. It is byte-identical to public/fonts/NotoSansHebrew-Regular.ttf (asserted by
+ * lib/pdf/chromium.verify.test.ts), so the data URI — and the HTML — are unchanged. The former
+ * `join(process.cwd(), "public", …)` read made file tracing pull the whole project directory into every
+ * PDF-rendering function (~150 MB), which with the serverless browser exceeded Vercel's 250 MB limit.
+ */
 export function getNotoSansHebrewFontDataUri(): string {
-  const publicPath = join(process.cwd(), "public", "fonts", FONT_FILENAME);
-  if (existsSync(publicPath)) {
-    const b64 = readFileSync(publicPath).toString("base64");
-    return `data:font/ttf;base64,${b64}`;
-  }
   const vfsMap = hebrewFontVfs as unknown as Record<string, string>;
   const base64 = vfsMap[FONT_FILENAME];
   if (!base64 || typeof base64 !== "string") {
-    throw new Error(
-      `Hebrew font '${FONT_FILENAME}' missing under public/fonts and lib/pdf/hebrew-font-vfs.ts`
-    );
+    throw new Error(`Hebrew font '${FONT_FILENAME}' missing in lib/pdf/hebrew-font-vfs.ts`);
   }
   return `data:font/ttf;base64,${base64}`;
 }
