@@ -327,6 +327,7 @@ function CalendarBody() {
             staff={data.staff}
             services={data.services}
             names={data.names}
+            availability={data.availability}
             onCustomer={(c) => data.rememberCustomer(c.id, c.name)}
             onDone={(out) => void formDone(out, out.appointment.kind === "BLOCK" ? "הזמן נחסם" : "נקבע")}
             onCancel={() => setCreating(null)}
@@ -335,7 +336,7 @@ function CalendarBody() {
       </AdaptiveOverlay>
       <AdaptiveOverlay open={!!moving} onClose={() => setMoving(null)} labelledBy="appointment-form-title">
         {moving && !isTerminal(moving.status) ? (
-          <MoveForm appt={moving} staff={data.staff} onDone={(out) => void formDone(out, "הוזז")} onCancel={() => setMoving(null)} />
+          <MoveForm appt={moving} staff={data.staff} names={data.names} availability={data.availability} onDone={(out) => void formDone(out, "הוזז")} onCancel={() => setMoving(null)} />
         ) : null}
       </AdaptiveOverlay>
 
