@@ -13,6 +13,8 @@
 #   --broken-agl: the same with it failing on its last statement (atomicity).
 #   --with-cancel:   the same, then 20261101090000_oauth_ticket_cancel after it (one `migrate deploy`);
 #   --broken-cancel: the same with the cancel migration failing on its last statement (atomicity).
+#   --with-link:     the same, then 20261102090000_oauth_identity_link after both (one `migrate deploy`);
+#   --broken-link:   the same with the link migration failing on its last statement (atomicity).
 #
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional). Synthetic only. ZERO secrets. ZERO network.
 set -euo pipefail
@@ -24,6 +26,7 @@ TE="20261015090000_transactional_email_foundation"
 AET="20261017090000_auth_email_tokens"
 AGL="20261030090000_oauth_identity_foundation"
 CANCEL="20261101090000_oauth_ticket_cancel"
+LINK="20261102090000_oauth_identity_link"
 bash "$ROOT/.aet/lab.sh" "$DB" --with-aet >/dev/null
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
@@ -40,6 +43,10 @@ done
 # records consent with the real privileges.
 psql_owner -c 'ALTER TABLE "User" DROP COLUMN IF EXISTS "termsAcceptedAt", DROP COLUMN IF EXISTS "termsVersion", DROP COLUMN IF EXISTS "signupAttribution"'
 psql_owner -f "$ROOT/prisma/migrations/20261011090100_signup_consent_business_rename/migration.sql"
+# The case-folded uniqueness of User.email (20261011090200, applied in Production): `db push` cannot build a
+# functional index, so the lab replays the migration — two accounts that differ only in letter case cannot
+# exist here, exactly as in Production.
+psql_owner -f "$ROOT/prisma/migrations/20261011090200_user_email_casefold_unique/migration.sql"
 # If schema.prisma models the tables / the optional password (the application PR), `db push` built them
 # without the migration's policies, functions and grants: put them back the way Production has them today
 # so the migration builds them the way Production will have them.
@@ -47,7 +54,7 @@ psql_owner -c 'DROP TABLE IF EXISTS "UserIdentity" CASCADE' -c 'DROP TABLE IF EX
   -c 'ALTER TABLE "User" ALTER COLUMN "password" SET NOT NULL'
 
 case "$MODE" in
-  --with-agl|--broken-agl|--with-cancel|--broken-cancel) ;;
+  --with-agl|--broken-agl|--with-cancel|--broken-cancel|--with-link|--broken-link) ;;
   *) echo "LAB READY: $DB (through M6 + P3-E + TE + AET; oauth identity pending)"; exit 0 ;;
 esac
 
@@ -59,7 +66,10 @@ for d in "$ROOT"/prisma/migrations/*/; do
   if [[ ! "$name" > "$M6" || "$name" == "$P3E" || "$name" == "$TE" || "$name" == "$AET" || "$name" == "$AGL" ]]; then
     cp -r "$d" "$TMP/prisma/migrations/$name"
   fi
-  if [[ "$name" == "$CANCEL" && ( "$MODE" == "--with-cancel" || "$MODE" == "--broken-cancel" ) ]]; then
+  if [[ "$name" == "$CANCEL" && "$MODE" =~ ^--(with|broken)-(cancel|link)$ ]]; then
+    cp -r "$d" "$TMP/prisma/migrations/$name"
+  fi
+  if [[ "$name" == "$LINK" && "$MODE" =~ ^--(with|broken)-link$ ]]; then
     cp -r "$d" "$TMP/prisma/migrations/$name"
   fi
 done
@@ -69,16 +79,20 @@ fi
 if [ "$MODE" = "--broken-cancel" ]; then
   printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >> "$TMP/prisma/migrations/$CANCEL/migration.sql"
 fi
+if [ "$MODE" = "--broken-link" ]; then
+  printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >> "$TMP/prisma/migrations/$LINK/migration.sql"
+fi
 set +e
 ( cd "$ROOT" && DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" ) > "$TMP/deploy.log" 2>&1
 rc=$?
 set -e
 grep -E "Applying migration|have been successfully applied|Error|error" "$TMP/deploy.log" | head -8
 rm -rf "$TMP"
-if [ "$MODE" = "--broken-agl" ] || [ "$MODE" = "--broken-cancel" ]; then
+if [[ "$MODE" == --broken-* ]]; then
   [ $rc -ne 0 ] || { echo "broken migration did NOT fail"; exit 1; }
   echo "LAB READY: $DB ($MODE: the migration FAILED on its last statement as intended)"; exit 0
 fi
 [ $rc -eq 0 ] || { echo "oauth identity deploy failed"; exit 1; }
 if [ "$MODE" = "--with-cancel" ]; then echo "LAB READY: $DB (oauth identity + ticket cancel applied)"; exit 0; fi
+if [ "$MODE" = "--with-link" ]; then echo "LAB READY: $DB (oauth identity + ticket cancel + identity link applied)"; exit 0; fi
 echo "LAB READY: $DB (oauth identity applied)"

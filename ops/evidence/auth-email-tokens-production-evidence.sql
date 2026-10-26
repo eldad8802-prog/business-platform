@@ -16,7 +16,16 @@
 --     EXECUTE is held by app_auth and by no other role (PUBLIC and app_runtime included);
 --   * "User"."emailVerifiedAt" exists (timestamp(3), nullable); app_auth may read it and may change
 --     neither it nor "User"."password";
---   * nothing was backfilled: the table is empty and no user is marked verified.
+--   * nothing was backfilled: no token and no verification stamp predates the migration's own finish.
+--
+-- STAYS VALID AFTER LATER MIGRATIONS (revised with 20261102090000_oauth_identity_link, Google sign-in M3):
+--   * 20261102090000 adds the LINK_GOOGLE purpose and a ticket-binding key and check to this table. Checks 7
+--     and 9 therefore expect the third key (to OAuthSignupTicket, cascading) and the sixth check constraint
+--     exactly when that migration is recorded finished, and the original two / five otherwise. Everything
+--     else that migration adds is proven by oauth-identity-link-production-evidence.sql (checks 5–9, 12, 14).
+--   * Check 17 was a point-in-time "the table is empty" at apply (2026-10-17); once the product issues links
+--     it would fail forever. It now proves the same thing at any time: no token row and no verified user
+--     predates the migration's finish.
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -29,9 +38,9 @@
 \echo ' 4 AuthEmailToken exists with RLS ENABLED + FORCED'
 \echo ' 5 exactly two policies: app_runtime r / d on the GUC (observed = policies)'
 \echo ' 6 no catch-all (*) policy and no removal (d) policy except app_runtime (observed = such policies)'
-\echo ' 7 foreign keys: User and Business, both cascading (observed = matching)'
+\echo ' 7 foreign keys: User and Business, both cascading (+ OAuthSignupTicket, cascading, once 20261102090000 is finished) (observed = keys)'
 \echo ' 8 indexes: unique tokenHash + userId/purpose/createdAt + businessId (observed = of 3)'
-\echo ' 9 check constraints (observed = check constraints, expected 5)'
+\echo ' 9 check constraints (observed = check constraints; expected 5, or 6 once 20261102090000 is finished)'
 \echo '10 app_runtime table privileges are exactly d'
 \echo '11 app_runtime column read: exactly id and businessId; no other column privilege (observed = column grants)'
 \echo '12 app_auth holds nothing on the table, at table or column level (observed = privileges)'
@@ -39,7 +48,7 @@
 \echo '14 the four functions: SECURITY DEFINER, search_path pinned, owned by the migration role (observed = of 4)'
 \echo '15 EXECUTE: app_auth on all four; no other grantee besides the owner (observed = foreign grantees)'
 \echo '16 User.emailVerifiedAt: timestamp(3), nullable; app_auth reads it, changes neither it nor password'
-\echo '17 nothing backfilled: no token rows and no verified user (observed = rows + verified users)'
+\echo '17 nothing backfilled: no token and no verified user predates the migration finish (observed = such rows)'
 
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '15s';
@@ -75,6 +84,12 @@ fns AS (SELECT p.oid, p.proname, p.prosecdef, p.proowner, p.proconfig, p.proacl 
 fn_exec AS (SELECT f.proname, x.grantee FROM fns f CROSS JOIN LATERAL aclexplode(f.proacl) x WHERE x.privilege_type = 'EXECUTE'),
 verified_col AS (SELECT a.attnum, a.atttypid, a.atttypmod, a.attnotnull FROM pg_attribute a
                  WHERE a.attrelid = (SELECT oid FROM usr) AND a.attname = 'emailVerifiedAt' AND NOT a.attisdropped),
+-- 20261102090000_oauth_identity_link (Google M3) widens this table by one key and one check when it is finished.
+link AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name = '20261102090000_oauth_identity_link'
+         AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
+-- The migration's own finish, as the UTC wall-clock the timestamp(3) columns hold.
+aet_done AS (SELECT timezone('UTC', finished_at) AS at FROM "_prisma_migrations"
+             WHERE migration_name = '20261017090000_auth_email_tokens' AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
 checks(n, ok, observed_count) AS (
   SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261017090000_auth_email_tokens'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL) = 1,
@@ -91,13 +106,15 @@ checks(n, ok, observed_count) AS (
                       (SELECT count(*) FROM pols)
   UNION ALL SELECT 6, NOT EXISTS (SELECT 1 FROM pols WHERE polcmd = '*' OR (polcmd = 'd' AND polroles <> ARRAY[(SELECT oid FROM rt)])),
                       (SELECT count(*) FROM pols WHERE polcmd = '*' OR (polcmd = 'd' AND polroles <> ARRAY[(SELECT oid FROM rt)]))
-  UNION ALL SELECT 7, (SELECT count(*) FROM fks WHERE target IN ('"Business"', '"User"') AND confdeltype = 'c') = 2 AND (SELECT count(*) FROM fks) = 2,
+  UNION ALL SELECT 7, (SELECT count(*) FROM fks WHERE target IN ('"Business"', '"User"') AND confdeltype = 'c') = 2
+                      AND (SELECT count(*) FROM fks WHERE target = '"OAuthSignupTicket"' AND confdeltype = 'c') = (SELECT n FROM link)
+                      AND (SELECT count(*) FROM fks) = 2 + (SELECT n FROM link),
                       (SELECT count(*) FROM fks)
   UNION ALL SELECT 8, (SELECT count(*) FROM idx JOIN pg_class i ON i.relname = idx.nm AND i.relnamespace = (SELECT oid FROM pub)
                          JOIN pg_index x ON x.indexrelid = i.oid WHERE x.indrelid = (SELECT oid FROM tbl) AND x.indisunique = idx.uniq) = 3,
                       (SELECT count(*) FROM idx JOIN pg_class i ON i.relname = idx.nm AND i.relnamespace = (SELECT oid FROM pub)
                          JOIN pg_index x ON x.indexrelid = i.oid WHERE x.indrelid = (SELECT oid FROM tbl) AND x.indisunique = idx.uniq)
-  UNION ALL SELECT 9, (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM tbl) AND k.contype = 'c') = 5,
+  UNION ALL SELECT 9, (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM tbl) AND k.contype = 'c') = 5 + (SELECT n FROM link),
                       (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM tbl) AND k.contype = 'c')
   UNION ALL SELECT 10, EXISTS (SELECT 1 FROM tbl_letters WHERE grantee = (SELECT oid FROM rt) AND letters = 'd'), 1
   UNION ALL SELECT 11, NOT EXISTS (SELECT col FROM col_priv WHERE grantee = (SELECT oid FROM rt) AND l = 'r' EXCEPT SELECT col FROM expected_rt_read)
@@ -121,8 +138,11 @@ checks(n, ok, observed_count) AS (
                        AND has_column_privilege('app_auth', (SELECT oid FROM usr), 'emailVerifiedAt', 'SELECT')
                        AND NOT has_column_privilege('app_auth', (SELECT oid FROM usr), 'emailVerifiedAt', 'UPD' || 'ATE')
                        AND NOT has_column_privilege('app_auth', (SELECT oid FROM usr), 'password', 'UPD' || 'ATE'), 1
-  UNION ALL SELECT 17, (SELECT count(*) FROM "AuthEmailToken") = 0 AND (SELECT count(*) FROM "User" WHERE "emailVerifiedAt" IS NOT NULL) = 0,
-                       (SELECT count(*) FROM "AuthEmailToken") + (SELECT count(*) FROM "User" WHERE "emailVerifiedAt" IS NOT NULL)
+  UNION ALL SELECT 17, EXISTS (SELECT 1 FROM aet_done)
+                       AND (SELECT count(*) FROM "AuthEmailToken" WHERE "createdAt" < (SELECT at FROM aet_done)) = 0
+                       AND (SELECT count(*) FROM "User" WHERE "emailVerifiedAt" < (SELECT at FROM aet_done)) = 0,
+                       (SELECT count(*) FROM "AuthEmailToken" WHERE "createdAt" < (SELECT at FROM aet_done))
+                         + (SELECT count(*) FROM "User" WHERE "emailVerifiedAt" < (SELECT at FROM aet_done))
 )
 SELECT n, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;

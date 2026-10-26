@@ -97,7 +97,29 @@ jobs:
           for d in prisma/migrations/*/; do
             n=$(basename "$d")
             [[ "$n" != "20261017090000_auth_email_tokens" ]] || continue
-            if grep -nE 'AuthEmailToken|emailVerifiedAt|auth_email_token|auth_password_reset' "$d/migration.sql"; then echo "$n names an auth email token object"; exit 1; fi
+            hits=$(sed 's/--.*$//' "$d/migration.sql" | grep -nE 'AuthEmailToken|emailVerifiedAt|auth_email_token|auth_password_reset' || true)
+            [ -n "$hits" ] || continue
+            # Three later migrations may name these objects — each only within the bound below; anything else they
+            # say about them fails this step exactly as an unknown migration would. (This step had not run since
+            # #754 merged; the bounds were written with Google M3, 20261102090000.)
+            case "$n" in
+              20261024090000_platform_admin_a1)
+                # The admin read plane: only a column-level GRANT SELECT to app_admin may name "emailVerifiedAt".
+                bad=$(echo "$hits" | grep -vE '^[0-9]+: *GRANT SELECT \(' || true)
+                if echo "$hits" | grep -qE 'AuthEmailToken|auth_email_token|auth_password_reset|UPDATE|INSERT'; then bad="$hits"; fi ;;
+              20261030090000_oauth_identity_foundation)
+                # The Google identity foundation: only the provider-verified stamp inside its definer function.
+                bad=$(echo "$hits" | grep -vE '^[0-9]+: *(SET "emailVerifiedAt" = COALESCE\("emailVerifiedAt", v_now\)|RETURNING "emailVerifiedAt" INTO v_verified;)$' || true) ;;
+              20261102090000_oauth_identity_link)
+                # The Google existing-account link: never redefines or re-grants the four functions of this migration,
+                # never changes a grant, policy or RLS of AuthEmailToken; it alters the table only by its own column,
+                # its key and index, and the purpose / binding checks. Its own lab proves what those do.
+                bad=$(echo "$hits" | grep -E 'auth_email_token|auth_password_reset|(GRANT|REVOKE)[^;]*"AuthEmailToken"|POLICY|ROW LEVEL SECURITY' || true)
+                bad="$bad$(echo "$hits" | grep -E 'ALTER TABLE "AuthEmailToken"' | grep -vE 'ALTER TABLE "AuthEmailToken" (ADD COLUMN "oauthTicketId" UUID;|DROP CONSTRAINT "AuthEmailToken_purpose";|ADD CONSTRAINT "AuthEmailToken_(purpose|oauth_ticket|oauthTicketId_fkey)")' || true)" ;;
+              *) bad="$hits" ;;
+            esac
+            if [ -n "$bad" ]; then echo "$bad"; echo "$n names an auth email token object beyond its bound"; exit 1; fi
+            echo "$n names auth email token objects only within its bound"
           done
           echo "the migration names only AuthEmailToken, User, Business and AuthSession; no other migration names its objects"
 
@@ -146,25 +168,29 @@ jobs:
         run: |
           set -euo pipefail
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d aet_post -v ON_ERROR_STOP=1 "$@"; }
-          # The battery left rows (and verified users) behind, so 17 (nothing backfilled) fails throughout;
-          # every fault adds exactly its own check.
+          # The battery backdates two of its own tokens (by 2 and 25 hours) to test expiry, so they "predate" the
+          # migration's finish. Those lab-only test rows are removed first; every other row the battery wrote
+          # came after the finish, so the proof is whole (17 is timeless: nothing predates the finish) and every
+          # fault — the backfill one included — adds exactly its own check.
+          lab -q -c "DELETE FROM \"AuthEmailToken\" WHERE \"createdAt\" < (SELECT timezone('UTC', finished_at) FROM \"_prisma_migrations\" WHERE migration_name = '20261017090000_auth_email_tokens')"
           failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
-          test "$(failing)" = "17 " || { echo "unexpected baseline: $(failing)"; exit 1; }
+          test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
           fault() {  # fault <label> <expected> <inject> <undo>
             lab -q -c "$3"; got=$(failing); lab -q -c "$4"
             test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
             echo "fault detected [$1] → FAIL $got"
           }
-          fault "table read for app_auth" "12 17 " 'GRANT SELECT ON "AuthEmailToken" TO app_auth' 'REVOKE SELECT ON "AuthEmailToken" FROM app_auth'
-          fault "hash read for app_runtime" "11 17 " 'GRANT SELECT ("tokenHash") ON "AuthEmailToken" TO app_runtime' 'REVOKE SELECT ("tokenHash") ON "AuthEmailToken" FROM app_runtime'
-          fault "INSERT for app_runtime" "10 17 " 'GRANT INSERT ON "AuthEmailToken" TO app_runtime' 'REVOKE INSERT ON "AuthEmailToken" FROM app_runtime'
-          fault "NO FORCE row-level security" "4 17 " 'ALTER TABLE "AuthEmailToken" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "AuthEmailToken" FORCE ROW LEVEL SECURITY'
-          fault "permissive FOR ALL policy" "5 6 17 " 'CREATE POLICY aet_fault_all ON "AuthEmailToken" USING (true)' 'DROP POLICY aet_fault_all ON "AuthEmailToken"'
-          fault "PUBLIC read" "13 17 " 'GRANT SELECT ON "AuthEmailToken" TO PUBLIC' 'REVOKE SELECT ON "AuthEmailToken" FROM PUBLIC'
-          fault "EXECUTE for app_runtime" "15 17 " 'GRANT EXECUTE ON FUNCTION public.auth_password_reset_consume(uuid, text, text) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.auth_password_reset_consume(uuid, text, text) FROM app_runtime'
-          fault "password change for app_auth" "16 17 " 'GRANT UPDATE ("password") ON "User" TO app_auth' 'REVOKE UPDATE ("password") ON "User" FROM app_auth'
-          fault "SECURITY INVOKER" "14 17 " 'ALTER FUNCTION public.auth_email_token_check(uuid, text, text) SECURITY INVOKER' 'ALTER FUNCTION public.auth_email_token_check(uuid, text, text) SECURITY DEFINER'
-          test "$(failing)" = "17 " || { echo "proof not back to baseline: $(failing)"; exit 1; }
+          fault "table read for app_auth" "12 " 'GRANT SELECT ON "AuthEmailToken" TO app_auth' 'REVOKE SELECT ON "AuthEmailToken" FROM app_auth'
+          fault "hash read for app_runtime" "11 " 'GRANT SELECT ("tokenHash") ON "AuthEmailToken" TO app_runtime' 'REVOKE SELECT ("tokenHash") ON "AuthEmailToken" FROM app_runtime'
+          fault "INSERT for app_runtime" "10 " 'GRANT INSERT ON "AuthEmailToken" TO app_runtime' 'REVOKE INSERT ON "AuthEmailToken" FROM app_runtime'
+          fault "NO FORCE row-level security" "4 " 'ALTER TABLE "AuthEmailToken" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "AuthEmailToken" FORCE ROW LEVEL SECURITY'
+          fault "permissive FOR ALL policy" "5 6 " 'CREATE POLICY aet_fault_all ON "AuthEmailToken" USING (true)' 'DROP POLICY aet_fault_all ON "AuthEmailToken"'
+          fault "PUBLIC read" "13 " 'GRANT SELECT ON "AuthEmailToken" TO PUBLIC' 'REVOKE SELECT ON "AuthEmailToken" FROM PUBLIC'
+          fault "EXECUTE for app_runtime" "15 " 'GRANT EXECUTE ON FUNCTION public.auth_password_reset_consume(uuid, text, text) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.auth_password_reset_consume(uuid, text, text) FROM app_runtime'
+          fault "password change for app_auth" "16 " 'GRANT UPDATE ("password") ON "User" TO app_auth' 'REVOKE UPDATE ("password") ON "User" FROM app_auth'
+          fault "SECURITY INVOKER" "14 " 'ALTER FUNCTION public.auth_email_token_check(uuid, text, text) SECURITY INVOKER' 'ALTER FUNCTION public.auth_email_token_check(uuid, text, text) SECURITY DEFINER'
+          fault "a token that predates the migration (backfill)" "17 " "INSERT INTO \"AuthEmailToken\" (\"id\",\"userId\",\"businessId\",\"purpose\",\"email\",\"tokenHash\",\"createdAt\",\"expiresAt\") SELECT gen_random_uuid(), u.id, u.\"businessId\", 'EMAIL_VERIFY', u.email, encode(sha256('aet-fault-backfill'::bytea), 'hex'), timestamp '2000-01-01', timestamp '2000-01-01 01:00' FROM \"User\" u ORDER BY u.id LIMIT 1" "DELETE FROM \"AuthEmailToken\" WHERE \"createdAt\" < timestamp '2001-01-01'"
+          test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
 
       - name: 6. Rollback — refused while rows exist; reverts whole on an empty database; re-apply makes the proof whole
         run: |

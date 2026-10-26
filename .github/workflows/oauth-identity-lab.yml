@@ -117,12 +117,23 @@ jobs:
           for d in prisma/migrations/*/; do
             n=$(basename "$d")
             [[ "$n" != "20261030090000_oauth_identity_foundation" ]] || continue
-            # The server-side cancel builds on this one; its own lab (oauth-ticket-cancel-lab.yml) proves exactly
-            # what it touches (the end-reason vocabulary of OAuthSignupTicket and one new function).
-            [[ "$n" != "20261101090000_oauth_ticket_cancel" ]] || continue
-            if grep -nE 'UserIdentity|OAuthSignupTicket|auth_oauth_' "$d/migration.sql"; then echo "$n names an oauth identity object"; exit 1; fi
+            hits=$(sed 's/--.*$//' "$d/migration.sql" | grep -nE 'UserIdentity|OAuthSignupTicket|auth_oauth_' || true)
+            [ -n "$hits" ] || continue
+            case "$n" in
+              # The server-side cancel (oauth-ticket-cancel-lab.yml) and the existing-account link (milestone 3,
+              # oauth-identity-link-lab.yml) build on this migration — each only within this bound: they never
+              # redefine or re-grant its six functions, never change a grant, policy or RLS of its two tables, and
+              # alter them only by the cancel's end-reason vocabulary. Anything else fails here.
+              20261101090000_oauth_ticket_cancel|20261102090000_oauth_identity_link)
+                bad=$(echo "$hits" | grep -E 'auth_oauth_(ticket_issue|ticket_read|ticket_consume|identity_attach|identity_resolve|ticket_purge)\(' | grep -E 'CREATE|GRANT|REVOKE|ALTER|DROP' || true)
+                bad="$bad$(echo "$hits" | grep -E '(GRANT|REVOKE)[^;]*"(UserIdentity|OAuthSignupTicket)"|POLICY|ROW LEVEL SECURITY' || true)"
+                bad="$bad$(echo "$hits" | grep -E 'ALTER TABLE "(UserIdentity|OAuthSignupTicket)"' | grep -vE 'ALTER TABLE "OAuthSignupTicket" (DROP|ADD) CONSTRAINT "OAuthSignupTicket_end"' || true)" ;;
+              *) bad="$hits" ;;
+            esac
+            if [ -n "$bad" ]; then echo "$bad"; echo "$n names an oauth identity object beyond its bound"; exit 1; fi
+            echo "$n names oauth identity objects only within its bound"
           done
-          echo "the migration names only UserIdentity, OAuthSignupTicket, User and Business; no other migration (but the cancel) names its objects"
+          echo "the migration names only UserIdentity, OAuthSignupTicket, User and Business; later migrations name its objects only within their bounds"
 
       - name: P. Pure suites — ID token verification (T23–T31), ticket secret + static scope + sign-in policy
         run: |
@@ -217,31 +228,33 @@ jobs:
         run: |
           set -euo pipefail
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d agl_post -v ON_ERROR_STOP=1 "$@"; }
-          # The battery left rows (and a user without a password) behind, so 18 (nothing backfilled) fails
-          # throughout; every fault adds exactly its own check.
+          # The battery's rows (and its password-less users) were all written AFTER the migration finished (its
+          # backdated, expired tickets are purged by its last section), so the proof is whole — 18 is timeless:
+          # nothing predates the finish. Every fault adds exactly its own check.
           failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
-          test "$(failing)" = "18 " || { echo "unexpected baseline: $(failing)"; exit 1; }
+          test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
           fault() {  # fault <label> <expected> <inject> <undo>
             lab -q -c "$3"; got=$(failing); lab -q -c "$4"
             test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
             echo "fault detected [$1] → FAIL $got"
           }
-          fault "ticket read for app_auth" "13 18 " 'GRANT SELECT ON "OAuthSignupTicket" TO app_auth' 'REVOKE SELECT ON "OAuthSignupTicket" FROM app_auth'
-          fault "subject read for app_auth" "13 18 " 'GRANT SELECT ("providerSubject") ON "UserIdentity" TO app_auth' 'REVOKE SELECT ("providerSubject") ON "UserIdentity" FROM app_auth'
-          fault "identity INSERT for app_auth" "13 18 " 'GRANT INSERT ON "UserIdentity" TO app_auth' 'REVOKE INSERT ON "UserIdentity" FROM app_auth'
-          fault "sequence for app_auth" "13 18 " 'GRANT USAGE ON SEQUENCE "UserIdentity_id_seq" TO app_auth' 'REVOKE USAGE ON SEQUENCE "UserIdentity_id_seq" FROM app_auth'
-          fault "subject read for app_runtime" "11 18 " 'GRANT SELECT ("providerSubject") ON "UserIdentity" TO app_runtime' 'REVOKE SELECT ("providerSubject") ON "UserIdentity" FROM app_runtime'
-          fault "ticket read for app_runtime" "12 18 " 'GRANT SELECT ON "OAuthSignupTicket" TO app_runtime' 'REVOKE SELECT ON "OAuthSignupTicket" FROM app_runtime'
-          fault "NO FORCE on tickets" "5 18 " 'ALTER TABLE "OAuthSignupTicket" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "OAuthSignupTicket" FORCE ROW LEVEL SECURITY'
-          fault "NO FORCE on identities" "4 18 " 'ALTER TABLE "UserIdentity" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "UserIdentity" FORCE ROW LEVEL SECURITY'
-          fault "a policy on tickets" "7 18 " 'CREATE POLICY agl_fault_all ON "OAuthSignupTicket" USING (true)' 'DROP POLICY agl_fault_all ON "OAuthSignupTicket"'
-          fault "a catch-all identity policy" "6 18 " 'CREATE POLICY agl_fault_all ON "UserIdentity" USING (true)' 'DROP POLICY agl_fault_all ON "UserIdentity"'
-          fault "PUBLIC read of identities" "14 18 " 'GRANT SELECT ON "UserIdentity" TO PUBLIC' 'REVOKE SELECT ON "UserIdentity" FROM PUBLIC'
-          fault "EXECUTE for app_runtime" "16 18 " 'GRANT EXECUTE ON FUNCTION public.auth_oauth_ticket_consume(text, text) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_ticket_consume(text, text) FROM app_runtime'
-          fault "EXECUTE for PUBLIC" "16 18 " 'GRANT EXECUTE ON FUNCTION public.auth_oauth_identity_attach(uuid, integer) TO PUBLIC' 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_identity_attach(uuid, integer) FROM PUBLIC'
-          fault "password change for app_auth" "17 18 " 'GRANT UPDATE ("password") ON "User" TO app_auth' 'REVOKE UPDATE ("password") ON "User" FROM app_auth'
-          fault "SECURITY INVOKER" "15 18 " 'ALTER FUNCTION public.auth_oauth_ticket_consume(text, text) SECURITY INVOKER' 'ALTER FUNCTION public.auth_oauth_ticket_consume(text, text) SECURITY DEFINER'
-          test "$(failing)" = "18 " || { echo "proof not back to baseline: $(failing)"; exit 1; }
+          fault "ticket read for app_auth" "13 " 'GRANT SELECT ON "OAuthSignupTicket" TO app_auth' 'REVOKE SELECT ON "OAuthSignupTicket" FROM app_auth'
+          fault "subject read for app_auth" "13 " 'GRANT SELECT ("providerSubject") ON "UserIdentity" TO app_auth' 'REVOKE SELECT ("providerSubject") ON "UserIdentity" FROM app_auth'
+          fault "identity INSERT for app_auth" "13 " 'GRANT INSERT ON "UserIdentity" TO app_auth' 'REVOKE INSERT ON "UserIdentity" FROM app_auth'
+          fault "sequence for app_auth" "13 " 'GRANT USAGE ON SEQUENCE "UserIdentity_id_seq" TO app_auth' 'REVOKE USAGE ON SEQUENCE "UserIdentity_id_seq" FROM app_auth'
+          fault "subject read for app_runtime" "11 " 'GRANT SELECT ("providerSubject") ON "UserIdentity" TO app_runtime' 'REVOKE SELECT ("providerSubject") ON "UserIdentity" FROM app_runtime'
+          fault "ticket read for app_runtime" "12 " 'GRANT SELECT ON "OAuthSignupTicket" TO app_runtime' 'REVOKE SELECT ON "OAuthSignupTicket" FROM app_runtime'
+          fault "NO FORCE on tickets" "5 " 'ALTER TABLE "OAuthSignupTicket" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "OAuthSignupTicket" FORCE ROW LEVEL SECURITY'
+          fault "NO FORCE on identities" "4 " 'ALTER TABLE "UserIdentity" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "UserIdentity" FORCE ROW LEVEL SECURITY'
+          fault "a policy on tickets" "7 " 'CREATE POLICY agl_fault_all ON "OAuthSignupTicket" USING (true)' 'DROP POLICY agl_fault_all ON "OAuthSignupTicket"'
+          fault "a catch-all identity policy" "6 " 'CREATE POLICY agl_fault_all ON "UserIdentity" USING (true)' 'DROP POLICY agl_fault_all ON "UserIdentity"'
+          fault "PUBLIC read of identities" "14 " 'GRANT SELECT ON "UserIdentity" TO PUBLIC' 'REVOKE SELECT ON "UserIdentity" FROM PUBLIC'
+          fault "EXECUTE for app_runtime" "16 " 'GRANT EXECUTE ON FUNCTION public.auth_oauth_ticket_consume(text, text) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_ticket_consume(text, text) FROM app_runtime'
+          fault "EXECUTE for PUBLIC" "16 " 'GRANT EXECUTE ON FUNCTION public.auth_oauth_identity_attach(uuid, integer) TO PUBLIC' 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_identity_attach(uuid, integer) FROM PUBLIC'
+          fault "password change for app_auth" "17 " 'GRANT UPDATE ("password") ON "User" TO app_auth' 'REVOKE UPDATE ("password") ON "User" FROM app_auth'
+          fault "SECURITY INVOKER" "15 " 'ALTER FUNCTION public.auth_oauth_ticket_consume(text, text) SECURITY INVOKER' 'ALTER FUNCTION public.auth_oauth_ticket_consume(text, text) SECURITY DEFINER'
+          fault "a ticket that predates the migration (backfill)" "18 " "INSERT INTO \"OAuthSignupTicket\" (\"id\",\"purpose\",\"provider\",\"providerSubject\",\"email\",\"emailVerified\",\"secretHash\",\"issuedAt\",\"expiresAt\") VALUES (gen_random_uuid(), 'SIGNUP', 'google', 'agl-fault-backfill', 'fault@lab.invalid', true, encode(sha256('agl-fault-backfill'::bytea), 'hex'), timestamp '2000-01-01', timestamp '2000-01-01 00:10')" "DELETE FROM \"OAuthSignupTicket\" WHERE \"providerSubject\" = 'agl-fault-backfill'"
+          test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
 
       - name: 6. Rollback — refused while rows exist; reverts whole on an empty database; re-apply makes the proof whole
         run: |
