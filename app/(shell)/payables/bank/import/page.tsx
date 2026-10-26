@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import BackButton from "@/components/ui/back-button";
 import { fetchBankAccounts, type BankAccountApi } from "@/lib/payables/payables-client";
+import { BankImportRequestError, buildBankImportForm, fetchBankImportOpen, postBankImport } from "@/lib/bank-file-import/bank-import-client";
 import { PAYABLES_THEME } from "../../payables-theme";
 import styles from "../../payables.module.css";
 import own from "./bank-import.module.css";
@@ -112,20 +113,18 @@ const date = (iso: string) => {
   return `${d}/${m}/${y}`;
 };
 
-async function send(path: string, file: File, accountId: number, mapping: Mapping | null, token?: string, decisions?: Record<number, Decision>) {
-  const body = new FormData();
-  body.set("file", file);
-  body.set("accountId", String(accountId));
-  if (mapping) body.set("mapping", JSON.stringify(mapping));
-  if (token) body.set("token", token);
-  if (decisions && Object.keys(decisions).length) body.set("decisions", JSON.stringify(decisions));
-  const res = await fetch(path, { method: "POST", body, credentials: "same-origin" });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const code = typeof json.error === "string" ? json.error : "";
-    throw new Error(res.status === 404 ? "הקליטה עדיין לא פתוחה לעסק הזה." : ERROR_TEXT[code] ?? "משהו השתבש. נסו שוב.");
+// Every call goes through bank-import-client, which carries the session's Bearer token.
+async function send(step: "analyze" | "commit", file: File, accountId: number, mapping: Mapping | null, token?: string, decisions?: Record<number, Decision>) {
+  try {
+    return await postBankImport<unknown>(step, buildBankImportForm({ file, accountId, mapping, token, decisions }));
+  } catch (e) {
+    if (e instanceof BankImportRequestError) {
+      if (e.status === 401) throw new Error("פג תוקף ההתחברות. יש להתחבר מחדש.");
+      if (e.status === 404) throw new Error("הקליטה עדיין לא פתוחה לעסק הזה.");
+      throw new Error(ERROR_TEXT[e.code] ?? "משהו השתבש. נסו שוב.");
+    }
+    throw new Error("משהו השתבש. נסו שוב.");
   }
-  return json;
 }
 
 export default function BankImportPage() {
@@ -145,9 +144,7 @@ export default function BankImportPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/payables/bank-import", { credentials: "same-origin" })
-      .then((r) => !cancelled && setEnabled(r.ok))
-      .catch(() => !cancelled && setEnabled(false));
+    fetchBankImportOpen().then((open) => !cancelled && setEnabled(open));
     fetchBankAccounts()
       .then((r) => {
         if (cancelled) return;
@@ -168,7 +165,7 @@ export default function BankImportPage() {
     setError(null);
     setResult(null);
     try {
-      const p = (await send("/api/payables/bank-import/analyze", file, accountId, nextMapping)) as Preview | MappingRequired;
+      const p = (await send("analyze", file, accountId, nextMapping)) as Preview | MappingRequired;
       if (p.status === "MAPPING_REQUIRED") {
         setNeedsMapping(p);
         setDraft(p.mapping);
@@ -192,7 +189,7 @@ export default function BankImportPage() {
     setBusy(true);
     setError(null);
     try {
-      setResult((await send("/api/payables/bank-import/commit", file, accountId, mapping, preview.token, decisions)) as CommitResult);
+      setResult((await send("commit", file, accountId, mapping, preview.token, decisions)) as CommitResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : "משהו השתבש. נסו שוב.");
     } finally {
