@@ -1,6 +1,8 @@
 /**
  * "Continue with Google" — what a verified Google identity leads to. Called by the callback route only.
  *
+ *   0. PILOT (google-oauth.ts "who"): an address not on the pilot list stops here — before the linked lookup,
+ *      so no session, no ticket and no link of any kind; the same answer for every unlisted address.
  *   1. LINKED subject (UserIdentity, matched on `sub` only) → that account, if google-sign-in-policy allows it
  *      (not a platform admin, business not in deletion) → a session exactly as password login issues one.
  *   2. NOT linked, but the address belongs to an existing account → never a session and never an automatic
@@ -21,7 +23,7 @@ import type { UserRole } from "@prisma/client";
 import { createRemoteJWKSet, type JWTVerifyGetKey } from "jose";
 
 import { verifyGoogleIdToken, type GoogleIdentity, type GoogleIdTokenFailure } from "@/lib/auth/google-id-token";
-import type { GoogleLoginConfig } from "@/lib/auth/google-oauth";
+import { googleLoginAllows, type GoogleLoginConfig } from "@/lib/auth/google-oauth";
 import { googleSignInRefusal, type GoogleSignInRefusal } from "@/lib/auth/google-sign-in-policy";
 import { readGoogleLinkStatus } from "@/lib/auth/google-link";
 import { issueLinkTicket, issueSignupTicket, resolveGoogleIdentity } from "@/lib/auth/oauth-ticket";
@@ -34,6 +36,7 @@ import { authDb } from "@/lib/prisma-auth";
 export type CallbackOutcome =
   | { kind: "session"; userId: number; businessId: number; credential: string; absoluteExpiresAt: Date }
   | { kind: "refused"; reason: GoogleSignInRefusal }
+  | { kind: "not_in_pilot" }
   | { kind: "existing_account" }
   | { kind: "signup_closed" }
   | { kind: "ticket"; secret: string }
@@ -111,6 +114,7 @@ export async function resolveGoogleCallback(
   const verified = await deps.verify(input.idToken, { clientId: input.config.clientId, nonce: input.nonce, now: input.now }, keysFor(input.config));
   if (!verified.ok) return { kind: "invalid_token", reason: verified.reason };
   const identity: GoogleIdentity = verified.identity;
+  if (!googleLoginAllows(input.config, identity.email)) return { kind: "not_in_pilot" };
 
   const linked = await resolveGoogleIdentity(identity.subject);
   if (linked) return sessionFor(linked.userId, input.now, input.userAgent);

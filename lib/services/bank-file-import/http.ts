@@ -113,7 +113,8 @@ function parseDecisions(raw: FormDataEntryValue | null): SuspectDecisions | null
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new BankImportError("DECISIONS_INVALID", 400);
   const out: SuspectDecisions = {};
   for (const [row, v] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!/^d+$/.test(row) || (v !== "IMPORT" && v !== "SKIP")) throw new BankImportError("DECISIONS_INVALID", 400);
+    // A row number: one or more digits.
+    if (!/^\d+$/.test(row) || (v !== "IMPORT" && v !== "SKIP")) throw new BankImportError("DECISIONS_INVALID", 400);
     out[Number(row)] = v;
   }
   return out;

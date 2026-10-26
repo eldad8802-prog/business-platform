@@ -81,7 +81,11 @@ async function main() {
     await p.getByRole("button", { name: /נועה לוי/ }).first().click();
     const panel = p.getByRole("complementary", { name: "פרטי התור" });
     await panel.getByText("מאושר").first().waitFor({ timeout: 15_000 });
-    for (const b of ["הושלם", "לא הגיע", "הזז", "ביטול התור"]) await panel.getByRole("button", { name: b }).waitFor();
+    for (const b of ["הזז", "ביטול התור"]) await panel.getByRole("button", { name: b }).waitFor();
+    // "הושלם" / "לא הגיע" only once it has started (10:00 Israel time) — never for a future appointment.
+    const started = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jerusalem", hour: "2-digit", hour12: false }).format(new Date())) >= 10;
+    const outcomes = await panel.getByRole("button", { name: /^(הושלם|לא הגיע)$/ }).count();
+    if (outcomes !== (started ? 2 : 0)) throw new Error(`outcome buttons: ${outcomes}, started: ${started}`);
     await panel.getByText("נקבע").first().waitFor();
     await shot(p, "03-desktop-details");
   });
@@ -97,7 +101,8 @@ async function main() {
     await dlg.getByLabel("שעה", { exact: true }).fill("16:00");
     await shot(p, "04-desktop-create-form");
     await dlg.getByRole("button", { name: "קבע", exact: true }).click();
-    await seen(p, "נקבע");
+    // "נקבע" is also in the open details panel's history: wait for the form itself to close (it closes on success).
+    await dlg.waitFor({ state: "hidden", timeout: 20_000 });
     const list = await api(t, `/api/appointments?from=${encodeURIComponent(new Date(Date.now() - 864e5).toISOString())}&to=${encodeURIComponent(new Date(Date.now() + 3 * 864e5).toISOString())}`);
     const ron = (list.body?.appointments ?? []).find((a: { customerId: number }) => a.customerId === seed.customers.ron);
     if (!ron || ron.leadId === null) throw new Error(`no linked appointment for the lead's customer: ${JSON.stringify(ron)}`);
@@ -206,10 +211,9 @@ async function main() {
     await p.getByRole("button", { name: "הוספת השירות" }).click();
     await seen(p, "השירות נוסף");
     await p.getByRole("button", { name: /^פן/ }).first().click();
-    const card = p.getByRole("region", { name: "פרטי השירות" });
-    await card.getByLabel("משך (דקות)", { exact: true }).fill("50");
-    await card.getByRole("button", { name: "שמירה" }).click();
-    await seen(p, "השירות עודכן");
+    await p.locator("#svc-duration").fill("50");
+    await p.getByRole("button", { name: "שמירת השינויים" }).click();
+    await seen(p, "השינויים נשמרו");
     await shot(p, "17-desktop-service-edit");
     await p.goto(`/calendar?view=day&day=${seed.today}`);
     await p.getByRole("button", { name: "תור חדש" }).first().click();
@@ -217,6 +221,111 @@ async function main() {
     await dlg.getByLabel("שירות", { exact: true }).selectOption({ label: "פן · 50 דק׳" });
     if ((await dlg.getByLabel("משך (דק׳)", { exact: true }).inputValue()) !== "50") throw new Error("the form did not take the edited length");
     await dlg.getByRole("button", { name: "ביטול" }).last().click();
+  });
+
+  await check("D17 who performs a service: saved, shown as saved at once and after a reload, other services untouched", async () => {
+    const before = (await api(t, "/api/appointments/staff")).body.staff as Array<{ id: number; services: Array<{ businessServiceId: number }> }>;
+    await p.goto("/calendar/services");
+    await p.getByRole("button", { name: /^צבע/ }).first().click();
+    const who = p.getByRole("group", { name: "מי מבצע את השירות" });
+    const avi = who.getByRole("button", { name: /אבי/ });
+    await avi.waitFor({ timeout: 20_000 });
+    if ((await avi.getAttribute("aria-pressed")) !== "false") throw new Error("אבי should not perform צבע in the seed");
+    await avi.click();
+    await p.getByRole("button", { name: "שמירת השינויים" }).click();
+    await seen(p, "השינויים נשמרו");
+    await p.waitForTimeout(800);
+    if ((await avi.getAttribute("aria-pressed")) !== "true") throw new Error("the saved assignment is not shown as saved");
+    if (!(await p.getByRole("button", { name: "שמירת השינויים" }).isDisabled())) throw new Error("a saved form still offers to save");
+    await p.reload();
+    await p.getByRole("button", { name: /^צבע/ }).first().click();
+    await who.getByRole("button", { name: /אבי/ }).waitFor({ timeout: 20_000 });
+    await p.waitForTimeout(800);
+    if ((await who.getByRole("button", { name: /אבי/ }).getAttribute("aria-pressed")) !== "true") throw new Error("after a reload the assignment is gone");
+    const after = (await api(t, "/api/appointments/staff")).body.staff as typeof before;
+    for (const m of before) {
+      const a = after.find((x) => x.id === m.id)!;
+      const rest = (l: typeof m.services) => l.map((x) => x.businessServiceId).filter((x) => x !== seed.services.color).sort().join(",");
+      if (rest(a.services) !== rest(m.services)) throw new Error(`staff ${m.id}: another service's assignment changed`);
+    }
+    await shot(p, "18-desktop-service-who-saved");
+  });
+  await check("D18 closures show in the week, the month and the day: a closed day and 12:00–14:00", async () => {
+    await p.goto(`/calendar?view=month&day=${seed.partDay}`);
+    const label = async (day: string) => p.locator(`button[aria-label^="${new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(day + "T12:00:00Z"))}"]`).first().getAttribute("aria-label");
+    await p.locator('[class*="weekRow"]').first().waitFor({ timeout: 20_000 });
+    await p.waitForTimeout(1500);
+    const closed = (await label(seed.closedDay)) ?? "";
+    const part = (await label(seed.partDay)) ?? "";
+    if (!closed.includes("סגור כל היום")) throw new Error(`closed day reads: ${closed}`);
+    if (!/12:00.14:00/.test(part)) throw new Error(`part-day reads: ${part}`);
+    await shot(p, "19-desktop-month-closures");
+    await p.goto(`/calendar?view=week&day=${seed.partDay}`);
+    await p.waitForTimeout(1500);
+    await shot(p, "20-desktop-week-closures");
+  });
+  await check("D19 every free time is offered (show more), not only the first twelve", async () => {
+    await p.goto(`/calendar?view=week&day=${seed.today}`);
+    await p.getByRole("button", { name: "תור חדש" }).first().click();
+    const dlg = p.getByRole("dialog");
+    await dlg.getByLabel("תאריך", { exact: true }).fill(seed.partDay);
+    const hint = dlg.getByText(/שעות פנויות ביום הזה \(/).first();
+    await hint.waitFor({ timeout: 20_000 });
+    const total = Number(((await hint.textContent()) ?? "").match(/\((\d+)\)/)?.[1] ?? 0);
+    const more = dlg.locator('[class*="moreChip"]');
+    if (await more.count()) await more.click();
+    const chips = await dlg.locator('[class*="slotChips"] button[aria-pressed]').count();
+    if (!(total > 12 && chips === total)) throw new Error(`total ${total}, chips ${chips}`);
+    // nothing offered inside the 12:00–14:00 closure
+    const inside = await dlg.locator('[class*="slotChips"] button[aria-pressed]').evaluateAll((els) => els.map((e) => e.textContent ?? "").filter((x) => x >= "12:00" && x < "14:00"));
+    if (inside.length) throw new Error(`offered inside the closure: ${inside.join(",")}`);
+    await shot(p, "21-desktop-all-slots");
+    await dlg.getByRole("button", { name: "ביטול" }).last().click();
+  });
+
+  await check("D20 a time typed into a closure is flagged BEFORE booking; an open time is not", async () => {
+    await p.goto(`/calendar?view=week&day=${seed.today}`);
+    await p.getByRole("button", { name: "תור חדש" }).first().click();
+    const dlg = p.getByRole("dialog");
+    await dlg.getByRole("radio", { name: "פגישה פנימית" }).click();
+    await dlg.getByLabel("כותרת", { exact: true }).fill("בדיקת סגירה");
+    await dlg.getByLabel("תאריך", { exact: true }).fill(seed.partDay);
+    await dlg.getByLabel("שעה", { exact: true }).fill("12:30");
+    await dlg.getByText("השעה נופלת בזמן סגור").first().waitFor({ timeout: 15_000 });
+    await dlg.getByRole("button", { name: "לקבוע בכל זאת" }).waitFor();
+    await shot(p, "22-desktop-closure-warning");
+    await dlg.getByLabel("שעה", { exact: true }).fill("10:00");
+    await dlg.getByRole("button", { name: "קבע", exact: true }).waitFor({ timeout: 5_000 });
+    if (await dlg.getByText("השעה נופלת בזמן סגור").count()) throw new Error("an open time is still flagged");
+    await dlg.getByLabel("תאריך", { exact: true }).fill(seed.closedDay);
+    await dlg.getByText(/אין שעה פנויה ביום הזה\. היום סגור/).first().waitFor({ timeout: 15_000 });
+    await dlg.getByRole("button", { name: "ביטול" }).last().click();
+  });
+  await check("D21 closures are named on the day grid; the month tells closed days from booked ones (legend)", async () => {
+    await p.goto(`/calendar?view=day&day=${seed.partDay}`);
+    await p.locator('[class*="closureLabel"]').first().waitFor({ timeout: 20_000 });
+    await shot(p, "23-desktop-day-closure-named");
+    await p.goto(`/calendar?view=week&day=${seed.closedDay}`);
+    await p.locator('[class*="closureLabel"]', { hasText: "חג" }).first().waitFor({ timeout: 20_000 });
+    await shot(p, "24-desktop-week-closures-named");
+    await p.goto(`/calendar?view=month&day=${seed.closedDay}`);
+    await p.locator('[class*="legend"]').first().waitFor({ timeout: 20_000 });
+    for (const word of ["סגור", "תורים"]) await p.locator('[class*="legend"]').getByText(word, { exact: true }).first().waitFor();
+    await shot(p, "25-desktop-month-legend");
+  });
+  await check("D22 switching services with unsaved changes asks first; staying keeps them", async () => {
+    await p.goto("/calendar/services");
+    await p.getByRole("button", { name: /^תספורת/ }).first().click();
+    await p.getByRole("group", { name: "מי מבצע את השירות" }).getByRole("button", { name: /אבי/ }).click();
+    await p.getByRole("button", { name: /^ייעוץ/ }).first().click();
+    await p.getByText(/יש שינויים שלא נשמרו/).first().waitFor({ timeout: 10_000 });
+    await shot(p, "26-desktop-unsaved-changes");
+    await p.getByRole("button", { name: "להישאר ולשמור" }).click();
+    if (!(await p.getByRole("button", { name: "שמירת השינויים" }).isEnabled())) throw new Error("the unsaved change was lost");
+    await p.getByRole("button", { name: /^ייעוץ/ }).first().click();
+    await p.getByRole("button", { name: "לעבור בלי לשמור" }).click();
+    await p.getByRole("heading", { name: "ייעוץ" }).first().waitFor({ timeout: 10_000 });
+    await p.goto(`/calendar?view=week&day=${seed.today}`);
   });
 
   await check("D15 the forms enforce the server's text limits, in Hebrew", async () => {
@@ -266,7 +375,86 @@ async function main() {
     await seen(m, "תורים היום");
     await shot(m, "m05-phone-secretary");
   });
+  await check("M6 cancel on the phone: a double tap keeps the appointment; the confirm is held a moment", async () => {
+    await m.goto(`/calendar?day=${seed.today}&appointment=${seed.ids.todayMaya}`);
+    const open = m.getByRole("button", { name: "ביטול התור" });
+    await open.waitFor({ timeout: 20_000 });
+    const box = (await open.boundingBox())!;
+    await m.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await m.waitForTimeout(60);
+    await m.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await m.waitForTimeout(1200);
+    const status = (await api(t, `/api/appointments/${seed.ids.todayMaya}`)).body.appointment.status;
+    if (status !== "CONFIRMED") throw new Error(`after a double tap the appointment is ${status}`);
+    if (!(await m.getByRole("button", { name: "כן, לבטל את התור" }).count())) await open.click();
+    const confirm = m.getByRole("button", { name: "כן, לבטל את התור" });
+    await confirm.waitFor({ timeout: 5_000 });
+    if (!(await confirm.isDisabled())) throw new Error("the confirm is live at once");
+    await m.waitForTimeout(1_000);
+    if (await confirm.isDisabled()) throw new Error("the confirm never became available");
+    await shot(m, "m06-phone-cancel");
+    await m.getByRole("button", { name: /חזרה, להשאיר/ }).click();
+  });
+  await check("M7 390px: no sideways page scroll; a closed day says so", async () => {
+    await m.goto(`/calendar?view=day&day=${seed.closedDay}`);
+    await seen(m, "העסק סגור ביום הזה");
+    const width = await m.evaluate(() => document.documentElement.scrollWidth);
+    if (width > 390) throw new Error(`page is ${width}px wide`);
+    await shot(m, "m07-phone-closed-day");
+  });
+  // Nothing on screen is covered: the bottom bar, its raised +, and the floating accessibility button.
+  type Cover = { empty: { top: number; bottom: number } | null; navTop: number | null; underNav: boolean; underFab: boolean };
+  const COVER_PROBE = `(() => {
+    const nav = [...document.querySelectorAll("nav")].map((e) => e.getBoundingClientRect()).find((r) => r.bottom >= innerHeight - 2 && r.height < 140) || null;
+    const fabEl = [...document.querySelectorAll("button")].find((x) => /נגישות/.test(x.getAttribute("aria-label") || ""));
+    const fab = fabEl ? fabEl.getBoundingClientRect() : null;
+    const emptyEl = [...document.querySelectorAll("main section button")].find((x) => (x.textContent || "").trim() === "תור חדש");
+    const empty = emptyEl ? emptyEl.getBoundingClientRect() : null;
+    const underFab = !!empty && !!fab && empty.left < fab.right && fab.left < empty.right && empty.top < fab.bottom && fab.top < empty.bottom;
+    return { empty: empty && { top: empty.top, bottom: empty.bottom }, navTop: nav ? nav.top : null, underNav: !!empty && !!nav && empty.bottom > nav.top - 24, underFab };
+  })()`;
+  const covered = (page: Page) => page.evaluate(COVER_PROBE) as Promise<Cover>;
+  await check("M8 an empty day: its \"תור חדש\" is fully on screen, clear of the bottom bar and the accessibility button", async () => {
+    await m.goto(`/calendar?view=day&day=${seed.closedDay}`);
+    await seen(m, "אין תורים ביום הזה");
+    const c = await covered(m);
+    if (!c.empty || c.underNav || c.underFab) throw new Error(JSON.stringify(c));
+    await shot(m, "m08-phone-empty-day");
+  });
+  await check("M9 the phone's day / week / month tabs: the active one is filled and marked", async () => {
+    await m.goto(`/calendar?view=day&day=${seed.today}`);
+    const tab = m.getByRole("tab", { name: "יום", exact: true });
+    await tab.waitFor({ timeout: 20_000 });
+    if ((await tab.getAttribute("aria-selected")) !== "true") throw new Error("the active tab is not marked");
+    const bg = async (name: string) => m.getByRole("tab", { name, exact: true }).evaluate((e) => getComputedStyle(e).backgroundColor);
+    if ((await bg("יום")) === (await bg("שבוע"))) throw new Error("active and inactive tabs look alike");
+    await shot(m, "m09-phone-tabs");
+  });
+  await check("M10 the phone's month: closed days and booked days look different, with a legend", async () => {
+    await m.goto(`/calendar?view=month&day=${seed.closedDay}`);
+    await m.locator('[class*="cellBadge"]', { hasText: "סגור" }).first().waitFor({ timeout: 20_000 });
+    await m.locator('[class*="legend"]').first().waitFor();
+    await shot(m, "m10-phone-month-legend");
+  });
   await mc.close();
+
+  // A small phone (375×667) and a tablet: the same — nothing covered, no sideways scroll.
+  for (const [w, h, name] of [[375, 667, "S1 small phone"], [820, 1180, "T1 tablet"]] as const) {
+    const sc = await browser.newContext({ baseURL: BASE, locale: "he-IL", timezoneId: "Asia/Jerusalem", viewport: { width: w, height: h }, isMobile: true, hasTouch: true });
+    await sc.addInitScript((tk) => { try { localStorage.setItem("token", tk); } catch { /* opaque */ } }, t);
+    const sp = await sc.newPage();
+    current = sp;
+    await check(`${name} (${w}px): an empty day's "תור חדש" is clear of the bars and buttons; no sideways scroll`, async () => {
+      await sp.goto(`/calendar?view=day&day=${seed.closedDay}`);
+      await sp.waitForTimeout(2500);
+      const c = await covered(sp);
+      if (c.empty && (c.underNav || c.underFab)) throw new Error(JSON.stringify(c));
+      const width = await sp.evaluate(() => document.documentElement.scrollWidth);
+      if (width > w) throw new Error(`page is ${width}px wide`);
+      await shot(sp, `${w}-empty-day`);
+    });
+    await sc.close();
+  }
 
   // ── Business B, appointments OFF ──────────────────────────────────────────────────────────────
   console.log("desktop · appointments OFF (business B)");

@@ -36,6 +36,7 @@ type Warning = NonNullable<PeriodView["readiness"]>["warnings"][number];
 export function blockerHe(b: Blocker): string {
   if (b.kind === "DOCUMENTS_PENDING_REVIEW") return `${b.count} מסמכים עדיין ממתינים לבדיקה ולא נכנסו לדוח`;
   if (b.kind === "ISSUED_PDF_UNAVAILABLE") return `${b.count} מסמכים שהופקו — הקובץ הסופי שלהם עדיין אינו זמין`;
+  if (b.kind === "ORIGINAL_FILE_MISMATCH") return `${b.count} קבצי מקור אינם תואמים לקובץ שנקלט — לא צורפו`;
   return `${b.count} קבצי מקור לא נמצאו באחסון`;
 }
 
@@ -47,6 +48,7 @@ export function blockerHref(b: Blocker, periodKey: string): { href: string; labe
 
 export function warningHe(w: Warning): string {
   if (w.kind === "DATE_FROM_UPLOAD_TIME") return `${w.count} רשומות שהתאריך שלהן נלקח ממועד ההעלאה — כדאי לוודא`;
+  if (w.kind === "ORIGINAL_NOT_VERIFIED") return `${w.count} קבצי מקור צורפו בלי אפשרות לאמת אותם (נקלטו לפני שנשמרה חתימת קובץ) — מסומנים בדוח`;
   return `${w.count} הכנסות סרוקות שייתכן שהן כפולות למסמך שהופק בדוביז — מסומנות בדוח`;
 }
 

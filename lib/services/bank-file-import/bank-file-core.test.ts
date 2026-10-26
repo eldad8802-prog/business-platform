@@ -12,6 +12,7 @@ import { readCsvTable, readXlsxTable, type SheetTable } from "@/lib/data-transfe
 import { parseStatementCsv, statementLineIdentities } from "@/lib/services/payables/payables-p46-core";
 import {
   bankHeaderKey,
+  detectBankDelimiter,
   bankLineIdentities,
   bankMappingHash,
   checkBalanceChain,
@@ -309,6 +310,7 @@ function realFormatTests(): void {
   const shekel = ["תאריך", "יום ערך", "תיאור התנועה", 'זכות/חובה ש"ח', 'יתרה בש"ח', "אסמכתה"];
   check('a ש"ח / בש"ח suffix maps the same way', JSON.stringify(proposeBankMapping(shekel).mapping) === JSON.stringify(proposal.mapping), JSON.stringify(proposeBankMapping(shekel).mapping));
   check("the currency mark is dropped only as a trailing word", bankHeaderKey("יתרה ₪") === "יתרה" && bankHeaderKey('סכום בש"ח') === "סכום" && bankHeaderKey("שח") === "שח");
+  check("a sep= line wins, even after leading whitespace (the parser honours it)", detectBankDelimiter("sep=;\na;b;c\n1;2;3") === null && detectBankDelimiter("  sep=;\na;b;c\n1;2;3") === null && detectBankDelimiter("a\tb\tc\n1\t2\t3\n4\t5\t6") === "\t");
 }
 
 function mappingSafetyTests(): void {

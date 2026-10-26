@@ -62,6 +62,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const config = readGoogleLoginConfig({
   AUTH_GOOGLE_LOGIN_ENABLED: "true",
+  AUTH_GOOGLE_LOGIN_MODE: "open",
   GOOGLE_LOGIN_CLIENT_ID: "lab-client.apps.googleusercontent.com",
   GOOGLE_LOGIN_CLIENT_SECRET: "lab-secret",
   GOOGLE_LOGIN_REDIRECT_BASE_URL: "https://app.dubiz.test",

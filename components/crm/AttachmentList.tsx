@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
-  getAttachments,
+  getAttachmentsPage,
   uploadAttachment,
   deleteAttachment,
   downloadAttachment,
@@ -48,6 +48,12 @@ export function AttachmentList({
 }) {
   const { t, formatDate } = useI18n();
   const [items, setItems] = useState<CrmAttachmentDTO[]>([]);
+  // The subject's real file count and whether older files exist beyond the loaded
+  // pages — the header used to print the length of a capped page (at most 100).
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,7 +78,11 @@ export function AttachmentList({
     try {
       setLoading(true);
       setError(null);
-      setItems(await getAttachments(subjectType, subjectId));
+      setMoreError(null);
+      const page = await getAttachmentsPage(subjectType, subjectId);
+      setItems(page.attachments);
+      setHasMore(page.hasMore);
+      setTotal(page.total);
     } catch (err) {
       if (handleAuth(err)) return;
       setError(err instanceof Error ? err.message : t("inbox.crm.attachments.loadFailed"));
@@ -85,6 +95,29 @@ export function AttachmentList({
     void load();
   }, [load]);
 
+  // Older files, appended after the last one shown. A failure keeps every file
+  // already on screen and offers a retry from the same point.
+  const loadMore = useCallback(async () => {
+    const last = items.at(-1);
+    if (loadingMore || !hasMore || !last) return;
+    try {
+      setLoadingMore(true);
+      setMoreError(null);
+      const page = await getAttachmentsPage(subjectType, subjectId, last.id);
+      setItems((prev) => {
+        const seen = new Set(prev.map((a) => a.id));
+        return prev.concat(page.attachments.filter((a) => !seen.has(a.id)));
+      });
+      setHasMore(page.hasMore);
+      setTotal(page.total);
+    } catch (err) {
+      if (handleAuth(err)) return;
+      setMoreError(t("inbox.crm.attachments.loadMoreFailed"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [items, loadingMore, hasMore, subjectType, subjectId, handleAuth, t]);
+
   async function handleFileChosen(file: File | undefined) {
     if (!file) return;
     try {
@@ -95,6 +128,7 @@ export function AttachmentList({
         setUploadPct(pct)
       );
       setItems((prev) => [created, ...prev]);
+      setTotal((n) => n + 1);
     } catch (err) {
       if (handleAuth(err)) return;
       setUploadError(err instanceof Error ? err.message : t("inbox.crm.attachments.uploadFailed"));
@@ -124,6 +158,7 @@ export function AttachmentList({
       setRowError(null);
       await deleteAttachment(id);
       setItems((prev) => prev.filter((a) => a.id !== id));
+      setTotal((n) => Math.max(0, n - 1));
       setConfirmDeleteId(null);
     } catch (err) {
       if (handleAuth(err)) return;
@@ -140,7 +175,7 @@ export function AttachmentList({
           {icon ? <span className="crm-section__icon" aria-hidden>{icon}</span> : null}
           {t("inbox.crm.attachments.title")}
         </h2>
-        {!loading && !error ? <span className="crm-section__count">{items.length}</span> : null}
+        {!loading && !error ? <span className="crm-section__count">{total}</span> : null}
       </div>
 
       {/* Uploader */}
@@ -247,6 +282,20 @@ export function AttachmentList({
               </div>
             );
           })}
+          {hasMore || moreError ? (
+            <div className="crm-list-more" aria-live="polite">
+              <p className="crm-list-more__note">{t("inbox.crm.shownOfTotal", { shown: items.length, total })}</p>
+              {moreError ? <p className="crm-list-more__error" role="alert">{moreError}</p> : null}
+              <button
+                type="button"
+                className="crm-btn crm-btn--ghost crm-btn--full"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+              >
+                {loadingMore ? t("inbox.crm.loading") : moreError ? t("inbox.crm.retry") : t("inbox.crm.attachments.loadMore")}
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

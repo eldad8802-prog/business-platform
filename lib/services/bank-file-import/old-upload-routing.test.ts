@@ -43,7 +43,15 @@ check("bankFileImportState resolves the bank_file_import flag", /resolveFeatureA
 check("a resolution failure is UNKNOWN, never OFF", /catch\s*\{\s*return "UNKNOWN";\s*\}/.test(http));
 
 console.log("The old screen");
-check("asks whether bank file import is open (its status route answers 404 while OFF)", page.includes(`fetch("/api/payables/bank-import"`) && page.includes("setFileImportOpen(r.ok)"));
+check("asks whether bank file import is open through the client (Bearer token; the status route answers 404 while OFF)", page.includes("fetchBankImportOpen()") && page.includes("setFileImportOpen(open)"));
+
+console.log("No screen calls the bank import routes without the session token");
+const importPage = code(read("app/(shell)/payables/bank/import/page.tsx"));
+const client = code(read("lib/bank-file-import/bank-import-client.ts"));
+const bareCall = /fetch\(\s*[`"']\/api\/payables\/bank-import/;
+check("the bank lines screen makes no bare fetch to /api/payables/bank-import", !bareCall.test(page));
+check("the import screen makes no bare fetch to /api/payables/bank-import", !bareCall.test(importPage) && importPage.includes("postBankImport") && importPage.includes("fetchBankImportOpen()"));
+check("the client sends Authorization: Bearer on every call", (client.match(/headers: bankImportAuthHeaders\(\)/g) ?? []).length === 2 && /Authorization: `Bearer \$\{token\}`/.test(client));
 check("open ⇒ the upload button is a link to /payables/bank/import", /fileImportOpen \?\s*\(\s*<Link className=\{styles\.buttonPrimary\} href="\/payables\/bank\/import">/.test(page));
 check("closed ⇒ the original upload button, unchanged", page.includes(`onClick={() => setMode(mode === "upload" ? "none" : "upload")}`));
 check("the old upload form never renders while bank file import is open", page.includes(`{mode === "upload" && !fileImportOpen && <UploadForm`));

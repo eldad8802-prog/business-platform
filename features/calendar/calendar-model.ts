@@ -26,6 +26,7 @@ import {
   jerusalemInstantAt,
   type JerusalemDayKey,
 } from "@/lib/utils/jerusalem-day";
+import { windowsForDay } from "@/lib/services/appointment/availability.core";
 
 export type DayKey = JerusalemDayKey;
 
@@ -136,6 +137,8 @@ export function errorText(code: string, status?: number): string {
     case "SLOT_CONFLICT": return "השעה הזו כבר תפוסה ביומן.";
     case "VERSION_CONFLICT": return "התור השתנה בינתיים. טענתי את הגרסה העדכנית — אפשר לנסות שוב.";
     case "INVALID_TRANSITION": return "אי אפשר לבצע את הפעולה הזו במצב הנוכחי של התור.";
+    case "NOT_STARTED": return "אפשר לסמן „הושלם” או „לא הגיע” רק אחרי שעת התחלת התור.";
+    case "NO_CUSTOMER": return "„לא הגיע” מתאים רק לתור של לקוח.";
     case "STAFF_NOT_ASSIGNED": return "העובד הזה לא משויך לשירות שנבחר.";
     case "STAFF_NOT_FOUND": return "העובד לא נמצא או שאינו פעיל.";
     case "SERVICE_NOT_FOUND": return "השירות לא נמצא או שאינו פעיל.";
@@ -408,13 +411,21 @@ export function timeLabel(a: AppointmentWire): string {
 
 export type Action = "confirm" | "complete" | "no_show" | "cancel" | "move" | "edit";
 
-/** The lifecycle's allowed moves (appointment.lifecycle) as buttons; a block only moves, edits and cancels. */
-export function actionsFor(a: AppointmentWire): Action[] {
+/**
+ * The lifecycle's allowed moves (appointment.lifecycle) as buttons, with the outcome rule the server enforces
+ * (appointment.service outcomeRefusal): "הושלם" / "לא הגיע" only once the appointment has started, "לא הגיע" only
+ * for a customer appointment. A block only moves, edits and cancels.
+ */
+export function actionsFor(a: AppointmentWire, now: Date): Action[] {
   if (isTerminal(a.status)) return [];
   const out: Action[] = [];
   if (a.kind !== "BLOCK") {
     if (a.status === "PROPOSED") out.push("confirm");
-    if (a.status === "CONFIRMED") out.push("complete", "no_show");
+    const started = !a.startsAt || Date.parse(a.startsAt) <= now.getTime();
+    if (a.status === "CONFIRMED" && started) {
+      out.push("complete");
+      if (a.kind === "CUSTOMER") out.push("no_show");
+    }
   }
   if (isTimed(a)) out.push("move");
   out.push("edit", "cancel");
@@ -475,4 +486,104 @@ export function windowsProblem(windows: Array<{ startMinute: number; endMinute: 
     if (i > 0 && w.startMinute < sorted[i - 1].endMinute) return "שני טווחים באותו יום חופפים.";
   }
   return null;
+}
+
+// ── What is open: the same rule the slots engine applies ──────────────────────────────────────────
+
+export type RuleLike = WeekWindow & { validFrom?: string | null; validUntil?: string | null };
+export type ExceptionLike = { dayKey: string; kind: "CLOSED" | "OPEN_HOURS"; startMinute: number | null; endMinute: number | null; label?: string | null };
+export type LaneHours = { rules: RuleLike[]; exceptions: ExceptionLike[] };
+/** The business's hours and exceptions, and each staff member's own (empty rules = works by the business's hours). */
+export type Availability = { business: LaneHours; staff: Map<number, LaneHours> };
+
+export const NO_AVAILABILITY: Availability = { business: { rules: [], exceptions: [] }, staff: new Map() };
+
+const ALL_DAY: RuleLike[] = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, startMinute: 0, endMinute: 1440 }));
+
+/**
+ * The open windows of one lane on one day, exactly as the server computes them for free slots
+ * (appointment-schedule.service laneAvailability + availability.core windowsForDay): a staff member's own weekly hours
+ * when they have any, otherwise the business's; the business's exceptions AND the staff member's own both apply.
+ * `null` = nothing is known for that day (no hours were ever set and no exception falls on it): nothing is shaded.
+ * With no weekly hours at all an exception still shows — cut out of an otherwise open day.
+ */
+export function openWindows(av: Availability, staffMemberId: number | null, day: DayKey): Array<{ startMinute: number; endMinute: number }> | null {
+  const own = staffMemberId === null ? undefined : av.staff.get(staffMemberId);
+  const rules = own && own.rules.length ? own.rules : av.business.rules;
+  const today = [...av.business.exceptions, ...(own?.exceptions ?? [])].filter((e) => e.dayKey === day);
+  if (!rules.length && !today.length) return null;
+  return windowsForDay(day, rules.length ? rules : ALL_DAY, today);
+}
+
+/** One exception in words: "סגור כל היום", "סגור 12:00–14:00", "שעות מיוחדות 10:00–13:00", with its label. */
+export function exceptionText(e: ExceptionLike): string {
+  const range = e.startMinute !== null && e.endMinute !== null ? `⁦${clock(e.startMinute)}–${e.endMinute >= 1440 ? "24:00" : clock(e.endMinute)}⁩` : null;
+  const what = e.kind === "OPEN_HOURS" ? `שעות מיוחדות ${range ?? ""}`.trim() : range ? `סגור ${range}` : "סגור כל היום";
+  return e.label ? `${what} · ${e.label}` : what;
+}
+
+export type DayAvailability = {
+  /** The business is closed the whole day (its weekly hours or an exception). */
+  closed: boolean;
+  /** The day's exceptions in words — the business's first, then each staff member's ("דנה: סגור כל היום"). */
+  notes: string[];
+};
+
+/** What the month cell and the phone's day say about one day. */
+export function dayAvailability(av: Availability, day: DayKey, names: Names): DayAvailability {
+  const open = openWindows(av, null, day);
+  const notes = av.business.exceptions.filter((e) => e.dayKey === day).map(exceptionText);
+  for (const [id, lane] of av.staff) {
+    const name = names.staff.get(id);
+    if (!name?.active) continue;
+    for (const e of lane.exceptions.filter((x) => x.dayKey === day)) notes.push(`${name.displayName}: ${exceptionText(e)}`);
+  }
+  return { closed: open !== null && open.length === 0, notes };
+}
+
+/** A closed exception on the grid: where it lies in the day, and what it says ("סגור · חג", "שירה: סגור"). */
+export type ClosureBand = { start: number; end: number; label: string };
+
+/**
+ * The closed exceptions that fall on one lane's day (the business's and the staff member's own), as bands with their
+ * words — so the grid names a closure instead of showing only stripes. A whole-day closure spans the day.
+ */
+export function closureBands(av: Availability, staffMemberId: number | null, day: DayKey, names: Names): ClosureBand[] {
+  const own = staffMemberId === null ? [] : av.staff.get(staffMemberId)?.exceptions ?? [];
+  const who = staffMemberId === null ? null : names.staff.get(staffMemberId)?.displayName ?? null;
+  const band = (e: ExceptionLike, mine: boolean): ClosureBand => ({
+    start: e.startMinute ?? 0,
+    end: e.endMinute ?? 1440,
+    label: `${mine && who ? `${who}: ` : ""}סגור${e.label ? ` · ${e.label}` : ""}`,
+  });
+  return [
+    ...av.business.exceptions.filter((e) => e.dayKey === day && e.kind === "CLOSED").map((e) => band(e, false)),
+    ...own.filter((e) => e.dayKey === day && e.kind === "CLOSED").map((e) => band(e, true)),
+  ];
+}
+
+/**
+ * Said BEFORE booking a time the lane is not open: the owner may still book it (the server accepts it with
+ * OUTSIDE_AVAILABILITY — their calendar, their call), but never without knowing why it is not offered. Null when the
+ * time is open, or when no hours are known. The reason is the same rule the free-slot search applies (openWindows).
+ */
+export function availabilityWarning(av: Availability, staffMemberId: number | null, day: DayKey, startMinute: number, minutes: number, names: Names): string | null {
+  const open = openWindows(av, staffMemberId, day);
+  if (open === null || !(minutes > 0)) return null;
+  const end = startMinute + minutes;
+  if (open.some((w) => w.startMinute <= startMinute && end <= w.endMinute)) return null;
+  const hits = closureBands(av, staffMemberId, day, names).filter((b) => b.start < end && startMinute < b.end);
+  const range = (a: number, b: number) => `⁦${clock(a)}–${b >= 1440 ? "24:00" : clock(b)}⁩`;
+  if (hits.length) return `השעה נופלת בזמן סגור: ${hits.map((b) => (b.start === 0 && b.end === 1440 ? `${b.label} (כל היום)` : `${b.label} ${range(b.start, b.end)}`)).join(" · ")}.`;
+  if (!open.length) return staffMemberId === null ? "העסק לא פעיל ביום הזה לפי שעות הפעילות." : "העובד לא עובד ביום הזה לפי שעות העבודה שלו.";
+  return `השעה מחוץ לשעות הפעילות ביום הזה (${open.map((w) => range(w.startMinute, w.endMinute)).join(", ")}).`;
+}
+
+/** Why a day offers no free time, in words, when the hours explain it (a closure, a day off); else null. */
+export function noSlotsReason(av: Availability, staffMemberId: number | null, day: DayKey, names: Names): string | null {
+  const open = openWindows(av, staffMemberId, day);
+  if (open === null || open.length) return null;
+  const bands = closureBands(av, staffMemberId, day, names);
+  if (bands.length) return `היום סגור: ${bands.map((b) => b.label).join(" · ")}.`;
+  return staffMemberId === null ? "העסק לא פעיל ביום הזה לפי שעות הפעילות." : "העובד לא עובד ביום הזה לפי שעות העבודה שלו.";
 }

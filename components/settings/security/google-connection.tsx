@@ -5,7 +5,8 @@
  *
  * Disconnecting asks for the account's password again (the server checks it under the login attempt limits)
  * and is offered only to an account that HAS a password — without one, nothing would be left to sign in
- * with. Rendered only while "Continue with Google" is on. Hebrew only (owner decision, 22.10.2026).
+ * with. Rendered only while "Continue with Google" is on — and during the pilot only for a connected account
+ * (onlyWhenLinked), so nobody outside the pilot meets it. Hebrew only (owner decision, 22.10.2026).
  */
 
 import { useEffect, useState } from "react";
@@ -36,7 +37,7 @@ async function fetchStatus(): Promise<Load> {
   }
 }
 
-export function GoogleConnection() {
+export function GoogleConnection({ onlyWhenLinked = false }: { onlyWhenLinked?: boolean }) {
   const [state, setState] = useState<Load>({ kind: "loading" });
   const [confirming, setConfirming] = useState(false);
   const [password, setPassword] = useState("");
@@ -85,9 +86,12 @@ export function GoogleConnection() {
 
   if (state.kind === "loading") return null;
   if (state.kind === "error") {
+    if (onlyWhenLinked) return null;
     return <p className="px-1 text-sm text-[var(--dz-text-secondary)]">לא ניתן להציג כרגע את מצב החיבור ל־Google.</p>;
   }
   const s = state.status;
+  // Pilot: an unconnected account sees nothing — except the confirmation right after it disconnected.
+  if (onlyWhenLinked && !s.linked && !message) return null;
 
   return (
     <section className="flex flex-col gap-3" aria-labelledby="google-connection-title" data-testid="google-connection">

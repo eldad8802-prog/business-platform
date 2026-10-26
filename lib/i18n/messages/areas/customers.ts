@@ -492,6 +492,9 @@ export const customersHe = {
       emptySearchBody: "נסו חיפוש קצר יותר או בשם אחר.",
       emptyInactiveBody: "ספקים שתשביתו יופיעו כאן.",
       emptyNoneBody: "הוסיפו את הספק הראשון כדי לנהל את פרטי הקשר וזמני האספקה במקום אחד.",
+      loadMore: "טען עוד ספקים",
+      loadMoreError: "לא הצלחנו לטעון עוד ספקים. הספקים שכבר מוצגים נשארו.",
+      showing: "מוצגים {shown} מתוך {total}",
     },
     create: {
       title: "ספק חדש",

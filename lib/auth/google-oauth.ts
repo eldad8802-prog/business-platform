@@ -7,6 +7,14 @@
  *
  *   flag        AUTH_GOOGLE_LOGIN_ENABLED=true AND a complete client config (id, secret, redirect base).
  *               Anything less is OFF: the button is not rendered and every Google route answers 404.
+ *   who         while ON, AUTH_GOOGLE_LOGIN_MODE decides who may use it:
+ *                 "open"  — everyone. Opening to all users is this explicit value and nothing else.
+ *                 anything else, unset included — PILOT: only the exact addresses in
+ *                 AUTH_GOOGLE_LOGIN_PILOT_EMAILS (parsed like SIGNUP_ALLOWED_EMAILS, fail closed). A missing,
+ *                 empty or malformed list lets NOBODY in; deleting the list never opens the service.
+ *               The pilot is enforced on the server, on the address Google verified: in the callback before
+ *               any ticket, link or session, and again by every route that completes a signup or a link.
+ *               `?google=pilot` only shows the button (googleButtonVisible) — it grants nothing.
  *   scopes      exactly `openid email profile`. No offline access, no refresh token, no Gmail / Drive /
  *               Calendar — sign-in needs an identity and nothing else.
  *   start state one httpOnly, SameSite=Lax cookie holding {state, nonce, PKCE verifier, exp}, HMAC-signed
@@ -23,6 +31,8 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextResponse } from "next/server";
+
+import { parseSignupAllowlist, type SignupAllowlist } from "@/lib/auth/signup-allowlist";
 
 export const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -49,7 +59,14 @@ export type GoogleLoginConfig = {
   tokenUrl: string;
   /** null = Google's own JWKS (lib/auth/google-id-token.ts). */
   jwksUrl: string | null;
+  /** Who may use it — see "who" above. */
+  access: GoogleLoginAccess;
 };
+
+export type GoogleLoginAccess = { mode: "open" } | { mode: "pilot"; allowed: SignupAllowlist };
+
+/** The page parameter that shows the button during the pilot: `/login?google=pilot`. Grants nothing by itself. */
+export const GOOGLE_PILOT_PARAM = "pilot";
 
 type Env = Record<string, string | undefined>;
 
@@ -81,12 +98,27 @@ export function readGoogleLoginConfig(env: Env = process.env): GoogleLoginConfig
     authorizeUrl: (test && env.GOOGLE_LOGIN_TEST_AUTHORIZE_URL) || GOOGLE_AUTHORIZE_URL,
     tokenUrl: (test && env.GOOGLE_LOGIN_TEST_TOKEN_URL) || GOOGLE_TOKEN_URL,
     jwksUrl: (test && env.GOOGLE_LOGIN_TEST_JWKS_URL) || null,
+    access: env.AUTH_GOOGLE_LOGIN_MODE?.trim() === "open" ? { mode: "open" } : { mode: "pilot", allowed: parseSignupAllowlist(env.AUTH_GOOGLE_LOGIN_PILOT_EMAILS) },
   };
 }
 
 export function isGoogleLoginEnabled(env: Env = process.env): boolean {
   return readGoogleLoginConfig(env) !== null;
 }
+
+/** May this Google-verified address sign in, sign up or link? Always false for a pilot without a valid list. */
+export function googleLoginAllows(config: GoogleLoginConfig, email: string): boolean {
+  return config.access.mode === "open" || config.access.allowed.has(email);
+}
+
+/** Is the button shown? Open: whenever the feature is on. Pilot: only on a page opened with `?google=pilot`. */
+export function googleButtonVisible(config: GoogleLoginConfig | null, param: string | string[] | undefined): boolean {
+  if (!config) return false;
+  return config.access.mode === "open" || param === GOOGLE_PILOT_PARAM;
+}
+
+/** What a route answers when the pilot does not include the ticket's address (403, the cookie forgotten). */
+export const GOOGLE_NOT_IN_PILOT = { code: "GOOGLE_NOT_AVAILABLE", error: "ההתחברות עם Google עדיין לא זמינה לחשבון הזה." } as const;
 
 export function redirectUri(config: GoogleLoginConfig): string {
   return `${config.redirectBase}${GOOGLE_CALLBACK_PATH}`;

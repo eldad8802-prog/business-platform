@@ -116,9 +116,24 @@ function israeliDateCell(d: Date): Date {
   return new Date(year, month - 1, day);
 }
 
+/**
+ * Why an original is NOT in the package (S1). A record whose original is absent never shows a path to a
+ * file that is not there: the report says so on the record's own row.
+ */
+export type SourceFileProblem = "missing" | "mismatch";
+export type SourceFileStates = Map<number, SourceFileProblem>;
+
+export const SOURCE_FILE_MISSING_HE = "הקובץ חסר — לא צורף";
+export const SOURCE_FILE_MISMATCH_HE = "הקובץ אינו תואם לקובץ שנקלט — לא צורף";
+
 /** Same path pattern as files inside the ZIP (approved|pending/doc-<id>.<ext>). */
-function sourceFileLabel(r: Pick<ScannedRecordFact, "documentId" | "documentStatus" | "fileUrl">): string {
-  if (!r.fileUrl) return "";
+function sourceFileLabel(
+  r: Pick<ScannedRecordFact, "documentId" | "documentStatus" | "fileUrl">,
+  states: SourceFileStates = new Map()
+): string {
+  const problem = states.get(r.documentId);
+  if (problem === "mismatch") return SOURCE_FILE_MISMATCH_HE;
+  if (problem === "missing" || !r.fileUrl) return SOURCE_FILE_MISSING_HE;
   const folder = r.documentStatus === "approved" ? "approved" : "pending";
   const ext = r.fileUrl.split(".").pop() || "file";
   return `${folder}/doc-${r.documentId}.${ext}`;
@@ -172,6 +187,12 @@ export function rowNotes(facts: PeriodFacts, readiness: Pick<Readiness, "warning
   for (const r of facts.scanned) {
     if (dateTakenFromUpload(r)) add(r.id, "התאריך נלקח ממועד ההעלאה");
   }
+  const unverified = new Set(
+    readiness.warnings.flatMap((w) => (w.kind === "ORIGINAL_NOT_VERIFIED" ? w.documentIds : []))
+  );
+  for (const r of facts.scanned) {
+    if (unverified.has(r.documentId)) add(r.id, "הקובץ צורף ללא אימות (אין חתימת קובץ מהקליטה)");
+  }
   const issuedById = new Map(facts.issued.map((d) => [d.id, d]));
   for (const w of readiness.warnings) {
     if (w.kind !== "POSSIBLE_DUPLICATE_INCOME") continue;
@@ -184,7 +205,7 @@ export function rowNotes(facts: PeriodFacts, readiness: Pick<Readiness, "warning
 }
 
 /** Column order matches REPORT_COLUMN_HEADERS exactly. */
-function toAccountantCsvRow(r: ScannedRecordFact, notes: RowNotes): (string | number)[] {
+function toAccountantCsvRow(r: ScannedRecordFact, notes: RowNotes, states: SourceFileStates = new Map()): (string | number)[] {
   return [
     formatDateIl(r.date),
     r.vendorName,
@@ -193,14 +214,14 @@ function toAccountantCsvRow(r: ScannedRecordFact, notes: RowNotes): (string | nu
     mapDirectionHe(r.direction),
     mapStatusHe(r.documentStatus),
     mapConfidenceHe(r.confidenceLabel, r.confidenceScore),
-    sourceFileLabel(r),
+    sourceFileLabel(r, states),
     (notes.get(r.id) ?? []).join(" · "),
   ];
 }
 
 /** Exported for the deterministic regression proof; not part of the ZIP API. */
-export function buildAccountantCsvText(records: ScannedRecordFact[], notes: RowNotes = new Map()): string {
-  return writeCsvText(REPORT_COLUMN_HEADERS, records.map((r) => toAccountantCsvRow(r, notes)), {
+export function buildAccountantCsvText(records: ScannedRecordFact[], notes: RowNotes = new Map(), states: SourceFileStates = new Map()): string {
+  return writeCsvText(REPORT_COLUMN_HEADERS, records.map((r) => toAccountantCsvRow(r, notes, states)), {
     delimiter: ACCOUNTANT_CSV_SEP,
     excelSepDirective: true,
     eol: "\r\n",
@@ -208,8 +229,8 @@ export function buildAccountantCsvText(records: ScannedRecordFact[], notes: RowN
 }
 
 /** Exported for the deterministic regression proof; not part of the ZIP API. */
-export function buildAccountantCsvBuffer(records: ScannedRecordFact[], notes: RowNotes = new Map()): Buffer {
-  return writeCsvBuffer(REPORT_COLUMN_HEADERS, records.map((r) => toAccountantCsvRow(r, notes)), {
+export function buildAccountantCsvBuffer(records: ScannedRecordFact[], notes: RowNotes = new Map(), states: SourceFileStates = new Map()): Buffer {
+  return writeCsvBuffer(REPORT_COLUMN_HEADERS, records.map((r) => toAccountantCsvRow(r, notes, states)), {
     delimiter: ACCOUNTANT_CSV_SEP,
     excelSepDirective: true,
     eol: "\r\n",
@@ -243,7 +264,8 @@ async function buildAccountantXlsxBuffer(
   facts: PeriodFacts,
   readiness: Readiness,
   notes: RowNotes,
-  issuedIncluded: Set<number>
+  issuedIncluded: Set<number>,
+  states: SourceFileStates = new Map()
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
 
@@ -263,7 +285,7 @@ async function buildAccountantXlsxBuffer(
     row.getCell(5).value = mapDirectionHe(r.direction);
     row.getCell(6).value = mapStatusHe(r.documentStatus);
     row.getCell(7).value = mapConfidenceHe(r.confidenceLabel, r.confidenceScore);
-    row.getCell(8).value = sourceFileLabel(r);
+    row.getCell(8).value = sourceFileLabel(r, states);
     row.getCell(9).value = (notes.get(r.id) ?? []).join(" · ");
     rowNum += 1;
   }
@@ -372,11 +394,13 @@ async function buildAccountantXlsxBuffer(
 export function blockerLineHe(b: Readiness["blockers"][number]): string {
   if (b.kind === "DOCUMENTS_PENDING_REVIEW") return `${b.count} מסמכים עדיין ממתינים לבדיקה ואינם בדוח`;
   if (b.kind === "ISSUED_PDF_UNAVAILABLE") return `${b.count} מסמכים שהופקו — הקובץ הסופי שלהם עדיין אינו זמין`;
+  if (b.kind === "ORIGINAL_FILE_MISMATCH") return `${b.count} קבצי מקור אינם תואמים לקובץ שנקלט — לא צורפו`;
   return `${b.count} קבצי מקור לא נמצאו באחסון`;
 }
 
 export function warningLineHe(w: Readiness["warnings"][number]): string {
   if (w.kind === "DATE_FROM_UPLOAD_TIME") return `${w.count} רשומות שהתאריך שלהן נלקח ממועד ההעלאה`;
+  if (w.kind === "ORIGINAL_NOT_VERIFIED") return `${w.count} קבצי מקור צורפו בלי אפשרות לאמת אותם (נקלטו לפני שנשמרה חתימת קובץ)`;
   return `${w.count} הכנסות סרוקות שייתכן שהן כפולות למסמך שהופק בדוביז`;
 }
 
@@ -418,6 +442,23 @@ export function buildSummaryText(params: {
   return lines.join("\n");
 }
 
+/**
+ * One file inside the package, for whoever checks it (the accountant, or the viewer portal): its path in
+ * the ZIP, its sha256 and size, whether it was verified against the hash recorded at ingestion, and the
+ * report row(s) / document it belongs to. Written to _meta/manifest.json only — never to the database row.
+ */
+export type PackageFileEntry = {
+  path: string;
+  kind: "original" | "issued";
+  sha256: string;
+  size: number;
+  verified: boolean;
+  documentId?: number;
+  recordIds?: number[];
+  billingDocumentId?: number;
+  documentNumber?: string | null;
+};
+
 export type PackageManifest = {
   period: string;
   generatedAt: string;
@@ -431,6 +472,11 @@ export type PackageManifest = {
   missingOriginalDocumentIds: number[];
   missingIssuedDocumentIds: number[];
   entries: string[];
+  /** 2 since source-file verification; absent in packages built before it. */
+  manifestVersion?: 2;
+  files?: PackageFileEntry[];
+  mismatchedOriginalDocumentIds?: number[];
+  unverifiedOriginalDocumentIds?: number[];
 };
 
 export type BuiltAccountantPackage = {
@@ -494,7 +540,7 @@ export async function buildAccountantPackage(params: {
   const readers = params.readers ?? defaultReaders;
 
   // ── originals of scanned documents ──
-  type FetchTarget = { docId: number; folder: "approved" | "pending"; basename: string };
+  type FetchTarget = { docId: number; folder: "approved" | "pending"; basename: string; sha256: string | null };
   const targets: FetchTarget[] = [];
   const missingLines: string[] = [];
   const missingOriginal: number[] = [];
@@ -514,7 +560,8 @@ export async function buildAccountantPackage(params: {
       missingOriginal.push(r.documentId);
       continue;
     }
-    targets.push({ docId: r.documentId, folder, basename });
+    const recorded = typeof r.fileSha256 === "string" && /^[0-9a-f]{64}$/i.test(r.fileSha256) ? r.fileSha256.toLowerCase() : null;
+    targets.push({ docId: r.documentId, folder, basename, sha256: recorded });
   }
 
   // Storage reads run with bounded concurrency: a real month is dozens of
@@ -527,8 +574,25 @@ export async function buildAccountantPackage(params: {
       return { t, buffer: null as Buffer | null, error: e as unknown };
     }
   });
+  // S2: an original counts as verified only when it hashes to the sha256 recorded at ingestion. A mismatch
+  // is NOT shipped (an exception, never a complete package); a document ingested before hashing existed is
+  // shipped and flagged as not verified.
+  const mismatchedOriginal: number[] = [];
+  const unverifiedOriginal: number[] = [];
   for (const item of originals) {
-    if (item.buffer) continue;
+    if (!item.buffer) continue;
+    if (item.t.sha256 === null) {
+      unverifiedOriginal.push(item.t.docId);
+      continue;
+    }
+    if (createHash("sha256").update(item.buffer).digest("hex") !== item.t.sha256) {
+      missingLines.push(`document ${item.t.docId}: הקובץ השמור אינו תואם לקובץ שנקלט (sha256)`);
+      mismatchedOriginal.push(item.t.docId);
+      item.buffer = null;
+    }
+  }
+  for (const item of originals) {
+    if (item.buffer || mismatchedOriginal.includes(item.t.docId)) continue;
     if (item.error instanceof StorageObjectNotFoundError) {
       missingLines.push(`document ${item.t.docId}: קובץ לא נמצא`);
     } else {
@@ -568,7 +632,14 @@ export async function buildAccountantPackage(params: {
             missingIssued.includes(d.id) ? { ...d, pdf: { available: false, reason: "NOT_RENDERED" as const } } : d
           ),
         };
-  const readiness = evaluateReadiness(effectiveFacts, missingOriginal);
+  const readiness = evaluateReadiness(effectiveFacts, missingOriginal, {
+    mismatchedDocumentIds: mismatchedOriginal,
+    unverifiedDocumentIds: unverifiedOriginal,
+  });
+  const fileStates: SourceFileStates = new Map<number, SourceFileProblem>([
+    ...missingOriginal.map((id) => [id, "missing"] as [number, SourceFileProblem]),
+    ...mismatchedOriginal.map((id) => [id, "mismatch"] as [number, SourceFileProblem]),
+  ]);
   const notes = rowNotes(effectiveFacts, readiness);
 
   let manifest: PackageManifest | null = null;
@@ -576,10 +647,13 @@ export async function buildAccountantPackage(params: {
     const reportBase = `דוח_${periodLabel}`;
     const xlsxName = `${reportBase}.xlsx`;
     const metaCsvPath = `_meta/${reportBase}.csv`;
-    archive.append(await buildAccountantXlsxBuffer(effectiveFacts, readiness, notes, issuedIncluded), { name: xlsxName });
-    archive.append(buildAccountantCsvBuffer(effectiveFacts.scanned, notes), { name: metaCsvPath });
+    archive.append(await buildAccountantXlsxBuffer(effectiveFacts, readiness, notes, issuedIncluded, fileStates), { name: xlsxName });
+    archive.append(buildAccountantCsvBuffer(effectiveFacts.scanned, notes, fileStates), { name: metaCsvPath });
 
     const entries: string[] = [xlsxName, "סיכום.txt", metaCsvPath];
+    const files: PackageFileEntry[] = [];
+    const recordIdsByDocument = new Map<number, number[]>();
+    for (const r of effectiveFacts.scanned) recordIdsByDocument.set(r.documentId, [...(recordIdsByDocument.get(r.documentId) ?? []), r.id]);
     let approvedFiles = 0;
     for (const item of originals) {
       if (!item.buffer) continue;
@@ -589,6 +663,15 @@ export async function buildAccountantPackage(params: {
       // re-DEFLATE-ing them burns CPU for ~0% size gain.
       archive.append(item.buffer, { name: entryName, store: true });
       entries.push(entryName);
+      files.push({
+        path: entryName,
+        kind: "original",
+        sha256: createHash("sha256").update(item.buffer).digest("hex"),
+        size: item.buffer.byteLength,
+        verified: item.t.sha256 !== null,
+        documentId: item.t.docId,
+        recordIds: recordIdsByDocument.get(item.t.docId) ?? [],
+      });
       approvedFiles += 1;
     }
     if (approvedFiles === 0) archive.append(Buffer.alloc(0), { name: "approved/.keep" });
@@ -599,6 +682,15 @@ export async function buildAccountantPackage(params: {
       const name = issuedFileName(f.d);
       archive.append(f.buffer, { name, store: true });
       entries.push(name);
+      files.push({
+        path: name,
+        kind: "issued",
+        sha256: createHash("sha256").update(f.buffer).digest("hex"),
+        size: f.buffer.byteLength,
+        verified: true,
+        billingDocumentId: f.d.id,
+        documentNumber: f.d.documentNumberFormatted,
+      });
       issuedCount += 1;
     }
 
@@ -616,10 +708,15 @@ export async function buildAccountantPackage(params: {
       pendingCount: effectiveFacts.pending.length,
       approvedFiles,
       issuedFiles: issuedCount,
-      missingFiles: missingOriginal.length + missingIssued.length,
+      // A file that does not match its recorded hash is not in the package either.
+      missingFiles: missingOriginal.length + mismatchedOriginal.length + missingIssued.length,
       missingOriginalDocumentIds: [...new Set(missingOriginal)].sort((a, b) => a - b),
       missingIssuedDocumentIds: [...missingIssued].sort((a, b) => a - b),
       entries: [...entries, "_meta/manifest.json", "_meta/missing-files.txt"].sort(),
+      manifestVersion: 2,
+      files: files.sort((a, b) => a.path.localeCompare(b.path)),
+      mismatchedOriginalDocumentIds: [...new Set(mismatchedOriginal)].sort((a, b) => a - b),
+      unverifiedOriginalDocumentIds: [...new Set(unverifiedOriginal)].sort((a, b) => a - b),
     };
     archive.append(JSON.stringify(manifest, null, 2), { name: "_meta/manifest.json" });
     archive.append(missingLines.length > 0 ? missingLines.join("\n") + "\n" : "(אין קבצים חסרים)\n", {

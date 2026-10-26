@@ -74,6 +74,8 @@ function CalendarBody() {
   const [creating, setCreating] = useState<Prefill | null>(null);
   const [moving, setMoving] = useState<AppointmentWire | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // The last drag, undoable from its toast: where the appointment was, and the version the move produced.
+  const [undo, setUndo] = useState<{ text: string; run: () => Promise<void> } | null>(null);
 
   // The phone's week is the strip; its data is the whole week so the strip can count.
   const dataView: CalendarView = bp === "mobile" && view !== "month" ? "week" : view;
@@ -99,6 +101,7 @@ function CalendarBody() {
   );
 
   const flash = useCallback((text: string) => {
+    setUndo(null);
     setToast(text);
     window.setTimeout(() => setToast((x) => (x === text ? null : x)), 6000);
   }, []);
@@ -147,6 +150,28 @@ function CalendarBody() {
       });
       await data.reload();
       flash(out.warnings?.includes("OUTSIDE_AVAILABILITY") ? "הוזז — מחוץ לשעות הפעילות" : "הוזז");
+      // "ביטול": an ordinary move back (journalled like any move), from the version this move produced — refused
+      // with VERSION_CONFLICT if the appointment changed again meanwhile, so it can never overwrite a newer change.
+      setUndo({
+        text: "ביטול",
+        run: async () => {
+          const back = `appt:undo:${appt.id}:${out.appointment.version}`;
+          try {
+            await moveAppointment(back, appt.id, {
+              startsAt: appt.startsAt!,
+              ...(staffChange ? { staffMemberId: appt.staffMemberId } : {}),
+              expectedVersion: out.appointment.version,
+            });
+            await data.reload();
+            flash("ההזזה בוטלה — התור חזר למקומו");
+          } catch (e) {
+            forgetIntent(back);
+            const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "NETWORK");
+            await data.reload();
+            flash(err.code === "VERSION_CONFLICT" ? "התור השתנה בינתיים, ולכן ההזזה לא בוטלה." : errorText(err.code, err.status));
+          }
+        },
+      });
     } catch (e) {
       forgetIntent(intent);
       const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "NETWORK");
@@ -240,6 +265,7 @@ function CalendarBody() {
                 anchor={anchor}
                 appointments={appointments}
                 names={data.names}
+                availability={data.availability}
                 today={today}
                 compact={bp === "mobile"}
                 onDay={(d) => setUrl({ view: "day", day: d })}
@@ -251,6 +277,7 @@ function CalendarBody() {
                 today={today}
                 appointments={appointments}
                 names={data.names}
+                availability={data.availability}
                 onDay={(d) => setUrl({ day: d })}
                 onSelect={(id) => select(id)}
                 onNew={() => setCreating({ day: anchor })}
@@ -261,6 +288,7 @@ function CalendarBody() {
                 appointments={appointments}
                 names={data.names}
                 hours={data.hours}
+                availability={data.availability}
                 now={now}
                 selectedId={selectedId}
                 canDrag
@@ -299,6 +327,7 @@ function CalendarBody() {
             staff={data.staff}
             services={data.services}
             names={data.names}
+            availability={data.availability}
             onCustomer={(c) => data.rememberCustomer(c.id, c.name)}
             onDone={(out) => void formDone(out, out.appointment.kind === "BLOCK" ? "הזמן נחסם" : "נקבע")}
             onCancel={() => setCreating(null)}
@@ -307,11 +336,16 @@ function CalendarBody() {
       </AdaptiveOverlay>
       <AdaptiveOverlay open={!!moving} onClose={() => setMoving(null)} labelledBy="appointment-form-title">
         {moving && !isTerminal(moving.status) ? (
-          <MoveForm appt={moving} staff={data.staff} onDone={(out) => void formDone(out, "הוזז")} onCancel={() => setMoving(null)} />
+          <MoveForm appt={moving} staff={data.staff} names={data.names} availability={data.availability} onDone={(out) => void formDone(out, "הוזז")} onCancel={() => setMoving(null)} />
         ) : null}
       </AdaptiveOverlay>
 
-      {toast ? <div className={t.toast} role="status"><span>{toast}</span></div> : null}
+      {toast ? (
+        <div className={t.toast} role="status">
+          <span>{toast}</span>
+          {undo ? <button type="button" onClick={() => { const u = undo; setUndo(null); void u.run(); }}>{undo.text}</button> : null}
+        </div>
+      ) : null}
     </main>
   );
 }

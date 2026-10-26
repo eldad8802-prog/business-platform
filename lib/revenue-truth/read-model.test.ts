@@ -306,5 +306,74 @@ console.log("13. evidence recorded in error: rejected, kept, counted nowhere");
   check("a register sale 'same as' a Dubiz invoice, then rejected: the invoice is the sale again (counted once, 99900)", ils(docBack).sales.netMinor === B(99900), J(ils(docBack).sales));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+console.log("S. Sources are not interchangeable: only POS is register evidence");
+{
+  const pos = { ...sale({ total: 11800, vat: 1800 }), sourceKind: "POS" as const };
+  const posReceipt = { id: id(), sourceKind: "POS" as const, sourceScope: "pos.a", registerKey: "r1", businessDay: "2026-10-20", direction: "IN" as const, method: "CARD" as const, currency: "ILS" as const, amountMinor: B(11800), saleId: pos.id };
+  const base = computeRevenueView(inputs({ sales: [pos], receipts: [posReceipt] }), { today: TODAY });
+  const unlabelled = computeRevenueView(inputs({ sales: [{ ...pos, sourceKind: undefined }], receipts: [{ ...posReceipt, sourceKind: undefined }] }), { today: TODAY });
+  check("POS evidence reads exactly as before (net 11800, one UNCLOSED register day, card 11800 awaiting settlement)",
+    ils(base).sales.netMinor === B(11800) && ils(base).sales.unclosedNetMinor === B(11800) && base.days.length === 1 && base.days[0].status === "UNCLOSED"
+      && ils(base).inTransit.cardAwaitingSettlementMinor === B(11800) && Object.keys(ils(base).otherSources).length === 0, J(ils(base)));
+  check("an in-memory input without a source kind is read as POS (the milestone-A shape) — identical view", J(unlabelled) === J(base));
+
+  // A Rivhit document (ACCOUNTING_APP) with its cash tender, a refund, and a void of another document.
+  const acc = { ...sale({ total: 23600, vat: 3600, scope: "pos.rivhit:c7", register: null }), sourceKind: "ACCOUNTING_APP" as const, capture: "API_PULL" as const };
+  const accRefund = { ...sale({ kind: "REFUND", total: 5900, vat: 900, scope: "pos.rivhit:c7", register: null }), sourceKind: "ACCOUNTING_APP" as const };
+  const accVoided = { ...sale({ total: 1000, vat: 153, scope: "pos.rivhit:c7", register: null }), sourceKind: "ACCOUNTING_APP" as const };
+  const accVoid = { ...sale({ kind: "VOID", total: 1000, vat: 153, scope: "pos.rivhit:c7", register: null }), sourceKind: "ACCOUNTING_APP" as const, originalSaleId: accVoided.id };
+  const accCash = { id: id(), sourceKind: "ACCOUNTING_APP" as const, sourceScope: "pos.rivhit:c7", registerKey: null, businessDay: "2026-10-20", direction: "IN" as const, method: "CASH" as const, currency: "ILS" as const, amountMinor: B(23600), saleId: acc.id };
+  const mixed = computeRevenueView(inputs({ sales: [pos, acc, accRefund, accVoided, accVoid], receipts: [posReceipt, accCash] }), { today: TODAY });
+  const m = ils(mixed);
+  check("accounting-app documents never enter register sales: net stays the POS 11800", m.sales.netMinor === B(11800) && m.sales.grossMinor === B(11800) && m.sales.unclosedNetMinor === B(11800) && m.sales.provisionalNetMinor === B(0), J(m.sales));
+  check("…and never form a register day (still one day, the POS one)", mixed.days.length === 1 && mixed.days[0].stream === "pos.a", J(mixed.days));
+  check("…they are shown apart: 2 sales (gross 24600), refunds 5900, voids 1000 → net 17700", (() => {
+    const a = m.otherSources.ACCOUNTING_APP!;
+    return a.saleCount === 2 && a.grossMinor === B(24600) && a.refundsMinor === B(5900) && a.voidsMinor === B(1000) && a.netMinor === B(17700);
+  })(), J(m.otherSources));
+  check("their cash is not till money: receipts stay the POS 11800; it is shown apart (CASH 23600)", m.receipts.inMinor === B(11800) && m.otherSources.ACCOUNTING_APP!.receiptsByMethod.CASH === B(23600) && !m.receipts.byChannel.CASH);
+  check("…and never awaits a bank deposit as till cash", m.inTransit.cashAwaitingDepositMinor === B(0));
+  check("every accounting-app row is listed NOT_REGISTER_EVIDENCE", [acc, accRefund, accVoided, accVoid].every((s) => mixed.excluded.some((e) => e.kind === "SALE" && e.id === s.id && e.reason === "NOT_REGISTER_EVIDENCE"))
+    && mixed.excluded.some((e) => e.kind === "RECEIPT" && e.id === accCash.id && e.reason === "NOT_REGISTER_EVIDENCE"));
+  const z = close({ total: 11800, vat: 1800 });
+  const withZ = computeRevenueView(inputs({ sales: [pos, acc], closes: [z] }), { today: TODAY });
+  check("a Z closes the POS day only: no variance from the accounting document, which is not COVERED_BY_CLOSE",
+    withZ.days.length === 1 && withZ.days[0].status === "CLOSED" && withZ.days[0].varianceMinor === B(0)
+      && !withZ.excluded.some((e) => e.id === acc.id && e.reason === "COVERED_BY_CLOSE") && ils(withZ).sales.netMinor === B(11800), J(withZ.days));
+
+  // A payment provider's charge is never a sale; its receipts are shown apart.
+  const ppSale = { ...sale({ total: 11800, vat: 1800, scope: "psp.payplus:c9", register: null }), sourceKind: "PAYMENT_PROVIDER" as const };
+  const ppReceipt = { id: id(), sourceKind: "PAYMENT_PROVIDER" as const, sourceScope: "psp.payplus:c9", registerKey: null, businessDay: "2026-10-20", direction: "IN" as const, method: "CARD" as const, currency: "ILS" as const, amountMinor: B(11800), saleId: null };
+  const withPsp = computeRevenueView(inputs({ sales: [pos, ppSale], receipts: [posReceipt, ppReceipt] }), { today: TODAY });
+  check("a payment-provider 'sale' counts nowhere (NOT_A_SALE_SOURCE): net stays 11800, no other-source sale", ils(withPsp).sales.netMinor === B(11800)
+    && withPsp.excluded.some((e) => e.id === ppSale.id && e.reason === "NOT_A_SALE_SOURCE") && (ils(withPsp).otherSources.PAYMENT_PROVIDER?.saleCount ?? 0) === 0);
+  check("its card charge does not double the till's money in (11800) and is shown apart", ils(withPsp).receipts.inMinor === B(11800) && ils(withPsp).otherSources.PAYMENT_PROVIDER!.receiptsInMinor === B(11800)
+    && ils(withPsp).inTransit.cardAwaitingSettlementMinor === B(11800));
+
+  // The same deal in Rivhit and in Dubiz.
+  const dubiz = { id: 501, documentType: "TAX_INVOICE_RECEIPT" as const, currency: "ILS" as const, totalMinor: B(23600), vatMinor: B(3600), referenceDocumentId: null, sourcePaymentTransactionId: null };
+  const unlinked = computeRevenueView(inputs({ sales: [acc], documents: [dubiz] }), { today: TODAY });
+  check("no link: nothing merged or guessed — the Dubiz document counts (23600), the Rivhit one stays apart, and the view warns POSSIBLE_DUPLICATE_ACROSS_SOURCES",
+    ils(unlinked).sales.netMinor === B(23600) && ils(unlinked).otherSources.ACCOUNTING_APP!.netMinor === B(23600)
+      && unlinked.warnings.some((w) => w.code === "POSSIBLE_DUPLICATE_ACROSS_SOURCES"), J({ s: ils(unlinked).sales.netMinor, w: unlinked.warnings }));
+  const same = link({ linkKind: "SALE_SAME_AS_DOCUMENT", saleId: acc.id, billingDocumentId: 501 });
+  const proposed = computeRevenueView(inputs({ sales: [acc], documents: [dubiz], links: [same] }), { today: TODAY });
+  check("a PROPOSED (unconfirmed) link changes nothing: still apart, still warned", ils(proposed).otherSources.ACCOUNTING_APP!.netMinor === B(23600) && proposed.warnings.some((w) => w.code === "POSSIBLE_DUPLICATE_ACROSS_SOURCES"));
+  const linked = computeRevenueView(inputs({ sales: [acc], documents: [dubiz], links: [same], decisions: [decide({ linkId: same.id, decision: "CONFIRMED" })] }), { today: TODAY });
+  check("a CONFIRMED link: one deal — the Dubiz document stays counted once (23600), the Rivhit sale is SAME_AS_DUBIZ_DOCUMENT and leaves the unmatched figures",
+    ils(linked).sales.netMinor === B(23600) && !linked.excluded.some((e) => e.kind === "DOCUMENT" && e.id === 501)
+      && linked.excluded.some((e) => e.id === acc.id && e.reason === "SAME_AS_DUBIZ_DOCUMENT")
+      && ils(linked).otherSources.ACCOUNTING_APP!.netMinor === B(0) && ils(linked).otherSources.ACCOUNTING_APP!.matchedToDubizDocumentMinor === B(23600)
+      && !linked.warnings.some((w) => w.code === "POSSIBLE_DUPLICATE_ACROSS_SOURCES"), J({ s: ils(linked).sales, o: ils(linked).otherSources, x: linked.excluded }));
+  const posSame = link({ linkKind: "SALE_SAME_AS_DOCUMENT", saleId: pos.id, billingDocumentId: 502 });
+  const posDoc = { ...dubiz, id: 502, totalMinor: B(11800), vatMinor: B(1800) };
+  const posLinked = computeRevenueView(inputs({ sales: [pos], documents: [posDoc], links: [posSame], decisions: [decide({ linkId: posSame.id, decision: "CONFIRMED" })] }), { today: TODAY });
+  check("(unchanged) a Dubiz document confirmed as the same as a POS sale is still excluded SAME_AS_SALE — counted once (11800)",
+    ils(posLinked).sales.netMinor === B(11800) && posLinked.excluded.some((e) => e.kind === "DOCUMENT" && e.id === 502 && e.reason === "SAME_AS_SALE"));
+  const rejectedAcc = computeRevenueView(inputs({ sales: [acc], decisions: [decide({ saleId: acc.id, decision: "REJECTED" })] }), { today: TODAY });
+  check("a rejected accounting-app sale counts nowhere, not even apart", !rejectedAcc.byCurrency.has("ILS") || (ils(rejectedAcc).otherSources.ACCOUNTING_APP?.saleCount ?? 0) === 0);
+}
+
 console.log(`\n${total - failures}/${total} passed`);
 if (failures > 0) process.exit(1);

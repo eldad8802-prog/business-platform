@@ -23,6 +23,12 @@ on:
     paths:
       - "lib/accountant/**"
       - "lib/services/billing/pdf/**"
+      - "lib/pdf/**"
+      - "lib/services/billing/billing-pdf.service.ts"
+      - "lib/services/billing/quote-pdf.service.ts"
+      - "lib/services/billing/signed-pdf-delivery*.ts"
+      - "app/api/billing/documents/**"
+      - "scripts/ci/pdf-route-tracing-guard.mjs"
       - "next.config.ts"
       - "package.json"
       - "package-lock.json"
@@ -69,6 +75,8 @@ jobs:
           npx tsx lib/accountant/workflow.verify.test.ts
           npx tsx lib/accountant/package-reports.verify.test.ts
           npx tsx lib/accountant/package-report-pdf.verify.test.ts
+          npx tsx lib/reports/accountant-source-files.verify.test.ts
+          npx tsx lib/pdf/chromium.verify.test.ts
           npx tsx lib/notifications/notification-policy.verify.test.ts
           npx tsx lib/data-transfer/format/format.verify.test.ts
           npx tsx lib/reports/accountant-export-collect.verify.test.ts
@@ -106,6 +114,28 @@ jobs:
           test ! -d "$HOME/.cache/ms-playwright" || { echo "a Playwright browser download is present — the check would not prove the serverless path"; exit 1; }
       - name: Serverless PDF smoke — a real Hebrew A4 PDF from a real package workbook
         run: npx tsx .acct/serverless-pdf-smoke.ts
+      - name: Serverless billing PDF smoke — tax invoice, receipt, invoice-receipt; signed and verified
+        run: npx tsx .acct/serverless-billing-pdf-smoke.ts
+
+  pdf-route-tracing:
+    # Every route that renders a PDF must ship the serverless browser (@sparticuz/chromium/bin), which file
+    # tracing cannot see. A real `next build`, then the trace files are read. Offline after npm ci; no secrets.
+    name: PDF routes — the serverless browser is in every rendering route's trace (next build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: PDF route tracing guard (self-test, then the build)
+        run: |
+          set -euo pipefail
+          node scripts/ci/pdf-route-tracing-guard.mjs --self-test
+          node scripts/ci/pdf-route-tracing-guard.mjs
 
   app:
     name: accountant month close — the application AS the runtime role (PG17, real migration)
