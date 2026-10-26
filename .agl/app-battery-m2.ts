@@ -14,7 +14,8 @@
  *      one account. A fault after every write: nothing left, the ticket open; one later completion succeeds.
  *      An invalid form spends nothing.
  *   D  The linked person signs in again: a session for the SAME user and business, no new account.
- *   E  An address that belongs to an existing, unlinked account: stop — no ticket, no session, no link.
+ *   E  An address that belongs to an existing, unlinked account: no SIGNUP ticket, no session, no link — only a
+ *      LINK ticket for the link screen (milestone 3), where the owner must prove ownership first.
  *   F  Signup closed: no ticket for an unlisted address; a listed (closed-beta) address completes.
  *   G  A platform admin, and a business in deletion, linked to Google: no session.
  *
@@ -53,6 +54,7 @@ const count = async (sql: string, ...args: unknown[]) => Number(((await owner.$q
 
 const config = readGoogleLoginConfig({
   AUTH_GOOGLE_LOGIN_ENABLED: "true",
+  AUTH_GOOGLE_LOGIN_MODE: "open",
   GOOGLE_LOGIN_CLIENT_ID: "lab-client.apps.googleusercontent.com",
   GOOGLE_LOGIN_CLIENT_SECRET: "lab-secret",
   GOOGLE_LOGIN_REDIRECT_BASE_URL: "https://app.dubiz.test",
@@ -89,7 +91,7 @@ async function callback(identity: GoogleIdentity) {
     const v = c ? decodeURIComponent(c.split(";")[0].slice(name.length + 1)) : "";
     return v || null;
   };
-  return { location: res.headers.get("location") ?? "", ticket: pick(GOOGLE_TICKET_COOKIE), refresh: pick("dubiz_rt") };
+  return { location: res.headers.get("location") ?? "", ticket: pick(GOOGLE_TICKET_COOKIE), refresh: pick("dubiz_rt"), link: pick("dz_google_link") };
 }
 const completeDeps: CompleteDeps = {
   config: () => config,
@@ -214,10 +216,10 @@ async function main() {
   const pE = { subject: `m2-existing-${Date.now()}`, email: pwEmail, name: "פ" };
   const sE = await count(`SELECT count(*)::int AS c FROM "AuthSession" WHERE "userId" = $1`, pwUser.id);
   const cE = await callback(pE);
-  ok("E1 → /login?google=existing", cE.location.endsWith("/login?google=existing"));
-  ok("E1 …no session, no ticket cookie", cE.refresh === null && cE.ticket === null);
-  ok("E1 …no ticket row, no identity, no session, no second account",
-    (await count(`SELECT count(*)::int AS c FROM "OAuthSignupTicket" WHERE "providerSubject" = $1`, pE.subject)) === 0
+  ok("E1 → the link screen (/link/google) with a LINK ticket — milestone 3", cE.location.endsWith("/link/google") && !!cE.link);
+  ok("E1 …no session, no SIGNUP ticket cookie", cE.refresh === null && cE.ticket === null);
+  ok("E1 …no SIGNUP ticket row, no identity, no session, no second account",
+    (await count(`SELECT count(*)::int AS c FROM "OAuthSignupTicket" WHERE "providerSubject" = $1 AND purpose = 'SIGNUP'`, pE.subject)) === 0
     && (await count(`SELECT count(*)::int AS c FROM "UserIdentity" WHERE "userId" = $1`, pwUser.id)) === 0
     && (await count(`SELECT count(*)::int AS c FROM "AuthSession" WHERE "userId" = $1`, pwUser.id)) === sE
     && (await count(`SELECT count(*)::int AS c FROM "User" WHERE email = $1`, pwEmail)) === 1);

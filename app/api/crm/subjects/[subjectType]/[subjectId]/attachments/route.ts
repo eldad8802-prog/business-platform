@@ -15,7 +15,7 @@ export const maxDuration = 30;
 
 type Ctx = { params: Promise<{ subjectType: string; subjectId: string }> };
 
-/** List attachments for a CRM subject (CUSTOMER | SUPPLIER), newest-first, capped at 100. */
+/** List attachments for a CRM subject (CUSTOMER | SUPPLIER), newest-first, one page (100) at a time + hasMore + total. */
 export async function GET(req: NextRequest, ctx: Ctx) {
   try {
     const user = await getCurrentUser(req);
@@ -23,23 +23,29 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     const { subjectType, subjectId } = await ctx.params;
 
-    const attachments = await runWithTenantContext(
+    // `before` = the id of the last attachment the caller already shows (next page). Anything but a
+    // positive integer is ignored — the first page — never an error and never a raw value in a query.
+    const beforeRaw = Number(new URL(req.url).searchParams.get("before"));
+    const before = Number.isInteger(beforeRaw) && beforeRaw > 0 ? beforeRaw : null;
+
+    const page = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
         withTenantTransaction((tx) =>
-          crmAttachmentsService.listAttachments(
+          crmAttachmentsService.listAttachmentsPage(
             {
               businessId: user.businessId,
               subjectType,
               subjectId: Number(subjectId),
               actingUserId: user.id,
+              before,
             },
             { tx }
           )
         )
     );
 
-    return NextResponse.json({ attachments }, { status: 200 });
+    return NextResponse.json(page, { status: 200 });
   } catch (error) {
     return handleError(error);
   }

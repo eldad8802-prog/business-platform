@@ -19,6 +19,13 @@ import {
   type AccountLinkPayload,
 } from "./templates/account-links";
 import {
+  parseGoogleNoticePayload,
+  renderGoogleLinked,
+  renderGoogleUnlinked,
+  renderLinkGoogle,
+  type GoogleNoticePayload,
+} from "./templates/google-link";
+import {
   parseWelcomePayload,
   renderWelcome,
   type RenderedEmail,
@@ -45,6 +52,10 @@ export const WELCOME_TTL_MS = 24 * 60 * 60 * 1000;
 export const EMAIL_VERIFY_TTL_MS = 12 * 60 * 60 * 1000;
 /** A reset link lives 1h: an email that cannot go out within it carries a dead link. */
 export const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
+/** A Google link proof lives at most 30 minutes (and never beyond its ticket): later it is a dead link. */
+export const LINK_GOOGLE_TTL_MS = 30 * 60 * 1000;
+/** A security notice is worth sending for a day. */
+export const GOOGLE_NOTICE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export const EMAIL_KINDS = {
   WELCOME: {
@@ -62,6 +73,22 @@ export const EMAIL_KINDS = {
     parse: parseAccountLinkPayload,
     render: renderPasswordReset,
   } satisfies EmailKindSpec<AccountLinkPayload>,
+  // "Continue with Google", milestone 3 (lib/auth/google-link.ts). Hebrew only.
+  LINK_GOOGLE: {
+    ttlMs: LINK_GOOGLE_TTL_MS,
+    parse: parseAccountLinkPayload,
+    render: renderLinkGoogle,
+  } satisfies EmailKindSpec<AccountLinkPayload>,
+  GOOGLE_LINKED: {
+    ttlMs: GOOGLE_NOTICE_TTL_MS,
+    parse: parseGoogleNoticePayload,
+    render: renderGoogleLinked,
+  } satisfies EmailKindSpec<GoogleNoticePayload>,
+  GOOGLE_UNLINKED: {
+    ttlMs: GOOGLE_NOTICE_TTL_MS,
+    parse: parseGoogleNoticePayload,
+    render: renderGoogleUnlinked,
+  } satisfies EmailKindSpec<GoogleNoticePayload>,
 } as const;
 
 export type EmailKind = keyof typeof EMAIL_KINDS;
@@ -76,8 +103,14 @@ export function welcomeDedupeKey(userId: number): string {
 }
 
 /** One email per issued link: the token id names the act (a re-request mints a new token). */
-export function accountLinkDedupeKey(kind: "EMAIL_VERIFY" | "PASSWORD_RESET", tokenId: string): string {
-  return `${kind === "EMAIL_VERIFY" ? "email_verify" : "password_reset"}:token:${tokenId}`;
+export function accountLinkDedupeKey(kind: "EMAIL_VERIFY" | "PASSWORD_RESET" | "LINK_GOOGLE", tokenId: string): string {
+  const prefix = kind === "EMAIL_VERIFY" ? "email_verify" : kind === "PASSWORD_RESET" ? "password_reset" : "link_google";
+  return `${prefix}:token:${tokenId}`;
+}
+
+/** One notice per link and one per unlink: the identity row names the act (a later re-link is a new row). */
+export function googleNoticeDedupeKey(kind: "GOOGLE_LINKED" | "GOOGLE_UNLINKED", identityId: number): string {
+  return `${kind === "GOOGLE_LINKED" ? "google_linked" : "google_unlinked"}:identity:${identityId}`;
 }
 
 /** Renders a stored row's payload, or null when the kind is unknown or the payload invalid. */

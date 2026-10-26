@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { randomUUID } from "node:crypto";
 
-import { clearTicketCookie, GOOGLE_TICKET_COOKIE, readCookie, readGoogleLoginConfig } from "@/lib/auth/google-oauth";
+import { clearTicketCookie, GOOGLE_NOT_IN_PILOT, GOOGLE_TICKET_COOKIE, googleLoginAllows, readCookie, readGoogleLoginConfig } from "@/lib/auth/google-oauth";
 import { readSignupTicket, SignupTicketRefusedError } from "@/lib/auth/oauth-ticket";
 import { checkBrowserCsrf, setRefreshCookie } from "@/lib/auth/refresh-cookie";
 import {
@@ -40,6 +40,9 @@ export const dynamic = "force-dynamic";
  * ticket's (provider-verified), never one the visitor typed. The rate limit is the register route's own key:
  * Google is not a way around it. Then the fields are validated (an invalid form spends nothing), and
  * createAccountFromGoogle writes the whole account in ONE transaction that starts by spending the ticket.
+ *
+ * During the pilot (google-oauth.ts "who") the ticket's address must be on the list — checked again here, after the
+ * gate and before anything is read or spent, so a ticket issued before the list changed completes nothing.
  *
  * The response carries no token: it sets the same httpOnly refresh cookie login sets, and the page fetches
  * its access token from /api/auth/refresh. OFF → 404.
@@ -88,7 +91,8 @@ function ticketGone(): NextResponse {
 }
 
 export async function handleGoogleComplete(req: Request, deps: CompleteDeps = defaultDeps): Promise<NextResponse> {
-  if (!deps.config()) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const config = deps.config();
+  if (!config) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const { t, locale } = await getServerI18n();
   const failed = (reason: string) =>
     deps.recordUsage({
@@ -111,6 +115,18 @@ export async function handleGoogleComplete(req: Request, deps: CompleteDeps = de
       if (!list.configured) return signupDisabled();
       const view = await deps.readTicket(secret);
       if (!view || !list.has(view.email)) return signupDisabled();
+    }
+
+    // --- Pilot: only a listed (provider-verified) address completes a signup. ---
+    if (config.access.mode === "pilot") {
+      const view = await deps.readTicket(secret);
+      if (!view) return ticketGone();
+      if (!googleLoginAllows(config, view.email)) {
+        await failed("not_in_pilot");
+        const res = NextResponse.json(GOOGLE_NOT_IN_PILOT, { status: 403, headers: noStore });
+        clearTicketCookie(res);
+        return res;
+      }
     }
 
     const rl = await deps.rateLimit({ key: `auth:register:${getClientIp(req)}`, limit: 3, windowMs: 60 * 60_000 });

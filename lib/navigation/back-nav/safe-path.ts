@@ -31,6 +31,8 @@ const TECHNICAL_PREFIXES = [
   "/verify-email",
   "/logout",
   "/auth",
+  // "Continue with Google", milestone 3: the link screen and the emailed link's page — auth steps.
+  "/link",
   "/onboarding",
 ] as const;
 

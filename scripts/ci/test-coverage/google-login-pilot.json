@@ -1,0 +1,10 @@
+{
+  "note": "feat/google-login-pilot: \"Continue with Google\" milestone 4 — the pilot. While AUTH_GOOGLE_LOGIN_ENABLED=true, only AUTH_GOOGLE_LOGIN_MODE=open opens to everyone; anything else is a pilot limited to the exact addresses in AUTH_GOOGLE_LOGIN_PILOT_EMAILS (fail closed: no / empty / malformed list → nobody). Enforced on the server on the Google-verified address in the callback and in every route that completes a signup or a link; ?google=pilot only shows the button.",
+  "tests": {
+    "lib/auth/google-login-pilot.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the mode (only the exact word open opens; unset / pilot / Open / anything else → pilot; the mode never turns the feature on by itself); the list fails closed (missing, empty, separators only, one malformed entry, wildcard, wildcard address, whole domain, more than 20 → nobody; a valid list admits exactly its addresses, case folded as signup does); the button (OFF never, open always, pilot only on ?google=pilot, never for a repeated parameter; the parameter grants nothing); the callback refuses an unlisted address before the linked lookup (no database reached) with the generic 'unavailable', no ticket / link / session cookie, the start cookie cleared and no address logged; the signup completion, the password proof, the email-link request and the email-link completion each refuse an unlisted ticket address with 403 before anything is created, counted, recorded or spent (the rate limit and the login ledger untouched), and let a listed one through; open mode does not read the ticket for the pilot; static: every completing route checks googleLoginAllows, the decision checks right after verification and before the linked lookup, the login and register pages use googleButtonVisible only, and the settings card shows during the pilot only for a connected account; run by security-gate (pure lab) and oauth-identity-lab.yml (with .agl/app-battery-pilot.ts on real rows and .agl/browser-pilot.ts in Chromium)"
+    }
+  }
+}

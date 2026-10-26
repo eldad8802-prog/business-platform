@@ -62,6 +62,7 @@ export function AppointmentDetails({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [stamp, setStamp] = useState(0);
+  const inFlight = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,13 +83,17 @@ export function AppointmentDetails({
   if (!data) return <p className={t.hint} aria-busy="true">טוען…</p>;
 
   const a = data.appointment;
-  const actions = actionsFor(a);
+  const actions = actionsFor(a, new Date());
   const customer = a.customerName ?? (a.customerId !== null ? names.customers.get(a.customerId) : undefined);
   const service = a.businessServiceId !== null ? names.services.get(a.businessServiceId) : undefined;
   const staff = a.staffMemberId !== null ? names.staff.get(a.staffMemberId) : undefined;
   const minutes = durationOf(a);
 
   const runStatus = async (to: keyof typeof STATUS_TO, extra: { cancelReason?: string; reason?: string | null } = {}) => {
+    // One status change at a time: a second tap while the first is on its way is ignored (the key would replay it
+    // anyway — this keeps the screen from showing two of them).
+    if (inFlight.current) return;
+    inFlight.current = true;
     const intent = `appt:status:${a.id}:${to}:${a.version}`;
     setBusy(true);
     setError(null);
@@ -101,10 +106,11 @@ export function AppointmentDetails({
     } catch (e) {
       forgetIntent(intent);
       const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "NETWORK");
-      setError(errorText(err.code, err.status));
+      setError(errorText(typeof err.details.reason === "string" ? err.details.reason : err.code, err.status));
       if (err.code === "VERSION_CONFLICT" || err.code === "INVALID_TRANSITION") setStamp((x) => x + 1);
     } finally {
       setBusy(false);
+      inFlight.current = false;
     }
   };
 
@@ -170,8 +176,8 @@ export function AppointmentDetails({
         <ul className={t.hist} aria-label="היסטוריה">
           {data.history.map((h, i) => (
             <li key={i}>
-              <time dateTime={h.at}>{STAMP.format(new Date(h.at))}</time>
-              <span>{EVENT_LABEL[h.type] ?? "שינוי"}{ACTOR_LABEL[h.actor] ? ` · ${ACTOR_LABEL[h.actor]}` : ""}{historyDetail(h)}</span>
+              <time dateTime={h.at} dir="ltr">{STAMP.format(new Date(h.at))}</time>
+              <span>{EVENT_LABEL[h.type] ?? "שינוי"}{ACTOR_LABEL[h.actor] ? ` · ${ACTOR_LABEL[h.actor]}` : ""}{historyDetail(h, names)}</span>
             </li>
           ))}
         </ul>
@@ -180,18 +186,49 @@ export function AppointmentDetails({
   );
 }
 
-/** A move's new time, when the journal says it (short tokens only — the journal never holds free text). */
-function historyDetail(h: HistoryWire): string {
-  if (h.type === "APPOINTMENT_RESCHEDULED" && typeof h.payload.toStartsAt === "string") {
-    const d = new Date(h.payload.toStartsAt);
-    if (!Number.isNaN(d.getTime())) return ` ל־${new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: "Asia/Jerusalem" }).format(d)} ${clockOf(d)}`;
+/**
+ * What the journal says about a change, in words (its payload holds short tokens only, never free text): a move's new
+ * day and time, and the staff member it moved from and to; a cancellation's closed reason. Dates and times are
+ * left-to-right isolates, so "27.10 12:00" never flips inside the Hebrew line.
+ */
+function historyDetail(h: HistoryWire, names: Names): string {
+  const iso = (x: string) => `⁦${x}⁩`;
+  const staffName = (v: unknown) => (typeof v === "number" ? names.staff.get(v)?.displayName ?? "עובד" : "ללא עובד מסוים");
+  if (h.type === "APPOINTMENT_RESCHEDULED") {
+    const parts: string[] = [];
+    if (typeof h.payload.toStartsAt === "string") {
+      const d = new Date(h.payload.toStartsAt);
+      if (!Number.isNaN(d.getTime())) {
+        parts.push(`ל־${iso(`${new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: "Asia/Jerusalem" }).format(d)} ${clockOf(d)}`)}`);
+      }
+    }
+    if ("toStaffMemberId" in h.payload && h.payload.fromStaffMemberId !== h.payload.toStaffMemberId) {
+      parts.push(`מ${staffName(h.payload.fromStaffMemberId)} ל${staffName(h.payload.toStaffMemberId)}`);
+    }
+    return parts.length ? ` ${parts.join(" · ")}` : "";
+  }
+  if (h.type === "APPOINTMENT_CANCELED" && typeof h.payload.cancelReason === "string" && h.payload.cancelReason in CANCEL_REASON_LABEL) {
+    return ` · ${CANCEL_REASON_LABEL[h.payload.cancelReason as keyof typeof CANCEL_REASON_LABEL]}`;
   }
   return "";
 }
 
+/** How long the confirm button waits after the box opens: a second tap of the opening double tap lands on nothing. */
+const CONFIRM_ARM_MS = 700;
+
+/**
+ * The cancellation question. Safe against a double tap on the phone: the confirm button is disabled for a moment
+ * after the box opens, and the button that sits where "ביטול התור" was is "חזרה" — a tap that lands there by
+ * accident keeps the appointment. The confirm button is the destructive one, above it, and sends once.
+ */
 function CancelBox({ appt, busy, onCancel, onConfirm }: { appt: AppointmentWire; busy: boolean; onCancel: () => void; onConfirm: (reason: string, note: string | null) => void }) {
   const [reason, setReason] = useState<string>("OWNER_CANCELED");
   const [note, setNote] = useState("");
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    const h = window.setTimeout(() => setArmed(true), CONFIRM_ARM_MS);
+    return () => window.clearTimeout(h);
+  }, []);
   // The note is added to the appointment's notes, which hold at most 4,000 characters (the database's bound).
   const room = LIMITS.notes - ((appt.notes?.length ?? 0) + (appt.notes ? 1 : 0));
   const problem = textProblem("ההסבר", note, LIMITS.cancelReason)
@@ -213,11 +250,20 @@ function CancelBox({ appt, busy, onCancel, onConfirm }: { appt: AppointmentWire;
         <input id="cancel-note" className={t.input} value={note} maxLength={LIMITS.cancelReason + 50} onChange={(e) => setNote(e.target.value)} />
         {problem ? <span className={t.error}>{problem}</span> : null}
       </div>
-      <div className={t.actions}>
-        <button type="button" className={`${t.btn} ${t.danger}`} disabled={busy || !!problem} onClick={() => onConfirm(reason, note.trim() || null)}>
-          {busy ? "מבטל…" : appt.kind === "BLOCK" ? "בטל את החסימה" : "בטל את התור"}
+      <div className={t.actGroup}>
+        <button
+          type="button"
+          className={`${t.btn} ${t.danger}`}
+          style={{ justifyContent: "center", minHeight: 44, borderColor: "var(--dz-danger-border)" }}
+          disabled={busy || !!problem || !armed}
+          aria-disabled={busy || !!problem || !armed}
+          onClick={() => onConfirm(reason, note.trim() || null)}
+        >
+          {busy ? "מבטל…" : appt.kind === "BLOCK" ? "כן, לבטל את החסימה" : "כן, לבטל את התור"}
         </button>
-        <button type="button" className={t.btn} onClick={onCancel} disabled={busy}>חזרה</button>
+        <button type="button" className={`${t.btn} ${t.pri}`} style={{ justifyContent: "center", minHeight: 44 }} onClick={onCancel} disabled={busy}>
+          {appt.kind === "BLOCK" ? "חזרה, להשאיר את החסימה" : "חזרה, להשאיר את התור"}
+        </button>
       </div>
     </div>
   );

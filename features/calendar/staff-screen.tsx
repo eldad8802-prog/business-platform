@@ -112,7 +112,7 @@ export function StaffScreen() {
           {scope.kind === "staff" && selected ? (
             <>
               <StaffCard key={`card:${selected.id}:${selected.version}`} member={selected} onSaved={async (m) => { await reload(); flash(m); }} />
-              <ServicesCard key={`svc:${selected.id}`} member={selected} services={services} onSaved={async () => { await reload(); flash("השירותים נשמרו"); }} />
+              <ServicesCard key={`svc:${selected.id}:${selected.version}`} member={selected} services={services} onSaved={async () => { await reload(); flash("השירותים נשמרו"); }} onStale={async () => { await reload(); flash("השירותים של העובד השתנו בינתיים (אולי במסך אחר). מוצג המצב העדכני — אפשר לבדוק ולשמור שוב."); }} />
             </>
           ) : null}
           {scope.kind !== "new" && (scope.kind === "business" || selected) ? (
@@ -228,11 +228,17 @@ function StaffCard({ member, onSaved }: { member: StaffWire; onSaved: (message: 
   );
 }
 
-function ServicesCard({ member, services, onSaved }: { member: StaffWire; services: ServiceWire[]; onSaved: () => Promise<void> }) {
+/**
+ * The services one staff member performs. The card is keyed by the member's version, so after any save — here or on
+ * "שירותים ושעות" — it starts again from what the server holds; the save sends the version it was built from, and a
+ * list that changed meanwhile is refused (VERSION_CONFLICT) and reloaded instead of being overwritten.
+ */
+function ServicesCard({ member, services, onSaved, onStale }: { member: StaffWire; services: ServiceWire[]; onSaved: () => Promise<void>; onStale: () => Promise<void> }) {
   const initial = new Map(member.services.map((x) => [x.businessServiceId, x.durationOverrideMinutes]));
   const [chosen, setChosen] = useState<Map<number, number | null>>(initial);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dirty = chosen.size !== initial.size || [...chosen].some(([id, d]) => !initial.has(id) || initial.get(id) !== d);
   if (!services.length) {
     return (
       <section className={s.panel}>
@@ -269,25 +275,29 @@ function ServicesCard({ member, services, onSaved }: { member: StaffWire; servic
       </div>
       {error ? <p className={t.error} role="alert">{error}</p> : null}
       <div className={t.actions}>
-        <button type="button" className={`${t.btn} ${t.pri}`} disabled={busy} onClick={async () => {
+        <button type="button" className={`${t.btn} ${t.pri}`} disabled={busy || !dirty} onClick={async () => {
           const list = [...chosen.entries()].map(([businessServiceId, d]) => ({ businessServiceId, durationOverrideMinutes: d }));
           if (list.some((x) => x.durationOverrideMinutes !== null && !(x.durationOverrideMinutes >= 5 && x.durationOverrideMinutes <= 1440))) {
             setError("משך אישי צריך להיות בין 5 ל־1,440 דקות.");
             return;
           }
-          const intent = `staff:services:${member.id}:${JSON.stringify(list)}`;
+          const intent = `staff:services:${member.id}:${member.version}:${JSON.stringify(list)}`;
           setBusy(true);
           setError(null);
           try {
-            await setStaffServices(intent, member.id, list);
+            await setStaffServices(intent, member.id, list, member.version);
             await onSaved();
           } catch (e) {
             forgetIntent(intent);
-            setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK"));
+            if (e instanceof CalendarApiError && e.code === "VERSION_CONFLICT") {
+              await onStale();
+            } else {
+              setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK"));
+            }
           } finally {
             setBusy(false);
           }
-        }}>שמירה</button>
+        }}>{busy ? "שומר…" : "שמירת השירותים"}</button>
       </div>
     </section>
   );
@@ -295,26 +305,62 @@ function ServicesCard({ member, services, onSaved }: { member: StaffWire; servic
 
 type Range = { start: string; end: string };
 
+const rangesOf = (rules: RuleWire[]): Range[][] =>
+  windowsByWeekday(rules).map((d) => d.map((w) => ({ start: clock(w.startMinute), end: w.endMinute === 1440 ? "24:00" : clock(w.endMinute) })));
+
+/**
+ * Weekly hours of the business or of one staff member. A staff member with no hours of their own works by the
+ * business's hours (the server's rule): the card then SHOWS those inherited hours, read-only, instead of an empty
+ * week that reads as "closed every day" — and setting separate hours starts from a copy of them.
+ */
 function HoursCard({ staffMemberId, onSaved }: { staffMemberId: number | null; onSaved: () => void }) {
   const [week, setWeek] = useState<Range[][] | null>(null);
   const [savedEmpty, setSavedEmpty] = useState(false);
+  const [inherited, setInherited] = useState<Range[][] | null>(null);
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     getAvailability(staffMemberId)
-      .then((r) => {
+      .then(async (r) => {
+        const business = staffMemberId !== null && r.rules.length === 0 ? (await getAvailability(null)).rules : null;
         if (cancelled) return;
-        const byDay = windowsByWeekday(r.rules);
-        setWeek(byDay.map((d) => d.map((w) => ({ start: clock(w.startMinute), end: w.endMinute === 1440 ? "24:00" : clock(w.endMinute) }))));
+        setWeek(rangesOf(r.rules));
         setSavedEmpty(r.rules.length === 0);
+        setInherited(business ? rangesOf(business) : null);
+        setEditing(false);
       })
       .catch((e) => { if (!cancelled) setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK")); });
     return () => { cancelled = true; };
   }, [staffMemberId]);
 
   if (!week) return <section className={s.panel}><h2>שעות פעילות</h2><p className={t.hint}>{error ?? "טוען…"}</p></section>;
+
+  if (staffMemberId !== null && savedEmpty && inherited && !editing) {
+    return (
+      <section className={s.panel} aria-labelledby={`hours-title-${staffMemberId}`}>
+        <h2 id={`hours-title-${staffMemberId}`}>שעות העבודה של העובד</h2>
+        <p className={s.note}>לעובד אין שעות משלו, ולכן הוא עובד לפי שעות העסק:</p>
+        <div className={s.week}>
+          {inherited.map((ranges, d) => (
+            <div key={d} className={s.dayRow}>
+              <span className={s.dayName}>{DAY_NAMES[d]}</span>
+              <span className={t.hint} style={{ paddingTop: 8 }}>
+                {ranges.length ? ranges.map((r, i) => <bdi key={i} dir="ltr" style={{ marginInlineEnd: 10 }}>{r.start}–{r.end}</bdi>) : "סגור"}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className={t.actions}>
+          <button type="button" className={`${t.btn} ${t.soft}`} onClick={() => { setWeek(inherited.map((d) => d.map((r) => ({ ...r })))); setEditing(true); }}>
+            קביעת שעות נפרדות לעובד
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   const setDay = (i: number, ranges: Range[]) => setWeek(week.map((d, j) => (j === i ? ranges : d)));
   const toMinutes = (v: string) => (v === "24:00" ? 1440 : parseClock(v));
@@ -334,6 +380,11 @@ function HoursCard({ staffMemberId, onSaved }: { staffMemberId: number | null; o
     try {
       await replaceWeeklyRules(intent, staffMemberId, rules);
       setSavedEmpty(rules.length === 0);
+      if (staffMemberId !== null && rules.length === 0) {
+        const business = await getAvailability(null).catch(() => null);
+        if (business) setInherited(rangesOf(business.rules));
+      }
+      setEditing(false);
       onSaved();
     } catch (e) {
       forgetIntent(intent);
@@ -346,7 +397,8 @@ function HoursCard({ staffMemberId, onSaved }: { staffMemberId: number | null; o
   return (
     <section className={s.panel} aria-labelledby={`hours-title-${staffMemberId ?? "biz"}`}>
       <h2 id={`hours-title-${staffMemberId ?? "biz"}`}>{staffMemberId === null ? "שעות הפעילות של העסק" : "שעות העבודה של העובד"}</h2>
-      {staffMemberId !== null && savedEmpty ? <p className={s.note}>לעובד אין שעות משלו, ולכן הוא עובד לפי שעות העסק. שעות שיוגדרו כאן יחליפו אותן עבורו.</p> : null}
+      {staffMemberId !== null && savedEmpty ? <p className={s.note}>השעות שיישמרו כאן יחליפו עבור העובד את שעות העסק. כל עוד לא שומרים — הוא ממשיך לעבוד לפי שעות העסק.</p> : null}
+      {staffMemberId !== null && !savedEmpty ? <p className={s.note}>הסרת כל הטווחים ושמירה מחזירה את העובד לשעות העסק.</p> : null}
       <div className={s.week}>
         {week.map((ranges, d) => (
           <div key={d} className={s.dayRow}>
@@ -374,6 +426,7 @@ function HoursCard({ staffMemberId, onSaved }: { staffMemberId: number | null; o
       {error ? <p className={t.error} role="alert">{error}</p> : null}
       <div className={t.actions}>
         <button type="button" className={`${t.btn} ${t.pri}`} disabled={busy} onClick={() => void save()}>{busy ? "שומר…" : "שמירת השעות"}</button>
+        {editing && savedEmpty ? <button type="button" className={`${t.btn} ${t.ghost}`} disabled={busy} onClick={() => { setError(null); setEditing(false); }}>ביטול</button> : null}
       </div>
     </section>
   );
@@ -388,6 +441,7 @@ function ExceptionsCard({ staffMemberId, onChanged }: { staffMemberId: number | 
   const [start, setStart] = useState("09:00");
   const [end, setEnd] = useState("13:00");
   const [label, setLabel] = useState("");
+  const [confirming, setConfirming] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -412,6 +466,10 @@ function ExceptionsCard({ staffMemberId, onChanged }: { staffMemberId: number | 
     try {
       await addException(intent, body);
       setLabel("");
+      setKind("ALL");
+      setStart("09:00");
+      setEnd("13:00");
+      setDay(addCalendarDays(today, 1));
       setStamp((x) => x + 1);
       onChanged("החריגה נשמרה");
     } catch (e) {
@@ -431,13 +489,22 @@ function ExceptionsCard({ staffMemberId, onChanged }: { staffMemberId: number | 
           {list.map((x) => (
             <div key={x.id} className={s.item} style={{ cursor: "default" }}>
               <span style={{ flex: 1, minWidth: 0 }}>
-                {dayTitle(x.dayKey)} · {x.kind === "OPEN_HOURS" ? `שעות מיוחדות ${clock(x.startMinute!)}–${clock(x.endMinute!)}` : x.startMinute !== null ? `סגור ${clock(x.startMinute)}–${clock(x.endMinute!)}` : "סגור כל היום"}
+                {dayTitle(x.dayKey)} · {x.kind === "OPEN_HOURS" ? "שעות מיוחדות " : x.startMinute !== null ? "סגור " : "סגור כל היום"}
+                {x.startMinute !== null ? <bdi dir="ltr">{clock(x.startMinute)}–{x.endMinute === 1440 ? "24:00" : clock(x.endMinute!)}</bdi> : null}
                 {x.label ? <small style={{ color: "var(--dz-text-muted)" }}> · {x.label}</small> : null}
               </span>
-              <button type="button" className={`${t.btn} ${t.ghost} ${t.danger}`} onClick={async () => {
-                const intent = `exception:remove:${x.id}`;
-                try { await removeException(intent, x.id); setStamp((v) => v + 1); onChanged("החריגה הוסרה"); } catch (e) { forgetIntent(intent); setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK")); }
-              }}>הסרה</button>
+              {confirming === x.id ? (
+                <span className={t.actGroup}>
+                  <button type="button" className={`${t.btn} ${t.danger}`} disabled={busy} onClick={async () => {
+                    const intent = `exception:remove:${x.id}`;
+                    setBusy(true);
+                    try { await removeException(intent, x.id); setConfirming(null); setStamp((v) => v + 1); onChanged("החריגה הוסרה"); } catch (e) { forgetIntent(intent); setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK")); } finally { setBusy(false); }
+                  }}>כן, להסיר</button>
+                  <button type="button" className={`${t.btn} ${t.ghost}`} disabled={busy} onClick={() => setConfirming(null)}>ביטול</button>
+                </span>
+              ) : (
+                <button type="button" className={`${t.btn} ${t.ghost} ${t.danger}`} aria-label={`הסרת היום המיוחד ${dayTitle(x.dayKey)}`} onClick={() => setConfirming(x.id)}>הסרה</button>
+              )}
             </div>
           ))}
         </div>

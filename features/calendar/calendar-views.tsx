@@ -3,11 +3,12 @@
 /**
  * The calendar's three pictures (Appointments milestone B):
  *   TimeGrid      day and week — hour rows, one column per day (week) or per staff lane (day, when there is staff);
- *                 closed time shaded from the business's weekly hours; a red line at "now"; a click on empty time
+ *                 closed time shaded — each lane's own open hours: weekly hours, closed days, part-day closures and
+ *                 special hours of the business and of the staff member (the free-slot rule); a red line at "now"; a click on empty time
  *                 books there; on a pointer device an appointment is dragged to another time / day / lane (15-minute
  *                 steps) and dropped as a move the server checks.
- *   MonthGrid     the month's days with their first appointments; a day opens the day view.
- *   MobileAgenda  the phone: a scrolling strip of days and the chosen day's appointments as cards.
+ *   MonthGrid     the month's days with their first appointments and what is closed; a day opens the day view.
+ *   MobileAgenda  the phone: a scrolling strip of days and the chosen day's appointments as cards, with what is closed.
  * Colour is never the only signal: every block names its time, its title, and its state in words for readers.
  */
 import { useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
@@ -25,12 +26,14 @@ import {
   durationOf,
   gridHours,
   headline,
+  dayAvailability,
   isTerminal,
   isTimed,
   KIND_LABEL,
   layoutDay,
   minuteInDay,
   monthOf,
+  openWindows,
   snap,
   STATUS_LABEL,
   staffColor,
@@ -38,6 +41,7 @@ import {
   WEEKDAY_LETTER,
   weekdayOfDay,
   type AppointmentWire,
+  type Availability,
   type DayKey,
   type Names,
   type Placed,
@@ -76,6 +80,7 @@ export function TimeGrid({
   appointments,
   names,
   hours,
+  availability,
   now,
   selectedId,
   canDrag,
@@ -88,6 +93,7 @@ export function TimeGrid({
   appointments: AppointmentWire[];
   names: Names;
   hours: WeekWindow[];
+  availability: Availability;
   now: Date;
   selectedId: number | null;
   canDrag: boolean;
@@ -111,11 +117,6 @@ export function TimeGrid({
   }, [appointments, columns]);
 
   const allPlaced = perColumn.flatMap((p) => p.timed);
-  const byWeekday = useMemo(() => {
-    const out: WeekWindow[][] = Array.from({ length: 7 }, () => []);
-    for (const h of hours) out[h.weekday]?.push(h);
-    return out;
-  }, [hours]);
   const { first, last } = gridHours(allPlaced, hours);
   const height = (last - first) * HOUR_PX;
   const pxPerMin = HOUR_PX / 60;
@@ -214,8 +215,7 @@ export function TimeGrid({
         </div>
         <div className={s.lanes} ref={lanesRef} style={{ height }}>
           {columns.map((c, ci) => {
-            const windows = byWeekday[weekdayOfDay(c.day)];
-            const closed = closedBands(windows, first * 60, last * 60, hours.length > 0);
+            const closed = closedBands(openWindows(availability, c.staffMemberId ?? null, c.day), first * 60, last * 60);
             return (
               <div
                 key={c.key}
@@ -267,6 +267,7 @@ export function TimeGrid({
                         <>
                           <span className={s.blockTitle}>{headline(a, names)}</span>
                           <span className={s.blockTime}>{timeLabel(a)}</span>
+                          {a.kind !== "BLOCK" && a.status !== "CONFIRMED" && h >= 56 ? <span className={`${s.status} ${s[`st_${a.status}`]} ${s.blockState}`}>{STATUS_LABEL[a.status]}</span> : null}
                         </>
                       ) : (
                         <span className={s.blockTitle}>
@@ -288,9 +289,9 @@ export function TimeGrid({
   );
 }
 
-/** The closed bands of a day between `from` and `to` (minutes): everything outside its windows. None while no hours are set. */
-function closedBands(windows: WeekWindow[], from: number, to: number, hoursKnown: boolean): Array<{ start: number; end: number }> {
-  if (!hoursKnown) return [];
+/** The closed bands of a day between `from` and `to` (minutes): everything outside its open windows. None when nothing is known. */
+function closedBands(windows: Array<{ startMinute: number; endMinute: number }> | null, from: number, to: number): Array<{ start: number; end: number }> {
+  if (!windows) return [];
   const out: Array<{ start: number; end: number }> = [];
   let cursor = from;
   for (const w of [...windows].sort((a, b) => a.startMinute - b.startMinute)) {
@@ -307,6 +308,7 @@ export function MonthGrid({
   anchor,
   appointments,
   names,
+  availability,
   today,
   compact,
   onDay,
@@ -314,6 +316,7 @@ export function MonthGrid({
   anchor: DayKey;
   appointments: AppointmentWire[];
   names: Names;
+  availability: Availability;
   today: DayKey;
   compact: boolean;
   onDay: (day: DayKey) => void;
@@ -336,10 +339,13 @@ export function MonthGrid({
           {w.map((d, di) => {
             if (!d) return <span key={di} className={`${s.cell} ${s.cellOut}`} aria-hidden="true" />;
             const list = map.get(d) ?? [];
-            const label = `${dayTitle(d)}${list.length ? ` · ${list.length} ${list.length === 1 ? "תור" : "תורים"}` : " · אין תורים"}`;
+            const av = dayAvailability(availability, d, names);
+            const note = av.closed ? "סגור" : av.notes.length ? (av.notes.length === 1 ? av.notes[0] : `${av.notes.length} שינויים בשעות`) : null;
+            const label = `${dayTitle(d)}${av.closed && !av.notes.some((x) => x.startsWith("סגור כל היום")) ? " · סגור" : ""}${av.notes.length ? ` · ${av.notes.join(" · ")}` : ""}${list.length ? ` · ${list.length} ${list.length === 1 ? "תור" : "תורים"}` : " · אין תורים"}`;
             return (
-              <button key={d} type="button" className={`${s.cell} ${d === today ? s.cellToday : ""}`} onClick={() => onDay(d)} aria-label={label}>
+              <button key={d} type="button" className={`${s.cell} ${d === today ? s.cellToday : ""} ${av.closed ? s.cellClosed : ""}`} onClick={() => onDay(d)} aria-label={label} title={av.notes.join("\n") || undefined}>
                 <span className={s.cellNum}>{dayNumber(d)}</span>
+                {note ? <span className={`${s.cellNote} ${compact ? s.cellNoteDot : ""}`} aria-hidden="true">{compact ? "" : note}</span> : null}
                 {compact ? (
                   list.length ? (
                     <span className={s.dots} aria-hidden="true">
@@ -373,6 +379,7 @@ export function MobileAgenda({
   today,
   appointments,
   names,
+  availability,
   onDay,
   onSelect,
   onNew,
@@ -382,26 +389,29 @@ export function MobileAgenda({
   today: DayKey;
   appointments: AppointmentWire[];
   names: Names;
+  availability: Availability;
   onDay: (day: DayKey) => void;
   onSelect: (id: number) => void;
   onNew: () => void;
 }) {
   const map = useMemo(() => byDay(appointments), [appointments]);
   const list = map.get(day) ?? [];
+  const av = dayAvailability(availability, day, names);
   return (
     <>
       <div className={s.strip} role="tablist" aria-label="ימים">
         {days.map((d) => {
           const n = (map.get(d) ?? []).filter((a) => a.status !== "CANCELED").length;
+          const shut = dayAvailability(availability, d, names).closed;
           return (
             <button
               key={d}
               type="button"
               role="tab"
               aria-selected={d === day}
-              className={`${s.stripDay} ${d === day ? s.stripOn : ""} ${d === today ? s.stripToday : ""}`}
+              className={`${s.stripDay} ${d === day ? s.stripOn : ""} ${d === today ? s.stripToday : ""} ${shut ? s.stripClosed : ""}`}
               onClick={() => onDay(d)}
-              aria-label={`${dayTitle(d)}${n ? ` · ${n} תורים` : ""}`}
+              aria-label={`${dayTitle(d)}${shut ? " · סגור" : ""}${n ? ` · ${n} תורים` : ""}`}
             >
               <small>{WEEKDAY_LETTER[weekdayOfDay(d)]}</small>
               <b>{dayNumber(d)}</b>
@@ -411,6 +421,12 @@ export function MobileAgenda({
         })}
       </div>
       <h2 className={s.sub} style={{ margin: 0 }}>{dayTitle(day)}</h2>
+      {av.closed || av.notes.length ? (
+        <div className={s.dayNotes} role="note">
+          {av.closed ? <span className={s.dayNoteStrong}>העסק סגור ביום הזה</span> : null}
+          {av.notes.map((x, i) => <span key={i}>{x}</span>)}
+        </div>
+      ) : null}
       {list.length ? (
         <div className={s.agenda}>
           {list.map((a) => {

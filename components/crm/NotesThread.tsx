@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
-  getNotes,
+  getNotesPage,
   createNote,
   updateNote,
   deleteNote,
@@ -36,6 +36,12 @@ export function NotesThread({
 }) {
   const { t, formatDate } = useI18n();
   const [notes, setNotes] = useState<CrmNoteDTO[]>([]);
+  // The thread's real size and whether older notes exist beyond the loaded pages —
+  // the header used to print the length of a capped page (at most 100) as the count.
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,8 +66,11 @@ export function NotesThread({
     try {
       setLoading(true);
       setError(null);
-      const data = await getNotes(subjectType, subjectId);
-      setNotes(data);
+      setMoreError(null);
+      const page = await getNotesPage(subjectType, subjectId);
+      setNotes(page.notes);
+      setHasMore(page.hasMore);
+      setTotal(page.total);
     } catch (err) {
       if (handleAuth(err)) return;
       setError(err instanceof Error ? err.message : t("inbox.crm.notes.loadFailed"));
@@ -74,6 +83,29 @@ export function NotesThread({
     void load();
   }, [load]);
 
+  // Older notes, appended after the last one shown. A failure keeps every note
+  // already on screen and offers a retry from the same point.
+  const loadMore = useCallback(async () => {
+    const last = notes.at(-1);
+    if (loadingMore || !hasMore || !last) return;
+    try {
+      setLoadingMore(true);
+      setMoreError(null);
+      const page = await getNotesPage(subjectType, subjectId, last.id);
+      setNotes((prev) => {
+        const seen = new Set(prev.map((n) => n.id));
+        return prev.concat(page.notes.filter((n) => !seen.has(n.id)));
+      });
+      setHasMore(page.hasMore);
+      setTotal(page.total);
+    } catch (err) {
+      if (handleAuth(err)) return;
+      setMoreError(t("inbox.crm.notes.loadMoreFailed"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [notes, loadingMore, hasMore, subjectType, subjectId, handleAuth, t]);
+
   async function handleAdd() {
     const body = draft.trim();
     if (!body) {
@@ -85,6 +117,7 @@ export function NotesThread({
       setComposerError(null);
       const created = await createNote(subjectType, subjectId, body);
       setNotes((prev) => [created, ...prev]);
+      setTotal((n) => n + 1);
       setDraft("");
     } catch (err) {
       if (handleAuth(err)) return;
@@ -121,6 +154,7 @@ export function NotesThread({
       setRowBusy(noteId);
       await deleteNote(noteId);
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
+      setTotal((n) => Math.max(0, n - 1));
       setConfirmDeleteId(null);
     } catch (err) {
       if (handleAuth(err)) return;
@@ -138,7 +172,7 @@ export function NotesThread({
           {t("inbox.crm.notes.title")}
         </h2>
         {!loading && !error ? (
-          <span className="crm-section__count">{notes.length}</span>
+          <span className="crm-section__count">{total}</span>
         ) : null}
       </div>
 
@@ -276,6 +310,20 @@ export function NotesThread({
               </div>
             );
           })}
+          {hasMore || moreError ? (
+            <div className="crm-list-more" aria-live="polite">
+              <p className="crm-list-more__note">{t("inbox.crm.shownOfTotal", { shown: notes.length, total })}</p>
+              {moreError ? <p className="crm-list-more__error" role="alert">{moreError}</p> : null}
+              <button
+                type="button"
+                className="crm-btn crm-btn--ghost crm-btn--full"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+              >
+                {loadingMore ? t("inbox.crm.loading") : moreError ? t("inbox.crm.retry") : t("inbox.crm.notes.loadMore")}
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
