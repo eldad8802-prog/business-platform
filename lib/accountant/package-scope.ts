@@ -39,6 +39,12 @@ export type ScannedRecordFact = {
   documentCreatedAt: Date;
   documentStatus: string;
   fileUrl: string | null;
+  /**
+   * sha256 of the original file as it was ingested (Document.contentHashSha256), when known. The package
+   * builder checks the stored object against it; documents ingested before the hash existed carry none.
+   * Deliberately NOT part of the content fingerprint, so adding it never re-marks an existing package.
+   */
+  fileSha256?: string | null;
   /** The extraction's confidence, shown in the report (label wins over score). */
   confidenceLabel?: string | null;
   confidenceScore?: number | null;
@@ -93,11 +99,15 @@ export type PeriodFacts = {
 export type Blocker =
   | { kind: "DOCUMENTS_PENDING_REVIEW"; count: number; documentIds: number[] }
   | { kind: "ISSUED_PDF_UNAVAILABLE"; count: number; billingDocumentIds: number[] }
-  | { kind: "ORIGINAL_FILES_MISSING"; count: number; documentIds: number[] };
+  | { kind: "ORIGINAL_FILES_MISSING"; count: number; documentIds: number[] }
+  /** The stored original does not hash to the sha256 recorded when it was ingested — not shipped. */
+  | { kind: "ORIGINAL_FILE_MISMATCH"; count: number; documentIds: number[] };
 
 export type Warning =
   | { kind: "DATE_FROM_UPLOAD_TIME"; count: number; recordIds: number[] }
-  | { kind: "POSSIBLE_DUPLICATE_INCOME"; count: number; pairs: { recordId: number; billingDocumentId: number }[] };
+  | { kind: "POSSIBLE_DUPLICATE_INCOME"; count: number; pairs: { recordId: number; billingDocumentId: number }[] }
+  /** Originals shipped without a recorded sha256 to check them against (ingested before hashing existed). */
+  | { kind: "ORIGINAL_NOT_VERIFIED"; count: number; documentIds: number[] };
 
 /** One total per issued document type AND currency: amounts of different currencies are never added. */
 export type IssuedTypeTotal = { documentType: string; currency: string; count: number; totalAmount: string; vatAmount: string };
@@ -314,7 +324,8 @@ function sortedIds(ids: number[]): number[] {
  */
 export function evaluateReadiness(
   facts: PeriodFacts,
-  missingOriginalDocumentIds: number[] = []
+  missingOriginalDocumentIds: number[] = [],
+  originals: { mismatchedDocumentIds?: number[]; unverifiedDocumentIds?: number[] } = {}
 ): Readiness {
   const blockers: Blocker[] = [];
   const warnings: Warning[] = [];
@@ -332,6 +343,10 @@ export function evaluateReadiness(
     const ids = sortedIds(missingOriginalDocumentIds);
     blockers.push({ kind: "ORIGINAL_FILES_MISSING", count: ids.length, documentIds: ids });
   }
+  if (originals.mismatchedDocumentIds && originals.mismatchedDocumentIds.length > 0) {
+    const ids = sortedIds([...new Set(originals.mismatchedDocumentIds)]);
+    blockers.push({ kind: "ORIGINAL_FILE_MISMATCH", count: ids.length, documentIds: ids });
+  }
 
   const uploadDated = facts.scanned.filter(dateTakenFromUpload);
   if (uploadDated.length > 0) {
@@ -341,6 +356,10 @@ export function evaluateReadiness(
   const duplicates = findPossibleDuplicateIncome(facts.scanned, facts.issued, facts.identity);
   if (duplicates.length > 0) {
     warnings.push({ kind: "POSSIBLE_DUPLICATE_INCOME", count: duplicates.length, pairs: duplicates });
+  }
+  if (originals.unverifiedDocumentIds && originals.unverifiedDocumentIds.length > 0) {
+    const ids = sortedIds([...new Set(originals.unverifiedDocumentIds)]);
+    warnings.push({ kind: "ORIGINAL_NOT_VERIFIED", count: ids.length, documentIds: ids });
   }
 
   return {
