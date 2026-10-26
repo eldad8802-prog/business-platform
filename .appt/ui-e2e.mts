@@ -101,7 +101,8 @@ async function main() {
     await dlg.getByLabel("שעה", { exact: true }).fill("16:00");
     await shot(p, "04-desktop-create-form");
     await dlg.getByRole("button", { name: "קבע", exact: true }).click();
-    await seen(p, "נקבע");
+    // "נקבע" is also in the open details panel's history: wait for the form itself to close (it closes on success).
+    await dlg.waitFor({ state: "hidden", timeout: 20_000 });
     const list = await api(t, `/api/appointments?from=${encodeURIComponent(new Date(Date.now() - 864e5).toISOString())}&to=${encodeURIComponent(new Date(Date.now() + 3 * 864e5).toISOString())}`);
     const ron = (list.body?.appointments ?? []).find((a: { customerId: number }) => a.customerId === seed.customers.ron);
     if (!ron || ron.leadId === null) throw new Error(`no linked appointment for the lead's customer: ${JSON.stringify(ron)}`);
@@ -324,6 +325,7 @@ async function main() {
     await p.getByRole("button", { name: /^ייעוץ/ }).first().click();
     await p.getByRole("button", { name: "לעבור בלי לשמור" }).click();
     await p.getByRole("heading", { name: "ייעוץ" }).first().waitFor({ timeout: 10_000 });
+    await p.goto(`/calendar?view=week&day=${seed.today}`);
   });
 
   await check("D15 the forms enforce the server's text limits, in Hebrew", async () => {
@@ -401,14 +403,17 @@ async function main() {
     await shot(m, "m07-phone-closed-day");
   });
   // Nothing on screen is covered: the bottom bar, its raised +, and the floating accessibility button.
-  const covered = (page: Page) => page.evaluate(() => {
-    const box = (e: Element | null | undefined) => (e ? e.getBoundingClientRect() : null);
-    const nav = [...document.querySelectorAll("nav")].map((e) => e.getBoundingClientRect()).find((r) => r.bottom >= innerHeight - 2 && r.height < 140) ?? null;
-    const fab = box([...document.querySelectorAll("button")].find((x) => /נגישות/.test(x.getAttribute("aria-label") || "")));
-    const empty = box([...document.querySelectorAll("main section button")].find((x) => x.textContent?.trim() === "תור חדש"));
-    const hit = (a: DOMRect | null, b: DOMRect | null) => !!a && !!b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-    return { empty: empty && { top: empty.top, bottom: empty.bottom }, navTop: nav?.top ?? null, underNav: !!empty && !!nav && empty.bottom > nav.top - 24, underFab: hit(empty, fab) };
-  });
+  type Cover = { empty: { top: number; bottom: number } | null; navTop: number | null; underNav: boolean; underFab: boolean };
+  const COVER_PROBE = `(() => {
+    const nav = [...document.querySelectorAll("nav")].map((e) => e.getBoundingClientRect()).find((r) => r.bottom >= innerHeight - 2 && r.height < 140) || null;
+    const fabEl = [...document.querySelectorAll("button")].find((x) => /נגישות/.test(x.getAttribute("aria-label") || ""));
+    const fab = fabEl ? fabEl.getBoundingClientRect() : null;
+    const emptyEl = [...document.querySelectorAll("main section button")].find((x) => (x.textContent || "").trim() === "תור חדש");
+    const empty = emptyEl ? emptyEl.getBoundingClientRect() : null;
+    const underFab = !!empty && !!fab && empty.left < fab.right && fab.left < empty.right && empty.top < fab.bottom && fab.top < empty.bottom;
+    return { empty: empty && { top: empty.top, bottom: empty.bottom }, navTop: nav ? nav.top : null, underNav: !!empty && !!nav && empty.bottom > nav.top - 24, underFab };
+  })()`;
+  const covered = (page: Page) => page.evaluate(COVER_PROBE) as Promise<Cover>;
   await check("M8 an empty day: its \"תור חדש\" is fully on screen, clear of the bottom bar and the accessibility button", async () => {
     await m.goto(`/calendar?view=day&day=${seed.closedDay}`);
     await seen(m, "אין תורים ביום הזה");
