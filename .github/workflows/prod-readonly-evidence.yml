@@ -101,6 +101,7 @@ on:
           - 'ops/evidence/accountant-g2-business-9-postcheck.sql'
           - 'ops/evidence/accountant-g2-business-9-details.sql'
           - 'ops/evidence/billing-pdf-render-state.sql'
+          - 'ops/evidence/accountant-source-documents-history.sql'
           - 'ops/evidence/platform-admin-a1-preflight.sql'
           - 'ops/evidence/platform-admin-a1-production-evidence.sql'
           - 'ops/evidence/platform-admin-a1-member-classification.sql'
