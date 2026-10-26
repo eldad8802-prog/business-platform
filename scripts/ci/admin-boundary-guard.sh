@@ -100,6 +100,13 @@ fi
 # linked account's role and business lifecycle (the Google sign-in policy), and writes
 # exactly what password login writes for a session — the AuthSession row and the
 # lastLoginAt / loginCount stamp, with an explicit select. Never a password.
+#
+# lib/auth/google-link.ts links Google to an EXISTING account (milestone 3, migration
+# 20261102090000_oauth_identity_link) after proof of ownership. It reaches AuthEmailToken,
+# OAuthSignupTicket and UserIdentity ONLY through their SECURITY DEFINER functions, reads the
+# account's password hash exactly as login does (for the PASSWORD proof and the unlink
+# re-authentication — compared in the route, under login's attempt limits), and writes what
+# login writes for a session plus the security notice (TransactionalEmail). Never a password.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
@@ -113,6 +120,7 @@ ci2a="$(
     | grep -vE "(^|/)lib/email/transactional/(delivery|sweep)\\.ts:" \
     | grep -vE "(^|/)lib/auth/email-tokens\\.ts:" \
     | grep -vE "(^|/)lib/auth/oauth-ticket\\.ts:" \
+    | grep -vE "(^|/)lib/auth/google-link\\.ts:" \
     | grep -vE "(^|/)lib/auth/google-sign-in\\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
     | grep -vE "\.test\.ts:|/__mocks__/" \

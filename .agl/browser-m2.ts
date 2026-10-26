@@ -11,7 +11,7 @@
  *               5 back to Google → the form again → complete → /setup with a stored session; ONE account
  *                 with consent recorded
  *               6 signed out, Google again → /auth/google/done → /app, the same account, no second one
- *             once: an address of an existing, unlinked account → "existing" notice, no link, no session;
+ *             once: an address of an existing, unlinked account → the link screen (milestone 3), no link, no session;
  *                   cancel at Google → "cancelled".
  *             the server-side cancel (migration 20261101090000):
  *               8 cancel ends the ticket; its cookie copied into another browser shows "unavailable" and
@@ -232,12 +232,13 @@ async function onMode(browser: Browser) {
   await page.goto(`${BASE}/login`);
   await nextIs({ sub: `browser-existing-${Date.now()}`, email, name: "פ" });
   await page.getByTestId("google-button").click();
-  await page.waitForURL(/\/login\?google=existing$/);
-  await page.getByTestId("google-notice").waitFor({ state: "visible" });
-  ok("existing address → the 'existing' notice", (await page.getByTestId("google-notice").getAttribute("data-notice")) === "existing");
+  await page.waitForURL(/\/link\/google$/);
+  await page.getByTestId("google-link-screen").waitFor({ state: "visible" });
+  ok("existing address → the link screen (milestone 3: prove ownership first)", (await page.getByTestId("google-link-email").innerText()).trim() === email);
   ok("…no link, no session, no second account",
     (await owner.userIdentity.count({ where: { userId: pw.id } })) === 0 && (await owner.authSession.count({ where: { userId: pw.id } })) === 0 && (await users(email)) === 1);
   await shot(page, "desktop-7-existing-account");
+  await page.goto(`${BASE}/login`);
   await nextIs({ cancel: true });
   await page.getByTestId("google-button").click();
   await page.waitForURL(/\/login\?google=cancelled$/);

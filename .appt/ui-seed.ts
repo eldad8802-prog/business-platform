@@ -72,7 +72,15 @@ async function main() {
   const canceled = (await book({ startsAt: at(addCalendarDays(today, 4), 11), businessServiceId: consult, customerId: yossi })).appointment;
   await schedule.changeStatus(principal, { idempotencyKey: uuidV7(new Date()) }, canceled.id, { to: "CANCELED", cancelReason: "CUSTOMER_CANCELED", expectedVersion: canceled.version });
 
+  // Milestone B stabilization: a closed day and a part-day closure a week ahead (what the calendar must show).
+  const closedDay = addCalendarDays(today, 8);
+  let partDay = addCalendarDays(today, 9);
+  while (new Date(partDay + "T12:00:00Z").getUTCDay() > 4) partDay = addCalendarDays(partDay, 1); // a working day (Sun–Thu)
+  await config.addException(principal, { dayKey: closedDay, kind: "CLOSED", label: "חג" });
+  await config.addException(principal, { dayKey: partDay, kind: "CLOSED", startMinute: 12 * 60, endMinute: 14 * 60 });
+
   const out = {
+    closedDay, partDay,
     tokenA: signAuthToken(userA, 0), tokenB: signAuthToken(userB, 0), bizA, bizB, today,
     staff: { shira, avi }, services: { haircut, color, consult }, customers: { noa, yossi, maya, ron }, ids,
   };

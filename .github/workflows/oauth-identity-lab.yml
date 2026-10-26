@@ -31,6 +31,13 @@ on:
     paths:
       - "prisma/migrations/20261030090000_oauth_identity_foundation/**"
       - "prisma/migrations/20261101090000_oauth_ticket_cancel/**"
+      - "prisma/migrations/20261102090000_oauth_identity_link/**"
+      - "lib/auth/email-link.ts"
+      - "lib/email/transactional/**"
+      - "app/link/**"
+      - "app/api/security/google/**"
+      - "app/settings/security/**"
+      - "components/settings/security/**"
       - "ops/evidence/oauth-identity-*.sql"
       - ".agl/**"
       - ".aet/lab.sh"
@@ -141,6 +148,8 @@ jobs:
           npx tsx lib/auth/google-id-token.test.ts
           npx tsx lib/auth/oauth-ticket.test.ts
           npx tsx lib/auth/google-login.test.ts
+          npx tsx lib/auth/google-link.test.ts
+          npx tsx lib/auth/google-login-pilot.test.ts
 
       - name: 1. Baseline (pending) — PREFLIGHT passes all but 4 (lab topology); the proof refuses
         run: |
@@ -191,7 +200,7 @@ jobs:
       - name: 3c. Milestone 2 battery — the real Google routes and the one account transaction (consent with the real grants, replay, ten concurrent completions, fault, linked / existing / closed / admin / deletion)
         run: |
           set -euo pipefail
-          bash .agl/lab.sh agl_m2 --with-cancel >/dev/null
+          bash .agl/lab.sh agl_m2 --with-link >/dev/null
           U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_m2"
           OWNER_URL="$U" DIRECT_URL="$U" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_m2" \
@@ -204,7 +213,7 @@ jobs:
       - name: 3d. Server-side cancel battery — the real cancel route on real rows (a copy of the secret, both race orders, a refused database and the retry, flag OFF, purge, no secret in the logs)
         run: |
           set -euo pipefail
-          bash .agl/lab.sh agl_cancel --with-cancel >/dev/null
+          bash .agl/lab.sh agl_cancel --with-link >/dev/null
           U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_cancel"
           OWNER_URL="$U" DIRECT_URL="$U" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_cancel" \
@@ -213,6 +222,32 @@ jobs:
           AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
           RATE_LIMIT_BACKEND=memory \
             npx tsx .agl/app-battery-cancel.ts
+
+      - name: 3e. Milestone 3 battery — link Google to an existing account through the real routes (login's own ledger, both proofs, the emailed link in another browser / expired / used / cancelled, swaps, ten concurrent, rollback, deletion, settings disconnect, no secret logged)
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh agl_m3 --with-link >/dev/null
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_m3"
+          OWNER_URL="$U" DIRECT_URL="$U" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_m3" \
+          AUTH_DATABASE_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/agl_m3?connection_limit=12&pool_timeout=60" \
+          AUTH_PLANE_ENABLED=true \
+          AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
+          RATE_LIMIT_BACKEND=memory \
+            npx tsx .agl/app-battery-m3.ts
+
+      - name: 3f. Pilot battery — only listed addresses, on real rows (unlisted new / existing / already linked → nothing; tickets issued before the list changed → every completing route refuses, nothing spent; no / empty / malformed list → nobody; open mode unchanged; Google signup sends no verification email)
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh agl_pilot --with-link >/dev/null
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_pilot"
+          OWNER_URL="$U" DIRECT_URL="$U" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_pilot" \
+          AUTH_DATABASE_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/agl_pilot?connection_limit=12&pool_timeout=60" \
+          AUTH_PLANE_ENABLED=true \
+          AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef \
+          RATE_LIMIT_BACKEND=memory \
+            npx tsx .agl/app-battery-pilot.ts
 
       - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
         run: |
@@ -319,8 +354,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: Lab database (both oauth migrations applied, consent + session grants as in Production)
-        run: bash .agl/lab.sh agl_web --with-cancel
+      - name: Lab database (the three oauth migrations applied, consent + session grants as in Production)
+        run: bash .agl/lab.sh agl_web --with-link
 
       # Built before the Chromium install (see i18n-multicurrency-ci.yml: the font resolution after
       # `playwright install --with-deps`). The flag is read at request time, so one build serves ON and OFF.
@@ -341,7 +376,7 @@ jobs:
           export AUTH_PLANE_ENABLED=true AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef
           export PUBLIC_SIGNUP_ENABLED=true RATE_LIMIT_BACKEND=memory
           (MOCK_GOOGLE_PORT=3901 MOCK_REDIRECT_URI=http://localhost:3611/api/auth/google/callback nohup npx tsx .agl/mock-google.ts > "$RUNNER_TEMP/mock.log" 2>&1 &)
-          (AUTH_GOOGLE_LOGIN_ENABLED=true GOOGLE_LOGIN_CLIENT_ID=lab-client.apps.googleusercontent.com GOOGLE_LOGIN_CLIENT_SECRET=lab-secret \
+          (AUTH_GOOGLE_LOGIN_ENABLED=true AUTH_GOOGLE_LOGIN_MODE=open GOOGLE_LOGIN_CLIENT_ID=lab-client.apps.googleusercontent.com GOOGLE_LOGIN_CLIENT_SECRET=lab-secret \
            GOOGLE_LOGIN_REDIRECT_BASE_URL=http://localhost:3611 GOOGLE_LOGIN_TEST_ENDPOINTS=1 \
            GOOGLE_LOGIN_TEST_AUTHORIZE_URL=http://localhost:3901/authorize GOOGLE_LOGIN_TEST_TOKEN_URL=http://localhost:3901/token \
            GOOGLE_LOGIN_TEST_JWKS_URL=http://localhost:3901/jwks \
@@ -349,6 +384,10 @@ jobs:
           for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3611/login && curl -sf -o /dev/null http://localhost:3901/jwks && break; sleep 2; done
           BASE=http://localhost:3611 MOCK=http://localhost:3901 MODE=on \
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_web" npx tsx .agl/browser-m2.ts
+          # Milestone 3: an existing account links Google after proof of ownership (password / emailed link),
+          # the scanner case, cancel, and Settings → Security (status, disconnect).
+          BASE=http://localhost:3611 MOCK=http://localhost:3901 MODE=on \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_web" npx tsx .agl/browser-m3.ts
           pkill -f "next start -p 3611" || true
 
       - name: E2E — flag OFF (no button; every Google route and page 404)
@@ -361,7 +400,28 @@ jobs:
           (nohup npx next start -p 3612 > "$RUNNER_TEMP/off.log" 2>&1 &)
           for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3612/login && break; sleep 2; done
           BASE=http://localhost:3612 MODE=off OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_web" npx tsx .agl/browser-m2.ts
+          BASE=http://localhost:3612 MODE=off OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_web" npx tsx .agl/browser-m3.ts
           pkill -f "next start -p 3612" || true
+
+      - name: E2E — PILOT (no mode, two listed addresses; button only on ?google=pilot; unlisted refused with nothing written; listed link and signup)
+        run: |
+          set -euo pipefail
+          export DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_web"
+          export AUTH_DATABASE_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/agl_web"
+          export AUTH_PLANE_ENABLED=true AUTH_TOKEN_SECRET=agl_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef
+          export PUBLIC_SIGNUP_ENABLED=true RATE_LIMIT_BACKEND=memory
+          export LISTED_EXISTING="agl-pilot-existing-$GITHUB_RUN_ID@lab.invalid" LISTED_NEW="agl-pilot-new-$GITHUB_RUN_ID@lab.invalid"
+          (MOCK_GOOGLE_PORT=3902 MOCK_REDIRECT_URI=http://localhost:3613/api/auth/google/callback nohup npx tsx .agl/mock-google.ts > "$RUNNER_TEMP/mock-pilot.log" 2>&1 &)
+          (AUTH_GOOGLE_LOGIN_ENABLED=true AUTH_GOOGLE_LOGIN_PILOT_EMAILS="$LISTED_EXISTING, $LISTED_NEW" \
+           GOOGLE_LOGIN_CLIENT_ID=lab-client.apps.googleusercontent.com GOOGLE_LOGIN_CLIENT_SECRET=lab-secret \
+           GOOGLE_LOGIN_REDIRECT_BASE_URL=http://localhost:3613 GOOGLE_LOGIN_TEST_ENDPOINTS=1 \
+           GOOGLE_LOGIN_TEST_AUTHORIZE_URL=http://localhost:3902/authorize GOOGLE_LOGIN_TEST_TOKEN_URL=http://localhost:3902/token \
+           GOOGLE_LOGIN_TEST_JWKS_URL=http://localhost:3902/jwks \
+           nohup npx next start -p 3613 > "$RUNNER_TEMP/pilot.log" 2>&1 &)
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3613/login && curl -sf -o /dev/null http://localhost:3902/jwks && break; sleep 2; done
+          BASE=http://localhost:3613 MOCK=http://localhost:3902 SHOTS="$RUNNER_TEMP/shots" \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_web" npx tsx .agl/browser-pilot.ts
+          pkill -f "next start -p 3613" || true
 
       - name: Server logs on failure
         if: failure()

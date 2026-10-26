@@ -1,5 +1,6 @@
 /**
- * Single-use account links — email verification and password reset.
+ * Single-use account links — email verification, password reset, and the proof that links Google to an
+ * existing account (LINK_GOOGLE, migration 20261102090000; bound to the Google ticket it was requested under).
  *
  * A link carries `<tokenId>.<secret>`. The database (AuthEmailToken, migration
  * 20261017090000_auth_email_tokens) stores only sha256(secret); the secret itself is never stored
@@ -19,10 +20,13 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import { AuthTokenConfigError } from "@/lib/auth-token";
 
 export type EmailTokenPurpose = "EMAIL_VERIFY" | "PASSWORD_RESET";
+/** Every purpose a link secret is derived for. LINK_GOOGLE is issued only through lib/auth/google-link.ts. */
+export type LinkSecretPurpose = EmailTokenPurpose | "LINK_GOOGLE";
 
-export const EMAIL_LINK_PATHS: Record<EmailTokenPurpose, string> = {
+export const EMAIL_LINK_PATHS: Record<LinkSecretPurpose, string> = {
   EMAIL_VERIFY: "/verify-email",
   PASSWORD_RESET: "/reset-password",
+  LINK_GOOGLE: "/link/google/confirm",
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -35,7 +39,7 @@ function linkKey(): Buffer {
 }
 
 /** The link secret for a token: 32 bytes, base64url (43 characters). */
-export function deriveLinkSecret(tokenId: string, purpose: EmailTokenPurpose): string {
+export function deriveLinkSecret(tokenId: string, purpose: LinkSecretPurpose): string {
   return createHmac("sha256", linkKey()).update(`${purpose}:${tokenId}`).digest("base64url");
 }
 
@@ -45,13 +49,13 @@ export function hashLinkSecret(secret: string): string {
 }
 
 /** A fresh token id and the hash to store for it. */
-export function mintEmailToken(purpose: EmailTokenPurpose): { tokenId: string; tokenHash: string } {
+export function mintEmailToken(purpose: LinkSecretPurpose): { tokenId: string; tokenHash: string } {
   const tokenId = randomUUID();
   return { tokenId, tokenHash: hashLinkSecret(deriveLinkSecret(tokenId, purpose)) };
 }
 
 /** The full link for an email: APP_BASE_URL + path + fragment. */
-export function buildEmailLink(appBaseUrl: string, tokenId: string, purpose: EmailTokenPurpose): string {
+export function buildEmailLink(appBaseUrl: string, tokenId: string, purpose: LinkSecretPurpose): string {
   return `${appBaseUrl}${EMAIL_LINK_PATHS[purpose]}#t=${tokenId}.${deriveLinkSecret(tokenId, purpose)}`;
 }
 
@@ -70,7 +74,7 @@ export function parseLinkToken(value: unknown): { tokenId: string; secret: strin
  * Whether `secret` is the one this server would derive for the token — a cheap local check before the
  * database is asked. Constant-time. The database re-checks against the stored hash regardless.
  */
-export function isDerivedSecret(tokenId: string, secret: string, purpose: EmailTokenPurpose): boolean {
+export function isDerivedSecret(tokenId: string, secret: string, purpose: LinkSecretPurpose): boolean {
   const expected = Buffer.from(deriveLinkSecret(tokenId, purpose));
   const given = Buffer.from(secret);
   return expected.length === given.length && timingSafeEqual(expected, given);

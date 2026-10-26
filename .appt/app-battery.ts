@@ -74,6 +74,7 @@ async function main() {
   const userA = (await owner.user.create({ data: { email: `${tag}-a@lab.test`, password: "x", businessId: bizA } })).id;
   const userB = (await owner.user.create({ data: { email: `${tag}-b@lab.test`, password: "x", businessId: bizB } })).id;
   const svcA = (await owner.businessService.create({ data: { businessId: bizA, name: "תספורת", type: "SERVICE", durationMinutes: 60 } })).id;
+  const svcA2 = (await owner.businessService.create({ data: { businessId: bizA, name: "צבע", type: "SERVICE", durationMinutes: 90 } })).id;
   const svcB = (await owner.businessService.create({ data: { businessId: bizB, name: "עיסוי", type: "SERVICE", durationMinutes: 45 } })).id;
   const custA = (await owner.customer.create({ data: { businessId: bizA, name: "לקוחה א" } })).id;
   const custB = (await owner.customer.create({ data: { businessId: bizB, name: "לקוחה ב" } })).id;
@@ -151,6 +152,25 @@ async function main() {
   ok("B10 Dana performs the service", r.status === 200 && (await body(r))?.services?.length === 1);
   r = await routes.staffServices.PUT(req(`/api/appointments/staff/${dana.id}/services`, { method: "PUT", body: { services: [{ businessServiceId: svcB }] } }), p({ staffId: String(dana.id) }));
   ok("B11 assigning another business's service → 404", r.status === 404, String(r.status));
+  const danaV = (await owner.staffMember.findUniqueOrThrow({ where: { id: dana.id } })).version;
+  r = await routes.staffServices.PUT(req(`/api/appointments/staff/${dana.id}/services`, { method: "PUT", body: { services: [{ businessServiceId: svcA }, { businessServiceId: svcA2 }], expectedVersion: danaV } }), p({ staffId: String(dana.id) }));
+  const b11a = await body(r);
+  ok("B11a adding a second service with the version read: 200, both held, version bumped", r.status === 200 && b11a?.services?.length === 2 && b11a.version === danaV + 1, JSON.stringify(b11a));
+  r = await routes.staffServices.PUT(req(`/api/appointments/staff/${dana.id}/services`, { method: "PUT", body: { services: [{ businessServiceId: svcA2 }], expectedVersion: danaV } }), p({ staffId: String(dana.id) }));
+  ok("B11b a stale screen removing the first service → 409 VERSION_CONFLICT, nothing removed", r.status === 409 && (await body(r))?.error === "VERSION_CONFLICT"
+    && (await n(`SELECT count(*)::int AS n FROM "StaffServiceAssignment" WHERE "staffMemberId" = ${dana.id} AND "removedAt" IS NULL`)) === 2);
+  r = await routes.staffServices.PUT(req(`/api/appointments/staff/${dana.id}/services`, { method: "PUT", body: { services: [{ businessServiceId: svcA }, { businessServiceId: svcA2 }], expectedVersion: danaV + 1 } }), p({ staffId: String(dana.id) }));
+  ok("B11c saving the same list again: 200, version unchanged", r.status === 200 && (await body(r))?.version === danaV + 1);
+  r = await routes.staffServices.PUT(req(`/api/appointments/staff/${dana.id}/services`, { method: "PUT", body: { services: [{ businessServiceId: svcA }], expectedVersion: danaV + 1 } }), p({ staffId: String(dana.id) }));
+  ok("B11d removing the second service leaves the first untouched (same row, never removed)", r.status === 200
+    && (await n(`SELECT count(*)::int AS n FROM "StaffServiceAssignment" WHERE "staffMemberId" = ${dana.id} AND "businessServiceId" = ${svcA} AND "removedAt" IS NULL`)) === 1
+    && (await n(`SELECT count(*)::int AS n FROM "StaffServiceAssignment" WHERE "staffMemberId" = ${dana.id} AND "businessServiceId" = ${svcA}`)) === 1);
+  ok("B11e the catalog services are untouched", (await n(`SELECT count(*)::int AS n FROM "BusinessService" WHERE "businessId" = ${bizA} AND id IN (${svcA}, ${svcA2}) AND "durationMinutes" IN (60, 90)`)) === 2);
+  const raced = await Promise.all([svcA2, svcA2].map((x, i) => routes.staffServices.PUT(req(`/api/appointments/staff/${dana.id}/services`, { method: "PUT", body: { services: i ? [] : [{ businessServiceId: svcA }, { businessServiceId: x }], expectedVersion: danaV + 2 } }), p({ staffId: String(dana.id) }))));
+  ok("B11f two saves from the same version at once: exactly one wins, the other 409", raced.filter((x) => x.status === 200).length === 1 && raced.filter((x) => x.status === 409).length === 1, raced.map((x) => x.status).join(","));
+  const cur = (await owner.staffMember.findUniqueOrThrow({ where: { id: dana.id } })).version;
+  r = await routes.staffServices.PUT(req(`/api/appointments/staff/${dana.id}/services`, { method: "PUT", body: { services: [{ businessServiceId: svcA }], expectedVersion: cur } }), p({ staffId: String(dana.id) }));
+  ok("B11g …and Dana is back to performing the one service", r.status === 200 && (await body(r))?.services?.length === 1);
   r = await routes.staffOne.PATCH(req(`/api/appointments/staff/${yossi.id}`, { method: "PATCH", body: { displayName: "יוסי כהן", expectedVersion: 1 } }), p({ staffId: String(yossi.id) }));
   ok("B12 a staff member is renamed (version 1 → 2)", r.status === 200 && (await body(r))?.staffMember?.version === 2);
   r = await routes.staffOne.PATCH(req(`/api/appointments/staff/${yossi.id}`, { method: "PATCH", body: { active: false, expectedVersion: 1 } }), p({ staffId: String(yossi.id) }));
@@ -216,6 +236,11 @@ async function main() {
     schedule.createAppointment(principal, { idempotencyKey: sameKey }, { startsAt: at("12:00", TUE), durationMinutes: 30, kind: "INTERNAL", title: "x" })));
   const ids = new Set(twin.filter((x) => x.status === "fulfilled").map((x) => (x as PromiseFulfilledResult<{ appointment: { id: number } }>).value.appointment.id));
   ok("D3 six simultaneous retries of one request → one appointment, every answer names it", ids.size === 1 && twin.every((x) => x.status === "fulfilled"));
+  const sameHour = await Promise.all([dana.id, yossi.id].map((staffMemberId) =>
+    routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { customerId: custA, staffMemberId, startsAt: at("15:00", TUE), durationMinutes: 30 } }))));
+  ok("D4 two staff members at the same hour: both booked (separate lanes)", sameHour.every((x) => x.status === 201), sameHour.map((x) => x.status).join(","));
+  r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { customerId: custA, staffMemberId: yossi.id, startsAt: at("15:15", TUE), durationMinutes: 30 } }));
+  ok("D5 …and the same lane at that hour → 409 SLOT_CONFLICT", r.status === 409 && (await body(r))?.error === "SLOT_CONFLICT");
 
   // ── E. Move ────────────────────────────────────────────────────────────────────────────────────
   console.log("E. move");
@@ -236,8 +261,23 @@ async function main() {
   console.log("F. status");
   const statusBefore = await n(`SELECT count(*)::int AS n FROM "LearningEvent" WHERE "businessId" = ${bizA} AND "eventType" = 'APPOINTMENT_STATUS_CHANGED'`);
   r = await routes.status.POST(req(`/api/appointments/${a1}/status`, { method: "POST", key: key(), body: { to: "COMPLETED" } }), p({ id: String(a1) }));
-  ok("F1 CONFIRMED → COMPLETED", r.status === 200 && (await body(r))?.appointment?.status === "COMPLETED");
-  r = await routes.status.POST(req(`/api/appointments/${a1}/status`, { method: "POST", key: key(), body: { to: "CANCELED" } }), p({ id: String(a1) }));
+  ok("F1 a future appointment cannot be completed → 409 NOT_STARTED", r.status === 409 && (await body(r))?.details?.reason === "NOT_STARTED");
+  r = await routes.status.POST(req(`/api/appointments/${a1}/status`, { method: "POST", key: key(), body: { to: "NO_SHOW" } }), p({ id: String(a1) }));
+  ok("F1a …nor marked a no-show → 409", r.status === 409);
+  r = await routes.one.POST(req(`/api/appointments/${a1}`, { method: "POST", body: { action: "complete" } }), p({ id: String(a1) }));
+  ok("F1b the route that predates milestone A cannot bypass it (complete) → 409", r.status === 409);
+  r = await routes.one.POST(req(`/api/appointments/${a1}`, { method: "POST", body: { action: "no_show" } }), p({ id: String(a1) }));
+  ok("F1c …nor no_show → 409, still CONFIRMED, nothing journalled", r.status === 409
+    && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id = ${a1} AND status = 'CONFIRMED'`)) === 1
+    && (await n(`SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "appointmentId" = ${a1} AND "eventType" IN ('APPOINTMENT_COMPLETED', 'APPOINTMENT_NO_SHOW')`)) === 0);
+  const yesterday = new Date(Date.now() - 26 * 3600_000);
+  const past = (await owner.appointment.create({ data: { businessId: bizA, kind: "CUSTOMER", status: "CONFIRMED", customerId: custA, startsAt: yesterday, endsAt: new Date(yesterday.getTime() + 3600_000), durationMinutes: 60, createdByActor: "OWNER", createdByUserId: userA, sourceChannel: "INBOX_WEB" } })).id;
+  const pastBlock = (await owner.appointment.create({ data: { businessId: bizA, kind: "BLOCK", status: "CONFIRMED", startsAt: new Date(yesterday.getTime() + 7200_000), endsAt: new Date(yesterday.getTime() + 10800_000), durationMinutes: 60, createdByActor: "OWNER", createdByUserId: userA, sourceChannel: "INBOX_WEB" } })).id;
+  r = await routes.status.POST(req(`/api/appointments/${pastBlock}/status`, { method: "POST", key: key(), body: { to: "NO_SHOW" } }), p({ id: String(pastBlock) }));
+  ok("F1d a block has no customer to be a no-show → 409", r.status === 409);
+  r = await routes.status.POST(req(`/api/appointments/${past}/status`, { method: "POST", key: key(), body: { to: "COMPLETED" } }), p({ id: String(past) }));
+  ok("F1e an appointment that has started: CONFIRMED → COMPLETED", r.status === 200 && (await body(r))?.appointment?.status === "COMPLETED");
+  r = await routes.status.POST(req(`/api/appointments/${past}/status`, { method: "POST", key: key(), body: { to: "CANCELED" } }), p({ id: String(past) }));
   ok("F2 COMPLETED is terminal → 409 INVALID_TRANSITION", r.status === 409 && (await body(r))?.error === "INVALID_TRANSITION");
   r = await routes.status.POST(req(`/api/appointments/${block.id}/status`, { method: "POST", key: key(), body: { to: "COMPLETED" } }), p({ id: String(block.id) }));
   ok("F3 a block cannot be completed → 409", r.status === 409);
@@ -270,17 +310,21 @@ async function main() {
   r = await routes.root.GET(req(`/api/appointments?from=${at("00:00")}&to=${at("23:59")}`, { token: tokenB }));
   ok("G6 business B's calendar is empty", r.status === 200 && ((await body(r))?.appointments as unknown[]).length === 0);
   r = await routes.status.POST(req(`/api/appointments/${a1}/status`, { method: "POST", key: key(), body: { to: "NO_SHOW" }, token: tokenB }), p({ id: String(a1) }));
-  ok("G7 business B changing A's appointment → 404, nothing changed", r.status === 404 && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id = ${a1} AND status = 'COMPLETED'`)) === 1);
+  ok("G7 business B changing A's appointment → 404, nothing changed", r.status === 404 && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id = ${a1} AND status = 'CONFIRMED'`)) === 1);
   r = await routes.staffOne.PATCH(req(`/api/appointments/staff/${dana.id}`, { method: "PATCH", body: { active: false }, token: tokenB }), p({ staffId: String(dana.id) }));
   ok("G8 business B deactivating A's staff member → 404", r.status === 404);
   r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), token: tokenB, body: { staffMemberId: dana.id, startsAt: at("09:00"), durationMinutes: 30 } }));
   ok("G9 business B booking on A's staff member → 404 STAFF_NOT_FOUND", r.status === 404 && (await body(r))?.error === "STAFF_NOT_FOUND");
 
+  // a1 (still CONFIRMED: a future appointment cannot be completed) is cancelled — a terminal appointment frees its time (H0).
+  r = await routes.status.POST(req(`/api/appointments/${a1}/status`, { method: "POST", key: key(), body: { to: "CANCELED", cancelReason: "OWNER_CANCELED" } }), p({ id: String(a1) }));
+  ok("G10 the future appointment is cancelled instead", r.status === 200, String(r.status));
+
   // ── H. Free slots ──────────────────────────────────────────────────────────────────────────────
   console.log("H. free slots");
   // The appointment moved to Wednesday 09:00 in E was completed in F, which frees its time; an active one takes it.
   r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { ...c1Body, startsAt: at("09:00", WED) } }));
-  ok("H0 an active appointment on Wednesday 09:00 (where the completed one was — completion freed the time)", r.status === 201, String(r.status));
+  ok("H0 an active appointment on Wednesday 09:00 (where the cancelled one was — cancelling freed the time)", r.status === 201, String(r.status));
   r = await routes.slots.GET(req(`/api/appointments/slots?fromDay=${WED}&toDay=${WED}&businessServiceId=${svcA}&staffMemberId=${dana.id}`));
   const sl = await body(r);
   const starts = (sl?.slots as { startsAt: string }[] | undefined)?.map((s) => s.startsAt) ?? [];

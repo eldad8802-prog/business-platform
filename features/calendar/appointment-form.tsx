@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 
+import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { useBreakpoint } from "@/lib/ui/use-breakpoint";
 import { uuidV7 } from "@/lib/tasks/tasks-client";
 import t from "@/features/tasks/tasks.module.css";
@@ -81,6 +82,35 @@ const slotLabel = (x: SlotWire, day: DayKey) => {
   const time = clockOf(new Date(x.startsAt));
   return d === day ? time : `${new Intl.DateTimeFormat("he-IL", { weekday: "short", timeZone: "Asia/Jerusalem" }).format(new Date(x.startsAt))} ${time}`;
 };
+
+const SLOTS_SHOWN = 12;
+
+/**
+ * The day's free times as chips — all of them: the first twelve, then "עוד N שעות פנויות" opens the rest (the list
+ * the server answered, never cut silently).
+ */
+function SlotChips({ slots, time, onPick, emptyText }: { slots: SlotWire[]; time: string; onPick: (hhmm: string) => void; emptyText: string }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? slots : slots.slice(0, SLOTS_SHOWN);
+  return (
+    <div className={t.field}>
+      <span className={t.hint}>{slots.length ? `שעות פנויות ביום הזה (${slots.length.toLocaleString("he-IL")}):` : emptyText}</span>
+      {slots.length ? (
+        <div className={`${t.chips} ${s.slotChips}`}>
+          {shown.map((x) => {
+            const label = clockOf(new Date(x.startsAt));
+            return <button key={x.startsAt} type="button" aria-pressed={time === label} className={`${t.chip} ${time === label ? t.chipOn : ""}`} onClick={() => onPick(label)}>{label}</button>;
+          })}
+          {slots.length > SLOTS_SHOWN ? (
+            <button type="button" className={`${t.chip} ${s.moreChip}`} aria-expanded={all} onClick={() => setAll(!all)}>
+              {all ? "פחות" : `עוד ${(slots.length - SLOTS_SHOWN).toLocaleString("he-IL")} שעות פנויות`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 // ── Create ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -287,19 +317,7 @@ export function AppointmentForm({
       </div>
 
       {kind !== "BLOCK" && slots ? (
-        <div className={t.field}>
-          <span className={t.hint}>{daySlots.length ? "שעות פנויות ביום הזה:" : "אין שעה פנויה ביום הזה לפי שעות הפעילות. אפשר לקבוע בכל זאת."}</span>
-          {daySlots.length ? (
-            <div className={t.chips}>
-              {daySlots.slice(0, 12).map((x) => {
-                const label = clockOf(new Date(x.startsAt));
-                return (
-                  <button key={x.startsAt} type="button" className={`${t.chip} ${time === label ? t.chipOn : ""}`} onClick={() => setTime(label)}>{label}</button>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
+        <SlotChips key={`${day}:${effectiveDuration}:${serviceId}:${staffId}`} slots={daySlots} time={time} onPick={setTime} emptyText="אין שעה פנויה ביום הזה לפי שעות הפעילות. אפשר לקבוע בכל זאת." />
       ) : null}
 
       {kind !== "BLOCK" ? (
@@ -397,7 +415,7 @@ function CustomerField({ value, onChange, autoFocus }: { value: CustomerWire | n
       <div className={t.field}>
         <span className={t.hint}>לקוח</span>
         <div className={t.linked}>
-          <span style={{ flex: 1, minWidth: 0 }}>{value.name}{value.phone ? <small style={{ color: "var(--dz-text-muted)" }}> · <bdi>{value.phone}</bdi></small> : null}</span>
+          <span style={{ flex: 1, minWidth: 0 }}>{value.name}{value.phone ? <small style={{ color: "var(--dz-text-muted)" }}> · <bdi dir="ltr">{formatPhoneForDisplay(value.phone)}</bdi></small> : null}</span>
           <button type="button" className={`${t.btn} ${t.ghost}`} onClick={() => onChange(null)}>החלפה</button>
         </div>
       </div>
@@ -437,7 +455,7 @@ function CustomerField({ value, onChange, autoFocus }: { value: CustomerWire | n
         {rows?.map((c) => (
           <button key={c.id} type="button" role="option" aria-selected={false} className={s.result} onClick={() => onChange(c)}>
             <span>{c.name}</span>
-            {c.phone ? <small><bdi>{c.phone}</bdi></small> : null}
+            {c.phone ? <small><bdi dir="ltr">{formatPhoneForDisplay(c.phone)}</bdi></small> : null}
           </button>
         ))}
         <button type="button" className={s.result} onClick={() => { setAdding(true); setName(q); }}>
@@ -472,6 +490,18 @@ export function MoveForm({
   const [busy, setBusy] = useState(false);
   const intent = useRef(`appt:move:${appt.id}:${uuidV7()}`);
   const activeStaff = staff.filter((x) => x.active || x.id === appt.staffMemberId);
+  const [slots, setSlots] = useState<SlotWire[] | null>(null);
+
+  // The chosen day's free times for this length and lane, as when booking (a block needs none). The appointment's
+  // own current time is busy in that answer, so it is not offered — staying put needs no move.
+  useEffect(() => {
+    if (appt.kind === "BLOCK" || !(duration >= LIMITS.minDuration && duration <= LIMITS.maxDuration)) return;
+    let cancelled = false;
+    findSlots({ fromDay: day, toDay: day, businessServiceId: appt.kind === "CUSTOMER" ? appt.businessServiceId : null, durationMinutes: duration, staffMemberId: staffId })
+      .then((r) => { if (!cancelled) setSlots(r.slots.filter((x) => jerusalemDayKey(new Date(x.startsAt)) === day)); })
+      .catch(() => { if (!cancelled) setSlots(null); });
+    return () => { cancelled = true; };
+  }, [appt.kind, appt.businessServiceId, day, duration, staffId]);
 
   const submit = async (override?: string) => {
     setError(null);
@@ -520,6 +550,9 @@ export function MoveForm({
           <input id="move-duration" type="number" inputMode="numeric" min={LIMITS.minDuration} max={LIMITS.maxDuration} step={5} className={t.input} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
         </div>
       </div>
+      {appt.kind !== "BLOCK" && slots ? (
+        <SlotChips key={`${day}:${duration}:${staffId}`} slots={slots} time={time} onPick={setTime} emptyText="אין שעה פנויה אחרת ביום הזה לפי שעות הפעילות. אפשר להזיז בכל זאת." />
+      ) : null}
       {activeStaff.length ? (
         <div className={t.field}>
           <label htmlFor="move-staff">עובד</label>

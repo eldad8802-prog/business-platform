@@ -14,8 +14,9 @@ import { Prisma } from "@prisma/client";
 
 import type { Locale } from "@/lib/i18n/config";
 
-import { EMAIL_KINDS, accountLinkDedupeKey, welcomeDedupeKey, type EmailKind } from "./registry";
+import { EMAIL_KINDS, accountLinkDedupeKey, googleNoticeDedupeKey, welcomeDedupeKey, type EmailKind } from "./registry";
 import type { AccountLinkPayload } from "./templates/account-links";
+import type { GoogleNoticePayload } from "./templates/google-link";
 import { firstNameOf, type WelcomePayload } from "./templates/welcome";
 
 type SqlClient = Pick<Prisma.TransactionClient, "$executeRaw" | "$queryRaw">;
@@ -62,7 +63,7 @@ export async function enqueueTransactionalEmail(tx: SqlClient, input: EnqueueInp
 export function enqueueAccountLinkEmail(
   tx: SqlClient,
   input: {
-    kind: "EMAIL_VERIFY" | "PASSWORD_RESET";
+    kind: "EMAIL_VERIFY" | "PASSWORD_RESET" | "LINK_GOOGLE";
     tokenId: string;
     userId: number;
     businessId: number;
@@ -82,6 +83,36 @@ export function enqueueAccountLinkEmail(
     toEmail: input.toEmail,
     payload,
     locale: input.locale,
+    now: input.now,
+  });
+}
+
+/**
+ * The security notice a Google link or unlink owes the account's owner — in the SAME transaction as the act,
+ * so it exists iff the act committed; one per identity row (a replay of the act cannot add a second).
+ */
+export function enqueueGoogleNoticeEmail(
+  tx: SqlClient,
+  input: {
+    kind: "GOOGLE_LINKED" | "GOOGLE_UNLINKED";
+    identityId: number;
+    userId: number;
+    businessId: number;
+    toEmail: string;
+    name: string | null;
+    googleEmail: string;
+    now: Date;
+  }
+): Promise<number> {
+  const payload: GoogleNoticePayload = { firstName: firstNameOf(input.name), googleEmail: input.googleEmail };
+  return enqueueTransactionalEmail(tx, {
+    kind: input.kind,
+    dedupeKey: googleNoticeDedupeKey(input.kind, input.identityId),
+    userId: input.userId,
+    businessId: input.businessId,
+    toEmail: input.toEmail,
+    payload,
+    locale: "he",
     now: input.now,
   });
 }

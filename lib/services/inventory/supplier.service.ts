@@ -57,6 +57,17 @@ export type ListSuppliersInput = {
   status?: "active" | "inactive" | "all" | null;
   query?: string | null;
   limit?: number | null;
+  /** Rows to skip in the stable (name, id) order — paging past the first page. */
+  offset?: number | null;
+};
+
+export type SupplierListPage = {
+  rows: Awaited<ReturnType<typeof prisma.supplier.findMany>>;
+  /** Every supplier matching the filter, not just this page. */
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
 };
 
 export type GetSupplierInput = {
@@ -306,6 +317,33 @@ function normalizeLimit(value?: number | null): number {
   return Math.min(parsed, LIST_MAX_LIMIT);
 }
 
+/** The list filter, shared by the page and its count so the two can never disagree. */
+function supplierListWhere(input: ListSuppliersInput): Prisma.SupplierWhereInput {
+  const status = input.status ?? "active";
+  const query = normalizeOptionalText(input.query);
+
+  const where: Prisma.SupplierWhereInput = {
+    businessId: input.businessId,
+  };
+
+  if (status === "active") where.isActive = true;
+  else if (status === "inactive") where.isActive = false;
+
+  if (query) {
+    where.name = { contains: query, mode: "insensitive" };
+  }
+  return where;
+}
+
+function normalizeOffset(value?: number | null): number {
+  if (value == null) return 0;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new InventoryValidationError("offset must be a non-negative integer");
+  }
+  return parsed;
+}
+
 /**
  * Normalized form used only for soft duplicate detection (not stored, not unique).
  * Lower-cased, collapsed whitespace, common legal suffixes stripped.
@@ -347,25 +385,37 @@ export const supplierService = {
     const db = options?.tx ?? prisma;
     assertBusinessId(input.businessId);
 
-    const status = input.status ?? "active";
-    const query = normalizeOptionalText(input.query);
-
-    const where: Prisma.SupplierWhereInput = {
-      businessId: input.businessId,
-    };
-
-    if (status === "active") where.isActive = true;
-    else if (status === "inactive") where.isActive = false;
-
-    if (query) {
-      where.name = { contains: query, mode: "insensitive" };
-    }
-
     return db.supplier.findMany({
-      where,
+      where: supplierListWhere(input),
       orderBy: [{ name: "asc" }, { id: "asc" }],
       take: normalizeLimit(input.limit),
+      skip: normalizeOffset(input.offset),
     });
+  },
+
+  /**
+   * One page of the list AND the size of the whole list, from the same filter.
+   * The list screen used to print the length of what it had loaded (a capped
+   * page) as if it were the number of suppliers; a business with 80 saw "50".
+   */
+  // The tenant transaction is required: this read never falls back to the bare client.
+  async listSuppliersPage(input: ListSuppliersInput, options: { tx: Tx }): Promise<SupplierListPage> {
+    const db = options.tx;
+    assertBusinessId(input.businessId);
+
+    const where = supplierListWhere(input);
+    const limit = normalizeLimit(input.limit);
+    const offset = normalizeOffset(input.offset);
+    const [rows, total] = await Promise.all([
+      db.supplier.findMany({
+        where,
+        orderBy: [{ name: "asc" }, { id: "asc" }],
+        take: limit,
+        skip: offset,
+      }),
+      db.supplier.count({ where }),
+    ]);
+    return { rows, total, offset, limit, hasMore: offset + rows.length < total };
   },
 
   async getSupplier(input: GetSupplierInput, options?: TxOptions) {

@@ -1,7 +1,7 @@
 import { isPublicSignupEnabled } from "@/lib/auth/signup-gate";
 import { isPasswordResetEnabled } from "@/lib/auth/account-recovery-config";
 import { googleNoticeFor } from "@/lib/auth/google-notices";
-import { isGoogleLoginEnabled } from "@/lib/auth/google-oauth";
+import { googleButtonVisible, readGoogleLoginConfig } from "@/lib/auth/google-oauth";
 import LoginForm from "./login-form";
 
 /**
@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
  *
  * And for "Continue with Google": the button is rendered only when AUTH_GOOGLE_LOGIN_ENABLED and a complete
  * client config are present (the routes answer 404 otherwise). `?google=<reason>` is where a Google round
- * trip that did not sign anyone in comes back to — a known reason or nothing.
+ * trip that did not sign anyone in comes back to — a known reason or nothing. During the pilot the button is
+ * shown only on `?google=pilot` (googleButtonVisible); who may actually sign in is decided on the server.
  */
 export default async function LoginPage({
   searchParams,
@@ -32,7 +33,7 @@ export default async function LoginPage({
       signupEnabled={isPublicSignupEnabled()}
       passwordResetEnabled={isPasswordResetEnabled()}
       notice={reset === "done" ? "reset-done" : null}
-      googleEnabled={isGoogleLoginEnabled()}
+      googleEnabled={googleButtonVisible(readGoogleLoginConfig(), google)}
       googleNotice={googleNoticeFor(google)}
     />
   );
