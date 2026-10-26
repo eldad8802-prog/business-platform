@@ -237,9 +237,9 @@ async function main() {
   const ids = new Set(twin.filter((x) => x.status === "fulfilled").map((x) => (x as PromiseFulfilledResult<{ appointment: { id: number } }>).value.appointment.id));
   ok("D3 six simultaneous retries of one request → one appointment, every answer names it", ids.size === 1 && twin.every((x) => x.status === "fulfilled"));
   const sameHour = await Promise.all([dana.id, yossi.id].map((staffMemberId) =>
-    routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { customerId: custA, staffMemberId, startsAt: at("15:00", WED), durationMinutes: 30 } }))));
+    routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { customerId: custA, staffMemberId, startsAt: at("15:00", TUE), durationMinutes: 30 } }))));
   ok("D4 two staff members at the same hour: both booked (separate lanes)", sameHour.every((x) => x.status === 201), sameHour.map((x) => x.status).join(","));
-  r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { customerId: custA, staffMemberId: yossi.id, startsAt: at("15:15", WED), durationMinutes: 30 } }));
+  r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { customerId: custA, staffMemberId: yossi.id, startsAt: at("15:15", TUE), durationMinutes: 30 } }));
   ok("D5 …and the same lane at that hour → 409 SLOT_CONFLICT", r.status === 409 && (await body(r))?.error === "SLOT_CONFLICT");
 
   // ── E. Move ────────────────────────────────────────────────────────────────────────────────────
