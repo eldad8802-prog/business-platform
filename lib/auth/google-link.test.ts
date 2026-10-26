@@ -40,6 +40,7 @@ function ok(name: string, cond: boolean, detail = "") {
 
 const config = readGoogleLoginConfig({
   AUTH_GOOGLE_LOGIN_ENABLED: "true",
+  AUTH_GOOGLE_LOGIN_MODE: "open",
   GOOGLE_LOGIN_CLIENT_ID: "client-1.apps.googleusercontent.com",
   GOOGLE_LOGIN_CLIENT_SECRET: "lab-secret",
   GOOGLE_LOGIN_REDIRECT_BASE_URL: "https://app.dubiz.test",
@@ -79,7 +80,7 @@ async function main() {
     handleLinkPassword(req("/api/auth/google/link/password", { body: { password: "x" } }), { config: OFF } as unknown as LinkPasswordDeps),
     handleLinkEmailRequest(req("/api/auth/google/link/email"), { config: OFF, readTicket: reach, rateLimit: reach, request: reach, deliver: reach }),
     handleLinkEmailCheck(req("/api/auth/google/link/email/check", { body: {} }), { config: OFF, check: reach, rateLimit: reach }),
-    handleLinkEmailComplete(req("/api/auth/google/link/email/complete", { body: {} }), { config: OFF, rateLimit: reach, complete: reach, deliver: reach }),
+    handleLinkEmailComplete(req("/api/auth/google/link/email/complete", { body: {} }), { config: OFF, readTicket: reach, rateLimit: reach, complete: reach, deliver: reach }),
     handleGoogleStatus(req("/api/security/google", { method: "GET" }), { config: OFF } as unknown as GoogleSecurityDeps),
     handleGoogleUnlink(req("/api/security/google", { body: {} }), { config: OFF } as unknown as GoogleSecurityDeps),
   ]);
@@ -172,18 +173,18 @@ async function main() {
   ok("check: answers the status for the posted token and THIS browser's ticket", (await chk.json()).status === "VALID" && checked[0] === "t.v" && checked[1] === SECRET);
   let completed: { proof?: { kind: string; token: unknown }; ticketSecret?: unknown } = {};
   delivered = [];
-  const done = await handleLinkEmailComplete(req("/api/auth/google/link/email/complete", { body: { token: "t.v", userId: 999 } }), { config: ON, rateLimit: allow,
+  const done = await handleLinkEmailComplete(req("/api/auth/google/link/email/complete", { body: { token: "t.v", userId: 999 } }), { config: ON, readTicket: async () => null, rateLimit: allow,
     complete: (async (i: typeof completed) => { completed = i; return linked; }) as never, deliver: (id) => { delivered.push(id); } });
   ok("complete: the EMAIL proof is the posted token + this browser's ticket; nothing else from the body", done.status === 200 && completed.proof?.kind === "EMAIL"
     && completed.proof.token === "t.v" && completed.ticketSecret === SECRET && !JSON.stringify(completed).includes("999"));
   ok("…the refresh cookie set, the LINK cookie cleared, the notice delivered", /dubiz_rt=/.test(done.headers.getSetCookie().join(";")) && cleared(done) && JSON.stringify(delivered) === "[7000]");
   for (const [reason, code, clears] of [["TICKET", "TICKET_EXPIRED", true], ["EMAIL_LINK", "LINK_INVALID", false], ["ACCOUNT", "LINK_REFUSED", true]] as const) {
-    const r = await handleLinkEmailComplete(req("/api/auth/google/link/email/complete", { body: { token: "t.v" } }), { config: ON, rateLimit: allow,
+    const r = await handleLinkEmailComplete(req("/api/auth/google/link/email/complete", { body: { token: "t.v" } }), { config: ON, readTicket: async () => null, rateLimit: allow,
       complete: async () => { throw new GoogleLinkRefusedError(reason); }, deliver: () => {} });
     ok(`complete: refused (${reason}) → 409 ${code}, no session cookie${clears ? ", the LINK cookie cleared" : ", the LINK cookie kept"}`,
       r.status === 409 && (await r.json()).code === code && !/dubiz_rt=/.test(r.headers.getSetCookie().join(";")) && (clears ? cleared(r) : kept(r)));
   }
-  ok("complete / check: cross-site → 403", (await handleLinkEmailComplete(req("/api/auth/google/link/email/complete", { body: {}, site: "cross-site" }), { config: ON, rateLimit: allow, complete: async () => linked, deliver: () => {} })).status === 403
+  ok("complete / check: cross-site → 403", (await handleLinkEmailComplete(req("/api/auth/google/link/email/complete", { body: {}, site: "cross-site" }), { config: ON, readTicket: async () => null, rateLimit: allow, complete: async () => linked, deliver: () => {} })).status === 403
     && (await handleLinkEmailCheck(req("/api/auth/google/link/email/check", { body: {}, site: "cross-site" }), { config: ON, rateLimit: allow, check: async () => "VALID" })).status === 403);
 
   // ── settings: status and unlink, for the caller's own account only ────────
@@ -243,7 +244,8 @@ async function main() {
   const ROOT = process.cwd();
   const read = (f: string) => fs.readFileSync(path.join(ROOT, f), "utf8");
   const routes = ["link/route.ts", "link/password/route.ts", "link/email/route.ts", "link/email/check/route.ts", "link/email/complete/route.ts"].map((r) => read(`app/api/auth/google/${r}`));
-  ok("every link route answers 404 when OFF (the config is read first)", routes.every((s) => /if \(!deps\.config\(\)\) return NextResponse\.json\(\{ error: "Not found" \}, \{ status: 404 \}\)/.test(s)));
+  ok("every link route answers 404 when OFF (the config is read first)", routes.every((s) =>
+    /> \{\n  (const config = deps\.config\(\);\n  if \(!config\)|if \(!deps\.config\(\)\)) return NextResponse\.json\(\{ error: "Not found" \}, \{ status: 404 \}\)/.test(s)));
   ok("no link or settings route reaches the database directly", [...routes, read("app/api/security/google/route.ts")].every((s) => !/prisma-auth|\$queryRaw|authDb\(/.test(s)));
   ok("the check route never completes anything", !/completeGoogleLink|auth_oauth_link_email_consume|auth_oauth_identity_link/.test(read("app/api/auth/google/link/email/check/route.ts")));
   const confirm = read("app/link/google/confirm/google-link-confirm.tsx");

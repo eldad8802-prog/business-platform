@@ -78,6 +78,7 @@ const count = async (sql: string, ...args: unknown[]) => Number(((await owner.$q
 
 const config = readGoogleLoginConfig({
   AUTH_GOOGLE_LOGIN_ENABLED: "true",
+  AUTH_GOOGLE_LOGIN_MODE: "open",
   GOOGLE_LOGIN_CLIENT_ID: "lab-client.apps.googleusercontent.com",
   GOOGLE_LOGIN_CLIENT_SECRET: "lab-secret",
   GOOGLE_LOGIN_REDIRECT_BASE_URL: "https://app.dubiz.test",
@@ -142,7 +143,7 @@ const requestEmail = async (cookie: string | null) =>
 const checkEmail = async (cookie: string | null, token: string) =>
   String((await read(await handleLinkEmailCheck(post("/api/auth/google/link/email/check", cookie, { token }), { config: ON, check: checkLinkEmail, rateLimit: consumeRateLimit }))).body.status);
 const completeEmail = async (cookie: string | null, token: string) =>
-  read(await handleLinkEmailComplete(post("/api/auth/google/link/email/complete", cookie, { token }), { config: ON, rateLimit: consumeRateLimit, complete: completeGoogleLink, deliver: () => {} }));
+  read(await handleLinkEmailComplete(post("/api/auth/google/link/email/complete", cookie, { token }), { config: ON, readTicket: readLinkTicket, rateLimit: consumeRateLimit, complete: completeGoogleLink, deliver: () => {} }));
 const login = async (email: string, password: string) =>
   read(await loginPOST(new Request("https://app.dubiz.test/api/auth/login", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": ip(), "user-agent": "agl-m3" }, body: JSON.stringify({ email, password }) })));
 

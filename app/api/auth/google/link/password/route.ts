@@ -5,7 +5,7 @@ import { LOGIN_FAILURE_POLICY, loginAccountRateKey } from "@/lib/auth/account-ra
 import { loginLockedMessage } from "@/lib/auth/auth-messages";
 import { completeGoogleLink, findLinkAccount, GoogleLinkRefusedError } from "@/lib/auth/google-link";
 import { deliverGoogleLinkEmailAfterResponse } from "@/lib/auth/google-link-delivery";
-import { clearLinkCookie, GOOGLE_LINK_COOKIE, readCookie, readGoogleLoginConfig } from "@/lib/auth/google-oauth";
+import { clearLinkCookie, GOOGLE_LINK_COOKIE, GOOGLE_NOT_IN_PILOT, googleLoginAllows, readCookie, readGoogleLoginConfig } from "@/lib/auth/google-oauth";
 import { readLoginDevice } from "@/lib/auth/login-device";
 import { readLinkTicket } from "@/lib/auth/oauth-ticket";
 import { checkBrowserCsrf, setRefreshCookie } from "@/lib/auth/refresh-cookie";
@@ -26,6 +26,7 @@ export const dynamic = "force-dynamic";
  * and this path is no way around a lock. An unknown or password-less account costs the same bcrypt work and
  * is answered like a wrong password. Only then does completeGoogleLink spend the ticket, link and sign in —
  * one transaction. The response sets the refresh cookie (no token in the body) and forgets the ticket.
+ * During the pilot an unlisted ticket address is refused before the ledger and the password (nothing counted).
  * OFF → 404.
  */
 export type LinkPasswordDeps = {
@@ -71,8 +72,15 @@ function ticketGone(): NextResponse {
   return res;
 }
 
+function notInPilot(): NextResponse {
+  const res = NextResponse.json(GOOGLE_NOT_IN_PILOT, { status: 403, headers: noStore });
+  clearLinkCookie(res);
+  return res;
+}
+
 export async function handleLinkPassword(req: Request, deps: LinkPasswordDeps = defaultDeps): Promise<NextResponse> {
-  if (!deps.config()) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const config = deps.config();
+  if (!config) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!checkBrowserCsrf(req).ok) return NextResponse.json({ code: "FORBIDDEN" }, { status: 403, headers: noStore });
   const { t } = await getServerI18n();
 
@@ -97,6 +105,7 @@ export async function handleLinkPassword(req: Request, deps: LinkPasswordDeps = 
     const secret = readCookie(req, GOOGLE_LINK_COOKIE);
     const ticket = await deps.readTicket(secret);
     if (!ticket) return ticketGone();
+    if (!googleLoginAllows(config, ticket.email)) return notInPilot();
 
     const normalized = normalizeEmail(ticket.email);
     const attempt = await deps.reserve({
