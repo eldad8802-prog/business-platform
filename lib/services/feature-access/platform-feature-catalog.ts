@@ -27,9 +27,9 @@ export const PLATFORM_FEATURE_KEYS = {
   DAILY_TASKS: "daily_tasks",
   ACCOUNTANT_MONTH_CLOSE: "accountant_month_close",
   BANK_FILE_IMPORT: "bank_file_import",
+  POS_RIVHIT: "pos_rivhit",
   APPOINTMENTS: "appointments",
   PUBLIC_BOOKING: "public_booking",
-  POS_RIVHIT: "pos_rivhit",
 } as const;
 
 export type PlatformFeatureKey =
@@ -265,6 +265,17 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       defaultEnabled: false,
       mutable: true,
     },
+    // Rivhit sales documents → revenue truth (S1-A, migration 20261104090000). OFF by default: with no policy row the
+    // resolver falls back to this default, so a deploy that reaches Production before the migration cannot switch it
+    // on. Read-only: Dubiz never writes to Rivhit.
+    {
+      key: PLATFORM_FEATURE_KEYS.POS_RIVHIT,
+      displayName: "מכירות מריווחית",
+      category: "integrations",
+      description: "קריאת מסמכי מכירה וקבלות מריווחית Online לשכבת אמת ההכנסות (קריאה בלבד) — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
     // Appointments, milestone A (migration 20261029090000). OFF by default, like every new feature: with no policy row
     // the resolver falls back to this default, so a deploy that reaches Production before the migration cannot switch
     // the calendar on. It gates the new owner routes only; the appointment paths that predate it are not gated.
@@ -282,17 +293,6 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "הזמנת תורים חיצונית",
       category: "scheduling",
       description: "קישור הזמנות ציבורי ללקוחות — כבוי כברירת מחדל",
-      defaultEnabled: false,
-      mutable: true,
-    },
-    // Rivhit sales documents → revenue truth (S1-A, migration 20261103090000). OFF by default: with no policy row the
-    // resolver falls back to this default, so a deploy that reaches Production before the migration cannot switch it
-    // on. Read-only: Dubiz never writes to Rivhit.
-    {
-      key: PLATFORM_FEATURE_KEYS.POS_RIVHIT,
-      displayName: "מכירות מריווחית",
-      category: "integrations",
-      description: "קריאת מסמכי מכירה וקבלות מריווחית Online לשכבת אמת ההכנסות (קריאה בלבד) — כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },

@@ -5,6 +5,10 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "pure (fake fetch, no DB): the api_token travels only in the request body and is refused unless a UUID, the client names no Rivhit write operation, intake payloads carry no customer name / phone / item text, receipt identities are scoped per connection, a card charge can never become a sale, an unproven origin is never POS, R10 routes revenue only from CUSTOM events and never to a Lead; parsing, tenders, type proposals and the day check over demo-shaped synthetic data; run on pull_request by security-gate (lab pure) and revenue-sources-s1a-ci.yml"
+    },
+    "lib/intake/routing/s1a-compat.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): adding Rivhit changes nothing for existing sources — every family × target × identity × core-destination decision equals routing-policy@2 except CUSTOM + revenue; the eight pre-existing adapters keep order, families, versions and core destinations; the seven pre-existing sources keep their feature keys; the old route vocabulary is kept; run on pull_request by revenue-sources-s1a-ci.yml (the DB-level compatibility is that workflow’s compat job: the unchanged M6 / M7-A / M7-B/C batteries on a database with the S1-A migration)"
     }
   }
 }

@@ -31,6 +31,7 @@ jobs:
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
       - run: npx tsx lib/revenue-sources/rivhit/rivhit-core.test.ts
+      - run: npx tsx lib/intake/routing/s1a-compat.test.ts
       - run: npx tsx lib/intake/core/intake-core.test.ts
       - run: npx tsx lib/intake/m7a-core.test.ts
       - run: npx tsx lib/intake/m7bc-core.test.ts
@@ -80,7 +81,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: 1. Lab — the revenue truth lab + migration 20261103090000 applied by migrate deploy
+      - name: 1. Lab — the revenue truth lab + migration 20261104090000 applied by migrate deploy
         run: |
           set -euo pipefail
           bash .s1a/lab.sh s1a_app --with-s1a
@@ -91,3 +92,100 @@ jobs:
           OWNER_URL: postgresql://lab_owner:s1a_ci_synthetic_role_pw@localhost:5432/s1a_app
           RUNTIME_URL: postgresql://app_runtime_prod:s1a_ci_synthetic_role_pw@localhost:5432/s1a_app
         run: npx tsx .s1a/battery.ts
+
+  compat:
+    name: S1-A compatibility — the existing M6 / M7-A / M7-B/C batteries on a database WITH the S1-A migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: s1c_owner
+          POSTGRES_PASSWORD: s1c_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_s1c
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U s1c_owner -d dubiz_s1c"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OWNER_URL: postgresql://s1c_owner:s1c_ci_synthetic_owner_pw@localhost:5432/dubiz_s1c
+      AUTH_TOKEN_SECRET: s1c_ci_secret_synthetic_at_least_32_characters_long
+      META_LEAD_ADS_APP_SECRET: s1c_ci_synthetic_meta_app_secret
+      META_LEAD_ADS_VERIFY_TOKEN: s1c_ci_synthetic_verify_token
+      ACQUISITION_CREDENTIAL_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      PGPASSWORD: s1c_ci_synthetic_owner_pw
+      S1A: prisma/migrations/20261104090000_pos_rivhit_source/migration.sql
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Roles as in Production (the same setup as the M6 / M7-A batteries)
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_runtime LOGIN PASSWORD 's1c_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS" \
+            -c "CREATE ROLE app_auth NOLOGIN NOSUPERUSER NOBYPASSRLS" \
+            -c "CREATE ROLE app_ctlplane NOLOGIN NOSUPERUSER NOBYPASSRLS" \
+            -c "CREATE ROLE app_admin NOLOGIN NOSUPERUSER NOBYPASSRLS"
+
+      - name: 2. The REAL M6, M7-A, M7-B/C migrations — then the REAL S1-A migration on top (one transaction)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -euo pipefail
+          node .m7a/strip-schema.mjs prisma/schema.prisma /tmp/base.prisma
+          npx prisma db push --schema /tmp/base.prisma --skip-generate
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "GRANT USAGE ON SCHEMA public TO app_runtime" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime"
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261009090000_m6_acquisition_connections/migration.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f .m7a/prereq.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261013090000_m7a_commerce_telephony_foundation/migration.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f .m7bc/prereq.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -1 -f prisma/migrations/20261014090000_m7bc_commerce_demand_and_line_labels/migration.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -1 -f "$S1A"
+          npx prisma generate
+          test "$(psql "$OWNER_URL" -Atc "SELECT count(*) FROM pg_constraint WHERE conname IN ('AcquisitionConnection_source_key','IntakeNormalizedEvent_routeTarget_vocab') AND (pg_get_constraintdef(oid) LIKE '%pos.rivhit%' OR pg_get_constraintdef(oid) LIKE '%revenue%')")" = "2" || { echo "S1-A not applied"; exit 1; }
+          echo "S1-A applied on top of M6 + M7-A + M7-B/C"
+
+      - name: 3. Production row-level security, replayed verbatim; two clean copies (one per battery)
+        run: |
+          set -euo pipefail
+          node .m6/replay-rls.mjs "$OWNER_URL" 20261009090000_m6_acquisition_connections 20261013090000_m7a_commerce_telephony_foundation 20261014090000_m7bc_commerce_demand_and_line_labels
+          psql "postgresql://s1c_owner:s1c_ci_synthetic_owner_pw@localhost:5432/postgres" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE DATABASE dubiz_s1c_m6 TEMPLATE dubiz_s1c" -c "CREATE DATABASE dubiz_s1c_m7 TEMPLATE dubiz_s1c"
+
+      - name: 4. M6 acquisition battery, unchanged — Meta / Google / website leads, intake, identity, lifecycle, isolation
+        env:
+          OWNER_URL: postgresql://s1c_owner:s1c_ci_synthetic_owner_pw@localhost:5432/dubiz_s1c_m6
+          RUNTIME_URL: postgresql://app_runtime:s1c_ci_synthetic_runtime_pw@localhost:5432/dubiz_s1c_m6
+          DATABASE_URL: postgresql://app_runtime:s1c_ci_synthetic_runtime_pw@localhost:5432/dubiz_s1c_m6
+          DIRECT_URL: postgresql://app_runtime:s1c_ci_synthetic_runtime_pw@localhost:5432/dubiz_s1c_m6
+        run: npx tsx .m6/acquisition-battery.ts
+
+      - name: 5. M7-A battery, unchanged — commerce / telephony core, R5 / R9, Meta hardening, idempotency, tenancy
+        env:
+          OWNER_URL: postgresql://s1c_owner:s1c_ci_synthetic_owner_pw@localhost:5432/dubiz_s1c_m7
+          RUNTIME_URL: postgresql://app_runtime:s1c_ci_synthetic_runtime_pw@localhost:5432/dubiz_s1c_m7
+          DATABASE_URL: postgresql://app_runtime:s1c_ci_synthetic_runtime_pw@localhost:5432/dubiz_s1c_m7
+          DIRECT_URL: postgresql://app_runtime:s1c_ci_synthetic_runtime_pw@localhost:5432/dubiz_s1c_m7
+        run: npx tsx .m7a/battery.ts
+
+      - name: 6. M7-B/C battery, unchanged — WooCommerce / Wix / CloudTalk / Voicenter, the real adapters and the real sweeper (now also polling Rivhit)
+        env:
+          OWNER_URL: postgresql://s1c_owner:s1c_ci_synthetic_owner_pw@localhost:5432/dubiz_s1c_m7
+          RUNTIME_URL: postgresql://app_runtime:s1c_ci_synthetic_runtime_pw@localhost:5432/dubiz_s1c_m7
+          DATABASE_URL: postgresql://app_runtime:s1c_ci_synthetic_runtime_pw@localhost:5432/dubiz_s1c_m7
+          DIRECT_URL: postgresql://app_runtime:s1c_ci_synthetic_runtime_pw@localhost:5432/dubiz_s1c_m7
+        run: npx tsx .m7bc/battery.ts
