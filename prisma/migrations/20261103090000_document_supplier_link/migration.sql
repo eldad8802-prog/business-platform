@@ -44,8 +44,8 @@
 --   PR gates the supplier picker, the suggestions and the supplier file's documents section on it.
 --
 -- RELEASE ORDER
---   Sorts after 20261101090000_oauth_ticket_cancel and BEFORE 20261102090000_oauth_identity_link, so it can be the
---   first pending migration (release-migrate applies an approved prefix only) whatever is decided about that one.
+--   Sorts after 20261102090000_oauth_identity_link, the last migration applied in Production, so it is the next
+--   (and only) pending migration in name order — release-migrate applies an approved prefix only.
 --
 -- Additive. Rollback: .dsl/rollback.sql (owner-run; refuses while any link, event or issuer reading exists).
 

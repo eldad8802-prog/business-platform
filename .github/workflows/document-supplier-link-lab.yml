@@ -1,12 +1,12 @@
-# Document ↔ supplier link / migration 20261102080000_document_supplier_link — proof on PostgreSQL BEFORE it
+# Document ↔ supplier link / migration 20261103090000_document_supplier_link — proof on PostgreSQL BEFORE it
 # reaches Production (ephemeral PG17). Migration only: nothing in the application reads or writes it yet, and its
 # flag document_supplier_linking is created OFF.
 #
 # .dsl/lab.sh builds Production's topology on the appointments lab chain (non-superuser CREATEROLE/BYPASSRLS
 # owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the owner's default privileges, FORCE RLS), records every
 # migration before this one in the ledger, and --with-dsl applies this one with `prisma migrate deploy`, the
-# release-migrate mechanism. 20261102090000_oauth_identity_link (owner decision pending) is left out: this
-# migration must be releasable as the FIRST pending one on its own.
+# release-migrate mechanism. It sorts after 20261102090000_oauth_identity_link (the last migration applied in
+# Production): it is the only pending one, in name order.
 #
 #   0. Evidence files are SELECT-only and selectable; the preflight's four prior migrations are the four right
 #      before this one; the proof pins migration.sql's sha256; the migration names only the relations it should.
@@ -30,7 +30,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "prisma/migrations/20261102080000_document_supplier_link/**"
+      - "prisma/migrations/20261103090000_document_supplier_link/**"
       - "ops/evidence/document-supplier-link-*.sql"
       - ".dsl/**"
       - ".appt/lab.sh"
@@ -74,7 +74,7 @@ jobs:
       LAB_PASSWORD: dsl_ci_synthetic_role_pw
       PREFLIGHT: ops/evidence/document-supplier-link-preflight.sql
       EVIDENCE: ops/evidence/document-supplier-link-production-evidence.sql
-      DSL: prisma/migrations/20261102080000_document_supplier_link/migration.sql
+      DSL: prisma/migrations/20261103090000_document_supplier_link/migration.sql
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -93,7 +93,7 @@ jobs:
             if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
             grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
           done
-          want=$(ls -d prisma/migrations/2*/ | xargs -n1 basename | awk '$0 < "20261102080000_document_supplier_link"' | sort | tail -4)
+          want=$(ls -d prisma/migrations/2*/ | xargs -n1 basename | awk '$0 < "20261103090000_document_supplier_link"' | sort | tail -4)
           have=$(grep -oE "[(]'[0-9]{14}_[a-z0-9_]+'[)]" "$PREFLIGHT" | grep -oE "[0-9]{14}_[a-z0-9_]+" | sort)
           test "$want" = "$have" || { echo "the preflight's prior migrations are not the four right before this one"; diff <(echo "$want") <(echo "$have") || true; exit 1; }
           sum=$(sha256sum "$DSL" | cut -d' ' -f1)
@@ -123,7 +123,7 @@ jobs:
         run: |
           set -euo pipefail
           bash .dsl/lab.sh dsl_post --with-dsl | tee /tmp/post.log
-          grep -q 'Applying migration `20261102080000_document_supplier_link`' /tmp/post.log
+          grep -q 'Applying migration `20261103090000_document_supplier_link`' /tmp/post.log
           test "$(grep -c 'Applying migration' /tmp/post.log)" = "1" || { echo "more than one migration applied"; exit 1; }
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d dsl_post -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$EVIDENCE" | tee /tmp/ev.out
@@ -176,7 +176,7 @@ jobs:
           fns=$(lab -Atc "SELECT count(*) FROM pg_proc WHERE proname LIKE 'document\_supplier\_link\_%'")
           cols=$(lab -Atc "SELECT count(*) FROM pg_attribute WHERE attrelid = '\"ExtractedData\"'::regclass AND NOT attisdropped AND attname IN ('issuerTaxId','issuerTaxIdSource','issuerTaxIdValid','issuerCheck','ownBusinessExcluded')")
           flag=$(lab -Atc "SELECT (SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE \"key\" = 'document_supplier_linking') + (SELECT count(*) FROM \"PlatformFeaturePolicy\" WHERE \"featureKey\" = 'document_supplier_linking')")
-          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261102080000_document_supplier_link' AND finished_at IS NULL")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261103090000_document_supplier_link' AND finished_at IS NULL")
           echo "relations=$rels functions=$fns issuer-columns=$cols flag-rows=$flag unfinished=$led"
           test "$rels" = "0" && test "$fns" = "0" && test "$cols" = "0" && test "$flag" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
 
@@ -193,7 +193,7 @@ jobs:
           lab dsl_rb -f "$PREFLIGHT" | tee /tmp/rb-pre.out
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/rb-pre.out; then echo "after rollback the preflight is not whole"; exit 1; fi
           bash .dsl/lab.sh dsl_rb --redeploy | tee /tmp/re.log
-          grep -q 'Applying migration `20261102080000_document_supplier_link`' /tmp/re.log
+          grep -q 'Applying migration `20261103090000_document_supplier_link`' /tmp/re.log
           got=$(lab dsl_rb -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test -z "$got" || { echo "re-apply: proof not whole: $got"; exit 1; }
           echo "rollback reverted the migration whole; re-apply made the proof whole"

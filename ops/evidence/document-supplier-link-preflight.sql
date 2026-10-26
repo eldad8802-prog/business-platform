@@ -2,7 +2,7 @@
 -- document-supplier-link-preflight.sql
 --
 -- Read-only Production PREFLIGHT before migration
---   20261102080000_document_supplier_link
+--   20261103090000_document_supplier_link
 --
 -- Every premise the migration stands on, from the catalog and the ledger only:
 --   * it is not recorded yet; no ledger row is unfinished or rolled back; the four migrations right before it are
@@ -43,8 +43,8 @@ WITH
 pub AS (SELECT oid FROM pg_namespace WHERE nspname = 'public'),
 rel AS (SELECT c.oid, c.relname, c.relkind FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub)),
 ed AS (SELECT oid FROM rel WHERE relname = 'ExtractedData' AND relkind = 'r'),
-prior(m) AS (VALUES ('20261029090000_appointments_foundation'), ('20261030090000_oauth_identity_foundation'),
-                    ('20261031090000_bank_file_import_feature'), ('20261101090000_oauth_ticket_cancel')),
+prior(m) AS (VALUES ('20261030090000_oauth_identity_foundation'), ('20261031090000_bank_file_import_feature'),
+                    ('20261101090000_oauth_ticket_cancel'), ('20261102090000_oauth_identity_link')),
 new_cols(attname) AS (VALUES ('issuerTaxId'), ('issuerTaxIdSource'), ('issuerTaxIdValid'), ('issuerCheck'), ('ownBusinessExcluded')),
 doc_key AS (
   SELECT i.indexrelid FROM pg_index i JOIN rel r ON r.oid = i.indexrelid
@@ -57,8 +57,8 @@ sup_key AS (
      AND c.conrelid = (SELECT oid FROM rel WHERE relname = 'Supplier' AND relkind = 'r')
      AND array_length(c.conkey, 1) = 2),
 checks(n, ok, observed_count) AS (
-  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261102080000_document_supplier_link') = 0,
-            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261102080000_document_supplier_link')
+  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_document_supplier_link') = 0,
+            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_document_supplier_link')
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, (SELECT count(DISTINCT migration_name) FROM "_prisma_migrations"
