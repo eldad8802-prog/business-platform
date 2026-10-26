@@ -7,6 +7,7 @@
  * and is never touched here.
  */
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { TenantTx } from "@/lib/tenant/transaction";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -174,6 +175,65 @@ export const crmNotesService = {
     });
 
     return rows.map((r) => toDTO(r as NoteRow, input.actingUserId));
+  },
+
+  /**
+   * One page of the thread (newest first) plus whether older notes exist and how
+   * many there are in all. `before` is the id of the last note the caller shows;
+   * the page continues strictly after it in the (createdAt desc, id desc) order,
+   * so a note added meanwhile at the top neither repeats nor shifts a row. The
+   * cursor is read inside this business AND this subject: a foreign id yields an
+   * empty page, never another thread's notes.
+   */
+  async listNotesPage(
+    input: ListNotesInput & { before?: number | null },
+    options?: TxOptions
+  ): Promise<{ notes: CrmNoteDTO[]; hasMore: boolean; total: number }> {
+    const db = options?.tx ?? prisma;
+    const subject = await resolveCrmSubject(
+      {
+        businessId: input.businessId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+      },
+      options
+    );
+    const scope = {
+      businessId: input.businessId,
+      subjectType: subject.subjectType,
+      subjectId: input.subjectId,
+    };
+
+    let after: Prisma.CrmNoteWhereInput = {};
+    if (input.before != null) {
+      const cursor = await db.crmNote.findFirst({
+        where: { ...scope, id: input.before },
+        select: { id: true, createdAt: true },
+      });
+      if (!cursor) return { notes: [], hasMore: false, total: await db.crmNote.count({ where: scope }) };
+      after = {
+        OR: [
+          { createdAt: { lt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+        ],
+      };
+    }
+
+    const [rows, total] = await Promise.all([
+      db.crmNote.findMany({
+        where: { ...scope, ...after },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: NOTES_LIST_LIMIT + 1,
+        select: NOTE_SELECT,
+      }),
+      db.crmNote.count({ where: scope }),
+    ]);
+    const hasMore = rows.length > NOTES_LIST_LIMIT;
+    return {
+      notes: rows.slice(0, NOTES_LIST_LIMIT).map((r) => toDTO(r as NoteRow, input.actingUserId)),
+      hasMore,
+      total,
+    };
   },
 
   /** Count only — for the Customer Card read-model (no list, no N+1). */

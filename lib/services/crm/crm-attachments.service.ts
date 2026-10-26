@@ -5,6 +5,7 @@
  * holds metadata only. Never merged with the financial `Document` model.
  */
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { TenantTx } from "@/lib/tenant/transaction";
 import {
@@ -151,6 +152,65 @@ export const crmAttachmentsService = {
       select: ATTACHMENT_SELECT,
     });
     return rows.map((r) => toDTO(r as AttachmentRow, input.actingUserId));
+  },
+
+  /**
+   * One page of the subject's files (newest first) plus whether older files exist
+   * and how many there are in all. Same cursor contract as the notes page: `before`
+   * is the last id the caller shows, read inside this business AND this subject.
+   */
+  async listAttachmentsPage(
+    input: ListAttachmentsInput & { before?: number | null },
+    options?: TxOptions
+  ): Promise<{ attachments: CrmAttachmentDTO[]; hasMore: boolean; total: number }> {
+    const db = options?.tx ?? prisma;
+    const subject = await resolveCrmSubject(
+      {
+        businessId: input.businessId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+      },
+      options
+    );
+    const scope = {
+      businessId: input.businessId,
+      subjectType: subject.subjectType,
+      subjectId: input.subjectId,
+    };
+
+    let after: Prisma.CrmAttachmentWhereInput = {};
+    if (input.before != null) {
+      const cursor = await db.crmAttachment.findFirst({
+        where: { ...scope, id: input.before },
+        select: { id: true, createdAt: true },
+      });
+      if (!cursor) {
+        return { attachments: [], hasMore: false, total: await db.crmAttachment.count({ where: scope }) };
+      }
+      after = {
+        OR: [
+          { createdAt: { lt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+        ],
+      };
+    }
+
+    const [rows, total] = await Promise.all([
+      db.crmAttachment.findMany({
+        where: { ...scope, ...after },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: ATTACHMENTS_LIST_LIMIT + 1,
+        select: ATTACHMENT_SELECT,
+      }),
+      db.crmAttachment.count({ where: scope }),
+    ]);
+    return {
+      attachments: rows
+        .slice(0, ATTACHMENTS_LIST_LIMIT)
+        .map((r) => toDTO(r as AttachmentRow, input.actingUserId)),
+      hasMore: rows.length > ATTACHMENTS_LIST_LIMIT,
+      total,
+    };
   },
 
   async countAttachments(

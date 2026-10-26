@@ -177,6 +177,44 @@ export async function getSuppliers(options?: {
   return (data.suppliers || []) as SupplierListRow[];
 }
 
+export type SupplierListPage = {
+  suppliers: SupplierListRow[];
+  /** All suppliers matching the filter — not just the rows on this page. */
+  total: number;
+  hasMore: boolean;
+};
+
+/** One page of the supplier list plus the size of the whole list (the list screen). */
+export async function getSuppliersPage(options: {
+  query?: string;
+  status?: SupplierStatusFilter;
+  offset?: number;
+}): Promise<SupplierListPage> {
+  const params = new URLSearchParams();
+  const q = options.query?.trim();
+  if (q) params.set("q", q);
+  if (options.status && options.status !== "active") params.set("status", options.status);
+  if (options.offset) params.set("offset", String(options.offset));
+  const qs = params.toString() ? `?${params.toString()}` : "";
+
+  const res = await fetchWithTimeout(`/api/inventory/suppliers${qs}`, {
+    method: "GET",
+    headers: buildClientAuthHeaders(),
+    cache: "no-store",
+  });
+
+  if (res.status === 401) throw new Error("UNAUTHORIZED");
+  if (!res.ok) throw new Error("Failed to fetch suppliers");
+
+  const data = await res.json();
+  const suppliers = (data.suppliers || []) as SupplierListRow[];
+  return {
+    suppliers,
+    total: typeof data.total === "number" ? data.total : suppliers.length,
+    hasMore: data.hasMore === true,
+  };
+}
+
 export async function getSupplier(id: number): Promise<Supplier> {
   const res = await fetchWithTimeout(`/api/inventory/suppliers/${id}`, {
     method: "GET",

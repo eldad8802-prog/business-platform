@@ -60,6 +60,29 @@ export async function getAttachments(
   return data.attachments || [];
 }
 
+/** One page of a subject's files (newest first). `before` = the last id already shown. */
+export async function getAttachmentsPage(
+  subjectType: CrmSubjectType,
+  subjectId: number,
+  before?: number
+): Promise<{ attachments: CrmAttachmentDTO[]; hasMore: boolean; total: number }> {
+  const url = before ? `${base(subjectType, subjectId)}?before=${before}` : base(subjectType, subjectId);
+  const res = await fetch(url, {
+    method: "GET",
+    headers: buildClientAuthHeaders(),
+    cache: "no-store",
+  });
+  if (res.status === 401) throw new Error("UNAUTHORIZED");
+  if (!res.ok) return parseError(res, "לא הצלחנו לטעון את הקבצים");
+  const data = await res.json();
+  const attachments: CrmAttachmentDTO[] = data.attachments || [];
+  return {
+    attachments,
+    hasMore: data.hasMore === true,
+    total: typeof data.total === "number" ? data.total : attachments.length,
+  };
+}
+
 /**
  * Upload via XMLHttpRequest so we can report REAL upload progress (fetch cannot).
  * `onProgress` receives 0..100 when the length is computable.
