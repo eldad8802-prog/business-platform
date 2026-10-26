@@ -112,6 +112,7 @@ on:
           - 'ops/evidence/appointments-foundation-preflight.sql'
           - 'ops/evidence/appointments-foundation-production-evidence.sql'
           - 'ops/evidence/appointments-pilot-business-9.sql'
+          - 'ops/evidence/document-supplier-business-9-readonly.sql'
           - 'ops/evidence/bank-file-import-feature-production-evidence.sql'
           - 'ops/evidence/oauth-ticket-cancel-preflight.sql'
           - 'ops/evidence/oauth-ticket-cancel-production-evidence.sql'
