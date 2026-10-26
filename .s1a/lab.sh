@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S1-A / migration 20261103090000_pos_rivhit_source — Production-topology lab.
+# S1-A / migration 20261104090000_pos_rivhit_source — Production-topology lab.
 #
 #   .s1a/lab.sh <db-name>                 build the lab, the migration pending
 #   .s1a/lab.sh <db-name> --with-s1a      build it and apply the migration with `prisma migrate deploy`
@@ -16,7 +16,7 @@
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-S1A="20261103090000_pos_rivhit_source"
+S1A="20261104090000_pos_rivhit_source"
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
 
