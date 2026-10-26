@@ -1,4 +1,4 @@
--- Rollback of 20261103090000_pos_rivhit_source — puts back exactly what the migration replaced (the M7-A source
+-- Rollback of 20261104090000_pos_rivhit_source — puts back exactly what the migration replaced (the M7-A source
 -- list and shape, the M7-A route vocabularies) and removes the feature rows it added.
 --
 -- REFUSES while anything uses it: a pos.* connection (any status), a normalized intake event routed to revenue, or
@@ -46,4 +46,4 @@ ALTER TABLE "IntakeNormalizedEvent" ADD CONSTRAINT "IntakeNormalizedEvent_routin
 );
 DELETE FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'pos_rivhit';
 DELETE FROM "PlatformFeatureDefinition" WHERE "key" = 'pos_rivhit';
-DELETE FROM "_prisma_migrations" WHERE migration_name = '20261103090000_pos_rivhit_source';
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261104090000_pos_rivhit_source';

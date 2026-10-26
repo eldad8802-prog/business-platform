@@ -1,4 +1,4 @@
--- S1-A lab: the DB-only objects 20261103090000_pos_rivhit_source replaces, exactly as Production holds them today
+-- S1-A lab: the DB-only objects 20261104090000_pos_rivhit_source replaces, exactly as Production holds them today
 -- (M7-A 20261013090000 left them so; a `prisma db push` cannot create a CHECK). Idempotent: each is re-created to the
 -- M7-A definition whatever the lab's earlier layers left.
 

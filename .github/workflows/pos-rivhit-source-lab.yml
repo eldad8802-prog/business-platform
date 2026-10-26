@@ -1,13 +1,13 @@
 name: s1a — pos.rivhit source migration lab (ephemeral PG17)
 
-# Migration 20261103090000_pos_rivhit_source on a Production-topology lab: preflight before, proof after,
+# Migration 20261104090000_pos_rivhit_source on a Production-topology lab: preflight before, proof after,
 # behaviour of the widened CHECKs, atomicity, rollback. Synthetic credentials only; no network beyond the runner.
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - "prisma/migrations/20261103090000_pos_rivhit_source/**"
+      - "prisma/migrations/20261104090000_pos_rivhit_source/**"
       - "ops/evidence/pos-rivhit-source-*.sql"
       - ".s1a/**"
       - ".rev/lab.sh"
@@ -44,7 +44,7 @@ jobs:
       LAB_PASSWORD: s1a_ci_synthetic_role_pw
       PREFLIGHT: ops/evidence/pos-rivhit-source-preflight.sql
       EVIDENCE: ops/evidence/pos-rivhit-source-production-evidence.sql
-      S1A: prisma/migrations/20261103090000_pos_rivhit_source/migration.sql
+      S1A: prisma/migrations/20261104090000_pos_rivhit_source/migration.sql
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -116,7 +116,7 @@ jobs:
           left=$(lab -Atc "SELECT (SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE key = 'pos_rivhit')
                               + (SELECT count(*) FROM \"PlatformFeaturePolicy\" WHERE \"featureKey\" = 'pos_rivhit')
                               + (SELECT count(*) FROM pg_constraint WHERE pg_get_constraintdef(oid) LIKE '%pos.rivhit%' OR pg_get_constraintdef(oid) LIKE '%''revenue''%')")
-          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261103090000_pos_rivhit_source' AND finished_at IS NULL")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261104090000_pos_rivhit_source' AND finished_at IS NULL")
           echo "objects left=$left unfinished ledger rows=$led"
           test "$left" = "0" && test "$led" = "1" || { echo "NOT atomic"; exit 1; }
 

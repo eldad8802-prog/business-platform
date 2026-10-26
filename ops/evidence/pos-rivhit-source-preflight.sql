@@ -1,7 +1,7 @@
 -- ============================================================================
 -- pos-rivhit-source-preflight.sql
 --
--- Read-only Production PREFLIGHT before migration 20261103090000_pos_rivhit_source.
+-- Read-only Production PREFLIGHT before migration 20261104090000_pos_rivhit_source.
 --
 -- Proves, from counts only, that Production is the database the migration was written for:
 --   * the ledger is clean and the migration is not recorded yet; every applied migration sorts before it;
@@ -13,8 +13,8 @@
 -- ============================================================================
 
 \echo ' 1 no migration is unfinished or rolled back (observed = rows)'
-\echo ' 2 20261103090000_pos_rivhit_source is not recorded (observed = rows)'
-\echo ' 3 every recorded migration sorts before 20261103090000_pos_rivhit_source (observed = rows at or after it)'
+\echo ' 2 20261104090000_pos_rivhit_source is not recorded (observed = rows)'
+\echo ' 3 every recorded migration sorts before 20261104090000_pos_rivhit_source (observed = rows at or after it)'
 \echo ' 4 AcquisitionConnection_source_key is the M7-A list: telephony.voicenter present, no pos.* (observed = matching)'
 \echo ' 5 AcquisitionConnection_source_shape exists (observed = rows)'
 \echo ' 6 IntakeNormalizedEvent route vocabularies exist without revenue (observed = matching, of 2)'
@@ -32,10 +32,10 @@ SET LOCAL row_security = off;
 WITH checks(n, ok, observed_count) AS (
   SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
             (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
-  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_pos_rivhit_source') = 0,
-                      (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_pos_rivhit_source')
-  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name >= '20261103090000_pos_rivhit_source') = 0,
-                      (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name >= '20261103090000_pos_rivhit_source')
+  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261104090000_pos_rivhit_source') = 0,
+                      (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261104090000_pos_rivhit_source')
+  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name >= '20261104090000_pos_rivhit_source') = 0,
+                      (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name >= '20261104090000_pos_rivhit_source')
   UNION ALL SELECT 4, (SELECT count(*) FROM pg_constraint WHERE conname = 'AcquisitionConnection_source_key'
                          AND pg_get_constraintdef(oid) LIKE '%telephony.voicenter%'
                          AND pg_get_constraintdef(oid) NOT LIKE '%pos.%') = 1,

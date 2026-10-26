@@ -1,7 +1,7 @@
 -- ============================================================================
 -- pos-rivhit-source-production-evidence.sql
 --
--- Read-only Production EVIDENCE after migration 20261103090000_pos_rivhit_source.
+-- Read-only Production EVIDENCE after migration 20261104090000_pos_rivhit_source.
 --
 -- Proves, from counts only, that the migration landed exactly and that nothing reads Rivhit:
 --   * the migration is recorded once, finished, with the checksum of the reviewed file;
@@ -11,7 +11,7 @@
 -- No values, no names, no identifiers of any business.
 -- ============================================================================
 
-\echo ' 1 20261103090000_pos_rivhit_source is recorded once, finished, not rolled back (observed = rows)'
+\echo ' 1 20261104090000_pos_rivhit_source is recorded once, finished, not rolled back (observed = rows)'
 \echo ' 2 no migration is unfinished or rolled back (observed = rows)'
 \echo ' 3 the recorded checksum is the reviewed file (observed = matching rows)'
 \echo ' 4 definition pos_rivhit: defaultEnabled false, mutable true (observed = matching rows)'
@@ -31,15 +31,15 @@ SET LOCAL statement_timeout = '15s';
 SET LOCAL row_security = off;
 
 WITH checks(n, ok, observed_count) AS (
-  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_pos_rivhit_source'
+  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261104090000_pos_rivhit_source'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL) = 1,
-            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_pos_rivhit_source'
+            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261104090000_pos_rivhit_source'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL)
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
-  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_pos_rivhit_source'
+  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261104090000_pos_rivhit_source'
                          AND checksum = '14b9ec72c2a9ec0d4797af83fb195d187c6ce23a98f6c210335a20497916a394') = 1,
-                      (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_pos_rivhit_source'
+                      (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261104090000_pos_rivhit_source'
                          AND checksum = '14b9ec72c2a9ec0d4797af83fb195d187c6ce23a98f6c210335a20497916a394')
   UNION ALL SELECT 4, (SELECT count(*) FROM "PlatformFeatureDefinition" WHERE "key" = 'pos_rivhit' AND NOT "defaultEnabled" AND "mutable") = 1,
                       (SELECT count(*) FROM "PlatformFeatureDefinition" WHERE "key" = 'pos_rivhit' AND NOT "defaultEnabled" AND "mutable")
