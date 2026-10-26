@@ -29,6 +29,7 @@ export const PLATFORM_FEATURE_KEYS = {
   BANK_FILE_IMPORT: "bank_file_import",
   APPOINTMENTS: "appointments",
   PUBLIC_BOOKING: "public_booking",
+  DOCUMENT_SUPPLIER_LINKING: "document_supplier_linking",
 } as const;
 
 export type PlatformFeatureKey =
@@ -281,6 +282,14 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "הזמנת תורים חיצונית",
       category: "scheduling",
       description: "קישור הזמנות ציבורי ללקוחות — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    {
+      key: PLATFORM_FEATURE_KEYS.DOCUMENT_SUPPLIER_LINKING,
+      displayName: "שיוך מסמכים לספקים",
+      category: "documents",
+      description: "בחירת ספק במסך אישור המסמך, הצעות שיוך באישור בעל העסק והצגת המסמכים בתיק הספק",
       defaultEnabled: false,
       mutable: true,
     },

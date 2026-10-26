@@ -31,6 +31,7 @@ import {
   type OcrGeometryResult,
 } from "@/lib/services/documents/google-vision-ocr.service";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
+import { issuerColumns } from "@/lib/services/documents/issuer/issuer-reading";
 import { recordExtractionSnapshot } from "@/lib/services/documents/ledger/correction-ledger.service";
 import { safeExtFromMime } from "@/lib/services/documents/document-storage.service";
 import {
@@ -160,6 +161,10 @@ export async function processDocumentPipeline(
 
       if (extracted) {
         // upsert (not create): a retry may already have an ExtractedData row.
+        // The issuer reading (document supplier linking ON) replaces an older reading whole; with the flag
+        // OFF it is null and the stored columns are left as they are. The owner's supplier decision lives in
+        // DocumentSupplierLink, so reprocessing never touches it.
+        const issuer = extracted.issuer ? issuerColumns(extracted.issuer) : {};
         await tx.extractedData.upsert({
         where: { documentId },
         create: {
@@ -173,6 +178,7 @@ export async function processDocumentPipeline(
           direction: extracted.direction,
           date: extracted.date,
           confidenceScore: extracted.confidence,
+          ...issuer,
         },
         update: {
           amount: extracted.amount,
@@ -184,6 +190,7 @@ export async function processDocumentPipeline(
           direction: extracted.direction,
           date: extracted.date,
           confidenceScore: extracted.confidence,
+          ...issuer,
         },
         });
       }

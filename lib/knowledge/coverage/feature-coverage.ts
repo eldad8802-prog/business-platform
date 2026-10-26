@@ -99,7 +99,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     otherUnits: ["vendor-category@v1 (business memory, shadow)", "M9:REVIEW_PENDING_DOCUMENTS"],
     l0: ["documents-review-queue", "documents-inbox"],
     models: ["Document", "FinancialRecord", "VendorLearning", "ExtractionSnapshot", "SliceDecision", "ReviewEvent", "FinancialDocument",
-      "DerivedClaimProjection", "DerivedClaimEvidenceLink"],
+      "DerivedClaimProjection", "DerivedClaimEvidenceLink", "DocumentSupplierLink", "DocumentSupplierLinkEvent"],
     sensors: ["DOCUMENT_INGESTED", "DOCUMENT_REPROCESS_REQUESTED"], legacyEvents: [],
     routes: ["api/documents", "page/documents"],
     target: { coverage: "LEARNS", plan: "Add the document intake-channel mix (Document.source) so channel features are learned through here." },

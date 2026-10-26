@@ -1,0 +1,15 @@
+{
+  "note": "Document ↔ supplier link, milestone 1 (application, PR-2 stacked on the migration PR #841). Behind document_supplier_linking (OFF). The migration's own database proof (.dsl/battery.ts) is a lab script run by document-supplier-link-lab.yml.",
+  "tests": {
+    "lib/services/documents/issuer/issuer-reading.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): the issuer reading and the own-business guard through the real extraction chain on synthetic documents — the business is never its own vendor (recipient block, issued document, block printed first), invalid / conflicting / missing tax ids, OCR errors, name keys; flag OFF leaves the extraction unchanged; run on pull_request by document-supplier-link-app-ci.yml"
+    },
+    "lib/services/documents/supplier-link/supplier-link.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "document-supplier-link-app-ci.yml",
+      "reason": "tenant isolation and repeated-request safety of the link service AS the restricted runtime (NOSUPERUSER NOBYPASSRLS) on the real migration: another business's document or supplier is not found from every entry point, stale versions refused, accepted suggestions re-verified, same-key replay / reuse / parallel-first, ten concurrent first links = one, the trail per change, reprocessing leaves the decision; run on pull_request by document-supplier-link-app-ci.yml"
+    }
+  }
+}

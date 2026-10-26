@@ -1,0 +1,106 @@
+# Document ↔ supplier link — application (PR-2, stacked on the migration PR #841). Flag document_supplier_linking,
+# OFF by default.
+#
+# JOB unit — no database: the issuer reading and the own-business guard through the real extraction chain
+#            (synthetic documents), the learning-coverage contract, the erasure contract ratchet.
+# JOB db   — ephemeral PG17 in Production's role topology (.dsl/lab.sh: the real migration by migrate deploy), the
+#            link service AS the restricted runtime (NOSUPERUSER NOBYPASSRLS, FORCE RLS): suggestions, isolation,
+#            link / relink / unlink / dismiss, stale versions, idempotency, concurrency, reprocessing.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: document supplier link — application CI
+
+on:
+  pull_request:
+    branches: [main, db/document-supplier-link]
+    paths:
+      - "lib/services/documents/**"
+      - "lib/identity/**"
+      - "lib/api/document-supplier-link.ts"
+      - "app/api/documents/**"
+      - "app/api/inventory/suppliers/**"
+      - "components/documents/review/**"
+      - "components/suppliers/**"
+      - "lib/services/account/**"
+      - "lib/services/feature-access/**"
+      - "lib/knowledge/coverage/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20261102080000_document_supplier_link/**"
+      - ".dsl/**"
+      - ".appt/lab.sh"
+      - ".github/workflows/document-supplier-link-app-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: document-supplier-link-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: document supplier link — issuer reading, contracts (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx lib/services/documents/issuer/issuer-reading.test.ts
+      - run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
+      - run: npx tsx lib/knowledge/m4-m5-surfaces.verify.test.ts
+      - run: npm run verify:erasure-contract -- --baseline-check
+
+  db:
+    name: document supplier link — service as the runtime role (PG17, real migration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: dsla_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: dsla_ci_synthetic_super_pw
+      LAB_PASSWORD: dsla_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Link service AS the restricted runtime on the real migration
+        run: |
+          set -euo pipefail
+          bash .dsl/lab.sh dsla --with-dsl
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dsla?connection_limit=16" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dsla" \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/dsla" \
+            npx tsx lib/services/documents/supplier-link/supplier-link.db.test.ts

@@ -466,6 +466,10 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // function is its one path (acting users and request digests), and it
           // refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.appointment_erase_business() AS n`;
+          // Document ↔ supplier links (migration 20261102080000): ids, closed tokens and times only. Who
+          // linked, removed or acted goes through this SECURITY DEFINER function — the trail is append-only
+          // for the runtime — and it refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.document_supplier_link_erase_business() AS n`;
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //

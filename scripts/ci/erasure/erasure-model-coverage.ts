@@ -399,6 +399,8 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // are erased with the account by appointment_erase_business(); the rest is closed vocabulary. The other four are
   // configuration made of numbers, flags, enums and ids — no column can hold a name or free text.
   AppointmentEvent: operational("append-only appointment journal: event type, actor role, times, ids and CHECK-limited tokens (no text by DB CHECK); the acting user and the request digest are erased with the account by appointment_erase_business()"),
+  DocumentSupplierLink: operational("the owner's decision of which supplier a document belongs to: ids, closed tokens (status, method, reason), a version and times — no text by DB CHECK; who linked or removed it is erased with the account by document_supplier_link_erase_business()"),
+  DocumentSupplierLinkEvent: operational("append-only trail of supplier decisions on documents: action, ids, closed tokens, an idempotency token (CHECK-limited) and a time — no text; the acting user is erased with the account by document_supplier_link_erase_business()"),
   StaffServiceAssignment: operational("which staff member performs which catalog service, and an optional length in minutes"),
   AvailabilityRule: operational("weekly working hours: a weekday, two minute counts and optional validity days"),
   ServiceBookingPolicy: operational("booking rules of a catalog service: buffers, notice, horizon, slot step, approval mode, windows"),

@@ -44,6 +44,7 @@ import { prisma } from "@/lib/prisma";
 import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
+import { issuerColumns } from "@/lib/services/documents/issuer/issuer-reading";
 import { recordExtractionSnapshot } from "@/lib/services/documents/ledger/correction-ledger.service";
 import {
   findDuplicateDocumentTx,
@@ -195,6 +196,8 @@ export async function writeDocumentRecords(
         direction: extracted.direction,
         date: extracted.date,
         confidenceScore: extracted.confidence,
+        // The issuer reading, only when document supplier linking is ON (null otherwise).
+        ...(extracted.issuer ? issuerColumns(extracted.issuer) : {}),
       },
     });
     extractedDataId = extractedData.id;

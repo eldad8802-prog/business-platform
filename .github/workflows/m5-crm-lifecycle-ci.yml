@@ -42,6 +42,7 @@ on:
       - "prisma/schema.prisma"
       - "prisma/migrations/20261002090000_crm_lead_lifecycle/**"
       - "prisma/migrations/20261027090000_accountant_month_close/**"
+      - "prisma/migrations/20261102080000_document_supplier_link/**"
       - ".m5/**"
       - ".m4/**"
       - ".github/workflows/m5-crm-lifecycle-ci.yml"
@@ -248,6 +249,24 @@ jobs:
             console.log("GRANT EXECUTE ON FUNCTION public.appointment_erase_business() TO app_runtime;");
           ' > /tmp/appt-erase.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/appt-erase.sql
+
+      - name: 1g. Document supplier link account-erasure entry point (from the real migration)
+        # Account erasure also calls document_supplier_link_erase_business() — a SECURITY DEFINER function of migration
+        # 20261102080000 (document supplier linking, milestone 1). Created from the migration's own text exactly like
+        # 1d / 1e / 1f, EXECUTE to the runtime only. Test infrastructure only: no erasure logic changes.
+        env:
+          PGPASSWORD: m5_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          node -e '
+            const s = require("fs").readFileSync("prisma/migrations/20261102080000_document_supplier_link/migration.sql", "utf8");
+            const m = s.match(/CREATE OR REPLACE FUNCTION public\.document_supplier_link_erase_business\(\)[\s\S]*?\$fn\$;/);
+            if (!m) { console.error("document_supplier_link_erase_business() not found in the migration"); process.exit(1); }
+            console.log(m[0]);
+            console.log("REVOKE ALL ON FUNCTION public.document_supplier_link_erase_business() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.document_supplier_link_erase_business() TO app_runtime;");
+          ' > /tmp/dsl-erase.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/dsl-erase.sql
 
       - name: 2. Apply the REAL M5 migration (owner)
         if: steps.base.outputs.mode == 'migration'

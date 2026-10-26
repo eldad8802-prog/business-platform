@@ -158,10 +158,12 @@ function scoreHeaderVendor(
   return { score, anchored };
 }
 
+/** `exclude` (optional): see extractVendorEntity — the business's own name is never a candidate. */
 export function applyVendorStrategy(
   structure: DocumentStructure,
   businessIds: BusinessIdEntity[],
-  currentVendor: VendorEntity
+  currentVendor: VendorEntity,
+  exclude?: (name: string) => boolean
 ): VendorEntity {
   const candidates: {
     name: string;
@@ -174,7 +176,7 @@ export function applyVendorStrategy(
   for (const businessId of businessIds) {
     const nameFromLine = extractVendorFromBusinessIdLine(businessId.line);
 
-    if (nameFromLine) {
+    if (nameFromLine && !exclude?.(nameFromLine)) {
       candidates.push({
         name: nameFromLine,
         score: 140 + businessId.confidence * 40,
@@ -193,7 +195,7 @@ export function applyVendorStrategy(
   headerLines.forEach((line, index) => {
     const { score, anchored } = scoreHeaderVendor(line, index, headerLines);
 
-    if (score > 0) {
+    if (score > 0 && !exclude?.(normalizeVendorName(line))) {
       candidates.push({
         name: normalizeVendorName(line),
         score,
@@ -211,7 +213,7 @@ export function applyVendorStrategy(
     const currentWeak = isWeakVendorName(currentVendor.name);
     const currentAnchored = hasBusinessIndicator(currentVendor.name);
 
-    if (!currentLineRejected && !currentWeak) {
+    if (!currentLineRejected && !currentWeak && !exclude?.(currentVendor.name)) {
       candidates.push({
         name: normalizeVendorName(currentVendor.name),
         score: currentAnchored
