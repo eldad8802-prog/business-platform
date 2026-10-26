@@ -20,7 +20,7 @@ import { recordSensor } from "@/lib/sensors/record-sensor";
 import { addCalendarDays, jerusalemDayKey, type JerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
 import { isTerminal } from "./appointment.lifecycle";
-import { sensorWho, transitionWithinTx } from "./appointment.service";
+import { outcomeRefusal, sensorWho, transitionWithinTx } from "./appointment.service";
 import type { ActorContext } from "./appointment.types";
 import { authorizeAppointmentAction, type AppointmentPrincipal } from "./appointment-authorization";
 import { AppointmentServiceError, invalid } from "./appointment-errors";
@@ -439,6 +439,9 @@ export async function changeStatus(principal: AppointmentPrincipal, req: OwnerRe
     const current = await loadOwn(ctx.tx, ctx.businessId, id);
     if (expectedVersion !== undefined && current.version !== expectedVersion) throw new AppointmentServiceError("VERSION_CONFLICT", { version: current.version });
     if (current.kind === "BLOCK" && to !== "CANCELED") throw new AppointmentServiceError("INVALID_TRANSITION");
+    // An outcome only once the appointment has started; no-show only for a customer (the rule every path shares).
+    const refusal = outcomeRefusal(current, to, new Date());
+    if (refusal) throw new AppointmentServiceError("INVALID_TRANSITION", { reason: refusal === "not_started" ? "NOT_STARTED" : "NO_CUSTOMER" });
     const r = await transitionWithinTx(ctx.tx, current, to, actor, {
       appendNote: to === "CANCELED" ? reason : null, cancelReason, journalKey: ctx.key, digest: ctx.digest,
     });

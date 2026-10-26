@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requestLinkEmail } from "@/lib/auth/google-link";
 import { deliverGoogleLinkEmailAfterResponse } from "@/lib/auth/google-link-delivery";
-import { clearLinkCookie, GOOGLE_LINK_COOKIE, readCookie, readGoogleLoginConfig } from "@/lib/auth/google-oauth";
+import { clearLinkCookie, GOOGLE_LINK_COOKIE, GOOGLE_NOT_IN_PILOT, googleLoginAllows, readCookie, readGoogleLoginConfig } from "@/lib/auth/google-oauth";
 import { readLinkTicket } from "@/lib/auth/oauth-ticket";
 import { checkBrowserCsrf } from "@/lib/auth/refresh-cookie";
 import { safeErrorSummary } from "@/lib/security/log-safe-error";
@@ -17,7 +17,8 @@ export const dynamic = "force-dynamic";
  * account and hour) and the answer is the same either way — "if it can be sent, it is on its way" — so this
  * endpoint says nothing about any account beyond what the person, who proved this address to Google, already
  * knows. The email is recorded in the same transaction and sent after the response (or by the sweep).
- * Only an expired ticket is answered differently: the screen has nothing left to offer. OFF → 404.
+ * Only an expired ticket is answered differently: the screen has nothing left to offer. During the pilot an
+ * unlisted ticket address is refused before anything is recorded or sent. OFF → 404.
  */
 export type LinkEmailDeps = {
   config: typeof readGoogleLoginConfig;
@@ -37,7 +38,8 @@ const defaultDeps: LinkEmailDeps = {
 const noStore = { "cache-control": "no-store" };
 
 export async function handleLinkEmailRequest(req: Request, deps: LinkEmailDeps = defaultDeps): Promise<NextResponse> {
-  if (!deps.config()) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const config = deps.config();
+  if (!config) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!checkBrowserCsrf(req).ok) return NextResponse.json({ code: "FORBIDDEN" }, { status: 403, headers: noStore });
   try {
     const rl = await deps.rateLimit({ key: `auth:google-link-email:${getClientIp(req)}`, limit: 5, windowMs: 10 * 60_000 });
@@ -45,8 +47,14 @@ export async function handleLinkEmailRequest(req: Request, deps: LinkEmailDeps =
       return NextResponse.json({ code: "RATE_LIMITED", error: "יותר מדי בקשות. אפשר לבקש שוב בעוד כמה דקות." }, { status: 429, headers: noStore });
     }
     const secret = readCookie(req, GOOGLE_LINK_COOKIE);
-    if (!(await deps.readTicket(secret))) {
+    const ticket = await deps.readTicket(secret);
+    if (!ticket) {
       const res = NextResponse.json({ code: "TICKET_EXPIRED", error: "תוקף החיבור ל־Google פג. אפשר להתחיל שוב עם Google." }, { status: 409, headers: noStore });
+      clearLinkCookie(res);
+      return res;
+    }
+    if (!googleLoginAllows(config, ticket.email)) {
+      const res = NextResponse.json(GOOGLE_NOT_IN_PILOT, { status: 403, headers: noStore });
       clearLinkCookie(res);
       return res;
     }

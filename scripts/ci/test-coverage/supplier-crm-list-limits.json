@@ -1,0 +1,9 @@
+{
+  "note": "Supplier list / notes / files paging (limits fix, 2026-10-26): totals beyond the page, stable cursor paging, cross-subject and cross-business cursors return nothing.",
+  "tests": {
+    "lib/services/crm/crm-list-paging.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client), like its neighbours crm-notes.service.test.ts and supplier.service.test.ts; not wired into CI — product-test debt"
+    }
+  }
+}

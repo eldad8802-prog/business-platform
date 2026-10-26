@@ -131,11 +131,19 @@ export const updateStaff = (
   input: { displayName?: string; color?: string | null; active?: boolean; expectedVersion?: number },
 ) => write<{ staffMember: StaffWire }>(intent, "PATCH", `/api/appointments/staff/${id}`, input);
 
+/**
+ * The whole list of services one staff member performs. `expectedVersion` is the staff member's version as it was
+ * read: when the list changed meanwhile the server answers VERSION_CONFLICT instead of overwriting it.
+ */
 export const setStaffServices = (
   intent: string,
   id: number,
   services: Array<{ businessServiceId: number; durationOverrideMinutes: number | null }>,
-) => write<{ services: StaffWire["services"] }>(intent, "PUT", `/api/appointments/staff/${id}/services`, { services });
+  expectedVersion?: number,
+) => write<{ services: StaffWire["services"]; version: number }>(intent, "PUT", `/api/appointments/staff/${id}/services`, {
+  services,
+  ...(expectedVersion !== undefined ? { expectedVersion } : {}),
+});
 
 export type RuleWire = { id?: number; weekday: number; startMinute: number; endMinute: number };
 export type ExceptionWire = { id: number; dayKey: string; kind: "CLOSED" | "OPEN_HOURS"; startMinute: number | null; endMinute: number | null; label: string | null };

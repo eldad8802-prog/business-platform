@@ -2,8 +2,9 @@
 
 /**
  * The calendar's reads. The appointments of the range on screen (reloaded when it changes and after every write),
- * and what gives them names: the staff, the catalog's services and the business's weekly hours (the shaded closed
- * time). The customers' names come with the appointments themselves (one read for the whole range).
+ * and what gives them names: the staff, the catalog's services and the business's weekly hours. What is open on each
+ * day — the business's and each staff member's weekly hours and exceptions (closed days, part-day closures, special
+ * hours) — is read for the range on screen, so the calendar shades exactly what the free-slot search excludes. The customers' names come with the appointments themselves (one read for the whole range).
  * Every source loads and fails on its own: names missing never hide an appointment.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,7 +18,9 @@ import {
   type RuleWire,
   type ServiceWire,
 } from "./calendar-client";
-import type { AppointmentWire, Names, StaffWire } from "./calendar-model";
+import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
+
+import { NO_AVAILABILITY, type Availability, type AppointmentWire, type Names, type StaffWire } from "./calendar-model";
 
 export type Load<T> = { status: "loading" } | { status: "ready"; value: T } | { status: "error"; code: string; httpStatus: number };
 
@@ -27,6 +30,7 @@ export function useCalendarData(range: { from: Date; to: Date } | null) {
   const [services, setServices] = useState<ServiceWire[]>([]);
   const [hours, setHours] = useState<RuleWire[]>([]);
   const [customers, setCustomers] = useState<Map<number, string>>(new Map());
+  const [availability, setAvailability] = useState<Availability>(NO_AVAILABILITY);
   const fromIso = range?.from.toISOString() ?? null;
   const toIso = range?.to.toISOString() ?? null;
   const seq = useRef(0);
@@ -70,13 +74,30 @@ export function useCalendarData(range: { from: Date; to: Date } | null) {
     let cancelled = false;
     listStaff().then((v) => { if (!cancelled) setStaff(v); }).catch(() => undefined);
     listServices().then((v) => { if (!cancelled) setServices(v); }).catch(() => undefined);
-    getAvailability(null).then((v) => { if (!cancelled) setHours(v.rules); }).catch(() => undefined);
     return () => {
       cancelled = true;
     };
     // the catalogue, staff and names are read once per mount; the range only reloads appointments
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromIso !== null]);
+
+  // What is open: re-read when the range or the staff list changes (exceptions are read from the range's first day).
+  const fromDay = fromIso ? jerusalemDayKey(new Date(fromIso)) : null;
+  const staffKey = staff.filter((m) => m.active).map((m) => `${m.id}:${m.version}`).join(",");
+  const loadAvailability = useCallback(async () => {
+    if (!fromDay) return null;
+    const ids = staffKey ? staffKey.split(",").map((x) => Number(x.split(":")[0])) : [];
+    const [business, ...own] = await Promise.all([getAvailability(null, fromDay), ...ids.map((id) => getAvailability(id, fromDay).catch(() => null))]);
+    const map = new Map<number, { rules: RuleWire[]; exceptions: typeof business.exceptions }>();
+    own.forEach((x, i) => { if (x) map.set(ids[i], { rules: x.rules, exceptions: x.exceptions }); });
+    return { business: { rules: business.rules, exceptions: business.exceptions }, staff: map } satisfies Availability;
+  }, [fromDay, staffKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadAvailability().then((v) => { if (!cancelled && v) { setAvailability(v); setHours(v.business.rules); } }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [loadAvailability]);
 
   const names: Names = useMemo(
     () => ({
@@ -96,5 +117,5 @@ export function useCalendarData(range: { from: Date; to: Date } | null) {
     setCustomers((m) => new Map(m).set(id, name));
   }, []);
 
-  return { appointments, staff, services, hours, names, reload: loadAppointments, reloadStaff: loadStaff, rememberCustomer };
+  return { appointments, staff, services, hours, availability, names, reload: loadAppointments, reloadStaff: loadStaff, rememberCustomer };
 }
