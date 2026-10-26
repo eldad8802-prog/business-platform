@@ -334,6 +334,11 @@ async function main() {
   ok("H3 the last slot ends at 17:00", starts[starts.length - 1] === at("16:00", WED));
   r = await routes.slots.GET(req(`/api/appointments/slots?fromDay=${MON}&toDay=${MON}&businessServiceId=${svcA}`));
   ok("H4 the closed Monday has no slot", r.status === 200 && (await body(r))?.slots?.length === 0);
+  // Policy (unchanged): a closure is availability, not a block — the API books it but always says so; a block refuses.
+  r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { customerId: custA, startsAt: at("10:00", MON), durationMinutes: 30 } }));
+  ok("H4a booking straight through the API on the closed Monday: never silent — 201 with OUTSIDE_AVAILABILITY", r.status === 201 && JSON.stringify((await body(r))?.warnings) === JSON.stringify(["OUTSIDE_AVAILABILITY"]), String(r.status));
+  r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { customerId: custA, startsAt: at("11:00", WED), durationMinutes: 30 } }));
+  ok("H4b a free, open time: 201 with no warning", r.status === 201 && ((await body(r))?.warnings ?? []).length === 0, String(r.status));
   r = await routes.slots.GET(req(`/api/appointments/slots?fromDay=${SUN}&toDay=${addCalendarDays(SUN, 40)}&durationMinutes=30`));
   ok("H5 more than 31 days → 400", r.status === 400);
 

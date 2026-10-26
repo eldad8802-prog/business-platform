@@ -540,3 +540,50 @@ export function dayAvailability(av: Availability, day: DayKey, names: Names): Da
   }
   return { closed: open !== null && open.length === 0, notes };
 }
+
+/** A closed exception on the grid: where it lies in the day, and what it says ("סגור · חג", "שירה: סגור"). */
+export type ClosureBand = { start: number; end: number; label: string };
+
+/**
+ * The closed exceptions that fall on one lane's day (the business's and the staff member's own), as bands with their
+ * words — so the grid names a closure instead of showing only stripes. A whole-day closure spans the day.
+ */
+export function closureBands(av: Availability, staffMemberId: number | null, day: DayKey, names: Names): ClosureBand[] {
+  const own = staffMemberId === null ? [] : av.staff.get(staffMemberId)?.exceptions ?? [];
+  const who = staffMemberId === null ? null : names.staff.get(staffMemberId)?.displayName ?? null;
+  const band = (e: ExceptionLike, mine: boolean): ClosureBand => ({
+    start: e.startMinute ?? 0,
+    end: e.endMinute ?? 1440,
+    label: `${mine && who ? `${who}: ` : ""}סגור${e.label ? ` · ${e.label}` : ""}`,
+  });
+  return [
+    ...av.business.exceptions.filter((e) => e.dayKey === day && e.kind === "CLOSED").map((e) => band(e, false)),
+    ...own.filter((e) => e.dayKey === day && e.kind === "CLOSED").map((e) => band(e, true)),
+  ];
+}
+
+/**
+ * Said BEFORE booking a time the lane is not open: the owner may still book it (the server accepts it with
+ * OUTSIDE_AVAILABILITY — their calendar, their call), but never without knowing why it is not offered. Null when the
+ * time is open, or when no hours are known. The reason is the same rule the free-slot search applies (openWindows).
+ */
+export function availabilityWarning(av: Availability, staffMemberId: number | null, day: DayKey, startMinute: number, minutes: number, names: Names): string | null {
+  const open = openWindows(av, staffMemberId, day);
+  if (open === null || !(minutes > 0)) return null;
+  const end = startMinute + minutes;
+  if (open.some((w) => w.startMinute <= startMinute && end <= w.endMinute)) return null;
+  const hits = closureBands(av, staffMemberId, day, names).filter((b) => b.start < end && startMinute < b.end);
+  const range = (a: number, b: number) => `⁦${clock(a)}–${b >= 1440 ? "24:00" : clock(b)}⁩`;
+  if (hits.length) return `השעה נופלת בזמן סגור: ${hits.map((b) => (b.start === 0 && b.end === 1440 ? `${b.label} (כל היום)` : `${b.label} ${range(b.start, b.end)}`)).join(" · ")}.`;
+  if (!open.length) return staffMemberId === null ? "העסק לא פעיל ביום הזה לפי שעות הפעילות." : "העובד לא עובד ביום הזה לפי שעות העבודה שלו.";
+  return `השעה מחוץ לשעות הפעילות ביום הזה (${open.map((w) => range(w.startMinute, w.endMinute)).join(", ")}).`;
+}
+
+/** Why a day offers no free time, in words, when the hours explain it (a closure, a day off); else null. */
+export function noSlotsReason(av: Availability, staffMemberId: number | null, day: DayKey, names: Names): string | null {
+  const open = openWindows(av, staffMemberId, day);
+  if (open === null || open.length) return null;
+  const bands = closureBands(av, staffMemberId, day, names);
+  if (bands.length) return `היום סגור: ${bands.map((b) => b.label).join(" · ")}.`;
+  return staffMemberId === null ? "העסק לא פעיל ביום הזה לפי שעות הפעילות." : "העובד לא עובד ביום הזה לפי שעות העבודה שלו.";
+}
