@@ -26,6 +26,9 @@
  *                         identifier and never creates or moves a Lead. A
  *                         conflict asks the owner. (A CALL aimed at "lead" is
  *                         already refused by R0.)
+ *   R10_REVENUE           CUSTOM with a revenue target → the adapter writes revenue
+ *                         truth (S1-A: a Rivhit sales document / receipt). Never a
+ *                         Lead, never an order, no identity is resolved or created.
  *   R6_FORM_ATTENTION     FORM_SUBMISSION → attention (owner decides)
  *   R7_NONE               the adapter understood it and chose not to materialise
  *   R8_ATTENTION_DEFAULT  anything else the rules do not name → attention
@@ -39,7 +42,7 @@ import type { IntakeEventFamily } from "@prisma/client";
 import type { RouteTarget } from "@/lib/intake/core/contract";
 import type { IdentityState } from "@/lib/intake/identity/resolve";
 
-export const ROUTING_POLICY_VERSION = "routing-policy@2";
+export const ROUTING_POLICY_VERSION = "routing-policy@3";
 
 export type RoutingDecision = {
   rule: string;
@@ -65,6 +68,9 @@ export function decideRoute(input: {
   }
   if (family === "COMMERCE") {
     return { rule: "R5_COMMERCE", destination: "commerce", executor: core("commerce") ? "core" : "unavailable", ownerReviewRequired: false };
+  }
+  if (family === "CUSTOM" && target === "revenue") {
+    return { rule: "R10_REVENUE", destination: "revenue", executor: "adapter", ownerReviewRequired: false };
   }
   if (family === "CALL" && target === "call") {
     return { rule: "R9_CALL", destination: "call", executor: core("call") ? "core" : "unavailable", ownerReviewRequired: identityState === "conflict" };

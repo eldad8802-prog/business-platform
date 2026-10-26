@@ -1,0 +1,10 @@
+{
+  "note": "Revenue sources S1-A: Rivhit Online sales documents and receipts → revenue truth through Business Intake (R10), read-only, behind pos_rivhit (OFF). The database proof (.s1a/battery.ts) is a lab script run by revenue-sources-s1a-ci.yml; the Rivhit demo probe (scripts/revenue-sources/rivhit-demo-probe.ts) is local-only (network).",
+  "tests": {
+    "lib/revenue-sources/rivhit/rivhit-core.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (fake fetch, no DB): the api_token travels only in the request body and is refused unless a UUID, the client names no Rivhit write operation, intake payloads carry no customer name / phone / item text, receipt identities are scoped per connection, a card charge can never become a sale, an unproven origin is never POS, R10 routes revenue only from CUSTOM events and never to a Lead; parsing, tenders, type proposals and the day check over demo-shaped synthetic data; run on pull_request by security-gate (lab pure) and revenue-sources-s1a-ci.yml"
+    }
+  }
+}

@@ -1,0 +1,93 @@
+name: revenue sources S1-A — Rivhit (PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/revenue-sources/**"
+      - "app/api/integrations/pos/**"
+      - "lib/intake/**"
+      - "lib/revenue-truth/**"
+      - "lib/services/feature-access/platform-feature-catalog.ts"
+      - "scripts/revenue-sources/**"
+      - ".s1a/**"
+      - ".rev/lab.sh"
+      - ".github/workflows/revenue-sources-s1a-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: S1-A core (no database, no network)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx lib/revenue-sources/rivhit/rivhit-core.test.ts
+      - run: npx tsx lib/intake/core/intake-core.test.ts
+      - run: npx tsx lib/intake/m7a-core.test.ts
+      - run: npx tsx lib/intake/m7bc-core.test.ts
+      - run: npx tsx lib/intake/acquisition/acquisition-core.test.ts
+      - run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
+      - run: node scripts/ci/security-test-coverage.mjs
+      - name: The demo probe is never run here, and nothing in the repository names a Rivhit token
+        run: |
+          set -euo pipefail
+          # Tests use obviously synthetic tokens; everything else must name none.
+          if grep -rInE --exclude='*.test.ts' '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}' lib/revenue-sources scripts/revenue-sources app/api/integrations/pos; then
+            echo "a UUID-shaped value (token?) is in the source"; exit 1
+          fi
+          echo "no token in the source"
+
+  battery:
+    name: S1-A battery (PG17, Production role topology, NOBYPASSRLS runtime, fake Rivhit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: s1a_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: s1a_ci_synthetic_super_pw
+      LAB_PASSWORD: s1a_ci_synthetic_role_pw
+      ACQUISITION_CREDENTIAL_ENCRYPTION_KEY: "5a1a5a1a5a1a5a1a5a1a5a1a5a1a5a1a5a1a5a1a5a1a5a1a5a1a5a1a5a1a5a1a"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Lab — the revenue truth lab + migration 20261103090000 applied by migrate deploy
+        run: |
+          set -euo pipefail
+          bash .s1a/lab.sh s1a_app --with-s1a
+          PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d s1a_app -v ON_ERROR_STOP=1 -q -f .s1a/app-prereq.sql
+
+      - name: 2. Battery — connect, confirm, sync, replays, cancellations, receipts, backfill + day checks, unreadable, tenants, flag, token, revoke, no personal data
+        env:
+          OWNER_URL: postgresql://lab_owner:s1a_ci_synthetic_role_pw@localhost:5432/s1a_app
+          RUNTIME_URL: postgresql://app_runtime_prod:s1a_ci_synthetic_role_pw@localhost:5432/s1a_app
+        run: npx tsx .s1a/battery.ts
