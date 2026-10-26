@@ -19,7 +19,14 @@ import JSZip from "jszip";
 import { getStorageService } from "@/lib/storage";
 
 import { AccountantError } from "./http";
-import { PACKAGE_PDF_TEMPLATE, buildPackageReportModel, renderHtmlToPdf, renderPackageReportHtml } from "./package-report-pdf";
+import {
+  PACKAGE_PDF_TEMPLATE,
+  PdfRenderError,
+  buildPackageReportModel,
+  renderHtmlToPdf,
+  renderPackageReportHtml,
+  sanitizeRenderError,
+} from "./package-report-pdf";
 import { isPeriodKey } from "./period";
 
 export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -164,7 +171,14 @@ export async function ensurePackagePdf(pkg: SealedPackage, deps: PdfDeps = defau
   try {
     pdf = await deps.renderPdf(html);
   } catch (e) {
-    console.error("[accountant] package PDF render failed", { businessId: pkg.businessId, periodKey: pkg.periodKey, error: e instanceof Error ? e.name : "unknown" });
+    // Stage, browser source and the first line of the reason (sanitized: paths and flags, never content).
+    console.error("[accountant] package PDF render failed", {
+      businessId: pkg.businessId,
+      periodKey: pkg.periodKey,
+      stage: e instanceof PdfRenderError ? e.stage : "unknown",
+      mode: e instanceof PdfRenderError ? e.mode : "unknown",
+      error: e instanceof PdfRenderError ? e.detail : sanitizeRenderError(e),
+    });
     throw new AccountantError(500, "PDF_RENDER_FAILED");
   }
   if (pdf.length < 5 || pdf.subarray(0, 5).toString("latin1") !== "%PDF-") {

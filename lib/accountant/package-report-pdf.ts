@@ -147,24 +147,82 @@ ${tables}
 </body></html>`;
 }
 
-/** Chromium (playwright) HTML → PDF, A4, page numbers in the footer. Same engine as the billing PDFs. */
-export async function renderHtmlToPdf(html: string): Promise<Buffer> {
+/**
+ * Where Chromium comes from. A Vercel / Lambda function has no browser installed (the playwright package
+ * ships, its browser download does not), so there the serverless build @sparticuz/chromium (AL2023, with
+ * its own system libraries and Open Sans as the Latin fallback) is launched through playwright-core. Locally
+ * and in CI the browser `npx playwright install chromium` downloaded is used. Pure.
+ */
+export type ChromiumMode = "serverless" | "local";
+export function chromiumMode(env: NodeJS.ProcessEnv = process.env): ChromiumMode {
+  return env.VERCEL === "1" || Boolean(env.AWS_LAMBDA_FUNCTION_NAME) ? "serverless" : "local";
+}
+
+export type PdfRenderStage = "launch" | "render" | "print";
+
+/** A rendering failure with the stage it stopped at and a short, sanitized reason (no HTML, no data). */
+export class PdfRenderError extends Error {
+  constructor(
+    public readonly stage: PdfRenderStage,
+    public readonly mode: ChromiumMode,
+    public readonly detail: string
+  ) {
+    super(`PDF render failed at ${stage} (${mode}): ${detail}`);
+    this.name = "PdfRenderError";
+  }
+}
+
+/**
+ * The first line of a Chromium / Playwright error message, for the log: control characters removed,
+ * whitespace collapsed, at most 240 characters. These messages carry paths and launch flags — never the
+ * page's content — and the page is a data-only document built from the package's own workbook.
+ */
+export function sanitizeRenderError(e: unknown): string {
+  const raw = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+  const first = raw.split(/\r?\n/)[0] ?? "";
+  return first.replace(/[\u0000-\u001F\u007F-\u009F─-╿]/g, " ").replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
+async function launchChromium(mode: ChromiumMode) {
+  if (mode === "serverless") {
+    const sparticuz = (await import("@sparticuz/chromium")).default;
+    const { chromium } = await import("playwright-core");
+    return chromium.launch({ headless: true, executablePath: await sparticuz.executablePath(), args: sparticuz.args });
+  }
   const { chromium } = await import("playwright");
-  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+  return chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+}
+
+/** Chromium HTML → PDF, A4, page numbers in the footer. Same engine family as the billing PDFs. */
+export async function renderHtmlToPdf(html: string, mode: ChromiumMode = chromiumMode()): Promise<Buffer> {
+  let browser: Awaited<ReturnType<typeof launchChromium>>;
+  try {
+    browser = await launchChromium(mode);
+  } catch (e) {
+    throw new PdfRenderError("launch", mode, sanitizeRenderError(e));
+  }
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "load" });
-    const pdf = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      displayHeaderFooter: true,
-      headerTemplate: "<div></div>",
-      footerTemplate:
-        '<div style="width:100%;font-size:8px;color:#6b7280;text-align:center;font-family:sans-serif;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
-      margin: { top: "14px", right: "0px", bottom: "36px", left: "0px" },
-    });
-    return Buffer.from(pdf);
+    try {
+      await page.setContent(html, { waitUntil: "load" });
+    } catch (e) {
+      throw new PdfRenderError("render", mode, sanitizeRenderError(e));
+    }
+    try {
+      const pdf = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        displayHeaderFooter: true,
+        headerTemplate: "<div></div>",
+        footerTemplate:
+          '<div style="width:100%;font-size:8px;color:#6b7280;text-align:center;font-family:sans-serif;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
+        margin: { top: "14px", right: "0px", bottom: "36px", left: "0px" },
+      });
+      return Buffer.from(pdf);
+    } catch (e) {
+      throw new PdfRenderError("print", mode, sanitizeRenderError(e));
+    }
   } finally {
-    await browser.close();
+    await browser.close().catch(() => undefined);
   }
 }
