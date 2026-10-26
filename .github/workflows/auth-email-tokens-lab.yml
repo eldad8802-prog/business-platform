@@ -100,6 +100,9 @@ jobs:
             # The Google existing-account link (20261102090000) adds the LINK_GOOGLE purpose and its ticket binding;
             # its own lab (oauth-identity-link-lab.yml) proves exactly what it touches on AuthEmailToken.
             [[ "$n" != "20261102090000_oauth_identity_link" ]] || continue
+            # The admin read plane (20261024090000, #754) only GRANTs app_admin SELECT on "User"."emailVerifiedAt"
+            # among its columns; it touches nothing of this migration. (This step had not run since #754 merged.)
+            [[ "$n" != "20261024090000_platform_admin_a1" ]] || continue
             if grep -nE 'AuthEmailToken|emailVerifiedAt|auth_email_token|auth_password_reset' "$d/migration.sql"; then echo "$n names an auth email token object"; exit 1; fi
           done
           echo "the migration names only AuthEmailToken, User, Business and AuthSession; no other migration names its objects"

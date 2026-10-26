@@ -161,7 +161,7 @@ async function main() {
     && fns.every((f) => f.prosecdef === true && (f.proconfig as string[]).includes("search_path=pg_catalog, public")));
   ok("app_auth executes all six; app_runtime none; PUBLIC holds nothing", fns.every((f) => f.a === true && f.r === false && f.pub === 0));
   const pA = await account("priv");
-  ok("the tenant plane cannot call them", refused(await q(runtime, `SELECT * FROM public.auth_oauth_identity_status($1)`, pA.userId), DENIED));
+  ok("the tenant plane cannot call them", refused(await q(runtime, `SELECT * FROM public.auth_oauth_identity_status($1::int)`, pA.userId), DENIED));
   ok("the auth plane still cannot read AuthEmailToken", refused(await q(auth, `SELECT id FROM "AuthEmailToken"`), DENIED));
   ok("the tenant plane cannot read the new column", refused(await inTx(runtime, pA.businessId, (tx) => tx.$queryRawUnsafe(`SELECT "oauthTicketId" FROM "AuthEmailToken"`)), DENIED));
 
@@ -227,7 +227,7 @@ async function main() {
   ok("…nothing added", (await snapshot()) === before6 && same(await footprint(a5), LINKED));
 
   console.log("\n— 7. swaps —");
-  const a7 = await account("swapA"); const b7 = await account("swapB");
+  const a7 = await account("swapa"); const b7 = await account("swapb");
   const t7a = await linkTicket(a7.email); const t7b = await linkTicket(b7.email);
   const m7a = await mailLink(t7a.secret);
   ok("an emailed link of ticket A with ticket B spent → refused", (await link(t7b.secret, { proof: "EMAIL", mail: m7a })) === "EMAIL_LINK_REFUSED");
@@ -292,18 +292,18 @@ async function main() {
     && typeof (await link(tTaken.secret, { proof: "PASSWORD", userId: other.userId })) === "string" && same(await footprint(other), UNLINKED));
 
   console.log("\n— 12. status and unlink —");
-  const st = rows(await q(auth, `SELECT * FROM public.auth_oauth_identity_status($1)`, a5.userId))[0];
+  const st = rows(await q(auth, `SELECT * FROM public.auth_oauth_identity_status($1::int)`, a5.userId))[0];
   ok("status: linked, the address at link, a password", st?.linked === true && st?.email_at_link === a5.email && st?.has_password === true);
-  const stNone = rows(await q(auth, `SELECT * FROM public.auth_oauth_identity_status($1)`, other.userId))[0];
+  const stNone = rows(await q(auth, `SELECT * FROM public.auth_oauth_identity_status($1::int)`, other.userId))[0];
   ok("status of an unlinked account: not linked", stNone?.linked === false && stNone?.email_at_link === null);
-  const un = rows(await q(auth, `SELECT * FROM public.auth_oauth_identity_unlink($1)`, a5.userId));
+  const un = rows(await q(auth, `SELECT * FROM public.auth_oauth_identity_unlink($1::int)`, a5.userId));
   ok("unlink with a password → the identity removed", un.length === 1 && (await count(`SELECT count(*)::int AS c FROM "UserIdentity" WHERE "userId" = $1`, a5.userId)) === 0);
-  ok("…a second unlink → nothing", rows(await q(auth, `SELECT * FROM public.auth_oauth_identity_unlink($1)`, a5.userId)).length === 0);
+  ok("…a second unlink → nothing", rows(await q(auth, `SELECT * FROM public.auth_oauth_identity_unlink($1::int)`, a5.userId)).length === 0);
   // An account opened with Google: linked, no password.
   const g = await account("google-made", { password: false });
   await owner.$executeRawUnsafe(`INSERT INTO "UserIdentity" ("userId","businessId","provider","providerSubject","emailAtLink","linkedAt") VALUES ($1,$2,'google',$3,$4,now())`,
     g.userId, g.businessId, subject(), g.email);
-  ok("unlink for an account WITHOUT a password → nothing removed (it could not sign in)", rows(await q(auth, `SELECT * FROM public.auth_oauth_identity_unlink($1)`, g.userId)).length === 0
+  ok("unlink for an account WITHOUT a password → nothing removed (it could not sign in)", rows(await q(auth, `SELECT * FROM public.auth_oauth_identity_unlink($1::int)`, g.userId)).length === 0
     && (await count(`SELECT count(*)::int AS c FROM "UserIdentity" WHERE "userId" = $1`, g.userId)) === 1);
 
   console.log("\n— 13. cancel, purge, constraints, old functions, erasure —");
