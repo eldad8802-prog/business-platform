@@ -89,12 +89,12 @@ export async function loadRevenueInputs(businessId: number, window: RevenueWindo
 
     const out: RevenueInputs = {
       sales: sales.map((s) => ({
-        id: s.id, sourceScope: s.sourceScope, registerKey: s.registerKey, businessDay: dayOf(s.businessDay), kind: s.kind,
+        id: s.id, sourceKind: s.sourceKind, capture: s.capture, sourceScope: s.sourceScope, registerKey: s.registerKey, businessDay: dayOf(s.businessDay), kind: s.kind,
         currency: parseCurrency(s.currency), grossMinor: s.grossMinor, discountMinor: s.discountMinor, totalMinor: s.totalMinor, vatMinor: s.vatMinor,
         originalSaleId: s.originalSaleId,
       })),
       receipts: receipts.map((r) => ({
-        id: r.id, sourceScope: r.sourceScope, registerKey: r.registerKey, businessDay: dayOf(r.businessDay), direction: r.direction,
+        id: r.id, sourceKind: r.sourceKind, capture: r.capture, sourceScope: r.sourceScope, registerKey: r.registerKey, businessDay: dayOf(r.businessDay), direction: r.direction,
         method: r.method, currency: parseCurrency(r.currency), amountMinor: r.receivedMinor, saleId: r.saleId,
       })),
       closes: closes.map((c) => ({

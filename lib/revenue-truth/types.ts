@@ -13,10 +13,20 @@ export type Capture = "API_PUSH" | "API_PULL" | "FILE_STRUCTURED" | "FILE_EXTRAC
 export type Validation = "PASSED" | "WARNINGS" | "FAILED";
 export type LinkKind = "SALE_SAME_AS_DOCUMENT" | "TENDER_SETTLED_BY" | "SETTLEMENT_DEPOSITED_AS" | "CASH_DEPOSITED_AS";
 export type DecisionKind = "CONFIRMED" | "REJECTED" | "REVOKED";
+/**
+ * Where a sale / receipt came from (RevenueSourceKind). Only POS is register evidence: an accounting app's document
+ * is not proven to be a till sale, a payment provider's charge is not a sale, and an acquirer only settles.
+ */
+export type SourceKind = "POS" | "ACCOUNTING_APP" | "ACQUIRER" | "PAYMENT_PROVIDER" | "OWNER";
 
-/** Layer 1, register stream: one POS sale / refund / void (RevenueSale). */
+/**
+ * Layer 1: one sale / refund / void (RevenueSale). Only `sourceKind` POS forms the register stream; the loader
+ * always sets it, and an in-memory input without it is read as POS (the milestone-A shape).
+ */
 export type RegisterSale = {
   id: number;
+  sourceKind?: SourceKind;
+  capture?: Capture;
   sourceScope: string;
   registerKey: string | null;
   businessDay: JerusalemDayKey;
@@ -30,9 +40,11 @@ export type RegisterSale = {
   originalSaleId?: number | null;
 };
 
-/** Layer 2, register stream: money taken in / paid back at the till (RevenueReceipt). */
+/** Layer 2: money taken in / paid back (RevenueReceipt). Only `sourceKind` POS is till money (same default as a sale). */
 export type RegisterReceipt = {
   id: number;
+  sourceKind?: SourceKind;
+  capture?: Capture;
   sourceScope: string;
   registerKey: string | null;
   businessDay: JerusalemDayKey;
