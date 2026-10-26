@@ -30,7 +30,9 @@ type ParsedBillingStorageKey = {
 
 function getLegacyStorageRootAbsolute(): string {
   const raw = process.env[STORAGE_ROOT_ENV] ?? DEFAULT_STORAGE_ROOT;
-  return path.resolve(raw);
+  // Legacy local-disk fallback: the root is runtime data, not a source path. Without the ignore comments
+  // file tracing pulls the whole project into every route that reaches this module (~150 MB).
+  return path.resolve(/*turbopackIgnore: true*/ raw);
 }
 
 function parseBillingStorageKey(storageKey: string): ParsedBillingStorageKey | null {
@@ -109,7 +111,7 @@ export function buildStorageKey(
 async function legacyLocalExists(storageKey: string): Promise<boolean> {
   const absolute = resolveLegacyStoragePathStrict(storageKey);
   try {
-    const stat = await fs.stat(absolute);
+    const stat = await fs.stat(/*turbopackIgnore: true*/ absolute);
     return stat.isFile() && stat.size > 0;
   } catch (err: unknown) {
     if (
@@ -124,13 +126,13 @@ async function legacyLocalExists(storageKey: string): Promise<boolean> {
 
 async function legacyLocalRead(storageKey: string): Promise<Buffer> {
   const absolute = resolveLegacyStoragePathStrict(storageKey);
-  return await fs.readFile(absolute);
+  return await fs.readFile(/*turbopackIgnore: true*/ absolute);
 }
 
 async function legacyLocalUnlinkQuiet(storageKey: string): Promise<void> {
   try {
     const absolute = resolveLegacyStoragePathStrict(storageKey);
-    await fs.unlink(absolute);
+    await fs.unlink(/*turbopackIgnore: true*/ absolute);
   } catch {
     // ignore
   }
