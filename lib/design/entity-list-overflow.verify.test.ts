@@ -248,11 +248,11 @@ check(
 
 console.log("\n[6] A row's meta line is built from VALUES, never a joined string");
 
-// CustomerRow left this list when it became a card with one value per line;
-// it is held to the same contract by section [7b] below.
+// CustomerRow and SuppliersList left this list when they became cards with one
+// value per line (CustomerRow / SupplierRow); section [7b] holds them to the
+// same contract.
 const ROW_META_USERS = [
   "components/leads/LeadRow.tsx",
-  "components/suppliers/SuppliersList.tsx",
   "components/suppliers/SupplierDuplicateNotice.tsx",
 ] as const;
 
@@ -350,20 +350,27 @@ for (const [selector, prop, label] of [
 ] as Array<[string, RegExp, string]>) {
   check(`${selector}: ${label}`, has(ruleBody(CRM_CSS, selector), prop));
 }
-{
-  const src = read("components/customers/CustomerRow.tsx");
+for (const [file, label] of [
+  ["components/customers/CustomerRow.tsx", "CustomerRow"],
+  ["components/suppliers/SupplierRow.tsx", "SupplierRow"],
+] as Array<[string, string]>) {
+  const src = read(file);
   const nameBlocks = src.match(/className="cust-card__name"[\s\S]*?<\/span>/g) ?? [];
-  check("CustomerRow renders the clamped name", nameBlocks.length > 0);
+  check(`${label} renders the clamped name`, nameBlocks.length > 0);
   check(
-    "CustomerRow keeps the status badge out of the clamped name",
+    `${label} keeps the status badge out of the clamped name`,
     !nameBlocks.some((b) => b.includes("crm-badge")),
   );
   check(
-    "CustomerRow never joins mixed-direction values into one run",
+    `${label} never joins mixed-direction values into one run`,
     !/\.join\(\s*["'] · ["']\s*\)/.test(src),
   );
-  check("CustomerRow isolates each contact value", /<bdi className="cust-line__value">/.test(src));
+  check(`${label} isolates each contact value`, /<bdi className="cust-line__value">/.test(src));
 }
+check(
+  "SuppliersList renders its suppliers through SupplierRow",
+  /<SupplierRow\b/.test(read("components/suppliers/SuppliersList.tsx")),
+);
 
 console.log("\n[8] The inventory rules are attached to the WIRED component");
 

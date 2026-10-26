@@ -145,3 +145,30 @@ export function BagIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function BuildingIcon({ className }: IconProps) {
+  return (
+    <svg className={className} {...stroke}>
+      <path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 10h4a1 1 0 0 1 1 1v10M3 21h18" />
+      <path d="M8 8h3M8 12h3M8 16h3" />
+    </svg>
+  );
+}
+
+export function HandshakeIcon({ className }: IconProps) {
+  return (
+    <svg className={className} {...stroke}>
+      <path d="m11 17 2 2a1.4 1.4 0 0 0 2-2M14 14l2.5 2.5a1.4 1.4 0 0 0 2-2L14.2 10.2a2 2 0 0 0-2.8 0l-.9.9a1.5 1.5 0 0 1-2.1-2.1L11 6.4a3 3 0 0 1 3.6-.5L16 6.7l2-.7 3 6-2 1.2" />
+      <path d="M3 12.2 5 13.4l4.4 4.4a1.4 1.4 0 0 0 2-2M3 6l3-.4 2.3 1.4" />
+    </svg>
+  );
+}
+
+export function UserIcon({ className }: IconProps) {
+  return (
+    <svg className={className} {...stroke}>
+      <circle cx="12" cy="8" r="3.6" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+    </svg>
+  );
+}

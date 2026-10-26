@@ -492,6 +492,8 @@ export const customersHe = {
       emptySearchBody: "נסו חיפוש קצר יותר או בשם אחר.",
       emptyInactiveBody: "ספקים שתשביתו יופיעו כאן.",
       emptyNoneBody: "הוסיפו את הספק הראשון כדי לנהל את פרטי הקשר וזמני האספקה במקום אחד.",
+      openFile: "תיק ספק",
+      openFileAria: "פתיחת תיק הספק של {name}",
     },
     create: {
       title: "ספק חדש",
@@ -527,6 +529,7 @@ export const customersHe = {
       completenessTitle: "השלמת פרטי ספק",
       completenessBody: "חסרים עדיין: {missing}. השלמה עכשיו תחסוך חיפוש בהמשך.",
       completenessAction: "השלמת פרטים",
+      sectionEmpty: "לא הוזנו עדיין",
       generalNote: "הערה כללית",
     },
     edit: {

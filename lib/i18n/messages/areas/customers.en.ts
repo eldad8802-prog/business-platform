@@ -492,6 +492,8 @@ export const customersEn: Widen<typeof customersHe> = {
       emptySearchBody: "Try a shorter search or a different name.",
       emptyInactiveBody: "Suppliers you deactivate will appear here.",
       emptyNoneBody: "Add your first supplier to manage contact details and lead times in one place.",
+      openFile: "Supplier file",
+      openFileAria: "Open {name}'s supplier file",
     },
     create: {
       title: "New supplier",
@@ -527,6 +529,7 @@ export const customersEn: Widen<typeof customersHe> = {
       completenessTitle: "Complete the supplier details",
       completenessBody: "Still missing: {missing}. Completing them now saves searching later.",
       completenessAction: "Complete details",
+      sectionEmpty: "Not filled in yet",
       generalNote: "General note",
     },
     edit: {
