@@ -103,6 +103,9 @@ jobs:
             # The admin read plane (20261024090000, #754) only GRANTs app_admin SELECT on "User"."emailVerifiedAt"
             # among its columns; it touches nothing of this migration. (This step had not run since #754 merged.)
             [[ "$n" != "20261024090000_platform_admin_a1" ]] || continue
+            # The Google identity foundation (20261030090000) stamps "User"."emailVerifiedAt" when a provider-verified
+            # address is linked (inside its definer function); its own lab (oauth-identity-lab.yml) proves that.
+            [[ "$n" != "20261030090000_oauth_identity_foundation" ]] || continue
             if grep -nE 'AuthEmailToken|emailVerifiedAt|auth_email_token|auth_password_reset' "$d/migration.sql"; then echo "$n names an auth email token object"; exit 1; fi
           done
           echo "the migration names only AuthEmailToken, User, Business and AuthSession; no other migration names its objects"
