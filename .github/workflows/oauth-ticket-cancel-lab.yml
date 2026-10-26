@@ -124,7 +124,7 @@ jobs:
           test "$fails" = "4 " || { echo "baseline: expected only 4 (lab topology) to fail, got: $fails"; exit 1; }
           test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "16" || { echo "expected 16 PASS"; exit 1; }
           got=$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
-          test "$got" = "1 3 5 7 8 9 10 " || { echo "baseline proof: expected '1 3 5 7 8 9 10 ', got: $got"; exit 1; }
+          test "$got" = "1 3 5 7 8 9 10 14 " || { echo "baseline proof: expected '1 3 5 7 8 9 10 14 ', got: $got"; exit 1; }
           echo "the proof refuses on the baseline (no function, the narrower vocabulary)"
 
       - name: 2. prisma migrate deploy applies it — proof 14/14; the 20261030090000 proof still 18/18; preflight fails exactly its "not there yet" checks

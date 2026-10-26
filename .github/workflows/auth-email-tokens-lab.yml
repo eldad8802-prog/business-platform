@@ -168,8 +168,11 @@ jobs:
         run: |
           set -euo pipefail
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d aet_post -v ON_ERROR_STOP=1 "$@"; }
-          # The battery's rows (and verified users) were all written AFTER the migration finished, so the proof
-          # is whole (17 is timeless: nothing predates the finish); every fault adds exactly its own check.
+          # The battery backdates two of its own tokens (by 2 and 25 hours) to test expiry, so they "predate" the
+          # migration's finish. Those lab-only test rows are removed first; every other row the battery wrote
+          # came after the finish, so the proof is whole (17 is timeless: nothing predates the finish) and every
+          # fault — the backfill one included — adds exactly its own check.
+          lab -q -c "DELETE FROM \"AuthEmailToken\" WHERE \"createdAt\" < (SELECT timezone('UTC', finished_at) FROM \"_prisma_migrations\" WHERE migration_name = '20261017090000_auth_email_tokens')"
           failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
           test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
           fault() {  # fault <label> <expected> <inject> <undo>
