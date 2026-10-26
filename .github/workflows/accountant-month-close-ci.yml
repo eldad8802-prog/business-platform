@@ -23,6 +23,9 @@ on:
     paths:
       - "lib/accountant/**"
       - "lib/services/billing/pdf/**"
+      - "next.config.ts"
+      - "package.json"
+      - "package-lock.json"
       - "lib/reports/**"
       - "components/accountant/**"
       - "app/api/accountant/**"
@@ -77,6 +80,32 @@ jobs:
           bash scripts/ci/account-deletion-guard.sh .
           npm run verify:erasure-contract -- --baseline-check
           node scripts/ci/security-test-coverage.mjs
+
+  serverless-pdf:
+    # The PDF report rendered exactly the way a Vercel function renders it: Amazon Linux 2023 (the OS Vercel
+    # functions run on), Node 24 (the project setting), VERCEL=1, and NO Playwright browser download —
+    # @sparticuz/chromium is launched through playwright-core. No database, no secrets, no network after npm ci.
+    name: accountant PDF — serverless Chromium on Amazon Linux 2023 (Vercel runtime shape)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: public.ecr.aws/amazonlinux/amazonlinux:2023
+    env:
+      VERCEL: "1"
+    steps:
+      - name: Base tools the checkout and npm need inside the container
+        run: dnf install -y -q git tar gzip xz findutils which openssl
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - run: npm ci --no-audit --no-fund
+      - name: No Playwright browser is present (as on Vercel)
+        run: |
+          set -euo pipefail
+          test ! -d "$HOME/.cache/ms-playwright" || { echo "a Playwright browser download is present — the check would not prove the serverless path"; exit 1; }
+      - name: Serverless PDF smoke — a real Hebrew A4 PDF from a real package workbook
+        run: npx tsx .acct/serverless-pdf-smoke.ts
 
   app:
     name: accountant month close — the application AS the runtime role (PG17, real migration)

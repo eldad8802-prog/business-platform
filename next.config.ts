@@ -1,8 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Playwright is Node-native; do not bundle it into the serverless output.
-  serverExternalPackages: ["playwright", "playwright-core"],
+  // Playwright is Node-native; do not bundle it into the serverless output. @sparticuz/chromium is the
+  // serverless Chromium build (AL2023) the accountant PDF report launches on Vercel.
+  serverExternalPackages: ["playwright", "playwright-core", "@sparticuz/chromium"],
+
+  // @sparticuz/chromium resolves its compressed browser at runtime (../../bin), which file tracing cannot
+  // see — include it for the one route that renders the accountant PDF report.
+  outputFileTracingIncludes: {
+    "/api/accountant/packages/\\[packageId\\]/download": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+  },
 
   // Retire the legacy duplicate homepage `/corporate-home` (superseded by
   // Homepage v1 at `/home`). It has zero internal consumers but was publicly
