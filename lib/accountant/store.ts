@@ -86,7 +86,9 @@ export function readinessForStorage(r: Readiness): Prisma.InputJsonValue {
     warnings: r.warnings.map((w) =>
       w.kind === "DATE_FROM_UPLOAD_TIME"
         ? { kind: w.kind, count: w.count, ids: w.recordIds.slice(0, 200) }
-        : { kind: w.kind, count: w.count, ids: w.pairs.slice(0, 100).map((p) => p.recordId) }
+        : w.kind === "ORIGINAL_NOT_VERIFIED"
+          ? { kind: w.kind, count: w.count, ids: w.documentIds.slice(0, 200) }
+          : { kind: w.kind, count: w.count, ids: w.pairs.slice(0, 100).map((p) => p.recordId) }
     ),
     issuedTotals: r.issuedTotals.map((t) => ({
       documentType: t.documentType,
