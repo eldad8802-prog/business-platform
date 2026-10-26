@@ -9,7 +9,7 @@
  * phone) and its RTL. Hebrew only (owner decision, 22.10.2026).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -23,6 +23,17 @@ type Screen = "loading" | "ready" | "expired" | "linked";
 
 const RETRY = "הפעולה לא הושלמה. אפשר לנסות שוב.";
 
+/**
+ * Opened as the installed app (a PWA, "Add to Home Screen")? On an iPhone such an app keeps its own cookies, apart
+ * from Safari — and a link tapped in the Mail app opens in Safari, where this sign-in's ticket does not exist.
+ * The emailed link is bound to the browser that started with Google (never weakened); the page says so up front.
+ */
+const noSubscribe = () => () => {};
+function installedApp(): boolean {
+  const iosStandalone = (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return iosStandalone || window.matchMedia?.("(display-mode: standalone)").matches === true;
+}
+
 export default function GoogleLinkForm() {
   const router = useRouter();
   const [view, setView] = useState<View | null>(null);
@@ -33,6 +44,7 @@ export default function GoogleLinkForm() {
   const [formError, setFormError] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState(false);
   const [busy, setBusy] = useState<"password" | "email" | "cancel" | null>(null);
+  const standalone = useSyncExternalStore(noSubscribe, installedApp, () => false);
 
   useEffect(() => {
     let alive = true;
@@ -253,10 +265,21 @@ export default function GoogleLinkForm() {
           </div>
         </div>
       ) : (
-        <button type="button" className={styles.submit} onClick={sendEmail} disabled={busy !== null} data-testid="google-link-email-send"
-          style={{ background: "transparent", color: "var(--dz-text-primary)", border: "1px solid var(--dz-border-subtle, #dfe3df)" }}>
-          {busy === "email" ? "שולחים…" : "שלחו לי קישור לאימייל של החשבון"}
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button type="button" className={styles.submit} onClick={sendEmail} disabled={busy !== null} data-testid="google-link-email-send"
+            style={{ background: "transparent", color: "var(--dz-text-primary)", border: "1px solid var(--dz-border-subtle, #dfe3df)" }}>
+            {busy === "email" ? "שולחים…" : "שלחו לי קישור לאימייל של החשבון"}
+          </button>
+          {standalone ? (
+            <p role="note" data-testid="google-link-pwa-note" style={{ margin: 0, borderRadius: 14, padding: "12px 14px", background: "var(--dz-surface-muted)", fontSize: 14, lineHeight: 1.6 }}>
+              נכנסת מהאפליקציה המותקנת. באייפון, קישור מהמייל ייפתח ב־Safari ולא כאן, ולכן לא יחבר. עדיף להשתמש בסיסמה. אפשר גם לפתוח את דוביז ב־Safari ולהתחיל שם עם Google.
+            </p>
+          ) : (
+            <p data-testid="google-link-email-note" style={{ margin: 0, color: "var(--dz-text-secondary)", fontSize: 13, lineHeight: 1.6, textAlign: "center" }}>
+              את הקישור צריך לפתוח בדפדפן הזה. אם הוא ייפתח במקום אחר (למשל ב־Safari מתוך אפליקציה מותקנת), אפשר להתחיל שם מחדש, או להשתמש בסיסמה.
+            </p>
+          )}
+        </div>
       )}
 
       {formError ? <p role="alert" aria-live="assertive" className={styles.formError} data-testid="google-link-form-error">{formError}</p> : null}

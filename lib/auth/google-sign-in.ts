@@ -8,6 +8,8 @@
  *      an account already linked to ANOTHER Google identity is sent to its existing sign-in; otherwise a
  *      single-use LINK ticket — and nothing else. The account is linked only after its owner proves ownership
  *      (password or emailed link — lib/auth/google-link.ts, milestone 3).
+ *      Addresses are compared WITHOUT letter case (an older account may hold capital letters): such an account,
+ *      or two accounts that differ only in case, stop here — never a guess, never a second account.
  *   3. NOT linked, unknown address → the public-signup gate (or the closed-beta list) decides; when it lets
  *      the address through, a single-use SIGNUP ticket — and nothing else. No User, no Business, no session:
  *      the account exists only once the person completes signup (createAccountFromGoogle).
@@ -15,6 +17,7 @@
  * Login is never gated by signup (case 1 works with signup closed), exactly like password login.
  */
 
+import type { UserRole } from "@prisma/client";
 import { createRemoteJWKSet, type JWTVerifyGetKey } from "jose";
 
 import { verifyGoogleIdToken, type GoogleIdentity, type GoogleIdTokenFailure } from "@/lib/auth/google-id-token";
@@ -59,12 +62,22 @@ export function signupAllowedFor(email: string): boolean {
 
 const HOLDER_SELECT = { id: true, email: true, role: true, business: { select: { deletionRequestedAt: true, deletedAt: true } } } as const;
 
-/** The account that already holds this address (folded, then as typed — the way login looks it up). */
-async function accountHolding(email: string) {
+/**
+ * Who already holds this address, compared WITHOUT letter case — through lower("email"), the case-folded unique
+ * index of 20261011090200 (so at most one account in Production). An exact, index-backed comparison: never a
+ * LIKE / ILIKE pattern, so "_" and "%" in an address match only themselves.
+ *   none  — the address is free;
+ *   one   — that account (the caller still requires it to hold the folded address EXACTLY before any ticket);
+ *   ambiguous — more than one account (impossible while the index holds): the caller stops, nothing issued.
+ */
+type Holder = { id: number; email: string; role: UserRole; business: { deletionRequestedAt: Date | null; deletedAt: Date | null } | null };
+async function accountsHolding(email: string): Promise<{ kind: "none" } | { kind: "one"; holder: Holder } | { kind: "ambiguous" }> {
   const folded = normalizeEmail(email);
-  const hit = await authDb().user.findUnique({ where: { email: folded }, select: HOLDER_SELECT });
-  if (hit || email === folded) return hit;
-  return authDb().user.findUnique({ where: { email }, select: HOLDER_SELECT });
+  const ids = await authDb().$queryRaw<{ id: number }[]>`SELECT "id" FROM "User" WHERE lower("email") = ${folded} LIMIT 2`;
+  if (ids.length === 0) return { kind: "none" };
+  if (ids.length > 1) return { kind: "ambiguous" };
+  const holder = await authDb().user.findUnique({ where: { id: Number(ids[0].id) }, select: HOLDER_SELECT });
+  return holder ? { kind: "one", holder } : { kind: "none" };
 }
 
 /** A session for a linked account — the same row, credential and login stamp password login writes. */
@@ -102,12 +115,16 @@ export async function resolveGoogleCallback(
   const linked = await resolveGoogleIdentity(identity.subject);
   if (linked) return sessionFor(linked.userId, input.now, input.userAgent);
 
-  const holder = await accountHolding(identity.email);
-  if (holder) {
+  const held = await accountsHolding(identity.email);
+  // Two accounts that differ only in letter case: never guess which one — no ticket of any kind.
+  if (held.kind === "ambiguous") return { kind: "existing_account" };
+  if (held.kind === "one") {
+    const holder = held.holder;
     const refusal = googleSignInRefusal(holder);
     if (refusal) return { kind: "refused", reason: refusal };
-    // The database links only the account holding EXACTLY the ticket's address, and one Google identity per
-    // account: anything else signs in the existing way.
+    // The database links only the account holding EXACTLY the ticket's (folded) address, and one Google identity
+    // per account. An older account whose address holds capital letters, or one linked to another Google
+    // identity, signs in the existing way — and is never offered a SIGNUP either (no second account).
     if (holder.email !== identity.email || (await readGoogleLinkStatus(holder.id))?.linked !== false) return { kind: "existing_account" };
     const link = await issueLinkTicket(identity);
     return link ? { kind: "link_ticket", secret: link.secret } : { kind: "ticket_unavailable" };

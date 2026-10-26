@@ -255,6 +255,20 @@ async function main() {
   ok("google-link.ts reaches the tables only through the definer functions (no table name in a query)", !/FROM\s+"?(AuthEmailToken|OAuthSignupTicket|UserIdentity)"?/.test(linkSrc)
     && !/\.(authEmailToken|oAuthSignupTicket|userIdentity)\./.test(linkSrc));
   ok("the link transaction never records a WELCOME", !/enqueueWelcomeEmail|WELCOME/.test(linkSrc));
+  const signIn = read("lib/auth/google-sign-in.ts").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  ok("the callback compares addresses WITHOUT letter case through lower(\"email\") — an exact comparison, never a LIKE / ILIKE pattern",
+    /WHERE lower\("email"\) = \$\{folded\} LIMIT 2/.test(signIn) && !/ILIKE|LIKE|mode:\s*"insensitive"/i.test(signIn));
+  ok("…and an ambiguous or capital-letter holder stops before any ticket", /held\.kind === "ambiguous"\) return \{ kind: "existing_account" \}/.test(signIn)
+    && /holder\.email !== identity\.email/.test(signIn) && signIn.indexOf("existing_account") < signIn.indexOf("issueLinkTicket(identity)")
+    && signIn.indexOf("existing_account") < signIn.indexOf("issueSignupTicket(identity)"));
+  const confirmSrc = read("app/link/google/confirm/google-link-confirm.tsx");
+  ok("Hebrew quotations use gershayim (״…״), never ASCII quotes around a Latin word (RTL)", !/\\"המשך עם Google\\"/.test(confirmSrc) && confirmSrc.includes("״המשך עם Google״")
+    && !read("components/settings/security/google-connection.tsx").includes("&quot;"));
+  const formSrc = read("app/link/google/google-link-form.tsx");
+  ok("the email path says up front that the link works only in this browser (and, in the installed app, recommends the password)",
+    formSrc.includes('data-testid="google-link-email-note"') && formSrc.includes('data-testid="google-link-pwa-note"') && /display-mode: standalone/.test(formSrc));
+  ok("…without carrying anything in a URL: the link page reads only its own fragment, and nothing appends a ticket or token to a link",
+    !/[?&](ticket|token|secret)=/.test(formSrc + confirmSrc));
   const store = read("lib/services/account/account-deletion.prisma-store.ts");
   ok("account erasure still removes the business's link tokens and Google identities", /authEmailToken\.deleteMany\(\{ where: \{ businessId \} \}\)/.test(store) && /userIdentity\.deleteMany\(\{ where: \{ businessId \} \}\)/.test(store));
   ok("the password login route is unchanged by milestone 3 (imports no Google module)", !/google/i.test(read("app/api/auth/login/route.ts").replace(/\/\/.*$|\/\*[\s\S]*?\*\//gm, "")));

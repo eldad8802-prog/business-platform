@@ -20,6 +20,9 @@
  *   I  A deletion requested after the ticket was issued: no link, no session, no email.
  *   J  Settings: status; disconnect re-authenticates and needs a password; the GOOGLE_UNLINKED notice.
  *   K  No ticket or link secret in anything logged.
+ *   L  Letter case: an older account holding the address with capital letters, and two accounts that differ only
+ *      in case (index dropped for that one case) → stop, no ticket, no second account; "_" matches only itself;
+ *      a mixed-case account appearing mid-signup → the completion is refused by the case-folded index.
  *
  * env: OWNER_URL, DATABASE_URL, AUTH_DATABASE_URL (connection_limit ≥ 12), AUTH_PLANE_ENABLED=true,
  * AUTH_TOKEN_SECRET, RATE_LIMIT_BACKEND=memory. Synthetic only. ZERO network.
@@ -39,6 +42,11 @@ import { authDb } from "@/lib/prisma-auth";
 import { consumeRateLimit, reserveAttempt } from "@/lib/security/rate-limit";
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
 import { handleGoogleCallback, type CallbackRouteDeps } from "@/app/api/auth/google/callback/route";
+import { handleGoogleComplete, type CompleteDeps } from "@/app/api/auth/google/complete/route";
+import { createAccountFromGoogle } from "@/lib/auth/signup";
+import { readSignupAllowlist } from "@/lib/auth/signup-allowlist";
+import { isPublicSignupEnabled } from "@/lib/auth/signup-gate";
+import { readSignupTicket } from "@/lib/auth/oauth-ticket";
 import { handleLinkCancel, handleLinkTicketRead } from "@/app/api/auth/google/link/route";
 import { handleLinkPassword, type LinkPasswordDeps } from "@/app/api/auth/google/link/password/route";
 import { handleLinkEmailRequest } from "@/app/api/auth/google/link/email/route";
@@ -157,6 +165,8 @@ async function bearerFor(refresh: string): Promise<string | null> {
   const rt = await refreshSession(authDb(), { credential: refresh, now: new Date() });
   return rt.kind === "rotated" ? signAuthToken(rt.userId, rt.tokenVersion, rt.sessionId) : null;
 }
+const m2CompleteDeps: CompleteDeps = { config: ON, isSignupEnabled: isPublicSignupEnabled, signupAllowlist: readSignupAllowlist, readTicket: readSignupTicket,
+  rateLimit: consumeRateLimit, createAccount: createAccountFromGoogle, recordUsage: recordProductUsageEvent, scheduleWelcome: () => {} };
 const secDeps: GoogleSecurityDeps = { config: ON, context: getAuthContext, status: readGoogleLinkStatus, credentials: readAccountCredentials, rateLimit: consumeRateLimit,
   reserve: reserveAttempt, compare: (p, h) => bcrypt.compare(p, h), unlink: unlinkGoogle, deliver: () => {} };
 const secReq = (token: string, method: "GET" | "POST", body?: unknown) => new Request("https://app.dubiz.test/api/security/google", {
@@ -326,6 +336,45 @@ async function main() {
   const gmUnlink = await read(await handleGoogleUnlink(secReq(tokenGm!, "POST", { password: "anything" }), secDeps));
   ok("J4 an account without a password: status says so; disconnect → 409 PASSWORD_REQUIRED, still connected", gmStatus.body.hasPassword === false
     && gmUnlink.status === 409 && gmUnlink.body.code === "PASSWORD_REQUIRED" && (await identities(gm)) === 1);
+
+  console.log("\n— L. letter case —");
+  const anyTicket = (sub: string) => count(`SELECT count(*)::int AS c FROM "OAuthSignupTicket" WHERE "providerSubject" = $1`, sub);
+  const holders = (folded: string) => count(`SELECT count(*)::int AS c FROM "User" WHERE lower(email) = $1`, folded);
+  // An older account whose address was stored with capital letters (before signup folded addresses).
+  const legacy = await account("legacy-case");
+  const mixed = legacy.email.replace("agl-m3-legacy-case", "Agl-M3-Legacy-Case");
+  await owner.user.update({ where: { id: legacy.userId }, data: { email: mixed } });
+  const cL = await callback({ subject: legacy.subject, email: legacy.email, name: "דנה" });
+  ok("L1 an older account holding the address with capital letters → /login?google=existing (sign in with the password)", cL.location.endsWith("/login?google=existing") && !cL.link && !cL.ticket);
+  ok("L1 …no ticket of any kind, no link, no second account", (await anyTicket(legacy.subject)) === 0 && (await identities(legacy)) === 0 && (await holders(legacy.email)) === 1);
+  // Two accounts that differ only in letter case — impossible while User_email_casefold_key holds (Production):
+  // the index is dropped here for this one case, then restored.
+  await owner.$executeRawUnsafe(`DROP INDEX "User_email_casefold_key"`);
+  const twinA = await account("twin-case");
+  const twinB = await account("twin-case-b");
+  await owner.user.update({ where: { id: twinB.userId }, data: { email: twinA.email.replace("agl-m3-twin-case", "AGL-M3-TWIN-CASE") } });
+  const cT = await callback({ subject: twinA.subject, email: twinA.email, name: "דנה" });
+  ok("L2 two accounts that differ only in case (ambiguous) → stop: /login?google=existing, no ticket, nothing linked", cT.location.endsWith("/login?google=existing") && !cT.link && !cT.ticket
+    && (await anyTicket(twinA.subject)) === 0 && (await identities(twinA)) === 0 && (await identities(twinB)) === 0);
+  await owner.user.delete({ where: { id: twinB.userId } });
+  await owner.$executeRawUnsafe(`CREATE UNIQUE INDEX "User_email_casefold_key" ON "User" (lower("email"))`);
+  ok("L2 …the case-folded unique index is restored", (await count(`SELECT count(*)::int AS c FROM pg_indexes WHERE indexname = 'User_email_casefold_key'`)) === 1);
+  // "_" in an address matches only itself: the comparison is lower(email) = …, never a LIKE pattern.
+  const underscore = await account("under_score");
+  const lookalike = { subject: `m3-lookalike-${Date.now()}`, email: underscore.email.replace("under_score", "underxscore"), name: "חדש" };
+  const cU = await callback(lookalike);
+  ok("L3 an address that differs from an account only where the account has '_' → a NEW person (signup), not that account", cU.location.endsWith("/register/google") && !!cU.ticket && !cU.link
+    && (await identities(underscore)) === 0);
+  // A signup ticket issued while the address was free; meanwhile a mixed-case account takes it.
+  const lateEmail = `agl-m3-late-${Date.now()}@lab.invalid`;
+  const cLate = await callback({ subject: `m3-late-${Date.now()}`, email: lateEmail, name: "מאוחר" });
+  const lateBiz = await owner.business.create({ data: { name: `agl-m3-late-${Date.now()}` }, select: { id: true } });
+  await owner.user.create({ data: { email: lateEmail.replace("agl-m3-late", "AGL-M3-LATE"), password: await bcrypt.hash(PASSWORD, 4), name: "מאוחר", businessId: lateBiz.id } });
+  const lateDone = await read(await handleGoogleComplete(new Request("https://app.dubiz.test/api/auth/google/complete", {
+    method: "POST", headers: { origin: "https://app.dubiz.test", host: "app.dubiz.test", "sec-fetch-site": "same-origin", "x-forwarded-for": ip(), "content-type": "application/json",
+      cookie: `${GOOGLE_TICKET_COOKIE}=${cLate.ticket}` }, body: JSON.stringify({ name: "מאוחר", businessName: "עסק מאוחר", acceptTerms: true }) }), m2CompleteDeps));
+  ok("L4 completing that signup → 409 EMAIL_ALREADY_REGISTERED (the case-folded index), no second account", lateDone.status === 409 && lateDone.body.code === "EMAIL_ALREADY_REGISTERED"
+    && (await holders(lateEmail)) === 1);
 
   console.log("\n— K. logs —");
   const leaked = secrets.filter((s) => logged.some((line) => line.includes(s) || line.includes(s.split(".")[1] ?? "\u0000")));

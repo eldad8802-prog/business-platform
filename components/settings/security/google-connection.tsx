@@ -102,7 +102,7 @@ export function GoogleConnection() {
             </div>
             {!s.hasPassword ? (
               <p className="text-xs text-[var(--dz-text-secondary)]" data-testid="google-connection-needs-password">
-                כדי לנתק את Google צריך קודם לבחור סיסמה לחשבון (דרך &quot;שכחתי סיסמה&quot; במסך ההתחברות). בלי סיסמה לא תהיה דרך אחרת להתחבר.
+                כדי לנתק את Google צריך קודם לבחור סיסמה לחשבון (דרך ״שכחתי סיסמה״ במסך ההתחברות). בלי סיסמה לא תהיה דרך אחרת להתחבר.
               </p>
             ) : confirming ? (
               <form onSubmit={disconnect} className="flex flex-col gap-2" data-testid="google-connection-confirm">
@@ -133,7 +133,7 @@ export function GoogleConnection() {
         ) : (
           <div>
             <p className="text-sm font-bold text-[var(--dz-text-primary)]" data-testid="google-connection-state">לא מחובר ל־Google</p>
-            <p className="mt-1 text-xs text-[var(--dz-text-secondary)]">אפשר לחבר את Google בכניסה הבאה: במסך ההתחברות לוחצים על &quot;המשך עם Google&quot; ומאשרים שהחשבון שלך.</p>
+            <p className="mt-1 text-xs text-[var(--dz-text-secondary)]">אפשר לחבר את Google בכניסה הבאה: במסך ההתחברות לוחצים על ״המשך עם Google״ ומאשרים שהחשבון שלך.</p>
           </div>
         )}
         {message ? (

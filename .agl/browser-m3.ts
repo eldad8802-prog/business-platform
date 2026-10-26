@@ -90,6 +90,8 @@ async function onMode(browser: Browser) {
       && (await page.evaluate(async () => (await fetch("/api/auth/me")).status)) === 401);
     ok(`${vp.name} 1 the LINK cookie is invisible to JavaScript; RTL; no horizontal overflow`, !(await page.evaluate(() => document.cookie)).includes("dz_google_link")
       && (await page.evaluate(() => getComputedStyle(document.body).direction)) === "rtl" && (await noOverflow(page)));
+    ok(`${vp.name} 1 the email path says up front that the link works only in this browser (not the installed-app notice)`,
+      (await page.getByTestId("google-link-email-note").innerText()).includes("בדפדפן הזה") && (await page.getByTestId("google-link-pwa-note").count()) === 0);
     await shot(page, `${vp.name}-1-link-screen`);
 
     await page.locator("#link-password").fill("not-the-password");
@@ -138,8 +140,31 @@ async function onMode(browser: Browser) {
   ok("5 …nothing changed: no identity, the ticket still open, the link unused", (await identities(s)) === 0 && (await openLinkTickets(s)) === 1
     && (await owner.authEmailToken.count({ where: { userId: s.userId, consumedAt: { not: null } } })) === 0);
   ok("5 …no horizontal overflow on the phone", await noOverflow(pageX));
+  ok("5 …it explains the iPhone installed-app case and the password alternative, and restarts in THIS browser",
+    (await pageX.getByTestId("google-link-confirm-more").allInnerTexts()).join(" ").includes("Safari")
+    && (await pageX.getByTestId("google-link-confirm-more").allInnerTexts()).join(" ").includes("סיסמה")
+    && (await pageX.getByTestId("google-link-restart").innerText()).includes("בדפדפן הזה")
+    && (await pageX.getByTestId("google-link-restart").getAttribute("href")) === "/api/auth/google/start?from=login");
+  ok("5 …the quoted button name stays whole in the right-to-left line (gershayim, no ASCII quotes)",
+    (await pageX.locator("p").first().innerText()).includes("״המשך עם Google״"));
   await shot(pageX, "phone-5-other-browser");
   await scanner.close();
+
+  // The installed app (PWA) on an iPhone: its cookies are apart from Safari's, and a link from Mail opens in Safari.
+  // Simulated here by reporting display-mode: standalone; the link screen then recommends the password up front.
+  const p = await existingAccount("pwa");
+  const ctxP = await newContext(browser, 390, 844);
+  await ctxP.addInitScript(() => {
+    const real = window.matchMedia.bind(window);
+    window.matchMedia = (q: string) => (q.includes("display-mode: standalone") ? ({ ...real(q), matches: true, media: q } as MediaQueryList) : real(q));
+  });
+  const pageP = await toLinkScreen(ctxP, p);
+  await pageP.getByTestId("google-link-pwa-note").waitFor({ state: "visible", timeout: 30_000 });
+  ok("5b in the installed app: the email path warns that the link opens in Safari and recommends the password",
+    (await pageP.getByTestId("google-link-pwa-note").innerText()).includes("Safari") && (await pageP.getByTestId("google-link-pwa-note").innerText()).includes("סיסמה"));
+  ok("5b …no horizontal overflow", await noOverflow(pageP));
+  await shot(pageP, "phone-5b-installed-app");
+  await ctxP.close();
 
   await pageS.getByTestId("google-link-cancel").click();
   await pageS.waitForURL(/\/login\?google=cancelled$/, { timeout: 30_000 });

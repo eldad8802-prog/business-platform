@@ -17,10 +17,16 @@ import styles from "../../../register/register.module.css";
 
 type Status = "VALID" | "OTHER_BROWSER" | "USED" | "EXPIRED" | "SUPERSEDED" | "TICKET_ENDED" | "INVALID";
 
-const MESSAGES: Record<Exclude<Status, "VALID">, { title: string; line: string }> = {
+// Quotations use the Hebrew gershayim (״…״): right-to-left characters, so a quoted phrase with a Latin word keeps
+// its place in a right-to-left line (ASCII quotes are neutral and drift to the far side of "Google").
+const MESSAGES: Record<Exclude<Status, "VALID">, { title: string; line: string; more?: string[] }> = {
   OTHER_BROWSER: {
     title: "יש לפתוח את הקישור בדפדפן שבו התחלת",
-    line: "הקישור עובד רק בדפדפן שבו לחצת על \"המשך עם Google\". אפשר לחזור לדפדפן ההוא ולפתוח שם את הקישור, או להתחיל כאן מחדש עם Google ולבקש קישור חדש.",
+    line: "הקישור עובד רק בדפדפן שבו לחצת על ״המשך עם Google״. כאן הוא לא יחבר דבר.",
+    more: [
+      "באייפון: אם התחלת באפליקציה המותקנת של דוביז, קישור מהמייל נפתח ב־Safari. אפשר להתחיל כאן מחדש עם Google ולבקש קישור חדש — הוא יעבוד בדפדפן הזה.",
+      "אם יש לחשבון סיסמה, אחרי ההתחלה מחדש אפשר גם להזין אותה ולחבר מיד, בלי מייל.",
+    ],
   },
   USED: { title: "הקישור כבר שומש", line: "כל קישור עובד פעם אחת. אם החיבור לא הושלם, אפשר להתחיל שוב עם Google." },
   EXPIRED: { title: "תוקף הקישור פג", line: "הקישור תקף ל־30 דקות. אפשר להתחיל שוב עם Google ולבקש קישור חדש." },
@@ -145,9 +151,14 @@ export default function GoogleLinkConfirm() {
       <div className={styles.head}>
         <h1 className={styles.title}>{m.title}</h1>
         <p className={styles.loginLine}>{m.line}</p>
+        {m.more?.map((line) => (
+          <p key={line} className={styles.loginLine} data-testid="google-link-confirm-more">{line}</p>
+        ))}
       </div>
       <div className={styles.actions} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <a className={styles.submit} href="/api/auth/google/start?from=login" style={linkButton}>להתחיל עם Google</a>
+        <a className={styles.submit} href="/api/auth/google/start?from=login" style={linkButton} data-testid="google-link-restart">
+          {status === "OTHER_BROWSER" ? "להתחיל מחדש עם Google בדפדפן הזה" : "להתחיל עם Google"}
+        </a>
         <Link href="/login" className={styles.link} style={{ textAlign: "center" }}>מעבר להתחברות</Link>
       </div>
     </div>
