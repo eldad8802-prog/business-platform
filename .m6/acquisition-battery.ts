@@ -534,8 +534,8 @@ async function main() {
       providerAccountRef: null, occurredAt: new Date(), payload: { v: 1 } as never, metadata: { v: 1 } as never }],
   });
   await drain(A.id);
-  const p2 = await o.intakeEvent.findFirst({ where: { businessId: A.id, externalEventId: bad2.externalEventId } });
-  ok("L1 · G-07: a webhook-time drain dead-letters the poison receipt (no sweep yet)", p2?.status === "FAILED" && p2.nextAttemptAt === null);
+  const wtDead = await o.intakeEvent.findFirst({ where: { businessId: A.id, externalEventId: bad2.externalEventId } });
+  ok("L1 · G-07: a webhook-time drain dead-letters the poison receipt (no sweep yet)", wtDead?.status === "FAILED" && wtDead.nextAttemptAt === null);
   const seen = await sweepGET(sweepReq(process.env.CRON_SECRET));
   const seenBody = (await seen.json()) as { ok?: boolean; health?: { job?: string[]; events?: string[] }; report?: { events?: { failed?: number }; backlog?: { deadLettersNew?: number; deadLettersOpen?: number } } };
   ok("L1 · G-07: …the next sweep is RED for it (500): an EVENT problem (dead_letters_new), not a job problem, counts only",
@@ -619,10 +619,10 @@ async function main() {
     !!vera && (await o.identityLink.count({ where: { businessId: A.id, customerId: vera.id, valueHash: emailHash("vera@example.test"), status: "active" } })) === 1);
 
   const linksA0 = await linkCount(A.id);
-  const poison = { submission_id: `${RUN}-poison1`, name: "Mallory", phone: "+972 52-555-7070", email: "mallory@evil.test", message: "hi" };
-  const p1 = await web(webL1.connection.publicId, poison, { origin: "https://l1.example" });
+  const l1Poison = { submission_id: `${RUN}-poison1`, name: "Mallory", phone: "+972 52-555-7070", email: "mallory@evil.test", message: "hi" };
+  const l1P1 = await web(webL1.connection.publicId, l1Poison, { origin: "https://l1.example" });
   await drain(A.id);
-  ok("anonymous browser post naming an existing customer's phone → 202 (a legitimate lead is still taken)", p1.status === 202, String(p1.status));
+  ok("anonymous browser post naming an existing customer's phone → 202 (a legitimate lead is still taken)", l1P1.status === 202, String(l1P1.status));
   ok("…the typed email became NO identity link (not on the customer, not anywhere)",
     (await o.identityLink.count({ where: { businessId: A.id, valueHash: emailHash("mallory@evil.test") } })) === 0);
   ok("…no identity link at all was created", (await linkCount(A.id)) === linksA0);
@@ -634,22 +634,22 @@ async function main() {
 
   await google(gL1.connection.publicId, googleLead(gL1.key, `${RUN}-mallory-g`, { user_column_data: contact("Mallory", "+972 54-777-0001", "mallory@evil.test") }));
   await drain(A.id);
-  const mLead = await o.lead.findFirst({ where: { businessId: A.id, phone: "972547770001" } });
+  const l1MLead = await o.lead.findFirst({ where: { businessId: A.id, phone: "972547770001" } });
   ok("a later authenticated lead carrying that email is NOT attached to the victim (the poisoning chain is closed)",
-    !!mLead && !!vera && mLead.customerId !== vera.id, JSON.stringify({ lead: mLead?.customerId, vera: vera?.id }));
+    !!l1MLead && !!vera && l1MLead.customerId !== vera.id, JSON.stringify({ lead: l1MLead?.customerId, vera: vera?.id }));
 
-  const p2 = await web(webL1.connection.publicId, { submission_id: `${RUN}-poison2`, name: "Eve", phone: "054-888-0002", email: "vera@example.test" }, { key: webL1.key });
+  const l1P2 = await web(webL1.connection.publicId, { submission_id: `${RUN}-poison2`, name: "Eve", phone: "054-888-0002", email: "vera@example.test" }, { key: webL1.key });
   await drain(A.id);
   const eLead = await o.lead.findFirst({ where: { businessId: A.id, phone: "972548880002" } });
   ok("someone's LINKED email typed into the website (server mode) → a Lead, but NOT attached to that customer",
-    p2.status === 202 && !!eLead && eLead.customerId === null, JSON.stringify({ s: p2.status, c: eLead?.customerId }));
+    l1P2.status === 202 && !!eLead && eLead.customerId === null, JSON.stringify({ s: l1P2.status, c: eLead?.customerId }));
   ok("…the owner is asked instead: an open proposal names that customer as a candidate",
     !!vera && (await o.identityProposal.count({ where: { businessId: A.id, candidateCustomerId: vera.id, state: "proposed" } })) >= 1);
 
   const r0L1 = await o.intakeEvent.count({ where: { businessId: A.id, providerAccountRef: webL1.connection.publicId } });
-  await Promise.all(Array.from({ length: 5 }, () => web(webL1.connection.publicId, poison, { key: webL1.key })));
+  await Promise.all(Array.from({ length: 5 }, () => web(webL1.connection.publicId, l1Poison, { key: webL1.key })));
   await Promise.all(Array.from({ length: 4 }, (_, i) => web(webL1.connection.publicId,
-    { ...poison, submission_id: `${RUN}-poison-par-${i}`, email: `m${i}@evil.test` }, { key: webL1.key })));
+    { ...l1Poison, submission_id: `${RUN}-l1Poison-par-${i}`, email: `m${i}@evil.test` }, { key: webL1.key })));
   await drain(A.id);
   ok("5 redeliveries of the same submission + 4 parallel new ones → exactly 4 new receipts",
     (await o.intakeEvent.count({ where: { businessId: A.id, providerAccountRef: webL1.connection.publicId } })) === r0L1 + 4);
