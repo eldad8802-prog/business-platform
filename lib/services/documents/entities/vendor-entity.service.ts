@@ -195,10 +195,15 @@ function lineNearBusinessId(
   return businessIds.some((businessId) => nearby.includes(businessId.value));
 }
 
+/**
+ * `exclude` (optional): a name that must never be the vendor — the business itself, which is the
+ * RECIPIENT of its own documents. Without it the behavior is exactly as before.
+ */
 export function extractVendorEntity(
   text: string,
   structure: DocumentStructure,
-  businessIds: BusinessIdEntity[]
+  businessIds: BusinessIdEntity[],
+  exclude?: (name: string) => boolean
 ): VendorEntity {
   const headerLines = structure.headerLines.map(cleanLine).filter(Boolean);
   const allLines = structure.allLines.map(cleanLine).filter(Boolean);
@@ -215,6 +220,7 @@ export function extractVendorEntity(
 
     const normalizedName = normalizeVendorName(line);
     if (!looksStructurallyPossibleVendor(normalizedName)) continue;
+    if (exclude?.(normalizedName)) continue;
 
     let confidence = 0.45;
     const signals = ["appears in header"];
@@ -263,6 +269,7 @@ export function extractVendorEntity(
   for (const candidate of candidates.slice(0, 5)) {
     const name = normalizeVendorName(candidate.value);
     if (!looksStructurallyPossibleVendor(name)) continue;
+    if (exclude?.(name)) continue;
 
     let confidence = Math.min(0.72, candidate.score / 200);
     const signals = [...candidate.reasons];

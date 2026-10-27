@@ -19,6 +19,7 @@ import { NotesThread } from "@/components/crm/NotesThread";
 import { AttachmentList } from "@/components/crm/AttachmentList";
 import { SupplierPurchaseHistorySection } from "@/components/inventory/SupplierPurchaseHistorySection";
 import { SupplierForm } from "@/components/suppliers/SupplierForm";
+import { SupplierDocumentsSection } from "@/components/suppliers/SupplierDocumentsSection";
 import {
   formatSupplierPaymentTermsT,
   supplierCompleteness,
@@ -287,6 +288,8 @@ function SupplierCardView({
         supplierId={supplier.id}
         supplierName={supplier.name}
       />
+
+      <SupplierDocumentsSection supplierId={supplier.id} />
 
       <NotesThread subjectType="SUPPLIER" subjectId={supplier.id} />
 

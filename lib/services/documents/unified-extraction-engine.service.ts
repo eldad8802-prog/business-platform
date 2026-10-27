@@ -2,6 +2,8 @@ import { cleanOCRText } from "./text-cleaner.service";
 import type { DocumentStructure } from "./document-structure.service";
 import { parseDocumentStructure } from "./document-structure.service";
 import { extractDocumentEntities } from "./entities/entity-extraction.service";
+import { loadOwnBusinessIdentity } from "./issuer/issuer-context";
+import type { IssuerReading, OwnBusinessIdentity } from "./issuer/issuer-reading";
 import { classifyUnderstandingAmountsForEligibility } from "./amount-eligibility.service";
 import { buildAmountPublishDecisionLog } from "./amount-publish-decision.service";
 import { decideDocumentExtraction } from "./entities/document-decision.service";
@@ -236,6 +238,11 @@ export type UnifiedDocumentIntelligenceResult = {
   /** Set only when `financialEvidenceLevel === "weak"`; otherwise `null`. */
   weakResolutionReason: WeakResolutionReason | null;
   outputProfile: DocumentOutputProfile;
+  /**
+   * Who issued the document as read off it (document supplier linking ON); null when the flag is OFF. A
+   * reading only — the owner decides which supplier the document belongs to.
+   */
+  issuer: IssuerReading | null;
 };
 
 /** Fine / demand / collection — never strong without explicit payment completion. */
@@ -576,8 +583,12 @@ function computeFinancialEvidenceV1(input: {
 export async function runUnifiedDocumentIntelligence(params: {
   businessId: number;
   rawText: string;
+  /** Tests only: the own identity to use instead of loading it (undefined = load; null = none). */
+  ownIdentity?: OwnBusinessIdentity | null;
 }): Promise<UnifiedDocumentIntelligenceResult> {
   const { businessId, rawText } = params;
+  const own =
+    params.ownIdentity !== undefined ? params.ownIdentity : await loadOwnBusinessIdentity(businessId);
 
   const cleanedText = cleanOCRText(rawText);
   const typeDetection = detectDocumentType(cleanedText);
@@ -595,7 +606,7 @@ export async function runUnifiedDocumentIntelligence(params: {
     structure,
   });
 
-  const extracted = extractDocumentEntities(cleanedText, structure);
+  const extracted = extractDocumentEntities(cleanedText, structure, own);
   const entities = extracted.entities;
 
   const amountEligibilityLog = classifyUnderstandingAmountsForEligibility({
@@ -785,5 +796,6 @@ export async function runUnifiedDocumentIntelligence(params: {
     evidenceReasons: evidence.evidenceReasons,
     weakResolutionReason: evidence.weakResolutionReason,
     outputProfile,
+    issuer: extracted.issuer,
   };
 }

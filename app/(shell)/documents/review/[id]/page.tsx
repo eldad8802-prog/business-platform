@@ -8,6 +8,7 @@ import { alertError } from "../../ui";
 import DocumentsReviewSkeleton from "@/components/documents/skeletons/DocumentsReviewSkeleton";
 import ReviewHero from "@/components/documents/review/ReviewHero";
 import ReviewDecisionPanel from "@/components/documents/review/ReviewDecisionPanel";
+import ReviewSupplierLinkPanel from "@/components/documents/review/ReviewSupplierLinkPanel";
 import ReviewSummarySection from "@/components/documents/review/ReviewSummarySection";
 import {
   ReviewDocumentPreviewLazy,
@@ -662,6 +663,14 @@ export default function ReviewPage() {
               onHub={() => router.push("/documents")}
               onSearch={() => router.push("/documents/search")}
             />
+          </div>
+        ) : null}
+
+        {/* Which supplier the document belongs to — the owner's decision, separate from the approval.
+            Renders nothing while document_supplier_linking is OFF. */}
+        {(state === "decision" || state === "done") && Number(id) > 0 ? (
+          <div style={{ width: "100%", maxWidth: 760, margin: "0 auto" }}>
+            <ReviewSupplierLinkPanel documentId={Number(id)} />
           </div>
         ) : null}
 
