@@ -9,7 +9,7 @@
  *            workbook. Built once from the ZIP after its sha256 is checked, then cached as a private sibling
  *            of the package, bound to the package's full sha256 and the index layout version.
  *   a file   the ZIP entry, byte for byte (its sha256 must equal the index's), cached as a private sibling
- *            keyed by the package sha256 AND the file's own sha256, handed out by a five-minute signed URL.
+ *            keyed by the package sha256 AND the file's own sha256, handed out by a one-minute signed URL.
  *
  * A file can only be named by its path in the index — never by a storage key — and the index only holds
  * source / issued entries, so _meta, the reports and anything else in the ZIP cannot be reached this way.

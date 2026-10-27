@@ -14,10 +14,11 @@ import { getStorageService, loadStorageConfig } from "@/lib/storage";
 export const PACKAGE_SIGNED_URL_TTL_SECONDS = 300;
 
 /**
- * One file of the accountant's portal. A signed URL cannot be withdrawn once handed out: after the owner
- * revokes the link (or it expires), a URL issued just before stays usable until it lapses. The portal's
- * files are single documents, so the window is kept to one minute (the storage host checks the signature
- * when a request starts; a download already running is not cut off).
+ * Everything the accountant's link hands out — one file of the portal, a report, and the ZIP. A signed URL
+ * cannot be withdrawn once handed out: after the owner revokes the link (or it expires), a URL issued just
+ * before stays usable until it lapses, so the window is kept to one minute. The storage host checks the
+ * signature when a request starts; a download already running (a large ZIP) is not cut off. The owner's own
+ * download (servePackageObject) keeps PACKAGE_SIGNED_URL_TTL_SECONDS.
  */
 export const PORTAL_SIGNED_URL_TTL_SECONDS = 60;
 

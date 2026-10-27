@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { openLink } from "@/lib/accountant/delivery.service";
 import { hashAccountantLinkSecret, isLinkPublicId, isLinkSecret } from "@/lib/accountant/link";
-import { packageDownloadName, PACKAGE_SIGNED_URL_TTL_SECONDS } from "@/lib/accountant/package-download";
+import { packageDownloadName, PORTAL_SIGNED_URL_TTL_SECONDS } from "@/lib/accountant/package-download";
 import { periodLabelHe } from "@/lib/accountant/period";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
@@ -29,7 +29,8 @@ function refuse(status: number, code: string) {
  *   - the SECURITY DEFINER lookup returns ids only, and only when the public id AND sha256(secret) match;
  *   - everything else is read under RLS inside that business's tenant job;
  *   - expired / revoked links are refused (and the refusal is recorded); every download is recorded;
- *   - a download is a five-minute presigned URL to the approved object — never a lasting public URL.
+ *   - a download is a one-minute presigned URL to the approved object — never a lasting public URL (a URL
+ *     issued before a revocation lapses within a minute; a download already running is not cut off).
  *
  * Unknown and malformed links get the same answer, so the endpoint reveals nothing about what exists.
  */
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
         headers: { ...NO_STORE, "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="${name}"` },
       });
     }
-    const url = await storage.getSignedDownloadUrl(opened.storageKey, PACKAGE_SIGNED_URL_TTL_SECONDS);
+    const url = await storage.getSignedDownloadUrl(opened.storageKey, PORTAL_SIGNED_URL_TTL_SECONDS);
     return NextResponse.json({ url, fileName: name }, { headers: NO_STORE });
   } catch (e) {
     if (e instanceof BusinessQuarantinedError) return refuse(410, "LINK_UNAVAILABLE");

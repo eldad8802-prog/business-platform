@@ -26,7 +26,7 @@ export const maxDuration = 60;
  *   report  the package's own Excel workbook, or its PDF rendering (lib/accountant/package-reports.ts).
  *
  * The access is recorded (LINK_FILE_DOWNLOADED) once the file to hand out is known to be right; the answer
- * is a five-minute signed URL (or, on the local adapter, the bytes) — never a lasting or public URL.
+ * is a one-minute signed URL (or, on the local adapter, the bytes) — never a lasting or public URL.
  */
 export async function POST(req: Request) {
   return withAccountantLink(req, "ACCOUNTANT_LINK_FILE", async (link, body, now) => {

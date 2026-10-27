@@ -7,7 +7,7 @@
  *   /api/accountant/link/portal  the delivered package — whose, which month, every file with its details;
  *   /api/accountant/link/file    one file (view / download) or the Excel / PDF report;
  *   /api/accountant/link/open    the whole ZIP (the existing route).
- * Every file is handed out by a five-minute signed URL, opened or saved as it is. Nothing here needs, or
+ * Every file — and the ZIP — is handed out by a one-minute signed URL, opened or saved as it is. Nothing here needs, or
  * offers, a Dubiz account, and nothing here can change a document.
  */
 

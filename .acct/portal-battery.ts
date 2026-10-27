@@ -342,7 +342,13 @@ async function main() {
   ok("7n the revoked attempts are recorded as refusals", (await events(LA.deliveryId, "LINK_REFUSED")).filter((e) => e.payload.reason === "revoked").length === 5);
   ok("7o the cached objects are still there — the refusal comes from the link check, not from a missing cache", (await storage.headObject(pngKey)).exists);
   const pd = await import("@/lib/accountant/package-download");
-  ok("7p a portal file's signed URL lives 60 s (the ZIP's stays 300 s)", pd.PORTAL_SIGNED_URL_TTL_SECONDS === 60 && pd.PACKAGE_SIGNED_URL_TTL_SECONDS === 300);
+  const { readFileSync } = await import("node:fs");
+  const openSrc = readFileSync("app/api/accountant/link/open/route.ts", "utf8");
+  const dlSrc = readFileSync("lib/accountant/package-download.ts", "utf8");
+  ok("7p the link's signed URLs live 60 s — portal files, reports AND the ZIP; the owner's own download keeps 300 s",
+    pd.PORTAL_SIGNED_URL_TTL_SECONDS === 60 && pd.PACKAGE_SIGNED_URL_TTL_SECONDS === 300 &&
+      openSrc.includes("getSignedDownloadUrl(opened.storageKey, PORTAL_SIGNED_URL_TTL_SECONDS)") && !openSrc.includes("PACKAGE_SIGNED_URL_TTL_SECONDS") &&
+      dlSrc.includes("getSignedDownloadUrl(storageKey, PACKAGE_SIGNED_URL_TTL_SECONDS);") && dlSrc.includes("getSignedDownloadUrl(storageKey, PORTAL_SIGNED_URL_TTL_SECONDS, {"));
 
   // ── 8. Integrity ───────────────────────────────────────────────────────────────────────────────
   console.log("8. integrity");
