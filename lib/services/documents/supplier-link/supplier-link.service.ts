@@ -74,7 +74,8 @@ export type DocumentSupplierLinkState = {
     vendorName: string | null;
     /**
      * The reading names a supplier the screen may present as identified: a distinctive name (not a generic word
-     * such as "חשבונית") that is not the business itself. False ⇒ "no supplier identified with confidence".
+     * such as "חשבונית") that is not the business itself, AND backed — a valid issuer tax id was read, or the
+     * extraction's own vendor confidence is not "low". False ⇒ "no supplier identified with confidence".
      */
     vendorIdentified: boolean;
     issuerTaxId: string | null;
@@ -137,6 +138,7 @@ export async function computeSuggestionsTx(
     where: { documentId, document: { businessId } },
     select: {
       vendorName: true,
+      vendorConfidence: true,
       direction: true,
       issuerTaxId: true,
       issuerCheck: true,
@@ -148,7 +150,10 @@ export async function computeSuggestionsTx(
   const vendorKey = nameKey(extracted.vendorName);
   const reading = {
     vendorName: extracted.vendorName,
-    vendorIdentified: vendorKey !== null && !isOwnName(own, extracted.vendorName),
+    vendorIdentified:
+      vendorKey !== null &&
+      !isOwnName(own, extracted.vendorName) &&
+      (extracted.issuerCheck === "OK" || extracted.vendorConfidence !== "low"),
     issuerTaxId: extracted.issuerTaxId,
     issuerCheck: extracted.issuerCheck,
     ownBusinessExcluded: extracted.ownBusinessExcluded,

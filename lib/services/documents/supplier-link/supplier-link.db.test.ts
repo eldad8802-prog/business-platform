@@ -87,10 +87,10 @@ async function seed(tag: string) {
     );
     if (extracted) {
       await owner.$executeRawUnsafe(
-        `INSERT INTO "ExtractedData" ("documentId", "vendorName", "direction", "issuerTaxId", "issuerTaxIdSource", "issuerTaxIdValid", "issuerCheck", "ownBusinessExcluded") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        `INSERT INTO "ExtractedData" ("documentId", "vendorName", "direction", "issuerTaxId", "issuerTaxIdSource", "issuerTaxIdValid", "issuerCheck", "ownBusinessExcluded", "vendorConfidence") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         d, extracted.vendorName ?? null, extracted.direction ?? "expense", extracted.issuerTaxId ?? null,
         extracted.issuerTaxId ? "HEADER" : null, extracted.issuerTaxId ? true : null, extracted.issuerCheck ?? null,
-        extracted.ownBusinessExcluded ?? false
+        extracted.ownBusinessExcluded ?? false, extracted.vendorConfidence ?? null
       );
     }
     return d;
@@ -100,6 +100,7 @@ async function seed(tag: string) {
     ownName: await doc(2, { vendorName: `נגריית הדוגמה ${tag} בע"מ`, issuerCheck: "OWN_BUSINESS_ONLY" }),
     income: await doc(3, { vendorName: "אלפא ציוד משרדי", direction: "income", issuerCheck: "NO_TAX_ID" }),
     plain: await doc(4, null),
+    lowConfidence: await doc(7, { vendorName: "מסמך הדגמה", issuerCheck: "NO_TAX_ID", vendorConfidence: "low" }),
     race: await doc(5, null),
     idem: await doc(6, null),
   };
@@ -131,6 +132,11 @@ async function main() {
     assert.equal(s.suggestions.length, 0);
     assert.ok(s.notes.includes("OWN_BUSINESS_NAME"));
     assert.equal(s.reading?.vendorIdentified, false, "the business itself is never presented as the identified supplier");
+  });
+
+  await check("a low-confidence reading without a valid tax id is not presented as an identified supplier", async () => {
+    const s = await getDocumentSupplierLinkState(A.b, A.docs.lowConfidence);
+    assert.equal(s.reading?.vendorIdentified, false);
   });
 
   await check("an income document gets no supplier suggestion; no reading ⇒ none either", async () => {
