@@ -37,7 +37,7 @@ export type WorkflowEventType =
   | "LINK_REVOKED"
   | "PERIOD_COMPLETED"
   | "PERIOD_COMPLETED_MANUALLY"
-  // R2 (migration 20261101120000_accountant_link_events): the accountant's portal.
+  // R2 (migration 20261105090000_accountant_link_events): the accountant's portal.
   | "LINK_VIEWED"
   | "LINK_FILE_DOWNLOADED";
 

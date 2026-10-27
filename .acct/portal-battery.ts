@@ -1,6 +1,6 @@
 /**
  * Accountant portal (R2–R4) — the accountant's link end to end, through the REAL routes, on the Production-shaped
- * lab (app_runtime_prod, NOBYPASSRLS), with migration 20261101120000_accountant_link_events applied.
+ * lab (app_runtime_prod, NOBYPASSRLS), with migration 20261105090000_accountant_link_events applied.
  *
  *   1. The index of a delivered package: whose, which month, until when (14 days from the approval), every
  *      source and issued file with its sha256 and size and its row of the SEALED workbook, and the rows whose
