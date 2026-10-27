@@ -276,6 +276,9 @@ export async function bindMetaPage(input: {
 /** Sources that authenticate a delivery with a SIGNATURE Dubiz must verify (the secret is stored encrypted). */
 export const SIGNED_SOURCES = ["commerce.woocommerce", "commerce.wix", "telephony.cloudtalk"] as const;
 export type SignedSourceKey = (typeof SIGNED_SOURCES)[number];
+/** S1-A — sources Dubiz POLLS with the owner's API credential (no delivery to verify); same encrypted bundle. */
+export const POLLED_SOURCES = ["pos.rivhit"] as const;
+export type CredentialSourceKey = SignedSourceKey | (typeof POLLED_SOURCES)[number];
 
 /** The encrypted credential bundle of a signed connection. Never returned to a browser, never logged. */
 export type ConnectionSecrets = { signingSecret: string } & Record<string, string>;
@@ -289,7 +292,7 @@ export type ConnectionSecrets = { signingSecret: string } & Record<string, strin
 export async function createSignedConnection(input: {
   businessId: number;
   userId: number | null;
-  sourceKey: SignedSourceKey;
+  sourceKey: CredentialSourceKey;
   label?: unknown;
   externalResourceId?: string | null;
   signingSecret?: string;
@@ -298,6 +301,7 @@ export async function createSignedConnection(input: {
   const resource = input.externalResourceId?.trim() || null;
   if (resource !== null && !/^[A-Za-z0-9_.:-]{1,64}$/.test(resource)) throw new ValidationError("invalid provider resource id");
   if (input.sourceKey === "commerce.wix" && resource === null) throw new ValidationError("a Wix connection needs its instance id");
+  if (input.sourceKey === "pos.rivhit" && resource === null) throw new ValidationError("a Rivhit connection needs its company id");
   const signingSecret = input.signingSecret?.trim() || newSigningSecret();
   if (signingSecret.length < 16 || signingSecret.length > 256) throw new ValidationError("invalid signing secret");
   const publicId = newPublicId();

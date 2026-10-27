@@ -21,6 +21,7 @@ import { ContactAction } from "@/components/customers/ContactAction";
 import { customerInitials, mailHref, telHref } from "@/components/customers/customer-contact";
 import {
   BuildingIcon,
+  DocumentIcon,
   HandshakeIcon,
   MailIcon,
   NoteIcon,
@@ -32,6 +33,7 @@ import {
 } from "@/components/customers/customer-icons";
 import { SupplierPurchaseHistorySection } from "@/components/inventory/SupplierPurchaseHistorySection";
 import { SupplierForm } from "@/components/suppliers/SupplierForm";
+import { SupplierDocumentsSection } from "@/components/suppliers/SupplierDocumentsSection";
 import {
   formatSupplierPaymentTermsT,
   supplierCompleteness,
@@ -326,7 +328,11 @@ function SupplierCardView({
           <SupplierPurchaseHistorySection supplierId={supplier.id} supplierName={supplier.name} />
         </div>
 
-        {/* 5 · Notes — the general note sits under the same head as the thread. */}
+        {/* 5 · Linked documents (document ↔ supplier link). It draws its own panel, and nothing at all while
+            document_supplier_linking is OFF for the business — so no empty box is left behind. */}
+        <SupplierDocumentsSection supplierId={supplier.id} className="sup-panel" icon={<DocumentIcon />} />
+
+        {/* 6 · Notes — the general note sits under the same head as the thread. */}
         <div className="sup-panel">
           <NotesThread
             subjectType="SUPPLIER"
@@ -354,7 +360,7 @@ function SupplierCardView({
           />
         </div>
 
-        {/* 6 · Files */}
+        {/* 7 · Files */}
         <div className="sup-panel">
           <AttachmentList subjectType="SUPPLIER" subjectId={supplier.id} icon={<PaperclipIcon />} />
         </div>

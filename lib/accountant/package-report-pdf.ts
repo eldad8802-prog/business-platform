@@ -13,6 +13,15 @@
  */
 import ExcelJS from "exceljs";
 
+import {
+  chromiumMode,
+  launchChromium,
+  PdfRenderError,
+  sanitizeRenderError,
+  type ChromiumBrowser,
+  type ChromiumMode,
+} from "@/lib/pdf/chromium";
+
 import { escapeHtmlForPdf, renderDynamicPdfText } from "@/lib/services/billing/pdf/billing-pdf-text-policy";
 
 /** Bumped whenever the PDF layout changes, so a cached PDF of an older layout is never served. */
@@ -147,24 +156,40 @@ ${tables}
 </body></html>`;
 }
 
-/** Chromium (playwright) HTML → PDF, A4, page numbers in the footer. Same engine as the billing PDFs. */
-export async function renderHtmlToPdf(html: string): Promise<Buffer> {
-  const { chromium } = await import("playwright");
-  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+// The launcher is shared with the billing PDFs (lib/pdf/chromium.ts); re-exported for existing importers.
+export { chromiumMode, PdfRenderError, sanitizeRenderError } from "@/lib/pdf/chromium";
+export type { ChromiumMode, PdfRenderStage } from "@/lib/pdf/chromium";
+
+/** Chromium HTML → PDF, A4, page numbers in the footer. Same engine family as the billing PDFs. */
+export async function renderHtmlToPdf(html: string, mode: ChromiumMode = chromiumMode()): Promise<Buffer> {
+  let browser: ChromiumBrowser;
+  try {
+    browser = await launchChromium(mode);
+  } catch (e) {
+    throw new PdfRenderError("launch", mode, sanitizeRenderError(e));
+  }
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "load" });
-    const pdf = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      displayHeaderFooter: true,
-      headerTemplate: "<div></div>",
-      footerTemplate:
-        '<div style="width:100%;font-size:8px;color:#6b7280;text-align:center;font-family:sans-serif;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
-      margin: { top: "14px", right: "0px", bottom: "36px", left: "0px" },
-    });
-    return Buffer.from(pdf);
+    try {
+      await page.setContent(html, { waitUntil: "load" });
+    } catch (e) {
+      throw new PdfRenderError("render", mode, sanitizeRenderError(e));
+    }
+    try {
+      const pdf = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        displayHeaderFooter: true,
+        headerTemplate: "<div></div>",
+        footerTemplate:
+          '<div style="width:100%;font-size:8px;color:#6b7280;text-align:center;font-family:sans-serif;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
+        margin: { top: "14px", right: "0px", bottom: "36px", left: "0px" },
+      });
+      return Buffer.from(pdf);
+    } catch (e) {
+      throw new PdfRenderError("print", mode, sanitizeRenderError(e));
+    }
   } finally {
-    await browser.close();
+    await browser.close().catch(() => undefined);
   }
 }

@@ -1,0 +1,239 @@
+# OAuth identity link / migration 20261102090000_oauth_identity_link — proof on PostgreSQL BEFORE it reaches
+# Production (ephemeral PG17). "Continue with Google", milestone 3: linking Google to an existing account.
+#
+# .agl/lab.sh builds Production's topology (non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime +
+# LOGIN app_runtime_prod, NOLOGIN app_auth + LOGIN member te_auth_login, the owner's default privileges,
+# FORCE RLS) with 20261017090000, 20261030090000 and 20261101090000 applied the way Production has them;
+# --with-link then applies this migration with `prisma migrate deploy`, the release-migrate mechanism.
+#
+#   0. Evidence files are SELECT-only and selectable; the preflight's ledger list is main's history before
+#      this migration; the proof pins migration.sql's sha256; the migration names only the five relations it
+#      builds on, and no other migration names its objects.
+#   1. Baseline (pending): PREFLIGHT passes all but 4 (the by-name ledger list is a PRODUCTION premise this
+#      lab's partial history cannot meet); the proof refuses.
+#   2. `prisma migrate deploy` applies it: proof 14/14; the proofs of 20261030090000 (18/18) and 20261101090000
+#      (14/14) still hold; the preflight then fails exactly its "not there yet" checks.
+#   3. Battery (.agl/link-battery.ts) as the real roles.
+#   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   5. Faults: each widening of a privilege, of RLS or of the vocabulary is caught by the check meant for it.
+#   6. Rollback: refused while a link token exists; on a database without one it reverts whole (preflight
+#      whole again), and a re-apply makes the proof whole.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: oauth identity link — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261102090000_oauth_identity_link/**"
+      - "prisma/migrations/20261101090000_oauth_ticket_cancel/**"
+      - "prisma/migrations/20261030090000_oauth_identity_foundation/**"
+      - "prisma/migrations/20261017090000_auth_email_tokens/**"
+      - "ops/evidence/oauth-identity-link-*.sql"
+      - "ops/evidence/oauth-identity-production-evidence.sql"
+      - "ops/evidence/oauth-ticket-cancel-production-evidence.sql"
+      - "ops/evidence/auth-email-tokens-production-evidence.sql"
+      - "ops/evidence/user-email-case-audit.sql"
+      - ".agl/**"
+      - ".aet/lab.sh"
+      - ".github/workflows/oauth-identity-link-lab.yml"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oauth-identity-link-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab:
+    name: oauth identity link (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: agl_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: agl_ci_synthetic_super_pw
+      LAB_PASSWORD: agl_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/oauth-identity-link-preflight.sql
+      EVIDENCE: ops/evidence/oauth-identity-link-production-evidence.sql
+      M1_EVIDENCE: ops/evidence/oauth-identity-production-evidence.sql
+      CANCEL_EVIDENCE: ops/evidence/oauth-ticket-cancel-production-evidence.sql
+      AET_EVIDENCE: ops/evidence/auth-email-tokens-production-evidence.sql
+      CASE_AUDIT: ops/evidence/user-email-case-audit.sql
+      LINK: prisma/migrations/20261102090000_oauth_identity_link/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only; ledger list is main's history; checksum pinned; the migration names only what it builds on
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE" "$CASE_AUDIT"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          want=$(ls -d prisma/migrations/2*/ | xargs -n1 basename | awk '$0 < "20261102090000_oauth_identity_link"' | sort)
+          have=$(grep -oE "^    [(]'[0-9]{14}_[a-z0-9_]+'[)]" "$PREFLIGHT" | grep -oE "[0-9]{14}_[a-z0-9_]+" | sort)
+          test "$want" = "$have" || { echo "the preflight's ledger list is not main's history before this migration"; diff <(echo "$want") <(echo "$have") || true; exit 1; }
+          echo "the preflight names all $(echo "$want" | wc -l) migrations before this one"
+          sum=$(sha256sum "$LINK" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          echo "$LINK sha256 $sum (pinned)"
+          others=$(sed 's/--.*$//' "$LINK" | grep -oE '"[A-Z][A-Za-z]*"' | sort -u | grep -vxE '"AuthEmailToken"|"OAuthSignupTicket"|"UserIdentity"|"User"|"Business"' || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            [[ "$n" != "20261102090000_oauth_identity_link" ]] || continue
+            if grep -nE 'oauthTicketId|LINK_GOOGLE|auth_oauth_link_email|auth_oauth_identity_(link|status|unlink)' "$d/migration.sql"; then echo "$n names an identity link object"; exit 1; fi
+          done
+          echo "the migration names only AuthEmailToken, OAuthSignupTicket, UserIdentity, User and Business; no other migration names its objects"
+
+      - name: 1. Baseline (pending) — PREFLIGHT passes all but 4 (lab topology); the proof refuses
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh link_pre --with-cancel
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d link_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          fails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "4 " || { echo "baseline: expected only 4 (lab topology) to fail, got: $fails"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "16" || { echo "expected 16 PASS"; exit 1; }
+          if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
+          echo "the proof refuses on the baseline (the column does not exist yet)"
+
+      - name: 2. prisma migrate deploy applies it — proof 14/14; the earlier proofs still whole; preflight fails exactly its "not there yet" checks
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh link_post --with-link | tee /tmp/post.log
+          grep -q 'Applying migration `20261102090000_oauth_identity_link`' /tmp/post.log
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d link_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "14" || { echo "expected 14 PASS"; exit 1; }
+          # The earlier proofs stay whole after this release — including the auth-email-tokens proof, whose key
+          # and check-constraint counts follow this migration (see its header).
+          for f in "$M1_EVIDENCE:18" "$CANCEL_EVIDENCE:14" "$AET_EVIDENCE:17"; do
+            file=${f%:*}; want=${f#*:}
+            out=$(lab -f "$file")
+            if echo "$out" | grep -qE '^ +[0-9]+ \| FAIL'; then echo "$file FAILS after this release"; echo "$out"; exit 1; fi
+            test "$(echo "$out" | grep -cE '^ +[0-9]+ \| PASS')" = "$want" || { echo "$file: expected $want PASS"; exit 1; }
+            echo "$file still $want/$want"
+          done
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 3 4 5 7 8 9 10 " || { echo "after the release: expected '2 3 4 5 7 8 9 10 ', got: $fails"; exit 1; }
+          # The letter-case audit runs on the Production-shaped lab (the case-folded unique index replayed): whole.
+          audit=$(lab -f "$CASE_AUDIT")
+          echo "$audit"
+          if echo "$audit" | grep -qE '^ +[0-9]+ \| FAIL'; then echo "the letter-case audit fails"; exit 1; fi
+          test "$(echo "$audit" | grep -cE '^ +[0-9]+ \| PASS')" = "3" || { echo "expected 3 PASS"; exit 1; }
+
+      - name: 3. Battery — both proofs, swaps, replay, ten concurrent links, rollback, administrator / deletion, unlink, cancel, purge (real roles)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/link_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/link_post" \
+          AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/link_post" \
+            npx tsx .agl/link-battery.ts
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh link_broken --broken-link
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d link_broken -v ON_ERROR_STOP=1 "$@"; }
+          fn=$(lab -Atc "SELECT count(*) FROM pg_proc WHERE proname IN ('auth_oauth_link_email_issue','auth_oauth_link_email_check','auth_oauth_link_email_consume','auth_oauth_identity_link','auth_oauth_identity_status','auth_oauth_identity_unlink')")
+          col=$(lab -Atc "SELECT count(*) FROM pg_attribute WHERE attrelid = '\"AuthEmailToken\"'::regclass AND attname = 'oauthTicketId' AND NOT attisdropped")
+          wide=$(lab -Atc "SELECT count(*) FROM pg_constraint WHERE conname = 'AuthEmailToken_purpose' AND pg_get_constraintdef(oid) LIKE '%LINK_GOOGLE%'")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261102090000_oauth_identity_link' AND finished_at IS NULL")
+          prev=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261101090000_oauth_ticket_cancel' AND finished_at IS NOT NULL")
+          echo "functions=$fn column=$col widened=$wide unfinished=$led cancel-finished=$prev"
+          test "$fn" = "0" && test "$col" = "0" && test "$wide" = "0" && test "$led" = "1" && test "$prev" = "1" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d link_post -v ON_ERROR_STOP=1 "$@"; }
+          # The battery's link tokens were all issued AFTER the migration finished, so the proof is whole (14 is
+          # timeless: nothing predates the finish); every fault adds exactly its own check.
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            lab -q -c "$3"; got=$(failing); lab -q -c "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          L='public.auth_oauth_identity_link(uuid, integer, text)'
+          I='public.auth_oauth_link_email_issue(text, uuid, text)'
+          C='public.auth_oauth_link_email_consume(uuid, text, uuid)'
+          P='CHECK ("purpose" IN ('"'"'EMAIL_VERIFY'"'"', '"'"'PASSWORD_RESET'"'"', '"'"'LINK_GOOGLE'"'"'))'
+          B='CHECK (("purpose" = '"'"'LINK_GOOGLE'"'"') = ("oauthTicketId" IS NOT NULL))'
+          fault "EXECUTE for app_runtime" "11 " "GRANT EXECUTE ON FUNCTION $L TO app_runtime" "REVOKE EXECUTE ON FUNCTION $L FROM app_runtime"
+          fault "EXECUTE for PUBLIC" "11 " 'GRANT EXECUTE ON FUNCTION public.auth_oauth_identity_status(integer) TO PUBLIC' 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_identity_status(integer) FROM PUBLIC'
+          fault "no EXECUTE for app_auth" "11 " 'REVOKE EXECUTE ON FUNCTION public.auth_oauth_identity_unlink(integer) FROM app_auth' 'GRANT EXECUTE ON FUNCTION public.auth_oauth_identity_unlink(integer) TO app_auth'
+          fault "SECURITY INVOKER" "10 " "ALTER FUNCTION $I SECURITY INVOKER" "ALTER FUNCTION $I SECURITY DEFINER"
+          fault "search_path not pinned" "10 " "ALTER FUNCTION $C RESET search_path" "ALTER FUNCTION $C SET search_path = pg_catalog, public"
+          fault "token read for app_auth" "9 " 'GRANT SELECT ON "AuthEmailToken" TO app_auth' 'REVOKE SELECT ON "AuthEmailToken" FROM app_auth'
+          fault "the new column for app_runtime" "8 " 'GRANT SELECT ("oauthTicketId") ON "AuthEmailToken" TO app_runtime' 'REVOKE SELECT ("oauthTicketId") ON "AuthEmailToken" FROM app_runtime'
+          fault "a policy on tokens" "7 " 'CREATE POLICY link_fault_all ON "AuthEmailToken" USING (true)' 'DROP POLICY link_fault_all ON "AuthEmailToken"'
+          fault "NO FORCE on tokens" "7 " 'ALTER TABLE "AuthEmailToken" NO FORCE ROW LEVEL SECURITY' 'ALTER TABLE "AuthEmailToken" FORCE ROW LEVEL SECURITY'
+          fault "a wider vocabulary" "6 " "ALTER TABLE \"AuthEmailToken\" DROP CONSTRAINT \"AuthEmailToken_purpose\"; ALTER TABLE \"AuthEmailToken\" ADD CONSTRAINT \"AuthEmailToken_purpose\" CHECK (\"purpose\" IN ('EMAIL_VERIFY', 'PASSWORD_RESET', 'LINK_GOOGLE', 'OTHER'))" "ALTER TABLE \"AuthEmailToken\" DROP CONSTRAINT \"AuthEmailToken_purpose\"; ALTER TABLE \"AuthEmailToken\" ADD CONSTRAINT \"AuthEmailToken_purpose\" $P"
+          fault "no ticket binding" "6 " 'ALTER TABLE "AuthEmailToken" DROP CONSTRAINT "AuthEmailToken_oauth_ticket"' "ALTER TABLE \"AuthEmailToken\" ADD CONSTRAINT \"AuthEmailToken_oauth_ticket\" $B"
+          fault "the key without cascade" "5 " 'ALTER TABLE "AuthEmailToken" DROP CONSTRAINT "AuthEmailToken_oauthTicketId_fkey"; ALTER TABLE "AuthEmailToken" ADD CONSTRAINT "AuthEmailToken_oauthTicketId_fkey" FOREIGN KEY ("oauthTicketId") REFERENCES "OAuthSignupTicket"("id") ON DELETE RESTRICT' 'ALTER TABLE "AuthEmailToken" DROP CONSTRAINT "AuthEmailToken_oauthTicketId_fkey"; ALTER TABLE "AuthEmailToken" ADD CONSTRAINT "AuthEmailToken_oauthTicketId_fkey" FOREIGN KEY ("oauthTicketId") REFERENCES "OAuthSignupTicket"("id") ON DELETE CASCADE ON UPDATE CASCADE'
+          fault "an earlier function for app_runtime" "12 " 'GRANT EXECUTE ON FUNCTION public.auth_email_token_issue(integer, text, uuid, text) TO app_runtime' 'REVOKE EXECUTE ON FUNCTION public.auth_email_token_issue(integer, text, uuid, text) FROM app_runtime'
+          fault "a link token that predates the migration (backfill)" "14 " "WITH t AS (INSERT INTO \"OAuthSignupTicket\" (\"id\",\"purpose\",\"provider\",\"providerSubject\",\"email\",\"emailVerified\",\"secretHash\",\"issuedAt\",\"expiresAt\") VALUES (gen_random_uuid(), 'LINK', 'google', 'link-fault-backfill', 'fault@lab.invalid', true, encode(sha256('link-fault-backfill'::bytea), 'hex'), timestamp '2000-01-01', timestamp '2000-01-01 00:20') RETURNING id) INSERT INTO \"AuthEmailToken\" (\"id\",\"userId\",\"businessId\",\"purpose\",\"email\",\"tokenHash\",\"createdAt\",\"expiresAt\",\"oauthTicketId\") SELECT gen_random_uuid(), u.id, u.\"businessId\", 'LINK_GOOGLE', u.email, encode(sha256('link-fault-token'::bytea), 'hex'), timestamp '2000-01-01', timestamp '2000-01-01 00:10', t.id FROM t, (SELECT * FROM \"User\" ORDER BY id LIMIT 1) u" "DELETE FROM \"OAuthSignupTicket\" WHERE \"providerSubject\" = 'link-fault-backfill'"
+          test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 6. Rollback — refused while a link token exists; reverts whole otherwise; re-apply makes the proof whole
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          if lab link_post -q -f .agl/rollback-link.sql 2>/tmp/rb.err; then echo "rollback ran despite link tokens"; exit 1; fi
+          grep -q "oauth identity link rollback refused" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          test "$(lab link_post -Atc "SELECT count(*) FROM pg_proc WHERE proname = 'auth_oauth_identity_link'")" = "1" || { echo "refused rollback changed something"; exit 1; }
+          echo "rollback refused while link tokens exist; nothing changed"
+          bash .agl/lab.sh link_rb --with-link >/dev/null
+          lab link_rb -q -f .agl/rollback-link.sql
+          fails=$(lab link_rb -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "4 " || { echo "after rollback: expected only 4 (lab topology), got: $fails"; exit 1; }
+          for f in "$M1_EVIDENCE" "$CANCEL_EVIDENCE" "$AET_EVIDENCE"; do
+            got=$(lab link_rb -f "$f" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+            test -z "$got" || { echo "after rollback $f fails: $got"; exit 1; }
+          done
+          TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
+          cp prisma/schema.prisma "$TMP/prisma/"; cp prisma/migrations/migration_lock.toml "$TMP/prisma/migrations/"
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            if [[ ! "$n" > "20261009090000_m6_acquisition_connections" || "$n" == "20261013090000_p3e_landing_persistence" || "$n" == "20261015090000_transactional_email_foundation" || "$n" == "20261017090000_auth_email_tokens" || "$n" == "20261030090000_oauth_identity_foundation" || "$n" == "20261101090000_oauth_ticket_cancel" || "$n" == "20261102090000_oauth_identity_link" ]]; then cp -r "$d" "$TMP/prisma/migrations/"; fi
+          done
+          U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/link_rb"
+          DATABASE_URL="$U" DIRECT_URL="$U" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" | grep -E "Applying migration"
+          got=$(lab link_rb -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test -z "$got" || { echo "re-apply: proof not whole: $got"; exit 1; }
+          echo "rollback reverted the migration whole; re-apply made the proof whole"

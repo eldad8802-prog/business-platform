@@ -216,6 +216,8 @@ const EXEMPT_PREFIXES = [
   // "Continue with Google": the landing that turns the refresh cookie into the stored session (/auth/google/done) —
   // an auth step like /login, never a back target (/auth is a technical prefix in safe-path.ts).
   "/auth",
+  // Milestone 3: the link screen (/link/google) and the emailed link's confirmation — auth steps too.
+  "/link",
 ];
 function pageRoutes(dir: string): string[] {
   const out: string[] = [];

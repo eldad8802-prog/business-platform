@@ -99,7 +99,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     otherUnits: ["vendor-category@v1 (business memory, shadow)", "M9:REVIEW_PENDING_DOCUMENTS"],
     l0: ["documents-review-queue", "documents-inbox"],
     models: ["Document", "FinancialRecord", "VendorLearning", "ExtractionSnapshot", "SliceDecision", "ReviewEvent", "FinancialDocument",
-      "DerivedClaimProjection", "DerivedClaimEvidenceLink"],
+      "DerivedClaimProjection", "DerivedClaimEvidenceLink", "DocumentSupplierLink", "DocumentSupplierLinkEvent"],
     sensors: ["DOCUMENT_INGESTED", "DOCUMENT_REPROCESS_REQUESTED"], legacyEvents: [],
     routes: ["api/documents", "page/documents"],
     target: { coverage: "LEARNS", plan: "Add the document intake-channel mix (Document.source) so channel features are learned through here." },
@@ -473,7 +473,10 @@ export const INFRASTRUCTURE = {
     "api/preferences",
     "page/settings", "page/login", "page/register", "page/forgot-password", "page/reset-password", "page/verify-email",
     // "Continue with Google": the landing that turns the refresh cookie into the stored session (sign-in, not business evidence).
-    "page/auth", "page/dev", "page/coupon-design", "page/test-upload", "page/upload",
+    "page/auth",
+    // "Continue with Google", milestone 3: the link screen and the emailed link confirmation (sign-in, not business evidence).
+    "page/link",
+    "page/dev", "page/coupon-design", "page/test-upload", "page/upload",
     "page/admin", "page/about", "page/contact", "page/data-deletion", "page/home", "page/home-prototype", "page/privacy", "page/terms"],
   /** ProductUsageEvent is PLATFORM TELEMETRY (feature usage, platform-scoped), never business learning evidence. */
   platformTelemetry: ["ProductUsageEvent"],

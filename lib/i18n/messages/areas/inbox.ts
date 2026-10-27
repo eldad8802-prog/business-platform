@@ -349,6 +349,8 @@ export const inboxHe = {
   /** components/crm — notes + attachments sections (Customers / Leads / Suppliers). */
   crm: {
     retry: "נסו שוב",
+    loading: "טוען…",
+    shownOfTotal: "מוצגים {shown} מתוך {total}",
     confirmDelete: "למחוק?",
     deleting: "מוחק…",
     delete: "מחק",
@@ -366,6 +368,8 @@ export const inboxHe = {
       add: "הוסף הערה",
       none: "אין עדיין הערות. אפשר להוסיף את ההערה הראשונה למעלה.",
       unknownAuthor: "משתמש",
+      loadMore: "טען הערות קודמות",
+      loadMoreFailed: "לא הצלחנו לטעון הערות קודמות. ההערות שכבר מוצגות נשארו.",
       save: "שמירה",
       edit: "עריכה",
     },
@@ -380,6 +384,8 @@ export const inboxHe = {
       progress: "התקדמות העלאה",
       none: "אין עדיין קבצים. אפשר להעלות את הקובץ הראשון למעלה.",
       download: "הורדה",
+      loadMore: "טען קבצים קודמים",
+      loadMoreFailed: "לא הצלחנו לטעון קבצים קודמים. הקבצים שכבר מוצגים נשארו.",
     },
   },
 } as const;

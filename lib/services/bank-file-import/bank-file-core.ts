@@ -328,7 +328,7 @@ const DELIMITER_SAMPLE_ROWS = 40;
  * no candidate splits two rows alike ⇒ null, the import hub's own detection.
  */
 export function detectBankDelimiter(text: string): CsvDelimiter | null {
-  if (/^s*sep=/i.test(text)) return null;
+  if (/^\s*sep=/i.test(text)) return null;
   let best: CsvDelimiter | null = null;
   let bestScore = 1;
   for (const d of DELIMITERS) {

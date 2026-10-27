@@ -9,6 +9,7 @@ import {
   readCookie,
   readGoogleLoginConfig,
   sameState,
+  setLinkCookie,
   setTicketCookie,
   type TokenExchange,
 } from "@/lib/auth/google-oauth";
@@ -33,6 +34,9 @@ export const dynamic = "force-dynamic";
  * lib/auth/google-sign-in.ts decides, and this route only turns the decision into a redirect:
  *   linked account → refresh cookie → /auth/google/done (the page fetches its access token from /refresh)
  *   new person     → ticket cookie  → /register/google (NO account, NO session until completion)
+ *   existing, unlinked account → link cookie → /link/google (NO link, NO session until the owner proves
+ *                    ownership with the account's password or an emailed link)
+ *   not on the pilot list (google-oauth.ts "who") → the generic "unavailable", nothing written.
  *   anything else  → /login or /register with a reason, nothing written.
  * The URL never carries a token. OFF → 404.
  */
@@ -108,8 +112,19 @@ export async function handleGoogleCallback(req: Request, deps: CallbackRouteDeps
       setTicketCookie(res, outcome.secret);
       return res;
     }
+    case "link_ticket": {
+      const res = NextResponse.redirect(new URL("/link/google", base), 303);
+      res.headers.set("cache-control", "no-store");
+      clearStartCookie(res);
+      setLinkCookie(res, outcome.secret);
+      return res;
+    }
     case "existing_account":
       return back(base, "/login", "existing");
+    case "not_in_pilot":
+      // No address in the log: the pilot list and who tried are nobody else's business.
+      console.info("[google] sign-in refused: address not on the pilot list");
+      return back(base, page, "unavailable");
     case "refused":
       return back(base, "/login", outcome.reason === "PLATFORM_ADMIN" ? "admin" : "unavailable");
     case "signup_closed":

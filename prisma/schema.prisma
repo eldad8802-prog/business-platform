@@ -252,6 +252,8 @@ model Business {
   bookingRequests               BookingRequest[]
   appointmentManageTokens       AppointmentManageToken[]
   appointmentEvents             AppointmentEvent[]
+  documentSupplierLinks         DocumentSupplierLink[]
+  documentSupplierLinkEvents    DocumentSupplierLinkEvent[]
   users                         User[]
   vendorLearnings               VendorLearning[]
   contentRuns                   ContentRun[]
@@ -2091,18 +2093,76 @@ model EmailAttachmentImport {
 }
 
 model ExtractedData {
-  id                 Int       @id @default(autoincrement())
-  documentId         Int       @unique
-  amount             Float?
-  date               DateTime?
-  vendorName         String?
-  category           String?
-  direction          String?
-  confidenceScore    Float?
-  amountConfidence   String?
-  vendorConfidence   String?
-  categoryConfidence String?
-  document           Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id                  Int       @id @default(autoincrement())
+  documentId          Int       @unique
+  amount              Float?
+  date                DateTime?
+  vendorName          String?
+  category            String?
+  direction           String?
+  confidenceScore     Float?
+  amountConfidence    String?
+  vendorConfidence    String?
+  categoryConfidence  String?
+  // Issuer reading (migration 20261103090000, written only with document_supplier_linking ON): what the
+  // document says about who issued it — a reading, never the owner's decision (DocumentSupplierLink).
+  // issuerTaxIdSource: VENDOR_LINE | HEADER | ONLY_ON_DOCUMENT; issuerCheck: OK | NO_TAX_ID | TAX_ID_INVALID |
+  // CONFLICTING_TAX_IDS | OWN_BUSINESS_ONLY (DB CHECK constraints).
+  issuerTaxId         String?
+  issuerTaxIdSource   String?
+  issuerTaxIdValid    Boolean?
+  issuerCheck         String?
+  ownBusinessExcluded Boolean   @default(false)
+  document            Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+// The owner's decision of which supplier a document belongs to (migration 20261103090000_document_supplier_link).
+// One row per document; REMOVED keeps the row with no supplier (no DELETE anywhere). "version" is the
+// optimistic-concurrency counter every change names. Composite same-business keys to Document and Supplier,
+// FORCE RLS, per-command policies — all in the migration; the scalars here are deliberately relation-free.
+// status: ACTIVE | REMOVED; method: MANUAL_PICK | SUGGESTION_ACCEPTED; suggestionReason: TAX_ID | NAME.
+model DocumentSupplierLink {
+  id               Int       @id @default(autoincrement())
+  businessId       Int
+  documentId       Int
+  supplierId       Int?
+  status           String
+  method           String?
+  suggestionReason String?
+  version          Int       @default(1)
+  linkedByUserId   Int?
+  linkedAt         DateTime?
+  removedByUserId  Int?
+  removedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
+  business         Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, documentId])
+  @@unique([businessId, id])
+  @@index([businessId, supplierId, status])
+}
+
+// Append-only trail of every supplier decision on a document (LINKED / RELINKED / UNLINKED /
+// SUGGESTION_DISMISSED). Ids, closed tokens and times only — no free text. The runtime may add rows, never
+// change them (trigger); the acting user is erased with the account by document_supplier_link_erase_business().
+// idempotencyKey: partial unique per business (WHERE NOT NULL) — in the migration, not modelled here.
+model DocumentSupplierLinkEvent {
+  id                 Int      @id @default(autoincrement())
+  businessId         Int
+  documentId         Int
+  action             String
+  supplierId         Int?
+  previousSupplierId Int?
+  method             String?
+  suggestionReason   String?
+  actorUserId        Int?
+  idempotencyKey     String?
+  createdAt          DateTime @default(now())
+  business           Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, documentId, createdAt])
+  @@index([businessId, supplierId])
 }
 
 model FinancialRecord {

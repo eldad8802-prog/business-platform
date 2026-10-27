@@ -117,10 +117,17 @@ export async function updateStaff(
   });
 }
 
-/** States the whole list of services a staff member performs; what is not listed is marked removed. */
-export async function setStaffServices(principal: AppointmentPrincipal, staffMemberId: number, input: { services?: unknown }) {
+/**
+ * States the whole list of services a staff member performs; what is not listed is marked removed.
+ *
+ * A stale list must never remove what someone else just added: the staff member's version is bumped whenever the list
+ * really changes, and a caller that sends the version it read (expectedVersion) is refused with VERSION_CONFLICT when
+ * the list moved meanwhile — instead of overwriting it. Repeating the same list changes nothing, version included.
+ */
+export async function setStaffServices(principal: AppointmentPrincipal, staffMemberId: number, input: { services?: unknown; expectedVersion?: unknown }) {
   authorizeAppointmentAction(principal, "staff.manage");
   if (!Array.isArray(input.services) || input.services.length > 200) throw invalid("services");
+  if (input.expectedVersion !== undefined && input.expectedVersion !== null && !isPositiveInt(input.expectedVersion)) throw invalid("expectedVersion");
   const wanted = new Map<number, number | null>();
   for (const s of input.services as Array<Record<string, unknown>>) {
     if (!s || typeof s !== "object" || !isPositiveInt(s.businessServiceId)) throw invalid("services");
@@ -130,27 +137,41 @@ export async function setStaffServices(principal: AppointmentPrincipal, staffMem
   }
   const businessId = principal.businessId;
   return tenantTx(businessId, async (tx) => {
-    await ownStaff(tx, businessId, staffMemberId);
+    const member = await ownStaff(tx, businessId, staffMemberId);
+    if (input.expectedVersion !== undefined && input.expectedVersion !== null) {
+      // A conditional write takes the row lock: of two saves that read the same version, the second waits, then sees
+      // the bumped version and is refused — instead of both passing a plain read.
+      const claimed = await tx.staffMember.updateMany({ where: { id: member.id, businessId, version: input.expectedVersion as number }, data: { version: { increment: 0 } } });
+      if (claimed.count !== 1) throw new AppointmentServiceError("VERSION_CONFLICT", { version: member.version });
+    }
     for (const serviceId of wanted.keys()) await ownService(tx, businessId, serviceId);
     const live = await tx.staffServiceAssignment.findMany({ where: { businessId, staffMemberId, removedAt: null } });
     const now = new Date();
+    let changed = false;
     for (const a of live) {
       if (!wanted.has(a.businessServiceId)) {
         await tx.staffServiceAssignment.update({ where: { id: a.id }, data: { removedAt: now } });
+        changed = true;
       } else if (wanted.get(a.businessServiceId) !== a.durationOverrideMinutes) {
         await tx.staffServiceAssignment.update({ where: { id: a.id }, data: { durationOverrideMinutes: wanted.get(a.businessServiceId) ?? null } });
+        changed = true;
       }
     }
     for (const [serviceId, d] of wanted) {
       if (!live.some((a) => a.businessServiceId === serviceId)) {
         await tx.staffServiceAssignment.create({ data: { businessId, staffMemberId, businessServiceId: serviceId, durationOverrideMinutes: d } });
+        changed = true;
       }
     }
-    return tx.staffServiceAssignment.findMany({
+    const version = changed
+      ? (await tx.staffMember.update({ where: { id: member.id }, data: { version: { increment: 1 } }, select: { version: true } })).version
+      : member.version;
+    const services = await tx.staffServiceAssignment.findMany({
       where: { businessId, staffMemberId, removedAt: null },
       select: { businessServiceId: true, durationOverrideMinutes: true },
       orderBy: { businessServiceId: "asc" },
     });
+    return { services, version };
   });
 }
 

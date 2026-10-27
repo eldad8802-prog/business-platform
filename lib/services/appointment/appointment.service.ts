@@ -270,12 +270,29 @@ export type TransitionOptions = {
   /** The request's Idempotency-Key and digest (owner API); absent on the paths that predate milestone A. */
   journalKey?: string;
   digest?: JournalDigest | null;
+  /** The clock the outcome rule reads (tests pass their own); defaults to now. */
+  now?: Date;
 };
 
 /**
+ * Whether an OUTCOME (completed / no-show) may be recorded now — the rule behind every path, the owner API and the
+ * routes that predate milestone A alike:
+ *   - an outcome is recorded only once the appointment has started: an appointment that has not begun cannot have
+ *     been completed or missed (an untimed one, with no start, keeps the old behaviour);
+ *   - "no-show" is a customer's absence: an internal meeting or a block has no customer to miss it.
+ * Cancelling and confirming are not outcomes and are not touched here.
+ */
+export function outcomeRefusal(current: Pick<Appointment, "kind" | "startsAt">, to: AppointmentStatus, now: Date): "not_started" | "no_customer" | null {
+  if (to !== "COMPLETED" && to !== "NO_SHOW") return null;
+  if (to === "NO_SHOW" && current.kind !== "CUSTOMER") return "no_customer";
+  if (current.startsAt && current.startsAt.getTime() > now.getTime()) return "not_started";
+  return null;
+}
+
+/**
  * One lifecycle move of an already-loaded, already-scoped appointment, inside the caller's tenant transaction:
- * the single-source guard, the closed cancel reason, the version, the learning sensor (customer appointments only)
- * and the journal — together or not at all.
+ * the single-source guard, the outcome rule, the closed cancel reason, the version, the learning sensor (customer
+ * appointments only) and the journal — together or not at all.
  */
 export async function transitionWithinTx(
   tx: Prisma.TransactionClient,
@@ -286,6 +303,7 @@ export async function transitionWithinTx(
 ): Promise<AppointmentResult> {
   const check = assertTransition(current.status, to);
   if (!check.ok) return { ok: false, reason: "invalid_transition" };
+  if (outcomeRefusal(current, to, opts.now ?? new Date())) return { ok: false, reason: "invalid_transition" };
 
   const data: Prisma.AppointmentUpdateInput = { status: to, version: { increment: 1 } };
   if (opts.appendNote) {

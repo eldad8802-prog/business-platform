@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
 import { useRouter } from "next/navigation";
 import {
-  getSuppliers,
+  getSuppliersPage,
   createSupplier,
   type PossibleSupplierMatch,
   type SupplierListRow,
@@ -48,6 +48,11 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
   const { t } = useI18n();
   const router = useRouter();
   const [suppliers, setSuppliers] = useState<SupplierListRow[]>([]);
+  // The whole list's size (from the server), not the length of the loaded page.
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
   const [query, setQuery] = useEntryState("query", "");
   const [status, setStatus] = useEntryState<SupplierStatusFilter>("status", "active");
   const [loading, setLoading] = useState(true);
@@ -66,8 +71,11 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
       try {
         setLoading(true);
         setError(null);
-        const data = await getSuppliers({ query: q, status: st });
-        setSuppliers(Array.isArray(data) ? data : []);
+        setMoreError(null);
+        const page = await getSuppliersPage({ query: q, status: st });
+        setSuppliers(page.suppliers);
+        setTotal(page.total);
+        setHasMore(page.hasMore);
       } catch (err: unknown) {
         if (isUnauthorizedError(err)) {
           redirectToLogin();
@@ -98,6 +106,31 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
     return () => window.clearTimeout(timer);
   }, [query, status, load]);
 
+  // The next page, appended. A failure here keeps every row already shown and
+  // offers a retry; it never replaces the list with an error.
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    try {
+      setLoadingMore(true);
+      setMoreError(null);
+      const page = await getSuppliersPage({ query, status, offset: suppliers.length });
+      setSuppliers((prev) => {
+        const seen = new Set(prev.map((s) => s.id));
+        return prev.concat(page.suppliers.filter((s) => !seen.has(s.id)));
+      });
+      setTotal(page.total);
+      setHasMore(page.hasMore);
+    } catch (err: unknown) {
+      if (isUnauthorizedError(err)) {
+        redirectToLogin();
+        return;
+      }
+      setMoreError(t("customers.suppliers.list.loadMoreError"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore, query, status, suppliers.length, t]);
+
   const isSearching = query.trim().length > 0;
 
   return (
@@ -113,9 +146,9 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
           <h1 className="crm-hd__title">{t("customers.suppliers.list.title")}</h1>
           {!loading && !error ? (
             <div className="crm-hd__sub">
-              {suppliers.length === 1
-                ? t("customers.suppliers.list.countOne", { count: suppliers.length })
-                : t("customers.suppliers.list.countMany", { count: suppliers.length })}
+              {total === 1
+                ? t("customers.suppliers.list.countOne", { count: total })
+                : t("customers.suppliers.list.countMany", { count: total })}
             </div>
           ) : null}
         </div>
@@ -232,6 +265,26 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
           {suppliers.map((s) => (
             <SupplierRow key={s.id} supplier={s} selected={String(s.id) === selectedId} />
           ))}
+          {hasMore || moreError ? (
+            <div className="crm-list-more" aria-live="polite">
+              <p className="crm-list-more__note">
+                {t("customers.suppliers.list.showing", { shown: suppliers.length, total })}
+              </p>
+              {moreError ? <p className="crm-list-more__error" role="alert">{moreError}</p> : null}
+              <button
+                type="button"
+                className="crm-btn crm-btn--ghost crm-btn--full"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+              >
+                {loadingMore
+                  ? t("customers.suppliers.history.loading")
+                  : moreError
+                    ? t("customers.suppliers.common.retry")
+                    : t("customers.suppliers.list.loadMore")}
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
 

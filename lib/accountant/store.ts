@@ -36,7 +36,10 @@ export type WorkflowEventType =
   | "LINK_REFUSED"
   | "LINK_REVOKED"
   | "PERIOD_COMPLETED"
-  | "PERIOD_COMPLETED_MANUALLY";
+  | "PERIOD_COMPLETED_MANUALLY"
+  // R2 (migration 20261105090000_accountant_link_events): the accountant's portal.
+  | "LINK_VIEWED"
+  | "LINK_FILE_DOWNLOADED";
 
 export type WorkflowActor =
   | { type: "OWNER_USER"; userId: number }
@@ -86,7 +89,9 @@ export function readinessForStorage(r: Readiness): Prisma.InputJsonValue {
     warnings: r.warnings.map((w) =>
       w.kind === "DATE_FROM_UPLOAD_TIME"
         ? { kind: w.kind, count: w.count, ids: w.recordIds.slice(0, 200) }
-        : { kind: w.kind, count: w.count, ids: w.pairs.slice(0, 100).map((p) => p.recordId) }
+        : w.kind === "ORIGINAL_NOT_VERIFIED"
+          ? { kind: w.kind, count: w.count, ids: w.documentIds.slice(0, 200) }
+          : { kind: w.kind, count: w.count, ids: w.pairs.slice(0, 100).map((p) => p.recordId) }
     ),
     issuedTotals: r.issuedTotals.map((t) => ({
       documentType: t.documentType,

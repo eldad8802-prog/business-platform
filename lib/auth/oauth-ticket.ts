@@ -73,15 +73,42 @@ export async function issueSignupTicket(
   return { secret, ticketId: rows[0].ticket_id, expiresAt: rows[0].expires_at };
 }
 
+/**
+ * Issue a LINK ticket: a verified Google identity whose address belongs to an existing, unlinked account
+ * (milestone 3). It authenticates nothing; the account is linked only after its owner proves ownership
+ * (lib/auth/google-link.ts). Null when the database issued nothing (the hourly ceiling).
+ */
+export async function issueLinkTicket(
+  identity: GoogleIdentity,
+  client: SqlClient = authDb()
+): Promise<IssuedTicket | null> {
+  const { secret, secretHash } = mintTicketSecret();
+  const rows = await client.$queryRaw<{ ticket_id: string; expires_at: Date }[]>`
+    SELECT ticket_id, expires_at
+      FROM public.auth_oauth_ticket_issue('LINK', ${OAUTH_PROVIDER_GOOGLE}::text, ${identity.subject}::text,
+                                          ${identity.email}::text, ${identity.name}::text, true, ${secretHash}::text)`;
+  if (rows.length !== 1) return null;
+  return { secret, ticketId: rows[0].ticket_id, expiresAt: rows[0].expires_at };
+}
+
 export type TicketView = { email: string; name: string | null; expiresAt: Date };
+
+async function readTicket(secret: unknown, purpose: OAuthTicketPurpose, client: SqlClient): Promise<TicketView | null> {
+  if (!isTicketSecret(secret)) return null;
+  const rows = await client.$queryRaw<{ email: string; name: string | null; expires_at: Date }[]>`
+    SELECT email, name, expires_at FROM public.auth_oauth_ticket_read(${secret}, ${purpose})`;
+  if (rows.length !== 1) return null;
+  return { email: rows[0].email, name: rows[0].name, expiresAt: rows[0].expires_at };
+}
 
 /** What the completion form may show for the ticket this browser holds; null when it is not open. */
 export async function readSignupTicket(secret: unknown, client: SqlClient = authDb()): Promise<TicketView | null> {
-  if (!isTicketSecret(secret)) return null;
-  const rows = await client.$queryRaw<{ email: string; name: string | null; expires_at: Date }[]>`
-    SELECT email, name, expires_at FROM public.auth_oauth_ticket_read(${secret}, 'SIGNUP')`;
-  if (rows.length !== 1) return null;
-  return { email: rows[0].email, name: rows[0].name, expiresAt: rows[0].expires_at };
+  return readTicket(secret, "SIGNUP", client);
+}
+
+/** What the link screen may show for the LINK ticket this browser holds; null when it is not open. */
+export async function readLinkTicket(secret: unknown, client: SqlClient = authDb()): Promise<TicketView | null> {
+  return readTicket(secret, "LINK", client);
 }
 
 export type SpentTicket = { ticketId: string; subject: string; email: string; name: string | null };
@@ -121,13 +148,22 @@ export type TicketCancelOutcome = (typeof TICKET_CANCEL_OUTCOMES)[number];
  * a ticket never reaches the database (NOT_FOUND). Throws on a database failure: the caller must then NOT
  * report the ticket as cancelled.
  */
-export async function cancelSignupTicket(secret: unknown, client: SqlClient = authDb()): Promise<TicketCancelOutcome> {
+export async function cancelSignupTicket(
+  secret: unknown,
+  client: SqlClient = authDb(),
+  purpose: OAuthTicketPurpose = "SIGNUP"
+): Promise<TicketCancelOutcome> {
   if (!isTicketSecret(secret)) return "NOT_FOUND";
   const rows = await client.$queryRaw<{ outcome: string }[]>`
-    SELECT public.auth_oauth_ticket_cancel(${secret}::text, 'SIGNUP') AS outcome`;
+    SELECT public.auth_oauth_ticket_cancel(${secret}::text, ${purpose}) AS outcome`;
   const outcome = rows[0]?.outcome;
   if (!(TICKET_CANCEL_OUTCOMES as readonly string[]).includes(outcome ?? "")) throw new Error("oauth_ticket_cancel_unexpected_answer");
   return outcome as TicketCancelOutcome;
+}
+
+/** The same server-side cancel for the LINK ticket the link screen holds. */
+export function cancelLinkTicket(secret: unknown, client: SqlClient = authDb()): Promise<TicketCancelOutcome> {
+  return cancelSignupTicket(secret, client, "LINK");
 }
 
 export type AttachedIdentity = { identityId: number; emailVerifiedAt: Date | null };

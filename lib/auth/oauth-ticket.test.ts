@@ -54,8 +54,11 @@ ok("the module calls exactly the seven definer functions (purge through its swee
   ].join(","), called.join(","));
 ok("it never names a table (no direct read or write of OAuthSignupTicket / UserIdentity)",
   !/"OAuthSignupTicket"|"UserIdentity"|\.oAuthSignupTicket\.|\.userIdentity\./.test(src));
-ok("it spends and reads tickets for SIGNUP only (LINK arrives with milestone 3)",
-  /auth_oauth_ticket_consume\(\$\{secret\}, 'SIGNUP'\)/.test(src) && /auth_oauth_ticket_read\(\$\{secret\}, 'SIGNUP'\)/.test(src) && !/'LINK'/.test(src));
+ok("it spends tickets for SIGNUP only (milestone 3's LINK spend lives in lib/auth/google-link.ts, inside the link transaction)",
+  /auth_oauth_ticket_consume\(\$\{secret\}, 'SIGNUP'\)/.test(src) && !/auth_oauth_ticket_consume\([^)]*'LINK'/.test(src));
+ok("it issues, reads and cancels LINK tickets (milestone 3) with the purpose fixed by the function, never by a caller's string",
+  /auth_oauth_ticket_issue\('LINK'/.test(src) && /return readTicket\(secret, "LINK", client\)/.test(src) && /return readTicket\(secret, "SIGNUP", client\)/.test(src)
+  && /return cancelSignupTicket\(secret, client, "LINK"\)/.test(src));
 ok("it uses tagged $queryRaw only (no Unsafe interpolation)", /\$queryRaw</.test(src) && !/\$queryRawUnsafe|\$executeRawUnsafe/.test(src));
 ok("it logs nothing", !/console\./.test(src));
 ok("it rejects a malformed secret before any query", /if \(!isTicketSecret\(secret\)\) throw new SignupTicketRefusedError\(\)/.test(src)
@@ -80,6 +83,13 @@ const ALLOWED_IMPORTERS = new Set([
   "app/api/auth/google/callback/route.ts",
   "app/api/auth/google/complete/route.ts",
   "app/api/auth/google/ticket/route.ts",
+  // Milestone 3: the link screen (view / cancel), its password and email proofs, and the link module.
+  "app/api/auth/google/link/route.ts",
+  "app/api/auth/google/link/password/route.ts",
+  "app/api/auth/google/link/email/route.ts",
+  // The pilot: the emailed-link completion reads its ticket's address before anything is spent.
+  "app/api/auth/google/link/email/complete/route.ts",
+  "lib/auth/google-link.ts",
   "app/api/transactional-email/sweep/route.ts",
   "lib/auth/google-sign-in.ts",
   "lib/auth/oauth-ticket.ts", // the GoogleIdentity type

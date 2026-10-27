@@ -17,6 +17,7 @@ import {
   type StorageDomain,
   type StorageService,
   type StorageVisibility,
+  type SignedDownloadResponse,
 } from "./types";
 import {
   StorageConfigError,
@@ -276,7 +277,7 @@ export class R2StorageService implements StorageService {
     );
   }
 
-  async getSignedDownloadUrl(key: string, ttlSeconds?: number): Promise<string> {
+  async getSignedDownloadUrl(key: string, ttlSeconds?: number, response?: SignedDownloadResponse): Promise<string> {
     const normalized = normalizeStorageKey(key);
     const metadata = await this.getMetadata(normalized);
 
@@ -292,6 +293,8 @@ export class R2StorageService implements StorageService {
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: normalized,
+        ...(response?.contentDisposition ? { ResponseContentDisposition: response.contentDisposition } : {}),
+        ...(response?.contentType ? { ResponseContentType: response.contentType } : {}),
       }),
       { expiresIn: ttl }
     );

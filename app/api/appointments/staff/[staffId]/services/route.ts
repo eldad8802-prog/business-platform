@@ -9,6 +9,6 @@ type Params = { params: Promise<{ staffId: string }> };
 export async function PUT(req: Request, { params }: Params) {
   return appointmentsRoute(req, async ({ principal }) => {
     const id = positiveId((await params).staffId);
-    return json({ services: await setStaffServices(principal, id, await jsonBody(req)) });
+    return json(await setStaffServices(principal, id, await jsonBody(req)));
   });
 }

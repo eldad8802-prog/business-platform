@@ -13,6 +13,15 @@ import { getStorageService, loadStorageConfig } from "@/lib/storage";
 
 export const PACKAGE_SIGNED_URL_TTL_SECONDS = 300;
 
+/**
+ * Everything the accountant's link hands out — one file of the portal, a report, and the ZIP. A signed URL
+ * cannot be withdrawn once handed out: after the owner revokes the link (or it expires), a URL issued just
+ * before stays usable until it lapses, so the window is kept to one minute. The storage host checks the
+ * signature when a request starts; a download already running (a large ZIP) is not cut off. The owner's own
+ * download (servePackageObject) keeps PACKAGE_SIGNED_URL_TTL_SECONDS.
+ */
+export const PORTAL_SIGNED_URL_TTL_SECONDS = 60;
+
 export async function servePackageObject(
   storageKey: string,
   downloadName: string,
@@ -40,4 +49,38 @@ export async function servePackageObject(
 /** ASCII file name for the download (the Hebrew period label lives inside the ZIP). */
 export function packageDownloadName(periodKey: string, version: number): string {
   return `accountant-package-${periodKey}-v${version}.zip`;
+}
+
+/**
+ * One file of a delivered package for the accountant's portal: like servePackageObject, plus how the browser
+ * should treat it — "view" opens it (inline; only PDF / images reach here), "download" saves it under the
+ * ASCII name. The signed URL asks the storage host for those headers; the object itself is never changed.
+ */
+export async function serveLinkObject(
+  storageKey: string,
+  downloadName: string,
+  contentType: string,
+  mode: "view" | "download"
+): Promise<Response> {
+  const safeName = downloadName.replace(/[^A-Za-z0-9._-]/g, "_");
+  const disposition = `${mode === "view" ? "inline" : "attachment"}; filename="${safeName}"`;
+  const storage = getStorageService();
+  if (loadStorageConfig().provider === "local") {
+    const object = await storage.getObject(storageKey);
+    return new Response(new Uint8Array(object.body), {
+      headers: {
+        "Content-Type": contentType,
+        "Content-Disposition": disposition,
+        "Content-Length": String(object.body.byteLength),
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+      },
+    });
+  }
+  const url = await storage.getSignedDownloadUrl(storageKey, PORTAL_SIGNED_URL_TTL_SECONDS, { contentDisposition: disposition, contentType });
+  return Response.json(
+    { url, fileName: safeName },
+    { headers: { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } }
+  );
 }

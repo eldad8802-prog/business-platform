@@ -82,6 +82,13 @@ export interface StorageService {
   headObject(key: string): Promise<HeadObjectResult>;
   getMetadata(key: string): Promise<ObjectMetadata>;
   deleteObject(key: string): Promise<void>;
-  getSignedDownloadUrl(key: string, ttlSeconds?: number): Promise<string>;
+  getSignedDownloadUrl(key: string, ttlSeconds?: number, response?: SignedDownloadResponse): Promise<string>;
   getPublicUrl(key: string): string | null;
 }
+
+/**
+ * Optional response headers a signed GET asks the storage host to send (S3 response-content-*). Lets a
+ * private object open in the browser (inline) or save under a given name (attachment) without changing
+ * the object. Absent = the object's own headers, as before.
+ */
+export type SignedDownloadResponse = { contentDisposition?: string; contentType?: string };

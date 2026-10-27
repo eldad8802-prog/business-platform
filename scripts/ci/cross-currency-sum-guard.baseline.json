@@ -444,6 +444,51 @@
       "risk": "SAFE",
       "reason": "SAFE by construction: every sibling link names the same money object, and the RevenueLink_guard trigger (migration 20261028090000) refuses a link whose currency differs from the object it names — so all summed linkedMinor values share one currency.",
       "lineAtBaseline": 377
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "grossMinor",
+      "match": "t.grossMinor += s.grossMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: the non-register (otherSources) figures are added into other(row.currency, kind) — the CurrencyView of THAT row`s currency, keyed by source kind; nothing adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts sections 8 and S.",
+      "lineAtBaseline": 448
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "discountMinor",
+      "match": "t.discountMinor += s.discountMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: the non-register (otherSources) figures are added into other(row.currency, kind) — the CurrencyView of THAT row`s currency, keyed by source kind; nothing adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts sections 8 and S.",
+      "lineAtBaseline": 449
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "vatMinor",
+      "match": "t.vatMinor += s.vatMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: the non-register (otherSources) figures are added into other(row.currency, kind) — the CurrencyView of THAT row`s currency, keyed by source kind; nothing adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts sections 8 and S.",
+      "lineAtBaseline": 450
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "totalMinor",
+      "match": "if (s.kind === \"REFUND\") t.refundsMinor += s.totalMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: the non-register (otherSources) figures are added into other(row.currency, kind) — the CurrencyView of THAT row`s currency, keyed by source kind; nothing adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts sections 8 and S.",
+      "lineAtBaseline": 452
+    },
+    {
+      "file": "lib/revenue-truth/read-model.ts",
+      "rule": "JS_ACCUMULATE",
+      "column": "totalMinor",
+      "match": "else t.voidsMinor += s.totalMinor;",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: the non-register (otherSources) figures are added into other(row.currency, kind) — the CurrencyView of THAT row`s currency, keyed by source kind; nothing adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts sections 8 and S.",
+      "lineAtBaseline": 453
     }
   ]
 }

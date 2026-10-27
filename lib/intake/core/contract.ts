@@ -44,6 +44,7 @@ export const ROUTE_TARGETS = [
   "customer", // a contact record only
   "commerce", // an order / checkout (never a Lead)
   "call", // M7-A — one business call (never a Lead, never a Customer by itself)
+  "revenue", // S1-A — a sales document / receipt → revenue truth (never a Lead, never an order, no identity)
   "document", // the documents intake (stays authoritative for documents)
   "attention", // needs a human; no domain write
   "none", // understood, deliberately not materialised

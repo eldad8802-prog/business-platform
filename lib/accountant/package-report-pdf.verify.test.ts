@@ -13,7 +13,7 @@ import ExcelJS from "exceljs";
 import JSZip from "jszip";
 
 import type { IssuedDocumentFact, PeriodFacts, ScannedRecordFact } from "./package-scope";
-import { buildPackageReportModel, cellDisplay, renderPackageReportHtml } from "./package-report-pdf";
+import { PdfRenderError, buildPackageReportModel, cellDisplay, chromiumMode, renderPackageReportHtml, sanitizeRenderError } from "./package-report-pdf";
 import { buildAccountantPackage } from "@/lib/reports/accountant-export-zip";
 
 let failed = 0;
@@ -122,6 +122,17 @@ async function main() {
   ok("no BiDi control characters are injected", !/[‪-‮⁦-⁩]/.test(html));
   ok("numbers are LTR-isolated", html.includes('<span class="pdf-dyn pdf-dyn--ltr" dir="ltr">1,234.50</span>'));
   ok("the sealed sha256 prefix is printed", html.includes(built.sha256.slice(0, 16)));
+
+  // ── Where Chromium comes from, and what a failure tells the log ──
+  ok("on Vercel the serverless Chromium is used", chromiumMode({ VERCEL: "1" } as NodeJS.ProcessEnv) === "serverless");
+  ok("on Lambda too", chromiumMode({ AWS_LAMBDA_FUNCTION_NAME: "f" } as NodeJS.ProcessEnv) === "serverless");
+  ok("locally and in CI the installed browser is used", chromiumMode({} as NodeJS.ProcessEnv) === "local" && chromiumMode({ VERCEL: "0" } as NodeJS.ProcessEnv) === "local");
+  const missing = new Error("browserType.launch: Executable doesn't exist at /var/task/x/chrome\n\u2554\u2550\u2550 Looks like Playwright was just installed \u2550\u2557");
+  const line = sanitizeRenderError(missing);
+  ok("the log keeps the reason's first line, with the error name", line === "Error: browserType.launch: Executable doesn't exist at /var/task/x/chrome", line);
+  ok("no newline, no box drawing, at most 240 characters", !/[\n\r\u2500-\u257F]/.test(line) && sanitizeRenderError(new Error("x".repeat(500))).length <= 240);
+  const pe = new PdfRenderError("launch", "serverless", line);
+  ok("a render error carries its stage and browser source", pe.stage === "launch" && pe.mode === "serverless" && pe.name === "PdfRenderError");
 
   if (failed) {
     console.log(`package-report-pdf: ${failed} failed`);

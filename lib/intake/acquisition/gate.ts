@@ -23,6 +23,8 @@ export const CONNECTION_SOURCE_KEYS = [
   "commerce.wix",
   "telephony.cloudtalk",
   "telephony.voicenter",
+  // S1-A — Rivhit sales documents → revenue truth (polled; read-only).
+  "pos.rivhit",
 ] as const;
 export type ConnectionSourceKey = (typeof CONNECTION_SOURCE_KEYS)[number];
 export function isConnectionSourceKey(v: unknown): v is ConnectionSourceKey {
@@ -37,6 +39,7 @@ export const SOURCE_FEATURE: Record<ConnectionSourceKey, string> = {
   "commerce.wix": PLATFORM_FEATURE_KEYS.COMMERCE_WIX,
   "telephony.cloudtalk": PLATFORM_FEATURE_KEYS.TELEPHONY_CLOUDTALK,
   "telephony.voicenter": PLATFORM_FEATURE_KEYS.TELEPHONY_VOICENTER,
+  "pos.rivhit": PLATFORM_FEATURE_KEYS.POS_RIVHIT,
 };
 /** M6 name, kept for its callers. */
 export const ACQUISITION_FEATURE: Record<AcquisitionSourceKey, string> = SOURCE_FEATURE;

@@ -1,17 +1,16 @@
 /**
- * Billing HTML→PDF via Playwright Chromium.
+ * Billing HTML→PDF via Chromium.
  *
  * Dev/local: run `npx playwright install chromium` once so the browser binary exists.
  *
- * Production / serverless (e.g. Vercel): bundling Chromium or calling a remote browser
- * is not addressed here — deploy targets without a local Playwright browser should keep
- * `BILLING_PDF_RENDERER=pdfmake` (legacy path) or supply a compatible runtime.
+ * Production / serverless (Vercel): the shared launcher (lib/pdf/chromium.ts) starts the serverless
+ * Chromium build. Only the browser changes — the HTML, the page options and the bytes' meaning do not.
  */
 
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { chromium } from "playwright";
 
+import { launchChromium } from "@/lib/pdf/chromium";
 import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
 import { escapeHtmlForPdf } from "@/lib/services/billing/pdf/billing-pdf-text-policy";
 import { buildBillingInvoiceHtml } from "@/lib/services/billing/pdf/billing-pdf-html-template";
@@ -95,10 +94,7 @@ export async function renderBillingPdfHtmlFromSnapshot(
   const fontDataUri = getNotoSansHebrewFontDataUri();
   const html = buildBillingInvoiceHtml(snapshot, fontDataUri);
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
+  const browser = await launchChromium();
 
   try {
     const page = await browser.newPage();

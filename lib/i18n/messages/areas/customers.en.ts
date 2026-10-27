@@ -494,6 +494,9 @@ export const customersEn: Widen<typeof customersHe> = {
       emptyNoneBody: "Add your first supplier to manage contact details and lead times in one place.",
       openFile: "Supplier file",
       openFileAria: "Open {name}'s supplier file",
+      loadMore: "Load more suppliers",
+      loadMoreError: "We couldn't load more suppliers. The ones already shown are still here.",
+      showing: "Showing {shown} of {total}",
     },
     create: {
       title: "New supplier",

@@ -10,6 +10,16 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "static: for a business with bank_file_import ON the old statement upload API refuses before reading the body (ON 409, an unresolvable flag 503, only OFF passes), the old screen links to /payables/bank/import and never renders the old form, the manual line entry is untouched, and the statement upload is called from exactly one (guarded) route; run on pull_request by security-gate (lab pure) and bank-file-import-ci.yml"
+    },
+    "lib/services/bank-file-import/http.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (real Request/FormData, no DB): the commit form as the routes read it — decisions keyed by row number accepted (the lost-backslash regression), non-digit / negative / fractional keys, other values and malformed JSON refused, mapping parsing, business and user from the session actor never the form; run on pull_request by security-gate (lab pure) and bank-file-import-ci.yml"
+    },
+    "lib/bank-file-import/bank-import-client.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (stubbed fetch and localStorage): every bank import request from the browser carries the session Bearer token (the missing-token regression found in a browser walkthrough), multipart bodies with no forced Content-Type, decisions keyed by row number, statuses and server codes preserved, no header invented when signed out; run on pull_request by security-gate (lab pure) and bank-file-import-ci.yml"
     }
   }
 }

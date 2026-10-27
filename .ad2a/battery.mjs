@@ -358,6 +358,20 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.appointment_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.appointment_erase_business() TO ${RT_ROLE}`);
   }
+  // Document ↔ supplier link — migration 20261103090000_document_supplier_link. Account erasure reaches its two
+  // tables ONLY through document_supplier_link_erase_business() (SECURITY DEFINER, EXECUTE to the runtime alone; it
+  // nulls who linked / removed / acted), so only that function is mirrored, from the migration's own text.
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261103090000_document_supplier_link/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.document_supplier_link_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("document_supplier_link_erase_business() not found in migration 20261103090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.document_supplier_link_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.document_supplier_link_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //

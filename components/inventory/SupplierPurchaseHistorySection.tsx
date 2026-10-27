@@ -54,6 +54,8 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** A failed next page — shown under the rows already loaded, never instead of them. */
+  const [moreError, setMoreError] = useState<string | null>(null);
   const loadingMoreRef = useRef(false);
   // Retry re-runs the first-page effect by bumping this key (event-driven setState),
   // which keeps the effect body's own setState calls all post-await.
@@ -104,6 +106,7 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
     if (loadingMoreRef.current || !pagination?.hasMore) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
+    setMoreError(null);
     try {
       const nextOffset = pagination.offset + pagination.limit;
       const data = await getSupplierPurchaseHistory(supplierId, {
@@ -118,8 +121,10 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
         redirectToLogin();
         return;
       }
-      // A failed "load more" keeps the already-loaded rows and the rest of the card.
-      setError(t("customers.suppliers.history.errorLoadMore"));
+      // A failed "load more" keeps the already-loaded rows and the rest of the card:
+      // it has its OWN state. Setting the section-level `error` here used to replace
+      // every loaded row with an error panel, and its retry restarted from page one.
+      setMoreError(t("customers.suppliers.history.errorLoadMore"));
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
@@ -209,14 +214,19 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
               {t("customers.customer.card.showMore", { count: items.length - PREVIEW_ORDERS })}
             </button>
           ) : expanded && pagination?.hasMore ? (
-            <div style={{ marginTop: 12 }}>
+            <div className="crm-list-more" style={{ marginTop: 12 }} aria-live="polite">
+              {moreError ? <p className="crm-list-more__error" role="alert">{moreError}</p> : null}
               <button
                 type="button"
                 className="crm-btn crm-btn--ghost crm-btn--full"
                 onClick={() => void loadMore()}
                 disabled={!canLoadMore(pagination.hasMore, loadingMore)}
               >
-                {loadingMore ? t("customers.suppliers.history.loading") : t("customers.suppliers.history.loadMore")}
+                {loadingMore
+                  ? t("customers.suppliers.history.loading")
+                  : moreError
+                    ? t("customers.suppliers.history.retry")
+                    : t("customers.suppliers.history.loadMore")}
               </button>
             </div>
           ) : null}

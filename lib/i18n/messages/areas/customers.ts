@@ -494,6 +494,9 @@ export const customersHe = {
       emptyNoneBody: "הוסיפו את הספק הראשון כדי לנהל את פרטי הקשר וזמני האספקה במקום אחד.",
       openFile: "תיק ספק",
       openFileAria: "פתיחת תיק הספק של {name}",
+      loadMore: "טען עוד ספקים",
+      loadMoreError: "לא הצלחנו לטעון עוד ספקים. הספקים שכבר מוצגים נשארו.",
+      showing: "מוצגים {shown} מתוך {total}",
     },
     create: {
       title: "ספק חדש",
