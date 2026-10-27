@@ -29,7 +29,10 @@ const NAV: NavEntry[] = [
   { href: "/admin/security", label: "אבטחה", icon: "shield" },
 ];
 
-const TOOLS: NavEntry[] = [{ href: "/admin/diagnostics", label: "בדיקות מערכת", icon: "tools" }];
+const TOOLS: NavEntry[] = [
+  { href: "/admin/diagnostics", label: "בדיקות מערכת", icon: "tools" },
+  { href: "/admin/accountant-ops", label: "ניטור חבילת רו״ח", icon: "tools" },
+];
 
 function isActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false;

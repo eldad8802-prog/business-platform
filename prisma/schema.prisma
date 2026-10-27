@@ -7735,6 +7735,67 @@ model AccountantWorkflowEvent {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Accountant package — operations monitoring (G5 milestone 1) — migration 20261107090000_accountant_ops_monitor.
+// The run log of the sweep and its monitor, and the monitor's alerts (one OPEN row per finding: partial unique
+// indexes in the migration, not expressible here). Codes, subjects (a month key / a delivery id), times and counts
+// only — closed by CHECKs. Written with raw SQL (lib/accountant/ops). AccountantBusinessAlert is tenant data under
+// FORCE RLS; its FK to "Business" is DB-only (no back-relation on an existing model), like the revenue tables.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AccountantOpsRun {
+  id         Int       @id @default(autoincrement())
+  /// SWEEP | MONITOR (CHECK)
+  kind       String
+  /// VERCEL_CRON | GITHUB_ACTIONS (CHECK)
+  source     String
+  startedAt  DateTime
+  finishedAt DateTime?
+  /// RUNNING | OK | FAILED (CHECK)
+  outcome    String
+  /// Numbers and booleans only (CHECK).
+  counts     Json      @default("{}")
+  errorCode  String?
+
+  @@index([kind, startedAt(sort: Desc)])
+}
+
+model AccountantOpsAlert {
+  id                 Int       @id @default(autoincrement())
+  code               String
+  /// "-" or "<p|d>:<month key | delivery id>"
+  subjectKey         String
+  /// CRITICAL | HIGH | MEDIUM (CHECK)
+  severity           String
+  detail             Json      @default("{}")
+  openedAt           DateTime
+  lastSeenAt         DateTime
+  notifyCount        Int       @default(0)
+  lastNotifiedAt     DateTime?
+  resolvedAt         DateTime?
+  resolvedNotifiedAt DateTime?
+
+  @@index([openedAt(sort: Desc)])
+}
+
+model AccountantBusinessAlert {
+  id                 Int       @id @default(autoincrement())
+  businessId         Int
+  code               String
+  subjectKey         String
+  severity           String
+  detail             Json      @default("{}")
+  openedAt           DateTime
+  lastSeenAt         DateTime
+  notifyCount        Int       @default(0)
+  lastNotifiedAt     DateTime?
+  resolvedAt         DateTime?
+  resolvedNotifiedAt DateTime?
+
+  @@unique([businessId, id])
+  @@index([openedAt(sort: Desc)])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Revenue truth (milestone A) — migration 20261028090000_revenue_truth_foundation.
 // docs/revenue-truth-milestone-a.md. Four layers of evidence for one sale: sale (RevenueSale, RevenueDailyClose
 // + lines) → receipt (RevenueReceipt) → settlement (RevenueSettlement) → deposit (EXISTING ExternalTransaction).

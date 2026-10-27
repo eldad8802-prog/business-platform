@@ -63,6 +63,8 @@ export type DeliveryView = {
   linkState: LinkState;
   /** What the accountant did with the link, from the trail (counts and times only). */
   portal: { views: number; firstViewedAt: string | null; lastViewedAt: string | null; fileDownloads: number; lastFileDownloadAt: string | null };
+  /** The provider reported that the recipient marked this email as spam (an audit fact; the status is unchanged). */
+  complainedAt: string | null;
 };
 
 export type RecipientView = { name: string; email: string; version: number; updatedAt: string };
@@ -131,17 +133,17 @@ export async function getPeriodView(businessId: number, periodKey: PeriodKey, no
       orderBy: { id: "desc" },
       take: 10,
     });
-    // The accountant's use of each link (R2 events), aggregated — counts and times, never paths or names.
+    // The accountant's use of each link (R2 events) and a spam complaint (G5), aggregated — counts and times only.
     const access = deliveries.length
       ? await tx.accountantWorkflowEvent.groupBy({
           by: ["deliveryId", "eventType"],
-          where: { businessId, deliveryId: { in: deliveries.map((d) => d.id) }, eventType: { in: ["LINK_VIEWED", "LINK_FILE_DOWNLOADED"] } },
+          where: { businessId, deliveryId: { in: deliveries.map((d) => d.id) }, eventType: { in: ["LINK_VIEWED", "LINK_FILE_DOWNLOADED", "DELIVERY_COMPLAINED"] } },
           _count: { _all: true },
           _min: { occurredAt: true },
           _max: { occurredAt: true },
         })
       : [];
-    const accessOf = (deliveryId: number, type: "LINK_VIEWED" | "LINK_FILE_DOWNLOADED") =>
+    const accessOf = (deliveryId: number, type: "LINK_VIEWED" | "LINK_FILE_DOWNLOADED" | "DELIVERY_COMPLAINED") =>
       access.find((a) => a.deliveryId === deliveryId && a.eventType === type);
     const readiness = parseStoredReadiness(period.readiness);
     const manifest = pkg ? parseStoredManifest(pkg.manifest) : null;
@@ -209,6 +211,7 @@ export async function getPeriodView(businessId: number, periodKey: PeriodKey, no
             lastFileDownloadAt: iso(f?._max.occurredAt ?? null),
           };
         })(),
+        complainedAt: iso(accessOf(d.id, "DELIVERY_COMPLAINED")?._min.occurredAt ?? null),
       })),
       recipient: recipientView,
       completedManually: period.completionKind === "MANUAL",
