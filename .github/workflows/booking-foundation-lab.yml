@@ -1,0 +1,144 @@
+# Milestone C / migration 20261106090000_public_booking_foundation — proof on PostgreSQL BEFORE it reaches Production
+# (ephemeral PG17). Migration-first: this PR ships the migration and its proof only.
+#
+# .bkg/lab.sh builds Production's topology on top of the appointments lab (.appt/lab.sh → .acct/lab.sh): non-superuser
+# CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, the appointments foundation applied, and the
+# ledger completed with every migration that sorts before this one.
+#
+#   0. Evidence files are SELECT-only; the proof pins migration.sql's sha256.
+#   1. Baseline (pending): the preflight passes whole; the proof refuses.
+#   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: the proof passes whole; the preflight then
+#      fails exactly its "not there yet" checks.
+#   3. Role battery (.bkg/migration-battery.ts) on a lab with rows that existed BEFORE the migration: defaults, checks,
+#      the three doors (definer, pinned path, EXECUTE for app_runtime only), resolution only of an enabled link of a live
+#      business, pending-due ids only, manage-token resolution, isolation unchanged.
+#   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   5. Rollback: refused while the foundation is in use; whole on an unused database (the preflight whole again).
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: public booking foundation — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261106090000_public_booking_foundation/**"
+      - "ops/evidence/public-booking-foundation-*.sql"
+      - ".bkg/**"
+      - ".github/workflows/booking-foundation-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: public booking foundation (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: bkg_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: bkg_ci_synthetic_super_pw
+      LAB_PASSWORD: bkg_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/public-booking-foundation-preflight.sql
+      PROOF: ops/evidence/public-booking-foundation-production-evidence.sql
+      MIGRATION: prisma/migrations/20261106090000_public_booking_foundation/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files — SELECT-only, checksum pinned
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$PROOF"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+          done
+          sum=$(sha256sum "$MIGRATION" | cut -d' ' -f1)
+          grep -q "'$sum'" "$PROOF" || { echo "the proof does not pin $sum"; exit 1; }
+          echo "evidence clean; checksum pinned $sum"
+
+      - name: 1. Baseline — pending; the preflight passes whole, the proof refuses
+        run: |
+          set -euo pipefail
+          bash .bkg/lab.sh bkg_base
+          q() { PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d "$1" -v ON_ERROR_STOP=1 -f "$2" | grep -E '^[0-9]+\|' ; }
+          q bkg_base "$PREFLIGHT" | tee /tmp/pre.out
+          ! grep -q '|FAIL|' /tmp/pre.out || { echo "preflight not whole on the baseline"; exit 1; }
+          # Before the migration the proof refuses: it names the new column, so it either errors or fails check 1.
+          if PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d bkg_base -v ON_ERROR_STOP=1 -f "$PROOF" > /tmp/proof0.out 2>&1; then
+            grep -q '^1|FAIL|' /tmp/proof0.out || { cat /tmp/proof0.out; echo "the proof should refuse before the migration"; exit 1; }
+          else
+            grep -q 'publicBookable" does not exist' /tmp/proof0.out || { cat /tmp/proof0.out; echo "the proof failed for another reason"; exit 1; }
+          fi
+          echo "the proof refuses before the migration"
+
+      - name: 2. Release — migrate deploy applies exactly this one; the proof passes whole
+        run: |
+          set -euo pipefail
+          bash .bkg/lab.sh bkg_proof --with-bkg
+          q() { PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d "$1" -v ON_ERROR_STOP=1 -f "$2" | grep -E '^[0-9]+\|' ; }
+          q bkg_proof "$PROOF" | tee /tmp/proof.out
+          ! grep -q '|FAIL|' /tmp/proof.out || { echo "proof not whole after the release"; exit 1; }
+          q bkg_proof "$PREFLIGHT" | tee /tmp/pre2.out
+          fails=$(grep '|FAIL|' /tmp/pre2.out | cut -d'|' -f1 | tr '\n' ' ')
+          test "$fails" = "2 6 7 8 9 10 " || { echo "after the release the preflight should fail exactly 2 6 7 8 9 10, got: $fails"; exit 1; }
+
+      - name: 3. Role battery — existing rows, checks, the three doors, isolation
+        run: |
+          set -euo pipefail
+          bash .bkg/lab.sh bkg_mig
+          PGPASSWORD="$LAB_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -U lab_owner -d bkg_mig -f .bkg/pre.sql
+          bash .bkg/lab.sh bkg_mig --deploy-only
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bkg_mig?$TZQ" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bkg_mig?$TZQ" \
+            npx tsx .bkg/migration-battery.ts
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .bkg/lab.sh bkg_broken --broken-bkg
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d bkg_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -c "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name IN ('StaffMember','BookingSettings') AND column_name IN ('publicBookable','assignmentMode','selfCancelEnabled','selfCancelWindowHours','maxOpenRequestsPerPhone','showAddress','showBusinessDetails','showPrices','showStaffNames'))
+            + (SELECT count(*) FROM pg_type WHERE typname = 'BookingAssignmentMode')
+            + (SELECT count(*) FROM pg_proc WHERE proname LIKE 'booking\_%')
+            + (SELECT count(*) FROM pg_constraint WHERE conname IN ('BookingSettings_self_cancel_window','BookingSettings_open_per_phone'))")
+          echo "objects left=$left"
+          test "$left" = "0" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Rollback — refused while in use; whole on an unused database
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -v ON_ERROR_STOP=1 "$@"; }
+          if lab -d bkg_mig -f .bkg/rollback.sql 2>/tmp/rb.err >/dev/null; then echo "rollback ran over a foundation in use"; exit 1; fi
+          grep -q "public booking rollback refused" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          lab -d bkg_proof -f .bkg/rollback.sql
+          fails=$(PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d bkg_proof -v ON_ERROR_STOP=1 -f "$PREFLIGHT" | grep -E '^[0-9]+\|FAIL' | cut -d'|' -f1 | tr '\n' ' ' || true)
+          test -z "$fails" || { echo "after rollback the preflight should be whole, got: $fails"; exit 1; }
+          echo "rollback reverted the migration whole"
