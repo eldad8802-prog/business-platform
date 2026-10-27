@@ -72,6 +72,11 @@ export type DocumentSupplierLinkState = {
   } | null;
   reading: {
     vendorName: string | null;
+    /**
+     * The reading names a supplier the screen may present as identified: a distinctive name (not a generic word
+     * such as "חשבונית") that is not the business itself. False ⇒ "no supplier identified with confidence".
+     */
+    vendorIdentified: boolean;
     issuerTaxId: string | null;
     issuerCheck: string | null;
     ownBusinessExcluded: boolean;
@@ -139,8 +144,11 @@ export async function computeSuggestionsTx(
     },
   });
   if (!extracted) return { suggestions: [], notes: ["NO_READING"], reading: null };
+  const own = await loadOwnIdentityTx(tx, businessId);
+  const vendorKey = nameKey(extracted.vendorName);
   const reading = {
     vendorName: extracted.vendorName,
+    vendorIdentified: vendorKey !== null && !isOwnName(own, extracted.vendorName),
     issuerTaxId: extracted.issuerTaxId,
     issuerCheck: extracted.issuerCheck,
     ownBusinessExcluded: extracted.ownBusinessExcluded,
@@ -177,8 +185,6 @@ export async function computeSuggestionsTx(
     }
   }
 
-  const own = await loadOwnIdentityTx(tx, businessId);
-  const vendorKey = nameKey(extracted.vendorName);
   if (vendorKey && isOwnName(own, extracted.vendorName)) {
     // A reading from before the own-business guard (or a business renamed since): its "vendor" is the business.
     notes.push("OWN_BUSINESS_NAME");
