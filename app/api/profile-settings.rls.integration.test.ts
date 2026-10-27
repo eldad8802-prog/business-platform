@@ -3,6 +3,7 @@
  *
  *   GET /api/profile/summary
  *   GET /api/settings/connections-summary
+ *   GET /api/settings/connections-center   (S1-B M1)
  *
  * Both answer with counts and identity for "the signed-in business". The two
  * ways that goes wrong are (1) a count that silently reads zero because it ran
@@ -30,6 +31,7 @@ import { getTenantContext } from "../../lib/tenant/context";
 import { jerusalemDayKey } from "../../lib/utils/jerusalem-day";
 import { GET as profileSummaryGET } from "./profile/summary/route";
 import { GET as connectionsSummaryGET } from "./settings/connections-summary/route";
+import { GET as connectionsCenterGET } from "./settings/connections-center/route";
 
 const prisma = new PrismaClient();
 
@@ -308,6 +310,28 @@ async function main() {
     cB.available === true && cB.active === 0,
     JSON.stringify(cB)
   );
+
+  console.log("\n  /api/settings/connections-center (S1-B M1)");
+  type Card = { provider: string; state: string; accountLabel: string | null; category: string };
+  const cardsOf = (center: { categories?: Array<{ cards: Card[] }> }) => (center.categories ?? []).flatMap((c) => c.cards);
+  const resCA = await connectionsCenterGET(get(a.token, "http://t/api/settings/connections-center"));
+  const centerA = await resCA.json();
+  const cardsA = cardsOf(centerA);
+  ok("A: 200, every source read (none unavailable)", resCA.status === 200 && centerA.unavailableSources?.length === 0, JSON.stringify(centerA.unavailableSources));
+  ok("A: its connected Gmail account, the revoked one not listed", cardsA.some((c) => c.provider === "gmail" && c.accountLabel === "a1@example.test" && c.state === "connected") && !cardsA.some((c) => c.accountLabel === "a2@example.test"));
+  ok("A: CardCom active; the inactive Tranzila row (a disabled provider) is hidden", cardsA.some((c) => c.provider === "CARDCOM" && c.state === "connected") && !cardsA.some((c) => c.provider === "TRANZILA"));
+  ok("A: web form ACTIVE → connected, PAUSED → paused", cardsA.filter((c) => c.provider === "web.form").map((c) => c.state).sort().join(",") === "connected,paused", JSON.stringify(cardsA.filter((c) => c.provider === "web.form")));
+  ok("A: WhatsApp connected", cardsA.some((c) => c.provider === "whatsapp" && c.state === "connected"));
+  ok("A: Rivhit hidden (pos_rivhit off)", !cardsA.some((c) => c.provider === "pos.rivhit"));
+  const resCB = await connectionsCenterGET(get(b.token, "http://t/api/settings/connections-center"));
+  const centerB = await resCB.json();
+  const cardsB = cardsOf(centerB);
+  const centerBText = JSON.stringify(centerB);
+  ok("B: 200 and no A value in B's answer", resCB.status === 200 && !centerBText.includes("a1@example.test") && !centerBText.includes("+972500000000") && !cardsB.some((c) => c.provider === "CARDCOM" && c.state === "connected"));
+  ok("B: WhatsApp disconnected; the web form it is not enabled for adds no card", cardsB.some((c) => c.provider === "whatsapp" && c.state === "disconnected") && !cardsB.some((c) => c.provider === "web.form"));
+  ok("connections center without a token → 401", (await connectionsCenterGET(get(null, "http://t/api/settings/connections-center"))).status === 401);
+  const centerQuery = await (await connectionsCenterGET(get(b.token, `http://t/api/settings/connections-center?businessId=${a.businessId}`))).json();
+  ok("connections center: a businessId in the query is ignored — B still gets B", !JSON.stringify(centerQuery).includes("a1@example.test"));
 
   console.log("\n  authentication");
   ok("profile summary without a token → 401", (await profileSummaryGET(get(null, "http://t/api/profile/summary"))).status === 401);
