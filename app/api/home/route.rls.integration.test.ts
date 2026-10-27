@@ -18,9 +18,9 @@
  *   3. AMBIENT CONTEXT. The route handler is called with NO tenant context, the
  *      way a request arrives — a harness that wrapped it would hide the defect.
  *
- * It also pins the count's MEANING, which #658 deliberately did not change: the
- * narrow "needs action" predicate shared with /leads?view=needsAction (open lead
- * AND (follow-up due by today OR an untouched NEW lead from before today)).
+ * It also pins the count's MEANING. #658 kept the narrow predicate; Leads L1 · G-05 replaced it with
+ * the ONE attention queue (every evaluateLeadAttention reason, e.g. a STALLED lead)
+ * that /leads?view=needsAction and the Home items read too — still one definition.
  *
  * Synthetic data only. No secrets, no Neon, no network.
  *
@@ -146,7 +146,7 @@ async function main() {
   const nextWeek = new Date(now + 7 * DAY);
   const longAgo = new Date(now - 40 * DAY);
 
-  // A: exactly 3 leads that need action under the narrow predicate.
+  // A: exactly 4 leads that need action (Leads L1 · G-05: the one attention queue).
   const a = await makeTenant("a", [
     { status: "NEW", createdAt: threeDaysAgo },                                   // untouched new, before today → counts
     { status: "NEW", createdAt: threeDaysAgo },                                   // counts
@@ -154,8 +154,8 @@ async function main() {
     { status: "NEW", createdAt: new Date(now) },                                  // new TODAY → not yet
     { status: "OPEN", createdAt: longAgo, nextFollowUpAt: nextWeek },             // follow-up in the future → no
     { status: "WON", createdAt: longAgo, nextFollowUpAt: yesterday },             // closed → never
-    // Canonical-only reason (STALLED: open, no follow-up, idle 40 days). The
-    // narrow count must NOT include it — #658 keeps the meaning unchanged.
+    // STALLED (open, no follow-up, idle 40 days): #658 kept it out of the count; since
+    // Leads L1 · G-05 it counts — the list, the count and Home share one definition.
     { status: "OPEN", createdAt: longAgo, lastActivityAt: longAgo },
   ]);
   // B: 5 that need action — if any leaked into A, A would read 8.
@@ -177,10 +177,10 @@ async function main() {
   // ---------------------------------------------------------- the fixed route ---
   const ra = await homeCount(a.token);
   ok("H1 A: GET /api/home answers 200", ra.status === 200, `status ${ra.status}`);
-  ok("H1 A: leadsAttention.count is A's 3 leads that need action", ra.count === 3, `got ${ra.count}`);
+  ok("H1 A: leadsAttention.count is A's 4 leads that need action", ra.count === 4, `got ${ra.count}`);
   const rb = await homeCount(b.token);
   ok("H2 B: leadsAttention.count is B's own 5", rb.count === 5, `got ${rb.count}`);
-  ok("H3 A never counts B's leads (A ≠ 3 + 5)", ra.count !== 8);
+  ok("H3 A never counts B's leads (A ≠ 4 + 5)", ra.count !== 9);
 
   const rc = await homeCount(c.token);
   const cScoped = await tenantTx(c.businessId, (tx) => tx.lead.count());
@@ -190,7 +190,7 @@ async function main() {
   // A hostile request naming another tenant: the business comes from the
   // session, never from the request.
   const hostile = await homeCount(a.token, `http://localhost/api/home?businessId=${b.businessId}&business_id=${b.businessId}`);
-  ok("H5 a businessId planted in the query is ignored (still A's 3)", hostile.count === 3, `got ${hostile.count}`);
+  ok("H5 a businessId planted in the query is ignored (still A's 4)", hostile.count === 4, `got ${hostile.count}`);
 
   // ------------------------------------------------------------ the meaning ---
   ok("M1 the count still lands on /leads?view=needsAction", ra.href === "/leads?view=needsAction", `href ${ra.href}`);
@@ -203,8 +203,8 @@ async function main() {
     `list ${aNeedsActionRows.length} vs count ${ra.count}`
   );
   ok(
-    "M3 a canonical-only (STALLED) lead is NOT in the narrow count",
-    !aNeedsActionRows.some((l) => l.status === "OPEN" && l.nextFollowUpAt === null)
+    "M3 a STALLED lead (no follow-up date) IS in the count and the list (Leads L1 · G-05: nothing hides for lack of a date)",
+    aNeedsActionRows.some((l) => l.status === "OPEN" && l.nextFollowUpAt === null)
   );
 
   console.log(`\nhome leadsAttention RLS: ${pass} passed, ${failures.length} failed`);
