@@ -65,11 +65,21 @@ async function listLegacyBankBatches(businessId: number, limit: number): Promise
   );
 }
 
+/**
+ * The three reads are independent: a history read that fails (a missing table, a timeout) must not take the bank
+ * card with it — the bank route is the flag's decision alone. bankFileImportState is already fail-closed (an error
+ * is UNKNOWN). A failed history read is logged by name only and returned as null → `historyAvailable: false`.
+ */
 export async function getUploadsOverview(businessId: number, now: Date = new Date()): Promise<UploadsOverview> {
   const [bankState, runs, legacyBatches] = await Promise.all([
     bankFileImportState(businessId),
-    listRecentImportRuns(businessId, HISTORY_LIMIT),
-    listLegacyBankBatches(businessId, HISTORY_LIMIT),
+    listRecentImportRuns(businessId, HISTORY_LIMIT).catch((e: unknown) => historyReadFailed("import runs", e)),
+    listLegacyBankBatches(businessId, HISTORY_LIMIT).catch((e: unknown) => historyReadFailed("old bank uploads", e)),
   ]);
   return buildUploadsOverview({ bankState, runs, legacyBatches, now, importAvailable: IMPORT_EXPORT_RELEASED });
+}
+
+function historyReadFailed(what: string, e: unknown): null {
+  console.error("[money-uploads] history read failed:", what, e instanceof Error ? e.name : "unknown");
+  return null;
 }

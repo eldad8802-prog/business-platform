@@ -21,6 +21,8 @@ import type { AttentionItem, BankMode, HistoryEntry, UploadsOverview } from "@/l
  * Stages, from server state:
  *   loading   cards visible, the bank card a skeleton (its route is the server's decision, never a guess)
  *   error     cards still usable; the bank card says it could not check, with a retry
+ *   partial   the history could not be read (historyAvailable: false) — said so with a retry; the bank card
+ *             still follows the server's flag decision
  *   empty     no upload yet → the cards are the next step, the bank card first
  *   ready     attention (when any) above the cards, recent uploads below
  */
@@ -81,9 +83,13 @@ export function UploadsScreen() {
           </div>
         </header>
 
-        {load.state === "error" ? (
+        {load.state === "error" || (load.state === "ready" && !load.data.historyAvailable) ? (
           <div className="uerr" role="alert">
-            <span>לא הצלחנו לטעון את ההעלאות האחרונות.</span>
+            <span>
+              {load.state === "error"
+                ? "לא הצלחנו לטעון את ההעלאות האחרונות."
+                : "לא הצלחנו לטעון את ההעלאות האחרונות ומה שדורש טיפול. אפשר להמשיך להעלות מהכרטיסים."}
+            </span>
             <button type="button" className="ubtn" onClick={retry}>
               לנסות שוב
             </button>
@@ -323,7 +329,8 @@ function RecentUploads({ load }: { load: Load }) {
       </ul>
     );
   }
-  if (load.state === "error") {
+  // A history that could not be read is said so — never shown as "nothing uploaded yet".
+  if (load.state === "error" || !load.data.historyAvailable) {
     return <p className="uempty">ההעלאות האחרונות לא נטענו. אפשר להמשיך להעלות מהכרטיסים למעלה.</p>;
   }
   const entries = load.data.history;

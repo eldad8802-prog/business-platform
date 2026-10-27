@@ -197,6 +197,7 @@ async function main() {
   const textA = JSON.stringify(A);
   ok("200, private no-store", resA.status === 200 && (resA.headers.get("cache-control") ?? "").includes("no-store"), String(resA.status));
   ok("bank card routes to the old path (flag OFF by default)", A.bank?.mode === "legacy", JSON.stringify(A.bank));
+  ok("the history was read", A.historyAvailable === true);
   ok("A's two runs are listed", historyA.filter((e) => e.source === "import_run").map((e) => e.domain).sort().join(",") === "customers,historical-documents", JSON.stringify(historyA.map((e) => e.domain)));
   const legacy = historyA.find((e) => e.source === "legacy_bank_upload");
   ok("the old-path bank upload is one entry of 3 lines", !!legacy && legacy.counts.created === 3, JSON.stringify(legacy));
@@ -226,6 +227,25 @@ async function main() {
   const runsAfter = await ledgerRunsSeenBy(a.businessId);
   const linesAfter = await tenantTx(a.businessId, (tx) => tx.externalTransaction.count({ where: { businessId: a.businessId } }));
   ok("the reads wrote nothing (A still has 2 runs, 3 lines)", runsAfter === 2 && linesAfter === 3, `${runsAfter} runs, ${linesAfter} lines`);
+
+  // An environment whose database lacks a table the history reads (a stale Preview database lacked
+  // ExternalTransaction): the runtime role loses SELECT on it for one request. The bank card must still follow
+  // the flag; the history must say it could not be read — never "nothing uploaded", never a 500 for the screen.
+  console.log("\n  a history read that fails");
+  const [{ role }] = await prisma.$queryRaw<Array<{ role: string }>>`SELECT current_user::text AS role`;
+  const admin = new PrismaClient({ datasourceUrl: process.env.RLS_ADMIN_URL });
+  try {
+    await admin.$executeRawUnsafe(`REVOKE SELECT ON "ExternalTransaction" FROM "${role}"`);
+    const resP = await uploadsGET(get(a.token, "http://t/api/money/uploads"));
+    const P = await resP.json();
+    ok("still 200 — one failed read is not a failed screen", resP.status === 200, String(resP.status));
+    ok("the bank card still follows A's flag (OFF → old path)", P.bank?.mode === "legacy", JSON.stringify(P.bank));
+    ok("the history says it was not read (historyAvailable: false), with nothing passed off as complete", P.historyAvailable === false && (P.history ?? []).length === 0 && (P.attention ?? []).length === 0, JSON.stringify(P));
+  } finally {
+    await admin.$executeRawUnsafe(`GRANT SELECT ON "ExternalTransaction" TO "${role}"`);
+    await admin.$disconnect();
+  }
+  ok("with the table readable again, A's history is back", (await (await uploadsGET(get(a.token, "http://t/api/money/uploads"))).json()).historyAvailable === true);
   ok("still no ambient tenant context after the requests", getTenantContext() === undefined);
 
   console.log(`\n  ${pass} passed, ${failures.length} failed`);

@@ -72,9 +72,24 @@ check("the overview carries the mode", () => {
   for (const [state, mode] of [["ON", "b1"], ["OFF", "legacy"], ["UNKNOWN", "unknown"]] as const) {
     const o = buildUploadsOverview({ bankState: state, runs: [], legacyBatches: [], now: NOW, importAvailable: true });
     assert.equal(o.bank.mode, mode);
+    assert.equal(o.historyAvailable, true);
     assert.deepEqual(o.history, []);
     assert.deepEqual(o.attention, []);
   }
+});
+check("a history read that failed never takes the bank card with it", () => {
+  for (const [runs, legacyBatches] of [[null, []], [[], null], [null, null]] as const) {
+    const o = buildUploadsOverview({ bankState: "OFF", runs, legacyBatches, now: NOW, importAvailable: true });
+    assert.equal(o.bank.mode, "legacy", "the bank route is the flag's decision alone");
+    assert.equal(o.historyAvailable, false, "a failed read says so");
+    assert.deepEqual(o.history, [], "no partial history passed off as complete");
+    assert.deepEqual(o.attention, [], "no attention derived from a history that was not read");
+  }
+});
+check("a failed history read is not an empty history", () => {
+  const failed = buildUploadsOverview({ bankState: "OFF", runs: null, legacyBatches: [], now: NOW, importAvailable: true });
+  const empty = buildUploadsOverview({ bankState: "OFF", runs: [], legacyBatches: [], now: NOW, importAvailable: true });
+  assert.notEqual(failed.historyAvailable, empty.historyAvailable);
 });
 
 console.log("\n2. domain labels");
@@ -292,6 +307,14 @@ check("the ledger read is tenant-bound, read-only, and selects no hash", () => {
   assert.equal(body.includes("withTenantTransaction"), true);
   assert.equal(body.includes("where: { businessId }"), true);
   assert.equal(/Hash|retryKey|importRunRow|\.create\(|\.update\(/.test(body), false);
+});
+check("each history read fails on its own; the flag read is not wrapped (it is already fail-closed)", () => {
+  assert.equal(/listRecentImportRuns\(businessId, HISTORY_LIMIT\)\.catch\(/.test(service), true);
+  assert.equal(/listLegacyBankBatches\(businessId, HISTORY_LIMIT\)\.catch\(/.test(service), true);
+  assert.equal(/bankFileImportState\(businessId\)\.catch\(/.test(service), false);
+  // The failure is logged by name only — a database error message can carry configuration.
+  assert.equal(service.includes('e instanceof Error ? e.name : "unknown"'), true);
+  assert.equal(/e\.message/.test(service), false);
 });
 check("the route takes the business from the session and never caches", () => {
   assert.equal(route.includes("getCurrentUser(req)"), true);

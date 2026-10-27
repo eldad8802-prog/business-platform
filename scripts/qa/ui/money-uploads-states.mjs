@@ -102,11 +102,12 @@ const ATTENTION = [
 ];
 
 const STATES = {
-  legacy: { status: 200, body: { bank: { mode: "legacy" }, history: HISTORY, attention: ATTENTION }, bankHref: "/payables/bank" },
+  legacy: { status: 200, body: { bank: { mode: "legacy" }, historyAvailable: true, history: HISTORY, attention: ATTENTION }, bankHref: "/payables/bank" },
   b1: {
     status: 200,
     body: {
       bank: { mode: "b1" },
+      historyAvailable: true,
       history: [
         {
           ...HISTORY[0],
@@ -123,9 +124,11 @@ const STATES = {
     },
     bankHref: "/payables/bank/import",
   },
-  unknown: { status: 200, body: { bank: { mode: "unknown" }, history: HISTORY.slice(1), attention: [] }, bankHref: null },
+  unknown: { status: 200, body: { bank: { mode: "unknown" }, historyAvailable: true, history: HISTORY.slice(1), attention: [] }, bankHref: null },
   error: { status: 500, body: { error: "INTERNAL" }, bankHref: null },
-  empty: { status: 200, body: { bank: { mode: "legacy" }, history: [], attention: [] }, bankHref: "/payables/bank" },
+  empty: { status: 200, body: { bank: { mode: "legacy" }, historyAvailable: true, history: [], attention: [] }, bankHref: "/payables/bank" },
+  // The history read failed (e.g. a table the environment lacks) — the bank card still follows the flag.
+  partial: { status: 200, body: { bank: { mode: "legacy" }, historyAvailable: false, history: [], attention: [] }, bankHref: "/payables/bank" },
 };
 
 /* --------------------------------------------------------------- stubs -- */
@@ -202,6 +205,10 @@ async function main() {
         check(`${tag}: ${n} history rows`, m.historyRows === n, String(m.historyRows));
         check(`${tag}: every entry says the source file is not stored`, m.fileNotes === n, `${m.fileNotes}/${n}`);
         check(`${tag}: attention rows`, m.attention === state.body.attention.length, String(m.attention));
+      }
+      if (key === "partial") {
+        check(`${tag}: a history that could not be read says so (banner), not "nothing uploaded"`, m.errorBanner && !(m.emptyText ?? "").includes("עוד לא הועלו דוחות"), m.emptyText);
+        check(`${tag}: the bank card is still live and leads to the old path`, m.bankMode === "legacy" && m.bankHref === "/payables/bank");
       }
       if (key === "empty") check(`${tag}: empty history says so`, (m.emptyText ?? "").includes("עוד לא הועלו דוחות"), m.emptyText);
       if (key === "error") {

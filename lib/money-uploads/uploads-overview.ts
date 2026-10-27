@@ -95,6 +95,8 @@ export type AttentionItem = {
 
 export type UploadsOverview = {
   bank: { mode: BankMode };
+  /** False when the history could not be read this time; then `history` and `attention` are empty, not "none". */
+  historyAvailable: boolean;
   history: HistoryEntry[];
   attention: AttentionItem[];
 };
@@ -259,15 +261,25 @@ export function deriveAttention(
   return [...items.filter((i) => i.kind === "action"), ...items.filter((i) => i.kind === "info")];
 }
 
+/**
+ * `runs` / `legacyBatches` are null when that read failed. The bank card's route never depends on them: a
+ * history that cannot be read reports itself (`historyAvailable: false`, no entries, no attention — never an
+ * empty list that would read as "nothing was uploaded"), and the bank card still follows the flag.
+ */
 export function buildUploadsOverview(input: {
   bankState: BankFileImportState;
-  runs: readonly ImportRunInput[];
-  legacyBatches: readonly LegacyBatchInput[];
+  runs: readonly ImportRunInput[] | null;
+  legacyBatches: readonly LegacyBatchInput[] | null;
   now: Date;
   importAvailable: boolean;
 }): UploadsOverview {
+  const bank = { mode: bankModeOf(input.bankState) };
+  if (input.runs === null || input.legacyBatches === null) {
+    return { bank, historyAvailable: false, history: [], attention: [] };
+  }
   return {
-    bank: { mode: bankModeOf(input.bankState) },
+    bank,
+    historyAvailable: true,
     history: mergeHistory(input.runs, input.legacyBatches, HISTORY_LIMIT),
     attention: deriveAttention(input.runs, input.now, { importAvailable: input.importAvailable }),
   };
