@@ -289,3 +289,4 @@ button.head:hover { background: var(--dz-surface-muted); }
   .segBadge { margin-inline-start: 4px; min-width: 16px; height: 16px; padding: 0 4px; }
 }
 .reqSettings { margin: 0; font-size: 13.5px; }
+.reqSettings a { color: var(--dz-brand); font-weight: 600; text-decoration: none; }
