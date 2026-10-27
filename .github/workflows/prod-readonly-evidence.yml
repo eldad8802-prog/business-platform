@@ -115,6 +115,7 @@ on:
           - 'ops/evidence/appointments-foundation-production-evidence.sql'
           - 'ops/evidence/appointments-pilot-business-9.sql'
           - 'ops/evidence/document-supplier-business-9-readonly.sql'
+          - 'ops/evidence/document-supplier-link-pilot-business-9.sql'
           - 'ops/evidence/bank-file-import-feature-production-evidence.sql'
           - 'ops/evidence/pos-rivhit-source-preflight.sql'
           - 'ops/evidence/pos-rivhit-source-production-evidence.sql'

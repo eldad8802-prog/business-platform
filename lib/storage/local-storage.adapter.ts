@@ -10,6 +10,7 @@ import type {
   StorageDomain,
   StorageService,
   StorageVisibility,
+  SignedDownloadResponse,
 } from "./types";
 import {
   StorageConfigError,
@@ -189,7 +190,7 @@ export class LocalFsStorageService implements StorageService {
     ]);
   }
 
-  async getSignedDownloadUrl(_key: string, _ttlSeconds?: number): Promise<string> {
+  async getSignedDownloadUrl(_key: string, _ttlSeconds?: number, _response?: SignedDownloadResponse): Promise<string> {
     throw new StorageConfigError(
       "Signed download URLs are not supported by the local storage adapter"
     );
