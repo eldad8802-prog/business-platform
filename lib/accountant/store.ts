@@ -36,7 +36,10 @@ export type WorkflowEventType =
   | "LINK_REFUSED"
   | "LINK_REVOKED"
   | "PERIOD_COMPLETED"
-  | "PERIOD_COMPLETED_MANUALLY";
+  | "PERIOD_COMPLETED_MANUALLY"
+  // R2 (migration 20261105090000_accountant_link_events): the accountant's portal.
+  | "LINK_VIEWED"
+  | "LINK_FILE_DOWNLOADED";
 
 export type WorkflowActor =
   | { type: "OWNER_USER"; userId: number }

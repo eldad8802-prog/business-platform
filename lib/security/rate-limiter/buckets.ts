@@ -60,6 +60,16 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "ip", limit: 120, windowSeconds: 60 * 60 },
     ],
   },
+  // One file of the accountant's portal (view / download), after the link already checked out. Per IP, wider
+  // than the page itself: an accountant opening every document of a month must not be cut off, while the
+  // ceiling still bounds what one address can pull. Fail-CLOSED like the link.
+  ACCOUNTANT_LINK_FILE: {
+    failMode: "closed",
+    rules: [
+      { scope: "ip", limit: 90, windowSeconds: 60 },
+      { scope: "ip", limit: 900, windowSeconds: 60 * 60 },
+    ],
+  },
   // Owner send approvals to an external recipient. Fail-CLOSED: sending is the consequential action.
   ACCOUNTANT_SEND: {
     failMode: "closed",

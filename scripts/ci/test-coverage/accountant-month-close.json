@@ -28,6 +28,10 @@
     "lib/pdf/chromium.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "the shared Chromium launcher: serverless detection, sanitized render errors, the billing renderer launches only through it with its page/print options unchanged, and every PDF-rendering route has the serverless browser in its tracing includes; run on pull_request by accountant-month-close-ci.yml"
+    },
+    "lib/accountant/portal.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "the accountant portal index on a REAL package ZIP: every listed file hashes to its ZIP entry, details come from the sealed workbook, missing rows carry the workbook's reason, nothing outside source/issued entries (_meta, reports, traversal, storage keys) can be named, only PDF/raster images open inline, and cache keys stay under the package's prefix bound to its sha256; run on pull_request by accountant-month-close-ci.yml"
     }
   }
 }

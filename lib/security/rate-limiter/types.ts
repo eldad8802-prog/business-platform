@@ -31,6 +31,7 @@ export type BucketName =
   | "DATA_TRANSFER_DOCUMENTS_IMPORT"
   | "LANDING_COMPOSE"
   | "ACCOUNTANT_LINK_PUBLIC"
+  | "ACCOUNTANT_LINK_FILE"
   | "ACCOUNTANT_SEND";
 
 export type BucketConfig = {
