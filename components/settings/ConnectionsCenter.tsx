@@ -85,7 +85,7 @@ const STATE: Record<ConnectionState, { label: MessageKey; tone: string }> = {
 /** An in-page anchor stays a plain <a> (smooth jump to the panel); a screen goes through the router. */
 function Go({ link, primary, children }: { link: ConnectionLink; primary?: boolean; children: React.ReactNode }) {
   const tone = primary
-    ? "rounded-full bg-[var(--dz-text-primary)] px-4 text-[var(--dz-surface)]"
+    ? "rounded-full bg-[var(--dz-brand)] px-4 text-[var(--dz-text-on-brand)]"
     : "text-[var(--dz-text-secondary)] underline-offset-4 hover:underline";
   const className = `inline-flex min-h-11 shrink-0 items-center text-xs font-bold ${tone}`;
   return link.href.startsWith("#") ? (
@@ -96,6 +96,17 @@ function Go({ link, primary, children }: { link: ConnectionLink; primary?: boole
     <Link href={link.href} className={className}>
       {children}
     </Link>
+  );
+}
+
+/** The owner's own email / number / label, isolated so an LTR address never reorders the Hebrew name. */
+function AccountLabel({ label, small }: { label: string | null; small?: boolean }) {
+  if (!label) return null;
+  return (
+    <span className={`font-normal text-[var(--dz-text-muted)] ${small ? "text-xs" : ""}`}>
+      <span aria-hidden> · </span>
+      <bdi>{label}</bdi>
+    </span>
   );
 }
 
@@ -153,7 +164,7 @@ export function ConnectionsOverview() {
       ) : null}
 
       {empty ? (
-        <div className="mt-3 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] p-3">
+        <div className="mt-3 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-flat)] p-3">
           <p className="text-sm font-bold text-[var(--dz-text-primary)]">{t("account.settings.connections.center.emptyTitle")}</p>
           <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">{t("account.settings.connections.center.emptyBody")}</p>
         </div>
@@ -166,11 +177,11 @@ export function ConnectionsOverview() {
           <h3 className="text-xs font-bold text-[var(--dz-danger)]">{t("account.settings.connections.center.needsActionTitle")}</h3>
           <ul className="mt-2 space-y-2">
             {actions.map((c) => (
-              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] px-3 py-2">
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-flat)] px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-bold text-[var(--dz-text-primary)]">
                     {cardName(t, c)}
-                    {c.accountLabel ? <span className="font-normal text-[var(--dz-text-muted)]" dir="auto"> · {c.accountLabel}</span> : null}
+                    <AccountLabel label={c.accountLabel} />
                   </div>
                   <p className="mt-0.5 text-[11px] leading-5 text-[var(--dz-danger)]">{t(c.attention!.textKey)}</p>
                 </div>
@@ -193,7 +204,7 @@ export function ConnectionsOverview() {
               <li key={c.id} className="rounded-2xl bg-[var(--dz-surface-muted)] px-3 py-2">
                 <div className="truncate text-xs font-bold text-[var(--dz-text-primary)]">
                   {cardName(t, c)}
-                  {c.accountLabel ? <span className="font-normal text-[var(--dz-text-muted)]" dir="auto"> · {c.accountLabel}</span> : null}
+                  <AccountLabel label={c.accountLabel} />
                 </div>
                 <p className="mt-0.5 text-[11px] leading-5 text-[var(--dz-text-muted)]">{t(c.attention!.textKey)}</p>
               </li>
@@ -209,12 +220,12 @@ function StatusRow({ c }: { c: ConnectionCard }) {
   const { t, locale } = useI18n();
   const state = STATE[c.state];
   return (
-    <div className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] px-3 py-2" data-connection-card={c.id}>
+    <div className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-flat)] px-3 py-2" data-connection-card={c.id}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-bold text-[var(--dz-text-primary)]">
             {t(c.nameKey)}
-            {c.accountLabel ? <span className="text-xs font-normal text-[var(--dz-text-muted)]" dir="auto"> · {c.accountLabel}</span> : null}
+            <AccountLabel label={c.accountLabel} small />
           </div>
           {c.lastActivity ? (
             <div className="text-[11px] text-[var(--dz-text-muted)]">
@@ -255,10 +266,13 @@ function StatusRow({ c }: { c: ConnectionCard }) {
 export function ConnectionCategorySection({
   category,
   anchorId,
+  wide,
   children,
 }: {
   category: ConnectionCategory;
   anchorId?: string;
+  /** Spans both desktop columns (the lead / store panels were full-width before). */
+  wide?: boolean;
   children?: React.ReactNode;
 }) {
   const { t } = useI18n();
@@ -268,7 +282,7 @@ export function ConnectionCategorySection({
   if (!children && cards.length === 0) return null;
   const titleKey = group?.titleKey ?? (`account.settings.connections.center.categories.${category === "stores_calls" ? "storesCalls" : category}` as MessageKey);
   return (
-    <section id={anchorId} className="flex scroll-mt-4 flex-col gap-3" data-connection-category={category}>
+    <section id={anchorId} className={`flex scroll-mt-4 flex-col gap-3 ${wide ? "min-[1200px]:col-span-2" : ""}`} data-connection-category={category}>
       <h2 className="px-1 text-base font-bold text-[var(--dz-text-primary)]">{t(titleKey)}</h2>
       {cards.length ? (
         <div className="space-y-2">

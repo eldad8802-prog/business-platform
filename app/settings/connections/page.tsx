@@ -39,10 +39,10 @@ export default async function SettingsConnectionsPage() {
             <PaymentConnectionCard />
           </ConnectionCategorySection>
           <ConnectionCategorySection category="messaging" />
-          <ConnectionCategorySection category="leads" anchorId={CONNECTIONS_ANCHOR.leads}>
+          <ConnectionCategorySection category="leads" wide anchorId={CONNECTIONS_ANCHOR.leads}>
             <LeadSourcesPanel />
           </ConnectionCategorySection>
-          <ConnectionCategorySection category="stores_calls" anchorId={CONNECTIONS_ANCHOR.stores}>
+          <ConnectionCategorySection category="stores_calls" wide anchorId={CONNECTIONS_ANCHOR.stores}>
             <StoresAndCallsPanel />
           </ConnectionCategorySection>
           <ConnectionCategorySection category="authority" anchorId={CONNECTIONS_ANCHOR.authority}>
