@@ -492,6 +492,8 @@ export const customersHe = {
       emptySearchBody: "נסו חיפוש קצר יותר או בשם אחר.",
       emptyInactiveBody: "ספקים שתשביתו יופיעו כאן.",
       emptyNoneBody: "הוסיפו את הספק הראשון כדי לנהל את פרטי הקשר וזמני האספקה במקום אחד.",
+      openFile: "תיק ספק",
+      openFileAria: "פתיחת תיק הספק של {name}",
       loadMore: "טען עוד ספקים",
       loadMoreError: "לא הצלחנו לטעון עוד ספקים. הספקים שכבר מוצגים נשארו.",
       showing: "מוצגים {shown} מתוך {total}",
@@ -502,7 +504,7 @@ export const customersHe = {
       errorCreate: "לא הצלחנו ליצור ספק",
     },
     card: {
-      errorLoad: "לא הצלחנו לטעון את הספק",
+      errorLoad: "לא ניתן לטעון את פרטי הספק. נסו שוב.",
       notFoundTitle: "הספק לא נמצא",
       notFoundBody: "ייתכן שהספק הוסר או שאין לך גישה אליו.",
       backToList: "לרשימת הספקים",
@@ -530,6 +532,7 @@ export const customersHe = {
       completenessTitle: "השלמת פרטי ספק",
       completenessBody: "חסרים עדיין: {missing}. השלמה עכשיו תחסוך חיפוש בהמשך.",
       completenessAction: "השלמת פרטים",
+      sectionEmpty: "לא הוזנו עדיין",
       generalNote: "הערה כללית",
     },
     edit: {

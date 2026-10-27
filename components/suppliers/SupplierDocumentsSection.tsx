@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { getSupplierDocuments, type SupplierDocumentRow } from "@/lib/api/document-supplier-link";
 import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 
 const PAGE_SIZE = 20;
+/** Like the purchase history in the supplier file: a short preview first, the rest on request. */
+const PREVIEW = 5;
 
 const DATE = new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" });
 const MONEY = new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 2 });
@@ -22,7 +24,17 @@ function fmtDate(iso: string | null): string | null {
  * created here: an amount shows only when the document was approved as financial (its FinancialRecord).
  * Feature OFF (404) ⇒ the section is not rendered at all. Loads independently of the rest of the card.
  */
-export function SupplierDocumentsSection({ supplierId }: { supplierId: number }) {
+export function SupplierDocumentsSection({
+  supplierId,
+  className,
+  icon,
+}: {
+  supplierId: number;
+  /** The supplier file's panel class — applied only when the section shows (flag ON), so no empty box remains. */
+  className?: string;
+  /** A coloured section icon, like the other panels of the file. */
+  icon?: ReactNode;
+}) {
   const [enabled, setEnabled] = useState(true);
   const [rows, setRows] = useState<SupplierDocumentRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -30,6 +42,7 @@ export function SupplierDocumentsSection({ supplierId }: { supplierId: number })
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [moreError, setMoreError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const busy = useRef(false);
@@ -94,9 +107,12 @@ export function SupplierDocumentsSection({ supplierId }: { supplierId: number })
   if (!enabled) return null;
 
   return (
-    <div className="crm-section" data-testid="supplier-documents">
+    <div className={className ? `crm-section ${className}` : "crm-section"} data-testid="supplier-documents">
       <div className="crm-section__head">
-        <h2 className="crm-section__title">מסמכים</h2>
+        <h2 className="crm-section__title">
+          {icon ? <span className="crm-section__icon cust-tone--mail" aria-hidden>{icon}</span> : null}
+          מסמכים
+        </h2>
         {!loading && !error ? <span className="crm-section__count">{total}</span> : null}
       </div>
 
@@ -120,23 +136,24 @@ export function SupplierDocumentsSection({ supplierId }: { supplierId: number })
           </button>
         </div>
       ) : rows.length === 0 ? (
-        <div className="crm-panel">
-          <p className="crm-panel__title">אין עדיין מסמכים משויכים</p>
-          <p className="crm-panel__body">
-            מסמך משויך לספק במסך בדיקת המסמך: בוחרים ספק או מאשרים הצעת שיוך.
-          </p>
-        </div>
+        <p className="sup-empty">
+          אין עדיין מסמכים משויכים. מסמך משויך לספק במסך בדיקת המסמך: בוחרים ספק או מאשרים הצעת שיוך.
+        </p>
       ) : (
         <>
           <div className="crm-list">
-            {rows.map((r) => (
+            {(expanded ? rows : rows.slice(0, PREVIEW)).map((r) => (
               <SupplierDocumentItem key={r.documentId} row={r} />
             ))}
           </div>
           <p className="crm-item__meta" style={{ marginTop: 8 }}>
-            מוצגים {rows.length} מתוך {total}
+            מוצגים {expanded ? rows.length : Math.min(rows.length, PREVIEW)} מתוך {total}
           </p>
-          {moreError ? (
+          {!expanded && rows.length > PREVIEW ? (
+            <button type="button" className="sup-link" aria-expanded={false} onClick={() => setExpanded(true)}>
+              הצג עוד מסמכים
+            </button>
+          ) : !expanded ? null : moreError ? (
             <div className="crm-panel crm-panel--error" role="alert" style={{ marginTop: 8 }}>
               <p className="crm-panel__body">טעינת מסמכים נוספים נכשלה. המסמכים שכבר נטענו נשארים.</p>
               <button type="button" className="crm-btn crm-btn--ghost" onClick={() => void loadMore()}>
@@ -161,7 +178,9 @@ export function SupplierDocumentsSection({ supplierId }: { supplierId: number })
 }
 
 function SupplierDocumentItem({ row }: { row: SupplierDocumentRow }) {
-  const title = row.fileName || row.vendorName || `מסמך #${row.documentId}`;
+  // The file extension is dropped: inside right-to-left text, "חשבונית 3024.pdf" reorders to "pdf.3024 חשבונית".
+  const fileTitle = row.fileName ? row.fileName.replace(/\.(pdf|png|jpe?g|heic|webp)$/i, "") : null;
+  const title = fileTitle || row.vendorName || `מסמך #${row.documentId}`;
   const docDate = fmtDate(row.documentDate);
   const meta = [
     docDate ? `תאריך מסמך ${docDate}` : `התקבל ${fmtDate(row.receivedAt) ?? ""}`,

@@ -1377,6 +1377,179 @@ a.cust-item:focus-visible {
   }
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Suppliers — supplier file (owner-approved redesign). The list reuses the
+   customers card language (`cust-card` …) unchanged. Everything here is a
+   `sup-*` class or scoped under `.sup-file`, so Customers and Leads are not
+   touched. Each section is one white panel with its head inside it.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Terms accent: the success hue, kept apart from phone (teal) and file (blue). */
+.cust-tone--terms { --cust-tone: var(--crm-success); --cust-tone-bg: var(--crm-success-bg); }
+
+/* Two quick actions (call · email), not three. */
+.sup-file .cust-quick {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* A contact line that needs its label to be understood ("איש קשר:"). */
+.sup-line__label {
+  flex-shrink: 0;
+  color: var(--crm-muted);
+}
+
+/* One compact "still missing" line, with the existing edit action. */
+.sup-missing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: var(--crm-radius-card);
+  background: var(--crm-surface2);
+  color: var(--crm-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* Text-weight action (edit, new order) — never a big button. */
+.sup-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--crm-accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: var(--crm-w-medium);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sup-missing .sup-link,
+.sup-empty .sup-link {
+  min-height: 0;
+  font-size: 13px;
+}
+.sup-link:hover {
+  text-decoration: underline;
+}
+.sup-link:focus-visible {
+  outline: none;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px var(--crm-ring);
+}
+.sup-link--head {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+
+/* Section panel: white card, head inside, compact. */
+.sup-file .sup-panel {
+  background: var(--crm-card);
+  border: 1px solid var(--crm-line);
+  border-radius: var(--crm-radius-card);
+  box-shadow: var(--crm-shadow-card);
+  padding: 12px 16px 14px;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+.sup-file .sup-panel > .crm-section,
+.sup-file .sup-panel.crm-section {
+  margin-bottom: 14px;
+}
+.sup-file .sup-panel > .crm-section {
+  margin: 0;
+}
+.sup-file .sup-panel .crm-section__head {
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.sup-file .sup-panel .crm-section__title {
+  min-width: 0;
+}
+.sup-file .sup-panel .crm-section__count {
+  margin-inline-start: 2px;
+  font-weight: var(--crm-w-regular);
+}
+
+/* Items inside a panel: flat rows divided by hairlines, not cards in a card. */
+.sup-file .sup-panel .crm-list {
+  gap: 0;
+}
+.sup-file .sup-panel .crm-item {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 10px 0;
+}
+.sup-file .sup-panel .crm-item + .crm-item {
+  border-top: 1px solid var(--crm-line);
+}
+.sup-file .sup-panel .crm-item__amount {
+  unicode-bidi: isolate;
+}
+.sup-file .sup-panel .crm-chips {
+  margin-top: 4px;
+}
+
+/* Empty states inside a panel: one short line, no dashed box. */
+.sup-file .sup-panel .crm-note-empty,
+.sup-empty {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--crm-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sup-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+/* Notes composer / file uploader keep their behaviour; only spacing is tightened. */
+.sup-file .sup-panel .crm-note-composer,
+.sup-file .sup-panel .crm-att-upload {
+  margin-bottom: 8px;
+}
+
+/* Label / value rows (supplier details, terms). */
+.sup-kv {
+  margin: 0;
+}
+.sup-kv__row {
+  display: grid;
+  grid-template-columns: minmax(96px, 38%) minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 9px 0;
+}
+.sup-kv__row + .sup-kv__row {
+  border-top: 1px solid var(--crm-line);
+}
+.sup-kv__label {
+  margin: 0;
+  color: var(--crm-muted);
+  font-size: 13px;
+}
+.sup-kv__value {
+  margin: 0;
+  min-width: 0;
+  color: var(--crm-ink);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
 /* "Load more" footer under a paged list (suppliers, notes, files, purchase history):
    how much is shown out of how much exists, the next-page action, and — after a
    failed page — an inline error that never hides the rows already loaded. */
