@@ -1,0 +1,88 @@
+# Accountant portal (R2) / migration 20261105090000_accountant_link_events — proof on PostgreSQL BEFORE it reaches
+# Production (ephemeral PG17). Migration-first: this PR ships the migration and its proof only; the portal code is
+# a separate PR that is merged only after this migration is applied and proven in Production.
+#
+#   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256; the
+#      migration names only the trail table.
+#   1–4. .acct/link-events-lab.sh on the accountant workflow lab (.acct/lab.sh --with-acct):
+#      baseline — preflight 11/11, the proof refuses, the new types refused, the old ones accepted;
+#      `prisma migrate deploy` applies exactly this one — proof 11/11, preflight fails exactly 4 7 8, then the
+#      battery as the real roles (new types accepted, old kept, unknown refused, closed payload, append-only,
+#      isolation, nothing else about the table changed); atomicity; rollback refused with rows, exact without.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: accountant link events — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261105090000_accountant_link_events/**"
+      - "ops/evidence/accountant-link-events-*.sql"
+      - ".acct/**"
+      - ".trp/**"
+      - ".dt/**"
+      - ".github/workflows/accountant-link-events-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: accountant link events (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: acct_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: acct_ci_synthetic_super_pw
+      LAB_PASSWORD: acct_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/accountant-link-events-preflight.sql
+      EVIDENCE: ops/evidence/accountant-link-events-production-evidence.sql
+      MIG: prisma/migrations/20261105090000_accountant_link_events/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable; checksum pinned; the migration names only the trail table
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$MIG" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          echo "$MIG sha256 $sum (pinned)"
+          others=$(grep -v '^\s*--' "$MIG" | grep -oE '"[A-Za-z][A-Za-z_]*"' | sort -u | grep -vxE '"AccountantWorkflowEvent"|"AccountantWorkflowEvent_type"|"eventType"' || true)
+          test -z "$others" || { echo "the migration names other objects: $others"; exit 1; }
+          echo "the migration names only AccountantWorkflowEvent, its type constraint and column"
+
+      - name: 1–4. Baseline, release, battery, atomicity, rollback
+        run: bash .acct/link-events-lab.sh
