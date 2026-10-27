@@ -6,6 +6,8 @@ import { getSupplierDocuments, type SupplierDocumentRow } from "@/lib/api/docume
 import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 
 const PAGE_SIZE = 20;
+/** Like the purchase history in the supplier file: a short preview first, the rest on request. */
+const PREVIEW = 5;
 
 const DATE = new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit", year: "numeric" });
 const MONEY = new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 2 });
@@ -40,6 +42,7 @@ export function SupplierDocumentsSection({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [moreError, setMoreError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const busy = useRef(false);
@@ -139,14 +142,18 @@ export function SupplierDocumentsSection({
       ) : (
         <>
           <div className="crm-list">
-            {rows.map((r) => (
+            {(expanded ? rows : rows.slice(0, PREVIEW)).map((r) => (
               <SupplierDocumentItem key={r.documentId} row={r} />
             ))}
           </div>
           <p className="crm-item__meta" style={{ marginTop: 8 }}>
-            מוצגים {rows.length} מתוך {total}
+            מוצגים {expanded ? rows.length : Math.min(rows.length, PREVIEW)} מתוך {total}
           </p>
-          {moreError ? (
+          {!expanded && rows.length > PREVIEW ? (
+            <button type="button" className="sup-link" aria-expanded={false} onClick={() => setExpanded(true)}>
+              הצג עוד מסמכים
+            </button>
+          ) : !expanded ? null : moreError ? (
             <div className="crm-panel crm-panel--error" role="alert" style={{ marginTop: 8 }}>
               <p className="crm-panel__body">טעינת מסמכים נוספים נכשלה. המסמכים שכבר נטענו נשארים.</p>
               <button type="button" className="crm-btn crm-btn--ghost" onClick={() => void loadMore()}>
@@ -171,7 +178,9 @@ export function SupplierDocumentsSection({
 }
 
 function SupplierDocumentItem({ row }: { row: SupplierDocumentRow }) {
-  const title = row.fileName || row.vendorName || `מסמך #${row.documentId}`;
+  // The file extension is dropped: inside right-to-left text, "חשבונית 3024.pdf" reorders to "pdf.3024 חשבונית".
+  const fileTitle = row.fileName ? row.fileName.replace(/\.(pdf|png|jpe?g|heic|webp)$/i, "") : null;
+  const title = fileTitle || row.vendorName || `מסמך #${row.documentId}`;
   const docDate = fmtDate(row.documentDate);
   const meta = [
     docDate ? `תאריך מסמך ${docDate}` : `התקבל ${fmtDate(row.receivedAt) ?? ""}`,
