@@ -1,0 +1,10 @@
+{
+  "note": "Milestone C (public booking), segments 1–2, on migration 20261106090000_public_booking_foundation. The application end to end AS the restricted runtime is .bkg/app-battery.ts in appointments-foundation-ci.yml; the migration's own role battery is .bkg/migration-battery.ts in booking-foundation-lab.yml.",
+  "tests": {
+    "lib/services/booking/booking-core.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network/clock): the platform's per-phone ceiling a business can only lower (D11), the 12-hour / start hold (D3), two-hourly reminders, stable staff assignment (D8), the self-cancel window (D9), contact validation (D4), 256-bit manage tokens stored as sha256 and opaque link ids matching the database's check; run by security-gate --run --lab pure and by appointments-foundation-ci.yml"
+    }
+  }
+}

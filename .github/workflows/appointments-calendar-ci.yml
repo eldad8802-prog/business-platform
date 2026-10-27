@@ -31,7 +31,11 @@ on:
       - "lib/services/offering/**"
       - "app/api/leads/**"
       - "lib/services/crm/lead.service.ts"
+      - "lib/services/booking/**"
+      - "app/api/public/booking/**"
+      - "public/sw.js"
       - ".appt/ui-*"
+      - ".bkg/lab.sh"
       - ".appt/b-followups-battery.ts"
       - ".github/workflows/appointments-calendar-ci.yml"
   workflow_dispatch:
@@ -125,7 +129,7 @@ jobs:
       - name: Lab — the real migration in Production's role topology, then the synthetic businesses
         run: |
           set -euo pipefail
-          bash .appt/lab.sh appt_ui --with-appt
+          bash .bkg/lab.sh appt_ui --with-bkg
 
       - name: Seed — through the real services AS the runtime role
         run: npx tsx .appt/ui-seed.ts

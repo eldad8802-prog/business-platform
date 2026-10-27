@@ -491,6 +491,8 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     color: { disposition: "STRUCTURAL" },
     active: { disposition: "STRUCTURAL" },
     sortOrder: { disposition: "STRUCTURAL" },
+    // Milestone C (D7): whether the staff member is offered on the public booking link — a switch, not a person's data.
+    publicBookable: { disposition: "STRUCTURAL" },
     version: { disposition: "STRUCTURAL" },
     erasedAt: { disposition: "STRUCTURAL" },
     createdAt: { disposition: "STRUCTURAL" },

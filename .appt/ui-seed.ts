@@ -79,6 +79,17 @@ async function main() {
   await config.addException(principal, { dayKey: closedDay, kind: "CLOSED", label: "חג" });
   await config.addException(principal, { dayKey: partDay, kind: "CLOSED", startMinute: 12 * 60, endMinute: 14 * 60 });
 
+  // Milestone C: the booking link open for business A, and one request submitted through the real public door.
+  await owner.businessFeatureAccess.create({ data: { businessId: bizA, featureKey: "public_booking", state: "ENABLED", reason: "lab demo" } });
+  await config.upsertServicePolicy(principal, haircut, { publicBookable: true, approvalMode: "MANUAL", slotStepMinutes: 15 });
+  await config.updateStaff(principal, shira, { publicBookable: true });
+  const booking = await import("@/lib/services/booking/booking-admin.service");
+  const pub = await import("@/lib/services/booking/public-booking.service");
+  const settings = await booking.updateBookingSettings(principal, { enabled: true, staffChoiceMode: "OPTIONAL" });
+  const requestDay = addCalendarDays(today, 3);
+  const slots = await pub.getPublicSlots(settings.settings.publicId, { serviceId: haircut, fromDay: requestDay, toDay: addCalendarDays(today, 6) });
+  await pub.submitPublicRequest(settings.settings.publicId, { serviceId: haircut, startsAt: slots.slots[0].startsAt, name: "בקשה לדוגמה", phone: "050-777-7777", note: "מהקישור" }, uuidV7(new Date()));
+
   const out = {
     closedDay, partDay,
     tokenA: signAuthToken(userA, 0), tokenB: signAuthToken(userB, 0), bizA, bizB, today,

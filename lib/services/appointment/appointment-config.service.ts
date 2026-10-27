@@ -92,7 +92,7 @@ export async function createStaff(principal: AppointmentPrincipal, input: { disp
 export async function updateStaff(
   principal: AppointmentPrincipal,
   id: number,
-  input: { displayName?: unknown; color?: unknown; active?: unknown; sortOrder?: unknown; expectedVersion?: unknown },
+  input: { displayName?: unknown; color?: unknown; active?: unknown; sortOrder?: unknown; publicBookable?: unknown; expectedVersion?: unknown },
 ) {
   authorizeAppointmentAction(principal, "staff.manage");
   const data: Prisma.StaffMemberUpdateInput = {};
@@ -105,6 +105,11 @@ export async function updateStaff(
   if (input.sortOrder !== undefined) {
     if (!isIntIn(input.sortOrder, 0, 10000)) throw invalid("sortOrder");
     data.sortOrder = input.sortOrder;
+  }
+  // D7: offered to the public booking link or not — never changes an existing appointment.
+  if (input.publicBookable !== undefined) {
+    if (typeof input.publicBookable !== "boolean") throw invalid("publicBookable");
+    data.publicBookable = input.publicBookable;
   }
   if (Object.keys(data).length === 0) throw invalid("fields");
   if (input.expectedVersion !== undefined && !isPositiveInt(input.expectedVersion)) throw invalid("expectedVersion");

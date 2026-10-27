@@ -1744,6 +1744,8 @@ model StaffMember {
   color       String?
   active      Boolean   @default(true)
   sortOrder   Int       @default(0)
+  /// Milestone C (migration 20261106090000, D7): offered on the business's public booking link. Default false.
+  publicBookable Boolean @default(false)
   version     Int       @default(1)
   erasedAt    DateTime?
   createdAt   DateTime  @default(now())
@@ -1839,6 +1841,17 @@ model BookingSettings {
   pendingTtlMinutes   Int                 @default(720)
   requireVerification Boolean             @default(false)
   staffChoiceMode     BookingStaffChoice  @default(NONE)
+  /// Milestone C (migration 20261106090000) — the business's own choices: how a staff member is picked when the
+  /// customer does not choose (D8), self-cancellation and its window (D9), what the public page shows (D10), and a
+  /// per-phone open-request cap the platform's ceiling (code) still bounds (D11).
+  assignmentMode          BookingAssignmentMode @default(BALANCED)
+  selfCancelEnabled       Boolean               @default(true)
+  selfCancelWindowHours   Int                   @default(24)
+  maxOpenRequestsPerPhone Int                   @default(2)
+  showAddress             Boolean               @default(false)
+  showBusinessDetails     Boolean               @default(false)
+  showPrices              Boolean               @default(false)
+  showStaffNames          Boolean               @default(true)
   version             Int                 @default(1)
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
@@ -3946,6 +3959,11 @@ enum AvailabilityExceptionKind {
 enum BookingApprovalMode {
   MANUAL
   AUTO
+}
+
+enum BookingAssignmentMode {
+  BALANCED
+  PRIORITY
 }
 
 enum BookingStaffChoice {
