@@ -100,7 +100,8 @@ export function UploadsScreen() {
           </h2>
           <ul className="ucards">
             <li>
-              <BankCard mode={bankMode} onRetry={retry} />
+              {/* When the whole read failed, the banner above carries the one retry. */}
+              <BankCard mode={bankMode} onRetry={load.state === "ready" ? retry : undefined} />
             </li>
             <li>
               <SoonCard entity="invoice" name="דוח Z מהקופה" desc="סיכום יומי מהקופה הרושמת" />
@@ -214,7 +215,7 @@ function SoonCard({ entity, name, desc }: { entity: string; name: string; desc: 
  * while that is loading the card holds a skeleton, and when it cannot be known there is no link at all: the
  * old upload refuses in that state too, so a link would only lead to an error. Never "בקרוב".
  */
-function BankCard({ mode, onRetry }: { mode: BankMode | null; onRetry: () => void }) {
+function BankCard({ mode, onRetry }: { mode: BankMode | null; onRetry?: () => void }) {
   const name = "דף חשבון בנק";
   if (mode === "legacy") {
     return (
@@ -248,9 +249,13 @@ function BankCard({ mode, onRetry }: { mode: BankMode | null; onRetry: () => voi
           name={name}
           desc="לא הצלחנו לבדוק כרגע איך להעלות דף בנק לעסק."
           end={
-            <button type="button" className="ubtn" onClick={onRetry}>
-              לבדוק שוב
-            </button>
+            onRetry ? (
+              <button type="button" className="ubtn" onClick={onRetry}>
+                לבדוק שוב
+              </button>
+            ) : (
+              <span />
+            )
           }
         />
       </div>
