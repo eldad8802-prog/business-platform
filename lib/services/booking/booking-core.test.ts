@@ -23,6 +23,7 @@ import {
   safeTimeZone,
   selfCancel,
   sha256Hex,
+  withinBusinessHours,
 } from "./booking.core";
 
 let total = 0;
@@ -117,6 +118,30 @@ eq("balanced tie on order too: the lower id (stable)", chooseStaff([{ id: 8, sor
 eq("priority: the owner's order, whatever the load", chooseStaff(c, "PRIORITY"), 4);
 eq("nobody free: null", chooseStaff([], "BALANCED"), null);
 eq("the same inputs in another order pick the same person", chooseStaff([...c].reverse(), "BALANCED"), 9);
+
+console.log("— the link offers a time only inside the business's own hours (owner decision 2026-10-28)");
+// Sunday 1.11.2026 (Jerusalem UTC+2): the business is open 09:00–17:00; on Monday it has no weekly hours.
+const SUN = "2026-11-01", MON = "2026-11-02";
+const at = (day: string, hhmm: string) => new Date(`${day}T${String(Number(hhmm.slice(0, 2)) - 2).padStart(2, "0")}:${hhmm.slice(3)}:00.000Z`);
+const span = (day: string, from: string, minutes: number) => ({ startsAt: at(day, from), endsAt: new Date(at(day, from).getTime() + minutes * 60_000) });
+const sunday = { rules: [{ weekday: 0, startMinute: 9 * 60, endMinute: 17 * 60 }], exceptions: [] as { dayKey: string; kind: "CLOSED" | "OPEN_HOURS"; startMinute: number | null; endMinute: number | null }[] };
+check("inside the hours", withinBusinessHours(span(SUN, "09:00", 45), sunday));
+check("ending exactly at closing is inside", withinBusinessHours(span(SUN, "16:15", 45), sunday));
+check("a service that runs past closing is outside (its length counts)", !withinBusinessHours(span(SUN, "16:30", 45), sunday));
+check("after closing — a staff member's later own hours never widen it", !withinBusinessHours(span(SUN, "17:00", 45), sunday));
+check("before opening", !withinBusinessHours(span(SUN, "08:30", 45), sunday));
+check("a weekday the business has no hours", !withinBusinessHours(span(MON, "10:00", 45), sunday));
+const lunch = { rules: sunday.rules, exceptions: [{ dayKey: SUN, kind: "CLOSED" as const, startMinute: 12 * 60, endMinute: 14 * 60 }] };
+check("a partial closure of the business is respected", !withinBusinessHours(span(SUN, "12:30", 45), lunch));
+check("…and the rest of the day stays open", withinBusinessHours(span(SUN, "11:00", 45), lunch) && withinBusinessHours(span(SUN, "14:00", 45), lunch));
+check("a service may not run into the closure", !withinBusinessHours(span(SUN, "11:30", 45), lunch));
+check("a whole-day closure", !withinBusinessHours(span(SUN, "10:00", 45), { rules: sunday.rules, exceptions: [{ dayKey: SUN, kind: "CLOSED", startMinute: null, endMinute: null }] }));
+const special = { rules: sunday.rules, exceptions: [{ dayKey: MON, kind: "OPEN_HOURS" as const, startMinute: 10 * 60, endMinute: 14 * 60 }] };
+check("special opening hours on a closed weekday count", withinBusinessHours(span(MON, "10:00", 45), special));
+check("…but only within them", !withinBusinessHours(span(MON, "13:30", 45), special));
+const split = { rules: [{ weekday: 0, startMinute: 9 * 60, endMinute: 12 * 60 }, { weekday: 0, startMinute: 13 * 60, endMinute: 17 * 60 }], exceptions: [] };
+check("split hours: a time across the gap is outside", !withinBusinessHours(span(SUN, "11:30", 45), split));
+check("a business with no hours at all offers nothing on the link", !withinBusinessHours(span(SUN, "10:00", 45), { rules: [], exceptions: [] }));
 
 console.log("— D9: self-cancel");
 const start = new Date(t0.getTime() + 48 * H);
