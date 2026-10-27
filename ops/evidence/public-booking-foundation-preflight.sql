@@ -39,8 +39,8 @@
 \echo '14 the owner of BookingSettings (the migration role) carries BYPASSRLS or is a superuser'
 \echo '15 BookingSettings rows (informational: they take the defaults)'
 \echo '16 StaffMember rows (informational: none becomes public)'
-echo '17 dependency 20261103090000_document_supplier_link finished (informational: 1 = yes)'
-echo '18 dependency 20261104090000_pos_rivhit_source finished (informational: 1 = yes)'
+\echo '17 dependency 20261103090000_document_supplier_link finished (informational: 1 = yes)'
+\echo '18 dependency 20261104090000_pos_rivhit_source finished (informational: 1 = yes)'
 
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want

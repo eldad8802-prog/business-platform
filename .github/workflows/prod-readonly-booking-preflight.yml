@@ -33,7 +33,7 @@ jobs:
     environment: production-db
     env:
       SQL_FILE: ops/evidence/public-booking-foundation-preflight.sql
-      SQL_SHA256: c37cd280a340a280518725e2faceee614a0a07c9944b8017133a220171a44ac4
+      SQL_SHA256: 48961422028cff27c9eb1dc2eea545d9a0f01cd68d77b231dabfcb3ec126198a
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
