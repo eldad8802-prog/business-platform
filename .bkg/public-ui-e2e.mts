@@ -11,7 +11,8 @@
  *   C. closed: public_booking DISABLED → the page says the link is unavailable; restored after.
  *   A. accessibility: axe-core (WCAG 2 A/AA) on every step, no serious or critical violation; private headers.
  *
- * env: E2E_BASE (default http://localhost:3702), PUBLIC_ID, BUSINESS_ID, OWNER_URL (the lab's owner role), OUT.
+ * env: E2E_BASE (default http://localhost:3702), BUSINESS_ID, OWNER_URL (the lab's owner role), OUT; PUBLIC_ID optional (read from
+ *      the business's settings). Runs after the seed (.appt/ui-seed.ts) and prepares its own fixtures (see prepare()).
  */
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -21,7 +22,7 @@ import { PrismaClient } from "@prisma/client";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
 const BASE = process.env.E2E_BASE ?? "http://localhost:3702";
-const PUBLIC_ID = process.env.PUBLIC_ID!;
+let PUBLIC_ID = process.env.PUBLIC_ID ?? "";
 const BUSINESS_ID = Number(process.env.BUSINESS_ID);
 const OUT = process.env.OUT ?? "e2e-public-booking";
 mkdirSync(OUT, { recursive: true });
@@ -102,8 +103,40 @@ async function fill(p: Page, name: string, phone: string, note = "") {
   if (note) await p.getByLabel("הערה לעסק (לא חובה)").fill(note);
 }
 
+/**
+ * The suite's own fixtures on top of the lab seed (owner role, lab only): "תספורת" open with manual approval, "צבע"
+ * open with automatic approval, "שירה" and "אבי" offered on the link, the customer may choose. The link's id is read
+ * from the business's settings.
+ */
+async function prepare() {
+  // The calendar's own e2e switches the flags ON and OFF; this suite starts from ON (lab only).
+  for (const featureKey of ["appointments", "public_booking"]) {
+    await owner.businessFeatureAccess.upsert({
+      where: { businessId_featureKey: { businessId: BUSINESS_ID, featureKey } },
+      create: { businessId: BUSINESS_ID, featureKey, state: "ENABLED", reason: "lab e2e" },
+      update: { state: "ENABLED" },
+    });
+  }
+  const svc = async (name: string) => (await owner.businessService.findFirstOrThrow({ where: { businessId: BUSINESS_ID, name, active: true }, select: { id: true } })).id;
+  const open = async (name: string, approvalMode: "MANUAL" | "AUTO") => {
+    const businessServiceId = await svc(name);
+    await owner.serviceBookingPolicy.upsert({
+      where: { businessId_businessServiceId: { businessId: BUSINESS_ID, businessServiceId } },
+      create: { businessId: BUSINESS_ID, businessServiceId, publicBookable: true, approvalMode, slotStepMinutes: 15 },
+      update: { publicBookable: true, approvalMode },
+    });
+  };
+  await open("תספורת", "MANUAL");
+  await open("צבע", "AUTO");
+  await owner.staffMember.updateMany({ where: { businessId: BUSINESS_ID, displayName: { in: ["שירה", "אבי"] } }, data: { publicBookable: true } });
+  await owner.bookingSettings.update({ where: { businessId: BUSINESS_ID }, data: { staffChoiceMode: "OPTIONAL", showStaffNames: true, showPrices: true } });
+  if (!PUBLIC_ID) PUBLIC_ID = (await owner.bookingSettings.findUniqueOrThrow({ where: { businessId: BUSINESS_ID }, select: { publicId: true } })).publicId ?? "";
+}
+
 async function main() {
-  must(PUBLIC_ID && BUSINESS_ID, "PUBLIC_ID and BUSINESS_ID are required");
+  must(BUSINESS_ID, "BUSINESS_ID is required");
+  await prepare();
+  must(PUBLIC_ID, "the business has no booking link");
   const browser = await chromium.launch();
   let manageLink = "";
   try {

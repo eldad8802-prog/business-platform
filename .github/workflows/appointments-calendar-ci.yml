@@ -33,6 +33,9 @@ on:
       - "lib/services/crm/lead.service.ts"
       - "lib/services/booking/**"
       - "app/api/public/booking/**"
+      - "features/public-booking/**"
+      - "app/book/**"
+      - ".bkg/public-ui-e2e.mts"
       - "public/sw.js"
       - ".appt/ui-*"
       - ".bkg/lab.sh"
@@ -59,6 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           npx tsx features/calendar/calendar-model.test.ts
+          npx tsx features/public-booking/public-booking-model.test.ts
           npx tsx features/calendar/secretary-appointments.test.ts
           npx tsx "app/(shell)/secretary/secretary-hub.verify.test.ts"
           npx tsx "app/(shell)/secretary/secretary-home-model.verify.test.ts"
@@ -71,7 +75,7 @@ jobs:
           npx tsx lib/navigation/app-title-metadata.test.ts
           npx tsx components/customers/appointment-status-labels.test.ts
       - name: Lint the calendar and what it touches
-        run: npx eslint features/calendar "app/(shell)/calendar" "app/(shell)/secretary" components/customers features/tools lib/navigation .appt/ui-seed.ts .appt/ui-e2e.mts
+        run: npx eslint features/calendar "app/(shell)/calendar" "app/(shell)/secretary" components/customers features/tools lib/navigation .appt/ui-seed.ts .appt/ui-e2e.mts features/public-booking app/book .bkg/public-ui-e2e.mts
 
   e2e:
     name: calendar — the real app in a browser, desktop + phone (PG17 lab, appointments ON for one business)
@@ -150,6 +154,12 @@ jobs:
 
       - name: End to end — desktop and phone, ON and OFF
         run: npx tsx .appt/ui-e2e.mts
+
+      # Milestone C, segment 3: the customer's page and own link (phone 375/390, tablet, desktop), with axe (WCAG A/AA).
+      - name: End to end — the customer's booking page and own link
+        run: |
+          set -euo pipefail
+          BUSINESS_ID=$(node -e "console.log(require(process.env.SEED_OUT).bizA)") OUT="$OUT/public-booking" npx tsx .bkg/public-ui-e2e.mts
 
       - name: Result table
         if: always()
