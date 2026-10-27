@@ -15,7 +15,7 @@ import { noticeKindFor, reminderDue, translatePeriodNotice } from "./notify";
 import { issuedPdfState } from "./period-facts";
 import { normalizeRecipientEmail, normalizeRecipientName } from "./recipient.service";
 import { latestPeriodNeedsPrepare } from "./sweep";
-import { derivePeriodStatus, periodStatusLabelHe } from "./workflow-status";
+import { derivePeriodStatus, isRetryAfterNoAnswer, isUncertainOutcome, linkStateOf, periodStatusLabelHe } from "./workflow-status";
 
 let failed = 0;
 function ok(name: string, condition: boolean, detail = "") {
@@ -148,6 +148,23 @@ ok("control characters in a name are refused", normalizeRecipientName("a\u0007b"
   ok("text and html carry the same link", e.text.includes("https://app.example.com/a/x#t=y") && e.html.includes("https://app.example.com/a/x#t=y"));
   ok("an incomplete package says so", e.text.includes("עדיין פתוחים"));
   ok("names are escaped in html", renderAccountantPackageEmail({ businessName: "<b>x</b>", recipientName: "", periodLabel: "p", link: "https://a/b", expiresOn: "d", incomplete: false }).html.includes("&lt;b&gt;"));
+  ok("the email says what the link gives: every document, the ZIP and both reports", e.text.includes("כל מסמך מקור") && e.text.includes("ZIP") && e.text.includes("Excel") && e.text.includes("PDF") && e.text.includes("פתיחת החבילה"));
+}
+
+// ── G4: an unanswered send, the link's state ──
+{
+  ok("a FAILED send after a timeout is uncertain", isUncertainOutcome("FAILED", "timeout"));
+  ok("…after a network failure on the last retry, too", isUncertainOutcome("FAILED", "network_max_attempts") && isUncertainOutcome("FAILED", "timeout_ttl"));
+  ok("a refused send is not uncertain (the provider answered)", !isUncertainOutcome("FAILED", "rejected_422") && !isUncertainOutcome("FAILED", "provider_500_max_attempts"));
+  ok("a bounce is not uncertain", !isUncertainOutcome("BOUNCED", "bounced"));
+  ok("an accepted send is not uncertain", !isUncertainOutcome("ACCEPTED", null));
+  ok("a retry scheduled after a timeout is flagged", isRetryAfterNoAnswer("APPROVED", "timeout") && !isRetryAfterNoAnswer("APPROVED", "rate_limited") && !isRetryAfterNoAnswer("APPROVED", null));
+  const at = new Date("2026-10-10T00:00:00Z");
+  const exp = new Date("2026-10-20T00:00:00Z");
+  ok("link: an accepted send before expiry is live", linkStateOf({ status: "ACCEPTED", linkRevokedAt: null, linkExpiresAt: exp }, at) === "live");
+  ok("link: after expiry it is expired", linkStateOf({ status: "DELIVERED", linkRevokedAt: null, linkExpiresAt: exp }, new Date("2026-10-21T00:00:00Z")) === "expired");
+  ok("link: revoked wins", linkStateOf({ status: "ACCEPTED", linkRevokedAt: at, linkExpiresAt: exp }, at) === "revoked");
+  ok("link: a send that never went out handed no link", linkStateOf({ status: "FAILED", linkRevokedAt: null, linkExpiresAt: exp }, at) === "not_sent" && linkStateOf({ status: "APPROVED", linkRevokedAt: null, linkExpiresAt: exp }, at) === "not_sent");
 }
 
 if (failed > 0) {

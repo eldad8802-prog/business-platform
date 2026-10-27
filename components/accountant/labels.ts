@@ -55,7 +55,8 @@ export function warningHe(w: Warning): string {
 export function deliveryStatusHe(d: DeliveryView): string {
   switch (d.status) {
     case "APPROVED":
-      return d.failureCode ? "ממתין לניסיון שליחה נוסף" : "אושר לשליחה";
+      if (d.retryAfterNoAnswer) return "ספק המייל לא ענה — ננסה שוב (בלי לשלוח פעמיים)";
+      return d.failureCode ? "ממתין לניסיון שליחה נוסף" : "אושר — ממתין לשליחה";
     case "SENDING":
       return "בשליחה";
     case "ACCEPTED":
@@ -63,7 +64,7 @@ export function deliveryStatusHe(d: DeliveryView): string {
     case "DELIVERED":
       return "נמסר לתיבת הדואר (לפי ספק המייל)";
     case "FAILED":
-      return "השליחה נכשלה";
+      return d.outcomeUncertain ? "לא ודאי שנשלח — ספק המייל לא ענה" : "השליחה נכשלה";
     case "BOUNCED":
       return "המייל חזר — לא נמסר";
     case "CANCELED":
@@ -72,10 +73,34 @@ export function deliveryStatusHe(d: DeliveryView): string {
 }
 
 export function deliveryTone(d: DeliveryView): "success" | "attention" | "urgent" | "info" {
+  if (d.outcomeUncertain) return "attention";
   if (d.status === "DELIVERED" || d.status === "ACCEPTED") return "success";
   if (d.status === "FAILED" || d.status === "BOUNCED") return "urgent";
   if (d.status === "CANCELED") return "info";
   return "attention";
+}
+
+/**
+ * What the accountant did with the link — said exactly: an opened portal is "opened", a file is
+ * "downloaded / viewed", never "read" or "checked".
+ */
+export function deliveryAccessHe(d: DeliveryView): string[] {
+  const out: string[] = [];
+  if (d.portal.views > 0) {
+    out.push(`רואה החשבון פתח את החבילה ${d.portal.views === 1 ? "פעם אחת" : `${d.portal.views} פעמים`} (לאחרונה ${formatDateTimeHe(d.portal.lastViewedAt)})`);
+  } else if (d.linkState === "live") {
+    out.push("רואה החשבון עוד לא פתח את החבילה");
+  }
+  if (d.portal.fileDownloads > 0) {
+    out.push(`נפתחו או הורדו ${d.portal.fileDownloads === 1 ? "קובץ אחד" : `${d.portal.fileDownloads} קבצים`} (לאחרונה ${formatDateTimeHe(d.portal.lastFileDownloadAt)})`);
+  }
+  if (d.downloadCount > 0) {
+    out.push(`החבילה המלאה (ZIP) הורדה ${d.downloadCount === 1 ? "פעם אחת" : `${d.downloadCount} פעמים`}`);
+  }
+  if (d.linkState === "live") out.push(`הקישור בתוקף עד ${formatDateHe(d.linkExpiresAt)}`);
+  if (d.linkState === "expired") out.push(`תוקף הקישור הסתיים ב־${formatDateHe(d.linkExpiresAt)}`);
+  if (d.linkState === "revoked") out.push("הקישור בוטל");
+  return out;
 }
 
 export function formatDateTimeHe(iso: string | null): string {

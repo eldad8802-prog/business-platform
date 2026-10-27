@@ -7,6 +7,9 @@
  * incomplete, and the send button stays disabled until a SEPARATE checkbox is ticked — the ordinary
  * "send" can never pass an incomplete package. The approval carries the exact package id + sha256 and the
  * recipient version + email the owner is looking at; the server refuses anything that changed since.
+ *
+ * When the previous send ended without an answer from the email provider (it may have arrived), sending
+ * again is a NEW email: the dialog says so and asks for a separate confirmation as well.
  */
 
 import { useMemo, useState } from "react";
@@ -21,11 +24,13 @@ import { blockerHe, errorHe, formatDateTimeHe } from "./labels";
 export function SendDialog({
   token,
   period,
+  previousUncertain = false,
   onClose,
   onSent,
 }: {
   token: string;
   period: PeriodView;
+  previousUncertain?: boolean;
   onClose: () => void;
   onSent: (next: PeriodView) => void;
 }) {
@@ -34,12 +39,13 @@ export function SendDialog({
   const blockers = period.readiness?.blockers ?? [];
   const incomplete = pkg.openItemCount > 0;
   const [acknowledged, setAcknowledged] = useState(false);
+  const [resendAcknowledged, setResendAcknowledged] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   // One key per opened dialog: a double click or a retried request is the same approval.
   const idempotencyKey = useMemo(() => newIdempotencyKey(), []);
 
-  const canSend = !sending && (!incomplete || acknowledged);
+  const canSend = !sending && (!incomplete || acknowledged) && (!previousUncertain || resendAcknowledged);
 
   async function send() {
     if (!canSend) return;
@@ -75,14 +81,30 @@ export function SendDialog({
           <div style={factRow}><dt style={factKey}>חודש</dt><dd style={factVal}>{period.label}</dd></div>
           <div style={factRow}><dt style={factKey}>אל</dt><dd style={factVal}>{recipient.name} · <span dir="ltr">{recipient.email}</span></dd></div>
           <div style={factRow}><dt style={factKey}>גרסה</dt><dd style={factVal}>{pkg.version} · הוכנה {formatDateTimeHe(pkg.readyAt)}</dd></div>
-          <div style={{ ...factRow, borderBottom: "none" }}><dt style={factKey}>בחבילה</dt><dd style={factVal}>{pkg.recordCount} מסמכים סרוקים · {pkg.issuedCount} מסמכים שהופקו</dd></div>
+          <div style={factRow}><dt style={factKey}>בחבילה</dt><dd style={factVal}>{pkg.recordCount} מסמכים סרוקים · {pkg.issuedCount} מסמכים שהופקו</dd></div>
+          <div style={{ ...factRow, borderBottom: "none" }}>
+            <dt style={factKey}>קבצים חסרים</dt>
+            <dd style={{ ...factVal, color: pkg.missingFiles > 0 ? TOKEN.semantic.attention.ink : undefined }}>{pkg.missingFiles > 0 ? pkg.missingFiles : "אין"}</dd>
+          </div>
         </dl>
         <p style={hint}>
-          רואה החשבון יקבל מייל עם קישור מאובטח להורדת הגרסה הזו בדיוק. הקישור בתוקף ל־14 יום, ואפשר לבטל אותו בכל רגע.
+          רואה החשבון יקבל מייל עם קישור מאובטח לגרסה הזו בדיוק. בקישור הוא יוכל לפתוח ולהוריד כל מסמך מקור וכל מסמך
+          שהופק, כפי שנשמרו בחבילה ובלי שינוי, להוריד את החבילה המלאה (ZIP) ואת הדוחות (Excel ו־PDF), ולראות אילו
+          מסמכים חסרים. הקישור בתוקף ל־14 יום ולקריאה בלבד, אפשר לבטל אותו בכל רגע, וכל פתיחה והורדה נרשמות אצלך.
         </p>
+        {previousUncertain ? (
+          <div style={warnBox} role="alert">
+            <strong style={{ display: "block", marginBottom: 6 }}>ייתכן שהשליחה הקודמת כבר הגיעה</strong>
+            ספק המייל לא ענה על השליחה הקודמת. שליחה חוזרת היא מייל חדש, ולכן רואה החשבון עלול לקבל שני מיילים.
+            <label style={ackRow}>
+              <input type="checkbox" checked={resendAcknowledged} onChange={(e) => setResendAcknowledged(e.target.checked)} style={{ width: 20, height: 20 }} />
+              <span>הבנתי, ואני מאשר/ת לשלוח שוב</span>
+            </label>
+          </div>
+        ) : null}
 
         {incomplete ? (
-          <div style={warnBox} role="alert">
+          <div style={{ ...warnBox, marginTop: previousUncertain ? 12 : 0 }} role="alert">
             <strong style={{ display: "block", marginBottom: 6 }}>החבילה הזו אינה שלמה</strong>
             <ul style={{ margin: 0, paddingInlineStart: 18 }}>
               {blockers.map((b) => (
