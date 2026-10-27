@@ -291,13 +291,14 @@ async function main() {
   console.log("\n  /api/settings/connections-summary");
   const cA = await (await connectionsSummaryGET(get(a.token, "http://t/api/settings/connections-summary"))).json();
   ok(
-    "A: WhatsApp 1 · Gmail 1 (revoked excluded) · payments 1 (inactive excluded) · tax authority 0 · lead sources 1 (paused excluded)",
+    "A: WhatsApp 1 · Gmail 1 (revoked excluded) · payments 1 (inactive excluded) · tax authority 0 · lead sources 1 (paused excluded) · stores & calls 0",
     cA.available === true &&
       cA.breakdown?.whatsapp === 1 &&
       cA.breakdown?.gmail === 1 &&
       cA.breakdown?.payments === 1 &&
       cA.breakdown?.taxAuthority === 0 &&
-      cA.breakdown?.leadSources === 1,
+      cA.breakdown?.leadSources === 1 &&
+      cA.breakdown?.storesAndCalls === 0,
     JSON.stringify(cA)
   );
   ok("A: active = 4", cA.active === 4, String(cA.active));

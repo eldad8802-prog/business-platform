@@ -1,0 +1,9 @@
+{
+  "note": "S1-B · M1 — the unified Connections center at /settings/connections: a read-only server read model over the existing connection mechanisms (acquisition, payments, tax authority, WhatsApp, Gmail, inbound email). Tenant isolation of its reads is the existing tenantTx / RLS path; this suite proves the mapping, per-source failure isolation, secrecy of the selects and the 401.",
+  "tests": {
+    "lib/services/connections/connections-center.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network; fake readers): per-source state / attention kind / availability, unknown-code fallback, Rivhit hidden while pos_rivhit is off, disabled payment providers hidden, one throwing read → only its own cards unavailable and only the error name logged, no secret column named in the service, every emitted key in he + en, the stores panel health copy unchanged, GET 401 without / with a forged token, page keeps the four panels and the OAuth return paths; run on pull_request by ci-1-prisma-centralization.yml; passed locally (95/95)"
+    }
+  }
+}
