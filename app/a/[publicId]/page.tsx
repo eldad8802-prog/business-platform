@@ -306,7 +306,7 @@ function FileGroup({ title, files, busy, run }: { title: string; files: PortalFi
                     {f.currency ? ` ${f.currency}` : ""}
                   </span>
                 ) : null}
-                <span>{sizeHe(f.size)}</span>
+                <span className={s.ltr}>{sizeHe(f.size)}</span>
                 {f.note ? <span>{f.note}</span> : null}
                 {f.verified === true ? <span className={`${s.chip} ${s.chipOk}`}>מאומת מול הקובץ שנקלט</span> : null}
                 {f.verified === false ? <span className={s.chip}>ללא אימות</span> : null}

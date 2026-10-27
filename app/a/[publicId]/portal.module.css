@@ -357,3 +357,8 @@
     display: none;
   }
 }
+
+.ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
