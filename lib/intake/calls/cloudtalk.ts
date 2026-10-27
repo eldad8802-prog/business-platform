@@ -125,6 +125,8 @@ const HOUR = 3_600_000;
  */
 export const CLOUDTALK_CREDENTIAL_CODES = ["CLOUDTALK_API_KEY_MISSING", "CLOUDTALK_API_KEY_INVALID"] as const;
 export type CloudTalkCredentialCode = (typeof CLOUDTALK_CREDENTIAL_CODES)[number];
+/** The same codes as a held-back receipt carries them (IntakeEvent.lastErrorCode is lower-case). */
+export const CLOUDTALK_CREDENTIAL_RECEIPT_CODES = CLOUDTALK_CREDENTIAL_CODES.map((c) => c.toLowerCase());
 export const CLOUDTALK_CREDENTIAL_WAIT_MS = 7 * 24 * HOUR;
 
 async function credentialBlocked(

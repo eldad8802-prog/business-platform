@@ -524,10 +524,15 @@ async function main() {
     && JSON.stringify((await o.acquisitionConnection.findFirst({ where: { id: ctConn.id } }))?.lineLabels) === JSON.stringify({ "035550000": "קו מכירות" }));
   await ownerIdPOST(req(`/api/integrations/acquisition/${ctConn.id}`, { headers: owner(uA.id), body: JSON.stringify({ action: "set_credentials", apiKeyId: "LABKEYID1", apiKeySecret: "LABKEYSECRET1" }) }), params({ id: String(ctConn.id) }));
   const ctFixed = await ctRow();
-  ok("L1 · G-06: saving a working key clears the notice and re-arms what it held back — the waiting call AND the dead-lettered one are recorded at once (no sweep needed)",
+  const ev8After = await o.intakeEvent.findUnique({ where: { id: ev8!.id }, select: { status: true, nextAttemptAt: true } });
+  ok("L1 · G-06: saving a working key clears the notice and re-arms the dead-lettered call (due now, not settled)",
     ctFixed?.status === "ACTIVE" && ctFixed.lastErrorCode === null
-      && (await o.callActivity.count({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk", providerCallId: { in: ["c-1", "c-8"] } } })) === 2,
-    JSON.stringify({ ctFixed, calls: await o.callActivity.findMany({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk" }, select: { providerCallId: true } }) }));
+      && (ev8After?.status === "PROCESSED" || (ev8After?.status === "RECEIVED" && !!ev8After.nextAttemptAt && ev8After.nextAttemptAt.getTime() <= Date.now())),
+    JSON.stringify({ ctFixed, ev8After }));
+  await sweep(0); // the next look (the route also drains right after the response where a request scope exists)
+  ok("L1 · G-06: …the waiting call AND the once-dead-lettered one are both recorded (nothing lost)",
+    (await o.callActivity.count({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk", providerCallId: { in: ["c-1", "c-8"] } } })) === 2,
+    JSON.stringify(await o.callActivity.findMany({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk" }, select: { providerCallId: true } })));
   await sweep(14 * 3_600_000);
   const ca1 = await o.callActivity.findFirst({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk", providerCallId: "c-1" } });
   ok("with the right key → the call is recorded MISSED (no answered_at in CloudTalk's history), 0 s", ca1?.outcome === "missed" && ca1.durationSec === 0, ca1?.outcome);

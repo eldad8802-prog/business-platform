@@ -16,6 +16,7 @@ import path from "node:path";
 import { IntakeTerminalError, type ClaimedIntakeEvent } from "@/lib/intake/core/contract";
 import {
   CLOUDTALK_CREDENTIAL_CODES,
+  CLOUDTALK_CREDENTIAL_RECEIPT_CODES,
   CLOUDTALK_CREDENTIAL_WAIT_MS,
   hydrateCloudTalkCall,
   setCloudTalkFetchForTests,
@@ -123,7 +124,10 @@ async function main() {
       /setReceivingConnectionIssue\(CLOUDTALK_SOURCE, publicId, code, CLOUDTALK_CREDENTIAL_CODES\)/);
     const route = read("app/api/integrations/acquisition/[id]/route.ts");
     assert.match(route, /setReceivingConnectionIssue\("telephony\.cloudtalk", existing\.publicId, null, CLOUDTALK_CREDENTIAL_CODES\)/);
-    assert.match(route, /rearmBlockedEvents\(businessId, "telephony\.cloudtalk", existing\.publicId, CLOUDTALK_CREDENTIAL_CODES\)/);
+    // Receipts carry the code lower-case (the hydrate's deferral / dead-letter code): re-arm must match THAT.
+    assert.match(route, /rearmBlockedEvents\(businessId, "telephony\.cloudtalk", existing\.publicId, CLOUDTALK_CREDENTIAL_RECEIPT_CODES\)/);
+    const blocked = await run({ status: 401 });
+    assert.ok(blocked.h?.kind === "deferred" && (CLOUDTALK_CREDENTIAL_RECEIPT_CODES as readonly string[]).includes(blocked.h.code));
     const svc = read("lib/intake/acquisition/connection.service.ts");
     const fn = svc.slice(svc.indexOf("export async function setReceivingConnectionIssue("), svc.indexOf("export async function setConnectionHealth("));
     assert.match(fn, /status: "ACTIVE"/);
