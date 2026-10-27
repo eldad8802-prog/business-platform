@@ -1,0 +1,9 @@
+{
+  "note": "Milestone C (public booking), segment 3: the customer's page /book/<publicId> and own link /book/manage. The page end to end in a real browser over the PG17 lab (phone 375/390, tablet, desktop, axe WCAG A/AA) is .bkg/public-ui-e2e.mts in appointments-calendar-ci.yml.",
+  "tests": {
+    "features/public-booking/public-booking-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): the steps (the staff step only when the business lets the customer choose and shows who works there), Hebrew labels and prices as published, free times grouped by the Jerusalem day, the three nearest free times when one is taken, the customer's details checked as the server does (D4, no email), refusals read as Hebrew, the own link's token kept in the URL fragment, times isolated left-to-right inside Hebrew, a UUIDv7 idempotency key per attempt; run on pull_request by appointments-calendar-ci.yml"
+    }
+  }
+}

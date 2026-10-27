@@ -51,6 +51,18 @@ const ok = (name: string, cond: boolean, detail = "") => {
 };
 const report: any = {};
 
+/**
+ * The English HTML byte rule. When #780 was a branch it moved the dictionary out of the HTML, so the BRANCH had
+ * to be strictly SMALLER than MAIN. Since #780 is on main, an unrelated pull request builds byte-identical English
+ * HTML and the strict rule failed every route on equal sizes. The rule that still guards the gain: the BRANCH
+ * may not GROW the English HTML — equal passes, any growth fails.
+ */
+const englishHtmlNotLarger = (mainBytes: number, branchBytes: number) => branchBytes <= mainBytes;
+// Self-proof of the rule itself, every run, before anything is measured: equal and smaller pass, one byte more fails.
+ok("rule self-proof — equal English HTML passes", englishHtmlNotLarger(90274, 90274));
+ok("rule self-proof — smaller English HTML passes", englishHtmlNotLarger(90274, 90273));
+ok("rule self-proof — English HTML one byte larger fails", !englishHtmlNotLarger(90274, 90275));
+
 // ───────────────────────────── helpers ─────────────────────────────
 const p50 = (xs: number[]) => { if (!xs.length) return NaN; const s = [...xs].sort((a, b) => a - b); return Math.round(s[Math.max(1, Math.ceil(0.5 * s.length)) - 1] * 10) / 10; };
 const kb = (n: number) => Math.round(n / 102.4) / 10;
@@ -200,7 +212,7 @@ async function bytesPhase(s: Seed) {
     // Only 200 documents carry a page (redirects are tiny either way).
     if (row.branchOnEn.status === 200) {
       ok(`bytes ${row.route} — BRANCH English HTML carries no dictionary (MAIN ${row.mainOnEn.sentinels}/${SENT.length} sentinels → BRANCH < 25%: only what the page renders)`, row.branchOnEn.sentinels < SENT.length * 0.25, `sentinels=${row.branchOnEn.sentinels}`);
-      ok(`bytes ${row.route} — BRANCH English HTML smaller than MAIN`, row.branchOnEn.raw < row.mainOnEn.raw, `${row.mainOnEn.raw} → ${row.branchOnEn.raw}`);
+      ok(`bytes ${row.route} — BRANCH English HTML not larger than MAIN`, englishHtmlNotLarger(row.mainOnEn.raw, row.branchOnEn.raw), `${row.mainOnEn.raw} → ${row.branchOnEn.raw}`);
     }
     // Hebrew: the change must not grow a Hebrew document beyond the next/dynamic loader reference.
     ok(`bytes ${row.route} — BRANCH Hebrew HTML within ±2 KB of MAIN`, Math.abs(row.branchOnHe.raw - row.mainOnHe.raw) <= 2048 && Math.abs(row.branchOff.raw - row.mainOff.raw) <= 2048, `ON ${row.mainOnHe.raw}→${row.branchOnHe.raw}, OFF ${row.mainOff.raw}→${row.branchOff.raw}`);

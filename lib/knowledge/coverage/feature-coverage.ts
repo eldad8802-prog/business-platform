@@ -226,8 +226,9 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     // rule reads them yet — the four rules above read CUSTOMER appointments only (loadAppointments).
     models: ["Appointment", "AppointmentEvent", "StaffMember", "StaffServiceAssignment", "AvailabilityRule", "AvailabilityException",
       "ServiceBookingPolicy", "BookingSettings", "BookingRequest", "AppointmentManageToken"],
-    // Milestone C: the public booking doors (api/public/booking — no session; 404 until public_booking is open).
-    sensors: ["APPOINTMENT_STATUS_CHANGED", "APPOINTMENT_RESCHEDULED"], legacyEvents: [], routes: ["api/appointments", "api/public", "page/calendar"],
+    // Milestone C: the public booking doors (api/public/booking — no session; 404 until public_booking is open) and the
+    // customer's pages (/book/<publicId>, /book/manage).
+    sensors: ["APPOINTMENT_STATUS_CHANGED", "APPOINTMENT_RESCHEDULED"], legacyEvents: [], routes: ["api/appointments", "api/public", "page/calendar", "page/book"],
     target: { coverage: "LEARNS", plan: "No-show and cancellation rate, booking lead time, reschedule rate — status history from the observation sensors (Appointment keeps no history)." },
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "MEDIUM" },
   },
