@@ -646,6 +646,8 @@ async function main() {
   ok("…the owner is asked instead: an open proposal names that customer as a candidate",
     !!vera && (await o.identityProposal.count({ where: { businessId: A.id, candidateCustomerId: vera.id, state: "proposed" } })) >= 1);
 
+  // Re-baseline: the verified Google lead above (Mallory, a new Customer) legitimately linked its email.
+  const linksA1 = await linkCount(A.id);
   const r0L1 = await o.intakeEvent.count({ where: { businessId: A.id, providerAccountRef: webL1.connection.publicId } });
   await Promise.all(Array.from({ length: 5 }, () => web(webL1.connection.publicId, l1Poison, { key: webL1.key })));
   await Promise.all(Array.from({ length: 4 }, (_, i) => web(webL1.connection.publicId,
@@ -653,7 +655,7 @@ async function main() {
   await drain(A.id);
   ok("5 redeliveries of the same submission + 4 parallel new ones → exactly 4 new receipts",
     (await o.intakeEvent.count({ where: { businessId: A.id, providerAccountRef: webL1.connection.publicId } })) === r0L1 + 4);
-  ok("…the parallel anonymous posts created zero identity links", (await linkCount(A.id)) === linksA0);
+  ok("…the parallel anonymous posts created zero identity links", (await linkCount(A.id)) === linksA1);
   ok("…and the victim's phone still has exactly ONE open lead (one lead per phone holds under concurrency)",
     (await o.lead.count({ where: { businessId: A.id, phone: VERA_PHONE, status: { in: ["NEW", "OPEN", "QUALIFIED", "QUOTED"] } } })) === 1);
 
@@ -663,7 +665,7 @@ async function main() {
   const bCust = await o.customer.findFirst({ where: { businessId: B.id, phone: VERA_PHONE } });
   ok("tenant isolation: the same phone + email in business B → B's own new Customer, never A's",
     !!bCust && !!vera && bCust.id !== vera.id);
-  ok("…B created no identity link from it, and A's links did not move", (await linkCount(B.id)) === linksB0 && (await linkCount(A.id)) === linksA0);
+  ok("…B created no identity link from it, and A's links did not move", (await linkCount(B.id)) === linksB0 && (await linkCount(A.id)) === linksA1);
 
   console.log(`\nM6 acquisition battery: ${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n - " + failures.join("\n - ")); process.exitCode = 1; }
