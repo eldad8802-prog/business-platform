@@ -89,6 +89,9 @@ async function toDetails(p: Page, service: string, staff: string, opts: { axeAt?
   await firstTime.click();
   await p.getByRole("button", { name: "המשך" }).click();
   await p.getByRole("heading", { name: "הפרטים שלך" }).waitFor({ timeout: 20_000 });
+  // Regression: the "continue" click must not be completed as a submission of the details form.
+  await p.waitForTimeout(300);
+  must((await p.getByText("צריך שם מלא (לפחות שתי אותיות).").count()) === 0, "the details form was submitted by the continue click");
   if (opts.axeAt) await axe(p, `${opts.axeAt}:details`);
   return label;
 }
@@ -217,6 +220,9 @@ async function main() {
         await p.getByRole("button", { name: "המשך" }).click();
         await p.getByRole("heading", { name: "הפרטים שלך" }).waitFor();
         must((await p.getByLabel("שם מלא").inputValue()) === "גל בדיקה", "the details were lost");
+        // Back on a filled form: nothing is sent until the customer presses send.
+        await p.waitForTimeout(800);
+        must(await p.getByRole("heading", { name: "הפרטים שלך" }).isVisible(), "the filled form was sent without a press");
       });
       await check("the limiter down (503): the form stays, the message says so, a retry uses the same key", async () => {
         const keys: string[] = [];
@@ -226,7 +232,9 @@ async function main() {
           if (first) { first = false; await r.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "השירות עמוס כרגע. נסה שוב בעוד רגע.", code: "rate_limit_unavailable" }) }); }
           else await r.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "השירות עמוס כרגע. נסה שוב בעוד רגע.", code: "rate_limit_unavailable" }) });
         });
-        await p.getByRole("button", { name: "שליחת בקשה לתור" }).click();
+        const send = p.getByRole("button", { name: "שליחת בקשה לתור" });
+        if (!(await send.isVisible())) { await shot(p, "phone390-before-busy"); throw new Error(`no send button before 503; buttons: ${(await p.getByRole("button").allTextContents()).join(" | ")}; headings: ${(await p.getByRole("heading").allTextContents()).join(" | ")}`); }
+        await send.click();
         await p.getByRole("alert").filter({ hasText: "עמוס" }).waitFor();
         await shot(p, "phone390-busy");
         const again = p.getByRole("button", { name: "שליחת בקשה לתור" });

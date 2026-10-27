@@ -390,10 +390,12 @@ export function BookingFlow({ publicId }: { publicId: string }) {
         ) : null}
         <div className={s.ctaRow}>
           {stepIndex > 0 ? <button type="button" className={`${s.btn} ${s.ghost}`} onClick={back} disabled={sending}>חזרה</button> : null}
+          {/* Distinct keys: React must never turn the "continue" button into the submit button while it is being
+              clicked — the browser would then complete that click as a form submission. */}
           {step === "details" ? (
-            <button type="submit" form="bk-form" className={s.btn} disabled={sending} aria-busy={sending}>{sending ? "שולח…" : service?.approval === "AUTO" ? "קביעת התור" : "שליחת בקשה לתור"}</button>
+            <button key="send" type="submit" form="bk-form" className={s.btn} disabled={sending} aria-busy={sending}>{sending ? "שולח…" : service?.approval === "AUTO" ? "קביעת התור" : "שליחת בקשה לתור"}</button>
           ) : (
-            <button type="button" className={s.btn} onClick={next} disabled={!canNext || (step === "staff" && p.staffChoice === "REQUIRED" && staff === ANY)}>המשך</button>
+            <button key="next" type="button" className={s.btn} onClick={next} disabled={!canNext || (step === "staff" && p.staffChoice === "REQUIRED" && staff === ANY)}>המשך</button>
           )}
         </div>
       </div>
