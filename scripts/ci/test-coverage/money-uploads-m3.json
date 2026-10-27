@@ -8,7 +8,7 @@
     "app/api/money-uploads.rls.integration.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "rls-db",
-      "reason": "DB-RLS proof: two tenants, runs as a NOSUPERUSER NOBYPASSRLS login role with no ambient tenant context and refuses to run otherwise; B sees none of A runs / batches / account label, each bank card follows its own business flag, no amount / description / full account number, 401 without/with a forged token, query businessId ignored, the reads write nothing; run by billing-profile-rls-ci.yml; passed locally (20/20)"
+      "reason": "DB-RLS proof: two tenants, runs as a NOSUPERUSER NOBYPASSRLS login role with no ambient tenant context and refuses to run otherwise; B sees none of A runs / batches / account label, each bank card follows its own business flag, no amount / description / full account number, 401 without/with a forged token, query businessId ignored, the reads write nothing; run by billing-profile-rls-ci.yml; passed locally (21/21)"
     }
   }
 }

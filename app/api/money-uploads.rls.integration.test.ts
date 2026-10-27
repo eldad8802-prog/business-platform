@@ -94,31 +94,40 @@ async function makeUser(label: string): Promise<Tenant> {
 const SECRET_DESCRIPTION = "SYNTHETIC-COUNTERPARTY-DO-NOT-LEAK";
 const A_LAST4 = "4821";
 
-function run(t: Tenant, domain: string, status: "COMPLETED" | "PARTIAL" | "FAILED", counts: [number, number, number]) {
-  return {
-    businessId: t.businessId,
-    userId: t.userId,
-    domain,
-    contentHash: `h-${uniq()}`,
-    mappingHash: "m",
-    decisionsHash: "d",
-    status,
-    totalRows: counts[0] + counts[1] + counts[2],
-    createdCount: counts[0],
-    skippedCount: counts[1],
-    failedCount: counts[2],
-    completedAt: new Date(),
-  } as Prisma.ImportRunUncheckedCreateInput;
+/**
+ * Import ledger fixture rows. The ledger has ONE accessor (import-run-store.ts; CI-IL-14 fails on any other
+ * module that names its tables through Prisma), so the fixture is written the way the policies are installed:
+ * as the lab owner, in plain SQL, before any request runs. Nothing in the code under test is bypassed — the
+ * route still reads through the store, as the NOBYPASSRLS runtime role.
+ */
+async function seedRun(t: Tenant, domain: string, status: "COMPLETED" | "PARTIAL" | "FAILED", counts: [number, number, number]) {
+  const admin = new PrismaClient({ datasourceUrl: process.env.RLS_ADMIN_URL });
+  try {
+    await admin.$executeRaw`
+      INSERT INTO "ImportRun" ("businessId", "userId", "domain", "contentHash", "mappingHash", "decisionsHash",
+                               "status", "totalRows", "createdCount", "skippedCount", "failedCount", "completedAt")
+      VALUES (${t.businessId}, ${t.userId}, ${domain}, ${`h-${uniq()}`}, 'm', 'd', ${status}::"ImportRunStatus",
+              ${counts[0] + counts[1] + counts[2]}, ${counts[0]}, ${counts[1]}, ${counts[2]}, now())`;
+  } finally {
+    await admin.$disconnect();
+  }
 }
+
+/** The runtime role's own view of a business's ledger rows (plain SQL, inside that business's context). */
+const ledgerRunsSeenBy = (businessId: number) =>
+  tenantTx(businessId, async (tx) => {
+    const [row] = await tx.$queryRaw<Array<{ n: number }>>`SELECT count(*)::int AS n FROM "ImportRun" WHERE "businessId" = ${businessId}`;
+    return row?.n ?? 0;
+  });
 
 /**
  * Tenant A — a PARTIAL customers import (2 failed rows), a COMPLETED historical import, and one old-path bank
  * upload of 3 lines bound to an account ending 4821.
  */
 async function seedA(t: Tenant) {
+  await seedRun(t, "customers", "PARTIAL", [5, 1, 2]);
+  await seedRun(t, "historical-documents", "COMPLETED", [7, 0, 0]);
   await tenantTx(t.businessId, async (tx) => {
-    await tx.importRun.create({ data: run(t, "customers", "PARTIAL", [5, 1, 2]) });
-    await tx.importRun.create({ data: run(t, "historical-documents", "COMPLETED", [7, 0, 0]) });
     const account = await tx.businessBankAccount.create({
       data: {
         businessId: t.businessId,
@@ -153,8 +162,8 @@ async function seedA(t: Tenant) {
 
 /** Tenant B — one COMPLETED suppliers import, no bank uploads, and bank file import ENABLED for it. */
 async function seedB(t: Tenant) {
+  await seedRun(t, "suppliers", "COMPLETED", [4, 0, 0]);
   await tenantTx(t.businessId, async (tx) => {
-    await tx.importRun.create({ data: run(t, "suppliers", "COMPLETED", [4, 0, 0]) });
     await tx.businessFeatureAccess.create({ data: { businessId: t.businessId, featureKey: "bank_file_import", state: "ENABLED" } });
   });
 }
@@ -175,9 +184,11 @@ async function main() {
 
   console.log("\n  posture");
   ok(
-    "a context-less read of ImportRun sees nothing (RLS is really on)",
-    (await prisma.importRun.count({ where: { businessId: a.businessId } })) === 0
+    "a context-less read of the ledger and the bank lines sees nothing (RLS is really on)",
+    ((await prisma.$queryRaw<Array<{ n: number }>>`SELECT count(*)::int AS n FROM "ImportRun" WHERE "businessId" = ${a.businessId}`)[0]?.n ?? -1) === 0 &&
+      (await prisma.externalTransaction.count({ where: { businessId: a.businessId } })) === 0
   );
+  ok("A's own context sees its 2 ledger runs", (await ledgerRunsSeenBy(a.businessId)) === 2);
 
   console.log("\n  /api/money/uploads — tenant A");
   const resA = await uploadsGET(get(a.token, "http://t/api/money/uploads"));
@@ -212,7 +223,7 @@ async function main() {
   ok("a businessId in the query is ignored — B still gets B", (withQuery.history ?? []).length === 1 && !JSON.stringify(withQuery).includes(A_LAST4));
 
   console.log("\n  read-only");
-  const runsAfter = await tenantTx(a.businessId, (tx) => tx.importRun.count({ where: { businessId: a.businessId } }));
+  const runsAfter = await ledgerRunsSeenBy(a.businessId);
   const linesAfter = await tenantTx(a.businessId, (tx) => tx.externalTransaction.count({ where: { businessId: a.businessId } }));
   ok("the reads wrote nothing (A still has 2 runs, 3 lines)", runsAfter === 2 && linesAfter === 3, `${runsAfter} runs, ${linesAfter} lines`);
   ok("still no ambient tenant context after the requests", getTenantContext() === undefined);
