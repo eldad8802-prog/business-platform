@@ -288,7 +288,8 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       defaultEnabled: false,
       mutable: true,
     },
-    // External booking (milestone D). Seeded OFF with the foundation; nothing reads it until milestone D ships.
+    // External booking (Milestone C). Seeded OFF with the foundation. Read by every public booking door (with
+    // `appointments` and the emergency switch): while it is OFF for a business, its link answers 404.
     {
       key: PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING,
       displayName: "הזמנת תורים חיצונית",

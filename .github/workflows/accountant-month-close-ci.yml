@@ -239,3 +239,14 @@ jobs:
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_portal?$TZQ" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_portal?$TZQ" \
             npx tsx .acct/portal-battery.ts
+
+      - name: G4 battery — ready → notice → review → approval → send (Resend emulator) → portal → owner tracking; refusals, double clicks, concurrency, retry, no answer, isolation, immutability
+        run: |
+          set -euo pipefail
+          bash .acct/lab.sh acct_g4 --with-acct
+          PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_g4 -f prisma/migrations/20261105090000_accountant_link_events/migration.sql
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_g4?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_g4?$TZQ" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_g4?$TZQ" \
+            npx tsx .acct/g4-battery.ts

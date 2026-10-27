@@ -328,6 +328,29 @@ async function main() {
     await p.goto(`/calendar?view=week&day=${seed.today}`);
   });
 
+  await check("D23 Milestone C: the requests tab lists the link's pending request, with its badge, phone and note", async () => {
+    await p.goto("/calendar?view=requests");
+    await p.getByRole("tab", { name: /בקשות · 1 ממתינות/ }).waitFor({ timeout: 25_000 });
+    await seen(p, "בקשה לדוגמה");
+    await seen(p, "מהקישור");
+    await shot(p, "27-desktop-booking-requests");
+  });
+  await check("D24 Milestone C: approving asks first, then the request leaves the pending list", async () => {
+    await p.getByRole("button", { name: "אישור", exact: true }).first().click();
+    await p.getByText("לאשר את התור של בקשה לדוגמה?").waitFor({ timeout: 10_000 });
+    await p.getByRole("button", { name: "כן, לאשר" }).click();
+    await seen(p, "התור של בקשה לדוגמה אושר");
+    await p.getByRole("tab", { name: "בקשות", exact: true }).waitFor({ timeout: 15_000 });
+  });
+  await check("D25 Milestone C: the booking settings show the link, the services, the staff and the platform ceilings", async () => {
+    await p.goto("/calendar/booking");
+    await seen(p, "הקישור שלך");
+    await p.locator("code").filter({ hasText: "/book/" }).first().waitFor({ timeout: 15_000 });
+    await seen(p, "מגבלות האבטחה של דוביז");
+    await shot(p, "28-desktop-booking-settings");
+    await p.goto(`/calendar?view=week&day=${seed.today}`);
+  });
+
   await check("D15 the forms enforce the server's text limits, in Hebrew", async () => {
     await p.getByRole("button", { name: "תור חדש" }).first().click();
     const dlg = p.getByRole("dialog");

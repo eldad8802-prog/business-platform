@@ -20,9 +20,12 @@ import {
   statusBadge,
 } from "@/lib/inventory/supplier-purchase-history-view";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { BagIcon } from "@/components/customers/customer-icons";
 import { intlTag } from "@/lib/i18n/config";
 
 const PAGE_SIZE = 10;
+/** Orders shown before "show more" — the rest of the loaded page opens in place. */
+const PREVIEW_ORDERS = 5;
 
 type Props = {
   supplierId: number;
@@ -35,6 +38,10 @@ type Props = {
  * the supplier record and from Notes/Attachments — a failure here never takes down
  * the rest of the card. Data source is the S4-P4 read model via the client wrapper;
  * the UI never queries Prisma or filters by supplier name.
+ *
+ * Layout (supplier file redesign): one "new order" action, in the head — the
+ * empty state is a short line, not a second button. Rows are flat items inside
+ * the panel; an order's value sits in the amount slot.
  */
 export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Props) {
   const { t, locale } = useI18n();
@@ -53,6 +60,7 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
   // Retry re-runs the first-page effect by bumping this key (event-driven setState),
   // which keeps the effect body's own setState calls all post-await.
   const [reloadKey, setReloadKey] = useState(0);
+  const [expanded, setExpanded] = useState(false);
 
   // First page loads independently on mount / supplier change. Every setState here
   // runs after an await (or in cleanup-guarded finally), so it never fires
@@ -128,14 +136,15 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
   return (
     <div className="crm-section">
       <div className="crm-section__head">
-        <h2 className="crm-section__title">{t("customers.suppliers.history.title")}</h2>
-        {!loading && !error ? <span className="crm-section__count">{total}</span> : null}
-        <a
-          className="crm-btn crm-btn--ghost"
-          href="/inventory/supplier-purchases/new"
-          style={{ marginInlineStart: "auto" }}
-        >
-          {t("customers.suppliers.history.newOrder")}
+        <h2 className="crm-section__title">
+          <span className="crm-section__icon cust-tone--file" aria-hidden>
+            <BagIcon />
+          </span>
+          {t("customers.suppliers.history.title")}
+          {!loading && !error ? <span className="crm-section__count">{total}</span> : null}
+        </h2>
+        <a className="sup-link sup-link--head" href="/inventory/supplier-purchases/new">
+          + {t("customers.suppliers.history.newOrder")}
         </a>
       </div>
 
@@ -152,18 +161,7 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
           </button>
         </div>
       ) : summary && total === 0 ? (
-        <div className="crm-panel">
-          <p className="crm-panel__title">{t("customers.suppliers.history.emptyTitle")}</p>
-          <p className="crm-panel__body">
-            {t("customers.suppliers.history.emptyBody")}
-          </p>
-          <a
-            className="crm-btn crm-btn--primary"
-            href="/inventory/supplier-purchases/new"
-          >
-            {t("customers.suppliers.history.newOrderFromSupplier")}
-          </a>
-        </div>
+        <p className="sup-empty">{t("customers.suppliers.history.emptyTitle")}</p>
       ) : summary ? (
         <>
           <div className="crm-chips">
@@ -206,12 +204,16 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
           ) : null}
 
           <div className="crm-list">
-            {items.map((item) => (
+            {(expanded ? items : items.slice(0, PREVIEW_ORDERS)).map((item) => (
               <PurchaseOrderRow key={item.id} item={item} supplierName={supplierName} />
             ))}
           </div>
 
-          {pagination?.hasMore ? (
+          {!expanded && items.length > PREVIEW_ORDERS ? (
+            <button type="button" className="sup-link" aria-expanded={false} onClick={() => setExpanded(true)}>
+              {t("customers.customer.card.showMore", { count: items.length - PREVIEW_ORDERS })}
+            </button>
+          ) : expanded && pagination?.hasMore ? (
             <div className="crm-list-more" style={{ marginTop: 12 }} aria-live="polite">
               {moreError ? <p className="crm-list-more__error" role="alert">{moreError}</p> : null}
               <button
@@ -288,7 +290,6 @@ function PurchaseOrderRow({
 
   const metaParts = [createdAtStr, lineText];
   const orderValue = formatSupplierMoney(item.orderedValue, locale);
-  if (orderValue) metaParts.push(orderValue);
   if (showOrderDate) metaParts.push(t("customers.suppliers.history.orderedFrom", { date: orderDateStr ?? "" }));
   const meta = metaParts.filter(Boolean).join(" · ");
 
@@ -301,6 +302,11 @@ function PurchaseOrderRow({
         </div>
         {meta ? <div className="crm-item__meta">{meta}</div> : null}
       </div>
+      {orderValue ? (
+        <div className="crm-item__amount">
+          <bdi>{orderValue}</bdi>
+        </div>
+      ) : null}
     </div>
   );
 }

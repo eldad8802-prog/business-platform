@@ -17,7 +17,12 @@ export type AppointmentErrorCode =
   | "SERVICE_NOT_FOUND"
   | "CUSTOMER_NOT_FOUND"
   | "LEAD_NOT_FOUND"
-  | "CONFLICT";
+  | "CONFLICT"
+  | "SLOT_UNAVAILABLE"
+  | "REQUEST_LIMIT"
+  | "REQUEST_EXPIRED"
+  | "SELF_CANCEL_CLOSED"
+  | "BOOKING_CLOSED";
 
 const STATUS: Record<AppointmentErrorCode, number> = {
   IDEMPOTENCY_KEY_INVALID: 400,
@@ -35,6 +40,14 @@ const STATUS: Record<AppointmentErrorCode, number> = {
   CUSTOMER_NOT_FOUND: 404,
   LEAD_NOT_FOUND: 404,
   CONFLICT: 409,
+  // Public booking (Milestone C): the time is no longer free / the phone has its open requests / the request lapsed /
+  // the business's self-cancel window has closed.
+  SLOT_UNAVAILABLE: 409,
+  REQUEST_LIMIT: 429,
+  REQUEST_EXPIRED: 409,
+  SELF_CANCEL_CLOSED: 409,
+  // The platform has not opened public booking for the business: its link cannot be turned on or replaced yet.
+  BOOKING_CLOSED: 409,
 };
 
 export class AppointmentServiceError extends Error {

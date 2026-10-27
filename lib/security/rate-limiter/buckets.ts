@@ -78,6 +78,37 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "business", limit: 20, windowSeconds: 24 * 60 * 60 },
     ],
   },
+  // Public booking (Milestone C, owner decision D11) — the platform's ceilings for the link a business shares. All
+  // fail-CLOSED: a Redis outage must never lift the limit on a public door that writes into a business's calendar.
+  // Submitting a request: per IP 5 a minute and 20 an hour; per business 60 an hour (values to calibrate in the pilot).
+  PUBLIC_BOOKING_SUBMIT: {
+    failMode: "closed",
+    rules: [
+      { scope: "ip", limit: 5, windowSeconds: 60 },
+      { scope: "ip", limit: 20, windowSeconds: 60 * 60 },
+    ],
+  },
+  // …and per business, checked once the link has resolved to its business (60 an hour).
+  PUBLIC_BOOKING_SUBMIT_BUSINESS: {
+    failMode: "closed",
+    rules: [{ scope: "business", limit: 60, windowSeconds: 60 * 60 }],
+  },
+  // Reading the link's page and free times: generous for a person choosing a day, low enough to stop scraping.
+  PUBLIC_BOOKING_READ: {
+    failMode: "closed",
+    rules: [
+      { scope: "ip", limit: 60, windowSeconds: 60 },
+      { scope: "ip", limit: 600, windowSeconds: 60 * 60 },
+    ],
+  },
+  // A customer's manage link (state / cancel): a token guess is 256 bits; this caps probing all the same.
+  PUBLIC_BOOKING_MANAGE: {
+    failMode: "closed",
+    rules: [
+      { scope: "ip", limit: 20, windowSeconds: 60 },
+      { scope: "ip", limit: 120, windowSeconds: 60 * 60 },
+    ],
+  },
   // Regular Documents read API (inbox / list). Keyed by user.
   DOCUMENTS_API: {
     failMode: "open",

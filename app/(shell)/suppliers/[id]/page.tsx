@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import BackButton from "@/components/ui/back-button";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import {
   getSupplier,
@@ -17,6 +17,20 @@ import {
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { NotesThread } from "@/components/crm/NotesThread";
 import { AttachmentList } from "@/components/crm/AttachmentList";
+import { ContactAction } from "@/components/customers/ContactAction";
+import { customerInitials, mailHref, telHref } from "@/components/customers/customer-contact";
+import {
+  BuildingIcon,
+  DocumentIcon,
+  HandshakeIcon,
+  MailIcon,
+  NoteIcon,
+  PaperclipIcon,
+  PencilIcon,
+  PhoneIcon,
+  PinIcon,
+  UserIcon,
+} from "@/components/customers/customer-icons";
 import { SupplierPurchaseHistorySection } from "@/components/inventory/SupplierPurchaseHistorySection";
 import { SupplierForm } from "@/components/suppliers/SupplierForm";
 import { SupplierDocumentsSection } from "@/components/suppliers/SupplierDocumentsSection";
@@ -82,7 +96,8 @@ export default function SupplierCardPage() {
         setNotFound(true);
         return;
       }
-      setError(err instanceof Error ? err.message : t("customers.suppliers.card.errorLoad"));
+      // A fixed, translated message: the raw error ("Failed to fetch supplier", a network message) is technical.
+      setError(t("customers.suppliers.card.errorLoad"));
     } finally {
       setLoading(false);
     }
@@ -141,13 +156,15 @@ export default function SupplierCardPage() {
 }
 
 /**
- * The supplier card body.
+ * The supplier file body — one continuous scroll, no tabs, in the approved
+ * order: identity + contact (call · email) → supplier details → terms →
+ * purchase history → notes → files. Each section is one white panel with its
+ * head inside it.
  *
- * DISPLAY RULE: sections render only what is actually filled in. A supplier with
- * a name and a phone shows two lines, not twenty empty labels — an empty field
- * is not information, and a wall of them makes the card unreadable. What IS
- * missing is surfaced once, calmly, as a single "השלמת פרטי ספק" nudge rather
- * than as a permanently half-blank form.
+ * DISPLAY RULE (unchanged): a section shows only what is filled in. A section
+ * with nothing filled in shows one short line with the existing edit action;
+ * what is still missing across the card is surfaced once, as one compact line,
+ * never as a half-blank form. No field becomes required.
  */
 function SupplierCardView({
   supplier,
@@ -159,52 +176,33 @@ function SupplierCardView({
   const { t, locale } = useI18n();
   const createdAt = formatDate(supplier.createdAt, locale);
   const completeness = supplierCompleteness(supplier, t);
+  const phone = supplier.phone?.trim() ? supplier.phone : null;
+  const email = supplier.email?.trim() ? supplier.email : null;
+
+  const address = [supplier.addressStreet, supplier.addressCity, supplier.addressPostalCode]
+    .filter((v) => v && v.trim())
+    .join(", ");
+  const contactPerson = [supplier.contactName, supplier.contactRole].filter(Boolean).join(" · ");
+
+  // Contact lines: the supplier's own phone / email / address, then its contact
+  // person. Lines that need a word to be understood keep a visible label.
+  const contactLines: Array<{ key: string; tone: string; icon: ReactNode; label: string; showLabel?: boolean; value: string }> = [];
+  if (phone) contactLines.push({ key: "phone", tone: "phone", icon: <PhoneIcon />, label: t("customers.suppliers.card.phone"), value: formatPhoneForDisplay(phone) });
+  if (email) contactLines.push({ key: "email", tone: "mail", icon: <MailIcon />, label: t("customers.suppliers.card.email"), value: email });
+  if (address) contactLines.push({ key: "address", tone: "file", icon: <PinIcon />, label: t("customers.suppliers.card.address"), value: address });
+  if (contactPerson) contactLines.push({ key: "contact", tone: "file", icon: <UserIcon />, label: t("customers.suppliers.card.contact"), showLabel: true, value: contactPerson });
+  if (supplier.contactPhone?.trim()) contactLines.push({ key: "directPhone", tone: "phone", icon: <PhoneIcon />, label: t("customers.suppliers.card.directPhone"), showLabel: true, value: formatPhoneForDisplay(supplier.contactPhone) });
+  if (supplier.contactEmail?.trim()) contactLines.push({ key: "contactEmail", tone: "mail", icon: <MailIcon />, label: t("customers.suppliers.card.contactEmail"), showLabel: true, value: supplier.contactEmail });
 
   const identityFields: Array<{ label: string; value: string | null }> = [
     { label: t("customers.suppliers.card.legalName"), value: supplier.legalName },
-    {
-      label: supplierTaxIdLabelT(t, supplier.taxIdType),
-      value: supplier.taxId,
-    },
+    { label: supplierTaxIdLabelT(t, supplier.taxIdType), value: supplier.taxId },
     {
       label: t("customers.suppliers.card.entityType"),
-      value: supplier.taxIdType
-        ? supplierTaxIdTypeLabelT(t, supplier.taxIdType)
-        : null,
+      value: supplier.taxIdType ? supplierTaxIdTypeLabelT(t, supplier.taxIdType) : null,
     },
     { label: t("customers.suppliers.card.category"), value: supplier.category },
     { label: t("customers.suppliers.card.website"), value: supplier.website },
-  ];
-
-  const contactFields: Array<{ label: string; value: string | null }> = [
-    {
-      label: t("customers.suppliers.card.phone"),
-      value: supplier.phone ? formatPhoneForDisplay(supplier.phone) : null,
-    },
-    { label: t("customers.suppliers.card.email"), value: supplier.email },
-    {
-      label: t("customers.suppliers.card.contact"),
-      value: [supplier.contactName, supplier.contactRole]
-        .filter(Boolean)
-        .join(" · ") || null,
-    },
-    {
-      label: t("customers.suppliers.card.directPhone"),
-      value: supplier.contactPhone
-        ? formatPhoneForDisplay(supplier.contactPhone)
-        : null,
-    },
-    { label: t("customers.suppliers.card.contactEmail"), value: supplier.contactEmail },
-    {
-      label: t("customers.suppliers.card.address"),
-      value: [
-        supplier.addressStreet,
-        supplier.addressCity,
-        supplier.addressPostalCode,
-      ]
-        .filter((v) => v && v.trim())
-        .join(", ") || null,
-    },
   ];
 
   const termsFields: Array<{ label: string; value: string | null }> = [
@@ -228,103 +226,205 @@ function SupplierCardView({
   ];
 
   return (
-    <>
-      <div className="crm-id">
+    <div className="cust-file sup-file">
+      {/* 1 · Identity, contact and contact person, with call / email */}
+      <div className="crm-id cust-hero">
         <div className="crm-id__head">
-          <h1 className="crm-id__name">
-            <bdi>{supplier.name}</bdi>
-          </h1>
-          <button
-            type="button"
-            className="crm-btn crm-btn--ghost"
-            onClick={onEdit}
-            style={{ flexShrink: 0 }}
-          >
-            {t("customers.suppliers.card.edit")}
-          </button>
+          <span className="cust-avatar cust-avatar--lg" aria-hidden>
+            {customerInitials(supplier.name)}
+          </span>
+          <div className="cust-hero__title">
+            <h1 className="crm-id__name">
+              <bdi>{supplier.name}</bdi>
+            </h1>
+            <span className={supplier.isActive ? "crm-badge crm-badge--success" : "crm-badge"}>
+              {supplier.isActive ? t("customers.suppliers.card.active") : t("customers.suppliers.card.inactive")}
+            </span>
+          </div>
+          <div className="crm-id__actions">
+            <button type="button" className="crm-btn crm-btn--ghost cust-btn-icon" onClick={onEdit}>
+              <PencilIcon />
+              {t("customers.suppliers.card.edit")}
+            </button>
+          </div>
         </div>
 
-        <div className="crm-chips">
-          <span
-            className={
-              supplier.isActive ? "crm-badge crm-badge--success" : "crm-badge"
-            }
-          >
-            {supplier.isActive ? t("customers.suppliers.card.active") : t("customers.suppliers.card.inactive")}
-          </span>
-          {supplier.category ? (
-            <span className="crm-chip">{supplier.category}</span>
-          ) : null}
-          {createdAt ? <span className="crm-chip">{t("customers.suppliers.card.createdAt", { date: createdAt })}</span> : null}
+        {contactLines.length > 0 ? (
+          <ul className="cust-lines cust-lines--hero">
+            {contactLines.map((l) => (
+              <li className={`cust-line cust-tone--${l.tone}`} key={l.key}>
+                <span className="cust-line__icon" aria-hidden>
+                  {l.icon}
+                </span>
+                {l.showLabel ? (
+                  <span className="sup-line__label">{l.label}:</span>
+                ) : (
+                  <span className="cust-sr">{l.label}: </span>
+                )}
+                <bdi className="cust-line__value">{l.value}</bdi>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {supplier.category || createdAt ? (
+          <div className="crm-chips">
+            {supplier.category ? <span className="crm-chip">{supplier.category}</span> : null}
+            {createdAt ? <span className="crm-chip">{t("customers.suppliers.card.createdAt", { date: createdAt })}</span> : null}
+          </div>
+        ) : null}
+
+        <div className="cust-quick" role="group" aria-label={t("customers.customer.card.quickActions")}>
+          <ContactAction
+            layout="stack"
+            href={telHref(phone)}
+            tone="phone"
+            icon={<PhoneIcon />}
+            label={t("customers.customer.row.call")}
+            ariaLabel={t("customers.customer.row.callAria", { name: supplier.name })}
+            unavailableReason={t("customers.customer.row.noPhone")}
+          />
+          <ContactAction
+            layout="stack"
+            href={mailHref(email)}
+            tone="mail"
+            icon={<MailIcon />}
+            label={t("customers.customer.card.quick.email")}
+            ariaLabel={`${t("customers.customer.card.quick.email")} · ${email ?? ""}`}
+            unavailableReason={t("customers.customer.card.quick.noEmail")}
+          />
         </div>
       </div>
 
-      <SupplierFieldSection title={t("customers.suppliers.card.sectionIdentity")} fields={identityFields} />
-      <SupplierFieldSection title={t("customers.suppliers.card.sectionContact")} fields={contactFields} />
-      <SupplierFieldSection title={t("customers.suppliers.card.sectionTerms")} fields={termsFields} />
-
       {completeness.missing.length > 0 ? (
-        <div className="crm-panel">
-          <p className="crm-panel__title">{t("customers.suppliers.card.completenessTitle")}</p>
-          <p className="crm-panel__body">
-            {t("customers.suppliers.card.completenessBody", {
-              missing: completeness.missing.join(" · "),
-            })}
-          </p>
-          <button type="button" className="crm-btn crm-btn--ghost" onClick={onEdit}>
+        <p className="sup-missing">
+          <span>{t("customers.suppliers.card.completenessBody", { missing: completeness.missing.join(" · ") })}</span>
+          <button type="button" className="sup-link" onClick={onEdit}>
             {t("customers.suppliers.card.completenessAction")}
           </button>
-        </div>
+        </p>
       ) : null}
 
-      {supplier.notes && supplier.notes.trim() ? (
-        <div className="crm-note">
-          <div className="crm-note__label">{t("customers.suppliers.card.generalNote")}</div>
-          <div className="crm-note__body">{supplier.notes}</div>
+      <div className="cust-file__grid">
+        {/* 2 · Supplier details */}
+        <SupplierFieldPanel
+          icon={<BuildingIcon />}
+          tone="phone"
+          title={t("customers.suppliers.card.sectionIdentity")}
+          fields={identityFields}
+          onEdit={completeness.missing.length > 0 ? null : onEdit}
+        />
+
+        {/* 3 · Terms */}
+        <SupplierFieldPanel
+          icon={<HandshakeIcon />}
+          tone="terms"
+          title={t("customers.suppliers.card.sectionTerms")}
+          fields={termsFields}
+          onEdit={completeness.missing.length > 0 ? null : onEdit}
+        />
+
+        {/* 4 · Purchase history (its own loader; "new order" once, in its head) */}
+        <div className="sup-panel">
+          <SupplierPurchaseHistorySection supplierId={supplier.id} supplierName={supplier.name} />
         </div>
-      ) : null}
 
-      <SupplierPurchaseHistorySection
-        supplierId={supplier.id}
-        supplierName={supplier.name}
-      />
+        {/* 5 · Linked documents (document ↔ supplier link). It draws its own panel, and nothing at all while
+            document_supplier_linking is OFF for the business — so no empty box is left behind. */}
+        <SupplierDocumentsSection supplierId={supplier.id} className="sup-panel" icon={<DocumentIcon />} />
 
-      <SupplierDocumentsSection supplierId={supplier.id} />
+        {/* 6 · Notes — the general note sits under the same head as the thread. */}
+        <div className="sup-panel">
+          <NotesThread
+            subjectType="SUPPLIER"
+            subjectId={supplier.id}
+            icon={<NoteIcon />}
+            intro={
+              supplier.notes && supplier.notes.trim() ? (
+                <div className="crm-note cust-general-note">
+                  <div className="cust-general-note__text">
+                    <div className="crm-note__label">{t("customers.suppliers.card.generalNote")}</div>
+                    <div className="crm-note__body">{supplier.notes}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="cust-icon-btn"
+                    onClick={onEdit}
+                    aria-label={t("customers.suppliers.card.edit")}
+                    title={t("customers.suppliers.card.edit")}
+                  >
+                    <PencilIcon />
+                  </button>
+                </div>
+              ) : null
+            }
+          />
+        </div>
 
-      <NotesThread subjectType="SUPPLIER" subjectId={supplier.id} />
-
-      <AttachmentList subjectType="SUPPLIER" subjectId={supplier.id} />
-    </>
+        {/* 7 · Files */}
+        <div className="sup-panel">
+          <AttachmentList subjectType="SUPPLIER" subjectId={supplier.id} icon={<PaperclipIcon />} />
+        </div>
+      </div>
+    </div>
   );
 }
 
-/** Renders nothing at all when every field in the section is empty. */
-function SupplierFieldSection({
+/**
+ * One label/value panel (supplier details, terms). Shows only filled fields;
+ * when none is filled, one short line instead of hiding the section, so the
+ * order of the file never changes. The edit action appears in that line only
+ * when the card-level "still missing" line (which already carries it) is absent.
+ */
+function SupplierFieldPanel({
+  icon,
+  tone,
   title,
   fields,
+  onEdit,
 }: {
+  icon: ReactNode;
+  tone: string;
   title: string;
   fields: Array<{ label: string; value: string | null }>;
+  onEdit: (() => void) | null;
 }) {
+  const { t } = useI18n();
   const shown = fields.filter((f) => f.value && String(f.value).trim());
-  if (shown.length === 0) return null;
 
   return (
-    <div className="crm-id" style={{ marginTop: 12 }}>
-      <div className="crm-seclabel" style={{ fontWeight: 600, marginBottom: 8 }}>
-        {title}
+    <section className="sup-panel crm-section">
+      <div className="crm-section__head">
+        <h2 className="crm-section__title">
+          <span className={`crm-section__icon cust-tone--${tone}`} aria-hidden>
+            {icon}
+          </span>
+          {title}
+        </h2>
       </div>
-      <div className="crm-id__grid">
-        {shown.map((f) => (
-          <div className="crm-id__field" key={f.label}>
-            <div className="crm-id__label">{f.label}</div>
-            <div className="crm-id__value">
-              <bdi>{f.value}</bdi>
+      {shown.length > 0 ? (
+        <dl className="sup-kv">
+          {shown.map((f) => (
+            <div className="sup-kv__row" key={f.label}>
+              <dt className="sup-kv__label">{f.label}</dt>
+              {/* `bdi` so a tax id / website keeps its own direction in the RTL card. */}
+              <dd className="sup-kv__value">
+                <bdi>{f.value}</bdi>
+              </dd>
             </div>
-          </div>
-        ))}
-      </div>
-    </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="sup-empty">
+          {t("customers.suppliers.card.sectionEmpty")}
+          {onEdit ? (
+            <button type="button" className="sup-link" onClick={onEdit}>
+              {t("customers.suppliers.card.completenessAction")}
+            </button>
+          ) : null}
+        </p>
+      )}
+    </section>
   );
 }
 
