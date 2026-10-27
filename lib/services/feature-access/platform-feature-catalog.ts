@@ -302,7 +302,7 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "שיוך מסמכים לספקים",
       category: "documents",
       // Open for every business (owner decision 2026-10-27, after the business-9 pilot) — together with data migration
-      // 20261103100000_document_supplier_link_open_all. A business override (DISABLED) or the emergency switch still
+      // 20261106090000_document_supplier_link_open_all. A business override (DISABLED) or the emergency switch still
       // closes it. Every link still needs a person: nothing is linked automatically.
       description: "בחירת ספק במסך בדיקת המסמך, הצעות שיוך באישור המשתמש והצגת המסמכים בתיק הספק — פתוח לכל העסקים",
       defaultEnabled: true,
