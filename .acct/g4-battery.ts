@@ -216,8 +216,11 @@ async function main() {
   // ── 4. Double clicks and concurrency ───────────────────────────────────────────────────────────
   console.log("4. double clicks and concurrency");
   const k = "send:g4-double-click-0001";
-  const [a1, a2] = await Promise.all([approve(A, now, k), approve(A, now, k)]).catch(async () => [await approve(A, now, k), await approve(A, now, k)]);
-  ok("4a the same Idempotency-Key twice (a double click) → one approval", a1.deliveryId === a2.deliveryId && [a1.created, a2.created].filter(Boolean).length === 1, JSON.stringify([a1, a2]));
+  // Both requests at once (a double click that reached the server twice), then a third one later.
+  const [a1, a2] = await Promise.all([approve(A, now, k), approve(A, now, k)]);
+  const a3 = await approve(A, now, k);
+  ok("4a the same Idempotency-Key twice AT ONCE (a double click) → one approval, both answered with it", a1.deliveryId === a2.deliveryId && [a1.created, a2.created].filter(Boolean).length === 1, JSON.stringify([a1, a2]));
+  ok("4a2 …and again later → the same approval", a3.deliveryId === a1.deliveryId && a3.created === false && (await owner.accountantDelivery.count({ where: { businessId: A.b } })) === 1);
   ok("4b a second approval with another key while one waits → SEND_IN_PROGRESS", await throwsCode(() => approve(A, now), "SEND_IN_PROGRESS"));
   const parallel = await Promise.allSettled([approve(B, now), approve(B, now), approve(B, now)]);
   ok("4c three concurrent approvals of the same month → exactly one created", parallel.filter((p) => p.status === "fulfilled").length === 1 && (await owner.accountantDelivery.count({ where: { businessId: B.b } })) === 1,

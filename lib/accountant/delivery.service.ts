@@ -215,6 +215,15 @@ export async function approveDelivery(input: ApproveInput): Promise<ApprovedDeli
     });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      // Two requests with the same key raced past the lookup above: the one that lost is the SAME approval
+      // (a double click that reached the server twice), not a second send.
+      const winner = await tenantTx(businessId, (tx) =>
+        tx.accountantDelivery.findUnique({
+          where: { businessId_idempotencyKey: { businessId, idempotencyKey: input.idempotencyKey! } },
+          select: { id: true, packageId: true },
+        })
+      );
+      if (winner && winner.packageId === packageId) return { deliveryId: winner.id, created: false };
       throw new AccountantError(409, "SEND_IN_PROGRESS");
     }
     throw e;

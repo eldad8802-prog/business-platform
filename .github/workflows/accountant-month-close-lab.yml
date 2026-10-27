@@ -99,7 +99,8 @@ jobs:
             [[ "$n" != "20261027090000_accountant_month_close" ]] || continue
             # Later accountant migrations extend these objects on purpose (each with its own lab and proof).
             [[ "$n" != "20261105090000_accountant_link_events" ]] || continue
-            if grep -nE 'Accountant(Period|Package|Recipient|Delivery|WorkflowEvent)|accountant_(link|delivery|erase|user|package|event)|accountant_month_close' "$d/migration.sql"; then echo "$n names an accountant object"; exit 1; fi
+            # SQL only: a migration may NAME ours in a comment (e.g. its release order) without touching anything.
+            if sed -E 's/--.*$//' "$d/migration.sql" | grep -nE 'Accountant(Period|Package|Recipient|Delivery|WorkflowEvent)|accountant_(link|delivery|erase|user|package|event)|accountant_month_close'; then echo "$n names an accountant object"; exit 1; fi
           done
           echo "the migration names only its own objects and the tables it builds on; no other migration names its objects"
 
