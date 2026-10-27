@@ -92,6 +92,19 @@ test("G-03: a NEW lead created TODAY is in the queue at once — below every urg
   assert.equal(handled.length, 0);
 });
 
+test("G-03: a NEW lead the owner already acted on (e.g. completed its follow-up) is not 'new' again — and is never lost", () => {
+  const handledToday = lead({ status: "NEW", createdAt: ago(0.1), lastActivityAt: NOW, firstHandledAt: NOW });
+  const handledLongAgo = lead({ status: "NEW", createdAt: ago(20), lastActivityAt: ago(12), firstHandledAt: ago(12) });
+  const ranked = rankLeadAttention([handledToday, handledLongAgo], NOW);
+  assert.deepEqual(ranked.map((i) => [i.row.id, i.attention.reason]), [[handledLongAgo.id, "STALLED"]]);
+});
+
+test("structural: every evaluator call site passes the owner's first handling (one definition everywhere)", () => {
+  const sites = ["lib/business-status/translators/leads.ts", "lib/services/tasks/sources.ts", "lib/services/crm/lead-card.read-model.ts",
+    "lib/services/crm/lead-briefing.ts", "app/api/leads/route.ts", "lib/services/crm/lead-attention-queue.ts"];
+  for (const f of sites) assert.match(readFileSync(path.join(process.cwd(), f), "utf8"), /firstHandledAt/, f);
+});
+
 test("G-05 above the cap: the SQL keeps the most URGENT candidates (tiers mirror the bands), not the oldest follow-ups", () => {
   const sql = readFileSync(path.join(process.cwd(), "lib/services/crm/lead-attention-queue.ts"), "utf8");
   const order = sql.slice(sql.indexOf("ORDER BY\n      CASE"), sql.indexOf("LIMIT ${limit}"));
@@ -99,7 +112,8 @@ test("G-05 above the cap: the SQL keeps the most URGENT candidates (tiers mirror
   assert.ok(tiers.every((p, i) => p > 0 && (i === 0 || p > tiers[i - 1])), "tiers 1..7 in order");
   assert.match(order, /lastUnreturnedCallAt" > COALESCE[^\n]*THEN 2/);
   assert.match(order, /lastCustomerInboundAt" > COALESCE[^\n]*THEN 3/);
-  assert.match(sql, /OR \(q\."status" = 'NEW' AND q\."nextFollowUpAt" IS NULL\)/, "G-03: no 'before today' cut in the candidate SQL");
+  assert.match(sql, /OR \(q\."status" = 'NEW' AND q\."nextFollowUpAt" IS NULL AND q\."firstHandledAt" IS NULL\)/, "G-03: no 'before today' cut; an owner-handled NEW lead is not 'new'");
+  assert.match(sql, /OR \(q\."status" = 'NEW' AND q\."firstHandledAt" IS NOT NULL\)\) AND COALESCE/, "G-03: a handled NEW lead can still stall (never lost)");
   // G-05 performance: the facts are aggregated once per query (CTEs), never a correlated scan per lead.
   assert.match(sql, /WITH conv AS \(/);
   assert.doesNotMatch(sql, /c\."businessId" = l\."businessId"/, "no per-lead correlated Conversation lookup");

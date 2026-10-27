@@ -39,6 +39,8 @@ export type LeadAttentionRaw = {
   /** M7-A — the latest missed inbound call of the lead's customer nobody returned. */
   lastUnreturnedCallAt?: Date | null;
   openIdentityProposals: number;
+  /** G-03 — the owner's first lifecycle action (a handled NEW lead is not "new and untouched"). */
+  firstHandledAt?: Date | null;
 };
 
 export type LeadAttentionQueueItem = { row: LeadAttentionRaw; attention: LeadAttention };
@@ -62,6 +64,7 @@ export function leadAttentionInput(r: LeadAttentionRaw) {
     lastCustomerInboundAt: r.lastCustomerInboundAt,
     lastUnreturnedCallAt: r.lastUnreturnedCallAt ?? null,
     openIdentityProposals: r.openIdentityProposals,
+    firstHandledAt: r.firstHandledAt ?? null,
   };
 }
 
@@ -103,7 +106,7 @@ export async function loadLeadAttentionCandidates(
        GROUP BY p."leadId"
     ), base AS (
       SELECT l."id", l."customerName", l."status"::text AS "status", l."nextFollowUpAt", l."followUpNote",
-             l."createdAt", l."lastActivityAt",
+             l."createdAt", l."lastActivityAt", l."firstHandledAt",
              conv."at" AS "lastCustomerInboundAt",
              (SELECT max(k."startedAt") FROM calls k
                WHERE k."leadId" = l."id" OR (l."customerId" IS NOT NULL AND k."customerId" = l."customerId")) AS "lastUnreturnedCallAt",
@@ -115,12 +118,12 @@ export async function loadLeadAttentionCandidates(
          AND l."status"::text IN (${Prisma.join(open)})
     )
     SELECT q."id", q."customerName", q."status", q."nextFollowUpAt", q."followUpNote", q."createdAt",
-           q."lastActivityAt", q."lastCustomerInboundAt", q."lastUnreturnedCallAt", q."openIdentityProposals"
+           q."lastActivityAt", q."lastCustomerInboundAt", q."lastUnreturnedCallAt", q."openIdentityProposals", q."firstHandledAt"
     FROM base q
     WHERE q."nextFollowUpAt" <= ${endOfLeadDayUtc(now)}
-       OR (q."status" = 'NEW' AND q."nextFollowUpAt" IS NULL)
+       OR (q."status" = 'NEW' AND q."nextFollowUpAt" IS NULL AND q."firstHandledAt" IS NULL)
        OR (q."nextFollowUpAt" IS NULL AND q."status" = 'QUOTED' AND COALESCE(q."lastActivityAt", q."createdAt") < ${quoteCutoff})
-       OR (q."nextFollowUpAt" IS NULL AND q."status" IN ('OPEN', 'QUALIFIED') AND COALESCE(q."lastActivityAt", q."createdAt") < ${stallCutoff})
+       OR (q."nextFollowUpAt" IS NULL AND (q."status" IN ('OPEN', 'QUALIFIED') OR (q."status" = 'NEW' AND q."firstHandledAt" IS NOT NULL)) AND COALESCE(q."lastActivityAt", q."createdAt") < ${stallCutoff})
        OR q."openIdentityProposals" > 0
        OR q."lastCustomerInboundAt" > COALESCE(q."lastActivityAt", q."createdAt")
        OR q."lastUnreturnedCallAt" IS NOT NULL
@@ -131,7 +134,7 @@ export async function loadLeadAttentionCandidates(
         WHEN q."lastCustomerInboundAt" > COALESCE(q."lastActivityAt", q."createdAt") THEN 3             -- wrote (75)
         WHEN q."nextFollowUpAt" IS NOT NULL THEN 4                                                       -- due today (70)
         WHEN q."openIdentityProposals" > 0 THEN 5                                                        -- identity (66)
-        WHEN q."status" = 'NEW' THEN 6                                                                   -- new (45–65)
+        WHEN q."status" = 'NEW' AND q."firstHandledAt" IS NULL THEN 6                                                                   -- new (45–65)
         ELSE 7                                                                                           -- quote / stalled
       END ASC,
       q."nextFollowUpAt" ASC NULLS LAST, q."createdAt" ASC, q."id" ASC

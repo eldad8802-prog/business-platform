@@ -604,6 +604,12 @@ async function main() {
   const afterFu = await asT(bizC.id, (tx) => leadService.listLeads({ businessId: bizC.id, needsAction: true, limit: 100 }, { tx }));
   ok("a follow-up promised for a later day → today's new lead leaves the queue (handled, not 'new')",
     fu.status === 200 && !afterFu.some((l) => l.id === freshToday.id), `http=${fu.status}`);
+  const done = await patchLead(tokC, freshToday.id, { followUpAt: null });
+  const afterDone = await asT(bizC.id, (tx) => leadService.listLeads({ businessId: bizC.id, needsAction: true, limit: 100 }, { tx }));
+  const doneRow = await o.lead.findUnique({ where: { id: freshToday.id }, select: { status: true, firstHandledAt: true, nextFollowUpAt: true } });
+  ok("the owner then marks that follow-up done (lead still NEW) → it does NOT come back as 'new and untouched'",
+    done.status === 200 && doneRow?.status === "NEW" && !!doneRow.firstHandledAt && doneRow.nextFollowUpAt === null
+      && !afterDone.some((l) => l.id === freshToday.id), JSON.stringify({ http: done.status, doneRow }));
   const moved = await patchLead(tokC, twinIds[0], { status: "OPEN" });
   const movedRow = await o.lead.findUnique({ where: { id: twinIds[0] }, select: { status: true, firstHandledAt: true } });
   const afterMove = await asT(bizC.id, (tx) => leadService.countNeedingAttention({ businessId: bizC.id }, { tx }));

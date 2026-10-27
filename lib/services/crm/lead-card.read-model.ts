@@ -267,6 +267,7 @@ export async function getLeadCard(
       lastCustomerInboundAt: inbound.get(lead.id) ?? null,
       lastUnreturnedCallAt: calls.get(lead.id) ?? null,
       openIdentityProposals: proposals.get(lead.id) ?? 0,
+      firstHandledAt: lead.firstHandledAt,
       dismissedRuleIds: dismissed.get(lead.id) ?? [],
     },
     now,

@@ -59,6 +59,7 @@ type LeadRowSource = {
   followUpNote: string | null;
   lastActivityAt: Date | null;
   createdAt: Date;
+  firstHandledAt: Date | null;
   customer: { id: number; name: string; phone: string | null; email: string | null } | null;
 };
 
@@ -81,7 +82,7 @@ function toListRow(
   const attention =
     queued ??
     evaluateLeadAttention(
-      { status, nextFollowUpAt: lead.nextFollowUpAt, createdAt: lead.createdAt },
+      { status, nextFollowUpAt: lead.nextFollowUpAt, createdAt: lead.createdAt, firstHandledAt: lead.firstHandledAt },
       now,
       t
     );

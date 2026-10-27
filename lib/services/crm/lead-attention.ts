@@ -132,6 +132,11 @@ export type LeadAttentionInput = {
   openIdentityProposals?: number;
   /** M5 (optional): suggestion rules dismissed at the lead's current version. */
   dismissedRuleIds?: readonly string[];
+  /**
+   * Leads L1 · G-03 (optional): the owner's first lifecycle action on the lead (status, next action set /
+   * completed, value). A NEW lead the owner already handled is not "new and untouched" — absent = never handled.
+   */
+  firstHandledAt?: Date | null;
 };
 
 function dayDelta(from: Date, to: Date): number {
@@ -261,8 +266,9 @@ function evaluateCoreAttention(
     };
   }
 
-  // An untouched new lead: it arrived, nobody moved it, and nobody promised to.
-  if (input.status === "NEW" && !input.nextFollowUpAt) {
+  // An untouched new lead: it arrived, nobody moved it, nobody promised to — and the owner never acted on
+  // it (G-03: completing a follow-up on a lead still in NEW is handling it, not a reason to call it new again).
+  if (input.status === "NEW" && !input.nextFollowUpAt && !input.firstHandledAt) {
     const age = dayDelta(input.createdAt, now);
     if (age >= NEW_LEAD_GRACE_DAYS) {
       return {
@@ -286,7 +292,9 @@ function evaluateCoreAttention(
         nextAction: { kind: "set_followup", label: t("insights.leads.nextAction.quoteNoActivity") },
       };
     }
-    if ((input.status === "OPEN" || input.status === "QUALIFIED") && idle >= STALLED_AFTER_DAYS) {
+    // G-03 — a NEW lead the owner handled but left in NEW with no follow-up is not lost: it stalls like OPEN.
+    const handledNew = input.status === "NEW" && !!input.firstHandledAt;
+    if ((input.status === "OPEN" || input.status === "QUALIFIED" || handledNew) && idle >= STALLED_AFTER_DAYS) {
       return {
         needsAttention: true,
         reason: "STALLED",
