@@ -9,9 +9,12 @@ const nextConfig: NextConfig = {
   // see — include it for every route that renders a PDF through lib/pdf/chromium.ts: the accountant PDF
   // report, the billing document PDF (view / download), and every route that reaches preparePeriod — the
   // owner's prepare and recipient change render missing issued-document PDFs; the sweep (SYSTEM actor)
-  // never renders but reaches the same code, so it carries the browser too.
+  // never renders but reaches the same code, so it carries the browser too. The accountant's portal: its file
+  // route renders the PDF report on first request; its index route reaches the same module.
   // scripts/ci/pdf-route-tracing-guard.mjs fails CI if a route that reaches the launcher is missed.
   outputFileTracingIncludes: {
+    "/api/accountant/link/file": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/accountant/link/portal": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/accountant/packages/\\[packageId\\]/download": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/billing/documents/\\[id\\]/pdf": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/accountant/periods/\\[periodKey\\]/prepare": ["./node_modules/@sparticuz/chromium/bin/**/*"],

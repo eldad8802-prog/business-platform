@@ -520,8 +520,23 @@ export async function completeManually(
 // ── The accountant opens the link ───────────────────────────────────────────────────────────────
 
 export type LinkOpen =
-  | { ok: true; storageKey: string; periodKey: string; packageVersion: number; businessName: string; expiresAt: Date }
+  | {
+      ok: true;
+      storageKey: string;
+      periodKey: string;
+      packageVersion: number;
+      businessName: string;
+      expiresAt: Date;
+      /** The delivered package: its sealed sha256 (equal to the one the delivery was approved for) and ids. */
+      packageSha256: string;
+      packageId: number;
+      periodId: number;
+      deliveryId: number;
+    }
   | { ok: false; reason: "expired" | "revoked" | "unavailable" };
+
+/** What one link access writes: the refusal (when refused) and/or the ZIP download count + event. */
+export type LinkAccessRecording = { recordRefusal: boolean; countDownload: boolean };
 
 /**
  * Called with a (businessId, deliveryId) the SECURITY DEFINER lookup resolved from the public id AND the
@@ -529,6 +544,17 @@ export type LinkOpen =
  * and logged) versus a look at the page (nothing written).
  */
 export async function openLink(businessId: number, deliveryId: number, now: Date, record: boolean): Promise<LinkOpen> {
+  return checkLinkAccess(businessId, deliveryId, now, { recordRefusal: record, countDownload: record });
+}
+
+/**
+ * The one check behind every use of a link — the ZIP download (openLink) and the portal (R3): the delivery
+ * exists in this business, is not revoked, has not expired, was accepted by the provider, and its package is
+ * READY / SUPERSEDED with exactly the sha256 the delivery was approved for. The portal records refusals but
+ * never counts a ZIP download (it records its own LINK_VIEWED / LINK_FILE_DOWNLOADED, recordLinkAccess).
+ */
+export async function checkLinkAccess(businessId: number, deliveryId: number, now: Date, recording: LinkAccessRecording): Promise<LinkOpen> {
+  const record = recording.recordRefusal;
   return tenantTx(businessId, async (tx) => {
     const d = await tx.accountantDelivery.findFirst({ where: { id: deliveryId, businessId } });
     if (!d) return { ok: false, reason: "unavailable" };
@@ -553,13 +579,13 @@ export async function openLink(businessId: number, deliveryId: number, now: Date
     if (!SUCCESSFUL_DELIVERY.has(d.status as DeliveryStatus)) return refuse("unavailable");
     const pkg = await tx.accountantPackage.findFirst({
       where: { id: d.packageId, businessId, status: { in: ["READY", "SUPERSEDED"] } },
-      select: { storageKey: true, sha256: true, version: true },
+      select: { id: true, storageKey: true, sha256: true, version: true },
     });
-    if (!pkg?.storageKey || pkg.sha256 !== d.packageSha256) return refuse("unavailable");
+    if (!pkg?.storageKey || !pkg.sha256 || pkg.sha256 !== d.packageSha256) return refuse("unavailable");
     const period = await tx.accountantPeriod.findFirstOrThrow({ where: { id: d.periodId, businessId }, select: { periodKey: true } });
     const profile = await tx.businessProfile.findUnique({ where: { businessId }, select: { billingLegalName: true } });
     const business = await tx.business.findUnique({ where: { id: businessId }, select: { name: true } });
-    if (record) {
+    if (recording.countDownload) {
       await tx.accountantDelivery.update({
         where: { id: d.id },
         data: {
@@ -587,8 +613,53 @@ export async function openLink(businessId: number, deliveryId: number, now: Date
       packageVersion: pkg.version,
       businessName: profile?.billingLegalName || business?.name || "",
       expiresAt: d.linkExpiresAt,
+      packageSha256: pkg.sha256,
+      packageId: pkg.id,
+      periodId: d.periodId,
+      deliveryId: d.id,
     };
   });
+}
+
+export type LinkAccessEvent =
+  | { eventType: "LINK_VIEWED"; payload: { packageVersion: number; files: number } }
+  | {
+      eventType: "LINK_FILE_DOWNLOADED";
+      payload: {
+        kind: "source" | "issued" | "report_xlsx" | "report_pdf";
+        mode: "view" | "download";
+        packageVersion: number;
+        /** Source documents only. */
+        documentId?: number;
+        /** The first 16 hex of the file's sha256 (reports: of the package). */
+        sha16: string;
+      };
+    };
+
+/**
+ * Records one portal access (the accountant, as RECIPIENT) — after the file to hand out is known to be the
+ * right one. The payload is ids, counts and short codes only (the trail's closed-payload CHECK).
+ */
+export async function recordLinkAccess(
+  businessId: number,
+  opened: Extract<LinkOpen, { ok: true }>,
+  now: Date,
+  event: LinkAccessEvent
+): Promise<void> {
+  const tag = event.eventType === "LINK_VIEWED" ? "view" : `file-${event.payload.kind}-${event.payload.mode}`;
+  await tenantTx(businessId, (tx) =>
+    appendEvent(tx, {
+      businessId,
+      periodId: opened.periodId,
+      packageId: opened.packageId,
+      deliveryId: opened.deliveryId,
+      eventType: event.eventType,
+      actor: { type: "RECIPIENT" },
+      occurredAt: now,
+      payload: event.payload,
+      idempotencyKey: `link-${tag}:${opened.deliveryId}:${now.getTime()}:${Math.random().toString(36).slice(2, 10)}`,
+    })
+  );
 }
 
 export type { WorkflowActor };
