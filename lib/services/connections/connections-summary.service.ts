@@ -27,6 +27,13 @@ import { BillingAuthorityEnvironment } from "@prisma/client";
 
 import { enabledSources } from "@/lib/intake/acquisition/owner-api";
 import { ACQUISITION_SOURCE_KEYS } from "@/lib/intake/acquisition/gate";
+import { getActiveAuthorityApp } from "@/lib/services/billing/authority/billing-authority-app.service";
+import { resolveRuntimeAuthorityEnvironment } from "@/lib/services/billing/authority/billing-authority-env.service";
+import { getAuthorityConnectionStatus } from "@/lib/services/billing/authority/billing-authority-status.service";
+import { resolveAuthorityStatusRequest } from "@/lib/services/billing/authority/billing-authority-status-view.service";
+import { findPublicByBusinessId } from "@/lib/services/integrations/whatsapp/connection.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 /** The store / phone sources StoresAndCallsPanel manages (S1-B · M1: counted on the hub too). */
 export const STORES_AND_CALLS_SOURCE_KEYS = [
@@ -35,13 +42,6 @@ export const STORES_AND_CALLS_SOURCE_KEYS = [
   "telephony.cloudtalk",
   "telephony.voicenter",
 ] as const;
-import { getActiveAuthorityApp } from "@/lib/services/billing/authority/billing-authority-app.service";
-import { resolveRuntimeAuthorityEnvironment } from "@/lib/services/billing/authority/billing-authority-env.service";
-import { getAuthorityConnectionStatus } from "@/lib/services/billing/authority/billing-authority-status.service";
-import { resolveAuthorityStatusRequest } from "@/lib/services/billing/authority/billing-authority-status-view.service";
-import { findPublicByBusinessId } from "@/lib/services/integrations/whatsapp/connection.service";
-import { runWithTenantContext } from "@/lib/tenant/context";
-import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 export type ConnectionsBreakdown = {
   whatsapp: number;
