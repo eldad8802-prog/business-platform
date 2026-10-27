@@ -1,5 +1,5 @@
 {
-  "note": "Milestone C (public booking), segments 1–2, on migration 20261105090000_public_booking_foundation. The application end to end AS the restricted runtime is .bkg/app-battery.ts in appointments-foundation-ci.yml; the migration's own role battery is .bkg/migration-battery.ts in booking-foundation-lab.yml.",
+  "note": "Milestone C (public booking), segments 1–2, on migration 20261106090000_public_booking_foundation. The application end to end AS the restricted runtime is .bkg/app-battery.ts in appointments-foundation-ci.yml; the migration's own role battery is .bkg/migration-battery.ts in booking-foundation-lab.yml.",
   "tests": {
     "lib/services/booking/booking-core.test.ts": {
       "class": "SECURITY_REQUIRED",
