@@ -1,4 +1,4 @@
-# Read-only PREFLIGHT for migration 20261105090000_public_booking_foundation (Milestone C) — its own lane.
+# Read-only PREFLIGHT for migration 20261106090000_public_booking_foundation (Milestone C) — its own lane.
 #
 # Owner decision 2026-10-27: the preflight runs on a dedicated, isolated workflow that cannot cancel or delay any other
 # track's run. Hence:
@@ -11,7 +11,8 @@
 #     allowlist (ep-flat-brook-am4bhq1y), and Postgres itself in a READ ONLY session (verified before the file runs);
 #   - output redacted (scripts/ci/evidence-redact.mjs); catalog, ledger and counts only.
 # It never applies a migration, never writes, never changes a flag, a grant or a schema. It includes the dependency
-# checks: 20261103090000_document_supplier_link and 20261104090000_pos_rivhit_source must be finished first.
+# checks: 20261103090000_document_supplier_link, 20261104090000_pos_rivhit_source and
+# 20261105090000_accountant_link_events must be finished first.
 
 name: Prod Read-Only Preflight — public booking foundation
 
@@ -33,7 +34,7 @@ jobs:
     environment: production-db
     env:
       SQL_FILE: ops/evidence/public-booking-foundation-preflight.sql
-      SQL_SHA256: 48961422028cff27c9eb1dc2eea545d9a0f01cd68d77b231dabfcb3ec126198a
+      SQL_SHA256: b814b523d804bf75be399f2ce1aa45f3522241fa56cefc2a861e3d3861b9dd5e
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

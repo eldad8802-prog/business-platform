@@ -2,13 +2,14 @@
 -- public-booking-foundation-preflight.sql
 --
 -- Read-only PREFLIGHT for migration
---   20261105090000_public_booking_foundation   (NOT applied)
+--   20261106090000_public_booking_foundation   (NOT applied)
 --
 -- Measures the premises the migration's outcome depends on:
 --   * the ledger is clean, this migration is not recorded, nothing sorting after it was applied first;
---   * what it builds on is finished: the appointments foundation (the tables it extends), and the two
---     migrations of other tracks that sort before it — 20261103090000_document_supplier_link and
---     20261104090000_pos_rivhit_source — so the release applies exactly this one, in order;
+--   * what it builds on is finished: the appointments foundation (the tables it extends), and the three
+--     migrations of other tracks that sort before it — 20261103090000_document_supplier_link,
+--     20261104090000_pos_rivhit_source and 20261105090000_accountant_link_events — so the release applies exactly
+--     this one, in order;
 --   * none of the names it introduces exists yet: the staff column, the eight settings columns, the enum, the
 --     two checks and the three functions;
 --   * StaffMember and BookingSettings are under RLS ENABLED + FORCED; PUBLIC and app_auth hold nothing on
@@ -24,10 +25,10 @@
 
 \echo '== public booking foundation preflight: legend (n -> check) =='
 \echo ' 1 ledger: no unfinished and no rolled-back row (observed = such rows)'
-\echo ' 2 20261105090000_public_booking_foundation is NOT recorded'
+\echo ' 2 20261106090000_public_booking_foundation is NOT recorded'
 \echo ' 3 no finished migration sorts after it'
 \echo ' 4 20261029090000_appointments_foundation is finished'
-\echo ' 5 the dependencies are finished: document_supplier_link and pos_rivhit_source (observed = of 2)'
+\echo ' 5 the dependencies are finished: document_supplier_link, pos_rivhit_source, accountant_link_events (observed = of 3)'
 \echo ' 6 StaffMember.publicBookable does not exist yet'
 \echo ' 7 none of the eight BookingSettings columns exists yet'
 \echo ' 8 the BookingAssignmentMode type does not exist yet'
@@ -41,13 +42,14 @@
 \echo '16 StaffMember rows (informational: none becomes public)'
 \echo '17 dependency 20261103090000_document_supplier_link finished (informational: 1 = yes)'
 \echo '18 dependency 20261104090000_pos_rivhit_source finished (informational: 1 = yes)'
+\echo '19 dependency 20261105090000_accountant_link_events finished (informational: 1 = yes)'
 
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want
-  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261105090000_public_booking_foundation'), 0
-  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261105090000_public_booking_foundation' AND finished_at IS NOT NULL), 0
+  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261106090000_public_booking_foundation'), 0
+  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261106090000_public_booking_foundation' AND finished_at IS NOT NULL), 0
   UNION ALL SELECT 4, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261029090000_appointments_foundation' AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 1
-  UNION ALL SELECT 5, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name IN ('20261103090000_document_supplier_link', '20261104090000_pos_rivhit_source') AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 2
+  UNION ALL SELECT 5, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name IN ('20261103090000_document_supplier_link', '20261104090000_pos_rivhit_source', '20261105090000_accountant_link_events') AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 3
   UNION ALL SELECT 6, (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'StaffMember' AND column_name = 'publicBookable'), 0
   UNION ALL SELECT 7, (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'BookingSettings'
       AND column_name IN ('assignmentMode','selfCancelEnabled','selfCancelWindowHours','maxOpenRequestsPerPhone','showAddress','showBusinessDetails','showPrices','showStaffNames')), 0
@@ -65,6 +67,7 @@ WITH c AS (
   UNION ALL SELECT 16, (SELECT count(*) FROM "StaffMember"), NULL
   UNION ALL SELECT 17, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103090000_document_supplier_link' AND finished_at IS NOT NULL AND rolled_back_at IS NULL), NULL
   UNION ALL SELECT 18, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261104090000_pos_rivhit_source' AND finished_at IS NOT NULL AND rolled_back_at IS NULL), NULL
+  UNION ALL SELECT 19, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261105090000_accountant_link_events' AND finished_at IS NOT NULL AND rolled_back_at IS NULL), NULL
 )
 SELECT n,
        CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,
