@@ -1,0 +1,84 @@
+# Read-only PREFLIGHT for migration 20261105090000_public_booking_foundation (Milestone C) — its own lane.
+#
+# Owner decision 2026-10-27: the preflight runs on a dedicated, isolated workflow that cannot cancel or delay any other
+# track's run. Hence:
+#   - workflow_dispatch only, NO inputs: it runs exactly one file, pinned by its sha256 below (any edit to the file
+#     stops the run before a connection is made);
+#   - its OWN concurrency group (booking-foundation-preflight), named by no other workflow — the shared
+#     prod-readonly-evidence group, whose single pending slot cancels other tracks' runs, is never joined;
+#   - environment: production-db -> human approval before secrets are exposed (main only);
+#   - the same safety as prod-readonly-evidence.yml: SELECT-only static guard, the read-only boundary untouched, host
+#     allowlist (ep-flat-brook-am4bhq1y), and Postgres itself in a READ ONLY session (verified before the file runs);
+#   - output redacted (scripts/ci/evidence-redact.mjs); catalog, ledger and counts only.
+# It never applies a migration, never writes, never changes a flag, a grant or a schema. It includes the dependency
+# checks: 20261103090000_document_supplier_link and 20261104090000_pos_rivhit_source must be finished first.
+
+name: Prod Read-Only Preflight — public booking foundation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: booking-foundation-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Read-only preflight (public booking foundation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production-db
+    env:
+      SQL_FILE: ops/evidence/public-booking-foundation-preflight.sql
+      SQL_SHA256: c37cd280a340a280518725e2faceee614a0a07c9944b8017133a220171a44ac4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: The reviewed file, SELECT-only, read-only boundary untouched
+        run: |
+          set -euo pipefail
+          test -f "$SQL_FILE" || { echo "::error::SQL file missing: $SQL_FILE"; exit 1; }
+          got="$(sha256sum "$SQL_FILE" | cut -d' ' -f1)"
+          test "$got" = "$SQL_SHA256" || { echo "::error::$SQL_FILE is not the reviewed file ($got) — aborting before any DB connection."; exit 1; }
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          MATCHES="$(grep -inE "$FORBIDDEN" "$SQL_FILE" || true)"
+          if [ -n "$MATCHES" ]; then echo "::error::Forbidden write keyword found — aborting."; echo "$MATCHES"; exit 1; fi
+          BOUNDARY='(default_)?transaction_read_only|read[[:space:]]+write|session[[:space:]]+characteristics|reset[[:space:]]+all|session[[:space:]]+authorization'
+          TOUCHES="$(grep -inE "$BOUNDARY" "$SQL_FILE" || true)"
+          if [ -n "$TOUCHES" ]; then echo "::error::The file touches the read-only boundary — aborting."; echo "$TOUCHES"; exit 1; fi
+          echo "guard passed: the reviewed SELECT-only preflight ($got)"
+
+      - name: Host allowlist assertion (verified Production only)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          ALLOW="ep-flat-brook-am4bhq1y"
+          if [ -z "${DIRECT_URL:-}" ]; then echo "::error::DIRECT_URL secret is not set in the production-db environment."; exit 1; fi
+          case "$DIRECT_URL" in
+            *"$ALLOW"*) echo "Host allowlist OK: DIRECT_URL targets endpoint $ALLOW." ;;
+            *) echo "::error::DIRECT_URL does not target the verified Production endpoint ($ALLOW) — aborting."; exit 1 ;;
+          esac
+
+      - name: Install psql client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Run the preflight in a READ ONLY session
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          PGSSLMODE: require
+          # Postgres itself refuses writes: every transaction in this session starts READ ONLY.
+          PGOPTIONS: "-c default_transaction_read_only=on"
+        run: |
+          set -euo pipefail
+          RO="$(psql "$DIRECT_URL" --no-psqlrc -At -c 'SHOW default_transaction_read_only')"
+          if [ "$RO" != "on" ]; then echo "::error::Postgres did not accept the read-only session (default_transaction_read_only=$RO) — aborting."; exit 1; fi
+          echo "Postgres read-only session confirmed: default_transaction_read_only=$RO"
+          psql "$DIRECT_URL" --no-psqlrc --set=ON_ERROR_STOP=1 --file="$SQL_FILE" | node scripts/ci/evidence-redact.mjs
