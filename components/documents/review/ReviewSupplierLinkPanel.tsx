@@ -178,8 +178,15 @@ export default function ReviewSupplierLinkPanel({ documentId }: { documentId: nu
     <section style={{ ...reviewCard, display: "flex", flexDirection: "column", gap: 12 }} data-testid="review-supplier-link">
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
         <h2 style={{ margin: 0, fontSize: TOKEN.font.title, fontWeight: TOKEN.weight.semibold }}>ספק</h2>
-        {state?.reading?.vendorName ? <p style={small}>זוהה במסמך: {state.reading.vendorName}</p> : null}
       </div>
+
+      {state ? (
+        state.reading?.vendorIdentified && state.reading.vendorName ? (
+          <p style={small}>זוהה במסמך: {state.reading.vendorName}</p>
+        ) : (
+          <p style={small} data-testid="vendor-uncertain">לא זוהה ספק בוודאות — אפשר לבחור ספק ידנית</p>
+        )
+      ) : null}
 
       {state?.reading?.ownBusinessExcluded ? (
         <p style={small}>פרטי העסק שלך הופיעו במסמך (כנמען) ולא נבחרו כספק.</p>

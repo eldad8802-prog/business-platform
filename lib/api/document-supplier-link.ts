@@ -37,6 +37,8 @@ export type DocumentSupplierLinkState = {
   } | null;
   reading: {
     vendorName: string | null;
+    /** False ⇒ no supplier identified with confidence (a generic word, or the business itself). */
+    vendorIdentified: boolean;
     issuerTaxId: string | null;
     issuerCheck: string | null;
     ownBusinessExcluded: boolean;

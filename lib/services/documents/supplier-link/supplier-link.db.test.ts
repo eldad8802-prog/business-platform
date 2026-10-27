@@ -123,12 +123,14 @@ async function main() {
       [A.alphaByName, "NAME", "WEAK", false],
     ]);
     assert.equal(s.reading?.ownBusinessExcluded, true);
+    assert.equal(s.reading?.vendorIdentified, true, "a distinctive supplier name is presented as identified");
   });
 
   await check("the business's own name is never suggested (a reading from before the guard)", async () => {
     const s = await getDocumentSupplierLinkState(A.b, A.docs.ownName);
     assert.equal(s.suggestions.length, 0);
     assert.ok(s.notes.includes("OWN_BUSINESS_NAME"));
+    assert.equal(s.reading?.vendorIdentified, false, "the business itself is never presented as the identified supplier");
   });
 
   await check("an income document gets no supplier suggestion; no reading ⇒ none either", async () => {
