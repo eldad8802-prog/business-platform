@@ -143,6 +143,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   // ---- calendar (Appointments milestone B) --------------------------------
   { pattern: "/calendar/staff", parent: "/calendar", parentLabelKey: "toCalendar" },
   { pattern: "/calendar/services", parent: "/calendar", parentLabelKey: "toCalendar" },
+  { pattern: "/calendar/booking", parent: "/calendar", parentLabelKey: "toCalendar" },
   { pattern: "/collection/new", parent: "/collection", parentLabelKey: "toCollection", identityParams: ["step"] },
   { pattern: "/collection/c/[customerId]", parent: "/collection", parentLabelKey: "toCollection" },
 

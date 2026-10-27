@@ -246,3 +246,47 @@ button.head:hover { background: var(--dz-surface-muted); }
 .emptyCompact { padding-block: 16px 8px; gap: 8px; }
 .emptyCompact h2 { font-size: 16px; }
 .emptyCompact .ring { width: 44px; height: 44px; }
+
+/* Booking-link requests (Milestone C) */
+.segBadge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; margin-inline-start: 6px; border-radius: 999px; background: var(--dz-warning); color: var(--dz-text-on-brand); font-size: 11px; font-weight: 700; }
+.requests { display: flex; flex-direction: column; gap: 22px; }
+.reqSection { display: flex; flex-direction: column; gap: 10px; }
+.reqHead { margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.reqCount { font-size: 12px; font-weight: 700; padding: 0 8px; line-height: 20px; border-radius: 999px; background: var(--dz-warning-bg); color: var(--dz-warning); }
+.reqCard { background: var(--dz-surface-raised); border: 1px solid var(--dz-border); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+.reqFocus { border-color: var(--dz-brand); box-shadow: 0 0 0 2px var(--dz-brand-soft); }
+.reqTop { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.reqName { margin: 0; font-size: 15.5px; font-weight: 600; flex: 1; min-width: 0; }
+.reqLine { margin: 0; font-size: 14px; color: var(--dz-text-primary); }
+.reqFacts { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--dz-text-secondary); }
+.reqMatch { color: var(--dz-success); font-weight: 600; }
+.reqNew { color: var(--dz-text-muted); }
+.reqConfirm { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--dz-surface-muted); font-weight: 600; font-size: 14px; }
+.reqRecent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.reqRecent li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 10px; background: var(--dz-surface-raised); border: 1px solid var(--dz-border); }
+/* Public booking settings (Milestone C) */
+.bkGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 16px; align-items: start; }
+.bkRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 14px; }
+.bkRow > label, .bkRow > span:first-child { min-width: 0; }
+.bkItem { display: flex; flex-direction: column; gap: 6px; padding-block: 8px; border-top: 1px solid var(--dz-border); }
+.bkName small { color: var(--dz-text-muted); font-weight: 400; }
+.bkOrder { display: inline-flex; align-items: center; gap: 4px; }
+.bkOrder button { min-width: 34px; padding-inline: 6px; }
+.bkLink { display: flex; gap: 8px; align-items: center; }
+.bkLink code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--dz-border); background: var(--dz-surface-muted); font-size: 12.5px; }
+.switch { position: relative; flex: none; width: 44px; height: 26px; border-radius: 999px; border: 0; background: var(--dz-border-strong, #c9cec3); cursor: pointer; padding: 0; }
+.switch span { position: absolute; top: 3px; inset-inline-start: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); transition: inset-inline-start 0.15s ease; }
+.switchOn { background: var(--dz-brand); }
+.switchOn span { inset-inline-start: 21px; }
+.switch:disabled { opacity: 0.55; cursor: default; }
+.switch:focus-visible { outline: 2px solid var(--dz-brand); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .switch span { transition: none; } }
+/* A phone keeps the staff filter and the four tabs (יום · שבוע · חודש · בקשות) on one row — a second row would push
+   an empty day's "תור חדש" under the bottom bar (the 375px check). */
+@media (max-width: 419px) {
+  .bar .seg button { padding-inline: 9px; }
+  .bar .select { max-width: 112px; padding-inline: 8px; }
+  .segBadge { margin-inline-start: 4px; min-width: 16px; height: 16px; padding: 0 4px; }
+}
+.reqSettings { margin: 0; font-size: 13.5px; }
+.reqSettings a { color: var(--dz-brand); font-weight: 600; text-decoration: none; }

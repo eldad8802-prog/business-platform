@@ -23,6 +23,10 @@
     {
       "path": "/api/accountant/sweep",
       "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/appointments/booking/sweep",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

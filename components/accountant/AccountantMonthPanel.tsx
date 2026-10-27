@@ -14,11 +14,11 @@ import { ApiError, cancelSend, completeManually, downloadPackage, preparePeriod,
 import {
   blockerHe,
   blockerHref,
+  deliveryAccessHe,
   deliveryStatusHe,
   deliveryTone,
   errorHe,
   formatBytes,
-  formatDateHe,
   formatDateTimeHe,
   warningHe,
 } from "./labels";
@@ -48,6 +48,7 @@ export function AccountantMonthPanel({ token, period, onChange, onReload }: Prop
   const warnings = period.readiness?.warnings ?? [];
   const inFlight = period.deliveries.find((d) => d.status === "APPROVED" || d.status === "SENDING") ?? null;
   const canSend = !!pkg && pkg.status === "READY" && !!period.recipient && period.sendingAvailable && !inFlight;
+  const latestSend = period.deliveries.find((d) => d.status !== "CANCELED") ?? null;
 
   return (
     <>
@@ -159,10 +160,7 @@ export function AccountantMonthPanel({ token, period, onChange, onReload }: Prop
           <div style={buttons}>
             <button type="button" style={primaryActionStyle({ height: 48, disabled: !canSend || busy !== null })} disabled={!canSend || busy !== null}
               onClick={() => setSendOpen(true)}>
-              {(() => {
-                const latest = period.deliveries.find((d) => d.status !== "CANCELED");
-                return latest && (latest.status === "FAILED" || latest.status === "BOUNCED") ? "שלח שוב" : "שלח לרואה החשבון";
-              })()}
+              {latestSend && (latestSend.status === "FAILED" || latestSend.status === "BOUNCED") ? "שלח שוב" : "שלח לרואה החשבון"}
             </button>
             {pkg.status === "READY" && !period.completedManually && !inFlight ? (
               <button type="button" style={chipActionStyle(false)} disabled={busy !== null}
@@ -192,7 +190,7 @@ export function AccountantMonthPanel({ token, period, onChange, onReload }: Prop
       {error ? <div style={banner("urgent")} role="alert">{error}</div> : null}
 
       {sendOpen && pkg && period.recipient ? (
-        <SendDialog token={token} period={period} onClose={() => setSendOpen(false)}
+        <SendDialog token={token} period={period} previousUncertain={latestSend?.outcomeUncertain === true} onClose={() => setSendOpen(false)}
           onSent={(next) => { setSendOpen(false); onChange(next); }} />
       ) : null}
     </>
@@ -200,7 +198,8 @@ export function AccountantMonthPanel({ token, period, onChange, onReload }: Prop
 }
 
 function DeliveryRow({ d, busy, onRevoke, onCancel }: { d: DeliveryView; busy: boolean; onRevoke: () => void; onCancel: () => void }) {
-  const linkLive = !d.linkRevokedAt && new Date(d.linkExpiresAt).getTime() > Date.now() && (d.status === "ACCEPTED" || d.status === "DELIVERED");
+  const linkLive = d.linkState === "live";
+  const access = deliveryAccessHe(d);
   return (
     <li style={{ ...listItem, flexDirection: "column", alignItems: "stretch" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -212,15 +211,19 @@ function DeliveryRow({ d, busy, onRevoke, onCancel }: { d: DeliveryView; busy: b
         {d.incompleteAcknowledged ? ` · אושר למרות ${d.openItemCount} פריטים פתוחים` : ""}
         {d.acceptedAt ? ` · התקבל אצל ספק המייל ${formatDateTimeHe(d.acceptedAt)}` : ""}
         {d.deliveredAt ? ` · נמסר ${formatDateTimeHe(d.deliveredAt)}` : ""}
+        {d.nextAttemptAt ? ` · ניסיון נוסף ב־${formatDateTimeHe(d.nextAttemptAt)}` : ""}
       </div>
-      <div style={{ ...muted, margin: "4px 0 0" }}>
-        {[
-          d.downloadCount > 0
-            ? `רואה החשבון הוריד את החבילה ${d.downloadCount === 1 ? "פעם אחת" : `${d.downloadCount} פעמים`} (לאחרונה ${formatDateTimeHe(d.lastDownloadedAt)})`
-            : d.status === "ACCEPTED" || d.status === "DELIVERED" ? "עוד לא הורד" : "",
-          d.linkRevokedAt ? "הקישור בוטל" : linkLive ? `הקישור בתוקף עד ${formatDateHe(d.linkExpiresAt)}` : "",
-        ].filter(Boolean).join(" · ")}
-      </div>
+      {d.outcomeUncertain ? (
+        <div style={{ ...banner("attention"), marginTop: 8, fontWeight: TOKEN.weight.semibold }} role="status">
+          ספק המייל לא אישר ולא דחה את המייל, ולכן ייתכן שהוא הגיע לרואה החשבון. לפני שליחה חוזרת כדאי לבדוק איתו —
+          שליחה חוזרת היא מייל חדש.
+        </div>
+      ) : null}
+      {access.length > 0 ? (
+        <ul style={{ ...muted, margin: "6px 0 0", paddingInlineStart: 18 }}>
+          {access.map((line) => <li key={line}>{line}</li>)}
+        </ul>
+      ) : null}
       <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
         {linkLive ? (
           <button type="button" style={dangerActionStyle({ height: 38 })} disabled={busy}

@@ -24,8 +24,7 @@ import {
   isUnauthorizedError,
   redirectToLogin,
 } from "@/lib/client-session";
-import { formatPhoneForDisplay } from "@/lib/format/phone-display";
-import { CrmRowMeta } from "@/components/crm/CrmRowMeta";
+import { SupplierRow } from "@/components/suppliers/SupplierRow";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/translate";
 
@@ -35,24 +34,9 @@ import type { MessageKey } from "@/lib/i18n/translate";
  * Extracted verbatim from the old /suppliers page so it can live in the STABLE
  * suppliers layout, exactly like CustomersList: fetched once, never remounted
  * when the selected supplier changes; only the detail region swaps per route.
- * `selectedId` (from the route) highlights the open row in two-pane mode.
+ * `selectedId` (from the route) highlights the open card in two-pane mode.
+ * Each supplier renders as a `SupplierRow` card (call · email · supplier file).
  */
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2);
-  return (parts[0][0] ?? "") + (parts[1][0] ?? "");
-}
-
-/**
- * The row's meta VALUES, in reading order — deliberately NOT joined into one
- * string: `CrmRowMeta` owns the separators, the wrapping and the per-value bidi
- * isolation, so a long email cannot run out of the card or reorder itself.
- */
-function rowMetaParts(s: SupplierListRow): Array<string | null> {
-  return [s.phone ? formatPhoneForDisplay(s.phone) : null, s.email];
-}
 
 const FILTERS: Array<{ key: SupplierStatusFilter; label: MessageKey }> = [
   { key: "active", label: "customers.suppliers.list.filterActive" },
@@ -177,14 +161,21 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
         </button>
       </div>
 
-      <input
-        className="crm-search"
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder={t("customers.suppliers.list.searchPlaceholder")}
-        inputMode="search"
-      />
+      <div className="cust-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m20 20-4.2-4.2" />
+        </svg>
+        <input
+          className="crm-search"
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t("customers.suppliers.list.searchPlaceholder")}
+          aria-label={t("customers.suppliers.list.searchPlaceholder")}
+          inputMode="search"
+        />
+      </div>
 
       <div
         style={{
@@ -270,38 +261,10 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
           ) : null}
         </div>
       ) : (
-        <div className="crm-rows">
-          {suppliers.map((s) => {
-            const selected = String(s.id) === selectedId;
-            return (
-              <a
-                key={s.id}
-                className={`crm-row${selected ? " crm-row--selected" : ""}`}
-                aria-current={selected ? "true" : undefined}
-                href={`/suppliers/${s.id}`}
-              >
-                <span className="crm-row__avatar" aria-hidden>
-                  {initials(s.name)}
-                </span>
-                <span className="crm-row__body">
-                  <span className="crm-row__name">
-                    <bdi>{s.name}</bdi>
-                  </span>
-                  {/* Sibling of the name: the name is clamped to two lines, and
-                      a badge inside it would be clipped on long names. */}
-                  {!s.isActive ? (
-                    <span className="crm-row__badges">
-                      <span className="crm-badge">{t("customers.suppliers.common.inactiveBadge")}</span>
-                    </span>
-                  ) : null}
-                  <CrmRowMeta parts={rowMetaParts(s)} />
-                </span>
-                <span className="crm-row__chevron" aria-hidden>
-                  {t("customers.suppliers.common.chevron")}
-                </span>
-              </a>
-            );
-          })}
+        <div className="cust-cards">
+          {suppliers.map((s) => (
+            <SupplierRow key={s.id} supplier={s} selected={String(s.id) === selectedId} />
+          ))}
           {hasMore || moreError ? (
             <div className="crm-list-more" aria-live="polite">
               <p className="crm-list-more__note">

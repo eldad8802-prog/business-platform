@@ -13,7 +13,7 @@
 import webpush from "web-push";
 
 export type PushTarget = { endpoint: string; p256dh: string; auth: string };
-export type PushPayload = { title: string; body: string; url: string; tag: string; taskId?: number };
+export type PushPayload = { title: string; body: string; url: string; tag: string; taskId?: number; kind?: "task" | "booking"; requestId?: number };
 export type PushOutcome = { ok: true; status: number } | { ok: false; gone: boolean; status: number | null };
 
 type Env = Record<string, string | undefined>;

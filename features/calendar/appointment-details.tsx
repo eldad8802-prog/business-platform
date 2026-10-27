@@ -9,6 +9,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { uuidV7 } from "@/lib/tasks/tasks-client";
 import t from "@/features/tasks/tasks.module.css";
 
@@ -27,6 +28,7 @@ import {
   LIMITS,
   LOCATION_LABEL,
   OWNER_CANCEL_REASONS,
+  REQUEST_STATUS_LABEL,
   STATUS_LABEL,
   STATUS_TO,
   textProblem,
@@ -139,6 +141,22 @@ export function AppointmentDetails({
         ) : null}
         {a.leadId !== null ? <><dt>ליד</dt><dd><Link href={`/leads/${a.leadId}`} prefetch={false}>הליד המקושר</Link></dd></> : null}
         {a.cancelReason ? <><dt>סיבת ביטול</dt><dd>{CANCEL_REASON_LABEL[a.cancelReason]}</dd></> : null}
+        {a.booking ? (
+          <>
+            <dt>מקור</dt>
+            <dd>
+              הזמנה מהקישור · {REQUEST_STATUS_LABEL[a.booking.status] ?? a.booking.status}
+              {a.booking.status === "PENDING" ? <> · <Link href={`/calendar?view=requests&request=${a.booking.requestId}`} prefetch={false}>לבקשה</Link></> : null}
+            </dd>
+            <dt>ביקש/ה</dt>
+            <dd>
+              {a.booking.contactName}
+              {a.booking.contactPhone ? <> · <bdi dir="ltr">{formatPhoneForDisplay(a.booking.contactPhone)}</bdi></> : null}
+              {a.customerId === null ? <span className={t.hint}> · עוד לא מקושר לכרטיס לקוח</span> : null}
+            </dd>
+            {a.booking.note ? <><dt>הערת הלקוח</dt><dd>{a.booking.note}</dd></> : null}
+          </>
+        ) : null}
       </dl>
 
       {a.notes ? <p className={t.noteText}>{a.notes}</p> : null}

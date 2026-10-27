@@ -26,6 +26,7 @@ import { authorizeAppointmentAction, type AppointmentPrincipal } from "./appoint
 import { AppointmentServiceError, invalid } from "./appointment-errors";
 import { appendAppointmentEvent, instantToken } from "./appointment-journal";
 import { ownerWrite, type OwnerRequest, type WriteContext } from "./appointment-request";
+import { hasPendingRequest, settleRequestForStatus } from "@/lib/services/booking/booking-settle";
 import {
   computeSlots,
   insideAvailability,
@@ -156,7 +157,7 @@ type Occupant = { id: number; startsAt: Date; endsAt: Date; bufferBeforeMinutes:
  * Who already occupies time around `range` in a lane: the lane's active timed appointments, plus — for a staff
  * lane — the business-wide blocks, which close the time for everyone.
  */
-async function laneOccupants(tx: Tx, businessId: number, staffMemberId: number | null, range: Interval, excludeId?: number): Promise<Occupant[]> {
+export async function laneOccupants(tx: Tx, businessId: number, staffMemberId: number | null, range: Interval, excludeId?: number): Promise<Occupant[]> {
   const pad = 241 * MINUTE; // the widest buffer (240) and one minute
   const rows = await tx.appointment.findMany({
     where: {
@@ -183,7 +184,7 @@ async function assertFree(tx: Tx, businessId: number, staffMemberId: number | nu
 }
 
 /** The lane's rules and exceptions (a staff member without rules of their own follows the business's hours). */
-async function laneAvailability(tx: Tx, businessId: number, staffMemberId: number | null, fromDay: JerusalemDayKey, toDay: JerusalemDayKey) {
+export async function laneAvailability(tx: Tx, businessId: number, staffMemberId: number | null, fromDay: JerusalemDayKey, toDay: JerusalemDayKey) {
   const allRules = await tx.availabilityRule.findMany({
     where: { businessId, removedAt: null, OR: staffMemberId === null ? [{ staffMemberId: null }] : [{ staffMemberId: null }, { staffMemberId }] },
     select: { staffMemberId: true, weekday: true, startMinute: true, endMinute: true, validFrom: true, validUntil: true },
@@ -312,7 +313,19 @@ async function materialize(businessId: number, out: { appointmentId: number; rep
 export type ListAppointmentsInput = { from?: unknown; to?: unknown; staffMemberId?: unknown; includeCanceled?: unknown };
 
 /** An appointment as the calendar lists it: the row, and its customer's name (null without a customer). */
-export type ListedAppointment = Appointment & { customerName: string | null };
+export type BookingInfo = { requestId: number; status: string; contactName: string; contactPhone: string | null; note: string | null; expiresAt: string };
+export type ListedAppointment = Appointment & { customerName: string | null; booking: BookingInfo | null };
+
+async function bookingInfo(tx: Tx, businessId: number, appointmentIds: number[]): Promise<Map<number, BookingInfo>> {
+  if (appointmentIds.length === 0) return new Map();
+  const reqs = await tx.bookingRequest.findMany({
+    where: { businessId, appointmentId: { in: appointmentIds } },
+    select: { id: true, appointmentId: true, status: true, contactName: true, contactPhone: true, customerNote: true, expiresAt: true },
+  });
+  return new Map(reqs.map((r) => [r.appointmentId, {
+    requestId: r.id, status: r.status, contactName: r.contactName, contactPhone: r.contactPhone, note: r.customerNote, expiresAt: r.expiresAt.toISOString(),
+  }]));
+}
 
 /**
  * Appointments that START inside [from, to) — the calendar's view of a range (≤ 62 days) — each with its customer's
@@ -342,7 +355,8 @@ export async function listAppointments(principal: AppointmentPrincipal, input: L
       ? await tx.customer.findMany({ where: { businessId: principal.businessId, id: { in: ids } }, select: { id: true, name: true } })
       : [];
     const names = new Map(customers.map((c) => [c.id, c.name]));
-    return rows.map((r) => ({ ...r, customerName: r.customerId !== null ? names.get(r.customerId) ?? null : null }));
+    const bookings = await bookingInfo(tx, principal.businessId, rows.filter((r) => r.sourceChannel === "PUBLIC_BOOKING").map((r) => r.id));
+    return rows.map((r) => ({ ...r, customerName: r.customerId !== null ? names.get(r.customerId) ?? null : null, booking: bookings.get(r.id) ?? null }));
   });
 }
 
@@ -353,7 +367,8 @@ export async function getAppointment(principal: AppointmentPrincipal, id: number
     const customer = row.customerId !== null
       ? await tx.customer.findFirst({ where: { id: row.customerId, businessId: principal.businessId }, select: { name: true } })
       : null;
-    const appointment: ListedAppointment = { ...row, customerName: customer?.name ?? null };
+    const booking = row.sourceChannel === "PUBLIC_BOOKING" ? (await bookingInfo(tx, principal.businessId, [row.id])).get(row.id) ?? null : null;
+    const appointment: ListedAppointment = { ...row, customerName: customer?.name ?? null, booking };
     const events = await tx.appointmentEvent.findMany({
       where: { businessId: principal.businessId, appointmentId: id },
       orderBy: { id: "desc" },
@@ -428,8 +443,9 @@ export async function changeStatus(principal: AppointmentPrincipal, req: OwnerRe
   authorizeAppointmentAction(principal, "appointment.status");
   const to = input.to as Appointment["status"];
   if (to !== "CONFIRMED" && to !== "COMPLETED" && to !== "NO_SHOW" && to !== "CANCELED") throw invalid("to");
-  const cancelReason = input.cancelReason === undefined || input.cancelReason === null ? null : (input.cancelReason as (typeof OWNER_CANCEL_REASONS)[number]);
-  if (cancelReason !== null && (to !== "CANCELED" || !OWNER_CANCEL_REASONS.includes(cancelReason))) throw invalid("cancelReason");
+  const cancelReason = input.cancelReason === undefined || input.cancelReason === null ? null : (input.cancelReason as (typeof OWNER_CANCEL_REASONS)[number] | "DECLINED");
+  // DECLINED: only for an appointment that still waits on a public request (checked inside the transaction).
+  if (cancelReason !== null && (to !== "CANCELED" || !(OWNER_CANCEL_REASONS as readonly string[]).concat("DECLINED").includes(cancelReason))) throw invalid("cancelReason");
   const reason = optionalText(input.reason, "reason", 500) ?? null;
   const expectedVersion = optionalVersion(input.expectedVersion);
   const body = { id, to, cancelReason, reason, expectedVersion };
@@ -442,10 +458,14 @@ export async function changeStatus(principal: AppointmentPrincipal, req: OwnerRe
     // An outcome only once the appointment has started; no-show only for a customer (the rule every path shares).
     const refusal = outcomeRefusal(current, to, new Date());
     if (refusal) throw new AppointmentServiceError("INVALID_TRANSITION", { reason: refusal === "not_started" ? "NOT_STARTED" : "NO_CUSTOMER" });
+    const fromPublic = current.sourceChannel === "PUBLIC_BOOKING";
+    if (cancelReason === "DECLINED" && !(fromPublic && (await hasPendingRequest(ctx.tx, ctx.businessId, current.id)))) throw invalid("cancelReason");
     const r = await transitionWithinTx(ctx.tx, current, to, actor, {
       appendNote: to === "CANCELED" ? reason : null, cancelReason, journalKey: ctx.key, digest: ctx.digest,
     });
     if (!r.ok) throw new AppointmentServiceError("INVALID_TRANSITION");
+    // A public request settles with its appointment, in the same transaction (approve / decline from any screen).
+    if (fromPublic) await settleRequestForStatus(ctx.tx, ctx.businessId, current.id, current.status, to, principal.userId, ctx.now);
     return { appointmentId: current.id };
   });
   return materialize(principal.businessId, out);

@@ -7,6 +7,10 @@
     "lib/services/tasks/task-reminders.service.ts::dueReminders::raw:$queryRaw": {
       "count": 1,
       "reason": "Owner-approved task reminders (migration 20261022090000): the dispatcher runs with no session and no tenant, so it asks the SECURITY DEFINER function task_reminders_due(p_now, p_limit) (pinned search_path, REVOKE ALL FROM PUBLIC, EXECUTE for app_runtime alone) for IDENTIFIERS of due reminders only — no table is read by this query, and each reminder is then claimed and read inside its own business's tenantTx. It is the same DB-scoped definer-lookup shape the AST-3 exception admits; it is listed here only because the exception's matcher cannot parse the timestamp(3) signature in the REVOKE line and the call needs explicit ::timestamp(3) / ::int casts for function resolution."
+    },
+    "lib/services/booking/booking-sweep.service.ts::duePendingRequests::raw:$queryRaw": {
+      "count": 1,
+      "reason": "Owner-approved public booking (Milestone C, migration 20261106090000): the sweeper runs with no session and no tenant, so it asks the SECURITY DEFINER function booking_pending_due(p_now, p_limit) (pinned search_path, REVOKE ALL FROM PUBLIC, EXECUTE for app_runtime alone) for IDENTIFIERS and times of pending requests only — no table is read by this query, and each request is then expired or reminded inside its own business's tenantTx under the appointment lock. The same DB-scoped definer-lookup shape as task_reminders_due (dueReminders): listed for the same reason (the timestamp(3) signature and the ::timestamp(3) / ::int casts)."
     }
   },
   "note": "EXACT-SET ratchet of known tenant-client debt (AST-2 fallback/alias of the canonical prisma, AST-3 bare FORCE-RLS/raw access). Every entry is a site that runs WITHOUT tenant context when no transaction is supplied. It may only SHRINK: new sites fail CI, removed sites fail until their entry is removed. Regenerate only as a reviewed decision: node scripts/ci/ast-security-guard.mjs --write-ratchet",

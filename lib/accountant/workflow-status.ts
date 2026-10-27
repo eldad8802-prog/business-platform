@@ -91,3 +91,32 @@ export function periodStatusLabelHe(status: PeriodStatus, changedSinceSent: bool
       return "סומן כנשלח על ידך";
   }
 }
+
+/**
+ * The provider never answered the last attempt (a timeout or a network failure, possibly after every retry):
+ * the message MAY have been sent. Retries of the same delivery reuse its provider idempotency key
+ * (`acct:<id>`), so the provider sends it at most once within its 24 h window; but a NEW delivery ("send
+ * again") is a new key, so the owner must be told that a copy may already be in the accountant's inbox.
+ */
+const NO_ANSWER = /^(timeout|network)(_max_attempts|_ttl)?$/;
+
+export function isUncertainOutcome(status: DeliveryStatus, failureCode: string | null): boolean {
+  return status === "FAILED" && !!failureCode && NO_ANSWER.test(failureCode);
+}
+
+/** A retry is scheduled after an attempt the provider never answered (it may already have been sent). */
+export function isRetryAfterNoAnswer(status: DeliveryStatus, failureCode: string | null): boolean {
+  return status === "APPROVED" && !!failureCode && NO_ANSWER.test(failureCode);
+}
+
+export type LinkState = "not_sent" | "live" | "expired" | "revoked";
+
+/** Where the accountant's link stands — only a provider-accepted message ever handed a link out. */
+export function linkStateOf(
+  d: { status: DeliveryStatus; linkRevokedAt: Date | string | null; linkExpiresAt: Date | string },
+  now: Date
+): LinkState {
+  if (!SUCCESSFUL_DELIVERY.has(d.status)) return d.linkRevokedAt ? "revoked" : "not_sent";
+  if (d.linkRevokedAt) return "revoked";
+  return new Date(d.linkExpiresAt).getTime() <= now.getTime() ? "expired" : "live";
+}
