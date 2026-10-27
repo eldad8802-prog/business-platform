@@ -20,6 +20,7 @@ import {
   tokenFromHash,
   weekDays,
   whenLong,
+  whenShort,
 } from "./public-booking-model";
 
 let total = 0;
