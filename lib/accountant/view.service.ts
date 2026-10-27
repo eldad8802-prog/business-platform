@@ -8,7 +8,16 @@ import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { deliveryEnabled } from "./delivery.service";
 import { addPeriods, isPeriodClosed, isPeriodKey, monthNameHe, periodLabelHe, previousPeriodKey, type PeriodKey } from "./period";
 import { openItemsOfStored, parseStoredManifest, parseStoredReadiness, type StoredReadiness } from "./store";
-import { isCompleted, periodStatusLabelHe, type DeliveryStatus, type PeriodStatus } from "./workflow-status";
+import {
+  isCompleted,
+  isRetryAfterNoAnswer,
+  isUncertainOutcome,
+  linkStateOf,
+  periodStatusLabelHe,
+  type DeliveryStatus,
+  type LinkState,
+  type PeriodStatus,
+} from "./workflow-status";
 
 export type PackageView = {
   id: number;
@@ -44,6 +53,16 @@ export type DeliveryView = {
   downloadCount: number;
   firstDownloadedAt: string | null;
   lastDownloadedAt: string | null;
+  /** Send attempts so far and, when one is scheduled, when the next one is due. */
+  attempts: number;
+  nextAttemptAt: string | null;
+  /** The provider never answered: the message may or may not have reached the accountant. */
+  outcomeUncertain: boolean;
+  /** A retry is scheduled after an unanswered attempt (the same provider idempotency key is reused). */
+  retryAfterNoAnswer: boolean;
+  linkState: LinkState;
+  /** What the accountant did with the link, from the trail (counts and times only). */
+  portal: { views: number; firstViewedAt: string | null; lastViewedAt: string | null; fileDownloads: number; lastFileDownloadAt: string | null };
 };
 
 export type RecipientView = { name: string; email: string; version: number; updatedAt: string };
@@ -112,6 +131,18 @@ export async function getPeriodView(businessId: number, periodKey: PeriodKey, no
       orderBy: { id: "desc" },
       take: 10,
     });
+    // The accountant's use of each link (R2 events), aggregated — counts and times, never paths or names.
+    const access = deliveries.length
+      ? await tx.accountantWorkflowEvent.groupBy({
+          by: ["deliveryId", "eventType"],
+          where: { businessId, deliveryId: { in: deliveries.map((d) => d.id) }, eventType: { in: ["LINK_VIEWED", "LINK_FILE_DOWNLOADED"] } },
+          _count: { _all: true },
+          _min: { occurredAt: true },
+          _max: { occurredAt: true },
+        })
+      : [];
+    const accessOf = (deliveryId: number, type: "LINK_VIEWED" | "LINK_FILE_DOWNLOADED") =>
+      access.find((a) => a.deliveryId === deliveryId && a.eventType === type);
     const readiness = parseStoredReadiness(period.readiness);
     const manifest = pkg ? parseStoredManifest(pkg.manifest) : null;
     const status = period.status as PeriodStatus;
@@ -162,6 +193,22 @@ export async function getPeriodView(businessId: number, periodKey: PeriodKey, no
         downloadCount: d.downloadCount,
         firstDownloadedAt: iso(d.firstDownloadedAt),
         lastDownloadedAt: iso(d.lastDownloadedAt),
+        attempts: d.attempts,
+        nextAttemptAt: d.status === "APPROVED" ? iso(d.nextAttemptAt) : null,
+        outcomeUncertain: isUncertainOutcome(d.status as DeliveryStatus, d.failureCode),
+        retryAfterNoAnswer: isRetryAfterNoAnswer(d.status as DeliveryStatus, d.failureCode),
+        linkState: linkStateOf({ status: d.status as DeliveryStatus, linkRevokedAt: d.linkRevokedAt, linkExpiresAt: d.linkExpiresAt }, now),
+        portal: (() => {
+          const v = accessOf(d.id, "LINK_VIEWED");
+          const f = accessOf(d.id, "LINK_FILE_DOWNLOADED");
+          return {
+            views: v?._count._all ?? 0,
+            firstViewedAt: iso(v?._min.occurredAt ?? null),
+            lastViewedAt: iso(v?._max.occurredAt ?? null),
+            fileDownloads: f?._count._all ?? 0,
+            lastFileDownloadAt: iso(f?._max.occurredAt ?? null),
+          };
+        })(),
       })),
       recipient: recipientView,
       completedManually: period.completionKind === "MANUAL",
