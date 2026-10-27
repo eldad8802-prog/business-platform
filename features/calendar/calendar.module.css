@@ -281,3 +281,10 @@ button.head:hover { background: var(--dz-surface-muted); }
 .switch:disabled { opacity: 0.55; cursor: default; }
 .switch:focus-visible { outline: 2px solid var(--dz-brand); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .switch span { transition: none; } }
+/* A phone keeps the staff filter and the four tabs (יום · שבוע · חודש · בקשות) on one row — a second row would push
+   an empty day's "תור חדש" under the bottom bar (the 375px check). */
+@media (max-width: 419px) {
+  .bar .seg button { padding-inline: 9px; }
+  .bar .select { max-width: 112px; padding-inline: 8px; }
+  .segBadge { margin-inline-start: 4px; min-width: 16px; height: 16px; padding: 0 4px; }
+}

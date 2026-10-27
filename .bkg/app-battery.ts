@@ -146,7 +146,7 @@ async function main() {
   let r = await routes.settings.PUT(own("/api/appointments/booking/settings", { method: "PUT", body: { enabled: true, staffChoiceMode: "OPTIONAL" } }));
   const adm = await body(r);
   const publicId: string = adm?.settings?.publicId;
-  ok("A0 the owner turns the link on: an opaque 24-character id, never the business id or name", r.status === 200 && /^[A-Za-z0-9_-]{24}$/.test(publicId ?? "") && !publicId.includes(String(bizA)), JSON.stringify(adm?.settings));
+  ok("A0 the owner turns the link on: an opaque 24-character id, never the business id or name", r.status === 200 && /^[A-Za-z0-9_-]{24}$/.test(publicId ?? "") && publicId !== String(bizA) && !/^\d+$/.test(publicId) && !publicId.includes(tag), JSON.stringify(adm?.settings));
   const profile = (id = publicId, init: Init = {}) => routes.profile.GET(req(`/api/public/booking/${id}`, init), p({ publicId: id }));
   r = await profile();
   const off404 = await body(r);
