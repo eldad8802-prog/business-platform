@@ -9,7 +9,7 @@
 #   - environment: production-db -> human approval before secrets are exposed (main only);
 #   - the same safety as prod-readonly-evidence.yml: SELECT-only static guard, the read-only boundary untouched, host
 #     allowlist (ep-flat-brook-am4bhq1y), and Postgres itself in a READ ONLY session (verified before the file runs);
-#   - output redacted (scripts/ci/evidence-redact.mjs); catalog, ledger and counts only;
+#   - output redacted (scripts/ci/evidence-redact.mjs) before anything sees it; catalog, ledger and counts only;
 #   - the verdict is the run's own: any FAIL, or not exactly 21 checks, fails it.
 # It never applies a migration, never writes, never changes a flag, a grant or a schema. Before the release it refuses
 # (the file names the new column); after it, every check must PASS: the migration recorded once with the reviewed
@@ -83,11 +83,10 @@ jobs:
           RO="$(psql "$DIRECT_URL" --no-psqlrc -At -c 'SHOW default_transaction_read_only')"
           if [ "$RO" != "on" ]; then echo "::error::Postgres did not accept the read-only session (default_transaction_read_only=$RO) — aborting."; exit 1; fi
           echo "Postgres read-only session confirmed: default_transaction_read_only=$RO"
-          OUT="$RUNNER_TEMP/proof.out"
-          psql "$DIRECT_URL" --no-psqlrc --set=ON_ERROR_STOP=1 --file="$SQL_FILE" > "$OUT"
-          node scripts/ci/evidence-redact.mjs < "$OUT"
-          # The verdict is read from the raw rows (the redactor may mask a label; psql pads the columns): any FAIL, or
-          # not exactly 21 rows, fails the run.
+          OUT="$RUNNER_TEMP/proof.redacted"
+          psql "$DIRECT_URL" --no-psqlrc --set=ON_ERROR_STOP=1 --file="$SQL_FILE" | node scripts/ci/evidence-redact.mjs | tee "$OUT"
+          # The verdict is read from the REDACTED rows (PASS / FAIL are verdict tokens the redactor keeps; the columns
+          # may be padded): any FAIL, or not exactly 21 rows, fails the run. Nothing unredacted is written anywhere.
           rows="$(grep -cE '^ *[0-9]+ *\| *(PASS|FAIL) *\|' "$OUT" || true)"
           fails="$(grep -E '^ *[0-9]+ *\| *FAIL *\|' "$OUT" | awk '{print $1}' | tr '\n' ' ' || true)"
           if [ -n "$fails" ]; then echo "::error::post-apply proof FAILED on checks: $fails"; exit 1; fi
