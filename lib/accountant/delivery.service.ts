@@ -146,6 +146,15 @@ export async function approveDelivery(input: ApproveInput): Promise<ApprovedDeli
       if (!period) throw new AccountantError(404, "NOT_FOUND");
       // Serialise approvals of the period (and against the recipient change, which locks the recipient).
       await tx.$queryRaw`SELECT 1 FROM "AccountantPeriod" WHERE "id" = ${period.id} FOR UPDATE`;
+      // A request with the same key that held the lock first has committed by now: this one is that approval.
+      const sameKey = await tx.accountantDelivery.findUnique({
+        where: { businessId_idempotencyKey: { businessId, idempotencyKey: input.idempotencyKey! } },
+        select: { id: true, packageId: true },
+      });
+      if (sameKey) {
+        if (sameKey.packageId !== packageId) throw new AccountantError(409, "IDEMPOTENCY_KEY_REUSED");
+        return { deliveryId: sameKey.id, created: false };
+      }
       const pkg = await tx.accountantPackage.findFirst({ where: { id: packageId, businessId, periodId: period.id } });
       if (!pkg || pkg.status !== "READY" || period.latestPackageId !== pkg.id || pkg.sha256 !== input.packageSha256) {
         throw new AccountantError(409, "PACKAGE_OUTDATED");
