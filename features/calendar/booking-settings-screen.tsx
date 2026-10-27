@@ -184,8 +184,8 @@ export function BookingSettingsScreen() {
         <>
           {!data.platform.open ? (
             <div className={s.warnBox} role="status">
-              <strong>הקישור עוד לא פתוח לציבור.</strong>
-              <span>דוביז תפתח את ההזמנות לעסק שלך בהמשך. אפשר כבר עכשיו להכין שירותים, עובדים והגדרות — הם ייכנסו לתוקף כשההזמנות ייפתחו.</span>
+              <strong>ההזמנות מהקישור עוד לא פתוחות לעסק שלך.</strong>
+              <span>דוביז תפתח אותן בהמשך, ואז תקבל קישור לשליחה ללקוחות. עד אז אין קישור, ולקוחות לא יכולים לבקש תור. אפשר כבר עכשיו להכין שירותים, עובדים והגדרות — הם ייכנסו לתוקף כשההזמנות ייפתחו.</span>
             </div>
           ) : null}
 
@@ -194,7 +194,7 @@ export function BookingSettingsScreen() {
               <h2 id="bk-link">הקישור שלך</h2>
               <div className={s.bkRow}>
                 <label htmlFor="bk-enabled">לקוחות יכולים לבקש תור</label>
-                <Toggle id="bk-enabled" label="לקוחות יכולים לבקש תור" checked={st.enabled} disabled={busy} onChange={(v) => void save({ enabled: v }, v ? "הקישור הופעל" : "הזמנות חדשות נעצרו")} />
+                <Toggle id="bk-enabled" label="לקוחות יכולים לבקש תור" checked={st.enabled} disabled={busy || (!data.platform.open && !st.enabled)} onChange={(v) => void save({ enabled: v }, v ? "הקישור הופעל" : "הזמנות חדשות נעצרו")} />
               </div>
               {link ? (
                 <div className={s.bkLink}>
@@ -203,7 +203,7 @@ export function BookingSettingsScreen() {
                     navigator.clipboard?.writeText(link).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2000); }).catch(() => undefined);
                   }}>{copied ? "הועתק" : "העתקה"}</button>
                 </div>
-              ) : <p className={t.hint}>הקישור ייווצר בפעם הראשונה שמפעילים את ההזמנות.</p>}
+              ) : <p className={t.hint}>{data.platform.open ? "הקישור ייווצר בפעם הראשונה שמפעילים את ההזמנות." : "הקישור יופיע כאן אחרי שדוביז תפתח את ההזמנות לעסק שלך."}</p>}
               {st.enabled ? (
                 <button type="button" className={`${t.btn} ${t.danger}`} disabled={busy} onClick={() => void save({ enabled: false }, "הזמנות חדשות נעצרו")}>עצירת הזמנות חדשות עכשיו</button>
               ) : null}

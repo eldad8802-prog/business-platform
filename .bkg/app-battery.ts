@@ -3,8 +3,9 @@
  * tenant plane DATABASE_URL = app_runtime_prod (NOSUPERUSER NOBYPASSRLS), owner (OWNER_URL) for fixtures and
  * read-back. The real route handlers — public (no session) and the owner's (signed session tokens). Nothing is mocked.
  *
- *   A. The door: 404 while public_booking is OFF, the business's switch is off, the link is unknown or malformed, or the
- *      emergency switch is set — the same body every time. Open: only what the business publishes.
+ *   A. Closed by default: while public_booking is OFF the link cannot be turned on or replaced (409 BOOKING_CLOSED) and
+ *      no link is shown. The door: 404 while public_booking is OFF, the business's switch is off, the link is unknown or
+ *      malformed, or the emergency switch is set — the same body every time. Open: only what the business publishes.
  *   B. Free times: hours, a closed day, a part-day closure, a business-wide block, staff not public / not assigned,
  *      services not public, the horizon, the past.
  *   C. Submit: a pending request holds its time (12 h), journalled as the customer, a demand signal, the owner's
@@ -143,15 +144,33 @@ async function main() {
 
   // ── A. The door ────────────────────────────────────────────────────────────────────────────────
   console.log("A. the door");
+  // Closed by default: while public_booking is OFF the owner can prepare everything, but no link exists or turns on.
   let r = await routes.settings.PUT(own("/api/appointments/booking/settings", { method: "PUT", body: { enabled: true, staffChoiceMode: "OPTIONAL" } }));
+  const closedErr = await body(r);
+  const closedSettings = await body(await routes.settings.GET(own("/api/appointments/booking/settings")));
+  const closedCount = await body(await routes.requests.GET(own("/api/appointments/booking/requests?count=1")));
+  ok("A0 public_booking OFF: turning the link on → 409 BOOKING_CLOSED, nothing written; no link shown; the calendar told it is closed",
+    r.status === 409 && closedErr?.error === "BOOKING_CLOSED"
+    && (await n(`SELECT count(*)::int AS n FROM "BookingSettings" WHERE "businessId" = ${bizA} AND (enabled OR "publicId" IS NOT NULL)`)) === 0
+    && closedSettings?.settings?.linkPath === null && closedSettings?.settings?.publicId === null && closedSettings?.platform?.open === false
+    && closedCount?.open === false && closedCount?.pending === 0, JSON.stringify({ closedErr, closedCount }));
+  await owner.businessFeatureAccess.create({ data: { businessId: bizA, featureKey: "public_booking", state: "ENABLED", reason: "lab" } });
+  r = await routes.settings.PUT(own("/api/appointments/booking/settings", { method: "PUT", body: { enabled: true, staffChoiceMode: "OPTIONAL" } }));
   const adm = await body(r);
   const publicId: string = adm?.settings?.publicId;
-  ok("A0 the owner turns the link on: an opaque 24-character id, never the business id or name", r.status === 200 && /^[A-Za-z0-9_-]{24}$/.test(publicId ?? "") && publicId !== String(bizA) && !/^\d+$/.test(publicId) && !publicId.includes(tag), JSON.stringify(adm?.settings));
+  ok("A0b ON: the owner turns the link on: an opaque 24-character id, never the business id or name; the link is shown", r.status === 200 && /^[A-Za-z0-9_-]{24}$/.test(publicId ?? "") && publicId !== String(bizA) && !/^\d+$/.test(publicId) && !publicId.includes(tag)
+    && adm?.settings?.linkPath === `/book/${publicId}`, JSON.stringify(adm?.settings));
   const profile = (id = publicId, init: Init = {}) => routes.profile.GET(req(`/api/public/booking/${id}`, init), p({ publicId: id }));
+  await owner.businessFeatureAccess.updateMany({ where: { businessId: bizA, featureKey: "public_booking" }, data: { state: "DISABLED" } });
   r = await profile();
+  const offStatus = r.status;
   const off404 = await body(r);
-  ok("A1 public_booking OFF for the business → 404", r.status === 404 && off404?.error === "NOT_FOUND", String(r.status));
-  await owner.businessFeatureAccess.create({ data: { businessId: bizA, featureKey: "public_booking", state: "ENABLED", reason: "lab" } });
+  const hidden =await body(await routes.settings.GET(own("/api/appointments/booking/settings")));
+  r = await routes.link.POST(own("/api/appointments/booking/settings/link", { method: "POST", body: {} }));
+  ok("A1 public_booking OFF again → its link answers 404, the owner sees no link, and a new link is refused (409 BOOKING_CLOSED)",
+    offStatus === 404 && off404?.error === "NOT_FOUND" && hidden?.settings?.linkPath === null && r.status === 409 && (await body(r))?.error === "BOOKING_CLOSED"
+    && (await owner.bookingSettings.findUniqueOrThrow({ where: { businessId: bizA } })).publicId === publicId, JSON.stringify(off404));
+  await owner.businessFeatureAccess.updateMany({ where: { businessId: bizA, featureKey: "public_booking" }, data: { state: "ENABLED" } });
   r = await profile();
   const prof = await body(r);
   ok("A2 ON: the business's name and its two open services (not the closed one)", r.status === 200 && prof?.business?.name === `${tag}-A`

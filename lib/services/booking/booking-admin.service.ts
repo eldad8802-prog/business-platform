@@ -67,7 +67,9 @@ export async function getBookingSettings(principal: AppointmentPrincipal) {
     const assignments = await tx.staffServiceAssignment.findMany({ where: { businessId, removedAt: null }, select: { staffMemberId: true, businessServiceId: true } });
     return {
       settings: {
-        enabled: s.enabled, publicId: s.publicId, linkPath: s.publicId ? `${BOOKING_PATH}${s.publicId}` : null,
+        // No link to copy while the platform has not opened public booking for the business: it would lead nowhere.
+        enabled: s.enabled, publicId: platformOpen ? s.publicId : null,
+        linkPath: platformOpen && s.publicId ? `${BOOKING_PATH}${s.publicId}` : null,
         defaultApprovalMode: s.defaultApprovalMode, staffChoiceMode: s.staffChoiceMode, assignmentMode: s.assignmentMode,
         selfCancelEnabled: s.selfCancelEnabled, selfCancelWindowHours: s.selfCancelWindowHours,
         maxOpenRequestsPerPhone: s.maxOpenRequestsPerPhone, pendingTtlMinutes: s.pendingTtlMinutes,
@@ -119,6 +121,8 @@ export async function updateBookingSettings(principal: AppointmentPrincipal, inp
   const expectedVersion = input.expectedVersion;
   if (expectedVersion !== undefined && expectedVersion !== null && !isIntIn(expectedVersion, 1, Number.MAX_SAFE_INTEGER)) throw invalid("expectedVersion");
   const businessId = principal.businessId;
+  // Turning the link on only once the platform has opened public booking for the business; turning it off, always.
+  if (data.enabled === true && !(await publicBookingOpen(businessId))) throw new AppointmentServiceError("BOOKING_CLOSED");
   await tenantTx(businessId, async (tx) => {
     const current = await tx.bookingSettings.findUnique({ where: { businessId } });
     if (current && expectedVersion !== undefined && expectedVersion !== null && current.version !== expectedVersion) {
@@ -142,6 +146,7 @@ const DEFAULTS_FOR_CREATE = { staffChoiceMode: "OPTIONAL" as const };
 export async function rotateBookingLink(principal: AppointmentPrincipal, input: { expectedVersion?: unknown }) {
   authorizeAppointmentAction(principal, "policy.manage");
   const businessId = principal.businessId;
+  if (!(await publicBookingOpen(businessId))) throw new AppointmentServiceError("BOOKING_CLOSED");
   await tenantTx(businessId, async (tx) => {
     const current = await tx.bookingSettings.findUnique({ where: { businessId } });
     if (!current) throw new AppointmentServiceError("NOT_FOUND");

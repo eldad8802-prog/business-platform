@@ -158,6 +158,7 @@ export function errorText(code: string, status?: number): string {
     case "IDEMPOTENCY_KEY_REUSED":
     case "IDEMPOTENCY_KEY_INVALID": return "הבקשה נשלחה כבר בגרסה אחרת. אפשר לנסות שוב.";
     case "FORBIDDEN": return "אין הרשאה לפעולה הזו.";
+    case "BOOKING_CLOSED": return "ההזמנות מהקישור עוד לא פתוחות לעסק שלך. אפשר להכין הגדרות, והקישור יופיע כשדוביז תפתח אותן.";
     case "Unauthorized": return "צריך להתחבר מחדש.";
     case "NETWORK": return "אין חיבור כרגע. אפשר לנסות שוב בעוד רגע.";
     default: return "משהו השתבש. אפשר לנסות שוב בעוד רגע.";

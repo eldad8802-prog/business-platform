@@ -85,9 +85,13 @@ function CalendarBody() {
   const [undo, setUndo] = useState<{ text: string; run: () => Promise<void> } | null>(null);
   // How many booking-link requests wait (the tab's badge); refreshed every minute and after each decision.
   const [pendingCount, setPendingCount] = useState(0);
+  // Whether Dubiz has opened public booking for the business. Until then the calendar shows no booking entry point
+  // (a tab and a link for something customers cannot use yet), unless a request still waits or the URL asks for it.
+  const [bookingOpen, setBookingOpen] = useState(false);
   const refreshPending = useCallback(() => {
-    pendingRequestCount().then((r) => setPendingCount(r.pending)).catch(() => undefined);
+    pendingRequestCount().then((r) => { setPendingCount(r.pending); setBookingOpen(r.open === true); }).catch(() => undefined);
   }, []);
+  const showBookingEntry = bookingOpen || pendingCount > 0 || showRequests;
   useEffect(() => {
     refreshPending();
     const h = window.setInterval(refreshPending, 60_000);
@@ -231,7 +235,7 @@ function CalendarBody() {
           <Link href="/calendar/staff" prefetch={false} className={`${t.btn} ${t.ghost}`}>עובדים וזמינות</Link>
           <Link href="/calendar/services" prefetch={false} className={`${t.btn} ${t.ghost}`}>שירותים</Link>
           {/* On a phone a third link would wrap the header; there the requests tab carries it. */}
-          {bp !== "mobile" ? <Link href="/calendar/booking" prefetch={false} className={`${t.btn} ${t.ghost}`}>הזמנות מהקישור</Link> : null}
+          {bp !== "mobile" && showBookingEntry ? <Link href="/calendar/booking" prefetch={false} className={`${t.btn} ${t.ghost}`}>הזמנות מהקישור</Link> : null}
         </div>
         <button type="button" className={`${t.btn} ${t.pri} ${t.newBtn}`} onClick={() => setCreating({ day: anchor })}>
           <PlusIcon /> תור חדש
@@ -264,10 +268,12 @@ function CalendarBody() {
               {VIEW_LABEL[v]}
             </button>
           ))}
-          <button type="button" role="tab" aria-selected={showRequests} className={showRequests ? s.segOn : ""} onClick={() => setUrl({ view: "requests" })}
-            aria-label={pendingCount ? `בקשות · ${pendingCount} ממתינות` : "בקשות"}>
-            בקשות{pendingCount ? <span className={s.segBadge} aria-hidden="true">{pendingCount}</span> : null}
-          </button>
+          {showBookingEntry ? (
+            <button type="button" role="tab" aria-selected={showRequests} className={showRequests ? s.segOn : ""} onClick={() => setUrl({ view: "requests" })}
+              aria-label={pendingCount ? `בקשות · ${pendingCount} ממתינות` : "בקשות"}>
+              בקשות{pendingCount ? <span className={s.segBadge} aria-hidden="true">{pendingCount}</span> : null}
+            </button>
+          ) : null}
         </div>
       </div>
 

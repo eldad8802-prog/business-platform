@@ -310,7 +310,7 @@ export type BookingRequestWire = {
 export type BookingRequestsWire = { pending: BookingRequestWire[]; toLink: BookingRequestWire[]; recent: BookingRequestWire[] };
 
 export const listBookingRequests = () => call<BookingRequestsWire>("GET", "/api/appointments/booking/requests");
-export const pendingRequestCount = () => call<{ pending: number }>("GET", "/api/appointments/booking/requests?count=1");
+export const pendingRequestCount = () => call<{ pending: number; open: boolean }>("GET", "/api/appointments/booking/requests?count=1");
 export const decideRequest = (intent: string, id: number, decision: "approve" | "decline", expectedVersion: number) =>
   write<WriteResult>(intent, "POST", `/api/appointments/booking/requests/${id}`, { action: decision, expectedVersion });
 export const linkRequestCustomer = (id: number, input: { customerId: number } | { create: true }, expectedVersion: number) =>

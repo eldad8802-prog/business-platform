@@ -21,7 +21,8 @@ export type AppointmentErrorCode =
   | "SLOT_UNAVAILABLE"
   | "REQUEST_LIMIT"
   | "REQUEST_EXPIRED"
-  | "SELF_CANCEL_CLOSED";
+  | "SELF_CANCEL_CLOSED"
+  | "BOOKING_CLOSED";
 
 const STATUS: Record<AppointmentErrorCode, number> = {
   IDEMPOTENCY_KEY_INVALID: 400,
@@ -45,6 +46,8 @@ const STATUS: Record<AppointmentErrorCode, number> = {
   REQUEST_LIMIT: 429,
   REQUEST_EXPIRED: 409,
   SELF_CANCEL_CLOSED: 409,
+  // The platform has not opened public booking for the business: its link cannot be turned on or replaced yet.
+  BOOKING_CLOSED: 409,
 };
 
 export class AppointmentServiceError extends Error {
