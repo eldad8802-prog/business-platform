@@ -58,7 +58,9 @@ eq("prices hidden by the business", priceLabel(undefined), null);
 // November: Jerusalem is UTC+2.
 eq("a clock in Jerusalem time", clock("2026-11-03T08:30:00.000Z"), "10:30");
 check("the long date names the weekday and the month", /שלישי/.test(whenLong("2026-11-03T08:30:00.000Z")) && /נובמבר/.test(whenLong("2026-11-03T08:30:00.000Z")));
-check("…and the end time when given", whenLong("2026-11-03T08:30:00.000Z", "2026-11-03T09:15:00.000Z").endsWith("10:30–11:15"));
+check("…and the end time when given, isolated left-to-right (never reads 11:15–10:30 in Hebrew)",
+  whenLong("2026-11-03T08:30:00.000Z", "2026-11-03T09:15:00.000Z").endsWith("⁦10:30–11:15⁩"));
+check("a short date's clock is isolated too", whenShort("2026-11-03T08:30:00.000Z").endsWith("⁦10:30⁩"));
 
 console.log("— days and free times");
 const slots = [

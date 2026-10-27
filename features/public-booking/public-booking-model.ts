@@ -91,14 +91,19 @@ const DAYNUM = fmt({ day: "numeric" });
 const LONGDAY = fmt({ weekday: "long", day: "numeric", month: "long" });
 const SHORTDATE = fmt({ weekday: "short", day: "numeric", month: "numeric" });
 
+/**
+ * Times keep their left-to-right order inside Hebrew text: without isolation a range "10:30–11:15" renders as
+ * "11:15–10:30" in a right-to-left line. U+2066 (LRI) … U+2069 (PDI).
+ */
+export const ltr = (text: string) => `⁦${text}⁩`;
 export const clock = (iso: string) => CLOCK.format(new Date(iso));
 export const longDay = (day: JerusalemDayKey) => LONGDAY.format(dayKeyToStableInstant(day));
 /** "יום ג׳ 3.11 · 10:30" */
-export const whenShort = (iso: string) => `${SHORTDATE.format(new Date(iso))} · ${clock(iso)}`;
+export const whenShort = (iso: string) => `${SHORTDATE.format(new Date(iso))} · ${ltr(clock(iso))}`;
 /** "יום שלישי, 3 בנובמבר · 10:30–11:15" */
 export function whenLong(startIso: string, endIso?: string | null): string {
   const d = new Date(startIso);
-  return `${LONGDAY.format(d)} · ${clock(startIso)}${endIso ? `–${clock(endIso)}` : ""}`;
+  return `${LONGDAY.format(d)} · ${ltr(`${clock(startIso)}${endIso ? `–${clock(endIso)}` : ""}`)}`;
 }
 
 export type DayCell = { day: JerusalemDayKey; weekday: string; num: string; count: number; today: boolean };
