@@ -82,6 +82,8 @@ export function BookingFlow({ publicId }: { publicId: string }) {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SubmitWire | null>(null);
   const keyRef = useRef<string | null>(null);
+  // A synchronous guard: two taps in the same tick must not both send (the state flag updates a render later).
+  const inFlight = useRef(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const today = useMemo(() => jerusalemDayKey(new Date()), []);
 
@@ -140,10 +142,11 @@ export function BookingFlow({ publicId }: { publicId: string }) {
   const moveWeek = (delta: number) => { setWeekStart((w) => addCalendarDays(w, delta * 7)); setDay(null); setStartsAt(null); };
 
   const submit = useCallback(async () => {
-    if (!service || !startsAt || sending) return;
+    if (!service || !startsAt || inFlight.current) return;
     const errs = checkContact(name, phone, note);
     setErrors(errs);
     if (Object.keys(errs).length) { setFormError("כדאי לתקן את השדות המסומנים."); return; }
+    inFlight.current = true;
     setSending(true);
     setFormError(null);
     // The same attempt keeps its key: a double tap or a retry after a lost answer returns the same booking.
@@ -157,6 +160,7 @@ export function BookingFlow({ publicId }: { publicId: string }) {
       ...(note.trim() ? { note: note.trim() } : {}),
       website: trap,
     });
+    inFlight.current = false;
     setSending(false);
     if (a.ok) { setResult(a.data); return; }
     const kind = classify(a.status, a.code);
@@ -185,7 +189,7 @@ export function BookingFlow({ publicId }: { publicId: string }) {
     if (kind === "unavailable") { setProfile({ state: "error", kind: "unavailable", message: errorText("unavailable") }); return; }
     // limit / busy / network / anything else: the same key is kept, so trying again cannot book twice.
     setFormError(a.status === 0 ? "אין חיבור כרגע. אפשר לנסות שוב — הבקשה לא תישלח פעמיים." : errorText(kind, a.message));
-  }, [name, note, phone, publicId, sending, service, staffId, startsAt, trap, weekStart]);
+  }, [name, note, phone, publicId, service, staffId, startsAt, trap, weekStart]);
 
   // ── whole-page states ──
   if (profile.state === "loading") {
