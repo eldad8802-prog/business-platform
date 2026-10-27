@@ -229,11 +229,11 @@ jobs:
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_pdf?$TZQ" \
             npx tsx .acct/pdf-download-battery.ts
 
-      - name: Portal battery — the accountant's link end to end (index, files byte for byte, reports, refusals, isolation, trail), migration 20261105090000 applied
+      - name: Portal battery — the accountant's link end to end (index, files byte for byte, reports, refusals, isolation, trail), migration 20261101120000 applied
         run: |
           set -euo pipefail
           bash .acct/lab.sh acct_portal --with-acct
-          PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_portal -f prisma/migrations/20261105090000_accountant_link_events/migration.sql
+          PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_portal -f prisma/migrations/20261101120000_accountant_link_events/migration.sql
           TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_portal?$TZQ" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_portal?$TZQ" \

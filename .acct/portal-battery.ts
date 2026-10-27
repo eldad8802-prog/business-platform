@@ -1,6 +1,6 @@
 /**
  * Accountant portal (R2–R4) — the accountant's link end to end, through the REAL routes, on the Production-shaped
- * lab (app_runtime_prod, NOBYPASSRLS), with migration 20261105090000_accountant_link_events applied.
+ * lab (app_runtime_prod, NOBYPASSRLS), with migration 20261101120000_accountant_link_events applied.
  *
  *   1. The index of a delivered package: whose, which month, until when (14 days from the approval), every
  *      source and issued file with its sha256 and size and its row of the SEALED workbook, and the rows whose
@@ -307,11 +307,27 @@ async function main() {
   ok("7e B's link cannot name A's file → 404", c.s === 404 && c.e === "FILE_NOT_FOUND");
   c = await code(await index(LD));
   ok("7f a business without the feature → the same 404", c.s === 404 && c.e === "LINK_NOT_FOUND");
+  // E's index and file are put in the private cache FIRST (as if the accountant had opened them while the link
+  // was live): expiry must refuse them because every request checks the link, not because nothing is cached.
+  const sealedE = { businessId: E.b, periodKey: KEY, version: LE.pkg.version, storageKey: LE.pkg.storageKey!, sha256: LE.pkg.sha256! };
+  const ixE = await portal.ensurePortalIndex(sealedE);
+  const fE = portal.findPortalFile(ixE, `approved/doc-${e1.id}.pdf`)!;
+  await portal.ensurePortalFile(sealedE, fE);
+  ok("7g0 E's index and file are in the private cache", (await storage.headObject(portal.portalIndexCacheKey(sealedE))).exists && (await storage.headObject(portal.portalFileCacheKey(sealedE, fE))).exists);
   c = await code(await index(LE));
-  ok("7g an expired link (approved 20 days ago) → 410 LINK_EXPIRED", c.s === 410 && c.e === "LINK_EXPIRED");
+  ok("7g an expired link (approved 20 days ago) → 410 LINK_EXPIRED, though its index is cached", c.s === 410 && c.e === "LINK_EXPIRED");
   c = await code(await file(LE, { file: `approved/doc-${e1.id}.pdf`, mode: "download" }));
-  ok("7h …and its files → 410 LINK_EXPIRED", c.s === 410 && c.e === "LINK_EXPIRED");
-  ok("7i the expired attempts are recorded as refusals", (await events(LE.deliveryId, "LINK_REFUSED")).filter((e) => e.payload.reason === "expired").length === 2);
+  ok("7h …and its CACHED file → 410 LINK_EXPIRED", c.s === 410 && c.e === "LINK_EXPIRED");
+  c = await code(await file(LE, { file: `approved/doc-${e1.id}.pdf`, mode: "view" }));
+  ok("7h2 …viewing it too → 410 LINK_EXPIRED", c.s === 410 && c.e === "LINK_EXPIRED");
+  ok("7i the expired attempts are recorded as refusals, nothing as viewed / downloaded",
+    (await events(LE.deliveryId, "LINK_REFUSED")).filter((e) => e.payload.reason === "expired").length === 3 &&
+      (await events(LE.deliveryId, "LINK_VIEWED")).length === 0 && (await events(LE.deliveryId, "LINK_FILE_DOWNLOADED")).length === 0);
+  const sealedA = { businessId: A.b, periodKey: KEY, version: LA.pkg.version, storageKey: LA.pkg.storageKey!, sha256: LA.pkg.sha256! };
+  const pngKey = portal.portalFileCacheKey(sealedA, { path: `approved/doc-${a2.id}.png`, sha256: sha(PNG) });
+  ok("7i2 before the revocation, A's index, PNG and Excel report are in the private cache",
+    (await storage.headObject(portal.portalIndexCacheKey(sealedA))).exists && (await storage.headObject(pngKey)).exists &&
+      (await storage.headObject((await import("@/lib/accountant/package-reports")).packageExcelCacheKey(sealedA.storageKey, sealedA.version, sealedA.sha256))).exists);
   await runWithTenantContext({ businessId: A.b }, () => del.revokeLink(A.b, A.u, LA.deliveryId, new Date()));
   c = await code(await index(LA));
   ok("7j after the owner revokes: the portal → 410 LINK_REVOKED", c.s === 410 && c.e === "LINK_REVOKED");
@@ -321,7 +337,12 @@ async function main() {
   ok("7l …a report → 410 LINK_REVOKED", c.s === 410 && c.e === "LINK_REVOKED");
   c = await code(await post(openRoute, "/api/accountant/link/open", { publicId: LA.publicId, token: LA.token, mode: "download" }));
   ok("7m …the ZIP → 410 LINK_REVOKED", c.s === 410 && c.e === "LINK_REVOKED");
-  ok("7n the revoked attempts are recorded as refusals", (await events(LA.deliveryId, "LINK_REFUSED")).filter((e) => e.payload.reason === "revoked").length === 4);
+  c = await code(await file(LA, { file: `approved/doc-${a2.id}.png`, mode: "view" }));
+  ok("7m2 …viewing the cached PNG → 410 LINK_REVOKED", c.s === 410 && c.e === "LINK_REVOKED");
+  ok("7n the revoked attempts are recorded as refusals", (await events(LA.deliveryId, "LINK_REFUSED")).filter((e) => e.payload.reason === "revoked").length === 5);
+  ok("7o the cached objects are still there — the refusal comes from the link check, not from a missing cache", (await storage.headObject(pngKey)).exists);
+  const pd = await import("@/lib/accountant/package-download");
+  ok("7p a portal file's signed URL lives 60 s (the ZIP's stays 300 s)", pd.PORTAL_SIGNED_URL_TTL_SECONDS === 60 && pd.PACKAGE_SIGNED_URL_TTL_SECONDS === 300);
 
   // ── 8. Integrity ───────────────────────────────────────────────────────────────────────────────
   console.log("8. integrity");

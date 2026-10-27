@@ -13,6 +13,14 @@ import { getStorageService, loadStorageConfig } from "@/lib/storage";
 
 export const PACKAGE_SIGNED_URL_TTL_SECONDS = 300;
 
+/**
+ * One file of the accountant's portal. A signed URL cannot be withdrawn once handed out: after the owner
+ * revokes the link (or it expires), a URL issued just before stays usable until it lapses. The portal's
+ * files are single documents, so the window is kept to one minute (the storage host checks the signature
+ * when a request starts; a download already running is not cut off).
+ */
+export const PORTAL_SIGNED_URL_TTL_SECONDS = 60;
+
 export async function servePackageObject(
   storageKey: string,
   downloadName: string,
@@ -69,7 +77,7 @@ export async function serveLinkObject(
       },
     });
   }
-  const url = await storage.getSignedDownloadUrl(storageKey, PACKAGE_SIGNED_URL_TTL_SECONDS, { contentDisposition: disposition, contentType });
+  const url = await storage.getSignedDownloadUrl(storageKey, PORTAL_SIGNED_URL_TTL_SECONDS, { contentDisposition: disposition, contentType });
   return Response.json(
     { url, fileName: safeName },
     { headers: { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } }
