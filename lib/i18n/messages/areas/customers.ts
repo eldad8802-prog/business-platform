@@ -504,7 +504,7 @@ export const customersHe = {
       errorCreate: "לא הצלחנו ליצור ספק",
     },
     card: {
-      errorLoad: "לא הצלחנו לטעון את הספק",
+      errorLoad: "לא ניתן לטעון את פרטי הספק. נסו שוב.",
       notFoundTitle: "הספק לא נמצא",
       notFoundBody: "ייתכן שהספק הוסר או שאין לך גישה אליו.",
       backToList: "לרשימת הספקים",

@@ -96,7 +96,8 @@ export default function SupplierCardPage() {
         setNotFound(true);
         return;
       }
-      setError(err instanceof Error ? err.message : t("customers.suppliers.card.errorLoad"));
+      // A fixed, translated message: the raw error ("Failed to fetch supplier", a network message) is technical.
+      setError(t("customers.suppliers.card.errorLoad"));
     } finally {
       setLoading(false);
     }

@@ -504,7 +504,7 @@ export const customersEn: Widen<typeof customersHe> = {
       errorCreate: "We couldn't create the supplier",
     },
     card: {
-      errorLoad: "We couldn't load the supplier",
+      errorLoad: "We couldn't load the supplier details. Please try again.",
       notFoundTitle: "Supplier not found",
       notFoundBody: "The supplier may have been removed, or you may not have access to it.",
       backToList: "Back to suppliers",
