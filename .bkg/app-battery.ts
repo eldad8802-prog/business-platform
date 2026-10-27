@@ -17,8 +17,8 @@
  *   F. The owner decides: approve, again (refused), decline (the time is free), cancel from the calendar settles the
  *      request, DECLINED only for a public request, approve just before and just after the expiry.
  *   G. Expiry: the sweeper and the lazy path release the time; journalled as the system.
- *   H. Reminders: two-hourly, one claim per window even with repeated sweeps, none after a decision; the sweep route's
- *      auth.
+ *   H. Reminders: two-hourly, one claim per window even with repeated sweeps, none after a decision; quiet hours (none
+ *      22:00–08:00, exactly one at 08:00, no duplicate, expiry unchanged, none after it lapsed); the sweep route's auth.
  *   I. Linking the customer (D6): never automatic; to the match, or a new card; never a second card for a phone.
  *   J. The customer's link: view, withdraw, the self-cancel window and switch, a garbage token, the flag OFF.
  *   K. Isolation: another business sees and decides nothing of A's; A's link cannot use B's services.
@@ -55,7 +55,7 @@ async function main() {
   const { signAuthToken } = await import("@/lib/auth-token");
   const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
   const { runBookingSweep } = await import("@/lib/services/booking/booking-sweep.service");
-  const { sha256Hex } = await import("@/lib/services/booking/booking.core");
+  const { isQuietHours, sha256Hex } = await import("@/lib/services/booking/booking.core");
   const routes = {
     profile: await import("@/app/api/public/booking/[publicId]/route"),
     slots: await import("@/app/api/public/booking/[publicId]/slots/route"),
@@ -365,8 +365,11 @@ async function main() {
   console.log("H. reminders");
   const rem = await reqOf(at("11:00"));
   await owner.pushSubscription.create({ data: { businessId: bizA, userId: userA, endpoint: "https://push.example.invalid/sub-1", p256dh: "x", auth: "y", platform: "other" } });
+  // The daytime checks sweep at a daytime moment (the latest one not after now), whatever hour CI runs at.
+  let dayNow = new Date();
+  while (isQuietHours(dayNow, "Asia/Jerusalem")) dayNow = new Date(dayNow.getTime() - 30 * 60_000);
   const shiftBack = async (hours: number) => {
-    const created = new Date(Date.now() - hours * 3600_000 - 60_000);
+    const created = new Date(dayNow.getTime() - hours * 3600_000 - 60_000);
     await owner.bookingRequest.update({ where: { id: rem.rid }, data: { createdAt: created } });
     // As the timeline would have it: the last notice went out at the previous reminder's moment (or at creation).
     await owner.notification.updateMany({ where: { businessId: bizA, dedupeKey: `booking-request:${rem.rid}` }, data: { lastNotifiedAt: new Date(created.getTime() + (hours - 2) * 3600_000) } });
@@ -374,21 +377,47 @@ async function main() {
   const delivered = (ch: string) => n(`SELECT count(*)::int AS n FROM "NotificationDelivery" d JOIN "Notification" x ON x.id = d."notificationId" WHERE x."dedupeKey" = 'booking-request:${rem.rid}' AND d.channel = '${ch}'`);
   const inApp0 = await delivered("IN_APP");
   await shiftBack(2);
-  rep = await runBookingSweep(new Date());
+  rep = await runBookingSweep(dayNow);
   ok("H1 two hours waiting: a reminder — the bell again (unread) and a push attempt", rep.reminded >= 1 && (await delivered("IN_APP")) === inApp0 + 1 && (await delivered("PUSH")) >= 1
     && (await n(`SELECT count(*)::int AS n FROM "Notification" WHERE "dedupeKey" = 'booking-request:${rem.rid}' AND "readAt" IS NULL`)) === 1, JSON.stringify(rep));
   const inApp1 = await delivered("IN_APP");
-  await runBookingSweep(new Date());
-  await runBookingSweep(new Date());
+  await runBookingSweep(dayNow);
+  await runBookingSweep(new Date(dayNow.getTime() + 10 * 60_000));
   ok("H2 sweeping again within the window sends nothing more", (await delivered("IN_APP")) === inApp1);
   await shiftBack(4);
-  await runBookingSweep(new Date());
+  await runBookingSweep(dayNow);
   ok("H3 four hours: the second reminder", (await delivered("IN_APP")) === inApp1 + 1);
   r = await decide(rem.rid, "approve", await ver(rem.aid));
   await shiftBack(6);
   const inApp2 = await delivered("IN_APP");
-  await runBookingSweep(new Date());
+  await runBookingSweep(dayNow);
   ok("H4 decided: no reminder ever again", r.status === 200 && (await delivered("IN_APP")) === inApp2);
+
+  // Quiet hours, replayed on a past night (Jerusalem, 22:00–08:00): created 21:00, lapses 09:00 the next morning.
+  r = await submit({ serviceId: haircut, startsAt: at("15:30"), name: "לילה", phone: phone() });
+  const night = await reqOf(at("15:30"));
+  const nightDay = addCalendarDays(jerusalemDayKey(new Date()), -3);
+  const nightAt = (hh: number, mm = 0, nextDay = false) => jerusalemInstantAt(nextDay ? addCalendarDays(nightDay, 1) : nightDay, hh, mm);
+  await owner.bookingRequest.update({ where: { id: night.rid }, data: { createdAt: nightAt(21), expiresAt: nightAt(9, 0, true) } });
+  await owner.notification.updateMany({ where: { businessId: bizA, dedupeKey: `booking-request:${night.rid}` }, data: { lastNotifiedAt: nightAt(21) } });
+  const nightCount = (ch: string) => n(`SELECT count(*)::int AS n FROM "NotificationDelivery" d JOIN "Notification" x ON x.id = d."notificationId" WHERE x."dedupeKey" = 'booking-request:${night.rid}' AND d.channel = '${ch}'`);
+  const nIn0 = await nightCount("IN_APP"), nPush0 = await nightCount("PUSH");
+  await runBookingSweep(nightAt(23, 5));
+  await runBookingSweep(nightAt(3, 0, true));
+  await runBookingSweep(nightAt(7, 55, true));
+  ok("H7 quiet hours: nothing at 23:05, 03:00 or 07:55 though a reminder was due at 23:00", r.status === 201 && (await nightCount("IN_APP")) === nIn0 && (await nightCount("PUSH")) === nPush0);
+  rep = await runBookingSweep(nightAt(8, 0, true));
+  ok("H8 08:00: exactly one reminder for the request still waiting — bell and push", (await nightCount("IN_APP")) === nIn0 + 1 && (await nightCount("PUSH")) === nPush0 + 1, JSON.stringify(rep));
+  await runBookingSweep(nightAt(8, 0, true));
+  await runBookingSweep(nightAt(8, 10, true));
+  await runBookingSweep(nightAt(8, 50, true));
+  ok("H9 no duplicate: 08:00 again, 08:10 and 08:50 send nothing", (await nightCount("IN_APP")) === nIn0 + 1 && (await nightCount("PUSH")) === nPush0 + 1);
+  rep = await runBookingSweep(nightAt(10, 0, true));
+  ok("H10 at 09:00 it lapsed (expiry unchanged): expired, never reminded at 10:00", (await nightCount("IN_APP")) === nIn0 + 1
+    && (await n(`SELECT count(*)::int AS n FROM "BookingRequest" WHERE id = ${night.rid} AND status = 'EXPIRED'`)) === 1
+    && (await n(`SELECT count(*)::int AS n FROM "Notification" WHERE "dedupeKey" = 'booking-request:${night.rid}' AND "resolvedAt" IS NOT NULL`)) === 1, JSON.stringify(rep));
+  await runBookingSweep(nightAt(12, 0, true));
+  ok("H11 …and nothing after", (await nightCount("IN_APP")) === nIn0 + 1 && (await nightCount("PUSH")) === nPush0 + 1);
   r = await routes.sweep.GET(req("/api/appointments/booking/sweep"));
   ok("H5 the sweep route without the cron secret → 401", r.status === 401);
   r = await routes.sweep.GET(req("/api/appointments/booking/sweep", { bearer: process.env.CRON_SECRET }));

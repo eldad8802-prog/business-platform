@@ -6,8 +6,9 @@
  *   - a new pending request: in the bell at once (no push — D3 pushes only once it has waited two hours);
  *   - an automatically confirmed one: in the bell, asking the owner to link the customer (D6);
  *   - a customer's cancellation: in the bell.
- * The reminders (D3) reuse that row: every two hours while the request still waits, a CLAIM moves its lastNotifiedAt
- * past the reminder's due moment (one winner among concurrent sweeps), marks it unread again and records the push,
+ * The reminders (D3) reuse that row: two hours after its last notice while the request still waits — held from 22:00
+ * to 08:00 in the business's time zone and then sent once at 08:00 (quiet hours) — a CLAIM moves its lastNotifiedAt
+ * from the value read to now (one winner among concurrent sweeps), marks it unread again and records the push,
  * which is sent AFTER commit through the same Web Push path the task reminders use (PushSubscription +
  * sendWebPush; 404 / 410 revokes the subscription). Deciding, expiring or withdrawing resolves the row: no reminder
  * is ever sent for a request that is no longer pending. Nothing here reaches the customer.
@@ -16,8 +17,6 @@ import type { Prisma } from "@prisma/client";
 
 import { sendWebPush, type PushPayload } from "@/lib/push/web-push-sender";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
-
-import { reminderDueAt } from "./booking.core";
 
 type Tx = Prisma.TransactionClient;
 
@@ -72,15 +71,19 @@ export async function resolveRequestNotification(tx: Tx, businessId: number, req
 
 export type ReminderClaim = { notificationId: number; subscriptions: { id: number; endpoint: string; p256dh: string; auth: string }[]; payload: PushPayload };
 
+/** The open notice of a request and when it last went out (the anchor of the next reminder). */
+export async function requestNoticeState(tx: Tx, businessId: number, requestId: number): Promise<{ lastNotifiedAt: Date | null } | null> {
+  return tx.notification.findFirst({ where: { businessId, dedupeKey: requestDedupeKey(requestId), resolvedAt: null }, select: { lastNotifiedAt: true } });
+}
+
 /**
- * Claim reminder `k` of a still-pending request. Exactly one caller wins: the UPDATE succeeds only while the row's
- * lastNotifiedAt is still before reminder k's due moment, and it moves it to now.
+ * Claim the next reminder of a still-pending request. Exactly one caller wins: the UPDATE succeeds only while the
+ * row's lastNotifiedAt is still the value the caller read (`seen`), and it moves it to now — so a second sweep, or a
+ * second pass over the same night, finds a newer anchor and sends nothing.
  */
-export async function claimReminder(tx: Tx, businessId: number, f: RequestFacts, createdAt: Date, k: number, now: Date): Promise<ReminderClaim | null> {
-  const due = reminderDueAt(createdAt, k);
-  const waited = k * 2;
+export async function claimReminder(tx: Tx, businessId: number, f: RequestFacts, seen: Date | null, waited: number, now: Date): Promise<ReminderClaim | null> {
   const claimed = await tx.notification.updateMany({
-    where: { businessId, dedupeKey: requestDedupeKey(f.requestId), resolvedAt: null, OR: [{ lastNotifiedAt: null }, { lastNotifiedAt: { lt: due } }] },
+    where: { businessId, dedupeKey: requestDedupeKey(f.requestId), resolvedAt: null, lastNotifiedAt: seen },
     data: { lastNotifiedAt: now, lastSurfacedAt: now, readAt: null, title: `בקשה לתור ממתינה ${waited} שעות: ${f.contactName}`, summary: `${f.serviceName} · ${f.when}` },
   });
   if (claimed.count !== 1) return null;

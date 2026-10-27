@@ -28,7 +28,7 @@ on:
       - "lib/services/feature-access/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20261029090000_appointments_foundation/**"
-      - "prisma/migrations/20261104090000_public_booking_foundation/**"
+      - "prisma/migrations/20261105090000_public_booking_foundation/**"
       - "lib/services/booking/**"
       - "app/api/public/booking/**"
       - "lib/security/rate-limiter/**"

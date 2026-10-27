@@ -3,7 +3,7 @@
  *
  * The owner's decisions, as code:
  *   D3  a pending request holds its time for 12 hours or until the appointment starts, whichever is first; the owner
- *       is reminded every two hours while it waits.
+ *       is reminded every two hours while it waits — never between 22:00 and 08:00 in its time zone (quiet hours).
  *   D4  a full name and a phone are required; a note is optional; no email.
  *   D8  a staff member is picked by the least appointments that day (ties: the owner's order, then the oldest), or by
  *       the owner's order alone.
@@ -45,15 +45,81 @@ export function requestExpiry(now: Date, startsAt: Date, ttlMinutes: number = DE
   return new Date(Math.min(now.getTime() + ttlMinutes * 60_000, startsAt.getTime()));
 }
 
-/** D3: how many reminders are due by now (0 before the first two hours). */
-export function reminderOrdinal(createdAt: Date, now: Date): number {
-  const ms = now.getTime() - createdAt.getTime();
-  return ms <= 0 ? 0 : Math.floor(ms / (REMINDER_INTERVAL_HOURS * HOUR_MS));
+/**
+ * Quiet hours (owner decision 2026-10-27): no repeated reminder from 22:00 to 08:00 in the business's time zone. The
+ * first notice of a new request is never held (it is the bell, at once); a reminder that falls due in the night waits
+ * for 08:00 and goes out once, then the two-hourly rhythm resumes from it. Nothing accumulates and nothing extends the
+ * request's expiry.
+ */
+export const QUIET_HOURS = { startHour: 22, endHour: 8 } as const;
+export const DEFAULT_TIME_ZONE = "Asia/Jerusalem";
+
+/** A time zone Intl accepts, else the platform's default. */
+export function safeTimeZone(timeZone: string | null | undefined): string {
+  if (!timeZone) return DEFAULT_TIME_ZONE;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(0);
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
 }
 
-/** The moment reminder `k` becomes due. */
-export function reminderDueAt(createdAt: Date, k: number): Date {
-  return new Date(createdAt.getTime() + k * REMINDER_INTERVAL_HOURS * HOUR_MS);
+type LocalParts = { year: number; month: number; day: number; hour: number; minute: number };
+
+function localParts(at: Date, timeZone: string): LocalParts {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric",
+  }).formatToParts(at);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  return { year: get("year"), month: get("month"), day: get("day"), hour: get("hour"), minute: get("minute") };
+}
+
+/** The instant a wall-clock hour on a local date has in that zone (DST-aware). */
+function zonedInstant(year: number, month: number, day: number, hour: number, timeZone: string): Date {
+  const wall = Date.UTC(year, month - 1, day, hour);
+  let t = wall;
+  for (let i = 0; i < 2; i++) {
+    const p = localParts(new Date(t), timeZone);
+    const offset = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) - Math.floor(t / 60_000) * 60_000;
+    t = wall - offset;
+  }
+  return new Date(t);
+}
+
+/** Whether `at` falls in the business's quiet hours (22:00 ≤ local time < 08:00). */
+export function isQuietHours(at: Date, timeZone: string): boolean {
+  const { hour } = localParts(at, safeTimeZone(timeZone));
+  return hour >= QUIET_HOURS.startHour || hour < QUIET_HOURS.endHour;
+}
+
+/** The 08:00 that ends the quiet window `at` is in (only meaningful while isQuietHours(at)). */
+export function quietHoursEnd(at: Date, timeZone: string): Date {
+  const tz = safeTimeZone(timeZone);
+  const p = localParts(at, tz);
+  const next = p.hour >= QUIET_HOURS.startHour ? new Date(Date.UTC(p.year, p.month - 1, p.day + 1)) : new Date(Date.UTC(p.year, p.month - 1, p.day));
+  return zonedInstant(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), QUIET_HOURS.endHour, tz);
+}
+
+/** D3 + quiet hours: when the next reminder is due — two hours after the last notice, or at 08:00 if that is night. */
+export function nextReminderAt(lastNotifiedAt: Date, timeZone: string): Date {
+  const due = new Date(lastNotifiedAt.getTime() + REMINDER_INTERVAL_HOURS * HOUR_MS);
+  return isQuietHours(due, timeZone) ? quietHoursEnd(due, timeZone) : due;
+}
+
+/**
+ * Whether a still-pending request's reminder goes out now: never once it lapsed, never in the night, and only once its
+ * next moment came. The anchor is the last notice actually sent, so a night skipped yields one reminder, not many.
+ */
+export function reminderDue(r: { lastNotifiedAt: Date; expiresAt: Date; now: Date; timeZone: string }): boolean {
+  if (r.now.getTime() >= r.expiresAt.getTime()) return false;
+  if (isQuietHours(r.now, r.timeZone)) return false;
+  return r.now.getTime() >= nextReminderAt(r.lastNotifiedAt, r.timeZone).getTime();
+}
+
+/** Whole hours a request has waited (the reminder's wording). */
+export function hoursWaiting(createdAt: Date, now: Date): number {
+  return Math.max(0, Math.floor((now.getTime() - createdAt.getTime()) / HOUR_MS));
 }
 
 export type AssignmentMode = "BALANCED" | "PRIORITY";

@@ -6,8 +6,10 @@
  *   - lapsed (12 hours, or the appointment's start, whichever came first): the appointment PROPOSED → CANCELED
  *     (reason EXPIRED, actor SYSTEM, journalled), the request EXPIRED, its notification resolved — the time is free
  *     again and no reminder follows;
- *   - still waiting: reminder k (every two hours) is CLAIMED on the request's notification — one winner among
- *     concurrent runs — and pushed after commit to the business's live subscriptions.
+ *   - still waiting: the next reminder (two hours after the last notice) is CLAIMED on the request's notification —
+ *     one winner among concurrent runs — and pushed after commit to the business's live subscriptions. In the
+ *     business's quiet hours (22:00–08:00, its time zone) no reminder is claimed; the first run from 08:00 sends one per
+ *     request still waiting, and the rhythm resumes from it.
  * Expiry runs whatever the flags say (a held time must always be released); reminders only while `appointments` is
  * ON for the business. The submit and approve paths also expire lazily, so a late sweep never lets a lapsed request
  * be approved or keep a time from a new request.
@@ -18,8 +20,8 @@ import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { appointmentsEnabled } from "@/lib/services/appointment/appointments-http";
 import { lockBusinessAppointments } from "@/lib/services/appointment/appointment-request";
 
-import { reminderOrdinal } from "./booking.core";
-import { claimReminder, pushReminder, type ReminderClaim } from "./booking-notify";
+import { hoursWaiting, isQuietHours, reminderDue, safeTimeZone } from "./booking.core";
+import { claimReminder, pushReminder, requestNoticeState, type ReminderClaim } from "./booking-notify";
 import { expireDueRequests } from "./public-booking.service";
 
 export type DueRequest = { businessId: number; requestId: number; createdAt: Date; expiresAt: Date };
@@ -34,8 +36,8 @@ export async function duePendingRequests(now: Date, limit = 200): Promise<DueReq
   return rows.map((r) => ({ businessId: Number(r.businessId), requestId: Number(r.requestId), createdAt: fromUtc(r.createdAt), expiresAt: fromUtc(r.expiresAt) }));
 }
 
-const whenLabel = (d: Date) =>
-  new Intl.DateTimeFormat("he-IL", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Jerusalem" }).format(d);
+const whenLabel = (d: Date, timeZone: string) =>
+  new Intl.DateTimeFormat("he-IL", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone }).format(d);
 
 /** One business's due requests: expire what lapsed, claim the reminders that are due. */
 async function sweepBusiness(businessId: number, due: DueRequest[], now: Date, remindersOn: boolean) {
@@ -43,18 +45,22 @@ async function sweepBusiness(businessId: number, due: DueRequest[], now: Date, r
     await lockBusinessAppointments(tx, businessId);
     const expired = await expireDueRequests(tx, businessId, now);
     const claims: ReminderClaim[] = [];
-    if (remindersOn) {
+    const settings = remindersOn ? await tx.bookingSettings.findFirst({ where: { businessId }, select: { timeZone: true } }) : null;
+    const timeZone = safeTimeZone(settings?.timeZone);
+    if (remindersOn && !isQuietHours(now, timeZone)) {
       for (const d of due) {
         if (expired.includes(d.requestId)) continue;
         const r = await tx.bookingRequest.findFirst({ where: { id: d.requestId, businessId, status: "PENDING" } });
-        if (!r || r.expiresAt <= now) continue;
-        const k = reminderOrdinal(r.createdAt, now);
-        if (k < 1) continue;
+        if (!r) continue;
+        const notice = await requestNoticeState(tx, businessId, r.id);
+        if (!notice) continue;
+        const seen = notice.lastNotifiedAt;
+        if (!reminderDue({ lastNotifiedAt: seen ?? r.createdAt, expiresAt: r.expiresAt, now, timeZone })) continue;
         const appt = await tx.appointment.findFirst({ where: { id: r.appointmentId, businessId }, select: { startsAt: true, title: true, businessServiceId: true } });
         const service = appt?.businessServiceId ? await tx.businessService.findFirst({ where: { id: appt.businessServiceId, businessId }, select: { name: true } }) : null;
         const claim = await claimReminder(tx, businessId, {
-          requestId: r.id, contactName: r.contactName, serviceName: service?.name ?? appt?.title ?? "תור", when: appt?.startsAt ? whenLabel(appt.startsAt) : "",
-        }, r.createdAt, k, now);
+          requestId: r.id, contactName: r.contactName, serviceName: service?.name ?? appt?.title ?? "תור", when: appt?.startsAt ? whenLabel(appt.startsAt, timeZone) : "",
+        }, seen, hoursWaiting(r.createdAt, now), now);
         if (claim) claims.push(claim);
       }
     }
