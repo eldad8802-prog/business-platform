@@ -52,6 +52,7 @@ import {
   deriveLeadConversationIntelligence,
   type LeadConversationIntelligence,
 } from "@/lib/services/crm/lead-intelligence";
+import { loadLeadAttentionQueue } from "@/lib/services/crm/lead-attention-queue";
 
 /** What {@link leadService.attachLeadIntelligence} returns per lead. */
 export type LeadIntelligenceForLead = {
@@ -224,8 +225,10 @@ export type ListLeadsInput = {
   query?: string | null;
   status?: LeadStatusFilter | null;
   sourceChannel?: string | null;
-  /** True → only open leads whose follow-up is due today or already overdue. */
+  /** True → only the leads the shared attention queue holds (every `evaluateLeadAttention` reason). */
   needsAction?: boolean | null;
+  /** That queue's lead ids when the caller already read it (one read per request); else read here. */
+  attentionLeadIds?: readonly number[];
   limit?: number | null;
   /** `id` of the last row of the previous page (keyset pagination). */
   cursorId?: number | null;
@@ -594,52 +597,20 @@ export const leadService = {
     );
     if (source) where.sourceChannel = source;
 
-    if (input.needsAction) {
-      // The SQL mirror of `evaluateLeadAttention` (W2). Expressed as a database
-      // predicate — not filtered in JS after a `take` — so `limit` can never
-      // silently drop a lead that needs the owner off the end of the page.
-      //
-      //   open AND ( follow-up already due  OR  untouched new lead from before today )
-      const now = input.now ?? new Date();
-      where.status = { in: [...OPEN_LEAD_STATUSES] };
-      where.OR = [
-        ...(where.OR ?? []),
-        { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
-        {
-          status: "NEW",
-          nextFollowUpAt: null,
-          createdAt: { lt: startOfLeadDayUtc(now) },
-        },
-      ];
-      // A text query and the attention predicate are both OR-shaped; combining
-      // them in one `OR` would widen rather than narrow. Nest them so the two
-      // stay ANDed.
-      if (q.length > 0) {
-        where.AND = [
-          {
-            OR: [
-              { customerName: { contains: q, mode: "insensitive" } },
-              { phone: { contains: q, mode: "insensitive" } },
-              { email: { contains: q, mode: "insensitive" } },
-            ],
-          },
-          {
-            OR: [
-              { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
-              {
-                status: "NEW",
-                nextFollowUpAt: null,
-                createdAt: { lt: startOfLeadDayUtc(now) },
-              },
-            ],
-          },
-        ];
-        delete where.OR;
-      }
-    }
-
     const take = clampLimit(input.limit);
     const db = options?.tx ?? prisma;
+
+    if (input.needsAction) {
+      // Leads L1 · G-05 — exactly the leads the shared attention queue holds (the
+      // evaluator's verdict, every reason), resolved BEFORE `take` so `limit` can
+      // never silently drop a lead that needs the owner off the end of the page.
+      // The id set ANDs with the text / source / customer filters above.
+      const ids =
+        input.attentionLeadIds ??
+        (await loadLeadAttentionQueue(db, input.businessId, input.now ?? new Date())).items.map((i) => i.row.id);
+      where.status = { in: [...OPEN_LEAD_STATUSES] };
+      where.id = { in: [...ids] };
+    }
 
     return db.lead.findMany({
       where,
@@ -703,6 +674,8 @@ export const leadService = {
       sourceChannel?: string | null;
       /** The same customer filter as the page (listLeads): candidates outside it never join the ranked list. */
       customerId?: number | null;
+      /** The shared attention queue's lead ids when the caller already read it; else read here. */
+      attentionLeadIds?: readonly number[];
       now?: Date;
     },
     options?: TxOptions
@@ -711,13 +684,18 @@ export const leadService = {
     const db = options?.tx ?? prisma;
     const now = input.now ?? new Date();
     const q = typeof input.query === "string" ? input.query.trim() : "";
+    const attentionIds =
+      input.attentionLeadIds ?? (await loadLeadAttentionQueue(db, input.businessId, now)).items.map((i) => i.row.id);
 
     const urgent: Prisma.LeadWhereInput = {
       businessId: input.businessId,
       ...(input.customerId !== undefined && input.customerId !== null ? { customerId: input.customerId } : {}),
       status: { in: [...OPEN_LEAD_STATUSES] },
       OR: [
-        // 1. lead attention — the same two clauses `needsAction` uses.
+        // 1. lead attention — every lead the shared attention queue holds (Leads L1 · G-05:
+        //    customer wrote / called, awaiting an owner decision, quote idle, stalled — not
+        //    only the two follow-up clauses), plus those two clauses as before.
+        { id: { in: [...attentionIds] } },
         { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
         { status: "NEW", nextFollowUpAt: null, createdAt: { lt: startOfLeadDayUtc(now) } },
         // 2. a customer is waiting on one of its conversations.
@@ -1381,9 +1359,9 @@ export const leadService = {
   /**
    * How many open leads want the owner right now.
    *
-   * The SQL mirror of `evaluateLeadAttention`, kept next to `listLeads` so the
-   * count and the list can never tell different stories. Home renders this;
-   * clicking through lands on exactly these rows.
+   * Leads L1 · G-05 — the length of the shared attention queue, the same set
+   * `listLeads({ needsAction })` and the Home items read, so the count and the
+   * lists can never tell different stories.
    */
   async countNeedingAttention(
     input: { businessId: number; now?: Date },
@@ -1393,20 +1371,7 @@ export const leadService = {
     const now = input.now ?? new Date();
     const db = options?.tx ?? prisma;
 
-    return db.lead.count({
-      where: {
-        businessId: input.businessId,
-        status: { in: [...OPEN_LEAD_STATUSES] },
-        OR: [
-          { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
-          {
-            status: "NEW",
-            nextFollowUpAt: null,
-            createdAt: { lt: startOfLeadDayUtc(now) },
-          },
-        ],
-      },
-    });
+    return (await loadLeadAttentionQueue(db, input.businessId, now)).items.length;
   },
 
   /**

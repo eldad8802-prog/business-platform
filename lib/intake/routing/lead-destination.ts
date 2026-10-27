@@ -9,7 +9,8 @@
  *                   sender lock), in one global order
  *   3. identity     resolved AGAIN, authoritatively, under the locks
  *   4. contact      resolved   → that Customer (+ deterministic links for the
- *                                event's other identifiers nobody else holds)
+ *                                event's other identifiers nobody else holds —
+ *                                never for a self-asserted event, identity-policy@2)
  *                   unresolved → a NEW Customer (phone / email / name from the
  *                                hints) + deterministic links
  *                   no identifiers → no contact (never a blind duplicate)
@@ -85,7 +86,8 @@ export async function routeToLead(
 
     // 2–3. lock, then resolve authoritatively
     await lockIdentifiers(tx, businessId, identifiers);
-    const identity: IdentityResult = await resolveIdentity(tx, businessId, identifiers);
+    const assurance = normalized.contactAssurance ?? "verified";
+    const identity: IdentityResult = await resolveIdentity(tx, businessId, identifiers, { assurance });
 
     // 4. contact
     let customerId: number | null = null;
@@ -106,7 +108,9 @@ export async function routeToLead(
       customerId = c.id;
       created = true;
     }
-    if (customerId !== null) {
+    // identity-policy@2 — self-asserted contact details never become identity links: a typed email on
+    // a found Customer would make every later event with that email resolve to them (poisoning).
+    if (customerId !== null && assurance === "verified") {
       await ensureLinks(tx, {
         businessId,
         customerId,

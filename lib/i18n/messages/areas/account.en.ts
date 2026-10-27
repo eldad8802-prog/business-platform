@@ -785,6 +785,8 @@ const connectionsEn: Widen<typeof connectionsHe> = {
       wooWebhookSetupFailed: "We couldn't set up updates in the store. We'll retry automatically.",
       reconcileFailed: "Checking orders failed. We'll retry automatically.",
       wixUninstalled: "The Dubiz app was removed from the Wix site — reinstall it.",
+      cloudTalkKeyMissing: "Calls are being received, but without a CloudTalk API key we can't tell whether they were answered. Add a key below.",
+      cloudTalkKeyInvalid: "CloudTalk refused the API key. Calls are received and waiting — save a working key below and they'll be checked again.",
       generic: "There's a problem with the connection. We'll retry automatically.",
     },
     errors: {

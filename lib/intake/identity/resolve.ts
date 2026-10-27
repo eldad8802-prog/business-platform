@@ -21,14 +21,23 @@
  *   nothing matches                                       UNRESOLVED
  *   no identifiers at all                                 NOT_APPLICABLE
  *
+ * identity-policy@2 adds CONTACT ASSURANCE. A "self_asserted" event (contact details typed by a
+ * person nobody authenticated — the website form) may still be FOUND by its phone (the domain's own
+ * key, exactly what the lead will show), but an ACTIVE email link counts only as WEAK evidence for
+ * it: anyone can type someone else's email, so it asks the owner (candidate) instead of resolving.
+ * "verified" (every other source) is identity-policy@1 unchanged.
+ *
  * Nothing here writes. The caller decides what a state MEANS for its route
  * (create, link, propose) under the identity locks (./locks.ts).
  */
 
 import type { TenantTx } from "@/lib/tenant/transaction";
+import type { ContactAssurance } from "@/lib/intake/core/contract";
 import { hashIdentifier, type Identifier } from "./identifiers";
 
-export const IDENTITY_POLICY_VERSION = "identity-policy@1";
+export const IDENTITY_POLICY_VERSION = "identity-policy@2";
+
+export type { ContactAssurance };
 
 export type IdentityState = "resolved" | "candidate" | "ambiguous" | "unresolved" | "conflict" | "not_applicable";
 
@@ -50,6 +59,7 @@ export type IdentityResult = {
     strongBases: MatchBasis[];
     weakBases: MatchBasis[];
     conflict: boolean;
+    assurance: ContactAssurance;
   };
 };
 
@@ -59,8 +69,10 @@ const MAX_WEAK = 5;
 export async function resolveIdentity(
   tx: TenantTx,
   businessId: number,
-  identifiers: Identifier[]
+  identifiers: Identifier[],
+  opts: { assurance?: ContactAssurance } = {}
 ): Promise<IdentityResult> {
+  const assurance: ContactAssurance = opts.assurance ?? "verified";
   const kinds = [...new Set(identifiers.map((i) => i.kind))].sort();
   if (identifiers.length === 0) {
     return {
@@ -68,7 +80,7 @@ export async function resolveIdentity(
       policyVersion: IDENTITY_POLICY_VERSION,
       customerId: null,
       candidates: [],
-      evidence: { identifierKinds: [], strongBases: [], weakBases: [], conflict: false },
+      evidence: { identifierKinds: [], strongBases: [], weakBases: [], conflict: false, assurance },
     };
   }
 
@@ -93,7 +105,7 @@ export async function resolveIdentity(
     } else if (id.kind === "provider") {
       if (link) add(strong, link.customerId, "provider_link");
     } else {
-      if (link) add(strong, link.customerId, "email_link");
+      if (link) add(assurance === "self_asserted" ? weak : strong, link.customerId, "email_link");
       // Customer.email is free text: compare normalized, tenant-scoped, bounded.
       const rows = await tx.$queryRaw<Array<{ id: number }>>`
         SELECT "id" FROM "Customer"
@@ -125,7 +137,7 @@ export async function resolveIdentity(
       ...base,
       state: "conflict",
       customerId: null,
-      evidence: { identifierKinds: kinds, strongBases, weakBases, conflict: true },
+      evidence: { identifierKinds: kinds, strongBases, weakBases, conflict: true, assurance },
     };
   }
   if (strongIds.length === 1) {
@@ -133,7 +145,7 @@ export async function resolveIdentity(
       ...base,
       state: "resolved",
       customerId: strongIds[0],
-      evidence: { identifierKinds: kinds, strongBases, weakBases, conflict: false },
+      evidence: { identifierKinds: kinds, strongBases, weakBases, conflict: false, assurance },
     };
   }
   if (weakOthers.length === 1) {
@@ -141,7 +153,7 @@ export async function resolveIdentity(
       ...base,
       state: "candidate",
       customerId: null,
-      evidence: { identifierKinds: kinds, strongBases, weakBases, conflict: false },
+      evidence: { identifierKinds: kinds, strongBases, weakBases, conflict: false, assurance },
     };
   }
   if (weakOthers.length > 1) {
@@ -149,13 +161,13 @@ export async function resolveIdentity(
       ...base,
       state: "ambiguous",
       customerId: null,
-      evidence: { identifierKinds: kinds, strongBases, weakBases, conflict: false },
+      evidence: { identifierKinds: kinds, strongBases, weakBases, conflict: false, assurance },
     };
   }
   return {
     ...base,
     state: "unresolved",
     customerId: null,
-    evidence: { identifierKinds: kinds, strongBases, weakBases, conflict: false },
+    evidence: { identifierKinds: kinds, strongBases, weakBases, conflict: false, assurance },
   };
 }

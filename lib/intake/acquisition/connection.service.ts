@@ -425,6 +425,30 @@ export async function updateConnectionSecrets(businessId: number, connectionId: 
   });
 }
 
+/**
+ * Leads L1 · G-06 — a problem the owner must fix while the connection KEEPS RECEIVING (a code on an ACTIVE
+ * connection, never status ERROR: the endpoint resolver accepts ACTIVE only, so ERROR would turn every new
+ * webhook into a 401 and a delay into a loss). `null` clears only the codes this mechanism owns.
+ */
+export async function setReceivingConnectionIssue(
+  sourceKey: ConnectionSourceKey,
+  publicId: string,
+  code: string | null,
+  ownedCodes: readonly string[]
+): Promise<void> {
+  await withTenantTransaction((tx) =>
+    code
+      ? tx.acquisitionConnection.updateMany({
+          where: { sourceKey, publicId, status: "ACTIVE" },
+          data: { lastErrorCode: code },
+        })
+      : tx.acquisitionConnection.updateMany({
+          where: { sourceKey, publicId, status: "ACTIVE", lastErrorCode: { in: [...ownedCodes] } },
+          data: { lastErrorCode: null },
+        })
+  );
+}
+
 /** A provider-side health problem the owner must see (status ERROR + a bounded code), or its recovery. */
 export async function setConnectionHealth(connectionId: number, code: string | null): Promise<void> {
   await withTenantTransaction((tx) =>

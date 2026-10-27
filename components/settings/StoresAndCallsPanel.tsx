@@ -65,6 +65,9 @@ const HEALTH: Record<string, MessageKey> = {
   WOO_RECONCILE_FAILED: "account.settings.connections.stores.health.reconcileFailed",
   WIX_APP_UNINSTALLED: "account.settings.connections.stores.health.wixUninstalled",
   WIX_RECONCILE_FAILED: "account.settings.connections.stores.health.reconcileFailed",
+  // Leads L1 · G-06 — shown on an ACTIVE connection: it keeps receiving, the owner must fix the key.
+  CLOUDTALK_API_KEY_MISSING: "account.settings.connections.stores.health.cloudTalkKeyMissing",
+  CLOUDTALK_API_KEY_INVALID: "account.settings.connections.stores.health.cloudTalkKeyInvalid",
 };
 
 const ERRORS: Record<string, MessageKey> = {
@@ -202,7 +205,7 @@ export function StoresAndCallsPanel() {
                     </div>
                     <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[c.status].tone}`}>{t(STATUS[c.status].label)}</span>
                   </div>
-                  {c.status === "ERROR" && c.lastErrorCode ? (
+                  {c.lastErrorCode && (c.status === "ERROR" || (c.status === "ACTIVE" && has(HEALTH, c.lastErrorCode))) ? (
                     <p className="mt-1 text-[11px] font-bold text-[var(--dz-danger)]">{t(has(HEALTH, c.lastErrorCode) ? HEALTH[c.lastErrorCode] : "account.settings.connections.stores.health.generic")}</p>
                   ) : null}
                   {c.sourceKey === "telephony.cloudtalk" ? <CloudTalkSetup c={c} onSaved={load} /> : null}

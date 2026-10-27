@@ -111,6 +111,34 @@ export function setCloudTalkFetchForTests(fn: CtFetch | null): void {
 
 const HOUR = 3_600_000;
 
+/**
+ * Leads L1 · G-06 — a call whose outcome cannot be read because the owner's API key is missing or refused
+ * (401 / 403: CloudTalk's own verdict, permanent until the owner changes the key — not a blip).
+ *
+ *   visible   the connection carries the code (it stays ACTIVE: its webhooks must keep being accepted, the
+ *             receipts are the lossless record) — the owner's panel says what to fix
+ *   bounded   the receipt waits 6 h at a time for at most CLOUDTALK_CREDENTIAL_WAIT_MS from arrival, then
+ *             dead-letters with the same code: no endless retry, and the caller's number (payload) then
+ *             leaves with the existing 30-day failed-payload retention instead of staying forever
+ *   recover   saving a new key re-arms every receipt this code blocked whose payload is still kept
+ *             (rearmCredentialBlockedEvents) and clears the code on the first call CloudTalk answers
+ */
+export const CLOUDTALK_CREDENTIAL_CODES = ["CLOUDTALK_API_KEY_MISSING", "CLOUDTALK_API_KEY_INVALID"] as const;
+export type CloudTalkCredentialCode = (typeof CLOUDTALK_CREDENTIAL_CODES)[number];
+export const CLOUDTALK_CREDENTIAL_WAIT_MS = 7 * 24 * HOUR;
+
+async function credentialBlocked(
+  ctx: { businessId: number; now: Date },
+  event: ClaimedIntakeEvent,
+  publicId: string,
+  code: CloudTalkCredentialCode,
+  credentialHealth?: (publicId: string, code: CloudTalkCredentialCode | null) => Promise<void>
+): Promise<HydrateResult> {
+  await credentialHealth?.(publicId, code);
+  if (ctx.now.getTime() - event.receivedAt.getTime() >= CLOUDTALK_CREDENTIAL_WAIT_MS) throw new IntakeTerminalError(code.toLowerCase());
+  return { kind: "deferred", code: code.toLowerCase(), until: new Date(ctx.now.getTime() + 6 * HOUR) };
+}
+
 /** The call's record in CloudTalk: answered iff it has an answered_at. */
 export async function fetchCloudTalkOutcome(callId: string, apiKeyId: string, apiKeySecret: string): Promise<{ answered: boolean; voicemail: boolean } | "not_found" | "unauthorized" | "rate_limited" | "error"> {
   const auth = Buffer.from(`${apiKeyId}:${apiKeySecret}`, "utf8").toString("base64");
@@ -139,23 +167,28 @@ export async function hydrateCloudTalkCall(
   event: ClaimedIntakeEvent,
   readKey: (businessId: number, publicId: string) => Promise<{ apiKeyId: string; apiKeySecret: string } | null>,
   /** M7-C — the owner's own name for the business line, when they gave one (wins over CloudTalk's). */
-  labelFor?: (publicId: string, businessLine: string | undefined) => Promise<string | null>
+  labelFor?: (publicId: string, businessLine: string | undefined) => Promise<string | null>,
+  /** Leads L1 · G-06 — tell the owner the API key is missing / refused (a code), or that it works again (null). */
+  credentialHealth?: (publicId: string, code: CloudTalkCredentialCode | null) => Promise<void>
 ): Promise<HydrateResult> {
   const p = event.payload as Partial<CloudTalkCallRefV1> | null;
   if (!p || p.kind !== "cloudtalk_call_ref") return { kind: "unchanged" }; // already canonical (resume)
   if (typeof p.callId !== "string" || (p.direction !== "inbound" && p.direction !== "outbound")) throw new IntakeTerminalError("malformed_reference");
   if (!event.providerAccountRef) throw new IntakeTerminalError("no_connection_reference");
-  const key = await readKey(ctx.businessId, event.providerAccountRef);
-  if (!key) return { kind: "deferred", code: "cloudtalk_api_key_missing", until: new Date(ctx.now.getTime() + 6 * HOUR) };
+  const publicId = event.providerAccountRef;
+  const key = await readKey(ctx.businessId, publicId);
+  if (!key) return credentialBlocked(ctx, event, publicId, "CLOUDTALK_API_KEY_MISSING", credentialHealth);
   const r = await fetchCloudTalkOutcome(p.callId, key.apiKeyId, key.apiKeySecret);
-  if (r === "unauthorized") return { kind: "deferred", code: "cloudtalk_api_key_invalid", until: new Date(ctx.now.getTime() + 6 * HOUR) };
+  if (r === "unauthorized") return credentialBlocked(ctx, event, publicId, "CLOUDTALK_API_KEY_INVALID", credentialHealth);
   if (r === "rate_limited") return { kind: "deferred", code: "cloudtalk_rate_limited", until: new Date(ctx.now.getTime() + 5 * 60_000) };
+  if (r === "error") throw new Error("cloudtalk_api_error");
+  // CloudTalk answered the lookup with this key: any earlier "key refused / missing" notice is over.
+  await credentialHealth?.(publicId, null);
   // The history may lag the webhook by seconds: a not-yet-visible call is retried, then dead-letters.
   if (r === "not_found") {
     if (ctx.now.getTime() - event.receivedAt.getTime() < 24 * HOUR) return { kind: "deferred", code: "cloudtalk_call_not_yet_visible", until: new Date(ctx.now.getTime() + 10 * 60_000) };
     throw new IntakeTerminalError("cloudtalk_call_not_found");
   }
-  if (r === "error") throw new Error("cloudtalk_api_error");
   const outcome: CallOutcome = r.answered ? "answered" : r.voicemail || p.isVoicemail ? "voicemail" : "missed";
   try {
     const call = canonicalCall({

@@ -1,0 +1,25 @@
+{
+  "note": "Leads L1 — zero lead loss & intake reliability (G-01 identity poisoning, G-05 one attention queue, G-06 CloudTalk credentials, G-07 sweep health). The DB halves run in .m6 / .m5 / .m7bc batteries (m6-acquisition-ci, m5-crm-lifecycle-ci, m7a-foundation-ci).",
+  "tests": {
+    "lib/intake/identity/contact-assurance.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "G-01 identity-policy@2: a website form's self-asserted email never resolves through an existing email link (owner proposal instead), never creates identity links, a self-asserted phone + another customer's linked email is a conflict, and every read stays inside its business (cross-tenant identity poisoning refused)"
+    },
+    "lib/intake/calls/cloudtalk-credentials.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "G-06: a missing / refused CloudTalk API key is visible on the connection (never status ERROR, which would 401 new calls), deferral is bounded then dead-letters so the caller's number leaves with the failed-payload retention, transient errors never raise the notice, and the notice carries no number or key"
+    },
+    "lib/services/crm/lead-attention-queue.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "G-05 lead-loss integrity: one attention queue ordered by urgency before any cap (a customer who called / wrote is never cut by routine follow-ups), every evaluator reason included, and Home, the needsAction list, the ranking, the count and the API all read it"
+    },
+    "lib/intake/sweep-health.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "G-07 silent-loss detection: the sweep verdict separates job from event failures, new dead letters (webhook-time included) and store reconciliation failures make the run unhealthy exactly once, and the report / logs carry counts only (no payload, phone, email or event id)"
+    }
+  }
+}
