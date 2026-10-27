@@ -228,7 +228,10 @@ async function main() {
         });
         await p.getByRole("button", { name: "שליחת בקשה לתור" }).click();
         await p.getByRole("alert").filter({ hasText: "עמוס" }).waitFor();
-        await p.getByRole("button", { name: "שליחת בקשה לתור" }).click();
+        await shot(p, "phone390-busy");
+        const again = p.getByRole("button", { name: "שליחת בקשה לתור" });
+        if (!(await again.isVisible())) throw new Error(`no send button after 503; buttons: ${(await p.getByRole("button").allTextContents()).join(" | ")}; heading: ${(await p.getByRole("heading").allTextContents()).join(" | ")}`);
+        await again.click();
         await p.waitForTimeout(500);
         must(keys.length === 2 && keys[0] === keys[1] && keys[0].length > 8, `keys ${JSON.stringify(keys)}`);
         must((await p.getByLabel("שם מלא").inputValue()) === "גל בדיקה", "the form was cleared");
@@ -240,11 +243,11 @@ async function main() {
       const c = await ctx(browser, VIEWPORTS[0]);
       const p = await c.newPage();
       await check("the page's loading state, then an error with a retry that recovers", async () => {
-        let n = 0;
+        // Every profile request fails until the error is on screen (a dev build mounts effects twice).
+        let fail = true;
         await p.route(`**/api/public/booking/${PUBLIC_ID}`, async (r) => {
-          n += 1;
           await new Promise((x) => setTimeout(x, 1500));
-          if (n === 1) await r.fulfill({ status: 500, contentType: "application/json", body: "{}" }).catch(() => undefined);
+          if (fail) await r.fulfill({ status: 500, contentType: "application/json", body: "{}" }).catch(() => undefined);
           else await r.continue().catch(() => undefined);
         });
         await p.goto(`/book/${PUBLIC_ID}`, { waitUntil: "domcontentloaded" });
@@ -252,6 +255,7 @@ async function main() {
         await shot(p, "phone375-loading");
         await p.getByRole("heading", { name: "לא הצלחנו לטעון את העמוד" }).waitFor({ timeout: 30_000 });
         await shot(p, "phone375-error");
+        fail = false;
         await p.getByRole("button", { name: "נסה שוב" }).click();
         await p.getByRole("heading", { name: "איזה שירות?" }).waitFor({ timeout: 30_000 });
         await p.unroute(`**/api/public/booking/${PUBLIC_ID}`);

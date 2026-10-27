@@ -151,7 +151,8 @@
 .trap { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; inset-inline-start: -10000px; }
 
 /* ── notes and answers ── */
-.note { border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.5; background: var(--dz-warm-alert, var(--dz-info-bg-soft)); color: var(--dz-warm-ink, var(--dz-text-secondary)); }
+/* "Waiting" reads calm (the warm canvas, as in the approved mockups) — never the alert orange. */
+.note { border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.5; background: var(--dz-warm-canvas); border: 1px solid var(--dz-warm-border); color: var(--dz-warm-ink); }
 .noteInfo { background: var(--dz-info-bg-soft, var(--dz-info-bg)); color: var(--dz-text-secondary); }
 .banner { border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.5; background: var(--dz-danger-bg-soft, var(--dz-danger-bg)); color: var(--dz-danger); border: 1px solid var(--dz-danger-border, transparent); }
 .bannerActions { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
@@ -185,13 +186,13 @@
 /* ── the answer ── */
 .done { padding: 24px 16px 8px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; }
 .ring { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; font-size: 28px; font-weight: 700; }
-.ringWait { background: var(--dz-warm-alert, var(--dz-info-bg-soft)); color: var(--dz-warm-ink, var(--dz-text-secondary)); }
+.ringWait { background: var(--dz-warm-canvas); border: 1px solid var(--dz-warm-border); color: var(--dz-warm-ink); }
 .ringOk { background: var(--dz-success-bg-soft, var(--dz-success-bg)); color: var(--dz-success); }
 .ringOff { background: var(--dz-surface-muted); color: var(--dz-text-muted); }
 .doneTitle { margin: 0; font-size: 20px; font-weight: 700; line-height: 1.3; }
 .doneTitle:focus { outline: none; }
 .badge { padding: 3px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
-.badgeWait { background: var(--dz-warm-alert, var(--dz-info-bg-soft)); color: var(--dz-warm-ink, var(--dz-text-secondary)); }
+.badgeWait { background: var(--dz-warm-canvas); border: 1px solid var(--dz-warm-border); color: var(--dz-warm-ink); }
 .badgeOk { background: var(--dz-success-bg-soft, var(--dz-success-bg)); color: var(--dz-success); }
 .badgeOff { background: var(--dz-surface-muted); color: var(--dz-text-muted); }
 .receipt {
