@@ -104,6 +104,7 @@ on:
           - 'ops/evidence/accountant-source-documents-history.sql'
           - 'ops/evidence/accountant-link-events-preflight.sql'
           - 'ops/evidence/accountant-link-events-production-evidence.sql'
+          - 'ops/evidence/accountant-g4-pilot-preflight.sql'
           - 'ops/evidence/platform-admin-a1-preflight.sql'
           - 'ops/evidence/platform-admin-a1-production-evidence.sql'
           - 'ops/evidence/platform-admin-a1-member-classification.sql'
