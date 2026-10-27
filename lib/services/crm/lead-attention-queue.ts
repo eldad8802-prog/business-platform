@@ -93,12 +93,16 @@ export async function loadLeadAttentionCandidates(
         FROM "Conversation" c
        WHERE c."businessId" = ${businessId} AND c."leadId" IS NOT NULL AND c."customerLastInboundAt" IS NOT NULL
        GROUP BY c."leadId"
-    ), calls AS (
-      -- M7-A — missed inbound calls nobody returned (few by nature; the evaluator decides what they mean).
+    ), calls AS MATERIALIZED (
+      -- M7-A — missed inbound calls nobody returned (the evaluator decides what they mean), read ONCE.
       SELECT ca."leadId", ca."customerId", ca."startedAt"
         FROM "CallActivity" ca
        WHERE ca."businessId" = ${businessId} AND ca."direction" = 'inbound'
          AND ca."outcome" IN ('missed', 'voicemail', 'busy', 'rejected') AND ca."returnedAt" IS NULL
+    ), calls_by_lead AS (
+      SELECT k."leadId", max(k."startedAt") AS "at" FROM calls k WHERE k."leadId" IS NOT NULL GROUP BY k."leadId"
+    ), calls_by_customer AS (
+      SELECT k."customerId", max(k."startedAt") AS "at" FROM calls k WHERE k."customerId" IS NOT NULL GROUP BY k."customerId"
     ), props AS (
       SELECT p."leadId", count(*)::int AS "n"
         FROM "IdentityProposal" p
@@ -108,12 +112,14 @@ export async function loadLeadAttentionCandidates(
       SELECT l."id", l."customerName", l."status"::text AS "status", l."nextFollowUpAt", l."followUpNote",
              l."createdAt", l."lastActivityAt", l."firstHandledAt",
              conv."at" AS "lastCustomerInboundAt",
-             (SELECT max(k."startedAt") FROM calls k
-               WHERE k."leadId" = l."id" OR (l."customerId" IS NOT NULL AND k."customerId" = l."customerId")) AS "lastUnreturnedCallAt",
+             -- the lead's own missed calls, or its customer's (GREATEST ignores NULLs)
+             GREATEST(cl."at", cc."at") AS "lastUnreturnedCallAt",
              COALESCE(props."n", 0) AS "openIdentityProposals"
         FROM "Lead" l
         LEFT JOIN conv ON conv."leadId" = l."id"
         LEFT JOIN props ON props."leadId" = l."id"
+        LEFT JOIN calls_by_lead cl ON cl."leadId" = l."id"
+        LEFT JOIN calls_by_customer cc ON l."customerId" IS NOT NULL AND cc."customerId" = l."customerId"
        WHERE l."businessId" = ${businessId}
          AND l."status"::text IN (${Prisma.join(open)})
     )
