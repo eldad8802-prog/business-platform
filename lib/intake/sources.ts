@@ -14,6 +14,7 @@ import { googleLeadFormAdapter } from "@/lib/intake/acquisition/providers/google
 import { webFormAdapter } from "@/lib/intake/acquisition/providers/web-form";
 import { wooCommerceAdapter, wixAdapter } from "@/lib/intake/commerce/providers";
 import { cloudTalkAdapter, voicenterAdapter } from "@/lib/intake/calls/providers";
+import { rivhitAdapter } from "@/lib/revenue-sources/rivhit/adapter";
 
 // M6 — first-wave acquisition sources. Each accepts nothing for a business until its platform
 // feature (acquisition_*) is enabled for that business; all three are OFF by default.
@@ -27,4 +28,6 @@ export const intakeRegistry = new IntakeRegistry()
   .register(wooCommerceAdapter)
   .register(wixAdapter)
   .register(cloudTalkAdapter)
-  .register(voicenterAdapter);
+  .register(voicenterAdapter)
+  // S1-A — Rivhit sales documents → revenue truth (R10). OFF for every business until pos_rivhit is enabled for it.
+  .register(rivhitAdapter);

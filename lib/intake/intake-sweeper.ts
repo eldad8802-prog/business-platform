@@ -25,6 +25,7 @@ import { drainIntake, emptyTally, type IntakeProcessResult } from "@/lib/intake/
 import type { IntakeRegistry } from "@/lib/intake/core/registry";
 import { intakeRegistry } from "@/lib/intake/sources";
 import { reconcileCommerce } from "@/lib/intake/commerce/reconcile";
+import { syncRivhit } from "@/lib/revenue-sources/rivhit/sync";
 
 export type IntakeSweepReport = {
   businesses: number;
@@ -34,6 +35,8 @@ export type IntakeSweepReport = {
   payloadsPurged: number;
   /** M7-B — orders recovered by polling stores, disabled store webhooks re-activated, store failures. */
   commerce: { receipts: number; webhooksReactivated: number; failures: number };
+  /** S1-A — Rivhit documents handed to intake, documents Rivhit returned unreadable, failed connections, Rivhit calls. */
+  revenueSources: { receipts: number; unreadable: number; failures: number; calls: number };
 };
 
 /** Union of every registered source's tenants (deduped, stable order). */
@@ -47,7 +50,7 @@ async function tenantsOf(registry: IntakeRegistry): Promise<number[]> {
 }
 
 export async function runIntakeSweep(
-  options: { now?: Date; perBusinessLimit?: number; registry?: IntakeRegistry; reconcileCommerce?: boolean } = {}
+  options: { now?: Date; perBusinessLimit?: number; registry?: IntakeRegistry; reconcileCommerce?: boolean; syncRevenueSources?: boolean } = {}
 ): Promise<IntakeSweepReport> {
   const now = options.now ?? new Date();
   const registry = options.registry ?? intakeRegistry;
@@ -58,6 +61,7 @@ export async function runIntakeSweep(
     events: emptyTally(),
     payloadsPurged: 0,
     commerce: { receipts: 0, webhooksReactivated: 0, failures: 0 },
+    revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
   };
 
   for (const businessId of await tenantsOf(registry)) {
@@ -70,6 +74,15 @@ export async function runIntakeSweep(
           report.commerce.receipts += c.receipts;
           report.commerce.webhooksReactivated += c.webhooksReactivated;
           report.commerce.failures += c.failures;
+        }
+        // S1-A — Rivhit has no document webhook: new documents are polled here (gated, bounded, paced).
+        if (options.syncRevenueSources !== false) {
+          // A Rivhit failure never stops this business's drain below.
+          const r = await syncRivhit(businessId, { now }).catch(() => ({ receipts: 0, unreadable: 0, failures: 1, calls: 0 }));
+          report.revenueSources.receipts += r.receipts;
+          report.revenueSources.unreadable += r.unreadable;
+          report.revenueSources.failures += r.failures;
+          report.revenueSources.calls += r.calls;
         }
         const drained = await drainIntake(registry, businessId, {
           now,

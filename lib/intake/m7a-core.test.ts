@@ -168,9 +168,9 @@ async function main() {
     const cl = makeCallAdapter({ sourceKey: "telephony.cloudtalk", resolveTenant: async () => null });
     assert.deepEqual([ca.families, ca.coreDestinations, cl.families, cl.coreDestinations], [["COMMERCE"], ["commerce"], ["CALL"], ["call"]]);
   });
-  await t("every connection source has its own feature (seven sources, seven features)", () => {
-    assert.equal(CONNECTION_SOURCE_KEYS.length, 7);
-    assert.equal(new Set(CONNECTION_SOURCE_KEYS.map((s) => SOURCE_FEATURE[s])).size, 7);
+  await t("every connection source has its own feature (eight sources with S1-A's pos.rivhit, eight features)", () => {
+    assert.equal(CONNECTION_SOURCE_KEYS.length, 8);
+    assert.equal(new Set(CONNECTION_SOURCE_KEYS.map((s) => SOURCE_FEATURE[s])).size, 8);
   });
 
   console.log("-- ordering, buckets");

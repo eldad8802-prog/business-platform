@@ -27,6 +27,7 @@ export const PLATFORM_FEATURE_KEYS = {
   DAILY_TASKS: "daily_tasks",
   ACCOUNTANT_MONTH_CLOSE: "accountant_month_close",
   BANK_FILE_IMPORT: "bank_file_import",
+  POS_RIVHIT: "pos_rivhit",
   APPOINTMENTS: "appointments",
   PUBLIC_BOOKING: "public_booking",
   DOCUMENT_SUPPLIER_LINKING: "document_supplier_linking",
@@ -262,6 +263,17 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "קליטת קובצי בנק",
       category: "integrations",
       description: "העלאת קובץ תנועות בנק (CSV או Excel) עם תצוגה מקדימה לפני קליטה",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // Rivhit sales documents → revenue truth (S1-A, migration 20261104090000). OFF by default: with no policy row the
+    // resolver falls back to this default, so a deploy that reaches Production before the migration cannot switch it
+    // on. Read-only: Dubiz never writes to Rivhit.
+    {
+      key: PLATFORM_FEATURE_KEYS.POS_RIVHIT,
+      displayName: "מכירות מריווחית",
+      category: "integrations",
+      description: "קריאת מסמכי מכירה וקבלות מריווחית Online לשכבת אמת ההכנסות (קריאה בלבד) — כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },
