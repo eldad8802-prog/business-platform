@@ -146,12 +146,12 @@ async function main() {
   const nextWeek = new Date(now + 7 * DAY);
   const longAgo = new Date(now - 40 * DAY);
 
-  // A: exactly 4 leads that need action (Leads L1 · G-05: the one attention queue).
+  // A: exactly 5 leads that need action (Leads L1 · G-05 one attention queue; G-03 new today counts).
   const a = await makeTenant("a", [
     { status: "NEW", createdAt: threeDaysAgo },                                   // untouched new, before today → counts
     { status: "NEW", createdAt: threeDaysAgo },                                   // counts
     { status: "OPEN", createdAt: longAgo, nextFollowUpAt: yesterday },            // follow-up overdue → counts
-    { status: "NEW", createdAt: new Date(now) },                                  // new TODAY → not yet
+    { status: "NEW", createdAt: new Date(now) },                                  // new TODAY → counts at once (G-03)
     { status: "OPEN", createdAt: longAgo, nextFollowUpAt: nextWeek },             // follow-up in the future → no
     { status: "WON", createdAt: longAgo, nextFollowUpAt: yesterday },             // closed → never
     // STALLED (open, no follow-up, idle 40 days): #658 kept it out of the count; since
@@ -177,10 +177,10 @@ async function main() {
   // ---------------------------------------------------------- the fixed route ---
   const ra = await homeCount(a.token);
   ok("H1 A: GET /api/home answers 200", ra.status === 200, `status ${ra.status}`);
-  ok("H1 A: leadsAttention.count is A's 4 leads that need action", ra.count === 4, `got ${ra.count}`);
+  ok("H1 A: leadsAttention.count is A's 5 leads that need action", ra.count === 5, `got ${ra.count}`);
   const rb = await homeCount(b.token);
   ok("H2 B: leadsAttention.count is B's own 5", rb.count === 5, `got ${rb.count}`);
-  ok("H3 A never counts B's leads (A ≠ 4 + 5)", ra.count !== 9);
+  ok("H3 A never counts B's leads (A ≠ 5 + 5)", ra.count !== 10);
 
   const rc = await homeCount(c.token);
   const cScoped = await tenantTx(c.businessId, (tx) => tx.lead.count());
@@ -190,7 +190,7 @@ async function main() {
   // A hostile request naming another tenant: the business comes from the
   // session, never from the request.
   const hostile = await homeCount(a.token, `http://localhost/api/home?businessId=${b.businessId}&business_id=${b.businessId}`);
-  ok("H5 a businessId planted in the query is ignored (still A's 4)", hostile.count === 4, `got ${hostile.count}`);
+  ok("H5 a businessId planted in the query is ignored (still A's 5)", hostile.count === 5, `got ${hostile.count}`);
 
   // ------------------------------------------------------------ the meaning ---
   ok("M1 the count still lands on /leads?view=needsAction", ra.href === "/leads?view=needsAction", `href ${ra.href}`);

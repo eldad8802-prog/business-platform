@@ -555,7 +555,7 @@ async function main() {
   await o.lead.update({ where: { id: dLead.id }, data: { status: "OPEN", nextFollowUpAt: null, lastActivityAt: new Date(Date.now() - 20 * day) } });
 
   const nowC = new Date();
-  const expected = [...routine, wrote.id, stalled.id, quoted.id].sort((a, b) => a - b);
+  const expected = [...routine, wrote.id, stalled.id, quoted.id, freshToday.id].sort((a, b) => a - b);
   const homeItems = await runTenantJob({ businessId: bizC.id }, async () => translateLeadsNeedingAttention(await loadLeadsNeedingAttention(bizC.id, nowC), nowC));
   const homeIds = homeItems.map((b) => b.entityRef?.id);
   ok("Home (business-status): the customer who WROTE (no follow-up date) survives the cap of 8, ahead of 9 routine follow-ups",
@@ -564,12 +564,14 @@ async function main() {
     homeItems.slice(1).every((b) => b.itemId.startsWith("leads:followup_due_today:")), homeItems.map((b) => b.itemId).join(","));
   const listC = await asT(bizC.id, (tx) => leadService.listLeads({ businessId: bizC.id, needsAction: true, limit: 100, now: nowC }, { tx }));
   const listIds = listC.map((l) => l.id).sort((a, b) => a - b);
-  ok("/leads needsAction holds EXACTLY the evaluator's set (wrote + stalled + idle quote + due follow-ups)",
+  ok("/leads needsAction holds EXACTLY the evaluator's set (wrote + stalled + idle quote + due follow-ups + today's new lead)",
     JSON.stringify(listIds) === JSON.stringify(expected), JSON.stringify({ listIds, expected }));
   const countC = await asT(bizC.id, (tx) => leadService.countNeedingAttention({ businessId: bizC.id, now: nowC }, { tx }));
   ok("the Home count equals the list (one definition)", countC === expected.length, `count=${countC} expected=${expected.length}`);
-  ok("a NEW lead created today is in NONE of them (the 1-day grace stays the current policy — owner decision, unchanged)",
-    !listIds.includes(freshToday.id) && !homeIds.includes(freshToday.id));
+  ok("L1 · G-03: a NEW lead created today is in the list and the count AT ONCE (no next-day wait)",
+    listIds.includes(freshToday.id));
+  ok("L1 · G-03: …but on Home it never pushes out the urgent: with 8 more urgent items it stays below the cap of 8",
+    !homeIds.includes(freshToday.id) && homeIds.length === 8);
   ok("an open lead handled today with no follow-up, and a closed lead, are in none of them",
     !listIds.includes(quiet.id) && !listIds.includes(closed.id) && !homeIds.includes(closed.id));
   const listSearch = await asT(bizC.id, (tx) => leadService.listLeads({ businessId: bizC.id, needsAction: true, query: "Stalled", now: nowC }, { tx }));
@@ -588,6 +590,28 @@ async function main() {
   const listD = await asT(bizD.id, (tx) => leadService.listLeads({ businessId: bizD.id, needsAction: true, now: nowC }, { tx }));
   ok("tenant isolation: business D sees only its own stalled lead (count 1, list 1), never C's",
     countD === 1 && listD.length === 1 && listD[0].id === dLead.id && !apiIds.includes(dLead.id));
+
+  // ── L1 · G-03: today's new lead — concurrency, a future follow-up, a status move, first handling ──
+  console.log("\n-- L1 · G-03: a new lead is visible at once, and leaves the queue as soon as it is handled --");
+  const countBefore = await asT(bizC.id, (tx) => leadService.countNeedingAttention({ businessId: bizC.id }, { tx }));
+  const twins = await Promise.allSettled(Array.from({ length: 4 }, () => mkLead(bizC.id, "Parallel new", "0505550096")));
+  const twinIds = [...new Set(twins.filter((r) => r.status === "fulfilled").map((r) => (r as PromiseFulfilledResult<{ id: number }>).value.id))];
+  const countTwins = await asT(bizC.id, (tx) => leadService.countNeedingAttention({ businessId: bizC.id }, { tx }));
+  ok("4 parallel creations of the same new person → ONE open lead, counted ONCE (no duplicate in the queue)",
+    twinIds.length === 1 && countTwins === countBefore + 1 && (await o.lead.count({ where: { businessId: bizC.id, phone: { contains: "505550096" } } })) === 1,
+    JSON.stringify({ twinIds, countBefore, countTwins }));
+  const fu = await patchLead(tokC, freshToday.id, { followUpAt: new Date(Date.now() + 3 * day).toISOString() });
+  const afterFu = await asT(bizC.id, (tx) => leadService.listLeads({ businessId: bizC.id, needsAction: true, limit: 100 }, { tx }));
+  ok("a follow-up promised for a later day → today's new lead leaves the queue (handled, not 'new')",
+    fu.status === 200 && !afterFu.some((l) => l.id === freshToday.id), `http=${fu.status}`);
+  const moved = await patchLead(tokC, twinIds[0], { status: "OPEN" });
+  const movedRow = await o.lead.findUnique({ where: { id: twinIds[0] }, select: { status: true, firstHandledAt: true } });
+  const afterMove = await asT(bizC.id, (tx) => leadService.countNeedingAttention({ businessId: bizC.id }, { tx }));
+  ok("the owner moves a new lead to OPEN → first handling is recorded and it leaves the queue / count at once",
+    moved.status === 200 && movedRow?.status === "OPEN" && !!movedRow.firstHandledAt && afterMove === countTwins - 2,
+    JSON.stringify({ http: moved.status, movedRow, countTwins, afterMove }));
+  const homeAfter = await runTenantJob({ businessId: bizC.id }, async () => translateLeadsNeedingAttention(await loadLeadsNeedingAttention(bizC.id, new Date()), new Date()));
+  ok("…and Home agrees (neither handled lead appears)", !homeAfter.some((b) => b.entityRef?.id === freshToday.id || b.entityRef?.id === twinIds[0]));
 
   console.log(`\n[m5] PASS=${pass} FAIL=${failures.length}`);
   if (failures.length) {

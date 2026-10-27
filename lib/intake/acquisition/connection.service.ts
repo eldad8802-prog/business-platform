@@ -17,6 +17,7 @@ import { ValidationError } from "@/lib/errors";
 import { newPublicId, newSharedKey, newSigningSecret } from "./keys";
 import { credentialAad, decryptCredential, encryptCredential } from "./credential-crypto";
 import type { ConnectionSourceKey } from "./gate";
+import { logIntake } from "@/lib/intake/core/observability";
 
 export const MAX_CONNECTIONS_PER_SOURCE = 20;
 /** Sources that authenticate with a shared key whose sha256 is stored (keyHash). */
@@ -436,10 +437,11 @@ export async function setReceivingConnectionIssue(
   code: string | null,
   ownedCodes: readonly string[]
 ): Promise<void> {
-  await withTenantTransaction((tx) =>
+  const res = await withTenantTransaction((tx) =>
     code
       ? tx.acquisitionConnection.updateMany({
-          where: { sourceKey, publicId, status: "ACTIVE" },
+          // Only an actual change writes (and is logged): a deferral every 6 h does not re-stamp the same code.
+          where: { sourceKey, publicId, status: "ACTIVE", OR: [{ lastErrorCode: null }, { lastErrorCode: { not: code } }] },
           data: { lastErrorCode: code },
         })
       : tx.acquisitionConnection.updateMany({
@@ -447,6 +449,8 @@ export async function setReceivingConnectionIssue(
           data: { lastErrorCode: null },
         })
   );
+  // Auditable status change (G-07): the source, the code raised or cleared — no endpoint id, no key, no number.
+  if (res.count > 0) logIntake(code ? "connection_issue_raised" : "connection_issue_cleared", { sourceKey, code: code ?? "none", count: res.count });
 }
 
 /** A provider-side health problem the owner must see (status ERROR + a bounded code), or its recovery. */

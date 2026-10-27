@@ -517,6 +517,19 @@ async function main() {
   const dead8 = await o.intakeEvent.findUnique({ where: { id: ev8!.id }, select: { status: true, nextAttemptAt: true, lastErrorCode: true, payloadPurgedAt: true } });
   ok("L1 · G-06: a call held back past the 7-day credential wait dead-letters (FAILED, no next attempt, same code, payload kept for replay)",
     dead8?.status === "FAILED" && dead8.nextAttemptAt === null && dead8.lastErrorCode === "cloudtalk_api_key_invalid" && dead8.payloadPurgedAt === null, JSON.stringify(dead8));
+  // c-9: dead-lettered long ago — past the 30-day failed-payload retention, the caller's number must be GONE,
+  // and a later key fix must NOT resurrect it (only receipts still processable are re-armed).
+  ctHistory.set("c-9", "");
+  await sendCloudTalk(ctConn.publicId, whsec, ctCall("c-9", CT_CO));
+  const ev9 = await o.intakeEvent.findFirst({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk" }, orderBy: { id: "desc" } });
+  await o.intakeEvent.update({ where: { id: ev9!.id }, data: { receivedAt: new Date(Date.now() - 40 * 86_400_000), nextAttemptAt: new Date(Date.now() - 1000) } });
+  await sweep(0);
+  await o.intakeEvent.update({ where: { id: ev9!.id }, data: { lastAttemptAt: new Date(Date.now() - 31 * 86_400_000) } });
+  await sweep(0);
+  const purged9 = await o.intakeEvent.findUnique({ where: { id: ev9!.id } });
+  ok("L1 · G-06: a CloudTalk dead letter past the 30-day retention has NO payload left (the caller's number is gone); the receipt stays as a record",
+    purged9?.status === "FAILED" && purged9.payload === null && !!purged9.payloadPurgedAt && purged9.lastErrorCode === "cloudtalk_api_key_invalid"
+      && !/externalNumber|counterpart|"\+?\d{9,}"/.test(JSON.stringify(purged9.metadata ?? {})), JSON.stringify({ s: purged9?.status, p: purged9?.payload, at: purged9?.payloadPurgedAt, c: purged9?.lastErrorCode }));
   const badLabels = await ownerIdPOST(req(`/api/integrations/acquisition/${ctConn.id}`, { headers: owner(uA.id), body: JSON.stringify({ action: "set_line_labels", lineLabels: { "12": "too short" } }) }), params({ id: String(ctConn.id) }));
   ok("a line label for something that is not a phone number → 400", badLabels.status === 400);
   const setLabels = await ownerIdPOST(req(`/api/integrations/acquisition/${ctConn.id}`, { headers: owner(uA.id), body: JSON.stringify({ action: "set_line_labels", lineLabels: { "03-555-0000": "קו מכירות" } }) }), params({ id: String(ctConn.id) }));
@@ -533,6 +546,10 @@ async function main() {
   ok("L1 · G-06: …the waiting call AND the once-dead-lettered one are both recorded (nothing lost)",
     (await o.callActivity.count({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk", providerCallId: { in: ["c-1", "c-8"] } } })) === 2,
     JSON.stringify(await o.callActivity.findMany({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk" }, select: { providerCallId: true } })));
+  const after9 = await o.intakeEvent.findUnique({ where: { id: ev9!.id }, select: { status: true, nextAttemptAt: true, payload: true } });
+  ok("L1 · G-06: …but the PURGED one is not resurrected (still FAILED, not re-armed, no call recorded from it)",
+    after9?.status === "FAILED" && after9.nextAttemptAt === null && after9.payload === null
+      && (await o.callActivity.count({ where: { businessId: A.id, providerCallId: "c-9" } })) === 0, JSON.stringify(after9));
   await sweep(14 * 3_600_000);
   const ca1 = await o.callActivity.findFirst({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk", providerCallId: "c-1" } });
   ok("with the right key → the call is recorded MISSED (no answered_at in CloudTalk's history), 0 s", ca1?.outcome === "missed" && ca1.durationSec === 0, ca1?.outcome);

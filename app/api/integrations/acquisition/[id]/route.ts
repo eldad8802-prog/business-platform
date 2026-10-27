@@ -29,6 +29,7 @@ import {
 import { after } from "next/server";
 import { CLOUDTALK_CREDENTIAL_CODES, CLOUDTALK_CREDENTIAL_RECEIPT_CODES } from "@/lib/intake/calls/cloudtalk";
 import { drainIntake } from "@/lib/intake/core/processor";
+import { logIntake } from "@/lib/intake/core/observability";
 import { rearmBlockedEvents } from "@/lib/intake/intake-event.store";
 import { intakeRegistry } from "@/lib/intake/sources";
 import { runTenantJob } from "@/lib/tenant/job";
@@ -104,6 +105,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         // simply raises the notice again on the next lookup.
         await setReceivingConnectionIssue("telephony.cloudtalk", existing.publicId, null, CLOUDTALK_CREDENTIAL_CODES);
         const rearmed = await rearmBlockedEvents(businessId, "telephony.cloudtalk", existing.publicId, CLOUDTALK_CREDENTIAL_RECEIPT_CODES);
+        // Auditable: who (business), which source, how many receipts went back on the queue — no id, no content.
+        logIntake("rearmed", { businessId, sourceKey: "telephony.cloudtalk", code: "api_key_saved", count: rearmed });
         if (rearmed > 0) await afterResponse(() => drainBusiness(businessId));
       }
       const s = await readConnectionSecrets(businessId, id, { anyLiveStatus: true });

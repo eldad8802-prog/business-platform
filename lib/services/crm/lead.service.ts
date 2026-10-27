@@ -697,7 +697,7 @@ export const leadService = {
         //    only the two follow-up clauses), plus those two clauses as before.
         { id: { in: [...attentionIds] } },
         { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
-        { status: "NEW", nextFollowUpAt: null, createdAt: { lt: startOfLeadDayUtc(now) } },
+        { status: "NEW", nextFollowUpAt: null }, // G-03: an untouched NEW lead, today included
         // 2. a customer is waiting on one of its conversations.
         { conversations: { some: { businessId: input.businessId, unansweredInboundCount: { gt: 0 } } } },
         // 3. one of its conversations is hot.

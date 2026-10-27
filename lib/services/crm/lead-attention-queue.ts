@@ -13,8 +13,8 @@
  *   3. order       priority DESC → the clock that made it urgent ASC → id ASC, BEFORE any caller caps
  *                  the list — a customer who called can never be cut by eight routine follow-ups.
  *
- * Bounded: above LEAD_ATTENTION_CANDIDATE_CAP candidates the answer is a best-effort slice of the
- * oldest-due and the caller is TOLD so (`overflow`), never handed a silent approximation.
+ * Bounded: above LEAD_ATTENTION_CANDIDATE_CAP candidates the answer is a best-effort slice of the MOST URGENT
+ * (SQL urgency tiers) and the caller is TOLD so (`overflow`), never handed a silent approximation.
  * Runs on the caller's tenant transaction (RLS) and filters by businessId on every table.
  */
 
@@ -76,41 +76,65 @@ export async function loadLeadAttentionCandidates(
   const quoteCutoff = startOfLeadDayUtc(new Date(now.getTime() - (QUOTE_CHECK_AFTER_DAYS - 1) * dayMs));
   const stallCutoff = startOfLeadDayUtc(new Date(now.getTime() - (STALLED_AFTER_DAYS - 1) * dayMs));
   const open = [...OPEN_LEAD_STATUSES];
+  // The LIMIT keeps the most URGENT candidates (G-05 · above the cap): a coarse SQL tier that mirrors the
+  // evaluator's priority bands orders the cut, so a business with hundreds of untouched NEW leads can never
+  // push a caller, a customer who wrote or an overdue promise out of the queue. The evaluator still decides
+  // and orders exactly; the tier only chooses WHICH rows are read when there are too many.
+  // ONE pass per related table per query (G-05 performance): the conversation / call / proposal facts are
+  // aggregated once for this business and joined, instead of a correlated subquery per lead — "Conversation"
+  // has no (businessId, leadId) index (a migration for later, owner-approved), so per-row lookups would scan it
+  // once per candidate. Same semantics as the evaluator's inputs; still one statement, no N+1.
   return db.$queryRaw<LeadAttentionRaw[]>`
-    SELECT l."id", l."customerName", l."status"::text AS "status", l."nextFollowUpAt", l."followUpNote",
-           l."createdAt", l."lastActivityAt",
-           (SELECT max(c."customerLastInboundAt") FROM "Conversation" c
-             WHERE c."businessId" = l."businessId" AND c."leadId" = l."id") AS "lastCustomerInboundAt",
-           (SELECT max(ca."startedAt") FROM "CallActivity" ca
-             WHERE ca."businessId" = l."businessId"
-               AND (ca."leadId" = l."id" OR (l."customerId" IS NOT NULL AND ca."customerId" = l."customerId"))
-               AND ca."direction" = 'inbound' AND ca."outcome" IN ('missed', 'voicemail', 'busy', 'rejected')
-               AND ca."returnedAt" IS NULL) AS "lastUnreturnedCallAt",
-           (SELECT count(*)::int FROM "IdentityProposal" p
-             WHERE p."businessId" = l."businessId" AND p."leadId" = l."id" AND p."state" = 'proposed') AS "openIdentityProposals"
-    FROM "Lead" l
-    WHERE l."businessId" = ${businessId}
-      AND l."status"::text IN (${Prisma.join(open)})
-      AND (
-        l."nextFollowUpAt" <= ${endOfLeadDayUtc(now)}
-        OR (l."status" = 'NEW' AND l."nextFollowUpAt" IS NULL AND l."createdAt" < ${startOfLeadDayUtc(now)})
-        OR (l."nextFollowUpAt" IS NULL AND l."status" = 'QUOTED'
-            AND COALESCE(l."lastActivityAt", l."createdAt") < ${quoteCutoff})
-        OR (l."nextFollowUpAt" IS NULL AND l."status" IN ('OPEN', 'QUALIFIED')
-            AND COALESCE(l."lastActivityAt", l."createdAt") < ${stallCutoff})
-        OR EXISTS (SELECT 1 FROM "IdentityProposal" p
-                    WHERE p."businessId" = l."businessId" AND p."leadId" = l."id" AND p."state" = 'proposed')
-        OR EXISTS (SELECT 1 FROM "Conversation" c
-                    WHERE c."businessId" = l."businessId" AND c."leadId" = l."id"
-                      AND c."customerLastInboundAt" > COALESCE(l."lastActivityAt", l."createdAt"))
-        -- M7-A — a missed call of this lead's customer nobody returned (the evaluator decides).
-        OR EXISTS (SELECT 1 FROM "CallActivity" ca
-                    WHERE ca."businessId" = l."businessId"
-                      AND (ca."leadId" = l."id" OR (l."customerId" IS NOT NULL AND ca."customerId" = l."customerId"))
-                      AND ca."direction" = 'inbound' AND ca."outcome" IN ('missed', 'voicemail', 'busy', 'rejected')
-                      AND ca."returnedAt" IS NULL)
-      )
-    ORDER BY l."nextFollowUpAt" ASC NULLS LAST, l."createdAt" ASC, l."id" ASC
+    WITH conv AS (
+      SELECT c."leadId", max(c."customerLastInboundAt") AS "at"
+        FROM "Conversation" c
+       WHERE c."businessId" = ${businessId} AND c."leadId" IS NOT NULL AND c."customerLastInboundAt" IS NOT NULL
+       GROUP BY c."leadId"
+    ), calls AS (
+      -- M7-A — missed inbound calls nobody returned (few by nature; the evaluator decides what they mean).
+      SELECT ca."leadId", ca."customerId", ca."startedAt"
+        FROM "CallActivity" ca
+       WHERE ca."businessId" = ${businessId} AND ca."direction" = 'inbound'
+         AND ca."outcome" IN ('missed', 'voicemail', 'busy', 'rejected') AND ca."returnedAt" IS NULL
+    ), props AS (
+      SELECT p."leadId", count(*)::int AS "n"
+        FROM "IdentityProposal" p
+       WHERE p."businessId" = ${businessId} AND p."state" = 'proposed' AND p."leadId" IS NOT NULL
+       GROUP BY p."leadId"
+    ), base AS (
+      SELECT l."id", l."customerName", l."status"::text AS "status", l."nextFollowUpAt", l."followUpNote",
+             l."createdAt", l."lastActivityAt",
+             conv."at" AS "lastCustomerInboundAt",
+             (SELECT max(k."startedAt") FROM calls k
+               WHERE k."leadId" = l."id" OR (l."customerId" IS NOT NULL AND k."customerId" = l."customerId")) AS "lastUnreturnedCallAt",
+             COALESCE(props."n", 0) AS "openIdentityProposals"
+        FROM "Lead" l
+        LEFT JOIN conv ON conv."leadId" = l."id"
+        LEFT JOIN props ON props."leadId" = l."id"
+       WHERE l."businessId" = ${businessId}
+         AND l."status"::text IN (${Prisma.join(open)})
+    )
+    SELECT q."id", q."customerName", q."status", q."nextFollowUpAt", q."followUpNote", q."createdAt",
+           q."lastActivityAt", q."lastCustomerInboundAt", q."lastUnreturnedCallAt", q."openIdentityProposals"
+    FROM base q
+    WHERE q."nextFollowUpAt" <= ${endOfLeadDayUtc(now)}
+       OR (q."status" = 'NEW' AND q."nextFollowUpAt" IS NULL)
+       OR (q."nextFollowUpAt" IS NULL AND q."status" = 'QUOTED' AND COALESCE(q."lastActivityAt", q."createdAt") < ${quoteCutoff})
+       OR (q."nextFollowUpAt" IS NULL AND q."status" IN ('OPEN', 'QUALIFIED') AND COALESCE(q."lastActivityAt", q."createdAt") < ${stallCutoff})
+       OR q."openIdentityProposals" > 0
+       OR q."lastCustomerInboundAt" > COALESCE(q."lastActivityAt", q."createdAt")
+       OR q."lastUnreturnedCallAt" IS NOT NULL
+    ORDER BY
+      CASE
+        WHEN q."nextFollowUpAt" < ${startOfLeadDayUtc(now)} THEN 1                                      -- overdue (80–95)
+        WHEN q."lastUnreturnedCallAt" > COALESCE(q."lastActivityAt", q."createdAt") THEN 2              -- called (78)
+        WHEN q."lastCustomerInboundAt" > COALESCE(q."lastActivityAt", q."createdAt") THEN 3             -- wrote (75)
+        WHEN q."nextFollowUpAt" IS NOT NULL THEN 4                                                       -- due today (70)
+        WHEN q."openIdentityProposals" > 0 THEN 5                                                        -- identity (66)
+        WHEN q."status" = 'NEW' THEN 6                                                                   -- new (45–65)
+        ELSE 7                                                                                           -- quote / stalled
+      END ASC,
+      q."nextFollowUpAt" ASC NULLS LAST, q."createdAt" ASC, q."id" ASC
     LIMIT ${limit}`;
 }
 

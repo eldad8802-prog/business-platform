@@ -619,10 +619,26 @@ async function main() {
     !!vera && (await o.identityLink.count({ where: { businessId: A.id, customerId: vera.id, valueHash: emailHash("vera@example.test"), status: "active" } })) === 1);
 
   const linksA0 = await linkCount(A.id);
+  const custSnap = () => o.customer.findUnique({ where: { id: vera!.id }, select: { name: true, phone: true, email: true, isActive: true, updatedAt: true } });
+  const veraBefore = await custSnap();
+  const veraLeadBefore = await o.lead.findFirst({ where: { businessId: A.id, phone: VERA_PHONE, status: { in: ["NEW", "OPEN", "QUALIFIED", "QUOTED"] } },
+    select: { id: true, customerName: true, email: true, status: true, lastActivityAt: true, nextFollowUpAt: true, customerId: true } });
   const l1Poison = { submission_id: `${RUN}-poison1`, name: "Mallory", phone: "+972 52-555-7070", email: "mallory@evil.test", message: "hi" };
   const l1P1 = await web(webL1.connection.publicId, l1Poison, { origin: "https://l1.example" });
+  const l1P1Body = await l1P1.clone().text();
   await drain(A.id);
   ok("anonymous browser post naming an existing customer's phone → 202 (a legitimate lead is still taken)", l1P1.status === 202, String(l1P1.status));
+  ok("L1 · G-01b: the response reveals nothing about the existing customer (no name, email, id, lead)",
+    !/Vera|vera@|customer|lead|"id"/i.test(l1P1Body), l1P1Body.slice(0, 200));
+  ok("L1 · G-01b: the existing Customer is NOT modified by the form (name / phone / email / state / updatedAt)",
+    JSON.stringify(await custSnap()) === JSON.stringify(veraBefore), JSON.stringify({ before: veraBefore, after: await custSnap() }));
+  const veraLeadAfter = await o.lead.findUnique({ where: { id: veraLeadBefore!.id },
+    select: { id: true, customerName: true, email: true, status: true, lastActivityAt: true, nextFollowUpAt: true, customerId: true } });
+  ok("L1 · G-01b: her open lead keeps its name, email, stage, follow-up and activity clock (an attacker cannot quiet it)",
+    JSON.stringify(veraLeadAfter) === JSON.stringify(veraLeadBefore), JSON.stringify({ before: veraLeadBefore, after: veraLeadAfter }));
+  ok("L1 · G-01b: …the submission is only RECORDED on it as a further enquiry (intake_attached), nothing merged",
+    (await o.leadLifecycleEvent.count({ where: { businessId: A.id, leadId: veraLeadBefore!.id, kind: "intake_attached" } })) >= 1
+      && (await o.customer.count({ where: { businessId: A.id, phone: VERA_PHONE } })) === 1);
   ok("…the typed email became NO identity link (not on the customer, not anywhere)",
     (await o.identityLink.count({ where: { businessId: A.id, valueHash: emailHash("mallory@evil.test") } })) === 0);
   ok("…no identity link at all was created", (await linkCount(A.id)) === linksA0);

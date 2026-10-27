@@ -6,7 +6,7 @@
  *   - urgency decides the order BEFORE any cap: a customer who called / wrote (no follow-up date)
  *     outranks routine follow-ups due today, so a cap of 8 can never cut them
  *   - every evaluator reason is in the queue (not only "follow-up due" / "new before today")
- *   - closed leads, a NEW lead created today (current 1-day grace) and a quiet open lead are not
+ *   - closed leads and a quiet (handled) open lead are not; a NEW lead created TODAY is (G-03)
  *   - Home (business-status), /leads needsAction, the list ranking and the count all read THIS queue
  */
 import assert from "node:assert/strict";
@@ -70,10 +70,39 @@ test("urgency orders the queue BEFORE any cap: overdue → called → wrote → 
   for (let i = 1; i < queue.length; i++) assert.ok(queue[i - 1].attention.priority >= queue[i].attention.priority);
 });
 
-test("closed, quiet and NEW-created-today leads are not in the queue (current 1-day grace kept)", () => {
+test("closed and quiet (handled) leads are not in the queue", () => {
   const ids = new Set(queue.map((i) => i.row.id));
-  for (const l of [won, quiet, newToday]) assert.equal(ids.has(l.id), false, String(l.id));
-  assert.equal(queue.length, sqlOrder.length - 3);
+  for (const l of [won, quiet]) assert.equal(ids.has(l.id), false, String(l.id));
+  assert.equal(queue.length, sqlOrder.length - 2);
+});
+
+test("G-03: a NEW lead created TODAY is in the queue at once — below every urgent reason, below older untouched leads", () => {
+  const at = queue.findIndex((i) => i.row.id === newToday.id);
+  assert.ok(at >= 0, "today's new lead is visible now, not tomorrow");
+  assert.equal(queue[at].attention.reason, "NEW_UNHANDLED");
+  assert.equal(queue[at].attention.priority, 45);
+  const staleAt = queue.findIndex((i) => i.row.id === staleNew.id);
+  for (const urgent of [overdue, called, wrote, awaiting, ...routine]) {
+    assert.ok(queue.findIndex((i) => i.row.id === urgent.id) < at, `urgent ${urgent.id} must stay above today's new lead`);
+  }
+  assert.ok(staleAt < at, "a lead nobody touched for 3 days outranks this morning's");
+  // A follow-up promised or a status move = handled: no longer "new".
+  const handled = rankLeadAttention([lead({ status: "NEW", createdAt: NOW, nextFollowUpAt: new Date(NOW.getTime() + 2 * day) }),
+    lead({ status: "OPEN", createdAt: NOW, lastActivityAt: NOW })], NOW);
+  assert.equal(handled.length, 0);
+});
+
+test("G-05 above the cap: the SQL keeps the most URGENT candidates (tiers mirror the bands), not the oldest follow-ups", () => {
+  const sql = readFileSync(path.join(process.cwd(), "lib/services/crm/lead-attention-queue.ts"), "utf8");
+  const order = sql.slice(sql.indexOf("ORDER BY\n      CASE"), sql.indexOf("LIMIT ${limit}"));
+  const tiers = ["THEN 1", "THEN 2", "THEN 3", "THEN 4", "THEN 5", "THEN 6", "ELSE 7"].map((s) => order.indexOf(s));
+  assert.ok(tiers.every((p, i) => p > 0 && (i === 0 || p > tiers[i - 1])), "tiers 1..7 in order");
+  assert.match(order, /lastUnreturnedCallAt" > COALESCE[^\n]*THEN 2/);
+  assert.match(order, /lastCustomerInboundAt" > COALESCE[^\n]*THEN 3/);
+  assert.match(sql, /OR \(q\."status" = 'NEW' AND q\."nextFollowUpAt" IS NULL\)/, "G-03: no 'before today' cut in the candidate SQL");
+  // G-05 performance: the facts are aggregated once per query (CTEs), never a correlated scan per lead.
+  assert.match(sql, /WITH conv AS \(/);
+  assert.doesNotMatch(sql, /c\."businessId" = l\."businessId"/, "no per-lead correlated Conversation lookup");
 });
 
 test("ties break by the clock that made it urgent, then id — deterministic", () => {

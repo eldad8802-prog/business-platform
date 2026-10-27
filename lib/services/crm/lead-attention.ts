@@ -105,13 +105,15 @@ export type LeadAttention = {
 };
 
 /**
- * How long a brand-new lead may sit untouched before it counts as neglected.
+ * How many Israel-local calendar days a brand-new, untouched lead waits before it asks for the owner.
  *
- * A calendar day, not an hour count: a lead that arrives at 23:50 has not been
- * neglected at 00:10. The comparison is on Israel-local day keys, the same
- * clock the follow-up rules use.
+ * Leads L1 · G-03 (owner decision 2026-10-27): ZERO — a NEW lead with no follow-up is "needs attention" the
+ * moment it arrives, on every surface (one queue). Age still raises it WITHIN its band (45 today → 65), so a
+ * lead nobody touched for days outranks this morning's, and both stay below a promised follow-up, a caller,
+ * a customer who wrote or an open identity question. It leaves the queue as soon as the owner moves it out of
+ * NEW, or sets a follow-up. Nothing is pushed: this is visibility only (notifications are L2).
  */
-export const NEW_LEAD_GRACE_DAYS = 1;
+export const NEW_LEAD_GRACE_DAYS = 0;
 
 export type LeadAttentionInput = {
   status: LeadStatusValue;
