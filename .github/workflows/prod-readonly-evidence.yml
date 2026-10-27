@@ -125,6 +125,7 @@ on:
           - 'ops/evidence/user-email-case-audit.sql'
           - 'ops/evidence/document-supplier-link-preflight.sql'
           - 'ops/evidence/document-supplier-link-production-evidence.sql'
+          - 'ops/evidence/document-supplier-link-open-all-production-evidence.sql'
 
 permissions:
   contents: read
