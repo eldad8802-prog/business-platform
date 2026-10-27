@@ -11,8 +11,6 @@
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
-const safeUrl = (url, fallback) => (typeof url === "string" && url.startsWith("/") && !url.startsWith("//") ? url : fallback);
-
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -22,7 +20,9 @@ self.addEventListener("push", (event) => {
   }
   const booking = data.kind === "booking" && typeof data.requestId === "number";
   const title = typeof data.title === "string" && data.title ? data.title : booking ? "בקשה לתור" : "תזכורת";
-  const url = safeUrl(data.url, booking ? "/calendar?view=requests" : "/tasks");
+  const local = typeof data.url === "string" && data.url.startsWith("/") && !data.url.startsWith("//");
+  // A task reminder keeps its original fallback; a booking request falls back to the requests tab.
+  const url = booking ? (local ? data.url : "/calendar?view=requests") : local ? data.url : "/tasks";
   const options = {
     body: typeof data.body === "string" ? data.body : "",
     tag: typeof data.tag === "string" ? data.tag : undefined,
