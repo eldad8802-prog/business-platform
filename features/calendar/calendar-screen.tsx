@@ -25,7 +25,7 @@ import t from "@/features/tasks/tasks.module.css";
 
 import { AppointmentDetails } from "./appointment-details";
 import { AppointmentForm, MoveForm, type FormDone, type Prefill } from "./appointment-form";
-import { CalendarApiError, customerName, forgetIntent, moveAppointment, type CustomerWire } from "./calendar-client";
+import { CalendarApiError, customerName, forgetIntent, moveAppointment, pendingRequestCount, type CustomerWire } from "./calendar-client";
 import {
   errorText,
   instantAt,
@@ -42,6 +42,7 @@ import {
 } from "./calendar-model";
 import { MobileAgenda, MonthGrid, TimeGrid, dayColumns, type Column, type DropTarget } from "./calendar-views";
 import { useCalendarData } from "./use-calendar-data";
+import { RequestsView } from "./requests-view";
 import { addCalendarDays } from "@/lib/utils/jerusalem-day";
 import s from "./calendar.module.css";
 
@@ -63,7 +64,13 @@ function CalendarBody() {
   const today = todayKey(now);
 
   const urlView = params?.get("view");
+  // "requests": the booking link's requests (Milestone C) — a tab beside the three pictures, not a fourth picture.
+  const showRequests = urlView === "requests";
   const view: CalendarView = VIEWS.includes(urlView as CalendarView) ? (urlView as CalendarView) : bp === "mobile" ? "day" : "week";
+  const requestParam = Number(params?.get("request"));
+  const focusRequest = Number.isInteger(requestParam) && requestParam > 0 ? requestParam : null;
+  const requestActionParam = params?.get("requestAction");
+  const focusAction = requestActionParam === "approve" || requestActionParam === "decline" ? requestActionParam : null;
   const urlDay = params?.get("day");
   const anchor: DayKey = urlDay && DAY_RE.test(urlDay) ? urlDay : today;
   const staffParam = params?.get("staff");
@@ -76,6 +83,16 @@ function CalendarBody() {
   const [toast, setToast] = useState<string | null>(null);
   // The last drag, undoable from its toast: where the appointment was, and the version the move produced.
   const [undo, setUndo] = useState<{ text: string; run: () => Promise<void> } | null>(null);
+  // How many booking-link requests wait (the tab's badge); refreshed every minute and after each decision.
+  const [pendingCount, setPendingCount] = useState(0);
+  const refreshPending = useCallback(() => {
+    pendingRequestCount().then((r) => setPendingCount(r.pending)).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    refreshPending();
+    const h = window.setInterval(refreshPending, 60_000);
+    return () => window.clearInterval(h);
+  }, [refreshPending]);
 
   // The phone's week is the strip; its data is the whole week so the strip can count.
   const dataView: CalendarView = bp === "mobile" && view !== "month" ? "week" : view;
@@ -213,6 +230,7 @@ function CalendarBody() {
         <div className={s.links}>
           <Link href="/calendar/staff" prefetch={false} className={`${t.btn} ${t.ghost}`}>עובדים וזמינות</Link>
           <Link href="/calendar/services" prefetch={false} className={`${t.btn} ${t.ghost}`}>שירותים</Link>
+          <Link href="/calendar/booking" prefetch={false} className={`${t.btn} ${t.ghost}`}>הזמנות מהקישור</Link>
         </div>
         <button type="button" className={`${t.btn} ${t.pri} ${t.newBtn}`} onClick={() => setCreating({ day: anchor })}>
           <PlusIcon /> תור חדש
@@ -241,10 +259,14 @@ function CalendarBody() {
         ) : null}
         <div className={s.seg} role="tablist" aria-label="תצוגה">
           {VIEWS.map((v) => (
-            <button key={v} type="button" role="tab" aria-selected={view === v} className={view === v ? s.segOn : ""} onClick={() => setUrl({ view: v })}>
+            <button key={v} type="button" role="tab" aria-selected={!showRequests && view === v} className={!showRequests && view === v ? s.segOn : ""} onClick={() => setUrl({ view: v, request: null, requestAction: null })}>
               {VIEW_LABEL[v]}
             </button>
           ))}
+          <button type="button" role="tab" aria-selected={showRequests} className={showRequests ? s.segOn : ""} onClick={() => setUrl({ view: "requests" })}
+            aria-label={pendingCount ? `בקשות · ${pendingCount} ממתינות` : "בקשות"}>
+            בקשות{pendingCount ? <span className={s.segBadge} aria-hidden="true">{pendingCount}</span> : null}
+          </button>
         </div>
       </div>
 
@@ -258,8 +280,17 @@ function CalendarBody() {
 
       <div className={s.cols}>
         <div className={s.main}>
-          {data.appointments.status === "loading" ? <CalendarSkeleton /> : null}
-          {data.appointments.status === "ready" ? (
+          {showRequests ? (
+            <RequestsView
+              focusId={focusRequest}
+              focusAction={focusAction}
+              onOpen={(d, id) => setUrl({ view: "day", day: d, appointment: String(id), request: null, requestAction: null })}
+              onChanged={() => { refreshPending(); void data.reload(); }}
+              flash={flash}
+            />
+          ) : null}
+          {!showRequests && data.appointments.status === "loading" ? <CalendarSkeleton /> : null}
+          {!showRequests && data.appointments.status === "ready" ? (
             view === "month" ? (
               <MonthGrid
                 anchor={anchor}
@@ -299,7 +330,7 @@ function CalendarBody() {
               />
             )
           ) : null}
-          {data.appointments.status === "ready" && !hasStaff && !appointments.length ? (
+          {!showRequests && data.appointments.status === "ready" && !hasStaff && !appointments.length ? (
             <p className={s.note}>
               טיפ: ב<Link href="/calendar/staff" prefetch={false}>עובדים וזמינות</Link> מגדירים שעות פעילות ועובדים, וב<Link href="/calendar/services" prefetch={false}>שירותים</Link> — מרווחים בין תורים. היומן מציע שעות פנויות לפיהם.
             </p>

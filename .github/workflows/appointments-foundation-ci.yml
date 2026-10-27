@@ -28,7 +28,12 @@ on:
       - "lib/services/feature-access/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20261029090000_appointments_foundation/**"
+      - "prisma/migrations/20261104090000_public_booking_foundation/**"
+      - "lib/services/booking/**"
+      - "app/api/public/booking/**"
+      - "lib/security/rate-limiter/**"
       - ".appt/**"
+      - ".bkg/**"
       - ".github/workflows/appointments-foundation-ci.yml"
   workflow_dispatch:
 
@@ -52,6 +57,7 @@ jobs:
           set -euo pipefail
           npx tsx lib/services/appointment/availability-core.test.ts
           npx tsx lib/services/appointment/appointment-core.test.ts
+          npx tsx lib/services/booking/booking-core.test.ts
       - name: Static guards
         run: |
           set -euo pipefail
@@ -101,9 +107,19 @@ jobs:
       - name: Application battery — flag, configuration, create, concurrency, move, status, isolation, slots, existing paths, learning, decision 6
         run: |
           set -euo pipefail
-          bash .appt/lab.sh appt_app --with-appt
+          bash .bkg/lab.sh appt_app --with-bkg
           TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/appt_app?$TZQ" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/appt_app?$TZQ&connection_limit=20" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/appt_app?$TZQ" \
             npx tsx .appt/app-battery.ts
+
+      - name: Public booking battery (Milestone C) — the door, free times, submit and every bypass, concurrency, assignment, decisions, expiry, reminders, linking, the customer's link, isolation, limits
+        run: |
+          set -euo pipefail
+          bash .bkg/lab.sh bkg_app --with-bkg
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bkg_app?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bkg_app?$TZQ&connection_limit=20" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bkg_app?$TZQ" \
+            npx tsx .bkg/app-battery.ts

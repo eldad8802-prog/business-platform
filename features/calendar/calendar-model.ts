@@ -53,7 +53,13 @@ export type AppointmentWire = {
   version: number;
   /** The customer's name, from the same read (null without a customer; absent on a write's echo). */
   customerName?: string | null;
+  /** Where it came from (PUBLIC_BOOKING = the business's booking link). */
+  sourceChannel?: string;
+  /** Booked through the public link (Milestone C): the request's state and who asked — the owner's eyes only. */
+  booking?: BookingWire | null;
 };
+
+export type BookingWire = { requestId: number; status: string; contactName: string; contactPhone: string | null; note: string | null; expiresAt: string };
 
 export type HistoryWire = { type: AppointmentEventType; actor: string; at: string; payload: Record<string, unknown> };
 
@@ -64,6 +70,8 @@ export type StaffWire = {
   active: boolean;
   sortOrder: number;
   version: number;
+  /** Offered on the public booking link (Milestone C, D7). */
+  publicBookable?: boolean;
   services: Array<{ businessServiceId: number; durationOverrideMinutes: number | null }>;
 };
 
@@ -450,7 +458,8 @@ export type Names = {
 
 /** The line an appointment shows: the customer and the service, or the title of a meeting / block. */
 export function headline(a: AppointmentWire, names: Names): string {
-  const customer = a.customerName ?? (a.customerId !== null ? names.customers.get(a.customerId) : undefined);
+  // A request from the booking link names who asked until the owner links a customer card (D6).
+  const customer = a.customerName ?? (a.customerId !== null ? names.customers.get(a.customerId) : undefined) ?? a.booking?.contactName;
   const service = a.businessServiceId !== null ? names.services.get(a.businessServiceId) : undefined;
   if (a.kind === "CUSTOMER") {
     const what = a.title?.trim() || service || "תור";
@@ -586,4 +595,25 @@ export function noSlotsReason(av: Availability, staffMemberId: number | null, da
   const bands = closureBands(av, staffMemberId, day, names);
   if (bands.length) return `היום סגור: ${bands.map((b) => b.label).join(" · ")}.`;
   return staffMemberId === null ? "העסק לא פעיל ביום הזה לפי שעות הפעילות." : "העובד לא עובד ביום הזה לפי שעות העבודה שלו.";
+}
+
+
+// ── Public booking requests (Milestone C) ─────────────────────────────────────────────────────────
+
+export const REQUEST_STATUS_LABEL: Record<string, string> = {
+  PENDING: "ממתינה לאישור",
+  APPROVED: "אושרה",
+  DECLINED: "נדחתה",
+  EXPIRED: "פגה",
+  WITHDRAWN: "בוטלה ע״י הלקוח",
+};
+
+/** How long a pending request still holds its time: "עוד 9 שע׳", "עוד 40 דק׳", or "פגה". */
+export function timeLeftLabel(expiresAt: string, now: Date): { text: string; urgent: boolean } {
+  const ms = Date.parse(expiresAt) - now.getTime();
+  if (!(ms > 0)) return { text: "פגה", urgent: true };
+  const minutes = Math.ceil(ms / 60_000);
+  if (minutes < 60) return { text: `עוד ${minutes} דק׳`, urgent: true };
+  const hours = Math.floor(minutes / 60);
+  return { text: `עוד ${hours} שע׳`, urgent: hours < 2 };
 }

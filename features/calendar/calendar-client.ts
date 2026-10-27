@@ -176,6 +176,9 @@ export type PolicyWire = {
   minLeadMinutes: number;
   maxAdvanceDays: number;
   slotStepMinutes: number;
+  /** Milestone C: open on the public booking link, and how its requests are approved (D2). */
+  publicBookable?: boolean;
+  approvalMode?: "MANUAL" | "AUTO";
   version: number | null;
   persisted?: boolean;
 };
@@ -253,3 +256,62 @@ export async function openLeadOf(customer: CustomerWire): Promise<number | null>
     return null;
   }
 }
+
+// ── Public booking — the owner's side (Milestone C) ─────────────────────────────────────────────────
+
+export type BookingSettingsWire = {
+  enabled: boolean;
+  publicId: string | null;
+  linkPath: string | null;
+  defaultApprovalMode: "MANUAL" | "AUTO";
+  staffChoiceMode: "NONE" | "OPTIONAL" | "REQUIRED";
+  assignmentMode: "BALANCED" | "PRIORITY";
+  selfCancelEnabled: boolean;
+  selfCancelWindowHours: number;
+  maxOpenRequestsPerPhone: number;
+  pendingTtlMinutes: number;
+  showAddress: boolean;
+  showBusinessDetails: boolean;
+  showPrices: boolean;
+  showStaffNames: boolean;
+  version: number | null;
+};
+export type BookingServiceWire = { id: number; name: string; durationMinutes: number | null; hasPrice: boolean; publicBookable: boolean; approvalMode: "MANUAL" | "AUTO"; policyVersion: number | null };
+export type BookingStaffWire = { id: number; displayName: string; color: string | null; active: boolean; sortOrder: number; publicBookable: boolean; version: number; serviceIds: number[] };
+export type BookingAdminWire = {
+  settings: BookingSettingsWire;
+  platform: { open: boolean; limits: { maxOpenRequestsPerPhone: number; submitPerIpPerMinute: number; submitPerIpPerHour: number; submitPerBusinessPerHour: number } };
+  services: BookingServiceWire[];
+  staff: BookingStaffWire[];
+};
+
+export const getBookingAdmin = () => call<BookingAdminWire>("GET", "/api/appointments/booking/settings");
+export const saveBookingSettings = (patch: Partial<BookingSettingsWire> & { expectedVersion?: number | null }) =>
+  call<BookingAdminWire>("PUT", "/api/appointments/booking/settings", patch);
+export const rotateBookingLink = (expectedVersion: number | null) =>
+  call<BookingAdminWire>("POST", "/api/appointments/booking/settings/link", expectedVersion === null ? {} : { expectedVersion });
+export const setStaffPublic = (id: number, input: { publicBookable?: boolean; sortOrder?: number; expectedVersion: number }) =>
+  call<{ staffMember: StaffWire }>("PATCH", `/api/appointments/staff/${id}`, input);
+
+export type BookingRequestWire = {
+  id: number;
+  status: "PENDING" | "APPROVED" | "DECLINED" | "EXPIRED" | "WITHDRAWN";
+  contactName: string;
+  contactPhone: string | null;
+  note: string | null;
+  createdAt: string;
+  expiresAt: string;
+  decidedAt: string | null;
+  appointment: { id: number; version: number; status: string; startsAt: string | null; endsAt: string | null; staffMemberId: number | null; businessServiceId: number | null; customerId: number | null };
+  serviceName: string | null;
+  staffName: string | null;
+  match: { customerId: number; name: string } | null;
+};
+export type BookingRequestsWire = { pending: BookingRequestWire[]; toLink: BookingRequestWire[]; recent: BookingRequestWire[] };
+
+export const listBookingRequests = () => call<BookingRequestsWire>("GET", "/api/appointments/booking/requests");
+export const pendingRequestCount = () => call<{ pending: number }>("GET", "/api/appointments/booking/requests?count=1");
+export const decideRequest = (intent: string, id: number, decision: "approve" | "decline", expectedVersion: number) =>
+  write<WriteResult>(intent, "POST", `/api/appointments/booking/requests/${id}`, { action: decision, expectedVersion });
+export const linkRequestCustomer = (id: number, input: { customerId: number } | { create: true }, expectedVersion: number) =>
+  call<{ appointmentId: number; customerId: number; version: number }>("POST", `/api/appointments/booking/requests/${id}`, { action: "link", ...input, expectedVersion });
