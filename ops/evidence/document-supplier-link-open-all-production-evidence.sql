@@ -2,7 +2,7 @@
 -- document-supplier-link-open-all-production-evidence.sql
 --
 -- Read-only Production EVIDENCE after migration
---   20261103100000_document_supplier_link_open_all
+--   20261106090000_document_supplier_link_open_all
 --
 -- Proves, from counts only, that document supplier linking is open for every business:
 --   * the migration is recorded and finished, nothing is unfinished or rolled back;
@@ -12,7 +12,7 @@
 -- No values, no names, no identifiers of any business.
 -- ============================================================================
 
-\echo ' 1 20261103100000_document_supplier_link_open_all is recorded once, finished, not rolled back (observed = rows)'
+\echo ' 1 20261106090000_document_supplier_link_open_all is recorded once, finished, not rolled back (observed = rows)'
 \echo ' 2 no migration is unfinished or rolled back (observed = rows)'
 \echo ' 3 definition document_supplier_linking: defaultEnabled is true (observed = matching rows)'
 \echo ' 4 policy document_supplier_linking: globalEnabled true, emergencyDisabled false (observed = matching rows)'
@@ -28,9 +28,9 @@ SET LOCAL statement_timeout = '15s';
 SET LOCAL row_security = off;
 
 WITH checks(n, ok, observed_count) AS (
-  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103100000_document_supplier_link_open_all'
+  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261106090000_document_supplier_link_open_all'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL) = 1,
-            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261103100000_document_supplier_link_open_all'
+            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261106090000_document_supplier_link_open_all'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL)
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)

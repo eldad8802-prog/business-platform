@@ -9,8 +9,8 @@
 -- No schema, no privilege, no policy change. Nothing is linked: every link still needs a person's decision.
 -- Each statement must touch exactly its one row, or the whole migration fails and nothing changes.
 --
--- RELEASE ORDER: sorts after 20261103090000_document_supplier_link (applied) and before
--- 20261104090000_pos_rivhit_source (another track, pending), so it can be released on its own.
+-- RELEASE ORDER: sorts after 20261105090000_accountant_link_events, the last migration applied in Production
+-- (ledger 196, nothing pending on 2026-10-27), so it is the next and only pending migration in name order.
 
 DO $$
 DECLARE
