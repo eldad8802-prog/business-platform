@@ -607,7 +607,7 @@ async function main() {
   const g03Done = await patchLead(tokC, freshToday.id, { followUpAt: null });
   const g03AfterDone = await asT(bizC.id, (tx) => leadService.listLeads({ businessId: bizC.id, needsAction: true, limit: 100 }, { tx }));
   const g03DoneRow = await o.lead.findUnique({ where: { id: freshToday.id }, select: { status: true, firstHandledAt: true, nextFollowUpAt: true } });
-  ok("the owner then marks that follow-up g03Done (lead still NEW) → it does NOT come back as 'new and untouched'",
+  ok("the owner then marks that follow-up done (lead still NEW) → it does NOT come back as 'new and untouched'",
     g03Done.status === 200 && g03DoneRow?.status === "NEW" && !!g03DoneRow.firstHandledAt && g03DoneRow.nextFollowUpAt === null
       && !g03AfterDone.some((l) => l.id === freshToday.id), JSON.stringify({ http: g03Done.status, g03DoneRow }));
   const moved = await patchLead(tokC, twinIds[0], { status: "OPEN" });
