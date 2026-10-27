@@ -150,6 +150,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/customers/[id]", parent: "/customers", parentLabelKey: "toCustomerList" },
   { pattern: "/leads/[id]", parent: "/leads", parentLabelKey: "toLeadList" },
   { pattern: "/suppliers", parent: "/tools/operations", parentLabelKey: "toBusinessManagement" },
+  // S1-B M3: the uploads work screen is a tool of the money family.
+  { pattern: "/money/uploads", parent: "/tools/money", parentLabelKey: "toMoneyInvoices" },
   { pattern: "/suppliers/[id]", parent: "/suppliers", parentLabelKey: "toSupplierList" },
 
   // ---- inventory ------------------------------------------------------------
