@@ -137,9 +137,9 @@ export type ContactHints = {
 /**
  * How far the contact hints can be trusted as IDENTITY (identity-policy@2).
  *   verified       the provider authenticated the delivery and vouches for the contact (default)
- *   self_asserted  typed by a person nobody authenticated (the website form): the hints may FIND a
- *                  Customer by phone, but never create identity links, and an email link they match
- *                  only asks the owner (a proposal) — anyone can type someone else's email
+ *   self_asserted  typed by a person nobody authenticated (the website form): a claim, never proof —
+ *                  any Customer it matches is only a candidate (an owner proposal); it never resolves,
+ *                  never creates a Customer or an identity link, and never touches an existing lead
  */
 export type ContactAssurance = "verified" | "self_asserted";
 

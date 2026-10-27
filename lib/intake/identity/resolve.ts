@@ -22,10 +22,10 @@
  *   no identifiers at all                                 NOT_APPLICABLE
  *
  * identity-policy@2 adds CONTACT ASSURANCE. A "self_asserted" event (contact details typed by a
- * person nobody authenticated — the website form) may still be FOUND by its phone (the domain's own
- * key, exactly what the lead will show), but an ACTIVE email link counts only as WEAK evidence for
- * it: anyone can type someone else's email, so it asks the owner (candidate) instead of resolving.
- * "verified" (every other source) is identity-policy@1 unchanged.
+ * person nobody authenticated — the website form) is never PROOF of who it is: every match it makes
+ * (the customer's phone, a phone / email link) counts only as WEAK evidence, so it can name a
+ * candidate for the owner but never resolves — anyone can type someone else's phone or email
+ * (Leads L1 · G-01 / G-01b). "verified" (every other source) is identity-policy@1 unchanged.
  *
  * Nothing here writes. The caller decides what a state MEANS for its route
  * (create, link, propose) under the identity locks (./locks.ts).
@@ -98,14 +98,16 @@ export async function resolveIdentity(
       where: { businessId, kind: hashed.kind, scope: hashed.scope, valueHash: hashed.valueHash, status: "active" },
       select: { customerId: true },
     });
+    // identity-policy@2 — a self-asserted identifier is a CLAIM: whatever it matches is a candidate, never proof.
+    const proof = assurance === "self_asserted" ? weak : strong;
     if (id.kind === "phone") {
       const customer = await tx.customer.findFirst({ where: { businessId, phone: id.value }, select: { id: true } });
-      if (customer) add(strong, customer.id, "customer_phone");
-      if (link) add(strong, link.customerId, "phone_link");
+      if (customer) add(proof, customer.id, "customer_phone");
+      if (link) add(proof, link.customerId, "phone_link");
     } else if (id.kind === "provider") {
-      if (link) add(strong, link.customerId, "provider_link");
+      if (link) add(proof, link.customerId, "provider_link");
     } else {
-      if (link) add(assurance === "self_asserted" ? weak : strong, link.customerId, "email_link");
+      if (link) add(proof, link.customerId, "email_link");
       // Customer.email is free text: compare normalized, tenant-scoped, bounded.
       const rows = await tx.$queryRaw<Array<{ id: number }>>`
         SELECT "id" FROM "Customer"

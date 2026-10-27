@@ -5,8 +5,8 @@
  * No database: resolveIdentity runs against an in-memory tenant transaction. Pins:
  *   - a website form (self-asserted contact) never resolves through an email link alone — it asks
  *     the owner (candidate) instead; a provider-verified source resolves as before (policy@1 rules)
- *   - a self-asserted phone still FINDS its Customer (the domain key; a returning customer works)
- *   - a self-asserted phone + someone else's linked email is a CONFLICT, never a silent pick
+ *   - G-01b: a self-asserted phone is a CANDIDATE too (never resolved); verified sources resolve as before
+ *   - a self-asserted phone + someone else's linked email is AMBIGUOUS, never a silent pick
  *   - every read stays inside its business (the same phone / email in another business is invisible)
  *   - only the website form is self-asserted; the lead destination never links for it
  */
@@ -83,17 +83,23 @@ async function main() {
     assert.deepEqual([r.evidence.strongBases, r.evidence.weakBases, r.evidence.assurance], [[], ["email_link"], "self_asserted"]);
   });
 
-  await test("self-asserted: the customer's own phone still finds them (a returning customer is not lost)", async () => {
+  await test("G-01b: a self-asserted phone of an existing customer is a CANDIDATE, never resolved (a typed phone is a claim)", async () => {
     const r = await resolveIdentity(tx, BIZ, ids({ phone: victim.phone!, email: "new-address@example.test" }), { assurance: "self_asserted" });
-    assert.deepEqual([r.state, r.customerId], ["resolved", victim.id]);
-    assert.deepEqual(r.evidence.strongBases, ["customer_phone"]);
+    assert.deepEqual([r.state, r.customerId], ["candidate", null]);
+    assert.deepEqual([r.evidence.strongBases, r.evidence.weakBases], [[], ["customer_phone"]]);
+    assert.deepEqual(r.candidates, [{ customerId: victim.id, bases: ["customer_phone"] }]);
   });
 
-  await test("self-asserted: one customer's phone + ANOTHER customer's linked email → conflict, nothing picked", async () => {
+  await test("verified: the same phone still resolves to its customer (Google / Meta / WhatsApp unchanged)", async () => {
+    const r = await resolveIdentity(tx, BIZ, ids({ phone: victim.phone! }));
+    assert.deepEqual([r.state, r.customerId, r.evidence.strongBases], ["resolved", victim.id, ["customer_phone"]]);
+  });
+
+  await test("self-asserted: one customer's phone + ANOTHER customer's linked email → ambiguous, nothing picked", async () => {
     const r = await resolveIdentity(tx, BIZ, ids({ phone: another.phone!, email: "victim@example.test" }), { assurance: "self_asserted" });
-    assert.equal(r.state, "conflict");
+    assert.equal(r.state, "ambiguous");
     assert.equal(r.customerId, null);
-    assert.deepEqual(r.candidates.map((c) => c.customerId), [another.id, victim.id]);
+    assert.deepEqual(r.candidates.map((c) => c.customerId), [victim.id, another.id]);
   });
 
   await test("tenant isolation: another business's phone, email and links are invisible", async () => {
@@ -102,7 +108,7 @@ async function main() {
     const r2 = await resolveIdentity(tx, OTHER, ids({ email: "victim@example.test" }));
     assert.deepEqual([r2.state, r2.candidates], ["candidate", [{ customerId: elsewhere.id, bases: ["customer_email"] }]]);
     const r3 = await resolveIdentity(tx, OTHER, ids({ phone: victim.phone! }), { assurance: "self_asserted" });
-    assert.deepEqual([r3.state, r3.customerId], ["resolved", elsewhere.id]);
+    assert.deepEqual([r3.state, r3.candidates], ["candidate", [{ customerId: elsewhere.id, bases: ["customer_phone"] }]]);
   });
 
   await test("only the website form is self-asserted; authenticated lead sources stay verified", () => {
@@ -128,6 +134,11 @@ async function main() {
     assert.match(code, /resolveIdentity\(tx, businessId, identifiers, \{ assurance \}\)/);
     assert.match(code, /if \(customerId !== null && assurance === "verified"\) \{\s*await ensureLinks\(/);
     assert.equal((code.match(/ensureLinks\(/g) ?? []).length, 1, "exactly one ensureLinks call, the guarded one");
+    // G-01b — no Customer from an anonymous form; an existing open lead is never attached to by one.
+    assert.match(code, /identity\.state === "unresolved" && assurance === "verified"\) \{/);
+    assert.equal((code.match(/customerService\.createCustomer\(/g) ?? []).length, 1);
+    assert.match(code, /const attachedToOpenLead = openLeadId !== null && assurance === "verified";/);
+    assert.match(code, /phone: heldBesideLeadId !== null \? null : phone,/);
     const proc = readFileSync(path.join(process.cwd(), "lib/intake/core/processor.ts"), "utf8");
     assert.match(proc, /preResolveIdentity\(businessId, identifiers, \{ assurance: n\.contactAssurance \}\)/);
   });
