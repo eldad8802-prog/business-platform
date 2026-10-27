@@ -9,10 +9,14 @@
  *       the owner's order alone.
  *   D9  a customer may cancel through their link while the business allows it and the window has not closed.
  *   D11 the platform's ceilings are constants here; a business may only be stricter.
+ *   Hours (owner decision 2026-10-28): the link offers a time only where the business itself is open — a staff
+ *       member's own hours never widen it. The owner's own calendar is not bound by this.
  */
 import { createHash, randomBytes } from "node:crypto";
 
+import { insideAvailability, windowsAsIntervals, windowsForDay, type DayException, type WeeklyRule } from "@/lib/services/appointment/availability.core";
 import { normalizeCustomerPhone } from "@/lib/services/integrations/whatsapp/phone";
+import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
 const HOUR_MS = 60 * 60_000;
 
@@ -135,6 +139,16 @@ export function chooseStaff(candidates: StaffCandidate[], mode: AssignmentMode):
   const sorted = [...candidates].sort((a, b) =>
     (mode === "BALANCED" ? a.dayLoad - b.dayLoad : 0) || a.sortOrder - b.sortOrder || a.id - b.id);
   return sorted[0].id;
+}
+
+/**
+ * Public booking only: is the whole appointment — start to end — inside the business's own open windows that day
+ * (its weekly hours, special opening hours and closures)? A staff member's own hours are applied before this and may
+ * only narrow the time; a business with no hours at all offers nothing on the link.
+ */
+export function withinBusinessHours(slot: { startsAt: Date; endsAt: Date }, business: { rules: WeeklyRule[]; exceptions: DayException[] }): boolean {
+  const day = jerusalemDayKey(slot.startsAt);
+  return insideAvailability(slot.startsAt, slot.endsAt, windowsAsIntervals(day, windowsForDay(day, business.rules, business.exceptions)));
 }
 
 /** D9: whether the customer may still cancel, and until when. */
