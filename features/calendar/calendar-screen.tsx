@@ -230,7 +230,8 @@ function CalendarBody() {
         <div className={s.links}>
           <Link href="/calendar/staff" prefetch={false} className={`${t.btn} ${t.ghost}`}>עובדים וזמינות</Link>
           <Link href="/calendar/services" prefetch={false} className={`${t.btn} ${t.ghost}`}>שירותים</Link>
-          <Link href="/calendar/booking" prefetch={false} className={`${t.btn} ${t.ghost}`}>הזמנות מהקישור</Link>
+          {/* On a phone a third link would wrap the header; there the requests tab carries it. */}
+          {bp !== "mobile" ? <Link href="/calendar/booking" prefetch={false} className={`${t.btn} ${t.ghost}`}>הזמנות מהקישור</Link> : null}
         </div>
         <button type="button" className={`${t.btn} ${t.pri} ${t.newBtn}`} onClick={() => setCreating({ day: anchor })}>
           <PlusIcon /> תור חדש

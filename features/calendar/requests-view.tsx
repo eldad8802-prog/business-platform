@@ -14,6 +14,7 @@
  * meanwhile (another device, the customer withdrew, it lapsed) is refused and the list is reloaded with a message.
  * Opened from a push with an action (?request=&requestAction=), it asks for confirmation first — never acts alone.
  */
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
@@ -129,6 +130,7 @@ export function RequestsView({
 
   return (
     <div className={s.requests}>
+      <p className={s.reqSettings}><Link href="/calendar/booking" prefetch={false}>הגדרות הזמנות מהקישור</Link></p>
       <section aria-labelledby="req-pending-title" className={s.reqSection}>
         <h2 id="req-pending-title" className={s.reqHead}>ממתינות לאישור {data.pending.length ? <span className={s.reqCount}>{data.pending.length}</span> : null}</h2>
         {data.pending.length === 0 ? <p className={t.hint}>אין בקשות שממתינות לך.</p> : null}
