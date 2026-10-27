@@ -25,6 +25,7 @@ on:
     paths:
       - "prisma/migrations/20261106090000_public_booking_foundation/**"
       - "ops/evidence/public-booking-foundation-*.sql"
+      - "ops/evidence/public-booking-pilot-business-9.sql"
       - ".bkg/**"
       - ".github/workflows/booking-foundation-lab.yml"
   workflow_dispatch:
@@ -108,6 +109,21 @@ jobs:
           q bkg_proof "$PREFLIGHT" | tee /tmp/pre2.out
           fails=$(grep '|FAIL|' /tmp/pre2.out | cut -d'|' -f1 | tr '\n' ' ')
           test "$fails" = "2 6 7 8 9 10 " || { echo "after the release the preflight should fail exactly 2 6 7 8 9 10, got: $fails"; exit 1; }
+
+      # The pilot's read-only monitor (business 9): SELECT-only, selectable in prod-readonly-evidence.yml, and on the
+      # released schema it answers all 39 lines in a READ ONLY session (business 9 has nothing here: zeros and false).
+      - name: 2b. Pilot monitor — read-only, selectable, 39 lines on the released schema
+        env:
+          MONITOR: ops/evidence/public-booking-pilot-business-9.sql
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          if grep -inE "$FORBIDDEN" "$MONITOR"; then echo "write keyword in $MONITOR"; exit 1; fi
+          grep -q "'$MONITOR'" .github/workflows/prod-readonly-evidence.yml || { echo "$MONITOR not selectable"; exit 1; }
+          PGOPTIONS="-c default_transaction_read_only=on" PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d bkg_proof -v ON_ERROR_STOP=1 -f "$MONITOR" | grep -E '^[0-9]+\|' | tee /tmp/monitor.out
+          test "$(wc -l < /tmp/monitor.out)" -eq 39 || { echo "expected 39 lines"; exit 1; }
+          # On the lab nothing is open for business 9: the readiness flags read false and every request count is zero.
+          grep -qE '^2\|f\|' /tmp/monitor.out && grep -qE '^15\|\|0$' /tmp/monitor.out || { echo "unexpected readiness or request lines"; exit 1; }
 
       - name: 3. Role battery — existing rows, checks, the three doors, isolation
         run: |

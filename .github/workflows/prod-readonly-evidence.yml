@@ -128,6 +128,7 @@ on:
           - 'ops/evidence/document-supplier-link-production-evidence.sql'
           - 'ops/evidence/document-supplier-link-open-all-production-evidence.sql'
           - 'ops/evidence/public-booking-foundation-preflight.sql'
+          - 'ops/evidence/public-booking-pilot-business-9.sql'
 
 permissions:
   contents: read
