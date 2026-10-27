@@ -100,7 +100,9 @@ jobs:
             # The reviewed extension of this foundation (Milestone C public booking, applied 2026-10-27, release run
             # 40527789773): the only other migration allowed to name these objects.
             [[ "$n" != "20261106090000_public_booking_foundation" ]] || continue
-            if grep -nE 'StaffMember|StaffServiceAssignment|AvailabilityRule|AvailabilityException|ServiceBookingPolicy|BookingSettings|BookingRequest|AppointmentManageToken|AppointmentEvent|appointment_(erase|event|user)|public_booking|btree_gist|Appointment_no_overlap' "$d/migration.sql"; then echo "$n names an appointments object"; exit 1; fi
+            # SQL only: a `--` comment that mentions an appointments object (e.g. "the same contract as
+            # appointment_erase_business()") names nothing.
+            if sed 's/--.*$//' "$d/migration.sql" | grep -nE 'StaffMember|StaffServiceAssignment|AvailabilityRule|AvailabilityException|ServiceBookingPolicy|BookingSettings|BookingRequest|AppointmentManageToken|AppointmentEvent|appointment_(erase|event|user)|public_booking|btree_gist|Appointment_no_overlap'; then echo "$n names an appointments object"; exit 1; fi
           done
           echo "the migration names only its own objects and the tables it builds on; no other migration names its objects"
 
