@@ -1,0 +1,36 @@
+name: money uploads
+
+# העלאת דוחות וקבצים (/money/uploads, S1-B M3): the pure read model — bank card
+# routing (ON / OFF / UNKNOWN), history merge and limit, old-path bank batches,
+# domain labels, derived attention (action vs info), and static checks that the
+# reads write nothing, stay tenant-bound and carry no amounts, descriptions or
+# bank coordinates. Pure — no database, no network, no clock.
+
+on:
+  pull_request:
+    paths:
+      - "lib/money-uploads/**"
+      - "app/api/money/uploads/**"
+      - "app/(shell)/money/uploads/**"
+      - "features/money-uploads/**"
+      - "lib/data-transfer/import/execute/import-run-store.ts"
+      - "lib/services/bank-file-import/http.ts"
+      - ".github/workflows/money-uploads-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  money-uploads:
+    name: Money uploads (pure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run verify:money-uploads
