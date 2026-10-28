@@ -21,7 +21,9 @@
  *     6. the console: reads the three monitoring tables across businesses; writes nothing; still reads NO
  *        accountant workflow table (period, package, recipient, delivery, trail) and no business data beyond;
  *     7. nothing else changed: every pre-existing accountant table's ACL, RLS, policies, triggers and
- *        constraints (the type list aside) are exactly as before.
+ *        constraints (the type list aside) are exactly as before;
+ *     8. the console's whole authority, diffed from the catalog: it gained exactly SELECT on the three monitoring
+ *        tables and the one read policy — no other table, column, routine, policy, membership or attribute.
  *
  * env: OWNER_URL, RUNTIME_URL, ADMIN_URL, PHASE, SHAPE_BEFORE. Synthetic only. ZERO network. Raw SQL only.
  */
@@ -81,6 +83,31 @@ const SHAPE = `
    WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname IN (${WORKFLOW.map((t) => `'${t}'`).join(", ")})
    ORDER BY c.relname`;
 
+// EVERYTHING the console's role holds, from the catalog: table and column privileges, routine privileges, policies
+// that name it, its memberships both ways, and its attributes. Compared before / after, the difference must be
+// exactly what migration 20261107092000 says.
+const ADMIN_PRIVS = `
+  WITH adm AS (SELECT oid FROM pg_roles WHERE rolname = 'app_admin')
+  SELECT 'table:' || c.relname || ':' || x.privilege_type AS item
+    FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) x
+   WHERE x.grantee = (SELECT oid FROM adm)
+  UNION SELECT 'column:' || c.relname || '.' || at.attname || ':' || x.privilege_type
+    FROM pg_attribute at JOIN pg_class c ON c.oid = at.attrelid CROSS JOIN LATERAL aclexplode(at.attacl) x
+   WHERE x.grantee = (SELECT oid FROM adm) AND at.attnum > 0
+  UNION SELECT 'routine:' || pr.proname || ':' || x.privilege_type
+    FROM pg_proc pr CROSS JOIN LATERAL aclexplode(pr.proacl) x
+   WHERE x.grantee = (SELECT oid FROM adm)
+  UNION SELECT 'schema:' || n.nspname || ':' || x.privilege_type
+    FROM pg_namespace n CROSS JOIN LATERAL aclexplode(n.nspacl) x
+   WHERE x.grantee = (SELECT oid FROM adm)
+  UNION SELECT 'policy:' || c.relname || ':' || po.polname || ':' || po.polcmd::text || ':' || coalesce(pg_get_expr(po.polqual, po.polrelid), '')
+    FROM pg_policy po JOIN pg_class c ON c.oid = po.polrelid
+   WHERE (SELECT oid FROM adm) = ANY (po.polroles)
+  UNION SELECT 'member-of:' || pg_get_userbyid(roleid) FROM pg_auth_members WHERE member = (SELECT oid FROM adm)
+  UNION SELECT 'has-member:' || pg_get_userbyid(member) FROM pg_auth_members WHERE roleid = (SELECT oid FROM adm)
+  UNION SELECT 'attrs:' || rolcanlogin || rolsuper || rolbypassrls || rolcreaterole || rolcreatedb FROM pg_roles WHERE rolname = 'app_admin'
+  ORDER BY 1`;
+
 const ALERT_COLS = `"code", "subjectKey", "severity", "detail", "openedAt", "lastSeenAt"`;
 const openPlatform = (client: PrismaClient, code: string, subject = "-", detail = "{}") =>
   x(client, null, `INSERT INTO "AccountantOpsAlert" (${ALERT_COLS}) VALUES ('${code}', '${subject}', 'HIGH', '${detail}', ${NOW}, ${NOW})
@@ -109,7 +136,8 @@ async function main() {
     for (const t of WORKFLOW) if (!refused(await q(admin, null, `SELECT count(*) FROM "${t}"`), DENIED)) none = false;
     ok("the console reads no accountant workflow table", none);
     const shape = rows(await q(owner, null, SHAPE));
-    console.log(`SHAPE=${Buffer.from(JSON.stringify(shape)).toString("base64")}`);
+    const adminPrivs = rows(await q(owner, null, ADMIN_PRIVS)).map((r) => String(r.item));
+    console.log(`SHAPE=${Buffer.from(JSON.stringify({ shape, admin: adminPrivs })).toString("base64")}`);
   } else if (PHASE === "after") {
     console.log("2. runs");
     const run = rows(await q(runtime, null, `INSERT INTO "AccountantOpsRun" ("kind", "source", "startedAt", "outcome")
@@ -205,10 +233,33 @@ async function main() {
       con?.convalidated === true &&
         [...TYPES_20261105, "DELIVERY_COMPLAINED"].every((t) => String(con?.def).includes(`'${t}'::text`)) &&
         (String(con?.def).match(/'[A-Z_]+'::text/g) ?? []).length === TYPES_20261105.length + 1, String(con?.def));
-    const before = process.env.SHAPE_BEFORE ? JSON.parse(Buffer.from(process.env.SHAPE_BEFORE, "base64").toString()) : null;
+    const was = process.env.SHAPE_BEFORE ? JSON.parse(Buffer.from(process.env.SHAPE_BEFORE, "base64").toString()) : null;
     const after = rows(await q(owner, null, SHAPE));
     ok("ACL, RLS, policies, triggers and constraints of the 5 workflow tables are exactly as before",
-      before !== null && JSON.stringify(before) === JSON.stringify(after), JSON.stringify({ before, after }).slice(0, 400));
+      was !== null && JSON.stringify(was.shape) === JSON.stringify(after), JSON.stringify({ was: was?.shape, after }).slice(0, 400));
+
+    console.log("8. the console's authority — the whole difference");
+    const adminNow = rows(await q(owner, null, ADMIN_PRIVS)).map((r) => String(r.item));
+    const added = adminNow.filter((x) => !(was?.admin ?? []).includes(x)).sort();
+    const removed = ((was?.admin ?? []) as string[]).filter((x) => !adminNow.includes(x));
+    const expected = [
+      "policy:AccountantBusinessAlert:p7adm_read:r:true",
+      "table:AccountantBusinessAlert:SELECT",
+      "table:AccountantOpsAlert:SELECT",
+      "table:AccountantOpsRun:SELECT",
+    ];
+    ok("app_admin gained EXACTLY: SELECT on the three monitoring tables + the read policy on the tenant one — nothing else",
+      JSON.stringify(added) === JSON.stringify(expected), JSON.stringify(added));
+    ok("…lost nothing, joined no role, gained no member, kept its attributes (NOLOGIN, no superuser, no BYPASSRLS)",
+      removed.length === 0 && adminNow.includes("attrs:falsefalsefalsefalsefalse"), JSON.stringify(removed));
+    ok("…and holds nothing on the accountant workflow tables, documents, recipients' addresses or financial records",
+      !adminNow.some((x) => /:(AccountantPeriod|AccountantPackage|AccountantRecipient|AccountantDelivery|AccountantWorkflowEvent|FinancialRecord|TransactionalEmail)[.:]/.test(x)) &&
+        !adminNow.some((x) => /^column:Document\.(fileUrl|ocrText)/.test(x)), JSON.stringify(adminNow.filter((x) => /Accountant|Financial|Document/.test(x))));
+    const via = rows(await q(admin, null, `SELECT count(*)::int AS n FROM "AccountantBusinessAlert" a JOIN "AccountantDelivery" d ON d."id" = (substring(a."subjectKey" from 3))::int`));
+    ok("…so a delivery id in an alert cannot be joined to the delivery (or its address) through the console", via.length === 0);
+    const login = rows(await q(owner, null, `SELECT rolname FROM pg_roles WHERE rolcanlogin AND pg_has_role(oid, 'app_admin', 'USAGE')`)).map((r) => String(r.rolname));
+    ok("…and the only way in is a LOGIN member of app_admin (the console's ADMIN_DATABASE_URL), not the runtime",
+      !login.includes("app_runtime_prod") && login.includes("app_admin_lab"), JSON.stringify(login));
   } else {
     throw new Error("PHASE must be before | after");
   }
