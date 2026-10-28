@@ -25,7 +25,8 @@ import { runTenantJob } from "@/lib/tenant/job";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import type { EmailProvider } from "@/lib/email/transactional/provider";
 import { previousPeriodKey } from "../period";
-import { defaultSweepDeps } from "../sweep";
+import { prisma } from "@/lib/prisma";
+import { accountantWorkflowEnabled } from "../http";
 import type { DeliveryStatus } from "../workflow-status";
 import { reconcileAlerts, releaseClaims, type Claim } from "./alert-store";
 import { readAlertChannel, sendDigest, type AlertChannel } from "./alert-email";
@@ -54,8 +55,17 @@ export type MonitorDeps = {
 
 export const defaultMonitorDeps: MonitorDeps = {
   now: () => new Date(),
-  listBusinessIds: defaultSweepDeps.listBusinessIds,
-  isEnabled: defaultSweepDeps.isEnabled,
+  // Ids and lifecycle only — the same sanctioned pre-context read of the tenant root as the sweep (B4: SELECT USING
+  // true). Not imported from ../sweep, which would pull the package builder (and its PDF renderer) into this route.
+  listBusinessIds: async () =>
+    (
+      await prisma.business.findMany({
+        where: { deletionRequestedAt: null, deletedAt: null },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      })
+    ).map((b) => b.id),
+  isEnabled: accountantWorkflowEnabled,
   sweepEnabled: () => process.env.ACCOUNTANT_SWEEP_ENABLED?.trim() === "true",
   webhookConfigured: () => !!process.env.RESEND_WEBHOOK_SECRET?.trim(),
   channel: () => readAlertChannel(),
