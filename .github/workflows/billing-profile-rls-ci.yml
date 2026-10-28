@@ -35,6 +35,9 @@ on:
       - "app/api/profile/**"
       - "app/api/settings/**"
       - "app/api/profile-settings.rls.integration.test.ts"
+      - "app/api/money/**"
+      - "app/api/money-uploads.rls.integration.test.ts"
+      - "lib/money-uploads/**"
       - "lib/services/profile/**"
       - "lib/services/connections/**"
       - "app/api/video/plan/**"
@@ -142,6 +145,17 @@ jobs:
           AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
           RLS_ADMIN_URL: ${{ env.OWNER_URL }}
         run: npx tsx app/api/profile-settings.rls.integration.test.ts
+
+      # S1-B M3: העלאת דוחות וקבצים — the import ledger's recent runs, old-path bank
+      # upload batches and the bank file import flag, read for the signed-in business
+      # only, with no amount, description or full account number in the answer.
+      - name: Money uploads read API under FORCE RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx app/api/money-uploads.rls.integration.test.ts
 
       - name: Billing customer picker under FORCE RLS
         env:

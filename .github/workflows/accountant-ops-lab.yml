@@ -1,0 +1,101 @@
+# Accountant package operations monitoring (G5 milestone 1) / migrations 20261107090000_accountant_ops_monitor,
+# 20261107091000_accountant_delivery_complained, 20261107092000_accountant_ops_admin_read — proof on PostgreSQL BEFORE
+# they reach Production (ephemeral PG17). Migration-first: this PR ships the migrations and their proofs only; the
+# monitor, the webhook's complaint handling and the console page are a separate PR, merged only after these are
+# applied and proven in Production.
+#
+#   0. Evidence files are SELECT-only and selectable in Production; the proof pins the three migration.sql sha256;
+#      each migration names only its own objects (A: the three new tables; B: the trail's type constraint;
+#      C: the three new tables' admin read).
+#   1–4. .acct/ops-lab.sh on the accountant workflow lab (Production today: the workflow + its link events, the
+#      console's read role): baseline — preflight 11/11, the proof refuses, the battery's "before"; `prisma migrate
+#      deploy` applies exactly these three — proof 17/17, preflight fails exactly 4 5 6 7 8, then the battery as the
+#      real roles (runtime, console, owner): runs, one-open-alert dedupe and concurrent claims, tenant isolation, the
+#      complaint event, the console's read and nothing beyond it, every pre-existing accountant table unchanged;
+#      atomicity of each migration; rollback refused with rows, exact without.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: accountant ops — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/2026110709*/**"
+      - "ops/evidence/accountant-ops-*.sql"
+      - ".acct/**"
+      - ".trp/**"
+      - ".dt/**"
+      - ".github/workflows/accountant-ops-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: accountant ops (PG17, real migrations via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: acct_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: acct_ci_synthetic_super_pw
+      LAB_PASSWORD: acct_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/accountant-ops-preflight.sql
+      EVIDENCE: ops/evidence/accountant-ops-production-evidence.sql
+      MIG_A: prisma/migrations/20261107090000_accountant_ops_monitor/migration.sql
+      MIG_B: prisma/migrations/20261107091000_accountant_delivery_complained/migration.sql
+      MIG_C: prisma/migrations/20261107092000_accountant_ops_admin_read/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable; checksums pinned; each migration names only its own objects
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          for m in "$MIG_A" "$MIG_B" "$MIG_C"; do
+            sum=$(sha256sum "$m" | cut -d' ' -f1)
+            grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum for $m"; exit 1; }
+            echo "$m sha256 $sum (pinned)"
+          done
+          names() { grep -v '^\s*--' "$1" | grep -oE '"[A-Za-z][A-Za-z_]*"' | sort -u; }
+          others=$(names "$MIG_A" | grep -vxE '"(AccountantOpsRun|AccountantOpsAlert|AccountantBusinessAlert)(_[A-Za-z_]+)?"|"(id|kind|source|startedAt|finishedAt|outcome|counts|errorCode|code|subjectKey|severity|detail|openedAt|lastSeenAt|notifyCount|lastNotifiedAt|resolvedAt|resolvedNotifiedAt|businessId)"|"Business"|"(string|array)"' || true)
+          test -z "$others" || { echo "$MIG_A names other objects: $others"; exit 1; }
+          others=$(names "$MIG_B" | grep -vxE '"AccountantWorkflowEvent"|"AccountantWorkflowEvent_type"|"eventType"' || true)
+          test -z "$others" || { echo "$MIG_B names other objects: $others"; exit 1; }
+          others=$(names "$MIG_C" | grep -vxE '"AccountantOpsRun"|"AccountantOpsAlert"|"AccountantBusinessAlert"' || true)
+          test -z "$others" || { echo "$MIG_C names other objects: $others"; exit 1; }
+          echo "A names only its three tables (and the Business FK); B only the trail's type constraint; C only the three tables"
+
+      - name: 1–4. Baseline, release, battery, atomicity, rollback
+        run: bash .acct/ops-lab.sh
