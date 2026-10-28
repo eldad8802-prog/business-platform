@@ -27,6 +27,8 @@
  *   M. Abuse: the IP limit, a limiter outage (503, nothing written — fail closed), JSON only.
  *   N. Regression: the calendar lists public appointments with their request; the owner's own exception (booking in a
  *      closed time with a warning) is untouched.
+ *   O. The business's hours bound the link (owner decision 2026-10-28): a staff member's own hours only narrow them —
+ *      the service's length, a closure, a closed day, "any staff", the server's refusal; the owner's calendar unchanged.
  *
  * env: OWNER_URL, DATABASE_URL (runtime). Everything else is set below. Synthetic only.
  */
@@ -539,6 +541,43 @@ async function main() {
   ok("N1 the calendar lists public appointments with who asked (the owner's eyes)", r.status === 200 && day.find((x) => x.id === a1.id)?.booking?.contactName === "נועה לוי");
   r = await routes.root.POST(own("/api/appointments", { method: "POST", key: key(), body: { startsAt: at("10:00", MON), durationMinutes: 30 } }));
   ok("N2 the owner may still book the closed Monday, with the warning (the owner's exception is untouched)", r.status === 201 && JSON.stringify((await body(r))?.warnings) === JSON.stringify(["OUTSIDE_AVAILABILITY"]));
+
+  // ── O. The link offers only the business's own hours (owner decision 2026-10-28) ───────────────────
+  // The business is open Sun–Thu 09:00–17:00 (closed on this Monday, 12:00–14:00 closed on Tuesday). "רון" works his
+  // own hours, 08:00–19:00 every weekday: on the owner's calendar they stand; on the link they may only narrow.
+  console.log("O. the business's hours bound the link");
+  const ron = await mkStaff("רון");
+  await routes.staffServices.PUT(own(`/api/appointments/staff/${ron.id}/services`, { method: "PUT", body: { services: [{ businessServiceId: haircut }, { businessServiceId: color }] } }), p({ staffId: String(ron.id) }));
+  await staffPatch(ron, { publicBookable: true, sortOrder: 9 });
+  r = await routes.availability.PUT(own("/api/appointments/availability", { method: "PUT", body: { staffMemberId: ron.id, rules: [0, 1, 2, 3, 4].map((weekday) => ({ weekday, startMinute: 8 * 60, endMinute: 19 * 60 })) } }));
+  const lateHours = r.status === 200;
+  const outside = (starts: string[], day: string) => starts.filter((s) => s < at("09:00", day) || s >= at("17:00", day));
+  let o = await slots({ serviceId: haircut, staffId: ron.id, fromDay: SUN, toDay: SUN }, newId);
+  ok("O1 own hours 08:00–19:00 → on the link only 09:00–16:30 (a 30-minute service ends by 17:00)", lateHours && o.status === 200
+    && o.starts[0] === at("09:00") && o.starts.at(-1) === at("16:30") && outside(o.starts, SUN).length === 0, JSON.stringify([o.starts[0], o.starts.at(-1)]));
+  o = await slots({ serviceId: color, staffId: ron.id, fromDay: SUN, toDay: SUN }, newId);
+  ok("O2 the service's length counts: a 60-minute service starts by 16:00 at the latest", o.starts.at(-1) === at("16:00") && outside(o.starts, SUN).length === 0, String(o.starts.at(-1)));
+  o = await slots({ serviceId: haircut, fromDay: SUN, toDay: SUN }, newId);
+  ok("O3 \"any staff\" is bounded the same way (none before 09:00 or from 17:00)", o.starts.length > 0 && outside(o.starts, SUN).length === 0, JSON.stringify(outside(o.starts, SUN)));
+  o = await slots({ serviceId: haircut, staffId: ron.id, fromDay: TUE, toDay: TUE }, newId);
+  ok("O4 the business's own closure (Tuesday 12:00–14:00) holds for a staff member with own hours", o.starts.length > 0
+    && !o.starts.some((s) => s >= at("11:31", TUE) && s < at("14:00", TUE)) && outside(o.starts, TUE).length === 0);
+  ok("O5 a day the business is closed (this Monday): nothing, whatever the staff member's own hours", (await slots({ serviceId: haircut, staffId: ron.id, fromDay: MON, toDay: MON }, newId)).starts.length === 0);
+  o = await slots({ serviceId: haircut, staffId: dana.id, fromDay: SUN, toDay: SUN }, newId);
+  ok("O6 a staff member without own hours still follows the business hours", o.starts.length > 0 && outside(o.starts, SUN).length === 0);
+  const beforeO = await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA}`);
+  r = await submit({ serviceId: haircut, staffId: ron.id, startsAt: at("17:00"), name: "אחרי הסגירה", phone: phone() }, key(), {}, newId);
+  const after = r.status;
+  r = await submit({ serviceId: haircut, staffId: ron.id, startsAt: at("08:30"), name: "לפני הפתיחה", phone: phone() }, key(), {}, newId);
+  ok("O7 the server refuses a request outside the business hours even for that staff member (409 SLOT_UNAVAILABLE), nothing written", after === 409 && r.status === 409
+    && (await body(r))?.error === "SLOT_UNAVAILABLE" && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA}`)) === beforeO, `${after} ${r.status}`);
+  r = await submit({ serviceId: haircut, startsAt: at("17:00"), name: "כל איש צוות", phone: phone() }, key(), {}, newId);
+  ok("O8 automatic staff choice never lands outside the business hours (17:00 → 409)", r.status === 409, String(r.status));
+  r = await submit({ serviceId: haircut, staffId: ron.id, startsAt: at("16:30"), name: "בתוך השעות", phone: phone() }, key(), {}, newId);
+  ok("O9 inside the business hours that staff member is booked as usual", r.status === 201, String(r.status));
+  r = await routes.root.POST(own("/api/appointments", { method: "POST", key: key(), body: { startsAt: at("18:00"), durationMinutes: 30, staffMemberId: ron.id } }));
+  ok("O10 the owner's own calendar is unchanged: 18:00 with that staff member is inside his hours (201, no warning)", r.status === 201
+    && JSON.stringify((await body(r))?.warnings ?? []) === "[]", JSON.stringify(await body(r)));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log(failures.map((f) => ` - ${f}`).join("\n")); process.exitCode = 1; }

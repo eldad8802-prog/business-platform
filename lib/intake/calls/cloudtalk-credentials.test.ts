@@ -140,6 +140,13 @@ async function main() {
     assert.match(rearm, /"metadata" - 'deadLetterReportedAt'/, "a re-armed receipt that dead-letters again is reported again (G-07)");
   });
 
+  await test("the owner reads both codes on an ACTIVE line (shared health map, S1-B M1)", async () => {
+    const { CONNECTION_HEALTH } = await import("@/lib/services/connections/connection-health-copy");
+    for (const code of CLOUDTALK_CREDENTIAL_CODES) assert.ok(CONNECTION_HEALTH[code], code);
+    const panel = readFileSync(path.join(process.cwd(), "components/settings/StoresAndCallsPanel.tsx"), "utf8");
+    assert.ok(panel.includes(`c.status === "ACTIVE" && has(CONNECTION_HEALTH, c.lastErrorCode)`), "an ACTIVE line shows its credential code");
+  });
+
   setCloudTalkFetchForTests(null);
   console.log(`\nALL L1 CLOUDTALK-CREDENTIAL TESTS PASSED — ${checks} checks\n`);
 }

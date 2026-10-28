@@ -218,6 +218,9 @@ const EXEMPT_PREFIXES = [
   "/auth",
   // Milestone 3: the link screen (/link/google) and the emailed link's confirmation — auth steps too.
   "/link",
+  // Milestone C, segment 3: a business's public booking page and a customer's own link — opened by customers with no
+  // Dubiz account, outside the app shell; never a back target (like /a).
+  "/book",
 ];
 function pageRoutes(dir: string): string[] {
   const out: string[] = [];

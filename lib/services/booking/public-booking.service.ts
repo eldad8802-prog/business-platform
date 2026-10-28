@@ -51,6 +51,7 @@ import {
   requestFingerprint,
   selfCancel,
   sha256Hex,
+  withinBusinessHours,
   type AssignmentMode,
 } from "./booking.core";
 import { notifyAutoConfirmed, notifyCustomerCancelled, notifyPending, resolveRequestNotification } from "./booking-notify";
@@ -181,12 +182,18 @@ async function laneSlots(tx: Tx, businessId: number, lane: Lane, policy: { buffe
   const range = { start: new Date(`${addCalendarDays(fromDay, -1)}T00:00:00.000Z`), end: new Date(`${addCalendarDays(toDay, 2)}T00:00:00.000Z`) };
   const busy = (await laneOccupants(tx, businessId, lane.staffMemberId, range)).map((o) =>
     occupiedRange(o.startsAt, o.endsAt, o.bufferBeforeMinutes, o.bufferAfterMinutes));
-  return computeSlots({
+  const slots = computeSlots({
     fromDay, toDay, durationMinutes: lane.durationMinutes,
     bufferBeforeMinutes: policy.bufferBeforeMinutes, bufferAfterMinutes: policy.bufferAfterMinutes,
     slotStepMinutes: policy.slotStepMinutes, minLeadMinutes: policy.minLeadMinutes, maxAdvanceDays: policy.maxAdvanceDays,
     now, rules, exceptions, busy,
   });
+  // The business lane's hours are the business's. A staff member's lane may run on own hours (they stand in for the
+  // business hours on the owner's calendar); on the link they may only narrow the business's own windows (owner
+  // decision 2026-10-28). This one place serves the free times, the server's re-check on submit, and "any staff".
+  if (lane.staffMemberId === null) return slots;
+  const business = await laneAvailability(tx, businessId, null, fromDay, toDay);
+  return slots.filter((s) => withinBusinessHours(s, business));
 }
 
 function pickService(catalog: Awaited<ReturnType<typeof publicCatalog>>, serviceId: unknown) {
