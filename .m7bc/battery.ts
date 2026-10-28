@@ -30,6 +30,7 @@ import { POST as ctDeliveryPOST } from "../app/api/intake/telephony/cloudtalk/[p
 import { POST as vcDeliveryPOST } from "../app/api/intake/telephony/voicenter/[publicId]/[key]/route";
 import { runWithTenantContext } from "../lib/tenant/context";
 import { withTenantTransaction } from "../lib/tenant/transaction";
+import { readConnectionSecrets } from "../lib/intake/acquisition/connection.service";
 import { getLeadBriefing } from "../lib/services/crm/lead-briefing";
 import { getCustomerCard } from "../lib/services/crm/customer-card.read-model";
 
@@ -557,6 +558,105 @@ async function main() {
   ok("paused by the owner → 401", (await sendVoicenter(vcPub, vcKey, cdr("v-4"))).status === 401);
   ok("C (Voicenter not enabled) cannot create an endpoint → 403",
     (await ownerPOST(req("/api/integrations/acquisition", { headers: owner(uC.id), body: JSON.stringify({ sourceKey: "telephony.voicenter" }) }))).status === 403);
+
+  // ═════════════════════ Leads L1 · B1 — store recovery across a platform flag switch-off ═════════════════════
+  // The sync (reconcile.ts) skips a connection whose source flag is OFF and must NOT advance its cursor, so once the
+  // flag is back every order changed meanwhile is recovered — once. Business D only (its own store and Wix site).
+  console.log("\n-- B1: WooCommerce / Wix — flag off: nothing processed, cursor still; flag on: recovered once; revoked: never --");
+  const D = await o.business.create({ data: { name: `${RUN}-D` } });
+  for (const f of ["commerce_woocommerce", "commerce_wix"]) await enable(D.id, f);
+  const uD = await o.user.create({ data: { email: `${RUN}-d@lab.test`, password: "x", businessId: D.id, role: "USER" } });
+  const setFlag = (featureKey: string, state: "ENABLED" | "DISABLED") =>
+    o.businessFeatureAccess.update({ where: { businessId_featureKey: { businessId: D.id, featureKey } }, data: { state } });
+  const SHOP_D = `shop-d-${U}.lab.test`;
+  const INST_D = `inst-d-${U}`;
+  const shopD = store(SHOP_D);
+  const startD = await json(await wooStartPOST(req("/api/integrations/commerce/woocommerce", { headers: owner(uD.id), body: JSON.stringify({ storeUrl: SHOP_D }) })));
+  const cbD = await wooCallbackPOST(req("/api/integrations/commerce/woocommerce/callback", { headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key_id: 9, user_id: new URL(String(startD.authorizeUrl)).searchParams.get("user_id"), consumer_key: `ck_${"e".repeat(40)}`, consumer_secret: `cs_${"f".repeat(40)}`, key_permissions: "read_write" }) }));
+  const wooConnD = await o.acquisitionConnection.findFirst({ where: { businessId: D.id, sourceKey: "commerce.woocommerce", status: "ACTIVE" } });
+  installs.set(INST_D, { installed: true, siteName: "Shop D on Wix", orders: [] });
+  const wixD = await wixConnectPOST(req("/api/integrations/commerce/wix", { headers: owner(uD.id), body: JSON.stringify({ instance: signedInstance(INST_D) }) }));
+  const wixConnD = await o.acquisitionConnection.findFirst({ where: { businessId: D.id, sourceKey: "commerce.wix", status: "ACTIVE" } });
+  ok("B1 setup: D's own store and Wix site are connected", cbD.status === 200 && !!wooConnD && wixD.status === 201 && !!wixConnD);
+  const cursorOf = async (connectionId: number) =>
+    (await runWithTenantContext({ businessId: D.id }, () => readConnectionSecrets(D.id, connectionId, { anyLiveStatus: true })))?.cursor ?? null;
+  const ordersD = (sourceKey: string) => o.commerceOrder.count({ where: { businessId: D.id, sourceKey } });
+  const receiptsD = (sourceKey: string) => o.intakeEvent.count({ where: { businessId: D.id, sourceKey } });
+  const future = (sec: number) => gmt(3_600 + sec); // well after any cursor the first sync may set
+  const wixFuture = (sec: number) => new Date(Date.now() + 3_600_000 + sec * 1000).toISOString();
+
+  // Baseline: one order each, synced; the cursor is set.
+  shopD.orders.push(wooOrder(7001, { date_modified_gmt: future(1) }));
+  installs.get(INST_D)!.orders.push(wixOrder("wd-1", { updatedDate: wixFuture(1) }));
+  await sweep();
+  const wooCursor0 = await cursorOf(wooConnD!.id);
+  const wixCursor0 = await cursorOf(wixConnD!.id);
+  ok("B1 baseline: the sync recorded D's first store and Wix orders; both cursors are set",
+    (await ordersD("commerce.woocommerce")) === 1 && (await ordersD("commerce.wix")) === 1 && !!wooCursor0 && !!wixCursor0,
+    JSON.stringify({ wooCursor0, wixCursor0 }));
+
+  // Flag OFF (the platform admin): orders keep changing in the store and on Wix; a webhook arrives too.
+  await setFlag("commerce_woocommerce", "DISABLED");
+  await setFlag("commerce_wix", "DISABLED");
+  const BULK = 350; // > RECONCILE_PAGES_PER_RUN (3) × per_page (100): recovery must span several runs
+  for (let i = 0; i < BULK; i++) shopD.orders.push(wooOrder(7100 + i, { date_modified_gmt: future(100 + i) }));
+  installs.get(INST_D)!.orders.push(wixOrder("wd-2", { updatedDate: wixFuture(100) }), wixOrder("wd-3", { updatedDate: wixFuture(101) }));
+  // The order behind the webhook exists in the store as well (sendWoo only delivers it) — that is what the sync reads.
+  const order7099 = wooOrder(7099, { date_modified_gmt: future(99) });
+  shopD.orders.push(order7099);
+  const hookWhileOff = await sendWoo(shopD, order7099, "order.created");
+  const r0Woo = await receiptsD("commerce.woocommerce");
+  const r0Wix = await receiptsD("commerce.wix");
+  await sweep();
+  await sweep();
+  ok("B1 flag OFF: a webhook is answered 200 and records nothing; two syncs process nothing",
+    hookWhileOff.status === 200 && (await ordersD("commerce.woocommerce")) === 1 && (await ordersD("commerce.wix")) === 1
+      && (await receiptsD("commerce.woocommerce")) === r0Woo && (await receiptsD("commerce.wix")) === r0Wix);
+  ok("B1 flag OFF: neither cursor moved (the orders changed meanwhile stay ahead of it)",
+    (await cursorOf(wooConnD!.id)) === wooCursor0 && (await cursorOf(wixConnD!.id)) === wixCursor0,
+    JSON.stringify({ woo: await cursorOf(wooConnD!.id), wix: await cursorOf(wixConnD!.id) }));
+  ok("B1 flag OFF: both connections stay ACTIVE (no stored status changes because of a platform flag)",
+    (await o.acquisitionConnection.count({ where: { id: { in: [wooConnD!.id, wixConnD!.id] }, status: "ACTIVE" } })) === 2);
+
+  // Flag ON again: the sync recovers what changed while it was off — over several runs, exactly once.
+  await setFlag("commerce_woocommerce", "ENABLED");
+  await setFlag("commerce_wix", "ENABLED");
+  const run1 = await sweep();
+  const afterRun1 = await ordersD("commerce.woocommerce");
+  ok("B1 flag ON, run 1: at most 3 pages (300 orders) of the backlog are recovered, Wix's two as well",
+    afterRun1 > 1 && afterRun1 <= 1 + 300 && (await ordersD("commerce.wix")) === 3, JSON.stringify({ afterRun1, commerce: run1.commerce }));
+  for (let i = 0; i < 4 && (await ordersD("commerce.woocommerce")) < 1 + BULK + 1; i++) await sweep();
+  const wooAll = await ordersD("commerce.woocommerce");
+  ok("B1 flag ON: further runs finish the backlog — every order changed while OFF is recovered (+ the webhook's 7099)",
+    wooAll === 1 + BULK + 1, String(wooAll));
+  await sweep();
+  ok("B1 idempotent: another run adds nothing; one receipt per order state, no duplicate order",
+    (await ordersD("commerce.woocommerce")) === wooAll && (await receiptsD("commerce.woocommerce")) === wooAll
+      && (await o.commerceOrder.groupBy({ by: ["externalOrderId"], where: { businessId: D.id }, _count: true, having: { externalOrderId: { _count: { gt: 1 } } } })).length === 0);
+
+  // Keys revoked in the store: nothing can be fetched, so nothing is "recovered".
+  shopD.mode = "unauthorized";
+  shopD.orders.push(wooOrder(7600, { date_modified_gmt: future(600) }));
+  await sweep();
+  ok("B1 keys revoked in the store: the new order is NOT recorded (and the owner sees WOO_KEYS_REVOKED)",
+    (await ordersD("commerce.woocommerce")) === wooAll
+      && (await o.acquisitionConnection.findFirst({ where: { id: wooConnD!.id } }))?.lastErrorCode === "WOO_KEYS_REVOKED");
+  shopD.mode = "ok";
+
+  // The owner disconnects: a revoked connection is never synced again — no recovery after a disconnect.
+  await ownerIdPOST(req(`/api/integrations/acquisition/${wooConnD!.id}`, { headers: owner(uD.id), body: JSON.stringify({ action: "revoke" }) }), params({ id: String(wooConnD!.id) }));
+  await ownerIdPOST(req(`/api/integrations/acquisition/${wixConnD!.id}`, { headers: owner(uD.id), body: JSON.stringify({ action: "revoke" }) }), params({ id: String(wixConnD!.id) }));
+  shopD.orders.push(wooOrder(7700, { date_modified_gmt: future(700) }));
+  installs.get(INST_D)!.orders.push(wixOrder("wd-9", { updatedDate: wixFuture(900) }));
+  await sweep();
+  await sweep();
+  ok("B1 after the owner disconnects: orders changed since are never recovered (store and Wix)",
+    (await o.commerceOrder.count({ where: { businessId: D.id, externalOrderId: { in: ["7600", "7700", "wd-9"] } } })) === 0);
+
+  ok("B1 isolation: D's recovery touched no other business (every order and receipt of D is D's; B has no store orders)",
+    (await o.commerceOrder.count({ where: { businessId: B.id } })) === 0
+      && (await o.intakeEvent.count({ where: { businessId: { not: D.id }, providerAccountRef: { in: [wooConnD!.publicId, wixConnD!.publicId] } } })) === 0);
 
   // ════════════════════════════════════════ invariants ════════════════════════════════════════
   console.log("\n-- invariants: Order ≠ Lead, Call ≠ Lead; no money, documents or stock; tenancy --");
