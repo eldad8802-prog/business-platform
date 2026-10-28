@@ -1,0 +1,147 @@
+# Leads L1 · G-01b / migration 20261108090000_lead_claimed_phone — proof on PostgreSQL BEFORE it reaches Production
+# (ephemeral PG17). Migration-first: this PR ships the migration and its proof only (no schema.prisma, no runtime).
+#
+# .lcp/lab.sh builds Production's topology on top of the public booking lab (.bkg → .appt → .acct): non-superuser
+# BYPASSRLS owner, NOLOGIN app_runtime + LOGIN app_runtime_prod, every migration before this one applied or recorded.
+#
+#   0. Evidence files are SELECT-only; the proof pins migration.sql's sha256.
+#   1. Baseline (pending): the preflight passes whole; the proof refuses.
+#   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: the proof passes whole; the preflight then
+#      fails exactly its "not there yet" checks (3, 4).
+#   3. Role battery (.lcp/migration-battery.ts) on a lab with leads that existed BEFORE the migration: existing rows
+#      untouched, the digits-only CHECK, one-open-lead-per-phone unchanged and never involving a claimed phone, the
+#      non-unique index, isolation unchanged.
+#   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   5. Rollback: refused while any claimed phone is stored (no data is ever dropped); whole on an unused database.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: lead claimedPhone — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261108090000_lead_claimed_phone/**"
+      - "ops/evidence/lead-claimed-phone-*.sql"
+      - ".lcp/**"
+      - ".github/workflows/leads-claimed-phone-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: lead claimedPhone (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: lcp_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: lcp_ci_synthetic_super_pw
+      LAB_PASSWORD: lcp_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/lead-claimed-phone-preflight.sql
+      PROOF: ops/evidence/lead-claimed-phone-production-evidence.sql
+      MIGRATION: prisma/migrations/20261108090000_lead_claimed_phone/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files — SELECT-only, checksum pinned, selectable
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$PROOF"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$MIGRATION" | cut -d' ' -f1)
+          grep -q "'$sum'" "$PROOF" || { echo "the proof does not pin $sum"; exit 1; }
+          if grep -nE '\b(GRANT|REVOKE|POLICY|ROLE|SECURITY DEFINER)\b' "$MIGRATION" | grep -v '^\s*[0-9]*:--'; then echo "authority-changing statement"; exit 1; fi
+          echo "evidence clean; checksum pinned $sum; the migration changes no authority"
+
+      - name: 1. Baseline — pending; the preflight passes whole, the proof refuses
+        run: |
+          set -euo pipefail
+          bash .lcp/lab.sh lcp_base
+          q() { PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d "$1" -v ON_ERROR_STOP=1 -f "$2" | grep -E '^[0-9]+\|' ; }
+          q lcp_base "$PREFLIGHT" | tee /tmp/pre.out
+          ! grep -q '|FAIL|' /tmp/pre.out || { echo "preflight not whole on the baseline"; exit 1; }
+          if PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d lcp_base -v ON_ERROR_STOP=1 -f "$PROOF" > /tmp/proof0.out 2>&1; then
+            grep -q '^1|FAIL|' /tmp/proof0.out || { cat /tmp/proof0.out; echo "the proof should refuse before the migration"; exit 1; }
+          else
+            grep -q 'claimedPhone" does not exist' /tmp/proof0.out || { cat /tmp/proof0.out; echo "the proof failed for another reason"; exit 1; }
+          fi
+          echo "the proof refuses before the migration"
+
+      - name: 2. Release — migrate deploy applies exactly this one; the proof passes whole
+        run: |
+          set -euo pipefail
+          bash .lcp/lab.sh lcp_proof --with-lcp
+          q() { PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d "$1" -v ON_ERROR_STOP=1 -f "$2" | grep -E '^[0-9]+\|' ; }
+          q lcp_proof "$PROOF" | tee /tmp/proof.out
+          ! grep -q '|FAIL|' /tmp/proof.out || { echo "proof not whole after the release"; exit 1; }
+          test "$(wc -l < /tmp/proof.out)" -eq 9 || { echo "expected 9 proof lines"; exit 1; }
+          q lcp_proof "$PREFLIGHT" | tee /tmp/pre2.out
+          fails=$(grep '|FAIL|' /tmp/pre2.out | cut -d'|' -f1 | tr '\n' ' ')
+          test "$fails" = "3 4 " || { echo "after the release the preflight should fail exactly 3 4, got: $fails"; exit 1; }
+          # Read-only session, as prod-readonly-evidence.yml runs it.
+          PGOPTIONS="-c default_transaction_read_only=on" PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d lcp_proof -v ON_ERROR_STOP=1 -f "$PROOF" >/dev/null
+
+      - name: 3. Role battery — existing rows, the CHECK, one open lead per phone unchanged, isolation
+        run: |
+          set -euo pipefail
+          bash .lcp/lab.sh lcp_mig
+          PGPASSWORD="$LAB_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -U lab_owner -d lcp_mig -f .lcp/pre.sql
+          bash .lcp/lab.sh lcp_mig --deploy-only
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/lcp_mig" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/lcp_mig" \
+            npx tsx .lcp/migration-battery.ts
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .lcp/lab.sh lcp_broken --broken-lcp
+          left=$(PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d lcp_broken -v ON_ERROR_STOP=1 -c "SELECT
+              (SELECT count(*) FROM information_schema.columns WHERE table_name = 'Lead' AND column_name = 'claimedPhone')
+            + (SELECT count(*) FROM pg_constraint WHERE conname = 'Lead_claimedPhone_digits')
+            + (SELECT count(*) FROM pg_class WHERE relname = 'Lead_businessId_claimedPhone_idx')")
+          echo "objects left=$left"
+          test "$left" = "0" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Rollback — refused while claimed phones are stored; whole on an unused database
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -v ON_ERROR_STOP=1 "$@"; }
+          if lab -d lcp_mig -f .lcp/rollback.sql 2>/tmp/rb.err >/dev/null; then echo "rollback dropped stored claimed phones"; exit 1; fi
+          grep -q "lead claimedPhone rollback refused" /tmp/rb.err || { cat /tmp/rb.err; exit 1; }
+          stored=$(PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d lcp_mig -c "SELECT count(*) FROM \"Lead\" WHERE \"claimedPhone\" IS NOT NULL")
+          test "$stored" -gt 0 || { echo "the refused rollback lost data"; exit 1; }
+          lab -d lcp_proof -f .lcp/rollback.sql
+          fails=$(PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d lcp_proof -v ON_ERROR_STOP=1 -f "$PREFLIGHT" | grep -E '^[0-9]+\|FAIL' | cut -d'|' -f1 | tr '\n' ' ' || true)
+          test -z "$fails" || { echo "after rollback the preflight should be whole, got: $fails"; exit 1; }
+          echo "rollback refused over stored data ($stored kept); whole on an unused database"
