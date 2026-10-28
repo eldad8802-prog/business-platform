@@ -23,6 +23,8 @@ psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_ST
 
 if [ "$MODE" != "--deploy-only" ]; then
 bash "$ROOT/.bkg/lab.sh" "$DB" --with-bkg >/dev/null
+# What Production has on "Lead" that `db push` cannot make (RLS + the partial open-phone index).
+psql_owner -f "$ROOT/.lcp/prereq.sql"
 
 # Nothing of this migration may pre-exist (it is not in schema.prisma; asserted, not assumed).
 psql_owner <<'SQL'
