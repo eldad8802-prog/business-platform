@@ -3,8 +3,8 @@ import { decideCronAuth } from "@/lib/services/billing/settlement/settlement-rec
 import { runAccountantSweep } from "@/lib/accountant/sweep";
 
 /**
- * The monthly accountant sweep (D1). Called by the scheduler — a daily Vercel cron and the GitHub
- * Actions workflow — authenticated by CRON_SECRET, never by a user session and never with a tenant
+ * The monthly accountant sweep (D1). Called by the scheduler — an hourly Vercel cron (and, optionally, the GitHub
+ * Actions backstop) — authenticated by CRON_SECRET, never by a user session and never with a tenant
  * supplied by the caller: every business is resolved and entered server-side (lib/accountant/sweep.ts).
  *
  * Inert until owner gate G2: unless ACCOUNTANT_SWEEP_ENABLED is exactly "true" the route answers 200

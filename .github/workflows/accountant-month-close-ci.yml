@@ -45,6 +45,7 @@ on:
       - "features/tasks/**"
       - "lib/services/account/**"
       - "lib/storage/**"
+      - "vercel.json"
       - "lib/security/rate-limiter/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20261027090000_accountant_month_close/**"
@@ -250,3 +251,14 @@ jobs:
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_g4?$TZQ" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_g4?$TZQ" \
             npx tsx .acct/g4-battery.ts
+
+      - name: Hourly sweep battery — the real sweep run hourly (and overlapping) for two days; one package per month, one notice, retries with one key, 7 attempts inside 24 h, switch off, isolation
+        run: |
+          set -euo pipefail
+          bash .acct/lab.sh acct_hourly --with-acct
+          PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_hourly -f prisma/migrations/20261105090000_accountant_link_events/migration.sql
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_hourly?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_hourly?$TZQ" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_hourly?$TZQ" \
+            npx tsx .acct/hourly-sweep-battery.ts

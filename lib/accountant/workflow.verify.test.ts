@@ -7,8 +7,13 @@
 
 process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET ?? "workflow-verify-synthetic-secret-0123456789";
 
+import { readFileSync } from "node:fs";
+
 import { BillingDocumentType, BillingPdfRenderStatus } from "@prisma/client";
 
+import { MAX_ATTEMPTS, RETRY_DELAYS_MS } from "@/lib/email/transactional/delivery";
+
+import { SEND_WINDOW_MS } from "./delivery.service";
 import { renderAccountantPackageEmail } from "./email-template";
 import { buildAccountantLinkUrl, deriveAccountantLinkSecret, hashAccountantLinkSecret, isLinkPublicId, isLinkSecret, linkExpiry, mintAccountantLink } from "./link";
 import { noticeKindFor, reminderDue, translatePeriodNotice } from "./notify";
@@ -149,6 +154,18 @@ ok("control characters in a name are refused", normalizeRecipientName("a\u0007b"
   ok("an incomplete package says so", e.text.includes("עדיין פתוחים"));
   ok("names are escaped in html", renderAccountantPackageEmail({ businessName: "<b>x</b>", recipientName: "", periodLabel: "p", link: "https://a/b", expiresOn: "d", incomplete: false }).html.includes("&lt;b&gt;"));
   ok("the email says what the link gives: every document, the ZIP and both reports", e.text.includes("כל מסמך מקור") && e.text.includes("ZIP") && e.text.includes("Excel") && e.text.includes("PDF") && e.text.includes("פתיחת החבילה"));
+}
+
+// ── the scheduler: Vercel Cron, hourly, the existing route only ──
+{
+  const vercel = JSON.parse(readFileSync("vercel.json", "utf8")) as { crons?: { path: string; schedule: string }[] };
+  const mine = (vercel.crons ?? []).filter((c) => c.path === "/api/accountant/sweep");
+  ok("cron: vercel.json runs the accountant sweep hourly at :30 — exactly one entry", mine.length === 1 && mine[0].schedule === "30 * * * *", JSON.stringify(mine));
+  ok("cron: no other accountant path is scheduled (no parallel mechanism)", (vercel.crons ?? []).filter((c) => c.path.startsWith("/api/accountant/")).length === 1);
+  // Retries under an hourly cadence: the spacing becomes max(delay, 1 h); all 7 attempts fit the 24 h window.
+  let t = 0;
+  for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) t += Math.max(RETRY_DELAYS_MS[attempt - 1], 60 * 60_000);
+  ok("cron: hourly retries place all 7 attempts inside the 24 h send window", t < SEND_WINDOW_MS - 60 * 60_000, `${t / 3600_000} h`);
 }
 
 // ── G4: an unanswered send, the link's state ──

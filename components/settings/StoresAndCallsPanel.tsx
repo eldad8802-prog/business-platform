@@ -5,6 +5,8 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import type { Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
+import { CONNECTION_HEALTH, connectionHealthKey } from "@/lib/services/connections/connection-health-copy";
+
 import { Action, Field, stamp } from "./LeadSourcesPanel";
 
 /**
@@ -54,20 +56,6 @@ const STATUS: Record<Connection["status"], { label: MessageKey; tone: string }> 
   PAUSED: { label: "account.settings.connections.stores.status.paused", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
   ERROR: { label: "account.settings.connections.stores.status.error", tone: "bg-[var(--dz-danger-bg-soft)] text-[var(--dz-danger)]" },
   REVOKED: { label: "account.settings.connections.stores.status.revoked", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
-};
-
-/** What the owner can do about a provider-side problem (lastErrorCode → plain words). */
-const HEALTH: Record<string, MessageKey> = {
-  WOO_KEYS_REVOKED: "account.settings.connections.stores.health.wooKeysRevoked",
-  WOO_STORE_UNREACHABLE: "account.settings.connections.stores.health.wooUnreachable",
-  WOO_STORE_ERROR: "account.settings.connections.stores.health.wooError",
-  WOO_WEBHOOK_SETUP_FAILED: "account.settings.connections.stores.health.wooWebhookSetupFailed",
-  WOO_RECONCILE_FAILED: "account.settings.connections.stores.health.reconcileFailed",
-  WIX_APP_UNINSTALLED: "account.settings.connections.stores.health.wixUninstalled",
-  WIX_RECONCILE_FAILED: "account.settings.connections.stores.health.reconcileFailed",
-  // Leads L1 · G-06 — shown on an ACTIVE connection: it keeps receiving, the owner must fix the key.
-  CLOUDTALK_API_KEY_MISSING: "account.settings.connections.stores.health.cloudTalkKeyMissing",
-  CLOUDTALK_API_KEY_INVALID: "account.settings.connections.stores.health.cloudTalkKeyInvalid",
 };
 
 const ERRORS: Record<string, MessageKey> = {
@@ -205,8 +193,8 @@ export function StoresAndCallsPanel() {
                     </div>
                     <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[c.status].tone}`}>{t(STATUS[c.status].label)}</span>
                   </div>
-                  {c.lastErrorCode && (c.status === "ERROR" || (c.status === "ACTIVE" && has(HEALTH, c.lastErrorCode))) ? (
-                    <p className="mt-1 text-[11px] font-bold text-[var(--dz-danger)]">{t(has(HEALTH, c.lastErrorCode) ? HEALTH[c.lastErrorCode] : "account.settings.connections.stores.health.generic")}</p>
+                  {c.lastErrorCode && (c.status === "ERROR" || (c.status === "ACTIVE" && has(CONNECTION_HEALTH, c.lastErrorCode))) ? (
+                    <p className="mt-1 text-[11px] font-bold text-[var(--dz-danger)]">{t(connectionHealthKey(c.lastErrorCode, "account.settings.connections.stores.health.generic"))}</p>
                   ) : null}
                   {c.sourceKey === "telephony.cloudtalk" ? <CloudTalkSetup c={c} onSaved={load} /> : null}
                   {s.key.startsWith("telephony.") ? <LineNames c={c} onSaved={load} /> : null}

@@ -4,9 +4,10 @@
 # eligible business; every run after that re-evaluates months that changed, sends reminders (at most two,
 # on the 5th and the 10th), and retries approved sends that are due. See lib/accountant/sweep.ts.
 #
-# WHY GITHUB ACTIONS. Same as intake-sweep.yml: Vercel Hobby crons run at most daily; a daily Vercel cron
-# (vercel.json, 04:30 UTC) remains as a backstop. GitHub runs scheduled jobs late and irregularly — that
-# is fine here: the 1st is when preparation STARTS, and every step is idempotent.
+# THE SCHEDULER IS VERCEL CRON (vercel.json, hourly at :30 UTC — the team is on Vercel Pro, as #771 found
+# for the email sweep). This GitHub workflow is only an optional backstop: GitHub fires its "hourly" schedule
+# 4–6 times a day here (gaps up to 6 h), too irregular for send retries. Every step is idempotent, so the two
+# overlapping is harmless.
 #
 # INERT UNTIL OWNER GATE G2. Two switches, both off today:
 #   - vars.ACCOUNTANT_SWEEP_ENABLED == 'true'  (this workflow does not call anything otherwise), and
