@@ -129,6 +129,8 @@ const STATES = {
   empty: { status: 200, body: { bank: { mode: "legacy" }, historyAvailable: true, history: [], attention: [] }, bankHref: "/payables/bank" },
   // The history read failed (e.g. a table the environment lacks) — the bank card still follows the flag.
   partial: { status: 200, body: { bank: { mode: "legacy" }, historyAvailable: false, history: [], attention: [] }, bankHref: "/payables/bank" },
+  // No session on this address (each Preview URL is its own origin) — the screen says to sign in.
+  signedOut: { status: 401, body: { error: "Unauthorized" }, bankHref: null },
 };
 
 /* --------------------------------------------------------------- stubs -- */
@@ -209,6 +211,15 @@ async function main() {
       if (key === "partial") {
         check(`${tag}: a history that could not be read says so (banner), not "nothing uploaded"`, m.errorBanner && !(m.emptyText ?? "").includes("עוד לא הועלו דוחות"), m.emptyText);
         check(`${tag}: the bank card is still live and leads to the old path`, m.bankMode === "legacy" && m.bankHref === "/payables/bank");
+      }
+      if (key === "signedOut") {
+        const signIn = await page.evaluate(() => {
+          const banner = document.querySelector(".dzup .uerr");
+          return { text: banner?.textContent ?? "", button: banner?.querySelector("button")?.textContent?.trim() ?? "" };
+        });
+        check(`${tag}: a 401 says "sign in", not "could not check"`, signIn.text.includes("צריך להתחבר") && signIn.button === "להתחברות", JSON.stringify(signIn));
+        check(`${tag}: the bank card has no link without a session`, m.bankMode === "signed-out" && m.bankHref === null);
+        check(`${tag}: no "could not check" text without a session`, !(await page.content()).includes("לא הצלחנו לבדוק כרגע"));
       }
       if (key === "empty") check(`${tag}: empty history says so`, (m.emptyText ?? "").includes("עוד לא הועלו דוחות"), m.emptyText);
       if (key === "error") {

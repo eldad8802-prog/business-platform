@@ -7,7 +7,7 @@ import BackButton from "@/components/ui/back-button";
 import { EntityIcon } from "@/components/ui/entity/entity-icon";
 import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
 import { categoryToneCss } from "@/features/tools/category-tones";
-import { getClientAuthToken } from "@/lib/client-session";
+import { getClientAuthToken, redirectToLogin } from "@/lib/client-session";
 import { IMPORT_EXPORT_RELEASED, IMPORT_EXPORT_ROUTE } from "@/components/settings/import-export/import-export-release";
 import type { AttentionItem, BankMode, HistoryEntry, UploadsOverview } from "@/lib/money-uploads/uploads-overview";
 
@@ -20,6 +20,8 @@ import type { AttentionItem, BankMode, HistoryEntry, UploadsOverview } from "@/l
  *
  * Stages, from server state:
  *   loading   cards visible, the bank card a skeleton (its route is the server's decision, never a guess)
+ *   signed-out the read answered 401 (no session on this address) — said so, with the way to sign in; the bank
+ *             card has no link, because its route is the server's decision and the server did not answer
  *   error     cards still usable; the bank card says it could not check, with a retry
  *   partial   the history could not be read (historyAvailable: false) — said so with a retry; the bank card
  *             still follows the server's flag decision
@@ -29,6 +31,7 @@ import type { AttentionItem, BankMode, HistoryEntry, UploadsOverview } from "@/l
 
 type Load =
   | { state: "loading" }
+  | { state: "signed-out" }
   | { state: "error" }
   | { state: "ready"; data: UploadsOverview };
 
@@ -48,8 +51,14 @@ export function UploadsScreen() {
       cache: "no-store",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
-      .then((res) => (res.ok ? (res.json() as Promise<UploadsOverview>) : Promise.reject(new Error(String(res.status)))))
-      .then((data) => {
+      .then(async (res) => {
+        // 401 is not a failure to read: there is no session on this address. Say so instead of "could not check".
+        if (res.status === 401) {
+          if (!cancelled) setLoad({ state: "signed-out" });
+          return;
+        }
+        if (!res.ok) throw new Error(String(res.status));
+        const data = (await res.json()) as UploadsOverview;
         if (!cancelled) setLoad({ state: "ready", data });
       })
       .catch(() => {
@@ -60,8 +69,14 @@ export function UploadsScreen() {
     };
   }, [attempt]);
 
-  const bankMode: BankMode | null =
-    load.state === "ready" ? load.data.bank.mode : load.state === "error" ? "unknown" : null;
+  const bankMode: BankCardMode =
+    load.state === "ready"
+      ? load.data.bank.mode
+      : load.state === "error"
+        ? "unknown"
+        : load.state === "signed-out"
+          ? "signed-out"
+          : null;
 
   return (
     <main data-page-intent="content" className="dzup tone-money" dir="rtl">
@@ -82,6 +97,15 @@ export function UploadsScreen() {
             <p>דפי בנק, דוחות מהקופה ומסמכים — בוחרים מה להעלות, וכל קובץ נקלט במסך שמטפל בו.</p>
           </div>
         </header>
+
+        {load.state === "signed-out" ? (
+          <div className="uerr" role="alert">
+            <span>צריך להתחבר כדי לראות את ההעלאות ואיך להעלות דף בנק לעסק.</span>
+            <button type="button" className="ubtn" onClick={redirectToLogin}>
+              להתחברות
+            </button>
+          </div>
+        ) : null}
 
         {load.state === "error" || (load.state === "ready" && !load.data.historyAvailable) ? (
           <div className="uerr" role="alert">
@@ -221,7 +245,9 @@ function SoonCard({ entity, name, desc }: { entity: string; name: string; desc: 
  * while that is loading the card holds a skeleton, and when it cannot be known there is no link at all: the
  * old upload refuses in that state too, so a link would only lead to an error. Never "בקרוב".
  */
-function BankCard({ mode, onRetry }: { mode: BankMode | null; onRetry?: () => void }) {
+type BankCardMode = BankMode | "signed-out" | null;
+
+function BankCard({ mode, onRetry }: { mode: BankCardMode; onRetry?: () => void }) {
   const name = "דף חשבון בנק";
   if (mode === "legacy") {
     return (
@@ -245,6 +271,13 @@ function BankCard({ mode, onRetry }: { mode: BankMode | null; onRetry?: () => vo
           end={<Chevron />}
         />
       </Link>
+    );
+  }
+  if (mode === "signed-out") {
+    return (
+      <div className="ucard ucard-main" data-bank-mode="signed-out">
+        <CardBody entity="upload" name={name} desc="יש להתחבר כדי לראות איך להעלות דף בנק לעסק." end={<span />} />
+      </div>
     );
   }
   if (mode === "unknown") {
@@ -330,6 +363,9 @@ function RecentUploads({ load }: { load: Load }) {
     );
   }
   // A history that could not be read is said so — never shown as "nothing uploaded yet".
+  if (load.state === "signed-out") {
+    return <p className="uempty">ההעלאות האחרונות יוצגו אחרי התחברות.</p>;
+  }
   if (load.state === "error" || !load.data.historyAvailable) {
     return <p className="uempty">ההעלאות האחרונות לא נטענו. אפשר להמשיך להעלות מהכרטיסים למעלה.</p>;
   }
