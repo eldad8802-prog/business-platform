@@ -29,6 +29,7 @@ OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${P
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
 
 psql_owner <<'SQL'
+DROP TABLE IF EXISTS "AccountantBusinessAlert", "AccountantOpsAlert", "AccountantOpsRun" CASCADE;  -- G5 (20261107090000): later, not part of this baseline
 DROP TABLE IF EXISTS "AccountantWorkflowEvent", "AccountantDelivery", "AccountantRecipient", "AccountantPackage", "AccountantPeriod" CASCADE;
 DELETE FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'accountant_month_close';
 DELETE FROM "PlatformFeatureDefinition" WHERE "key" = 'accountant_month_close';
