@@ -30,6 +30,7 @@ import { SWEEP_URL } from "../lib/intake/sweep-auth";
 import { SignJWT } from "jose";
 import { runIntakeSweep } from "../lib/intake/intake-sweeper";
 import { deriveEventIdentity } from "../lib/intake/core/event-identity";
+import { hashIdentifier, identifiersFromHints } from "../lib/intake/identity/identifiers";
 import { setMetaCodeExchangeForTests, setMetaGraphCallForTests } from "../lib/intake/acquisition/providers/meta-graph";
 import { POST as metaPagesPOST } from "../app/api/integrations/acquisition/meta/pages/route";
 import { POST as metaConnectPOST } from "../app/api/integrations/acquisition/meta/connect/route";
@@ -157,9 +158,15 @@ async function main() {
   await drain(A.id);
   const cw = await counts(A.id, "web.form");
   ok("3 re-deliveries of s1 + 6 parallel deliveries of another → exactly 2 receipts", cw.receipts === 2, JSON.stringify(cw));
-  ok("…and the same person (same phone) never gets a second open Lead", cw.leads === 1, JSON.stringify(cw));
+  // L1 · G-01b — the website form is self-asserted: a second, DIFFERENT submission typing the same phone never
+  // touches the existing open lead; it is kept as its own lead beside it (no phone column — one open lead per
+  // phone holds — the typed phone stated in its text). Re-deliveries of ONE submission are still one receipt.
+  ok("…the second (different) submission is kept as its OWN lead beside the first (2 leads, 1 per receipt)", cw.leads === 2, JSON.stringify(cw));
   const attached = await o.leadLifecycleEvent.count({ where: { businessId: A.id, leadId: leadA?.id, kind: "intake_attached" } });
-  ok("the second submission of the same phone is recorded on that Lead (intake_attached)", attached === 1, String(attached));
+  ok("…and the first lead was NOT touched by it (no intake_attached event)", attached === 0, String(attached));
+  ok("…still ONE open lead holds the phone (the second has none; its text names the typed phone)",
+    (await o.lead.count({ where: { businessId: A.id, phone: leadA?.phone ?? "-", status: { in: ["NEW", "OPEN", "QUALIFIED", "QUOTED"] } } })) === 1
+      && !!(await o.lead.findFirst({ where: { businessId: A.id, sourceChannel: "intake:web.form", phone: null, intentSnapshot: { contains: "טלפון שהוזן בטופס" } } })));
 
   console.log("\n-- 3. authentication and tenant boundary --");
   const before = await counts(A.id, "web.form");
@@ -304,8 +311,9 @@ async function main() {
   ok("the same person from Google then the website → one Customer in A (deterministic phone)", danaCustomers === 1, String(danaCustomers));
   await web(webB.connection.publicId, { submission_id: `${RUN}-y`, phone: "052-555-0101" }, { key: webB.key });
   await drain(B.id);
-  ok("the same phone in B → B's own Customer, nothing shared with A",
-    (await o.customer.count({ where: { businessId: B.id, phone: { contains: "5550101" } } })) === 1);
+  ok("the same phone in B → B's own Lead; an anonymous form creates no Customer (G-01b), nothing shared with A",
+    (await o.lead.count({ where: { businessId: B.id, phone: { contains: "5550101" } } })) === 1
+      && (await o.customer.count({ where: { businessId: B.id, phone: { contains: "5550101" } } })) === 0);
   await web(webA.connection.publicId, { submission_id: `${RUN}-e`, email: "only-email@example.test", name: "No Phone" }, { key: webA.key });
   await drain(A.id);
   ok("a lead with email but no phone still becomes a Lead",
@@ -523,6 +531,29 @@ async function main() {
   ok("…the poison receipt is dead-lettered (not retried forever), and the next sweep is healthy again",
     poison?.status === "FAILED" && poison.nextAttemptAt === null && (poison.lastErrorCode ?? "").startsWith("normalize:") &&
       (await sweepGET(sweepReq(process.env.CRON_SECRET))).status === 200, JSON.stringify({ s: poison?.status, n: poison?.nextAttemptAt, c: poison?.lastErrorCode }));
+
+  // L1 · G-07 — a receipt dead-lettered at WEBHOOK time (the source's own post-ACK drain, no sweep involved)
+  // used to stay invisible: every later sweep was green. Now the next sweep reports it — once.
+  const bad2 = deriveEventIdentity({ providerEventId: `${RUN}-poison-webhook-time`, accountScope: webA.connection.publicId });
+  await acceptIntake({
+    registry: intakeRegistry, sourceKey: "web.form", accountRef: webA.connection.publicId,
+    receipts: [{ family: "LEAD", eventType: ACQUISITION_EVENT_TYPE, externalEventId: bad2.externalEventId, dedupeBasis: bad2.dedupeBasis,
+      providerAccountRef: null, occurredAt: new Date(), payload: { v: 1 } as never, metadata: { v: 1 } as never }],
+  });
+  await drain(A.id);
+  const wtDead = await o.intakeEvent.findFirst({ where: { businessId: A.id, externalEventId: bad2.externalEventId } });
+  ok("L1 · G-07: a webhook-time drain dead-letters the poison receipt (no sweep yet)", wtDead?.status === "FAILED" && wtDead.nextAttemptAt === null);
+  const seen = await sweepGET(sweepReq(process.env.CRON_SECRET));
+  const seenBody = (await seen.json()) as { ok?: boolean; health?: { job?: string[]; events?: string[] }; report?: { events?: { failed?: number }; backlog?: { deadLettersNew?: number; deadLettersOpen?: number } } };
+  ok("L1 · G-07: …the next sweep is RED for it (500): an EVENT problem (dead_letters_new), not a job problem, counts only",
+    seen.status === 500 && seenBody.ok === false && JSON.stringify(seenBody.health?.job) === "[]"
+      && (seenBody.health?.events ?? []).includes("dead_letters_new") && (seenBody.report?.events?.failed ?? 0) === 0
+      && (seenBody.report?.backlog?.deadLettersNew ?? 0) === 1 && (seenBody.report?.backlog?.deadLettersOpen ?? 0) >= 2
+      && !/poison|externalEventId|sha256/.test(JSON.stringify(seenBody)), JSON.stringify(seenBody));
+  const after2 = await sweepGET(sweepReq(process.env.CRON_SECRET));
+  const after2Body = (await after2.json()) as { report?: { backlog?: { deadLettersNew?: number; deadLettersOpen?: number } } };
+  ok("L1 · G-07: …reported ONCE — the following sweep is green again, the dead letter still counted as open (replayable)",
+    after2.status === 200 && after2Body.report?.backlog?.deadLettersNew === 0 && (after2Body.report?.backlog?.deadLettersOpen ?? 0) >= 2, JSON.stringify(after2Body));
   console.log("\n-- 12. QStash as the scheduler: a signed request for the Production sweep URL sweeps for real; tampered ones do not --");
   process.env.QSTASH_CURRENT_SIGNING_KEY = "sig_lab_current_0123456789abcdefghijklmnopqr";
   process.env.QSTASH_NEXT_SIGNING_KEY = "sig_lab_next_0123456789abcdefghijklmnopqrstu";
@@ -575,6 +606,107 @@ async function main() {
     keys.length > 0 && keys.every((k) => /^sha256:[0-9a-f]{64}$/.test(k.externalEventId) && !/533222|222-3344|Same|question|[0-9a-f]{8}-[0-9a-f]{4}-/.test(k.externalEventId)));
   ok("…and these receipts are keyed on the submission id (provider_event_id), not the content",
     keys.filter((k) => k.dedupeBasis === "provider_event_id").length >= 3, JSON.stringify(keys.map((k) => k.dedupeBasis)));
+
+  console.log("\n-- L1 · G-01. identity poisoning: a website form's typed contact never becomes identity --");
+  const webL1 = await mk(A.id, "web.form", ["https://l1.example"]);
+  const webL1B = await mk(B.id, "web.form");
+  const gL1 = await mk(A.id, "google.lead_form");
+  const VERA_PHONE = "972525557070";
+  const emailHash = (email: string) => hashIdentifier(identifiersFromHints({ email }, { sourceKey: "web.form", accountRef: null })[0]).valueHash;
+  const linkCount = (businessId: number) => o.identityLink.count({ where: { businessId, status: "active" } });
+  const contact = (name: string, phone: string, email: string) => [
+    { column_id: "FULL_NAME", column_name: "Full Name", string_value: name },
+    { column_id: "PHONE_NUMBER", column_name: "Phone", string_value: phone },
+    { column_id: "EMAIL", column_name: "Email", string_value: email },
+  ];
+  await google(gL1.connection.publicId, googleLead(gL1.key, `${RUN}-vera`, { user_column_data: contact("Vera", "+972 52-555-7070", "vera@example.test") }));
+  await drain(A.id);
+  const vera = await o.customer.findFirst({ where: { businessId: A.id, phone: VERA_PHONE } });
+  ok("regression: a verified (Google) lead still links its email to its Customer deterministically",
+    !!vera && (await o.identityLink.count({ where: { businessId: A.id, customerId: vera.id, valueHash: emailHash("vera@example.test"), status: "active" } })) === 1);
+
+  const linksA0 = await linkCount(A.id);
+  const custSnap = () => o.customer.findUnique({ where: { id: vera!.id }, select: { name: true, phone: true, email: true, isActive: true, updatedAt: true } });
+  const veraBefore = await custSnap();
+  const veraLeadBefore = await o.lead.findFirst({ where: { businessId: A.id, phone: VERA_PHONE, status: { in: ["NEW", "OPEN", "QUALIFIED", "QUOTED"] } },
+    select: { id: true, customerName: true, email: true, status: true, lastActivityAt: true, nextFollowUpAt: true, customerId: true, lifecycleVersion: true } });
+  const l1Poison = { submission_id: `${RUN}-poison1`, name: "Mallory", phone: "+972 52-555-7070", email: "mallory@evil.test", message: "hi" };
+  const l1P1 = await web(webL1.connection.publicId, l1Poison, { origin: "https://l1.example" });
+  const l1P1Body = await l1P1.clone().text();
+  await drain(A.id);
+  ok("anonymous browser post naming an existing customer's phone → 202 (a legitimate lead is still taken)", l1P1.status === 202, String(l1P1.status));
+  ok("L1 · G-01b: the response reveals nothing about the existing customer (no name, email, id, lead)",
+    !/Vera|vera@|customer|lead|"id"/i.test(l1P1Body), l1P1Body.slice(0, 200));
+  ok("L1 · G-01b: the existing Customer is NOT modified by the form (name / phone / email / state / updatedAt)",
+    JSON.stringify(await custSnap()) === JSON.stringify(veraBefore), JSON.stringify({ before: veraBefore, after: await custSnap() }));
+  const veraLeadAfter = await o.lead.findUnique({ where: { id: veraLeadBefore!.id },
+    select: { id: true, customerName: true, email: true, status: true, lastActivityAt: true, nextFollowUpAt: true, customerId: true, lifecycleVersion: true } });
+  ok("L1 · G-01b: her open lead is untouched — name, email, stage, follow-up, activity clock AND version (no write at all)",
+    JSON.stringify(veraLeadAfter) === JSON.stringify(veraLeadBefore), JSON.stringify({ before: veraLeadBefore, after: veraLeadAfter }));
+  ok("L1 · G-01b: …and no event was added to its history (no intake_attached)",
+    (await o.leadLifecycleEvent.count({ where: { businessId: A.id, leadId: veraLeadBefore!.id, kind: "intake_attached" } })) === 0);
+  const heldText = "טלפון שהוזן בטופס: 972525557070";
+  const held = await o.lead.findFirst({ where: { businessId: A.id, phone: null, intentSnapshot: { contains: heldText } }, orderBy: { id: "asc" } });
+  ok("L1 · G-01b: the enquiry is NOT lost — kept as its own lead beside hers (no customer, no phone column, the typed phone in its text)",
+    !!held && held.customerId === null && held.customerName === "Mallory" && held.email === "mallory@evil.test" && held.status === "NEW",
+    JSON.stringify(held));
+  ok("L1 · G-01b: …the owner is asked (a proposal names her as a candidate for THAT lead); nothing merged, no Customer created",
+    !!held && (await o.identityProposal.count({ where: { businessId: A.id, candidateCustomerId: vera!.id, leadId: held.id, state: "proposed" } })) === 1
+      && (await o.customer.count({ where: { businessId: A.id, phone: VERA_PHONE } })) === 1
+      && (await o.customer.count({ where: { businessId: A.id, email: "mallory@evil.test" } })) === 0);
+  ok("…the typed email became NO identity link (not on the customer, not anywhere)",
+    (await o.identityLink.count({ where: { businessId: A.id, valueHash: emailHash("mallory@evil.test") } })) === 0);
+  ok("…no identity link at all was created", (await linkCount(A.id)) === linksA0);
+  const pn = await o.intakeNormalizedEvent.findFirst({ where: { businessId: A.id }, orderBy: { id: "desc" } });
+  const pev = pn?.identityEvidence as { assurance?: string; heldBesideOpenLead?: boolean } | null;
+  ok("…recorded as identity-policy@2, self-asserted: her phone made her only a CANDIDATE, the lead held beside hers",
+    pn?.identityPolicyVersion === "identity-policy@2" && pev?.assurance === "self_asserted" && pn?.identityState === "candidate"
+      && pev?.heldBesideOpenLead === true,
+    JSON.stringify({ v: pn?.identityPolicyVersion, ev: pev, st: pn?.identityState }));
+
+  await google(gL1.connection.publicId, googleLead(gL1.key, `${RUN}-mallory-g`, { user_column_data: contact("Mallory", "+972 54-777-0001", "mallory@evil.test") }));
+  await drain(A.id);
+  const l1MLead = await o.lead.findFirst({ where: { businessId: A.id, phone: "972547770001" } });
+  ok("a later authenticated lead carrying that email is NOT attached to the victim (the poisoning chain is closed)",
+    !!l1MLead && !!vera && l1MLead.customerId !== vera.id, JSON.stringify({ lead: l1MLead?.customerId, vera: vera?.id }));
+
+  const l1P2 = await web(webL1.connection.publicId, { submission_id: `${RUN}-poison2`, name: "Eve", phone: "054-888-0002", email: "vera@example.test" }, { key: webL1.key });
+  await drain(A.id);
+  const eLead = await o.lead.findFirst({ where: { businessId: A.id, phone: "972548880002" } });
+  ok("someone's LINKED email typed into the website (server mode) → a Lead, but NOT attached to that customer",
+    l1P2.status === 202 && !!eLead && eLead.customerId === null, JSON.stringify({ s: l1P2.status, c: eLead?.customerId }));
+  ok("…the owner is asked instead: an open proposal names that customer as a candidate",
+    !!vera && (await o.identityProposal.count({ where: { businessId: A.id, candidateCustomerId: vera.id, state: "proposed" } })) >= 1);
+
+  // Re-baseline: the verified Google lead above (Mallory, a new Customer) legitimately linked its email.
+  const linksA1 = await linkCount(A.id);
+  const r0L1 = await o.intakeEvent.count({ where: { businessId: A.id, providerAccountRef: webL1.connection.publicId } });
+  await Promise.all(Array.from({ length: 5 }, () => web(webL1.connection.publicId, l1Poison, { key: webL1.key })));
+  await Promise.all(Array.from({ length: 4 }, (_, i) => web(webL1.connection.publicId,
+    { ...l1Poison, submission_id: `${RUN}-l1Poison-par-${i}`, email: `m${i}@evil.test` }, { key: webL1.key })));
+  await drain(A.id);
+  ok("5 redeliveries of the same submission + 4 parallel new ones → exactly 4 new receipts",
+    (await o.intakeEvent.count({ where: { businessId: A.id, providerAccountRef: webL1.connection.publicId } })) === r0L1 + 4);
+  ok("…the parallel anonymous posts created zero identity links", (await linkCount(A.id)) === linksA1);
+  ok("…and the victim's phone still has exactly ONE open lead (one lead per phone holds under concurrency)",
+    (await o.lead.count({ where: { businessId: A.id, phone: VERA_PHONE, status: { in: ["NEW", "OPEN", "QUALIFIED", "QUOTED"] } } })) === 1);
+  const veraLeadAfterPar = await o.lead.findUnique({ where: { id: veraLeadBefore!.id },
+    select: { id: true, customerName: true, email: true, status: true, lastActivityAt: true, nextFollowUpAt: true, customerId: true, lifecycleVersion: true } });
+  ok("L1 · G-01b: …her lead STILL untouched after 5 redeliveries + 4 parallel anonymous posts (version, clock, history)",
+    JSON.stringify(veraLeadAfterPar) === JSON.stringify(veraLeadBefore)
+      && (await o.leadLifecycleEvent.count({ where: { businessId: A.id, leadId: veraLeadBefore!.id, kind: "intake_attached" } })) === 0,
+    JSON.stringify({ before: veraLeadBefore, after: veraLeadAfterPar }));
+  ok("L1 · G-01b: …each distinct anonymous enquiry is kept once (1 + 4 held leads; the redeliveries made none)",
+    (await o.lead.count({ where: { businessId: A.id, phone: null, intentSnapshot: { contains: heldText } } })) === 5);
+
+  const linksB0 = await linkCount(B.id);
+  await web(webL1B.connection.publicId, { submission_id: `${RUN}-poisonB`, name: "Vera?", phone: "+972 52-555-7070", email: "vera@example.test" }, { key: webL1B.key });
+  await drain(B.id);
+  const bLead = await o.lead.findFirst({ where: { businessId: B.id, phone: VERA_PHONE } });
+  ok("tenant isolation: the same phone + email in business B → B's own lead (no Customer from an anonymous form), never A's",
+    !!bLead && bLead.customerId === null && (await o.customer.count({ where: { businessId: B.id, phone: VERA_PHONE } })) === 0
+      && (await o.identityProposal.count({ where: { businessId: B.id, candidateCustomerId: vera!.id } })) === 0);
+  ok("…B created no identity link from it, and A's links did not move", (await linkCount(B.id)) === linksB0 && (await linkCount(A.id)) === linksA1);
 
   console.log(`\nM6 acquisition battery: ${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n - " + failures.join("\n - ")); process.exitCode = 1; }

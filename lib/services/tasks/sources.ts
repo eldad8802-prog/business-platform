@@ -189,6 +189,7 @@ export const leads: Adapter = async ({ businessId, now, today, t = HEBREW_TEXT }
       status: r.status as LeadStatusValue, nextFollowUpAt: r.nextFollowUpAt, createdAt: r.createdAt,
       lastActivityAt: r.lastActivityAt, lastCustomerInboundAt: r.lastCustomerInboundAt,
       lastUnreturnedCallAt: r.lastUnreturnedCallAt ?? null, openIdentityProposals: r.openIdentityProposals,
+      firstHandledAt: r.firstHandledAt ?? null,
     }, now);
     if (!a.needsAttention || !a.reason || !LEAD_REASONS.has(a.reason)) continue;
     const name = r.customerName?.trim() || t("system.tasks.lead.unnamed");

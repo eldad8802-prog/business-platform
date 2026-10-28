@@ -51,6 +51,8 @@ export type LeadBriefingFacts = {
   lastUnreturnedCallAt?: Date | null;
   openIdentityProposals: number;
   dismissedRuleIds?: readonly string[];
+  /** Leads L1 · G-03 — a NEW lead the owner already acted on is not "new and untouched". */
+  firstHandledAt?: Date | null;
 };
 
 export type LeadBriefingItem = {
@@ -126,6 +128,7 @@ export function deriveLeadBriefing(
         lastUnreturnedCallAt: r.lastUnreturnedCallAt ?? null,
         openIdentityProposals: r.openIdentityProposals,
         dismissedRuleIds: r.dismissedRuleIds ?? [],
+        firstHandledAt: r.firstHandledAt ?? null,
       },
       now,
       t
@@ -176,7 +179,7 @@ export async function loadLeadBriefingFacts(
   const open = [...OPEN_LEAD_STATUSES];
   const rows = await tx.$queryRaw<LeadBriefingFacts[]>`
     SELECT l."id", l."customerName", l."status"::text AS "status", l."nextFollowUpAt", l."followUpNote",
-           l."createdAt", l."lastActivityAt",
+           l."createdAt", l."lastActivityAt", l."firstHandledAt",
            (SELECT max(c."customerLastInboundAt") FROM "Conversation" c
              WHERE c."businessId" = l."businessId" AND c."leadId" = l."id") AS "lastCustomerInboundAt",
            (SELECT max(ca."startedAt") FROM "CallActivity" ca

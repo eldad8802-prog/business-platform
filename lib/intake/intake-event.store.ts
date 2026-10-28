@@ -360,6 +360,82 @@ export async function markDeferred(
 }
 
 /**
+ * Leads L1 · G-06 — the owner fixed what blocked a connection's receipts (e.g. saved a working API key):
+ * every receipt of THAT connection still waiting on, or dead-lettered by, one of `codes` — and whose
+ * payload is still kept — is due again now, with a fresh attempt budget. Purged receipts stay settled
+ * (nothing left to act on); other connections and other failures are untouched.
+ */
+export async function rearmBlockedEvents(
+  businessId: number,
+  sourceKey: string,
+  providerAccountRef: string,
+  codes: readonly string[],
+  now: Date = new Date()
+): Promise<number> {
+  const bounded = codes.map(boundedCode);
+  return withTenantTransaction(async (tx) => {
+    // A re-armed receipt that dead-letters again must be reported again (G-07): drop its "reported" stamp.
+    await tx.$executeRaw`
+      UPDATE "IntakeEvent" SET "metadata" = "metadata" - 'deadLetterReportedAt'
+       WHERE "businessId" = ${businessId} AND "sourceKey" = ${sourceKey} AND "providerAccountRef" = ${providerAccountRef}
+         AND "lastErrorCode" = ANY(${bounded}::text[]) AND "payloadPurgedAt" IS NULL
+         AND ("metadata" -> 'deadLetterReportedAt') IS NOT NULL`;
+    const res = await tx.intakeEvent.updateMany({
+      where: {
+        businessId,
+        sourceKey,
+        providerAccountRef,
+        status: { in: ["RECEIVED", "PERSISTED", "FAILED"] },
+        lastErrorCode: { in: bounded },
+        payloadPurgedAt: null,
+      },
+      data: { status: "RECEIVED", nextAttemptAt: now, attempts: 0 },
+    });
+    return res.count;
+  });
+}
+
+/** A receipt still unfinished this long after arrival is a stuck backlog the operator should see. */
+export const STALE_PENDING_AFTER_MS = 24 * 60 * 60 * 1000;
+
+export type IntakeHealthCounts = {
+  /** Dead letters no sweep has reported yet — by ANY path (webhook-time drain or a sweep); now reported. */
+  deadLettersNew: number;
+  /** Every dead letter whose payload is still kept (replayable). */
+  deadLettersOpen: number;
+  /** Receipts not finished (waiting / deferred / retrying) that arrived longer ago than STALE_PENDING_AFTER_MS. */
+  pendingStale: number;
+};
+
+/**
+ * Leads L1 · G-07 — the business-event health of ONE business's receipts, as counts only (no id, no
+ * content). Read inside the business's tenant job by the sweeper.
+ *
+ * A dead letter is reported EXACTLY ONCE: the first sweep after it happened (whichever path dead-lettered
+ * it) counts it and stamps `metadata.deadLetterReportedAt` (non-personal) in the same statement, so the
+ * scheduler goes red once per new dead letter — never silently green, never red forever.
+ */
+export async function intakeHealthCounts(businessId: number, now: Date = new Date()): Promise<IntakeHealthCounts> {
+  return withTenantTransaction(async (tx) => {
+    const deadLetter = { businessId, status: "FAILED" as const, nextAttemptAt: null };
+    const deadLettersNew = await tx.$executeRaw`
+      UPDATE "IntakeEvent"
+         SET "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object('deadLetterReportedAt', ${now.toISOString()}::text)
+       WHERE "businessId" = ${businessId} AND "status" = 'FAILED' AND "nextAttemptAt" IS NULL
+         AND ("metadata" -> 'deadLetterReportedAt') IS NULL`;
+    const deadLettersOpen = await tx.intakeEvent.count({ where: { ...deadLetter, payloadPurgedAt: null } });
+    const pendingStale = await tx.intakeEvent.count({
+      where: {
+        businessId,
+        receivedAt: { lt: new Date(now.getTime() - STALE_PENDING_AFTER_MS) },
+        OR: [{ status: { in: ["RECEIVED", "PERSISTED"] } }, { status: "FAILED", nextAttemptAt: { not: null } }],
+      },
+    });
+    return { deadLettersNew, deadLettersOpen, pendingStale };
+  });
+}
+
+/**
  * Payload retention for receipts that will never be processed: a FAILED event
  * whose retries are exhausted keeps its payload for a bounded window (so an
  * operator can replay it), then loses it. The receipt itself — identity,
