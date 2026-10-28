@@ -6,11 +6,11 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { reconcileAlerts, releaseClaims, type Claim, type ReconcileResult } from "./alert-store";
+import { reconcileAlerts, releaseClaims, type Claim, type ReconcileOptions, type ReconcileResult } from "./alert-store";
 import type { Finding, OpenAlert } from "./findings";
 
-export function reconcilePlatformAlerts(findings: Finding[], now: Date): Promise<ReconcileResult> {
-  return prisma.$transaction((tx) => reconcileAlerts(tx, { kind: "platform" }, findings, now));
+export function reconcilePlatformAlerts(findings: Finding[], now: Date, opts: ReconcileOptions = {}): Promise<ReconcileResult> {
+  return prisma.$transaction((tx) => reconcileAlerts(tx, { kind: "platform" }, findings, now, opts));
 }
 
 export function releasePlatformClaims(claims: Claim[]): Promise<number> {

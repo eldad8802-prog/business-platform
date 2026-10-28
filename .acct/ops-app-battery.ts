@@ -18,6 +18,7 @@
  *   7. a business that could not be evaluated keeps its alerts (never resolved by a partial run);
  *   8. reminders after 24 h (not for the complaint), once; recovery → one "resolved" notice;
  *   9. the endpoint: auth, switched off (no database), Vercel vs GitHub source, the safe simulation (no database);
+ *   9b. a run that died after claiming: the next run recovers its claims, sends them once, closes it "abandoned";
  *  10. isolation: each alert in its own business, under RLS; a business without the feature has none;
  *  11. the console's read: alerts with business names, runs, no address anywhere; without the grant → "not granted";
  *  12. nothing of the workflow changed: packages, stored ZIPs, documents, the trail (the monitor writes none of it);
@@ -98,6 +99,7 @@ async function main() {
   const prep = await import("@/lib/accountant/prepare.service");
   const del = await import("@/lib/accountant/delivery.service");
   const { setRecipient } = await import("@/lib/accountant/recipient.service");
+  const { tenantTx } = await import("@/lib/tenant/tenant-tx");
   const { getPeriodView } = await import("@/lib/accountant/view.service");
   const { complaintHe } = await import("@/components/accountant/labels");
   const monitor = await import("@/lib/accountant/ops/monitor");
@@ -453,10 +455,35 @@ async function main() {
   ok("9g Vercel Cron (GET) → 200, recorded as VERCEL_CRON, the answer holds counts and codes only",
     viaCron.status === 200 && cronRun.source === "VERCEL_CRON" && !/accountants\.example|ops\.lab|acct-ops-/.test(JSON.stringify(cronBody)), JSON.stringify(cronBody).slice(0, 200));
 
+  // ── 9b. A run that died after claiming ─────────────────────────────────────────────────────────
+  console.log("9b. a run that died after claiming");
+  const { reconcileAlerts } = await import("@/lib/accountant/ops/alert-store");
+  const { businessFindings } = await import("@/lib/accountant/ops/findings");
+  const Y = await business("acct-ops-Y"); // a new fault (not prepared)
+  expected.set(Y.b, "PACKAGE_NOT_PREPARED@p:2026-09");
+  const tRun = new Date(Date.now() + 2 * 60_000);
+  const tDead = new Date(tRun.getTime() - 15 * 60_000);
+  const dead = await owner.accountantOpsRun.create({ data: { kind: "MONITOR", source: "VERCEL_CRON", startedAt: tDead, outcome: "RUNNING" } });
+  // The dead run opened and CLAIMED Y's alert (its claims carry its start time), then was killed before sending.
+  const yFindings = businessFindings({ now: tDead, sweepEnabled: true, webhookConfigured: true, latestKey: "2026-09", periods: [], buildingPackages: [], deliveries: [], complaints: [] });
+  const deadClaim = await inB(Y.b, () => tenantTx(Y.b, (tx) => reconcileAlerts(tx, { kind: "business", businessId: Y.b }, yFindings, tDead, { claimAt: tDead })));
+  const yAlert = (await bizAlerts(Y.b))[0];
+  ok("9b-a fixture: the dead run claimed Y's first notice (notifyCount 1, stamped with its start) and sent nothing",
+    deadClaim.claims.length === 1 && yAlert?.notifyCount === 1 && yAlert.lastNotifiedAt?.getTime() === tDead.getTime());
+  before = alertCalls().length;
+  r = await run(tRun);
+  const yAfter = (await bizAlerts(Y.b))[0];
+  const deadAfter = await owner.accountantOpsRun.findUniqueOrThrow({ where: { id: dead.id } });
+  ok("9b-b the next run recovers the dead run's claim and sends it as a first notice",
+    r.counts.recovered >= 1 && alertCalls().length === before + 1 && alertCalls()[alertCalls().length - 1].text.includes(`עסק #${Y.b} · חודש 2026-09`) &&
+      yAfter.notifyCount === 1 && yAfter.lastNotifiedAt?.getTime() === tRun.getTime(), JSON.stringify({ rec: r.counts.recovered, n: yAfter.notifyCount }));
+  ok("9b-c …and closes the dead run as FAILED (abandoned)", deadAfter.outcome === "FAILED" && deadAfter.errorCode === "abandoned" && r.counts.abandonedRuns === 1);
+  r = await run(new Date(tRun.getTime() + 60_000));
+  ok("9b-d …and nothing is recovered or sent twice afterwards", r.counts.recovered === 0 && r.counts.claimed === 0);
+
   // ── 10. Isolation ──────────────────────────────────────────────────────────────────────────────
   console.log("10. isolation");
   const { prisma } = await import("@/lib/prisma");
-  const { tenantTx } = await import("@/lib/tenant/tenant-tx");
   const seenByB = await inB(B.b, () => tenantTx(B.b, (tx) => tx.accountantBusinessAlert.findMany()));
   ok("10a the runtime in business B sees only B's alerts", seenByB.length >= 1 && seenByB.every((a) => a.businessId === B.b));
   ok("10b the runtime with no tenant context sees no business alert", (await prisma.accountantBusinessAlert.count()) === 0);
@@ -525,7 +552,7 @@ async function main() {
   // business V was created (its documents).
   const after = JSON.parse(await snapshot()) as Json;
   const was = JSON.parse(frozen) as Json;
-  const unaffected = (x: Json, keyOf: (r: Json) => number) => (x as unknown as Json[]).filter((row) => ![R.b, G.b, V.b, C.b].includes(keyOf(row)));
+  const unaffected = (x: Json, keyOf: (r: Json) => number) => (x as unknown as Json[]).filter((row) => ![R.b, G.b, V.b, C.b, Y.b].includes(keyOf(row)));
   ok("12a packages, stored ZIPs and documents of every other business are byte-identical",
     JSON.stringify(unaffected(was.pkgs as Json, (p) => Number(p.businessId))) === JSON.stringify(unaffected(after.pkgs as Json, (p) => Number(p.businessId))) &&
     JSON.stringify(unaffected(was.docs as Json, (d) => Number(d.businessId))) === JSON.stringify(unaffected(after.docs as Json, (d) => Number(d.businessId))));

@@ -53,6 +53,19 @@ export async function finishRun(id: number, outcome: "OK" | "FAILED", counts: un
   });
 }
 
+/**
+ * Monitor runs that died: still RUNNING long after the function limit (other than `exceptId`, this run). Their
+ * claims are recovered by this run, which then closes them as FAILED ("abandoned").
+ */
+export async function readAbandonedMonitorRuns(now: Date, staleMs: number, exceptId: number): Promise<{ id: number; startedAt: Date }[]> {
+  return prisma.accountantOpsRun.findMany({
+    where: { kind: "MONITOR", outcome: "RUNNING", startedAt: { lt: new Date(now.getTime() - staleMs) }, id: { not: exceptId } },
+    select: { id: true, startedAt: true },
+    orderBy: { startedAt: "asc" },
+    take: 50,
+  });
+}
+
 /** The newest sweep runs (newest first), when the monitor first ran, and its newest run from each channel. */
 export async function readRunFacts(limit = 6): Promise<{
   sweepRuns: RunFact[];

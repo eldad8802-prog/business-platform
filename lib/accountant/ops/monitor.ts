@@ -34,13 +34,14 @@ import {
   businessFindings,
   COMPLAINT_WINDOW_MS,
   DELIVERY_LOOKBACK_MS,
+  SWEEP_RUN_STALE_MS,
   platformFindings,
   subjectsOf,
   type BusinessFacts,
   type Finding,
 } from "./findings";
 import { openPlatformAlerts, reconcilePlatformAlerts, releasePlatformClaims } from "./platform-store";
-import { finishRun, readRunFacts, startRun, type RunSource } from "./runs";
+import { finishRun, readAbandonedMonitorRuns, readRunFacts, startRun, type RunSource } from "./runs";
 
 export const MONITOR_TIME_BUDGET_MS = 40_000;
 
@@ -90,6 +91,8 @@ export type MonitorResult = {
     openAlerts: number;
     claimed: number;
     released: number;
+    recovered: number;
+    abandonedRuns: number;
     latestPeriods: Record<string, number>;
     deliveries: Record<string, number>;
     findingsByCode: Record<string, number>;
@@ -207,6 +210,9 @@ const bump = (m: Record<string, number>, k: string) => {
 export async function runAccountantMonitor(source: RunSource, deps: MonitorDeps = defaultMonitorDeps): Promise<MonitorResult> {
   const startedAt = deps.now();
   const runId = await startRun("MONITOR", source, startedAt);
+  // Runs that died after claiming (killed at the function limit): their claims are recovered in every scope below.
+  const abandoned = await readAbandonedMonitorRuns(startedAt, SWEEP_RUN_STALE_MS, runId);
+  const claimOpts = { claimAt: startedAt, abandonedClaimAts: abandoned.map((r) => r.startedAt) };
   const counts: MonitorResult["counts"] = {
     businesses: 0,
     eligible: 0,
@@ -220,6 +226,8 @@ export async function runAccountantMonitor(source: RunSource, deps: MonitorDeps 
     openAlerts: 0,
     claimed: 0,
     released: 0,
+    recovered: 0,
+    abandonedRuns: 0,
     latestPeriods: {},
     deliveries: {},
     findingsByCode: {},
@@ -251,8 +259,9 @@ export async function runAccountantMonitor(source: RunSource, deps: MonitorDeps 
           for (const d of facts.deliveries) bump(counts.deliveries, d.status);
           const findings = businessFindings(facts);
           tally(findings);
-          const r = await tenantTx(businessId, (tx) => reconcileAlerts(tx, { kind: "business", businessId }, findings, now));
+          const r = await tenantTx(businessId, (tx) => reconcileAlerts(tx, { kind: "business", businessId }, findings, now, claimOpts));
           counts.opened += r.opened;
+          counts.recovered += r.recovered;
           counts.resolved += r.resolved;
           counts.openAlerts += r.open;
           if (r.claims.length) claimsByBusiness.set(businessId, r.claims);
@@ -281,8 +290,9 @@ export async function runAccountantMonitor(source: RunSource, deps: MonitorDeps 
       budgetExhausted: counts.budgetExhausted,
     });
     tally(findings);
-    const r = await reconcilePlatformAlerts(findings, now);
+    const r = await reconcilePlatformAlerts(findings, now, claimOpts);
     counts.opened += r.opened;
+    counts.recovered += r.recovered;
     counts.resolved += r.resolved;
     counts.openAlerts += r.open;
     platformClaims.push(...r.claims);
@@ -303,6 +313,11 @@ export async function runAccountantMonitor(source: RunSource, deps: MonitorDeps 
       }
     }
     const ok = notification !== "failed" && notification !== "not_configured";
+    // A dead run is closed only once every scope it may have claimed in was looked at (its claims are back).
+    if (abandoned.length && counts.businessesFailed === 0 && !counts.budgetExhausted) {
+      for (const dead of abandoned) await finishRun(dead.id, "FAILED", {}, "abandoned", deps.now());
+      counts.abandonedRuns = abandoned.length;
+    }
     await finishRun(runId, ok ? "OK" : "FAILED", counts, ok ? null : `notify_${notification}`, deps.now());
     return { ok, notification, counts };
   } catch (e) {
