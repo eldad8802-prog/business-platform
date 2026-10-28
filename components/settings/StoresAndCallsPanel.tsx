@@ -208,15 +208,17 @@ export function StoresAndCallsPanel() {
                     </div>
                     <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[c.effectiveStatus ?? c.status].tone}`}>{t(STATUS[c.effectiveStatus ?? c.status].label)}</span>
                   </div>
+                  {c.status === "ERROR" && c.lastErrorCode ? (
+                    <p className="mt-1 text-[11px] font-bold text-[var(--dz-danger)]">{t(has(HEALTH, c.lastErrorCode) ? HEALTH[c.lastErrorCode] : "account.settings.connections.stores.health.generic")}</p>
+                  ) : null}
+
+                  {/* B2 — why this connection is not working right now (the platform, not the owner, turned it off). */}
                   {c.effectiveStatus === "PLATFORM_DISABLED" ? (
                     <p className="mt-1 text-[11px] leading-5 text-[var(--dz-text-muted)]">
                       {t(s.key.startsWith("commerce.")
                         ? "account.settings.connections.common.platformDisabledStoresNote"
                         : "account.settings.connections.common.platformDisabledCallsNote")}
                     </p>
-                  ) : null}
-                  {c.status === "ERROR" && c.lastErrorCode ? (
-                    <p className="mt-1 text-[11px] font-bold text-[var(--dz-danger)]">{t(has(HEALTH, c.lastErrorCode) ? HEALTH[c.lastErrorCode] : "account.settings.connections.stores.health.generic")}</p>
                   ) : null}
                   {c.sourceKey === "telephony.cloudtalk" ? <CloudTalkSetup c={c} onSaved={load} /> : null}
                   {s.key.startsWith("telephony.") ? <LineNames c={c} onSaved={load} /> : null}
