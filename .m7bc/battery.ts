@@ -276,6 +276,22 @@ async function main() {
     && ![...shopA.hooks.values()].some((h) => listingText.includes(h.secret)));
   ok("the ciphertext at rest holds no plain key", !JSON.stringify(wooConnA).includes(keys.consumer_secret));
 
+  // Leads L1 · B2 — the platform turning the source off is SHOWN (computed), never written onto the connection.
+  type ListedConn = { id: number; status: string; effectiveStatus?: string };
+  const listedStore = async () => ((await json(await ownerGET(req("/api/integrations/acquisition", { method: "GET", headers: owner(uA.id) })))).connections as ListedConn[])
+    .find((c) => c.id === wooConnA!.id);
+  ok("B2: with the flag ON the store connection reads ACTIVE (effective = stored)",
+    (await listedStore())?.effectiveStatus === "ACTIVE" && (await listedStore())?.status === "ACTIVE");
+  await o.businessFeatureAccess.update({ where: { businessId_featureKey: { businessId: A.id, featureKey: "commerce_woocommerce" } }, data: { state: "DISABLED" } });
+  const offView = await listedStore();
+  ok("B2: flag OFF → the owner sees PLATFORM_DISABLED, while the stored status stays ACTIVE (nothing written)",
+    offView?.effectiveStatus === "PLATFORM_DISABLED" && offView.status === "ACTIVE"
+      && (await o.acquisitionConnection.findFirst({ where: { id: wooConnA!.id } }))?.status === "ACTIVE", JSON.stringify(offView));
+  const otherView = ((await json(await ownerGET(req("/api/integrations/acquisition", { method: "GET", headers: owner(uB.id) })))).connections as ListedConn[]);
+  ok("B2: another business's listing never shows A's connection", !otherView.some((c) => c.id === wooConnA!.id));
+  await enable(A.id, "commerce_woocommerce");
+  ok("B2: flag ON again → ACTIVE again, with no reconnect", (await listedStore())?.effectiveStatus === "ACTIVE");
+
   const startB = await json(await wooStartPOST(req("/api/integrations/commerce/woocommerce", { headers: owner(uB.id), body: JSON.stringify({ storeUrl: `https://${SHOP_A}` }) })));
   const stealB = await wooCallbackPOST(req("/api/integrations/commerce/woocommerce/callback", { headers: { "content-type": "application/json" },
     body: JSON.stringify({ key_id: 2, user_id: new URL(String(startB.authorizeUrl)).searchParams.get("user_id"), consumer_key: `ck_${"c".repeat(40)}`, consumer_secret: `cs_${"d".repeat(40)}`, key_permissions: "read_write" }) }));

@@ -25,6 +25,8 @@ type Connection = {
   id: number;
   sourceKey: string;
   status: "ACTIVE" | "PAUSED" | "ERROR" | "REVOKED";
+  /** B2 — computed server-side; PLATFORM_DISABLED while the platform has this source off (the record is untouched). */
+  effectiveStatus?: "ACTIVE" | "PAUSED" | "ERROR" | "REVOKED" | "PLATFORM_DISABLED";
   label: string | null;
   keyHint: string | null;
   lastEventAt: string | null;
@@ -49,11 +51,12 @@ const SOURCES: { key: SourceKey; title: MessageKey; description: MessageKey; non
   { key: "telephony.voicenter", title: "account.settings.connections.stores.sources.voicenter.title", description: "account.settings.connections.stores.sources.calls.description", none: "account.settings.connections.stores.noCallYet" },
 ];
 
-const STATUS: Record<Connection["status"], { label: MessageKey; tone: string }> = {
+const STATUS: Record<NonNullable<Connection["effectiveStatus"]>, { label: MessageKey; tone: string }> = {
   ACTIVE: { label: "account.settings.connections.stores.status.active", tone: "bg-[var(--dz-success-bg-soft)] text-[var(--dz-success)]" },
   PAUSED: { label: "account.settings.connections.stores.status.paused", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
   ERROR: { label: "account.settings.connections.stores.status.error", tone: "bg-[var(--dz-danger-bg-soft)] text-[var(--dz-danger)]" },
   REVOKED: { label: "account.settings.connections.stores.status.revoked", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
+  PLATFORM_DISABLED: { label: "account.settings.connections.common.platformDisabled", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
 };
 
 /** What the owner can do about a provider-side problem (lastErrorCode → plain words). */
@@ -186,7 +189,10 @@ export function StoresAndCallsPanel() {
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-bold text-[var(--dz-text-primary)]">{t(s.title)}</h3>
                 {!available ? (
-                  <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-bold text-[var(--dz-text-muted)]">{t("account.settings.connections.common.soon")}</span>
+                  <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-bold text-[var(--dz-text-muted)]">
+                    {/* B2 — a source the owner already connected is not "coming soon": the platform turned it off. */}
+                    {!enabled && live.length ? t("account.settings.connections.common.platformDisabled") : t("account.settings.connections.common.soon")}
+                  </span>
                 ) : !live.length ? (
                   <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-bold text-[var(--dz-text-muted)]">{t("account.settings.connections.status.disconnected")}</span>
                 ) : null}
@@ -200,8 +206,15 @@ export function StoresAndCallsPanel() {
                       <div className="truncate text-xs font-bold text-[var(--dz-text-primary)]">{c.label ?? t(s.title)}</div>
                       <div className="text-[11px] text-[var(--dz-text-muted)]">{when(c, s.none, t, locale)}</div>
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[c.status].tone}`}>{t(STATUS[c.status].label)}</span>
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[c.effectiveStatus ?? c.status].tone}`}>{t(STATUS[c.effectiveStatus ?? c.status].label)}</span>
                   </div>
+                  {c.effectiveStatus === "PLATFORM_DISABLED" ? (
+                    <p className="mt-1 text-[11px] leading-5 text-[var(--dz-text-muted)]">
+                      {t(s.key.startsWith("commerce.")
+                        ? "account.settings.connections.common.platformDisabledStoresNote"
+                        : "account.settings.connections.common.platformDisabledCallsNote")}
+                    </p>
+                  ) : null}
                   {c.status === "ERROR" && c.lastErrorCode ? (
                     <p className="mt-1 text-[11px] font-bold text-[var(--dz-danger)]">{t(has(HEALTH, c.lastErrorCode) ? HEALTH[c.lastErrorCode] : "account.settings.connections.stores.health.generic")}</p>
                   ) : null}
