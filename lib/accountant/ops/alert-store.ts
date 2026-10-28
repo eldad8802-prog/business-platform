@@ -4,8 +4,10 @@
  *
  *   OPEN       INSERT … ON CONFLICT DO NOTHING on the open-key index: a finding seen again, or seen by two monitors
  *              at once, stays ONE row; lastSeenAt / severity / detail are refreshed.
- *   RESOLVE    an open alert whose finding is absent from a COMPLETE evaluation of its scope is resolved. A scope
- *              that was not evaluated (an error, the time budget) keeps its alerts as they are.
+ *   RESOLVE    an open alert whose finding is absent from a COMPLETE evaluation of its scope is resolved. The rules
+ *              keep every open alert whose fault is not actually gone (lib/accountant/ops/findings.ts: age never
+ *              closes one), and a scope that was not evaluated (an error, the time budget) keeps its alerts as
+ *              they are. A finding kept only because it cannot be checked now is "quiet": never reminded.
  *   CLAIM      a notification is claimed by a conditional UPDATE under FOR UPDATE SKIP LOCKED: the first notice of an
  *              open alert (notifyCount 0), a reminder every REMIND_EVERY_MS while it stays open (codes that remind),
  *              and one notice when an alert that was notified resolves. Two monitors racing claim each item once.
@@ -95,11 +97,14 @@ export async function reconcileAlerts(db: SqlClient, scope: AlertScope, findings
            WHERE ${scoped(scope)} AND "resolvedAt" IS NULL AND ("code" || '|' || "subjectKey") <> ALL (${keep}::text[])`;
 
   const remindBefore = new Date(now.getTime() - REMIND_EVERY_MS);
+  // Kept open only because it cannot be checked now (its switch is off): no reminders until it can be.
+  const quiet = [...seen.values()].filter((f) => f.quiet).map((f) => `${f.code}|${f.subjectKey}`);
   const notices = await db.$queryRaw<Row[]>`
     WITH due AS (
       SELECT "id", "lastNotifiedAt" AS prev FROM ${T}
        WHERE ${scoped(scope)} AND "resolvedAt" IS NULL
-         AND ("notifyCount" = 0 OR ("code" = ANY (${[...REMINDABLE_CODES]}::text[]) AND "lastNotifiedAt" <= ${at(remindBefore)}))
+         AND ("notifyCount" = 0 OR ("code" = ANY (${[...REMINDABLE_CODES]}::text[]) AND "lastNotifiedAt" <= ${at(remindBefore)}
+              AND ("code" || '|' || "subjectKey") <> ALL (${quiet}::text[])))
        ORDER BY "id"
        FOR UPDATE SKIP LOCKED)
     UPDATE ${T} a SET "notifyCount" = a."notifyCount" + 1, "lastNotifiedAt" = ${at(now)}

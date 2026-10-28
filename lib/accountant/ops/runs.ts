@@ -53,8 +53,12 @@ export async function finishRun(id: number, outcome: "OK" | "FAILED", counts: un
   });
 }
 
-/** The newest sweep runs (newest first) and when the monitor first ran. */
-export async function readRunFacts(limit = 6): Promise<{ sweepRuns: RunFact[]; firstMonitorRunAt: Date | null }> {
+/** The newest sweep runs (newest first), when the monitor first ran, and its newest run from each channel. */
+export async function readRunFacts(limit = 6): Promise<{
+  sweepRuns: RunFact[];
+  firstMonitorRunAt: Date | null;
+  lastMonitorRunBySource: { VERCEL_CRON: Date | null; GITHUB_ACTIONS: Date | null };
+}> {
   const sweepRuns = await prisma.accountantOpsRun.findMany({
     where: { kind: "SWEEP" },
     orderBy: [{ startedAt: "desc" }, { id: "desc" }],
@@ -62,5 +66,12 @@ export async function readRunFacts(limit = 6): Promise<{ sweepRuns: RunFact[]; f
     select: { kind: true, startedAt: true, finishedAt: true, outcome: true },
   });
   const first = await prisma.accountantOpsRun.findFirst({ where: { kind: "MONITOR" }, orderBy: { startedAt: "asc" }, select: { startedAt: true } });
-  return { sweepRuns: sweepRuns as RunFact[], firstMonitorRunAt: first?.startedAt ?? null };
+  const lastOf = async (source: RunSource) =>
+    (await prisma.accountantOpsRun.findFirst({ where: { kind: "MONITOR", source }, orderBy: { startedAt: "desc" }, select: { startedAt: true } }))
+      ?.startedAt ?? null;
+  return {
+    sweepRuns: sweepRuns as RunFact[],
+    firstMonitorRunAt: first?.startedAt ?? null,
+    lastMonitorRunBySource: { VERCEL_CRON: await lastOf("VERCEL_CRON"), GITHUB_ACTIONS: await lastOf("GITHUB_ACTIONS") },
+  };
 }

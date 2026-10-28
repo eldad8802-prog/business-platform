@@ -162,8 +162,12 @@ async function main() {
   const bizAlerts = (b: number) => owner.accountantBusinessAlert.findMany({ where: { businessId: b }, orderBy: { id: "asc" } });
   const sweepRun = (outcome: "OK" | "FAILED" | "RUNNING", startedAt: Date) =>
     owner.accountantOpsRun.create({ data: { kind: "SWEEP", source: "VERCEL_CRON", startedAt, finishedAt: outcome === "RUNNING" ? null : new Date(startedAt.getTime() + 20_000), outcome } });
-  const run = (at: Date, over: Partial<Parameters<typeof monitor.runAccountantMonitor>[1]> = {}) =>
-    monitor.runAccountantMonitor("GITHUB_ACTIONS", { ...monitor.defaultMonitorDeps, now: () => at, ...over });
+  // A monitor run from GitHub; the Vercel Cron channel is shown alive at the same moment (each channel watches the
+  // other — section 11b tests that on its own).
+  const run = async (at: Date, over: Partial<Parameters<typeof monitor.runAccountantMonitor>[1]> = {}) => {
+    await owner.accountantOpsRun.create({ data: { kind: "MONITOR", source: "VERCEL_CRON", startedAt: at, finishedAt: at, outcome: "OK" } });
+    return monitor.runAccountantMonitor("GITHUB_ACTIONS", { ...monitor.defaultMonitorDeps, now: () => at, ...over });
+  };
 
   // Signed Resend webhook calls (the Svix scheme Resend uses).
   let msgSeq = 0;
@@ -473,13 +477,55 @@ async function main() {
   const anon = await adminRoute.GET(new Request("https://app.example.com/api/platform-admin/accountant-ops") as never);
   ok("11e the console route without a platform-admin session → 401", anon.status === 401);
 
+  // ── 11b. Age never closes an alert; the monitor watches itself ─────────────────────────────────
+  console.log("11b. no closing by age; the monitor watching itself");
+  const later = new Date(now.getTime() + 40 * 86400_000); // past the 30-day window, and two month-ends later
+  const stillOpen = async (b: number, code: string) => (await bizAlerts(b)).some((a) => a.code === code && a.resolvedAt === null);
+  before = alertCalls().length;
+  r = await run(later);
+  ok("11b-a 40 days on: the uncertain send, the stuck send, the failing month, the stuck build — all still open",
+    (await stillOpen(U.b, "SEND_UNCERTAIN")) && (await stillOpen(S.b, "SEND_STUCK")) && (await stillOpen(H.b, "PREPARATION_FAILED")) && (await stillOpen(K.b, "PREPARATION_STUCK")));
+  ok("11b-b the month never prepared (2026-09) is still open after the months rolled over", (await bizAlerts(V.b)).some((a) => a.subjectKey === "p:2026-09" && a.resolvedAt === null));
+  ok("11b-c the silent webhook past its 72 h window, still no event → still open", await stillOpen(W.b, "WEBHOOK_SILENT"));
+  ok("11b-d the 40-day-old complaint, nothing done → still open", await stillOpen(C.b, "DELIVERY_COMPLAINED"));
+  ok("11b-e nothing closed by age: no 'resolved' line in this run's email", !(alertCalls().slice(before).map((c) => c.text).join("\n").match(/^נפתר · /gm)));
+  const rc = await owner.accountantRecipient.findUniqueOrThrow({ where: { businessId: C.b } });
+  await inB(C.b, () => setRecipient({ businessId: C.b, userId: C.u, name: "רו\"ח דנה", email: `cpa2-${C.b}@accountants.example`, expectedVersion: rc.version, confirm: true, now: new Date(later.getTime() + 60_000) }));
+  r = await run(new Date(later.getTime() + 120_000));
+  const handled = (await bizAlerts(C.b)).find((a) => a.code === "DELIVERY_COMPLAINED");
+  ok("11b-f the owner changes the accountant's address (RECIPIENT_CHANGED in the trail) → the complaint closes",
+    handled?.resolvedAt !== null && (await owner.accountantWorkflowEvent.count({ where: { businessId: C.b, eventType: "RECIPIENT_CHANGED" } })) === 1);
+  r = await run(new Date(later.getTime() + 180_000));
+  ok("11b-g …and it never reopens", (await bizAlerts(C.b)).filter((a) => a.code === "DELIVERY_COMPLAINED").length === 1);
+  process.env.ACCOUNTANT_SWEEP_ENABLED = "false";
+  r = await run(new Date(later.getTime() + 25 * 3600_000));
+  const sm = await owner.accountantOpsAlert.findFirstOrThrow({ where: { code: "SWEEP_MISSED", resolvedAt: null } });
+  ok("11b-h the sweep switched off while SWEEP_MISSED is open → stays open, marked unchecked, NOT reminded after 24 h",
+    sm.notifyCount === 1 && (sm.detail as Json).unchecked === true);
+  ok("11b-i …and the month the switched-off sweep cannot prepare stays open quietly, not reminded",
+    (await bizAlerts(V.b)).filter((a) => a.subjectKey === "p:2026-09" && a.resolvedAt === null).every((a) => (a.detail as Json).unchecked === true));
+  process.env.ACCOUNTANT_SWEEP_ENABLED = "true";
+  // The monitor watching itself: a GitHub run with no Vercel Cron run for 3 h, then a Vercel run with no GitHub run for 13 h.
+  const t1 = new Date(later.getTime() + 28 * 3600_000);
+  r = await monitor.runAccountantMonitor("GITHUB_ACTIONS", { ...monitor.defaultMonitorDeps, now: () => t1 });
+  ok("11b-j Vercel Cron silent for 3 h (seen by the GitHub watchdog) → MONITOR_CRON_MISSED, emailed",
+    (await owner.accountantOpsAlert.count({ where: { code: "MONITOR_CRON_MISSED", resolvedAt: null } })) === 1 && alertCalls()[alertCalls().length - 1].text.includes("תזמון הניטור ב־Vercel"));
+  const t2 = new Date(t1.getTime() + 13 * 3600_000);
+  r = await monitor.runAccountantMonitor("VERCEL_CRON", { ...monitor.defaultMonitorDeps, now: () => t2 });
+  ok("11b-k the GitHub watchdog silent for 13 h (seen by Vercel Cron) → WATCHDOG_MISSED; Vercel Cron back → MONITOR_CRON_MISSED resolved",
+    (await owner.accountantOpsAlert.count({ where: { code: "WATCHDOG_MISSED", resolvedAt: null } })) === 1 &&
+    (await owner.accountantOpsAlert.count({ where: { code: "MONITOR_CRON_MISSED", resolvedAt: null } })) === 0);
+  const health = await adminOps.getAccountantOps(t2);
+  ok("11b-l the console shows the monitor's health per channel, and the last run's notification outcome",
+    health.available === true && !!health.health.lastRunBySource.VERCEL_CRON && !!health.health.lastRunBySource.GITHUB_ACTIONS && health.health.watchdogStale === true && health.health.cronStale === false);
+
   // ── 12. Nothing of the workflow changed ────────────────────────────────────────────────────────
   console.log("12. the workflow is untouched by the monitor");
   // Between the freeze and now only the owner's own acts changed the workflow — R's cancel, G's preparation — and
   // business V was created (its documents).
   const after = JSON.parse(await snapshot()) as Json;
   const was = JSON.parse(frozen) as Json;
-  const unaffected = (x: Json, keyOf: (r: Json) => number) => (x as unknown as Json[]).filter((row) => ![R.b, G.b, V.b].includes(keyOf(row)));
+  const unaffected = (x: Json, keyOf: (r: Json) => number) => (x as unknown as Json[]).filter((row) => ![R.b, G.b, V.b, C.b].includes(keyOf(row)));
   ok("12a packages, stored ZIPs and documents of every other business are byte-identical",
     JSON.stringify(unaffected(was.pkgs as Json, (p) => Number(p.businessId))) === JSON.stringify(unaffected(after.pkgs as Json, (p) => Number(p.businessId))) &&
     JSON.stringify(unaffected(was.docs as Json, (d) => Number(d.businessId))) === JSON.stringify(unaffected(after.docs as Json, (d) => Number(d.businessId))));
@@ -487,8 +533,8 @@ async function main() {
     JSON.stringify(unaffected(was.deliveries as Json, (d) => Number(d.businessId))) === JSON.stringify(unaffected(after.deliveries as Json, (d) => Number(d.businessId))) &&
     JSON.stringify(unaffected(was.periods as Json, (p) => Number(p.businessId))) === JSON.stringify(unaffected(after.periods as Json, (p) => Number(p.businessId))));
   const newEvents = await owner.accountantWorkflowEvent.findMany({ where: { id: { gt: lastEventAtFreeze } } });
-  ok("12c the trail grew only by the owner's acts (R canceled, G prepared) — never by the monitor",
-    newEvents.length > 0 && newEvents.every((e) => [R.b, G.b].includes(e.businessId)), JSON.stringify(newEvents.map((e) => [e.businessId, e.eventType])));
+  ok("12c the trail grew only by the owner's acts (R canceled, G prepared, C's address) — never by the monitor",
+    newEvents.length > 0 && newEvents.every((e) => [R.b, G.b, C.b].includes(e.businessId)), JSON.stringify(newEvents.map((e) => [e.businessId, e.eventType])));
   ok("12d no network other than the provider", otherNetwork === 0);
 
   // ── 13. The sweep and its run log ──────────────────────────────────────────────────────────────

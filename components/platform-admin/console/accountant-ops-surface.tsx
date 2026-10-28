@@ -43,8 +43,9 @@ function AlertList({ alerts, resolved }: { alerts: AccountantOpsAlertView[]; res
               {[
                 scopeOf(a),
                 resolved ? `נפתר ${fmt(a.resolvedAt)}` : `${SEVERITY_HE[a.severity] ?? a.severity} · מאז ${fmt(a.openedAt)}`,
+                !resolved && a.detail.unchecked === true ? "לא ניתן לבדוק כרגע (המתג כבוי) — נשאר פתוח, בלי תזכורות" : "",
                 a.notifyCount > 0 ? `נשלחו ${a.notifyCount} הודעות (אחרונה ${fmt(a.lastNotifiedAt)})` : "טרם נשלחה הודעה",
-              ].join(" · ")}
+              ].filter(Boolean).join(" · ")}
             </span>
           </div>
           {a.businessId ? (
@@ -111,6 +112,43 @@ function summarize(r: AccountantOpsRunView): string {
   return `נבדקו ${n("evaluated")}/${n("eligible")} · ממצאים ${n("findings")} · נפתחו ${n("opened")} · נסגרו ${n("resolved")} · הודעות ${n("claimed")}${r.errorCode ? ` · ${r.errorCode}` : ""}`;
 }
 
+/**
+ * The monitor's own health and an honest account of how alerts travel. No delivery time is promised: Vercel Cron is
+ * hourly, but GitHub's schedule — the channel that works when Vercel's does not — is irregular.
+ */
+function Health({ data }: { data: Extract<AccountantOpsResponse, { available: true }> }) {
+  const h = data.health;
+  const problems = [
+    h.cronStale ? `תזמון הניטור ב־Vercel לא רץ מאז ${fmt(h.lastRunBySource.VERCEL_CRON)}` : "",
+    h.watchdogStale ? `בודק הניטור העצמאי ב־GitHub לא רץ מאז ${fmt(h.lastRunBySource.GITHUB_ACTIONS)}` : "",
+    h.lastRun && h.lastRun.outcome !== "OK"
+      ? h.lastRun.errorCode?.startsWith("notify_")
+        ? "הריצה האחרונה לא הצליחה לשלוח את ההתראה — הפריטים נשמרו וישלחו בריצה הבאה"
+        : "הריצה האחרונה של הניטור נכשלה"
+      : "",
+  ].filter(Boolean);
+  return (
+    <section className={`${styles.card} ${problems.length ? styles.cardAttention : ""}`} aria-labelledby="ops-health">
+      <div className={styles.cardHead}>
+        <h2 id="ops-health">מצב הניטור עצמו</h2>
+        <span className={`${styles.pill} ${problems.length ? styles.pillBad : styles.pillOk}`}>{problems.length ? "דורש בדיקה" : "תקין"}</span>
+      </div>
+      {problems.length ? (
+        <ul className={styles.note}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>
+      ) : null}
+      <p className={styles.note}>
+        ריצה אחרונה דרך Vercel Cron: {fmt(h.lastRunBySource.VERCEL_CRON)} · דרך GitHub: {fmt(h.lastRunBySource.GITHUB_ACTIONS)}
+        {h.lastNotifyFailureAt ? ` · כשל שליחת התראה אחרון: ${fmt(h.lastNotifyFailureAt)}` : ""}
+      </p>
+      <p className={styles.note}>
+        אין התחייבות לזמן הגעת התראה. כשתזמון Vercel פועל הבדיקה רצה פעם בשעה; אם הוא נעצר, הבדיקה ממשיכה דרך GitHub, שהתזמון
+        שלו אינו סדיר ועלול להתעכב כמה שעות. כשערוץ ההתראות אינו זמין, ההתראות אינן אובדות: הן נשמרות ונשלחות בריצה הבאה,
+        הריצה מסומנת כנכשלת כאן, והבדיקה ב־GitHub מסומנת באדום (ההודעה על כך תלויה בהגדרות ההתראות של GitHub).
+      </p>
+    </section>
+  );
+}
+
 function Switches({ data }: { data: AccountantOpsResponse }) {
   const c = data.config;
   const item = (label: string, on: boolean, onText = "פעיל", offText = "כבוי") => (
@@ -164,6 +202,7 @@ export function AccountantOpsSurface() {
             </section>
           ) : (
             <>
+              <Health data={data} />
               <section className={`${styles.card} ${data.openAlerts.length ? styles.cardAttention : ""}`} aria-labelledby="ops-open">
                 <div className={styles.cardHead}>
                   <h2 id="ops-open">תקלות פתוחות</h2>

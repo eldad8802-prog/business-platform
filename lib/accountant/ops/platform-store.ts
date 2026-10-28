@@ -7,7 +7,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { reconcileAlerts, releaseClaims, type Claim, type ReconcileResult } from "./alert-store";
-import type { Finding } from "./findings";
+import type { Finding, OpenAlert } from "./findings";
 
 export function reconcilePlatformAlerts(findings: Finding[], now: Date): Promise<ReconcileResult> {
   return prisma.$transaction((tx) => reconcileAlerts(tx, { kind: "platform" }, findings, now));
@@ -15,4 +15,10 @@ export function reconcilePlatformAlerts(findings: Finding[], now: Date): Promise
 
 export function releasePlatformClaims(claims: Claim[]): Promise<number> {
   return prisma.$transaction((tx) => releaseClaims(tx, claims.filter((c) => c.scope.kind === "platform")));
+}
+
+/** Platform alerts open before this run (the rules keep them until their fault is actually gone). */
+export async function openPlatformAlerts(): Promise<OpenAlert[]> {
+  const rows = await prisma.accountantOpsAlert.findMany({ where: { resolvedAt: null }, select: { code: true, subjectKey: true, detail: true } });
+  return rows.map((r) => ({ ...r, detail: (r.detail ?? {}) as Record<string, unknown> }));
 }

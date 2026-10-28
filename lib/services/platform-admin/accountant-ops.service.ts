@@ -12,7 +12,7 @@
 
 import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { readAlertChannel } from "@/lib/accountant/ops/alert-email";
-import { FINDING_SPECS, isFindingCode, subjectLabelHe } from "@/lib/accountant/ops/findings";
+import { FINDING_SPECS, isFindingCode, subjectLabelHe, SWEEP_MISSED_AFTER_MS, WATCHDOG_MISSED_AFTER_MS } from "@/lib/accountant/ops/findings";
 
 export type AccountantOpsAlertView = {
   id: number;
@@ -43,12 +43,29 @@ export type AccountantOpsRunView = {
   counts: Record<string, unknown>;
 };
 
+/**
+ * The monitor's own health, from its run log: when each channel last ran, whether one is silent past its limit, and
+ * whether the last run could not deliver its alert. The console can see what the email cannot say about itself.
+ */
+export type AccountantOpsHealth = {
+  lastRunBySource: { VERCEL_CRON: string | null; GITHUB_ACTIONS: string | null };
+  /** Vercel Cron has not run the monitor for over 2 h 15 m (or never). */
+  cronStale: boolean;
+  /** The GitHub watchdog has not run for over 12 h (or never). */
+  watchdogStale: boolean;
+  /** The newest monitor run, and whether it delivered what was due. */
+  lastRun: { startedAt: string; outcome: string; errorCode: string | null } | null;
+  /** The newest run whose alert could not be sent (its items were kept and retried by the next run). */
+  lastNotifyFailureAt: string | null;
+};
+
 export type AccountantOpsResponse =
   | { available: false; reason: "admin_read_not_granted"; config: AccountantOpsConfig }
   | {
       available: true;
       generatedAt: string;
       config: AccountantOpsConfig;
+      health: AccountantOpsHealth;
       openAlerts: AccountantOpsAlertView[];
       recentlyResolved: AccountantOpsAlertView[];
       sweepRuns: AccountantOpsRunView[];
@@ -113,6 +130,21 @@ export async function getAccountantOps(now = new Date()): Promise<AccountantOpsR
       db.accountantOpsRun.findMany({ where: { kind: "SWEEP" }, orderBy: { startedAt: "desc" }, take: RECENT_RUNS }),
       db.accountantOpsRun.findMany({ where: { kind: "MONITOR" }, orderBy: { startedAt: "desc" }, take: RECENT_RUNS }),
     ]);
+    const lastOf = (source: string) =>
+      db.accountantOpsRun.findFirst({ where: { kind: "MONITOR", source }, orderBy: { startedAt: "desc" }, select: { startedAt: true } });
+    const [lastCron, lastWatchdog, notifyFailure] = await Promise.all([
+      lastOf("VERCEL_CRON"),
+      lastOf("GITHUB_ACTIONS"),
+      db.accountantOpsRun.findFirst({ where: { kind: "MONITOR", errorCode: { startsWith: "notify_" } }, orderBy: { startedAt: "desc" }, select: { startedAt: true } }),
+    ]);
+    const stale = (at: Date | null | undefined, limit: number) => !at || now.getTime() - at.getTime() > limit;
+    const health: AccountantOpsHealth = {
+      lastRunBySource: { VERCEL_CRON: iso(lastCron?.startedAt ?? null), GITHUB_ACTIONS: iso(lastWatchdog?.startedAt ?? null) },
+      cronStale: stale(lastCron?.startedAt, SWEEP_MISSED_AFTER_MS),
+      watchdogStale: stale(lastWatchdog?.startedAt, WATCHDOG_MISSED_AFTER_MS),
+      lastRun: monitorRuns[0] ? { startedAt: monitorRuns[0].startedAt.toISOString(), outcome: monitorRuns[0].outcome, errorCode: monitorRuns[0].errorCode } : null,
+      lastNotifyFailureAt: iso(notifyFailure?.startedAt ?? null),
+    };
     const ids = [...new Set([...businessOpen, ...businessResolved].map((a) => a.businessId))];
     const names = ids.length
       ? new Map((await db.business.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })).map((b) => [b.id, b.name]))
@@ -155,6 +187,7 @@ export async function getAccountantOps(now = new Date()): Promise<AccountantOpsR
       available: true,
       generatedAt: now.toISOString(),
       config,
+      health,
       openAlerts: open,
       recentlyResolved: resolved.slice(0, MAX_ALERTS),
       sweepRuns: sweepRuns.map(run),

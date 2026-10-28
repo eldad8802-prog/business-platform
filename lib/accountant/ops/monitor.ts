@@ -35,10 +35,11 @@ import {
   COMPLAINT_WINDOW_MS,
   DELIVERY_LOOKBACK_MS,
   platformFindings,
+  subjectsOf,
   type BusinessFacts,
   type Finding,
 } from "./findings";
-import { reconcilePlatformAlerts, releasePlatformClaims } from "./platform-store";
+import { openPlatformAlerts, reconcilePlatformAlerts, releasePlatformClaims } from "./platform-store";
 import { finishRun, readRunFacts, startRun, type RunSource } from "./runs";
 
 export const MONITOR_TIME_BUDGET_MS = 40_000;
@@ -97,46 +98,104 @@ export type MonitorResult = {
 
 async function readBusinessFacts(businessId: number, now: Date, deps: MonitorDeps): Promise<BusinessFacts> {
   const latestKey = previousPeriodKey(now);
+  const deliverySelect = {
+    id: true,
+    periodId: true,
+    status: true,
+    failureCode: true,
+    approvedAt: true,
+    nextAttemptAt: true,
+    leaseUntil: true,
+    acceptedAt: true,
+    updatedAt: true,
+  } as const;
   return tenantTx(businessId, async (tx) => {
-    const deliveries = await tx.accountantDelivery.findMany({
+    // Open alerts first: every send and month they name is read whatever its age (an alert never closes by ageing).
+    const openAlerts = await tx.accountantBusinessAlert.findMany({
+      where: { businessId, resolvedAt: null },
+      select: { code: true, subjectKey: true, detail: true },
+    });
+    const named = subjectsOf(openAlerts);
+    const recent = await tx.accountantDelivery.findMany({
       where: {
         businessId,
-        OR: [{ status: { in: ["APPROVED", "SENDING"] } }, { approvedAt: { gte: new Date(now.getTime() - DELIVERY_LOOKBACK_MS) } }],
+        OR: [
+          { status: { in: ["APPROVED", "SENDING"] } },
+          { approvedAt: { gte: new Date(now.getTime() - DELIVERY_LOOKBACK_MS) } },
+          { id: { in: named.deliveryIds } },
+        ],
       },
-      select: {
-        id: true,
-        periodId: true,
-        status: true,
-        failureCode: true,
-        approvedAt: true,
-        nextAttemptAt: true,
-        leaseUntil: true,
-        acceptedAt: true,
-        updatedAt: true,
-      },
+      select: deliverySelect,
     });
+    // Every send of those months: a later send is what handles a failure or a complaint of an earlier one.
+    const sendMonths = [...new Set(recent.map((d) => d.periodId))];
+    const siblings = sendMonths.length
+      ? await tx.accountantDelivery.findMany({
+          where: { businessId, periodId: { in: sendMonths }, id: { notIn: recent.map((d) => d.id) } },
+          select: deliverySelect,
+        })
+      : [];
+    const deliveries = [...recent, ...siblings];
     const buildingPackages = await tx.accountantPackage.findMany({
       where: { businessId, status: "BUILDING" },
       select: { periodId: true, createdAt: true },
     });
     const periodIds = [...new Set([...deliveries.map((d) => d.periodId), ...buildingPackages.map((b) => b.periodId)])];
     const periods = await tx.accountantPeriod.findMany({
-      where: { businessId, OR: [{ periodKey: latestKey }, { id: { in: periodIds } }, { status: "PREPARATION_FAILED" }] },
+      where: {
+        businessId,
+        OR: [{ periodKey: { in: [latestKey, ...named.periodKeys] } }, { id: { in: periodIds } }, { status: "PREPARATION_FAILED" }],
+      },
       select: { id: true, periodKey: true, status: true, evaluatedAt: true },
     });
+    // A failing month is re-evaluated (evaluatedAt moves) by every hourly retry: it has been failing since the FIRST
+    // failed build after its last good one.
+    const failedIds = periods.filter((p) => p.status === "PREPARATION_FAILED").map((p) => p.id);
+    const builds = failedIds.length
+      ? await tx.accountantPackage.findMany({
+          where: { businessId, periodId: { in: failedIds } },
+          select: { periodId: true, status: true, createdAt: true },
+          orderBy: { createdAt: "asc" },
+        })
+      : [];
+    const failingSince = (periodId: number, fallback: Date | null): Date | null => {
+      let since: Date | null = null;
+      for (const b of builds) {
+        if (b.periodId !== periodId) continue;
+        if (b.status === "FAILED") since = since ?? b.createdAt;
+        else if (b.status === "READY" || b.status === "SUPERSEDED") since = null;
+      }
+      return since ?? fallback;
+    };
     const complaints = await tx.accountantWorkflowEvent.findMany({
-      where: { businessId, eventType: "DELIVERY_COMPLAINED", occurredAt: { gte: new Date(now.getTime() - COMPLAINT_WINDOW_MS) } },
-      select: { deliveryId: true },
+      where: {
+        businessId,
+        eventType: "DELIVERY_COMPLAINED",
+        OR: [{ occurredAt: { gte: new Date(now.getTime() - COMPLAINT_WINDOW_MS) } }, { deliveryId: { in: named.deliveryIds } }],
+      },
+      select: { deliveryId: true, occurredAt: true },
+    });
+    const complaintAlerted = await tx.accountantBusinessAlert.findMany({
+      where: { businessId, code: "DELIVERY_COMPLAINED" },
+      select: { subjectKey: true },
+    });
+    const recipient = await tx.accountantWorkflowEvent.findFirst({
+      where: { businessId, eventType: { in: ["RECIPIENT_SET", "RECIPIENT_CHANGED"] } },
+      orderBy: { occurredAt: "desc" },
+      select: { occurredAt: true },
     });
     return {
       now,
       sweepEnabled: deps.sweepEnabled(),
       webhookConfigured: deps.webhookConfigured(),
       latestKey,
-      periods,
+      periods: periods.map((p) => ({ ...p, failingSince: p.status === "PREPARATION_FAILED" ? failingSince(p.id, p.evaluatedAt) : null })),
       buildingPackages,
       deliveries: deliveries.map((d) => ({ ...d, status: d.status as DeliveryStatus })),
-      complainedDeliveryIds: complaints.flatMap((c) => (c.deliveryId === null ? [] : [c.deliveryId])),
+      complaints: complaints.flatMap((c) => (c.deliveryId === null ? [] : [{ deliveryId: c.deliveryId, occurredAt: c.occurredAt }])),
+      complaintAlerted: subjectsOf(complaintAlerted).deliveryIds,
+      recipientChangedAt: recipient?.occurredAt ?? null,
+      openAlerts: openAlerts.map((a) => ({ ...a, detail: (a.detail ?? {}) as Record<string, unknown> })),
     };
   });
 }
@@ -216,6 +275,8 @@ export async function runAccountantMonitor(source: RunSource, deps: MonitorDeps 
       sweepEnabled: deps.sweepEnabled(),
       sweepRuns: runs.sweepRuns,
       firstMonitorRunAt: runs.firstMonitorRunAt,
+      lastMonitorRunBySource: runs.lastMonitorRunBySource,
+      openAlerts: await openPlatformAlerts(),
       businessesFailed: counts.businessesFailed,
       budgetExhausted: counts.budgetExhausted,
     });
