@@ -35,12 +35,8 @@ async function dbStep<T>(
   return withTenantTransaction((tx) => fn(tx));
 }
 
-import { QUOTE_CHECK_AFTER_DAYS, STALLED_AFTER_DAYS } from "@/lib/services/crm/lead-lifecycle-core";
-import {
-  OPEN_LEAD_STATUSES,
-  endOfLeadDayUtc,
-  startOfLeadDayUtc,
-} from "@/lib/services/crm/lead-core";
+import { loadLeadAttentionQueue, type LeadAttentionRaw } from "@/lib/services/crm/lead-attention-queue";
+export type { LeadAttentionRaw };
 
 import {
   BS_ATTENTION_PENDING_SUGGESTION_CAP,
@@ -115,21 +111,6 @@ export type BillingDocRaw = {
   pdfRenderStatus: BillingPdfRenderStatus;
   pdfRenderError: string | null;
   documentNumberFormatted: string | null;
-};
-
-export type LeadAttentionRaw = {
-  id: number;
-  customerName: string | null;
-  status: string;
-  nextFollowUpAt: Date | null;
-  followUpNote: string | null;
-  createdAt: Date;
-  /** M5 — lifecycle facts the attention contract reads. */
-  lastActivityAt: Date | null;
-  lastCustomerInboundAt: Date | null;
-  /** M7-A — the latest missed inbound call of the lead's customer nobody returned. */
-  lastUnreturnedCallAt?: Date | null;
-  openIdentityProposals: number;
 };
 
 export type SupplierDraftRaw = {
@@ -504,58 +485,17 @@ export async function loadBillingPdfFailed(
 }
 
 /**
- * Open leads that want the owner: a follow-up already due, or an untouched new
- * lead from before today. The SQL mirrors `evaluateLeadAttention` exactly —
- * filtering here rather than in JS keeps the cap honest (a capped list that was
- * filtered afterwards would silently hide the very items it exists to show).
+ * Open leads that want the owner — the shared attention queue (Leads L1 · G-05):
+ * every candidate is evaluated and ordered by URGENCY first, then capped. The
+ * cap used to be applied in SQL by follow-up date, so a customer who called or
+ * wrote (no follow-up date) sorted last and could be cut by routine follow-ups.
  */
 export async function loadLeadsNeedingAttention(
   businessId: number,
   now: Date
 ): Promise<LeadAttentionRaw[]> {
-  // M5 — the SQL is a SUPERSET of `evaluateLeadAttention` (the translator drops
-  // anything the evaluator rejects); day cutoffs are one day lenient so the
-  // Israel-local day arithmetic can only over-include, never hide.
-  const dayMs = 86_400_000;
-  const quoteCutoff = startOfLeadDayUtc(new Date(now.getTime() - (QUOTE_CHECK_AFTER_DAYS - 1) * dayMs));
-  const stallCutoff = startOfLeadDayUtc(new Date(now.getTime() - (STALLED_AFTER_DAYS - 1) * dayMs));
-  const open = [...OPEN_LEAD_STATUSES];
-  return dbStep((db) => db.$queryRaw<LeadAttentionRaw[]>`
-    SELECT l."id", l."customerName", l."status"::text AS "status", l."nextFollowUpAt", l."followUpNote",
-           l."createdAt", l."lastActivityAt",
-           (SELECT max(c."customerLastInboundAt") FROM "Conversation" c
-             WHERE c."businessId" = l."businessId" AND c."leadId" = l."id") AS "lastCustomerInboundAt",
-           (SELECT max(ca."startedAt") FROM "CallActivity" ca
-             WHERE ca."businessId" = l."businessId"
-               AND (ca."leadId" = l."id" OR (l."customerId" IS NOT NULL AND ca."customerId" = l."customerId"))
-               AND ca."direction" = 'inbound' AND ca."outcome" IN ('missed', 'voicemail', 'busy', 'rejected')
-               AND ca."returnedAt" IS NULL) AS "lastUnreturnedCallAt",
-           (SELECT count(*)::int FROM "IdentityProposal" p
-             WHERE p."businessId" = l."businessId" AND p."leadId" = l."id" AND p."state" = 'proposed') AS "openIdentityProposals"
-    FROM "Lead" l
-    WHERE l."businessId" = ${businessId}
-      AND l."status"::text IN (${Prisma.join(open)})
-      AND (
-        l."nextFollowUpAt" <= ${endOfLeadDayUtc(now)}
-        OR (l."status" = 'NEW' AND l."nextFollowUpAt" IS NULL AND l."createdAt" < ${startOfLeadDayUtc(now)})
-        OR (l."nextFollowUpAt" IS NULL AND l."status" = 'QUOTED'
-            AND COALESCE(l."lastActivityAt", l."createdAt") < ${quoteCutoff})
-        OR (l."nextFollowUpAt" IS NULL AND l."status" IN ('OPEN', 'QUALIFIED')
-            AND COALESCE(l."lastActivityAt", l."createdAt") < ${stallCutoff})
-        OR EXISTS (SELECT 1 FROM "IdentityProposal" p
-                    WHERE p."businessId" = l."businessId" AND p."leadId" = l."id" AND p."state" = 'proposed')
-        OR EXISTS (SELECT 1 FROM "Conversation" c
-                    WHERE c."businessId" = l."businessId" AND c."leadId" = l."id"
-                      AND c."customerLastInboundAt" > COALESCE(l."lastActivityAt", l."createdAt"))
-        -- M7-A — a missed call of this lead's customer nobody returned (the evaluator decides).
-        OR EXISTS (SELECT 1 FROM "CallActivity" ca
-                    WHERE ca."businessId" = l."businessId"
-                      AND (ca."leadId" = l."id" OR (l."customerId" IS NOT NULL AND ca."customerId" = l."customerId"))
-                      AND ca."direction" = 'inbound' AND ca."outcome" IN ('missed', 'voicemail', 'busy', 'rejected')
-                      AND ca."returnedAt" IS NULL)
-      )
-    ORDER BY l."nextFollowUpAt" ASC NULLS LAST, l."createdAt" ASC
-    LIMIT ${BS_LEADS_CAP * 3}`);
+  const queue = await dbStep((db) => loadLeadAttentionQueue(db, businessId, now));
+  return queue.items.slice(0, BS_LEADS_CAP * 3).map((i) => i.row);
 }
 
 export async function loadSupplierPurchasesPending(

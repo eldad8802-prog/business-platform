@@ -230,6 +230,7 @@ export const customersEn: Widen<typeof customersHe> = {
       save: "Save",
       cancel: "Cancel",
       unnamed: "Unnamed lead",
+      claimedPhoneShort: "{phone} (given in the enquiry — not verified)",
       chevron: "‹",
       fact: "Fact",
       inference: "Inferred from the data",
@@ -339,6 +340,7 @@ export const customersEn: Widen<typeof customersHe> = {
       noConversations: "No conversations linked to this lead yet.",
       fields: {
         phone: "Phone",
+        claimedPhone: "Number given in the enquiry — not verified",
         email: "Email",
         source: "Source",
         created: "Received",

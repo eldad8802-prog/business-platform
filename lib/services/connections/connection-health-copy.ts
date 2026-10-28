@@ -19,6 +19,10 @@ export const CONNECTION_HEALTH: Readonly<Record<string, MessageKey>> = {
   WOO_RECONCILE_FAILED: "account.settings.connections.stores.health.reconcileFailed",
   WIX_APP_UNINSTALLED: "account.settings.connections.stores.health.wixUninstalled",
   WIX_RECONCILE_FAILED: "account.settings.connections.stores.health.reconcileFailed",
+  // Leads L1 · G-06 — CloudTalk credentials (lib/intake/acquisition/providers/cloudtalk.ts). Shown on an ACTIVE
+  // connection too: it keeps receiving, the owner must fix the key.
+  CLOUDTALK_API_KEY_MISSING: "account.settings.connections.stores.health.cloudTalkKeyMissing",
+  CLOUDTALK_API_KEY_INVALID: "account.settings.connections.stores.health.cloudTalkKeyInvalid",
   // M6 — Meta Lead Ads (lib/intake/acquisition/providers/meta-lead-ads.ts).
   META_TOKEN_INVALID: "account.settings.connections.center.health.metaTokenInvalid",
   META_PERMISSION_MISSING: "account.settings.connections.center.health.metaPermissionMissing",

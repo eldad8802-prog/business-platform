@@ -10,8 +10,12 @@
 
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import type { Identifier } from "./identifiers";
-import { resolveIdentity, type IdentityResult } from "./resolve";
+import { resolveIdentity, type ContactAssurance, type IdentityResult } from "./resolve";
 
-export function preResolveIdentity(businessId: number, identifiers: Identifier[]): Promise<IdentityResult> {
-  return withTenantTransaction((tx) => resolveIdentity(tx, businessId, identifiers));
+export function preResolveIdentity(
+  businessId: number,
+  identifiers: Identifier[],
+  opts: { assurance?: ContactAssurance } = {}
+): Promise<IdentityResult> {
+  return withTenantTransaction((tx) => resolveIdentity(tx, businessId, identifiers, opts));
 }

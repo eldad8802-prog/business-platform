@@ -31,6 +31,7 @@ import { POST as webhookPOST } from "../app/api/integrations/whatsapp/webhook/ro
 import { PATCH as leadPATCH, GET as leadGET } from "../app/api/leads/[id]/route";
 import { GET as briefingGET } from "../app/api/leads/briefing/route";
 import { GET as historyGET } from "../app/api/leads/[id]/history/route";
+import { GET as leadsGET } from "../app/api/leads/route";
 import { whatsAppIntakeAdapter } from "../lib/intake/whatsapp/whatsapp-intake";
 import { leadService } from "../lib/services/crm/lead.service";
 import { appendLeadLifecycleEvent, lockLeadForLifecycle } from "../lib/services/crm/lead-lifecycle.service";
@@ -520,6 +521,103 @@ async function main() {
     `err=${eraseErr ?? ""}|${eraseErr2 ?? ""} hist=${bHist.length}`);
   await o.business.delete({ where: { id: bizB.id } }).catch(() => undefined);
   ok("deleting the business cascades its lifecycle history", (await o.leadLifecycleEvent.count({ where: { businessId: bizB.id } })) === 0);
+
+  // ── L1 · G-05. one "needs attention" across Home, the list, the ranking and the count ──
+  console.log("\n-- L1 · G-05: one attention queue (business-status = needsAction list = count = ranking) --");
+  const bizC = await o.business.create({ data: { name: `${RUN}-C` } });
+  const bizD = await o.business.create({ data: { name: `${RUN}-D` } });
+  const userC = await o.user.create({ data: { email: `${RUN}-c@m5.test`, password: "x", businessId: bizC.id, role: "USER" } });
+  const userD = await o.user.create({ data: { email: `${RUN}-d@m5.test`, password: "x", businessId: bizD.id, role: "USER" } });
+  const tokC = signAuthToken(userC.id);
+  const mkLead = (businessId: number, name: string, phone: string) =>
+    asT(businessId, (tx) => leadService.createLead({ businessId, name, phone,
+      actor: { type: "OWNER_USER", userId: businessId === bizD.id ? userD.id : userC.id }, source: "OWNER_UI" }, { tx }));
+  const day = 86_400_000;
+  const routine: number[] = [];
+  for (let i = 0; i < 9; i++) {
+    const l = await mkLead(bizC.id, `Routine ${i}`, `05055500${10 + i}`);
+    await o.lead.update({ where: { id: l.id }, data: { status: "OPEN", nextFollowUpAt: new Date(), lastActivityAt: new Date() } });
+    routine.push(l.id);
+  }
+  const wrote = await mkLead(bizC.id, "Wrote, no follow-up", "0505550090");
+  await o.lead.update({ where: { id: wrote.id }, data: { status: "OPEN", nextFollowUpAt: null, lastActivityAt: new Date(Date.now() - 2 * day) } });
+  await o.conversation.create({ data: { businessId: bizC.id, channel: "WHATSAPP", leadId: wrote.id, customerLastInboundAt: new Date(Date.now() - 60_000) } });
+  const stalled = await mkLead(bizC.id, "Stalled, no follow-up", "0505550091");
+  await o.lead.update({ where: { id: stalled.id }, data: { status: "QUALIFIED", nextFollowUpAt: null, lastActivityAt: new Date(Date.now() - 12 * day) } });
+  const quoted = await mkLead(bizC.id, "Quoted, idle", "0505550092");
+  await o.lead.update({ where: { id: quoted.id }, data: { status: "QUOTED", nextFollowUpAt: null, lastActivityAt: new Date(Date.now() - 5 * day) } });
+  const freshToday = await mkLead(bizC.id, "New today", "0505550093");
+  const quiet = await mkLead(bizC.id, "Open, recently handled", "0505550094");
+  await o.lead.update({ where: { id: quiet.id }, data: { status: "OPEN", nextFollowUpAt: null, lastActivityAt: new Date() } });
+  const closed = await mkLead(bizC.id, "Won", "0505550095");
+  await o.lead.update({ where: { id: closed.id }, data: { status: "WON", closedAt: new Date(), nextFollowUpAt: new Date(Date.now() - 3 * day) } });
+  const dLead = await mkLead(bizD.id, "Other business, stalled", "0505550091");
+  await o.lead.update({ where: { id: dLead.id }, data: { status: "OPEN", nextFollowUpAt: null, lastActivityAt: new Date(Date.now() - 20 * day) } });
+
+  const nowC = new Date();
+  const expected = [...routine, wrote.id, stalled.id, quoted.id, freshToday.id].sort((a, b) => a - b);
+  const homeItems = await runTenantJob({ businessId: bizC.id }, async () => translateLeadsNeedingAttention(await loadLeadsNeedingAttention(bizC.id, nowC), nowC));
+  const homeIds = homeItems.map((b) => b.entityRef?.id);
+  ok("Home (business-status): the customer who WROTE (no follow-up date) survives the cap of 8, ahead of 9 routine follow-ups",
+    homeItems.length === 8 && homeIds[0] === wrote.id, homeItems.map((b) => b.itemId).join(","));
+  ok("…and the cap keeps the most urgent: routine due-today follow-ups fill the rest, stalled / idle-quote are cut last",
+    homeItems.slice(1).every((b) => b.itemId.startsWith("leads:followup_due_today:")), homeItems.map((b) => b.itemId).join(","));
+  const listC = await asT(bizC.id, (tx) => leadService.listLeads({ businessId: bizC.id, needsAction: true, limit: 100, now: nowC }, { tx }));
+  const listIds = listC.map((l) => l.id).sort((a, b) => a - b);
+  ok("/leads needsAction holds EXACTLY the evaluator's set (wrote + stalled + idle quote + due follow-ups + today's new lead)",
+    JSON.stringify(listIds) === JSON.stringify(expected), JSON.stringify({ listIds, expected }));
+  const countC = await asT(bizC.id, (tx) => leadService.countNeedingAttention({ businessId: bizC.id, now: nowC }, { tx }));
+  ok("the Home count equals the list (one definition)", countC === expected.length, `count=${countC} expected=${expected.length}`);
+  ok("L1 · G-03: a NEW lead created today is in the list and the count AT ONCE (no next-day wait)",
+    listIds.includes(freshToday.id));
+  ok("L1 · G-03: …but on Home it never pushes out the urgent: with 8 more urgent items it stays below the cap of 8",
+    !homeIds.includes(freshToday.id) && homeIds.length === 8);
+  ok("an open lead handled today with no follow-up, and a closed lead, are in none of them",
+    !listIds.includes(quiet.id) && !listIds.includes(closed.id) && !homeIds.includes(closed.id));
+  const listSearch = await asT(bizC.id, (tx) => leadService.listLeads({ businessId: bizC.id, needsAction: true, query: "Stalled", now: nowC }, { tx }));
+  ok("a text search inside needsAction narrows the same set (AND, never OR)", listSearch.length === 1 && listSearch[0].id === stalled.id);
+  const apiC = await leadsGET(new NextRequest("http://m5.local/api/leads?needsAction=true&limit=100", { headers: { authorization: `Bearer ${tokC}` } }));
+  const apiJson = (await apiC.json()) as { leads: Array<{ id: number; priority: { score: number } }> };
+  const apiIds = apiJson.leads.map((l) => l.id);
+  ok("GET /api/leads?needsAction=true → the same set, the customer who wrote ranked first",
+    apiC.status === 200 && JSON.stringify([...apiIds].sort((a, b) => a - b)) === JSON.stringify(expected) && apiIds[0] === wrote.id,
+    JSON.stringify(apiIds));
+  const apiOpen = await leadsGET(new NextRequest("http://m5.local/api/leads?limit=5", { headers: { authorization: `Bearer ${tokC}` } }));
+  const openIds = ((await apiOpen.json()) as { leads: Array<{ id: number }> }).leads.map((l) => l.id);
+  ok("the default (open) list, capped at 5, still ranks the customer who wrote first (ranking reads the same queue)",
+    apiOpen.status === 200 && openIds[0] === wrote.id, JSON.stringify(openIds));
+  const countD = await asT(bizD.id, (tx) => leadService.countNeedingAttention({ businessId: bizD.id, now: nowC }, { tx }));
+  const listD = await asT(bizD.id, (tx) => leadService.listLeads({ businessId: bizD.id, needsAction: true, now: nowC }, { tx }));
+  ok("tenant isolation: business D sees only its own stalled lead (count 1, list 1), never C's",
+    countD === 1 && listD.length === 1 && listD[0].id === dLead.id && !apiIds.includes(dLead.id));
+
+  // ── L1 · G-03: today's new lead — concurrency, a future follow-up, a status move, first handling ──
+  console.log("\n-- L1 · G-03: a new lead is visible at once, and leaves the queue as soon as it is handled --");
+  const countBefore = await asT(bizC.id, (tx) => leadService.countNeedingAttention({ businessId: bizC.id }, { tx }));
+  const twins = await Promise.allSettled(Array.from({ length: 4 }, () => mkLead(bizC.id, "Parallel new", "0505550096")));
+  const twinIds = [...new Set(twins.filter((r) => r.status === "fulfilled").map((r) => (r as PromiseFulfilledResult<{ id: number }>).value.id))];
+  const countTwins = await asT(bizC.id, (tx) => leadService.countNeedingAttention({ businessId: bizC.id }, { tx }));
+  ok("4 parallel creations of the same new person → ONE open lead, counted ONCE (no duplicate in the queue)",
+    twinIds.length === 1 && countTwins === countBefore + 1 && (await o.lead.count({ where: { businessId: bizC.id, phone: { contains: "505550096" } } })) === 1,
+    JSON.stringify({ twinIds, countBefore, countTwins }));
+  const fu = await patchLead(tokC, freshToday.id, { followUpAt: new Date(Date.now() + 3 * day).toISOString() });
+  const afterFu = await asT(bizC.id, (tx) => leadService.listLeads({ businessId: bizC.id, needsAction: true, limit: 100 }, { tx }));
+  ok("a follow-up promised for a later day → today's new lead leaves the queue (handled, not 'new')",
+    fu.status === 200 && !afterFu.some((l) => l.id === freshToday.id), `http=${fu.status}`);
+  const g03Done = await patchLead(tokC, freshToday.id, { followUpAt: null });
+  const g03AfterDone = await asT(bizC.id, (tx) => leadService.listLeads({ businessId: bizC.id, needsAction: true, limit: 100 }, { tx }));
+  const g03DoneRow = await o.lead.findUnique({ where: { id: freshToday.id }, select: { status: true, firstHandledAt: true, nextFollowUpAt: true } });
+  ok("the owner then marks that follow-up done (lead still NEW) → it does NOT come back as 'new and untouched'",
+    g03Done.status === 200 && g03DoneRow?.status === "NEW" && !!g03DoneRow.firstHandledAt && g03DoneRow.nextFollowUpAt === null
+      && !g03AfterDone.some((l) => l.id === freshToday.id), JSON.stringify({ http: g03Done.status, g03DoneRow }));
+  const moved = await patchLead(tokC, twinIds[0], { status: "OPEN" });
+  const movedRow = await o.lead.findUnique({ where: { id: twinIds[0] }, select: { status: true, firstHandledAt: true } });
+  const afterMove = await asT(bizC.id, (tx) => leadService.countNeedingAttention({ businessId: bizC.id }, { tx }));
+  ok("the owner moves a new lead to OPEN → first handling is recorded and it leaves the queue / count at once",
+    moved.status === 200 && movedRow?.status === "OPEN" && !!movedRow.firstHandledAt && afterMove === countTwins - 2,
+    JSON.stringify({ http: moved.status, movedRow, countTwins, afterMove }));
+  const homeAfter = await runTenantJob({ businessId: bizC.id }, async () => translateLeadsNeedingAttention(await loadLeadsNeedingAttention(bizC.id, new Date()), new Date()));
+  ok("…and Home agrees (neither handled lead appears)", !homeAfter.some((b) => b.entityRef?.id === freshToday.id || b.entityRef?.id === twinIds[0]));
 
   console.log(`\n[m5] PASS=${pass} FAIL=${failures.length}`);
   if (failures.length) {
