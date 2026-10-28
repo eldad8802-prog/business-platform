@@ -32,6 +32,7 @@ import { runWithTenantContext } from "../lib/tenant/context";
 import { withTenantTransaction } from "../lib/tenant/transaction";
 import { getLeadBriefing } from "../lib/services/crm/lead-briefing";
 import { getCustomerCard } from "../lib/services/crm/customer-card.read-model";
+import { loadConnectionsCenter } from "../lib/services/connections/connections-center.service";
 
 const RUN = `m7bc-${Date.now()}`;
 const ORIGIN = "https://lab.dubiz.test";
@@ -506,6 +507,20 @@ async function main() {
   const ctWrongKey = await ctRow();
   ok("L1 · G-06: CloudTalk refuses the key → CLOUDTALK_API_KEY_INVALID, connection still ACTIVE (never ERROR, which would 401 new calls)",
     ctWrongKey?.status === "ACTIVE" && ctWrongKey.lastErrorCode === "CLOUDTALK_API_KEY_INVALID", JSON.stringify(ctWrongKey));
+  // The connections center (S1-B) reads the same row — through the real service, as the runtime, under RLS.
+  const centerCard = async (businessId: number, userId: number, connectionId: number) =>
+    (await loadConnectionsCenter({ businessId, userId })).categories.flatMap((g) => g.cards).find((c) => c.id === `telephony.cloudtalk:${connectionId}`);
+  const ctCardBad = await centerCard(A.id, uA.id, ctConn.id);
+  ok("L1 · G-06 center: the ACTIVE line with the refused key reads 'needs attention' with a fix — not 'connected'",
+    ctCardBad?.state === "attention" && ctCardBad.attention?.kind === "action" && ctCardBad.errorKey === "account.settings.connections.stores.health.cloudTalkKeyInvalid"
+      && !/WRONGKEY1|WRONGSECRET1|whsec_/.test(JSON.stringify(ctCardBad)), JSON.stringify(ctCardBad));
+  ok("L1 · G-06 center: …reading it changed nothing (still ACTIVE, same code)", JSON.stringify(await ctRow()) === JSON.stringify(ctWrongKey));
+  ok("L1 · G-06 center: B's center never shows A's line; B's own line reads connected",
+    !(await centerCard(B.id, uB.id, ctConn.id)) && (await centerCard(B.id, uB.id, ctB.id))?.state === "connected");
+  await o.businessFeatureAccess.update({ where: { businessId_featureKey: { businessId: A.id, featureKey: "telephony_cloudtalk" } }, data: { state: "DISABLED" } });
+  ok("L1 · G-06 center: platform flag off → no CloudTalk card in the center; the stored row is untouched",
+    !(await centerCard(A.id, uA.id, ctConn.id)) && JSON.stringify(await ctRow()) === JSON.stringify(ctWrongKey));
+  await enable(A.id, "telephony_cloudtalk");
   ctHistory.set("c-8", "");
   const c8 = await sendCloudTalk(ctConn.publicId, whsec, ctCall("c-8", CT_CO));
   ok("L1 · G-06: …and a NEW call during the key problem is still accepted (200, a receipt) — nothing lost",
@@ -542,6 +557,7 @@ async function main() {
     ctFixed?.status === "ACTIVE" && ctFixed.lastErrorCode === null
       && (ev8After?.status === "PROCESSED" || (ev8After?.status === "RECEIVED" && !!ev8After.nextAttemptAt && ev8After.nextAttemptAt.getTime() <= Date.now())),
     JSON.stringify({ ctFixed, ev8After }));
+  ok("L1 · G-06 center: …and the center reads the line 'connected' again", (await centerCard(A.id, uA.id, ctConn.id))?.state === "connected");
   await sweep(0); // the next look (the route also drains right after the response where a request scope exists)
   ok("L1 · G-06: …the waiting call AND the once-dead-lettered one are both recorded (nothing lost)",
     (await o.callActivity.count({ where: { businessId: A.id, sourceKey: "telephony.cloudtalk", providerCallId: { in: ["c-1", "c-8"] } } })) === 2,

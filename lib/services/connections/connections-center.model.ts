@@ -23,7 +23,7 @@
  * Pure and client-safe: types and functions only, no server import.
  */
 import type { MessageKey } from "@/lib/i18n/translate";
-import { connectionHealthKey } from "./connection-health-copy";
+import { CONNECTION_HEALTH, connectionHealthKey } from "./connection-health-copy";
 
 export type ConnectionCategory = "invoices" | "pos" | "payments" | "messaging" | "leads" | "stores_calls" | "authority";
 export type ConnectionAvailability = "available" | "planned" | "hidden";
@@ -148,7 +148,19 @@ const OWNER_FIX_CODES: Partial<Record<string, AcquisitionSourceKeyLike>> = {
   WOO_KEYS_REVOKED: "commerce.woocommerce",
   // StoresAndCallsPanel: the Wix install link while the Wix app is configured.
   WIX_APP_UNINSTALLED: "commerce.wix",
+  // StoresAndCallsPanel: the CloudTalk API key form (CloudTalkSetup) saves a key and clears the code.
+  CLOUDTALK_API_KEY_MISSING: "telephony.cloudtalk",
+  CLOUDTALK_API_KEY_INVALID: "telephony.cloudtalk",
 };
+
+/**
+ * Leads L1 · G-06 — a health code on a connection that stays ACTIVE (it keeps receiving; only the owner can fix it,
+ * e.g. CloudTalk's API key). Same rule as the stores panel: an ACTIVE connection carrying a code from the shared
+ * health map is not "connected". Read only — the stored status is untouched.
+ */
+function activeIssue(c: AcquisitionConnectionRow): boolean {
+  return !!c.lastErrorCode && Object.prototype.hasOwnProperty.call(CONNECTION_HEALTH, c.lastErrorCode);
+}
 
 export type AcquisitionConnectionRow = {
   id: number;
@@ -222,12 +234,13 @@ export function mapAcquisitionCards(input: AcquisitionInput): ConnectionCard[] {
         provides: decl.provides,
         manage: decl.manage,
       };
-      if (c.status === "ACTIVE") {
+      if (c.status === "ACTIVE" && !activeIssue(c)) {
         out.push({ ...base, state: "connected", errorKey: null, attention: null });
       } else if (c.status === "PAUSED") {
         out.push({ ...base, state: "paused", errorKey: null, attention: { kind: "info", textKey: `${K}.attention.paused` } });
       } else {
-        // ERROR (or any status this read model does not know): never "connected".
+        // ERROR, ACTIVE with an owner-fixable code (activeIssue), or any status this read model does not know:
+        // never "connected".
         const errorKey = connectionHealthKey(c.lastErrorCode);
         const fixFor = c.lastErrorCode ? OWNER_FIX_CODES[c.lastErrorCode] : undefined;
         const fixable = fixFor === key && canConnect && decl.manage !== null;

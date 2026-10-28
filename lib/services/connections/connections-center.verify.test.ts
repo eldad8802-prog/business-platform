@@ -18,6 +18,8 @@ import { en } from "@/lib/i18n/messages/en";
 import { he } from "@/lib/i18n/messages/he";
 import { listProviderDescriptors } from "@/lib/services/payments/providers/provider-registry";
 
+import { CLOUDTALK_CREDENTIAL_CODES } from "@/lib/intake/calls/cloudtalk";
+
 import { CONNECTION_HEALTH, connectionHealthKey } from "./connection-health-copy";
 import {
   ACQUISITION_SOURCES,
@@ -201,6 +203,35 @@ async function main() {
       unknown?.errorKey === "account.settings.connections.center.health.generic" && unknown.attention?.kind === "info" && !JSON.stringify(unknown).includes("SOMETHING_NEW")
     );
     ok("ERROR with no code → the generic copy", none?.errorKey === "account.settings.connections.center.health.generic");
+  }
+  {
+    // Leads L1 · G-06 — CloudTalk's API key problem sits on a connection that stays ACTIVE (calls keep arriving).
+    const ct = (extra: Partial<AcquisitionConnectionRow> = {}, id = 8) => row(id, "telephony.cloudtalk", "ACTIVE", extra);
+    const on = { "telephony.cloudtalk": true };
+    const [healthy] = track(mapAcquisitionCards(acq({ enabled: on, connections: [ct()] })));
+    ok("G-06: a healthy ACTIVE CloudTalk line → connected", healthy?.state === "connected" && healthy.attention === null && healthy.errorKey === null);
+    for (const code of CLOUDTALK_CREDENTIAL_CODES) {
+      const [c] = track(mapAcquisitionCards(acq({ enabled: on, connections: [ct({ lastErrorCode: code })] })));
+      ok(
+        `G-06: ACTIVE + ${code} → attention with its own copy and a fix in the stores panel (never "connected")`,
+        c?.state === "attention" && c.errorKey === CONNECTION_HEALTH[code] && c.attention?.kind === "action"
+          && c.attention.action?.href === "#connections-stores" && c.attention.textKey === CONNECTION_HEALTH[code]
+      );
+      ok(`G-06: …${code}: no raw code, key or secret in the card`, !/CLOUDTALK_|apiKey|secret|whsec/i.test(JSON.stringify(c)));
+    }
+    const [fixed] = track(mapAcquisitionCards(acq({ enabled: on, connections: [ct({ lastErrorCode: null })] })));
+    ok("G-06: the code cleared (a key saved / CloudTalk answers) → connected again", fixed?.state === "connected" && fixed.attention === null);
+    const [unknown] = track(mapAcquisitionCards(acq({ enabled: on, connections: [ct({ lastErrorCode: "SOMETHING_NEW" })] })));
+    ok("G-06: ACTIVE with a code outside the shared map → still connected (the panel shows nothing for it either)", unknown?.state === "connected");
+    const two = track(mapAcquisitionCards(acq({ enabled: on, connections: [ct({ lastErrorCode: "CLOUDTALK_API_KEY_MISSING" }, 8), ct({}, 9)] })));
+    ok("G-06: per connection — only the line with the key problem asks for attention",
+      two.length === 2 && two.find((c) => c.id === "telephony.cloudtalk:8")?.state === "attention" && two.find((c) => c.id === "telephony.cloudtalk:9")?.state === "connected");
+    ok("G-06: platform flag off → no CloudTalk card in the center (the stores panel shows it as platform-disabled)",
+      mapAcquisitionCards(acq({ enabled: { "telephony.cloudtalk": false }, connections: [ct({ lastErrorCode: "CLOUDTALK_API_KEY_MISSING" })] })).length === 0);
+    const panel = fs.readFileSync(path.join(process.cwd(), "components/settings/StoresAndCallsPanel.tsx"), "utf8");
+    ok("G-06: the center and the stores panel use the same rule (ACTIVE + a code from the shared map)",
+      panel.includes(`c.status === "ACTIVE" && has(CONNECTION_HEALTH, c.lastErrorCode)`)
+        && CLOUDTALK_CREDENTIAL_CODES.every((code) => !!CONNECTION_HEALTH[code] && heText(CONNECTION_HEALTH[code]!).length > 20));
   }
   ok("every acquisition source sits in its business category", ACQUISITION_SOURCES["web.form"].category === "leads" && ACQUISITION_SOURCES["telephony.voicenter"].category === "stores_calls" && ACQUISITION_SOURCES["pos.rivhit"].category === "invoices");
 
