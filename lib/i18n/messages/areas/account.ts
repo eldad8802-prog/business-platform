@@ -679,6 +679,11 @@ export const connectionsHe = {
     pause: "השהיה",
     revoke: "ניתוק",
     busy: "רגע…",
+    // Leads L1 · B2 — the platform turned this kind of connection off; the owner's connection itself is kept.
+    platformDisabled: "מושבת על ידי הפלטפורמה",
+    platformDisabledLeadsNote: "Dubiz השביתה זמנית את סוג החיבור הזה. החיבור שלך שמור ואין צורך לחבר מחדש — אבל עד שיופעל שוב, פניות חדשות לא נקלטות.",
+    platformDisabledCallsNote: "Dubiz השביתה זמנית את סוג החיבור הזה. החיבור שלך שמור ואין צורך לחבר מחדש — אבל עד שיופעל שוב, שיחות חדשות לא נקלטות.",
+    platformDisabledStoresNote: "Dubiz השביתה זמנית את סוג החיבור הזה. החיבור שלך שמור ואין צורך לחבר מחדש; כשיופעל שוב, הזמנות שהשתנו בינתיים ייקלטו מהחנות.",
   },
   integrations: {
     checkError: "לא הצלחנו לבדוק את מצב החיבור כרגע.",

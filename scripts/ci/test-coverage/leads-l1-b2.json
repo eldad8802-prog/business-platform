@@ -1,0 +1,10 @@
+{
+  "note": "Leads L1 · B2 — the effective connection status: PLATFORM_DISABLED computed server-side while a platform flag is off, never stored (DB half in .m7bc/battery.ts, m7a-foundation-ci).",
+  "tests": {
+    "lib/intake/acquisition/effective-status.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "reason": "B2 owner / platform authority: a platform flag OFF shows a live connection as PLATFORM_DISABLED (REVOKED stays REVOKED), computed on the owner GET and never written onto the connection; no owner control can turn a platform flag on; DB proof in the M7-B/C battery",
+      "lab": "pure"
+    }
+  }
+}
