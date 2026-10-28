@@ -12,8 +12,9 @@ import { finishRun, runSourceOf, startRun } from "@/lib/accountant/ops/runs";
  * without touching the database. The response carries counts only.
  *
  * Every enabled run is recorded in the run log (G5 milestone 1: "AccountantOpsRun", counts only) so the monitor can
- * see a run that failed, never finished, or never happened. Recording is best-effort: a failure to record is
- * logged and changes nothing about the sweep or its answer.
+ * see a run that failed, never finished, or never happened — only while the monitor is switched on
+ * (ACCOUNTANT_MONITOR_ENABLED = "true"), so the monitor's own switch decides whether anything is written. Recording is
+ * best-effort: a failure to record is logged and changes nothing about the sweep or its answer.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,8 @@ async function handle(req: NextRequest) {
   if (process.env.ACCOUNTANT_SWEEP_ENABLED?.trim() !== "true") {
     return NextResponse.json({ ok: true, enabled: false }, { status: 200 });
   }
-  const runId = await startRun("SWEEP", runSourceOf(req.method), new Date()).catch((e: unknown) => {
+  const recordRuns = process.env.ACCOUNTANT_MONITOR_ENABLED?.trim() === "true";
+  const runId = !recordRuns ? null : await startRun("SWEEP", runSourceOf(req.method), new Date()).catch((e: unknown) => {
     console.error("[accountant-sweep] run log start failed", { error: e instanceof Error ? e.name : "unknown" });
     return null;
   });

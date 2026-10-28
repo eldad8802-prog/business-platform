@@ -21,7 +21,8 @@
  *  10. isolation: each alert in its own business, under RLS; a business without the feature has none;
  *  11. the console's read: alerts with business names, runs, no address anywhere; without the grant → "not granted";
  *  12. nothing of the workflow changed: packages, stored ZIPs, documents, the trail (the monitor writes none of it);
- *  13. the sweep: each run recorded with its own summary; a broken run log changes nothing about the sweep.
+ *  13. the sweep: each run recorded with its own summary (only while the monitor is on); a broken run log changes
+ *      nothing about the sweep.
  *
  * env: OWNER_URL, DATABASE_URL (runtime), ADMIN_DATABASE_URL (console). Synthetic only. ZERO real network.
  */
@@ -505,6 +506,11 @@ async function main() {
   ok("13b with the run log broken the sweep still runs and answers as before (best-effort recording)",
     s2.status === s1.status && s2Body.enabled === true && typeof (s2Body.summary as Json)?.eligible === "number" && (await owner.accountantOpsRun.count()) === runsNow);
   await owner.$executeRawUnsafe(`GRANT INSERT ON "AccountantOpsRun" TO app_runtime`);
+  process.env.ACCOUNTANT_MONITOR_ENABLED = "false";
+  const runsOff = await owner.accountantOpsRun.count();
+  const s3 = await sweepCall();
+  ok("13c with the monitor switched off the sweep records nothing (merging the code writes nothing)", s3.status === s1.status && (await owner.accountantOpsRun.count()) === runsOff);
+  process.env.ACCOUNTANT_MONITOR_ENABLED = "true";
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) process.exitCode = 1;
