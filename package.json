@@ -157,6 +157,7 @@
     "verify:landing-knowledge": "npx tsx lib/services/identity/landing-knowledge.verify.test.ts",
     "verify:import-export-foundation": "npx tsx lib/data-transfer/import-export-foundation.verify.test.ts",
     "verify:profile-settings": "npx tsx lib/services/profile/profile-settings.verify.test.ts",
+    "verify:connections-center": "npx tsx lib/services/connections/connections-center.verify.test.ts",
     "qa:import-export-foundation": "node scripts/qa/ui/import-export-foundation.mjs",
     "verify:data-transfer-export": "npx tsx lib/data-transfer/export/export.verify.test.ts",
     "qa:export-memory-probe": "npx tsx scripts/qa/data-transfer/export-memory-probe.ts",
