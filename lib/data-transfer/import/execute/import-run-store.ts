@@ -483,3 +483,48 @@ export async function completeBankStatementRunInTx(
     },
   });
 }
+
+/* ───────────────────── recent runs, read-only (S1-B M3 uploads screen) ─────────────────────
+ *
+ * The /money/uploads screen lists what was brought in lately. It is a READ of this ledger, and it lives here
+ * because this file is the ledger's only accessor (CI-IL-14). It selects ids, enums, counts and timestamps —
+ * never a hash, a mapping or a row marker — and it writes nothing.
+ */
+
+export type RecentImportRun = {
+  id: number;
+  domain: string;
+  status: "EXECUTING" | "COMPLETED" | "PARTIAL" | "FAILED";
+  totalRows: number;
+  createdCount: number | null;
+  skippedCount: number | null;
+  failedCount: number | null;
+  startedAt: Date;
+  completedAt: Date | null;
+};
+
+/** This business's most recent runs, every domain, newest first. */
+export async function listRecentImportRuns(businessId: number, limit: number): Promise<RecentImportRun[]> {
+  const take = Math.max(1, Math.min(50, Math.floor(limit)));
+  return runWithTenantContext({ businessId }, async () => {
+    const rows = await withTenantTransaction((tx) =>
+      tx.importRun.findMany({
+        where: { businessId },
+        orderBy: [{ startedAt: "desc" }, { id: "desc" }],
+        take,
+        select: {
+          id: true,
+          domain: true,
+          status: true,
+          totalRows: true,
+          createdCount: true,
+          skippedCount: true,
+          failedCount: true,
+          startedAt: true,
+          completedAt: true,
+        },
+      })
+    );
+    return rows.map((r) => ({ ...r, status: r.status as RecentImportRun["status"] }));
+  });
+}

@@ -165,6 +165,15 @@ jobs:
       - name: Profile + Settings (no dead navigation, no invented capability)
         run: npx tsx lib/services/profile/profile-settings.verify.test.ts
 
+      # S1-B · M1 — the Connections center read model: per-source state / attention /
+      # availability mapping (action only where a working fix exists; Rivhit hidden while
+      # pos_rivhit is off; disabled payment providers hidden), one failing read marks only its
+      # own cards unavailable, no secret column is selected, 401 without a session, and the
+      # four existing management panels + OAuth return paths stay. Pure: no DB, no network.
+      # Local equivalent: npm run verify:connections-center
+      - name: Connections center (read model, isolation, no secrets)
+        run: npx tsx lib/services/connections/connections-center.verify.test.ts
+
       - name: I-2 negative proof (release and Settings listing drifting apart must be caught)
         run: |
           F="components/settings/settings-categories.ts"

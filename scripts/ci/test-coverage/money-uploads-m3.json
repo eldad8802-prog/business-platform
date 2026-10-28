@@ -1,0 +1,14 @@
+{
+  "note": "S1-B · M3 — the העלאת דוחות וקבצים work screen at /money/uploads: a read-only read model over the import ledger (listRecentImportRuns), old-path bank upload batches and the bank file import flag. It routes to existing upload screens and writes nothing.",
+  "tests": {
+    "lib/money-uploads/uploads-overview.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network): bank card routing from the server flag state (ON/OFF/UNKNOWN), history merge / sort / limit, old-path batch grouping, Hebrew domain labels, derived attention (FAILED / PARTIAL / stuck; action vs info), no amount / description / full account number in the output, static checks that the reads write nothing, are tenant-scoped and take nothing from the request; run on pull_request by money-uploads-ci.yml; passed locally (36/36)"
+    },
+    "app/api/money-uploads.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: two tenants, runs as a NOSUPERUSER NOBYPASSRLS login role with no ambient tenant context and refuses to run otherwise; B sees none of A runs / batches / account label, each bank card follows its own business flag, no amount / description / full account number, 401 without/with a forged token, query businessId ignored, the reads write nothing; run by billing-profile-rls-ci.yml; passed locally (26/26, incl. a failed history read)"
+    }
+  }
+}

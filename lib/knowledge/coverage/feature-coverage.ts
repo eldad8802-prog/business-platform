@@ -433,6 +433,14 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     outcome: NO_OUTCOME,
   },
   {
+    // S1-B M3: העלאת דוחות וקבצים (/money/uploads) — a read-only work screen over the import ledger and old-path
+    // bank uploads. It routes to the existing upload screens and owns no model; what is brought in is learned in
+    // payables / documents / data-transfer.
+    key: "money-uploads", name: "Reports & files upload hub", coverage: "AGGREGATOR",
+    rules: [], temporalRules: [], otherUnits: [], l0: [], models: [], sensors: [], legacyEvents: [], routes: ["api/money", "page/money"],
+    outcome: NO_OUTCOME,
+  },
+  {
     key: "home", name: "Home (business day)", coverage: "AGGREGATOR",
     rules: [], temporalRules: [], otherUnits: [], l0: [], models: [], sensors: [], legacyEvents: [], routes: ["api/home", "page/app", "page/tools"],
     outcome: NO_OUTCOME,

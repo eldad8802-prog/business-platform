@@ -247,6 +247,20 @@ export const TOOLS: Tool[] = [
     group: "money",
     colorSource: "borrowed:documents",
   },
+  // S1-B M3: one place to bring reports and files in. It routes to the existing upload screens
+  // (bank statement, documents, import) — it is not a second upload mechanism.
+  {
+    key: "uploads",
+    label: HE_T("insights.tools.items.uploads.label"),
+    labelKey: "insights.tools.items.uploads.label",
+    description: HE_T("insights.tools.items.uploads.description"),
+    descriptionKey: "insights.tools.items.uploads.description",
+    entity: "upload",
+    href: "/money/uploads",
+    color: "teal",
+    group: "money",
+    colorSource: "borrowed:documents",
+  },
   // --- לקוחות ומכירות ------------------------------------------------------
   {
     key: "customers",
