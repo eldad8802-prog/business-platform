@@ -5,5 +5,5 @@ import { AdminConsole } from "@/components/platform-admin/console/admin-console"
 import { AccountantOpsSurface } from "@/components/platform-admin/console/accountant-ops-surface";
 
 export default function PlatformAdminAccountantOpsPage() {
-  return <AdminConsole title="ניטור חבילת רו״ח" backHref="/admin/diagnostics">{() => <AccountantOpsSurface />}</AdminConsole>;
+  return <AdminConsole title="ניטור חבילת רו״ח" backHref="/admin/security">{() => <AccountantOpsSurface />}</AdminConsole>;
 }
