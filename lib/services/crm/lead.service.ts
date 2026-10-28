@@ -70,7 +70,6 @@ import {
   OPEN_LEAD_STATUSES,
   classifyLeadStatusTransition,
   endOfLeadDayUtc,
-  startOfLeadDayUtc,
   isClosedLeadStatus,
   normalizeLeadEmail,
   normalizeLeadName,
