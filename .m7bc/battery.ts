@@ -602,7 +602,10 @@ async function main() {
   const BULK = 350; // > RECONCILE_PAGES_PER_RUN (3) × per_page (100): recovery must span several runs
   for (let i = 0; i < BULK; i++) shopD.orders.push(wooOrder(7100 + i, { date_modified_gmt: future(100 + i) }));
   installs.get(INST_D)!.orders.push(wixOrder("wd-2", { updatedDate: wixFuture(100) }), wixOrder("wd-3", { updatedDate: wixFuture(101) }));
-  const hookWhileOff = await sendWoo(shopD, wooOrder(7099, { date_modified_gmt: future(99) }), "order.created");
+  // The order behind the webhook exists in the store as well (sendWoo only delivers it) — that is what the sync reads.
+  const order7099 = wooOrder(7099, { date_modified_gmt: future(99) });
+  shopD.orders.push(order7099);
+  const hookWhileOff = await sendWoo(shopD, order7099, "order.created");
   const r0Woo = await receiptsD("commerce.woocommerce");
   const r0Wix = await receiptsD("commerce.wix");
   await sweep();
