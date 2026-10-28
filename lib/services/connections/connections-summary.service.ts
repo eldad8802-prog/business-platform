@@ -13,6 +13,9 @@
  *                 card calls, so an expired refresh token is EXPIRED, not active
  *   leadSources   AcquisitionConnection.status = ACTIVE, for sources this business
  *                 is enabled for (LeadSourcesPanel only lists enabled sources)
+ *   storesAndCalls  AcquisitionConnection.status = ACTIVE for the enabled store / phone
+ *                 sources (StoresAndCallsPanel: WooCommerce, Wix, CloudTalk, Voicenter).
+ *                 Rivhit (pos.rivhit) is not counted: it has no connect screen yet (M2).
  *
  * All-or-nothing: if any source cannot be read, `active` is null and the hub
  * shows no number rather than a partial one that looks complete.
@@ -32,12 +35,21 @@ import { findPublicByBusinessId } from "@/lib/services/integrations/whatsapp/con
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
+/** The store / phone sources StoresAndCallsPanel manages (S1-B · M1: counted on the hub too). */
+export const STORES_AND_CALLS_SOURCE_KEYS = [
+  "commerce.woocommerce",
+  "commerce.wix",
+  "telephony.cloudtalk",
+  "telephony.voicenter",
+] as const;
+
 export type ConnectionsBreakdown = {
   whatsapp: number;
   gmail: number;
   payments: number;
   taxAuthority: number;
   leadSources: number;
+  storesAndCalls: number;
 };
 
 export type ConnectionsSummary =
@@ -73,10 +85,13 @@ async function taxAuthorityActive(caller: ConnectionsSummaryCaller): Promise<num
 
 async function tenantCounts(businessId: number) {
   const enabled = await runWithTenantContext({ businessId }, () => enabledSources(businessId));
-  // Lead sources only (M6); commerce / telephony connections are not "lead sources".
-  const enabledKeys = Object.entries(enabled)
-    .filter(([key, on]) => on && (ACQUISITION_SOURCE_KEYS as readonly string[]).includes(key))
-    .map(([key]) => key);
+  const enabledOf = (keys: readonly string[]) =>
+    Object.entries(enabled)
+      .filter(([key, on]) => on && keys.includes(key))
+      .map(([key]) => key);
+  // Lead sources (M6) and stores / phone lines (M7) are counted apart: an order or a call is not a lead.
+  const enabledKeys = enabledOf(ACQUISITION_SOURCE_KEYS);
+  const enabledStoreKeys = enabledOf(STORES_AND_CALLS_SOURCE_KEYS);
 
   return tenantTx(businessId, async (tx) => {
     const gmail = await tx.emailConnection.count({
@@ -91,7 +106,13 @@ async function tenantCounts(businessId: number) {
         : await tx.acquisitionConnection.count({
             where: { businessId, status: "ACTIVE", sourceKey: { in: enabledKeys } },
           });
-    return { gmail, payments, leadSources };
+    const storesAndCalls =
+      enabledStoreKeys.length === 0
+        ? 0
+        : await tx.acquisitionConnection.count({
+            where: { businessId, status: "ACTIVE", sourceKey: { in: enabledStoreKeys } },
+          });
+    return { gmail, payments, leadSources, storesAndCalls };
   });
 }
 
@@ -125,6 +146,7 @@ export async function loadConnectionsSummary(
     payments: counts.value.payments,
     taxAuthority: taxAuthority.value,
     leadSources: counts.value.leadSources,
+    storesAndCalls: counts.value.storesAndCalls,
   };
   const active = Object.values(breakdown).reduce((sum, n) => sum + n, 0);
   return { available: true, active, breakdown };
