@@ -108,6 +108,7 @@ on:
           - 'ops/evidence/accountant-g4-pilot-postcheck.sql'
           - 'ops/evidence/accountant-ops-preflight.sql'
           - 'ops/evidence/accountant-ops-production-evidence.sql'
+          - 'ops/evidence/accountant-ops-ledger-names.sql'
           - 'ops/evidence/platform-admin-a1-preflight.sql'
           - 'ops/evidence/platform-admin-a1-production-evidence.sql'
           - 'ops/evidence/platform-admin-a1-member-classification.sql'
