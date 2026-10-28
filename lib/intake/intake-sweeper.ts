@@ -14,13 +14,14 @@
  * The report carries COUNTS only — no business, event or message identifier —
  * so a leaked response reveals nothing.
  *
- * Scheduling is NOT enabled here: the route is invoked on demand
- * (workflow_dispatch) until the owner approves a schedule.
+ * Scheduling lives outside this module: QStash (primary, if its schedule exists
+ * in Upstash), the GitHub `intake sweep (scheduled)` workflow every ~10 minutes
+ * and the daily Vercel cron (vercel.json) — all call /api/intake/sweep.
  */
 
 import { runTenantJob } from "@/lib/tenant/job";
 import { BusinessQuarantinedError } from "@/lib/tenant/business-lifecycle";
-import { purgeExpiredFailedPayloads } from "@/lib/intake/intake-event.store";
+import { intakeHealthCounts, purgeExpiredFailedPayloads } from "@/lib/intake/intake-event.store";
 import { drainIntake, emptyTally, type IntakeProcessResult } from "@/lib/intake/core/processor";
 import type { IntakeRegistry } from "@/lib/intake/core/registry";
 import { intakeRegistry } from "@/lib/intake/sources";
@@ -35,6 +36,13 @@ export type IntakeSweepReport = {
   payloadsPurged: number;
   /** M7-B — orders recovered by polling stores, disabled store webhooks re-activated, store failures. */
   commerce: { receipts: number; webhooksReactivated: number; failures: number };
+  /**
+   * Leads L1 · G-07 — business-event health across the swept businesses, read after the run (counts only):
+   * dead letters no sweep had reported yet, by ANY path (webhook-time drains included — reported once),
+   * every replayable dead letter, receipts still unfinished a day after arrival, and how many businesses
+   * have new dead letters or stale receipts.
+   */
+  backlog: { deadLettersNew: number; deadLettersOpen: number; pendingStale: number; businessesNeedingAttention: number };
   /** S1-A — Rivhit documents handed to intake, documents Rivhit returned unreadable, failed connections, Rivhit calls. */
   revenueSources: { receipts: number; unreadable: number; failures: number; calls: number };
 };
@@ -62,6 +70,7 @@ export async function runIntakeSweep(
     payloadsPurged: 0,
     commerce: { receipts: 0, webhooksReactivated: 0, failures: 0 },
     revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
+    backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, businessesNeedingAttention: 0 },
   };
 
   for (const businessId of await tenantsOf(registry)) {
@@ -89,6 +98,16 @@ export async function runIntakeSweep(
           limit: options.perBusinessLimit ?? 50,
         });
         report.payloadsPurged += await purgeExpiredFailedPayloads(businessId, now);
+        // Leads L1 · G-07 — the business-event health, AFTER this run's own work (counts only).
+        const h = await intakeHealthCounts(businessId, now);
+        report.backlog.deadLettersNew += h.deadLettersNew;
+        report.backlog.deadLettersOpen += h.deadLettersOpen;
+        report.backlog.pendingStale += h.pendingStale;
+        if (h.deadLettersNew + h.pendingStale > 0) {
+          report.backlog.businessesNeedingAttention += 1;
+          // Server log only (never the response): which business, counts — no event id, no content.
+          console.warn("[intake-sweep] business attention", { businessId, ...h });
+        }
         return drained;
       });
       for (const key of Object.keys(tally) as IntakeProcessResult[]) {
@@ -106,4 +125,27 @@ export async function runIntakeSweep(
     }
   }
   return report;
+}
+
+export type SweepHealth = {
+  ok: boolean;
+  /** The RUN itself could not do its work (a business could not be swept). */
+  job: string[];
+  /** The run worked, but business events need someone: failed / dead-lettered receipts, store reconciliation. */
+  events: string[];
+};
+
+/**
+ * Leads L1 · G-07 — "the sweep ran" is not "nothing was lost". Either kind of problem makes the run unhealthy
+ * (the scheduler goes red — the existing alert), and the two are named apart so the operator knows whether to
+ * look at the job or at the events. Rivhit (S1-A) failures stay in the report, outside this verdict (their own track).
+ */
+export function sweepHealth(report: IntakeSweepReport): SweepHealth {
+  const job = report.businessErrors > 0 ? ["business_errors"] : [];
+  const events = [
+    ...(report.events.failed > 0 ? ["failed_receipts"] : []),
+    ...(report.backlog.deadLettersNew > 0 ? ["dead_letters_new"] : []),
+    ...(report.commerce.failures > 0 ? ["commerce_reconcile_failures"] : []),
+  ];
+  return { ok: job.length === 0 && events.length === 0, job, events };
 }

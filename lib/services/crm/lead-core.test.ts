@@ -452,14 +452,23 @@ check("an untouched new lead from before today is surfaced", () => {
   assert.equal(a.nextAction.kind, "contact_new_lead");
 });
 
-check("a new lead from TODAY is not yet neglected", () => {
-  const a = evaluateLeadAttention(
+check("Leads L1 · G-03: a new lead from TODAY asks for the owner at once, at the bottom of its band", () => {
+  const today = evaluateLeadAttention(
     { status: "NEW", nextFollowUpAt: null, createdAt: W2_NOW },
     W2_NOW
   );
-  assert.equal(a.needsAttention, false);
-  assert.equal(a.reason, null);
-  assert.equal(a.nextAction.kind, "set_followup");
+  assert.equal(today.needsAttention, true);
+  assert.equal(today.reason, "NEW_UNHANDLED");
+  assert.equal(today.nextAction.kind, "contact_new_lead");
+  assert.equal(today.priority, 45);
+  const older = evaluateLeadAttention({ status: "NEW", nextFollowUpAt: null, createdAt: dayAgo(3) }, W2_NOW);
+  assert.equal(older.priority > today.priority, true, "a lead nobody touched for days outranks this morning's");
+  // Handled = moved out of NEW, or a follow-up promised: no longer "new".
+  assert.equal(evaluateLeadAttention({ status: "OPEN", nextFollowUpAt: null, createdAt: W2_NOW, lastActivityAt: W2_NOW }, W2_NOW).needsAttention, false);
+  assert.equal(
+    evaluateLeadAttention({ status: "NEW", nextFollowUpAt: new Date(W2_NOW.getTime() + 2 * 86_400_000), createdAt: W2_NOW }, W2_NOW).needsAttention,
+    false
+  );
 });
 
 check("reasons never cross priority bands, however old they get", () => {

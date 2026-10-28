@@ -137,6 +137,8 @@ export const ANONYMIZE_MODELS = [
     fields: {
       customerName: "null",
       phone: "null",
+      // Leads L1 · G-01b — the phone typed into an anonymous enquiry (personal data).
+      claimedPhone: "null",
       email: "null",
       intentSnapshot: "null",
       followUpNote: "null",

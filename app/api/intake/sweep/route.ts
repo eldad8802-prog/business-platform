@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeSweep } from "@/lib/intake/sweep-auth";
-import { runIntakeSweep } from "@/lib/intake/intake-sweeper";
+import { runIntakeSweep, sweepHealth } from "@/lib/intake/intake-sweeper";
 
 /**
  * Business Intake sweeper — retries intake receipts that did not finish when
@@ -36,17 +36,28 @@ async function handle(req: NextRequest, body: string) {
   }
   try {
     const report = await runIntakeSweep();
-    // "The sweep ran" is not "the receipts were processed": a business that could not be swept, or
-    // any receipt that failed again (retryable) or went to dead letter during this run, makes the run
-    // unhealthy — the scheduler goes red (QStash: a failed delivery, retried, then dead-lettered).
-    // Counts only; no content.
-    const reasons = [
-      ...(report.businessErrors > 0 ? ["business_errors"] : []),
-      ...(report.events.failed > 0 ? ["failed_receipts"] : []),
-    ];
-    const unhealthy = reasons.length > 0;
-    if (unhealthy) console.error("[intake-sweep] unhealthy", { via: auth.via, reasons, businessErrors: report.businessErrors, failed: report.events.failed });
-    return NextResponse.json({ ok: !unhealthy, via: auth.via, ...(unhealthy ? { reasons } : {}), report }, { status: unhealthy ? 500 : 200 });
+    // "The sweep ran" is not "the receipts were processed" (Leads L1 · G-07): a business that could not
+    // be swept (JOB), or a receipt that failed in this run, a dead letter no sweep had reported yet (also
+    // webhook-time ones), or a store reconciliation failure (EVENTS) makes the run unhealthy — the
+    // scheduler goes red (QStash: a failed delivery, retried, then dead-lettered). The body names which
+    // kind. Counts only; no content.
+    const health = sweepHealth(report);
+    const reasons = [...health.job, ...health.events];
+    if (!health.ok) {
+      console.error("[intake-sweep] unhealthy", {
+        via: auth.via,
+        job: health.job,
+        events: health.events,
+        businessErrors: report.businessErrors,
+        failed: report.events.failed,
+        deadLettersNew: report.backlog.deadLettersNew,
+        commerceFailures: report.commerce.failures,
+      });
+    }
+    return NextResponse.json(
+      { ok: health.ok, via: auth.via, ...(health.ok ? {} : { reasons, health: { job: health.job, events: health.events } }), report },
+      { status: health.ok ? 200 : 500 }
+    );
   } catch (error) {
     console.error("[intake-sweep] run failed", {
       error: error instanceof Error ? error.name : "unknown",

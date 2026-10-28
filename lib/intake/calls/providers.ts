@@ -5,10 +5,10 @@
  */
 import type { Prisma } from "@prisma/client";
 import { makeCallAdapter } from "./adapter";
-import { CLOUDTALK_SOURCE, hydrateCloudTalkCall } from "./cloudtalk";
+import { CLOUDTALK_CREDENTIAL_CODES, CLOUDTALK_SOURCE, hydrateCloudTalkCall } from "./cloudtalk";
 import { VOICENTER_SOURCE } from "./voicenter";
 import { resolvePublicConnection } from "@/lib/intake/acquisition/resolve";
-import { lineLabelFor, readSecretsByPublicId } from "@/lib/intake/acquisition/connection.service";
+import { lineLabelFor, readSecretsByPublicId, setReceivingConnectionIssue } from "@/lib/intake/acquisition/connection.service";
 import { isCall } from "./canonical";
 
 export const cloudTalkAdapter = makeCallAdapter({
@@ -25,7 +25,8 @@ export const cloudTalkAdapter = makeCallAdapter({
         const s = await readSecretsByPublicId(businessId, CLOUDTALK_SOURCE, publicId);
         return s?.apiKeyId && s.apiKeySecret ? { apiKeyId: s.apiKeyId, apiKeySecret: s.apiKeySecret } : null;
       },
-      (publicId, line) => lineLabelFor(CLOUDTALK_SOURCE, publicId, line)
+      (publicId, line) => lineLabelFor(CLOUDTALK_SOURCE, publicId, line),
+      (publicId, code) => setReceivingConnectionIssue(CLOUDTALK_SOURCE, publicId, code, CLOUDTALK_CREDENTIAL_CODES)
     ),
 });
 

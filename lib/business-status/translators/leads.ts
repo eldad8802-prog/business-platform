@@ -56,6 +56,7 @@ export function translateLeadsNeedingAttention(
         lastCustomerInboundAt: r.lastCustomerInboundAt,
         lastUnreturnedCallAt: r.lastUnreturnedCallAt ?? null,
         openIdentityProposals: r.openIdentityProposals,
+        firstHandledAt: r.firstHandledAt ?? null,
       },
       now,
       t

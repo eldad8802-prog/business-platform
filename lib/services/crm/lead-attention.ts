@@ -105,13 +105,15 @@ export type LeadAttention = {
 };
 
 /**
- * How long a brand-new lead may sit untouched before it counts as neglected.
+ * How many Israel-local calendar days a brand-new, untouched lead waits before it asks for the owner.
  *
- * A calendar day, not an hour count: a lead that arrives at 23:50 has not been
- * neglected at 00:10. The comparison is on Israel-local day keys, the same
- * clock the follow-up rules use.
+ * Leads L1 · G-03 (owner decision 2026-10-27): ZERO — a NEW lead with no follow-up is "needs attention" the
+ * moment it arrives, on every surface (one queue). Age still raises it WITHIN its band (45 today → 65), so a
+ * lead nobody touched for days outranks this morning's, and both stay below a promised follow-up, a caller,
+ * a customer who wrote or an open identity question. It leaves the queue as soon as the owner moves it out of
+ * NEW, or sets a follow-up. Nothing is pushed: this is visibility only (notifications are L2).
  */
-export const NEW_LEAD_GRACE_DAYS = 1;
+export const NEW_LEAD_GRACE_DAYS = 0;
 
 export type LeadAttentionInput = {
   status: LeadStatusValue;
@@ -130,6 +132,11 @@ export type LeadAttentionInput = {
   openIdentityProposals?: number;
   /** M5 (optional): suggestion rules dismissed at the lead's current version. */
   dismissedRuleIds?: readonly string[];
+  /**
+   * Leads L1 · G-03 (optional): the owner's first lifecycle action on the lead (status, next action set /
+   * completed, value). A NEW lead the owner already handled is not "new and untouched" — absent = never handled.
+   */
+  firstHandledAt?: Date | null;
 };
 
 function dayDelta(from: Date, to: Date): number {
@@ -259,8 +266,9 @@ function evaluateCoreAttention(
     };
   }
 
-  // An untouched new lead: it arrived, nobody moved it, and nobody promised to.
-  if (input.status === "NEW" && !input.nextFollowUpAt) {
+  // An untouched new lead: it arrived, nobody moved it, nobody promised to — and the owner never acted on
+  // it (G-03: completing a follow-up on a lead still in NEW is handling it, not a reason to call it new again).
+  if (input.status === "NEW" && !input.nextFollowUpAt && !input.firstHandledAt) {
     const age = dayDelta(input.createdAt, now);
     if (age >= NEW_LEAD_GRACE_DAYS) {
       return {
@@ -284,7 +292,9 @@ function evaluateCoreAttention(
         nextAction: { kind: "set_followup", label: t("insights.leads.nextAction.quoteNoActivity") },
       };
     }
-    if ((input.status === "OPEN" || input.status === "QUALIFIED") && idle >= STALLED_AFTER_DAYS) {
+    // G-03 — a NEW lead the owner handled but left in NEW with no follow-up is not lost: it stalls like OPEN.
+    const handledNew = input.status === "NEW" && !!input.firstHandledAt;
+    if ((input.status === "OPEN" || input.status === "QUALIFIED" || handledNew) && idle >= STALLED_AFTER_DAYS) {
       return {
         needsAttention: true,
         reason: "STALLED",

@@ -277,6 +277,8 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     finalPrice: { disposition: "STRUCTURAL" },
     currency: { disposition: "STRUCTURAL" },
     customerId: { disposition: "UNLINK" },
+    // Leads L1 · G-01b — the phone typed into an anonymous enquiry: personal, erased like `phone`.
+    claimedPhone: { disposition: "ERASE" },
     intentSnapshot: { disposition: "ERASE" },
     nextFollowUpAt: { disposition: "STRUCTURAL" },
     followUpNote: { disposition: "ERASE" },

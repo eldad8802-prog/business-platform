@@ -17,6 +17,7 @@ import { ValidationError } from "@/lib/errors";
 import { newPublicId, newSharedKey, newSigningSecret } from "./keys";
 import { credentialAad, decryptCredential, encryptCredential } from "./credential-crypto";
 import type { ConnectionSourceKey } from "./gate";
+import { logIntake } from "@/lib/intake/core/observability";
 
 export const MAX_CONNECTIONS_PER_SOURCE = 20;
 /** Sources that authenticate with a shared key whose sha256 is stored (keyHash). */
@@ -423,6 +424,33 @@ export async function updateConnectionSecrets(businessId: number, connectionId: 
     });
     return r.count === 1;
   });
+}
+
+/**
+ * Leads L1 · G-06 — a problem the owner must fix while the connection KEEPS RECEIVING (a code on an ACTIVE
+ * connection, never status ERROR: the endpoint resolver accepts ACTIVE only, so ERROR would turn every new
+ * webhook into a 401 and a delay into a loss). `null` clears only the codes this mechanism owns.
+ */
+export async function setReceivingConnectionIssue(
+  sourceKey: ConnectionSourceKey,
+  publicId: string,
+  code: string | null,
+  ownedCodes: readonly string[]
+): Promise<void> {
+  const res = await withTenantTransaction((tx) =>
+    code
+      ? tx.acquisitionConnection.updateMany({
+          // Only an actual change writes (and is logged): a deferral every 6 h does not re-stamp the same code.
+          where: { sourceKey, publicId, status: "ACTIVE", OR: [{ lastErrorCode: null }, { lastErrorCode: { not: code } }] },
+          data: { lastErrorCode: code },
+        })
+      : tx.acquisitionConnection.updateMany({
+          where: { sourceKey, publicId, status: "ACTIVE", lastErrorCode: { in: [...ownedCodes] } },
+          data: { lastErrorCode: null },
+        })
+  );
+  // Auditable status change (G-07): the source, the code raised or cleared — no endpoint id, no key, no number.
+  if (res.count > 0) logIntake(code ? "connection_issue_raised" : "connection_issue_cleared", { sourceKey, code: code ?? "none", count: res.count });
 }
 
 /** A provider-side health problem the owner must see (status ERROR + a bounded code), or its recovery. */

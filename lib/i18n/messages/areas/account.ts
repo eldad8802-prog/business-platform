@@ -878,6 +878,8 @@ export const connectionsHe = {
       wooWebhookSetupFailed: "לא הצלחנו להגדיר את העדכונים בחנות. ננסה שוב אוטומטית.",
       reconcileFailed: "בדיקת ההזמנות נכשלה. ננסה שוב אוטומטית.",
       wixUninstalled: "האפליקציה של Dubiz הוסרה מהאתר ב-Wix — התקן/י אותה מחדש.",
+      cloudTalkKeyMissing: "השיחות נקלטות, אבל בלי מפתח API של CloudTalk אי אפשר לדעת אם נענו. הוסיפו מפתח למטה.",
+      cloudTalkKeyInvalid: "CloudTalk דחה את מפתח ה-API. השיחות נקלטות וממתינות — שמרו מפתח תקין למטה והן ייבדקו מחדש.",
       generic: "יש בעיה בחיבור. ננסה שוב אוטומטית.",
     },
     errors: {

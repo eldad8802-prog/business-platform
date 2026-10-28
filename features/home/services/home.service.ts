@@ -32,9 +32,9 @@ export async function getHomeData(
     // getBusinessSignals above; `businessId` comes from the authenticated user,
     // never from the request.
     //
-    // Meaning is deliberately unchanged: this is the narrow "needs action" count
-    // (follow-up due, or an untouched new lead from before today) — the SAME
-    // predicate as /leads?view=needsAction, which `href` lands on.
+    // Meaning (Leads L1 · G-05 / G-03): the length of the ONE attention queue —
+    // the SAME set /leads?view=needsAction (which `href` lands on) and the Home
+    // items read, a NEW lead from today included.
     //
     // Best-effort: Home must still render if the Leads count fails. A missing
     // badge is a smaller failure than a blank home screen.
