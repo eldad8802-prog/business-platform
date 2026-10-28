@@ -458,6 +458,31 @@ export async function applyProviderEvent(businessId: number, deliveryId: number,
   });
 }
 
+/**
+ * The recipient marked the accountant's email as spam (Resend `email.complained`). An audit fact ONLY: the
+ * delivery's status is not changed (no new delivery status — owner decision 2026-10-28) and the month's status
+ * neither. Idempotent per delivery: a repeated or late complaint is recorded once. Returns whether it is new.
+ */
+export async function recordProviderComplaint(businessId: number, deliveryId: number, at: Date): Promise<{ recorded: boolean; periodId: number } | null> {
+  return tenantTx(businessId, async (tx) => {
+    const d = await tx.accountantDelivery.findFirst({ where: { id: deliveryId, businessId }, select: { id: true, periodId: true, status: true } });
+    if (!d) return null;
+    const idempotencyKey = `complained:${d.id}`;
+    const before = await tx.accountantWorkflowEvent.count({ where: { businessId, idempotencyKey } });
+    await appendEvent(tx, {
+      businessId,
+      periodId: d.periodId,
+      deliveryId: d.id,
+      eventType: "DELIVERY_COMPLAINED",
+      actor: { type: "PROVIDER" },
+      occurredAt: at,
+      payload: { provider: "resend", status: d.status },
+      idempotencyKey,
+    });
+    return { recorded: before === 0, periodId: d.periodId };
+  });
+}
+
 // ── Owner actions on a delivery ─────────────────────────────────────────────────────────────────
 
 export async function revokeLink(businessId: number, userId: number, deliveryId: number, now: Date): Promise<void> {

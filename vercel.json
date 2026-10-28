@@ -25,6 +25,10 @@
       "schedule": "30 * * * *"
     },
     {
+      "path": "/api/accountant/monitor",
+      "schedule": "50 * * * *"
+    },
+    {
       "path": "/api/appointments/booking/sweep",
       "schedule": "*/10 * * * *"
     }
