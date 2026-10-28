@@ -138,7 +138,8 @@ async function main() {
     (await o.lead.count({ where: { businessId: B.id, sourceChannel: "intake:web.form" } })) === 0);
   ok("the Lead carries the answers for the owner (intentSnapshot), not the contact fields",
     !!leadA?.intentSnapshot && /bathroom/.test(leadA.intentSnapshot) && /budget/.test(leadA.intentSnapshot) && !/050/.test(leadA.intentSnapshot), leadA?.intentSnapshot ?? "");
-  ok("the Lead has the normalized phone and email", !!leadA?.phone && leadA.email === "noa@example.test");
+  ok("G-01b: the typed phone is kept as claimedPhone (normalized), never as Lead.phone; the email kept",
+    leadA?.phone === null && leadA?.claimedPhone === "972501234567" && leadA.email === "noa@example.test", JSON.stringify({ p: leadA?.phone, c: leadA?.claimedPhone }));
   const life = leadA ? await o.leadLifecycleEvent.findMany({ where: { businessId: A.id, leadId: leadA.id } }) : [];
   ok("M5 lifecycle started exactly once, evidenced by the intake event", life.length === 1 && life[0].kind === "created" && life[0].evidenceKind === "intake_event");
   const norm = await o.intakeNormalizedEvent.findFirst({ where: { businessId: A.id }, orderBy: { id: "desc" } });
@@ -160,13 +161,13 @@ async function main() {
   ok("3 re-deliveries of s1 + 6 parallel deliveries of another → exactly 2 receipts", cw.receipts === 2, JSON.stringify(cw));
   // L1 · G-01b — the website form is self-asserted: a second, DIFFERENT submission typing the same phone never
   // touches the existing open lead; it is kept as its own lead beside it (no phone column — one open lead per
-  // phone holds — the typed phone stated in its text). Re-deliveries of ONE submission are still one receipt.
+  // phone holds — the typed phone kept in claimedPhone). Re-deliveries of ONE submission are still one receipt.
   ok("…the second (different) submission is kept as its OWN lead beside the first (2 leads, 1 per receipt)", cw.leads === 2, JSON.stringify(cw));
   const attached = await o.leadLifecycleEvent.count({ where: { businessId: A.id, leadId: leadA?.id, kind: "intake_attached" } });
   ok("…and the first lead was NOT touched by it (no intake_attached event)", attached === 0, String(attached));
-  ok("…still ONE open lead holds the phone (the second has none; its text names the typed phone)",
-    (await o.lead.count({ where: { businessId: A.id, phone: leadA?.phone ?? "-", status: { in: ["NEW", "OPEN", "QUALIFIED", "QUOTED"] } } })) === 1
-      && !!(await o.lead.findFirst({ where: { businessId: A.id, sourceChannel: "intake:web.form", phone: null, intentSnapshot: { contains: "טלפון שהוזן בטופס" } } })));
+  ok("…both keep the typed phone as claimedPhone; neither holds Lead.phone (claims never take part in one-open-lead-per-phone)",
+    (await o.lead.count({ where: { businessId: A.id, claimedPhone: "972501234567", phone: null } })) === 2
+      && (await o.lead.count({ where: { businessId: A.id, phone: "972501234567" } })) === 0);
 
   console.log("\n-- 3. authentication and tenant boundary --");
   const before = await counts(A.id, "web.form");
@@ -312,7 +313,7 @@ async function main() {
   await web(webB.connection.publicId, { submission_id: `${RUN}-y`, phone: "052-555-0101" }, { key: webB.key });
   await drain(B.id);
   ok("the same phone in B → B's own Lead; an anonymous form creates no Customer (G-01b), nothing shared with A",
-    (await o.lead.count({ where: { businessId: B.id, phone: { contains: "5550101" } } })) === 1
+    (await o.lead.count({ where: { businessId: B.id, claimedPhone: { contains: "5550101" }, phone: null } })) === 1
       && (await o.customer.count({ where: { businessId: B.id, phone: { contains: "5550101" } } })) === 0);
   await web(webA.connection.publicId, { submission_id: `${RUN}-e`, email: "only-email@example.test", name: "No Phone" }, { key: webA.key });
   await drain(A.id);
@@ -498,7 +499,7 @@ async function main() {
   const after11 = await o.intakeEvent.count({ where: { businessId: A.id, sourceKey: "web.form", providerAccountRef: site.connection.publicId } });
   ok("a double submit + a resubmit of the SAME enquiry (no submission_id) the same day → ONE receipt",
     h2.status === 200 && h3.status === 200 && after11 === before11 + 1, JSON.stringify({ before11, after11 }));
-  const formLead = await o.lead.count({ where: { businessId: A.id, phone: { contains: "537771234" } } });
+  const formLead = await o.lead.count({ where: { businessId: A.id, claimedPhone: { contains: "537771234" } } });
   ok("…and ONE Lead", formLead === 1, String(formLead));
   const missing = await htmlPost(site.connection.publicId, { name: "No Contact", message: "hi" }, "https://shop-a.example");
   ok("a plain form without phone or email → 400 Hebrew page asking for contact details",
@@ -645,10 +646,10 @@ async function main() {
     JSON.stringify(veraLeadAfter) === JSON.stringify(veraLeadBefore), JSON.stringify({ before: veraLeadBefore, after: veraLeadAfter }));
   ok("L1 · G-01b: …and no event was added to its history (no intake_attached)",
     (await o.leadLifecycleEvent.count({ where: { businessId: A.id, leadId: veraLeadBefore!.id, kind: "intake_attached" } })) === 0);
-  const heldText = "טלפון שהוזן בטופס: 972525557070";
-  const held = await o.lead.findFirst({ where: { businessId: A.id, phone: null, intentSnapshot: { contains: heldText } }, orderBy: { id: "asc" } });
-  ok("L1 · G-01b: the enquiry is NOT lost — kept as its own lead beside hers (no customer, no phone column, the typed phone in its text)",
-    !!held && held.customerId === null && held.customerName === "Mallory" && held.email === "mallory@evil.test" && held.status === "NEW",
+  const held = await o.lead.findFirst({ where: { businessId: A.id, phone: null, claimedPhone: VERA_PHONE }, orderBy: { id: "asc" } });
+  ok("L1 · G-01b: the enquiry is NOT lost — kept as its own lead beside hers (no customer, Lead.phone empty, the typed phone in claimedPhone)",
+    !!held && held.customerId === null && held.customerName === "Mallory" && held.email === "mallory@evil.test" && held.status === "NEW"
+      && !(held.intentSnapshot ?? "").includes("972525557070"),
     JSON.stringify(held));
   ok("L1 · G-01b: …the owner is asked (a proposal names her as a candidate for THAT lead); nothing merged, no Customer created",
     !!held && (await o.identityProposal.count({ where: { businessId: A.id, candidateCustomerId: vera!.id, leadId: held.id, state: "proposed" } })) === 1
@@ -672,7 +673,7 @@ async function main() {
 
   const l1P2 = await web(webL1.connection.publicId, { submission_id: `${RUN}-poison2`, name: "Eve", phone: "054-888-0002", email: "vera@example.test" }, { key: webL1.key });
   await drain(A.id);
-  const eLead = await o.lead.findFirst({ where: { businessId: A.id, phone: "972548880002" } });
+  const eLead = await o.lead.findFirst({ where: { businessId: A.id, claimedPhone: "972548880002" } });
   ok("someone's LINKED email typed into the website (server mode) → a Lead, but NOT attached to that customer",
     l1P2.status === 202 && !!eLead && eLead.customerId === null, JSON.stringify({ s: l1P2.status, c: eLead?.customerId }));
   ok("…the owner is asked instead: an open proposal names that customer as a candidate",
@@ -697,12 +698,12 @@ async function main() {
       && (await o.leadLifecycleEvent.count({ where: { businessId: A.id, leadId: veraLeadBefore!.id, kind: "intake_attached" } })) === 0,
     JSON.stringify({ before: veraLeadBefore, after: veraLeadAfterPar }));
   ok("L1 · G-01b: …each distinct anonymous enquiry is kept once (1 + 4 held leads; the redeliveries made none)",
-    (await o.lead.count({ where: { businessId: A.id, phone: null, intentSnapshot: { contains: heldText } } })) === 5);
+    (await o.lead.count({ where: { businessId: A.id, phone: null, claimedPhone: VERA_PHONE } })) === 5);
 
   const linksB0 = await linkCount(B.id);
   await web(webL1B.connection.publicId, { submission_id: `${RUN}-poisonB`, name: "Vera?", phone: "+972 52-555-7070", email: "vera@example.test" }, { key: webL1B.key });
   await drain(B.id);
-  const bLead = await o.lead.findFirst({ where: { businessId: B.id, phone: VERA_PHONE } });
+  const bLead = await o.lead.findFirst({ where: { businessId: B.id, claimedPhone: VERA_PHONE, phone: null } });
   ok("tenant isolation: the same phone + email in business B → B's own lead (no Customer from an anonymous form), never A's",
     !!bLead && bLead.customerId === null && (await o.customer.count({ where: { businessId: B.id, phone: VERA_PHONE } })) === 0
       && (await o.identityProposal.count({ where: { businessId: B.id, candidateCustomerId: vera!.id } })) === 0);

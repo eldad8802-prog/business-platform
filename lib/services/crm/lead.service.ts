@@ -150,6 +150,11 @@ export type CreateLeadInput = LeadActorContext & {
    * Omitted = the existing behaviour, unchanged.
    */
   contact?: { customerId: number | null };
+  /**
+   * Leads L1 · G-01b — a phone a visitor TYPED into an anonymous form. Written ONLY by the intake lead destination
+   * for a self-asserted event (never accepted from the owner API): reachable, never identity. Normalized here.
+   */
+  claimedPhone?: string | null;
 };
 
 export type UpdateLeadInput = LeadActorContext & {
@@ -275,6 +280,16 @@ function normalizeLeadPhone(value: unknown): string | null {
     throw new ValidationError("phone is not a valid number");
   }
   return normalized;
+}
+
+/**
+ * Leads L1 · G-01b — the same normalizer, for a CLAIMED phone (an anonymous form). It must satisfy the column's
+ * CHECK ("Lead_claimedPhone_digits": 8–20 digits); anything else is dropped (the enquiry is still kept), never stored.
+ */
+function normalizeClaimedPhone(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const normalized = normalizeCustomerPhone(value);
+  return normalized && /^[0-9]{8,20}$/.test(normalized) ? normalized : null;
 }
 
 function clampLimit(value?: number | null): number {
@@ -415,6 +430,7 @@ export const leadService = {
 
     const name = normalizeLeadName(input.name);
     const phone = normalizeLeadPhone(input.phone);
+    const claimedPhone = normalizeClaimedPhone(input.claimedPhone);
     const email = normalizeLeadEmail(input.email);
     const intentSnapshot = normalizeLeadOptionalText(
       input.intentSnapshot,
@@ -463,6 +479,7 @@ export const leadService = {
             businessId: input.businessId,
             customerName: name,
             phone,
+            ...(claimedPhone ? { claimedPhone } : {}),
             email,
             intentSnapshot,
             sourceChannel,
@@ -577,6 +594,8 @@ export const leadService = {
       where.OR = [
         { customerName: { contains: q, mode: "insensitive" } },
         { phone: { contains: q, mode: "insensitive" } },
+        // G-01b — the phone typed into an anonymous enquiry is searchable too (never identity).
+        { claimedPhone: { contains: q, mode: "insensitive" } },
         { email: { contains: q, mode: "insensitive" } },
       ];
     }
@@ -715,6 +734,8 @@ export const leadService = {
         OR: [
           { customerName: { contains: q, mode: "insensitive" } },
           { phone: { contains: q, mode: "insensitive" } },
+          // G-01b — the phone typed into an anonymous enquiry is searchable too (never identity).
+          { claimedPhone: { contains: q, mode: "insensitive" } },
           { email: { contains: q, mode: "insensitive" } },
         ],
       });

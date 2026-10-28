@@ -20,6 +20,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "G-07 silent-loss detection: the sweep verdict separates job from event failures, new dead letters (webhook-time included) and store reconciliation failures make the run unhealthy exactly once, and the report / logs carry counts only (no payload, phone, email or event id)"
+    },
+    "lib/services/crm/lead-contact-phone.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "G-01b claimedPhone: the contact-phone contract carries a source, never a verification claim; no identity / routing-match / customer path reads the claimed phone; the owner API cannot write it; it is erased with the account (manifest, store, disposition) and exported in its own non-importable column"
     }
   }
 }

@@ -18,6 +18,7 @@ import {
   LEAD_STATUSES,
   evaluateLeadFollowUp,
   leadNeedsAttention,
+  leadContactPhone,
   type LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -52,6 +53,7 @@ type LeadRowSource = {
   id: number;
   customerName: string | null;
   phone: string | null;
+  claimedPhone: string | null;
   email: string | null;
   status: string;
   sourceChannel: string | null;
@@ -90,6 +92,9 @@ function toListRow(
     id: lead.id,
     name: lead.customerName,
     phone: lead.phone,
+    // G-01b — the anonymous enquiry's typed phone, and the number to reach them on with its source.
+    claimedPhone: lead.claimedPhone,
+    contactPhone: leadContactPhone(lead),
     email: lead.email,
     status,
     sourceChannel: lead.sourceChannel,

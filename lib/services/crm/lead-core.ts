@@ -328,6 +328,23 @@ export function evaluateLeadFollowUp(
 }
 
 /**
+ * Leads L1 · G-01b — the number to reach a lead on, and WHERE it comes from. Not a verification claim either way:
+ *   lead_phone          Lead.phone — entered by the owner, or given by a source Dubiz treats as verified
+ *                       (it is not re-verified here);
+ *   claimed_in_enquiry  Lead.claimedPhone — typed into an anonymous website form: usable to call / WhatsApp,
+ *                       NEVER evidence of who the person is (nothing here links, merges or verifies).
+ * Lead.phone wins when both exist.
+ */
+export type LeadContactPhoneSource = "lead_phone" | "claimed_in_enquiry";
+export type LeadContactPhone = { value: string; source: LeadContactPhoneSource };
+
+export function leadContactPhone(lead: { phone: string | null; claimedPhone?: string | null }): LeadContactPhone | null {
+  if (lead.phone) return { value: lead.phone, source: "lead_phone" };
+  if (lead.claimedPhone) return { value: lead.claimedPhone, source: "claimed_in_enquiry" };
+  return null;
+}
+
+/**
  * Does this lead want the owner right now? True for a follow-up that is due
  * today or already overdue — and only while the lead is still open, because a
  * closed lead can never need chasing.

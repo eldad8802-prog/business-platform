@@ -348,6 +348,7 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             data: {
               customerName: null,
               phone: null,
+              claimedPhone: null,
               email: null,
               intentSnapshot: null,
               followUpNote: null,

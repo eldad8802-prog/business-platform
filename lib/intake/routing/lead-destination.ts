@@ -22,7 +22,8 @@
  *   5. lead         createLead(contact decided above). An open lead already on
  *                   that phone → a VERIFIED event attaches to it (one lead per
  *                   phone, the domain's own rule); a SELF-ASSERTED one becomes its
- *                   own lead beside it and never touches it (G-01b).
+ *                   own lead beside it and never touches it (G-01b); a self-asserted
+ *                   phone is kept in Lead.claimedPhone, never in Lead.phone.
  *   6. evidence     identity state / evidence categories / rule / destination /
  *                   result refs written onto the event's normalized record in the
  *                   SAME transaction — the idempotency anchor of step 1.
@@ -129,26 +130,24 @@ export async function routeToLead(
     const phone = identifiers.find((i) => i.kind === "phone")?.value ?? null;
     const openLeadId: number | null = phone ? await findOpenLeadByPhone(tx, businessId, phone) : null;
     // A verified event for a phone with an open lead attaches to it (one lead per phone). A self-asserted one
-    // NEVER touches an existing lead (G-01b: no lifecycle event, no version bump, no change to its clock): it is
-    // kept as its OWN lead, beside it — without the phone column (the one-open-lead-per-phone rule holds), the
-    // typed phone stated in its text for the owner. Nothing is lost, nothing existing is altered.
+    // NEVER touches an existing lead (G-01b: no lifecycle event, no version bump, no change to its clock) and
+    // never holds Lead.phone: its typed phone is kept as structured data in Lead.claimedPhone — reachable,
+    // searchable, never identity, never part of one-open-lead-per-phone — on its OWN lead. Nothing is lost,
+    // nothing existing is altered; a repeat enquiry is a separate lead (idempotency still folds redeliveries).
     const attachedToOpenLead = openLeadId !== null && assurance === "verified";
     const heldBesideLeadId = openLeadId !== null && assurance === "self_asserted" ? openLeadId : null;
     let leadId: number | null = attachedToOpenLead ? openLeadId : null;
     if (leadId === null) {
-      const answers = normalized.leadIntent ? normalized.leadIntent.trim() : "";
-      const intent = heldBesideLeadId !== null
-        ? [`טלפון שהוזן בטופס: ${phone} — כבר קיים ליד פתוח עם המספר הזה (ייתכן שזו אותה פנייה; הפרטים לא אומתו).`, answers].filter(Boolean).join("\n")
-        : answers;
       const lead = await leadService.createLead(
         {
           businessId,
           name: leadName(normalized),
-          phone: heldBesideLeadId !== null ? null : phone,
+          phone: assurance === "self_asserted" ? null : phone,
+          claimedPhone: assurance === "self_asserted" ? phone : null,
           email: identifiers.find((i) => i.kind === "email")?.value ?? null,
           sourceChannel: `intake:${event.sourceKey}`.slice(0, SOURCE_CHANNEL_MAX),
           // M6 — an explicit lead form's answers, as the owner reads them (personal; erased with the lead).
-          intentSnapshot: intent.slice(0, LEAD_INTENT_MAX) || null,
+          intentSnapshot: normalized.leadIntent ? normalized.leadIntent.trim().slice(0, LEAD_INTENT_MAX) || null : null,
           contact: { customerId },
           actor: { type: "INTEGRATION" },
           source: "INTEGRATION",

@@ -138,7 +138,8 @@ async function main() {
     assert.match(code, /identity\.state === "unresolved" && assurance === "verified"\) \{/);
     assert.equal((code.match(/customerService\.createCustomer\(/g) ?? []).length, 1);
     assert.match(code, /const attachedToOpenLead = openLeadId !== null && assurance === "verified";/);
-    assert.match(code, /phone: heldBesideLeadId !== null \? null : phone,/);
+    assert.match(code, /phone: assurance === "self_asserted" \? null : phone,/);
+    assert.match(code, /claimedPhone: assurance === "self_asserted" \? phone : null,/);
     const proc = readFileSync(path.join(process.cwd(), "lib/intake/core/processor.ts"), "utf8");
     assert.match(proc, /preResolveIdentity\(businessId, identifiers, \{ assurance: n\.contactAssurance \}\)/);
   });

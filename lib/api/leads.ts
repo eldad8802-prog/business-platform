@@ -4,6 +4,7 @@ import type {
   LeadPriority,
 } from "@/lib/services/crm/lead-intelligence";
 import type {
+  LeadContactPhone,
   LeadFollowUpState,
   LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
@@ -13,13 +14,17 @@ import type { LeadBriefing } from "@/lib/services/crm/lead-briefing";
 import type { LeadNextActionKindValue } from "@/lib/services/crm/lead-lifecycle-core";
 import type { LeadLifecycleHistoryItem } from "@/lib/services/crm/lead-lifecycle.service";
 
-export type { LeadFollowUpState, LeadStatusValue };
+export type { LeadContactPhone, LeadFollowUpState, LeadStatusValue };
 export type { LeadBriefing, LeadCardLifecycle, LeadLifecycleHistoryItem, LeadNextActionKindValue };
 
 export type LeadListRow = {
   id: number;
   name: string | null;
   phone: string | null;
+  /** G-01b — typed into an anonymous enquiry: reachable, never identity. */
+  claimedPhone: string | null;
+  /** The number to reach the lead on and where it comes from (never a verification claim). */
+  contactPhone: LeadContactPhone | null;
   email: string | null;
   status: LeadStatusValue;
   sourceChannel: string | null;
@@ -40,6 +45,8 @@ export type LeadCardDTO = {
     id: number;
     name: string | null;
     phone: string | null;
+    claimedPhone: string | null;
+    contactPhone: LeadContactPhone | null;
     email: string | null;
     status: LeadStatusValue;
     sourceChannel: string | null;
