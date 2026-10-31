@@ -107,6 +107,11 @@ fi
 # account's password hash exactly as login does (for the PASSWORD proof and the unlink
 # re-authentication — compared in the route, under login's attempt limits), and writes what
 # login writes for a session plus the security notice (TransactionalEmail). Never a password.
+#
+# app/api/health/db/route.ts joins it as a READ-ONLY availability probe (lib/ops/db-health.ts): it
+# runs `SELECT 1` through authDb() — the exact client login resolves — so the uptime monitor sees
+# an auth-plane outage the runtime client would not. No table, no row, no write; it is reached only
+# with HEALTH_MONITOR_SECRET, and answers fixed codes.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
@@ -122,6 +127,7 @@ ci2a="$(
     | grep -vE "(^|/)lib/auth/oauth-ticket\\.ts:" \
     | grep -vE "(^|/)lib/auth/google-link\\.ts:" \
     | grep -vE "(^|/)lib/auth/google-sign-in\\.ts:" \
+    | grep -vE "(^|/)app/api/health/db/route\\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
     | grep -vE "\.test\.ts:|/__mocks__/" \
     || true
