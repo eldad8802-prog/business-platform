@@ -37,6 +37,22 @@ export async function accountantWorkflowEnabled(businessId: number): Promise<boo
   }
 }
 
+/**
+ * True when the business may SEND its package from Dubiz (G5 M4: the per-business permission `accountant_delivery`,
+ * opened only by a platform admin). Separate from the workflow itself, and from the global master switch
+ * ACCOUNTANT_DELIVERY_ENABLED — sending needs both. Fail-closed: any error reads as NOT permitted.
+ */
+export async function accountantDeliveryPermitted(businessId: number): Promise<boolean> {
+  try {
+    const r = await runWithTenantContext({ businessId }, () =>
+      resolveFeatureAccess(businessId, PLATFORM_FEATURE_KEYS.ACCOUNTANT_DELIVERY)
+    );
+    return r.allowed === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function accountantRoute(
   req: Request,
   handler: (actor: AccountantActor) => Promise<Response>

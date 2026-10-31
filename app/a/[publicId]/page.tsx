@@ -7,6 +7,9 @@
  *   /api/accountant/link/portal  the delivered package — whose, which month, every file with its details;
  *   /api/accountant/link/file    one file (view / download) or the Excel / PDF report;
  *   /api/accountant/link/open    the whole ZIP (the existing route).
+ * A browser the server does not know yet answers 401 VERIFICATION_REQUIRED (G5 M5): the page then offers a one-time
+ * code, sent by the server only to the address the package was sent to (/api/accountant/link/code), and checks it
+ * (/api/accountant/link/verify); the server then remembers this browser for this link only, until the link expires.
  * Every file — and the ZIP — is handed out by a one-minute signed URL, opened or saved as it is. Nothing here needs, or
  * offers, a Dubiz account, and nothing here can change a document.
  */
@@ -44,7 +47,11 @@ type Portal = {
   files: PortalFile[];
   missing: Missing[];
 };
-type State = { kind: "loading" } | { kind: "ready"; portal: Portal } | { kind: "error"; title: string; message: string };
+type State =
+  | { kind: "loading" }
+  | { kind: "verify"; maskedTo: string | null }
+  | { kind: "ready"; portal: Portal }
+  | { kind: "error"; title: string; message: string };
 type Action = { file?: string; report?: "xlsx" | "pdf"; zip?: true; mode: "view" | "download" };
 
 const MESSAGES: Record<string, { title: string; message: string }> = {
@@ -56,6 +63,16 @@ const MESSAGES: Record<string, { title: string; message: string }> = {
   rate_limit_unavailable: { title: "השירות עמוס כרגע", message: "נסו שוב בעוד רגע." },
 };
 const FALLBACK = { title: "משהו השתבש", message: "נסו שוב בעוד רגע." };
+const CODE_ERRORS: Record<string, string> = {
+  CODE_WRONG: "הקוד שגוי.",
+  CODE_LOCKED: "היו יותר מדי ניסיונות שגויים לקוד הזה. אפשר לבקש קוד חדש.",
+  CODE_EXPIRED: "תוקף הקוד הסתיים. אפשר לבקש קוד חדש.",
+  CODE_MISSING: "עדיין לא נשלח קוד, או שהקוד כבר נוצל. אפשר לבקש קוד חדש.",
+  CODE_COOLDOWN: "קוד נשלח ממש עכשיו. אפשר לבקש קוד נוסף בעוד דקה.",
+  CODE_LIMIT: "נשלחו יותר מדי קודים בזמן קצר. נסו שוב מאוחר יותר.",
+  CODE_NOT_SENT: "לא הצלחנו לשלוח את הקוד כרגע. נסו שוב בעוד רגע.",
+  CODE_UNAVAILABLE: "שליחת קוד אינה זמינה כרגע. אפשר לפנות לבעל העסק.",
+};
 const ACTION_ERRORS: Record<string, string> = {
   FILE_NOT_FOUND: "הקובץ אינו חלק מהחבילה.",
   NOT_VIEWABLE: "אי אפשר להציג את הקובץ הזה בדפדפן — אפשר להוריד אותו.",
@@ -88,6 +105,13 @@ export default function AccountantPortalPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const load = useCallback((res: Response, body: Record<string, unknown>) => {
+    if (res.status === 401 && body.error === "VERIFICATION_REQUIRED") {
+      setState({ kind: "verify", maskedTo: typeof body.maskedTo === "string" ? body.maskedTo : null });
+    } else if (!res.ok) setState({ kind: "error", ...errorOf((body.error ?? body.code) as string | undefined) });
+    else setState({ kind: "ready", portal: body as unknown as Portal });
+  }, []);
+
   const post = useCallback(
     (url: string, body: Record<string, unknown>) =>
       fetch(url, {
@@ -104,13 +128,19 @@ export default function AccountantPortalPage() {
     // A link without its secret gets the server's answer for an invalid link, like any other.
     token.current = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("t");
     void post("/api/accountant/link/portal", {})
-      .then(async (res) => {
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) setState({ kind: "error", ...errorOf(body.error ?? body.code) });
-        else setState({ kind: "ready", portal: body as Portal });
-      })
+      .then(async (res) => load(res, await res.json().catch(() => ({}))))
       .catch(() => setState({ kind: "error", ...FALLBACK }));
-  }, [post]);
+  }, [post, load]);
+
+  /** After a verified code: the portal again, now with this browser trusted. */
+  const reload = useCallback(async () => {
+    try {
+      const res = await post("/api/accountant/link/portal", {});
+      load(res, await res.json().catch(() => ({})));
+    } catch {
+      setState({ kind: "error", ...FALLBACK });
+    }
+  }, [post, load]);
 
   async function run(id: string, action: Action) {
     if (busy) return;
@@ -129,6 +159,7 @@ export default function AccountantPortalPage() {
         const body = type.includes("json") ? await res.json() : {};
         const code: string | undefined = body.error ?? body.code;
         if (code && FATAL.has(code)) setState({ kind: "error", ...errorOf(code) });
+        else if (code === "VERIFICATION_REQUIRED") setState({ kind: "verify", maskedTo: typeof body.maskedTo === "string" ? body.maskedTo : null });
         else setNotice((code && ACTION_ERRORS[code]) || (res.status === 429 ? ACTION_ERRORS.RATE_LIMITED : FALLBACK.message));
         return;
       }
@@ -178,6 +209,15 @@ export default function AccountantPortalPage() {
           <h1 className={s.stateTitle}>{state.title}</h1>
           <p className={s.cardText}>{state.message}</p>
         </div>
+      ) : null}
+
+      {state.kind === "verify" ? (
+        <VerifyDevice
+          maskedTo={state.maskedTo}
+          post={post}
+          onVerified={reload}
+          onFatal={(code) => setState({ kind: "error", ...errorOf(code) })}
+        />
       ) : null}
 
       {state.kind === "ready" ? <PortalView portal={state.portal} busy={busy} run={run} /> : null}
@@ -326,5 +366,135 @@ function FileGroup({ title, files, busy, run }: { title: string; files: PortalFi
         ))}
       </ul>
     </section>
+  );
+}
+
+function VerifyDevice({
+  maskedTo,
+  post,
+  onVerified,
+  onFatal,
+}: {
+  maskedTo: string | null;
+  post: (url: string, body: Record<string, unknown>) => Promise<Response>;
+  onVerified: () => Promise<void>;
+  onFatal: (code: string) => void;
+}) {
+  const [sent, setSent] = useState<{ to: string | null } | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState<"send" | "verify" | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function send() {
+    if (busy) return;
+    setBusy("send");
+    setMessage(null);
+    try {
+      const res = await post("/api/accountant/link/code", {});
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setSent({ to: typeof body.maskedTo === "string" ? body.maskedTo : maskedTo });
+        setCode("");
+        return;
+      }
+      if (body.error && FATAL.has(body.error)) return onFatal(body.error);
+      setMessage(CODE_ERRORS[body.error] ?? (res.status === 429 ? CODE_ERRORS.CODE_LIMIT : FALLBACK.message));
+    } catch {
+      setMessage(FALLBACK.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function verify(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy || !/^[0-9]{6}$/.test(code)) return;
+    setBusy("verify");
+    setMessage(null);
+    try {
+      const res = await post("/api/accountant/link/verify", { code });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) return await onVerified();
+      if (body.error && FATAL.has(body.error)) return onFatal(body.error);
+      const left = typeof body.attemptsLeft === "number" && body.error === "CODE_WRONG" ? ` נותרו ${body.attemptsLeft} ניסיונות.` : "";
+      setMessage((CODE_ERRORS[body.error] ?? (res.status === 429 ? CODE_ERRORS.CODE_LIMIT : FALLBACK.message)) + left);
+      setCode("");
+    } catch {
+      setMessage(FALLBACK.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const to = sent?.to ?? maskedTo;
+  return (
+    <div className={s.wrap}>
+      <section className={s.hero}>
+        <p className={s.eyebrow}>אימות מכשיר חדש</p>
+        <h1 className={s.title}>אימות קצר לפני פתיחת החבילה</h1>
+        <p className={s.cardText}>
+          זו הפעם הראשונה שהחבילה נפתחת בדפדפן הזה. כדי להגן על המסמכים נשלח קוד חד־פעמי לכתובת המייל שאליה נשלחה החבילה
+          {to ? (
+            <>
+              {" "}
+              (<span className={s.ltr}>{to}</span>)
+            </>
+          ) : null}
+          . אחרי האימות הדפדפן הזה ייזכר עד שתוקף הקישור יסתיים.
+        </p>
+      </section>
+
+      <section className={s.card}>
+        {!sent ? (
+          <>
+            <h2 className={s.cardTitle}>שליחת קוד</h2>
+            <p className={s.cardText}>הקוד נשלח רק לכתובת שבעל העסק אישר לחבילה הזו, ותקף 10 דקות.</p>
+            <div className={s.downloads}>
+              <button type="button" className={s.btnPrimary} disabled={!!busy} onClick={send}>
+                {busy === "send" ? "שולח…" : "שליחת קוד למייל"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={verify}>
+            <h2 className={s.cardTitle}>הזנת הקוד</h2>
+            <p className={s.cardText}>שלחנו קוד בן 6 ספרות. הוא תקף 10 דקות ולשימוש אחד.</p>
+            <label className={s.codeLabel} htmlFor="acct-code">
+              קוד אימות
+            </label>
+            <input
+              id="acct-code"
+              className={s.codeInput}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              dir="ltr"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
+              aria-describedby={message ? "acct-code-msg" : undefined}
+              autoFocus
+            />
+            <div className={s.downloads}>
+              <button type="submit" className={s.btnPrimary} disabled={!!busy || code.length !== 6}>
+                {busy === "verify" ? "בודק…" : "אימות"}
+              </button>
+              <button type="button" className={s.btn} disabled={!!busy} onClick={send}>
+                {busy === "send" ? "שולח…" : "שליחת קוד חדש"}
+              </button>
+            </div>
+          </form>
+        )}
+        {message ? (
+          <p id="acct-code-msg" className={s.codeMessage} role="alert">
+            {message}
+          </p>
+        ) : null}
+      </section>
+
+      <footer className={s.footer}>
+        <p>הקוד לא יפתח את החבילה אם בעל העסק ביטל את הקישור או אם תוקפו הסתיים.</p>
+      </footer>
+    </div>
   );
 }
