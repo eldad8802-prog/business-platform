@@ -49,6 +49,7 @@ export const AUTHORITY_EGRESS_ERROR_CODES = {
   CONFIG_INVALID: "ITA_EGRESS_CONFIG_INVALID",
   ENVIRONMENT_INVALID: "ITA_EGRESS_ENVIRONMENT_INVALID",
   DESTINATION_BLOCKED: "ITA_EGRESS_DESTINATION_BLOCKED",
+  OPERATION_BLOCKED: "ITA_EGRESS_OPERATION_BLOCKED",
 } as const;
 
 export type AuthorityEgressErrorCode =
@@ -361,6 +362,49 @@ function buildProxyAgent(config: ValidatedEgressConfig): Dispatcher {
   });
 }
 
+/**
+ * TEMPORARY OAuth-only block (#36423501 — one OAuth attempt from Preview).
+ *
+ * Built into the code, not an env flag, so it cannot fail open: the transport
+ * refuses every request except the SANDBOX authorization-code exchange —
+ * POST https://openapi.taxes.gov.il/shaam/tsandbox/longtimetoken/oauth2/token
+ * with grant_type=authorization_code. Approval, InvoiceDecision, validation,
+ * token refresh and probes are refused before any config is read or socket is
+ * opened (callers already treat an egress refusal as NOT_SENT). The body is
+ * read only for grant_type and is never logged or echoed.
+ *
+ * Removed only by a coordinated cleanup, never while a deployment can still
+ * reach stored tokens.
+ */
+export const AUTHORITY_EGRESS_OAUTH_ONLY_HOST = "openapi.taxes.gov.il";
+export const AUTHORITY_EGRESS_OAUTH_ONLY_PATH = "/shaam/tsandbox/longtimetoken/oauth2/token";
+
+function grantTypeOf(body: unknown): string | null {
+  if (typeof body === "string") return new URLSearchParams(body).get("grant_type");
+  if (body instanceof URLSearchParams) return body.get("grant_type");
+  return null;
+}
+
+export function assertAuthorityOAuthCodeExchangeOnly(
+  destination: URL,
+  init: Parameters<typeof fetch>[1] | undefined,
+  environment: BillingAuthorityEnvironment
+): void {
+  const allowed =
+    environment === "SANDBOX" &&
+    (init?.method ?? "GET").toUpperCase() === "POST" &&
+    destination.hostname === AUTHORITY_EGRESS_OAUTH_ONLY_HOST &&
+    destination.pathname === AUTHORITY_EGRESS_OAUTH_ONLY_PATH &&
+    !destination.search &&
+    grantTypeOf(init?.body) === "authorization_code";
+  if (!allowed) {
+    throw new AuthorityEgressError(
+      AUTHORITY_EGRESS_ERROR_CODES.OPERATION_BLOCKED,
+      "only the SANDBOX authorization-code exchange is enabled"
+    );
+  }
+}
+
 export type AuthorityEgressFetchDeps = {
   /** Env source (defaults to process.env, read on every call). */
   env?: EnvSource;
@@ -371,8 +415,9 @@ export type AuthorityEgressFetchDeps = {
 
 /**
  * Builds the ITA-scoped fetch. Order per call: destination allowlist →
- * environment → config validation → dispatcher → request. Any failure before
- * the last step throws an AuthorityEgressError and no socket is opened.
+ * environment → OAuth-only block → config validation → dispatcher → request.
+ * Any failure before the last step throws an AuthorityEgressError and no
+ * socket is opened.
  */
 export function createAuthorityEgressFetch(
   deps: AuthorityEgressFetchDeps = {}
@@ -387,6 +432,7 @@ export function createAuthorityEgressFetch(
     const destination = assertAuthorityEgressDestination(input);
     const env = deps.env ?? process.env;
     const environment = resolveEnvironment(env);
+    assertAuthorityOAuthCodeExchangeOnly(destination, init, environment);
     const config = resolveAuthorityEgressConfig(
       env,
       environment,

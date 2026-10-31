@@ -209,6 +209,9 @@ const closeProxy = (f: Fixture) =>
 
 const OPENAPI_TOKEN = "https://openapi.taxes.gov.il/shaam/tsandbox/longtimetoken/oauth2/token";
 const ITA_API_APPROVAL = "https://ita-api.taxes.gov.il/shaam/tsandbox/Invoices/v2/Approval";
+// The temporary OAuth-only block admits only the SANDBOX authorization-code
+// exchange, so transport/config cases use exactly that request shape.
+const CODE_EXCHANGE = { method: "POST", body: "grant_type=authorization_code&code=k" } as const;
 
 async function main(): Promise<void> {
   // ── A. missing config ─────────────────────────────────────────────────────
@@ -222,26 +225,27 @@ async function main(): Promise<void> {
     for (const name of names) {
       const before = socketConnects;
       const f = createAuthorityEgressFetch({ env: egressEnv(9, { [name]: undefined }) });
-      const err = await rejectsWith(f(OPENAPI_TOKEN, { method: "POST" }));
+      const err = await rejectsWith(f(OPENAPI_TOKEN, CODE_EXCHANGE));
       ok(`A: missing ${name} → NOT_CONFIGURED`,
         isAuthorityEgressError(err) && err.code === AUTHORITY_EGRESS_ERROR_CODES.NOT_CONFIGURED, err);
       ok(`A: missing ${name} → no socket opened`, socketConnects === before);
     }
     const blank = createAuthorityEgressFetch({ env: egressEnv(9, { ITA_EGRESS_PROXY_URL_SANDBOX: "   " }) });
-    const errBlank = await rejectsWith(blank(OPENAPI_TOKEN));
+    const errBlank = await rejectsWith(blank(OPENAPI_TOKEN, CODE_EXCHANGE));
     ok("A: whitespace-only value counts as missing",
       isAuthorityEgressError(errBlank) && errBlank.code === AUTHORITY_EGRESS_ERROR_CODES.NOT_CONFIGURED);
 
     const noEnv = createAuthorityEgressFetch({ env: { ...egressEnv(9), BILLING_AUTHORITY_RUNTIME_ENVIRONMENT: undefined } });
-    const errEnv = await rejectsWith(noEnv(OPENAPI_TOKEN));
+    const errEnv = await rejectsWith(noEnv(OPENAPI_TOKEN, CODE_EXCHANGE));
     ok("A: missing runtime environment → ENVIRONMENT_INVALID",
       isAuthorityEgressError(errEnv) && errEnv.code === AUTHORITY_EGRESS_ERROR_CODES.ENVIRONMENT_INVALID);
 
     // PRODUCTION runtime with only SANDBOX egress material → fail closed.
     const prod = createAuthorityEgressFetch({ env: { ...egressEnv(9), BILLING_AUTHORITY_RUNTIME_ENVIRONMENT: "PRODUCTION" } });
-    const errProd = await rejectsWith(prod(OPENAPI_TOKEN));
+    const errProd = await rejectsWith(prod(OPENAPI_TOKEN, CODE_EXCHANGE));
+    // With the temporary OAuth-only block, PRODUCTION is refused even earlier.
     ok("A: PRODUCTION runtime never borrows SANDBOX egress material",
-      isAuthorityEgressError(errProd) && errProd.code === AUTHORITY_EGRESS_ERROR_CODES.NOT_CONFIGURED);
+      isAuthorityEgressError(errProd) && errProd.code === AUTHORITY_EGRESS_ERROR_CODES.OPERATION_BLOCKED);
   }
 
   // ── B. malformed config ───────────────────────────────────────────────────
@@ -270,13 +274,13 @@ async function main(): Promise<void> {
     for (const [label, overrides, now] of cases) {
       const before = socketConnects;
       const f = createAuthorityEgressFetch({ env: egressEnv(9, overrides), now: now ? () => now : undefined });
-      const err = await rejectsWith(f(OPENAPI_TOKEN));
+      const err = await rejectsWith(f(OPENAPI_TOKEN, CODE_EXCHANGE));
       ok(`B: ${label} → CONFIG_INVALID`,
         isAuthorityEgressError(err) && err.code === AUTHORITY_EGRESS_ERROR_CODES.CONFIG_INVALID, err);
       ok(`B: ${label} → no socket opened`, socketConnects === before);
     }
     const envBad = createAuthorityEgressFetch({ env: { ...egressEnv(9), BILLING_AUTHORITY_RUNTIME_ENVIRONMENT: "STAGING" } });
-    const errEnvBad = await rejectsWith(envBad(OPENAPI_TOKEN));
+    const errEnvBad = await rejectsWith(envBad(OPENAPI_TOKEN, CODE_EXCHANGE));
     ok("B: unexpected environment → ENVIRONMENT_INVALID",
       isAuthorityEgressError(errEnvBad) && errEnvBad.code === AUTHORITY_EGRESS_ERROR_CODES.ENVIRONMENT_INVALID);
 
@@ -318,7 +322,7 @@ async function main(): Promise<void> {
     }
     let requestObjBlocked = false;
     try {
-      assertAuthorityEgressDestination(new Request(OPENAPI_TOKEN));
+      assertAuthorityEgressDestination(new Request(OPENAPI_TOKEN, CODE_EXCHANGE));
     } catch (error) {
       requestObjBlocked = isAuthorityEgressError(error);
     }
@@ -331,17 +335,18 @@ async function main(): Promise<void> {
     const fx = await startProxy("proxy");
     const f = createAuthorityEgressFetch({ env: egressEnv(fx.port) });
 
-    const errC = await rejectsWith(f(OPENAPI_TOKEN, { method: "POST", body: "", signal: AbortSignal.timeout(10_000) }));
+    const errC = await rejectsWith(f(OPENAPI_TOKEN, { ...CODE_EXCHANGE, signal: AbortSignal.timeout(10_000) }));
     ok("C: openapi.taxes.gov.il:443 CONNECT reached the proxy",
       fx.connects.some((c) => c.target === "openapi.taxes.gov.il:443"), fx.connects);
     ok("C: fixture 403 surfaces as a failure (no direct fallback)", errC !== undefined);
 
-    await rejectsWith(f(ITA_API_APPROVAL, { method: "POST", body: "{}", signal: AbortSignal.timeout(10_000) }));
-    ok("D: ita-api.taxes.gov.il:443 CONNECT reached the proxy",
-      fx.connects.some((c) => c.target === "ita-api.taxes.gov.il:443"), fx.connects);
+    const before = fx.connects.length;
+    const errD = await rejectsWith(f(ITA_API_APPROVAL, { method: "POST", body: "{}", signal: AbortSignal.timeout(10_000) }));
+    ok("D: Approval to ita-api is refused by the OAuth-only block before the proxy",
+      isAuthorityEgressError(errD) && errD.code === AUTHORITY_EGRESS_ERROR_CODES.OPERATION_BLOCKED && fx.connects.length === before, { errD, connects: fx.connects });
 
     ok("M: every CONNECT was over an authorized mTLS session",
-      fx.connects.length >= 2 && fx.connects.every((c) => c.authorized));
+      fx.connects.length >= 1 && fx.connects.every((c) => c.authorized));
     ok("M: the presented client identity is the configured client cert",
       fx.connects.every((c) => c.peerCn === "dubiz-sandbox-client"));
     ok("M: no Proxy-Authorization (no Basic auth) header sent",
@@ -364,7 +369,7 @@ async function main(): Promise<void> {
     const n0 = fx.connects.length;
     const tls0 = fx.tlsErrors;
     const t0 = Date.now();
-    const errRogue = await rejectsWith(rogue(OPENAPI_TOKEN, { signal: AbortSignal.timeout(10_000) }));
+    const errRogue = await rejectsWith(rogue(OPENAPI_TOKEN, { ...CODE_EXCHANGE, signal: AbortSignal.timeout(10_000) }));
     const rogueMs = Date.now() - t0;
     ok("M: bad client cert → request fails", errRogue !== undefined);
     ok("M: bad client cert → fails fast (not by timeout)", rogueMs < 5_000, rogueMs);
@@ -379,7 +384,7 @@ async function main(): Promise<void> {
     const untrusted = await startProxy("proxy-untrusted");
     const fu = createAuthorityEgressFetch({ env: egressEnv(untrusted.port) });
     const tu = Date.now();
-    const errUntrusted = await rejectsWith(fu(OPENAPI_TOKEN, { signal: AbortSignal.timeout(10_000) }));
+    const errUntrusted = await rejectsWith(fu(OPENAPI_TOKEN, { ...CODE_EXCHANGE, signal: AbortSignal.timeout(10_000) }));
     ok("M: proxy cert outside the pinned SERVER_CA → rejected", errUntrusted !== undefined);
     ok("M: untrusted proxy → fails fast", Date.now() - tu < 5_000);
     ok("M: untrusted proxy → classified as a certificate error",
@@ -391,7 +396,7 @@ async function main(): Promise<void> {
     const wrongId = await startProxy("proxy-wrong-id");
     const fw = createAuthorityEgressFetch({ env: egressEnv(wrongId.port) });
     const tw = Date.now();
-    const errWrongId = await rejectsWith(fw(OPENAPI_TOKEN, { signal: AbortSignal.timeout(10_000) }));
+    const errWrongId = await rejectsWith(fw(OPENAPI_TOKEN, { ...CODE_EXCHANGE, signal: AbortSignal.timeout(10_000) }));
     ok("M: proxy identity (IP SAN) mismatch → rejected", errWrongId !== undefined);
     ok("M: wrong identity → fails fast", Date.now() - tw < 5_000);
     ok("M: wrong-identity proxy received no CONNECT", wrongId.connects.length === 0);
@@ -548,7 +553,7 @@ async function main(): Promise<void> {
       { BILLING_AUTHORITY_RUNTIME_ENVIRONMENT: marker },
     ];
     for (const v of variants) {
-      errors.push(await rejectsWith(createAuthorityEgressFetch({ env: egressEnv(9, v) })(OPENAPI_TOKEN)));
+      errors.push(await rejectsWith(createAuthorityEgressFetch({ env: egressEnv(9, v) })(OPENAPI_TOKEN, CODE_EXCHANGE)));
     }
     errors.push(await rejectsWith(createAuthorityEgressFetch({ env: egressEnv(9) })(`https://${marker}.example/`)));
     for (const m of ["log", "error", "warn", "info"] as const) console[m] = orig[m];
