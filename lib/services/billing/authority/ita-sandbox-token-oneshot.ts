@@ -58,8 +58,8 @@ export const ONESHOT_SANDBOX_TOKEN_PATH = "/shaam/tsandbox/longtimetoken/oauth2/
 /** SHA-256 of the operator's single-use ticket (hex). */
 export const ONESHOT_TICKET_SHA256 = "db8069039a1afe80ef496056ee876c9322d8fc1721da8c275dcd9b9cc57505c7";
 /** Run window, pinned at push time. Placeholders refuse every call. */
-export const ONESHOT_NOT_BEFORE = "__NOT_BEFORE__";
-export const ONESHOT_NOT_AFTER = "__NOT_AFTER__";
+export const ONESHOT_NOT_BEFORE = "2026-10-31T19:59:32.760Z";
+export const ONESHOT_NOT_AFTER = "2026-10-31T20:44:32.760Z";
 const TIMEOUT_MS = 10_000;
 
 export type OneshotOutcome = "HTTP_RESPONSE" | "NETWORK_ERROR" | "REFUSED_BY_FUSE";
