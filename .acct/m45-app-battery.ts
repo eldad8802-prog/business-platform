@@ -357,11 +357,15 @@ async function main() {
 
   const C = await business("acct-m45-C", true);
   await month(C.b, KEY);
-  const LC = await deliver(C, KEY, now);
-  await call(codeRoute, "/api/accountant/link/code", LC);
-  const v = await call(verifyRoute, "/api/accountant/link/verify", LC, { code: codeOf(otp[otp.length - 1].text) });
-  const cookieC = v.setCookie.split(";")[0];
-  await owner.$executeRawUnsafe(`UPDATE "AccountantDelivery" SET "linkExpiresAt" = now() - interval '1 minute' WHERE "id" = $1`, LC.deliveryId);
+  // Delivered 20 days ago: the link expired. A device that is itself still valid (inserted as the lab owner, inside the
+  // tenant) must not matter — the link check comes first.
+  const LC = await deliver(C, KEY, new Date(now.getTime() - 20 * 86400_000));
+  const cToken = "c".repeat(43);
+  await owner.$transaction([
+    owner.$executeRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(C.b)),
+    owner.$executeRawUnsafe(`INSERT INTO "AccountantLinkDevice" ("businessId", "deliveryId", "tokenHash", "createdAt", "expiresAt") VALUES ($1, $2, $3, now(), now() + interval '1 day')`, C.b, LC.deliveryId, dev.hashDeviceToken(cToken)),
+  ]);
+  const cookieC = `${dev.deviceCookieName(LC.publicId)}=${cToken}`;
   r = await call(portalRoute, "/api/accountant/link/portal", LC, {}, cookieC);
   ok("11f expired: the portal → 410 LINK_EXPIRED even with a verified device", r.s === 410 && r.j.error === "LINK_EXPIRED");
   r = await call(codeRoute, "/api/accountant/link/code", LC);
