@@ -580,6 +580,18 @@ export interface PaymentStore {
   ): Promise<PaymentWebhookEventRecord>;
 
   /**
+   * Webhook events that arrived but were never consumed (RECEIVED / FAILED) since `createdAfter`, newest first,
+   * bounded. A bootstrap (non-tenant) read of the provider ledger, like the insert above: the rows carry no tenant.
+   * Reconciliation uses them ONLY to know which provider requests to ask first — never as authority, never to read
+   * or write anything of a tenant (the requests themselves are still listed inside each business's context).
+   * Optional so a store without a webhook ledger simply gives no priority signal.
+   */
+  listUnconsumedWebhookEvents?(options: {
+    createdAfter: Date;
+    limit: number;
+  }): Promise<Array<{ provider: PaymentProvider; payload: unknown }>>;
+
+  /**
    * Append-only audit insert (M7). There is deliberately no update or delete:
    * the payments audit trail can only grow. Callers build the hashed row via
    * the payment-audit service and emit best-effort.

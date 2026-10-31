@@ -18,7 +18,9 @@
  *
  * This function NEVER throws on a bad/duplicate/unrecognized webhook: it
  * records the outcome on the event row and returns a result object, so the
- * route can always answer 200 and the provider does not retry-storm.
+ * route answers 200 and the provider does not retry-storm. A database failure
+ * DOES throw (and `verification_error` is returned): the handler answers those
+ * 503 so the provider resends (payment-webhook-failure.ts).
  */
 
 import type {

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { handleProviderWebhook } from "@/lib/services/payments/payment-webhook-handler";
 import { paymentWebhookDeps } from "@/lib/services/payments/payments.deps";
+import { webhookResponse, webhookRouteFailure } from "@/lib/services/payments/payment-webhook-response";
 import { extractCallbackSecretFromPath } from "@/lib/services/payments/payment-callback-secret";
 
 // Public webhook endpoint. Node.js runtime: the body must be read exactly as
@@ -66,16 +67,11 @@ async function handle(req: NextRequest) {
       { provider: "SUMIT", rawBody, headers, callbackSecret },
       paymentWebhookDeps()
     );
-    return NextResponse.json(result.body, { status: result.status });
+    return webhookResponse(result);
   } catch (error) {
-    // Defence in depth: never answer non-200 for an enabled provider, and never
-    // echo the payload, the secret or an internal detail back out. The message
-    // is deliberately not interpolated with anything request-derived.
-    console.warn(
-      "[payments-webhook-route:sumit] unexpected failure:",
-      error instanceof Error ? error.name : "unknown"
-    );
-    return NextResponse.json({ ok: true }, { status: 200 });
+    // Defence in depth: an infrastructure failure asks the provider to resend (503); anything else is
+    // acknowledged (200). Class + code only in the log — never the message, the payload or the secret.
+    return webhookRouteFailure("payments-webhook-route:sumit", error);
   }
 }
 
