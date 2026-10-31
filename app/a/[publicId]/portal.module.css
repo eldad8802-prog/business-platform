@@ -362,3 +362,37 @@
   direction: ltr;
   unicode-bidi: isolate;
 }
+
+/* G5 M5 — the one-time code on a new device */
+.codeLabel {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dz-text-primary);
+}
+.codeInput {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  height: 52px;
+  margin-bottom: 16px;
+  padding: 0 14px;
+  border: 1px solid var(--dz-border-strong);
+  border-radius: 12px;
+  background: var(--dz-surface-raised-flat);
+  color: var(--dz-text-primary);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 24px;
+  letter-spacing: 8px;
+  text-align: center;
+}
+.codeInput:focus-visible {
+  outline: 2px solid var(--dz-brand);
+  outline-offset: 2px;
+}
+.codeMessage {
+  margin: 14px 0 0;
+  font-size: 14px;
+  color: var(--dz-warning);
+}

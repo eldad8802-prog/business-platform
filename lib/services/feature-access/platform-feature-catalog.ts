@@ -26,6 +26,7 @@ export const PLATFORM_FEATURE_KEYS = {
   TELEPHONY_VOICENTER: "telephony_voicenter",
   DAILY_TASKS: "daily_tasks",
   ACCOUNTANT_MONTH_CLOSE: "accountant_month_close",
+  ACCOUNTANT_DELIVERY: "accountant_delivery",
   BANK_FILE_IMPORT: "bank_file_import",
   POS_RIVHIT: "pos_rivhit",
   APPOINTMENTS: "appointments",
@@ -251,6 +252,17 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "חבילה חודשית לרואה החשבון",
       category: "documents",
       description: "הכנה חודשית אוטומטית של חבילת רואה החשבון, התראה, ושליחה לרואה החשבון באישור בעל העסק",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // The per-business SEND permission (G5 M4, migration 20261109090000). OFF for every business; a platform admin
+    // opens it per business (feature override, MFA, audited). Sending also needs the global master switch
+    // ACCOUNTANT_DELIVERY_ENABLED, and every package the owner's explicit approval (lib/accountant/delivery.service.ts).
+    {
+      key: PLATFORM_FEATURE_KEYS.ACCOUNTANT_DELIVERY,
+      displayName: "שליחת החבילה לרואה החשבון מתוך Dubiz",
+      category: "documents",
+      description: "הרשאה לשלוח את החבילה החודשית לרואה החשבון מתוך Dubiz — כל משלוח עדיין באישור מפורש של בעל העסק",
       defaultEnabled: false,
       mutable: true,
     },

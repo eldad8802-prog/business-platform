@@ -12,6 +12,7 @@ export const ERROR_HE: Record<string, string> = {
   INCOMPLETE_NOT_ACKNOWLEDGED: "החבילה אינה שלמה — כדי לשלוח צריך לאשר זאת במפורש.",
   SEND_IN_PROGRESS: "שליחה של החודש הזה כבר בדרך.",
   DELIVERY_DISABLED: "השליחה מתוך Dubiz עדיין לא הופעלה.",
+  DELIVERY_NOT_PERMITTED: "השליחה מתוך Dubiz עדיין לא הופעלה לעסק שלך. אפשר להוריד את החבילה ולשלוח אותה בעצמך.",
   EMAIL_NOT_CONFIGURED: "שירות המייל אינו זמין כרגע. אפשר להוריד את החבילה ולשלוח בעצמכם.",
   RECIPIENT_CHANGED_ELSEWHERE: "פרטי רואה החשבון עודכנו במקום אחר. רעננו את המסך.",
   INVALID_EMAIL: "כתובת המייל אינה תקינה.",
@@ -93,6 +94,11 @@ export function deliveryAccessHe(d: DeliveryView): string[] {
   }
   if (d.portal.fileDownloads > 0) {
     out.push(`נפתחו או הורדו ${d.portal.fileDownloads === 1 ? "קובץ אחד" : `${d.portal.fileDownloads} קבצים`} (לאחרונה ${formatDateTimeHe(d.portal.lastFileDownloadAt)})`);
+  }
+  if (d.portal.devicesVerified > 0) {
+    out.push(
+      `${d.portal.devicesVerified === 1 ? "מכשיר אחד אומת" : `${d.portal.devicesVerified} מכשירים אומתו`} בקוד חד־פעמי שנשלח לרואה החשבון (לאחרונה ${formatDateTimeHe(d.portal.lastDeviceVerifiedAt)})`
+    );
   }
   if (d.downloadCount > 0) {
     out.push(`החבילה המלאה (ZIP) הורדה ${d.downloadCount === 1 ? "פעם אחת" : `${d.downloadCount} פעמים`}`);

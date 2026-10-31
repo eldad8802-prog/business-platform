@@ -83,6 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           npx tsx lib/accountant/period.verify.test.ts
+          npx tsx lib/accountant/link-device.verify.test.ts
           npx tsx lib/accountant/package-scope.verify.test.ts
           npx tsx lib/accountant/workflow.verify.test.ts
           npx tsx lib/accountant/package-reports.verify.test.ts
@@ -191,6 +192,9 @@ jobs:
         run: |
           set -euo pipefail
           bash .acct/lab.sh acct_app --with-acct
+          for m in 20261109090000_accountant_delivery_permission 20261109091000_accountant_link_otp; do  # G5 M4 + M5
+            PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_app -f prisma/migrations/$m/migration.sql
+          done
           TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_app?$TZQ" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_app?$TZQ" \
@@ -246,6 +250,9 @@ jobs:
           set -euo pipefail
           bash .acct/lab.sh acct_portal --with-acct
           PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_portal -f prisma/migrations/20261105090000_accountant_link_events/migration.sql
+          for m in 20261109090000_accountant_delivery_permission 20261109091000_accountant_link_otp; do  # G5 M4 + M5
+            PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_portal -f prisma/migrations/$m/migration.sql
+          done
           TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_portal?$TZQ" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_portal?$TZQ" \
@@ -257,6 +264,9 @@ jobs:
           set -euo pipefail
           bash .acct/lab.sh acct_g4 --with-acct
           PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_g4 -f prisma/migrations/20261105090000_accountant_link_events/migration.sql
+          for m in 20261109090000_accountant_delivery_permission 20261109091000_accountant_link_otp; do  # G5 M4 + M5
+            PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_g4 -f prisma/migrations/$m/migration.sql
+          done
           TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_g4?$TZQ" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_g4?$TZQ" \
@@ -268,11 +278,24 @@ jobs:
           set -euo pipefail
           bash .acct/lab.sh acct_hourly --with-acct
           PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_hourly -f prisma/migrations/20261105090000_accountant_link_events/migration.sql
+          for m in 20261109090000_accountant_delivery_permission 20261109091000_accountant_link_otp; do  # G5 M4 + M5
+            PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_hourly -f prisma/migrations/$m/migration.sql
+          done
           TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_hourly?$TZQ" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_hourly?$TZQ" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_hourly?$TZQ" \
             npx tsx .acct/hourly-sweep-battery.ts
+
+      - name: G5 M4 + M5 battery — the per-business send permission (master switch, withdrawn mid-way, isolation) and the one-time code on a new device (snapshot recipient, attempts, single use under concurrency, limits, one delivery only, revocation and expiry first, nothing secret in trail, answers or logs)
+        run: |
+          set -euo pipefail
+          bash .acct/lab.sh acct_m45 --with-acct
+          for m in 20261105090000_accountant_link_events 20261109090000_accountant_delivery_permission 20261109091000_accountant_link_otp; do
+            PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_m45 -f prisma/migrations/$m/migration.sql
+          done
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_m45?$TZQ"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_m45?$TZQ"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_m45?$TZQ"             npx tsx .acct/m45-app-battery.ts
 
       - name: G5 milestone 1 battery — monitor (every fault, one email, dedupe, concurrency, a failing channel, reminders, recovery, simulation) + delivery webhook (signatures, duplicates, out of order, complaint, DB failure) + the console's read; migrations 20261105 + 20261107 applied by migrate deploy
         run: |

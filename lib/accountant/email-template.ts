@@ -89,3 +89,58 @@ ${after.map((l) => `<p style="${small}">${escapeHtml(l)}</p>`).join("\n")}
 </html>`;
   return { subject, html, text };
 }
+
+/**
+ * The one-time code for the accountant's portal on a new device (G5 M5). Sent only to the delivery's own recipient.
+ * The code, whose package and for how long — no link (the accountant already holds it), no financial data.
+ */
+export function renderAccountantCodeEmail(input: { businessName: string; periodLabel: string; code: string; minutes: number }): RenderedEmail {
+  const business = clean(input.businessName, 120) || "בעל העסק";
+  const period = clean(input.periodLabel, 40);
+  const code = /^[0-9]{6}$/.test(input.code) ? input.code : "";
+  const subject = `קוד אימות לחבילת רואה החשבון — ${period}`;
+  const lines = [
+    `ביקשת לפתוח במכשיר חדש את חבילת המסמכים של ${business} לחודש ${period}.`,
+    "קוד האימות שלך:",
+  ];
+  const after = [
+    `הקוד בתוקף ${input.minutes} דקות ולשימוש אחד בלבד. אין למסור אותו לאף אחד — גם לא למי שמציג את עצמו כ־Dubiz.`,
+    "אם לא ביקשת את הקוד, אפשר להתעלם מהמייל הזה; בלי הקוד אי אפשר לפתוח את החבילה במכשיר חדש.",
+  ];
+  const reason = "קיבלת את המייל הזה כי בעל העסק שלח אליך את החבילה דרך Dubiz.";
+  const text = ["שלום,", "", ...lines, code, "", ...after, "", "Dubiz", "", "—", reason].join("\n");
+
+  const C = { page: "#f4f5f0", card: "#ffffff", border: "#e3e6de", text: "#23302b", muted: "#566159", brand: "#246966" };
+  const font = "Arial, 'Helvetica Neue', Helvetica, sans-serif";
+  const p = `margin:0 0 16px 0;font-family:${font};font-size:16px;line-height:1.6;color:${C.text};text-align:right;`;
+  const small = `margin:0 0 16px 0;font-family:${font};font-size:14px;line-height:1.6;color:${C.muted};text-align:right;`;
+
+  const html = `<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<meta name="referrer" content="no-referrer">
+<title>${escapeHtml(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background:${C.page};" dir="rtl">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:${C.page};">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;" dir="rtl">
+<tr><td style="padding:0 4px 20px 4px;text-align:right;font-family:${font};font-size:24px;font-weight:700;letter-spacing:0.2px;color:${C.brand};">Dubiz</td></tr>
+<tr><td style="background:${C.card};border:1px solid ${C.border};border-radius:16px;padding:32px 28px;text-align:right;" dir="rtl">
+<p style="margin:0 0 20px 0;font-family:${font};font-size:22px;line-height:1.4;font-weight:700;color:${C.text};text-align:right;">שלום,</p>
+${lines.map((l) => `<p style="${p}">${escapeHtml(l)}</p>`).join("\n")}
+<p dir="ltr" style="margin:0 0 24px 0;font-family:'Courier New',Courier,monospace;font-size:32px;font-weight:700;letter-spacing:8px;color:${C.text};text-align:center;">${escapeHtml(code)}</p>
+${after.map((l) => `<p style="${small}">${escapeHtml(l)}</p>`).join("\n")}
+</td></tr>
+<tr><td style="padding:20px 4px 0 4px;text-align:right;font-family:${font};font-size:13px;line-height:1.6;color:${C.muted};">${escapeHtml(reason)}</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`;
+  return { subject, html, text };
+}

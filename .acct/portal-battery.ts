@@ -48,7 +48,18 @@ function ok(name: string, cond: boolean, detail = "") {
   else { failures.push(name); console.log(`  [FAIL] ${name}${detail ? " — " + detail : ""}`); }
 }
 let networkCalls = 0;
-globalThis.fetch = (async () => { networkCalls++; throw new Error("no network"); }) as typeof fetch;
+// G5 M5: the one-time code email (Idempotency-Key acct-otp:<id>) is answered here, never sent; anything else is network.
+const otpMails: { to: string; text: string }[] = [];
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const key = String((init?.headers as Record<string, string> | undefined)?.["Idempotency-Key"] ?? "");
+  if (String(input).startsWith("https://api.resend.com/") && key.startsWith("acct-otp:")) {
+    const body = JSON.parse(String(init?.body)) as { to: string[]; text: string };
+    otpMails.push({ to: body.to[0], text: body.text });
+    return new Response(JSON.stringify({ id: `msg_otp_${otpMails.length}` }), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  networkCalls++;
+  throw new Error("no network");
+}) as typeof fetch;
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const PNG = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000d49444154789c6300010000050001" + "0d0a2db40000000049454e44ae426082", "hex");
 
@@ -99,6 +110,8 @@ async function main() {
     const b = await one(`INSERT INTO "Business" ("name", "updatedAt") VALUES ($1, now()) RETURNING "id"`, name);
     const u = await one(`INSERT INTO "User" ("email", "password", "businessId", "updatedAt") VALUES ($1, 'x', $2, now()) RETURNING "id"`, `${name}-${b}@portal.lab`, b);
     await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'accountant_month_close', 'ENABLED', now())`, b);
+    // G5 M4: sending from Dubiz needs the business's own permission.
+    await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'accountant_delivery', 'ENABLED', now())`, b);
     await owner.$executeRawUnsafe(`INSERT INTO "BusinessProfile" ("businessId", "billingLegalName", "billingTaxId", "updatedAt") VALUES ($1, $2, '515151515', now()) ON CONFLICT DO NOTHING`, b, `${name} בע"מ`);
     return { b, u };
   };
@@ -181,12 +194,29 @@ async function main() {
   await owner.$executeRawUnsafe(`UPDATE "BusinessFeatureAccess" SET "state" = 'DISABLED' WHERE "businessId" = $1 AND "featureKey" = 'accountant_month_close'`, D.b);
 
   let ipSeq = 0;
-  const post = async (route: { POST: (r: Request) => Promise<Response> }, url: string, body: Json, ip?: string) =>
-    route.POST(new Request(`https://app.example.com${url}`, {
+  // G5 M5: one browser per link — the device cookie the verify route set is sent with every later request of that link.
+  const jar = new Map<string, string>();
+  const post = async (route: { POST: (r: Request) => Promise<Response> }, url: string, body: Json, ip?: string) => {
+    const cookie = typeof body.publicId === "string" ? jar.get(body.publicId) : undefined;
+    return route.POST(new Request(`https://app.example.com${url}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-forwarded-for": ip ?? `198.51.100.${(++ipSeq % 200) + 1}` },
+      headers: { "content-type": "application/json", "x-forwarded-for": ip ?? `198.51.100.${(++ipSeq % 200) + 1}`, ...(cookie ? { cookie } : {}) },
       body: JSON.stringify(body),
     }));
+  };
+  const codeRoute = await import("@/app/api/accountant/link/code/route");
+  const verifyRoute = await import("@/app/api/accountant/link/verify/route");
+  /** Verifies this battery's browser for a link through the real routes (code → the emulator → verify). */
+  const trust = async (l: { publicId: string; token: string }) => {
+    const c = await post(codeRoute, "/api/accountant/link/code", { publicId: l.publicId, token: l.token });
+    if (c.status !== 200) throw new Error(`code route ${c.status}`);
+    const code = /\b([0-9]{6})\b/.exec(otpMails[otpMails.length - 1].text)![1];
+    const v = await post(verifyRoute, "/api/accountant/link/verify", { publicId: l.publicId, token: l.token, code });
+    const set = v.headers.get("set-cookie") ?? "";
+    if (v.status !== 200 || !set) throw new Error(`verify route ${v.status}`);
+    jar.set(l.publicId, set.split(";")[0]);
+  };
+  for (const l of [LA, LB, LF]) await trust(l);
   const index = (l: { publicId: string; token: string }) => post(portalRoute, "/api/accountant/link/portal", { publicId: l.publicId, token: l.token });
   const file = (l: { publicId: string; token: string }, extra: Json) => post(fileRoute, "/api/accountant/link/file", { publicId: l.publicId, token: l.token, ...extra });
   const events = async (deliveryId: number, type: string) =>

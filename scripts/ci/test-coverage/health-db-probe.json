@@ -1,0 +1,10 @@
+{
+  "note": "ops/health-db-probe: GET /api/health/db — the authenticated database availability probe for an external uptime monitor (SELECT 1 on the runtime client and on authDb()). No migration, no env, inert until HEALTH_MONITOR_SECRET is set. The real-Postgres half is scripts/ops/db-health-lab.ts in health-db-ci.yml.",
+  "tests": {
+    "lib/ops/db-health.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): only a Bearer equal to the dedicated HEALTH_MONITOR_SECRET is authorised (missing / short / equal-to-CRON_SECRET secret → not configured; wrong, prefix, CRON, Basic, bare → unauthorized); failures map to fixed codes only and the report never carries the error's message, host, role, password or URL; per-check timeout and whole-probe deadline hold; recovery needs no state; static: auth decided before any probe, no-store (browser + CDN + Vercel CDN) on every answer, GET only, exactly two SELECT 1 and no write, the log line is class + code only; run by security-gate (pure lab) and health-db-ci.yml"
+    }
+  }
+}

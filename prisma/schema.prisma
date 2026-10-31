@@ -7802,6 +7802,47 @@ model AccountantBusinessAlert {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Accountant portal — a one-time code on a new device (G5 M5) — migration 20261109091000_accountant_link_otp.
+// Both are tenant data under FORCE RLS, bound to ONE delivery (composite key in the migration); FKs DB-only (no
+// back-relation on an existing model). Never a code or a cookie value — only their HMACs (lib/accountant/link-device.ts).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AccountantLinkChallenge {
+  id         Int       @id @default(autoincrement())
+  businessId Int
+  deliveryId Int
+  /// 16 random bytes, hex
+  salt       String
+  /// HMAC-SHA256 of the code (never the code)
+  codeHash   String
+  createdAt  DateTime
+  /// at most 15 minutes after createdAt (CHECK)
+  expiresAt  DateTime
+  /// wrong attempts, 0..5 (CHECK)
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+
+  @@unique([businessId, id])
+  @@index([businessId, deliveryId, createdAt(sort: Desc)])
+}
+
+model AccountantLinkDevice {
+  id         Int       @id @default(autoincrement())
+  businessId Int
+  deliveryId Int
+  /// HMAC-SHA256 of the cookie value (never the value)
+  tokenHash  String    @unique
+  createdAt  DateTime
+  /// the link's expiry (at most 16 days, CHECK)
+  expiresAt  DateTime
+  lastSeenAt DateTime?
+  revokedAt  DateTime?
+
+  @@unique([businessId, id])
+  @@index([businessId, deliveryId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Revenue truth (milestone A) — migration 20261028090000_revenue_truth_foundation.
 // docs/revenue-truth-milestone-a.md. Four layers of evidence for one sale: sale (RevenueSale, RevenueDailyClose
 // + lines) → receipt (RevenueReceipt) → settlement (RevenueSettlement) → deposit (EXISTING ExternalTransaction).
