@@ -230,6 +230,7 @@ export const customersHe = {
       save: "שמירה",
       cancel: "ביטול",
       unnamed: "ליד ללא שם",
+      claimedPhoneShort: "{phone} (נמסר בפנייה — לא אומת)",
       chevron: "‹",
       fact: "עובדה",
       inference: "מסקנה מהנתונים",
@@ -339,6 +340,7 @@ export const customersHe = {
       noConversations: "אין עדיין שיחות מקושרות לליד הזה.",
       fields: {
         phone: "טלפון",
+        claimedPhone: "מספר שנמסר בפנייה — לא אומת",
         email: "אימייל",
         source: "מקור",
         created: "נכנס",

@@ -361,7 +361,9 @@ async function main() {
 
     const completed = await asTenant(a.businessId, (tx) =>
       leadService.clearFollowUp(
-        { businessId: a.businessId, leadId: noEmailLead.id },
+        // The owner completes it, as every owner route does (Leads L1 · G-03: an owner action is "handling" —
+        // a lead still in NEW does not come back as "new and untouched" after its follow-up is done).
+        { businessId: a.businessId, leadId: noEmailLead.id, actor: { type: "OWNER_USER", userId: a.userId }, source: "OWNER_UI" },
         { tx }
       )
     );

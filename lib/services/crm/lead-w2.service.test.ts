@@ -250,9 +250,11 @@ async function main() {
         { tx }
       )
     );
+    // OPEN (contacted): completing its follow-up below must take it out of the queue. A lead still in NEW
+    // would stay "new — contact" after its follow-up is cleared (Leads L1 · G-03: NEW + no follow-up asks).
     await prisma.lead.update({
       where: { id: overdueLead.id },
-      data: { nextFollowUpAt: new Date(Date.now() - 3 * 86400000) },
+      data: { status: "OPEN", lastActivityAt: new Date(), nextFollowUpAt: new Date(Date.now() - 3 * 86400000) },
     });
 
     const staleNew = await asTenant(a.businessId, (tx) =>
@@ -266,7 +268,7 @@ async function main() {
       data: { createdAt: new Date(Date.now() - 4 * 86400000) },
     });
 
-    // A fresh lead created just now must NOT be in the queue.
+    // Leads L1 · G-03: a fresh lead created just now IS in the queue at once.
     const freshLead = await asTenant(a.businessId, (tx) =>
       leadService.createLead(
         { businessId: a.businessId, name: "W2 fresh", phone: `97253${stamp}` },
@@ -280,7 +282,7 @@ async function main() {
     const queueIds = queue.map((l) => l.id);
     check(queueIds.includes(overdueLead.id), "A1 an overdue follow-up is in the queue");
     check(queueIds.includes(staleNew.id), "A2 an untouched new lead from before today is in the queue");
-    check(!queueIds.includes(freshLead.id), "A3 a lead created moments ago is NOT in the queue");
+    check(queueIds.includes(freshLead.id), "A3 (G-03) a lead created moments ago IS in the queue at once");
     check(!queueIds.includes(first.lead.id), "A4 a CLOSED lead is never in the queue");
 
     const count = await asTenant(a.businessId, (tx) =>

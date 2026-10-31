@@ -20,6 +20,8 @@ import { NotFoundError, UnauthorizedError, ValidationError } from "@/lib/errors"
 import {
   evaluateLeadFollowUp,
   leadNeedsAttention,
+  leadContactPhone,
+  type LeadContactPhone,
   type LeadFollowUpState,
   type LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
@@ -59,6 +61,10 @@ export type LeadCardLead = {
   id: number;
   name: string | null;
   phone: string | null;
+  /** G-01b — the phone typed into an anonymous enquiry; reachable, never identity. */
+  claimedPhone: string | null;
+  /** Where to reach the lead, and where that number comes from (never a verification claim). */
+  contactPhone: LeadContactPhone | null;
   email: string | null;
   status: LeadStatusValue;
   sourceChannel: string | null;
@@ -267,6 +273,7 @@ export async function getLeadCard(
       lastCustomerInboundAt: inbound.get(lead.id) ?? null,
       lastUnreturnedCallAt: calls.get(lead.id) ?? null,
       openIdentityProposals: proposals.get(lead.id) ?? 0,
+      firstHandledAt: lead.firstHandledAt,
       dismissedRuleIds: dismissed.get(lead.id) ?? [],
     },
     now,
@@ -279,6 +286,8 @@ export async function getLeadCard(
       id: lead.id,
       name: lead.customerName,
       phone: lead.phone,
+      claimedPhone: lead.claimedPhone ?? null,
+      contactPhone: leadContactPhone(lead),
       email: lead.email,
       status,
       sourceChannel: lead.sourceChannel,

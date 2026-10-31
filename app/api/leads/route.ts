@@ -6,7 +6,8 @@ import type { Translator } from "@/lib/i18n/translate";
 
 /** Mirrors the service's own default page size. */
 const DEFAULT_PAGE_SIZE = 50;
-import { evaluateLeadAttention } from "@/lib/services/crm/lead-attention";
+import { evaluateLeadAttention, type LeadAttention } from "@/lib/services/crm/lead-attention";
+import { loadLeadAttentionQueue } from "@/lib/services/crm/lead-attention-queue";
 import {
   evaluateLeadPriority,
   type LeadConversationIntelligence,
@@ -17,6 +18,7 @@ import {
   LEAD_STATUSES,
   evaluateLeadFollowUp,
   leadNeedsAttention,
+  leadContactPhone,
   type LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -51,6 +53,7 @@ type LeadRowSource = {
   id: number;
   customerName: string | null;
   phone: string | null;
+  claimedPhone: string | null;
   email: string | null;
   status: string;
   sourceChannel: string | null;
@@ -58,6 +61,7 @@ type LeadRowSource = {
   followUpNote: string | null;
   lastActivityAt: Date | null;
   createdAt: Date;
+  firstHandledAt: Date | null;
   customer: { id: number; name: string; phone: string | null; email: string | null } | null;
 };
 
@@ -70,18 +74,27 @@ function toListRow(
   lead: LeadRowSource,
   now: Date,
   intelligence: LeadConversationIntelligence | null,
-  t: Translator
+  t: Translator,
+  queued?: LeadAttention
 ) {
   const status = lead.status as LeadStatusValue;
-  const attention = evaluateLeadAttention(
-    { status, nextFollowUpAt: lead.nextFollowUpAt, createdAt: lead.createdAt },
-    now,
-    t
-  );
+  // Leads L1 · G-05 — a lead in the shared attention queue carries the evaluator's
+  // verdict over EVERY fact (customer wrote / called, identity question, idle quote,
+  // stalled); any other lead cannot need attention, so its follow-up-only reading is whole.
+  const attention =
+    queued ??
+    evaluateLeadAttention(
+      { status, nextFollowUpAt: lead.nextFollowUpAt, createdAt: lead.createdAt, firstHandledAt: lead.firstHandledAt },
+      now,
+      t
+    );
   return {
     id: lead.id,
     name: lead.customerName,
     phone: lead.phone,
+    // G-01b — the anonymous enquiry's typed phone, and the number to reach them on with its source.
+    claimedPhone: lead.claimedPhone,
+    contactPhone: leadContactPhone(lead),
     email: lead.email,
     status,
     sourceChannel: lead.sourceChannel,
@@ -119,18 +132,25 @@ export async function GET(req: NextRequest) {
 
     // ONE tenant transaction for the page and its intelligence, so the rows and
     // the conversation readings describe the same instant.
-    const { leads, intelligence, overflow } = await runWithTenantContext(
+    const needsAction = searchParams.get("needsAction") === "true";
+    const { leads, intelligence, overflow, queued } = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
         withTenantTransaction(async (tx) => {
           const statusFilter = parseStatusFilter(searchParams.get("status"));
+          // Leads L1 · G-05 — the shared attention queue, read ONCE: it decides
+          // needsAction, feeds the ranking, and gives each row its full verdict.
+          const queue = await loadLeadAttentionQueue(tx, user.businessId, now, t);
+          const queued = new Map(queue.items.map((i) => [i.row.id, i.attention]));
+          const attentionLeadIds = [...queued.keys()];
           const rows = await leadService.listLeads(
             {
               businessId: user.businessId,
               query: searchParams.get("q"),
               status: statusFilter,
               sourceChannel: searchParams.get("source"),
-              needsAction: searchParams.get("needsAction") === "true",
+              needsAction,
+              attentionLeadIds,
               limit: parseIntParam(searchParams.get("limit"), "limit"),
               cursorId: parseIntParam(searchParams.get("cursorId"), "cursorId"),
               customerId: parseIntParam(searchParams.get("customerId"), "customerId"),
@@ -156,15 +176,18 @@ export async function GET(req: NextRequest) {
                   query: searchParams.get("q"),
                   sourceChannel: searchParams.get("source"),
                   customerId: parseIntParam(searchParams.get("customerId"), "customerId"),
+                  attentionLeadIds,
                   now,
                 },
                 { tx }
               );
 
-          // Union by id, page first so its rows win on identity.
+          // Union by id, page first so its rows win on identity. The needsAction view
+          // is exactly the attention queue: a merely hot / unanswered thread whose lead
+          // the evaluator does not flag joins the ranking of the other views only.
           const byId = new Map<number, (typeof rows)[number]>();
           for (const row of rows) byId.set(row.id, row);
-          for (const row of urgent.rows) if (!byId.has(row.id)) byId.set(row.id, row);
+          for (const row of urgent.rows) if (!byId.has(row.id) && (!needsAction || queued.has(row.id))) byId.set(row.id, row);
           const merged = [...byId.values()];
 
           // ONE extra query for the whole set — never one per lead.
@@ -178,12 +201,12 @@ export async function GET(req: NextRequest) {
             { tx }
           );
 
-          return { leads: merged, intelligence: attached, overflow: urgent.overflow };
+          return { leads: merged, intelligence: attached, overflow: urgent.overflow || queue.overflow, queued };
         })
     );
 
     const items = leads.map((l) =>
-      toListRow(l, now, intelligence.get(l.id)?.intelligence ?? null, t)
+      toListRow(l, now, intelligence.get(l.id)?.intelligence ?? null, t, queued.get(l.id))
     );
 
     // The one ordering contract, applied to the whole candidate set:

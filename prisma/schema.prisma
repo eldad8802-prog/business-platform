@@ -917,6 +917,11 @@ model Lead {
   customerId       Int?
   /// Second contact channel. `customerName` / `phone` already exist above.
   email            String?
+  /// Leads L1 · G-01b (migration 20261108090000) — the phone a visitor TYPED into an anonymous website form:
+  /// usable to reach them (call, WhatsApp, search, repeat-enquiry lookup) but NEVER evidence of identity —
+  /// no identity code reads it, and it never takes part in `Lead_open_phone_key`. Normalized digits only
+  /// (raw CHECK "Lead_claimedPhone_digits"). PERSONAL: erased with the lead and by account erasure.
+  claimedPhone     String?
   /// What the lead actually asked for, in their words or the owner's.
   intentSnapshot   String?
   /// The single open follow-up moment. Overwritten on reschedule, nulled on
@@ -954,6 +959,7 @@ model Lead {
   @@index([businessId, status, nextFollowUpAt])
   @@index([businessId, lastActivityAt])
   @@index([businessId, customerId])
+  @@index([businessId, claimedPhone])
 }
 
 model Customer {

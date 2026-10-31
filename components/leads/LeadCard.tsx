@@ -221,6 +221,12 @@ function LeadCardBody({
   if (lead.phone) {
     identityFields.push({ label: t("customers.leads.card.fields.phone"), value: formatPhoneForDisplay(lead.phone) });
   }
+  // G-01b — the phone typed into an anonymous enquiry: shown for what it is, never as the lead's verified phone.
+  if (lead.claimedPhone) {
+    identityFields.push({ label: t("customers.leads.card.fields.claimedPhone"), value: formatPhoneForDisplay(lead.claimedPhone) });
+  }
+  // The number the quick actions use (Lead.phone first). Calling or messaging it verifies and links nothing.
+  const reachPhone = lead.contactPhone?.value ?? null;
   if (lead.email) identityFields.push({ label: t("customers.leads.card.fields.email"), value: lead.email });
   const sourceLabel = leadSourceLabel(lead.sourceChannel, t);
   if (sourceLabel) identityFields.push({ label: t("customers.leads.card.fields.source"), value: sourceLabel });
@@ -292,17 +298,17 @@ function LeadCardBody({
 
       {/* Quick actions: pure deep links — no integration, no 24h window, no
           promise the platform cannot keep. */}
-      {lead.phone ? (
+      {reachPhone ? (
         <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
           <a
             className="crm-btn crm-btn--primary"
-            href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`}
+            href={`https://wa.me/${reachPhone.replace(/\D/g, "")}`}
             target="_blank"
             rel="noopener noreferrer"
           >
             {t("customers.leads.card.whatsapp")}
           </a>
-          <a className="crm-btn crm-btn--ghost" href={`tel:+${lead.phone.replace(/\D/g, "")}`}>
+          <a className="crm-btn crm-btn--ghost" href={`tel:+${reachPhone.replace(/\D/g, "")}`}>
             {t("customers.leads.card.dial")}
           </a>
         </div>

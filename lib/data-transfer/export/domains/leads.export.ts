@@ -97,6 +97,9 @@ const COLUMNS = [
   { header: "הערכת שווי", type: "number", width: 14, exportable: true, importable: false },
   { header: "סכום שסוכם", type: "number", width: 14, exportable: true, importable: false },
   { header: "מטבע", type: "text", width: 8, exportable: true, importable: false },
+  // Leads L1 · G-01b — appended: the phone typed into an anonymous enquiry, labelled as NOT verified. Never imported
+  // (an import cannot fabricate a claim), and kept apart from "טלפון" so a re-import never promotes it.
+  { header: "טלפון שנמסר בפנייה (לא אומת)", type: "text", width: 22, exportable: true, importable: false },
 ] as const;
 
 export const leadsExportDescriptor: ExportDomainDescriptor = {
@@ -133,6 +136,7 @@ export const leadsExportDescriptor: ExportDomainDescriptor = {
         valueEstimate: true,
         finalPrice: true,
         currency: true,
+        claimedPhone: true,
       },
     });
 
@@ -154,6 +158,7 @@ export const leadsExportDescriptor: ExportDomainDescriptor = {
         num(r.valueEstimate === null ? null : Number(r.valueEstimate)),
         num(r.finalPrice === null ? null : Number(r.finalPrice)),
         text(r.valueEstimate !== null || r.finalPrice !== null ? r.currency : null),
+        text(formatPhoneForDisplay(r.claimedPhone)),
       ]),
       lastId: rows.length > 0 ? rows[rows.length - 1].id : null,
     };

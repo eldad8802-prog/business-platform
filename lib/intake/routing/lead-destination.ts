@@ -12,13 +12,18 @@
  *                                event's other identifiers nobody else holds)
  *                   unresolved → a NEW Customer (phone / email / name from the
  *                                hints) + deterministic links
+ *                   self-asserted (website form, identity-policy@2) → never
+ *                                resolved, never a new Customer, never a link:
+ *                                a match is only a candidate for the owner
  *                   no identifiers → no contact (never a blind duplicate)
  *                   candidate / ambiguous / conflict → NO contact; the Lead is
  *                                created contact-less and one proposal per
  *                                candidate asks the owner. Nothing is merged.
  *   5. lead         createLead(contact decided above). An open lead already on
- *                   that phone → the event attaches to it (one lead per phone,
- *                   the domain's own rule) instead of failing.
+ *                   that phone → a VERIFIED event attaches to it (one lead per
+ *                   phone, the domain's own rule); a SELF-ASSERTED one becomes its
+ *                   own lead beside it and never touches it (G-01b); a self-asserted
+ *                   phone is kept in Lead.claimedPhone, never in Lead.phone.
  *   6. evidence     identity state / evidence categories / rule / destination /
  *                   result refs written onto the event's normalized record in the
  *                   SAME transaction — the idempotency anchor of step 1.
@@ -85,14 +90,17 @@ export async function routeToLead(
 
     // 2–3. lock, then resolve authoritatively
     await lockIdentifiers(tx, businessId, identifiers);
-    const identity: IdentityResult = await resolveIdentity(tx, businessId, identifiers);
+    const assurance = normalized.contactAssurance ?? "verified";
+    const identity: IdentityResult = await resolveIdentity(tx, businessId, identifiers, { assurance });
 
     // 4. contact
     let customerId: number | null = null;
     let created = false;
     if (identity.state === "resolved") {
       customerId = identity.customerId;
-    } else if (identity.state === "unresolved") {
+    } else if (identity.state === "unresolved" && assurance === "verified") {
+      // A self-asserted submission never CREATES a Customer either (G-01b): a Customer seeded from an
+      // anonymous form would later attract verified events for that phone. The Lead carries the contact.
       const hints = normalized.contactHints ?? {};
       const c = await customerService.createCustomer(
         {
@@ -106,7 +114,9 @@ export async function routeToLead(
       customerId = c.id;
       created = true;
     }
-    if (customerId !== null) {
+    // identity-policy@2 — self-asserted contact details never become identity links: a typed email on
+    // a found Customer would make every later event with that email resolve to them (poisoning).
+    if (customerId !== null && assurance === "verified") {
       await ensureLinks(tx, {
         businessId,
         customerId,
@@ -118,14 +128,22 @@ export async function routeToLead(
 
     // 5. lead
     const phone = identifiers.find((i) => i.kind === "phone")?.value ?? null;
-    let leadId: number | null = phone ? await findOpenLeadByPhone(tx, businessId, phone) : null;
-    const attachedToOpenLead = leadId !== null;
+    const openLeadId: number | null = phone ? await findOpenLeadByPhone(tx, businessId, phone) : null;
+    // A verified event for a phone with an open lead attaches to it (one lead per phone). A self-asserted one
+    // NEVER touches an existing lead (G-01b: no lifecycle event, no version bump, no change to its clock) and
+    // never holds Lead.phone: its typed phone is kept as structured data in Lead.claimedPhone — reachable,
+    // searchable, never identity, never part of one-open-lead-per-phone — on its OWN lead. Nothing is lost,
+    // nothing existing is altered; a repeat enquiry is a separate lead (idempotency still folds redeliveries).
+    const attachedToOpenLead = openLeadId !== null && assurance === "verified";
+    const heldBesideLeadId = openLeadId !== null && assurance === "self_asserted" ? openLeadId : null;
+    let leadId: number | null = attachedToOpenLead ? openLeadId : null;
     if (leadId === null) {
       const lead = await leadService.createLead(
         {
           businessId,
           name: leadName(normalized),
-          phone,
+          phone: assurance === "self_asserted" ? null : phone,
+          claimedPhone: assurance === "self_asserted" ? phone : null,
           email: identifiers.find((i) => i.kind === "email")?.value ?? null,
           sourceChannel: `intake:${event.sourceKey}`.slice(0, SOURCE_CHANNEL_MAX),
           // M6 — an explicit lead form's answers, as the owner reads them (personal; erased with the lead).
@@ -193,6 +211,8 @@ export async function routeToLead(
           ...identity.evidence,
           createdCustomer: created,
           attachedToOpenLead,
+          // G-01b — kept beside an existing open lead with the same typed phone (never attached to it).
+          heldBesideOpenLead: heldBesideLeadId !== null,
           proposals: proposalIds.length,
         } as Prisma.InputJsonValue,
         identityCandidateCount: identity.candidates.length,

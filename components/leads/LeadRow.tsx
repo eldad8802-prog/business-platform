@@ -62,7 +62,11 @@ export function LeadRow({
   // Values, not a joined string: `CrmRowMeta` owns the separators so the line
   // can wrap on a narrow screen and each value keeps its own bidi isolation.
   const metaParts = [
-    lead.phone ? formatPhoneForDisplay(lead.phone) : null,
+    lead.phone
+      ? formatPhoneForDisplay(lead.phone)
+      : lead.claimedPhone
+        ? t("customers.leads.common.claimedPhoneShort", { phone: formatPhoneForDisplay(lead.claimedPhone) })
+        : null,
     leadSourceLabel(lead.sourceChannel, t),
     formatLastActivity(lead.lastActivityAt, t),
   ];

@@ -276,7 +276,7 @@ export async function processIntakeEvent(
       sourceKey: event.sourceKey,
       accountRef: event.providerAccountRef,
     });
-    const identity = await preResolveIdentity(businessId, identifiers);
+    const identity = await preResolveIdentity(businessId, identifiers, { assurance: n.contactAssurance });
     const decision = decideRoute({
       family: event.family,
       eventType: event.eventType,

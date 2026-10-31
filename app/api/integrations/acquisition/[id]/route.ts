@@ -23,8 +23,28 @@ import {
   setPaused,
   listConnections,
   readConnectionSecrets,
+  setReceivingConnectionIssue,
   updateConnectionSecrets,
 } from "@/lib/intake/acquisition/connection.service";
+import { after } from "next/server";
+import { CLOUDTALK_CREDENTIAL_CODES, CLOUDTALK_CREDENTIAL_RECEIPT_CODES } from "@/lib/intake/calls/cloudtalk";
+import { drainIntake } from "@/lib/intake/core/processor";
+import { logIntake } from "@/lib/intake/core/observability";
+import { rearmBlockedEvents } from "@/lib/intake/intake-event.store";
+import { intakeRegistry } from "@/lib/intake/sources";
+import { runTenantJob } from "@/lib/tenant/job";
+
+/** Re-armed receipts are processed after the response (inline where there is no request scope, e.g. a lab). */
+function afterResponse(task: () => Promise<void>): Promise<void> | null {
+  try {
+    after(task);
+    return null;
+  } catch {
+    return task();
+  }
+}
+const drainBusiness = (businessId: number) =>
+  runTenantJob({ businessId }, () => drainIntake(intakeRegistry, businessId)).then(() => undefined, () => undefined);
 import { unsubscribePage } from "@/lib/intake/acquisition/providers/meta-graph";
 import { endpointUrl, withOwner } from "@/lib/intake/acquisition/owner-api";
 import { disconnectWooStore } from "@/lib/intake/commerce/woocommerce-connect";
@@ -79,6 +99,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }
       if (!Object.keys(patch).length) return NextResponse.json({ error: "nothing_to_set" }, { status: 400 });
       if (!(await updateConnectionSecrets(businessId, id, patch))) return notFound;
+      if (patch.apiKeyId) {
+        // Leads L1 · G-06 — a new API key: the "key missing / refused" notice goes, and every call it held back
+        // (still waiting, or dead-lettered with its payload kept) is due again now. A key that is still wrong
+        // simply raises the notice again on the next lookup.
+        await setReceivingConnectionIssue("telephony.cloudtalk", existing.publicId, null, CLOUDTALK_CREDENTIAL_CODES);
+        const rearmed = await rearmBlockedEvents(businessId, "telephony.cloudtalk", existing.publicId, CLOUDTALK_CREDENTIAL_RECEIPT_CODES);
+        // Auditable: who (business), which source, how many receipts went back on the queue — no id, no content.
+        logIntake("rearmed", { businessId, sourceKey: "telephony.cloudtalk", code: "api_key_saved", count: rearmed });
+        if (rearmed > 0) await afterResponse(() => drainBusiness(businessId));
+      }
       const s = await readConnectionSecrets(businessId, id, { anyLiveStatus: true });
       return NextResponse.json({
         connection: { ...existing, endpointUrl: endpointUrl(req, existing) },

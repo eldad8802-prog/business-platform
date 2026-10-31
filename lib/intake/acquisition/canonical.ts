@@ -269,6 +269,9 @@ export function leadIntentOf(lead: AcquisitionLeadV1): string | undefined {
   return text ? text.slice(0, 2000) : undefined;
 }
 
+/** Sources whose contact details nobody authenticated (identity-policy@2, see ContactAssurance). */
+export const SELF_ASSERTED_CONTACT_SOURCES: ReadonlySet<string> = new Set(["web.form"]);
+
 /**
  * The ONE normalizer for every acquisition source. Pure. An explicit lead form → target "lead"
  * (M4 rule R4, executed by the core lead destination); a provider test submission → "none".
@@ -292,6 +295,9 @@ export function normalizeAcquisitionLead(event: ClaimedIntakeEvent): NormalizeRe
       // A provider test submission ("Send test data") carries a dummy contact: nothing about it is a
       // person to resolve or keep, so no hints survive normalization (the payload is purged on IGNORED).
       contactHints: lead.isTest ? null : contact.hints,
+      // identity-policy@2 — a website form is typed by a visitor nobody authenticated (browser mode has
+      // no secret; server mode's key proves the website, not the person): its contact finds, never proves.
+      ...(SELF_ASSERTED_CONTACT_SOURCES.has(event.sourceKey) ? { contactAssurance: "self_asserted" as const } : {}),
       signals: contact.signals,
       // No deterministic contact rule at the provider: M4 identity decides (never a silent merge).
       identity: contact.hints && !lead.isTest ? "unresolved" : "none",

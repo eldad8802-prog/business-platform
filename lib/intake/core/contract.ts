@@ -134,6 +134,15 @@ export type ContactHints = {
   companyName?: string;
 };
 
+/**
+ * How far the contact hints can be trusted as IDENTITY (identity-policy@2).
+ *   verified       the provider authenticated the delivery and vouches for the contact (default)
+ *   self_asserted  typed by a person nobody authenticated (the website form): a claim, never proof —
+ *                  any Customer it matches is only a candidate (an owner proposal); it never resolves,
+ *                  never creates a Customer or an identity link, and never touches an existing lead
+ */
+export type ContactAssurance = "verified" | "self_asserted";
+
 /** Non-personal: which hints were present and whether they were usable. */
 export type ContactSignals = Partial<
   Record<"phone" | "email" | "providerUserId" | "displayName" | "companyName", "valid" | "invalid">
@@ -171,6 +180,8 @@ export type IntakeAttributionV1 = {
 export type NormalizedIntake = {
   occurredAt: Date | null;
   contactHints: ContactHints | null;
+  /** Absent = "verified". */
+  contactAssurance?: ContactAssurance;
   signals: ContactSignals;
   identity: IdentityOutcome;
   attribution: IntakeAttributionV1 | null;
