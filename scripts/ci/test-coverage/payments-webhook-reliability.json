@@ -1,0 +1,10 @@
+{
+  "note": "payments/webhook-reliability-ab: A — a payment webhook answers 503 only when the database or the provider's verification API was unavailable (CardCom resends a non-200 up to 7 times), 200 for every refusal and defect as before; B — reconciliation asks requests with an unconsumed webhook event and fresh PENDING requests first, with a reserved uniformly sampled fair share and interleaved tenants. No migration.",
+  "tests": {
+    "lib/services/payments/payment-webhook-reliability.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (in-memory store, stub provider): database unavailable at arrival → 503, nothing stored, same answer for real and made-up identifiers (no oracle), pre-lookup refusals still 200; failure mid-processing and provider-API outage → 503 with the redelivery recording the payment exactly once; sequential, concurrent and re-identified redeliveries → one transaction, one settlement; unauthenticated / mismatched / disabled-provider callbacks unchanged; a defect is not retried; no host, user, password or URL in any answer or log line; every webhook route answers through the shared helpers; reconciliation priority keeps a reserved fair share (no starvation over 1500 runs), interleaves tenants, respects per-tenant and global caps; run by security-gate (pure lab) and m1-inbound-money-ci.yml (glob)"
+    }
+  }
+}

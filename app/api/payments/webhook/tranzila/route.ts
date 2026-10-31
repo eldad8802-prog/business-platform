@@ -1,14 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { handleProviderWebhook } from "@/lib/services/payments/payment-webhook-handler";
 import { paymentWebhookDeps } from "@/lib/services/payments/payments.deps";
+import { webhookResponse, webhookRouteFailure } from "@/lib/services/payments/payment-webhook-response";
 
 // Public webhook endpoint (no auth). Must run on Node.js for crypto/raw body.
 export const runtime = "nodejs";
 
 /**
- * Tranzila payment notification. Always answers 200 { ok: true } — even on a
- * bad/duplicate/unrecognized event or an internal error — to avoid provider
- * retry storms. Authenticity, idempotency, and status logic live in the
+ * Tranzila payment notification. Answers 200 { ok: true } for every processed, duplicate or refused event —
+ * never a retry storm — and 503 only when the database or the provider's
+ * verification API was unavailable, so the provider resends (see
+ * lib/services/payments/payment-webhook-failure.ts). Authenticity, idempotency, and status logic live in the
  * service/DB; the raw payload is persisted before processing.
  */
 export async function POST(req: NextRequest) {
@@ -29,13 +31,10 @@ export async function POST(req: NextRequest) {
       { provider: "TRANZILA", rawBody, headers },
       paymentWebhookDeps()
     );
-    return NextResponse.json(result.body, { status: result.status });
+    return webhookResponse(result);
   } catch (error) {
-    // Defense in depth: never let the webhook return non-200.
-    console.warn(
-      "[payments-webhook-route] unexpected failure:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return NextResponse.json({ ok: true }, { status: 200 });
+    // Defence in depth: an infrastructure failure asks the provider to resend (503); anything else is
+    // acknowledged (200). Class + code only in the log — never the message, the payload or the secret.
+    return webhookRouteFailure("payments-webhook-route", error);
   }
 }
