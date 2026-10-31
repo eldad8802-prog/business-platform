@@ -27,6 +27,20 @@ export async function withOwner(
   }
 }
 
+export type EffectiveConnectionStatus = ConnectionView["status"] | "PLATFORM_DISABLED";
+
+/**
+ * Leads L1 · B2 — what a connection IS doing right now, computed server-side, never stored. The platform flag of
+ * its source being OFF makes a live connection (ACTIVE / ERROR / PAUSED) PLATFORM_DISABLED for display; its stored
+ * status is untouched (`status` stays what the record says, so the owner's own pause / resume / revoke keep their
+ * meaning). REVOKED stays REVOKED: a disconnect is final whatever the platform does. The owner can never turn a
+ * platform flag on — only a platform admin can.
+ */
+export function effectiveConnectionStatus(status: ConnectionView["status"], sourceEnabled: boolean): EffectiveConnectionStatus {
+  if (status === "REVOKED") return "REVOKED";
+  return sourceEnabled ? status : "PLATFORM_DISABLED";
+}
+
 /** Every connection source (lead, commerce, telephony) → enabled for this business? (all OFF by default) */
 export async function enabledSources(businessId: number): Promise<Record<ConnectionSourceKey, boolean>> {
   const out = {} as Record<ConnectionSourceKey, boolean>;

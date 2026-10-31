@@ -161,7 +161,10 @@ ok("control characters in a name are refused", normalizeRecipientName("a\u0007b"
   const vercel = JSON.parse(readFileSync("vercel.json", "utf8")) as { crons?: { path: string; schedule: string }[] };
   const mine = (vercel.crons ?? []).filter((c) => c.path === "/api/accountant/sweep");
   ok("cron: vercel.json runs the accountant sweep hourly at :30 — exactly one entry", mine.length === 1 && mine[0].schedule === "30 * * * *", JSON.stringify(mine));
-  ok("cron: no other accountant path is scheduled (no parallel mechanism)", (vercel.crons ?? []).filter((c) => c.path.startsWith("/api/accountant/")).length === 1);
+  // G5 milestone 1: the monitor is the only other accountant entry — it reads and alerts, it never prepares or sends.
+  const monitor = (vercel.crons ?? []).filter((c) => c.path === "/api/accountant/monitor");
+  ok("cron: the accountant monitor runs hourly at :50 — exactly one entry", monitor.length === 1 && monitor[0].schedule === "50 * * * *", JSON.stringify(monitor));
+  ok("cron: no other accountant path is scheduled (no parallel mechanism)", (vercel.crons ?? []).filter((c) => c.path.startsWith("/api/accountant/")).length === 2);
   // Retries under an hourly cadence: the spacing becomes max(delay, 1 h); all 7 attempts fit the 24 h window.
   let t = 0;
   for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) t += Math.max(RETRY_DELAYS_MS[attempt - 1], 60 * 60_000);

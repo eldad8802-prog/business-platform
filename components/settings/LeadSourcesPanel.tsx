@@ -26,6 +26,8 @@ type Connection = {
   id: number;
   sourceKey: SourceKey;
   status: "ACTIVE" | "PAUSED" | "ERROR" | "REVOKED";
+  /** B2 — computed server-side; PLATFORM_DISABLED while the platform has this source off (the record is untouched). */
+  effectiveStatus?: "ACTIVE" | "PAUSED" | "ERROR" | "REVOKED" | "PLATFORM_DISABLED";
   label: string | null;
   keyHint: string | null;
   allowedOrigins: string[];
@@ -50,11 +52,12 @@ const SOURCES: { key: SourceKey; title: MessageKey; description: MessageKey }[] 
   { key: "meta.lead_ads", title: "account.settings.connections.leads.sources.meta.title", description: "account.settings.connections.leads.sources.meta.description" },
 ];
 
-const STATUS: Record<Connection["status"], { label: MessageKey; tone: string }> = {
+const STATUS: Record<NonNullable<Connection["effectiveStatus"]>, { label: MessageKey; tone: string }> = {
   ACTIVE: { label: "account.settings.connections.leads.status.active", tone: "bg-[var(--dz-success-bg-soft)] text-[var(--dz-success)]" },
   PAUSED: { label: "account.settings.connections.leads.status.paused", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
   ERROR: { label: "account.settings.connections.leads.status.error", tone: "bg-[var(--dz-danger-bg-soft)] text-[var(--dz-danger)]" },
   REVOKED: { label: "account.settings.connections.leads.status.revoked", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
+  PLATFORM_DISABLED: { label: "account.settings.connections.common.platformDisabled", tone: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]" },
 };
 
 /** The routes' error codes → what the owner reads. */
@@ -361,7 +364,10 @@ export function LeadSourcesPanel() {
                 <h3 className="text-sm font-bold text-[var(--dz-text-primary)]">{t(s.title)}</h3>
                 {!available ? (
                   <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-bold text-[var(--dz-text-muted)]">
-                    {s.key === "meta.lead_ads" && enabled ? t("account.settings.connections.leads.meta.awaitingApproval") : t("account.settings.connections.common.soon")}
+                    {/* B2 — a source the owner already connected is not "coming soon": the platform turned it off. */}
+                    {!enabled && live.length
+                      ? t("account.settings.connections.common.platformDisabled")
+                      : s.key === "meta.lead_ads" && enabled ? t("account.settings.connections.leads.meta.awaitingApproval") : t("account.settings.connections.common.soon")}
                   </span>
                 ) : !live.length ? (
                   <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-bold text-[var(--dz-text-muted)]">{t("account.settings.connections.status.disconnected")}</span>
@@ -384,8 +390,11 @@ export function LeadSourcesPanel() {
                       </div>
                       <div className="text-[11px] text-[var(--dz-text-muted)]">{when(c, t, locale)}</div>
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[c.status].tone}`}>{t(STATUS[c.status].label)}</span>
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[c.effectiveStatus ?? c.status].tone}`}>{t(STATUS[c.effectiveStatus ?? c.status].label)}</span>
                   </div>
+                  {c.effectiveStatus === "PLATFORM_DISABLED" ? (
+                    <p className="mt-1 text-[11px] leading-5 text-[var(--dz-text-muted)]">{t("account.settings.connections.common.platformDisabledLeadsNote")}</p>
+                  ) : null}
                   {c.sourceKey === "google.lead_form" && c.status === "ACTIVE" ? <GoogleActivation c={c} /> : null}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {c.sourceKey === "meta.lead_ads" && c.status === "ERROR" && available ? (

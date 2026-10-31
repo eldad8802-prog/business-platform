@@ -1,0 +1,97 @@
+# Accountant package — G5 M4 (per-business send permission) + M5 (one-time code on a new device) /
+# migrations 20261109090000_accountant_delivery_permission and 20261109091000_accountant_link_otp — proof on PostgreSQL
+# BEFORE they reach Production (ephemeral PG17). Migration-first: this PR ships the migrations and their proofs only; the
+# enforcement, the code flow and the screens are a separate PR, merged only after these are applied and proven.
+#
+#   0. Evidence files are SELECT-only and selectable in Production; the proof pins both migration.sql sha256; each
+#      migration names only its own objects (M4: the two flag tables; M5: its two tables, the delivery it references,
+#      the trail's type constraint).
+#   1–4. .acct/m45-lab.sh on the accountant lab as Production has it today (the workflow, link events, G5 M1, the
+#      console's read role): baseline — preflight 11/11, the proof refuses, the battery's "before"; `prisma migrate
+#      deploy` applies exactly these two — proof 15/15, preflight fails exactly 4 5 6 7 8 9, then the battery as the real
+#      roles (the flag OFF; codes and devices: CHECKs, column privileges, no DELETE, isolation incl. the composite key,
+#      5 attempts and a single use under concurrency; the new event types; the console reads neither table; every
+#      pre-existing accountant table unchanged); atomicity of each; rollback refused with rows, exact without.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: accountant M4 + M5 — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261109*/**"
+      - "ops/evidence/accountant-m4m5-*.sql"
+      - ".acct/**"
+      - ".trp/**"
+      - ".dt/**"
+      - ".github/workflows/accountant-m45-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: accountant M4 + M5 (PG17, real migrations via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: acct_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: acct_ci_synthetic_super_pw
+      LAB_PASSWORD: acct_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/accountant-m4m5-preflight.sql
+      EVIDENCE: ops/evidence/accountant-m4m5-production-evidence.sql
+      MIG_4: prisma/migrations/20261109090000_accountant_delivery_permission/migration.sql
+      MIG_5: prisma/migrations/20261109091000_accountant_link_otp/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable; checksums pinned; each migration names only its own objects
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          for m in "$MIG_4" "$MIG_5"; do
+            sum=$(sha256sum "$m" | cut -d' ' -f1)
+            grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum for $m"; exit 1; }
+            echo "$m sha256 $sum (pinned)"
+          done
+          names() { grep -v '^\s*--' "$1" | grep -oE '"[A-Za-z][A-Za-z_]*"' | sort -u; }
+          others=$(names "$MIG_4" | grep -vxE '"(PlatformFeatureDefinition|PlatformFeaturePolicy)"|"(key|displayName|category|description|defaultEnabled|mutable|createdAt|featureKey|globalEnabled|emergencyDisabled|updatedAt)"' || true)
+          test -z "$others" || { echo "$MIG_4 names other objects: $others"; exit 1; }
+          others=$(names "$MIG_5" | grep -vxE '"(AccountantLinkChallenge|AccountantLinkDevice)(_[A-Za-z_]+)?"|"(id|businessId|deliveryId|salt|codeHash|createdAt|expiresAt|attempts|consumedAt|tokenHash|lastSeenAt|revokedAt|eventType)"|"(Business|AccountantDelivery|AccountantWorkflowEvent|AccountantWorkflowEvent_type)"' || true)
+          test -z "$others" || { echo "$MIG_5 names other objects: $others"; exit 1; }
+          echo "M4 names only the two flag tables; M5 only its two tables, the delivery it references and the trail's type constraint"
+
+      - name: 1–4. Baseline, release, battery, atomicity, rollback
+        run: bash .acct/m45-lab.sh

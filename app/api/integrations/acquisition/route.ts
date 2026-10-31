@@ -15,7 +15,7 @@
 import { NextResponse } from "next/server";
 import { createKeyedConnection, createSignedConnection, listConnections, readConnectionSecrets } from "@/lib/intake/acquisition/connection.service";
 import { isMetaLeadAdsConfigured, metaLoginConfig } from "@/lib/intake/acquisition/meta-config";
-import { enabledSources, endpointUrl, withOwner } from "@/lib/intake/acquisition/owner-api";
+import { effectiveConnectionStatus, enabledSources, endpointUrl, withOwner } from "@/lib/intake/acquisition/owner-api";
 import { connectionActivity } from "@/lib/intake/acquisition/activity";
 import { isConnectionSourceKey } from "@/lib/intake/acquisition/gate";
 import { wixAppConfig } from "@/lib/intake/commerce/wix";
@@ -41,7 +41,15 @@ export async function GET(req: Request) {
       meta: { available: isMetaLeadAdsConfigured(), login: isMetaLeadAdsConfigured() ? metaLoginConfig() : null },
       // The Dubiz Wix app: connectable only when it is configured and has an install link.
       wix: { available: !!wixAppConfig() && !!wixInstallUrl(), installUrl: wixAppConfig() ? wixInstallUrl() : null },
-      connections: connections.map((c) => ({ ...c, endpointUrl: endpointUrl(req, c), activity: activity.get(c.id) ?? null, setup: setup.get(c.id) ?? null })),
+      // Leads L1 · B2 — `status` is the stored record; `effectiveStatus` adds what the platform decided
+      // (PLATFORM_DISABLED while the source's flag is off) without ever writing it.
+      connections: connections.map((c) => ({
+        ...c,
+        effectiveStatus: effectiveConnectionStatus(c.status, !!sources[c.sourceKey as keyof typeof sources]),
+        endpointUrl: endpointUrl(req, c),
+        activity: activity.get(c.id) ?? null,
+        setup: setup.get(c.id) ?? null,
+      })),
     });
   });
 }

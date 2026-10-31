@@ -668,6 +668,10 @@ const connectionsEn: Widen<typeof connectionsHe> = {
     pause: "Pause",
     revoke: "Disconnect",
     busy: "One moment…",
+    platformDisabled: "Turned off by the platform",
+    platformDisabledLeadsNote: "Dubiz has temporarily turned this kind of connection off. Your connection is kept and needs no reconnecting — but until it is back on, new enquiries are not received.",
+    platformDisabledCallsNote: "Dubiz has temporarily turned this kind of connection off. Your connection is kept and needs no reconnecting — but until it is back on, new calls are not received.",
+    platformDisabledStoresNote: "Dubiz has temporarily turned this kind of connection off. Your connection is kept and needs no reconnecting; once it is back on, orders changed meanwhile are read from the store.",
   },
   integrations: {
     checkError: "We couldn't check the connection status right now.",

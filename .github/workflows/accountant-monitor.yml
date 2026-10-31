@@ -1,0 +1,79 @@
+# Accountant package monitor — the INDEPENDENT watchdog (G5 milestone 1, M2).
+#
+# The monitor (app/api/accountant/monitor, lib/accountant/ops/monitor.ts) runs hourly on Vercel Cron at :50 and
+# emails the operator about anything wrong with the monthly accountant package: a sweep that did not run or failed,
+# a month not prepared in time, a stuck preparation or send, an overdue retry, an uncertain / failed / bounced send,
+# a spam complaint, a silent delivery webhook. Each finding is announced once, reminded at most daily, and announced
+# once when it resolves.
+#
+# THIS JOB is the channel that does not depend on Vercel Cron: GitHub calls the same endpoint on its own schedule
+# (hourly at :45; GitHub's "hourly" fires irregularly here, gaps up to a few hours — NO delivery time is promised
+# for this channel; GitHub also disables the schedules of idle repositories). It goes RED — and GitHub
+# notifies the repository owner — when the endpoint cannot be reached, answers anything but 200, an alert that was
+# due could not be sent, or the monitor is off on the server while this variable says on. Two monitors overlapping
+# (this and Vercel Cron) is harmless: alerts are one-row-per-finding and each notice is claimed once.
+# Each channel watches the other: a run from here sees a silent Vercel Cron (MONITOR_CRON_MISSED), a Vercel run sees a
+# silent watchdog (WATCHDOG_MISSED, after 12 h), and the console shows both channels' last runs.
+#
+# SAFE SIMULATION (workflow_dispatch, simulate = true): sends ONE test message through the real alert channel,
+# saying it is a test; reads and writes nothing in the database; at most one per ten minutes. Proof of DELIVERY is
+# the message arriving in the operator's inbox (and the provider's log for the returned message id) — a green job
+# alone only proves the provider accepted it.
+#
+# INERT until the owner's gate: the schedule calls nothing unless vars.ACCOUNTANT_MONITOR_ENABLED == 'true', and the
+# route answers {enabled:false} unless the Production env ACCOUNTANT_MONITOR_ENABLED=true.
+#
+# The only secret is CRON_SECRET, read ONLY from the protected `cron` environment (main-only). The endpoint answers
+# counts and finding codes only.
+
+name: accountant monitor (watchdog)
+
+on:
+  schedule:
+    - cron: "45 * * * *"
+  workflow_dispatch:
+    inputs:
+      simulate:
+        description: "Send ONE test alert through the real channel (no database access)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accountant-monitor
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    if: github.ref == 'refs/heads/main' && (vars.ACCOUNTANT_MONITOR_ENABLED == 'true' || inputs.simulate == true)
+    environment: cron
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call the accountant monitor on Production
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MONITOR_URL: https://promaxgroup.co.il/api/accountant/monitor
+          SIMULATE: ${{ inputs.simulate == true && '1' || '0' }}
+          EXPECT_ENABLED: ${{ vars.ACCOUNTANT_MONITOR_ENABLED == 'true' && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET is not configured for this repository."; exit 1
+          fi
+          url="$MONITOR_URL"; [ "$SIMULATE" = "1" ] && url="$MONITOR_URL?simulate=1"
+          code=$(curl -sS -o monitor.json -w "%{http_code}" -m 90 -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$url" || echo "000")
+          echo "HTTP $code"
+          [ -f monitor.json ] || echo '{}' > monitor.json
+          cat monitor.json; echo
+          {
+            echo "### Accountant monitor — HTTP $code$([ "$SIMULATE" = "1" ] && echo ' (simulation)')"
+            echo '```json'; cat monitor.json; echo; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$code" = "200" ] || { echo "::error::accountant monitor answered $code — the endpoint is unreachable, the run failed, or a due alert could not be sent"; exit 1; }
+          if [ "$SIMULATE" != "1" ] && [ "$EXPECT_ENABLED" = "1" ]; then
+            enabled=$(node -e 'try { const j = JSON.parse(require("fs").readFileSync("monitor.json", "utf8")); process.stdout.write(j && j.enabled === true ? "1" : "0"); } catch { process.stdout.write("0"); }')
+            [ "$enabled" = "1" ] || { echo "::error::the monitor is switched OFF on the server (ACCOUNTANT_MONITOR_ENABLED) while vars.ACCOUNTANT_MONITOR_ENABLED says on"; exit 1; }
+          fi

@@ -390,6 +390,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // tenant transaction (the runtime holds no UPDATE on the table). The payload can hold no text (DB CHECK).
   AccountantWorkflowEvent: operational("append-only accountant workflow trail: event type, actor role, times, ids and short tokens (no text by DB CHECK); the acting user is erased with the account by accountant_erase_business()"),
   TaskPreferences: operational("which task sources a business turned off, the morning-summary hour and sync bookkeeping"),
+  // G5 milestone 1 (migration 20261107090000): the monitor's alert about one business — a finding code, a subject (a
+  // month key or a delivery id), a severity, times and counts (closed detail by DB CHECK); no address, link or text.
+  // It goes with the business (FK ON DELETE CASCADE); nothing in it identifies a person.
+  AccountantBusinessAlert: operational("the accountant monitor's alerts about one business: finding code, a month key or delivery id, severity, times and counts (closed detail by DB CHECK), no text; cascades with the business"),
   // Daily Tasks journal (append-only). Account erasure nulls its two identifying columns — the acting user and the
   // request digest — through task_retention_erase_business(), the SECURITY DEFINER function the adapter calls in the
   // erased business's tenant transaction (the runtime holds no UPDATE on the table). What stays is closed vocabulary:
@@ -588,6 +592,8 @@ const INTERNAL: Record<string, ModelCoverage> = {
   OAuthSignupTicket: internal("auth plane: a single-use Google signup ticket for a person who has NO account yet (address + name from Google, sha256 of the secret); belongs to no business, no role but the migration role reads it, it lives at most 30 minutes and auth_oauth_ticket_purge removes it once expired; a spent ticket names its user only until then (SET NULL with the User row)"),
   PlatformAdminPasskey: internal("platform-admin passkey public keys (WebAuthn); belong to the operator, not to a tenant; cascade with the User row"),
   PlatformAuditEvent: internal("platform-operator audit trail"),
+  AccountantOpsRun: internal("run log of the accountant sweep and its monitor: kind, source, times, outcome and counts only (DB CHECK); names no business"),
+  AccountantOpsAlert: internal("platform-level alerts of the accountant monitor (the sweep did not run / failed): codes, times and counts only (DB CHECK); names no business"),
   PlatformFeatureDefinition: internal("the catalogue of feature flags"),
   PlatformFeaturePolicy: internal("default policy per feature flag"),
   BillingAuthorityApp: internal("Dubiz's own OAuth client credentials with the tax authority"),

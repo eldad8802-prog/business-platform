@@ -108,6 +108,9 @@ on:
           - 'ops/evidence/accountant-g4-pilot-postcheck.sql'
           - 'ops/evidence/accountant-ops-preflight.sql'
           - 'ops/evidence/accountant-ops-production-evidence.sql'
+          - 'ops/evidence/accountant-m4m5-preflight.sql'
+          - 'ops/evidence/accountant-m4m5-production-evidence.sql'
+          - 'ops/evidence/accountant-m4m5-ledger-names.sql'
           - 'ops/evidence/accountant-ops-ledger-names.sql'
           - 'ops/evidence/migration-checksum-origin.sql'
           - 'ops/evidence/platform-admin-a1-preflight.sql'
@@ -136,6 +139,8 @@ on:
           - 'ops/evidence/public-booking-foundation-preflight.sql'
           - 'ops/evidence/public-booking-pilot-business-9.sql'
           - 'ops/evidence/appointments-business-9-breakdown.sql'
+          - 'ops/evidence/lead-claimed-phone-preflight.sql'
+          - 'ops/evidence/lead-claimed-phone-production-evidence.sql'
 
 permissions:
   contents: read

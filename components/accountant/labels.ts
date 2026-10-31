@@ -103,6 +103,12 @@ export function deliveryAccessHe(d: DeliveryView): string[] {
   return out;
 }
 
+/** The recipient marked the email as spam (Resend `email.complained`): what it means for the owner, said plainly. */
+export function complaintHe(d: DeliveryView): string | null {
+  if (!d.complainedAt) return null;
+  return `רואה החשבון סימן את המייל הזה כספאם (${formatDateTimeHe(d.complainedAt)}). הקובץ נשלח, אבל ייתכן שמיילים מ־Dubiz יגיעו אצלו לתיקיית הספאם — כדאי לוודא איתו שהקובץ התקבל ולבקש שיסמן את הכתובת כבטוחה.`;
+}
+
 export function formatDateTimeHe(iso: string | null): string {
   if (!iso) return "";
   return new Date(iso).toLocaleString("he-IL", { timeZone: "Asia/Jerusalem", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });

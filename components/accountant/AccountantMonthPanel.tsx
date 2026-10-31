@@ -14,6 +14,7 @@ import { ApiError, cancelSend, completeManually, downloadPackage, preparePeriod,
 import {
   blockerHe,
   blockerHref,
+  complaintHe,
   deliveryAccessHe,
   deliveryStatusHe,
   deliveryTone,
@@ -200,6 +201,7 @@ export function AccountantMonthPanel({ token, period, onChange, onReload }: Prop
 function DeliveryRow({ d, busy, onRevoke, onCancel }: { d: DeliveryView; busy: boolean; onRevoke: () => void; onCancel: () => void }) {
   const linkLive = d.linkState === "live";
   const access = deliveryAccessHe(d);
+  const complaint = complaintHe(d);
   return (
     <li style={{ ...listItem, flexDirection: "column", alignItems: "stretch" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -217,6 +219,11 @@ function DeliveryRow({ d, busy, onRevoke, onCancel }: { d: DeliveryView; busy: b
         <div style={{ ...banner("attention"), marginTop: 8, fontWeight: TOKEN.weight.semibold }} role="status">
           ספק המייל לא אישר ולא דחה את המייל, ולכן ייתכן שהוא הגיע לרואה החשבון. לפני שליחה חוזרת כדאי לבדוק איתו —
           שליחה חוזרת היא מייל חדש.
+        </div>
+      ) : null}
+      {complaint ? (
+        <div style={{ ...banner("attention"), marginTop: 8 }} role="status">
+          {complaint}
         </div>
       ) : null}
       {access.length > 0 ? (
