@@ -1,0 +1,73 @@
+name: health db probe
+
+# GET /api/health/db — the database availability probe for the external uptime monitor
+# (lib/ops/db-health.ts, app/api/health/db/route.ts). Two halves:
+#   - pure: who may call, fixed codes, time bounds, no-store, no secret in the answer (lib/ops/db-health.test.ts);
+#   - lab:  the REAL route and Prisma clients against a throwaway Postgres — up, runtime unreachable, auth
+#           rejected, black-holed (timeout), refused callers never reaching the DB, and recovery
+#           (scripts/ops/db-health-lab.ts). Synthetic roles and passwords only; no Production anything.
+
+on:
+  pull_request:
+    paths:
+      - "app/api/health/**"
+      - "lib/ops/db-health*.ts"
+      - "lib/prisma.ts"
+      - "lib/prisma-auth.ts"
+      - "lib/security/log-safe-error.ts"
+      - "scripts/ops/db-health-lab.ts"
+      - ".github/workflows/health-db-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health-db:
+    name: DB health probe (pure + lab)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: healthdb_ci_synthetic_super_pw
+          POSTGRES_DB: health_lab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d health_lab"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: lab_super
+      PGPASSWORD: healthdb_ci_synthetic_super_pw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Pure half
+        run: npx tsx lib/ops/db-health.test.ts
+      - name: Lab roles (LOGIN only, no table privileges — SELECT 1 needs none)
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -d health_lab -c "CREATE ROLE lab_runtime LOGIN PASSWORD 'healthdb_ci_runtime_pw'"
+          psql -v ON_ERROR_STOP=1 -d health_lab -c "CREATE ROLE lab_auth LOGIN PASSWORD 'healthdb_ci_auth_pw'"
+      - name: Lab half (real route, real Prisma, real Postgres)
+        env:
+          LAB_RUNTIME_URL: postgresql://lab_runtime:healthdb_ci_runtime_pw@localhost:5432/health_lab?connect_timeout=5
+          LAB_AUTH_URL: postgresql://lab_auth:healthdb_ci_auth_pw@localhost:5432/health_lab?connect_timeout=5
+        run: |
+          set -euo pipefail
+          for s in up runtime-down auth-down blackhole refused recovery; do
+            npx tsx scripts/ops/db-health-lab.ts "$s"
+          done

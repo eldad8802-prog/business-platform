@@ -8,7 +8,10 @@
  *   5. the business must have the accountant workflow enabled (today: business 9 only) — a link of any
  *      other business answers as if it did not exist;
  *   6. checkLinkAccess: not revoked, not expired, accepted by the provider, the package sealed with the
- *      approved sha256 — a refusal is recorded.
+ *      approved sha256 — a refusal is recorded;
+ *   7. (G5 M5) a TRUSTED DEVICE of this delivery (lib/accountant/link-device.ts) — otherwise 401
+ *      VERIFICATION_REQUIRED with the masked recipient. Only the code routes themselves skip it. The link check
+ *      comes first, so a revoked or expired link is refused as such and no code or device can reopen it.
  *
  * Unknown, malformed, foreign and disabled links all get the same 404 answer, so the endpoint reveals nothing.
  */
@@ -24,6 +27,7 @@ import { runTenantJob } from "@/lib/tenant/job";
 import { checkLinkAccess, type LinkOpen } from "./delivery.service";
 import { AccountantError, accountantWorkflowEnabled } from "./http";
 import { hashAccountantLinkSecret, isLinkPublicId, isLinkSecret } from "./link";
+import { maskedRecipient, readDeviceToken, trustedDevice } from "./link-device";
 import type { SealedPackage } from "./package-reports";
 
 export const LINK_NO_STORE = {
@@ -36,7 +40,20 @@ export function linkRefusal(status: number, code: string): Response {
   return NextResponse.json({ error: code }, { status, headers: LINK_NO_STORE });
 }
 
-export type OpenedLink = Extract<LinkOpen, { ok: true }> & { businessId: number; sealed: SealedPackage };
+export type OpenedLink = Extract<LinkOpen, { ok: true }> & { businessId: number; publicId: string; sealed: SealedPackage };
+
+export type LinkBucket = "ACCOUNTANT_LINK_PUBLIC" | "ACCOUNTANT_LINK_FILE" | "ACCOUNTANT_LINK_CODE" | "ACCOUNTANT_LINK_VERIFY";
+
+/** 401 for a live link on a browser that has not proved the recipient's inbox (G5 M5). */
+export async function verificationRequired(businessId: number, deliveryId: number): Promise<Response> {
+  const maskedTo = await maskedRecipient(businessId, deliveryId);
+  return NextResponse.json({ error: "VERIFICATION_REQUIRED", maskedTo }, { status: 401, headers: LINK_NO_STORE });
+}
+
+/** Whether this request comes from a trusted device of the link's delivery. Runs inside the tenant job. */
+export async function deviceTrusted(req: Request, businessId: number, deliveryId: number, publicId: string, now: Date): Promise<boolean> {
+  return trustedDevice(businessId, deliveryId, readDeviceToken(req, publicId), now);
+}
 
 /**
  * Runs `handler` for a valid, live link of an enabled business, inside its tenant job. Everything that is
@@ -44,8 +61,9 @@ export type OpenedLink = Extract<LinkOpen, { ok: true }> & { businessId: number;
  */
 export async function withAccountantLink(
   req: Request,
-  bucket: "ACCOUNTANT_LINK_PUBLIC" | "ACCOUNTANT_LINK_FILE",
-  handler: (link: OpenedLink, body: Record<string, unknown>, now: Date) => Promise<Response>
+  bucket: LinkBucket,
+  handler: (link: OpenedLink, body: Record<string, unknown>, now: Date) => Promise<Response>,
+  opts: { device: "required" | "not_required" } = { device: "required" }
 ): Promise<Response> {
   const decision = await checkRateLimit({ bucket, ip: getClientIp(req) });
   if (!decision.allowed) return buildRateLimitResponse(decision);
@@ -79,7 +97,10 @@ export async function withAccountantLink(
         storageKey: opened.storageKey,
         sha256: opened.packageSha256,
       };
-      return handler({ ...opened, businessId: hit.businessId, sealed }, body, now);
+      if (opts.device === "required" && !(await deviceTrusted(req, hit.businessId, hit.deliveryId, publicId, now))) {
+        return verificationRequired(hit.businessId, hit.deliveryId);
+      }
+      return handler({ ...opened, businessId: hit.businessId, publicId, sealed }, body, now);
     });
   } catch (e) {
     if (e instanceof BusinessQuarantinedError) return linkRefusal(410, "LINK_UNAVAILABLE");

@@ -72,7 +72,7 @@ echo "== 0. baseline = Production today"
 bash "$ROOT/.acct/lab.sh" ops_base --with-acct | tail -1
 # schema.prisma may model the monitoring tables (the application PR): `db push` inside the base lab then built them
 # without the migration's checks, indexes, RLS and grants. They are removed so the migration builds them as in Production.
-owner_sql ops_base -c 'DROP TABLE IF EXISTS "AccountantBusinessAlert", "AccountantOpsAlert", "AccountantOpsRun" CASCADE'
+owner_sql ops_base -c 'DROP TABLE IF EXISTS "AccountantBusinessAlert", "AccountantOpsAlert", "AccountantOpsRun", "AccountantLinkChallenge", "AccountantLinkDevice" CASCADE'
 super_sql ops_base <<SQL
 DO \$do\$
 BEGIN

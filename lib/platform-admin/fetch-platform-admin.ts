@@ -29,6 +29,7 @@ import type {
 import type { PlatformUsageOverviewResponse } from "@/lib/services/platform-admin/platform-usage-overview.service";
 import type { PlatformAdminBusinessDetailResponse } from "@/lib/services/platform-admin/platform-business-detail.types";
 import type { PlatformAdminAuditResponse } from "@/lib/services/platform-admin/platform-audit-list.types";
+import type { AccountantOpsResponse } from "@/lib/services/platform-admin/accountant-ops.service";
 import type {
   BusinessFeatureOverrideState,
   PlatformAdminBusinessFeaturesResponse,
@@ -178,6 +179,10 @@ export function fetchPlatformAdminAttention() {
   return platformAdminFetch<PlatformAdminAttentionResponse>(
     "/api/platform-admin/attention"
   );
+}
+
+export function fetchPlatformAdminAccountantOps() {
+  return platformAdminFetch<AccountantOpsResponse>("/api/platform-admin/accountant-ops");
 }
 
 export function fetchPlatformAdminUsageOverview() {

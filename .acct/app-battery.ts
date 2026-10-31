@@ -105,6 +105,8 @@ async function main() {
   const bizB = await one(`INSERT INTO "Business" ("name", "updatedAt") VALUES ('acct-app-B', now()) RETURNING "id"`);
   const userA = await one(`INSERT INTO "User" ("email", "password", "businessId", "updatedAt") VALUES ('owner-a@acct.lab', 'x', $1, now()) RETURNING "id"`, bizA);
   await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'accountant_month_close', 'ENABLED', now())`, bizA);
+  // G5 M4: sending from Dubiz needs the business's own permission.
+  await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'accountant_delivery', 'ENABLED', now())`, bizA);
   await owner.$executeRawUnsafe(`INSERT INTO "BusinessProfile" ("businessId", "billingLegalName", "billingTaxId", "updatedAt") VALUES ($1, 'מאפיית הלב בע"מ', '515151515', now()) ON CONFLICT DO NOTHING`, bizA);
 
   const doc = async (b: number, status: string, createdAt: string, n: number) => {

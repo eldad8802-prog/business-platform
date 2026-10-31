@@ -39,7 +39,13 @@ export type WorkflowEventType =
   | "PERIOD_COMPLETED_MANUALLY"
   // R2 (migration 20261105090000_accountant_link_events): the accountant's portal.
   | "LINK_VIEWED"
-  | "LINK_FILE_DOWNLOADED";
+  | "LINK_FILE_DOWNLOADED"
+  // G5 milestone 1 (migration 20261107091000_accountant_delivery_complained): the recipient's spam complaint.
+  | "DELIVERY_COMPLAINED"
+  // G5 M5 (migration 20261109091000_accountant_link_otp): the one-time code on a new device.
+  | "LINK_CODE_SENT"
+  | "LINK_CODE_FAILED"
+  | "LINK_DEVICE_VERIFIED";
 
 export type WorkflowActor =
   | { type: "OWNER_USER"; userId: number }

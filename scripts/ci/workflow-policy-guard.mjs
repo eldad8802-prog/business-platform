@@ -78,6 +78,9 @@ export const EXEMPT = {
  * immediate send failed is retried on its backoff, and one past its lifetime is settled EXPIRED.
  * While TRANSACTIONAL_EMAIL_ENABLED is off the endpoint answers without touching the database.
  *
+ * accountant-monitor.yml is the same shape: the hourly watchdog that calls the accountant package monitor from
+ * GitHub, so a Vercel Cron that stops — or a monitor that cannot send its alert — still turns something red.
+ *
  * task-retention.yml must run DAILY while holding TASK_RETENTION_DATABASE_URL: request fingerprints are bounded
  * to 7 days for every business, including ones nobody opens again, and only a scheduled run deletes them. Its
  * authority is bounded instead: the job is bound to production-db, main-only, inert until the repository
@@ -113,6 +116,12 @@ export const SANCTIONED = [
     file: "accountant-sweep.yml",
     message: "holds a production-capable secret but has a schedule trigger",
     reason: "by design: hourly monthly-accountant sweep (1st-of-month preparation, re-evaluation, reminders, retries of owner-approved sends); CRON authority bound to the `cron` environment, main-only, inert until vars.ACCOUNTANT_SWEEP_ENABLED and the route's ACCOUNTANT_SWEEP_ENABLED",
+  },
+  {
+    rule: "WP-5",
+    file: "accountant-monitor.yml",
+    message: "holds a production-capable secret but has a schedule trigger",
+    reason: "by design: hourly independent watchdog of the accountant package monitor (the channel that does not depend on Vercel Cron); CRON authority bound to the `cron` environment, main-only, inert until vars.ACCOUNTANT_MONITOR_ENABLED and the route's ACCOUNTANT_MONITOR_ENABLED",
   },
 ];
 

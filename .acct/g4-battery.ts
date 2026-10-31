@@ -55,6 +55,7 @@ type Json = Record<string, unknown>;
 type Mode = "sent" | "503" | "422" | "timeout";
 let mode: Mode = "sent";
 const calls: { key: string; to: string; text: string }[] = [];
+const otpCalls: { key: string; to: string; text: string }[] = [];
 const messages = new Map<string, string>(); // Idempotency-Key → message id: the provider sends once per key
 let otherNetwork = 0;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -62,6 +63,11 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (!url.startsWith("https://api.resend.com/")) { otherNetwork++; throw new Error("no network"); }
   const key = String((init?.headers as Record<string, string>)["Idempotency-Key"]);
   const body = JSON.parse(String(init?.body)) as { to: string[]; text: string };
+  // G5 M5: the accountant's one-time code email — kept apart, so the package-send counts below stay exact.
+  if (key.startsWith("acct-otp:")) {
+    otpCalls.push({ key, to: body.to[0], text: body.text });
+    return new Response(JSON.stringify({ id: `msg_otp_${otpCalls.length}` }), { status: 200, headers: { "content-type": "application/json" } });
+  }
   calls.push({ key, to: body.to[0], text: body.text });
   const accept = () => { if (!messages.has(key)) messages.set(key, `msg_lab_${messages.size + 1}`); };
   if (mode === "timeout") { accept(); const e = new Error("The operation timed out"); e.name = "TimeoutError"; throw e; } // it got it; we never hear
@@ -110,6 +116,8 @@ async function main() {
     const b = await one(`INSERT INTO "Business" ("name", "updatedAt") VALUES ($1, now()) RETURNING "id"`, name);
     const u = await one(`INSERT INTO "User" ("email", "password", "businessId", "updatedAt") VALUES ($1, 'x', $2, now()) RETURNING "id"`, `${name}-${b}@g4.lab`, b);
     if (enabled) await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'accountant_month_close', 'ENABLED', now())`, b);
+    // G5 M4: sending from Dubiz needs the business's own permission.
+    if (enabled) await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'accountant_delivery', 'ENABLED', now())`, b);
     await owner.$executeRawUnsafe(`INSERT INTO "BusinessProfile" ("businessId", "billingLegalName", "billingTaxId", "updatedAt") VALUES ($1, $2, '515151515', now())`, b, `${name} בע"מ`);
     for (const [day, vendor, status] of [["05", "חברת החשמל", "approved"], ["12", "Office Depot ישראל", "approved"], ["20", "", "needs_review"]] as const) {
       const body = Buffer.from(`%PDF-1.4 g4 ${name} ${++n}`);
@@ -279,7 +287,21 @@ async function main() {
   // ── 8. The accountant uses the link; the owner sees it ─────────────────────────────────────────
   console.log("8. the accountant uses the link — the owner sees it");
   const link = /https:\/\/app\.example\.com\/a\/([A-Za-z0-9_-]{32})#t=([A-Za-z0-9_-]{43})/.exec(calls.filter((x) => x.key === `acct:${a1.deliveryId}`).pop()!.text)!;
-  const lp = (route: { POST: (r: Request) => Promise<Response> }, url: string, body: Json) => route.POST(req(url, null, { method: "POST", body: JSON.stringify({ publicId: link[1], token: link[2], ...body }) }));
+  // G5 M5: the accountant's browser — verified once through the real code / verify routes, then its cookie on every request.
+  let device = "";
+  const lp = (route: { POST: (r: Request) => Promise<Response> }, url: string, body: Json) =>
+    route.POST(req(url, null, { method: "POST", body: JSON.stringify({ publicId: link[1], token: link[2], ...body }), headers: device ? { cookie: device } : {} }));
+  {
+    const codeRoute = await import("@/app/api/accountant/link/code/route");
+    const verifyRoute = await import("@/app/api/accountant/link/verify/route");
+    const first = await lp(portalRoute, "/api/accountant/link/portal", {});
+    ok("8-0a a new browser on a live link → 401 VERIFICATION_REQUIRED, the address masked", first.status === 401 && ((await first.clone().json()) as Json).error === "VERIFICATION_REQUIRED" && ((await first.json()) as Json).maskedTo === "d•••@example.com");
+    const c = await lp(codeRoute, "/api/accountant/link/code", {});
+    ok("8-0b the code goes to the approved address only", c.status === 200 && otpCalls.length === 1 && otpCalls[0].to === "dana@example.com");
+    const v = await lp(verifyRoute, "/api/accountant/link/verify", { code: /\b([0-9]{6})\b/.exec(otpCalls[0].text)![1] });
+    device = (v.headers.get("set-cookie") ?? "").split(";")[0];
+    ok("8-0c the right code trusts this browser (httpOnly cookie)", v.status === 200 && /HttpOnly/.test(v.headers.get("set-cookie") ?? "") && device.length > 0);
+  }
   view = await inB(A.b, () => getPeriodView(A.b, KEY));
   ok("8a before anything: link live, not opened yet", view!.deliveries[0].linkState === "live" && view!.deliveries[0].portal.views === 0);
   r = await lp(portalRoute, "/api/accountant/link/portal", {});

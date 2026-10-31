@@ -312,3 +312,44 @@ export async function syncPeriodNotice(
     return { notice: null, surfaced: false, reminded: false, resolved: 0 };
   }
 }
+
+/** The in-app notice of a spam complaint — one per delivery, its own identity (never resolved by the period notices). */
+export const COMPLAINT_ENTITY_TYPE = "accountant_delivery_complained";
+
+export function translateComplaintNotice(input: { deliveryId: number; periodKey: PeriodKey }, now: Date): BusinessStatusItemBuild {
+  const month = monthNameHe(input.periodKey);
+  return {
+    domain: "documents",
+    state: "open",
+    createdAt: now.toISOString(),
+    sourceEngine: "accountant-month-close",
+    blocking: false,
+    priorityReferenceDate: now,
+    entityRef: { type: COMPLAINT_ENTITY_TYPE, id: input.deliveryId },
+    itemId: `documents:${COMPLAINT_ENTITY_TYPE}:${input.deliveryId}`,
+    semanticCategory: "ACTION_REQUIRED",
+    severity: "MEDIUM",
+    title: `המייל עם הקובץ לרואה החשבון עבור חודש ${month} סומן אצלו כספאם`,
+    summary: "הקובץ נשלח, אבל ייתכן שמיילים מ־Dubiz יגיעו אצלו לתיקיית הספאם. כדאי לוודא איתו שהקובץ התקבל ולבקש שיסמן את הכתובת כבטוחה.",
+    primaryAction: { kind: "navigate", label: "לפרטים", href: periodHref(input.periodKey) },
+  };
+}
+
+/** Writes the complaint notice (in the app only, by the documents rules). Never throws. */
+export async function surfaceComplaintNotice(
+  input: { businessId: number; deliveryId: number; periodKey: PeriodKey },
+  now: Date
+): Promise<boolean> {
+  try {
+    const item = finalizeBusinessStatusItem(translateComplaintNotice(input, now));
+    const written = await persistSnapshotNotifications(input.businessId, [item], now);
+    return written.some((w) => w.notified);
+  } catch (error) {
+    console.error("[accountant] complaint notice failed", {
+      businessId: input.businessId,
+      deliveryId: input.deliveryId,
+      error: error instanceof Error ? error.name : "unknown",
+    });
+    return false;
+  }
+}

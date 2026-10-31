@@ -85,6 +85,7 @@ lib/services/account/account-deletion.prisma-store.ts|ADMIN
 lib/services/platform-admin/update-business-feature-access.service.ts|CONTROL_PLANE
 lib/services/redeem.service.ts|GLOBAL_NON_TENANT
 lib/services/revenue/publish-coupon.service.ts|GLOBAL_NON_TENANT
+lib/accountant/ops/platform-store.ts|GLOBAL_NON_TENANT
 lib/services/payments/payments.deps.ts|CANONICAL
 lib/services/billing/billing-tenant-tx.ts|CANONICAL
 lib/services/inventory/supplier-purchase-approval.service.ts|CANONICAL
@@ -116,6 +117,12 @@ lib/tenant/transaction.ts|CANONICAL"
 #   redeems). Neither table is under RLS, and a single-tenant `businessId = GUC`
 #   predicate cannot express that ownership without being wrong. Marketplace policy is
 #   its own separate wave — forcing tenant context here would be a bug, not a fix.
+#
+#   lib/accountant/ops/platform-store.ts — GLOBAL_NON_TENANT. The accountant monitor's platform-level
+#   alerts ("AccountantOpsAlert", migration 20261107090000): no tenant key, no business data (codes,
+#   counts and times only, closed by CHECK), no RLS by design — a platform finding ("the sweep did not
+#   run") belongs to no business. It names no other table; per-business alerts are written only
+#   inside the business's tenant transaction (lib/accountant/ops/monitor.ts), and 7c holds it to that.
 #
 #   payments.deps.ts / billing-tenant-tx.ts / supplier-purchase-approval.service.ts —
 #   CANONICAL. These match only in a COMMENT or a TYPE position, not in a real
