@@ -132,6 +132,8 @@ async function main() {
     if (enabled) await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'accountant_month_close', 'ENABLED', now())`, b);
     // G5 M4: sending from Dubiz needs the business's own permission.
     if (enabled) await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'accountant_delivery', 'ENABLED', now())`, b);
+    // Open for every business since 2026-11-01 (catalog default ON): "without the feature" is an explicit DISABLED override.
+    if (!enabled) await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'accountant_month_close', 'DISABLED', now())`, b);
     await owner.$executeRawUnsafe(`INSERT INTO "BusinessProfile" ("businessId", "billingLegalName", "billingTaxId", "updatedAt") VALUES ($1, $2, '515151515', now())`, b, `${name} בע"מ`);
     for (const day of ["05", "12"]) {
       const body = Buffer.from(`%PDF-1.4 ops ${name} ${++n}`);
