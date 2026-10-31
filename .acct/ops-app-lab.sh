@@ -13,11 +13,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LE="20261105090000_accountant_link_events"
 C="20261107092000_accountant_ops_admin_read"
+M5="20261109091000_accountant_link_otp"   # G5 M4 + M5: the sending code checks the permission and the portal the device
 P="${LAB_PASSWORD:-}"
 url() { echo "postgresql://$1${P:+:$P}@${PGHOST}:${PGPORT}/$2"; }
 owner_sql() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$(url lab_owner "$1")" "${@:2}"; }
 super_sql() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d "$1" "${@:2}"; }
-pending() { case "$1" in "$LE"|2026110709*) return 0 ;; *) return 1 ;; esac; }
+pending() { case "$1" in "$LE"|2026110709*|2026110909*) return 0 ;; *) return 1 ;; esac; }
 
 deploy() {
   local db="$1" upto="$2" tmp ledger; tmp="$(mktemp -d)"; mkdir -p "$tmp/prisma/migrations"
@@ -68,8 +69,8 @@ super_sql postgres -c "DROP DATABASE IF EXISTS ops_app" -c "CREATE DATABASE ops_
 # The console's read plane as Production has it (20261024090000_platform_admin_a1 — recorded, not run, in the lab).
 owner_sql ops_app -c 'GRANT SELECT ("id", "name") ON "Business" TO app_admin'
 
-echo "== 2. the three 20261107 migrations"
-deploy ops_app "$C"
+echo "== 2. the three 20261107 migrations (+ G5 M4/M5, which the application now needs)"
+deploy ops_app "$M5"
 [ "$(owner_sql ops_app -At -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name LIKE '2026110709%' AND finished_at IS NOT NULL")" = "3" ] \
   || { echo "the three migrations are not all applied"; exit 1; }
 

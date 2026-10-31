@@ -36,6 +36,10 @@
     "lib/accountant/ops/findings.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure: the accountant monitor's findings (each fault fires its finding and only it, thresholds, no false alarm on a fresh deployment, a partial run), the operator's email (no address, link, token or business name; at most 25 lines) and its stable digest key, counts-only run log; run on pull_request by accountant-month-close-ci.yml"
+    },
+    "lib/accountant/link-device.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (G5 M5): the accountant's one-time code — six CSPRNG digits, an HMAC bound to the delivery and salt keyed by AUTH_TOKEN_SECRET (refuses without it), the 60 s / 3 per 15 min / 10 per day limits with retry times, the device cookie (HttpOnly, SameSite=Strict, path-scoped, Secure in production, lives with the link, one opaque name per link), the masked address and a code email with no link; run on pull_request by accountant-month-close-ci.yml"
     }
   }
 }
