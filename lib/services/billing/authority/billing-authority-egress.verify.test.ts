@@ -493,8 +493,16 @@ async function main(): Promise<void> {
       return /\?\?\s*fetch\b|globalThis\.fetch|(^|[^.\w])fetch\(/m.test(src);
     });
     ok("H: no authority runtime file defaults to / calls global fetch", offenders.length === 0, offenders);
-    const wired = runtimeFiles.filter((f) => /\?\?\s*authorityEgressFetch\b/.test(readFileSync(join(authDir, f), "utf8")));
+    // The temporary one-shot Sandbox diagnostic is the only extra wired file;
+    // it leaves with its cleanup revert.
+    const wired = runtimeFiles.filter(
+      (f) => f !== "ita-sandbox-token-oneshot.ts" && /\?\?\s*authorityEgressFetch\b/.test(readFileSync(join(authDir, f), "utf8"))
+    );
     ok("H: exactly the six known call-sites are wired", wired.length === 6, wired);
+    ok(
+      "H: the temporary one-shot diagnostic is wired to the egress transport",
+      /\?\?\s*authorityEgressFetch\b/.test(readFileSync(join(authDir, "ita-sandbox-token-oneshot.ts"), "utf8"))
+    );
   }
 
   // ── I. unrelated integrations untouched ───────────────────────────────────
