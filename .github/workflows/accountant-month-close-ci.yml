@@ -289,7 +289,7 @@ jobs:
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_hourly?$TZQ" \
             npx tsx .acct/hourly-sweep-battery.ts
 
-      - name: Rollout battery — open for every business (migration 20261110090000 + catalog default ON): existing and new businesses open, DISABLED still closes, the sweep on the 1st over 16 businesses (only the month just closed, one package, one in-app notice, overlapping runs), an empty month, no automatic send, Resend 429, the stops
+      - name: "Rollout battery — open for every business (migration 20261110090000 + catalog default ON): existing and new businesses open, DISABLED still closes, the sweep on the 1st over 16 businesses (only the month just closed, one package, one in-app notice, overlapping runs), an empty month, no automatic send, Resend 429, the stops"
         run: |
           set -euo pipefail
           bash .acct/lab.sh acct_rollout --with-acct
