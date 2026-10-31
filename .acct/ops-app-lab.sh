@@ -48,7 +48,7 @@ else
   echo "== 1. baseline = Production today"
   bash "$ROOT/.acct/lab.sh" "$BASE" --with-acct | tail -1
   # schema.prisma models the monitoring tables: `db push` built them without the migration's checks and grants.
-  owner_sql "$BASE" -c 'DROP TABLE IF EXISTS "AccountantBusinessAlert", "AccountantOpsAlert", "AccountantOpsRun" CASCADE'
+  owner_sql "$BASE" -c 'DROP TABLE IF EXISTS "AccountantBusinessAlert", "AccountantOpsAlert", "AccountantOpsRun", "AccountantLinkChallenge", "AccountantLinkDevice" CASCADE'
   super_sql "$BASE" <<SQL
 DO \$do\$
 BEGIN
