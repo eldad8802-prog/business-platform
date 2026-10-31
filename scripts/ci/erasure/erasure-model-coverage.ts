@@ -393,6 +393,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // G5 milestone 1 (migration 20261107090000): the monitor's alert about one business — a finding code, a subject (a
   // month key or a delivery id), a severity, times and counts (closed detail by DB CHECK); no address, link or text.
   // It goes with the business (FK ON DELETE CASCADE); nothing in it identifies a person.
+  // G5 M5 (migration 20261109091000): the accountant's one-time codes and verified browsers for one delivery — HMACs,
+  // ids, times and counts only (no code, no cookie value, no address); they cascade with the delivery and the business.
+  AccountantLinkChallenge: operational("one-time codes of the accountant's portal for one delivery: a salted HMAC (never the code), times, an attempt count; cascades with the delivery"),
+  AccountantLinkDevice: operational("browsers that proved the accountant's inbox for one delivery: an HMAC of the cookie value (never the value), times; cascades with the delivery"),
   AccountantBusinessAlert: operational("the accountant monitor's alerts about one business: finding code, a month key or delivery id, severity, times and counts (closed detail by DB CHECK), no text; cascades with the business"),
   // Daily Tasks journal (append-only). Account erasure nulls its two identifying columns — the acting user and the
   // request digest — through task_retention_erase_business(), the SECURITY DEFINER function the adapter calls in the

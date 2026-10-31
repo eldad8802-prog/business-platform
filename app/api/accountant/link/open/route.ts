@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { openLink } from "@/lib/accountant/delivery.service";
+import { checkLinkAccess, openLink } from "@/lib/accountant/delivery.service";
 import { hashAccountantLinkSecret, isLinkPublicId, isLinkSecret } from "@/lib/accountant/link";
+import { deviceTrusted, verificationRequired } from "@/lib/accountant/link-access";
 import { packageDownloadName, PORTAL_SIGNED_URL_TTL_SECONDS } from "@/lib/accountant/package-download";
 import { periodLabelHe } from "@/lib/accountant/period";
 import { prisma } from "@/lib/prisma";
@@ -29,6 +30,8 @@ function refuse(status: number, code: string) {
  *   - the SECURITY DEFINER lookup returns ids only, and only when the public id AND sha256(secret) match;
  *   - everything else is read under RLS inside that business's tenant job;
  *   - expired / revoked links are refused (and the refusal is recorded); every download is recorded;
+ *   - (G5 M5) a download also needs a trusted device of this delivery — checked after the link itself, and before
+ *     the download is counted; "info" (whose package, which month) stays open to the link alone;
  *   - a download is a one-minute presigned URL to the approved object — never a lasting public URL (a URL
  *     issued before a revocation lapses within a minute; a download already running is not cut off).
  *
@@ -56,9 +59,18 @@ export async function POST(req: Request) {
 
   try {
     const now = new Date();
-    const opened = await runTenantJob({ businessId: hit.businessId }, () =>
-      openLink(hit.businessId, hit.deliveryId, now, mode === "download")
-    );
+    const gate = await runTenantJob({ businessId: hit.businessId }, async () => {
+      if (mode === "info") return { opened: await openLink(hit.businessId, hit.deliveryId, now, false), denied: null };
+      // The link first (a refusal recorded), then the device, and only then the download is counted.
+      const checked = await checkLinkAccess(hit.businessId, hit.deliveryId, now, { recordRefusal: true, countDownload: false });
+      if (!checked.ok) return { opened: checked, denied: null };
+      if (!(await deviceTrusted(req, hit.businessId, hit.deliveryId, publicId, now))) {
+        return { opened: checked, denied: await verificationRequired(hit.businessId, hit.deliveryId) };
+      }
+      return { opened: await openLink(hit.businessId, hit.deliveryId, now, true), denied: null };
+    });
+    if (gate.denied) return gate.denied;
+    const opened = gate.opened;
     if (!opened.ok) return refuse(410, opened.reason === "expired" ? "LINK_EXPIRED" : opened.reason === "revoked" ? "LINK_REVOKED" : "LINK_UNAVAILABLE");
 
     if (mode === "info") {

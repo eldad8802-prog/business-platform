@@ -70,6 +70,23 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "ip", limit: 900, windowSeconds: 60 * 60 },
     ],
   },
+  // The accountant portal's one-time code (G5 M5): requesting a code (an email to the delivery's recipient) and checking
+  // one. Per address, on top of the per-delivery limits in lib/accountant/link-device.ts (3 codes / 15 min, 10 / day,
+  // 5 attempts a code). Fail-CLOSED: both guard the inbox and the code.
+  ACCOUNTANT_LINK_CODE: {
+    failMode: "closed",
+    rules: [
+      { scope: "ip", limit: 6, windowSeconds: 15 * 60 },
+      { scope: "ip", limit: 20, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
+  ACCOUNTANT_LINK_VERIFY: {
+    failMode: "closed",
+    rules: [
+      { scope: "ip", limit: 20, windowSeconds: 15 * 60 },
+      { scope: "ip", limit: 60, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
   // Owner send approvals to an external recipient. Fail-CLOSED: sending is the consequential action.
   ACCOUNTANT_SEND: {
     failMode: "closed",

@@ -27,7 +27,7 @@ import { readTransactionalEmailConfig, isValidAddress } from "@/lib/email/transa
 import { decideFinalization, CLAIM_LEASE_MS } from "@/lib/email/transactional/delivery";
 import type { EmailProvider } from "@/lib/email/transactional/provider";
 import { createResendProvider } from "@/lib/email/transactional/resend";
-import { AccountantError } from "./http";
+import { AccountantError, accountantDeliveryPermitted } from "./http";
 import { buildAccountantLinkUrl, linkExpiry, mintAccountantLink } from "./link";
 import { computeFingerprint } from "./package-scope";
 import { loadPeriodFacts } from "./period-facts";
@@ -108,6 +108,8 @@ export type ApprovedDelivery = { deliveryId: number; created: boolean };
 
 export async function approveDelivery(input: ApproveInput): Promise<ApprovedDelivery> {
   if (!deliveryEnabled()) throw new AccountantError(403, "DELIVERY_DISABLED");
+  // G5 M4: the business itself must hold the send permission — checked on the server, whatever the screen shows.
+  if (!(await accountantDeliveryPermitted(input.businessId))) throw new AccountantError(403, "DELIVERY_NOT_PERMITTED");
   const email = readTransactionalEmailConfig();
   if (!email.enabled || !("ok" in email) || !email.ok) throw new AccountantError(503, "EMAIL_NOT_CONFIGURED");
   if (!input.idempotencyKey || !IDEMPOTENCY_KEY.test(input.idempotencyKey)) {
@@ -241,7 +243,43 @@ export async function approveDelivery(input: ApproveInput): Promise<ApprovedDeli
 
 // ── Sending ─────────────────────────────────────────────────────────────────────────────────────
 
-export type AttemptOutcome = "disabled" | "not_configured" | "not_claimable" | "accepted" | "retry_scheduled" | "failed" | "lost_claim";
+export type AttemptOutcome =
+  | "disabled"
+  | "not_permitted"
+  | "not_configured"
+  | "not_claimable"
+  | "accepted"
+  | "retry_scheduled"
+  | "failed"
+  | "lost_claim";
+
+/**
+ * The permission was withdrawn between the approval and the send (G5 M4): the waiting approval is canceled — never
+ * sent — with a stated reason in the trail, and the month's status follows. A send already in flight (SENDING) is left
+ * to its lease: it is never re-claimed without the permission (attemptDelivery checks before every claim).
+ */
+async function cancelNotPermitted(businessId: number, deliveryId: number, now: Date): Promise<boolean> {
+  return tenantTx(businessId, async (tx) => {
+    const n = await tx.accountantDelivery.updateMany({
+      where: { id: deliveryId, businessId, status: "APPROVED" },
+      data: { status: "CANCELED", canceledAt: now, failureCode: "delivery_not_permitted", linkRevokedAt: now, updatedAt: now },
+    });
+    if (n.count !== 1) return false;
+    const d = await tx.accountantDelivery.findFirstOrThrow({ where: { id: deliveryId, businessId }, select: { periodId: true } });
+    await appendEvent(tx, {
+      businessId,
+      periodId: d.periodId,
+      deliveryId,
+      eventType: "DELIVERY_CANCELED",
+      actor: { type: "SYSTEM" },
+      occurredAt: now,
+      payload: { reason: "delivery_not_permitted" },
+      idempotencyKey: `cancel:${deliveryId}`,
+    });
+    await rederivePeriodStatus(tx, businessId, d.periodId, now);
+    return true;
+  });
+}
 
 export type DeliveryDeps = {
   provider: (apiKey: string) => EmailProvider;
@@ -259,6 +297,11 @@ export async function attemptDelivery(
   deps: DeliveryDeps = defaultDeliveryDeps
 ): Promise<AttemptOutcome> {
   if (!deliveryEnabled()) return "disabled";
+  // G5 M4: checked again at the moment of sending — a permission withdrawn after the approval stops the send.
+  if (!(await accountantDeliveryPermitted(businessId))) {
+    await cancelNotPermitted(businessId, deliveryId, now);
+    return "not_permitted";
+  }
   const cfg = readTransactionalEmailConfig();
   if (!cfg.enabled || !("ok" in cfg) || !cfg.ok) return "not_configured";
 
@@ -491,6 +534,8 @@ export async function revokeLink(businessId: number, userId: number, deliveryId:
     if (!d) throw new AccountantError(404, "NOT_FOUND");
     if (d.linkRevokedAt) return;
     await tx.accountantDelivery.update({ where: { id: d.id }, data: { linkRevokedAt: now, updatedAt: now } });
+    // G5 M5: every browser verified for this link loses its trust at once (the link check refuses first anyway).
+    await tx.accountantLinkDevice.updateMany({ where: { businessId, deliveryId: d.id, revokedAt: null }, data: { revokedAt: now } });
     await appendEvent(tx, {
       businessId,
       periodId: d.periodId,

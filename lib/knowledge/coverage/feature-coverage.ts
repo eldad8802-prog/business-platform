@@ -274,7 +274,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     // delivery / trail tables, the owner routes (api/accountant), the provider webhook that reports a package's
     // delivery (api/webhooks — Resend, accountant deliveries only) and the accountant's public link page (page/a).
     // The operations monitor's per-business alerts (G5 milestone 1, migration 20261107090000) belong to it too.
-    models: ["AccountantPeriod", "AccountantPackage", "AccountantRecipient", "AccountantDelivery", "AccountantWorkflowEvent", "AccountantBusinessAlert"],
+    models: ["AccountantPeriod", "AccountantPackage", "AccountantRecipient", "AccountantDelivery", "AccountantWorkflowEvent", "AccountantBusinessAlert", "AccountantLinkChallenge", "AccountantLinkDevice"],
     sensors: ["DATA_EXPORTED"], legacyEvents: [], routes: ["api/reports", "page/dashboard", "api/accountant", "api/webhooks", "page/a"],
     target: { coverage: "LEARNS", plan: "Owner behaviour (observable only): accountant-pack export cadence — the only record is the DATA_EXPORTED observation sensor." },
     outcome: { observableAction: true, observableOutcome: false, ownerDecisionRelevant: false, recommendationPotential: "LOW" },
