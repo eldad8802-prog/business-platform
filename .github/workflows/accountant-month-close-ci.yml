@@ -54,6 +54,8 @@ on:
       - ".github/workflows/accountant-sweep.yml"
       - ".github/workflows/accountant-monitor.yml"
       - "prisma/migrations/2026110709*/**"
+      - "prisma/migrations/20261110090000_accountant_open_all/**"
+      - "lib/services/feature-access/platform-feature-catalog.ts"
       - "lib/services/platform-admin/accountant-ops*"
       - "lib/services/platform-admin/constants.ts"
       - "lib/platform-admin/fetch-platform-admin.ts"
@@ -286,6 +288,16 @@ jobs:
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_hourly?$TZQ" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_hourly?$TZQ" \
             npx tsx .acct/hourly-sweep-battery.ts
+
+      - name: Rollout battery — open for every business (migration 20261110090000 + catalog default ON): existing and new businesses open, DISABLED still closes, the sweep on the 1st over 16 businesses (only the month just closed, one package, one in-app notice, overlapping runs), an empty month, no automatic send, Resend 429, the stops
+        run: |
+          set -euo pipefail
+          bash .acct/lab.sh acct_rollout --with-acct
+          for m in 20261105090000_accountant_link_events 20261109090000_accountant_delivery_permission 20261109091000_accountant_link_otp 20261110090000_accountant_open_all; do
+            PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -1 -q -U lab_owner -d acct_rollout -f prisma/migrations/$m/migration.sql
+          done
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_rollout?$TZQ"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_rollout?$TZQ"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_rollout?$TZQ"             npx tsx .acct/rollout-battery.ts
 
       - name: G5 M4 + M5 battery — the per-business send permission (master switch, withdrawn mid-way, isolation) and the one-time code on a new device (snapshot recipient, attempts, single use under concurrency, limits, one delivery only, revocation and expiry first, nothing secret in trail, answers or logs)
         run: |

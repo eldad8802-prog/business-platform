@@ -242,28 +242,28 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       defaultEnabled: true,
       mutable: true,
     },
-    // Monthly accountant workflow (migration 20261027090000). OFF by default, like every new feature: with no
-    // policy row the resolver falls back to this default, so a deploy that reaches Production before the
-    // migration cannot switch the workflow on. Controlled verification = a business override; the general
-    // rollout (owner gate G5) flips this default together with the policy row. Sending to the accountant is a
+    // Monthly accountant workflow (migration 20261027090000) — OPEN FOR EVERY BUSINESS since the owner decision of
+    // 2026-11-01 (migration 20261110090000_accountant_open_all switched the definition and the policy ON first; this
+    // default is what opens it, because the resolver falls back to the catalog when the policy is on). An explicit
+    // business override DISABLED or the policy emergency switch still closes it. Sending to the accountant is a
     // second, separate switch (ACCOUNTANT_DELIVERY_ENABLED).
     {
       key: PLATFORM_FEATURE_KEYS.ACCOUNTANT_MONTH_CLOSE,
       displayName: "חבילה חודשית לרואה החשבון",
       category: "documents",
-      description: "הכנה חודשית אוטומטית של חבילת רואה החשבון, התראה, ושליחה לרואה החשבון באישור בעל העסק",
-      defaultEnabled: false,
+      description: "הכנה חודשית אוטומטית של חבילת רואה החשבון, התראה בתוך Dubiz, ושליחה לרואה החשבון באישור בעל העסק — פתוח לכל העסקים",
+      defaultEnabled: true,
       mutable: true,
     },
-    // The per-business SEND permission (G5 M4, migration 20261109090000). OFF for every business; a platform admin
-    // opens it per business (feature override, MFA, audited). Sending also needs the global master switch
+    // The SEND permission (G5 M4, migration 20261109090000) — OPEN FOR EVERY BUSINESS since 2026-11-01 (migration
+    // 20261110090000); a platform admin can still close it per business (override DISABLED, MFA, audited). Sending also needs the global master switch
     // ACCOUNTANT_DELIVERY_ENABLED, and every package the owner's explicit approval (lib/accountant/delivery.service.ts).
     {
       key: PLATFORM_FEATURE_KEYS.ACCOUNTANT_DELIVERY,
       displayName: "שליחת החבילה לרואה החשבון מתוך Dubiz",
       category: "documents",
-      description: "הרשאה לשלוח את החבילה החודשית לרואה החשבון מתוך Dubiz — כל משלוח עדיין באישור מפורש של בעל העסק",
-      defaultEnabled: false,
+      description: "שליחת החבילה החודשית לרואה החשבון מתוך Dubiz — כל משלוח באישור מפורש של בעל העסק — פתוח לכל העסקים",
+      defaultEnabled: true,
       mutable: true,
     },
     // Bank file import (revenue truth milestone B1). OFF by default: with no policy row the resolver falls back to
