@@ -29,6 +29,7 @@ import {
 import { recordOfferingDemand } from "@/lib/services/offering/offering-demand";
 import { assertTransition, isTerminal } from "./appointment.lifecycle";
 import { appendAppointmentEvent, instantToken, type JournalDigest } from "./appointment-journal";
+import { mergeNote } from "./appointment-notes";
 import type {
   AppointmentResult,
   AppointmentStatus,
@@ -62,11 +63,6 @@ async function selectedService(
   return service;
 }
 
-function mergeNote(existing: string | null, addition: string | null): string | null {
-  const add = addition?.trim();
-  if (!add) return existing;
-  return existing && existing.trim().length > 0 ? `${existing}\n${add}` : add;
-}
 
 /**
  * Direct creation primitive. Shared by createFromPending. Optional conversation

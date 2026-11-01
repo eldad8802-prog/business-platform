@@ -353,7 +353,9 @@ async function main() {
   const d2 = await reqOf(at("11:30"));
   r = await routes.status.POST(own(`/api/appointments/${d2.aid}/status`, { method: "POST", key: key(), body: { to: "CANCELED", cancelReason: "OWNER_CANCELED", expectedVersion: await ver(d2.aid) } }), p({ id: String(d2.aid) }));
   ok("F7 cancelling a pending public appointment from the calendar settles its request (DECLINED)", r.status === 200 && (await n(`SELECT count(*)::int AS n FROM "BookingRequest" WHERE id = ${d2.rid} AND status = 'DECLINED'`)) === 1);
-  const ownAppt = await body(await routes.root.POST(own("/api/appointments", { method: "POST", key: key(), body: { startsAt: at("09:00", THU), durationMinutes: 30, status: "PROPOSED" } })));
+  // The owner's own appointment stays in the business's lane, which closes every staff lane at its time (P0-1): it sits
+  // at 08:00, before opening, so it takes no time the link offers (J books 09:00 on this Thursday).
+  const ownAppt = await body(await routes.root.POST(own("/api/appointments", { method: "POST", key: key(), body: { startsAt: at("08:00", THU), durationMinutes: 30, status: "PROPOSED" } })));
   r = await routes.status.POST(own(`/api/appointments/${ownAppt.appointment.id}/status`, { method: "POST", key: key(), body: { to: "CANCELED", cancelReason: "DECLINED" } }), p({ id: String(ownAppt.appointment.id) }));
   ok("F8 DECLINED is refused for an appointment that is not a public request (400)", r.status === 400);
   const near = await reqOf(at("14:00"));
@@ -578,6 +580,150 @@ async function main() {
   r = await routes.root.POST(own("/api/appointments", { method: "POST", key: key(), body: { startsAt: at("18:00"), durationMinutes: 30, staffMemberId: ron.id } }));
   ok("O10 the owner's own calendar is unchanged: 18:00 with that staff member is inside his hours (201, no warning)", r.status === 201
     && JSON.stringify((await body(r))?.warnings ?? []) === "[]", JSON.stringify(await body(r)));
+
+  // ── P. P0-1 (owner, 2026-11-01): the business's lane and the staff lanes exclude each other on the link too;
+  //    a phone's self-booked AUTO appointments count toward its cap ─────────────────────────────────────────
+  // A business of its own (C): its link, its staff, its per-business submit ceiling untouched by the sections above.
+  console.log("P. P0-1: lanes on the link, AUTO bookings and the per-phone cap");
+  const bizC = (await owner.business.create({ data: { name: `${tag}-C` } })).id;
+  const userC = (await owner.user.create({ data: { email: `${tag}-c@lab.test`, password: "x", businessId: bizC } })).id;
+  const tokenC = signAuthToken(userC, 0);
+  const ownC = (path: string, init: Init = {}) => req(path, { ...init, token: tokenC });
+  await owner.businessFeatureAccess.create({ data: { businessId: bizC, featureKey: "appointments", state: "ENABLED", reason: "lab" } });
+  await owner.businessFeatureAccess.create({ data: { businessId: bizC, featureKey: "public_booking", state: "ENABLED", reason: "lab" } });
+  const cutC = await svc(bizC, "תספורת", 30);
+  const autoC = await svc(bizC, "צבע", 60);
+  const shir = (await body(await routes.staff.POST(ownC("/api/appointments/staff", { method: "POST", body: { displayName: "שיר" } }))))?.staffMember;
+  const tal = (await body(await routes.staff.POST(ownC("/api/appointments/staff", { method: "POST", body: { displayName: "טל" } }))))?.staffMember;
+  for (const s of [shir, tal]) {
+    await routes.staffServices.PUT(ownC(`/api/appointments/staff/${s.id}/services`, { method: "PUT", body: { services: [{ businessServiceId: cutC }, { businessServiceId: autoC }] } }), p({ staffId: String(s.id) }));
+    const v = (await owner.staffMember.findUniqueOrThrow({ where: { id: s.id } })).version;
+    await routes.staffOne.PATCH(ownC(`/api/appointments/staff/${s.id}`, { method: "PATCH", body: { publicBookable: true, expectedVersion: v } }), p({ staffId: String(s.id) }));
+  }
+  await routes.availability.PUT(ownC("/api/appointments/availability", { method: "PUT", body: { rules: weekly } }));
+  await routes.policy.PUT(ownC(`/api/appointments/services/${cutC}/policy`, { method: "PUT", body: { publicBookable: true, approvalMode: "MANUAL", slotStepMinutes: 30, maxAdvanceDays: 60 } }), p({ serviceId: String(cutC) }));
+  await routes.policy.PUT(ownC(`/api/appointments/services/${autoC}/policy`, { method: "PUT", body: { publicBookable: true, approvalMode: "AUTO", slotStepMinutes: 30, maxAdvanceDays: 60 } }), p({ serviceId: String(autoC) }));
+  r = await routes.settings.PUT(ownC("/api/appointments/booking/settings", { method: "PUT", body: { enabled: true, staffChoiceMode: "OPTIONAL" } }));
+  const pubC: string = (await body(r))?.settings?.publicId;
+  ok("P0 business C: its own link, two public staff, a MANUAL and an AUTO service, the cap at its default 2", r.status === 200 && /^[A-Za-z0-9_-]{24}$/.test(pubC ?? "")
+    && (await owner.bookingSettings.findUniqueOrThrow({ where: { businessId: bizC } })).maxOpenRequestsPerPhone === 2);
+  // The next week (Sunday to Thursday), open 09:00–17:00, nothing booked.
+  const W = (d: number) => addCalendarDays(SUN, 7 + d);
+  const tsC = (iso: string) => iso.replace("T", " ").replace("Z", "");
+  const subC = (b: Record<string, unknown>, k: string = key()) => submit(b, k, {}, pubC);
+  const ownCreateC = (b: Record<string, unknown>) => routes.root.POST(ownC("/api/appointments", { method: "POST", key: key(), body: b }));
+  const apptsC = () => n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizC}`);
+  const activeInC = (from: string, to: string) => n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizC} AND status IN ('PROPOSED','CONFIRMED') AND "endsAt" IS NOT NULL AND "startsAt" < '${tsC(to)}' AND "endsAt" > '${tsC(from)}'`);
+  const reqAt = (iso: string) => one<{ aid: number; rid: number }>(`SELECT a.id AS aid, r.id AS rid FROM "Appointment" a JOIN "BookingRequest" r ON r."appointmentId" = a.id WHERE a."businessId" = ${bizC} AND a."startsAt" = '${tsC(iso)}' ORDER BY r.id DESC LIMIT 1`);
+
+  // Lanes, on the link.
+  r = await ownCreateC({ kind: "CUSTOMER", startsAt: at("10:00", W(0)), durationMinutes: 60 });
+  const generalC = (await body(r))?.appointment;
+  ok("P1 the owner books a general appointment (no staff member) 10:00–11:00", r.status === 201 && generalC?.staffMemberId === null, String(r.status));
+  let pc = await slots({ serviceId: cutC, fromDay: W(0), toDay: W(0) }, pubC);
+  ok("P2 the link (any staff) offers nothing that overlaps it, and the times around it", pc.status === 200 && pc.starts.includes(at("09:30", W(0))) && pc.starts.includes(at("11:00", W(0)))
+    && !pc.starts.includes(at("10:00", W(0))) && !pc.starts.includes(at("10:30", W(0))), JSON.stringify(pc.starts.slice(0, 6)));
+  pc = await slots({ serviceId: cutC, staffId: shir.id, fromDay: W(0), toDay: W(0) }, pubC);
+  ok("P3 …nor for a chosen staff member", pc.status === 200 && pc.starts.length > 0 && !pc.starts.includes(at("10:00", W(0))) && !pc.starts.includes(at("10:30", W(0))));
+  let cBefore = await apptsC();
+  const p4a = await subC({ serviceId: cutC, startsAt: at("10:00", W(0)), name: "עקיפה", phone: phone() });
+  const p4b = await subC({ serviceId: cutC, staffId: tal.id, startsAt: at("10:30", W(0)), name: "עקיפה", phone: phone() });
+  ok("P4 a request straight through the API over it (any staff / a chosen one) → 409 SLOT_UNAVAILABLE, nothing written",
+    p4a.status === 409 && (await body(p4a))?.error === "SLOT_UNAVAILABLE" && p4b.status === 409 && (await apptsC()) === cBefore, `${p4a.status} ${p4b.status}`);
+  r = await subC({ serviceId: cutC, staffId: shir.id, startsAt: at("12:00", W(0)), name: "נועה", phone: phone() });
+  const pShir = await reqAt(at("12:00", W(0)));
+  ok("P5 a public request for Shir at 12:00 → 201 PENDING (holding its time)", r.status === 201 && (await body(r))?.status === "PENDING" && !!pShir);
+  r = await ownCreateC({ kind: "INTERNAL", title: "ישיבה", startsAt: at("12:00", W(0)), durationMinutes: 30 });
+  ok("P6 the owner's general meeting over that waiting request → 409 SLOT_CONFLICT naming it", r.status === 409 && JSON.stringify((await body(r))?.details?.conflictingAppointmentIds) === JSON.stringify([pShir.aid]));
+  cBefore = await apptsC();
+  r = await ownCreateC({ kind: "BLOCK", title: "סגור", startsAt: at("11:30", W(0)), durationMinutes: 90 });
+  ok("P7 owner decision A: a business-wide block over the waiting request → 409, no block written, the request still PENDING", r.status === 409 && (await apptsC()) === cBefore
+    && (await n(`SELECT count(*)::int AS n FROM "BookingRequest" WHERE id = ${pShir.rid} AND status = 'PENDING'`)) === 1, String(r.status));
+  r = await subC({ serviceId: cutC, staffId: tal.id, startsAt: at("12:00", W(0)), name: "מקביל", phone: phone() });
+  ok("P8 Tal at the same hour as Shir → 201 (staff lanes stay parallel)", r.status === 201, String(r.status));
+
+  // Concurrency across lanes: public requests for a staff member and the owner's general appointments, one slot.
+  const mixed = await Promise.all([
+    ...Array.from({ length: 6 }, () => subC({ serviceId: cutC, staffId: shir.id, startsAt: at("14:00", W(1)), name: "מרוץ", phone: phone() })),
+    ...Array.from({ length: 6 }, () => ownCreateC({ kind: "INTERNAL", title: "מרוץ", startsAt: at("14:00", W(1)), durationMinutes: 30 })),
+  ]);
+  ok("P9 twelve at once (six public for Shir, six general by the owner) → exactly one 201, eleven 409, no 500", mixed.filter((x) => x.status === 201).length === 1
+    && mixed.filter((x) => x.status === 409).length === 11 && (await activeInC(at("14:00", W(1)), at("14:30", W(1)))) === 1, mixed.map((x) => x.status).join(","));
+  const blockRace = await Promise.all([
+    ...Array.from({ length: 4 }, () => ownCreateC({ kind: "BLOCK", title: "סגור", startsAt: at("15:00", W(1)), durationMinutes: 30 })),
+    ...Array.from({ length: 4 }, () => subC({ serviceId: cutC, staffId: tal.id, startsAt: at("15:00", W(1)), name: "מרוץ", phone: phone() })),
+  ]);
+  ok("P10 a block racing public requests for one time → exactly one of the eight, seven 409", blockRace.filter((x) => x.status === 201).length === 1
+    && blockRace.filter((x) => x.status === 409).length === 7 && (await activeInC(at("15:00", W(1)), at("15:30", W(1)))) === 1, blockRace.map((x) => x.status).join(","));
+
+  // Approving re-checks the time under the lock: an overlap across lanes written before this rule is refused.
+  r = await subC({ serviceId: cutC, staffId: shir.id, startsAt: at("10:00", W(2)), name: "ממתינה", phone: phone() });
+  const pw = await reqAt(at("10:00", W(2)));
+  const oldGeneral = (await owner.appointment.create({ data: { businessId: bizC, kind: "INTERNAL", status: "CONFIRMED", title: "ישן", startsAt: new Date(at("10:00", W(2))), endsAt: new Date(at("10:30", W(2))), durationMinutes: 30, createdByActor: "OWNER", createdByUserId: userC, sourceChannel: "INBOX_WEB" } })).id;
+  const decideC = async (rid: number, action: string, aid: number) => routes.request.POST(ownC(`/api/appointments/booking/requests/${rid}`, { method: "POST", key: key(), body: { action, expectedVersion: (await owner.appointment.findUniqueOrThrow({ where: { id: aid } })).version } }), p({ id: String(rid) }));
+  r = await decideC(pw.rid, "approve", pw.aid);
+  ok("P11 approving a request that overlaps another lane → 409 SLOT_CONFLICT; the request still PENDING, the appointment PROPOSED", r.status === 409 && (await body(r))?.error === "SLOT_CONFLICT"
+    && (await n(`SELECT count(*)::int AS n FROM "BookingRequest" r JOIN "Appointment" a ON a.id = r."appointmentId" WHERE r.id = ${pw.rid} AND r.status = 'PENDING' AND a.status = 'PROPOSED'`)) === 1, String(r.status));
+  await owner.appointment.update({ where: { id: oldGeneral }, data: { status: "CANCELED", cancelReason: "OTHER" } });
+  r = await decideC(pw.rid, "approve", pw.aid);
+  ok("P11a …once that one is gone, the approval goes through (APPROVED, CONFIRMED)", r.status === 200
+    && (await n(`SELECT count(*)::int AS n FROM "BookingRequest" r JOIN "Appointment" a ON a.id = r."appointmentId" WHERE r.id = ${pw.rid} AND r.status = 'APPROVED' AND a.status = 'CONFIRMED'`)) === 1, String(r.status));
+
+  // The per-phone cap counts a phone's live AUTO bookings (the business's own setting: 2).
+  const autoAt = (hhmm: string, d: number, ph: string, k: string = key()) => subC({ serviceId: autoC, startsAt: at(hhmm, W(d)), name: "אוטומטי", phone: ph }, k);
+  const px = phone();
+  const kx1 = key();
+  const x1 = await autoAt("09:00", 3, px, kx1);
+  const x1b = await body(x1);
+  const x2 = await autoAt("11:00", 3, px);
+  const x2b = await body(x2);
+  cBefore = await apptsC();
+  const x3 = await autoAt("13:00", 3, px);
+  const x3b = await body(x3);
+  ok("P12 two AUTO bookings from one phone: CONFIRMED; the third → 429 REQUEST_LIMIT, nothing written (was unlimited)",
+    x1.status === 201 && x1b?.status === "CONFIRMED" && x2.status === 201 && x2b?.status === "CONFIRMED" && x3.status === 429 && x3b?.error === "REQUEST_LIMIT" && (await apptsC()) === cBefore,
+    `${x1.status} ${x2.status} ${x3.status}`);
+  r = await autoAt("09:00", 3, px, kx1);
+  ok("P13 the first booking sent again with its own key while at the cap → 200 replayed (not 429), nothing new", r.status === 200 && (await body(r))?.replayed === true && (await apptsC()) === cBefore);
+  const py = phone();
+  await subC({ serviceId: cutC, startsAt: at("09:00", W(4)), name: "ממתין", phone: py });
+  await subC({ serviceId: cutC, startsAt: at("09:30", W(4)), name: "ממתין", phone: py });
+  const y3 = await subC({ serviceId: cutC, startsAt: at("10:00", W(4)), name: "ממתין", phone: py });
+  const y3b = await body(y3);
+  ok("P14 the refusal reads the same whether the phone is at its cap through waiting requests or AUTO bookings — no count, no times, no phone",
+    y3.status === 429 && JSON.stringify(y3b) === JSON.stringify(x3b) && !JSON.stringify(x3b).includes(px.slice(2)) && !/\d{2}:\d{2}/.test(JSON.stringify(x3b)), JSON.stringify(x3b));
+  r = await routes.manage.POST(req("/api/public/booking/manage", { method: "POST", body: { token: x2b.manageToken, action: "cancel" } }));
+  const p15c = r.status;
+  r = await autoAt("13:00", 3, px);
+  ok("P15 a cancelled AUTO booking no longer counts: after the customer cancels one, the next → 201", p15c === 200 && r.status === 201, `${p15c} ${r.status}`);
+  const x1appt = await reqAt(at("09:00", W(3)));
+  const longAgo = new Date(Date.now() - 3 * 24 * 3600_000);
+  await owner.appointment.update({ where: { id: x1appt.aid }, data: { startsAt: longAgo, endsAt: new Date(longAgo.getTime() + 3600_000) } });
+  r = await autoAt("15:00", 3, px);
+  const p16a = r.status;
+  r = await autoAt("16:00", 3, px);
+  ok("P16 a past AUTO booking no longer counts (one live left → one more 201, then 429)", p16a === 201 && r.status === 429, `${p16a} ${r.status}`);
+  const pz = phone();
+  await subC({ serviceId: cutC, startsAt: at("11:00", W(4)), name: "החלטות", phone: pz });
+  const pzd = await reqAt(at("11:00", W(4)));
+  const pzDecline = await decideC(pzd.rid, "decline", pzd.aid);
+  await subC({ serviceId: cutC, startsAt: at("11:30", W(4)), name: "החלטות", phone: pz });
+  const pza = await reqAt(at("11:30", W(4)));
+  const pzApprove = await decideC(pza.rid, "approve", pza.aid);
+  const z1 = await autoAt("13:00", 4, pz), z2 = await autoAt("14:00", 4, pz), z3 = await autoAt("15:00", 4, pz);
+  ok("P17 a declined request and an owner-approved booking are not counted; two AUTO, then 429",
+    pzDecline.status === 200 && pzApprove.status === 200 && z1.status === 201 && z2.status === 201 && z3.status === 429, `${pzDecline.status} ${pzApprove.status} ${z1.status} ${z2.status} ${z3.status}`);
+  const pv = phone();
+  const burstAuto = await Promise.all(["11:00", "12:00", "13:00", "14:00", "15:00", "16:00"].map((t) => autoAt(t, 2, pv)));
+  ok("P18 six AUTO bookings from one phone at once (six free times) → exactly two 201, four 429 REQUEST_LIMIT", burstAuto.filter((x) => x.status === 201).length === 2
+    && burstAuto.filter((x) => x.status === 429).length === 4
+    && (await n(`SELECT count(*)::int AS n FROM "BookingRequest" WHERE "businessId" = ${bizC} AND "contactPhone" = '972${pv.slice(1)}'`)) === 2, burstAuto.map((x) => x.status).join(","));
+  // Isolation: px is at its cap in C; in business A (straight through the service, past the route's per-business
+  // ceiling that the sections above used up) the same phone books freely.
+  const { submitPublicRequest } = await import("@/lib/services/booking/public-booking.service");
+  const atCapInC = await autoAt("16:00", 4, px);
+  const inA = await submitPublicRequest(newId, { serviceId: color, startsAt: at("09:00", W(0)), name: "בעסק אחר", phone: px }, key()).then((x) => x.status, (e) => (e as { code?: string }).code);
+  ok("P19 isolation: the phone at its cap in C (429 there) books in business A (CONFIRMED)", atCapInC.status === 429 && inA === "CONFIRMED", `${atCapInC.status} ${inA}`);
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log(failures.map((f) => ` - ${f}`).join("\n")); process.exitCode = 1; }

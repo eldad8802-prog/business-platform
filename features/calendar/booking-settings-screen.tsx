@@ -310,13 +310,13 @@ export function BookingSettingsScreen() {
             <section className={s.panel} aria-labelledby="bk-limits">
               <h2 id="bk-limits">מגבלות</h2>
               <div className={s.bkRow}>
-                <label htmlFor="bk-cap">בקשות פתוחות לכל טלפון</label>
+                <label htmlFor="bk-cap">בקשות ותורים פתוחים לכל טלפון</label>
                 <select id="bk-cap" className={s.select} value={st.maxOpenRequestsPerPhone} disabled={busy} onChange={(e) => void save({ maxOpenRequestsPerPhone: Number(e.target.value) })}>
                   {Array.from({ length: data.platform.limits.maxOpenRequestsPerPhone }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
               </div>
               <p className={t.hint}>
-                מגבלות האבטחה של דוביז (לא ניתנות לשינוי): עד {data.platform.limits.maxOpenRequestsPerPhone} בקשות פתוחות לטלפון,
+                מגבלות האבטחה של דוביז (לא ניתנות לשינוי): עד {data.platform.limits.maxOpenRequestsPerPhone} בקשות ותורים פתוחים לטלפון,
                 {" "}{data.platform.limits.submitPerIpPerMinute} שליחות בדקה ו־{data.platform.limits.submitPerIpPerHour} בשעה מכל רשת,
                 {" "}ועד {data.platform.limits.submitPerBusinessPerHour} בקשות בשעה לעסק.
               </p>

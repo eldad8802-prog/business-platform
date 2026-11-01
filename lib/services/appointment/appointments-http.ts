@@ -5,8 +5,8 @@
  *   - the `appointments` flag: OFF ⇒ 404, as if the route did not exist (the feature is invisible, not forbidden);
  *   - writes carry an `Idempotency-Key` header (the service checks its form and age);
  *   - AppointmentServiceError ⇒ its status + a stable code; anything else ⇒ 500 with no detail.
- * The routes that predate milestone A (POST /api/appointments/[id], the conversation conversion) keep their own edge
- * and are not gated by this flag: switching it never changes them.
+ * The conversation conversion (a route that predates milestone A) keeps its own edge and is not gated by this flag.
+ * POST /api/appointments/[id], the other one, is retired (410, owner P0-1 2026-11-01).
  */
 import { NextResponse } from "next/server";
 

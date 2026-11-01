@@ -254,6 +254,26 @@ export type SubmitResult = {
 const whenLabel = (d: Date) =>
   new Intl.DateTimeFormat("he-IL", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Jerusalem" }).format(d);
 
+/**
+ * What counts against one phone's cap at this business (D11, extended P0-1 2026-11-01): its PENDING requests, and its
+ * self-booked AUTO bookings that still hold a future time (APPROVED with no deciding user — an owner's approval always
+ * records the owner — whose appointment is still active and not yet started). Cancelled, withdrawn, expired, declined
+ * and past bookings do not count. Read inside the caller's locked transaction, so concurrent submits from one phone
+ * are counted one after another.
+ */
+async function openForPhone(tx: Tx, businessId: number, phone: string | null, now: Date): Promise<number> {
+  const pending = await tx.bookingRequest.count({ where: { businessId, status: "PENDING", contactPhone: phone } });
+  const auto = await tx.bookingRequest.findMany({
+    where: { businessId, status: "APPROVED", decidedByUserId: null, contactPhone: phone },
+    select: { appointmentId: true },
+  });
+  if (auto.length === 0) return pending;
+  const live = await tx.appointment.count({
+    where: { businessId, id: { in: auto.map((r) => r.appointmentId) }, status: { in: ACTIVE }, startsAt: { gt: now } },
+  });
+  return pending + live;
+}
+
 /** Expire the business's pending requests that lapsed (D3) — inside the caller's locked transaction. */
 export async function expireDueRequests(tx: Tx, businessId: number, now: Date): Promise<number[]> {
   const due = await tx.bookingRequest.findMany({ where: { businessId, status: "PENDING", expiresAt: { lte: now } }, select: { id: true, appointmentId: true } });
@@ -357,8 +377,9 @@ export async function submitPublicRequest(
     // Lapsed requests release their time before anything is checked (the sweeper may not have run yet).
     await expireDueRequests(tx, businessId, now);
 
-    const open = await tx.bookingRequest.count({ where: { businessId, status: "PENDING", contactPhone: contact.phone } });
-    if (open >= effectiveOpenCap(settings.maxOpenRequestsPerPhone)) throw new AppointmentServiceError("REQUEST_LIMIT");
+    if ((await openForPhone(tx, businessId, contact.phone, now)) >= effectiveOpenCap(settings.maxOpenRequestsPerPhone)) {
+      throw new AppointmentServiceError("REQUEST_LIMIT");
+    }
 
     const catalog = await publicCatalog(tx, businessId);
     const svc = pickService(catalog, input.serviceId);

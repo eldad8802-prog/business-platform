@@ -139,6 +139,9 @@ export const EVENT_LABEL: Record<AppointmentEventType, string> = {
 
 export const ACTOR_LABEL: Record<string, string> = { OWNER_USER: "אתה", CUSTOMER: "הלקוח", SYSTEM: "המערכת" };
 
+/** A time block refused over existing appointments (owner decision P0-1: never laid over them, no "anyway"). */
+export const BLOCK_CONFLICT_TEXT = "אי אפשר לחסום את הזמן הזה: יש בו תורים קיימים. צריך להזיז או לבטל אותם קודם, ואז לחסום.";
+
 /** An API refusal in the owner's words. `details` is the API's own detail object, never shown raw. */
 export function errorText(code: string, status?: number): string {
   switch (code) {
