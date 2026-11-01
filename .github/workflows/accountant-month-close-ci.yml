@@ -33,6 +33,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "lib/reports/**"
+      - "ops/evidence/accountant-open-all-notices.sql"
       - "components/accountant/**"
       - "app/api/accountant/**"
       - "app/api/webhooks/resend/**"
@@ -298,6 +299,17 @@ jobs:
           done
           TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/acct_rollout?$TZQ"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_rollout?$TZQ"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/acct_rollout?$TZQ"             npx tsx .acct/rollout-battery.ts
+
+      - name: "Evidence file accountant-open-all-notices.sql runs read-only over the rollout lab (after the battery): 28 lines, no duplicate month, at most one open notice per month, in-app only"
+        run: |
+          set -euo pipefail
+          OUT="$(PGPASSWORD="$LAB_PASSWORD" PGOPTIONS="-c default_transaction_read_only=on" psql -X --no-psqlrc -v ON_ERROR_STOP=1 -At -F "|" -U lab_owner -d acct_rollout -f ops/evidence/accountant-open-all-notices.sql | grep -E "^[0-9]+[|]")"
+          echo "$OUT"
+          test "$(echo "$OUT" | wc -l)" -eq 28 || { echo "expected 28 lines"; exit 1; }
+          for n in 13 21 24 25; do
+            v="$(echo "$OUT" | awk -F'|' -v n="$n" '$1==n{print $3}')"
+            [ "$v" = "0" ] || { echo "check $n: expected 0, got $v"; exit 1; }
+          done
 
       - name: G5 M4 + M5 battery — the per-business send permission (master switch, withdrawn mid-way, isolation) and the one-time code on a new device (snapshot recipient, attempts, single use under concurrency, limits, one delivery only, revocation and expiry first, nothing secret in trail, answers or logs)
         run: |
