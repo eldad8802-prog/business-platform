@@ -27,6 +27,7 @@ import {
   APPROVAL_ONESHOT_NOT_BEFORE,
   APPROVAL_ONESHOT_PRIOR_SUBMISSIONS,
   APPROVAL_ONESHOT_URL,
+  customerVatNumberValid,
   resetApprovalOneshotForTests,
   runSandboxApprovalOneshot,
   type ApprovalOneshotDeps,
@@ -93,6 +94,7 @@ const DOC: DocumentSnapshot = {
 const PROFILE = { billingLegalName: "ITA Sandbox Test 9", billingBusinessKind: "AUTHORIZED_DEALER", billingTaxId: "123456782", billingAddress: "Test St 1", billingPhone: "0500000000", billingEmail: "t@example.test" };
 
 const RUN1 = { id: 1, billingDocumentId: 1, status: "SUBMITTED", errorCode: "AUTHORITY_OUTCOME_UNCERTAIN_AUTHENTICATION" };
+const RUN2 = { id: 2, billingDocumentId: 2, status: "REJECTED", errorCode: "ITA_432" };
 
 function harness(env: Record<string, string>, over: Partial<ApprovalOneshotDeps> = {}, afterStatus: { status: string; errorCode: string | null; allocationNumber: string | null } | null = { status: "APPROVED", errorCode: null, allocationNumber: "A123456789" }) {
   let issues = 0;
@@ -104,7 +106,7 @@ function harness(env: Record<string, string>, over: Partial<ApprovalOneshotDeps>
     loadCustomer: async () => ({ taxId: "987654321", taxIdType: "AUTHORIZED_DEALER" }),
     loadProfile: async () => PROFILE,
     loadConnection: async () => ({ id: 2, status: "CONNECTED", accessTokenPresent: true, accessTokenExpiresAt: new Date(Date.now() + 60 * 60_000), oauthAuthorizedAt: new Date() }),
-    listSubmissions: async () => [{ ...RUN1 }],
+    listSubmissions: async () => [{ ...RUN1 }, { ...RUN2 }],
     loadSubmission: async () => (issues > 0 && afterStatus ? { ...afterStatus, retryCount: 0 } : null),
     issue: async () => {
       docStatus = "ISSUED";
@@ -196,11 +198,26 @@ async function oneshotTests(env: Record<string, string>) {
   await refused("no OAuth timestamp", { loadConnection: conn(null) }, "OAUTH_NOT_IN_WINDOW");
   await refused("document 1 pinned (run-1 document stays blocked)", { pinned: { ...PIN, documentId: "1" } }, "DOCUMENT_BLOCKED");
   await refused("no prior submission (run 1 missing)", { listSubmissions: async () => [] }, "PRIOR_SUBMISSIONS_MISMATCH");
-  await refused("an extra submission exists", { listSubmissions: async () => [{ ...RUN1 }, { id: 2, billingDocumentId: 77, status: "READY", errorCode: null }] }, "PRIOR_SUBMISSIONS_MISMATCH");
-  await refused("run-1 submission changed status", { listSubmissions: async () => [{ ...RUN1, status: "FAILED" }] }, "PRIOR_SUBMISSIONS_MISMATCH");
-  await refused("run-1 submission changed code", { listSubmissions: async () => [{ ...RUN1, errorCode: "AUTHORITY_NOT_SENT_NETWORK" }] }, "PRIOR_SUBMISSIONS_MISMATCH");
-  await refused("other prior submission instead of run 1", { listSubmissions: async () => [{ ...RUN1, id: 3 }] }, "PRIOR_SUBMISSIONS_MISMATCH");
-  ok("C run-1 pin matches the lab record", JSON.stringify(APPROVAL_ONESHOT_PRIOR_SUBMISSIONS) === JSON.stringify([RUN1]));
+  await refused("an extra submission exists", { listSubmissions: async () => [{ ...RUN1 }, { ...RUN2 }, { id: 3, billingDocumentId: 77, status: "READY", errorCode: null }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("run-1 submission changed status", { listSubmissions: async () => [{ ...RUN1, status: "FAILED" }, { ...RUN2 }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("run-1 submission changed code", { listSubmissions: async () => [{ ...RUN1, errorCode: "AUTHORITY_NOT_SENT_NETWORK" }, { ...RUN2 }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("other prior submission instead of run 1", { listSubmissions: async () => [{ ...RUN1, id: 3 }, { ...RUN2 }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("run 2 missing", { listSubmissions: async () => [{ ...RUN1 }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("run-2 submission changed status", { listSubmissions: async () => [{ ...RUN1 }, { ...RUN2, status: "READY" }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("run-2 submission changed code", { listSubmissions: async () => [{ ...RUN1 }, { ...RUN2, errorCode: "ITA_431" }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("document 2 pinned (run-2 document stays blocked)", { pinned: { ...PIN, documentId: "2" } }, "DOCUMENT_BLOCKED");
+  ok("C run-1 + run-2 pins match the lab records", JSON.stringify(APPROVAL_ONESHOT_PRIOR_SUBMISSIONS) === JSON.stringify([RUN1, RUN2]));
+  // customer_vat_number boundaries (Invoices-v2.json: integer 10..999999999; no padding)
+  const cust = (taxId: string) => ({ loadCustomer: async () => ({ taxId, taxIdType: "AUTHORIZED_DEALER" }), mode: "preflight" as const });
+  for (const good of ["18", "10", "999999999", "777777715"]) {
+    resetApprovalOneshotForTests();
+    const h = harness(env, cust(good));
+    const r = await runSandboxApprovalOneshot(h.deps);
+    ok(`F customer ${good} accepted (preflight OK)`, r.outcome === "PREFLIGHT_OK", r.fuse);
+  }
+  for (const bad of ["9", "1000000000", "018", "0", "1 8", "18a", "", "-18", "1.8"]) await refused(`customer "${bad}"`, cust(bad), "CUSTOMER_TAX_ID");
+  await refused("issuer keeps 5..12 digits (18 refused)", { loadProfile: async () => ({ ...PROFILE, billingTaxId: "18" }) }, "ISSUER_IDENTITY");
+  ok("customerVatNumberValid: pure boundaries", customerVatNumberValid("10") && customerVatNumberValid("999999999") && !customerVatNumberValid("9") && !customerVatNumberValid("1000000000") && !customerVatNumberValid("018") && !customerVatNumberValid(null));
 
   {
     resetApprovalOneshotForTests();

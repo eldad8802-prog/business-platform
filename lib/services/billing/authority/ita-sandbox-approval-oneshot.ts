@@ -62,19 +62,21 @@ export const APPROVAL_ONESHOT_URL = `https://${AUTHORITY_EGRESS_APPROVAL_HOST}${
 export const APPROVAL_ONESHOT_BUSINESS_ID = 9;
 export const APPROVAL_ONESHOT_ACTOR_USER_ID = 2;
 export const APPROVAL_ONESHOT_CONNECTION_ID = 2;
-/** Run 1 (2026-11-01 10:11Z, HTTP 401): the only submission allowed to exist. Never re-sent. */
+/** Runs 1 and 2: the only submissions allowed to exist, in exactly these states. Never re-sent. */
 export const APPROVAL_ONESHOT_PRIOR_SUBMISSIONS: readonly PriorSubmission[] = [
   { id: 1, billingDocumentId: 1, status: "SUBMITTED", errorCode: "AUTHORITY_OUTCOME_UNCERTAIN_AUTHENTICATION" },
+  // Run 2 (2026-11-01 18:20Z): documented 400 rejection.
+  { id: 2, billingDocumentId: 2, status: "REJECTED", errorCode: "ITA_432" },
 ];
-const BLOCKED_DOCUMENT_IDS = [1];
+const BLOCKED_DOCUMENT_IDS = [1, 2];
 const MIN_TOKEN_VALIDITY_MS = 10 * 60_000;
 const ELIGIBLE_CUSTOMER_TAX_ID_TYPES = ["AUTHORIZED_DEALER", "LTD_COMPANY"];
 const ELIGIBLE_ISSUER_KINDS = ["AUTHORIZED_DEALER", "LTD_COMPANY"];
 /** Pinned at push. Placeholders refuse every call. */
-export const APPROVAL_ONESHOT_DOCUMENT_ID = "2";
-export const APPROVAL_ONESHOT_TICKET_SHA256 = "b54820259d88c594fafccfcdf81fdd1d45e76bf6cebb8ea04291a303f71fe277";
-export const APPROVAL_ONESHOT_NOT_BEFORE = "2026-11-01T18:02:30.234Z";
-export const APPROVAL_ONESHOT_NOT_AFTER = "2026-11-01T19:32:30.234Z";
+export const APPROVAL_ONESHOT_DOCUMENT_ID = "__DOCUMENT_ID__";
+export const APPROVAL_ONESHOT_TICKET_SHA256 = "__TICKET_SHA256__";
+export const APPROVAL_ONESHOT_NOT_BEFORE = "__NOT_BEFORE__";
+export const APPROVAL_ONESHOT_NOT_AFTER = "__NOT_AFTER__";
 
 export type ApprovalOneshotOutcome =
   | "APPROVED"
@@ -144,6 +146,11 @@ export function resetApprovalOneshotForTests(): void {
 }
 
 const digitsOnly = (v: string | null | undefined) => typeof v === "string" && /^\d{5,12}$/.test(v.trim());
+/**
+ * customer_vat_number per Invoices-v2.json: integer 10..999999999. Digits only, no leading
+ * zero (never padded), so the stored string is exactly the number sent. Issuer keeps digitsOnly.
+ */
+export const customerVatNumberValid = (v: string | null | undefined) => typeof v === "string" && /^[1-9]\d{1,8}$/.test(v.trim());
 
 function ticketMatches(ticket: string | null | undefined, expectedHex: string): boolean {
   if (typeof ticket !== "string" || !/^[0-9a-f]{64}$/.test(ticket) || !/^[0-9a-f]{64}$/.test(expectedHex)) return false;
@@ -244,7 +251,7 @@ export async function runSandboxApprovalOneshot(deps: ApprovalOneshotDeps = {}):
   if (doc.lineDescriptions.length === 0 || doc.lineDescriptions.some((t) => !t || t.length > 30)) return refuse("DOCUMENT_LINES");
   if (!doc.customerId) return refuse("DOCUMENT_NO_CUSTOMER");
   const customer = await d.loadCustomer(doc.customerId);
-  if (!customer || !digitsOnly(customer.taxId) || !ELIGIBLE_CUSTOMER_TAX_ID_TYPES.includes(customer.taxIdType ?? "")) return refuse("CUSTOMER_TAX_ID");
+  if (!customer || !customerVatNumberValid(customer.taxId) ||!ELIGIBLE_CUSTOMER_TAX_ID_TYPES.includes(customer.taxIdType ?? "")) return refuse("CUSTOMER_TAX_ID");
   const profile = await d.loadProfile();
   if (!profile || !isBillingIdentityComplete(profile as never) || !digitsOnly(profile.billingTaxId)) return refuse("ISSUER_IDENTITY");
   // The app's identity gate checks completeness only; a TAX_INVOICE test must
