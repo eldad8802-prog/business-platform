@@ -1,4 +1,4 @@
--- Read-only Production evidence (#36423501, before the PR #907 merge decision):
+-- Read-only Production evidence (#36423501), needed before the PR #907 decision:
 -- every BillingAuthorityConnection and BillingAuthorityApp, BOTH environments, by status,
 -- with token presence only. Counts / booleans / PASS-FAIL only (evidence-output-guard):
 -- no ids, no business ids, no timestamps, no secret material, nothing decrypted.
