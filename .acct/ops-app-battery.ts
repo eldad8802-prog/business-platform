@@ -524,7 +524,7 @@ async function main() {
   r = await run(later);
   ok("11b-a 40 days on: the uncertain send, the stuck send, the failing month, the stuck build — all still open",
     (await stillOpen(U.b, "SEND_UNCERTAIN")) && (await stillOpen(S.b, "SEND_STUCK")) && (await stillOpen(H.b, "PREPARATION_FAILED")) && (await stillOpen(K.b, "PREPARATION_STUCK")));
-  ok("11b-b the month never prepared (2026-09) is still open after the months rolled over", (await bizAlerts(V.b)).some((a) => a.subjectKey === `p:${KEY}` && a.resolvedAt === null));
+  ok("11b-b the month never prepared (the closed month) is still open after the months rolled over", (await bizAlerts(V.b)).some((a) => a.subjectKey === `p:${KEY}` && a.resolvedAt === null));
   ok("11b-c the silent webhook past its 72 h window, still no event → still open", await stillOpen(W.b, "WEBHOOK_SILENT"));
   ok("11b-d the 40-day-old complaint, nothing done → still open", await stillOpen(C.b, "DELIVERY_COMPLAINED"));
   ok("11b-e nothing closed by age: no 'resolved' line in this run's email", !(alertCalls().slice(before).map((c) => c.text).join("\n").match(/^נפתר · /gm)));
