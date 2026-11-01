@@ -1,0 +1,97 @@
+# Shared security lab — Production's privilege model rebuilt from EVERY migration of the PR (ephemeral PG17).
+#
+#   1. scripts/security-lab/build-lab.sh: non-superuser BYPASSRLS owner, the NOLOGIN group roles created before the first
+#      migration (no `IF EXISTS (… pg_roles …)` branch is skipped), Production's default privileges, one LOGIN role
+#      per group; all migrations applied with psql in order. No `db push`, no blanket grants.
+#   2. The privilege model (scripts/security-lab/privilege-model.sql) of that lab must equal the committed baseline
+#      ops/security/privilege-model.baseline.txt line for line. A PR that changes a privilege, a policy, an RLS flag
+#      or a SECURITY DEFINER function therefore shows the change as a readable diff of that file.
+#   3. ops/evidence/privilege-model-production-assert.sql is regenerated from the baseline and must be current; run on
+#      the lab it is PASS in every section — the same file compares Production (prod-readonly-evidence.yml).
+#   4. Both evidence guards (static write-keyword guard, output guard) accept the Production file.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: security lab — privilege model (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/**"
+      - "scripts/security-lab/**"
+      - "ops/security/**"
+      - "ops/evidence/privilege-model-production-assert.sql"
+      - ".github/workflows/security-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: security lab (PG17, every migration, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: seclab_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: seclab_ci_synthetic_super_pw
+      LAB_PASSWORD: seclab_ci_synthetic_role_pw
+      BASELINE: ops/security/privilege-model.baseline.txt
+      PROD_ASSERT: ops/evidence/privilege-model-production-assert.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Build the lab from every migration
+        run: bash scripts/security-lab/build-lab.sh seclab
+
+      - name: 2. The lab's privilege model equals the committed baseline
+        run: |
+          set -euo pipefail
+          { cat scripts/security-lab/privilege-model.sql; echo 'SELECT line FROM model ORDER BY line COLLATE "C";'; } > /tmp/pm.sql
+          PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -q -v ON_ERROR_STOP=1 -U lab_owner -d seclab -f /tmp/pm.sql > /tmp/pm-lab.txt
+          if ! diff -u "$BASELINE" /tmp/pm-lab.txt > /tmp/pm.diff; then
+            echo "::error::The migrations change the privilege model. Review the diff below; if it is intended, replace $BASELINE with the lab's model and regenerate $PROD_ASSERT (scripts/security-lab/README.md)."
+            cat /tmp/pm.diff
+            exit 1
+          fi
+          echo "privilege model = baseline ($(wc -l < "$BASELINE") lines)"
+
+      - name: 3. The Production assert file is current and PASS on the lab
+        run: |
+          set -euo pipefail
+          node scripts/security-lab/gen-production-assert.mjs "$BASELINE" --check
+          PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -q -v ON_ERROR_STOP=1 -F '|' -U lab_owner -d seclab -f "$PROD_ASSERT" > /tmp/assert.txt
+          cat /tmp/assert.txt
+          if grep -q 'FAIL' /tmp/assert.txt; then echo "::error::the lab does not match its own baseline"; exit 1; fi
+
+      - name: 4. The Production file passes both evidence guards
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          if grep -inE "$FORBIDDEN" "$PROD_ASSERT"; then echo "::error::write keyword in $PROD_ASSERT"; exit 1; fi
+          grep -q "'$PROD_ASSERT'" .github/workflows/prod-readonly-evidence.yml || { echo "::error::$PROD_ASSERT is not selectable in prod-readonly-evidence.yml"; exit 1; }
+          node scripts/ci/evidence-output-guard.mjs
