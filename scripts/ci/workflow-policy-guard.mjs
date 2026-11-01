@@ -20,6 +20,13 @@
  *         `knowledge-derive`. Every job bound to an environment can read ALL of its secrets, so a
  *         shared environment would silently hand one credential's authority to the other's jobs.
  *         (A bound secret with no environment at all is WP-3's finding, not reported twice.)
+ *   WP-7  the trusted gate (Stage D, 2026-11-01). The check name `security/gate-trusted` is reserved
+ *         for security-gate-trusted.yml: any other workflow naming it could publish a green check under
+ *         it. That file keeps the one shape that makes it trustworthy: triggered by pull_request_target
+ *         only (GitHub runs it from main, never from the PR), top-level `permissions: contents: read`
+ *         and no job-level permissions, no secret, every checkout with `persist-credentials: false`,
+ *         no step run inside the PR's checkout (`working-directory: pr`), and the job named exactly
+ *         security/gate-trusted.
  *
  * EXEMPT lists are exact (a stale entry fails) and carry a reason. Peer-owned files are
  * exempted ONLY for the rules the peer must fix in its own PR; they are reported as residual.
@@ -253,6 +260,8 @@ function triggers(text) {
   return set;
 }
 
+export const TRUSTED_GATE_FILE = "security-gate-trusted.yml";
+
 export function checkWorkflowText(file, raw) {
   let doc;
   try {
@@ -290,6 +299,18 @@ export function checkWorkflowText(file, raw) {
   }
   if (holdsProdSecret && !ex("WP-5")) for (const t of ["push", "pull_request", "pull_request_target", "schedule", "workflow_run"]) if (trig.has(t)) out.push(["WP-5", `holds a production-capable secret but has a ${t} trigger`]);
   if (/contents:\s*write/.test(text)) out.push(["WP-5", "requests contents: write"]);
+  // WP-7 — the trusted gate. `text` has its comment lines removed, so the file headers may name it.
+  if (file !== TRUSTED_GATE_FILE && /security\/gate-trusted/.test(text)) out.push(["WP-7", `names the reserved check security/gate-trusted (only ${TRUSTED_GATE_FILE} may publish it)`]);
+  if (file === TRUSTED_GATE_FILE) {
+    if (!trig.has("pull_request_target") || trig.size !== 1) out.push(["WP-7", "the trusted gate must be triggered by pull_request_target only"]);
+    const perms = (text.match(/^permissions:[ \t]*\n((?:[ \t]+\S.*\n?)*)/m) || [])[1] ?? "";
+    if (perms.trim().replace(/\s+/g, " ") !== "contents: read" || /^\s{4,}permissions:/m.test(text)) out.push(["WP-7", "the trusted gate must hold exactly top-level permissions: contents: read, and no job-level permissions"]);
+    if (/\bsecrets\./.test(text)) out.push(["WP-7", "the trusted gate references a secret"]);
+    const checkouts = (text.match(/uses:\s*actions\/checkout@/g) || []).length;
+    if (checkouts !== (text.match(/persist-credentials:\s*false/g) || []).length) out.push(["WP-7", "every checkout in the trusted gate needs persist-credentials: false"]);
+    if (/working-directory:\s*\.?\/?pr\b/.test(text)) out.push(["WP-7", "the trusted gate runs a step inside the PR's checkout"]);
+    if (!/^\s+name:\s*security\/gate-trusted\s*$/m.test(text)) out.push(["WP-7", "the trusted gate's job must be named security/gate-trusted"]);
+  }
   if (/\bgit push\b/.test(text)) out.push(["WP-5", "runs git push"]);
   return out;
 }
@@ -344,7 +365,29 @@ function selfTest() {
     ["derive secret with no environment", derive.replace("    environment: knowledge-derive\n", ""), "WP-3"],
     ["knowledge-derive environment without main-only condition", derive.replace("    if: github.ref == 'refs/heads/main'\n", ""), "WP-4"],
   ];
+  // WP-7 — the trusted gate's shape, and the reserved name everywhere else.
+  const trusted = `on:\n  pull_request_target:\n    branches: [main]\npermissions:\n  contents: read\njobs:\n  trusted:\n    name: security/gate-trusted\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@${SHA} # v4\n        with:\n          path: trusted\n          persist-credentials: false\n      - uses: actions/checkout@${SHA} # v4\n        with:\n          path: pr\n          persist-credentials: false\n      - run: node trusted/scripts/ci/trusted-gate.mjs --trusted trusted --pr pr\n`;
+  const T = TRUSTED_GATE_FILE;
+  const trustedCases = [
+    ["WP-7: the compliant trusted gate", T, trusted, null],
+    ["WP-7: another workflow names security/gate-trusted (a lookalike check)", "spoof.yml", trusted.replace("pull_request_target", "pull_request"), "WP-7"],
+    ["WP-7: a status context security/gate-trusted posted from another workflow", "spoof2.yml", good.replace("run: echo", "run: gh api -f context=security/gate-trusted"), "WP-7"],
+    ["WP-7: the trusted gate on pull_request (would run the PR's version)", T, trusted.replace("pull_request_target", "pull_request"), "WP-7"],
+    ["WP-7: the trusted gate with a second trigger", T, trusted.replace("    branches: [main]\n", "    branches: [main]\n  workflow_dispatch:\n"), "WP-7"],
+    ["WP-7: the trusted gate with write permissions", T, trusted.replace("  contents: read\n", "  contents: read\n  statuses: write\n"), "WP-7"],
+    ["WP-7: the trusted gate with job-level permissions", T, trusted.replace("    runs-on: ubuntu-latest\n", "    runs-on: ubuntu-latest\n    permissions:\n      checks: write\n"), "WP-7"],
+    ["WP-7: the trusted gate reading a secret", T, trusted.replace("--pr pr\n", "--pr pr\n        env:\n          K: ${{ secrets.ANY_KEY }}\n"), "WP-7"],
+    ["WP-7: a checkout that keeps credentials", T, trusted.replace("          path: pr\n          persist-credentials: false\n", "          path: pr\n"), "WP-7"],
+    ["WP-7: a step run inside the PR's checkout", T, trusted.replace("      - run: node", "      - working-directory: pr\n        run: npm ci\n      - run: node"), "WP-7"],
+    ["WP-7: the job renamed", T, trusted.replace("name: security/gate-trusted", "name: security/gate"), "WP-7"],
+  ];
   let ok = true;
+  for (const [name, file, text, rule] of trustedCases) {
+    const got = checkWorkflowText(file, text);
+    const pass = rule ? got.some(([r]) => r === rule) : got.length === 0;
+    ok &&= pass;
+    console.log(`${pass ? "PASS" : "FAIL"}  self-test: ${name}${pass ? "" : ` -> ${JSON.stringify(got)}`}`);
+  }
   for (const [name, text, rule] of cases) {
     const got = checkWorkflowText("t.yml", text);
     const pass = rule ? got.some(([r]) => r === rule) : got.length === 0;
