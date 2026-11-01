@@ -6,6 +6,10 @@ import {
   BillingPdfRenderStatus,
   Prisma,
 } from "@prisma/client";
+import {
+  providerDiagnosticMetadata,
+  type ProviderDiagnostic,
+} from "@/lib/services/billing/authority/billing-authority-provider-diagnostic";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { createBillingAuditEventTx } from "@/lib/services/billing/billing-audit.service";
 import {
@@ -1588,6 +1592,8 @@ export type AuthorityOutcomeUncertainEvidence = {
    * printed on the invoice) — never logged, only stored here.
    */
   receivedAllocationNumber: string | null;
+  /** Sanitized gateway diagnostics of a received HTTP error (re-sanitized below). */
+  providerDiagnostic?: ProviderDiagnostic | null;
 };
 
 export type RecordAuthorityOutcomeUncertainTxInput = {
@@ -1626,6 +1632,7 @@ function sanitizeUncertainEvidence(
     providerErrorId: sanitizeDiagnosticToken(evidence.providerErrorId),
     transportCode: sanitizeDiagnosticToken(evidence.transportCode),
     receivedAllocationNumber: sanitizeDiagnosticToken(evidence.receivedAllocationNumber),
+    ...providerDiagnosticMetadata(evidence.providerDiagnostic),
   };
 }
 

@@ -21,8 +21,13 @@ import {
   resolveAuthorityEnvConfig,
 } from "@/lib/services/billing/authority/billing-authority-env.service";
 
-/** ITA example uses a literal scope value. */
-export const ITA_OAUTH_SCOPE = "scope" as const;
+/**
+ * Invoices v2 API definition (portal download, Invoices-v2.json): top-level
+ * security = oauth2 ["invoices_scope"], not overridden by the Approval
+ * operation. The older guide/examples' literal "scope" got a token that the
+ * Approval gateway rejected with 401.
+ */
+export const ITA_OAUTH_SCOPE = "invoices_scope" as const;
 export const ITA_OAUTH_RESPONSE_TYPE = "code" as const;
 
 export const AUTHORITY_OAUTH_COOKIE_NAMES = {

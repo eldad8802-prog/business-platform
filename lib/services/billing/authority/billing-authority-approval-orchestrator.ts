@@ -13,6 +13,7 @@
  * HTTP status codes are never exposed upward — callers see domain outcomes.
  */
 
+import type { ProviderDiagnostic } from "@/lib/services/billing/authority/billing-authority-provider-diagnostic";
 import type { BillingIssuedSnapshotV1 } from "@/lib/services/billing/pdf/billing-pdf-template";
 import type { InvoiceApprovalValidationErrorDetail } from "@/lib/services/billing/authority/billing-authority-approval.types";
 import {
@@ -72,6 +73,7 @@ export type ApprovalDomainResult =
       providerHttpStatus: number | null;
       providerErrorId: string | null;
       transportCode: string | null;
+      providerDiagnostic?: ProviderDiagnostic | null;
     };
 
 /** Injected collaborators — the only place both are referenced together. */
@@ -130,6 +132,7 @@ function mapClientResultToDomain(result: ApprovalClientResult): ApprovalDomainRe
         providerHttpStatus: result.httpStatus,
         providerErrorId: result.errorId,
         transportCode: result.transportCode,
+        providerDiagnostic: result.providerDiagnostic ?? null,
       };
     default: {
       // Exhaustiveness guard — all ApprovalClientResult kinds are handled above.

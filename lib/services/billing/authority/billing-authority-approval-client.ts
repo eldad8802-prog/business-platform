@@ -27,6 +27,7 @@ import type {
   ApprovalClientErrorClass,
   ApprovalClientResult,
 } from "@/lib/services/billing/authority/billing-authority-approval-client.types";
+import { extractProviderDiagnostic } from "@/lib/services/billing/authority/billing-authority-provider-diagnostic";
 
 export type SendInvoiceApprovalInput = {
   accessToken: string;
@@ -379,11 +380,16 @@ export async function sendInvoiceApproval(
           failureKind: "MALFORMED_BODY",
           sendCertainty: "POSSIBLY_SENT",
           transportCode: null,
+          providerDiagnostic: extractProviderDiagnostic(response.headers, null),
         };
       }
     }
 
-    return parseApprovalResponse(response.status, json);
+    const parsed = parseApprovalResponse(response.status, json);
+    if (parsed.kind === "infrastructure_error" && parsed.failureKind === "HTTP_STATUS") {
+      return { ...parsed, providerDiagnostic: extractProviderDiagnostic(response.headers, json) };
+    }
+    return parsed;
   } finally {
     clearTimeout(timer);
   }

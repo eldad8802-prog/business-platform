@@ -5,6 +5,7 @@
  * explicit results so a future Billing flow can decide what to do. Pure types.
  */
 
+import type { ProviderDiagnostic } from "@/lib/services/billing/authority/billing-authority-provider-diagnostic";
 import type {
   InvoiceApprovalSuccessResponse,
   InvoiceApprovalValidationErrorResponse,
@@ -112,4 +113,6 @@ export type ApprovalClientResult =
       sendCertainty: SendCertainty;
       /** Allowlisted transport error code (diagnostic only), else null. */
       transportCode: string | null;
+      /** Sanitized gateway diagnostics for a received HTTP error, else absent/null. */
+      providerDiagnostic?: ProviderDiagnostic | null;
     };

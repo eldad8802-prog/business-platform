@@ -577,6 +577,7 @@ export async function executeAuthorityApproval(
         providerHttpStatus: result.providerHttpStatus,
         providerErrorId: result.providerErrorId,
         transportCode: result.transportCode,
+        providerDiagnostic: result.providerDiagnostic ?? null,
       });
     }
     case "decision_required": {

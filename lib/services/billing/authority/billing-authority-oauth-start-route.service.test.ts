@@ -58,7 +58,7 @@ function fakeStart(capture?: (input: StartAuthorityOAuthInput) => void) {
     capture?.(input);
     const authorizationUrl =
       `https://openapi.taxes.gov.il/shaam/tsandbox/longtimetoken/oauth2/authorize` +
-      `?response_type=code&client_id=sandbox-client-id&scope=scope` +
+      `?response_type=code&client_id=sandbox-client-id&scope=invoices_scope` +
       `&redirect_uri=${encodeURIComponent(input.redirectBaseUrl + "/api/taxes/oauth/callback")}` +
       `&state=state-xyz`;
     return {
