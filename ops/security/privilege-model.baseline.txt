@@ -211,46 +211,46 @@ D|r|public|app_runtime|a
 D|r|public|app_runtime|d
 D|r|public|app_runtime|r
 D|r|public|app_runtime|w
-F|accountant_delivery_by_provider_message(p_provider text, p_message_id text)|owner=OWNER|config=search_path=pg_catalog, public
-F|accountant_erase_business()|owner=OWNER|config=search_path=pg_catalog, public
-F|accountant_link_resolve(p_public_id text, p_token_hash text)|owner=OWNER|config=search_path=pg_catalog, public
-F|appointment_erase_business()|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_email_token_check(p_token_id uuid, p_secret text, p_purpose text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_email_token_issue(p_user_id integer, p_purpose text, p_token_id uuid, p_token_hash text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_email_verify_consume(p_token_id uuid, p_secret text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_identity_attach(p_ticket_id uuid, p_user_id integer)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_identity_link(p_ticket_id uuid, p_user_id integer, p_proof text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_identity_resolve(p_provider text, p_subject text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_identity_status(p_user_id integer)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_identity_unlink(p_user_id integer)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_link_email_check(p_token_id uuid, p_secret text, p_ticket_secret text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_link_email_consume(p_token_id uuid, p_secret text, p_ticket_id uuid)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_link_email_issue(p_ticket_secret text, p_token_id uuid, p_token_hash text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_ticket_cancel(p_secret text, p_purpose text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_ticket_consume(p_secret text, p_purpose text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_ticket_issue(p_purpose text, p_provider text, p_subject text, p_email text, p_name text, p_email_verified boolean, p_secret_hash text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_ticket_purge()|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_oauth_ticket_read(p_secret text, p_purpose text)|owner=OWNER|config=search_path=pg_catalog, public
-F|auth_password_reset_consume(p_token_id uuid, p_secret text, p_password_hash text)|owner=OWNER|config=search_path=pg_catalog, public
-F|booking_pending_due(p_now timestamp without time zone, p_limit integer)|owner=OWNER|config=search_path=pg_catalog, public
-F|booking_resolve_manage_token(p_token_hash text)|owner=OWNER|config=search_path=pg_catalog, public
-F|booking_resolve_public(p_public_id text)|owner=OWNER|config=search_path=pg_catalog, public
-F|content_variant_same_tenant()|owner=OWNER|config=search_path=public
-F|document_supplier_link_erase_business()|owner=OWNER|config=search_path=pg_catalog, public
-F|m6_acquisition_resolve_keyed(p_source_key text, p_public_id text, p_key_hash text)|owner=OWNER|config=search_path=pg_catalog, public
-F|m6_acquisition_resolve_public(p_source_key text, p_public_id text)|owner=OWNER|config=search_path=pg_catalog, public
-F|m6_acquisition_resolve_resource(p_source_key text, p_resource_id text)|owner=OWNER|config=search_path=pg_catalog, public
-F|m6_acquisition_tenants(p_source_key text)|owner=OWNER|config=search_path=pg_catalog, public
-F|sec_c_pos_api_key_lookup(p_key_hash text)|owner=OWNER|config=search_path=pg_catalog, public
-F|sec_c_whatsapp_business_by_phone_number_id(p_phone_number_id text)|owner=OWNER|config=search_path=pg_catalog, public
-F|task_reminders_due(p_now timestamp without time zone, p_limit integer)|owner=OWNER|config=search_path=pg_catalog, public
-F|task_retention_clear_event_digests()|owner=OWNER|config=search_path=pg_catalog, public
-F|task_retention_clear_source_identifiers()|owner=OWNER|config=search_path=pg_catalog, public
-F|task_retention_days(p_kind text)|owner=OWNER|config=search_path=pg_catalog, public
-F|task_retention_erase_business()|owner=OWNER|config=search_path=pg_catalog, public
-F|task_retention_purge_learning_events()|owner=OWNER|config=search_path=pg_catalog, public
-F|task_retention_purge_request_ledger()|owner=OWNER|config=search_path=pg_catalog, public
-F|task_retention_purge_source_state()|owner=OWNER|config=search_path=pg_catalog, public
+F|accountant_delivery_by_provider_message(p_provider text, p_message_id text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|accountant_erase_business()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|accountant_link_resolve(p_public_id text, p_token_hash text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|appointment_erase_business()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_email_token_check(p_token_id uuid, p_secret text, p_purpose text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_email_token_issue(p_user_id integer, p_purpose text, p_token_id uuid, p_token_hash text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_email_verify_consume(p_token_id uuid, p_secret text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_identity_attach(p_ticket_id uuid, p_user_id integer)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_identity_link(p_ticket_id uuid, p_user_id integer, p_proof text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_identity_resolve(p_provider text, p_subject text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_identity_status(p_user_id integer)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_identity_unlink(p_user_id integer)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_link_email_check(p_token_id uuid, p_secret text, p_ticket_secret text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_link_email_consume(p_token_id uuid, p_secret text, p_ticket_id uuid)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_link_email_issue(p_ticket_secret text, p_token_id uuid, p_token_hash text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_ticket_cancel(p_secret text, p_purpose text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_ticket_consume(p_secret text, p_purpose text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_ticket_issue(p_purpose text, p_provider text, p_subject text, p_email text, p_name text, p_email_verified boolean, p_secret_hash text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_ticket_purge()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_oauth_ticket_read(p_secret text, p_purpose text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|auth_password_reset_consume(p_token_id uuid, p_secret text, p_password_hash text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|booking_pending_due(p_now timestamp without time zone, p_limit integer)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|booking_resolve_manage_token(p_token_hash text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|booking_resolve_public(p_public_id text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|content_variant_same_tenant()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|document_supplier_link_erase_business()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|m6_acquisition_resolve_keyed(p_source_key text, p_public_id text, p_key_hash text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|m6_acquisition_resolve_public(p_source_key text, p_public_id text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|m6_acquisition_resolve_resource(p_source_key text, p_resource_id text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|m6_acquisition_tenants(p_source_key text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|sec_c_pos_api_key_lookup(p_key_hash text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|sec_c_whatsapp_business_by_phone_number_id(p_phone_number_id text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|task_reminders_due(p_now timestamp without time zone, p_limit integer)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|task_retention_clear_event_digests()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|task_retention_clear_source_identifiers()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|task_retention_days(p_kind text)|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|task_retention_erase_business()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|task_retention_purge_learning_events()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|task_retention_purge_request_ledger()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
+F|task_retention_purge_source_state()|owner=OWNER|config=search_path=pg_catalog, public, pg_temp
 G|AccountantBusinessAlert|app_admin|r
 G|AccountantBusinessAlert|app_runtime|a
 G|AccountantBusinessAlert|app_runtime|r
@@ -1931,7 +1931,6 @@ X|booking_pending_due(p_now timestamp without time zone, p_limit integer)|app_ru
 X|booking_resolve_manage_token(p_token_hash text)|app_runtime
 X|booking_resolve_public(p_public_id text)|app_runtime
 X|content_event_same_tenant()|PUBLIC
-X|content_variant_same_tenant()|PUBLIC
 X|document_supplier_link_erase_business()|app_runtime
 X|intake_event_m3_fill()|PUBLIC
 X|m6_acquisition_resolve_keyed(p_source_key text, p_public_id text, p_key_hash text)|app_runtime
