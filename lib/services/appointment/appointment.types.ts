@@ -7,7 +7,6 @@
 
 import type {
   Appointment,
-  AppointmentCancelReason,
   AppointmentStatus,
   CreatedByActor,
   SourceChannel,
@@ -37,9 +36,11 @@ export type AppointmentLinks = {
   businessServiceId?: number | null;
 };
 
-/** Optional schedulable details. MVP keeps all nullable (no NLU parsing). */
+/**
+ * Optional details of an UNTIMED appointment. There is no start time here (P0-2): a time is set only through
+ * appointment-schedule.service (createAppointment / moveAppointment), under the per-business lock.
+ */
 export type AppointmentDetails = {
-  startsAt?: Date | null;
   durationMinutes?: number | null;
   title?: string | null;
   notes?: string | null;
@@ -60,25 +61,6 @@ export type CreateFromPendingInput = {
   actor: ActorContext;
   /** Set only when the owner selected a service. The pending hint is not parsed. */
   businessServiceId?: number | null;
-};
-
-/** Lifecycle / reschedule operation inputs. */
-export type LifecycleInput = {
-  appointmentId: number;
-  businessId: number;
-  actor: ActorContext;
-};
-
-export type CancelInput = LifecycleInput & {
-  /** Optional free-text reason, appended to notes (as before milestone A). */
-  reason?: string | null;
-  /** The closed reason (milestone A). Defaults to OWNER_CANCELED for an OWNER, OTHER otherwise. */
-  cancelReason?: AppointmentCancelReason | null;
-};
-
-export type RescheduleInput = LifecycleInput & {
-  startsAt: Date;
-  durationMinutes?: number | null;
 };
 
 /** Business-level outcomes — returned, never thrown. */

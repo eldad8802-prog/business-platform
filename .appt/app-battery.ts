@@ -16,9 +16,9 @@
  *      only, every change journalled with the owner as the actor.
  *   G. Reads and isolation: the range, a staff lane, the other business sees nothing and gets 404 for a foreign id.
  *   H. Free slots respect hours, the exception, buffers and busy time.
- *   I. The paths that predate milestone A: create without a time, conversion of a conversation's pending request,
- *      the old reschedule — unchanged, now journalled; a timed row refused by the old reschedule; the old POST route
- *      retired (410, P0-1).
+ *   I. The paths that predate milestone A: create without a time, conversion of a conversation's pending request —
+ *      unchanged, now journalled; the old POST route retired (410, P0-1); the lock-less reschedule / lifecycle
+ *      wrappers removed and the old create unable to write a time (P0-2).
  *   J. Learning: the appointment evidence loader reads customer appointments only.
  *   K. Decision 6: a CUSTOMER or SYSTEM action carries no user anywhere; an OWNER action always does.
  *   L. A failed journal write (lab fault trigger) undoes the whole change — a status change, and the conversion that
@@ -28,6 +28,8 @@
  *      free slots, confirm, concurrency), a business-wide block is refused over appointments (nothing written), staff
  *      run in parallel, a cancelled appointment frees its time; a cancel reason never breaks the 4000 notes rule
  *      (no 500); the retired POST /api/appointments/[id] writes nothing, for anyone.
+ *   N. P0-2 (owner, 2026-11-01): ops/evidence/appointments-cross-lane-overlaps.sql — the read-only count of historical
+ *      cross-lane overlaps, prepared for Production and not run there — counts exactly a known set laid by the owner.
  *
  * env: OWNER_URL, DATABASE_URL (runtime). Everything else is set below. Synthetic only.
  */
@@ -366,16 +368,18 @@ async function main() {
   ok("I3 …the pending request is cleared and a BOOKING demand signal written (P1 unchanged)",
     (await n(`SELECT count(*)::int AS n FROM "Conversation" WHERE id = ${conv.id} AND "pendingAppointmentRequest" IS NULL`)) === 1
     && converted.ok && (await n(`SELECT count(*)::int AS n FROM "OfferingDemandSignal" WHERE "appointmentId" = ${converted.appointment.id}`)) === 1);
-  const resched = untimed.ok ? await legacy.reschedule({ appointmentId: untimed.appointment.id, businessId: bizA, actor: ownerCtx, startsAt: new Date(at("09:00")), durationMinutes: 30 }) : null;
-  ok("I4 the old reschedule still moves an untimed appointment (and leaves it untimed)", !!resched?.ok && resched.appointment.endsAt === null);
-  const refusedOld = await legacy.reschedule({ appointmentId: c6, businessId: bizA, actor: ownerCtx, startsAt: new Date(at("09:00")) });
-  ok("I5 the old reschedule refuses a timed appointment (it would bypass the overlap check)", !refusedOld.ok && refusedOld.reason === "invalid_input");
+  // P0-2: the lock-less wrappers are gone, and the old create cannot write a time even when an old caller passes one.
+  const gone = ["reschedule", "confirm", "complete", "markNoShow", "cancel"].filter((k) => k in legacy);
+  ok("I4 P0-2: the old reschedule / confirm / complete / markNoShow / cancel no longer exist (no lock-less time or status write)", gone.length === 0, gone.join(","));
+  const smuggled = await legacy.create({ businessId: bizA, actor: ownerCtx, details: { title: "שעה מוברחת", startsAt: new Date(at("09:00")), endsAt: new Date(at("09:30")) } as never });
+  ok("I5 P0-2: the old create given a start and an end anyway → still untimed (no start, no end; occupies nothing)",
+    smuggled.ok && smuggled.appointment.startsAt === null && smuggled.appointment.endsAt === null);
   r = untimed.ok ? await routes.one.POST(req(`/api/appointments/${untimed.appointment.id}`, { method: "POST", body: { action: "cancel", reason: "ביטול טלפוני" } }), p({ id: String(untimed.appointment.id) })) : new Response(null, { status: 599 });
   const cx = await body(r);
   ok("I6 the retired POST route (P0-1): 410, the appointment not cancelled, no reason written", r.status === 410 && cx?.code === "ENDPOINT_RETIRED"
     && untimed.ok && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id = ${untimed.appointment.id} AND status = 'PROPOSED' AND "cancelReason" IS NULL AND notes IS NULL`)) === 1);
-  ok("I7 every remaining old path journalled: created ×2, rescheduled — each by the owner",
-    untimed.ok && converted.ok && (await n(`SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "appointmentId" IN (${untimed.appointment.id}, ${converted.appointment.id}) AND actor = 'OWNER_USER' AND "actorUserId" = ${userA}`)) === 3);
+  ok("I7 every remaining old path journalled: created ×2 — each by the owner",
+    untimed.ok && converted.ok && (await n(`SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "appointmentId" IN (${untimed.appointment.id}, ${converted.appointment.id}) AND actor = 'OWNER_USER' AND "actorUserId" = ${userA}`)) === 2);
 
   // ── J. Learning ────────────────────────────────────────────────────────────────────────────────
   console.log("J. learning");
@@ -587,6 +591,58 @@ async function main() {
     && (await snap(b1)) === snapB1 && (await eventsA()) === ev2);
   r = await routes.one.GET(req(`/api/appointments/${b1}`), p({ id: String(b1) }));
   ok("M19b GET on the same path still answers (200)", r.status === 200, String(r.status));
+
+  // ── N. P0-2: the historical cross-lane overlap query (ops/evidence, prepared for Production, NOT run there) ────────
+  // Rows that predate P0-1 can hold a cross-lane overlap. The owner (bypassing the application, as such old rows were
+  // written) lays a known set in a fresh business; the evidence file itself, read as shipped, is run in a READ ONLY
+  // transaction before and after, and must count exactly the forbidden pairs — buffers widen, touching does not
+  // overlap, cancelled / completed / untimed rows occupy nothing, two staff members in parallel are allowed.
+  console.log("N. historical overlap query");
+  const { readFileSync } = await import("node:fs");
+  const evidence = readFileSync("ops/evidence/appointments-cross-lane-overlaps.sql", "utf8");
+  const stmt = evidence.slice(evidence.indexOf("BEGIN TRANSACTION READ ONLY;") + "BEGIN TRANSACTION READ ONLY;".length, evidence.lastIndexOf("ROLLBACK;"))
+    .replace(/^SET LOCAL[^\n]*\n/m, "");
+  const runEvidence = async () => {
+    const rows = await owner.$transaction(async (t) => {
+      await t.$executeRawUnsafe("SET TRANSACTION READ ONLY");
+      return (await t.$queryRawUnsafe(stmt)) as { n: number; flag: boolean | null; observed_count: bigint | null }[];
+    });
+    return Object.fromEntries(rows.map((x) => [Number(x.n), Number(x.n) === 8 ? x.flag : Number(x.observed_count)])) as Record<number, number | boolean | null>;
+  };
+  const before = await runEvidence();
+  const bizD = (await owner.business.create({ data: { name: `${tag}-D` } })).id;
+  const userD = (await owner.user.create({ data: { email: `${tag}-d@lab.test`, password: "x", businessId: bizD } })).id;
+  const sx = (await owner.staffMember.create({ data: { businessId: bizD, displayName: "X" } })).id;
+  const sy = (await owner.staffMember.create({ data: { businessId: bizD, displayName: "Y" } })).id;
+  const FUT = addCalendarDays(SUN, 60);
+  const PAST = addCalendarDays(jerusalemDayKey(new Date()), -5);
+  const lay = (staff: number | null, from: string, to: string | null, o: { day?: string; status?: "PROPOSED" | "CONFIRMED" | "CANCELED" | "COMPLETED"; kind?: "INTERNAL" | "BLOCK" | "CUSTOMER"; after?: number } = {}) =>
+    owner.appointment.create({ data: {
+      businessId: bizD, kind: o.kind ?? "INTERNAL", status: o.status ?? "CONFIRMED", title: "n", staffMemberId: staff,
+      startsAt: new Date(at(from, o.day ?? FUT)), endsAt: to ? new Date(at(to, o.day ?? FUT)) : null, bufferAfterMinutes: o.after ?? 0,
+      createdByActor: "OWNER", createdByUserId: userD, sourceChannel: "INBOX_WEB",
+      ...(o.status === "CANCELED" ? { cancelReason: "OTHER" as const } : {}),
+    } });
+  await lay(null, "10:00", "11:00"); await lay(sx, "10:30", "11:30");                                 // forbidden 1
+  await lay(null, "12:00", "13:00", { kind: "BLOCK", status: "PROPOSED" }); await lay(sy, "12:00", "12:30", { status: "PROPOSED" }); // forbidden 2
+  await lay(sx, "14:00", "15:00"); await lay(sy, "14:00", "15:00");                                   // parallel (allowed)
+  await lay(null, "16:00", "16:30", { after: 15 }); await lay(sx, "16:30", "17:00");                  // forbidden 3, by the buffer only
+  await lay(null, "18:00", "18:30"); await lay(sx, "18:30", "19:00");                                 // touching: no overlap
+  await lay(null, "20:00", "21:00", { status: "CANCELED" }); await lay(sx, "20:00", "21:00");         // cancelled: nothing
+  await lay(null, "22:00", null, { status: "PROPOSED", kind: "CUSTOMER" }); await lay(sy, "22:00", "23:00");            // untimed: nothing
+  await lay(null, "08:00", "09:00", { status: "COMPLETED" }); await lay(sx, "08:00", "09:00");        // completed: nothing
+  await lay(null, "10:00", "11:00", { day: PAST }); await lay(sy, "10:00", "11:00", { day: PAST });   // forbidden 4, in the past
+  const after = await runEvidence();
+  const d = (k: number) => (after[k] as number) - (before[k] as number);
+  const in9 = bizD === 9 ? 4 : 0;
+  ok("N1 the evidence query counts exactly the four forbidden pairs (general/block over staff, by buffer, past included)", d(1) === 4, `${d(1)}`);
+  ok("N2 …three of them still ahead (the past pair is not)", d(2) === 3, `${d(2)}`);
+  ok("N3 …one more business with a forbidden pair; business 9 vs the rest split correctly", d(3) === 1 && d(4) === in9 && d(5) === 4 - in9, `${d(3)} ${d(4)} ${d(5)}`);
+  ok("N4 touching, cancelled, completed and untimed rows are not counted; same-lane stays 0 (the constraint)", d(6) === 0 && (after[6] as number) === 0);
+  ok("N5 two different staff members in parallel are allowed, counted apart", d(7) === 1, `${d(7)}`);
+  ok("N6 the PASS flag turns false once a forbidden pair exists", after[8] === false);
+  ok("N7 the query is read-only: it ran inside a READ ONLY transaction, and the rows are unchanged",
+    (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizD}`)) === 18);
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log(failures.map((f) => ` - ${f}`).join("\n")); process.exitCode = 1; }
