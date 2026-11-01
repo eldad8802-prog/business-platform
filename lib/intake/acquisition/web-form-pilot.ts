@@ -152,7 +152,6 @@ type Resolve = (publicId: string) => Promise<{ businessId: number } | null>;
 
 export type PilotDeps = {
   resolve: Resolve;
-  authorize?: (req: Request) => Promise<PlatformAdminUser | NextResponse>;
   now?: () => number;
 };
 
@@ -164,14 +163,12 @@ async function isPilotConnection(resolve: Resolve, publicId: string): Promise<bo
 }
 
 /**
- * POST /api/platform-admin/web-form-pilot/pass  {publicId}
- * 401/403 from the canonical guard; 404 unless the publicId is a live business-9 website connection;
+ * POST /api/platform-admin/web-form-pilot/pass  {publicId} — called by the route AFTER the canonical
+ * guard (401/403 never reach here). 404 unless the publicId is a live business-9 website connection;
  * 200 {url} with the pass cookie. The url carries a fresh submission id — open the SAME url again to
  * resubmit with the same id.
  */
-export async function handlePilotPass(req: Request, deps: PilotDeps & { authorize: NonNullable<PilotDeps["authorize"]> }): Promise<NextResponse> {
-  const admin = await deps.authorize(req);
-  if (admin instanceof NextResponse) return admin;
+export async function handlePilotPass(req: Request, admin: PlatformAdminUser, deps: PilotDeps): Promise<NextResponse> {
   let publicId: unknown;
   try {
     publicId = ((await req.json()) as { publicId?: unknown })?.publicId;

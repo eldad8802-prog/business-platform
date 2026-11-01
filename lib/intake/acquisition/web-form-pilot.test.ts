@@ -11,7 +11,6 @@
  */
 import { readFileSync } from "node:fs";
 import { createHmac } from "node:crypto";
-import { NextResponse } from "next/server";
 import { webFormSnippet } from "./web-form-snippet";
 import {
   handlePilotPage,
@@ -57,9 +56,6 @@ function resolver(table: Record<string, Conn>, calls: string[] = []) {
 const throwing = async () => {
   throw new Error("db down");
 };
-const allow = async () => ADMIN;
-const deny401 = async () => NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-const deny403 = async () => NextResponse.json({ error: "Forbidden", code: "ADMIN_MFA_REQUIRED" }, { status: 403 });
 
 function passReq(body: unknown, raw = false): Request {
   return new Request(`${ORIGIN}/api/platform-admin/web-form-pilot/pass`, {
@@ -104,16 +100,7 @@ async function main() {
   const live = { [PID]: { businessId: PILOT_BUSINESS_ID }, [OTHER_PID]: { businessId: 38 } };
   check("the pilot business is 9", PILOT_BUSINESS_ID === 9);
   {
-    const calls: string[] = [];
-    const r401 = await handlePilotPass(passReq({ publicId: PID }), { authorize: deny401, resolve: resolver(live, calls) });
-    const r403 = await handlePilotPass(passReq({ publicId: PID }), { authorize: deny403, resolve: resolver(live, calls) });
-    check("not signed in → 401 from the canonical guard", r401.status === 401);
-    check("no MFA elevation → 403 ADMIN_MFA_REQUIRED (step-up)", r403.status === 403 && (await r403.json()).code === "ADMIN_MFA_REQUIRED");
-    check("refused callers never reach the resolver", calls.length === 0);
-    check("refused callers get no cookie", !r401.headers.get("set-cookie") && !r403.headers.get("set-cookie"));
-  }
-  {
-    const r = await handlePilotPass(passReq({ publicId: PID }), { authorize: allow, resolve: resolver(live), now: () => T0 });
+    const r = await handlePilotPass(passReq({ publicId: PID }), ADMIN, { resolve: resolver(live), now: () => T0 });
     const json = (await r.json()) as { url: string; expiresInSeconds: number };
     const cookie = r.headers.get("set-cookie") ?? "";
     check("admin + live business-9 connection → 200", r.status === 200);
@@ -128,7 +115,7 @@ async function main() {
   }
   {
     const statusFor = async (body: unknown, resolve = resolver(live), raw = false) =>
-      (await handlePilotPass(passReq(body, raw), { authorize: allow, resolve })).status;
+      (await handlePilotPass(passReq(body, raw), ADMIN, { resolve })).status;
     check("a business-38 connection → 404", (await statusFor({ publicId: OTHER_PID })) === 404);
     check("another business (12) → 404", (await statusFor({ publicId: PID }, resolver({ [PID]: { businessId: 12 } }))) === 404);
     check("unknown / paused / revoked connection (resolver: none) → 404", (await statusFor({ publicId: PID }, resolver({}))) === 404);
@@ -198,12 +185,53 @@ async function main() {
   check("no business id other than the heading's 9", !/\b38\b/.test(html));
   check("renderPilotPage refuses a non-UUID sid", (() => { try { renderPilotPage(endpoint, `x" onfocus="alert(1)`); return false; } catch { return true; } })());
 
+  console.log("\n— the REAL pass route, through the REAL canonical guard (no database) —");
+  // If the guard let a request through, the route would reach the resolver, which has no database
+  // here and would answer 503 — so a 401 proves the guard refused BEFORE any lookup or cookie.
+  const { POST } = await import("@/app/api/platform-admin/web-form-pilot/pass/route");
+  const env = (vars: Record<string, string | undefined>) => {
+    for (const [k, v] of Object.entries(vars)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+  const forged = `Bearer ${Buffer.from(JSON.stringify({ sub: 9 })).toString("base64url")}.AAAA`;
+  for (const mfa of ["true", undefined]) {
+    env({ PLATFORM_ADMIN_MFA_REQUIRED: mfa, PLATFORM_ADMIN_EMAILS: "admin@example.com" });
+    const tag = mfa ? "MFA enforcement ON" : "MFA enforcement OFF";
+    const noToken = await POST(passReq({ publicId: PID }));
+    check(`route (${tag}): no session → 401`, noToken.status === 401, String(noToken.status));
+    check(`route (${tag}): no session → no pass cookie`, !noToken.headers.get("set-cookie"));
+    const bad = await POST(
+      new Request(`${ORIGIN}/api/platform-admin/web-form-pilot/pass`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: forged },
+        body: JSON.stringify({ publicId: PID }),
+      })
+    );
+    check(`route (${tag}): forged Bearer token → 401`, bad.status === 401, String(bad.status));
+    check(`route (${tag}): forged Bearer token → no pass cookie`, !bad.headers.get("set-cookie"));
+    const elevationOnly = await POST(
+      new Request(`${ORIGIN}/api/platform-admin/web-form-pilot/pass`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-elevation": "x.y" },
+        body: JSON.stringify({ publicId: PID }),
+      })
+    );
+    check(`route (${tag}): an elevation header without a session → 401`, elevationOnly.status === 401, String(elevationOnly.status));
+  }
+  env({ PLATFORM_ADMIN_MFA_REQUIRED: undefined, PLATFORM_ADMIN_EMAILS: undefined });
+
   console.log("\n— wiring (static) —");
   const pageRoute = readFileSync("app/lab/web-form-pilot/route.ts", "utf8");
   const passRoute = readFileSync("app/api/platform-admin/web-form-pilot/pass/route.ts", "utf8");
   const lib = readFileSync("lib/intake/acquisition/web-form-pilot.ts", "utf8");
   check("page route exports GET only", /export async function GET\(/.test(pageRoute) && !/export async function (POST|PUT|PATCH|DELETE)\(/.test(pageRoute));
-  check("pass route exports POST only, through the canonical admin guard", /export async function POST\(/.test(passRoute) && passRoute.includes("requirePlatformAdminOrResponse") && !/export async function (GET|PUT|PATCH|DELETE)\(/.test(passRoute));
+  check("pass route exports POST only", /export async function POST\(/.test(passRoute) && !/export async function (GET|PUT|PATCH|DELETE)\(/.test(passRoute));
+  check(
+    "pass route awaits the canonical admin guard (Bearer + allowlist + MFA) FIRST and returns a refusal before anything else",
+    /export async function POST\(req: Request\) \{\n  const admin = await requirePlatformAdminOrResponse\(req\);\n  if \(admin instanceof NextResponse\) return admin;\n  return handlePilotPass\(req, admin,/.test(passRoute.replace(/\r\n/g, "\n"))
+  );
   check("both routes resolve ONLY via the read-only public resolver", [pageRoute, passRoute].every((s) => s.includes("resolvePublicConnection(WEB_FORM_SOURCE") && !s.includes("@/lib/prisma")));
   check("the pilot module writes nothing (no prisma, no ingest)", !/@\/lib\/prisma|ingestAcquisition|acceptIntake|\$queryRaw|\$executeRaw|\.(create|createMany|upsert|delete|deleteMany|updateMany)\(/.test(lib));
   check("the pilot module never reads a businessId from the request", !/searchParams\.get\("business/.test(lib));
