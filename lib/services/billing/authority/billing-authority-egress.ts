@@ -394,6 +394,30 @@ export function runWithAuthorityRefreshAllowance<T>(fn: () => Promise<T>): Promi
   return refreshAllowanceScope.run({ refreshUsed: false }, fn);
 }
 
+/**
+ * Approval exception: exactly one POST to the SANDBOX Approval endpoint, only
+ * inside runWithAuthorityApprovalAllowance() — opened solely by the controlled
+ * one-shot Approval diagnostic. InvoiceDecision, validation and refresh stay
+ * refused inside it (a refresh needs its own, separately approved scope).
+ */
+export const AUTHORITY_EGRESS_APPROVAL_HOST = "ita-api.taxes.gov.il";
+export const AUTHORITY_EGRESS_APPROVAL_PATH = "/shaam/tsandbox/Invoices/v2/Approval";
+
+export type ApprovalAllowance = { approvalUsed: boolean };
+const approvalAllowanceScope = new AsyncLocalStorage<ApprovalAllowance>();
+
+/**
+ * Runs fn with permission for exactly one SANDBOX Approval POST. The caller may
+ * pass its own scope object and read `approvalUsed` afterwards to learn whether
+ * the request passed the block (i.e. was handed to the transport).
+ */
+export function runWithAuthorityApprovalAllowance<T>(
+  fn: () => Promise<T>,
+  scope: ApprovalAllowance = { approvalUsed: false }
+): Promise<T> {
+  return approvalAllowanceScope.run(scope, fn);
+}
+
 function grantTypeOf(body: unknown): string | null {
   if (typeof body === "string") return new URLSearchParams(body).get("grant_type");
   if (body instanceof URLSearchParams) return body.get("grant_type");
@@ -420,10 +444,23 @@ export function assertAuthorityOAuthCodeExchangeOnly(
       allowed = true;
     }
   }
+  const approvalRequest =
+    environment === "SANDBOX" &&
+    (init?.method ?? "GET").toUpperCase() === "POST" &&
+    destination.hostname === AUTHORITY_EGRESS_APPROVAL_HOST &&
+    destination.pathname === AUTHORITY_EGRESS_APPROVAL_PATH &&
+    !destination.search;
+  if (approvalRequest) {
+    const scope = approvalAllowanceScope.getStore();
+    if (scope && !scope.approvalUsed) {
+      scope.approvalUsed = true;
+      allowed = true;
+    }
+  }
   if (!allowed) {
     throw new AuthorityEgressError(
       AUTHORITY_EGRESS_ERROR_CODES.OPERATION_BLOCKED,
-      "only the SANDBOX authorization-code exchange (and one scoped refresh) is enabled"
+      "only the SANDBOX authorization-code exchange (and scoped one-shot operations) is enabled"
     );
   }
 }
