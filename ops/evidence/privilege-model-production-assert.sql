@@ -16,6 +16,7 @@ SET default_transaction_read_only = on;
 --   * only the group roles (app_runtime, app_auth, app_admin, app_ctlplane, task_maintenance) and PUBLIC count as
 --     grantees; a privilege held DIRECTLY by any other role (an environment's LOGIN role) is a section-L line;
 --   * functions owned by an extension, the migration ledger and provider objects are left out.
+-- (a superuser — the lab server's own, Neon's cloud_admin — is not counted in B: it bypasses everything by definition.)
 -- Sections: T table · P policy · G table privilege · C column privilege · S sequence privilege · F SECURITY DEFINER function ·
 --           X function EXECUTE · D owner default privilege · L privilege held directly by a non-group role · B BYPASSRLS role
 WITH
@@ -92,7 +93,7 @@ model(section, line) AS (
    WHERE pg_get_userbyid(d.defaclrole) = (SELECT name FROM owner) AND letter IN ('r', 'a', 'w', 'd', 'U', 'X')
   UNION ALL
   SELECT 'B', 'B|' || CASE WHEN r.rolname = (SELECT name FROM owner) THEN 'OWNER' ELSE r.rolname END
-    FROM pg_roles r WHERE r.rolbypassrls AND r.rolname !~ '^(pg_|cloud_admin|neon_service|neon_superuser|postgres)'
+    FROM pg_roles r WHERE r.rolbypassrls AND NOT r.rolsuper AND r.rolname !~ '^(pg_|cloud_admin|neon_service|neon_superuser|postgres)'
 )
 , extra(line) AS (VALUES ('G|BillingDocument|app_admin|r'), ('G|BusinessFeatureAccess|app_ctlplane|w'), ('G|Business|app_admin|r'), ('G|Business|app_ctlplane|r'), ('G|ContentRun|app_admin|r'), ('G|Conversation|app_admin|r'), ('G|Document|app_admin|r'), ('G|EmailConnection|app_admin|r'), ('G|ExtractionEvidence|app_admin|r'), ('G|ExtractionSnapshot|app_admin|r'), ('G|FinancialRecord|app_admin|r'), ('G|PlatformAuditEvent|app_admin|a'), ('G|PlatformFeaturePolicy|app_admin|r'), ('G|ReviewEvent|app_admin|r'), ('G|SliceDecision|app_admin|r'), ('G|WhatsAppAttachmentImport|app_admin|r'), ('S|PlatformAuditEvent_id_seq|app_admin|U'), ('S|PlatformAuditEvent_id_seq|app_admin|r'))
 , core AS (SELECT section, line FROM model WHERE line NOT IN (SELECT line FROM extra))
