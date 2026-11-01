@@ -117,6 +117,11 @@ jobs:
       - name: Evidence output guard (M-1)
         run: node scripts/ci/evidence-output-guard.mjs . --sql
 
+      # Stage D: the runner behind security/gate-trusted (security-gate-trusted.yml, pull_request_target, from
+      # main). Its self-test runs here too, so a PR that changes the runner proves its own version can fail.
+      - name: Trusted-gate runner self-test (Stage D)
+        run: node scripts/ci/trusted-gate.mjs --self-test
+
       # Money: no new sum that adds amounts of different currencies (docs/money/FINANCIAL-DATA-MODEL-AUDIT.md).
       # REPORT-ONLY on purpose (continue-on-error): security/gate is a required check, and turning
       # a new rule into a merge blocker is an owner decision, not something a feature PR decides.

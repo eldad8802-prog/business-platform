@@ -1,0 +1,83 @@
+# security/gate-trusted — main's static security guards over a PR, decided by main alone (Stage D, 2026-11-01).
+#
+# security/gate runs on `pull_request`, i.e. from the PR's own workflow and the PR's own guard scripts: a PR
+# that deletes a guard step, rewrites a guard or adds its violation to a ratchet still gets a green
+# security/gate. This workflow runs on `pull_request_target`, which GitHub always takes from main, so the PR
+# cannot change it. scripts/ci/trusted-gate.mjs (from main) runs main's guards, with main's ratchets,
+# allowlists, migrations-derived exceptions and tsconfig, over a copy of the PR's files — as DATA:
+#
+#   - NOTHING from the PR is executed: no npm / npx / prisma / build / test in the PR checkout (a schema
+#     generator is a command; package.json scripts are commands). Dependencies are installed from MAIN's
+#     lockfile with --ignore-scripts, and Prisma's types are generated from MAIN's schema, in the trusted
+#     checkout only.
+#   - no secret, no write permission: `contents: read`, both checkouts without persisted credentials.
+#   - not a replacement for security/gate: tests, labs and the build run PR code and stay on pull_request.
+#
+# The shape of this file is pinned by workflow-policy-guard WP-7 (pull_request_target only, contents: read,
+# no secret, persist-credentials: false, nothing run inside ./pr, job named security/gate-trusted), and the
+# check name is reserved for this file.
+#
+# NOT YET REQUIRED. It becomes a merge condition only when the owner adds it to a ruleset on main — after the
+# GitHub experiments (check attached to the PR head; a lookalike check from a PR workflow; see the Stage D
+# plan). If a lookalike is counted, a dedicated GitHub App step publishes the result (trusted-result.json)
+# as its own check and the ruleset pins that App; the runner does not change.
+
+name: security-gate-trusted
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-gate-trusted-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  trusted:
+    name: security/gate-trusted
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      # main: the commit this workflow came from — the guards, their policy, the lockfile, the schema.
+      - name: Checkout main (trusted)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          persist-credentials: false
+
+      # the PR head: data only. Never a working directory, never installed, never run.
+      - name: Checkout the PR head (data only)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      # No dependency cache: a pull_request_target run shares main's cache scope; nothing to poison.
+      - name: Install main's dependencies (no lifecycle scripts) and Prisma types from main's schema
+        run: |
+          set -euo pipefail
+          cd trusted
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx --no-install prisma generate --schema prisma/schema.prisma
+
+      - name: Runner self-test (it must be able to fail)
+        run: node trusted/scripts/ci/trusted-gate.mjs --self-test
+
+      - name: Main's guards over the PR's files
+        run: |
+          set -euo pipefail
+          node trusted/scripts/ci/trusted-gate.mjs --trusted trusted --pr pr \
+            --work "$RUNNER_TEMP/trusted-gate" --result "$RUNNER_TEMP/trusted-result.json" | tee "$RUNNER_TEMP/trusted-gate.log"
+          { echo '## security/gate-trusted'; echo '```'; grep -E '^(PASS|WARN|SKIP|FAIL|TRUSTED-GATE)' "$RUNNER_TEMP/trusted-gate.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
