@@ -53,8 +53,8 @@ export const REFRESH_ONESHOT_CONNECTION_ID = 2;
 /** SHA-256 of the operator's single-use ticket (hex). */
 export const REFRESH_ONESHOT_TICKET_SHA256 = "e36eddbfd282e29034185f05aba3ccdaae4a4ba4bd163a132831174f2e04b174";
 /** Run window, pinned at push time. Placeholders refuse every call. */
-export const REFRESH_ONESHOT_NOT_BEFORE = "__NOT_BEFORE__";
-export const REFRESH_ONESHOT_NOT_AFTER = "__NOT_AFTER__";
+export const REFRESH_ONESHOT_NOT_BEFORE = "2026-11-01T01:32:08.549Z";
+export const REFRESH_ONESHOT_NOT_AFTER = "2026-11-01T02:17:08.549Z";
 const REFRESH_TIMEOUT_MS = 15_000;
 
 /** Final classification of the single attempt. */
