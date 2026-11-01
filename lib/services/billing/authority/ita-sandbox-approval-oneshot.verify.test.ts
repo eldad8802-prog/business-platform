@@ -23,6 +23,8 @@ import {
 } from "@/lib/services/billing/authority/billing-authority-egress";
 import {
   APPROVAL_ONESHOT_BRANCH,
+  APPROVAL_ONESHOT_NOT_AFTER,
+  APPROVAL_ONESHOT_NOT_BEFORE,
   APPROVAL_ONESHOT_URL,
   resetApprovalOneshotForTests,
   runSandboxApprovalOneshot,
@@ -150,7 +152,16 @@ async function oneshotTests(env: Record<string, string>) {
     ok(`F ${name} → ${fuse}`, r.outcome === "REFUSED_BY_FUSE" && r.fuse === fuse, r.fuse);
     ok(`F ${name}: no issue call`, h.issues() === 0);
   };
-  await refused("placeholders as committed", { pinned: undefined }, "WINDOW_NOT_SET");
+  // Before pinning: placeholder window → WINDOW_NOT_SET.
+  await refused("placeholder window", { pinned: { ...PIN, notBefore: "__NOT_BEFORE__", notAfter: "__NOT_AFTER__" } }, "WINDOW_NOT_SET");
+  // As committed: placeholders → WINDOW_NOT_SET; once pinned at push, a test
+  // ticket can never pass (inside the window → TICKET_INVALID, else OUTSIDE_WINDOW).
+  const committedFuse = APPROVAL_ONESHOT_NOT_BEFORE.startsWith("__")
+    ? "WINDOW_NOT_SET"
+    : Date.now() >= Date.parse(APPROVAL_ONESHOT_NOT_BEFORE) && Date.now() <= Date.parse(APPROVAL_ONESHOT_NOT_AFTER)
+      ? "TICKET_INVALID"
+      : "OUTSIDE_WINDOW";
+  await refused("pinned constants (as committed)", { pinned: undefined }, committedFuse);
   await refused("outside window", { now: () => Date.parse(PIN.notAfter) + 1 }, "OUTSIDE_WINDOW");
   await refused("wrong ticket", { ticket: "b".repeat(64) }, "TICKET_INVALID");
   await refused("document not pinned", { pinned: { ...PIN, documentId: "__DOCUMENT_ID__" } }, "DOCUMENT_NOT_PINNED");
