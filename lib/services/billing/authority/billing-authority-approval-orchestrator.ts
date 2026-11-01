@@ -60,7 +60,7 @@ export type ApprovalDomainResult =
   | { outcome: "decision_already_reported"; code: number; confirmationNumber: string | null; message: string | null }
   | { outcome: "not_approved_unknown"; confirmationNumber: string | null; message: string | null }
   | { outcome: "local_validation_failed"; errors: ApprovalPayloadValidationError[] }
-  | { outcome: "authority_validation_failed"; errors: InvoiceApprovalValidationErrorDetail[] }
+  | { outcome: "authority_validation_failed"; errors: InvoiceApprovalValidationErrorDetail[]; providerTransactionId?: string | null }
   | { outcome: "not_acceptable"; errorId: string | null; message: string | null }
   | {
       outcome: "infrastructure_failure";
@@ -103,7 +103,7 @@ function mapClientResultToDomain(result: ApprovalClientResult): ApprovalDomainRe
     case "not_approved_unknown":
       return { outcome: "not_approved_unknown", confirmationNumber: result.confirmationNumber, message: result.message };
     case "validation_error":
-      return { outcome: "authority_validation_failed", errors: result.response.message.errors };
+      return { outcome: "authority_validation_failed", errors: result.response.message.errors, providerTransactionId: result.providerDiagnostic?.transactionId ?? null };
     case "not_acceptable":
       return {
         outcome: "not_acceptable",

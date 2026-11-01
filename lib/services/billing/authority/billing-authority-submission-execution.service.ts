@@ -536,6 +536,8 @@ export async function executeAuthorityApproval(
             rejectedAt: deps.now(), errorCode,
             // Sanitized summary: our own code only (no authority PII).
             errorMessage: errorCode,
+            // Sanitized + bounded error list for the audit only (re-sanitized on write).
+            providerValidation: { errors: result.errors, transactionId: result.providerTransactionId ?? null },
             actorUserId,
           }),
         );

@@ -60,6 +60,8 @@ export type ApprovalClientResult =
       httpStatus: number;
       classification: ApprovalClientErrorClass;
       response: InvoiceApprovalValidationErrorResponse;
+      /** Sanitized gateway diagnostics (transaction id), attached by the client. */
+      providerDiagnostic?: ProviderDiagnostic | null;
     }
   | {
       // 200 + approved:false + errors[location="approval", code∈{460,461}].

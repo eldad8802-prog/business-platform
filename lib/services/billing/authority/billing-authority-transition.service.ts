@@ -8,6 +8,7 @@ import {
 } from "@prisma/client";
 import {
   providerDiagnosticMetadata,
+  providerValidationMetadata,
   type ProviderDiagnostic,
 } from "@/lib/services/billing/authority/billing-authority-provider-diagnostic";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -147,6 +148,8 @@ export type RecordAuthorityRejectedTxInput = {
   errorCode: string;
   errorMessage: string;
   authorityResponseHash?: string | null;
+  /** Documented 400 error list + gateway transaction id; audit metadata only, sanitized here. */
+  providerValidation?: { errors: unknown; transactionId: unknown } | null;
   actorUserId?: number | null;
   occurredAt?: Date;
 };
@@ -1349,6 +1352,9 @@ export async function recordAuthorityRejectedTx(
         errorMessage,
         authorityResponseHash: incoming.authorityResponseHash,
         outcome: "APPLIED",
+        ...(input.providerValidation
+          ? providerValidationMetadata(input.providerValidation.errors, input.providerValidation.transactionId)
+          : {}),
       },
       submissionUpdate,
       requireCurrentStatus: BillingAuthoritySubmissionStatus.SUBMITTED,

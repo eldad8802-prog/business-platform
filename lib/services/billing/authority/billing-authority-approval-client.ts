@@ -389,6 +389,9 @@ export async function sendInvoiceApproval(
     if (parsed.kind === "infrastructure_error" && parsed.failureKind === "HTTP_STATUS") {
       return { ...parsed, providerDiagnostic: extractProviderDiagnostic(response.headers, json) };
     }
+    if (parsed.kind === "validation_error") {
+      return { ...parsed, providerDiagnostic: extractProviderDiagnostic(response.headers, null) };
+    }
     return parsed;
   } finally {
     clearTimeout(timer);
