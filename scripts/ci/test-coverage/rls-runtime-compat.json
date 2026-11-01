@@ -1,0 +1,10 @@
+{
+  "note": "fix/rls-runtime-compat — four paths written for a BYPASSRLS connection that broke under the Production runtime role (NOBYPASSRLS, FORCE RLS, Business column grant): the quote PDF issuer identity (BusinessProfile read outside tenant context → null), GET /api/offers (include selected every Business column → permission denied), the public coupon surfaces (issuer profile read outside tenant context → city/address/phone/hours/distance missing) and the legacy POST /api/customer (insert without tenant context → refused, 500). Plus Google sign-in now requires the auth plane (its functions are granted to app_auth only).",
+  "tests": {
+    "app/api/rls-runtime-compat.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login with no ambient tenant context and refuses to run otherwise; installs the BusinessProfile and Customer policies from their migrations and the Business runtime column grant (restored afterwards); two CONTROLS prove FORCE RLS and the column grant bite; two tenants: quote identity loads its own profile, offers list is not refused and returns only the caller's offers with granted Business columns, wizard / home feed / coupon page show each issuer's own city, phone, address, hours and distance and never token/qrValue, legacy customer POST answers 201 with the session business (body businessId ignored) and B cannot see A's row; no tenant context leaks; also run by billing-profile-rls-ci.yml; passed locally 24/24 on a Production-shaped lab (schema cloned from Preview @ 204 migrations) and on a db-push lab; the same file against main fails 17/24"
+    }
+  }
+}

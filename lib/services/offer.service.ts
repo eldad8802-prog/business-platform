@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { UnauthorizedError, ValidationError } from "@/lib/errors";
 import { logAuditEvent } from "@/lib/services/audit.service";
 
@@ -79,19 +80,33 @@ export async function getOffersByBusiness(businessId: number) {
     throw new UnauthorizedError();
   }
 
-  return prisma.offer.findMany({
-    where: {
-      issuingBusinessId: businessId,
-    },
-    include: {
-      issuingBusiness: {
-        include: {
-          profile: true,
+  // Two Production constraints shape this read:
+  //  - `Business` is column-granted to the runtime role (id, name, createdAt,
+  //    deletionRequestedAt, deletedAt — 20260908180000_d2_user_business_privilege_narrowing).
+  //    `include` selects every column, so the whole query was refused with
+  //    "permission denied for table Business". Select only the granted columns.
+  //  - `BusinessProfile` is FORCE RLS, so the nested profile is visible only inside
+  //    the tenant transaction. These are the caller's own offers, so its own context.
+  return tenantTx(businessId, (tx) =>
+    tx.offer.findMany({
+      where: {
+        issuingBusinessId: businessId,
+      },
+      include: {
+        issuingBusiness: {
+          select: {
+            id: true,
+            name: true,
+            createdAt: true,
+            deletionRequestedAt: true,
+            deletedAt: true,
+            profile: true,
+          },
         },
       },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+      orderBy: {
+        createdAt: "desc",
+      },
+    })
+  );
 }

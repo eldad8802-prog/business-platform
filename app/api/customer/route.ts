@@ -20,21 +20,32 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    const customer = await customerService.createCustomer({
-      businessId: user.businessId,
-      name: body.name,
-      phone: body.phone ?? null,
-      email: body.email ?? null,
-      city: body.city ?? null,
-      notes: body.notes ?? null,
-    }, {
-      // M5.5 — server-derived actor; no tx here, so the sensor opens its own (fail-open).
-      sensor: {
-        actor: { type: "OWNER_USER", userId: user.id },
-        source: "OWNER_UI",
-        origin: "UI",
-      },
-    });
+    // Customer is FORCE RLS. Without a tenant transaction the INSERT ran with no
+    // `app.current_business_id` and the policy's WITH CHECK refused the row (a 500).
+    // Same fix as the GET below and /api/billing/customers. businessId is ALWAYS the
+    // server-derived one; the body is never read for it.
+    const customer = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          customerService.createCustomer({
+            businessId: user.businessId,
+            name: body.name,
+            phone: body.phone ?? null,
+            email: body.email ?? null,
+            city: body.city ?? null,
+            notes: body.notes ?? null,
+          }, {
+            tx,
+            // M5.5 — server-derived actor; never read from the body.
+            sensor: {
+              actor: { type: "OWNER_USER", userId: user.id },
+              source: "OWNER_UI",
+              origin: "UI",
+            },
+          })
+        )
+    );
 
     return NextResponse.json(customer, { status: 201 });
   } catch (error) {

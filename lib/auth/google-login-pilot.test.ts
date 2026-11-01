@@ -57,6 +57,7 @@ function ok(name: string, cond: boolean, detail = "") {
 
 const BASE = {
   AUTH_GOOGLE_LOGIN_ENABLED: "true",
+  AUTH_PLANE_ENABLED: "true",
   GOOGLE_LOGIN_CLIENT_ID: "client-1.apps.googleusercontent.com",
   GOOGLE_LOGIN_CLIENT_SECRET: "lab-secret",
   GOOGLE_LOGIN_REDIRECT_BASE_URL: "https://app.dubiz.test",

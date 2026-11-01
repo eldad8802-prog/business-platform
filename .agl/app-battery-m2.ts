@@ -54,6 +54,7 @@ const count = async (sql: string, ...args: unknown[]) => Number(((await owner.$q
 
 const config = readGoogleLoginConfig({
   AUTH_GOOGLE_LOGIN_ENABLED: "true",
+  AUTH_PLANE_ENABLED: "true",
   AUTH_GOOGLE_LOGIN_MODE: "open",
   GOOGLE_LOGIN_CLIENT_ID: "lab-client.apps.googleusercontent.com",
   GOOGLE_LOGIN_CLIENT_SECRET: "lab-secret",
