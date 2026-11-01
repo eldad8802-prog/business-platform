@@ -106,7 +106,7 @@ function harness(over: Partial<RefreshOneshotDeps> & { afterConn?: Conn | null }
     gatewayOrigin: GW,
     buildTokenEndpoint: () => TOKEN,
     loadConnection: async () => current,
-    countRefreshAudits: async () => 0,
+    listRefreshAuditIds: async () => [9],
     latestAuditEventType: async () => "BILLING_AUTHORITY_TOKEN_REFRESHED",
     pingDb: async () => undefined,
     transport: harnessTransport,
@@ -189,7 +189,9 @@ async function oneshotTests(env: Record<string, string>) {
   await run("other connection id", { loadConnection: async () => ({ ...CONN, id: 1, businessId: 5 }) }, "CONNECTION_MISMATCH");
   await run("not connected", { loadConnection: async () => ({ ...CONN, status: "AUTHORIZATION_REQUIRED" }) }, "CONNECTION_STATUS:AUTHORIZATION_REQUIRED");
   await run("no refresh token", { loadConnection: async () => ({ ...CONN, refreshTokenEncrypted: null }) }, "NO_REFRESH_TOKEN");
-  await run("already refreshed once", { countRefreshAudits: async () => 1 }, "ALREADY_REFRESHED_ONCE");
+  await run("never refreshed (first run missing)", { listRefreshAuditIds: async () => [] }, "REFRESH_HISTORY_MISMATCH");
+  await run("already refreshed twice", { listRefreshAuditIds: async () => [9, 12] }, "REFRESH_HISTORY_MISMATCH");
+  await run("other refresh history", { listRefreshAuditIds: async () => [10] }, "REFRESH_HISTORY_MISMATCH");
 
   const outcome = async (name: string, over: Partial<RefreshOneshotDeps> & { afterConn?: Conn | null }, expect: string) => {
     resetRefreshOneshotForTests();

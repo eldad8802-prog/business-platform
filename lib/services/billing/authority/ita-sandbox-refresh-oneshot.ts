@@ -16,8 +16,9 @@
  *     fixed gateway origin, exact SANDBOX token path.
  *   - Lab target only: business 9, connection 2, SANDBOX, CONNECTED/VALIDATED,
  *     encrypted refresh token present.
- *   - Once per connection: refused if any TOKEN_REFRESHED / TOKEN_REFRESH_FAILED
- *     audit already exists for business 9 (survives instances and redeploys).
+ *   - Second refresh only: refused unless the refresh audits of business 9 are
+ *     exactly the first run's (id 9), so at most one more refresh can pass
+ *     (survives instances and redeploys).
  *   - One start per instance; one transport call; DB reachability checked right
  *     before the exchange.
  *   - Output: outcome classes, HTTP status, error codes, timestamps and
@@ -51,10 +52,12 @@ export const REFRESH_ONESHOT_TOKEN_PATH = "/shaam/tsandbox/longtimetoken/oauth2/
 export const REFRESH_ONESHOT_BUSINESS_ID = 9;
 export const REFRESH_ONESHOT_CONNECTION_ID = 2;
 /** SHA-256 of the operator's single-use ticket (hex). */
-export const REFRESH_ONESHOT_TICKET_SHA256 = "e36eddbfd282e29034185f05aba3ccdaae4a4ba4bd163a132831174f2e04b174";
+export const REFRESH_ONESHOT_TICKET_SHA256 = "143592375698928c97dca1ea99a43a2d9a00faf8c11c1368fc90e3803783c717";
 /** Run window, pinned at push time. Placeholders refuse every call. */
-export const REFRESH_ONESHOT_NOT_BEFORE = "2026-11-01T01:32:08.549Z";
-export const REFRESH_ONESHOT_NOT_AFTER = "2026-11-01T02:17:08.549Z";
+export const REFRESH_ONESHOT_NOT_BEFORE = "__NOT_BEFORE__";
+export const REFRESH_ONESHOT_NOT_AFTER = "__NOT_AFTER__";
+/** Refresh audit ids that must exist (the first controlled refresh) — and nothing else. */
+export const REFRESH_ONESHOT_PRIOR_REFRESH_AUDIT_IDS: readonly number[] = [9];
 const REFRESH_TIMEOUT_MS = 15_000;
 
 /** Final classification of the single attempt. */
@@ -120,7 +123,7 @@ export type RefreshOneshotDeps = {
   gatewayOrigin?: string;
   buildTokenEndpoint?: () => string;
   loadConnection?: () => Promise<ConnectionSnapshot | null>;
-  countRefreshAudits?: () => Promise<number>;
+  listRefreshAuditIds?: () => Promise<number[]>;
   latestAuditEventType?: () => Promise<string | null>;
   pingDb?: () => Promise<void>;
   refresh?: typeof refreshAuthorityConnectionToken;
@@ -190,8 +193,8 @@ const defaultLoadConnection = () =>
     },
   });
 const REFRESH_AUDITS = ["BILLING_AUTHORITY_TOKEN_REFRESHED", "BILLING_AUTHORITY_TOKEN_REFRESH_FAILED"];
-const defaultCountRefreshAudits = () =>
-  prisma.billingAuditEvent.count({ where: { businessId: REFRESH_ONESHOT_BUSINESS_ID, eventType: { in: REFRESH_AUDITS } } });
+const defaultListRefreshAuditIds = async () =>
+  (await prisma.billingAuditEvent.findMany({ where: { businessId: REFRESH_ONESHOT_BUSINESS_ID, eventType: { in: REFRESH_AUDITS } }, orderBy: { id: "asc" }, select: { id: true } })).map((a) => a.id);
 const defaultLatestAudit = async () =>
   (await prisma.billingAuditEvent.findFirst({ where: { businessId: REFRESH_ONESHOT_BUSINESS_ID }, orderBy: { id: "desc" }, select: { eventType: true } }))?.eventType ?? null;
 const defaultPingDb = async () => {
@@ -241,7 +244,8 @@ export async function runSandboxRefreshOneshot(deps: RefreshOneshotDeps = {}): P
   if (before.id !== REFRESH_ONESHOT_CONNECTION_ID || before.businessId !== REFRESH_ONESHOT_BUSINESS_ID || before.environment !== "SANDBOX") return refuse("CONNECTION_MISMATCH");
   if (before.status !== "CONNECTED" && before.status !== "VALIDATED") return refuse(`CONNECTION_STATUS:${before.status}`);
   if (!before.refreshTokenEncrypted || !before.refreshTokenIv || !before.refreshTokenTag) return refuse("NO_REFRESH_TOKEN");
-  if ((await (deps.countRefreshAudits ?? defaultCountRefreshAudits)()) > 0) return refuse("ALREADY_REFRESHED_ONCE");
+  const priorIds = await (deps.listRefreshAuditIds ?? defaultListRefreshAuditIds)();
+  if (priorIds.join(",") !== REFRESH_ONESHOT_PRIOR_REFRESH_AUDIT_IDS.join(",")) return refuse("REFRESH_HISTORY_MISMATCH");
   await (deps.pingDb ?? defaultPingDb)();
 
   // ── the single attempt ──
