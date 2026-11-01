@@ -110,6 +110,10 @@ export type AuthorityTransitionKind =
   // business reason (460/461). Distinct from REPORT_HELD_DECISION, which records
   // a user's decision being reported back to the authority (a later step).
   | "HOLD_FOR_DECISION"
+  // SUBMITTED → SUBMITTED (status unchanged): the Approval POST may have reached
+  // the authority without a definitive persisted result. Marks the submission
+  // with an AUTHORITY_OUTCOME_UNCERTAIN_* code; never re-executable.
+  | "MARK_OUTCOME_UNCERTAIN"
   | "REPORT_HELD_DECISION"
   | "EMERGENCY_ALLOCATE"
   | "EMERGENCY_SYNC";

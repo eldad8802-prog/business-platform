@@ -60,6 +60,11 @@ const TRANSITION_KIND_AUDIT: Record<
     transactional: true,
     requiresProjection: false,
   },
+  MARK_OUTCOME_UNCERTAIN: {
+    eventType: "BILLING_AUTHORITY_OUTCOME_UNCERTAIN",
+    transactional: true,
+    requiresProjection: false,
+  },
   REPORT_HELD_DECISION: {
     eventType: "BILLING_AUTHORITY_HELD_DECISION_REPORTED",
     transactional: true,

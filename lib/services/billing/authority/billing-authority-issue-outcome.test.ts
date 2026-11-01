@@ -31,16 +31,16 @@ const S = 55; // submissionId
   ok("decision_already_reported → decision_already_reported + code", r.status === "decision_already_reported" && r.code === 462);
 }
 {
-  const r = mapExecutionResultToAuthorityOutcome({ outcome: "authentication_failed", billingDocumentId: D, submissionId: S, errorCode: "AUTHORITY_AUTHENTICATION", safeToRetry: true });
-  ok("authentication_failed → authentication_failed + safeToRetry true", r.status === "authentication_failed" && r.safeToRetry === true);
+  const r = mapExecutionResultToAuthorityOutcome({ outcome: "preflight_failed", billingDocumentId: D, submissionId: S, errorCode: "SUBMISSION_NOT_PROVABLY_UNSENT", safeToRetry: false });
+  ok("preflight SUBMISSION_NOT_PROVABLY_UNSENT → ambiguous, never retryable", r.status === "ambiguous" && r.safeToRetry === false && r.userActionRequired === true);
 }
 {
-  const r = mapExecutionResultToAuthorityOutcome({ outcome: "infrastructure_failed", billingDocumentId: D, submissionId: S, errorCode: "AUTHORITY_NETWORK", safeToRetry: true });
+  const r = mapExecutionResultToAuthorityOutcome({ outcome: "infrastructure_failed", billingDocumentId: D, submissionId: S, errorCode: "AUTHORITY_NOT_SENT_NETWORK", safeToRetry: true });
   ok("infrastructure_failed → infrastructure_failed + safeToRetry passthrough", r.status === "infrastructure_failed" && r.safeToRetry === true);
 }
 {
-  const r = mapExecutionResultToAuthorityOutcome({ outcome: "ambiguous_result", billingDocumentId: D, submissionId: S, errorCode: "AUTHORITY_NOT_APPROVED_AMBIGUOUS", safeToRetry: "manual" });
-  ok("ambiguous_result → ambiguous + safeToRetry manual", r.status === "ambiguous" && r.safeToRetry === "manual");
+  const r = mapExecutionResultToAuthorityOutcome({ outcome: "outcome_uncertain", billingDocumentId: D, submissionId: S, errorCode: "AUTHORITY_OUTCOME_UNCERTAIN_TIMEOUT", userActionRequired: true, safeToRetry: false });
+  ok("outcome_uncertain → ambiguous, safeToRetry false, user action", r.status === "ambiguous" && r.safeToRetry === false && r.userActionRequired === true && r.errorCode === "AUTHORITY_OUTCOME_UNCERTAIN_TIMEOUT");
 }
 {
   const r = mapExecutionResultToAuthorityOutcome({ outcome: "in_progress", billingDocumentId: D, submissionId: S, safeToRetry: false });

@@ -3,7 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Playwright is Node-native; do not bundle it into the serverless output. @sparticuz/chromium is the
   // serverless Chromium build (AL2023) PDFs are rendered with on Vercel (lib/pdf/chromium.ts).
-  serverExternalPackages: ["playwright", "playwright-core", "@sparticuz/chromium"],
+  // undici: the pinned direct dependency that carries the ITA egress transport
+  // (ProxyAgent + mTLS). Loaded via native require, never a bundled copy.
+  serverExternalPackages: ["playwright", "playwright-core", "@sparticuz/chromium", "undici"],
 
   // @sparticuz/chromium resolves its compressed browser at runtime (../../bin), which file tracing cannot
   // see — include it for every route that renders a PDF through lib/pdf/chromium.ts: the accountant PDF

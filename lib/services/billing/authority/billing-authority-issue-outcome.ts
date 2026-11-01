@@ -18,7 +18,6 @@ export type AuthorityIssueStatus =
   | "decision_required"
   | "decision_already_reported"
   | "validation_failed"
-  | "authentication_failed"
   | "infrastructure_failed"
   | "ambiguous"
   | "in_progress"
@@ -76,13 +75,6 @@ export function mapExecutionResultToAuthorityOutcome(
         errorCode: result.errorCode,
         safeToRetry: false,
       };
-    case "authentication_failed":
-      return {
-        status: "authentication_failed",
-        submissionId: result.submissionId,
-        errorCode: result.errorCode,
-        safeToRetry: true,
-      };
     case "infrastructure_failed":
       return {
         status: "infrastructure_failed",
@@ -90,12 +82,14 @@ export function mapExecutionResultToAuthorityOutcome(
         errorCode: result.errorCode,
         safeToRetry: result.safeToRetry,
       };
-    case "ambiguous_result":
+    case "outcome_uncertain":
+      // The POST may have reached the authority; never re-sent automatically.
       return {
         status: "ambiguous",
         submissionId: result.submissionId,
         errorCode: result.errorCode,
-        safeToRetry: result.safeToRetry,
+        userActionRequired: true,
+        safeToRetry: false,
       };
     case "in_progress":
       return {
@@ -112,6 +106,16 @@ export function mapExecutionResultToAuthorityOutcome(
         safeToRetry: false,
       };
     case "preflight_failed":
+      if (result.errorCode === "SUBMISSION_NOT_PROVABLY_UNSENT") {
+        // A previous attempt may have reached the authority: not retryable.
+        return {
+          status: "ambiguous",
+          submissionId: result.submissionId,
+          errorCode: result.errorCode,
+          userActionRequired: true,
+          safeToRetry: false,
+        };
+      }
       return {
         status: "infrastructure_failed",
         submissionId: result.submissionId,

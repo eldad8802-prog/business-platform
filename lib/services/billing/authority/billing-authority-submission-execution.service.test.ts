@@ -44,14 +44,14 @@ function snapshot() {
   };
 }
 
-function loaded(over: { status?: BillingAuthoritySubmissionStatus; payloadHash?: string | null; docStatus?: BillingDocumentStatus; lockedAt?: Date | null; legalHash?: string | null; submission?: null } = {}): LoadedDocumentSubmission {
+function loaded(over: { status?: BillingAuthoritySubmissionStatus; payloadHash?: string | null; docStatus?: BillingDocumentStatus; lockedAt?: Date | null; legalHash?: string | null; submission?: null; errorCode?: string | null } = {}): LoadedDocumentSubmission {
   return {
     id: 42, businessId: 3,
     status: over.docStatus ?? BillingDocumentStatus.ISSUED,
     lockedAt: over.lockedAt === undefined ? new Date("2026-06-15T10:00:00Z") : over.lockedAt,
     legalSnapshotHash: over.legalHash === undefined ? "legal-hash" : over.legalHash,
     issuedSnapshot: snapshot() as unknown as LoadedDocumentSubmission["issuedSnapshot"],
-    submission: over.submission === null ? null : { id: 55, status: over.status ?? BillingAuthoritySubmissionStatus.READY, authorityPayloadHash: over.payloadHash ?? null },
+    submission: over.submission === null ? null : { id: 55, status: over.status ?? BillingAuthoritySubmissionStatus.READY, authorityPayloadHash: over.payloadHash ?? null, errorCode: over.errorCode ?? null, lastAttemptAt: null },
   };
 }
 
@@ -66,7 +66,7 @@ function okCtx(accounting = "12345678", apiBaseUrl = "https://x/shaam/tsandbox")
   return { ok: true, context: { accessToken: "SECRET_TOKEN", approvalConfig: { apiBaseUrl, apiVersion: "v2", timeoutMs: 15000 }, accountingSoftwareNumber: accounting, connectionId: 5, environment: ENV } };
 }
 
-type Spies = { load: number; ctx: number; forceRefresh: number; build: number; approve: number; recordAttempt: number; recordApproved: number; recordRejected: number; recordFailed: number; recordHeld: number };
+type Spies = { load: number; ctx: number; forceRefresh: number; build: number; approve: number; recordAttempt: number; recordApproved: number; recordRejected: number; recordFailed: number; recordHeld: number; recordUncertain: number; safetyEvents: number };
 type Cfg = {
   loaded?: LoadedDocumentSubmission | null;
   reloaded?: LoadedDocumentSubmission | null;
@@ -75,10 +75,11 @@ type Cfg = {
   build?: ApprovalPayloadBuildResult;
   approvals?: ApprovalDomainResult[];
   attemptThrows?: Error;
+  approvedThrows?: Error;
   env?: () => BillingAuthorityEnvironment;
 };
 function makeDeps(cfg: Cfg): { deps: SubmissionExecutionDeps; spies: Spies } {
-  const spies: Spies = { load: 0, ctx: 0, forceRefresh: 0, build: 0, approve: 0, recordAttempt: 0, recordApproved: 0, recordRejected: 0, recordFailed: 0, recordHeld: 0 };
+  const spies: Spies = { load: 0, ctx: 0, forceRefresh: 0, build: 0, approve: 0, recordAttempt: 0, recordApproved: 0, recordRejected: 0, recordFailed: 0, recordHeld: 0, recordUncertain: 0, safetyEvents: 0 };
   const approvals = cfg.approvals ?? [{ outcome: "approved", confirmationNumber: "20240718181618323199093572" }];
   const deps: SubmissionExecutionDeps = {
     loadDocumentWithSubmission: async () => { spies.load += 1; return spies.load === 1 ? (cfg.loaded === undefined ? loaded() : cfg.loaded) : (cfg.reloaded === undefined ? (cfg.loaded === undefined ? loaded() : cfg.loaded) : cfg.reloaded); },
@@ -93,10 +94,12 @@ function makeDeps(cfg: Cfg): { deps: SubmissionExecutionDeps; spies: Spies } {
     runInTransaction: (_businessId: number, fn: (tx: never) => unknown) =>
       fn({} as never),
     recordAttempt: async () => { spies.recordAttempt += 1; if (cfg.attemptThrows) throw cfg.attemptThrows; return { submission: { id: 55 } }; },
-    recordApproved: async () => { spies.recordApproved += 1; return {}; },
+    recordApproved: async () => { spies.recordApproved += 1; if (cfg.approvedThrows) throw cfg.approvedThrows; return {}; },
     recordRejected: async () => { spies.recordRejected += 1; return {}; },
     recordFailed: async () => { spies.recordFailed += 1; return {}; },
     recordHeld: async () => { spies.recordHeld += 1; return {}; },
+    recordOutcomeUncertain: async () => { spies.recordUncertain += 1; return {}; },
+    reportSafetyEvent: () => { spies.safetyEvents += 1; },
   };
   return { deps, spies };
 }
@@ -114,7 +117,9 @@ async function main(): Promise<void> {
     ok("reserve before HTTP + one attempt + approved recorded", spies.recordAttempt === 1 && spies.approve === 1 && spies.recordApproved === 1);
     ok("no token in result", noToken(r));
   }
-  { const { deps } = makeDeps({ loaded: loaded({ status: BillingAuthoritySubmissionStatus.FAILED }) }); const r = await executeAuthorityApproval(IN, deps); ok("FAILED → approved", r.outcome === "completed_approved"); }
+  { const { deps } = makeDeps({ loaded: loaded({ status: BillingAuthoritySubmissionStatus.FAILED, errorCode: "AUTHORITY_NOT_SENT_NETWORK" }) }); const r = await executeAuthorityApproval(IN, deps); ok("FAILED(not-sent) → approved", r.outcome === "completed_approved"); }
+  { const { deps, spies } = makeDeps({ loaded: loaded({ status: BillingAuthoritySubmissionStatus.FAILED, errorCode: "AUTHORITY_NETWORK" }) }); const r = await executeAuthorityApproval(IN, deps); ok("FAILED(legacy possibly-sent) → not executable, no reserve/HTTP", r.outcome === "preflight_failed" && r.errorCode === "SUBMISSION_NOT_PROVABLY_UNSENT" && r.safeToRetry === false && spies.recordAttempt === 0 && spies.approve === 0); }
+  { const { deps, spies } = makeDeps({ loaded: loaded({ status: BillingAuthoritySubmissionStatus.SUBMITTED, errorCode: "AUTHORITY_OUTCOME_UNCERTAIN_TIMEOUT" }) }); const r = await executeAuthorityApproval(IN, deps); ok("SUBMITTED(uncertain) → outcome_uncertain, no HTTP", r.outcome === "outcome_uncertain" && r.safeToRetry === false && spies.approve === 0 && spies.recordAttempt === 0); }
 
   // ---- Statuses (no HTTP) ----
   { const { deps, spies } = makeDeps({ loaded: loaded({ status: BillingAuthoritySubmissionStatus.SUBMITTED }) }); const r = await executeAuthorityApproval(IN, deps); ok("SUBMITTED → in_progress, no HTTP", r.outcome === "in_progress" && spies.approve === 0 && spies.recordAttempt === 0); }
@@ -134,33 +139,21 @@ async function main(): Promise<void> {
 
   // ---- Authority outcomes ----
   { const { deps, spies } = makeDeps({ approvals: [{ outcome: "authority_validation_failed", errors: [{ code: 434, message: "old", param: "invoice_date", location: "request" }] }] }); const r = await executeAuthorityApproval(IN, deps); ok("400 → completed_rejected", r.outcome === "completed_rejected" && spies.recordRejected === 1); }
-  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "not_acceptable", errorId: "id", message: "Not Acceptable" }] }); const r = await executeAuthorityApproval(IN, deps); ok("406 → infrastructure_failed(FAILED)", r.outcome === "infrastructure_failed" && r.outcome === "infrastructure_failed" && r.errorCode === "AUTHORITY_NOT_ACCEPTABLE" && spies.recordFailed === 1); }
-  { const { deps } = makeDeps({ approvals: [{ outcome: "infrastructure_failure", classification: "NETWORK", message: "x" }] }); const r = await executeAuthorityApproval(IN, deps); ok("network → infrastructure_failed retryable", r.outcome === "infrastructure_failed" && r.safeToRetry === true); }
-  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "not_approved_unknown", confirmationNumber: "0", message: "m" }] }); const r = await executeAuthorityApproval(IN, deps); ok("not_approved_unknown → ambiguous_result(FAILED), not HELD", r.outcome === "ambiguous_result" && r.errorCode === "AUTHORITY_NOT_APPROVED_AMBIGUOUS" && spies.recordFailed === 1 && spies.recordHeld === 0); }
+  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "not_acceptable", errorId: "id", message: "Not Acceptable" }] }); const r = await executeAuthorityApproval(IN, deps); ok("406 → outcome_uncertain (not FAILED)", r.outcome === "outcome_uncertain" && r.errorCode === "AUTHORITY_OUTCOME_UNCERTAIN_NOT_ACCEPTABLE" && spies.recordUncertain === 1 && spies.recordFailed === 0); }
+  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "infrastructure_failure", classification: "NETWORK", message: "x", sendCertainty: "POSSIBLY_SENT", failureKind: "TRANSPORT", providerHttpStatus: null, providerErrorId: null, transportCode: "ECONNRESET" }] }); const r = await executeAuthorityApproval(IN, deps); ok("possibly-sent network → outcome_uncertain, NOT retryable, not FAILED", r.outcome === "outcome_uncertain" && r.safeToRetry === false && spies.recordFailed === 0 && spies.recordUncertain === 1); }
+  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "infrastructure_failure", classification: "NETWORK", message: "x", sendCertainty: "NOT_SENT", failureKind: "TRANSPORT", providerHttpStatus: null, providerErrorId: null, transportCode: "ECONNREFUSED" }] }); const r = await executeAuthorityApproval(IN, deps); ok("not-sent network → infrastructure_failed retryable, FAILED", r.outcome === "infrastructure_failed" && r.safeToRetry === true && r.errorCode === "AUTHORITY_NOT_SENT_NETWORK" && spies.recordFailed === 1); }
+  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "infrastructure_failure", classification: "TIMEOUT", message: "x", sendCertainty: "POSSIBLY_SENT", failureKind: "TRANSPORT", providerHttpStatus: null, providerErrorId: null, transportCode: null }] }); const r = await executeAuthorityApproval(IN, deps); ok("timeout → outcome_uncertain TIMEOUT", r.outcome === "outcome_uncertain" && r.errorCode === "AUTHORITY_OUTCOME_UNCERTAIN_TIMEOUT" && spies.recordFailed === 0); }
+  { const { deps, spies } = makeDeps({ approvedThrows: new Error("db down") }); const r = await executeAuthorityApproval(IN, deps); ok("approved + persist failure → outcome_uncertain APPROVED_PERSIST_FAILED (not FAILED)", r.outcome === "outcome_uncertain" && r.errorCode === "AUTHORITY_OUTCOME_UNCERTAIN_APPROVED_PERSIST_FAILED" && spies.recordUncertain === 1 && spies.recordFailed === 0 && spies.safetyEvents === 1); }
+  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "not_approved_unknown", confirmationNumber: "0", message: "m" }] }); const r = await executeAuthorityApproval(IN, deps); ok("not_approved_unknown → outcome_uncertain, not FAILED/HELD", r.outcome === "outcome_uncertain" && r.errorCode === "AUTHORITY_OUTCOME_UNCERTAIN_NOT_APPROVED_AMBIGUOUS" && spies.recordUncertain === 1 && spies.recordFailed === 0 && spies.recordHeld === 0); }
   { const { deps, spies } = makeDeps({ approvals: [{ outcome: "decision_required", code: 460, confirmationNumber: "0", message: "not approved" }] }); const r = await executeAuthorityApproval(IN, deps); ok("460 → decision_required, persisted HELD once (recordHeld=1), no FAILED/REJECTED", r.outcome === "decision_required" && r.outcome === "decision_required" && r.code === 460 && r.errorCode === "AUTHORITY_DECISION_REQUIRED_460" && r.userActionRequired === true && spies.recordHeld === 1 && spies.recordFailed === 0 && spies.recordRejected === 0); }
   { const { deps, spies } = makeDeps({ approvals: [{ outcome: "decision_required", code: 461, confirmationNumber: "0", message: "not approved" }] }); const r = await executeAuthorityApproval(IN, deps); ok("461 → decision_required, persisted HELD once (recordHeld=1)", r.outcome === "decision_required" && r.outcome === "decision_required" && r.code === 461 && spies.recordHeld === 1 && spies.recordFailed === 0); }
-  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "decision_already_reported", code: 462, confirmationNumber: "0", message: "already" }] }); const r = await executeAuthorityApproval(IN, deps); ok("462 → decision_already_reported, NOT auto-held (no recordHeld/recordFailed)", r.outcome === "decision_already_reported" && spies.recordHeld === 0 && spies.recordFailed === 0); }
+  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "decision_already_reported", code: 462, confirmationNumber: "0", message: "already" }] }); const r = await executeAuthorityApproval(IN, deps); ok("462 → decision_already_reported, marked uncertain (no recordHeld/recordFailed)", r.outcome === "decision_already_reported" && spies.recordHeld === 0 && spies.recordFailed === 0 && spies.recordUncertain === 1); }
 
-  // ---- 401 refresh-once ----
+  // ---- 401: no forced refresh + re-POST (processing not proven) ----
   {
-    const { deps, spies } = makeDeps({ approvals: [{ outcome: "infrastructure_failure", classification: "AUTHENTICATION", message: "x" }, { outcome: "approved", confirmationNumber: "20240718181618323199093572" }] });
+    const { deps, spies } = makeDeps({ approvals: [{ outcome: "infrastructure_failure", classification: "AUTHENTICATION", message: "x", sendCertainty: "POSSIBLY_SENT", failureKind: "HTTP_STATUS", providerHttpStatus: 401, providerErrorId: null, transportCode: null }, { outcome: "approved", confirmationNumber: "20240718181618323199093572" }] });
     const r = await executeAuthorityApproval(IN, deps);
-    ok("401 → forceRefresh once → second approved", r.outcome === "completed_approved" && spies.forceRefresh === 1 && spies.approve === 2 && spies.recordAttempt === 1);
-  }
-  {
-    const { deps, spies } = makeDeps({ approvals: [{ outcome: "infrastructure_failure", classification: "AUTHENTICATION", message: "x" }, { outcome: "infrastructure_failure", classification: "AUTHENTICATION", message: "x" }] });
-    const r = await executeAuthorityApproval(IN, deps);
-    ok("401 twice → authentication_failed, no third attempt", r.outcome === "authentication_failed" && spies.approve === 2);
-  }
-  {
-    const { deps, spies } = makeDeps({ approvals: [{ outcome: "infrastructure_failure", classification: "AUTHENTICATION", message: "x" }], context2: { ok: false, code: "TOKEN_REFRESH_FAILED", message: "x" } });
-    const r = await executeAuthorityApproval(IN, deps);
-    ok("401 then refresh fail → authentication_failed, no second HTTP", r.outcome === "authentication_failed" && spies.approve === 1 && spies.recordFailed === 1);
-  }
-  {
-    const { deps, spies } = makeDeps({ approvals: [{ outcome: "infrastructure_failure", classification: "AUTHENTICATION", message: "x" }], context2: okCtx("99999999") });
-    const r = await executeAuthorityApproval(IN, deps);
-    ok("401 then context changed → no second HTTP, authentication_failed", r.outcome === "authentication_failed" && r.outcome === "authentication_failed" && r.errorCode === "RUNTIME_CONTEXT_CHANGED" && spies.approve === 1);
+    ok("401 → exactly ONE Approval POST, no forceRefresh, outcome_uncertain AUTHENTICATION", r.outcome === "outcome_uncertain" && r.errorCode === "AUTHORITY_OUTCOME_UNCERTAIN_AUTHENTICATION" && spies.approve === 1 && spies.forceRefresh === 0 && spies.recordFailed === 0);
   }
 
   // ---- Concurrency ----

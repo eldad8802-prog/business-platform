@@ -6,6 +6,12 @@
  * probe or token refresh.
  */
 
+import {
+  AUTHORITY_EGRESS_ERROR_CODES,
+  AUTHORITY_EGRESS_TUNNEL_CLOSED_CODE,
+  authorityEgressFetch,
+  isAuthorityEgressError,
+} from "@/lib/services/billing/authority/billing-authority-egress";
 import { timingSafeEqual } from "node:crypto";
 import { verifySignedAuthorityState } from "./billing-authority-signed-state.service";
 import { BillingAuthorityEnvironment } from "@prisma/client";
@@ -50,6 +56,9 @@ export const AUTHORITY_OAUTH_CALLBACK_ERROR_CODES = {
   TOKEN_EXCHANGE_FAILED: "AUTHORITY_OAUTH_TOKEN_EXCHANGE_FAILED",
   // The provider (ITA) token endpoint answered with a non-2xx status.
   TOKEN_EXCHANGE_REJECTED: "AUTHORITY_OAUTH_TOKEN_EXCHANGE_REJECTED",
+  // The bounded exchange timed out; the request may have reached ITA. Never
+  // retried and the code is never replayed — a new authorization is required.
+  TOKEN_EXCHANGE_OUTCOME_UNCERTAIN: "AUTHORITY_OAUTH_TOKEN_EXCHANGE_OUTCOME_UNCERTAIN",
   TOKEN_RESPONSE_INVALID: "AUTHORITY_OAUTH_TOKEN_RESPONSE_INVALID",
   // Local, post-exchange failures — previously masked as TOKEN_EXCHANGE_FAILED.
   TOKEN_ENCRYPTION_FAILED: "AUTHORITY_OAUTH_TOKEN_ENCRYPTION_FAILED",
@@ -99,6 +108,9 @@ export type AuthorityOAuthNetworkErrorClass =
   | "CERTIFICATE_ERROR"
   | "ABORTED"
   | "FETCH_ERROR"
+  | "EGRESS_UNAVAILABLE"
+  | "EGRESS_DESTINATION_BLOCKED"
+  | "EGRESS_TUNNEL_CLOSED"
   | "OTHER";
 
 /** Coarse request-duration bucket (avoids persisting a precise timing). */
@@ -159,6 +171,12 @@ export class AuthorityOAuthCallbackError extends Error {
 export function mapNetworkErrorClass(
   error: unknown
 ): AuthorityOAuthNetworkErrorClass {
+  // Dedicated ITA egress refused the request before any network I/O.
+  if (isAuthorityEgressError(error)) {
+    return error.code === AUTHORITY_EGRESS_ERROR_CODES.DESTINATION_BLOCKED
+      ? "EGRESS_DESTINATION_BLOCKED"
+      : "EGRESS_UNAVAILABLE";
+  }
   const codes: string[] = [];
   const names: string[] = [];
   const visit = (value: unknown) => {
@@ -173,6 +191,9 @@ export function mapNetworkErrorClass(
   }
   const code = codes.join(" ");
   const name = names.join(" ");
+
+  // The egress gateway closed the tunnel (e.g. refused our client certificate).
+  if (code.includes(AUTHORITY_EGRESS_TUNNEL_CLOSED_CODE)) return "EGRESS_TUNNEL_CLOSED";
 
   if (/\b(ENOTFOUND|EAI_AGAIN)\b/.test(code)) return "DNS_ERROR";
   if (
@@ -594,6 +615,39 @@ export function resolveTokenExpiryDate(expiresIn: unknown): Date | null {
   return new Date(Date.now() + expiresIn * 1000);
 }
 
+/** Hard bound for the authorization-code token exchange (request + body). */
+export const AUTHORITY_TOKEN_EXCHANGE_TIMEOUT_MS = 20_000;
+
+/** Our own bound fired (the only abort source on the token exchange). */
+function isTokenExchangeTimeout(error: unknown): boolean {
+  const names = [error, (error as { cause?: unknown } | null)?.cause].map(
+    (e) => (e as { name?: unknown } | null)?.name
+  );
+  return names.includes("TimeoutError") || names.includes("AbortError");
+}
+
+/**
+ * The request may already have reached ITA, so the code may have been consumed
+ * and a token issued. The outcome is unknown: never retried, the code is never
+ * replayed; the user must start a new authorization.
+ */
+function tokenExchangeOutcomeUncertain(
+  providerHttpStatus: number | null,
+  elapsedMs: number
+): AuthorityOAuthCallbackError {
+  return new AuthorityOAuthCallbackError(
+    AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_OUTCOME_UNCERTAIN,
+    {
+      stage: "TOKEN_EXCHANGE",
+      providerHttpStatus,
+      providerOAuthError: null,
+      providerResponseFormat: "NETWORK_ERROR",
+      networkErrorClass: "REQUEST_TIMEOUT",
+      requestDurationBucket: toDurationBucket(elapsedMs),
+    }
+  );
+}
+
 export async function exchangeAuthorityAuthorizationCode(input: {
   tokenEndpoint: string;
   clientId: string;
@@ -601,14 +655,22 @@ export async function exchangeAuthorityAuthorizationCode(input: {
   code: string;
   redirectUri: string;
   fetchImpl?: typeof fetch;
+  /** Hard bound for the whole exchange (request + body). Tests only. */
+  timeoutMs?: number;
 }): Promise<AuthorityTokenExchangeResponse> {
-  const fetchFn = input.fetchImpl ?? fetch;
+  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code: input.code,
     redirect_uri: input.redirectUri,
     scope: ITA_OAUTH_SCOPE,
   });
+
+  // One bounded attempt. The authorization code is single-use: there is no
+  // retry here or anywhere upstream, and it is never replayed.
+  const signal = AbortSignal.timeout(
+    input.timeoutMs ?? AUTHORITY_TOKEN_EXCHANGE_TIMEOUT_MS
+  );
 
   // Network / timeout: no provider response was ever read. Capture only the safe
   // network-error class + a coarse duration bucket — never the message/host/URL.
@@ -626,8 +688,12 @@ export async function exchangeAuthorityAuthorizationCode(input: {
         Accept: "application/json",
       },
       body: body.toString(),
+      signal,
     });
   } catch (error) {
+    if (isTokenExchangeTimeout(error)) {
+      throw tokenExchangeOutcomeUncertain(null, Date.now() - startedAt);
+    }
     throw new AuthorityOAuthCallbackError(
       AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_FAILED,
       {
@@ -641,7 +707,16 @@ export async function exchangeAuthorityAuthorizationCode(input: {
     );
   }
 
-  const raw = await response.text();
+  let raw: string;
+  try {
+    raw = await response.text();
+  } catch (error) {
+    // The provider already answered; a token may have been issued.
+    if (isTokenExchangeTimeout(error)) {
+      throw tokenExchangeOutcomeUncertain(response.status, Date.now() - startedAt);
+    }
+    throw error;
+  }
 
   // Provider answered with a non-2xx status: this is a provider REJECTION.
   // Read only the safe `error` enum + response shape — never the body/description.

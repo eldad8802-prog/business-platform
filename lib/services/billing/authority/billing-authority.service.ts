@@ -185,6 +185,18 @@ export function checkAuthorityLegalSnapshotBinding(input: {
 export function checkAuthorityTransitionKind(
   input: ValidateAuthorityTransitionInput
 ): AuthorityValidationResult {
+  // SUBMITTED → SUBMITTED is shared with REPORT_HELD_DECISION, so the
+  // uncertain marker is matched explicitly rather than resolved from from/to.
+  if (input.kind === "MARK_OUTCOME_UNCERTAIN") {
+    return input.from === BillingAuthoritySubmissionStatus.SUBMITTED &&
+      input.to === BillingAuthoritySubmissionStatus.SUBMITTED
+      ? { ok: true }
+      : {
+          ok: false,
+          code: "AUTHORITY_TRANSITION_KIND_MISMATCH",
+          message: `Transition kind ${input.kind} does not match ${input.from} → ${input.to}`,
+        };
+  }
   const resolved = resolveAuthorityTransitionKind({
     from: input.from,
     to: input.to,
