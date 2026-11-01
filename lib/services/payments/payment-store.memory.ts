@@ -564,6 +564,15 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
       return { created: true, event: { ...record } };
     },
 
+    // In memory every event is "recent": the time bound is the Prisma store's.
+    async listUnconsumedWebhookEvents(options) {
+      return webhookEvents
+        .filter((e) => e.processingStatus === "RECEIVED" || e.processingStatus === "FAILED")
+        .slice(-options.limit)
+        .reverse()
+        .map((e) => ({ provider: e.provider, payload: e.payload }));
+    },
+
     async updateWebhookEvent(id: number, patch: WebhookEventPatch) {
       const record = webhookEvents.find((e) => e.id === id);
       if (!record) throw new Error(`PaymentWebhookEvent ${id} not found`);

@@ -1,14 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { handleProviderWebhook } from "@/lib/services/payments/payment-webhook-handler";
 import { paymentWebhookDeps } from "@/lib/services/payments/payments.deps";
+import { webhookResponse, webhookRouteFailure } from "@/lib/services/payments/payment-webhook-response";
 
 // Public webhook endpoint (no auth). Must run on Node.js for raw body access.
 export const runtime = "nodejs";
 
 /**
- * PayPal payment notification. Always answers 200 { ok: true } — even on a
- * bad/duplicate/unrecognized event or an internal error — to avoid provider
- * retry storms.
+ * PayPal payment notification. Answers 200 { ok: true } for every processed, duplicate or refused event —
+ * never a retry storm — and 503 only when the database or the provider's
+ * verification API was unavailable, so the provider resends (see
+ * lib/services/payments/payment-webhook-failure.ts).
  *
  * The webhook is only a SIGNAL. Authority is the shared orchestration's
  * verification step (PayPal Orders GET + capture); a request reaches PAID only
@@ -34,12 +36,10 @@ export async function POST(req: NextRequest) {
       { provider: "PAYPAL", rawBody, headers },
       paymentWebhookDeps()
     );
-    return NextResponse.json(result.body, { status: result.status });
+    return webhookResponse(result);
   } catch (error) {
-    console.warn(
-      "[payments-webhook-route:paypal] unexpected failure:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return NextResponse.json({ ok: true }, { status: 200 });
+    // Defence in depth: an infrastructure failure asks the provider to resend (503); anything else is
+    // acknowledged (200). Class + code only in the log — never the message, the payload or the secret.
+    return webhookRouteFailure("payments-webhook-route:paypal", error);
   }
 }

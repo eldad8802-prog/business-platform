@@ -927,6 +927,19 @@ export function createPaymentPrismaStore(): PaymentStore {
       }
     },
 
+    async listUnconsumedWebhookEvents(options) {
+      const rows = await bootstrapStep((db) => db.paymentWebhookEvent.findMany({
+        where: {
+          processingStatus: { in: ["RECEIVED", "FAILED"] },
+          createdAt: { gte: options.createdAfter },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: options.limit,
+        select: { provider: true, payload: true },
+      }));
+      return rows.map((r) => ({ provider: r.provider as PaymentProvider, payload: r.payload as unknown }));
+    },
+
     async updateWebhookEvent(id: number, patch: WebhookEventPatch) {
       const updated = await bootstrapStep((db) => db.paymentWebhookEvent.update({
         where: { id },

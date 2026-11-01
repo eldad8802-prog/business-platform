@@ -33,6 +33,26 @@
  * order would need a durable per-request timestamp — a schema change, proposed
  * separately rather than made here.
  *
+ * PRIORITY WITHOUT STARVATION (webhook reliability A+B). Random sampling alone
+ * treats a request whose callback arrived and failed exactly like one nobody
+ * touched for a month. Each tenant's batch is therefore built in three parts
+ * (selectReconciliationBatch):
+ *   - SIGNALLED: requests named by a webhook event that was received but never
+ *     consumed (RECEIVED / FAILED) in the last SIGNAL_WINDOW_MS — a callback we
+ *     know about and could not finish. Newest first, capped.
+ *   - FRESH: PENDING requests created in the last FRESH_WINDOW_MS — links most
+ *     likely being paid right now (and the ones a lost callback hurts first).
+ *     Sampled at random among themselves, capped.
+ *   - FAIR SHARE: the remaining slots — at least FAIR_SHARE_RATIO of the batch,
+ *     ALWAYS reserved — sampled uniformly at random from every other candidate,
+ *     old or new. Priority can never consume them, so no candidate's chance per
+ *     run falls to zero; unused priority slots join the fair share.
+ * Tenants named by a signalled event are interleaved with the others (one of
+ * each in turn), so priority can never take the whole run's budget either. The
+ * signal is read from the provider ledger (non-tenant) and only ORDERS work: each
+ * request is still listed and resolved inside its own tenant, and an event is
+ * never authority.
+ *
  * OBSERVABLE. The run returns counts only, and `healthy` is false when anything
  * failed, a provider could not be asked, or the provider's answer was
  * anomalous — so a failing reconciliation cannot look like a quiet one.
@@ -69,6 +89,10 @@ export interface PaymentReconciliationOptions {
   timeBudgetMs?: number;
   /** Test seam: the random source for sampling. */
   random?: () => number;
+  /** How far back an unconsumed webhook event still raises its request's priority. */
+  signalWindowMs?: number;
+  /** How young a PENDING request is to count as fresh. */
+  freshWindowMs?: number;
 }
 
 export interface PaymentReconciliationReport {
@@ -124,6 +148,17 @@ export interface PaymentReconciliationReport {
   };
   /** Unexpected errors (database, code). */
   failed: number;
+  /** How the checked requests were chosen (counts only). */
+  prioritized: {
+    /** Asked because a received webhook for it was never consumed. */
+    signalled: number;
+    /** Asked as a fresh PENDING request. */
+    fresh: number;
+    /** Asked from the reserved, uniformly sampled fair share. */
+    fairShare: number;
+    /** Tenants interleaved first because a signalled request is theirs. */
+    priorityBusinesses: number;
+  };
   stoppedEarly: boolean;
   healthy: boolean;
 }
@@ -179,9 +214,91 @@ export function emptyReconciliationReport(): PaymentReconciliationReport {
     unverifiable: 0,
     refunds: { checked: 0, resolved: 0, rejected: 0, stillUnknown: 0, stale: 0 },
     failed: 0,
+    prioritized: { signalled: 0, fresh: 0, fairShare: 0, priorityBusinesses: 0 },
     stoppedEarly: false,
     healthy: true,
   };
+}
+
+/** An unconsumed webhook event raises its request's priority for this long. */
+export const SIGNAL_WINDOW_MS = 72 * 60 * 60_000;
+/** A PENDING request this young is "fresh". */
+export const FRESH_WINDOW_MS = 72 * 60 * 60_000;
+/** How many unconsumed events are read per run (newest first). */
+export const SIGNAL_SCAN = 200;
+/** How many signalled requests are traced to their tenant per run (routing index reads). */
+export const PRIORITY_BUSINESS_LOOKUPS = 50;
+/** The part of every tenant's batch reserved for the uniform fair share. */
+export const FAIR_SHARE_RATIO = 0.3;
+
+export type SignalKey = string;
+const SIGNAL_SEPARATOR = "\u0000";
+export const signalKey = (provider: PaymentProvider, providerRequestId: string): SignalKey =>
+  `${provider}${SIGNAL_SEPARATOR}${providerRequestId}`;
+
+export type BatchTier = "signalled" | "fresh" | "fairShare";
+
+/**
+ * One tenant's batch (pure). `candidates` are that tenant's only; nothing here reads another tenant.
+ * Caps for max = 10: fair share >= 3 (always), signalled <= 5, fresh <= 2.
+ */
+export function selectReconciliationBatch(
+  candidates: readonly PaymentRequestRecord[],
+  opts: {
+    max: number;
+    isSignalled: (r: PaymentRequestRecord) => boolean;
+    at: Date;
+    freshWindowMs?: number;
+    random?: () => number;
+  }
+): Array<{ request: PaymentRequestRecord; tier: BatchTier }> {
+  const max = Math.max(0, Math.floor(opts.max));
+  if (max === 0) return [];
+  const random = opts.random ?? Math.random;
+  const freshAfter = opts.at.getTime() - (opts.freshWindowMs ?? FRESH_WINDOW_MS);
+  const fairFloor = Math.max(1, Math.floor(max * FAIR_SHARE_RATIO));
+  const priorityRoom = Math.max(0, max - fairFloor);
+  const signalledCap = Math.ceil(priorityRoom * 0.7);
+  const freshCap = priorityRoom - signalledCap;
+
+  const out: Array<{ request: PaymentRequestRecord; tier: BatchTier }> = [];
+  const taken = new Set<number>();
+  const take = (r: PaymentRequestRecord, tier: BatchTier) => {
+    out.push({ request: r, tier });
+    taken.add(r.id);
+  };
+
+  const newestFirst = [...candidates].sort(
+    (a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id
+  );
+  for (const r of newestFirst) {
+    if (out.length >= signalledCap) break;
+    if (opts.isSignalled(r)) take(r, "signalled");
+  }
+  const fresh = shuffle(
+    candidates.filter((r) => !taken.has(r.id) && r.status === "PENDING" && r.createdAt.getTime() >= freshAfter),
+    random
+  );
+  for (const r of fresh.slice(0, freshCap)) take(r, "fresh");
+  const rest = shuffle(candidates.filter((r) => !taken.has(r.id)), random);
+  for (const r of rest.slice(0, max - out.length)) take(r, "fairShare");
+  return out;
+}
+
+/** Tenant order: priority tenants (shuffled) interleaved one-for-one with the others (shuffled). */
+export function orderBusinesses(
+  businessIds: readonly number[],
+  priority: ReadonlySet<number>,
+  random: () => number = Math.random
+): number[] {
+  const first = shuffle(businessIds.filter((id) => priority.has(id)), random);
+  const others = shuffle(businessIds.filter((id) => !priority.has(id)), random);
+  const out: number[] = [];
+  for (let i = 0; i < Math.max(first.length, others.length); i++) {
+    if (i < first.length) out.push(first[i]);
+    if (i < others.length) out.push(others[i]);
+  }
+  return out;
 }
 
 function tally(report: PaymentReconciliationReport, r: AuthoritativeResolution): void {
@@ -329,7 +446,45 @@ export async function runPaymentReconciliation(
     return report;
   }
 
-  for (const businessId of shuffle(businessIds, random)) {
+  // PRIORITY SIGNAL. Unconsumed webhook events → which provider requests to ask
+  // first, and whose tenants. Parsed by the provider's own parser (never
+  // authority); a payload that does not parse simply raises nothing.
+  const signalled = new Set<SignalKey>();
+  const signalledRefs: Array<{ provider: PaymentProvider; providerRequestId: string }> = [];
+  const priorityBusinesses = new Set<number>();
+  if (deps.store.listUnconsumedWebhookEvents) {
+    try {
+      const events = await deps.store.listUnconsumedWebhookEvents({
+        createdAfter: new Date(at.getTime() - (options.signalWindowMs ?? SIGNAL_WINDOW_MS)),
+        limit: SIGNAL_SCAN,
+      });
+      for (const e of events) {
+        try {
+          const parsed = deps.resolveProvider(e.provider).parseWebhook({
+            rawBody: typeof e.payload === "string" ? e.payload : JSON.stringify(e.payload ?? null),
+            parsedBody: typeof e.payload === "string" ? undefined : e.payload,
+          });
+          const id = parsed?.providerRequestId;
+          if (id && !signalled.has(signalKey(e.provider, id))) {
+            signalled.add(signalKey(e.provider, id));
+            signalledRefs.push({ provider: e.provider, providerRequestId: id });
+          }
+        } catch {
+          // not parseable: no priority, nothing else
+        }
+      }
+      for (const ref of signalledRefs.slice(0, PRIORITY_BUSINESS_LOOKUPS)) {
+        const request = await deps.store.findPaymentRequestByProviderRequestId(ref.provider, ref.providerRequestId);
+        if (request) priorityBusinesses.add(request.businessId);
+      }
+    } catch {
+      // The signal only orders work; losing it must not stop reconciliation (which then samples as before).
+      report.failed++;
+    }
+  }
+  report.prioritized.priorityBusinesses = businessIds.filter((id) => priorityBusinesses.has(id)).length;
+
+  for (const businessId of orderBusinesses(businessIds, priorityBusinesses, random)) {
     if (outOfBudget()) {
       report.stoppedEarly = true;
       break;
@@ -358,8 +513,14 @@ export async function runPaymentReconciliation(
       }
       report.candidates += candidates.length;
 
-      const picked = shuffle(candidates, random).slice(0, maxPerBusiness);
-      for (const request of picked) {
+      const picked = selectReconciliationBatch(candidates, {
+        max: maxPerBusiness,
+        isSignalled: (r) => r.providerRequestId != null && signalled.has(signalKey(r.provider, r.providerRequestId)),
+        at,
+        freshWindowMs: options.freshWindowMs,
+        random,
+      });
+      for (const { request, tier } of picked) {
         if (outOfBudget()) {
           report.stoppedEarly = true;
           return;
@@ -397,6 +558,7 @@ export async function runPaymentReconciliation(
         }
 
         report.checked++;
+        report.prioritized[tier]++;
         try {
           const resolution = await resolvePaymentAuthoritatively(
             {

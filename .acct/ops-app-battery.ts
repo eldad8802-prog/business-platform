@@ -109,12 +109,14 @@ async function main() {
   const adminOps = await import("@/lib/services/platform-admin/accountant-ops.service");
   const adminRoute = await import("@/app/api/platform-admin/accountant-ops/route");
   const storage = getStorageService();
-  // The clock: today, unless today is the 1st or 2nd of the month (Israel time) — then 3 days later, so the closed
-  // month is past its preparation deadline (the 2nd, 06:00) and every fault the battery builds is due. Every time below
-  // is relative to it, so the battery means the same thing on any day of the year.
-  const { previousPeriodKey, jerusalemDayOfMonth } = await import("@/lib/accountant/period");
+  // The clock: today, unless the closed month's preparation deadline (the 2nd, 06:00 Israel time) has not passed yet —
+  // then 3 days later, so every fault the battery builds is due. Every time below is relative to it, so the battery
+  // means the same thing on any day of the year.
+  const { previousPeriodKey, periodRange } = await import("@/lib/accountant/period");
+  const { PREPARE_DEADLINE_AFTER_MONTH_MS } = await import("@/lib/accountant/ops/findings");
+  const pastDeadline = (t: number) => t >= periodRange(previousPeriodKey(new Date(t))).toExclusive.getTime() + PREPARE_DEADLINE_AFTER_MONTH_MS;
   const realNow = new Date();
-  const now = jerusalemDayOfMonth(realNow) <= 2 ? new Date(realNow.getTime() + 3 * 86400_000) : realNow;
+  const now = pastDeadline(realNow.getTime()) ? realNow : new Date(realNow.getTime() + 3 * 86400_000);
   const KEY = previousPeriodKey(now);
   const clockSkewMs = now.getTime() - realNow.getTime();
   const batteryNow = () => new Date(Date.now() + clockSkewMs);
@@ -402,13 +404,18 @@ async function main() {
   delete process.env.ACCOUNTANT_OPS_ALERT_EMAIL;
   const V = await business("acct-ops-V"); // a new fault (not prepared) whose alert is due now
   expected.set(V.b, `PACKAGE_NOT_PREPARED@p:${KEY}`);
+  const routeFrom = Date.now();
   const res = await monitorRoute.POST(new Request("https://app.example.com/api/accountant/monitor", { method: "POST", headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }) as never);
+  const routeTo = Date.now();
   const body = (await res.json()) as Json;
+  // The route runs on the real clock: before the closed month's deadline V's month is not overdue yet, so V has no alert
+  // at this moment (the next runs, on the battery clock, open it — 8a counts it); after it, V's alert is open, not sent.
+  const vAlerts = await bizAlerts(V.b);
+  const vNone = vAlerts.length === 0;
+  const vOpenUnsent = vAlerts.length === 1 && vAlerts[0].notifyCount === 0;
   ok("6e no alert address configured → the endpoint answers 500 (the GitHub watchdog goes red), claims given back",
     res.status === 500 && body.notification === "not_configured" &&
-      // The route runs on the real clock: on the 1st–2nd the closed month is not overdue yet, so V has no alert at this
-      // moment (the next runs, on the battery clock, open it — 8a counts it).
-      (clockSkewMs > 0 ? (await bizAlerts(V.b)).length === 0 : (await bizAlerts(V.b)).length === 1 && (await bizAlerts(V.b))[0].notifyCount === 0), JSON.stringify(body));
+      (pastDeadline(routeFrom) ? vOpenUnsent : !pastDeadline(routeTo) ? vNone : vNone || vOpenUnsent), JSON.stringify(body));
   process.env.ACCOUNTANT_OPS_ALERT_EMAIL = "ops@example.org";
   await sweepRun("OK", batteryNow());
 
@@ -526,7 +533,7 @@ async function main() {
   r = await run(later);
   ok("11b-a 40 days on: the uncertain send, the stuck send, the failing month, the stuck build — all still open",
     (await stillOpen(U.b, "SEND_UNCERTAIN")) && (await stillOpen(S.b, "SEND_STUCK")) && (await stillOpen(H.b, "PREPARATION_FAILED")) && (await stillOpen(K.b, "PREPARATION_STUCK")));
-  ok("11b-b the month never prepared (2026-09) is still open after the months rolled over", (await bizAlerts(V.b)).some((a) => a.subjectKey === `p:${KEY}` && a.resolvedAt === null));
+  ok("11b-b the month never prepared (the closed month) is still open after the months rolled over", (await bizAlerts(V.b)).some((a) => a.subjectKey === `p:${KEY}` && a.resolvedAt === null));
   ok("11b-c the silent webhook past its 72 h window, still no event → still open", await stillOpen(W.b, "WEBHOOK_SILENT"));
   ok("11b-d the 40-day-old complaint, nothing done → still open", await stillOpen(C.b, "DELIVERY_COMPLAINED"));
   ok("11b-e nothing closed by age: no 'resolved' line in this run's email", !(alertCalls().slice(before).map((c) => c.text).join("\n").match(/^נפתר · /gm)));
