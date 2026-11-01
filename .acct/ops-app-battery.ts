@@ -109,12 +109,16 @@ async function main() {
   const adminOps = await import("@/lib/services/platform-admin/accountant-ops.service");
   const adminRoute = await import("@/app/api/platform-admin/accountant-ops/route");
   const storage = getStorageService();
-  // The clock: today, unless today is the 1st or 2nd of the month (Israel time) — then 3 days later, so the closed
-  // month is past its preparation deadline (the 2nd, 06:00) and every fault the battery builds is due. Every time below
-  // is relative to it, so the battery means the same thing on any day of the year.
-  const { previousPeriodKey, jerusalemDayOfMonth } = await import("@/lib/accountant/period");
+  // The clock: today, unless the closed month's preparation deadline (the 2nd, 06:00 Israel time) has not passed yet —
+  // then 3 days later, so every fault the battery builds is due. The test is the deadline itself, not "the 1st–2nd":
+  // step 6e runs the route on the REAL clock and expects no alert exactly while the real clock is before it (on the 2nd
+  // after 06:00 a day-of-month rule would skew the battery while the route is already overdue). Every time below is
+  // relative to this clock, so the battery means the same thing on any day of the year.
+  const { previousPeriodKey, periodRange } = await import("@/lib/accountant/period");
+  const { PREPARE_DEADLINE_AFTER_MONTH_MS } = await import("@/lib/accountant/ops/findings");
   const realNow = new Date();
-  const now = jerusalemDayOfMonth(realNow) <= 2 ? new Date(realNow.getTime() + 3 * 86400_000) : realNow;
+  const realDeadline = periodRange(previousPeriodKey(realNow)).toExclusive.getTime() + PREPARE_DEADLINE_AFTER_MONTH_MS;
+  const now = realNow.getTime() < realDeadline ? new Date(realNow.getTime() + 3 * 86400_000) : realNow;
   const KEY = previousPeriodKey(now);
   const clockSkewMs = now.getTime() - realNow.getTime();
   const batteryNow = () => new Date(Date.now() + clockSkewMs);
@@ -404,8 +408,8 @@ async function main() {
   const body = (await res.json()) as Json;
   ok("6e no alert address configured → the endpoint answers 500 (the GitHub watchdog goes red), claims given back",
     res.status === 500 && body.notification === "not_configured" &&
-      // The route runs on the real clock: on the 1st–2nd the closed month is not overdue yet, so V has no alert at this
-      // moment (the next runs, on the battery clock, open it — 8a counts it).
+      // The route runs on the real clock: before the deadline the closed month is not overdue yet, so V has no alert at
+      // this moment (the next runs, on the battery clock, open it — 8a counts it).
       (clockSkewMs > 0 ? (await bizAlerts(V.b)).length === 0 : (await bizAlerts(V.b)).length === 1 && (await bizAlerts(V.b))[0].notifyCount === 0), JSON.stringify(body));
   process.env.ACCOUNTANT_OPS_ALERT_EMAIL = "ops@example.org";
   await sweepRun("OK", batteryNow());
