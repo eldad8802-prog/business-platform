@@ -25,6 +25,7 @@ import {
   APPROVAL_ONESHOT_BRANCH,
   APPROVAL_ONESHOT_NOT_AFTER,
   APPROVAL_ONESHOT_NOT_BEFORE,
+  APPROVAL_ONESHOT_PRIOR_SUBMISSIONS,
   APPROVAL_ONESHOT_URL,
   resetApprovalOneshotForTests,
   runSandboxApprovalOneshot,
@@ -91,6 +92,8 @@ const DOC: DocumentSnapshot = {
 };
 const PROFILE = { billingLegalName: "ITA Sandbox Test 9", billingBusinessKind: "AUTHORIZED_DEALER", billingTaxId: "123456782", billingAddress: "Test St 1", billingPhone: "0500000000", billingEmail: "t@example.test" };
 
+const RUN1 = { id: 1, billingDocumentId: 1, status: "SUBMITTED", errorCode: "AUTHORITY_OUTCOME_UNCERTAIN_AUTHENTICATION" };
+
 function harness(env: Record<string, string>, over: Partial<ApprovalOneshotDeps> = {}, afterStatus: { status: string; errorCode: string | null; allocationNumber: string | null } | null = { status: "APPROVED", errorCode: null, allocationNumber: "A123456789" }) {
   let issues = 0;
   let docStatus = "DRAFT";
@@ -100,8 +103,8 @@ function harness(env: Record<string, string>, over: Partial<ApprovalOneshotDeps>
     loadDocument: async () => ({ ...DOC, status: docStatus }),
     loadCustomer: async () => ({ taxId: "987654321", taxIdType: "AUTHORIZED_DEALER" }),
     loadProfile: async () => PROFILE,
-    loadConnection: async () => ({ id: 2, status: "CONNECTED", accessTokenPresent: true, accessTokenExpiresAt: new Date(Date.now() + 60 * 60_000) }),
-    countSubmissions: async () => 0,
+    loadConnection: async () => ({ id: 2, status: "CONNECTED", accessTokenPresent: true, accessTokenExpiresAt: new Date(Date.now() + 60 * 60_000), oauthAuthorizedAt: new Date() }),
+    listSubmissions: async () => [{ ...RUN1 }],
     loadSubmission: async () => (issues > 0 && afterStatus ? { ...afterStatus, retryCount: 0 } : null),
     issue: async () => {
       docStatus = "ISSUED";
@@ -185,10 +188,19 @@ async function oneshotTests(env: Record<string, string>) {
   await refused("incomplete issuer", { loadProfile: async () => ({ ...PROFILE, billingPhone: null }) }, "ISSUER_IDENTITY");
   await refused("exempt-dealer issuer", { loadProfile: async () => ({ ...PROFILE, billingBusinessKind: "EXEMPT_DEALER" }) }, "ISSUER_KIND");
   await refused("non-digit issuer id", { loadProfile: async () => ({ ...PROFILE, billingTaxId: "12-345" }) }, "ISSUER_IDENTITY");
-  await refused("other connection", { loadConnection: async () => ({ id: 1, status: "CONNECTED", accessTokenPresent: true, accessTokenExpiresAt: new Date(Date.now() + 3_600_000) }) }, "CONNECTION_MISMATCH");
-  await refused("not connected", { loadConnection: async () => ({ id: 2, status: "AUTHORIZATION_REQUIRED", accessTokenPresent: false, accessTokenExpiresAt: null }) }, "CONNECTION_STATUS:AUTHORIZATION_REQUIRED");
-  await refused("token expires in 9 min", { loadConnection: async () => ({ id: 2, status: "CONNECTED", accessTokenPresent: true, accessTokenExpiresAt: new Date(Date.now() + 9 * 60_000) }) }, "ACCESS_TOKEN_EXPIRES_SOON_REFRESH_NEEDED");
-  await refused("submission exists", { countSubmissions: async () => 1 }, "SUBMISSION_ALREADY_EXISTS");
+  await refused("other connection", { loadConnection: async () => ({ id: 1, status: "CONNECTED", accessTokenPresent: true, accessTokenExpiresAt: new Date(Date.now() + 3_600_000), oauthAuthorizedAt: new Date() }) }, "CONNECTION_MISMATCH");
+  await refused("not connected", { loadConnection: async () => ({ id: 2, status: "AUTHORIZATION_REQUIRED", accessTokenPresent: false, accessTokenExpiresAt: null, oauthAuthorizedAt: null }) }, "CONNECTION_STATUS:AUTHORIZATION_REQUIRED");
+  await refused("token expires in 9 min", { loadConnection: async () => ({ id: 2, status: "CONNECTED", accessTokenPresent: true, accessTokenExpiresAt: new Date(Date.now() + 9 * 60_000), oauthAuthorizedAt: new Date() }) }, "ACCESS_TOKEN_EXPIRES_SOON_REFRESH_NEEDED");
+  const conn = (oauthAuthorizedAt: Date | null) => async () => ({ id: 2, status: "CONNECTED", accessTokenPresent: true, accessTokenExpiresAt: new Date(Date.now() + 3_600_000), oauthAuthorizedAt });
+  await refused("token from an OAuth before the window", { loadConnection: conn(new Date(Date.now() - 2 * 60_000)) }, "OAUTH_NOT_IN_WINDOW");
+  await refused("no OAuth timestamp", { loadConnection: conn(null) }, "OAUTH_NOT_IN_WINDOW");
+  await refused("document 1 pinned (run-1 document stays blocked)", { pinned: { ...PIN, documentId: "1" } }, "DOCUMENT_BLOCKED");
+  await refused("no prior submission (run 1 missing)", { listSubmissions: async () => [] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("an extra submission exists", { listSubmissions: async () => [{ ...RUN1 }, { id: 2, billingDocumentId: 77, status: "READY", errorCode: null }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("run-1 submission changed status", { listSubmissions: async () => [{ ...RUN1, status: "FAILED" }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("run-1 submission changed code", { listSubmissions: async () => [{ ...RUN1, errorCode: "AUTHORITY_NOT_SENT_NETWORK" }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  await refused("other prior submission instead of run 1", { listSubmissions: async () => [{ ...RUN1, id: 3 }] }, "PRIOR_SUBMISSIONS_MISMATCH");
+  ok("C run-1 pin matches the lab record", JSON.stringify(APPROVAL_ONESHOT_PRIOR_SUBMISSIONS) === JSON.stringify([RUN1]));
 
   {
     resetApprovalOneshotForTests();

@@ -22,9 +22,12 @@
  *     complete issuer identity with a digits-only tax id, issuer kind
  *     AUTHORIZED_DEALER or LTD_COMPANY (never an exempt dealer).
  *   - Connection 2 CONNECTED with an access token valid ≥ 10 more minutes — a
- *     refresh would be refused inside this scope, so it is required up front.
- *   - Once per business: refused if any authority submission exists for
- *     business 9.
+ *     refresh would be refused inside this scope, so it is required up front —
+ *     and authorized (OAuth) inside the pinned window: only a token from the
+ *     new invoices_scope OAuth of this run is accepted.
+ *   - Prior submissions: business 9 must hold exactly the run-1 submission
+ *     (id 1 on document 1, SUBMITTED, uncertain authentication) and nothing
+ *     else; document 1 can never be the target. Run 1 stays resend-blocked.
  *   - Preflight mode (x-oneshot-mode: preflight): runs every fuse and reports
  *     the resolved endpoint; never issues, never consumes the instance latch.
  *   - Output: classes, statuses, internal codes, flags and the allocation
@@ -59,14 +62,19 @@ export const APPROVAL_ONESHOT_URL = `https://${AUTHORITY_EGRESS_APPROVAL_HOST}${
 export const APPROVAL_ONESHOT_BUSINESS_ID = 9;
 export const APPROVAL_ONESHOT_ACTOR_USER_ID = 2;
 export const APPROVAL_ONESHOT_CONNECTION_ID = 2;
+/** Run 1 (2026-11-01 10:11Z, HTTP 401): the only submission allowed to exist. Never re-sent. */
+export const APPROVAL_ONESHOT_PRIOR_SUBMISSIONS: readonly PriorSubmission[] = [
+  { id: 1, billingDocumentId: 1, status: "SUBMITTED", errorCode: "AUTHORITY_OUTCOME_UNCERTAIN_AUTHENTICATION" },
+];
+const BLOCKED_DOCUMENT_IDS = [1];
 const MIN_TOKEN_VALIDITY_MS = 10 * 60_000;
 const ELIGIBLE_CUSTOMER_TAX_ID_TYPES = ["AUTHORIZED_DEALER", "LTD_COMPANY"];
 const ELIGIBLE_ISSUER_KINDS = ["AUTHORIZED_DEALER", "LTD_COMPANY"];
 /** Pinned at push. Placeholders refuse every call. */
-export const APPROVAL_ONESHOT_DOCUMENT_ID = "1";
-export const APPROVAL_ONESHOT_TICKET_SHA256 = "ba1bd8270d16cbb6b6d4f33e6d28aa412c2ac6fe84cde6f2c95183165d789ab6";
-export const APPROVAL_ONESHOT_NOT_BEFORE = "2026-11-01T10:01:15.213Z";
-export const APPROVAL_ONESHOT_NOT_AFTER = "2026-11-01T11:01:15.213Z";
+export const APPROVAL_ONESHOT_DOCUMENT_ID = "__DOCUMENT_ID__";
+export const APPROVAL_ONESHOT_TICKET_SHA256 = "__TICKET_SHA256__";
+export const APPROVAL_ONESHOT_NOT_BEFORE = "__NOT_BEFORE__";
+export const APPROVAL_ONESHOT_NOT_AFTER = "__NOT_AFTER__";
 
 export type ApprovalOneshotOutcome =
   | "APPROVED"
@@ -93,7 +101,8 @@ export type DocumentSnapshot = {
 };
 export type CustomerSnapshot = { taxId: string | null; taxIdType: string | null };
 export type ProfileSnapshot = Record<string, string | null> | null;
-export type ConnectionSnapshot = { id: number; status: string; accessTokenPresent: boolean; accessTokenExpiresAt: Date | null } | null;
+export type ConnectionSnapshot = { id: number; status: string; accessTokenPresent: boolean; accessTokenExpiresAt: Date | null; oauthAuthorizedAt: Date | null } | null;
+export type PriorSubmission = { id: number; billingDocumentId: number; status: string; errorCode: string | null };
 export type SubmissionSnapshot = { status: string; errorCode: string | null; retryCount: number; allocationNumber: string | null } | null;
 
 export type ApprovalOneshotDeps = {
@@ -109,7 +118,7 @@ export type ApprovalOneshotDeps = {
   loadCustomer?: (id: number) => Promise<CustomerSnapshot | null>;
   loadProfile?: () => Promise<ProfileSnapshot>;
   loadConnection?: () => Promise<ConnectionSnapshot>;
-  countSubmissions?: () => Promise<number>;
+  listSubmissions?: () => Promise<PriorSubmission[]>;
   loadSubmission?: (documentId: number) => Promise<SubmissionSnapshot>;
   issue?: (input: { businessId: number; actorUserId: number; billingDocumentId: number }) => Promise<{ authority: { status: string; errorCode?: string } }>;
 };
@@ -164,11 +173,16 @@ const defaults = {
   loadConnection: async (): Promise<ConnectionSnapshot> => {
     const c = await prisma.billingAuthorityConnection.findUnique({
       where: { businessId_environment: { businessId: APPROVAL_ONESHOT_BUSINESS_ID, environment: "SANDBOX" } },
-      select: { id: true, status: true, accessTokenEncrypted: true, accessTokenExpiresAt: true },
+      select: { id: true, status: true, accessTokenEncrypted: true, accessTokenExpiresAt: true, oauthAuthorizedAt: true },
     });
-    return c ? { id: c.id, status: c.status, accessTokenPresent: !!c.accessTokenEncrypted, accessTokenExpiresAt: c.accessTokenExpiresAt } : null;
+    return c ? { id: c.id, status: c.status, accessTokenPresent: !!c.accessTokenEncrypted, accessTokenExpiresAt: c.accessTokenExpiresAt, oauthAuthorizedAt: c.oauthAuthorizedAt } : null;
   },
-  countSubmissions: () => prisma.billingAuthoritySubmission.count({ where: { businessId: APPROVAL_ONESHOT_BUSINESS_ID } }),
+  listSubmissions: () =>
+    prisma.billingAuthoritySubmission.findMany({
+      where: { businessId: APPROVAL_ONESHOT_BUSINESS_ID },
+      select: { id: true, billingDocumentId: true, status: true, errorCode: true },
+      orderBy: { id: "asc" },
+    }),
   loadSubmission: async (documentId: number): Promise<SubmissionSnapshot> => {
     const s = await prisma.billingAuthoritySubmission.findFirst({
       where: { businessId: APPROVAL_ONESHOT_BUSINESS_ID, billingDocumentId: documentId },
@@ -201,6 +215,7 @@ export async function runSandboxApprovalOneshot(deps: ApprovalOneshotDeps = {}):
   if (!ticketMatches(deps.ticket, pinned.ticketSha256)) return refuse("TICKET_INVALID");
   const documentId = /^\d{1,9}$/.test(pinned.documentId) ? Number(pinned.documentId) : NaN;
   if (!Number.isInteger(documentId) || documentId <= 0) return refuse("DOCUMENT_NOT_PINNED");
+  if (BLOCKED_DOCUMENT_IDS.includes(documentId)) return refuse("DOCUMENT_BLOCKED");
   result.documentId = documentId;
   if (env.VERCEL_ENV !== "preview") return refuse("NOT_PREVIEW");
   if (env.VERCEL_GIT_COMMIT_REF !== APPROVAL_ONESHOT_BRANCH) return refuse("WRONG_BRANCH");
@@ -241,7 +256,15 @@ export async function runSandboxApprovalOneshot(deps: ApprovalOneshotDeps = {}):
   if (!connection.accessTokenPresent || !connection.accessTokenExpiresAt) return refuse("NO_ACCESS_TOKEN");
   result.tokenValidForMinutes = Math.floor((connection.accessTokenExpiresAt.getTime() - now()) / 60_000);
   if (connection.accessTokenExpiresAt.getTime() - now() < MIN_TOKEN_VALIDITY_MS) return refuse("ACCESS_TOKEN_EXPIRES_SOON_REFRESH_NEEDED");
-  if ((await d.countSubmissions()) > 0) return refuse("SUBMISSION_ALREADY_EXISTS");
+  if (!connection.oauthAuthorizedAt || connection.oauthAuthorizedAt.getTime() < notBefore) return refuse("OAUTH_NOT_IN_WINDOW");
+  const prior = await d.listSubmissions();
+  const sameAsPinned =
+    prior.length === APPROVAL_ONESHOT_PRIOR_SUBMISSIONS.length &&
+    prior.every((s, i) => {
+      const e = APPROVAL_ONESHOT_PRIOR_SUBMISSIONS[i];
+      return s.id === e.id && s.billingDocumentId === e.billingDocumentId && s.status === e.status && s.errorCode === e.errorCode;
+    });
+  if (!sameAsPinned) return refuse("PRIOR_SUBMISSIONS_MISMATCH");
 
   if (deps.mode === "preflight") return { ...result, outcome: "PREFLIGHT_OK", elapsedMs: now() - startedAt };
 
