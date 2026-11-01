@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 export type BusinessContext = {
   businessId?: number;
@@ -17,7 +17,9 @@ export async function getBusinessContextByBusinessId(
     return {};
   }
 
-  const business = await prisma.business.findUnique({
+  // BusinessProfile is FORCE RLS: read on the bare client its nested select came back null, so
+  // video generation never received the category. Read under the business's tenant context.
+  const business = await tenantTx(businessId, (tx) => tx.business.findUnique({
     where: { id: businessId },
     select: {
       id: true,
@@ -29,7 +31,7 @@ export async function getBusinessContextByBusinessId(
         },
       },
     },
-  });
+  }));
 
   if (!business) {
     return {};

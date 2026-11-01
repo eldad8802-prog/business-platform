@@ -1,0 +1,10 @@
+{
+  "note": "fix/rls-context-gaps — four reads that reached a FORCE RLS table with no tenant context and matched nothing under the Production runtime role (NOBYPASSRLS), each behind a 200: the documents inbox backlog (always 0), the document detail's engine snapshot and duplicate warnings (never shown), the tax-authority connection (always 'not connected', incl. the issue flow), and the video business context (category always missing).",
+  "tests": {
+    "app/api/rls-context-gaps.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login with no ambient tenant context and refuses to run otherwise; installs the Document / ExtractionSnapshot / BillingAuthorityConnection / BusinessProfile policies from their migrations; a CONTROL proves FORCE RLS bites; two tenants: inbox backlog and months, document detail snapshot source and duplicate warnings, authority connection (status read + issue-flow loadConnection), video business context — each shows tenant A's own data and never B's; no tenant context leaks. Passed 18/18 on the shared security lab (every migration, real roles, auth plane on); the same file against main fails 10/18."
+    }
+  }
+}

@@ -58,7 +58,10 @@ export async function GET(
       process.env.NODE_ENV !== "production" &&
       new URL(req.url).searchParams.get("debugOutputProfile") === "1";
 
-    const resolved = await resolveDocumentOutputProfile({
+    // Both reads below (ExtractionSnapshot, Document duplicates — FORCE RLS) go through context-aware
+    // steps that read on the bare client outside a tenant context, which under the runtime role
+    // returned no snapshot and no duplicates. They run under the session's tenant context.
+    const resolved = await runWithTenantContext({ businessId: user.businessId }, () => resolveDocumentOutputProfile({
       documentId: document.id,
       businessId: user.businessId,
       ocrText: document.ocrText ?? null,
@@ -75,13 +78,12 @@ export async function GET(
         : null,
       allowUnified: false,
       debug,
-    });
+    }));
 
     // Duplicate-defense WARN tier — never blocks the review, degrades to [].
-    const duplicateSignals = await findDuplicateSignals({
-      businessId: user.businessId,
-      documentId: document.id,
-    });
+    const duplicateSignals = await runWithTenantContext({ businessId: user.businessId }, () =>
+      findDuplicateSignals({ businessId: user.businessId, documentId: document.id })
+    );
 
     return Response.json({
       success: true,

@@ -28,7 +28,7 @@ import {
   refreshAuthorityConnectionToken,
   type RefreshAuthorityConnectionTokenResult,
 } from "@/lib/services/billing/authority/billing-authority-token-refresh.service";
-import { billingDbStep } from "../billing-db-step";
+import { billingTenantTx } from "../billing-tenant-tx";
 
 export type AccessTokenErrorCode =
   | "CONNECTION_NOT_FOUND"
@@ -88,8 +88,10 @@ const TOKEN_CONNECTION_SELECT = {
 } as const;
 
 export const defaultAccessTokenProviderDeps: AccessTokenProviderDeps = {
+  // Explicit tenant: the issue / authority-decision flows reach this with no ambient context,
+  // where a context-less read of this FORCE RLS table returned null ("not connected").
   loadConnection: (businessId, environment) =>
-    billingDbStep((db) => db.billingAuthorityConnection.findUnique({
+    billingTenantTx(businessId, (tx) => tx.billingAuthorityConnection.findUnique({
       where: { businessId_environment: { businessId, environment } },
       select: TOKEN_CONNECTION_SELECT,
     })),

@@ -22,7 +22,6 @@ import type {
   PublicAuthorityConnection,
 } from "@/lib/services/billing/authority/billing-authority-connection.types";
 import { billingTenantTx } from "../billing-tenant-tx";
-import { billingDbStep } from "../billing-db-step";
 
 const PUBLIC_SELECT = {
   businessId: true,
@@ -285,7 +284,9 @@ export async function findPublicAuthorityConnection(
   environment: BillingAuthorityEnvironment
 ): Promise<PublicAuthorityConnection | null> {
   assertPositiveInteger(businessId, "businessId");
-  const row = await billingDbStep((db) => db.billingAuthorityConnection.findUnique({
+  // Explicit tenant: callers (the status route, the connections center) run with no ambient
+  // context, and a context-less read of this FORCE RLS table always answered "no connection".
+  const row = await billingTenantTx(businessId, (tx) => tx.billingAuthorityConnection.findUnique({
     where: connectionScopeWhere(businessId, environment),
     select: PUBLIC_SELECT,
   }));
