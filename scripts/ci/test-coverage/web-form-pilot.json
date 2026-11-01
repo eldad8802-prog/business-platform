@@ -1,0 +1,11 @@
+{
+  "note": "leads/web-form-pilot-page (#897): TEMPORARY website-form live-proof page for business 9 — POST /api/platform-admin/web-form-pilot/pass (canonical admin guard) + GET /lab/web-form-pilot. No migration, no env, no write. Removed with the pilot.",
+  "tests": {
+    "lib/intake/acquisition/web-form-pilot.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "m6-acquisition-ci.yml",
+      "reason": "no DB/network: the pilot pass (HMAC, 15 min, bound to one publicId, own key label, fail closed without AUTH_TOKEN_SECRET); the real pass route through the real canonical guard (no session / forged Bearer / elevation without session → 401, no cookie; MFA ON and OFF); only a live business-9 website connection gets a pass (38 / other / revoked → 404); the page answers one identical 404 for every failure and otherwise serves the stock webFormSnippet posting to the public intake endpoint; noindex, no-store, CSP; no secret in the HTML; static: guard awaited first, read-only resolver only, no writes; run on pull_request by m6-acquisition-ci.yml"
+    }
+  }
+}
