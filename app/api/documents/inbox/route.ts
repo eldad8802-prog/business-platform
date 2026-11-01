@@ -209,10 +209,12 @@ export async function GET(req: Request) {
     // by both the summary and full responses. `totalPendingReview` uses the same
     // canonical selector as the Attention paperwork insight, so the two surfaces
     // never disagree on "total pending".
-    const [totalPendingReview, pendingMonths] = await Promise.all([
-      countPendingReviewAllTime(businessId),
-      listPendingReviewMonths(businessId),
-    ]);
+    // The helpers read Document (FORCE RLS) through a context-aware step that falls back to
+    // the bare client when no tenant context is set — under the runtime role that matched zero
+    // rows, so the backlog always read 0. They run under the session's tenant context here.
+    const [totalPendingReview, pendingMonths] = await runWithTenantContext({ businessId }, () =>
+      Promise.all([countPendingReviewAllTime(businessId), listPendingReviewMonths(businessId)])
+    );
 
     if (summaryOnly) {
       // Previous calendar month (Jerusalem), for the net cash-flow delta. Reuses

@@ -399,8 +399,16 @@ async function runTests() {
   const originalFindUnique = prisma.billingAuthorityConnection.findUnique.bind(
     prisma.billingAuthorityConnection
   );
+  const originalTransactionMissing = prisma.$transaction.bind(prisma);
   prisma.billingAuthorityConnection.findUnique = (async () =>
     null) as typeof prisma.billingAuthorityConnection.findUnique;
+  // The connection is read under an explicit tenant transaction (FORCE RLS), so the
+  // missing row is served by the transaction client as well.
+  prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+    fn({
+      $queryRaw: async () => [],
+      billingAuthorityConnection: { findUnique: async () => null },
+    } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
   try {
     await revokeAuthorityConnection({
       businessId: BUSINESS_ID,
@@ -412,6 +420,7 @@ async function runTests() {
     ok("missing connection throws", error instanceof NotFoundError);
   } finally {
     prisma.billingAuthorityConnection.findUnique = originalFindUnique;
+    prisma.$transaction = originalTransactionMissing;
   }
 
   try {

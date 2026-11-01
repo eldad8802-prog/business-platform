@@ -5,6 +5,7 @@
 import {
   BillingAuthorityConnectionStatus,
   BillingAuthorityEnvironment,
+  type Prisma,
 } from "@prisma/client";
 import { ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
@@ -63,11 +64,23 @@ async function withConnection(
   );
   prisma.billingAuthorityConnection.findUnique = (async () =>
     connection) as typeof prisma.billingAuthorityConnection.findUnique;
+  // The connection is read under an explicit tenant transaction (FORCE RLS): the transaction
+  // client answers with whatever the test installed on the client at call time.
+  const originalTransaction = prisma.$transaction.bind(prisma);
+  prisma.$transaction = (async (txFn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+    txFn({
+      $queryRaw: async () => [],
+      billingAuthorityConnection: {
+        findUnique: (args: unknown) =>
+          (prisma.billingAuthorityConnection.findUnique as (a: unknown) => Promise<unknown>)(args),
+      },
+    } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
   try {
     await fn();
   } finally {
     prisma.billingAuthorityConnection.findUnique = originalFindUnique;
+    prisma.$transaction = originalTransaction;
   }
 }
 
