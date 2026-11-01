@@ -54,8 +54,8 @@ export const REFRESH_ONESHOT_CONNECTION_ID = 2;
 /** SHA-256 of the operator's single-use ticket (hex). */
 export const REFRESH_ONESHOT_TICKET_SHA256 = "143592375698928c97dca1ea99a43a2d9a00faf8c11c1368fc90e3803783c717";
 /** Run window, pinned at push time. Placeholders refuse every call. */
-export const REFRESH_ONESHOT_NOT_BEFORE = "__NOT_BEFORE__";
-export const REFRESH_ONESHOT_NOT_AFTER = "__NOT_AFTER__";
+export const REFRESH_ONESHOT_NOT_BEFORE = "2026-11-01T10:01:14.887Z";
+export const REFRESH_ONESHOT_NOT_AFTER = "2026-11-01T11:01:14.887Z";
 /** Refresh audit ids that must exist (the first controlled refresh) — and nothing else. */
 export const REFRESH_ONESHOT_PRIOR_REFRESH_AUDIT_IDS: readonly number[] = [9];
 const REFRESH_TIMEOUT_MS = 15_000;
