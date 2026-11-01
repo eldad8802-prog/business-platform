@@ -16,8 +16,6 @@ on:
     paths:
       - "lib/intake/**"
       - "app/api/intake/acquisition/**"
-      - "app/lab/web-form-pilot/**"
-      - "app/api/platform-admin/web-form-pilot/**"
       - "app/api/integrations/acquisition/**"
       - "lib/services/crm/lead-briefing.ts"
       - "lib/services/crm/lead.service.ts"
@@ -57,7 +55,6 @@ jobs:
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
       - run: npx tsx lib/intake/acquisition/acquisition-core.test.ts
-      - run: npx tsx lib/intake/acquisition/web-form-pilot.test.ts
       - run: npx tsx lib/intake/core/intake-core.test.ts
       - run: npx tsx lib/intake/identity/identity-core.test.ts
       - run: npx tsx lib/sensors/sensors.test.ts

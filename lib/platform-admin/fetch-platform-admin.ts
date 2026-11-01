@@ -377,14 +377,5 @@ export async function postPlatformAdminTokenProbe(): Promise<TokenProbeInvocatio
   return { routeHttpStatus: status, result: data };
 }
 
-/** TEMPORARY — website-form live proof (business 9). See lib/intake/acquisition/web-form-pilot.ts. */
-export async function postWebFormPilotPass(publicId: string): Promise<{ url: string; expiresInSeconds: number }> {
-  const { data } = await adminRequest<{ url: string; expiresInSeconds: number }>(
-    "/api/platform-admin/web-form-pilot/pass",
-    { method: "POST", body: JSON.stringify({ publicId }) }
-  );
-  return data;
-}
-
 /** Test seam — exercises the request core directly. Not used by the console. */
 export const __testing = { adminRequest };
