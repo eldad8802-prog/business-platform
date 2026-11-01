@@ -488,6 +488,8 @@ export const INFRASTRUCTURE = {
     // "Continue with Google", milestone 3: the link screen and the emailed link confirmation (sign-in, not business evidence).
     "page/link",
     "page/dev", "page/coupon-design", "page/test-upload", "page/upload",
+    // TEMPORARY website-form live proof page (business 9, admin pass only): delivery plumbing, not business evidence.
+    "page/lab",
     "page/admin", "page/about", "page/contact", "page/data-deletion", "page/home", "page/home-prototype", "page/privacy", "page/terms"],
   /** ProductUsageEvent is PLATFORM TELEMETRY (feature usage, platform-scoped), never business learning evidence. */
   platformTelemetry: ["ProductUsageEvent"],

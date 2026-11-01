@@ -109,7 +109,17 @@ async function main() {
   const adminOps = await import("@/lib/services/platform-admin/accountant-ops.service");
   const adminRoute = await import("@/app/api/platform-admin/accountant-ops/route");
   const storage = getStorageService();
-  const KEY = "2026-09";
+  // The clock: today, unless the closed month's preparation deadline (the 2nd, 06:00 Israel time) has not passed yet —
+  // then 3 days later, so every fault the battery builds is due. Every time below is relative to it, so the battery
+  // means the same thing on any day of the year.
+  const { previousPeriodKey, periodRange } = await import("@/lib/accountant/period");
+  const { PREPARE_DEADLINE_AFTER_MONTH_MS } = await import("@/lib/accountant/ops/findings");
+  const pastDeadline = (t: number) => t >= periodRange(previousPeriodKey(new Date(t))).toExclusive.getTime() + PREPARE_DEADLINE_AFTER_MONTH_MS;
+  const realNow = new Date();
+  const now = pastDeadline(realNow.getTime()) ? realNow : new Date(realNow.getTime() + 3 * 86400_000);
+  const KEY = previousPeriodKey(now);
+  const clockSkewMs = now.getTime() - realNow.getTime();
+  const batteryNow = () => new Date(Date.now() + clockSkewMs);
 
   for (const t of ["FinancialRecord", "Document", "BillingDocument", "BillingAuthoritySubmission", "Notification", "NotificationDelivery", "BusinessProfile", "BusinessFeatureAccess"]) {
     const on = (await owner.$queryRawUnsafe(`SELECT relforcerowsecurity AS f FROM pg_class WHERE relname = $1`, t)) as { f: boolean }[];
@@ -138,14 +148,13 @@ async function main() {
       const basename = `doc-${Date.now()}${n}-ops.pdf`;
       await putDocumentObject({ businessId: b, basename, body, contentType: "application/pdf", source: "file" });
       const d = await one(`INSERT INTO "Document" ("businessId", "fileUrl", "source", "mimeType", "status", "createdAt", "contentHashSha256") VALUES ($1, $2, 'file', 'application/pdf', 'approved', $3::timestamp, $4) RETURNING "id"`,
-        b, basename, `2026-09-${day}T08:00:00`, sha(body));
-      await owner.$executeRawUnsafe(`INSERT INTO "FinancialRecord" ("documentId", "businessId", "amount", "date", "vendorName", "direction", "category") VALUES ($1, $2, 99.9, $3::timestamp, 'ספק', 'expense', 'general')`, d, b, `2026-09-${day}T00:00:00`);
+        b, basename, `${KEY}-${day}T08:00:00`, sha(body));
+      await owner.$executeRawUnsafe(`INSERT INTO "FinancialRecord" ("documentId", "businessId", "amount", "date", "vendorName", "direction", "category") VALUES ($1, $2, 99.9, $3::timestamp, 'ספק', 'expense', 'general')`, d, b, `${KEY}-${day}T00:00:00`);
     }
     return { b, u, name };
   };
   type Biz = Awaited<ReturnType<typeof business>>;
   const inB = <T>(b: number, fn: () => Promise<T>) => runWithTenantContext({ businessId: b }, fn);
-  const now = new Date();
   const prepare = (x: Biz, at = now) =>
     inB(x.b, () => prep.preparePeriod({ businessId: x.b, periodKey: KEY, trigger: "SCHEDULE", actor: { type: "SYSTEM" } }, { ...prep.defaultPrepareDeps, now: () => at }));
   const recipient = (x: Biz) =>
@@ -185,7 +194,7 @@ async function main() {
     });
   };
   const hook = async (type: string, messageId: string, opts: Parameters<typeof signed>[1] = {}) => {
-    const r = await webhook.POST(signed({ type, created_at: new Date().toISOString(), data: { email_id: messageId } }, opts));
+    const r = await webhook.POST(signed({ type, created_at: batteryNow().toISOString(), data: { email_id: messageId } }, opts));
     return { s: r.status, j: (await r.json()) as Json };
   };
   const trail = (deliveryId: number, type: string) => owner.accountantWorkflowEvent.count({ where: { deliveryId, eventType: type } });
@@ -323,9 +332,9 @@ async function main() {
   before = alertCalls().length;
   r = await run(now);
   const expected = new Map<number, string>([
-    [G.b, "PACKAGE_NOT_PREPARED@p:2026-09"],
-    [H.b, "PREPARATION_FAILED@p:2026-09"],
-    [K.b, "PREPARATION_STUCK@p:2026-09"],
+    [G.b, `PACKAGE_NOT_PREPARED@p:${KEY}`],
+    [H.b, `PREPARATION_FAILED@p:${KEY}`],
+    [K.b, `PREPARATION_STUCK@p:${KEY}`],
     [R.b, `RETRY_OVERDUE@d:${aR.deliveryId}`],
     [S.b, `SEND_STUCK@d:${aS.deliveryId}`],
     [U.b, `SEND_UNCERTAIN@d:${aU.deliveryId}`],
@@ -352,7 +361,7 @@ async function main() {
   const mail = alertCalls()[alertCalls().length - 1];
   ok("4a to the operator's address only", mail.to === "ops@example.org");
   ok("4b it names every finding by its Hebrew title, business id and subject",
-    mail.text.includes(`עסק #${G.b} · חודש 2026-09`) && mail.text.includes(`עסק #${S.b} · שליחה #${aS.deliveryId}`) && mail.text.includes("ספאם") && (mail.text.match(/^חדש · /gm) ?? []).length === 10, mail.text.slice(0, 300));
+    mail.text.includes(`עסק #${G.b} · חודש ${KEY}`) && mail.text.includes(`עסק #${S.b} · שליחה #${aS.deliveryId}`) && mail.text.includes("ספאם") && (mail.text.match(/^חדש · /gm) ?? []).length === 10, mail.text.slice(0, 300));
   const allText = mail.text + mail.html + mail.subject;
   ok("4c no address, portal link, token or provider id in it", !/accountants\.example|@ops\.lab|\/a\/[A-Za-z0-9_-]{32}|#t=|msg_lab_/.test(allText));
   ok("4d no business name in it", names.every((nm) => !allText.includes(nm)));
@@ -392,13 +401,21 @@ async function main() {
   ok("6d …and it is not sent a third time", (r = await run(new Date(now.getTime() + 300_000))).counts.claimed === 0);
   delete process.env.ACCOUNTANT_OPS_ALERT_EMAIL;
   const V = await business("acct-ops-V"); // a new fault (not prepared) whose alert is due now
-  expected.set(V.b, "PACKAGE_NOT_PREPARED@p:2026-09");
+  expected.set(V.b, `PACKAGE_NOT_PREPARED@p:${KEY}`);
+  const routeFrom = Date.now();
   const res = await monitorRoute.POST(new Request("https://app.example.com/api/accountant/monitor", { method: "POST", headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }) as never);
+  const routeTo = Date.now();
   const body = (await res.json()) as Json;
+  // The route runs on the real clock: before the closed month's deadline V's month is not overdue yet, so V has no alert
+  // at this moment (the next runs, on the battery clock, open it — 8a counts it); after it, V's alert is open, not sent.
+  const vAlerts = await bizAlerts(V.b);
+  const vNone = vAlerts.length === 0;
+  const vOpenUnsent = vAlerts.length === 1 && vAlerts[0].notifyCount === 0;
   ok("6e no alert address configured → the endpoint answers 500 (the GitHub watchdog goes red), claims given back",
-    res.status === 500 && body.notification === "not_configured" && (await bizAlerts(V.b)).length === 1 && (await bizAlerts(V.b))[0].notifyCount === 0, JSON.stringify(body));
+    res.status === 500 && body.notification === "not_configured" &&
+      (pastDeadline(routeFrom) ? vOpenUnsent : !pastDeadline(routeTo) ? vNone : vNone || vOpenUnsent), JSON.stringify(body));
   process.env.ACCOUNTANT_OPS_ALERT_EMAIL = "ops@example.org";
-  await sweepRun("OK", new Date());
+  await sweepRun("OK", batteryNow());
 
   // ── 7. A partial run resolves nothing it did not look at ──────────────────────────────────────
   console.log("7. partial runs");
@@ -419,7 +436,7 @@ async function main() {
   ok("8a after 24 h: ONE email with the reminders", alertCalls().length === before + 1 && (reminder.text.match(/^תזכורת · /gm) ?? []).length === 10, reminder.text.slice(0, 200));
   ok("8b the complaint is not reminded", reminded.find((a) => a.code === "DELIVERY_COMPLAINED")?.notifyCount === 1 && reminded.filter((a) => a.code !== "DELIVERY_COMPLAINED").every((a) => a.notifyCount === 2));
   ok("8c a second run at the same time reminds nothing", (await run(new Date(now.getTime() + 25 * 3600_000 + 60_000))).counts.claimed === 0);
-  await inB(R.b, () => del.cancelDelivery(R.b, R.u, aR.deliveryId, new Date()));
+  await inB(R.b, () => del.cancelDelivery(R.b, R.u, aR.deliveryId, batteryNow()));
   await prepare(G);
   r = await run(new Date(now.getTime() + 26 * 3600_000));
   const recovery = alertCalls()[alertCalls().length - 1];
@@ -462,12 +479,12 @@ async function main() {
   const { reconcileAlerts } = await import("@/lib/accountant/ops/alert-store");
   const { businessFindings } = await import("@/lib/accountant/ops/findings");
   const Y = await business("acct-ops-Y"); // a new fault (not prepared)
-  expected.set(Y.b, "PACKAGE_NOT_PREPARED@p:2026-09");
-  const tRun = new Date(Date.now() + 2 * 60_000);
+  expected.set(Y.b, `PACKAGE_NOT_PREPARED@p:${KEY}`);
+  const tRun = new Date(batteryNow().getTime() + 2 * 60_000);
   const tDead = new Date(tRun.getTime() - 15 * 60_000);
   const dead = await owner.accountantOpsRun.create({ data: { kind: "MONITOR", source: "VERCEL_CRON", startedAt: tDead, outcome: "RUNNING" } });
   // The dead run opened and CLAIMED Y's alert (its claims carry its start time), then was killed before sending.
-  const yFindings = businessFindings({ now: tDead, sweepEnabled: true, webhookConfigured: true, latestKey: "2026-09", periods: [], buildingPackages: [], deliveries: [], complaints: [] });
+  const yFindings = businessFindings({ now: tDead, sweepEnabled: true, webhookConfigured: true, latestKey: KEY, periods: [], buildingPackages: [], deliveries: [], complaints: [] });
   const deadClaim = await inB(Y.b, () => tenantTx(Y.b, (tx) => reconcileAlerts(tx, { kind: "business", businessId: Y.b }, yFindings, tDead, { claimAt: tDead })));
   const yAlert = (await bizAlerts(Y.b))[0];
   ok("9b-a fixture: the dead run claimed Y's first notice (notifyCount 1, stamped with its start) and sent nothing",
@@ -477,7 +494,7 @@ async function main() {
   const yAfter = (await bizAlerts(Y.b))[0];
   const deadAfter = await owner.accountantOpsRun.findUniqueOrThrow({ where: { id: dead.id } });
   ok("9b-b the next run recovers the dead run's claim and sends it as a first notice",
-    r.counts.recovered >= 1 && alertCalls().length === before + 1 && alertCalls()[alertCalls().length - 1].text.includes(`עסק #${Y.b} · חודש 2026-09`) &&
+    r.counts.recovered >= 1 && alertCalls().length === before + 1 && alertCalls()[alertCalls().length - 1].text.includes(`עסק #${Y.b} · חודש ${KEY}`) &&
       yAfter.notifyCount === 1 && yAfter.lastNotifiedAt?.getTime() === tRun.getTime(), JSON.stringify({ rec: r.counts.recovered, n: yAfter.notifyCount }));
   ok("9b-c …and closes the dead run as FAILED (abandoned)", deadAfter.outcome === "FAILED" && deadAfter.errorCode === "abandoned" && r.counts.abandonedRuns === 1);
   r = await run(new Date(tRun.getTime() + 60_000));
@@ -514,7 +531,7 @@ async function main() {
   r = await run(later);
   ok("11b-a 40 days on: the uncertain send, the stuck send, the failing month, the stuck build — all still open",
     (await stillOpen(U.b, "SEND_UNCERTAIN")) && (await stillOpen(S.b, "SEND_STUCK")) && (await stillOpen(H.b, "PREPARATION_FAILED")) && (await stillOpen(K.b, "PREPARATION_STUCK")));
-  ok("11b-b the month never prepared (2026-09) is still open after the months rolled over", (await bizAlerts(V.b)).some((a) => a.subjectKey === "p:2026-09" && a.resolvedAt === null));
+  ok("11b-b the month never prepared (the closed month) is still open after the months rolled over", (await bizAlerts(V.b)).some((a) => a.subjectKey === `p:${KEY}` && a.resolvedAt === null));
   ok("11b-c the silent webhook past its 72 h window, still no event → still open", await stillOpen(W.b, "WEBHOOK_SILENT"));
   ok("11b-d the 40-day-old complaint, nothing done → still open", await stillOpen(C.b, "DELIVERY_COMPLAINED"));
   ok("11b-e nothing closed by age: no 'resolved' line in this run's email", !(alertCalls().slice(before).map((c) => c.text).join("\n").match(/^נפתר · /gm)));
@@ -532,7 +549,7 @@ async function main() {
   ok("11b-h the sweep switched off while SWEEP_MISSED is open → stays open, marked unchecked, NOT reminded after 24 h",
     sm.notifyCount === 1 && (sm.detail as Json).unchecked === true);
   ok("11b-i …and the month the switched-off sweep cannot prepare stays open quietly, not reminded",
-    (await bizAlerts(V.b)).filter((a) => a.subjectKey === "p:2026-09" && a.resolvedAt === null).every((a) => (a.detail as Json).unchecked === true));
+    (await bizAlerts(V.b)).filter((a) => a.subjectKey === `p:${KEY}` && a.resolvedAt === null).every((a) => (a.detail as Json).unchecked === true));
   process.env.ACCOUNTANT_SWEEP_ENABLED = "true";
   // The monitor watching itself: a GitHub run with no Vercel Cron run for 3 h, then a Vercel run with no GitHub run for 13 h.
   const t1 = new Date(later.getTime() + 28 * 3600_000);
