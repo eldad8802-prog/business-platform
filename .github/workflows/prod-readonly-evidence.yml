@@ -145,6 +145,7 @@ on:
           - 'ops/evidence/appointments-business-9-breakdown.sql'
           - 'ops/evidence/lead-claimed-phone-preflight.sql'
           - 'ops/evidence/lead-claimed-phone-production-evidence.sql'
+          - 'ops/evidence/ita-authority-connections-all-envs-evidence.sql'
 
 permissions:
   contents: read
