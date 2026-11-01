@@ -7,6 +7,7 @@
  * never logs tokens or the payload. Mirrors the Approval client's transport shape.
  */
 
+import { authorityEgressFetch } from "@/lib/services/billing/authority/billing-authority-egress";
 import type {
   InvoiceDecisionAction,
   InvoiceDecisionRequest,
@@ -26,7 +27,7 @@ export type SendInvoiceDecisionInput = {
   action: InvoiceDecisionAction;
   payload: InvoiceDecisionRequest;
   config: AuthorityDecisionConfig;
-  /** Injectable for tests. Defaults to global fetch. */
+  /** Injectable for tests. Defaults to the ITA egress transport (never global fetch). */
   fetchImpl?: typeof fetch;
 };
 
@@ -112,7 +113,7 @@ export function parseDecisionResponse(
 export async function sendInvoiceDecision(
   input: SendInvoiceDecisionInput
 ): Promise<DecisionClientResult> {
-  const fetchFn = input.fetchImpl ?? fetch;
+  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
   const url = buildInvoiceDecisionUrl(input.config, input.action);
 
   const controller = new AbortController();

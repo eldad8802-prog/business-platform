@@ -151,7 +151,7 @@ withEnv(ENV, () => {
     "oauth response_type is code",
     url.searchParams.get("response_type") === ITA_OAUTH_RESPONSE_TYPE
   );
-  ok("oauth scope is literal scope", url.searchParams.get("scope") === ITA_OAUTH_SCOPE);
+  ok("oauth scope is invoices_scope", url.searchParams.get("scope") === ITA_OAUTH_SCOPE && ITA_OAUTH_SCOPE === "invoices_scope");
   ok(
     "sandbox authorization URL path",
     url.pathname === "/shaam/tsandbox/longtimetoken/oauth2/authorize"

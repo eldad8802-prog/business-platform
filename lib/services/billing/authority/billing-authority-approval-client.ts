@@ -9,6 +9,14 @@
  * or allocation numbers.
  */
 
+import {
+  authorityEgressFetch,
+  isAuthorityEgressError,
+} from "@/lib/services/billing/authority/billing-authority-egress";
+import {
+  assessTransportFailure,
+  sanitizeTransportCode,
+} from "@/lib/services/billing/authority/billing-authority-send-certainty";
 import type { InvoiceApprovalRequest, InvoiceApprovalValidationErrorDetail } from "@/lib/services/billing/authority/billing-authority-approval.types";
 import { hasInvoiceApprovalErrors } from "@/lib/services/billing/authority/billing-authority-approval.types";
 import {
@@ -19,12 +27,13 @@ import type {
   ApprovalClientErrorClass,
   ApprovalClientResult,
 } from "@/lib/services/billing/authority/billing-authority-approval-client.types";
+import { extractProviderDiagnostic } from "@/lib/services/billing/authority/billing-authority-provider-diagnostic";
 
 export type SendInvoiceApprovalInput = {
   accessToken: string;
   payload: InvoiceApprovalRequest;
   config: AuthorityApprovalConfig;
-  /** Injectable for tests. Defaults to global fetch. */
+  /** Injectable for tests. Defaults to the ITA egress transport (never global fetch). */
   fetchImpl?: typeof fetch;
 };
 
@@ -220,20 +229,85 @@ export function parseApprovalResponse(
     };
   }
 
-  // Undocumented statuses (401/403/404/408/429/other) — infrastructural.
+  // Undocumented statuses (401/403/404/408/429/other) — infrastructural. A
+  // status was received, so the request reached the authority's edge: nothing
+  // in the contract proves it was not processed → POSSIBLY_SENT.
   return {
     kind: "infrastructure_error",
     httpStatus: status,
     classification: classifyHttpStatus(status),
     message: infraMessageForStatus(status),
     errorId: asStringOrNull(rec.error_id),
+    failureKind: "HTTP_STATUS",
+    sendCertainty: "POSSIBLY_SENT",
+    transportCode: null,
+  };
+}
+
+function preSendFailure(message: string): ApprovalClientResult {
+  return {
+    kind: "infrastructure_error",
+    httpStatus: null,
+    classification: "CONFIGURATION",
+    message,
+    errorId: null,
+    failureKind: "PRE_SEND",
+    sendCertainty: "NOT_SENT",
+    transportCode: null,
+  };
+}
+
+/**
+ * Classifies a rejected fetch. Only an egress pre-I/O refusal or an
+ * allowlisted connect-phase transport code proves NOT_SENT. Our own abort
+ * (timeout) can fire after the body was written → always POSSIBLY_SENT.
+ */
+export function classifyTransportFailure(error: unknown): ApprovalClientResult {
+  if (isAuthorityEgressError(error)) {
+    // Thrown by the egress transport before any socket is opened.
+    return {
+      kind: "infrastructure_error",
+      httpStatus: null,
+      classification: "CONFIGURATION",
+      message: "Authority egress refused the request before sending",
+      errorId: null,
+      failureKind: "TRANSPORT",
+      sendCertainty: "NOT_SENT",
+      transportCode: sanitizeTransportCode(error.code),
+    };
+  }
+  if (error instanceof Error && error.name === "AbortError") {
+    return {
+      kind: "infrastructure_error",
+      httpStatus: null,
+      classification: "TIMEOUT",
+      message: "Approval request timed out",
+      errorId: null,
+      failureKind: "TRANSPORT",
+      sendCertainty: "POSSIBLY_SENT",
+      transportCode: null,
+    };
+  }
+  const assessed = assessTransportFailure(error);
+  return {
+    kind: "infrastructure_error",
+    httpStatus: null,
+    classification: "NETWORK",
+    message:
+      assessed.sendCertainty === "NOT_SENT"
+        ? "Approval request could not connect to the authority"
+        : "Approval request failed after the connection may have carried it",
+    errorId: null,
+    failureKind: "TRANSPORT",
+    sendCertainty: assessed.sendCertainty,
+    transportCode: sanitizeTransportCode(assessed.transportCode),
   };
 }
 
 /**
  * Sends the approval request. Returns an explicit result; never throws for
- * HTTP/business outcomes. Network failures and timeouts become
- * infrastructure_error results.
+ * HTTP/business outcomes. Every failure carries a `sendCertainty`: NOT_SENT is
+ * returned only when the code can prove nothing was transmitted.
  *
  * The payload is sent EXACTLY as produced by the builder — no field is added,
  * removed, defaulted, or transformed.
@@ -241,25 +315,57 @@ export function parseApprovalResponse(
 export async function sendInvoiceApproval(
   input: SendInvoiceApprovalInput
 ): Promise<ApprovalClientResult> {
-  const fetchFn = input.fetchImpl ?? fetch;
-  const url = buildInvoiceApprovalUrl(input.config);
+  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
+
+  // ---- pre-send: nothing has been handed to the transport yet ----
+  let url: string;
+  let body: string;
+  try {
+    url = buildInvoiceApprovalUrl(input.config);
+    body = JSON.stringify(input.payload);
+  } catch {
+    return preSendFailure("Approval request could not be constructed");
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.config.timeoutMs);
 
   try {
-    const response = await fetchFn(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.accessToken}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(input.payload),
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetchFn(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.accessToken}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      return classifyTransportFailure(error);
+    }
 
-    const text = await response.text();
+    // A status line was received: from here on the request reached the
+    // authority, so every failure is POSSIBLY_SENT.
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (error) {
+      const timedOut = error instanceof Error && error.name === "AbortError";
+      return {
+        kind: "infrastructure_error",
+        httpStatus: response.status,
+        classification: timedOut ? "TIMEOUT" : "NETWORK",
+        message: "Approval response body could not be read",
+        errorId: null,
+        failureKind: "BODY_READ",
+        sendCertainty: "POSSIBLY_SENT",
+        transportCode: null,
+      };
+    }
+
     let json: unknown = null;
     if (text.length > 0) {
       try {
@@ -271,28 +377,22 @@ export async function sendInvoiceApproval(
           classification: classifyHttpStatus(response.status),
           message: "Response body was not valid JSON",
           errorId: null,
+          failureKind: "MALFORMED_BODY",
+          sendCertainty: "POSSIBLY_SENT",
+          transportCode: null,
+          providerDiagnostic: extractProviderDiagnostic(response.headers, null),
         };
       }
     }
 
-    return parseApprovalResponse(response.status, json);
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      return {
-        kind: "infrastructure_error",
-        httpStatus: null,
-        classification: "TIMEOUT",
-        message: "Approval request timed out",
-        errorId: null,
-      };
+    const parsed = parseApprovalResponse(response.status, json);
+    if (parsed.kind === "infrastructure_error" && parsed.failureKind === "HTTP_STATUS") {
+      return { ...parsed, providerDiagnostic: extractProviderDiagnostic(response.headers, json) };
     }
-    return {
-      kind: "infrastructure_error",
-      httpStatus: null,
-      classification: "NETWORK",
-      message: "Approval request failed to reach the authority",
-      errorId: null,
-    };
+    if (parsed.kind === "validation_error") {
+      return { ...parsed, providerDiagnostic: extractProviderDiagnostic(response.headers, null) };
+    }
+    return parsed;
   } finally {
     clearTimeout(timer);
   }

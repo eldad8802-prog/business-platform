@@ -14,6 +14,7 @@
  * stack, or raw error message. No DB writes, no audit events, no projections.
  */
 
+import { authorityEgressFetch } from "@/lib/services/billing/authority/billing-authority-egress";
 import {
   mapNetworkErrorClass,
   toDurationBucket,
@@ -70,7 +71,7 @@ export async function runAuthorityTokenNetworkProbe(
       buildAuthorityOAuthTokenUrl(
         resolveAuthorityEnvConfig(resolveRuntimeAuthorityEnvironment())
       ));
-  const fetchFn = deps.fetchImpl ?? fetch;
+  const fetchFn = deps.fetchImpl ?? authorityEgressFetch;
   const now = deps.now ?? Date.now;
   const region =
     deps.region ?? (() => process.env.VERCEL_REGION?.trim() || null);

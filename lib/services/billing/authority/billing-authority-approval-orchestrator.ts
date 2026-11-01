@@ -13,6 +13,7 @@
  * HTTP status codes are never exposed upward — callers see domain outcomes.
  */
 
+import type { ProviderDiagnostic } from "@/lib/services/billing/authority/billing-authority-provider-diagnostic";
 import type { BillingIssuedSnapshotV1 } from "@/lib/services/billing/pdf/billing-pdf-template";
 import type { InvoiceApprovalValidationErrorDetail } from "@/lib/services/billing/authority/billing-authority-approval.types";
 import {
@@ -25,8 +26,10 @@ import { sendInvoiceApproval } from "@/lib/services/billing/authority/billing-au
 import type { AuthorityApprovalConfig } from "@/lib/services/billing/authority/billing-authority-approval-client.config";
 import type {
   ApprovalClientErrorClass,
+  ApprovalClientFailureKind,
   ApprovalClientResult,
 } from "@/lib/services/billing/authority/billing-authority-approval-client.types";
+import type { SendCertainty } from "@/lib/services/billing/authority/billing-authority-send-certainty";
 import type { SendInvoiceApprovalInput } from "@/lib/services/billing/authority/billing-authority-approval-client";
 
 /** Business-level input. No DB/env/Prisma — everything is passed in explicitly. */
@@ -57,9 +60,21 @@ export type ApprovalDomainResult =
   | { outcome: "decision_already_reported"; code: number; confirmationNumber: string | null; message: string | null }
   | { outcome: "not_approved_unknown"; confirmationNumber: string | null; message: string | null }
   | { outcome: "local_validation_failed"; errors: ApprovalPayloadValidationError[] }
-  | { outcome: "authority_validation_failed"; errors: InvoiceApprovalValidationErrorDetail[] }
+  | { outcome: "authority_validation_failed"; errors: InvoiceApprovalValidationErrorDetail[]; providerTransactionId?: string | null }
   | { outcome: "not_acceptable"; errorId: string | null; message: string | null }
-  | { outcome: "infrastructure_failure"; classification: ApprovalClientErrorClass; message: string };
+  | {
+      outcome: "infrastructure_failure";
+      classification: ApprovalClientErrorClass;
+      message: string;
+      /** NOT_SENT only when provably nothing reached the authority. */
+      sendCertainty: SendCertainty;
+      failureKind: ApprovalClientFailureKind | "SERVER_ERROR" | "CLIENT_THREW";
+      /** Diagnostics only (audit metadata) — never used for control flow upward. */
+      providerHttpStatus: number | null;
+      providerErrorId: string | null;
+      transportCode: string | null;
+      providerDiagnostic?: ProviderDiagnostic | null;
+    };
 
 /** Injected collaborators — the only place both are referenced together. */
 export type ApprovalOrchestratorDeps = {
@@ -88,7 +103,7 @@ function mapClientResultToDomain(result: ApprovalClientResult): ApprovalDomainRe
     case "not_approved_unknown":
       return { outcome: "not_approved_unknown", confirmationNumber: result.confirmationNumber, message: result.message };
     case "validation_error":
-      return { outcome: "authority_validation_failed", errors: result.response.message.errors };
+      return { outcome: "authority_validation_failed", errors: result.response.message.errors, providerTransactionId: result.providerDiagnostic?.transactionId ?? null };
     case "not_acceptable":
       return {
         outcome: "not_acceptable",
@@ -96,9 +111,29 @@ function mapClientResultToDomain(result: ApprovalClientResult): ApprovalDomainRe
         message: result.response.message,
       };
     case "server_error":
-      return { outcome: "infrastructure_failure", classification: result.classification, message: "Authority server error" };
+      // A 5xx proves nothing about whether the authority processed the request.
+      return {
+        outcome: "infrastructure_failure",
+        classification: result.classification,
+        message: "Authority server error",
+        sendCertainty: "POSSIBLY_SENT",
+        failureKind: "SERVER_ERROR",
+        providerHttpStatus: result.httpStatus,
+        providerErrorId: result.response.error_id,
+        transportCode: null,
+      };
     case "infrastructure_error":
-      return { outcome: "infrastructure_failure", classification: result.classification, message: result.message };
+      return {
+        outcome: "infrastructure_failure",
+        classification: result.classification,
+        message: result.message,
+        sendCertainty: result.sendCertainty,
+        failureKind: result.failureKind,
+        providerHttpStatus: result.httpStatus,
+        providerErrorId: result.errorId,
+        transportCode: result.transportCode,
+        providerDiagnostic: result.providerDiagnostic ?? null,
+      };
     default: {
       // Exhaustiveness guard — all ApprovalClientResult kinds are handled above.
       const _never: never = result;
@@ -138,10 +173,17 @@ export async function requestInvoiceApproval(
       config: input.config,
     });
   } catch {
+    // The client may have thrown after handing the request to the transport:
+    // send status cannot be proven → fail closed.
     return {
       outcome: "infrastructure_failure",
       classification: "UNKNOWN",
       message: "Approval client threw unexpectedly",
+      sendCertainty: "POSSIBLY_SENT",
+      failureKind: "CLIENT_THREW",
+      providerHttpStatus: null,
+      providerErrorId: null,
+      transportCode: null,
     };
   }
 
