@@ -6,7 +6,8 @@
  *   - a timed appointment has an end time and a lane (a staff member, or the business's own lane when none);
  *   - no two active appointments of a lane may overlap — checked here first under a per-business lock, so the owner
  *     gets the conflicting appointments back; refused by the database (Appointment_no_overlap) in every case;
- *   - a business-wide block (no staff member) closes the time for every lane;
+ *   - the business's own lane and the staff lanes exclude each other both ways (a business-wide block or a general
+ *     appointment closes the time for every lane, and is refused over any lane's appointment); staff run in parallel;
  *   - every write is idempotent (Idempotency-Key) and journalled; optimistic versions refuse a stale edit;
  *   - the owner may book outside working hours (their calendar, their call): the answer says so
  *     (OUTSIDE_AVAILABILITY) instead of refusing. Overlap is never allowed.
@@ -154,8 +155,15 @@ async function bufferPolicy(tx: Tx, businessId: number, businessServiceId: numbe
 type Occupant = { id: number; startsAt: Date; endsAt: Date; bufferBeforeMinutes: number; bufferAfterMinutes: number };
 
 /**
- * Who already occupies time around `range` in a lane: the lane's active timed appointments, plus — for a staff
- * lane — the business-wide blocks, which close the time for everyone.
+ * Who already occupies time around `range` in a lane. The business's own lane (no staff member) and every staff lane
+ * exclude each other, both ways (owner decision P0-1, 2026-11-01):
+ *   - a staff lane: its own active timed appointments, plus everything in the business's lane (appointments,
+ *     internal meetings and business-wide blocks alike);
+ *   - the business's lane: every active timed appointment of the business, in any lane — so a business-wide block
+ *     (or a general appointment) is refused over a staff member's appointment, never laid over it.
+ * Two different staff members never see each other: their lanes run in parallel.
+ * The database's Appointment_no_overlap guards each lane on its own; across lanes this check is the guard, sound
+ * because every timed write takes the per-business lock first (ownerWrite, the public submit).
  */
 export async function laneOccupants(tx: Tx, businessId: number, staffMemberId: number | null, range: Interval, excludeId?: number): Promise<Occupant[]> {
   const pad = 241 * MINUTE; // the widest buffer (240) and one minute
@@ -166,9 +174,7 @@ export async function laneOccupants(tx: Tx, businessId: number, staffMemberId: n
       endsAt: { not: null, gt: new Date(range.start.getTime() - pad) },
       startsAt: { lt: new Date(range.end.getTime() + pad) },
       ...(excludeId ? { id: { not: excludeId } } : {}),
-      OR: staffMemberId === null
-        ? [{ staffMemberId: null }]
-        : [{ staffMemberId }, { staffMemberId: null, kind: "BLOCK" }],
+      ...(staffMemberId === null ? {} : { OR: [{ staffMemberId }, { staffMemberId: null }] }),
     },
     select: { id: true, startsAt: true, endsAt: true, bufferBeforeMinutes: true, bufferAfterMinutes: true },
   });
@@ -460,6 +466,11 @@ export async function changeStatus(principal: AppointmentPrincipal, req: OwnerRe
     if (refusal) throw new AppointmentServiceError("INVALID_TRANSITION", { reason: refusal === "not_started" ? "NOT_STARTED" : "NO_CUSTOMER" });
     const fromPublic = current.sourceChannel === "PUBLIC_BOOKING";
     if (cancelReason === "DECLINED" && !(fromPublic && (await hasPendingRequest(ctx.tx, ctx.businessId, current.id)))) throw invalid("cancelReason");
+    // Confirming a waiting appointment (an owner's "not yet confirmed", or a public request) re-checks its time under
+    // the lock: it already held the time, so this refuses only an overlap the lane rule forbids that predates it.
+    if (to === "CONFIRMED" && current.status === "PROPOSED" && current.startsAt && current.endsAt) {
+      await assertFree(ctx.tx, ctx.businessId, current.staffMemberId, occupiedRange(current.startsAt, current.endsAt, current.bufferBeforeMinutes, current.bufferAfterMinutes), current.id);
+    }
     const r = await transitionWithinTx(ctx.tx, current, to, actor, {
       appendNote: to === "CANCELED" ? reason : null, cancelReason, journalKey: ctx.key, digest: ctx.digest,
     });

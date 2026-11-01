@@ -37,6 +37,7 @@ import {
   availabilityWarning,
   clock,
   clockOf,
+  BLOCK_CONFLICT_TEXT,
   durationLabel,
   durationOf,
   errorText,
@@ -241,7 +242,10 @@ export function AppointmentForm({
       forgetIntent(intent.current);
       intent.current = `appt:create:${uuidV7()}`;
       const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "NETWORK");
-      if (err.code === "SLOT_CONFLICT") {
+      if (err.code === "SLOT_CONFLICT" && kind === "BLOCK") {
+        setConflict(null);
+        setError(BLOCK_CONFLICT_TEXT);
+      } else if (err.code === "SLOT_CONFLICT") {
         const wanted = new Date(startsAt);
         const fresh = await findSlots({
           fromDay: day, toDay: addCalendarDays(day, 6), businessServiceId: kind === "CUSTOMER" ? serviceId : null,
@@ -544,8 +548,8 @@ export function MoveForm({
       forgetIntent(intent.current);
       intent.current = `appt:move:${appt.id}:${uuidV7()}`;
       const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "NETWORK");
-      setError(errorText(err.code, err.status));
-      if (err.code === "SLOT_CONFLICT") {
+      setError(err.code === "SLOT_CONFLICT" && appt.kind === "BLOCK" ? BLOCK_CONFLICT_TEXT : errorText(err.code, err.status));
+      if (err.code === "SLOT_CONFLICT" && appt.kind !== "BLOCK") {
         const fresh = await findSlots({
           fromDay: day, toDay: addCalendarDays(day, 6), businessServiceId: appt.businessServiceId, durationMinutes: duration, staffMemberId: staffId,
         }).then((r) => r.slots).catch(() => [] as SlotWire[]);

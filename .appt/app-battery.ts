@@ -3,8 +3,8 @@
  * tenant plane DATABASE_URL = app_runtime_prod (NOSUPERUSER NOBYPASSRLS), owner (OWNER_URL) for fixtures and read-back.
  * The real route handlers are called with real signed session tokens; nothing is mocked but the clock where stated.
  *
- *   A. The flag: OFF → every new route 404 for a signed-in owner, 401 without a session; the routes that predate
- *      milestone A keep working with the flag off. ON for one business only.
+ *   A. The flag: OFF → every new route 404 for a signed-in owner, 401 without a session; the retired POST route writes
+ *      nothing with the flag off either (410). ON for one business only.
  *   B. Configuration: staff without login, weekly hours, an exception, a service policy, staff ↔ services.
  *   C. Create: 201; same key + same body → replayed (200, one row); same key + another body → 409; an overlap → 409
  *      SLOT_CONFLICT naming the conflict; outside the hours → created with a warning; a block; refusals by input.
@@ -17,11 +17,17 @@
  *   G. Reads and isolation: the range, a staff lane, the other business sees nothing and gets 404 for a foreign id.
  *   H. Free slots respect hours, the exception, buffers and busy time.
  *   I. The paths that predate milestone A: create without a time, conversion of a conversation's pending request,
- *      the old reschedule and the old POST route — unchanged, now journalled; a timed row refused by the old reschedule.
+ *      the old reschedule — unchanged, now journalled; a timed row refused by the old reschedule; the old POST route
+ *      retired (410, P0-1).
  *   J. Learning: the appointment evidence loader reads customer appointments only.
  *   K. Decision 6: a CUSTOMER or SYSTEM action carries no user anywhere; an OWNER action always does.
- *   L. A failed journal write (lab fault trigger) undoes the whole change on the paths that predate milestone A:
- *      500, the appointment untouched, no event, no sensor, no half conversion; without the fault the same call works.
+ *   L. A failed journal write (lab fault trigger) undoes the whole change — a status change, and the conversion that
+ *      predates milestone A: 500, the appointment untouched, no event, no sensor, no half conversion; without the fault
+ *      the same call works.
+ *   M. P0-1 (owner, 2026-11-01): the business's own lane and the staff lanes exclude each other both ways (create, move,
+ *      free slots, confirm, concurrency), a business-wide block is refused over appointments (nothing written), staff
+ *      run in parallel, a cancelled appointment frees its time; a cancel reason never breaks the 4000 notes rule
+ *      (no 500); the retired POST /api/appointments/[id] writes nothing, for anyone.
  *
  * env: OWNER_URL, DATABASE_URL (runtime). Everything else is set below. Synthetic only.
  */
@@ -118,7 +124,8 @@ async function main() {
   ok("A3 flag OFF: a write route is 404 too, and wrote nothing", r.status === 404 && (await n(`SELECT count(*)::int AS n FROM "StaffMember" WHERE "businessId" = ${bizA}`)) === 0);
   const pre = await legacy.create({ businessId: bizA, actor: { actor: "OWNER", userId: userA, sourceChannel: "INBOX_WEB" } });
   r = pre.ok ? await routes.one.POST(req(`/api/appointments/${pre.appointment.id}`, { method: "POST", body: { action: "confirm" } }), p({ id: String(pre.appointment.id) })) : new Response(null, { status: 599 });
-  ok("A4 flag OFF: the route that predates milestone A still confirms", r.status === 200 && (await body(r))?.appointment?.status === "CONFIRMED", String(r.status));
+  ok("A4 flag OFF: the retired POST /api/appointments/[id] answers 410 and confirms nothing (P0-1)", r.status === 410 && (await body(r))?.code === "ENDPOINT_RETIRED"
+    && pre.ok && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id = ${pre.appointment.id} AND status = 'PROPOSED' AND version = 1`)) === 1, String(r.status));
   await owner.businessFeatureAccess.create({ data: { businessId: bizA, featureKey: "appointments", state: "ENABLED", reason: "lab" } });
   r = await routes.root.GET(req(`/api/appointments?from=${at("00:00")}&to=${at("23:00")}`));
   ok("A5 flag ON for business A → 200", r.status === 200, String(r.status));
@@ -202,7 +209,10 @@ async function main() {
   const c6 = (await body(r))?.appointment?.id as number;
   ok("C6 after the buffer → 201", r.status === 201 && c6 > 0);
   r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { kind: "INTERNAL", title: "ישיבת צוות", startsAt: at("10:00"), durationMinutes: 30 } }));
-  ok("C7 the business's own lane is separate from Dana's: an internal meeting at 10:00 → 201", r.status === 201);
+  ok("C7 the business's own lane and Dana's exclude each other (P0-1): a general meeting at 10:00 over her appointment → 409 naming it", r.status === 409
+    && JSON.stringify((await body(r))?.details?.conflictingAppointmentIds) === JSON.stringify([a1]), String(r.status));
+  r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { kind: "INTERNAL", title: "ישיבת צוות", startsAt: at("12:30"), durationMinutes: 30 } }));
+  ok("C7a …and once Dana's time (with its buffer) is over, at 12:30 → 201", r.status === 201, String(r.status));
   r = await routes.root.POST(req("/api/appointments", { method: "POST", key: key(), body: { kind: "INTERNAL", title: "ישיבה", startsAt: at("18:00"), durationMinutes: 30 } }));
   const late = await body(r);
   ok("C8 after hours: created, with the warning OUTSIDE_AVAILABILITY", r.status === 201 && JSON.stringify(late?.warnings) === JSON.stringify(["OUTSIDE_AVAILABILITY"]));
@@ -265,9 +275,9 @@ async function main() {
   r = await routes.status.POST(req(`/api/appointments/${a1}/status`, { method: "POST", key: key(), body: { to: "NO_SHOW" } }), p({ id: String(a1) }));
   ok("F1a …nor marked a no-show → 409", r.status === 409);
   r = await routes.one.POST(req(`/api/appointments/${a1}`, { method: "POST", body: { action: "complete" } }), p({ id: String(a1) }));
-  ok("F1b the route that predates milestone A cannot bypass it (complete) → 409", r.status === 409);
+  ok("F1b the retired POST route cannot bypass it (complete) → 410", r.status === 410);
   r = await routes.one.POST(req(`/api/appointments/${a1}`, { method: "POST", body: { action: "no_show" } }), p({ id: String(a1) }));
-  ok("F1c …nor no_show → 409, still CONFIRMED, nothing journalled", r.status === 409
+  ok("F1c …nor no_show → 410, still CONFIRMED, nothing journalled", r.status === 410
     && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id = ${a1} AND status = 'CONFIRMED'`)) === 1
     && (await n(`SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "appointmentId" = ${a1} AND "eventType" IN ('APPOINTMENT_COMPLETED', 'APPOINTMENT_NO_SHOW')`)) === 0);
   const yesterday = new Date(Date.now() - 26 * 3600_000);
@@ -362,10 +372,10 @@ async function main() {
   ok("I5 the old reschedule refuses a timed appointment (it would bypass the overlap check)", !refusedOld.ok && refusedOld.reason === "invalid_input");
   r = untimed.ok ? await routes.one.POST(req(`/api/appointments/${untimed.appointment.id}`, { method: "POST", body: { action: "cancel", reason: "ביטול טלפוני" } }), p({ id: String(untimed.appointment.id) })) : new Response(null, { status: 599 });
   const cx = await body(r);
-  ok("I6 the old POST route cancels, keeps the free-text reason in notes, sets the closed reason", r.status === 200 && cx?.appointment?.status === "CANCELED"
-    && cx.appointment.cancelReason === "OWNER_CANCELED" && String(cx.appointment.notes).includes("ביטול טלפוני"));
-  ok("I7 every path journalled: created ×2, rescheduled, cancelled — each by the owner",
-    untimed.ok && converted.ok && (await n(`SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "appointmentId" IN (${untimed.appointment.id}, ${converted.appointment.id}) AND actor = 'OWNER_USER' AND "actorUserId" = ${userA}`)) === 4);
+  ok("I6 the retired POST route (P0-1): 410, the appointment not cancelled, no reason written", r.status === 410 && cx?.code === "ENDPOINT_RETIRED"
+    && untimed.ok && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id = ${untimed.appointment.id} AND status = 'PROPOSED' AND "cancelReason" IS NULL AND notes IS NULL`)) === 1);
+  ok("I7 every remaining old path journalled: created ×2, rescheduled — each by the owner",
+    untimed.ok && converted.ok && (await n(`SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "appointmentId" IN (${untimed.appointment.id}, ${converted.appointment.id}) AND actor = 'OWNER_USER' AND "actorUserId" = ${userA}`)) === 3);
 
   // ── J. Learning ────────────────────────────────────────────────────────────────────────────────
   console.log("J. learning");
@@ -406,12 +416,12 @@ async function main() {
   await owner.$executeRawUnsafe(`CREATE TRIGGER "appt_lab_journal_fault" BEFORE INSERT ON "AppointmentEvent" FOR EACH ROW EXECUTE FUNCTION public.appt_lab_journal_fault()`);
   try {
     const before = await snap(vid), ev0 = await events(), se0 = await sensors();
-    r = await routes.one.POST(req(`/api/appointments/${vid}`, { method: "POST", body: { action: "confirm" } }), p({ id: String(vid) }));
-    ok("L1 journal fails on the old POST confirm → 500, not a success", r.status === 500, String(r.status));
+    r = await routes.status.POST(req(`/api/appointments/${vid}/status`, { method: "POST", key: key(), body: { to: "CONFIRMED" } }), p({ id: String(vid) }));
+    ok("L1 journal fails on a status confirm → 500, not a success", r.status === 500, String(r.status));
     ok("L2 …the appointment is exactly as before: status, version, notes, cancel reason, updatedAt", (await snap(vid)) === before, `${before} → ${await snap(vid)}`);
     ok("L3 …no journal event and no learning sensor was written", (await events()) === ev0 && (await sensors()) === se0);
-    r = await routes.one.POST(req(`/api/appointments/${vid}`, { method: "POST", body: { action: "cancel", reason: "ביטול בזמן תקלה" } }), p({ id: String(vid) }));
-    ok("L4 journal fails on the old POST cancel → 500; the row is untouched (no status, no reason in notes, no closed reason)", r.status === 500 && (await snap(vid)) === before, String(r.status));
+    r = await routes.status.POST(req(`/api/appointments/${vid}/status`, { method: "POST", key: key(), body: { to: "CANCELED", reason: "ביטול בזמן תקלה" } }), p({ id: String(vid) }));
+    ok("L4 journal fails on a status cancel → 500; the row is untouched (no status, no reason in notes, no closed reason)", r.status === 500 && (await snap(vid)) === before, String(r.status));
     const ap0 = await apptCount(), ds0 = await demand();
     r = await convRoute.POST(req(`/api/conversations/${conv2.id}/appointment`, { method: "POST", body: { businessServiceId: svcA } }), p({ id: String(conv2.id) }));
     ok("L5 journal fails on the conversion of a pending request → 500", r.status === 500, String(r.status));
@@ -422,11 +432,161 @@ async function main() {
     await owner.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public.appt_lab_journal_fault()`);
   }
   const ev1 = await events();
-  r = await routes.one.POST(req(`/api/appointments/${vid}`, { method: "POST", body: { action: "confirm" } }), p({ id: String(vid) }));
+  r = await routes.status.POST(req(`/api/appointments/${vid}/status`, { method: "POST", key: key(), body: { to: "CONFIRMED" } }), p({ id: String(vid) }));
   const healed = await owner.appointment.findUnique({ where: { id: vid }, select: { status: true, version: true } });
   ok("L7 fault removed: the same confirm succeeds — CONFIRMED, version 2, exactly one new event", r.status === 200 && healed?.status === "CONFIRMED" && healed.version === 2 && (await events()) === ev1 + 1, JSON.stringify(healed));
   r = await convRoute.POST(req(`/api/conversations/${conv2.id}/appointment`, { method: "POST", body: { businessServiceId: svcA } }), p({ id: String(conv2.id) }));
   ok("L8 fault removed: the same conversion succeeds and clears the pending request", r.status === 200 && (await pending()) === 0, String(r.status));
+
+  // ── M. P0-1 (owner, 2026-11-01) ────────────────────────────────────────────────────────────────
+  // Thursday of the same week: business hours, no exception, nothing booked yet. Dana and Yossi are staff; an
+  // appointment without a staff member sits in the business's own lane.
+  console.log("M. P0-1: lanes, blocks, long cancel notes, the retired route");
+  const THU = addCalendarDays(SUN, 4);
+  const ts = (iso: string) => iso.replace("T", " ").replace("Z", "");
+  const create = (b: Record<string, unknown>, k = key()) => routes.root.POST(req("/api/appointments", { method: "POST", key: k, body: b }));
+  const status = (id: number, b: Record<string, unknown>, k = key()) => routes.status.POST(req(`/api/appointments/${id}/status`, { method: "POST", key: k, body: b }), p({ id: String(id) }));
+  const move = (id: number, b: Record<string, unknown>) => routes.reschedule.POST(req(`/api/appointments/${id}/reschedule`, { method: "POST", key: key(), body: b }), p({ id: String(id) }));
+  const read = async (res: Response) => ({ status: res.status, b: await body(res) });
+  const conflictsOf = (x: { b: { details?: { conflictingAppointmentIds?: number[] } } | null }) => (x.b?.details?.conflictingAppointmentIds ?? []).slice().sort((a, c) => a - c);
+  const activeIn = (from: string, to: string) => n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA} AND status IN ('PROPOSED','CONFIRMED') AND "endsAt" IS NOT NULL AND "startsAt" < '${ts(to)}' AND "endsAt" > '${ts(from)}'`);
+  const eventsA = () => n(`SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "businessId" = ${bizA}`);
+
+  let m = await read(await create({ kind: "CUSTOMER", startsAt: at("10:00", THU), durationMinutes: 60 }));
+  const g1 = m.b?.appointment?.id as number;
+  ok("M1 a general appointment (no staff member) 10:00–11:00 → 201", m.status === 201 && m.b.appointment.staffMemberId === null, String(m.status));
+  m = await read(await create({ kind: "CUSTOMER", staffMemberId: dana.id, startsAt: at("10:30", THU), durationMinutes: 30 }));
+  ok("M2 a staff appointment over the general one → 409 SLOT_CONFLICT naming it", m.status === 409 && m.b?.error === "SLOT_CONFLICT" && JSON.stringify(conflictsOf(m)) === JSON.stringify([g1]), JSON.stringify(m.b));
+  m = await read(await create({ kind: "CUSTOMER", staffMemberId: yossi.id, startsAt: at("12:00", THU), durationMinutes: 60 }));
+  const y1 = m.b?.appointment?.id as number;
+  const m3 = m.status;
+  m = await read(await create({ kind: "CUSTOMER", staffMemberId: dana.id, startsAt: at("12:00", THU), durationMinutes: 60 }));
+  const d1 = m.b?.appointment?.id as number;
+  ok("M3 two staff members at the same hour: both 201 (staff lanes stay parallel)", m3 === 201 && m.status === 201, `${m3} ${m.status}`);
+  m = await read(await create({ kind: "INTERNAL", title: "ישיבה", startsAt: at("12:30", THU), durationMinutes: 30 }));
+  ok("M4 a general meeting over the staff appointments → 409 naming both", m.status === 409 && JSON.stringify(conflictsOf(m)) === JSON.stringify([y1, d1].sort((a, c) => a - c)), JSON.stringify(m.b));
+  const ev0 = await eventsA();
+  m = await read(await create({ kind: "BLOCK", title: "חסימה", startsAt: at("11:30", THU), durationMinutes: 120 }));
+  ok("M5 owner decision A: a business-wide block over existing appointments → 409 SLOT_CONFLICT naming them", m.status === 409 && m.b?.error === "SLOT_CONFLICT"
+    && [y1, d1].every((x) => conflictsOf(m).includes(x)), JSON.stringify(m.b));
+  ok("M5a …nothing written: no block, the appointments untouched (CONFIRMED, version 1), no journal event",
+    (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA} AND kind = 'BLOCK' AND "startsAt" >= '${ts(at("00:00", THU))}' AND "startsAt" < '${ts(at("23:59", THU))}'`)) === 0
+    && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id IN (${y1}, ${d1}) AND status = 'CONFIRMED' AND version = 1`)) === 2 && (await eventsA()) === ev0);
+  m = await read(await create({ kind: "BLOCK", title: "חסימה", startsAt: at("13:00", THU), durationMinutes: 60 }));
+  const b1 = m.b?.appointment?.id as number;
+  ok("M6 a block right after them (13:00–14:00, touching, not overlapping) → 201", m.status === 201, String(m.status));
+  m = await read(await create({ kind: "CUSTOMER", staffMemberId: dana.id, startsAt: at("13:30", THU), durationMinutes: 30 }));
+  const m7a = m.status === 409 && JSON.stringify(conflictsOf(m)) === JSON.stringify([b1]);
+  m = await read(await create({ kind: "INTERNAL", title: "x", startsAt: at("13:15", THU), durationMinutes: 15 }));
+  ok("M7 the block closes the staff lane and the general lane alike → 409 naming it", m7a && m.status === 409 && JSON.stringify(conflictsOf(m)) === JSON.stringify([b1]));
+  m = await read(await status(g1, { to: "CANCELED", cancelReason: "OWNER_CANCELED" }));
+  const m8 = m.status;
+  m = await read(await create({ kind: "CUSTOMER", staffMemberId: dana.id, startsAt: at("10:00", THU), durationMinutes: 30 }));
+  const d0 = m.b?.appointment?.id as number;
+  ok("M8 a cancelled general appointment frees the time for a staff lane → 201", m8 === 200 && m.status === 201, `${m8} ${m.status}`);
+  m = await read(await create({ kind: "INTERNAL", title: "ישיבה", startsAt: at("15:00", THU), durationMinutes: 30 }));
+  const g2 = m.b?.appointment?.id as number;
+  // Busy for both Dana's lane and the general lane now: Dana 10:00–10:30 and 12:00–13:00 (Yossi 12:00–13:00 too),
+  // the block 13:00–14:00 and the general meeting 15:00–15:30.
+  const busyThu = [["10:00", "10:30"], ["12:00", "13:00"], ["13:00", "14:00"], ["15:00", "15:30"]].map(([a, c]) => [at(a, THU), at(c, THU)]);
+  const clashes = (starts: string[]) => starts.filter((s) => {
+    const e = new Date(new Date(s).getTime() + 30 * 60_000).toISOString();
+    return busyThu.some(([a, c]) => s < c && e > a);
+  });
+  m = await read(await routes.slots.GET(req(`/api/appointments/slots?fromDay=${THU}&toDay=${THU}&durationMinutes=30&staffMemberId=${dana.id}`)));
+  const danaStarts = (m.b?.slots ?? []).map((s: { startsAt: string }) => s.startsAt) as string[];
+  ok("M9 Dana's free times leave out the general meeting and the block (and her own)", m.status === 200 && g2 > 0 && danaStarts.includes(at("09:00", THU))
+    && clashes(danaStarts).length === 0, JSON.stringify(clashes(danaStarts)));
+  m = await read(await routes.slots.GET(req(`/api/appointments/slots?fromDay=${THU}&toDay=${THU}&durationMinutes=30`)));
+  const genStarts = (m.b?.slots ?? []).map((s: { startsAt: string }) => s.startsAt) as string[];
+  ok("M9a the general lane's free times leave out every staff appointment (Yossi's 12:00 too)", m.status === 200 && genStarts.includes(at("09:00", THU))
+    && clashes(genStarts).length === 0 && !genStarts.includes(at("12:00", THU)), JSON.stringify(clashes(genStarts)));
+  m = await read(await move(y1, { startsAt: at("15:00", THU) }));
+  const m10a = m.status === 409 && JSON.stringify(conflictsOf(m)) === JSON.stringify([g2]);
+  m = await read(await move(g2, { startsAt: at("10:00", THU) }));
+  const m10b = m.status === 409 && JSON.stringify(conflictsOf(m)) === JSON.stringify([d0]);
+  m = await read(await move(g2, { startsAt: at("16:00", THU) }));
+  ok("M10 moves follow the same rule: staff onto general → 409, general onto staff → 409, onto a free time → 200", m10a && m10b && m.status === 200, `${m10a} ${m10b} ${m.status}`);
+
+  const raceMixed = await Promise.allSettled([
+    ...Array.from({ length: 6 }, () => schedule.createAppointment(principal, { idempotencyKey: key() }, { kind: "INTERNAL", title: "כללי", startsAt: at("16:30", THU), durationMinutes: 30 })),
+    ...Array.from({ length: 6 }, () => schedule.createAppointment(principal, { idempotencyKey: key() }, { staffMemberId: dana.id, startsAt: at("16:30", THU), durationMinutes: 30 })),
+  ]);
+  const mWon = raceMixed.filter((x) => x.status === "fulfilled").length;
+  const mLost = raceMixed.filter((x) => x.status === "rejected" && (x.reason as { code?: string }).code === "SLOT_CONFLICT").length;
+  ok("M11 twelve at once, six general + six for Dana, one slot → exactly one, eleven SLOT_CONFLICT, nothing else", mWon === 1 && mLost === 11, `won ${mWon}, conflict ${mLost}`);
+  ok("M11a …the database holds exactly one active appointment in that half hour", (await activeIn(at("16:30", THU), at("17:00", THU))) === 1);
+  const raceBlock = await Promise.allSettled([
+    ...Array.from({ length: 5 }, () => schedule.createAppointment(principal, { idempotencyKey: key() }, { kind: "BLOCK", startsAt: at("08:00", THU), durationMinutes: 30 })),
+    ...Array.from({ length: 5 }, () => schedule.createAppointment(principal, { idempotencyKey: key() }, { staffMemberId: yossi.id, startsAt: at("08:00", THU), durationMinutes: 30 })),
+  ]);
+  const bWon = raceBlock.filter((x) => x.status === "fulfilled").length;
+  const bLost = raceBlock.filter((x) => x.status === "rejected" && (x.reason as { code?: string }).code === "SLOT_CONFLICT").length;
+  ok("M12 a block and a staff appointment racing for one time → exactly one of the ten, nine SLOT_CONFLICT", bWon === 1 && bLost === 9 && (await activeIn(at("08:00", THU), at("08:30", THU))) === 1, `won ${bWon}, conflict ${bLost}`);
+
+  // An overlap across lanes written before this rule (the database's per-lane constraint allows it): confirming the
+  // waiting one re-checks under the lock and refuses.
+  const legacyGeneral = (await owner.appointment.create({ data: { businessId: bizA, kind: "INTERNAL", status: "CONFIRMED", title: "ישן", startsAt: new Date(at("17:00", THU)), endsAt: new Date(at("17:30", THU)), durationMinutes: 30, createdByActor: "OWNER", createdByUserId: userA, sourceChannel: "INBOX_WEB" } })).id;
+  const waiting = (await owner.appointment.create({ data: { businessId: bizA, kind: "CUSTOMER", status: "PROPOSED", staffMemberId: dana.id, startsAt: new Date(at("17:00", THU)), endsAt: new Date(at("17:30", THU)), durationMinutes: 30, createdByActor: "OWNER", createdByUserId: userA, sourceChannel: "INBOX_WEB" } })).id;
+  m = await read(await status(waiting, { to: "CONFIRMED" }));
+  ok("M13 confirming a waiting appointment that overlaps another lane → 409 SLOT_CONFLICT, still PROPOSED", m.status === 409 && JSON.stringify(conflictsOf(m)) === JSON.stringify([legacyGeneral])
+    && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id = ${waiting} AND status = 'PROPOSED' AND version = 1`)) === 1, JSON.stringify(m.b));
+  await owner.appointment.update({ where: { id: legacyGeneral }, data: { status: "CANCELED", cancelReason: "OTHER" } });
+  m = await read(await status(waiting, { to: "CONFIRMED" }));
+  ok("M13a …once the other one is gone, the same confirm → 200 CONFIRMED", m.status === 200 && m.b?.appointment?.status === "CONFIRMED", String(m.status));
+
+  // A cancel reason appended to long notes (the database holds notes to 4000): never a 500, the notes kept.
+  const chars = (id: number) => n(`SELECT char_length(notes)::int AS n FROM "Appointment" WHERE id = ${id}`);
+  const notesOf = async (id: number) => (await owner.appointment.findUniqueOrThrow({ where: { id }, select: { notes: true } })).notes;
+  const long = "א".repeat(3990);
+  m = await read(await create({ kind: "CUSTOMER", staffMemberId: dana.id, startsAt: at("18:00", THU), durationMinutes: 30, notes: long }));
+  const n1 = m.b?.appointment?.id as number;
+  const cancelKey = key();
+  m = await read(await status(n1, { to: "CANCELED", reason: "ב".repeat(500) }, cancelKey));
+  const notes1 = await notesOf(n1);
+  ok("M14 3990-character notes + a 500-character reason: 200 CANCELED (was a 500)", m.status === 200 && m.b?.appointment?.status === "CANCELED", `${m.status} ${JSON.stringify(m.b)}`);
+  ok("M14a …the notes exactly 4000, the original notes whole, the reason cut with …", (await chars(n1)) === 4000 && !!notes1?.startsWith(long + "\nב") && !!notes1?.endsWith("…"));
+  ok("M14b …the closed reason and the journal as for any cancel", (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id = ${n1} AND "cancelReason" = 'OWNER_CANCELED'`)) === 1
+    && (await n(`SELECT count(*)::int AS n FROM "AppointmentEvent" WHERE "appointmentId" = ${n1} AND "eventType" = 'APPOINTMENT_CANCELED' AND actor = 'OWNER_USER'`)) === 1);
+  m = await read(await status(n1, { to: "CANCELED", reason: "ב".repeat(500) }, cancelKey));
+  ok("M14c the same cancel repeated (same key) → 200 replayed, nothing changed", m.status === 200 && m.b?.replayed === true && (await notesOf(n1)) === notes1);
+  m = await read(await status(n1, { to: "CANCELED", reason: "שוב" }));
+  ok("M14d cancelling again (a new key) → 409 INVALID_TRANSITION, notes unchanged", m.status === 409 && m.b?.error === "INVALID_TRANSITION" && (await notesOf(n1)) === notes1);
+  m = await read(await create({ kind: "CUSTOMER", staffMemberId: dana.id, startsAt: at("18:30", THU), durationMinutes: 30, notes: "ש".repeat(3995) }));
+  const n2 = m.b?.appointment?.id as number;
+  m = await read(await status(n2, { to: "CANCELED", reason: "😀".repeat(100) + " ביטול 🙏" }));
+  const notes2 = await notesOf(n2);
+  ok("M15 Hebrew and emoji: 200, within 4000 code points, no broken character", m.status === 200 && (await chars(n2)) <= 4000
+    && !!notes2 && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(notes2), `${m.status} ${await chars(n2)}`);
+  m = await read(await create({ kind: "CUSTOMER", staffMemberId: dana.id, startsAt: at("19:00", THU), durationMinutes: 30 }));
+  const n3 = m.b?.appointment?.id as number;
+  m = await read(await status(n3, { to: "CANCELED", reason: "הלקוח ביקש לבטל" }));
+  ok("M16 empty notes: the reason becomes the notes", m.status === 200 && (await notesOf(n3)) === "הלקוח ביקש לבטל");
+  m = await read(await create({ kind: "CUSTOMER", staffMemberId: dana.id, startsAt: at("19:30", THU), durationMinutes: 30, notes: "הערה" }));
+  const n4 = m.b?.appointment?.id as number;
+  m = await read(await status(n4, { to: "CANCELED" }));
+  ok("M17 no reason: the notes unchanged", m.status === 200 && (await notesOf(n4)) === "הערה");
+  m = await read(await status(past, { to: "CANCELED", reason: "ב".repeat(500) }));
+  ok("M18 an invalid cancel (a completed appointment) with a long reason → 409, not a 500", m.status === 409 && m.b?.error === "INVALID_TRANSITION", String(m.status));
+
+  // The retired POST /api/appointments/[id]: nothing can be written through it, by anyone.
+  const ev2 = await eventsA();
+  const snapB1 = await snap(b1);
+  const prop = (await owner.appointment.create({ data: { businessId: bizA, kind: "CUSTOMER", status: "PROPOSED", title: "ממתין", createdByActor: "OWNER", createdByUserId: userA, sourceChannel: "INBOX_WEB" } })).id;
+  const tries = [
+    await routes.one.POST(req(`/api/appointments/${prop}`, { method: "POST", body: { action: "confirm" } }), p({ id: String(prop) })),
+    await routes.one.POST(req(`/api/appointments/${prop}`, { method: "POST", body: { action: "cancel", reason: "x".repeat(5000) } }), p({ id: String(prop) })),
+    await routes.one.POST(req(`/api/appointments/${prop}`, { method: "POST", body: { action: "confirm" }, token: null }), p({ id: String(prop) })),
+    await routes.one.POST(req(`/api/appointments/${prop}`, { method: "POST", body: { action: "confirm" }, token: tokenB }), p({ id: String(prop) })),
+    await routes.one.POST(req(`/api/appointments/${b1}`, { method: "POST", body: { action: "complete" } }), p({ id: String(b1) })),
+  ];
+  ok("M19 the retired route: confirm, a 5000-character cancel, no session, another business, a block 'completed' → 410 every time",
+    tries.every((x) => x.status === 410), tries.map((x) => x.status).join(","));
+  ok("M19a …and nothing was written: the waiting appointment and the block untouched, no journal event",
+    (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE id = ${prop} AND status = 'PROPOSED' AND version = 1 AND notes IS NULL`)) === 1
+    && (await snap(b1)) === snapB1 && (await eventsA()) === ev2);
+  r = await routes.one.GET(req(`/api/appointments/${b1}`), p({ id: String(b1) }));
+  ok("M19b GET on the same path still answers (200)", r.status === 200, String(r.status));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log(failures.map((f) => ` - ${f}`).join("\n")); process.exitCode = 1; }

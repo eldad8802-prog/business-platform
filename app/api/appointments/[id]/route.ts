@@ -1,129 +1,26 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
-import {
-  cancel,
-  complete,
-  confirm,
-  markNoShow,
-} from "@/lib/services/appointment/appointment.service";
-import type { AppointmentResult } from "@/lib/services/appointment/appointment.types";
 import { getAppointment } from "@/lib/services/appointment/appointment-schedule.service";
 import { appointmentsRoute, json, positiveId } from "@/lib/services/appointment/appointments-http";
 
 /**
- * Thin web adapter for Appointment lifecycle transitions (Inbox owner).
- * No business logic: auth + business scoping + a single call to the matching
- * appointment.service function (which is the ONLY place transitions happen, via
- * assertTransition) + reason -> HTTP. No reschedule, no scheduling here.
+ * One appointment.
  *
- * Milestone A adds GET (one appointment and its recent history) behind the `appointments` flag. POST predates it
- * and keeps its behaviour, ungated; the calendar's idempotent status changes go through /[id]/status.
+ * GET (milestone A): the appointment and its recent history, behind the `appointments` flag.
+ *
+ * POST is RETIRED (owner P0-1, 2026-11-01): it was the pre-milestone-A lifecycle door (confirm / complete / no_show /
+ * cancel) — ungated by the flag, without the per-business lock, Idempotency-Key or optimistic version, and it never
+ * settled a public booking request, so a request could stay pending after its appointment changed. No screen called
+ * it. Every status change goes through POST /api/appointments/[id]/status (changeStatus + settleRequestForStatus);
+ * this answers 410 before reading the session or the database, so nothing can be written through it.
  */
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   return appointmentsRoute(req, async ({ principal }) => json(await getAppointment(principal, positiveId((await params).id))));
 }
 
-type Action = "confirm" | "complete" | "no_show" | "cancel";
-
-function parseAction(value: unknown): Action | null {
-  if (
-    value === "confirm" ||
-    value === "complete" ||
-    value === "no_show" ||
-    value === "cancel"
-  ) {
-    return value;
-  }
-  return null;
-}
-
-function parseId(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return n;
-}
-
-export async function POST(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const user = await getCurrentUser(req);
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { id } = await params;
-    const appointmentId = parseId(id);
-    if (appointmentId === null) {
-      return NextResponse.json(
-        { error: "Invalid appointment id" },
-        { status: 400 }
-      );
-    }
-
-    let body: Record<string, unknown>;
-    try {
-      body = (await req.json()) as Record<string, unknown>;
-    } catch {
-      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-    }
-
-    const action = parseAction(body.action);
-    if (!action) {
-      return NextResponse.json(
-        { error: "action must be confirm | complete | no_show | cancel" },
-        { status: 400 }
-      );
-    }
-
-    const base = {
-      appointmentId,
-      businessId: user.businessId,
-      actor: { actor: "OWNER" as const, userId: user.id, sourceChannel: "INBOX_WEB" as const },
-    };
-
-    let result: AppointmentResult;
-    switch (action) {
-      case "confirm":
-        result = await confirm(base);
-        break;
-      case "complete":
-        result = await complete(base);
-        break;
-      case "no_show":
-        result = await markNoShow(base);
-        break;
-      case "cancel":
-        result = await cancel({
-          ...base,
-          reason: typeof body.reason === "string" ? body.reason : null,
-        });
-        break;
-    }
-
-    if (result.ok) {
-      return NextResponse.json({ success: true, appointment: result.appointment });
-    }
-
-    switch (result.reason) {
-      case "appointment_not_found":
-        return NextResponse.json(
-          { error: "Appointment not found" },
-          { status: 404 }
-        );
-      case "invalid_transition":
-        return NextResponse.json(
-          { error: "invalid_transition" },
-          { status: 409 }
-        );
-      default:
-        return NextResponse.json({ error: result.reason }, { status: 400 });
-    }
-  } catch (error) {
-    console.error("POST /api/appointments/[id] error:", error);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
-  }
+export async function POST() {
+  return NextResponse.json(
+    { error: "This endpoint was retired. Use POST /api/appointments/[id]/status.", code: "ENDPOINT_RETIRED" },
+    { status: 410, headers: { "Cache-Control": "no-store" } },
+  );
 }
