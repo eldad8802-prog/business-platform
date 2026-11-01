@@ -102,6 +102,7 @@ jobs:
             [[ "$n" != "20261107091000_accountant_delivery_complained" ]] || continue
             [[ "$n" != "20261109090000_accountant_delivery_permission" ]] || continue
             [[ "$n" != "20261109091000_accountant_link_otp" ]] || continue
+            [[ "$n" != "20261110090000_accountant_open_all" ]] || continue
             # SQL only: a migration may NAME ours in a comment (e.g. its release order) without touching anything.
             if sed -E 's/--.*$//' "$d/migration.sql" | grep -nE 'Accountant(Period|Package|Recipient|Delivery|WorkflowEvent)|accountant_(link|delivery|erase|user|package|event)|accountant_month_close'; then echo "$n names an accountant object"; exit 1; fi
           done

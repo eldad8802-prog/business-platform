@@ -113,6 +113,7 @@ on:
           - 'ops/evidence/accountant-m4m5-ledger-names.sql'
           - 'ops/evidence/accountant-m45-pilot-business-9.sql'
           - 'ops/evidence/accountant-rollout-readiness.sql'
+          - 'ops/evidence/accountant-open-all-production-evidence.sql'
           - 'ops/evidence/accountant-ops-ledger-names.sql'
           - 'ops/evidence/migration-checksum-origin.sql'
           - 'ops/evidence/platform-admin-a1-preflight.sql'
