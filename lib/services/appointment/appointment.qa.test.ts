@@ -8,19 +8,21 @@
  * and tears everything down at the end (FK-safe order).
  *
  * Coverage: happy path (create + createFromPending), lifecycle (allowed +
- * forbidden), duplicate prevention, atomic rollback, actor handling, tenant
+ * forbidden; through the locked primitive since P0-2), duplicate prevention, atomic rollback, actor handling, tenant
  * isolation, edge cases (no_pending / pending_malformed / invalid_input).
  */
 
 import assert from "node:assert/strict";
 import { prisma } from "@/lib/prisma";
 import * as appt from "./appointment.service";
+import { lockBusinessAppointments } from "./appointment-request";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import {
   ALLOWED_TRANSITIONS,
   assertTransition,
   canTransition,
 } from "./appointment.lifecycle";
-import type { ActorContext } from "./appointment.types";
+import type { ActorContext, AppointmentResult } from "./appointment.types";
 import type { AppointmentStatus } from "@prisma/client";
 
 type CaseResult = { group: string; name: string; ok: boolean; detail?: string };
@@ -34,6 +36,22 @@ async function record(group: string, name: string, fn: () => Promise<void> | voi
     const detail = err instanceof Error ? err.message : String(err);
     results.push({ group, name, ok: false, detail });
   }
+}
+
+/**
+ * A lifecycle move as every product path makes it (P0-2: the lock-less confirm / complete / markNoShow / cancel
+ * wrappers are removed): a tenant transaction, the per-business lock, then the one primitive, transitionWithinTx.
+ */
+function lifecycle(
+  to: AppointmentStatus,
+  input: { appointmentId: number; businessId: number; actor: ActorContext; reason?: string }
+): Promise<AppointmentResult> {
+  return tenantTx(input.businessId, async (tx) => {
+    await lockBusinessAppointments(tx, input.businessId);
+    const current = await tx.appointment.findFirst({ where: { id: input.appointmentId, businessId: input.businessId } });
+    if (!current) return { ok: false, reason: "appointment_not_found" };
+    return appt.transitionWithinTx(tx, current, to, input.actor, input.reason ? { appendNote: input.reason } : {});
+  });
 }
 
 const ALL_STATUSES: AppointmentStatus[] = [
@@ -202,7 +220,7 @@ async function main() {
       });
       assert.ok(a.ok);
       if (a.ok) {
-        const c = await appt.cancel({
+        const c = await lifecycle("CANCELED", {
           appointmentId: a.appointment.id,
           businessId: business.id,
           actor: ownerActor,
@@ -250,13 +268,13 @@ async function main() {
       const a = await appt.create({ businessId: business.id, actor: ownerActor });
       assert.ok(a.ok);
       if (!a.ok) return;
-      const c1 = await appt.confirm({
+      const c1 = await lifecycle("CONFIRMED", {
         appointmentId: a.appointment.id,
         businessId: business.id,
         actor: ownerActor,
       });
       assert.ok(c1.ok && c1.appointment.status === "CONFIRMED");
-      const c2 = await appt.complete({
+      const c2 = await lifecycle("COMPLETED", {
         appointmentId: a.appointment.id,
         businessId: business.id,
         actor: ownerActor,
@@ -268,8 +286,8 @@ async function main() {
       const a = await appt.create({ businessId: business.id, actor: ownerActor });
       assert.ok(a.ok);
       if (!a.ok) return;
-      await appt.confirm({ appointmentId: a.appointment.id, businessId: business.id, actor: ownerActor });
-      const r = await appt.markNoShow({
+      await lifecycle("CONFIRMED", { appointmentId: a.appointment.id, businessId: business.id, actor: ownerActor });
+      const r = await lifecycle("NO_SHOW", {
         appointmentId: a.appointment.id,
         businessId: business.id,
         actor: ownerActor,
@@ -281,7 +299,7 @@ async function main() {
       const a = await appt.create({ businessId: business.id, actor: ownerActor });
       assert.ok(a.ok);
       if (!a.ok) return;
-      const r = await appt.cancel({
+      const r = await lifecycle("CANCELED", {
         appointmentId: a.appointment.id,
         businessId: business.id,
         actor: ownerActor,
@@ -296,7 +314,7 @@ async function main() {
       const a = await appt.create({ businessId: business.id, actor: ownerActor });
       assert.ok(a.ok);
       if (!a.ok) return;
-      const r = await appt.complete({
+      const r = await lifecycle("COMPLETED", {
         appointmentId: a.appointment.id,
         businessId: business.id,
         actor: ownerActor,
@@ -308,8 +326,8 @@ async function main() {
       const a = await appt.create({ businessId: business.id, actor: ownerActor });
       assert.ok(a.ok);
       if (!a.ok) return;
-      await appt.cancel({ appointmentId: a.appointment.id, businessId: business.id, actor: ownerActor });
-      const r = await appt.confirm({
+      await lifecycle("CANCELED", { appointmentId: a.appointment.id, businessId: business.id, actor: ownerActor });
+      const r = await lifecycle("CONFIRMED", {
         appointmentId: a.appointment.id,
         businessId: business.id,
         actor: ownerActor,
@@ -327,53 +345,22 @@ async function main() {
       }
     });
 
-    // ── 7. Reschedule ───────────────────────────────────────────────────────
-    await record("reschedule / non-terminal updates times, keeps status", "*", async () => {
-      const a = await appt.create({ businessId: business.id, actor: ownerActor });
-      assert.ok(a.ok);
-      if (!a.ok) return;
-      const when = new Date("2026-07-01T09:00:00.000Z");
-      const r = await appt.reschedule({
-        appointmentId: a.appointment.id,
+    // ── 7. Reschedule — removed (P0-2) ──────────────────────────────────────
+    // The lock-less reschedule and lifecycle wrappers are gone; a timed move goes through moveAppointment (ownerWrite,
+    // overlap check under the lock), covered by .appt/app-battery.ts (C, M). Here: they cannot come back unnoticed,
+    // and the old create cannot write a time.
+    await record("reschedule / lock-less wrappers removed (P0-2)", "*", () => {
+      for (const k of ["reschedule", "confirm", "complete", "markNoShow", "cancel"]) assert.ok(!(k in appt), `${k} still exported`);
+    });
+
+    await record("create / a start time passed anyway is not written (P0-2)", "*", async () => {
+      const r = await appt.create({
         businessId: business.id,
         actor: ownerActor,
-        startsAt: when,
-        durationMinutes: 45,
+        details: { title: "x", startsAt: new Date("2026-07-01T09:00:00.000Z") } as never,
       });
       assert.ok(r.ok, JSON.stringify(r));
-      if (r.ok) {
-        assert.equal(r.appointment.status, "PROPOSED");
-        assert.equal(r.appointment.durationMinutes, 45);
-        assert.equal(r.appointment.startsAt?.toISOString(), when.toISOString());
-      }
-    });
-
-    await record("reschedule / terminal forbidden", "*", async () => {
-      const a = await appt.create({ businessId: business.id, actor: ownerActor });
-      assert.ok(a.ok);
-      if (!a.ok) return;
-      await appt.cancel({ appointmentId: a.appointment.id, businessId: business.id, actor: ownerActor });
-      const r = await appt.reschedule({
-        appointmentId: a.appointment.id,
-        businessId: business.id,
-        actor: ownerActor,
-        startsAt: new Date(),
-      });
-      assert.ok(!r.ok && r.reason === "invalid_transition", JSON.stringify(r));
-    });
-
-    await record("reschedule / invalid duration", "*", async () => {
-      const a = await appt.create({ businessId: business.id, actor: ownerActor });
-      assert.ok(a.ok);
-      if (!a.ok) return;
-      const r = await appt.reschedule({
-        appointmentId: a.appointment.id,
-        businessId: business.id,
-        actor: ownerActor,
-        startsAt: new Date(),
-        durationMinutes: -5,
-      });
-      assert.ok(!r.ok && r.reason === "invalid_input", JSON.stringify(r));
+      if (r.ok) assert.equal(r.appointment.startsAt, null);
     });
 
     // ── 8. Actor handling (owner decision 6: only the owner acts as a user) ──
@@ -426,7 +413,7 @@ async function main() {
       const a = await appt.create({ businessId: business.id, actor: ownerActor });
       assert.ok(a.ok);
       if (!a.ok) return;
-      const r = await appt.confirm({
+      const r = await lifecycle("CONFIRMED", {
         appointmentId: a.appointment.id,
         businessId: otherBusiness.id,
         actor: ownerActor,
