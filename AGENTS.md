@@ -67,3 +67,18 @@ Non-negotiables:
 - Do **not** change ontology, ownership, or lifecycle without first updating the relevant canonical document.
 - The Daily Tasks layer (`docs/dubiz-daily-tasks-spec-v1.md`) **never writes money and never closes an obligation by itself**: "handled" writes `handledAt` only, and a payment is recorded only through the existing "שילמת?" flow that the owner triggers.
 <!-- END:payment-secretary-rules -->
+
+<!-- BEGIN:permissions-contract-rules -->
+# Security & database permissions rule (MANDATORY): Permissions contract
+
+`docs/security/PERMISSIONS_CONTRACT.md` is the **binding** permissions contract for every change that touches business data, a table, a migration, a database function, a role, a route, a job or a webhook. Read it before such a change.
+
+Non-negotiables:
+- Business data is read and written only inside a tenant context: `tenantTx` (requests/services), `runTenantJob` (async/provider work), `withTenantTransaction` (under `runWithTenantContext`). Never through the bare runtime client — under the Production role a context-less read returns zero rows / `null` silently.
+- The `businessId` is server-derived (session, verified mapping, definer lookup, stored parent row) — never from a body, query, header or bare route id.
+- Every new tenant table: `ENABLE` + `FORCE ROW LEVEL SECURITY`, per-operation policies, and explicit GRANT/REVOKE per role (no reliance on the owner's default privileges; no runtime DELETE/UPDATE on append-only tables).
+- SECURITY DEFINER: `SET search_path = pg_catalog, public, pg_temp`, `REVOKE EXECUTE FROM PUBLIC`, EXECUTE only to the calling group, minimal input/output.
+- No BYPASSRLS for application roles; `neondb_owner` is never a runtime credential; privileges go to group roles, not LOGIN roles.
+- A migration that grants to a missing role must fail, not skip. Every privilege change updates `ops/security/privilege-model.baseline.txt` (CI: `security-lab.yml`) and is tested as the real role.
+- Migrations reach Production only through `release-migrate` (`docs/RELEASE-OWNERSHIP.md`). Exceptions need a register entry and the owner's explicit approval.
+<!-- END:permissions-contract-rules -->
