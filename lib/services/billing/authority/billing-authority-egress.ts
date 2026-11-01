@@ -34,6 +34,7 @@
  * where <ENV> is BILLING_AUTHORITY_RUNTIME_ENVIRONMENT (SANDBOX | PRODUCTION).
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, createPrivateKey, X509Certificate, type KeyObject } from "node:crypto";
 import { fetch as undiciFetch, Pool, ProxyAgent, type Dispatcher } from "undici";
 import type { BillingAuthorityEnvironment } from "@prisma/client";
@@ -373,11 +374,25 @@ function buildProxyAgent(config: ValidatedEgressConfig): Dispatcher {
  * opened (callers already treat an egress refusal as NOT_SENT). The body is
  * read only for grant_type and is never logged or echoed.
  *
+ * Refresh exception: a grant_type=refresh_token request passes only inside
+ * runWithAuthorityRefreshAllowance() — an async-context scope opened solely by
+ * the controlled one-shot refresh diagnostic — and at most ONCE per scope.
+ * Refresh attempted anywhere else (e.g. the Approval token provider) is still
+ * refused before any socket.
+ *
  * Removed only by a coordinated cleanup, never while a deployment can still
  * reach stored tokens.
  */
 export const AUTHORITY_EGRESS_OAUTH_ONLY_HOST = "openapi.taxes.gov.il";
 export const AUTHORITY_EGRESS_OAUTH_ONLY_PATH = "/shaam/tsandbox/longtimetoken/oauth2/token";
+
+type RefreshAllowance = { refreshUsed: boolean };
+const refreshAllowanceScope = new AsyncLocalStorage<RefreshAllowance>();
+
+/** Runs fn with permission for exactly one SANDBOX refresh-token request. */
+export function runWithAuthorityRefreshAllowance<T>(fn: () => Promise<T>): Promise<T> {
+  return refreshAllowanceScope.run({ refreshUsed: false }, fn);
+}
 
 function grantTypeOf(body: unknown): string | null {
   if (typeof body === "string") return new URLSearchParams(body).get("grant_type");
@@ -390,17 +405,25 @@ export function assertAuthorityOAuthCodeExchangeOnly(
   init: Parameters<typeof fetch>[1] | undefined,
   environment: BillingAuthorityEnvironment
 ): void {
-  const allowed =
+  const tokenRequest =
     environment === "SANDBOX" &&
     (init?.method ?? "GET").toUpperCase() === "POST" &&
     destination.hostname === AUTHORITY_EGRESS_OAUTH_ONLY_HOST &&
     destination.pathname === AUTHORITY_EGRESS_OAUTH_ONLY_PATH &&
-    !destination.search &&
-    grantTypeOf(init?.body) === "authorization_code";
+    !destination.search;
+  const grant = tokenRequest ? grantTypeOf(init?.body) : null;
+  let allowed = grant === "authorization_code";
+  if (grant === "refresh_token") {
+    const scope = refreshAllowanceScope.getStore();
+    if (scope && !scope.refreshUsed) {
+      scope.refreshUsed = true;
+      allowed = true;
+    }
+  }
   if (!allowed) {
     throw new AuthorityEgressError(
       AUTHORITY_EGRESS_ERROR_CODES.OPERATION_BLOCKED,
-      "only the SANDBOX authorization-code exchange is enabled"
+      "only the SANDBOX authorization-code exchange (and one scoped refresh) is enabled"
     );
   }
 }
