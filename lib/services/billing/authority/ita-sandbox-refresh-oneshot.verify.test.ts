@@ -24,6 +24,8 @@ import {
 } from "@/lib/services/billing/authority/billing-authority-egress";
 import {
   REFRESH_ONESHOT_BRANCH,
+  REFRESH_ONESHOT_NOT_AFTER,
+  REFRESH_ONESHOT_NOT_BEFORE,
   REFRESH_ONESHOT_TOKEN_PATH,
   resetRefreshOneshotForTests,
   runSandboxRefreshOneshot,
@@ -166,7 +168,14 @@ async function oneshotTests(env: Record<string, string>) {
     ok(`F ${name} → ${expectFuse}`, r.outcome === "REFUSED_BY_FUSE" && r.fuse === expectFuse, r.fuse);
     ok(`F ${name}: no refresh, no transport`, h.counts().refreshCalls === 0 && h.counts().transportCalls === 0);
   };
-  await run("window placeholders", { pinned: undefined }, "WINDOW_NOT_SET");
+  // As committed: placeholders → WINDOW_NOT_SET; once pinned at push, a test
+  // ticket can never pass (inside the window → TICKET_INVALID, else OUTSIDE_WINDOW).
+  const committedFuse = REFRESH_ONESHOT_NOT_BEFORE.startsWith("__")
+    ? "WINDOW_NOT_SET"
+    : Date.now() >= Date.parse(REFRESH_ONESHOT_NOT_BEFORE) && Date.now() <= Date.parse(REFRESH_ONESHOT_NOT_AFTER)
+      ? "TICKET_INVALID"
+      : "OUTSIDE_WINDOW";
+  await run("pinned constants (as committed)", { pinned: undefined }, committedFuse);
   await run("before window", { now: () => Date.parse(PIN.notBefore) - 1 }, "OUTSIDE_WINDOW");
   await run("no ticket", { ticket: null }, "TICKET_INVALID");
   await run("wrong ticket", { ticket: "e".repeat(64) }, "TICKET_INVALID");
