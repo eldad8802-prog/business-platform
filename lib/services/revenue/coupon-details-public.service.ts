@@ -3,6 +3,7 @@ import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { assertCouponPublicId } from "@/lib/services/revenue/coupon-public-id";
 import { COUPON_PUBLIC_DETAIL_SERVED } from "@/lib/services/revenue/offer-semantics";
 import { NotFoundError } from "@/lib/errors";
+import { loadPublicBusinessProfiles } from "@/lib/services/revenue/public-business-profile";
 
 export type PublicCouponDetailsDTO = {
   coupon: {
@@ -120,15 +121,6 @@ export async function getPublicCouponDetails(
         select: {
           id: true,
           name: true,
-          profile: {
-            select: {
-              category: true,
-              city: true,
-              openingHours: true,
-              billingAddress: true,
-              billingPhone: true,
-            },
-          },
         },
       },
     },
@@ -137,6 +129,11 @@ export async function getPublicCouponDetails(
   if (!coupon) {
     throw new NotFoundError("Coupon not found");
   }
+
+  // The profile is FORCE RLS: read it under the issuing business's own context.
+  const profile =
+    (await loadPublicBusinessProfiles([coupon.issuingBusiness.id])).get(coupon.issuingBusiness.id) ??
+    null;
 
   try {
     // The evidence row belongs to the ISSUING business, resolved from the coupon row itself (never
@@ -157,5 +154,8 @@ export async function getPublicCouponDetails(
     console.error("coupon public detail evidence failed:", error);
   }
 
-  return toPublicCouponDetailsDTO(coupon);
+  return toPublicCouponDetailsDTO({
+    ...coupon,
+    issuingBusiness: { ...coupon.issuingBusiness, profile },
+  });
 }

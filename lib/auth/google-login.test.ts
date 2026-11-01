@@ -48,6 +48,7 @@ function ok(name: string, cond: boolean, detail = "") {
 
 const ON = {
   AUTH_GOOGLE_LOGIN_ENABLED: "true",
+  AUTH_PLANE_ENABLED: "true",
   AUTH_GOOGLE_LOGIN_MODE: "open",
   GOOGLE_LOGIN_CLIENT_ID: "client-1.apps.googleusercontent.com",
   GOOGLE_LOGIN_CLIENT_SECRET: "lab-secret",
@@ -68,6 +69,13 @@ async function main() {
   for (const k of ["GOOGLE_LOGIN_CLIENT_ID", "GOOGLE_LOGIN_CLIENT_SECRET", "GOOGLE_LOGIN_REDIRECT_BASE_URL"] as const) {
     ok(`OFF when ${k} is missing (no half-configured state)`, !isGoogleLoginEnabled({ ...ON, [k]: "" }));
   }
+  // The Google paths run on the auth plane and call app_auth-only functions; in legacy mode they
+  // would reach those functions as the runtime role and fail with "permission denied".
+  for (const plane of [undefined, "", "false", "1", "yes"]) {
+    const env: Record<string, string | undefined> = { ...ON, AUTH_PLANE_ENABLED: plane };
+    ok(`OFF when AUTH_PLANE_ENABLED is ${JSON.stringify(plane)} (auth plane not active)`, !isGoogleLoginEnabled(env));
+  }
+  ok("ON tolerates the plane flag's case and padding like authPlaneMode does", isGoogleLoginEnabled({ ...ON, AUTH_PLANE_ENABLED: " TRUE " }));
   ok("OFF for an http redirect base that is not local", !isGoogleLoginEnabled({ ...ON, GOOGLE_LOGIN_REDIRECT_BASE_URL: "http://app.dubiz.test" }));
   ok("OFF for a redirect base with a path", !isGoogleLoginEnabled({ ...ON, GOOGLE_LOGIN_REDIRECT_BASE_URL: "https://app.dubiz.test/x" }));
   ok("ON with the flag and a complete config", isGoogleLoginEnabled(ON) && config.authorizeUrl.startsWith("https://accounts.google.com/"));

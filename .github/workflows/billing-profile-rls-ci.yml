@@ -52,6 +52,14 @@ on:
       - "lib/services/billing/collection/awaiting-payment.loader.ts"
       - "lib/services/billing/authority/billing-authority-validation.service.ts"
       - "app/api/rls-caller-closure.integration.test.ts"
+      - "lib/services/billing/quote-pdf.service.ts"
+      - "lib/services/offer.service.ts"
+      - "app/api/offers/**"
+      - "lib/services/revenue/coupon-business-identity.service.ts"
+      - "lib/services/revenue/active-coupons.service.ts"
+      - "lib/services/revenue/coupon-details-public.service.ts"
+      - "lib/services/revenue/public-business-profile.ts"
+      - "app/api/rls-runtime-compat.integration.test.ts"
       - "scripts/ci/tenant-scoped-access-guard.mjs"
       - ".github/workflows/billing-profile-rls-ci.yml"
   workflow_dispatch:
@@ -203,3 +211,13 @@ jobs:
           AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
           RLS_ADMIN_URL: ${{ env.OWNER_URL }}
         run: npx tsx app/api/rls-caller-closure.integration.test.ts
+
+      # Last on purpose: it narrows Business to the Production column grant for the
+      # runtime login while it runs (and restores it), so nothing after it is affected.
+      - name: Quote PDF identity, offers, public coupons and legacy customer POST
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx app/api/rls-runtime-compat.integration.test.ts

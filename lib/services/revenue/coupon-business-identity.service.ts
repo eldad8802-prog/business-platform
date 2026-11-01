@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { UnauthorizedError, NotFoundError } from "@/lib/errors";
 
 /**
@@ -43,24 +43,28 @@ export async function getCouponBusinessIdentity(
     throw new UnauthorizedError();
   }
 
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    select: {
-      id: true,
-      name: true,
-      profile: {
-        select: {
-          city: true,
-          openingHours: true,
-          billingAddress: true,
-          billingPhone: true,
-          category: true,
-          subCategory: true,
-          businessModel: true,
+  // BusinessProfile is FORCE RLS: on the bare client the nested profile is `null`
+  // and every public field reads as "missing". The caller's own business, own context.
+  const business = await tenantTx(businessId, (tx) =>
+    tx.business.findUnique({
+      where: { id: businessId },
+      select: {
+        id: true,
+        name: true,
+        profile: {
+          select: {
+            city: true,
+            openingHours: true,
+            billingAddress: true,
+            billingPhone: true,
+            category: true,
+            subCategory: true,
+            businessModel: true,
+          },
         },
       },
-    },
-  });
+    })
+  );
 
   if (!business) {
     throw new NotFoundError("Business not found");

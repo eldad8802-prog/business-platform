@@ -5,8 +5,9 @@
  * that ties a callback to the sign-in that started it. It decides nothing about accounts (google-sign-in.ts)
  * and touches no database.
  *
- *   flag        AUTH_GOOGLE_LOGIN_ENABLED=true AND a complete client config (id, secret, redirect base).
- *               Anything less is OFF: the button is not rendered and every Google route answers 404.
+ *   flag        AUTH_GOOGLE_LOGIN_ENABLED=true AND the auth plane active (AUTH_PLANE_ENABLED=true) AND a
+ *               complete client config (id, secret, redirect base). Anything less is OFF: the button is not
+ *               rendered and every Google route answers 404.
  *   who         while ON, AUTH_GOOGLE_LOGIN_MODE decides who may use it:
  *                 "open"  — everyone. Opening to all users is this explicit value and nothing else.
  *                 anything else, unset included — PILOT: only the exact addresses in
@@ -77,6 +78,11 @@ function testEndpointsAllowed(env: Env): boolean {
 /** The configuration, or null when the feature is OFF (flag off or anything missing). */
 export function readGoogleLoginConfig(env: Env = process.env): GoogleLoginConfig | null {
   if (env.AUTH_GOOGLE_LOGIN_ENABLED !== "true") return null;
+  // Every Google path runs on the auth plane (authDb() → app_auth) and calls functions
+  // granted to app_auth only (auth_oauth_ticket_issue, …). With the plane in legacy mode
+  // authDb() is the runtime client, which may not run them: the button would show and
+  // the callback would fail with "permission denied". So the plane is part of "ON".
+  if (env.AUTH_PLANE_ENABLED?.trim().toLowerCase() !== "true") return null;
   const clientId = env.GOOGLE_LOGIN_CLIENT_ID?.trim();
   const clientSecret = env.GOOGLE_LOGIN_CLIENT_SECRET?.trim();
   const base = env.GOOGLE_LOGIN_REDIRECT_BASE_URL?.trim().replace(/\/+$/, "");

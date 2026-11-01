@@ -8,7 +8,6 @@ import {
   UnauthorizedError,
   ValidationError,
 } from "@/lib/errors";
-import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { createBillingAuditEventBestEffort } from "@/lib/services/billing/billing-audit.service";
 import { allocateQuoteDocumentNumberIfMissing } from "@/lib/services/billing/quote-document-number";
@@ -92,6 +91,39 @@ function truncateError(message: string): string {
   return message.slice(0, RENDER_ERROR_MESSAGE_MAX);
 }
 
+/**
+ * The issuer identity printed on the quote. `BusinessProfile` is FORCE RLS, so this
+ * MUST run inside the tenant transaction: on the bare client the nested `profile`
+ * matches zero rows and comes back `null` — no error, just a quote with no legal
+ * name, tax id, VAT number, logo or signature.
+ */
+export function loadQuoteBusiness(businessId: number) {
+  return billingTenantTx(businessId, (tx) =>
+    tx.business.findUnique({
+      where: { id: businessId },
+      select: {
+        id: true,
+        name: true,
+        profile: {
+          select: {
+            billingLegalName: true,
+            billingTaxId: true,
+            billingVatNumber: true,
+            billingPhone: true,
+            billingEmail: true,
+            billingAddress: true,
+            billingPaymentNote: true,
+            billingFooterNote: true,
+            billingLogoDataUrl: true,
+            billingSignatureDataUrl: true,
+            billingPdfTemplateStyle: true,
+          },
+        },
+      },
+    })
+  );
+}
+
 export async function getOrRenderQuotePdf(
   input: GetOrRenderQuotePdfInput
 ): Promise<GetOrRenderQuotePdfResult> {
@@ -142,28 +174,7 @@ export async function getOrRenderQuotePdf(
   const documentNumberFormatted =
     doc.documentNumberFormatted ?? allocated.documentNumberFormatted;
 
-  const business = await prisma.business.findUnique({
-    where: { id: input.businessId },
-    select: {
-      id: true,
-      name: true,
-      profile: {
-        select: {
-          billingLegalName: true,
-          billingTaxId: true,
-          billingVatNumber: true,
-          billingPhone: true,
-          billingEmail: true,
-          billingAddress: true,
-          billingPaymentNote: true,
-          billingFooterNote: true,
-          billingLogoDataUrl: true,
-          billingSignatureDataUrl: true,
-          billingPdfTemplateStyle: true,
-        },
-      },
-    },
-  });
+  const business = await loadQuoteBusiness(input.businessId);
 
   if (!business) {
     throw new NotFoundError("Business not found");

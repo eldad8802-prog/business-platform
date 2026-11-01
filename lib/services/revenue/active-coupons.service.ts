@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { loadPublicBusinessProfiles } from "./public-business-profile";
 import {
   rankActiveCoupons,
   type ActiveCouponCard,
@@ -157,19 +158,6 @@ export async function getActiveCoupons(
         select: {
           id: true,
           name: true,
-          profile: {
-            select: {
-              category: true,
-              subCategory: true,
-              businessModel: true,
-              city: true,
-              openingHours: true,
-              latitude: true,
-              longitude: true,
-              billingAddress: true,
-              billingPhone: true,
-            },
-          },
         },
       },
     },
@@ -179,8 +167,21 @@ export async function getActiveCoupons(
     take: 200,
   });
 
+  // The profiles are FORCE RLS: each is read under its own issuing business's context.
+  // They are needed before ranking (distance comes from latitude/longitude).
+  const profiles = await loadPublicBusinessProfiles(coupons.map((c) => c.issuingBusiness.id));
+
   const cards: ActiveCouponCard[] = coupons.map((coupon) =>
-    toActiveCouponCard(coupon, near)
+    toActiveCouponCard(
+      {
+        ...coupon,
+        issuingBusiness: {
+          ...coupon.issuingBusiness,
+          profile: profiles.get(coupon.issuingBusiness.id) ?? null,
+        },
+      },
+      near
+    )
   );
 
   const ranked = rankActiveCoupons(cards, now);
