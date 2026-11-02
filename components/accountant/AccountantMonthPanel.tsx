@@ -24,6 +24,7 @@ import {
   warningHe,
 } from "./labels";
 import { SendDialog } from "./SendDialog";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 type Props = { token: string; period: PeriodView; onChange: (next: PeriodView) => void; onReload: () => Promise<void> };
 
@@ -31,6 +32,7 @@ export function AccountantMonthPanel({ token, period, onChange, onReload }: Prop
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [sendOpen, setSendOpen] = useState(false);
+  const [manualConfirmOpen, setManualConfirmOpen] = useState(false);
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
@@ -165,12 +167,19 @@ export function AccountantMonthPanel({ token, period, onChange, onReload }: Prop
             </button>
             {pkg.status === "READY" && !period.completedManually && !inFlight ? (
               <button type="button" style={chipActionStyle(false)} disabled={busy !== null}
-                onClick={() => {
-                  if (!window.confirm("לסמן שהחבילה של החודש הזה נשלחה לרואה החשבון מחוץ ל־Dubiz?")) return;
-                  void run("manual", async () => onChange(await completeManually(token, period.periodKey, pkg.id)));
-                }}>
+                onClick={() => setManualConfirmOpen(true)}>
                 שלחתי בעצמי
               </button>
+            ) : null}
+            {manualConfirmOpen ? (
+              <ConfirmDialog
+                message="לסמן שהחבילה של החודש הזה נשלחה לרואה החשבון מחוץ ל־Dubiz?"
+                onCancel={() => setManualConfirmOpen(false)}
+                onConfirm={() => {
+                  setManualConfirmOpen(false);
+                  void run("manual", async () => onChange(await completeManually(token, period.periodKey, pkg.id)));
+                }}
+              />
             ) : null}
           </div>
           {period.deliveries.length > 0 ? (
@@ -199,6 +208,7 @@ export function AccountantMonthPanel({ token, period, onChange, onReload }: Prop
 }
 
 function DeliveryRow({ d, busy, onRevoke, onCancel }: { d: DeliveryView; busy: boolean; onRevoke: () => void; onCancel: () => void }) {
+  const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
   const linkLive = d.linkState === "live";
   const access = deliveryAccessHe(d);
   const complaint = complaintHe(d);
@@ -234,7 +244,7 @@ function DeliveryRow({ d, busy, onRevoke, onCancel }: { d: DeliveryView; busy: b
       <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
         {linkLive ? (
           <button type="button" style={dangerActionStyle({ height: 38 })} disabled={busy}
-            onClick={() => window.confirm("לבטל את הקישור? רואה החשבון לא יוכל להוריד יותר את החבילה הזו.") && onRevoke()}>
+            onClick={() => setRevokeConfirmOpen(true)}>
             בטל קישור
           </button>
         ) : null}
@@ -242,6 +252,17 @@ function DeliveryRow({ d, busy, onRevoke, onCancel }: { d: DeliveryView; busy: b
           <button type="button" style={glassActionStyle({ height: 38 })} disabled={busy} onClick={onCancel}>בטל שליחה</button>
         ) : null}
       </div>
+      {revokeConfirmOpen ? (
+        <ConfirmDialog
+          message="לבטל את הקישור? רואה החשבון לא יוכל להוריד יותר את החבילה הזו."
+          danger
+          onCancel={() => setRevokeConfirmOpen(false)}
+          onConfirm={() => {
+            setRevokeConfirmOpen(false);
+            onRevoke();
+          }}
+        />
+      ) : null}
     </li>
   );
 }

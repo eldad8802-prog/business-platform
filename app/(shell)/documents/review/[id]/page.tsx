@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import DocumentsIllustration from "@/components/documents/DocumentsIllustration";
 import { useParams, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { fetchDocumentsHubSummary } from "@/lib/documents/fetch-inbox";
@@ -808,7 +809,7 @@ function ReviewOverlayShell({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="documents-review-overlay" style={reviewOverlayStyle}>
+    <div className="documents-review-overlay" style={reviewOverlayStyle} data-dz-docs="1">
       <section className="documents-review-dialog" role="dialog" aria-modal="true" style={reviewDialogStyle}>
         <div style={reviewDialogHeaderStyle}>
           <div style={reviewDialogTitleStyle}>{title}</div>
@@ -904,6 +905,7 @@ function ProcessingReviewScreen({
         </section>
 
         <section style={processingPanelStyle}>
+          <DocumentsIllustration name={isFailed ? "search" : "verify"} width={180} style={{ margin: "0 auto 4px" }} />
           <div
             style={{
               ...processingIconStyle,

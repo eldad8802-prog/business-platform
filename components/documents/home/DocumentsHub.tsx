@@ -1,6 +1,5 @@
 "use client";
 
-import { useBackDestination, useGoBack } from "@/components/ui/back-button";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { formatNumber } from "@/lib/i18n/format";
 import { computeDelta } from "./PulseCard";
@@ -25,23 +24,6 @@ const ILLUSTRATION = {
   verify: "/illustrations/documents/verify.svg",
   pack: "/illustrations/documents/accountant-pack.svg",
 } as const;
-
-/** Back control styled as in the mockup ("› חזרה"), with the canonical back behaviour. */
-export function HubBackLink() {
-  const { target, fallback } = useBackDestination();
-  const goBack = useGoBack(fallback.url);
-  // Before the navigation trail is known nothing is claimed (same rule as BackButton).
-  if (!target) return <span className="dz-dh-back dz-dh-back--pending" aria-hidden />;
-  const label = target.kind === "history" ? "חזרה" : fallback.label;
-  return (
-    <button type="button" className="dz-dh-back" onClick={goBack} data-dz-back={target.kind}>
-      <span className="dz-dh-back__chev" aria-hidden>
-        <ChevronIcon />
-      </span>
-      {label}
-    </button>
-  );
-}
 
 /** Whole shekels for the two headline amounts (as in the mockup); the net line keeps agorot. */
 function formatHeadlineMoney(n: number, locale: Locale): string {

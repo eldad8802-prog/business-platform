@@ -49,15 +49,6 @@ export function hubCss(): string {
 
   /* ---------- Header ---------- */
   .dz-dh-top{display:flex;justify-content:flex-start;min-height:44px;align-items:center;}
-  .dz-dh-back{
-    display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 4px;
-    background:none;border:0;color:var(--dh-ink);font:inherit;font-size:18px;font-weight:500;cursor:pointer;
-    border-radius:12px;
-  }
-  .dz-dh-back--pending{min-height:44px;}
-  .dz-dh-back__chev{display:grid;place-items:center;transform:scaleX(-1);}
-  .dz-dh-back__chev svg{width:24px;height:24px;stroke-width:2.4;}
-  .dz-dh-back:dir(ltr) .dz-dh-back__chev{transform:none;}
   .dz-dh-title{
     margin:2px 0 18px;text-align:center;
     font-size:40px;line-height:1.1;font-weight:800;letter-spacing:-.5px;color:var(--dh-ink);
@@ -171,7 +162,7 @@ export function hubCss(): string {
   .dz-dh-pack__sub{font-size:14px;color:var(--dh-muted);}
 
   .dz-dh-action:focus-visible,.dz-dh-channel:focus-visible,.dz-dh-pack:focus-visible,
-  .dz-dh-back:focus-visible,.dz-dh-retry:focus-visible{outline:3px solid var(--dh-focus);outline-offset:3px;}
+  .dz-dh-retry:focus-visible{outline:3px solid var(--dh-focus);outline-offset:3px;}
 
   /* ---------- Alerts ---------- */
   .dz-dh-alert{

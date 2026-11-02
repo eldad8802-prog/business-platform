@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heebo } from "next/font/google";
 import {
   fetchDocumentsHubSummary,
   type DocumentsHubSnapshot,
@@ -10,7 +9,6 @@ import {
 import {
   HubAccountantPack,
   HubActions,
-  HubBackLink,
   HubChannels,
   HubSummary,
   type HubSummaryState,
@@ -18,13 +16,10 @@ import {
 import { monthLabel } from "@/components/documents/home/home-format";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { Translator } from "@/lib/i18n/translate";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import { hubCss, hubShellStyle } from "@/components/documents/home/hub-styles";
 import DocumentsDesktopTable from "@/components/documents/home/DocumentsDesktopTable";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
-
-// The mockup sets the "מסמכים" title heavier than the app-wide Heebo (300–600). This weight is
-// loaded here only — next/font preloads it on this route alone — and applied to the title only.
-const heeboTitle = Heebo({ subsets: ["hebrew"], weight: "800", display: "swap" });
 
 type LoadState =
   | { status: "loading" }
@@ -233,9 +228,9 @@ export default function DocumentsHome() {
         />
 
         <div className="dz-dh-top">
-          <HubBackLink />
+          <DocumentsBackButton />
         </div>
-        <h1 className={`dz-dh-title ${heeboTitle.className}`}>{t("documents.hub.title")}</h1>
+        <h1 className="dz-dh-title">{t("documents.hub.title")}</h1>
 
         <HubSummary state={summaryState} onRetry={() => void load()} />
 
