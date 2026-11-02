@@ -142,9 +142,15 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/payables/match/[documentId]", parent: "/payables", parentLabelKey: "toAllPayables" },
 
   // ---- calendar (Appointments milestone B) --------------------------------
-  { pattern: "/calendar/staff", parent: "/calendar", parentLabelKey: "toCalendar" },
-  { pattern: "/calendar/services", parent: "/calendar", parentLabelKey: "toCalendar" },
-  { pattern: "/calendar/booking", parent: "/calendar", parentLabelKey: "toCalendar" },
+  // Design direction A (2026-11-02): settings live under "ניהול היומן"; each page returns there, a member / service to its list.
+  { pattern: "/calendar/manage", parent: "/calendar", parentLabelKey: "toCalendar" },
+  { pattern: "/calendar/hours", parent: "/calendar/manage", parentLabelKey: "toCalendarManage" },
+  { pattern: "/calendar/special-days", parent: "/calendar/manage", parentLabelKey: "toCalendarManage" },
+  { pattern: "/calendar/staff", parent: "/calendar/manage", parentLabelKey: "toCalendarManage" },
+  { pattern: "/calendar/staff/[id]", parent: "/calendar/staff", parentLabelKey: "toCalendarStaff" },
+  { pattern: "/calendar/services", parent: "/calendar/manage", parentLabelKey: "toCalendarManage" },
+  { pattern: "/calendar/services/[id]", parent: "/calendar/services", parentLabelKey: "toCalendarServices" },
+  { pattern: "/calendar/booking", parent: "/calendar/manage", parentLabelKey: "toCalendarManage" },
   { pattern: "/collection/new", parent: "/collection", parentLabelKey: "toCollection", identityParams: ["step"] },
   { pattern: "/collection/c/[customerId]", parent: "/collection", parentLabelKey: "toCollection" },
 

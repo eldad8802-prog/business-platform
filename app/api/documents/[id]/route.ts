@@ -1,3 +1,4 @@
+import { amountCheckMessage } from "@/lib/services/documents/amount-check";
 import { prisma } from "@/lib/prisma";
 import { getServerI18n } from "@/lib/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
@@ -95,6 +96,9 @@ export async function GET(
         createdAt: document.createdAt.toISOString(),
       },
       extracted: document.extractedData,
+      // The document's own summary lines contradict the amount read (Hebrew, for the review screen); null when
+      // they agree or cannot be read.
+      amountCheck: amountCheckMessage(document.ocrText, document.extractedData?.amount),
       // Approved-mutation guard: lets the review UI say up front that this
       // document's financial record is locked (server enforces regardless).
       financialRecorded: Boolean(document.financialRecord),

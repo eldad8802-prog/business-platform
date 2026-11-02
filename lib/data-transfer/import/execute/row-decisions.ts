@@ -109,6 +109,30 @@ export function mayOverrideToCreate(
 }
 
 /**
+ * Does a submitted decision set carry a genuine override — CREATE on a row the server's own default SKIPS,
+ * where the policy lets the owner override?
+ *
+ * NOT every CREATE: the import screen always sends the whole decision set back, defaults included, and a row
+ * that never blocked has nothing to override. Counting those made every ordinary import look like an
+ * override, and preview refused it (OVERRIDE_ACTION_REQUIRED) — no tabular file could be imported.
+ */
+export function hasGenuineOverrideIn(
+  domainId: DataTransferDomainId,
+  rows: readonly DerivedRow[],
+  submitted: RowDecisions | null
+): boolean {
+  if (!submitted) return false;
+  const defaults = defaultDecisions(domainId, rows);
+  const eligible = inFileEligibleRows(rows);
+  return rows.some(
+    (row) =>
+      submitted[row.rowNumber] === "CREATE" &&
+      defaults[row.rowNumber] === "SKIP" &&
+      mayOverrideToCreate(domainId, row, eligible)
+  );
+}
+
+/**
  * Check a submitted decision set against freshly derived rows.
  *
  * Returns every problem, not the first: someone fixing their choices wants the

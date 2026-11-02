@@ -7,6 +7,15 @@ function cleanLine(line: string): string {
   return line.replace(/\s+/g, " ").trim();
 }
 
+const VENDOR_FIELD_LABEL =
+  /^(?:שם\s+)?(?:ה)?(?:ספק|עוסק|חברה|מוכר|נותן\s+השירות|בית\s+העסק)\s*[:：]\s*|^(?:vendor|supplier|seller|from|merchant)(?:\s+name)?\s*[:：]\s*/i;
+
+/** Drops a form field label ("ספק:", "Supplier:") from the front of a vendor name; never the name itself. */
+export function stripVendorFieldLabel(name: string): string {
+  const stripped = name.replace(VENDOR_FIELD_LABEL, "").trim();
+  return stripped || name;
+}
+
 function normalizeVendorName(name: string): string {
   let result = cleanLine(name);
 
@@ -30,6 +39,10 @@ function normalizeVendorName(name: string): string {
       result = result.replace(prefix, "").replace(/^[:\-–—]+/, "").trim();
     }
   }
+
+  // A field label in front of the name ("ספק: …", "שם הספק: …", "Supplier: …") is the form's word, not
+  // the vendor's. Only with its colon: a real name may start with the same word ("ספקי הגליל בע״מ").
+  result = stripVendorFieldLabel(result);
 
   return result || cleanLine(name);
 }

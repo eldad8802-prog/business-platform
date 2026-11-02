@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { manage } from "./public-booking-client";
-import { classify, errorText, STATE_LABEL, STATE_TONE, tokenFromHash, whenLong, whenShort, type ManageWire } from "./public-booking-model";
+import { classify, errorText, manageStateLabel, STATE_TONE, tokenFromHash, whenLong, whenShort, type ManageWire } from "./public-booking-model";
 import s from "./public-booking.module.css";
 
 type Load = { state: "loading" } | { state: "ready"; view: ManageWire } | { state: "gone" } | { state: "error"; message: string };
@@ -102,7 +102,7 @@ function View({ view, headingRef, confirm, setConfirm, busy, err, onCancel }: {
       </div>
       <div className={s.done}>
         <div className={`${s.ring} ${tone === "ok" ? s.ringOk : tone === "wait" ? s.ringWait : s.ringOff}`} aria-hidden="true">{tone === "ok" ? "✓" : tone === "wait" ? "⏳" : "–"}</div>
-        <h1 className={s.doneTitle} ref={headingRef} tabIndex={-1}>{STATE_LABEL[view.state]}</h1>
+        <h1 className={s.doneTitle} ref={headingRef} tabIndex={-1}>{manageStateLabel(view)}</h1>
         <dl className={s.receipt}>
           <div><dt>שירות</dt><dd>{view.serviceName}</dd></div>
           {view.startsAt ? <div><dt>מתי</dt><dd>{whenLong(view.startsAt)}</dd></div> : null}
@@ -110,7 +110,7 @@ function View({ view, headingRef, confirm, setConfirm, busy, err, onCancel }: {
         </dl>
         {view.state === "PENDING" && view.expiresAt ? <p className={s.hint}>העסק עוד לא ענה. השעה שמורה לך עד {whenShort(view.expiresAt)}, ואז הבקשה תפוג.</p> : null}
         {view.state === "CONFIRMED" && view.cancelUntil ? <p className={s.hint}>אפשר לבטל דרך הקישור עד {whenShort(view.cancelUntil)}.</p> : null}
-        {view.state === "CONFIRMED" && !view.canCancel ? <p className={s.hint}>כבר אי אפשר לבטל דרך הקישור. אפשר לפנות לעסק ישירות.</p> : null}
+        {view.state === "CONFIRMED" && !view.canCancel ? <p className={s.hint}>{view.selfCancelEnabled === false ? "ביטול דרך הקישור לא אפשרי בעסק הזה. לשינוי או ביטול אפשר לפנות לעסק ישירות." : "כבר אי אפשר לבטל דרך הקישור. אפשר לפנות לעסק ישירות."}</p> : null}
         {view.state === "DECLINED" || view.state === "EXPIRED" ? <p className={s.hint}>השעה שוחררה. אפשר לפנות לעסק או לבקש תור אחר דרך הקישור של העסק.</p> : null}
         {err ? <div className={s.banner} role="alert">{err}</div> : null}
       </div>

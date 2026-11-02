@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import DocumentsIllustration from "@/components/documents/DocumentsIllustration";
 import { useParams, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { fetchDocumentsHubSummary } from "@/lib/documents/fetch-inbox";
@@ -70,6 +71,8 @@ export default function ReviewPage() {
   const [showFieldDetails, setShowFieldDetails] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [documentOnlyConfirmOpen, setDocumentOnlyConfirmOpen] = useState(false);
+  /** The server's Z / settlement question (its text), or null. */
+  const [revenueQuestion, setRevenueQuestion] = useState<string | null>(null);
   const [nextPendingDocumentId, setNextPendingDocumentId] = useState<number | null>(null);
 
   const [document, setDocument] = useState<ApiDocument | null>(null);
@@ -135,7 +138,12 @@ export default function ReviewPage() {
 
         setDocument(json.document);
         setOutputProfile(json.outputProfile);
-        setExtractionMeta(buildExtractionMeta(json.extracted as ApiExtracted | null));
+        setExtractionMeta(
+          buildExtractionMeta(
+            json.extracted as ApiExtracted | null,
+            typeof json.amountCheck === "string" ? json.amountCheck : null
+          )
+        );
         setDuplicateSignals(
           Array.isArray((json as { duplicateSignals?: unknown }).duplicateSignals)
             ? ((json as { duplicateSignals?: unknown })
@@ -410,7 +418,7 @@ export default function ReviewPage() {
     }
   }, [authHeader, draft, id, refreshNextPendingDocument, t]);
 
-  const approveFinancial = useCallback(async () => {
+  const approveFinancial = useCallback(async (confirmedNotRevenueReport = false) => {
     if (!authHeader) {
       setError(t("documents.review.page.errLoginToSave"));
       return;
@@ -428,6 +436,7 @@ export default function ReviewPage() {
         },
         body: JSON.stringify({
           explicitFinancial: true,
+          confirmedNotRevenueReport,
           extracted: {
             amount: draft.amount,
             vendorName: draft.vendorName,
@@ -439,6 +448,11 @@ export default function ReviewPage() {
       });
 
       const json = await res.json();
+      // The document reads like a Z or settlement report: nothing was written — ask the owner what it is.
+      if (res.status === 409 && json?.code === "REVENUE_REPORT_SUSPECTED") {
+        setRevenueQuestion(typeof json.error === "string" ? json.error : "");
+        return;
+      }
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || t("documents.review.page.errSaveTxFailed"));
       }
@@ -698,6 +712,44 @@ export default function ReviewPage() {
           </ReviewOverlayShell>
         ) : null}
 
+        {revenueQuestion !== null ? (
+          <ReviewOverlayShell title="רגע לפני הרישום" onClose={() => setRevenueQuestion(null)}>
+            <p style={confirmTextStyle}>{revenueQuestion}</p>
+            <div style={{ display: "grid", gap: 10 }}>
+              <button
+                type="button"
+                disabled={loading}
+                style={reviewConfirmPrimaryStyle(loading)}
+                onClick={() => {
+                  setRevenueQuestion(null);
+                  void approveDocumentOnly();
+                }}
+              >
+                זה דוח — לשמור כמסמך, בלי רשומה כספית
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                style={reviewConfirmSecondaryStyle}
+                onClick={() => {
+                  setRevenueQuestion(null);
+                  void approveFinancial(true);
+                }}
+              >
+                זה לא דוח Z או סליקה — לרשום בכל זאת
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                style={reviewConfirmSecondaryStyle}
+                onClick={() => setRevenueQuestion(null)}
+              >
+                {t("documents.review.editor.cancel")}
+              </button>
+            </div>
+          </ReviewOverlayShell>
+        ) : null}
+
         {documentOnlyConfirmOpen ? (
           <ReviewOverlayShell
             title={t("documents.review.page.confirmDocTitle")}
@@ -762,7 +814,7 @@ function ReviewOverlayShell({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="documents-review-overlay" style={reviewOverlayStyle}>
+    <div className="documents-review-overlay" style={reviewOverlayStyle} data-dz-docs="1">
       <section className="documents-review-dialog" role="dialog" aria-modal="true" style={reviewDialogStyle}>
         <div style={reviewDialogHeaderStyle}>
           <div style={reviewDialogTitleStyle}>{title}</div>
@@ -858,6 +910,7 @@ function ProcessingReviewScreen({
         </section>
 
         <section style={processingPanelStyle}>
+          <DocumentsIllustration name={isFailed ? "search" : "verify"} width={180} style={{ margin: "0 auto 4px" }} />
           <div
             style={{
               ...processingIconStyle,

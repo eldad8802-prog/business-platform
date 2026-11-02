@@ -461,6 +461,111 @@ function hasLargerCurrencyCandidate(
   });
 }
 
+const SUMMARY_TOLERANCE = 0.05;
+
+type SummaryLines = { subtotal: number | null; vat: number | null; total: number | null };
+
+const MONEY = /(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}/;
+
+/** Which summary line a line's label is, by its normalized words (no amount involved). */
+function summaryKind(line: string): keyof SummaryLines | null {
+  // Geresh / gershayim (״ ׳) sit inside the Hebrew block that normalizeForLabel keeps: "מע״מ" must read "מעמ".
+  const n = normalizeForLabel(line).replace(/[׳״]/g, "");
+  if (n.includes("לפנימעמ") || n.includes("ללאמעמ") || n.includes("סכוםביניים") || n.includes("subtotal")) return "subtotal";
+  if (n.includes("כוללמעמ") || n.includes("לתשלום") || n.includes("grandtotal") || n.includes("totaldue")) return "total";
+  if (n.includes("מעמ") || n === "vat" || n.startsWith("vat")) return "vat";
+  return null;
+}
+
+const BARE_MONEY = new RegExp("^" + MONEY.source + "$");
+
+/** Only an amount, once the currency is set aside. */
+function bareAmount(line: string): number | null {
+  const bare = line.replace(/[₪\s]|ש״ח|ש"ח|שח/g, "");
+  return BARE_MONEY.test(bare) ? parseAmount(bare) : null;
+}
+
+/** A currency sign alone, or a lone "סה״כ" — fragments the text cleaner leaves between a label and its amount. */
+function isFiller(line: string): boolean {
+  const n = normalizeForLabel(line).replace(/[׳״]/g, "");
+  return n === "" || n === "סהכ" || n === "סךהכל" || n === "שח";
+}
+
+/**
+ * The document's summary lines — subtotal, VAT, total — read conservatively. The text cleaner puts every
+ * amount on a line of its own, so a label is paired with its amount on the same line, or with the nearest
+ * bare-amount line past filler. In which DIRECTION depends on the layout: label then amount (a page read
+ * right to left), or amount then label (rows read left to right). The direction the document shows more often
+ * is used; when neither dominates only same-line pairs count. A label stated twice with two different
+ * amounts yields null: this reader feeds a doubt, so it must never invent one.
+ */
+export function readSummaryLines(text: string): SummaryLines {
+  const lines = text.split("\n").map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const kindOf = (l: string) => summaryKind(l.replace(MONEY, ""));
+  const step = (from: number, dir: 1 | -1): number => {
+    for (let j = from + dir, hops = 0; j >= 0 && j < lines.length && hops < 3; j += dir, hops++) {
+      if (!isFiller(lines[j])) return j;
+    }
+    return -1;
+  };
+
+  type Pair = { kind: keyof SummaryLines; value: number };
+  const sameLine: Pair[] = [];
+  const labelFirst: Pair[] = [];
+  const amountFirst: Pair[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const kind = kindOf(lines[i]);
+    const inline = lines[i].match(MONEY);
+    if (kind && inline) {
+      sameLine.push({ kind, value: parseAmount(inline[0]) });
+      continue;
+    }
+    if (kind) {
+      const j = step(i, 1);
+      const v = j >= 0 ? bareAmount(lines[j]) : null;
+      if (v !== null) labelFirst.push({ kind, value: v });
+    }
+    const amount = bareAmount(lines[i]);
+    if (amount !== null) {
+      const j = step(i, 1);
+      const k = j >= 0 && !lines[j].match(MONEY) ? kindOf(lines[j]) : null;
+      if (k) amountFirst.push({ kind: k, value: amount });
+    }
+  }
+
+  const chosen =
+    labelFirst.length > amountFirst.length ? labelFirst : amountFirst.length > labelFirst.length ? amountFirst : [];
+  const seen: Record<keyof SummaryLines, Set<number>> = { subtotal: new Set(), vat: new Set(), total: new Set() };
+  for (const p of [...sameLine, ...chosen]) seen[p.kind].add(p.value);
+  const one = (s: Set<number>) => (s.size === 1 ? [...s][0] : null);
+  return { subtotal: one(seen.subtotal), vat: one(seen.vat), total: one(seen.total) };
+}
+
+/**
+ * Do the document's summary lines contradict the chosen total? Only facts the document states are used:
+ *   - it IS the VAT line's value (a VAT amount is never the total);
+ *   - subtotal + VAT, both stated, do not add up to it;
+ *   - a stated total line holds a LARGER amount.
+ * A summary the roles could not read says nothing — no contradiction is invented.
+ */
+export function summaryContradiction(amount: number, summary: SummaryLines): string | null {
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const close = (a: number, b: number) => Math.abs(a - b) <= SUMMARY_TOLERANCE;
+  const vat = summary.vat ?? undefined;
+  const sub = summary.subtotal ?? undefined;
+  const total = summary.total ?? undefined;
+  if (vat !== undefined && vat > 0 && close(amount, vat) && ((sub ?? 0) > 0 || (total ?? 0) > amount)) {
+    return "amount equals the VAT line, not a total";
+  }
+  if (sub !== undefined && vat !== undefined && sub > 0 && vat > 0 && !close(sub + vat, amount)) {
+    return "subtotal + VAT do not add up to the amount";
+  }
+  if (total !== undefined && total > amount + SUMMARY_TOLERANCE) {
+    return "a stated total line holds a larger amount";
+  }
+  return null;
+}
+
 export function extractAmountEntity(text: string): AmountEntity {
   const financialRoles = extractFinancialRoles(text);
   const rawCandidates = getAmountCandidates(text);
@@ -537,6 +642,14 @@ export function extractAmountEntity(text: string): AmountEntity {
   if (validation.confidenceAdjustment === "downgrade") {
     confidence -= 0.2;
     signals.push("amount validation downgraded confidence");
+  }
+
+  const contradiction = summaryContradiction(finalAmount, readSummaryLines(text));
+  if (contradiction) {
+    // The document's own summary lines disagree with the chosen amount: a question for the owner, never
+    // a confident answer. The value is kept (it is still the best reading); only the confidence drops.
+    confidence = Math.min(confidence, 0.6);
+    signals.push(contradiction);
   }
 
   const documentNumber = isLikelyDocumentNumber(finalAmount, text);

@@ -99,7 +99,7 @@ export function textProblem(label: string, value: string, max: number): string |
 export const STATUS_LABEL: Record<AppointmentStatus, string> = {
   PROPOSED: "ממתין לאישור",
   CONFIRMED: "מאושר",
-  COMPLETED: "הושלם",
+  COMPLETED: "התקיים",
   NO_SHOW: "לא הגיע",
   CANCELED: "בוטל",
 };
@@ -120,7 +120,7 @@ export const CANCEL_REASON_LABEL: Record<AppointmentCancelReason, string> = {
   OWNER_CANCELED: "ביטלתי אני",
   CUSTOMER_CANCELED: "הלקוח ביטל",
   DECLINED: "הבקשה נדחתה",
-  EXPIRED: "הבקשה פקעה",
+  EXPIRED: "הבקשה פגה",
   OTHER: "סיבה אחרת",
 };
 
@@ -130,7 +130,7 @@ export const OWNER_CANCEL_REASONS: AppointmentCancelReason[] = ["OWNER_CANCELED"
 export const EVENT_LABEL: Record<AppointmentEventType, string> = {
   APPOINTMENT_CREATED: "נקבע",
   APPOINTMENT_CONFIRMED: "אושר",
-  APPOINTMENT_COMPLETED: "סומן כהושלם",
+  APPOINTMENT_COMPLETED: "סומן שהתקיים",
   APPOINTMENT_NO_SHOW: "סומן כלא הגיע",
   APPOINTMENT_CANCELED: "בוטל",
   APPOINTMENT_RESCHEDULED: "הוזז",
@@ -148,7 +148,7 @@ export function errorText(code: string, status?: number): string {
     case "SLOT_CONFLICT": return "השעה הזו כבר תפוסה ביומן.";
     case "VERSION_CONFLICT": return "התור השתנה בינתיים. טענתי את הגרסה העדכנית — אפשר לנסות שוב.";
     case "INVALID_TRANSITION": return "אי אפשר לבצע את הפעולה הזו במצב הנוכחי של התור.";
-    case "NOT_STARTED": return "אפשר לסמן „הושלם” או „לא הגיע” רק אחרי שעת התחלת התור.";
+    case "NOT_STARTED": return "אפשר לסמן „התקיים” או „לא הגיע” רק אחרי שעת התחלת התור.";
     case "NO_CUSTOMER": return "„לא הגיע” מתאים רק לתור של לקוח.";
     case "STAFF_NOT_ASSIGNED": return "העובד הזה לא משויך לשירות שנבחר.";
     case "STAFF_NOT_FOUND": return "העובד לא נמצא או שאינו פעיל.";

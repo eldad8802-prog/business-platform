@@ -14,9 +14,10 @@
  *
  * # Honesty about the source file
  *
- * No upload path stores the file itself today (the old bank upload keeps the parsed lines, bank file import
- * keeps only a hash of the bytes, the import ledger the same). Every entry says `sourceFileStored: false`
- * so the screen can say so plainly instead of implying the file can be opened again.
+ * Only the documents import keeps the files themselves: each file becomes a Document with its original in
+ * storage. Every other path keeps no file (the old bank upload keeps the parsed lines, bank file import keeps
+ * only a hash of the bytes, the tabular imports the same). `sourceFileStored` says which, so the screen can
+ * say so plainly instead of implying a file can be opened again.
  */
 
 /** bankFileImportState (lib/services/bank-file-import/http.ts) — ON / OFF / UNKNOWN, fail-closed. */
@@ -80,8 +81,8 @@ export type HistoryEntry = {
   account: { label: string; last4: string } | null;
   /** True for an upload made through the old bank statement path (read-only here). */
   legacyPath: boolean;
-  /** Nothing stores source files today — always false, stated so the screen can say it. */
-  sourceFileStored: false;
+  /** True only for a documents import, whose files are kept as the business's documents. */
+  sourceFileStored: boolean;
 };
 
 export type AttentionItem = {
@@ -167,7 +168,7 @@ export function runToEntry(run: ImportRunInput): HistoryEntry {
     period: null,
     account: null,
     legacyPath: false,
-    sourceFileStored: false,
+    sourceFileStored: run.domain === "documents",
   };
 }
 

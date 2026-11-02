@@ -30,7 +30,7 @@ function getLearningConfidence(count: number): "high" | "medium" | "low" {
   return "low";
 }
 
-function matchKeyword(text: string): string | null {
+export function matchCategoryKeyword(text: string): string | null {
   const lower = text.toLowerCase();
 
   for (const rule of CATEGORY_RULES) {
@@ -67,7 +67,7 @@ export async function decideCategory(
   }
 
   // 2. keyword
-  const keyword = matchKeyword(text + " " + vendorName);
+  const keyword = matchCategoryKeyword(text + " " + vendorName);
   if (keyword) {
     return {
       category: keyword,

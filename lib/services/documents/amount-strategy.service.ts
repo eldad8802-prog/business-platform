@@ -315,6 +315,16 @@ function findBestSemanticAmount(
   return null;
 }
 
+/**
+ * The thousands an OCR cut left on the page: a number of 1–3 digits followed by a thousands comma that ends
+ * its line ("₪ 1," / "12,"), as thousands values (1,000 / 12,000). Empty when nothing was cut.
+ */
+export function brokenThousandsFragments(text: string): number[] {
+  const out = new Set<number>();
+  for (const m of text.matchAll(/(?:^|[\s₪])(\d{1,3}),[ \t]*$/gm)) out.add(Number(m[1]) * 1000);
+  return [...out].filter((n) => n >= 1000);
+}
+
 function findAccountingConsistencyAmount(
   text: string,
   candidates: ReturnType<typeof getAmountCandidates>
@@ -356,6 +366,13 @@ function findAccountingConsistencyAmount(
     }
   }
 
+  // Reconstruction is for an amount the OCR really cut ("1," at the end of a line, "180.00" on the next) —
+  // and only with the thousands the document shows in that fragment. Guessing 1,000…9,000 over any three
+  // amounts invented totals that are nowhere on the page: a Z report's cash 200 / card 300 / total 500
+  // became 1,000 + 300 + 200 = "1,500" at 0.97.
+  const shownThousands = brokenThousandsFragments(text);
+  if (shownThousands.length === 0) return null;
+
   for (const subtotalTail of valid) {
     for (const vatCandidate of valid) {
       if (vatCandidate.value >= subtotalTail.value) continue;
@@ -363,7 +380,7 @@ function findAccountingConsistencyAmount(
       for (const totalTail of valid) {
         if (totalTail.value <= subtotalTail.value) continue;
 
-        for (let thousands = 1000; thousands <= 9000; thousands += 1000) {
+        for (const thousands of shownThousands) {
           const reconstructedSubtotal = round2(thousands + subtotalTail.value);
           const reconstructedTotal = round2(
             reconstructedSubtotal + vatCandidate.value
@@ -422,15 +439,17 @@ export function applyAmountStrategy(
     consistencyAmount.value >= 10 &&
     Math.abs(consistencyAmount.value - currentAmount.value) > 0.05
   ) {
+    // A total rebuilt from a cut number is a reading, not a printed fact: always a question for the owner.
+    const rebuilt = consistencyAmount.signals.some((s) => s.includes("reconstructed"));
     return {
       ...currentAmount,
       value: consistencyAmount.value,
       raw: consistencyAmount.raw,
       type: "total",
-      confidence: 0.97,
+      confidence: rebuilt ? 0.6 : 0.97,
       source: "reconstructed",
       isSuspicious: false,
-      needsReview: false,
+      needsReview: rebuilt,
       signals: [...currentAmount.signals, ...consistencyAmount.signals],
       reason: "Amount selected by strategy layer using accounting consistency",
     };
