@@ -4,7 +4,7 @@
  *
  *   P. per viewport: the manual flow end to end (service → staff → day/time → details → "ממתינה"), no horizontal
  *      scroll at any step, focus on each step's question, the personal link; the automatic flow ("נקבע").
- *   M. the customer's own link: view → cancel (confirm first) → "התור בוטל"; a garbage / truncated token → unavailable.
+ *   M. the customer's own link: view → cancel (confirm first) → "הבקשה בוטלה"; a garbage / truncated token → unavailable.
  *   E. edge cases: empty / invalid details stop before anything is sent; a double tap sends one booking; a time taken
  *      while filling in → the nearest free times; the limiter down (503) keeps the form and the same key; the page's
  *      loading, error-and-retry and "no free time this week" states.
@@ -181,7 +181,8 @@ async function main() {
     {
       const c = await ctx(browser, VIEWPORTS[3]);
       const p = await c.newPage();
-      await check("the personal link shows the pending request; cancel asks first, then \"התור בוטל\"", async () => {
+      // A pending request withdrawn reads "הבקשה בוטלה" (there was no appointment yet) — design direction A, P7.
+      await check("the personal link shows the pending request; cancel asks first, then \"הבקשה בוטלה\"", async () => {
         must(manageLink, "no link from the desktop flow");
         await p.goto(manageLink.replace(/^https?:\/\/[^/]+/, ""), { waitUntil: "domcontentloaded" });
         await p.getByRole("heading", { name: "ממתינה לאישור העסק" }).waitFor({ timeout: 60_000 });
@@ -190,7 +191,7 @@ async function main() {
         await p.getByRole("button", { name: "ביטול הבקשה" }).click();
         await p.getByRole("alertdialog").waitFor();
         await p.getByRole("button", { name: "כן, לבטל" }).click();
-        await p.getByRole("heading", { name: "התור בוטל" }).waitFor({ timeout: 30_000 });
+        await p.getByRole("heading", { name: "הבקשה בוטלה" }).waitFor({ timeout: 30_000 });
         must((await p.getByRole("button", { name: /ביטול/ }).count()) === 0, "a cancel button after cancelling");
         await shot(p, "desktop-manage-canceled");
       });

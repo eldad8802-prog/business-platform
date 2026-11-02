@@ -1,6 +1,36 @@
-/* Public booking page (Milestone C, segment 3) — Hebrew, RTL, phone first. Dubiz Mist tokens only (app/dubiz-mist.css). */
+/*
+ * Public booking page (Milestone C, segment 3) — Hebrew, RTL, phone first. Design direction A (2026-11-02), the same
+ * palette as the owner's calendar (features/calendar/calendar.module.css): a warm light ground, white surfaces, thin
+ * warm lines, restrained terracotta. The Dubiz tokens the page reads are rebound here, on the page only.
+ */
 
 .page {
+  --dz-background: #faf7f3;
+  --dz-surface: #ffffff;
+  --dz-surface-muted: #f5f0ea;
+  --dz-border: #ddd3c8;
+  --dz-border-subtle: #ebe4dc;
+  --dz-text-primary: #2a2421;
+  --dz-text-secondary: #5d524c;
+  --dz-text-muted: #74685f;
+  --dz-text-disabled: #b3a89f;
+  --dz-text-on-brand: #ffffff;
+  --dz-brand: #ae5131;
+  --dz-brand-border: #ecd0c2;
+  --dz-brand-soft: #f8ebe4;
+  --dz-selection-bg: #f8ebe4;
+  --dz-focus-ring-color: #ae5131;
+  --dz-action-primary: #ae5131;
+  --dz-action-primary-hover: #93432a;
+  --dz-action-primary-text: #ffffff;
+  --dz-action-secondary-bg: #ffffff;
+  --dz-action-secondary-hover: #f5f0ea;
+  --dz-action-secondary-border: #ddd3c8;
+  --dz-action-secondary-text: #2a2421;
+  --dz-warm-canvas: #fbf1e1;
+  --dz-warm-border: #ecd9b8;
+  --dz-warm-ink: #8a5a1c;
+  --dz-shadow-card: none;
   min-height: 100vh;
   min-height: 100dvh;
   background: var(--dz-background);
@@ -116,7 +146,8 @@
 .dayOn b { color: var(--dz-text-on-brand); }
 .dayClosed {
   cursor: default;
-  background: repeating-linear-gradient(135deg, var(--dz-background) 0 4px, transparent 4px 8px);
+  background: var(--dz-surface-muted);
+  border-color: var(--dz-border-subtle);
 }
 .dayClosed b { color: var(--dz-text-disabled); }
 .dayToday b { text-decoration: underline; text-underline-offset: 3px; }
@@ -222,5 +253,7 @@
 @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
 .foot { padding: 14px 16px 18px; text-align: center; font-size: 12px; color: var(--dz-text-muted); }
+.privacy { margin: 0; font-size: 13px; color: var(--dz-text-muted); line-height: 1.5; }
+.privacy a { color: var(--dz-text-secondary); }
 
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

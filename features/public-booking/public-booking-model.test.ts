@@ -17,6 +17,9 @@ import {
   slotsByDay,
   STATE_LABEL,
   stepsFor,
+  stepsForProfile,
+  lastBookableDay,
+  manageStateLabel,
   tokenFromHash,
   weekDays,
   whenLong,
@@ -122,6 +125,15 @@ check("a UUIDv7 shape (version 7, RFC variant)", /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9
 check("its first 48 bits are the time", parseInt(k.replace(/-/g, "").slice(0, 12), 16) === Date.UTC(2026, 10, 3));
 check("two keys differ", newRequestKey() !== newRequestKey());
 check("the server's key rule accepts it", /^[A-Za-z0-9_-]{8,128}$/.test(newRequestKey()));
+
+console.log("— design direction A: a steady step count, the service's horizon, the words of a withdrawn request");
+eq("the staff step is the business's: there before a service is chosen", stepsForProfile({ staffChoice: "OPTIONAL" }, [{ staff }, {}]), ["service", "staff", "time", "details"]);
+eq("…and no staff step when no bookable service shows staff", stepsForProfile({ staffChoice: "OPTIONAL" }, [{}, {}]), ["service", "time", "details"]);
+eq("…or when the customer does not choose", stepsForProfile({ staffChoice: "NONE" }, [{ staff }]), ["service", "time", "details"]);
+eq("the last bookable day follows the service's horizon", lastBookableDay("2026-11-02", { maxAdvanceDays: 14 }), "2026-11-16");
+eq("…12 weeks when none was given", lastBookableDay("2026-11-02", null), "2027-01-25");
+eq("a withdrawn request reads הבקשה בוטלה, not התור בוטל", manageStateLabel({ state: "CANCELED", withdrawn: true }), "הבקשה בוטלה");
+eq("…a cancelled appointment reads התור בוטל", manageStateLabel({ state: "CANCELED", withdrawn: false }), "התור בוטל");
 
 console.log(`${total - failures} passed, ${failures} failed`);
 if (failures) process.exit(1);

@@ -18,6 +18,8 @@ import type { Prisma } from "@prisma/client";
 import { sendWebPush, type PushPayload } from "@/lib/push/web-push-sender";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
+import { cancelNoticeTitle } from "./booking.core";
+
 type Tx = Prisma.TransactionClient;
 
 export const BOOKING_DOMAIN = "appointments";
@@ -56,9 +58,9 @@ export function notifyAutoConfirmed(tx: Tx, businessId: number, f: RequestFacts,
   return upsertRequestNotification(tx, businessId, f, `תור חדש נקבע מהקישור: ${f.contactName}`, `${f.serviceName} · ${f.when} · לקשר לכרטיס לקוח?`, now);
 }
 
-/** The customer cancelled through their link. */
-export function notifyCustomerCancelled(tx: Tx, businessId: number, f: RequestFacts, now: Date) {
-  return upsertRequestNotification(tx, businessId, f, `${f.contactName} ביטל/ה את התור`, `${f.serviceName} · ${f.when}`, now);
+/** The customer cancelled through their link (`wasPending`: the request had not been decided yet). */
+export function notifyCustomerCancelled(tx: Tx, businessId: number, f: RequestFacts, now: Date, wasPending = false) {
+  return upsertRequestNotification(tx, businessId, f, cancelNoticeTitle(f.contactName, wasPending), `${f.serviceName} · ${f.when}`, now);
 }
 
 /** The request is no longer waiting (decided, expired, withdrawn): no further reminder, out of the open list. */

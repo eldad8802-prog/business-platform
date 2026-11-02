@@ -66,6 +66,23 @@ async function main() {
   for (const [d, h, s, c, sv] of [[1, 12, shira, yossi, haircut], [2, 10, avi, noa, consult], [3, 15, shira, maya, haircut], [-1, 16, avi, noa, haircut]] as const) {
     await book({ startsAt: at(addCalendarDays(today, d), h), businessServiceId: sv, staffMemberId: s, customerId: c });
   }
+  // Design direction A (2026-11-02) — the cases the redesign must draw: two staff at the same time, a 15-minute
+  // appointment, an English name, finished appointments of both outcomes, and an INACTIVE staff member who still has an
+  // appointment today (it must stay on the calendar).
+  const daniel = await cust("Daniel Levi", "0525555555");
+  ids.parallelDaniel = (await book({ startsAt: at(today, 10), businessServiceId: consult, staffMemberId: avi, customerId: daniel })).appointment.id;
+  ids.shortDaniel = (await book({ startsAt: at(today, 16, 30), durationMinutes: 15, businessServiceId: consult, staffMemberId: avi, customerId: daniel, title: "שיחת המשך" })).appointment.id;
+  const dana = (await config.createStaff(principal, { displayName: "Dana Cohen", color: "#4f8a68" })).id;
+  ids.inactiveDana = (await book({ startsAt: at(today, 15), durationMinutes: 45, staffMemberId: dana, customerId: yossi, title: "Color touch-up" })).appointment.id;
+  await config.updateStaff(principal, dana, { active: false });
+  const yesterday = addCalendarDays(today, -1);
+  const done = (await book({ startsAt: at(yesterday, 9), businessServiceId: haircut, staffMemberId: avi, customerId: noa })).appointment;
+  await schedule.changeStatus(principal, { idempotencyKey: uuidV7(new Date()) }, done.id, { to: "COMPLETED", expectedVersion: done.version });
+  const absent = (await book({ startsAt: at(yesterday, 12), businessServiceId: haircut, staffMemberId: shira, customerId: yossi })).appointment;
+  await schedule.changeStatus(principal, { idempotencyKey: uuidV7(new Date()) }, absent.id, { to: "NO_SHOW", expectedVersion: absent.version });
+  ids.completed = done.id;
+  ids.noShow = absent.id;
+
   // A move and a cancellation, so the journal and the month show history.
   const moved = (await book({ startsAt: at(addCalendarDays(today, 2), 16), businessServiceId: haircut, staffMemberId: avi, customerId: maya })).appointment;
   await schedule.moveAppointment(principal, { idempotencyKey: uuidV7(new Date()) }, moved.id, { startsAt: at(addCalendarDays(today, 2), 17), expectedVersion: moved.version });
@@ -93,7 +110,7 @@ async function main() {
   const out = {
     closedDay, partDay,
     tokenA: signAuthToken(userA, 0), tokenB: signAuthToken(userB, 0), bizA, bizB, today,
-    staff: { shira, avi }, services: { haircut, color, consult }, customers: { noa, yossi, maya, ron }, ids,
+    staff: { shira, avi, dana }, services: { haircut, color, consult }, customers: { noa, yossi, maya, ron, daniel }, ids,
   };
   writeFileSync(process.env.SEED_OUT!, JSON.stringify(out, null, 2));
   console.log(`seeded: business ${bizA} (appointments ON) and ${bizB} (OFF); today ${today}`);
