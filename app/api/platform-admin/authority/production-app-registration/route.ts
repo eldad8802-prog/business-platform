@@ -21,7 +21,10 @@
  *                                       apply needs confirmation "REGISTER"
  *   5. registerProductionAuthorityApp — PRODUCTION only, create-only, key check
  * Every outcome from step 2 on is written to the platform audit log with the
- * mode, an outcome code and masked ids only.
+ * mode, an outcome code, masked ids and the submission's attemptId (optional
+ * body field, strict lowercase UUID v4, else 400 INVALID_ATTEMPT_ID; generated
+ * server-side when absent). The body is read and size-bounded right after step 1
+ * only so a step-up refusal can carry the same attemptId as the retried request.
  *
  * REMOVAL (follow-up PR, right after the PRODUCTION row exists):
  *   delete app/api/platform-admin/authority/production-app-registration/route.ts
@@ -36,6 +39,7 @@
  *   add a static guard so this path / service name can never return.
  */
 
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   freshStepUpRefusal,
@@ -68,6 +72,7 @@ const ALLOWED_FIELDS = new Set([
   "accountingSoftwareNumber",
   "portalApplicationId",
   "confirmation",
+  "attemptId",
 ]);
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -82,6 +87,7 @@ export const AUTHORITY_APP_REGISTRATION_ROUTE_CODES = {
   UNKNOWN_FIELD: "UNKNOWN_FIELD",
   INVALID_FIELD_TYPE: "INVALID_FIELD_TYPE",
   CONFIRMATION_REQUIRED: "CONFIRMATION_REQUIRED",
+  INVALID_ATTEMPT_ID: "INVALID_ATTEMPT_ID",
   SERVER_ERROR: "SERVER_ERROR",
 } as const;
 
@@ -134,42 +140,66 @@ function refusal(status: number, code: RouteCode | AuthorityAppRegistrationCode)
   return NextResponse.json({ error: code, code }, { status, headers: NO_STORE });
 }
 
-type ParsedBody =
-  | { ok: true; input: AuthorityAppRegistrationInput; confirmation: string | null }
-  | { ok: false; status: number; code: RouteCode; mode: AuditMeta["mode"] };
+/** Strict lowercase UUID v4 — the shape crypto.randomUUID() produces. */
+const ATTEMPT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-async function parseBody(req: Request): Promise<ParsedBody> {
+export function isValidAttemptId(value: unknown): value is string {
+  return typeof value === "string" && ATTEMPT_ID_RE.test(value);
+}
+
+type RawBody =
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; status: number; code: RouteCode };
+
+/**
+ * Reads and bounds the body ONCE, right after the admin guard, so the attempt id
+ * is known for every audited outcome (including a step-up refusal). Nothing in it
+ * is acted on before the step-up and the switch have passed.
+ */
+async function readRawBody(req: Request): Promise<RawBody> {
   const R = AUTHORITY_APP_REGISTRATION_ROUTE_CODES;
   const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
   if (contentType.split(";")[0]!.trim() !== "application/json") {
-    return { ok: false, status: 415, code: R.UNSUPPORTED_CONTENT_TYPE, mode: null };
+    return { ok: false, status: 415, code: R.UNSUPPORTED_CONTENT_TYPE };
   }
   const declared = Number(req.headers.get("content-length") ?? "0");
   if (Number.isFinite(declared) && declared > AUTHORITY_APP_REGISTRATION_MAX_BODY_BYTES) {
-    return { ok: false, status: 413, code: R.BODY_TOO_LARGE, mode: null };
+    return { ok: false, status: 413, code: R.BODY_TOO_LARGE };
   }
   const text = await req.text();
   if (Buffer.byteLength(text, "utf8") > AUTHORITY_APP_REGISTRATION_MAX_BODY_BYTES) {
-    return { ok: false, status: 413, code: R.BODY_TOO_LARGE, mode: null };
+    return { ok: false, status: 413, code: R.BODY_TOO_LARGE };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { ok: false, status: 400, code: R.INVALID_JSON, mode: null };
+    return { ok: false, status: 400, code: R.INVALID_JSON };
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { ok: false, status: 400, code: R.INVALID_JSON, mode: null };
+    return { ok: false, status: 400, code: R.INVALID_JSON };
   }
-  const body = parsed as Record<string, unknown>;
-  const mode = body.mode === "dry-run" || body.mode === "apply" ? body.mode : null;
+  return { ok: true, body: parsed as Record<string, unknown> };
+}
+
+type ParsedBody =
+  | { ok: true; input: AuthorityAppRegistrationInput; confirmation: string | null }
+  | { ok: false; status: number; code: RouteCode; mode: AuditMeta["mode"] };
+
+function validateBody(body: Record<string, unknown>): ParsedBody {
+  const R = AUTHORITY_APP_REGISTRATION_ROUTE_CODES;
+  const mode = auditMode(body.mode);
 
   for (const key of Object.keys(body)) {
     if (!ALLOWED_FIELDS.has(key)) {
       // Never echo the offending key — it could be anything the caller typed.
       return { ok: false, status: 400, code: R.UNKNOWN_FIELD, mode };
     }
+  }
+
+  if (body.attemptId !== undefined && !isValidAttemptId(body.attemptId)) {
+    return { ok: false, status: 400, code: R.INVALID_ATTEMPT_ID, mode };
   }
 
   const stringOrAbsent = (v: unknown) => v === undefined || v === null || typeof v === "string";
@@ -225,6 +255,12 @@ export async function handleAuthorityAppRegistration(
     return refusal(500, R.SERVER_ERROR);
   }
 
+  // One id per user submission: the form sends it, and the client's automatic
+  // re-send after a step-up carries the identical body, so a step-up refusal and
+  // the eventual result share it. A missing or malformed id gets a server one so
+  // every audit row still has an id (a malformed one is then refused below).
+  let attemptId: string = randomUUID();
+
   const record = async (meta: AuditMeta) => {
     try {
       await audit({
@@ -232,7 +268,7 @@ export async function handleAuthorityAppRegistration(
         action: PLATFORM_AUDIT_ACTIONS.AUTHORITY_PRODUCTION_APP_REGISTRATION,
         targetType: "BILLING_AUTHORITY_APP",
         targetId: "PRODUCTION",
-        metadata: { environment: "PRODUCTION", ...meta },
+        metadata: { environment: "PRODUCTION", attemptId, ...meta },
         req,
       });
     } catch {
@@ -241,6 +277,11 @@ export async function handleAuthorityAppRegistration(
   };
 
   try {
+    const raw = await readRawBody(req);
+    if (raw.ok && isValidAttemptId(raw.body.attemptId)) {
+      attemptId = raw.body.attemptId;
+    }
+
     const stale = freshStepUp(req, admin.id);
     if (stale) {
       await record({ mode: null, outcome: R.STEP_UP_REQUIRED });
@@ -252,7 +293,12 @@ export async function handleAuthorityAppRegistration(
       return refusal(503, R.FEATURE_DISABLED);
     }
 
-    const parsed = await parseBody(req);
+    if (!raw.ok) {
+      await record({ mode: null, outcome: raw.code });
+      return refusal(raw.status, raw.code);
+    }
+
+    const parsed = validateBody(raw.body);
     if (!parsed.ok) {
       await record({ mode: parsed.mode, outcome: parsed.code });
       return refusal(parsed.status, parsed.code);

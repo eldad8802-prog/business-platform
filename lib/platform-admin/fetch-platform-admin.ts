@@ -386,6 +386,8 @@ export async function postPlatformAdminTokenProbe(): Promise<TokenProbeInvocatio
 
 export type AuthorityAppRegistrationRequest = {
   mode: "dry-run" | "apply";
+  /** One per user submission; the step-up re-send reuses this exact body. */
+  attemptId?: string;
   itaClientId: string;
   clientSecret: string;
   accountingSoftwareNumber: string;

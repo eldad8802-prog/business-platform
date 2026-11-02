@@ -88,9 +88,14 @@ export function AuthorityAppRegistrationForm() {
     const secret = clientSecret;
     // Clear the secret from state immediately — it is re-typed for every submit.
     setClientSecret("");
+    // One id per click. It travels in the body; the request core serialises the
+    // body once and re-sends that identical string after a step-up, so the
+    // step-up refusal and the final result are audited under the same id.
+    const attemptId = crypto.randomUUID();
     try {
       const summary = await postPlatformAdminAuthorityAppRegistration({
         mode,
+        attemptId,
         itaClientId: clientId,
         clientSecret: secret,
         accountingSoftwareNumber: softwareNumber,

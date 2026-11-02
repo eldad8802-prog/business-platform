@@ -75,6 +75,8 @@ async function main() {
     });
   }
 
+  const allAudits: LogPlatformAuditEventInput[] = [];
+  const auditDumpExtra: string[] = [];
   type Harness = {
     calls: AuthorityAppRegistrationInput[];
     audits: LogPlatformAuditEventInput[];
@@ -110,6 +112,7 @@ async function main() {
       },
       audit: async (input) => {
         h.audits.push(input);
+        allAudits.push(input);
       },
     };
     return h;
@@ -244,6 +247,59 @@ async function main() {
     ok("service throw → 500 SERVER_ERROR (no detail)", res.status === 500 && body.code === "SERVER_ERROR");
   }
 
+  // 6b. attemptId: one id links a step-up refusal and the retried result.
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  {
+    const ATTEMPT = "3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c";
+    const body = { ...goodBody, attemptId: ATTEMPT };
+    const h1 = harness();
+    const r1 = await handleAuthorityAppRegistration(makeReq(body, { elevation: null }), h1.deps);
+    const h2 = harness();
+    const r2 = await handleAuthorityAppRegistration(makeReq(body), h2.deps);
+    ok("same attemptId: first refused for step-up (403), retry succeeds (200)", r1.status === 403 && r2.status === 200);
+    const m1 = h1.audits[0]?.metadata as Record<string, unknown> | undefined;
+    const m2 = h2.audits[0]?.metadata as Record<string, unknown> | undefined;
+    ok("same attemptId: two audit rows", h1.audits.length === 1 && h2.audits.length === 1);
+    ok("same attemptId: both rows carry the client's attemptId", m1?.attemptId === ATTEMPT && m2?.attemptId === ATTEMPT);
+    ok("same attemptId: outcomes differ (STEP_UP_REQUIRED, DRY_RUN_OK)", m1?.outcome === "STEP_UP_REQUIRED" && m2?.outcome === "DRY_RUN_OK");
+    ok("same attemptId: service ran only on the retry", h1.calls.length === 0 && h2.calls.length === 1);
+    ok("attemptId is not passed to the service", !("attemptId" in h2.calls[0]!));
+  }
+  for (const bad of [
+    "not-a-uuid",
+    "3F2B8C1E-9A4D-4E6F-B1C2-7D8E9F0A1B2C",
+    "3f2b8c1e-9a4d-1e6f-b1c2-7d8e9f0a1b2c",
+    "3f2b8c1e-9a4d-4e6f-c1c2-7d8e9f0a1b2c",
+    "",
+    12345,
+    null,
+  ]) {
+    const h = harness();
+    const res = await handleAuthorityAppRegistration(makeReq({ ...goodBody, attemptId: bad }), h.deps);
+    const body = await read(res);
+    const meta = h.audits[0]?.metadata as Record<string, unknown> | undefined;
+    ok(`invalid attemptId ${JSON.stringify(bad)} → 400 INVALID_ATTEMPT_ID, service never runs`,
+      res.status === 400 && body.code === "INVALID_ATTEMPT_ID" && h.calls.length === 0);
+    ok(`invalid attemptId ${JSON.stringify(bad)}: one audit row with a server-generated id, not the bad value`,
+      h.audits.length === 1 && typeof meta?.attemptId === "string" && meta.attemptId !== bad && UUID_V4.test(meta.attemptId));
+  }
+  {
+    const h = harness();
+    await handleAuthorityAppRegistration(makeReq(goodBody), h.deps);
+    const meta = h.audits[0]!.metadata as Record<string, unknown>;
+    ok("absent attemptId: the audit row gets a server-generated UUID v4",
+      typeof meta.attemptId === "string" && UUID_V4.test(meta.attemptId));
+  }
+  {
+    const h = harness({ flag: undefined });
+    const ATTEMPT = "11111111-2222-4333-8444-555555555555";
+    await handleAuthorityAppRegistration(makeReq({ ...goodBody, attemptId: ATTEMPT }), h.deps);
+    ok("switch-off refusal also carries the attemptId", (h.audits[0]!.metadata as Record<string, unknown>).attemptId === ATTEMPT);
+  }
+  ok("EVERY audit row in this suite carries an attemptId",
+    allAudits.length > 0 && allAudits.every((a) => typeof (a.metadata as Record<string, unknown>)?.attemptId === "string"));
+  auditDumpExtra.push(JSON.stringify(allAudits.map((x) => ({ ...x, req: undefined }))));
+
   // 7. no leaks: responses, audit metadata, logs.
   const auditDump: string[] = [];
   {
@@ -254,7 +310,8 @@ async function main() {
       auditDump.push(JSON.stringify(h.audits.map((x) => ({ ...x, req: undefined }))));
     }
   }
-  const everything = responses.join("\n") + auditDump.join("\n") + logged.join("\n");
+  const everything =
+    responses.join("\n") + auditDump.join("\n") + auditDumpExtra.join("\n") + logged.join("\n");
   ok("secret never appears in responses, audit metadata or logs", !everything.includes(SECRET));
   ok("full client id never appears in responses, audit metadata or logs", !everything.includes(CLIENT_ID));
 
