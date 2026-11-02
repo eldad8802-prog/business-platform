@@ -18,7 +18,8 @@
  *     identity    duplicate + 6× concurrent duplicate → one receipt, one lead;
  *                 same id across sources / businesses stays separate;
  *                 missing id → explicit fingerprint; unkeyable → refused
- *     lifecycle   partial failure → retry → one lead; poison → dead-letter
+ *     lifecycle   partial failure → retry → one lead; connection-drop retry
+ *                 with the same now never re-claims a leased receipt; poison → dead-letter
  *                 without blocking others; terminal error; malformed payload;
  *                 unknown source; unsupported family; deferral not counted
  *     boundaries  identity 'unresolved' keeps hints for M4 (no merge); a
@@ -36,7 +37,7 @@ import { runTenantJob } from "../lib/tenant/job";
 import { getTenantContext } from "../lib/tenant/context";
 import { IntakeRegistry } from "../lib/intake/core/registry";
 import { acceptIntake, drainIntake, processIntakeEvent } from "../lib/intake/core/processor";
-import { recordReceipts } from "../lib/intake/intake-event.store";
+import { claimEvent, INTAKE_LEASE_MS, listDueEventIds, recordReceipts } from "../lib/intake/intake-event.store";
 import { traceIntakeByProviderEvent, traceIntakeReceipt } from "../lib/intake/core/trace";
 import { MissingEventIdentityError } from "../lib/intake/core/event-identity";
 import { INTAKE_MAX_ATTEMPTS } from "../lib/intake/intake-event.store";
@@ -362,6 +363,29 @@ async function post() {
   const tmEv = tm.status === "accepted" ? await o.intakeEvent.findUnique({ where: { id: tm.recorded[0].id } }) : null;
   ok("terminal adapter error → dead-letter NOW, payload kept for operator replay",
     tmEv?.status === "FAILED" && tmEv.nextAttemptAt === null && tmEv.lastErrorCode === "lead_rejected" && tmEv.payload !== null);
+
+  // A dropped database connection mid-sweep (lib/db/transient-retry.ts): the sweep retries the business once with the
+  // SAME `now`. A receipt the first attempt had claimed is still under its lease, so the retry neither lists nor claims
+  // it — it is processed once, after the lease, never twice.
+  const dropT = Date.now();
+  const dropped = await accept(delivery());
+  const dropId = dropped.status === "accepted" ? dropped.recorded[0].id : -1;
+  const firstClaim = await runTenantJob({ businessId: bizA.id }, () => claimEvent(bizA.id, dropId, new Date(dropT)));
+  const callsAtDrop = sink.calls;
+  const retryDue = await runTenantJob({ businessId: bizA.id }, () => listDueEventIds(bizA.id, new Date(dropT), 500));
+  const again = await runTenantJob({ businessId: bizA.id }, () => processIntakeEvent(registry, bizA.id, dropId, new Date(dropT)));
+  const dropEv1 = await o.intakeEvent.findUnique({ where: { id: dropId } });
+  ok("connection-drop retry (same now): a receipt claimed by the first attempt is not processed again",
+    firstClaim !== null && again === "not_claimed" && sink.calls === callsAtDrop && dropEv1?.status === "RECEIVED" &&
+      dropEv1.attempts === 1 && !retryDue.includes(dropId),
+    JSON.stringify({ again, calls: sink.calls - callsAtDrop, s: dropEv1?.status, a: dropEv1?.attempts, listed: retryDue.includes(dropId) }));
+  const afterLease = await runTenantJob({ businessId: bizA.id }, () =>
+    processIntakeEvent(registry, bizA.id, dropId, new Date(dropT + INTAKE_LEASE_MS + 1000)));
+  const dropEv2 = await o.intakeEvent.findUnique({ where: { id: dropId } });
+  ok("…after the lease it is processed exactly once (one routing call, one normalized record)",
+    afterLease === "processed" && dropEv2?.status === "PROCESSED" && sink.calls === callsAtDrop + 1 &&
+      (await o.intakeNormalizedEvent.count({ where: { intakeEventId: dropId } })) === 1,
+    JSON.stringify({ afterLease, s: dropEv2?.status, calls: sink.calls - callsAtDrop }));
 
   const malformed = await runTenantJob({ businessId: bizA.id }, () =>
     recordReceipts(bizA.id, REFERENCE_SOURCE, [{ ...buildReferenceReceipt(delivery()), payload: { v: 1, formId: FORM_A } }])
