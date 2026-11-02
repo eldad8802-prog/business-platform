@@ -19,6 +19,9 @@
  *   I. The flag: no row ⇒ OFF; policy OFF + business override ⇒ ON for that business only.
  *   J. Facts stay immutable; the existing systems are byte-identical before and after.
  *   K. The old path alone, unchanged: idempotent re-upload, its own identities.
+ *   S. Guards (2026-11-03): a foreign-currency file is refused at analyze AND at commit; the shekel layout passes;
+ *      the file's account number must be the chosen account's; the commit must confirm the analyzed account;
+ *      lines already held under another account need an explicit, exact confirmation; tenants stay apart.
  *
  * env: OWNER_URL (fixtures, BYPASSRLS), RUNTIME_URL (the app). Synthetic only. ZERO network.
  */
@@ -76,9 +79,9 @@ async function main() {
   const one = async (sql: string, ...args: unknown[]) => Number(((await owner.$queryRawUnsafe(sql, ...args)) as { id: number }[])[0].id);
   const business = (name: string) => one(`INSERT INTO "Business" ("name", "updatedAt") VALUES ($1, now()) RETURNING "id"`, name);
   const user = (biz: number, tag: string) => one(`INSERT INTO "User" ("email", "password", "businessId", "updatedAt") VALUES ($1, 'x', $2, now()) RETURNING "id"`, `${tag}-${Date.now()}@bfi.lab`, biz);
-  const account = (biz: number, tag: string) => one(
+  const account = (biz: number, tag: string, last4 = "0000") => one(
     `INSERT INTO "BusinessBankAccount" ("businessId", "label", "coordinatesEncrypted", "coordinatesIv", "coordinatesTag", "encryptionKeyId", "accountLast4", "fingerprint", "updatedAt")
-     VALUES ($1, $2, 'lab', 'lab', 'lab', 'lab', '0000', $3, now()) RETURNING "id"`, biz, `חשבון ${tag}`, `fp-${tag}-${Date.now()}`);
+     VALUES ($1, $2, 'lab', 'lab', 'lab', 'lab', $4, $3, now()) RETURNING "id"`, biz, `חשבון ${tag}`, `fp-${tag}-${Date.now()}`, last4);
 
   const lines = async (biz: number) => Number(((await owner.$queryRawUnsafe(`SELECT count(*)::int AS n FROM "ExternalTransaction" WHERE "businessId" = $1`, biz)) as { n: number }[])[0].n);
   const distinctFacts = async (biz: number) => Number(((await owner.$queryRawUnsafe(
@@ -105,11 +108,25 @@ async function main() {
     ({ businessId: biz, userId: uid, accountId: acc, filename, bytes, sheetName: null, mapping });
   const analyze = (i: ReturnType<typeof input>) => runWithTenantContext({ businessId: i.businessId }, () => svc.analyzeBankFile(i));
   type Decisions = import("@/lib/services/bank-file-import/bank-file-import.service").SuspectDecisions;
-  const commit = (i: ReturnType<typeof input>, token: unknown, decisions: Decisions | null = null) =>
-    runWithTenantContext({ businessId: i.businessId }, () => svc.commitBankFile({ ...i, token, decisions }));
+  // The owner confirms the account shown on the preview (the analyzed one) unless a test says otherwise.
+  type Confirm = { account?: number | null; cross?: number | null };
+  const commit = (i: ReturnType<typeof input>, token: unknown, decisions: Decisions | null = null, confirm: Confirm = {}) =>
+    runWithTenantContext({ businessId: i.businessId }, () =>
+      svc.commitBankFile({
+        ...i,
+        token,
+        decisions,
+        confirmedAccountId: "account" in confirm ? confirm.account : i.accountId,
+        confirmedCrossAccountLines: confirm.cross ?? null,
+      }));
   const decideAll = (preview: { suspected: Array<{ rowNumber: number }> }, d: "IMPORT" | "SKIP"): Decisions =>
     Object.fromEntries(preview.suspected.map((l) => [l.rowNumber, d]));
-  const importFile = async (i: ReturnType<typeof input>) => { const p = await analyze(i); return { preview: p, result: await commit(i, p.token) }; };
+  // An owner who reads the preview and confirms what it shows (including lines held under another account).
+  const importFile = async (i: ReturnType<typeof input>) => {
+    const p = await analyze(i);
+    const cross = p.status === "READY" ? p.crossAccount.lines : 0;
+    return { preview: p, result: await commit(i, p.token, null, { cross: cross || null }) };
+  };
   const oldUpload = (biz: number, uid: number, acc: number | null, text: string) =>
     runWithTenantContext({ businessId: biz }, () => obs.uploadStatement({ businessId: biz, actorUserId: uid, sourceBankAccountId: acc, csvText: text }));
 
@@ -225,6 +242,8 @@ async function main() {
   await importFile(input(pp4.b, pp4.u, pp4.A, Buffer.from(feeA, "utf8")));
   const pp4b = await importFile(input(pp4.b, pp4.u, pp4.B, Buffer.from(feeB, "utf8")));
   ok("P4 A then B, both via this path with their accounts: the identical fee is NEW in B (different account), 4 lines", pp4b.preview.counts.new === 2 && pp4b.preview.counts.suspected === 0 && (await lines(pp4.b)) === 4);
+  ok("P4 …and the preview flagged the fee as already held under account A (1 line), which the owner confirmed",
+    pp4b.preview.crossAccount.lines === 1 && pp4b.preview.crossAccount.accounts.length === 1 && pp4b.preview.crossAccount.accounts[0].id === pp4.A, JSON.stringify(pp4b.preview.crossAccount));
 
   // ── E. Overlaps, identical lines, CSV then Excel ─────────────────────────────────────────────
   console.log("E. overlapping statements, identical lines, CSV then Excel");
@@ -283,8 +302,14 @@ async function main() {
   const seenRuns = await tenantTx(bizB, (tx) => tx.importRun.count({ where: { businessId: bizA } }));
   const seenLines = await tenantTx(bizB, (tx) => tx.externalTransaction.count({ where: { businessId: bizA } }));
   ok("as the runtime in business B: none of A's runs or lines are visible", seenRuns === 0 && seenLines === 0);
+  const accB2 = await account(bizB, "B2");
   const gB = await importFile(input(bizB, userB, accB, fileAB));
   ok("the same file in business B is B's own: 6 inserted, A's lines untouched", gB.result.inserted === 6 && (await lines(bizB)) === 6);
+  ok("…and A's lines under A's accounts are never a cross-account signal in B (0 lines, no account of A named)",
+    gB.preview.crossAccount.lines === 0 && gB.preview.crossAccount.accounts.length === 0, JSON.stringify(gB.preview.crossAccount));
+  const gB2 = await analyze(input(bizB, userB, accB2, fileAB));
+  ok("…while in B itself the same file into B's other account shows B's own 6 lines as cross-account",
+    gB2.status === "READY" && gB2.crossAccount.lines === 6 && gB2.crossAccount.accounts.every((a) => a.id === accB), JSON.stringify(gB2.status === "READY" ? gB2.crossAccount : gB2));
 
   // ── H. Tokens ────────────────────────────────────────────────────────────────────────────────
   console.log("H. tokens");
@@ -377,6 +402,91 @@ async function main() {
   await owner.$executeRawUnsafe(`UPDATE "PlatformFeaturePolicy" SET "emergencyDisabled" = true WHERE "featureKey" = 'bank_file_import'`);
   ok("the emergency switch closes the import for every business, and the old upload reopens", (await bankFileImportState(bizA)) === "OFF");
   await owner.$executeRawUnsafe(`UPDATE "PlatformFeaturePolicy" SET "emergencyDisabled" = false WHERE "featureKey" = 'bank_file_import'`);
+
+  // ── S. Guards: currency, the target account, cross-account lines ──────────────────────────────────
+  console.log("S. guards: shekels only, the file's account number, explicit account confirmation, cross-account lines");
+  const bizS = await business("bfi-S");
+  const userS = await user(bizS, "s");
+  const accS1 = await account(bizS, "S1", "8901");
+  const accS2 = await account(bizS, "S2", "4321");
+  await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'bank_file_import', 'ENABLED', now())`, bizS);
+  const runsS = async () => owner.importRun.count({ where: { businessId: bizS } });
+
+  const usdColumn = csv([["תאריך", "תיאור", "אסמכתא", "סכום", "מטבע"], [day(1), "ספק", "U1", "-50.00", "USD"], [day(2), "לקוח", "U2", "70.00", "USD"]]);
+  ok("S1 a USD currency column: refused at analyze (FOREIGN_CURRENCY), nothing written",
+    (await errorCode(() => analyze(input(bizS, userS, accS1, usdColumn)))) === "FOREIGN_CURRENCY" && (await lines(bizS)) === 0 && (await runsS()) === 0);
+  const dollarMarks = csv([["תאריך", "תיאור", "אסמכתא", "סכום", "יתרה"], [day(1), "ספק", "D1", "-$50.00", "$950.00"]]);
+  ok("S2 $ marks in the amount cells: refused (FOREIGN_CURRENCY)", (await errorCode(() => analyze(input(bizS, userS, accS1, dollarMarks)))) === "FOREIGN_CURRENCY");
+  const shekelReal = utf16([
+    ["תאריך", "יום ערך", "תיאור התנועה", "זכות/חובה ₪", "יתרה ₪", "אסמכתה"],
+    ["09/03/2026", "08/03/2026", "עמלת פעולה- מט\", לפי 2 יח'", "-6.25", "993.75", "0412"],
+    ["05/03/2026", "06/03/2026", "משכורת חודשית", "1,000.00", "1,000.00", "0411"],
+  ]);
+  const sReal = await analyze(input(bizS, userS, accS1, shekelReal));
+  ok("S3 the real Hebrew shekel layout (₪ titles) still passes: READY, nothing cross-account, no account number in the file",
+    sReal.status === "READY" && sReal.counts.new === 2 && sReal.crossAccount.lines === 0 && sReal.account.id === accS1 && sReal.account.masked === "••••8901" && sReal.account.numberCheck === "NOT_IN_FILE",
+    JSON.stringify(sReal.status === "READY" ? { c: sReal.counts, a: sReal.account } : sReal));
+  if (sReal.status === "READY") {
+    ok("S4 the commit checks the currency again, server-side: a USD file sent with a shekel file's token is refused as FOREIGN_CURRENCY",
+      (await errorCode(() => commit(input(bizS, userS, accS1, usdColumn), sReal.token))) === "FOREIGN_CURRENCY" && (await lines(bizS)) === 0);
+    ok("S5 a commit without the account confirmation is refused (ACCOUNT_CONFIRMATION_REQUIRED), nothing written",
+      (await errorCode(() => commit(input(bizS, userS, accS1, shekelReal), sReal.token, null, { account: null }))) === "ACCOUNT_CONFIRMATION_REQUIRED" && (await lines(bizS)) === 0 && (await runsS()) === 0);
+    ok("S5 …a confirmation naming another account of the business is refused (ACCOUNT_CONFIRMATION_MISMATCH)",
+      (await errorCode(() => commit(input(bizS, userS, accS1, shekelReal), sReal.token, null, { account: accS2 }))) === "ACCOUNT_CONFIRMATION_MISMATCH" && (await lines(bizS)) === 0);
+    ok("S5 …switching the form to another account with the same token is still TOKEN_INVALID",
+      (await errorCode(() => commit(input(bizS, userS, accS2, shekelReal), sReal.token, null, { account: accS2 }))) === "TOKEN_INVALID");
+    const sDone = await commit(input(bizS, userS, accS1, shekelReal), sReal.token);
+    ok("S5 …with the confirmation: 2 inserted on S1", sDone.inserted === 2 && (await lines(bizS)) === 2);
+    const auditS = await owner.payablesAuditEvent.findFirst({ where: { businessId: bizS }, orderBy: { id: "desc" } });
+    const metaS = (auditS?.metadata ?? {}) as { confirmedAccountId?: number; crossAccountLines?: number; accountNumberInFile?: string };
+    ok("S5 …the audit event records the confirmed account, the account-number check and the cross-account count",
+      metaS.confirmedAccountId === accS1 && metaS.crossAccountLines === 0 && metaS.accountNumberInFile === "NOT_IN_FILE", JSON.stringify(metaS));
+  }
+
+  const titled = (num: string, from: number) => csv([[`מספר חשבון: ${num}`], ["תאריך", "תיאור", "אסמכתא", "חובה", "זכות"], [day(from), "ספק", `T${from}`, "12.00", ""], [day(from + 1), "ספק", `T${from + 1}`, "13.00", ""]]);
+  const before6 = await lines(bizS);
+  ok("S6 the file prints another account's number (…678999) and S1 ends 8901: refused (ACCOUNT_NUMBER_MISMATCH), nothing written",
+    (await errorCode(() => analyze(input(bizS, userS, accS1, titled("12-345-678999", 10))))) === "ACCOUNT_NUMBER_MISMATCH" && (await lines(bizS)) === before6);
+  const sMatch = await analyze(input(bizS, userS, accS1, titled("12-345-678901", 10)));
+  ok("S6 …the file's number ends 8901: READY, numberCheck MATCH", sMatch.status === "READY" && sMatch.account.numberCheck === "MATCH", JSON.stringify(sMatch.status === "READY" ? sMatch.account : sMatch));
+  if (sMatch.status === "READY") {
+    // The account's stored last four change between preview and commit (lab only): the commit checks again.
+    await owner.$executeRawUnsafe(`UPDATE "BusinessBankAccount" SET "accountLast4" = '0001' WHERE "id" = $1`, accS1);
+    const atCommit = await errorCode(() => commit(input(bizS, userS, accS1, titled("12-345-678901", 10)), sMatch.token));
+    await owner.$executeRawUnsafe(`UPDATE "BusinessBankAccount" SET "accountLast4" = '8901' WHERE "id" = $1`, accS1);
+    ok("S6 …the commit compares the account number again, server-side (ACCOUNT_NUMBER_MISMATCH), nothing written", atCommit === "ACCOUNT_NUMBER_MISMATCH" && (await lines(bizS)) === before6, atCommit);
+  }
+
+  const shared = csv(statement(1, 4));
+  const sharedOnS1 = await importFile(input(bizS, userS, accS1, shared));
+  ok("S7 a statement imported into S1: 5 inserted", sharedOnS1.result.inserted === 5);
+  const before7 = await lines(bizS);
+  const sCross = await analyze(input(bizS, userS, accS2, shared));
+  ok("S7 the same statement into S2: all 5 lines flagged as already held under S1 (shown with S1's masked number)",
+    sCross.status === "READY" && sCross.counts.new === 5 && sCross.crossAccount.lines === 5 && sCross.crossAccount.accounts.length === 1 && sCross.crossAccount.accounts[0].id === accS1 && sCross.crossAccount.accounts[0].masked === "••••8901",
+    JSON.stringify(sCross.status === "READY" ? sCross.crossAccount : sCross));
+  if (sCross.status === "READY") {
+    ok("S7 …a commit without the cross-account confirmation is refused (CROSS_ACCOUNT_CONFIRMATION_REQUIRED), nothing written",
+      (await errorCode(() => commit(input(bizS, userS, accS2, shared), sCross.token))) === "CROSS_ACCOUNT_CONFIRMATION_REQUIRED" && (await lines(bizS)) === before7);
+    ok("S7 …a confirmation of another number of lines is refused too",
+      (await errorCode(() => commit(input(bizS, userS, accS2, shared), sCross.token, null, { cross: 1 }))) === "CROSS_ACCOUNT_CONFIRMATION_REQUIRED" && (await lines(bizS)) === before7);
+    const crossDone = await commit(input(bizS, userS, accS2, shared), sCross.token, null, { cross: 5 });
+    ok("S7 …confirmed exactly: 5 inserted under S2 (the owner's explicit choice)", crossDone.inserted === 5 && (await lines(bizS)) === before7 + 5);
+    const sAgain = await analyze(input(bizS, userS, accS2, shared));
+    ok("S7 …the duplicate mechanism is intact: the same file into S2 again is 5 existing, 0 new, nothing cross-account to confirm",
+      sAgain.status === "READY" && sAgain.counts.existing === 5 && sAgain.counts.new === 0 && sAgain.crossAccount.lines === 0);
+  }
+
+  const bizS2 = await business("bfi-S2");
+  const userS2 = await user(bizS2, "s2");
+  const accT1 = await account(bizS2, "T1", "8901");
+  await account(bizS2, "T2", "4321");
+  await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'bank_file_import', 'ENABLED', now())`, bizS2);
+  const sOther = await analyze(input(bizS2, userS2, accT1, shared));
+  ok("S8 tenant isolation: the same statement in another business with the same last four digits is NEW there, nothing cross-account",
+    sOther.status === "READY" && sOther.counts.new === 5 && sOther.crossAccount.lines === 0, JSON.stringify(sOther.status === "READY" ? sOther.crossAccount : sOther));
+  ok("S8 …another business's account is still ACCOUNT_NOT_FOUND (before any guard reveals anything)",
+    (await errorCode(() => analyze(input(bizS2, userS2, accS1, titled("12-345-678999", 10))))) === "ACCOUNT_NOT_FOUND");
 
   console.log(`\n${pass}/${pass + failures.length} passed${gaps.length ? `, ${gaps.length} known gap(s)` : ""}`);
   for (const g of gaps) console.log(`  GAP: ${g}`);

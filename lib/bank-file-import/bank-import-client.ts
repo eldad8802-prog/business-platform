@@ -18,7 +18,8 @@ export function bankImportAuthHeaders(): Record<string, string> {
 export class BankImportRequestError extends Error {
   constructor(
     public readonly status: number,
-    public readonly code: string
+    public readonly code: string,
+    public readonly details: Record<string, string | number> = {}
   ) {
     super(code || `HTTP_${status}`);
     this.name = "BankImportRequestError";
@@ -42,6 +43,10 @@ export function buildBankImportForm(input: {
   mapping?: Record<string, number | null> | null;
   token?: string | null;
   decisions?: Record<number, BankImportDecision> | null;
+  /** Commit only: the account shown on the preview that the owner confirmed. */
+  confirmAccountId?: number | null;
+  /** Commit only: how many lines already held under another account the owner confirmed. */
+  confirmCrossAccount?: number | null;
 }): FormData {
   const body = new FormData();
   body.set("file", input.file, input.file.name ?? "statement");
@@ -49,6 +54,8 @@ export function buildBankImportForm(input: {
   if (input.mapping) body.set("mapping", JSON.stringify(input.mapping));
   if (input.token) body.set("token", input.token);
   if (input.decisions && Object.keys(input.decisions).length) body.set("decisions", JSON.stringify(input.decisions));
+  if (typeof input.confirmAccountId === "number") body.set("confirmAccountId", String(input.confirmAccountId));
+  if (typeof input.confirmCrossAccount === "number" && input.confirmCrossAccount > 0) body.set("confirmCrossAccount", String(input.confirmCrossAccount));
   return body;
 }
 
@@ -56,6 +63,9 @@ export function buildBankImportForm(input: {
 export async function postBankImport<T>(step: "analyze" | "commit", body: FormData): Promise<T> {
   const res = await fetch(`/api/payables/bank-import/${step}`, { method: "POST", body, headers: bankImportAuthHeaders() });
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) throw new BankImportRequestError(res.status, typeof json.error === "string" ? json.error : "");
+  if (!res.ok) {
+    const details = json.details && typeof json.details === "object" && !Array.isArray(json.details) ? (json.details as Record<string, string | number>) : {};
+    throw new BankImportRequestError(res.status, typeof json.error === "string" ? json.error : "", details);
+  }
   return json as T;
 }

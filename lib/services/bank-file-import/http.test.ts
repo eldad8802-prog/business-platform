@@ -48,6 +48,13 @@ const file = () => new File([new Uint8Array([0x61, 0x62])], "statement.csv");
   check("no file ⇒ refused", (await codeOf(readImportForm(request({ accountId: "9" }), actor))) === "FILE_UNREADABLE");
   check("a non-numeric account is read as no account (the service then refuses ACCOUNT_REQUIRED)", (await readImportForm(request({ file: file(), accountId: "abc" }), actor)).input.accountId === null);
 
+  console.log("The owner's confirmations (target account, cross-account lines)");
+  const conf = await readImportForm(request({ file: file(), accountId: "9", token: "t", confirmAccountId: "9", confirmCrossAccount: "4" }), actor);
+  check("confirmAccountId and confirmCrossAccount are read as numbers", conf.confirmedAccountId === 9 && conf.confirmedCrossAccountLines === 4, JSON.stringify(conf));
+  check("absent ⇒ null (the service then refuses ACCOUNT_CONFIRMATION_REQUIRED)", none.confirmedAccountId === null && none.confirmedCrossAccountLines === null);
+  const junk = await readImportForm(request({ file: file(), accountId: "9", confirmAccountId: "9; 10", confirmCrossAccount: "-1" }), actor);
+  check("anything but digits ⇒ null, never a guess", junk.confirmedAccountId === null && junk.confirmedCrossAccountLines === null);
+
   console.log(`\n${total - failures}/${total} passed`);
   if (failures) process.exit(1);
 })().catch((e) => {

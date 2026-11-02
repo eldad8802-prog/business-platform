@@ -11,8 +11,14 @@ import ExcelJS from "exceljs";
 import { readCsvTable, readXlsxTable, type SheetTable } from "@/lib/data-transfer/format";
 import { parseStatementCsv, statementLineIdentities } from "@/lib/services/payables/payables-p46-core";
 import {
+  accountDigits,
   bankHeaderKey,
+  checkFileCurrency,
+  compareAccountNumber,
   detectBankDelimiter,
+  fileAccountNumbers,
+  foreignCurrencyIn,
+  isShekelValue,
   bankLineIdentities,
   bankMappingHash,
   checkBalanceChain,
@@ -358,8 +364,84 @@ function mappingSafetyTests(): void {
   check("no table at all: no header (not a bank statement), never a guess", noTable === null);
 }
 
+/* ───────────── guards: shekels only, and the file's own account number (2026-11-03) ───────────── */
+
+/** Locate, map and run the currency guard on a synthetic file, as the service does (titles first, then cells). */
+function currencyOf(rows: string[][], bytes?: Buffer) {
+  const table = readBankCsvTable(bytes ?? utf16(rows));
+  const located = locateHeader(table);
+  if (!located) return { located: false as const };
+  const before = checkFileCurrency(table, located, null);
+  const resolved = resolveBankMapping(located.headers, null);
+  const after = resolved.ok ? checkFileCurrency(table, located, resolved.mapping) : null;
+  return { located: true as const, before, after, accounts: fileAccountNumbers(table, located) };
+}
+
+function currencyGuardTests(): void {
+  console.log("Foreign currency: refused, never converted; the shekel layout passes unchanged");
+  const real = currencyOf([REAL_HEADERS, ...REAL_ROWS]);
+  check(
+    "REGRESSION: the real Hebrew shekel layout (₪ titles, a description holding מט\") passes the currency guard, before and after mapping",
+    real.located && real.before.ok && real.after?.ok === true,
+    JSON.stringify(real)
+  );
+  const plainReal = currencyOf([REAL_HEADERS.map((h) => h.replace(" ₪", "")), ...REAL_ROWS]);
+  check("…and with no currency mark at all", plainReal.located && plainReal.before.ok && plainReal.after?.ok === true);
+  const shekelTitles = currencyOf([["דוח תנועות בחשבון עו\"ש בש\"ח"], ["תאריך", "תיאור", 'זכות/חובה ש"ח', 'יתרה בש"ח'], ["01/03/2026", "המרת מט\"ח", "-5.00", "10.00"]]);
+  check('ש"ח in the titles and "המרת מט"ח" in a DESCRIPTION are never a foreign signal', shekelTitles.located && shekelTitles.before.ok && shekelTitles.after?.ok === true, JSON.stringify(shekelTitles));
+
+  const usdCol = currencyOf([["תאריך", "תיאור", "סכום", "מטבע"], ["01/03/2026", "ספק", "-5.00", "USD"], ["02/03/2026", "ספק", "-6.00", "USD"]]);
+  check("a currency column holding USD: refused (CURRENCY_COLUMN, USD), before any mapping", usdCol.located && !usdCol.before.ok && usdCol.before.signal === "CURRENCY_COLUMN" && usdCol.before.currency === "USD", JSON.stringify(usdCol));
+  const eurCol = currencyOf([["תאריך", "תיאור", "סכום", "סוג מטבע"], ["01/03/2026", "ספק", "-5.00", "אירו"]]);
+  check("סוג מטבע = אירו: refused as EUR", eurCol.located && !eurCol.before.ok && eurCol.before.currency === "EUR", JSON.stringify(eurCol));
+  const oddCol = currencyOf([["תאריך", "תיאור", "סכום", "Currency"], ["01/03/2026", "ספק", "-5.00", "XYZ"]]);
+  check("an unknown currency value is refused, never guessed", oddCol.located && !oddCol.before.ok && oddCol.before.currency === "XYZ");
+  const ilsCol = currencyOf([["תאריך", "תיאור", "סכום", "מטבע"], ["01/03/2026", "ספק", "-5.00", "ILS"], ["02/03/2026", "ספק", "-6.00", 'ש"ח'], ["03/03/2026", "ספק", "-7.00", "₪"], ["04/03/2026", "ספק", "-8.00", "NIS"], ["05/03/2026", "ספק", "-9.00", ""]]);
+  check("a currency column of ILS / ש\"ח / ₪ / NIS / empty passes", ilsCol.located && ilsCol.before.ok && ilsCol.after?.ok === true, JSON.stringify(ilsCol));
+
+  const dollarCells = currencyOf([["תאריך", "תיאור", "סכום", "יתרה"], ["01/03/2026", "ספק", "-$5.00", "$10.00"]]);
+  check("$ inside amount cells: refused after mapping (AMOUNT_MARK, USD)", dollarCells.located && dollarCells.before.ok && dollarCells.after?.ok === false && (dollarCells.after as { signal: string }).signal === "AMOUNT_MARK", JSON.stringify(dollarCells));
+  const euroBalance = currencyOf([["תאריך", "תיאור", "סכום", "יתרה"], ["01/03/2026", "ספק", "-5.00", "10.00 €"]]);
+  check("€ in a balance cell: refused", euroBalance.located && euroBalance.after?.ok === false);
+  const usdTitle = currencyOf([["דוח תנועות - חשבון מט\"ח דולר"], ["תאריך", "תיאור", "סכום"], ["01/03/2026", "ספק", "-5.00"]]);
+  check("a title row above the header naming a foreign-currency account: refused (TITLE_MARK)", usdTitle.located && !usdTitle.before.ok && usdTitle.before.signal === "TITLE_MARK", JSON.stringify(usdTitle));
+  const gbpHeader = currencyOf([["תאריך", "תיאור", "סכום GBP"], ["01/03/2026", "ספק", "-5.00"]]);
+  check("a column title with GBP: refused", gbpHeader.located && !gbpHeader.before.ok && gbpHeader.before.currency === "GBP");
+
+  check("words: אירוע / דולפין / USDT-like codes inside a word are not currencies", foreignCurrencyIn("אירוע") === null && foreignCurrencyIn("דולפין") === null && foreignCurrencyIn("XUSDX") === null);
+  check("words: בדולרים, ביורו, ליש\"ט, מט\"ח are", foreignCurrencyIn("בדולרים") === "USD" && foreignCurrencyIn("ביורו") === "EUR" && foreignCurrencyIn('ליש"ט') === "GBP" && foreignCurrencyIn('חשבון מט"ח') === "FX");
+  check("the shekel in its spellings is the shekel", ["ILS", "nis", 'ש"ח', "ש״ח", "₪", "שקל", "שקלים", "376"].every((v) => isShekelValue(v)) && !isShekelValue("USD") && !isShekelValue("840"));
+}
+
+function accountNumberTests(): void {
+  console.log("The file's own account number against the chosen account (last four digits)");
+  const titled = currencyOf([['מספר חשבון: 12-345-678901'], ["תאריך", "תיאור", "סכום"], ["01/03/2026", "ספק", "-5.00"]]);
+  check("a title cell 'מספר חשבון: 12-345-678901' is read", titled.located && JSON.stringify(titled.accounts) === JSON.stringify(["12-345-678901"]), JSON.stringify(titled));
+  const split = currencyOf([["מס' חשבון", "345-678901"], ["תאריך", "תיאור", "סכום"], ["01/03/2026", "ספק", "-5.00"]]);
+  check("a label cell followed by a number cell is read", split.located && JSON.stringify(split.accounts) === JSON.stringify(["345-678901"]), JSON.stringify(split));
+  const column = currencyOf([["תאריך", "מספר חשבון", "תיאור", "סכום"], ["01/03/2026", "678901", "ספק", "-5.00"], ["02/03/2026", "678901", "ספק", "-6.00"]]);
+  check("an account column: its distinct value is read", column.located && JSON.stringify(column.accounts) === JSON.stringify(["678901"]), JSON.stringify(column));
+  const balance = currencyOf([["יתרה בחשבון 1,234.56"], ["תאריך", "תיאור", "סכום"], ["01/03/2026", "ספק", "-5.00"]]);
+  check("'יתרה בחשבון 1,234.56' is a balance, not an account number", balance.located && balance.accounts.length === 0, JSON.stringify(balance));
+  const withDate = currencyOf([["חשבון: 678901 01/03/2026-31/03/2026"], ["תאריך", "תיאור", "סכום"], ["01/03/2026", "ספק", "-5.00"]]);
+  check("a period printed after the number is not read into it", withDate.located && JSON.stringify(withDate.accounts) === JSON.stringify(["678901"]), JSON.stringify(withDate));
+  const real = currencyOf([REAL_HEADERS, ...REAL_ROWS]);
+  check("the real layout prints no account number: nothing to compare (NOT_IN_FILE)", real.located && real.accounts.length === 0 && compareAccountNumber(real.accounts, "8901").status === "NOT_IN_FILE");
+
+  check("masked digits: only those after the mask count", accountDigits("****8901") === "8901" && accountDigits("12-xx-8") === null);
+  check("MATCH: the full number ends with the account's last four", compareAccountNumber(["12-345-678901"], "8901").status === "MATCH");
+  check("MATCH: a masked number", compareAccountNumber(["****8901"], "8901").status === "MATCH");
+  check("MATCH: a sub-account / check suffix after the account is dropped", compareAccountNumber(["678901/23"], "8901").status === "MATCH" && compareAccountNumber(["678901-001"], "8901").status === "MATCH");
+  const mismatch = compareAccountNumber(["12-345-678999"], "8901");
+  check("MISMATCH: another account's number, with the file's last four", mismatch.status === "MISMATCH" && mismatch.fileLast4 === "8999", JSON.stringify(mismatch));
+  check("MISMATCH: two account numbers in one file, one of them another account", compareAccountNumber(["678901", "555444"], "8901").status === "MISMATCH");
+  check("NOT_IN_FILE: no readable number (fewer than four digits) blocks nothing", compareAccountNumber(["123"], "8901").status === "NOT_IN_FILE" && compareAccountNumber([], "8901").status === "NOT_IN_FILE");
+}
+
 (async () => {
   realFormatTests();
+  currencyGuardTests();
+  accountNumberTests();
   mappingSafetyTests();
   await excelTests();
   mappingTests();

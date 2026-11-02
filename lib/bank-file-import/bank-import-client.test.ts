@@ -61,12 +61,22 @@ const headerOf = (init: RequestInit, name: string): string | null => new Headers
   const decisions = JSON.parse(String(form.get("decisions")));
   check("decisions are keyed by row number (digits), valued IMPORT / SKIP", JSON.stringify(Object.keys(decisions).sort()) === JSON.stringify(["12", "4"]) && decisions["12"] === "IMPORT" && decisions["4"] === "SKIP");
   const bare = client.buildBankImportForm({ file, accountId: 7 });
-  check("nothing optional is sent when there is nothing to send", bare.get("mapping") === null && bare.get("token") === null && bare.get("decisions") === null);
+  check("nothing optional is sent when there is nothing to send", bare.get("mapping") === null && bare.get("token") === null && bare.get("decisions") === null && bare.get("confirmAccountId") === null && bare.get("confirmCrossAccount") === null);
+  const confirmed = client.buildBankImportForm({ file, accountId: 7, token: "tok", confirmAccountId: 7, confirmCrossAccount: 3 });
+  check("commit: the confirmed account and cross-account line count are sent", confirmed.get("confirmAccountId") === "7" && confirmed.get("confirmCrossAccount") === "3");
+  const zeroCross = client.buildBankImportForm({ file, accountId: 7, confirmAccountId: 7, confirmCrossAccount: 0 });
+  check("commit: no cross-account confirmation is sent when there is nothing to confirm", zeroCross.get("confirmCrossAccount") === null);
 
   console.log("Errors keep the status and the server's code");
   nextResponse = { status: 409, body: { error: "DECISIONS_REQUIRED" } };
   const e1 = await client.postBankImport("commit", bare).catch((e) => e);
   check("409 DECISIONS_REQUIRED surfaces as such", e1 instanceof client.BankImportRequestError && e1.status === 409 && e1.code === "DECISIONS_REQUIRED");
+  nextResponse = { status: 409, body: { error: "ACCOUNT_NUMBER_MISMATCH", details: { fileLast4: "8999", accountLast4: "8901" } } };
+  const e3 = await client.postBankImport("analyze", bare).catch((e) => e);
+  check("409 ACCOUNT_NUMBER_MISMATCH keeps its details (the screen names both last-four digits)", e3 instanceof client.BankImportRequestError && e3.code === "ACCOUNT_NUMBER_MISMATCH" && e3.details.fileLast4 === "8999" && e3.details.accountLast4 === "8901");
+  nextResponse = { status: 400, body: { error: "FOREIGN_CURRENCY", details: { signal: "CURRENCY_COLUMN", currency: "USD" } } };
+  const e4 = await client.postBankImport("analyze", bare).catch((e) => e);
+  check("400 FOREIGN_CURRENCY surfaces as such", e4 instanceof client.BankImportRequestError && e4.code === "FOREIGN_CURRENCY" && e4.details.currency === "USD");
   nextResponse = { status: 401, body: { error: "Unauthorized" } };
   const e2 = await client.postBankImport("commit", bare).catch((e) => e);
   check("401 surfaces as 401 (the screen says the session expired)", e2 instanceof client.BankImportRequestError && e2.status === 401);

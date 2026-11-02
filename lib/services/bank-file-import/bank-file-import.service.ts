@@ -25,6 +25,18 @@
  *               commit without a decision for every suspected line is refused.
  *   - the insert is ON CONFLICT DO NOTHING on (business, source, externalId);
  *   - commits for one business serialise on `bank-lines-ingest:<businessId>`.
+ *
+ * Guards (2026-11-03) — checked on analyze AND again on every commit, server-side:
+ *   - FOREIGN_CURRENCY: shekel statements only. A currency column, a currency mark in a money cell, or a
+ *     foreign currency in the titles refuses the file; nothing is converted (bank-file-core.ts, checkFileCurrency).
+ *   - ACCOUNT_NUMBER_MISMATCH: an account number the file prints that is not the chosen account's (last four
+ *     digits, compareAccountNumber). No readable number ⇒ this signal blocks nothing.
+ *   - ACCOUNT_CONFIRMATION_REQUIRED / _MISMATCH: the commit must name the account the owner saw on the preview,
+ *     and it must be the account the token was issued for.
+ *   - CROSS_ACCOUNT_CONFIRMATION_REQUIRED: lines this import would write that the business already holds under
+ *     ANOTHER of its accounts (the file may be uploaded to the wrong account) are shown on the preview; the
+ *     commit must confirm exactly how many, or it is refused.
+ * The duplicate mechanism above is unchanged; the guards only refuse, they never write or skip a line.
  */
 import { createHash } from "node:crypto";
 
@@ -41,11 +53,16 @@ import {
 } from "@/lib/data-transfer/import/execute/import-run-store";
 import { signEnvelope, verifyEnvelope, type EnvelopeSpec } from "@/lib/data-transfer/import/preview/signed-envelope";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
+import { maskAccount } from "@/lib/services/payables/payables-bank-crypto";
 import { fromMinorUnits } from "@/lib/services/payables/payables-core";
 import { writeAudit } from "@/lib/services/payables/payables.service";
 import {
   BANK_MAX_LINES,
   bankLineIdentities,
+  bankLineIdentitiesUnder,
+  checkFileCurrency,
+  compareAccountNumber,
+  fileAccountNumbers,
   bankMappingHash,
   checkBalanceChain,
   contentHashOf,
@@ -55,6 +72,7 @@ import {
   proposeBankMapping,
   readBankCsvTable,
   resolveBankMapping,
+  type AccountNumberCheck,
   type BalanceCheck,
   type BankField,
   type BankLine,
@@ -86,7 +104,12 @@ export type BankImportErrorCode =
   | "TOKEN_INVALID"
   | "FILE_CHANGED"
   | "DECISIONS_INVALID"
-  | "DECISIONS_REQUIRED";
+  | "DECISIONS_REQUIRED"
+  | "FOREIGN_CURRENCY"
+  | "ACCOUNT_NUMBER_MISMATCH"
+  | "ACCOUNT_CONFIRMATION_REQUIRED"
+  | "ACCOUNT_CONFIRMATION_MISMATCH"
+  | "CROSS_ACCOUNT_CONFIRMATION_REQUIRED";
 
 export class BankImportError extends Error {
   constructor(
@@ -122,6 +145,8 @@ type Prepared = {
   headers: string[];
   mapping: BankMapping;
   legacyLocked: boolean;
+  /** Account numbers the file itself prints (title rows / an account column); compared with the chosen account. */
+  accountNumbers: string[];
   lines: BankLine[];
   errors: RowProblem[];
   warnings: RowProblem[];
@@ -149,7 +174,10 @@ export type BankMappingRequired = {
 };
 
 class MappingRequiredSignal extends Error {
-  constructor(public readonly payload: BankMappingRequired) {
+  constructor(
+    public readonly payload: BankMappingRequired,
+    public readonly accountNumbers: string[]
+  ) {
     super("MAPPING_REQUIRED");
   }
 }
@@ -201,16 +229,22 @@ async function prepare(input: BankImportInput): Promise<Prepared> {
   const located = locateHeader(table);
   if (!located) throw new BankImportError("HEADER_NOT_FOUND", 400);
 
+  // Shekels only (bank-file-core.ts, checkFileCurrency): a foreign-currency statement is refused before any
+  // mapping is asked for — and again on every commit, which runs this same function on the same bytes.
+  assertShekels(checkFileCurrency(table, located, null));
+  const accountNumbers = fileAccountNumbers(table, located);
+
   const resolved = resolveBankMapping(located.headers, input.mapping ?? null);
   if (!resolved.ok) {
     // A readable table with a header row whose required fields are missing, doubled or ambiguous: not a broken
     // file — the owner completes the mapping (analyze answers MAPPING_REQUIRED). The old parser's locked
     // columns are the one thing that cannot be re-mapped.
     if (resolved.problem !== "IDENTITY_FIELD_LOCKED") {
-      throw new MappingRequiredSignal(mappingRequired(source.sheetName, located, resolved));
+      throw new MappingRequiredSignal(mappingRequired(source.sheetName, located, resolved), accountNumbers);
     }
     throw new BankImportError("MAPPING_INVALID", 400, { problem: resolved.problem, ...(resolved.field ? { field: resolved.field } : {}) });
   }
+  assertShekels(checkFileCurrency(table, located, resolved.mapping));
   const normalized = normalizeBankRows(located, resolved.mapping);
   if (normalized.lines.length > BANK_MAX_LINES) {
     throw new BankImportError("TOO_MANY_LINES", 400, { max: BANK_MAX_LINES });
@@ -224,6 +258,7 @@ async function prepare(input: BankImportInput): Promise<Prepared> {
     headers: located.headers.map((h) => (h === null || h === undefined ? "" : String(h))),
     mapping: resolved.mapping,
     legacyLocked: resolved.legacyLocked,
+    accountNumbers,
     lines: normalized.lines,
     errors: normalized.errors,
     warnings: normalized.warnings,
@@ -231,12 +266,73 @@ async function prepare(input: BankImportInput): Promise<Prepared> {
   };
 }
 
-async function assertAccount(tx: TenantTx, businessId: number, accountId: number): Promise<void> {
+function assertShekels(check: ReturnType<typeof checkFileCurrency>): void {
+  if (check.ok) return;
+  throw new BankImportError("FOREIGN_CURRENCY", 400, {
+    signal: check.signal,
+    currency: check.currency,
+    ...(check.rowNumber !== null ? { row: check.rowNumber } : {}),
+  });
+}
+
+type ChosenAccount = { id: number; label: string; accountLast4: string };
+
+async function assertAccount(tx: TenantTx, businessId: number, accountId: number): Promise<ChosenAccount> {
   const account = await tx.businessBankAccount.findFirst({
     where: { id: accountId, businessId, isActive: true },
-    select: { id: true },
+    select: { id: true, label: true, accountLast4: true },
   });
   if (!account) throw new BankImportError("ACCOUNT_NOT_FOUND", 404);
+  return account;
+}
+
+/**
+ * The account number the file prints must be the chosen account's (bank-file-core.ts, compareAccountNumber).
+ * No readable number in the file ⇒ nothing is blocked by this signal. Only the last four digits are compared
+ * and returned — the owner's own file and account, never stored or logged.
+ */
+function assertAccountNumber(accountNumbers: string[], account: ChosenAccount): AccountNumberCheck {
+  const check = compareAccountNumber(accountNumbers, account.accountLast4);
+  if (check.status === "MISMATCH") {
+    throw new BankImportError("ACCOUNT_NUMBER_MISMATCH", 409, { fileLast4: check.fileLast4, accountLast4: account.accountLast4 });
+  }
+  return check;
+}
+
+export type CrossAccountSignal = {
+  /** Lines this import would write that the business already holds under ANOTHER of its accounts. */
+  lines: number;
+  accounts: Array<{ id: number; label: string; masked: string }>;
+};
+
+/**
+ * Lines of this file that already exist under a DIFFERENT account of the same business (the identity is the
+ * same facts with that account in place of the chosen one). A file uploaded to the wrong account makes every
+ * line NEW under it — this is how that shows. Counted only for lines this import would write (NEW or
+ * SUSPECTED); a line already held under the chosen account is a certain duplicate and is not written anyway.
+ * Archived accounts count too: their lines are still held. Tenant-scoped like every read here.
+ */
+async function crossAccountSignal(tx: TenantTx, businessId: number, prepared: Prepared, statuses: LineStatus[]): Promise<CrossAccountSignal> {
+  const others = await tx.businessBankAccount.findMany({
+    where: { businessId, id: { not: prepared.accountId } },
+    select: { id: true, label: true, accountLast4: true },
+    orderBy: { id: "asc" },
+  });
+  if (others.length === 0 || prepared.lines.length === 0) return { lines: 0, accounts: [] };
+  const perAccount = others.map((a) => ({ account: a, ids: bankLineIdentitiesUnder(businessId, a.id, prepared.lines) }));
+  const known = await existingIds(tx, businessId, perAccount.flatMap((p) => p.ids));
+  const rows = new Set<number>();
+  const accounts: CrossAccountSignal["accounts"] = [];
+  for (const { account, ids } of perAccount) {
+    let hit = false;
+    ids.forEach((id, i) => {
+      if (statuses[i] === "EXISTING" || !known.has(id)) return;
+      rows.add(i);
+      hit = true;
+    });
+    if (hit) accounts.push({ id: account.id, label: account.label, masked: maskAccount(account.accountLast4) });
+  }
+  return { lines: rows.size, accounts };
 }
 
 /** The externalIds among `ids` that this business already holds from an owner upload. */
@@ -302,8 +398,16 @@ export type BankPreview = {
   /** Fields another column could also be: the one used is shown, and the owner may change it (unless locked). */
   ambiguous: BankField[];
   counts: { lines: number; new: number; existing: number; suspected: number; invalid: number; repeatedInFile: number; warnings: number };
-  /** Totals of the NEW lines, in shekels (bank lines are ILS, as the payables upload records them). */
+  /** Totals of the NEW lines, in shekels: a statement in any other currency is refused (FOREIGN_CURRENCY). */
   newTotals: { currency: "ILS"; creditMinor: number; debitMinor: number };
+  /**
+   * The account this preview was made for — the one the commit must confirm (confirmedAccountId) — and what the
+   * file's own account number said about it (MATCH, or NOT_IN_FILE when the file prints none; a mismatch is
+   * refused, ACCOUNT_NUMBER_MISMATCH).
+   */
+  account: { id: number; label: string; masked: string; numberCheck: "MATCH" | "NOT_IN_FILE" };
+  /** Lines already held under another account of the business: the commit must confirm their number. */
+  crossAccount: CrossAccountSignal;
   dateRange: { from: string; to: string } | null;
   balance: BalanceCheck;
   errors: RowProblem[];
@@ -341,19 +445,23 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankAnaly
     prepared = await prepare(input);
   } catch (e) {
     if (e instanceof MappingRequiredSignal) {
-      // The account is checked here too, so a mapping screen is never shown for an account that is not theirs.
-      await withTenantTransaction((tx) => assertAccount(tx, input.businessId, input.accountId as number));
+      // The account is checked here too, so a mapping screen is never shown for an account that is not theirs
+      // — nor for a file that prints another account's number.
+      await withTenantTransaction(async (tx) => assertAccountNumber(e.accountNumbers, await assertAccount(tx, input.businessId, input.accountId as number)));
       return e.payload;
     }
     throw e;
   }
   if (prepared.lines.length === 0 && prepared.errors.length === 0) throw new BankImportError("NO_LINES", 400);
 
-  const { statuses, previous } = await withTenantTransaction(async (tx) => {
-    await assertAccount(tx, input.businessId, prepared.accountId);
+  const { statuses, previous, account, numberCheck, crossAccount } = await withTenantTransaction(async (tx) => {
+    const account = await assertAccount(tx, input.businessId, prepared.accountId);
+    const numberCheck = assertAccountNumber(prepared.accountNumbers, account);
     const known = await existingIds(tx, input.businessId, [...prepared.identities.withAccount, ...prepared.identities.withoutAccount]);
     const previous = await lastBankStatementImportInTx(tx, input.businessId, prepared.contentHash);
-    return { statuses: classify(prepared, known), previous };
+    const statuses = classify(prepared, known);
+    const crossAccount = await crossAccountSignal(tx, input.businessId, prepared, statuses);
+    return { statuses, previous, account, numberCheck, crossAccount };
   });
 
   let creditMinor = 0;
@@ -394,6 +502,13 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankAnaly
       warnings: prepared.warnings.length,
     },
     newTotals: { currency: "ILS", creditMinor, debitMinor },
+    account: {
+      id: account.id,
+      label: account.label,
+      masked: maskAccount(account.accountLast4),
+      numberCheck: numberCheck.status === "MATCH" ? "MATCH" : "NOT_IN_FILE",
+    },
+    crossAccount,
     dateRange: dates.length ? { from: day(new Date(Math.min(...dates))), to: day(new Date(Math.max(...dates))) } : null,
     balance: checkBalanceChain(prepared.lines),
     errors: prepared.errors.slice(0, 50),
@@ -421,15 +536,31 @@ export type BankCommitResult = {
 
 type TokenFacts = { b: number; u: number; a: number; ch: string; mh: string; n: number };
 
-export async function commitBankFile(
-  input: BankImportInput & { token: unknown; decisions?: SuspectDecisions | null }
-): Promise<BankCommitResult> {
+export type BankCommitInput = BankImportInput & {
+  token: unknown;
+  decisions?: SuspectDecisions | null;
+  /**
+   * The account the owner saw and confirmed on the preview (preview.account.id). Required: the server refuses a
+   * commit without it, or with one that is not the account the token was issued for.
+   */
+  confirmedAccountId?: number | null;
+  /** The number of cross-account lines the owner saw and confirmed (preview.crossAccount.lines), when any. */
+  confirmedCrossAccountLines?: number | null;
+};
+
+export async function commitBankFile(input: BankCommitInput): Promise<BankCommitResult> {
   const verified = verifyEnvelope<TokenFacts>(TOKEN_SPEC, input.token);
   if (!verified.ok) throw new BankImportError("TOKEN_INVALID", 400, { reason: verified.reason });
   const facts = verified.facts;
   if (facts.b !== input.businessId || facts.u !== input.userId || facts.a !== input.accountId) {
     throw new BankImportError("TOKEN_INVALID", 400, { reason: "BINDING" });
   }
+  // The explicit confirmation of the target account: the analyzed account (bound in the token), not just the
+  // one the form carries now.
+  if (input.confirmedAccountId === null || input.confirmedAccountId === undefined) {
+    throw new BankImportError("ACCOUNT_CONFIRMATION_REQUIRED", 400);
+  }
+  if (input.confirmedAccountId !== facts.a) throw new BankImportError("ACCOUNT_CONFIRMATION_MISMATCH", 409);
   let prepared: Prepared;
   try {
     prepared = await prepare(input);
@@ -456,7 +587,8 @@ export async function commitBankFile(
     async (tx) => {
       // One bank-line ingest per business at a time (this path).
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"bank-lines-ingest:" + String(input.businessId)}))`;
-      await assertAccount(tx, input.businessId, prepared.accountId);
+      const account = await assertAccount(tx, input.businessId, prepared.accountId);
+      assertAccountNumber(prepared.accountNumbers, account);
 
       const prior = await findBankStatementRunInTx(tx, retryKey);
       if (prior) {
@@ -480,6 +612,11 @@ export async function commitBankFile(
       const missing = suspectedRows.filter((r) => decisions[r] !== "IMPORT" && decisions[r] !== "SKIP");
       if (missing.length) throw new BankImportError("DECISIONS_REQUIRED", 409, { missing: missing.length });
       if (decidedRows.some((r) => !suspectedRows.includes(r))) throw new BankImportError("DECISIONS_INVALID", 409);
+      // Lines already held under another account: imported only when the owner confirmed exactly that many.
+      const crossAccount = await crossAccountSignal(tx, input.businessId, prepared, statuses);
+      if (crossAccount.lines > 0 && input.confirmedCrossAccountLines !== crossAccount.lines) {
+        throw new BankImportError("CROSS_ACCOUNT_CONFIRMATION_REQUIRED", 409, { lines: crossAccount.lines });
+      }
 
       const runId = await openBankStatementRunInTx(tx, {
         businessId: input.businessId,
@@ -543,6 +680,10 @@ export async function commitBankFile(
           suspectedImportedRows: importedRows,
           suspectedSkippedRows: skippedRows,
           decisionsHash,
+          // The owner confirmed the target account, and how many lines the business already held under another.
+          confirmedAccountId: prepared.accountId,
+          accountNumberInFile: compareAccountNumber(prepared.accountNumbers, account.accountLast4).status,
+          crossAccountLines: crossAccount.lines,
         },
       });
       return {
