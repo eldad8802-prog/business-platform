@@ -171,7 +171,6 @@ jobs:
             --anchor '    const u = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });' \
             --replace '    const client = () => prisma; const u = await client().user.findUnique({ where: { id: userId }, select: { name: true } });' \
             --expect '[FAIL] AST-2 NEW-SITE lib/services/billing/authority/billing-authority-decision.service.ts::defaultDecisionExecutionDeps.loadOperatorName.client::escape:return' \
-            --post-green \
             -- node scripts/ci/ast-security-guard.mjs .
 
       - name: Gate self-proof G3 — a security test dropped from the inventory is caught (C1)
