@@ -489,6 +489,15 @@
       "risk": "SAFE",
       "reason": "SAFE by construction: the non-register (otherSources) figures are added into other(row.currency, kind) — the CurrencyView of THAT row`s currency, keyed by source kind; nothing adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts sections 8 and S.",
       "lineAtBaseline": 453
+    },
+    {
+      "file": "lib/revenue-sources/uploads/core.ts",
+      "rule": "JS_FOLD",
+      "column": "vatMinor",
+      "match": "if (vatLines.length > 0 && vatLines.reduce((s, l) => s + l.vatMinor, ZERO) !== d.vatMinor) warnings.push(\"VAT_LINES_MISMATCH\");",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: the VAT lines of ONE Z report carry no currency of their own — they are in the Z's single currency (RevenueDailyCloseVat has no currency column; it inherits RevenueDailyClose.currency). The fold only compares the lines with the same Z's vatMinor, to set a validation warning; nothing is stored or shown from it.",
+      "lineAtBaseline": 187
     }
   ]
 }

@@ -1,0 +1,10 @@
+{
+  "note": "Revenue report uploads: Z reports and card settlement reports into the revenue truth tables (RevenueDailyClose / RevenueSettlement), preview first, behind z_report_upload / settlement_report_upload (OFF). The parser registry ships EMPTY until real samples exist. The database proof (.rru/battery.ts) is a lab script run by revenue-report-uploads-ci.yml. docs/revenue-report-uploads.md",
+  "tests": {
+    "lib/revenue-sources/uploads/revenue-report-core.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network/clock): the shipped parser registry is empty and every file is FORMAT_NOT_SUPPORTED before any database access, a forged token never reaches a parser, every RevenueDailyClose / RevenueSettlement CHECK is enforced in code, NEW / EXISTING / CONFLICT classification and supersession of the chain's latest revision, every conflict needs an allowed owner decision (no default), the business and user come from the session actor never the form, the service writes no FinancialRecord / FinancialEvent / BillingDocument / ExternalTransaction, the routes are session-only, flag-gated and no-store; run on pull_request by security-gate (lab pure) and revenue-report-uploads-ci.yml"
+    }
+  }
+}
