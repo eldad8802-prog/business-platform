@@ -25,6 +25,8 @@ import type {
 import type { InvoiceDecisionAction } from "@/lib/services/billing/authority/billing-authority-decision.types";
 
 export type RequestInvoiceDecisionInput = {
+  /** Business the request is for: the egress pilot scope (required in PRODUCTION). */
+  businessId: number;
   action: InvoiceDecisionAction;
   payloadInput: BuildInvoiceDecisionPayloadInput;
   accessToken: string;
@@ -80,6 +82,7 @@ export async function requestInvoiceDecision(
   let clientResult: DecisionClientResult;
   try {
     clientResult = await deps.sendDecision({
+      businessId: input.businessId,
       accessToken: input.accessToken,
       action: input.action,
       payload: built.payload,

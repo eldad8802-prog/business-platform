@@ -16,17 +16,39 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import type { UserRole } from "@prisma/client";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
-import { resolveAuthorityOAuthStart } from "@/lib/services/billing/authority/billing-authority-oauth-start-route.service";
+import {
+  resolveAuthorityOAuthStart,
+  type ResolveAuthorityStartDeps,
+} from "@/lib/services/billing/authority/billing-authority-oauth-start-route.service";
 import { hasAdminElevation } from "@/lib/auth/platform-admin";
 
 export const runtime = "nodejs";
 
 const REDIRECT_BASE_VAR = "BILLING_AUTHORITY_OAUTH_REDIRECT_BASE_URL";
 
+/** Injectable for route-level tests; production uses the real auth + start. */
+export type AuthorityConnectDeps = {
+  getCurrentUser: (
+    req: NextRequest
+  ) => Promise<{ id: number; businessId: number; role: UserRole } | null>;
+  hasAdminElevation: (req: NextRequest, userId: number) => boolean;
+  start?: ResolveAuthorityStartDeps;
+};
+
+const defaultDeps: AuthorityConnectDeps = { getCurrentUser, hasAdminElevation };
+
 export async function GET(req: NextRequest) {
+  return handleAuthorityConnect(req);
+}
+
+export async function handleAuthorityConnect(
+  req: NextRequest,
+  deps: AuthorityConnectDeps = defaultDeps
+): Promise<NextResponse> {
   try {
-    const user = await getCurrentUser(req);
+    const user = await deps.getCurrentUser(req);
     if (!user) {
       return authRequiredResponse(req);
     }
@@ -45,12 +67,12 @@ export async function GET(req: NextRequest) {
 
     const outcome = await resolveAuthorityOAuthStart({
       user: { id: user.id, businessId: user.businessId, role: user.role },
-      adminElevated: hasAdminElevation(req, user.id),
+      adminElevated: deps.hasAdminElevation(req, user.id),
       requestedBusinessId: sp.get("businessId"),
       environment: sp.get("environment"),
       redirectBaseUrl,
       secureCookies,
-    });
+    }, deps.start);
 
     if (!outcome.ok) {
       if (outcome.status === "unauthenticated") {

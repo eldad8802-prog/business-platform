@@ -1,0 +1,15 @@
+{
+  "note": "TEMPORARY ITA PRODUCTION app registration tool: registers the PRODUCTION BillingAuthorityApp from inside the Production runtime with the existing BILLING_AUTHORITY_ENCRYPTION_KEY (never extracted). Platform admin + fresh step-up + BILLING_AUTHORITY_APP_REGISTRATION_ENABLED exactly \"true\" (503 only after auth); create-only, PRODUCTION hard-coded, masked output and audit. Removed with the tool in the follow-up PR.",
+  "tests": {
+    "lib/services/billing/authority/billing-authority-production-app-registration.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (in-memory DB double, throw-away key, no DB/network): dry-run never writes; apply creates exactly one PRODUCTION/ACTIVE/authority_gcm_v1 row and never overwrites (existing row or P2002 -> APP_ALREADY_REGISTERED); whitespace-wrapped or malformed input refused before key/DB work; missing/bad key -> ENCRYPTION_KEY_UNAVAILABLE; ciphertext decrypts under PRODUCTION AAD only; secret, key and full client id never in results or logs"
+    },
+    "app/api/platform-admin/authority/production-app-registration/route.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (injected guard/service/audit doubles + real canonical guard and fresh step-up, no DB/network): anonymous 401, non-admin 403, stale/missing/foreign step-up 403, switch not exactly \"true\" -> 503 only after auth; wrong content type, oversize, unknown field, bad types and unconfirmed apply never reach the service; every post-auth outcome audited with masked metadata; secret never in responses, audit or logs"
+    }
+  }
+}
