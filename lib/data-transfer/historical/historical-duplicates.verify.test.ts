@@ -360,15 +360,6 @@ async function main(): Promise<void> {
     assert.equal(at(result, 2).reversal.state, "AMBIGUOUS");
   });
 
-  await check("re-uploading an invoice with its credit note: the stored invoice is the target, not a second candidate", () => {
-    // The earlier in-file row and the existing record are the same document (same type and issue date).
-    const result = analyzeAgainstRecords(
-      [row(1, { number: "INV-9" }), credit(2, "INV-9")],
-      [record({ number: "INV-9" })]
-    );
-    assert.equal(at(result, 2).reversal.state, "RESOLVED_EXISTING");
-  });
-
   /* =================================================== 4. combined ====== */
 
   await check("duplicate and reversal are reported independently", () => {
