@@ -82,6 +82,11 @@ async function main() {
   await schedule.changeStatus(principal, { idempotencyKey: uuidV7(new Date()) }, absent.id, { to: "NO_SHOW", expectedVersion: absent.version });
   ids.completed = done.id;
   ids.noShow = absent.id;
+  // Two CONFIRMED appointments that started two days ago — at any hour the e2e runs, "התקיים" and "לא הגיע" are offered
+  // on them, so the final-state confirmation is proven every run (no lane of these times holds anything else).
+  const twoDaysAgo = addCalendarDays(today, -2);
+  ids.pastToComplete = (await book({ startsAt: at(twoDaysAgo, 9), businessServiceId: consult, customerId: maya })).appointment.id;
+  ids.pastToNoShow = (await book({ startsAt: at(twoDaysAgo, 11), businessServiceId: consult, customerId: ron })).appointment.id;
 
   // A move and a cancellation, so the journal and the month show history.
   const moved = (await book({ startsAt: at(addCalendarDays(today, 2), 16), businessServiceId: haircut, staffMemberId: avi, customerId: maya })).appointment;

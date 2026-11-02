@@ -35,7 +35,6 @@ import {
   availabilityWarning,
   BLOCK_CONFLICT_TEXT,
   byDay,
-  dayLanes,
   dayShort,
   durationOf,
   errorText,
@@ -51,6 +50,9 @@ import {
   type CalendarView,
   type DayKey,
 } from "./calendar-model";
+import {
+  dayLanes,
+} from "./calendar-rules";
 import { DayStrip, Legend, MonthGrid, TimeGrid, WeekList, dayColumns, type Column, type DropTarget } from "./calendar-views";
 import { RequestsView } from "./requests-view";
 import { Chevron, Empty, FeatureOff, IconCalendar, IconGear, IconPlus, LeaveConfirm, Loading, LoadError, ScreenHead, useToast } from "./ui";

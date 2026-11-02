@@ -23,14 +23,16 @@ import {
   errorText,
   exceptionText,
   LIMITS,
-  nextRange,
   textProblem,
-  timeOptionLabel,
-  timeOptions,
   todayKey,
   windowsByWeekday,
   windowsProblem,
 } from "./calendar-model";
+import {
+  nextRange,
+  timeOptionLabel,
+  timeOptions,
+} from "./calendar-rules";
 import { IconCopy, IconLock, IconPlus, IconX, Loading, LoadError, Seg, Switch, useBeforeUnload } from "./ui";
 import s from "./calendar.module.css";
 

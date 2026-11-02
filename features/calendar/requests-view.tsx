@@ -30,7 +30,16 @@ import {
   type BookingRequestWire,
   type BookingRequestsWire,
 } from "./calendar-client";
-import { clockOf, errorText, requestOutcome, timeLeftLabel, todayKey, type DayKey } from "./calendar-model";
+import {
+  clockOf,
+  errorText,
+  timeLeftLabel,
+  todayKey,
+  type DayKey,
+} from "./calendar-model";
+import {
+  requestOutcome,
+} from "./calendar-rules";
 import { Empty, IconBell, IconChat, IconPhone, Loading, LoadError } from "./ui";
 import s from "./calendar.module.css";
 

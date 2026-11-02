@@ -37,6 +37,12 @@ import {
   viewTitle,
   weekStart,
   windowsProblem,
+  type StaffWire,
+  type AppointmentWire,
+  type Availability,
+  type Names,
+} from "./calendar-model";
+import {
   assignmentWrites,
   bookingDeadEnd,
   COLOR_NAME,
@@ -53,11 +59,7 @@ import {
   staffForService,
   timeOptionLabel,
   timeOptions,
-  type StaffWire,
-  type AppointmentWire,
-  type Availability,
-  type Names,
-} from "./calendar-model";
+} from "./calendar-rules";
 
 let failures = 0;
 let total = 0;

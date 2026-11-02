@@ -158,16 +158,33 @@ async function main() {
     if (await panel.getByRole("button", { name: "שינוי מועד" }).count()) throw new Error("a final appointment offers a move");
     await shot(p, "04-desktop-final-state");
   });
-  await check("D8 \"התקיים\" asks once more and says it cannot be undone (when the appointment has started)", async () => {
-    if (!startedNow(10)) return true;
-    await p.goto(`/calendar?day=${seed.today}&appointment=${seed.ids.todayNoa}`);
-    const panel = p.getByRole("complementary", { name: "פרטי התור" });
-    await panel.getByRole("button", { name: "התקיים", exact: true }).click();
-    await panel.getByText("אחרי הסימון אי אפשר להחזיר אותו.").waitFor({ timeout: 10_000 });
-    await shot(p, "05-desktop-final-confirm");
-    await panel.getByRole("button", { name: "חזרה", exact: true }).click();
-    if ((await api(t, `/api/appointments/${seed.ids.todayNoa}`)).body.appointment.status !== "CONFIRMED") throw new Error("marked without confirmation");
-  });
+  // Seeded two days back, so it runs at any hour: closing the question changes nothing, confirming changes the status.
+  const statusOf = async (id: number) => (await api(t, `/api/appointments/${id}`)).body.appointment.status as string;
+  for (const [code, id, button, yes, question, final, shotName] of [
+    ["D8a", seed.ids.pastToComplete, "התקיים", "כן, התקיים", "לסמן שהתור התקיים?", "COMPLETED", "05-desktop-final-confirm-completed"],
+    ["D8b", seed.ids.pastToNoShow, "לא הגיע", "כן, לא הגיע", "לסמן שהלקוח לא הגיע?", "NO_SHOW", "05b-desktop-final-confirm-no-show"],
+  ] as const) {
+    await check(`${code} "${button}" asks once more (cannot be undone): "חזרה" keeps the appointment CONFIRMED, "${yes}" makes it ${final}`, async () => {
+      const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(new Date(Date.now() - 2 * 864e5));
+      await p.goto(`/calendar?day=${day}&appointment=${id}`);
+      const panel = p.getByRole("complementary", { name: "פרטי התור" });
+      await panel.getByRole("button", { name: button, exact: true }).click();
+      await panel.getByText(question).waitFor({ timeout: 10_000 });
+      await panel.getByText("אחרי הסימון אי אפשר להחזיר אותו.").waitFor();
+      await shot(p, shotName);
+      await panel.getByRole("button", { name: "חזרה", exact: true }).click();
+      await p.waitForTimeout(800);
+      if ((await statusOf(id)) !== "CONFIRMED") throw new Error(`closing the question changed the status to ${await statusOf(id)}`);
+      await panel.getByRole("button", { name: button, exact: true }).click();
+      const confirm = panel.getByRole("button", { name: yes });
+      await confirm.waitFor();
+      await p.waitForTimeout(900);
+      await confirm.click();
+      await panel.getByText(/סטטוס סופי/).waitFor({ timeout: 15_000 });
+      if ((await statusOf(id)) !== final) throw new Error(`after confirming: ${await statusOf(id)}`);
+      await shot(p, `${shotName}-after`);
+    });
+  }
 
   await check("D9 book: customer → service and staff → a free time; the open lead is linked (decision 11)", async () => {
     await p.goto(`/calendar?day=${seed.today}`);

@@ -32,7 +32,6 @@ import {
   LIMITS,
   LOCATION_LABEL,
   OWNER_CANCEL_REASONS,
-  requestOutcome,
   STATUS_LABEL,
   STATUS_TO,
   textProblem,
@@ -41,6 +40,9 @@ import {
   type HistoryWire,
   type Names,
 } from "./calendar-model";
+import {
+  requestOutcome,
+} from "./calendar-rules";
 import { Chevron, IconChat, IconEdit, IconMove, IconPhone, IconPlus, IconUser, IconX, Loading, markOf, StateMark } from "./ui";
 import s from "./calendar.module.css";
 

@@ -17,7 +17,13 @@ import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 
 import { HoursEditor, SpecialDays } from "./availability-editors";
 import { getAvailability, getBookingAdmin, listServices, listStaff, type BookingAdminWire, type ExceptionWire, type RuleWire, type ServiceWire } from "./calendar-client";
-import { hoursSummary, todayKey, type StaffWire } from "./calendar-model";
+import {
+  todayKey,
+  type StaffWire,
+} from "./calendar-model";
+import {
+  hoursSummary,
+} from "./calendar-rules";
 import { Chevron, FeatureOff, IconCalendar, IconClock, IconLink, IconScissors, IconUsers, LeaveConfirm, Loading, ScreenHead, useToast } from "./ui";
 import s from "./calendar.module.css";
 

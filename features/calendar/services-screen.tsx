@@ -18,7 +18,22 @@ import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 
 import { AssignmentEditor, assignmentErrorText, saveAssignment } from "./assignment-editor";
 import { CalendarApiError, createService, forgetIntent, getPolicy, listServices, listStaff, savePolicy, updateService, type PolicyWire, type ServiceWire } from "./calendar-client";
-import { currentPick, durationLabel, errorText, LIMITS, samePick, splitMinutes, textProblem, UNIT_LABEL, UNIT_MINUTES, type AssignPick, type LeadUnit, type StaffWire } from "./calendar-model";
+import {
+  durationLabel,
+  errorText,
+  LIMITS,
+  textProblem,
+  type StaffWire,
+} from "./calendar-model";
+import {
+  currentPick,
+  samePick,
+  splitMinutes,
+  UNIT_LABEL,
+  UNIT_MINUTES,
+  type AssignPick,
+  type LeadUnit,
+} from "./calendar-rules";
 import { useLeaveGuard } from "./manage-screens";
 import { Chevron, Empty, FeatureOff, IconPlus, IconScissors, Loading, LoadError, ScreenHead, useBeforeUnload, useToast } from "./ui";
 import s from "./calendar.module.css";

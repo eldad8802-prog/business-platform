@@ -11,7 +11,16 @@
  * read, and a list that changed meanwhile is refused (VERSION_CONFLICT) instead of being overwritten.
  */
 import { CalendarApiError, forgetIntent, listStaff, setStaffServices, type ServiceWire } from "./calendar-client";
-import { assignmentWrites, durationLabel, LIMITS, type AssignAxis, type AssignPick, type StaffWire } from "./calendar-model";
+import {
+  durationLabel,
+  LIMITS,
+  type StaffWire,
+} from "./calendar-model";
+import {
+  assignmentWrites,
+  type AssignAxis,
+  type AssignPick,
+} from "./calendar-rules";
 import s from "./calendar.module.css";
 
 export async function saveAssignment(axis: AssignAxis, want: AssignPick): Promise<number> {

@@ -45,13 +45,11 @@ import {
   errorText,
   FIELD_LABEL,
   instantAt,
-  keepStaffFor,
   LIMITS,
   LOCATION_LABEL,
   minuteInDay,
   noSlotsReason,
   parseClock,
-  staffForService,
   textProblem,
   timeLabel,
   type AppointmentWire,
@@ -60,6 +58,10 @@ import {
   type Names,
   type StaffWire,
 } from "./calendar-model";
+import {
+  keepStaffFor,
+  staffForService,
+} from "./calendar-rules";
 import { Chevron, IconCalendar, IconClock, IconScissors, IconUser, IconUsers, IconX } from "./ui";
 import s from "./calendar.module.css";
 

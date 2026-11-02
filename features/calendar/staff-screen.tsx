@@ -19,7 +19,20 @@ import { uuidV7 } from "@/lib/tasks/tasks-client";
 import { AssignmentEditor, assignmentErrorText, saveAssignment } from "./assignment-editor";
 import { HoursEditor, SpecialDays } from "./availability-editors";
 import { CalendarApiError, createStaff, forgetIntent, listServices, listStaff, updateStaff, type ServiceWire } from "./calendar-client";
-import { COLOR_NAME, currentPick, errorText, LIMITS, nextStaffColor, samePick, STAFF_PALETTE, textProblem, type AssignPick, type StaffWire } from "./calendar-model";
+import {
+  errorText,
+  LIMITS,
+  textProblem,
+  type StaffWire,
+} from "./calendar-model";
+import {
+  COLOR_NAME,
+  currentPick,
+  nextStaffColor,
+  samePick,
+  STAFF_PALETTE,
+  type AssignPick,
+} from "./calendar-rules";
 import { useLeaveGuard } from "./manage-screens";
 import { Chevron, Empty, FeatureOff, IconCheck, IconPlus, IconUsers, Loading, LoadError, ScreenHead, Switch, useBeforeUnload, useToast } from "./ui";
 import s from "./calendar.module.css";

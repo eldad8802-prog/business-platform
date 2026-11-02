@@ -34,7 +34,12 @@ import {
   type BookingAdminWire,
   type BookingSettingsWire,
 } from "./calendar-client";
-import { bookingDeadEnd, errorText } from "./calendar-model";
+import {
+  errorText,
+} from "./calendar-model";
+import {
+  bookingDeadEnd,
+} from "./calendar-rules";
 import { bookingState } from "./manage-screens";
 import { Chevron, FeatureOff, IconAlert, Loading, LoadError, ScreenHead, Seg, Switch, useToast } from "./ui";
 import s from "./calendar.module.css";
