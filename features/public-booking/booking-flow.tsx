@@ -27,14 +27,16 @@ import {
   errorText,
   fieldOf,
   firstOpenDay,
+  lastBookableDay,
   longDay,
+  manageStateLabel,
   manageUrl,
   nearestAlternatives,
   newRequestKey,
   priceLabel,
   serviceBookable,
   slotsByDay,
-  stepsFor,
+  stepsForProfile,
   STATE_LABEL,
   weekDays,
   whenLong,
@@ -50,7 +52,6 @@ import {
 import s from "./public-booking.module.css";
 
 const STEP_TITLE: Record<Step, string> = { service: "איזה שירות?", staff: "אצל מי?", time: "מתי?", details: "הפרטים שלך" };
-const MAX_WEEKS_AHEAD = 12;
 const ANY = "any" as const;
 
 type Load<T> = { state: "loading" } | { state: "ready"; data: T } | { state: "error"; kind: "unavailable" | "busy" | "generic"; message: string };
@@ -96,7 +97,8 @@ export function BookingFlow({ publicId }: { publicId: string }) {
 
   const prof = profile.state === "ready" ? profile.data : null;
   const service: ServiceWire | null = prof?.services.find((x) => x.id === serviceId) ?? null;
-  const steps = prof ? stepsFor(prof, service) : (["service", "time", "details"] as Step[]);
+  // The steps are the business's, not the chosen service's: the count never jumps on the way.
+  const steps = prof ? stepsForProfile(prof, prof.services.filter((x) => serviceBookable(prof, x))) : (["service", "time", "details"] as Step[]);
   const stepIndex = Math.max(0, steps.indexOf(step));
   const staffId = staff === ANY ? null : staff;
 
@@ -236,6 +238,8 @@ export function BookingFlow({ publicId }: { publicId: string }) {
         : step === "time" ? !!startsAt
           : true;
   const chosenStaff = staffId !== null ? service?.staff?.find((x) => x.id === staffId)?.name ?? null : null;
+  // The service's own horizon: no paging into weeks it is never offered in.
+  const lastDay = lastBookableDay(today, service);
 
   return (
     <Shell>
@@ -269,7 +273,7 @@ export function BookingFlow({ publicId }: { publicId: string }) {
           <>
             <p className={s.summary}>{service.name} · {durationLabel(service.durationMinutes)}</p>
             <div className={s.list} role="radiogroup" aria-label="איש צוות">
-              {p.staffChoice === "OPTIONAL" ? (
+              {p.staffChoice === "OPTIONAL" || !(service.staff ?? []).length ? (
                 <button type="button" role="radio" aria-checked={staff === ANY} className={`${s.option} ${staff === ANY ? s.optionOn : ""}`} onClick={() => pickStaff(ANY)}>
                   <span className={s.avatar} aria-hidden="true">✓</span>
                   <span className={s.optionMain}><span className={s.optionName}>כל איש צוות פנוי</span><span className={s.optionMeta}>הכי הרבה שעות לבחירה</span></span>
@@ -306,7 +310,7 @@ export function BookingFlow({ publicId }: { publicId: string }) {
             <div className={s.weekNav}>
               <button type="button" className={s.iconBtn} onClick={() => moveWeek(-1)} disabled={weekStart <= today} aria-label="השבוע הקודם">→</button>
               <span className={s.weekLabel}>{longDay(weekStart)} – {longDay(addCalendarDays(weekStart, 6))}</span>
-              <button type="button" className={s.iconBtn} onClick={() => moveWeek(1)} disabled={weekStart >= addCalendarDays(today, MAX_WEEKS_AHEAD * 7)} aria-label="השבוע הבא">←</button>
+              <button type="button" className={s.iconBtn} onClick={() => moveWeek(1)} disabled={addCalendarDays(weekStart, 7) > lastDay} aria-label="השבוע הבא">←</button>
             </div>
             {slots.state === "loading" ? <div className={s.skeleton} style={{ padding: 0 }} aria-busy="true"><div className={s.skel} /><span className={s.srOnly}>טוען שעות פנויות…</span></div> : null}
             {slots.state === "error" ? (
@@ -333,8 +337,8 @@ export function BookingFlow({ publicId }: { publicId: string }) {
                 </div>
                 {cells.every((c) => c.count === 0) ? (
                   <div className={`${s.note} ${s.noteInfo}`} role="status">
-                    אין שעות פנויות בשבוע הזה.
-                    <div className={s.bannerActions}><button type="button" className={`${s.btn} ${s.small} ${s.ghost}`} onClick={() => moveWeek(1)}>לשבוע הבא</button></div>
+                    {addCalendarDays(weekStart, 7) > lastDay ? "אין שעות פנויות בשבוע הזה, וזה השבוע האחרון שאפשר להזמין בו." : "אין שעות פנויות בשבוע הזה."}
+                    {addCalendarDays(weekStart, 7) > lastDay ? null : <div className={s.bannerActions}><button type="button" className={`${s.btn} ${s.small} ${s.ghost}`} onClick={() => moveWeek(1)}>לשבוע הבא</button></div>}
                   </div>
                 ) : day ? (
                   <>
@@ -378,6 +382,7 @@ export function BookingFlow({ publicId }: { publicId: string }) {
               <label htmlFor="bk-website">אתר</label>
               <input id="bk-website" name="website" tabIndex={-1} autoComplete="off" value={trap} onChange={(e) => setTrap(e.target.value)} />
             </div>
+            <p className={s.privacy}>השם, הטלפון וההערה יגיעו ל־<bdi>{p.business.name}</bdi> כדי לטפל בתור. <a href="/privacy" target="_blank" rel="noopener noreferrer">מדיניות הפרטיות</a></p>
             <p className={s.note}>{service.approval === "AUTO" ? "התור ייקבע מיד אם השעה עדיין פנויה." : "התור יאושר על ידי העסק. השעה שמורה לך עד שיענה."} {p.selfCancel.enabled ? "תקבל קישור אישי לבדיקת המצב ולביטול." : "תקבל קישור אישי לבדיקת המצב."}</p>
             {formError ? <div className={s.banner} role="alert">{formError}</div> : null}
           </form>
@@ -453,13 +458,13 @@ function Answer({ result, business, headingRef }: { result: SubmitWire; business
       <div className={s.done}>
         <div className={`${s.ring} ${tone === "ok" ? s.ringOk : tone === "wait" ? s.ringWait : s.ringOff}`} aria-hidden="true">{tone === "ok" ? "✓" : tone === "wait" ? "⏳" : "–"}</div>
         <h2 className={s.doneTitle} ref={headingRef} tabIndex={-1}>
-          {state === "CONFIRMED" ? `התור נקבע ב${business}` : state === "PENDING" ? `הבקשה נשלחה ל${business}` : STATE_LABEL[state]}
+          {state === "CONFIRMED" ? `התור נקבע ב־⁨${business}⁩` : state === "PENDING" ? `הבקשה נשלחה ל־⁨${business}⁩` : view ? manageStateLabel(view) : STATE_LABEL[state]}
         </h2>
-        <span className={`${s.badge} ${tone === "ok" ? s.badgeOk : tone === "wait" ? s.badgeWait : s.badgeOff}`}>{STATE_LABEL[state]}</span>
+        <span className={`${s.badge} ${tone === "ok" ? s.badgeOk : tone === "wait" ? s.badgeWait : s.badgeOff}`}>{view ? manageStateLabel(view) : STATE_LABEL[state]}</span>
         <dl className={s.receipt}>
           <div><dt>שירות</dt><dd>{result.serviceName}</dd></div>
           <div><dt>מתי</dt><dd>{whenLong(result.startsAt, result.endsAt)}</dd></div>
-          <div><dt>אצל</dt><dd>{result.staffName ?? "ייקבע על ידי העסק"}</dd></div>
+          {result.staffName ? <div><dt>אצל</dt><dd>{result.staffName}</dd></div> : null}
         </dl>
         {state === "PENDING" && result.expiresAt ? <p className={s.hint}>השעה שמורה לך עד שהעסק יענה, ולא אחרי {whenShort(result.expiresAt)}. אם לא יענה עד אז, הבקשה תפוג.</p> : null}
         {!off ? (

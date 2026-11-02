@@ -28,6 +28,12 @@ import type { MessageKey } from "@/lib/i18n/translate";
  *
  * States: not-configured (quiet) · disconnected · connected · expired/revoked/error.
  * No secrets or tokens are ever rendered.
+ *
+ * Production pilot: when the status route returns a non-null `productionPilot`
+ * (the caller's business AND the caller are pilot-admitted), a separate
+ * section shows the PRODUCTION status and an ACTIVE connect/reconnect that
+ * goes through the same JSON-mode fetch with ?environment=PRODUCTION. The
+ * regular (sandbox) buttons stay inactive, marked "בקרוב".
  */
 
 const W = TOKEN.warm;
@@ -48,6 +54,12 @@ type AuthorityStatusDto = {
   canConnect: boolean;
   canReconnect: boolean;
 };
+
+/** PRODUCTION status, present only for an admitted pilot business + user. */
+type ProductionPilotDto = Omit<AuthorityStatusDto, "environment">;
+
+/** The connect route's 403 reason for a non-admitted pilot business/user. */
+const PRODUCTION_PILOT_NOT_ENABLED = "PRODUCTION_PILOT_NOT_ENABLED";
 
 function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -114,6 +126,7 @@ export function AuthorityConnectionCard() {
   const { t, locale } = useI18n();
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<AuthorityStatusDto | null>(null);
+  const [productionPilot, setProductionPilot] = useState<ProductionPilotDto | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [connecting, setConnecting] = useState(false);
   // Initial notice/error are derived once from the OAuth callback result in the
@@ -144,9 +157,11 @@ export function AuthorityConnectionCard() {
       }
       const data = (await res.json().catch(() => ({}))) as {
         authority?: AuthorityStatusDto;
+        productionPilot?: ProductionPilotDto | null;
       };
       if (data.authority) {
         setStatus(data.authority);
+        setProductionPilot(data.productionPilot ?? null);
       } else {
         setLoadFailed(true);
       }
@@ -162,14 +177,18 @@ export function AuthorityConnectionCard() {
     void load();
   }, [load]);
 
-  async function startConnect() {
+  async function startConnect(environment?: "PRODUCTION") {
     if (connecting) return;
     setConnecting(true);
     setError(null);
     setNotice(null);
     try {
       const token = getAuthToken();
-      const res = await fetch("/api/taxes/oauth/connect", {
+      const url =
+        environment === "PRODUCTION"
+          ? "/api/taxes/oauth/connect?environment=PRODUCTION"
+          : "/api/taxes/oauth/connect";
+      const res = await fetch(url, {
         headers: {
           accept: "application/json",
           "x-authority-connect-mode": "json",
@@ -179,7 +198,11 @@ export function AuthorityConnectionCard() {
       const data = (await res.json().catch(() => ({}))) as {
         authorizeUrl?: string;
         error?: string;
+        reason?: string;
       };
+      if (data.reason === PRODUCTION_PILOT_NOT_ENABLED) {
+        throw new Error(t("account.settings.connections.authority.productionPilot.notEnabled"));
+      }
       if (!res.ok || !data.authorizeUrl) {
         throw new Error(data.error || t("account.settings.connections.authority.openFailed"));
       }
@@ -280,12 +303,12 @@ export function AuthorityConnectionCard() {
             {/* The Tax Authority connection is not open yet: its buttons stay, inactive, marked "בקרוב". */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {showConnect ? (
-                <WarmButton height={42} onClick={startConnect} disabled>
+                <WarmButton height={42} onClick={() => void startConnect()} disabled>
                   {t("account.settings.connections.authority.connect")}
                 </WarmButton>
               ) : null}
               {showReconnect ? (
-                <WarmButton height={42} onClick={startConnect} disabled>
+                <WarmButton height={42} onClick={() => void startConnect()} disabled>
                   {t("account.settings.connections.authority.reconnect")}
                 </WarmButton>
               ) : null}
@@ -293,6 +316,70 @@ export function AuthorityConnectionCard() {
             </div>
           </div>
         )}
+
+        {/* Production pilot: only for an admitted business + user; its button is active. */}
+        {!loading && productionPilot ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              paddingTop: 12,
+              borderTop: `1px solid ${W.line}`,
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: TOKEN.weight.semibold, color: W.ink }}>
+                {t("account.settings.connections.authority.productionPilot.title")}
+              </h4>
+              <p style={{ margin: 0, fontSize: 12, color: W.muted, lineHeight: 1.5 }}>
+                {t("account.settings.connections.authority.productionPilot.description")}
+              </p>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                gap: "4px 12px",
+                fontSize: 12.5,
+                color: W.muted,
+              }}
+            >
+              <span>{t("account.settings.connections.authority.productionPilot.status")}</span>
+              <WarmPill tone={STATUS_TONE[productionPilot.status]}>
+                {t(STATUS_LABEL[productionPilot.status])}
+              </WarmPill>
+              {formatDate(productionPilot.connectedAt, locale) ? (
+                <span>
+                  {t("account.settings.connections.authority.connectedOn", {
+                    date: formatDate(productionPilot.connectedAt, locale) as string,
+                  })}
+                </span>
+              ) : null}
+              {formatDate(productionPilot.expiresAt, locale) ? (
+                <span>
+                  {t("account.settings.connections.authority.validUntil", {
+                    date: formatDate(productionPilot.expiresAt, locale) as string,
+                  })}
+                </span>
+              ) : null}
+            </div>
+            {productionPilot.canConnect || productionPilot.canReconnect ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <WarmButton
+                  height={42}
+                  onClick={() => void startConnect("PRODUCTION")}
+                  disabled={connecting}
+                >
+                  {productionPilot.canReconnect
+                    ? t("account.settings.connections.authority.productionPilot.reconnect")
+                    : t("account.settings.connections.authority.productionPilot.connect")}
+                </WarmButton>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {notice ? (
           <p style={{ margin: 0, fontSize: 12.5, color: W.tealDeep }}>{notice}</p>

@@ -36,6 +36,12 @@ import {
   sanitizeAuthorityConnectionErrorMessage,
 } from "@/lib/services/billing/authority/billing-authority-connection.service";
 import { billingDbStep } from "../billing-db-step";
+import {
+  AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+  AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
+  describeAuthorityProductionPilotRefusal,
+  resolveAuthorityProductionOperationRefusal,
+} from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
 export const AUTHORITY_REFRESH_ERROR_CODES = {
   NOT_REFRESHABLE: "AUTHORITY_CONNECTION_NOT_REFRESHABLE",
@@ -48,6 +54,8 @@ export const AUTHORITY_REFRESH_ERROR_CODES = {
   REFRESH_TIMEOUT: "ITA_REFRESH_TIMEOUT",
   CONFIGURATION_ERROR: "AUTHORITY_REFRESH_CONFIG_ERROR",
   APP_UNAVAILABLE: "AUTHORITY_REFRESH_APP_UNAVAILABLE",
+  PRODUCTION_PILOT_NOT_ENABLED: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+  PRODUCTION_PILOT_STAGE_OAUTH_ONLY: AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
 } as const;
 
 export const DEFAULT_AUTHORITY_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
@@ -327,6 +335,8 @@ async function loadAuthorityAppCredentials(
 }
 
 export async function exchangeAuthorityRefreshToken(input: {
+  /** Business the request is for: the egress pilot scope (required in PRODUCTION). */
+  businessId: number;
   tokenEndpoint: string;
   clientId: string;
   clientSecret: string;
@@ -340,7 +350,8 @@ export async function exchangeAuthorityRefreshToken(input: {
   errorCode?: string;
   errorMessage?: string;
 }> {
-  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
+  const fetchFn =
+    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId });
   const timeoutMs =
     input.refreshTimeoutMs ?? DEFAULT_AUTHORITY_TOKEN_REFRESH_TIMEOUT_MS;
   const controller = new AbortController();
@@ -486,6 +497,16 @@ export async function refreshAuthorityConnectionToken(
   assertPositiveInteger(input.businessId, "businessId");
 
   const refreshTimestamp = new Date();
+  // Production pilot (admitted business AND SUBMISSIONS stage): refused before
+  // the connection is read or a token decrypted. Code = allowlist vs stage.
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment);
+  if (pilotRefusal) {
+    return configurationFailureResult(
+      refreshTimestamp,
+      pilotRefusal,
+      describeAuthorityProductionPilotRefusal(pilotRefusal)
+    );
+  }
   const row = await loadRefreshableAuthorityConnection(
     input.businessId,
     input.environment
@@ -536,6 +557,7 @@ export async function refreshAuthorityConnectionToken(
   }
 
   const exchange = await exchangeAuthorityRefreshToken({
+    businessId: input.businessId,
     tokenEndpoint,
     clientId: credentials.clientId,
     clientSecret: credentials.clientSecret,

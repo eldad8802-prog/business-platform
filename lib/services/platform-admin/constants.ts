@@ -28,6 +28,12 @@ export const PLATFORM_AUDIT_ACTIONS = {
   MFA_REPLACED: "PLATFORM_ADMIN_MFA_REPLACED",
   PASSKEY_REGISTERED: "PLATFORM_ADMIN_PASSKEY_REGISTERED",
   PASSKEY_REVOKED: "PLATFORM_ADMIN_PASSKEY_REVOKED",
+  /**
+   * The temporary ITA PRODUCTION app registration tool: dry-run, apply and every
+   * refusal after the admin guard (metadata: mode, outcome, masked ids only).
+   * Kept after the tool is removed so the audit viewer still labels its rows.
+   */
+  AUTHORITY_PRODUCTION_APP_REGISTRATION: "PLATFORM_AUTHORITY_PRODUCTION_APP_REGISTRATION",
 } as const;
 
 /** Throttle window for AREA_ENTERED per admin (minutes). */

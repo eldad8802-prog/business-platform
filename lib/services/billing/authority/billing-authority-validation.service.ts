@@ -26,6 +26,12 @@ import {
 } from "@/lib/services/billing/authority/billing-authority-env.service";
 import { decryptAuthorityConnectionToken } from "@/lib/services/billing/authority/billing-authority-token-crypto.service";
 import { billingDbStep } from "../billing-db-step";
+import {
+  AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+  AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
+  describeAuthorityProductionPilotRefusal,
+  resolveAuthorityProductionOperationRefusal,
+} from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
 export const AUTHORITY_VALIDATION_ERROR_CODES = {
   NOT_VALIDATABLE: "AUTHORITY_CONNECTION_NOT_VALIDATABLE",
@@ -34,6 +40,8 @@ export const AUTHORITY_VALIDATION_ERROR_CODES = {
   UPSTREAM_ERROR: "ITA_UPSTREAM_ERROR",
   PROBE_TIMEOUT: "ITA_PROBE_TIMEOUT",
   CONFIGURATION_ERROR: "AUTHORITY_VALIDATION_CONFIG_ERROR",
+  PRODUCTION_PILOT_NOT_ENABLED: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+  PRODUCTION_PILOT_STAGE_OAUTH_ONLY: AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
 } as const;
 
 export const AUTHORITY_VALIDATION_PROBE_CONFIRMATION_NUMBER = "000000000" as const;
@@ -259,6 +267,8 @@ function networkFailureResult(
 }
 
 export async function executeAuthorityValidationProbe(input: {
+  /** Business the request is for: the egress pilot scope (required in PRODUCTION). */
+  businessId: number;
   probeUrl: string;
   accessToken: string;
   payload: AuthorityValidationProbePayload;
@@ -270,7 +280,8 @@ export async function executeAuthorityValidationProbe(input: {
   errorCode?: string;
   errorMessage?: string;
 }> {
-  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
+  const fetchFn =
+    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId });
   const timeoutMs =
     input.probeTimeoutMs ?? DEFAULT_AUTHORITY_VALIDATION_PROBE_TIMEOUT_MS;
   const controller = new AbortController();
@@ -343,6 +354,17 @@ export async function validateAuthorityConnection(
 
   const validationTimestamp = new Date();
 
+  // Production pilot (admitted business AND SUBMISSIONS stage): refused before
+  // the connection is read or a token decrypted. Code = allowlist vs stage.
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment);
+  if (pilotRefusal) {
+    return configurationFailureResult(
+      validationTimestamp,
+      pilotRefusal,
+      describeAuthorityProductionPilotRefusal(pilotRefusal)
+    );
+  }
+
   const row = await loadValidatableAuthorityConnection(
     input.businessId,
     input.environment
@@ -394,6 +416,7 @@ export async function validateAuthorityConnection(
   }
 
   const probeResult = await executeAuthorityValidationProbe({
+    businessId: input.businessId,
     probeUrl,
     accessToken,
     payload: probePayload,

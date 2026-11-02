@@ -6,7 +6,8 @@
  * Covers the pure DTO mapping (status collapse, connect/reconnect gating,
  * connected-family date exposure), tenant isolation and NOT_CONFIGURED
  * degradation in the request orchestrator, and the guarantee that no secret /
- * token material can appear in the DTO.
+ * token material can appear in the DTO. Also the production-pilot status:
+ * null unless business AND user are admitted; PRODUCTION derivation otherwise.
  */
 
 import {
@@ -314,6 +315,114 @@ async function main() {
       threw = true;
     }
     ok("unexpected error propagates", threw === true);
+  }
+
+  // ---- Production pilot status (productionPilot) ---------------------------
+  {
+    const BIZ = "BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS";
+    const USERS = "BILLING_AUTHORITY_PRODUCTION_PILOT_USER_IDS";
+    const PRODUCTION = BillingAuthorityEnvironment.PRODUCTION;
+    const SANDBOX = BillingAuthorityEnvironment.SANDBOX;
+    const seen: string[] = [];
+    // SANDBOX: connected; PRODUCTION: never connected.
+    const pilotDeps = (prodApp = true) =>
+      deps({
+        getActiveAuthorityApp: async (environment) => {
+          seen.push(`app:${environment}`);
+          if (environment === PRODUCTION && !prodApp) throw new ServiceUnavailableError("no app");
+          return {} as AuthorityAppContext;
+        },
+        getAuthorityConnectionStatus: async ({ businessId, environment }) => {
+          seen.push(`conn:${environment}:${businessId}`);
+          return environment === PRODUCTION
+            ? conn({ connectionExists: false, status: BillingAuthorityConnectionStatus.DISCONNECTED, environment })
+            : conn({ status: BillingAuthorityConnectionStatus.CONNECTED, refreshTokenExpiresAt: FUTURE });
+        },
+      });
+    const resolve = (opts: { include?: boolean; prodApp?: boolean; actorId?: number } = {}) =>
+      resolveAuthorityStatusRequest({
+        actor: { id: opts.actorId ?? 7, businessId: 10 },
+        requestedBusinessId: null,
+        environment: SANDBOX,
+        deps: pilotDeps(opts.prodApp),
+        includeProductionPilot: opts.include ?? true,
+      });
+    const set = (biz?: string, users?: string) => {
+      if (biz === undefined) delete process.env[BIZ]; else process.env[BIZ] = biz;
+      if (users === undefined) delete process.env[USERS]; else process.env[USERS] = users;
+    };
+
+    try {
+      set(undefined, undefined);
+      seen.length = 0;
+      let res = await resolve();
+      ok("pilot: both lists unset → productionPilot null", res.ok === true && res.productionPilot === null);
+      ok("pilot: null → PRODUCTION never queried", !seen.some((s) => s.includes("PRODUCTION")));
+
+      set("10", undefined);
+      res = await resolve();
+      ok("pilot: business admitted, user list missing → null", res.ok === true && res.productionPilot === null);
+
+      set(undefined, "7");
+      res = await resolve();
+      ok("pilot: user admitted, business list missing → null", res.ok === true && res.productionPilot === null);
+
+      set("10", "8");
+      res = await resolve();
+      ok("pilot: business admitted, other user → null", res.ok === true && res.productionPilot === null);
+
+      set("10", "7");
+      seen.length = 0;
+      res = await resolve();
+      ok(
+        "pilot: both admitted → PRODUCTION derivation (DISCONNECTED, canConnect)",
+        res.ok === true &&
+          res.productionPilot !== null &&
+          res.productionPilot.status === "DISCONNECTED" &&
+          res.productionPilot.canConnect === true &&
+          res.productionPilot.canReconnect === false &&
+          res.productionPilot.connectedAt === null &&
+          res.productionPilot.expiresAt === null
+      );
+      ok("pilot: PRODUCTION read for the actor's own business", seen.includes("conn:PRODUCTION:10"));
+      ok(
+        "pilot: main authority dto unchanged (SANDBOX, CONNECTED)",
+        res.ok === true && res.dto.environment === SANDBOX && res.dto.status === "CONNECTED"
+      );
+      ok(
+        "pilot: productionPilot exposes only the safe key set",
+        res.ok === true &&
+          res.productionPilot !== null &&
+          JSON.stringify(Object.keys(res.productionPilot).sort()) ===
+            JSON.stringify(["canConnect", "canReconnect", "connectedAt", "expiresAt", "status"])
+      );
+
+      seen.length = 0;
+      res = await resolve({ prodApp: false });
+      ok(
+        "pilot: no PRODUCTION app → NOT_CONFIGURED, flags false, connection not queried",
+        res.ok === true &&
+          res.productionPilot !== null &&
+          res.productionPilot.status === "NOT_CONFIGURED" &&
+          res.productionPilot.canConnect === false &&
+          res.productionPilot.canReconnect === false &&
+          !seen.includes("conn:PRODUCTION:10")
+      );
+
+      res = await resolve({ include: false });
+      ok("pilot: not requested (other callers) → null even when admitted", res.ok === true && res.productionPilot === null);
+
+      const cross = await resolveAuthorityStatusRequest({
+        actor: { id: 7, businessId: 10 },
+        requestedBusinessId: "11",
+        environment: SANDBOX,
+        deps: pilotDeps(),
+        includeProductionPilot: true,
+      });
+      ok("pilot: tenant rule kept (another business → forbidden)", cross.ok === false);
+    } finally {
+      set(undefined, undefined);
+    }
   }
 
   console.log(failed === 0 ? "\nALL PASS" : `\n${failed} FAILED`);
