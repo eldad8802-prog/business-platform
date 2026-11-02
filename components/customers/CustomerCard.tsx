@@ -47,8 +47,10 @@ import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import { APPOINTMENT_STATUS_LABEL } from "./appointment-status-labels";
-import { clockOf } from "@/features/calendar/calendar-model";
 import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
+
+/** An appointment start as Israel reads it ("09:30") — kept local so the card does not load the calendar module. */
+const APPOINTMENT_CLOCK = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Asia/Jerusalem" });
 
 /**
  * Customer file (detail) — one continuous scroll, no tabs: identity + contact,
@@ -759,7 +761,7 @@ function AppointmentsSection({
               <div className="crm-item__title">{a.title?.trim() || t("customers.customer.card.appointmentFallback")}</div>
               <div className="crm-item__meta">
                 <span className="crm-badge">{labelT(t, APPOINTMENT_STATUS_LABEL, a.status)}</span>
-                {dateStr ? <span> · {dateStr}{start ? <> · <bdi dir="ltr">{clockOf(start)}</bdi></> : null}</span> : null}
+                {dateStr ? <span> · {dateStr}{start ? <> · <bdi dir="ltr">{APPOINTMENT_CLOCK.format(start)}</bdi></> : null}</span> : null}
               </div>
             </div>
           </Link>
