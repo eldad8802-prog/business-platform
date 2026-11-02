@@ -60,7 +60,7 @@ export function hubCss(): string {
   .dz-dh-back:dir(ltr) .dz-dh-back__chev{transform:none;}
   .dz-dh-title{
     margin:2px 0 18px;text-align:center;
-    font-size:40px;line-height:1.1;font-weight:600;letter-spacing:-.5px;color:var(--dh-ink);
+    font-size:40px;line-height:1.1;font-weight:800;letter-spacing:-.5px;color:var(--dh-ink);
   }
 
   /* ---------- Summary ---------- */
