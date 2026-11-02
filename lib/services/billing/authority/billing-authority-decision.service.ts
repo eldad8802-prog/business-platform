@@ -12,8 +12,7 @@
 
 import { randomUUID } from "node:crypto";
 import {
-  AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-  isAuthorityProductionOperationAllowedForBusiness,
+  resolveAuthorityProductionOperationRefusal,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import {
   BillingAuthorityDecisionType,
@@ -182,8 +181,10 @@ export async function executeAuthorityDecision(
   }
 
   // ---- production pilot (business + SUBMISSIONS stage): before any load, token work or send ----
-  if (!isAuthorityProductionOperationAllowedForBusiness(businessId, environment)) {
-    return { outcome: "preflight_failed", billingDocumentId, errorCode: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED };
+  // Code = allowlist vs OAUTH_ONLY stage; both are refused before anything is sent.
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(businessId, environment);
+  if (pilotRefusal) {
+    return { outcome: "preflight_failed", billingDocumentId, errorCode: pilotRefusal };
   }
 
   // ---- load + preflight (HELD, no decision yet) ----

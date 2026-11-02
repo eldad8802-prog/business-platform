@@ -23,8 +23,7 @@
 
 import { createHash } from "node:crypto";
 import {
-  AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-  isAuthorityProductionOperationAllowedForBusiness,
+  resolveAuthorityProductionOperationRefusal,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import {
   BillingAuthorityEnvironment,
@@ -367,8 +366,10 @@ export async function executeAuthorityApproval(
   }
 
   // ---- production pilot (business + SUBMISSIONS stage): before any load, reserve, token work or send ----
-  if (!isAuthorityProductionOperationAllowedForBusiness(businessId, environment)) {
-    return { outcome: "preflight_failed", billingDocumentId, errorCode: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED, safeToRetry: false };
+  // Code = allowlist vs OAUTH_ONLY stage; both: nothing loaded, reserved or sent.
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(businessId, environment);
+  if (pilotRefusal) {
+    return { outcome: "preflight_failed", billingDocumentId, errorCode: pilotRefusal, safeToRetry: false };
   }
 
   // ---- load ----

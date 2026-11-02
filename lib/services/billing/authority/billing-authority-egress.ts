@@ -42,7 +42,8 @@ import { createHash, createPrivateKey, X509Certificate, type KeyObject } from "n
 import { fetch as undiciFetch, Pool, ProxyAgent, type Dispatcher } from "undici";
 import type { BillingAuthorityEnvironment } from "@prisma/client";
 import {
-  isAuthorityPilotScopeAllowed,
+  AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
+  resolveAuthorityPilotScopeRefusal,
   type AuthorityPilotScope,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
@@ -69,13 +70,22 @@ export type AuthorityEgressErrorCode =
  */
 export class AuthorityEgressError extends Error {
   readonly code: AuthorityEgressErrorCode;
+  /**
+   * PILOT_SCOPE_REFUSED only: why (diagnostics). "unscoped" = no pilot scope,
+   * "allowlist" = scope not admitted by the pilot lists, "stage" = admitted
+   * but refused by the OAUTH_ONLY stage. Never carries ids or env values.
+   */
+  readonly pilotRefusal?: AuthorityEgressPilotRefusal;
 
-  constructor(code: AuthorityEgressErrorCode, detail: string) {
+  constructor(code: AuthorityEgressErrorCode, detail: string, pilotRefusal?: AuthorityEgressPilotRefusal) {
     super(`${code}: ${detail}`);
     this.name = "AuthorityEgressError";
     this.code = code;
+    if (pilotRefusal) this.pilotRefusal = pilotRefusal;
   }
 }
+
+export type AuthorityEgressPilotRefusal = "unscoped" | "allowlist" | "stage";
 
 export function isAuthorityEgressError(error: unknown): error is AuthorityEgressError {
   return error instanceof AuthorityEgressError;
@@ -410,14 +420,29 @@ export function createAuthorityEgressFetch(
       deps.now ? deps.now() : new Date()
     );
 
-    if (
-      environment === "PRODUCTION" &&
-      (scope == null || !isAuthorityPilotScopeAllowed(scope, environment, env))
-    ) {
-      throw new AuthorityEgressError(
-        AUTHORITY_EGRESS_ERROR_CODES.PILOT_SCOPE_REFUSED,
-        "PRODUCTION requests require a scope admitted by the production pilot"
-      );
+    if (environment === "PRODUCTION") {
+      if (scope == null) {
+        throw new AuthorityEgressError(
+          AUTHORITY_EGRESS_ERROR_CODES.PILOT_SCOPE_REFUSED,
+          "PRODUCTION requests require a production pilot scope (unscoped)",
+          "unscoped"
+        );
+      }
+      const refusal = resolveAuthorityPilotScopeRefusal(scope, environment, env);
+      if (refusal === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY) {
+        throw new AuthorityEgressError(
+          AUTHORITY_EGRESS_ERROR_CODES.PILOT_SCOPE_REFUSED,
+          "PRODUCTION scope refused by the production pilot stage (OAUTH_ONLY)",
+          "stage"
+        );
+      }
+      if (refusal) {
+        throw new AuthorityEgressError(
+          AUTHORITY_EGRESS_ERROR_CODES.PILOT_SCOPE_REFUSED,
+          "PRODUCTION scope not admitted by the production pilot allowlist",
+          "allowlist"
+        );
+      }
     }
 
     if (!cached || cached.fingerprint !== config.fingerprint) {

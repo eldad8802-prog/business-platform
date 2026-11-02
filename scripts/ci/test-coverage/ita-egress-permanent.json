@@ -36,6 +36,11 @@
       "lab": "pure",
       "reason": "pure (throw-away local CA + stub transport + in-memory doubles, no DB/network): the PRODUCTION pilot gate is off by default and fails closed on any malformed allowlist; OAuth start (incl. elevated-admin cross-tenant), callback, refresh, validation, Approval and Decision refuse a non-pilot business before any state change, token work or send; the egress refuses an unscoped or non-admitted PRODUCTION request before I/O; every authority client uses a scoped fetch; the user allowlist (OAuth start/callback need business AND user) fails closed the same way; the operations stage is OAUTH_ONLY unless exactly 'oauth,submissions', and in OAUTH_ONLY refresh, validation, Approval (incl. the automatic one after issuing, reported as not sent), Decision and the platform probe are refused with zero transport calls while the OAuth code exchange still passes"
     },
+    "lib/services/billing/authority/billing-authority-pilot-gate.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (injected env + authorize double, no DB/network/ITA): the platform-admin pilot-gate self-check computes every operation through the same gate functions as the call sites — OPERATIONS='oauth' with admitted ids allows OAuth start + code exchange and refuses refresh/validation/Approval/Decision/probe with the STAGE reason, non-admitted ids get the LIST reason; runtime env, list and stage values are classified, never echoed; the route is admin-guarded, validates input and is no-store"
+    },
     "lib/services/billing/authority/billing-authority-oauth-connect-route.verify.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",

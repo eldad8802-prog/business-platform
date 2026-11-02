@@ -804,9 +804,9 @@ async function runAsyncTests() {
         }) as typeof fetch,
       });
       ok(
-        "production validation refused in OAUTH_ONLY, nothing sent",
+        "production validation refused in OAUTH_ONLY (stage code), nothing sent",
         !refused.ok &&
-          refused.errorCode === AUTHORITY_VALIDATION_ERROR_CODES.PRODUCTION_PILOT_NOT_ENABLED &&
+          refused.errorCode === AUTHORITY_VALIDATION_ERROR_CODES.PRODUCTION_PILOT_STAGE_OAUTH_ONLY &&
           sent === 0
       );
 

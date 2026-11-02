@@ -37,7 +37,14 @@ import {
   AUTHORITY_PRODUCTION_PILOT_SUBMISSIONS_VALUE,
   AUTHORITY_PRODUCTION_PILOT_USER_ENV_VAR,
   AuthorityProductionPilotError,
+  AUTHORITY_PRODUCTION_PILOT_REFUSAL_CODES,
+  AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
   isAuthorityPilotScopeAllowed,
+  isAuthorityProductionPilotRefusalCode,
+  parseAuthorityProductionPilotOperations,
+  parseProductionPilotIdList,
+  resolveAuthorityPilotScopeRefusal,
+  resolveAuthorityProductionOperationRefusal,
   isAuthorityProductionAllowedForActor,
   isAuthorityProductionAllowedForBusiness,
   isAuthorityProductionOperationAllowedForBusiness,
@@ -48,6 +55,7 @@ import {
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import { runAuthorityTokenNetworkProbe } from "@/lib/services/billing/authority/billing-authority-token-probe.service";
 import { resolveAuthorityOutcomeAfterIssue } from "@/lib/services/billing/billing-issue.service";
+import { mapExecutionResultToAuthorityOutcome } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
 import {
   AUTHORITY_EGRESS_ERROR_CODES,
   createAuthorityEgressFetch,
@@ -186,6 +194,43 @@ function parsing(): void {
   }
   ok("stage: exactly \"oauth,submissions\" → SUBMISSIONS", stage("oauth,submissions") === "SUBMISSIONS");
 
+  // Value classification (diagnostics): explicit / unset / invalid.
+  const cls = (v: string | undefined) => parseAuthorityProductionPilotOperations(v);
+  ok("ops value: unset / \"\" → OAUTH_ONLY, unset",
+    cls(undefined).valueStatus === "unset" && cls("").valueStatus === "unset" && cls(undefined).stage === "OAUTH_ONLY");
+  ok("ops value: \"oauth\" → OAUTH_ONLY, explicit", cls("oauth").stage === "OAUTH_ONLY" && cls("oauth").valueStatus === "explicit");
+  ok("ops value: \"oauth,submissions\" → SUBMISSIONS, explicit",
+    cls("oauth,submissions").stage === "SUBMISSIONS" && cls("oauth,submissions").valueStatus === "explicit");
+  for (const bad of ["OAUTH", " oauth", "oauth ", "submissions", "OAUTH,SUBMISSIONS", " oauth,submissions", "   ", "true"]) {
+    ok(`ops value: "${bad}" → OAUTH_ONLY, invalid`, cls(bad).stage === "OAUTH_ONLY" && cls(bad).valueStatus === "invalid");
+  }
+
+  // List parse status (diagnostics).
+  ok("list status: unset / ok / invalid",
+    parseProductionPilotIdList(undefined).status === "unset" && parseProductionPilotIdList(" ").status === "unset" &&
+    parseProductionPilotIdList("42,57").status === "ok" && parseProductionPilotIdList("42,x").status === "invalid" &&
+    parseProductionPilotIdList(Array.from({ length: 21 }, (_, i) => i + 1).join(",")).status === "invalid");
+
+  // Refusal codes: allowlist vs stage; both are pilot refusal codes.
+  const listed = { [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: "42" };
+  ok("refusal: non-admitted business → NOT_ENABLED in any stage",
+    resolveAuthorityProductionOperationRefusal(OTHER, PRODUCTION, listed) === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED &&
+    resolveAuthorityProductionOperationRefusal(OTHER, PRODUCTION, { ...listed, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: SUBMISSIONS }) === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED);
+  ok("refusal: admitted business in OAUTH_ONLY → STAGE_OAUTH_ONLY",
+    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, listed) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY &&
+    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, { ...listed, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: "oauth" }) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY);
+  ok("refusal: admitted business in SUBMISSIONS → none",
+    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, { ...listed, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: SUBMISSIONS }) === null);
+  ok("refusal: SANDBOX → none", resolveAuthorityProductionOperationRefusal(OTHER, SANDBOX, {}) === null);
+  ok("refusal: probe → NOT_ENABLED when lists empty, STAGE when listed in OAUTH_ONLY",
+    resolveAuthorityPilotScopeRefusal({ kind: "platform-diagnostic" }, PRODUCTION, {}) === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED &&
+    resolveAuthorityPilotScopeRefusal({ kind: "platform-diagnostic" }, PRODUCTION, listed) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY);
+  ok("refusal codes: both recognised as pilot refusals, nothing else",
+    isAuthorityProductionPilotRefusalCode(AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED) &&
+    isAuthorityProductionPilotRefusalCode(AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY) &&
+    !isAuthorityProductionPilotRefusalCode("SUBMISSION_NOT_PROVABLY_UNSENT") &&
+    AUTHORITY_PRODUCTION_PILOT_REFUSAL_CODES.length === 2);
+
   const oauthOnly = { [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: "42" };
   ok("OAUTH_ONLY: business operations refused for the pilot business",
     !isAuthorityProductionOperationAllowedForBusiness(PILOT, PRODUCTION, oauthOnly) &&
@@ -263,6 +308,21 @@ async function egressLayer(): Promise<void> {
     exchange.err === null && exchange.sent === 1, exchange.err);
   ok("egress OAUTH_ONLY: OAuth code exchange for another business refused",
     refused(await run(oauthOnly, { kind: "business-oauth", businessId: OTHER })));
+
+  // Same code, but the detail says why (no ids, no env values).
+  const why = (r: { err: unknown }) => (isAuthorityEgressError(r.err) ? r.err.pilotRefusal : undefined);
+  const stageRefused = await run(oauthOnly, { kind: "business", businessId: PILOT });
+  ok("egress detail: OAUTH_ONLY refusal says 'stage'",
+    why(stageRefused) === "stage" && /stage/.test(String((stageRefused.err as Error).message)), stageRefused.err);
+  const listRefused = await run(oauthOnly, { kind: "business", businessId: OTHER });
+  ok("egress detail: non-admitted business says 'allowlist'",
+    why(listRefused) === "allowlist" && /allowlist/.test(String((listRefused.err as Error).message)), listRefused.err);
+  ok("egress detail: unscoped says 'unscoped'", why(await run(oauthOnly, null)) === "unscoped");
+  ok("egress detail: probe in OAUTH_ONLY says 'stage', with the gate closed 'allowlist'",
+    why(await run(oauthOnly, { kind: "platform-diagnostic" })) === "stage" &&
+    why(await run(closed, { kind: "platform-diagnostic" })) === "allowlist");
+  ok("egress detail: message never carries the business id",
+    !String((listRefused.err as Error).message).includes(String(OTHER)) && !String((stageRefused.err as Error).message).includes(String(PILOT)));
 
   // The real probe service over the egress: refused in OAUTH_ONLY, nothing sent.
   {
@@ -434,14 +494,15 @@ async function services(): Promise<void> {
   {
     const f = countingFetch();
     const res = await refreshAuthorityConnectionToken({ businessId: PILOT, environment: PRODUCTION, fetchImpl: f.fn });
-    ok("OAUTH_ONLY refresh: pilot business refused, nothing sent",
-      !res.ok && res.errorCode === AUTHORITY_REFRESH_ERROR_CODES.PRODUCTION_PILOT_NOT_ENABLED && f.calls.length === 0, res);
+    ok("OAUTH_ONLY refresh: pilot business refused with the STAGE code, nothing sent",
+      !res.ok && res.errorCode === AUTHORITY_REFRESH_ERROR_CODES.PRODUCTION_PILOT_STAGE_OAUTH_ONLY &&
+      res.outcome === "CONFIGURATION_FAILURE" && f.calls.length === 0, res);
   }
   {
     const f = countingFetch();
     const res = await validateAuthorityConnection({ businessId: PILOT, environment: PRODUCTION, fetchImpl: f.fn });
-    ok("OAUTH_ONLY validation: pilot business refused, nothing sent",
-      !res.ok && res.errorCode === AUTHORITY_VALIDATION_ERROR_CODES.PRODUCTION_PILOT_NOT_ENABLED && f.calls.length === 0, res);
+    ok("OAUTH_ONLY validation: pilot business refused with the STAGE code, nothing sent",
+      !res.ok && res.errorCode === AUTHORITY_VALIDATION_ERROR_CODES.PRODUCTION_PILOT_STAGE_OAUTH_ONLY && f.calls.length === 0, res);
   }
   touched.length = 0;
   writes.length = 0;
@@ -451,15 +512,19 @@ async function services(): Promise<void> {
   };
   const ooCtx = await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION }, ctxDeps);
   ok("OAUTH_ONLY runtime context: pilot business refused before config/app/token",
-    !ooCtx.ok && ooCtx.code === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED && touched.length === 0, { ooCtx, touched });
+    !ooCtx.ok && ooCtx.code === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY && touched.length === 0, { ooCtx, touched });
   const ooApproval = await executeAuthorityApproval({ businessId: PILOT, billingDocumentId: 1, actorUserId: PILOT_USER }, pilotApprovalDeps);
   ok("OAUTH_ONLY approval: pilot business → provably-unsent preflight_failed, nothing loaded/reserved/sent",
-    ooApproval.outcome === "preflight_failed" && ooApproval.errorCode === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED &&
+    ooApproval.outcome === "preflight_failed" && ooApproval.errorCode === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY &&
     ooApproval.safeToRetry === false && writes.length === 0 && touched.length === 0, { ooApproval, writes });
+  // Same path as a non-pilot business: identical shape, only the code differs.
+  ok("OAUTH_ONLY approval: same outcome/safeToRetry/keys as the allowlist refusal",
+    approval.outcome === ooApproval.outcome && approval.safeToRetry === ooApproval.safeToRetry &&
+    JSON.stringify(Object.keys(approval).sort()) === JSON.stringify(Object.keys(ooApproval).sort()), { approval, ooApproval });
   const ooDecision = await executeAuthorityDecision(
     { businessId: PILOT, billingDocumentId: 1, actorUserId: PILOT_USER, action: "Continue" } as never, decisionDeps);
   ok("OAUTH_ONLY decision: pilot business refused before load, token work or send",
-    ooDecision.outcome === "preflight_failed" && ooDecision.errorCode === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED &&
+    ooDecision.outcome === "preflight_failed" && ooDecision.errorCode === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY &&
     writes.length === 0 && touched.length === 0, { ooDecision, writes });
 
   // Issuing a READY tax invoice: the automatic post-commit Approval is refused
@@ -470,9 +535,26 @@ async function services(): Promise<void> {
       submission: { submissionId: 9, status: "READY", transitionKind: "CREATE_READY", auditEventType: "BILLING_AUTHORITY_READINESS_CREATED" } as never,
     },
     { executeApproval: (input) => executeAuthorityApproval(input, pilotApprovalDeps) });
-  ok("OAUTH_ONLY issue: authority outcome is the not-sent refusal (infrastructure_failed, pilot code, not retryable as sent)",
-    issued.status === "infrastructure_failed" && issued.errorCode === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED &&
+  ok("OAUTH_ONLY issue: authority outcome is the not-sent refusal (infrastructure_failed, STAGE code, not retryable as sent)",
+    issued.status === "infrastructure_failed" && issued.errorCode === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY &&
     issued.safeToRetry === false && issued.userActionRequired !== true && writes.length === 0 && touched.length === 0, { issued, writes });
+  // The allowlist refusal maps to the identical issue outcome (only the code differs).
+  const issuedOther = await resolveAuthorityOutcomeAfterIssue(
+    {
+      businessId: OTHER, billingDocumentId: 1, actorUserId: PILOT_USER,
+      submission: { submissionId: 9, status: "READY", transitionKind: "CREATE_READY", auditEventType: "BILLING_AUTHORITY_READINESS_CREATED" } as never,
+    },
+    { executeApproval: (input) => executeAuthorityApproval(input, pilotApprovalDeps) });
+  ok("issue: allowlist and stage refusals map to the same not-sent outcome",
+    issuedOther.status === issued.status && issuedOther.safeToRetry === issued.safeToRetry &&
+    issuedOther.userActionRequired === issued.userActionRequired &&
+    issuedOther.errorCode === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED && writes.length === 0, { issuedOther, issued });
+  // Both codes through the pure mapper directly (no service in between).
+  for (const code of AUTHORITY_PRODUCTION_PILOT_REFUSAL_CODES) {
+    const mapped = mapExecutionResultToAuthorityOutcome({ outcome: "preflight_failed", billingDocumentId: 1, errorCode: code, safeToRetry: false });
+    ok(`issue mapper: ${code} → infrastructure_failed, not retryable, no user action`,
+      mapped.status === "infrastructure_failed" && mapped.safeToRetry === false && mapped.userActionRequired !== true, mapped);
+  }
 
   // SANDBOX is untouched by the stage switch.
   touched.length = 0;

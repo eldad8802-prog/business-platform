@@ -981,9 +981,10 @@ async function runAsyncTests() {
         }) as typeof fetch,
       });
       ok(
-        "production refresh refused in OAUTH_ONLY, nothing sent",
+        "production refresh refused in OAUTH_ONLY (stage code), nothing sent",
         !refused.ok &&
-          refused.errorCode === AUTHORITY_REFRESH_ERROR_CODES.PRODUCTION_PILOT_NOT_ENABLED &&
+          refused.errorCode === AUTHORITY_REFRESH_ERROR_CODES.PRODUCTION_PILOT_STAGE_OAUTH_ONLY &&
+          refused.outcome === "CONFIGURATION_FAILURE" &&
           sent === 0
       );
 

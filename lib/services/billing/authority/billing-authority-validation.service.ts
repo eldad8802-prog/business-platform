@@ -28,7 +28,9 @@ import { decryptAuthorityConnectionToken } from "@/lib/services/billing/authorit
 import { billingDbStep } from "../billing-db-step";
 import {
   AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-  isAuthorityProductionOperationAllowedForBusiness,
+  AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
+  describeAuthorityProductionPilotRefusal,
+  resolveAuthorityProductionOperationRefusal,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
 export const AUTHORITY_VALIDATION_ERROR_CODES = {
@@ -39,6 +41,7 @@ export const AUTHORITY_VALIDATION_ERROR_CODES = {
   PROBE_TIMEOUT: "ITA_PROBE_TIMEOUT",
   CONFIGURATION_ERROR: "AUTHORITY_VALIDATION_CONFIG_ERROR",
   PRODUCTION_PILOT_NOT_ENABLED: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+  PRODUCTION_PILOT_STAGE_OAUTH_ONLY: AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
 } as const;
 
 export const AUTHORITY_VALIDATION_PROBE_CONFIRMATION_NUMBER = "000000000" as const;
@@ -352,12 +355,13 @@ export async function validateAuthorityConnection(
   const validationTimestamp = new Date();
 
   // Production pilot (admitted business AND SUBMISSIONS stage): refused before
-  // the connection is read or a token decrypted.
-  if (!isAuthorityProductionOperationAllowedForBusiness(input.businessId, input.environment)) {
+  // the connection is read or a token decrypted. Code = allowlist vs stage.
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment);
+  if (pilotRefusal) {
     return configurationFailureResult(
       validationTimestamp,
-      AUTHORITY_VALIDATION_ERROR_CODES.PRODUCTION_PILOT_NOT_ENABLED,
-      "Authority production pilot is not enabled for this business"
+      pilotRefusal,
+      describeAuthorityProductionPilotRefusal(pilotRefusal)
     );
   }
 
