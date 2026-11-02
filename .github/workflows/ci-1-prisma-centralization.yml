@@ -107,6 +107,12 @@ jobs:
       - name: Customer card appointment status labels
         run: npx tsx components/customers/appointment-status-labels.test.ts
 
+      # Inventory actions (2026-11-03 audit): the edit sheet keeps the category, "טופל" calls the route that
+      # exists, the manual-sale total is quantity × unit price in agorot, and the movement sheet is portaled
+      # above the bottom bar. Pure; no DB, no secret. Local equivalent: npm run verify:inventory-actions
+      - name: Inventory actions (category, alert resolve, sale total, movement sheet)
+        run: npx tsx lib/inventory/inventory-actions.verify.test.ts
+
       # Import/Export Center I-1 — the data-transfer FORMAT layer. It is in the
       # BLOCKING job for one reason: it holds the CSV formula-injection guard.
       # A regression there does not fail loudly at runtime — it silently ships

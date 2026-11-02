@@ -1,4 +1,5 @@
 import { buildClientAuthHeaders } from "@/lib/client-session";
+import { inventoryAlertResolvePath } from "@/lib/inventory/inventory-routes";
 
 export type InventoryAlertDTO = {
   id: number;
@@ -402,7 +403,7 @@ export async function createInventorySale(data: CreateInventorySaleInput) {
 }
 
 export async function resolveInventoryAlert(alertId: number) {
-  const response = await fetchWithTimeout(`/api/inventory/alerts/${alertId}/resolve`, {
+  const response = await fetchWithTimeout(inventoryAlertResolvePath(alertId), {
     method: "PATCH",
     headers: buildHeaders(),
   });
