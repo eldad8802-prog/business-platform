@@ -301,7 +301,6 @@ const bankEn: Widen<typeof bankHe> = {
   submitLine: "Record transaction",
   uploadResult: "New transactions imported: {inserted}; already recorded: {known}.",
   uploadSkipped: "Rows not read: {count} ({lines}).",
-  uploadNothingRead: "No transactions could be read from the file, and nothing was imported. A comma-separated CSV is needed, with date and amount (or debit / credit) headers in the first row.",
   rowN: "row {n}",
   uploadFailed: "The upload failed",
   csvFile: "CSV file from the bank",
