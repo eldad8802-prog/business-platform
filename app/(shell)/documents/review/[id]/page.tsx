@@ -141,7 +141,7 @@ export default function ReviewPage() {
         setExtractionMeta(
           buildExtractionMeta(
             json.extracted as ApiExtracted | null,
-            typeof (json as { amountCheck?: unknown }).amountCheck === "string" ? (json as { amountCheck: string }).amountCheck : null
+            typeof json.amountCheck === "string" ? json.amountCheck : null
           )
         );
         setDuplicateSignals(

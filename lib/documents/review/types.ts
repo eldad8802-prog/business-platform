@@ -48,6 +48,8 @@ export type GetDocumentResponse =
       outputProfile: OutputProfile;
       outputProfileSource: "stored" | "unified" | "fallback_no_ocr";
       outputProfileComputedAt: string;
+      /** The document's own summary lines contradict the amount read (a sentence for the owner), or null. */
+      amountCheck?: string | null;
     };
 
 export type ReviewState = "decision" | "summary" | "edit-field" | "done";
