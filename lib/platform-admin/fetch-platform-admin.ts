@@ -377,5 +377,41 @@ export async function postPlatformAdminTokenProbe(): Promise<TokenProbeInvocatio
   return { routeHttpStatus: status, result: data };
 }
 
+/* ------------------------------------------------------------------------- *
+ * TEMPORARY — ITA PRODUCTION app registration. Remove together with
+ * app/api/platform-admin/authority/production-app-registration/route.ts and
+ * app/(platform-admin)/admin/authority-app-registration/page.tsx.
+ * The secret is sent once in the POST body; nothing here keeps a copy.
+ * ------------------------------------------------------------------------- */
+
+export type AuthorityAppRegistrationRequest = {
+  mode: "dry-run" | "apply";
+  itaClientId: string;
+  clientSecret: string;
+  accountingSoftwareNumber: string;
+  portalApplicationId?: string;
+  confirmation?: string;
+};
+
+export type AuthorityAppRegistrationSummaryView = {
+  mode: "dry-run" | "apply";
+  environment: "PRODUCTION";
+  itaClientId: string;
+  accountingSoftwareNumber: string;
+  portalApplicationId: string | null;
+  keyCheck: "OK";
+  created: boolean;
+};
+
+export async function postPlatformAdminAuthorityAppRegistration(
+  body: AuthorityAppRegistrationRequest
+): Promise<AuthorityAppRegistrationSummaryView> {
+  const { data } = await adminRequest<AuthorityAppRegistrationSummaryView>(
+    "/api/platform-admin/authority/production-app-registration",
+    { method: "POST", body: JSON.stringify(body) }
+  );
+  return data;
+}
+
 /** Test seam — exercises the request core directly. Not used by the console. */
 export const __testing = { adminRequest };
