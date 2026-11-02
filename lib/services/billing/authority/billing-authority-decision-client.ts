@@ -23,6 +23,8 @@ import type {
 } from "@/lib/services/billing/authority/billing-authority-decision-client.types";
 
 export type SendInvoiceDecisionInput = {
+  /** Business the request is for: the egress pilot scope (required in PRODUCTION). */
+  businessId: number;
   accessToken: string;
   action: InvoiceDecisionAction;
   payload: InvoiceDecisionRequest;
@@ -113,7 +115,8 @@ export function parseDecisionResponse(
 export async function sendInvoiceDecision(
   input: SendInvoiceDecisionInput
 ): Promise<DecisionClientResult> {
-  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
+  const fetchFn =
+    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId });
   const url = buildInvoiceDecisionUrl(input.config, input.action);
 
   const controller = new AbortController();

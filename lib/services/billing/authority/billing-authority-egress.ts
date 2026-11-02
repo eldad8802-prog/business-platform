@@ -24,6 +24,10 @@
  *     the request to a destination outside the allowlist.
  *   - Errors carry an error code and the NAME of the offending env var only —
  *     never a PEM, key, URL credential, or raw library message.
+ *   - Production pilot: in PRODUCTION every request must carry a pilot scope
+ *     (`authorityEgressFetch.forScope(...)`) that the pilot allowlist admits.
+ *     The bare fetch, or a scope outside the allowlist, is refused before any
+ *     network I/O. See billing-authority-production-pilot.ts.
  *
  * Configuration (per ITA environment, no unscoped fallback):
  *   ITA_EGRESS_PROXY_URL_<ENV>    https://<host>[:port] — must match the proxy
@@ -37,6 +41,10 @@
 import { createHash, createPrivateKey, X509Certificate, type KeyObject } from "node:crypto";
 import { fetch as undiciFetch, Pool, ProxyAgent, type Dispatcher } from "undici";
 import type { BillingAuthorityEnvironment } from "@prisma/client";
+import {
+  isAuthorityPilotScopeAllowed,
+  type AuthorityPilotScope,
+} from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
 /** The only inner destinations the ITA transport may reach (port 443 only). */
 export const AUTHORITY_EGRESS_ALLOWED_HOSTS: readonly string[] = Object.freeze([
@@ -49,6 +57,7 @@ export const AUTHORITY_EGRESS_ERROR_CODES = {
   CONFIG_INVALID: "ITA_EGRESS_CONFIG_INVALID",
   ENVIRONMENT_INVALID: "ITA_EGRESS_ENVIRONMENT_INVALID",
   DESTINATION_BLOCKED: "ITA_EGRESS_DESTINATION_BLOCKED",
+  PILOT_SCOPE_REFUSED: "ITA_EGRESS_PILOT_SCOPE_REFUSED",
 } as const;
 
 export type AuthorityEgressErrorCode =
@@ -369,18 +378,26 @@ export type AuthorityEgressFetchDeps = {
   now?: () => Date;
 };
 
+/** The ITA fetch plus its pilot-scoped variants. */
+export type AuthorityEgressFetch = typeof fetch & {
+  /** Same transport, carrying who the request is for (required in PRODUCTION). */
+  forScope(scope: AuthorityPilotScope): typeof fetch;
+};
+
 /**
  * Builds the ITA-scoped fetch. Order per call: destination allowlist →
- * environment → config validation → dispatcher → request. Any failure before
- * the last step throws an AuthorityEgressError and no socket is opened.
+ * environment → config validation → production pilot scope → dispatcher →
+ * request. Any failure before the last step throws an AuthorityEgressError and
+ * no socket is opened.
  */
 export function createAuthorityEgressFetch(
   deps: AuthorityEgressFetchDeps = {}
-): typeof fetch {
+): AuthorityEgressFetch {
   const transportFetch = deps.transportFetch ?? undiciFetch;
   let cached: { fingerprint: string; dispatcher: Dispatcher } | null = null;
 
-  const egressFetch = async (
+  const request = async (
+    scope: AuthorityPilotScope | null,
     input: Parameters<typeof fetch>[0],
     init?: Parameters<typeof fetch>[1]
   ): Promise<Response> => {
@@ -392,6 +409,16 @@ export function createAuthorityEgressFetch(
       environment,
       deps.now ? deps.now() : new Date()
     );
+
+    if (
+      environment === "PRODUCTION" &&
+      (scope == null || !isAuthorityPilotScopeAllowed(scope, environment, env))
+    ) {
+      throw new AuthorityEgressError(
+        AUTHORITY_EGRESS_ERROR_CODES.PILOT_SCOPE_REFUSED,
+        "PRODUCTION requests require a scope admitted by the production pilot"
+      );
+    }
 
     if (!cached || cached.fingerprint !== config.fingerprint) {
       const previous = cached;
@@ -407,11 +434,18 @@ export function createAuthorityEgressFetch(
     return response as unknown as Response;
   };
 
-  return egressFetch as typeof fetch;
+  const egressFetch = ((input, init) => request(null, input, init)) as AuthorityEgressFetch;
+  egressFetch.forScope = (scope) =>
+    ((input, init) => request(scope, input, init)) as typeof fetch;
+  return egressFetch;
 }
 
-/** Production ITA transport — the default for every authority call-site. */
-export const authorityEgressFetch: typeof fetch = createAuthorityEgressFetch();
+/**
+ * Production ITA transport — the default for every authority call-site. Call
+ * sites use `authorityEgressFetch.forScope(...)`; the bare fetch is refused in
+ * PRODUCTION.
+ */
+export const authorityEgressFetch: AuthorityEgressFetch = createAuthorityEgressFetch();
 
 export type AuthorityEgressDiagnostics = {
   environment: BillingAuthorityEnvironment | null;

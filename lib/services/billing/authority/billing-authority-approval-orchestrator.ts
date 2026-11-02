@@ -34,6 +34,8 @@ import type { SendInvoiceApprovalInput } from "@/lib/services/billing/authority/
 
 /** Business-level input. No DB/env/Prisma — everything is passed in explicitly. */
 export type RequestInvoiceApprovalInput = {
+  /** Business the request is for: the egress pilot scope (required in PRODUCTION). */
+  businessId: number;
   /** Frozen legal snapshot of the issued document. */
   snapshot: BillingIssuedSnapshotV1;
   /** Customer VAT/tax id (absent from the snapshot; supplied by the caller). */
@@ -168,6 +170,7 @@ export async function requestInvoiceApproval(
   let clientResult: ApprovalClientResult;
   try {
     clientResult = await deps.sendApproval({
+      businessId: input.businessId,
       accessToken: input.accessToken,
       payload: built.payload,
       config: input.config,

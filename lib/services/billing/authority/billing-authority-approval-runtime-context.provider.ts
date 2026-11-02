@@ -19,6 +19,10 @@ import { BillingAuthorityEnvironment } from "@prisma/client";
 import { ServiceUnavailableError } from "@/lib/errors";
 import { getActiveAuthorityApp } from "@/lib/services/billing/authority/billing-authority-app.service";
 import {
+  AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+  isAuthorityProductionAllowedForBusiness,
+} from "@/lib/services/billing/authority/billing-authority-production-pilot";
+import {
   resolveApprovalConfig,
   type ApprovalConfigErrorCode,
   type ApprovalRuntimeConfig,
@@ -36,6 +40,7 @@ export type AppErrorCode =
   | "ACCOUNTING_SOFTWARE_NUMBER_MISSING";
 
 export type RuntimeContextErrorCode =
+  | typeof AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED
   | ApprovalConfigErrorCode
   | AppErrorCode
   | AccessTokenErrorCode;
@@ -114,6 +119,16 @@ export async function resolveApprovalRuntimeContext(
   },
   deps: RuntimeContextProviderDeps = defaultRuntimeContextProviderDeps
 ): Promise<RuntimeContextResult> {
+  // 0. Production pilot. Approval and Decision both resolve their context here,
+  //    before the reserve and before any token decrypt or refresh.
+  if (!isAuthorityProductionAllowedForBusiness(input.businessId, input.environment)) {
+    return {
+      ok: false,
+      code: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+      message: "Authority production pilot is not enabled for this business",
+    };
+  }
+
   // 1. Config (pure).
   const config = deps.resolveConfig({ environment: input.environment });
   if (!config.ok) {

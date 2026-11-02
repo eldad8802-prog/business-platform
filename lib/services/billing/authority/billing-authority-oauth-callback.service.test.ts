@@ -715,6 +715,8 @@ async function runAsyncTests() {
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
       fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
+    // Production pilot: business 42 is admitted for this PRODUCTION case only.
+    process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS = "42";
     try {
       const success = await handleAuthorityOAuthCallback({
         // W4E-B-1: environment is part of the signed binding, so a PRODUCTION
@@ -737,6 +739,7 @@ async function runAsyncTests() {
           fake.getConnection().environment === "PRODUCTION"
       );
     } finally {
+      delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS;
       prisma.billingAuthorityApp.findUnique = originalFindUnique;
       prisma.$transaction = originalTransaction;
     }

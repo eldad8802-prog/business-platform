@@ -16,6 +16,7 @@ import {
   startAuthorityOAuth,
   type AuthorityOAuthCookieSpec,
 } from "@/lib/services/billing/authority/billing-authority-oauth-start.service";
+import { isAuthorityProductionAllowedForBusiness } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
 export type AuthorityStartActor = {
   id: number;
@@ -67,6 +68,7 @@ export const AUTHORITY_START_REASONS = {
   MISSING_BUSINESS: "MISSING_BUSINESS",
   BUSINESS_FORBIDDEN: "BUSINESS_FORBIDDEN",
   INVALID_ENVIRONMENT: "INVALID_ENVIRONMENT",
+  PRODUCTION_PILOT_NOT_ENABLED: "PRODUCTION_PILOT_NOT_ENABLED",
 } as const;
 
 function parsePositiveInt(value: string | number | null | undefined): number | null {
@@ -152,6 +154,16 @@ export async function resolveAuthorityOAuthStart(
       };
     }
     targetBusinessId = requested;
+  }
+
+  // Production pilot: checked on the TARGET business, so the admin cross-tenant
+  // branch cannot reach a business outside the pilot either.
+  if (!isAuthorityProductionAllowedForBusiness(targetBusinessId, environment)) {
+    return {
+      ok: false,
+      status: "forbidden",
+      reason: AUTHORITY_START_REASONS.PRODUCTION_PILOT_NOT_ENABLED,
+    };
   }
 
   const result = await start({

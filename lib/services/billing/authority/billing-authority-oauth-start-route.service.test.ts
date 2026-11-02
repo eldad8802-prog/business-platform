@@ -225,10 +225,13 @@ async function run() {
       explicit.ok && explicit.environment === BillingAuthorityEnvironment.SANDBOX
     );
 
+    // Production pilot: the admin's business (9) is admitted for this case only.
+    process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS = String(ADMIN_USER.businessId);
     const prod = await resolveAuthorityOAuthStart(
       { user: ADMIN_USER, environment: "production", redirectBaseUrl: BASE, secureCookies: false },
       { startOAuth: fakeStart() }
     );
+    delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS;
     ok(
       "explicit production honored when requested",
       prod.ok && prod.environment === BillingAuthorityEnvironment.PRODUCTION

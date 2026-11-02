@@ -12,6 +12,10 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+  isAuthorityProductionAllowedForBusiness,
+} from "@/lib/services/billing/authority/billing-authority-production-pilot";
+import {
   BillingAuthorityDecisionType,
   BillingAuthorityEnvironment,
   BillingAuthoritySubmissionStatus,
@@ -177,6 +181,11 @@ export async function executeAuthorityDecision(
     return { outcome: "preflight_failed", billingDocumentId, errorCode: "ENVIRONMENT_NOT_CONFIGURED" };
   }
 
+  // ---- production pilot: before any load, token work or send ----
+  if (!isAuthorityProductionAllowedForBusiness(businessId, environment)) {
+    return { outcome: "preflight_failed", billingDocumentId, errorCode: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED };
+  }
+
   // ---- load + preflight (HELD, no decision yet) ----
   const loaded = await deps.loadContext(businessId, billingDocumentId);
   if (!loaded) return { outcome: "preflight_failed", billingDocumentId, errorCode: "DOCUMENT_NOT_FOUND" };
@@ -214,6 +223,7 @@ export async function executeAuthorityDecision(
 
   // ---- call the authority (outside any transaction) ----
   const result = await deps.requestDecision({
+    businessId,
     action,
     accessToken: ctx.context.accessToken,
     config: {

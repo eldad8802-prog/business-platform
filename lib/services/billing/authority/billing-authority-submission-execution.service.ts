@@ -23,6 +23,10 @@
 
 import { createHash } from "node:crypto";
 import {
+  AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+  isAuthorityProductionAllowedForBusiness,
+} from "@/lib/services/billing/authority/billing-authority-production-pilot";
+import {
   BillingAuthorityEnvironment,
   BillingAuthoritySubmissionStatus,
   BillingDocumentStatus,
@@ -362,6 +366,11 @@ export async function executeAuthorityApproval(
     return { outcome: "preflight_failed", billingDocumentId, errorCode: "ENVIRONMENT_NOT_CONFIGURED", safeToRetry: true };
   }
 
+  // ---- production pilot: before any load, reserve, token work or send ----
+  if (!isAuthorityProductionAllowedForBusiness(businessId, environment)) {
+    return { outcome: "preflight_failed", billingDocumentId, errorCode: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED, safeToRetry: false };
+  }
+
   // ---- load ----
   const loaded = await deps.loadDocumentWithSubmission(businessId, billingDocumentId);
   if (!loaded) return { outcome: "preflight_failed", billingDocumentId, errorCode: "DOCUMENT_NOT_FOUND", safeToRetry: false };
@@ -473,6 +482,7 @@ export async function executeAuthorityApproval(
   let result: ApprovalDomainResult;
   try {
     result = await deps.requestApproval({
+      businessId,
       snapshot,
       customerTaxId: snapshot.customer.taxId,
       accountingSoftwareNumber: ctx.context.accountingSoftwareNumber,

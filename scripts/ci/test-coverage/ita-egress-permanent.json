@@ -30,6 +30,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "pure (stub fetch + execution doubles): a documented 400 keeps a bounded error list (code/param/location/short message) and the gateway transaction id in the audit only; dealer/id digits masked, tokens/emails/markup dropped, the submission column keeps only our own code"
+    },
+    "lib/services/billing/authority/billing-authority-production-pilot.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (throw-away local CA + stub transport + in-memory doubles, no DB/network): the PRODUCTION pilot gate is off by default and fails closed on any malformed allowlist; OAuth start (incl. elevated-admin cross-tenant), callback, refresh, validation, Approval and Decision refuse a non-pilot business before any state change, token work or send; the egress refuses an unscoped or non-admitted PRODUCTION request before I/O; every authority client uses a scoped fetch"
     }
   }
 }
