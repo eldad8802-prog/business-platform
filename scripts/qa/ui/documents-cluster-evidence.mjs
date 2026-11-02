@@ -49,7 +49,7 @@ async function main() {
       // measurement/screenshot captures the real composition. Bounded and
       // best-effort: static screens have no skeleton to wait for.
       if (name === "hub") {
-        await page.waitForSelector(".dz-hero", { timeout: 15000 }).catch(() => {});
+        await page.waitForSelector(".dz-dh-summary:not([aria-busy])", { timeout: 15000 }).catch(() => {});
         await page.waitForTimeout(400);
       } else if (name === "inbox") {
         await page

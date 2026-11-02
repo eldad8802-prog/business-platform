@@ -6,20 +6,18 @@ import {
   fetchDocumentsHubSummary,
   type DocumentsHubSnapshot,
 } from "@/lib/documents/fetch-inbox";
-import { glassActionStyle } from "@/lib/design/documents-theme";
-import DocumentsHubSkeleton from "@/components/documents/skeletons/DocumentsHubSkeleton";
-import PulseCard from "@/components/documents/home/PulseCard";
-import CaptureHero from "@/components/documents/home/CaptureHero";
-import StationsSection from "@/components/documents/home/StationsSection";
-import { formatMoney, monthLabel } from "@/components/documents/home/home-format";
-import { useI18n } from "@/components/i18n/I18nProvider";
-import { formatNumber } from "@/lib/i18n/format";
-import type { Translator } from "@/lib/i18n/translate";
 import {
-  homeCss,
-  pageShellStyle,
-  contentStyle,
-} from "@/components/documents/home/home-styles";
+  HubAccountantPack,
+  HubActions,
+  HubBackLink,
+  HubChannels,
+  HubSummary,
+  type HubSummaryState,
+} from "@/components/documents/home/DocumentsHub";
+import { monthLabel } from "@/components/documents/home/home-format";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { Translator } from "@/lib/i18n/translate";
+import { hubCss, hubShellStyle } from "@/components/documents/home/hub-styles";
 import DocumentsDesktopTable from "@/components/documents/home/DocumentsDesktopTable";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
 
@@ -60,7 +58,7 @@ async function uploadFailureMessage(res: Response, t: Translator): Promise<strin
 
 export default function DocumentsHome() {
   const router = useRouter();
-  const { t, locale, fmt } = useI18n();
+  const { t, locale } = useI18n();
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -172,6 +170,8 @@ export default function DocumentsHome() {
 
   const snapshot = state.status === "ready" ? state.snapshot : null;
   const pending = snapshot?.financialPulse.inboxDocumentCounts.pendingReview ?? 0;
+  // The verify tile counts the whole backlog (every month), not only this month's uploads.
+  const pendingAllMonths = snapshot?.financialPulse.inboxDocumentCounts.totalPendingReview ?? pending;
   const approved = snapshot?.financialPulse.inboxDocumentCounts.approvedDocuments ?? 0;
   const pulse = snapshot?.financialPulse.fromFinancialRecords;
   const pulseMonth = snapshot?.financialPulse.period.month;
@@ -191,10 +191,26 @@ export default function DocumentsHome() {
     cameraInputRef.current?.click();
   }
 
+  const summaryState: HubSummaryState =
+    state.status === "error"
+      ? { status: "error", message: state.message }
+      : snapshot
+        ? {
+            status: "ready",
+            monthText,
+            income: pulse?.income ?? 0,
+            expense: pulse?.expense ?? 0,
+            net: pulse?.net ?? 0,
+            previousNet: snapshot.previousNet ?? null,
+            monthDocs: pending + approved,
+            approved,
+          }
+        : { status: "loading" };
+
   return (
-    <div className="dz-docs-home" style={pageShellStyle}>
-      <style>{homeCss()}</style>
-      <main className="dz-docs-home__content" style={contentStyle}>
+    <div className="dz-dh" style={hubShellStyle}>
+      <style>{hubCss()}</style>
+      <main className="dz-dh__content">
         <input
           ref={uploadInputRef}
           type="file"
@@ -211,110 +227,41 @@ export default function DocumentsHome() {
           onChange={(e) => void uploadDocument(e.target.files?.[0])}
         />
 
-        {state.status === "loading" ? <DocumentsHubSkeleton /> : null}
+        <div className="dz-dh-top">
+          <HubBackLink />
+        </div>
+        <h1 className="dz-dh-title">{t("documents.hub.title")}</h1>
 
-        {state.status === "error" ? (
-          <section className="dz-alert">
-            <div className="dz-alert__title">{t("documents.hub.loadHubError")}</div>
-            <p className="dz-alert__text">{state.message}</p>
-            <button
-              type="button"
-              onClick={() => void load()}
-              style={{
-                ...glassActionStyle({ fullWidth: true, height: 44 }),
-                width: "100%",
-                minHeight: 44,
-                marginTop: 14,
-              }}
-            >
-              {t("documents.common.retry")}
-            </button>
-          </section>
+        <HubSummary state={summaryState} onRetry={() => void load()} />
+
+        {uploadError ? (
+          <div className="dz-dh-alert" role="alert">
+            {uploadError}
+          </div>
         ) : null}
 
-        {state.status === "ready" ? (
-          <>
-            {uploadError ? (
-              <section className="dz-alert">
-                <div className="dz-alert__title">{uploadError}</div>
-              </section>
-            ) : null}
+        <HubActions
+          pending={snapshot ? pendingAllMonths : null}
+          uploading={uploading}
+          onUpload={pickUpload}
+          onCamera={pickCamera}
+          onVerify={() => router.push("/documents/inbox")}
+          onSearch={() => router.push("/documents/search")}
+        />
 
-            <header className="dz-docs-deskhead">
-              <div>
-                <h1>{t("documents.hub.title")}</h1>
-                <p>{monthText}</p>
-              </div>
-              <div className="dz-docs-deskactions">
-                <button
-                  type="button"
-                  className="dz-docs-search"
-                  onClick={() => router.push("/documents/search")}
-                >
-                  {t("documents.hub.searchDocuments")}
-                </button>
-                <button
-                  type="button"
-                  className="dz-docs-upload"
-                  onClick={pickUpload}
-                  disabled={uploading}
-                >
-                  {uploading ? t("documents.hub.uploading") : t("documents.hub.uploadDocument")}
-                </button>
-              </div>
-            </header>
+        <div className="dz-dh-lower">
+          {/* Gmail opens the manual pick + preview screen; WhatsApp intake is not open yet ("בקרוב"). */}
+          <HubChannels onGmail={() => router.push("/documents/email")} />
+          <HubAccountantPack onOpen={() => router.push("/documents/accountant-pack")} />
+        </div>
 
-            <section className="dz-docs-kpis" aria-label={t("documents.hub.kpisAria")}>
-              <div className="dz-kpi">
-                <span>{t("documents.hub.kpiMonthDocs")}</span>
-                <strong>{formatNumber(pending + approved, fmt)}</strong>
-              </div>
-              <div className="dz-kpi">
-                <span>{t("documents.hub.kpiPending")}</span>
-                <strong>{formatNumber(pending, fmt)}</strong>
-              </div>
-              <div className="dz-kpi">
-                <span>{t("documents.hub.kpiApproved")}</span>
-                <strong>{formatNumber(approved, fmt)}</strong>
-              </div>
-              <div className="dz-kpi">
-                <span>{t("documents.hub.kpiNet")}</span>
-                <strong>{formatMoney(pulse?.net ?? 0, locale)}</strong>
-              </div>
-            </section>
-
-            <PulseCard
-              monthLabel={monthText}
-              income={pulse?.income ?? 0}
-              expense={pulse?.expense ?? 0}
-              net={pulse?.net ?? 0}
-              previousNet={snapshot?.previousNet ?? null}
-            />
-
-            <CaptureHero
-              onUpload={pickUpload}
-              onCamera={pickCamera}
-              onGmail={() => router.push("/documents/email")}
-              onWhatsapp={() => router.push("/settings/whatsapp")}
-              uploading={uploading}
-            />
-
-            <div className="dz-docs-main">
-              <StationsSection
-                pendingCount={pending}
-                onQueue={() => router.push("/documents/inbox")}
-                onSearch={() => router.push("/documents/search")}
-                onPack={() => router.push("/documents/accountant-pack")}
-              />
-              <DocumentsDesktopTable
-                items={inbox.items}
-                loading={!authToken || inbox.loading}
-                error={authToken ? inbox.error : null}
-                onRetry={() => inbox.refetch()}
-              />
-            </div>
-          </>
-        ) : null}
+        <h2 className="dz-dh-table-h">{t("documents.home.tableAria")}</h2>
+        <DocumentsDesktopTable
+          items={inbox.items}
+          loading={!authToken || inbox.loading}
+          error={authToken ? inbox.error : null}
+          onRetry={() => inbox.refetch()}
+        />
       </main>
     </div>
   );
