@@ -10,7 +10,10 @@
  * (DUBIZ_FX_COLLECTION_ENABLED, fail-closed). Section 0 proves the switch OFF,
  * the default: ILS alone is offered, any other currency is refused before a
  * row, an audit event or a provider call, and ILS is identical to ON. Sections
- * 1–6 run with the switch ON and prove the provider-limited behaviour.
+ * 1–6 run with the switch ON and prove the provider-limited behaviour, on a
+ * CardCom connection where CardCom issues the documents (PROVIDER_ISSUES) — the
+ * only collector a foreign currency is allowed for; every other collector is
+ * proven ILS-only in fx-provider-documents.test.ts.
  *
  * Pure: in-memory store, stub provider carrying each REAL adapter's declared
  * currency set, no DB, no network, no credentials.
@@ -59,7 +62,7 @@ function depsWith(store: ReturnType<typeof createInMemoryPaymentStore>, adapter:
 
 function seeded(provider: PaymentProvider = "CARDCOM") {
   const store = createInMemoryPaymentStore();
-  store.seedConnection({ businessId: 1, provider, isActive: true });
+  store.seedConnection({ businessId: 1, provider, isActive: true, documentIssuer: "PROVIDER_ISSUES" });
   return store;
 }
 
@@ -228,12 +231,14 @@ async function main() {
   setFlag("true");
 
   // ── 1. The offerable set per provider (Dubiz set ∩ adapter set) ──────────
-  ok("CardCom → ILS, USD, EUR", same(offerableCurrencies(CARDCOM_SUPPORTED_CURRENCIES), ["ILS", "USD", "EUR"]));
-  ok("SUMIT → ILS, USD", same(offerableCurrencies(SUMIT_SUPPORTED_CURRENCIES), ["ILS", "USD"]));
-  ok("Tranzila → ILS, USD, EUR", same(offerableCurrencies(TRANZILA_SUPPORTED_CURRENCIES), ["ILS", "USD", "EUR"]));
-  ok("PayPal (null = pass-through) → the whole Dubiz set", payPalProvider.supportedCurrencies === null && same(offerableCurrencies(null), ["ILS", "USD", "EUR"]));
-  ok("an adapter set wider than Dubiz is narrowed to Dubiz", same(offerableCurrencies(["GBP", "EUR", "ILS"]), ["ILS", "EUR"]));
-  ok("ILS is first whenever offered", offerableCurrencies(["EUR", "USD", "ILS"])[0] === "ILS");
+  // (the second argument: a foreign currency is allowed for this collector)
+  ok("CardCom → ILS, USD, EUR", same(offerableCurrencies(CARDCOM_SUPPORTED_CURRENCIES, true), ["ILS", "USD", "EUR"]));
+  ok("SUMIT → ILS, USD", same(offerableCurrencies(SUMIT_SUPPORTED_CURRENCIES, true), ["ILS", "USD"]));
+  ok("Tranzila → ILS, USD, EUR", same(offerableCurrencies(TRANZILA_SUPPORTED_CURRENCIES, true), ["ILS", "USD", "EUR"]));
+  ok("PayPal (null = pass-through) → the whole Dubiz set", payPalProvider.supportedCurrencies === null && same(offerableCurrencies(null, true), ["ILS", "USD", "EUR"]));
+  ok("an adapter set wider than Dubiz is narrowed to Dubiz", same(offerableCurrencies(["GBP", "EUR", "ILS"], true), ["ILS", "EUR"]));
+  ok("ILS is first whenever offered", offerableCurrencies(["EUR", "USD", "ILS"], true)[0] === "ILS");
+  ok("no collector answer → ILS alone even with the switch ON (fail-closed)", same(offerableCurrencies(CARDCOM_SUPPORTED_CURRENCIES), ["ILS"]));
   for (const p of ["CARDCOM", "SUMIT", "TRANZILA", "PAYPAL"] as const) {
     ok(`${p}: registry adapter offers ILS`, offerableCurrencies(resolvePaymentProvider(p).supportedCurrencies).includes("ILS"));
   }
@@ -242,7 +247,7 @@ async function main() {
   {
     let err: unknown = null;
     try {
-      assertCurrencyOfferable({ provider: "SUMIT", supportedCurrencies: SUMIT_SUPPORTED_CURRENCIES }, "EUR");
+      assertCurrencyOfferable({ provider: "SUMIT", supportedCurrencies: SUMIT_SUPPORTED_CURRENCIES }, "EUR", { provider: "CARDCOM", documentIssuer: "PROVIDER_ISSUES" });
     } catch (e) {
       err = e;
     }
@@ -321,6 +326,9 @@ async function main() {
   {
     const r = await loadCollectionProviderReadiness(1, seeded("CARDCOM"));
     ok("readiness: CardCom → ILS, USD, EUR, no blocker", r.blocker === null && same(r.offerableCurrencies, ["ILS", "USD", "EUR"]));
+    const dubiz = createInMemoryPaymentStore();
+    dubiz.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true, documentIssuer: "DUBIZ_ISSUES" });
+    ok("readiness: CardCom with DUBIZ_ISSUES → ILS alone even with the switch ON", same((await loadCollectionProviderReadiness(1, dubiz)).offerableCurrencies, ["ILS"]));
     const sumit = await loadCollectionProviderReadiness(1, seeded("CARDCOM"), () => ({ supportedCurrencies: SUMIT_SUPPORTED_CURRENCIES }));
     ok("readiness: SUMIT-shaped adapter → ILS, USD", same(sumit.offerableCurrencies, ["ILS", "USD"]));
     const ilsOnly = await loadCollectionProviderReadiness(1, seeded("CARDCOM"), () => ({ supportedCurrencies: ["ILS"] }));
@@ -328,8 +336,8 @@ async function main() {
     const none = await loadCollectionProviderReadiness(1, createInMemoryPaymentStore());
     ok("readiness: no provider → blocker kept, ILS alone", none.blocker === "NO_PAYMENT_PROVIDER" && same(none.offerableCurrencies, ["ILS"]));
     const two = createInMemoryPaymentStore();
-    two.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
-    two.seedConnection({ businessId: 1, provider: "SUMIT", isActive: true });
+    two.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true, documentIssuer: "PROVIDER_ISSUES" });
+    two.seedConnection({ businessId: 1, provider: "SUMIT", isActive: true, documentIssuer: "PROVIDER_ISSUES" });
     // SUMIT is a disabled capability, so this is still a single usable provider.
     const twoR = await loadCollectionProviderReadiness(1, two);
     ok("readiness: a disabled provider's connection does not narrow or block", twoR.blocker === null && same(twoR.offerableCurrencies, ["ILS", "USD", "EUR"]));

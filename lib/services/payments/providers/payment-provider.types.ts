@@ -23,6 +23,23 @@ import type { PaymentProvider } from "../payments.types";
 export type PaymentMethodKind = "CARD" | "BIT" | "APPLE_PAY" | "GOOGLE_PAY" | "UNKNOWN";
 
 /**
+ * A tax document the PROVIDER states it issued for this payment, read from its
+ * AUTHORITATIVE verification answer (never from a callback body). Only an
+ * answer naming a real document number AND a document type yields one.
+ *
+ *   number — the provider's document number, digits only
+ *   type   — the provider's own document-type name (e.g. CardCom
+ *            "TaxInvoiceAndReceipt"), kept verbatim for display
+ *   url    — the provider's OWN https link to the document, or null when the
+ *            answer carries none; Dubiz links to it, never proxies it
+ */
+export interface ProviderIssuedDocument {
+  number: string;
+  type: string;
+  url: string | null;
+}
+
+/**
  * What a provider connection is pointed at, as far as the adapter can tell.
  *
  *   TEST    — a provider's published shared test account (CardCom terminal 1000)
@@ -182,6 +199,13 @@ export interface ProviderPaymentStatus {
    * Null when the answer does not say.
    */
   providerDocumentIssued?: boolean | null;
+  /**
+   * The document the provider states it issued for this payment (number, type,
+   * link), from the same authoritative answer; null when the answer names none.
+   * Absent when the adapter cannot read documents at all. Read by the recording
+   * path only for a foreign-currency request on a PROVIDER_ISSUES connection.
+   */
+  providerDocument?: ProviderIssuedDocument | null;
   /**
    * Provider-specific identifiers the adapter will need again later (a refund
    * target, a customer id), taken from the AUTHORITATIVE answer. Stored with

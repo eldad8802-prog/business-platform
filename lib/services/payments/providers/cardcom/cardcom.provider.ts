@@ -34,6 +34,7 @@ import {
   type ParsedWebhookEvent,
   type ParseWebhookInput,
   type PaymentProviderAdapter,
+  type ProviderIssuedDocument,
   type ProviderPaymentStatus,
   type VerifyWebhookInput,
   type VerifyWebhookResult,
@@ -337,6 +338,73 @@ function cardComDocumentIssued(result: unknown, tranInfo: object | null): boolea
   return docNumber != null && docNumber > 0;
 }
 
+/**
+ * Hosts CardCom serves its own documents from. A link to anywhere else is not
+ * shown (the document number still is): the owner must only ever be sent to
+ * CardCom itself.
+ */
+const CARDCOM_DOCUMENT_HOSTS: readonly string[] = ["cardcom.solutions", "cardcom.co.il"];
+
+/** CardCom's own https document link, or null. */
+export function cardComDocumentUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const raw = value.trim();
+  if (raw === "" || raw.length > 2048) return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.username !== "" || url.password !== "") return null;
+  const host = url.hostname.toLowerCase();
+  if (!CARDCOM_DOCUMENT_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))) return null;
+  return url.toString();
+}
+
+/**
+ * A CardCom document type as stated (the v11 `DocumentType` enum name, e.g.
+ * "TaxInvoiceAndReceipt", or its number), or null. "Error" — CardCom's own
+ * value for "no document" — is never a document type.
+ */
+function cardComDocumentType(value: unknown): string | null {
+  if (typeof value === "number") return Number.isInteger(value) && value > 0 ? String(value) : null;
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  if (/^\d+$/.test(v)) return Number(v) > 0 ? v : null;
+  if (!/^[A-Za-z]{1,64}$/.test(v) || v.toLowerCase() === "error") return null;
+  return v;
+}
+
+/**
+ * The document CardCom states it created for this payment, from GetLpResult —
+ * the authoritative answer, never a callback body.
+ *
+ *   1. `DocumentInfo` (LowProfileResult): when it carries a non-zero
+ *      ResponseCode, CardCom is saying the document was NOT created — null.
+ *      Otherwise its DocumentNumber + DocumentType (+ DocumentUrl).
+ *   2. else `TranzactionInfo`: DocumentNumber + DocumentType (+ DocumentUrl).
+ *
+ * A document needs BOTH a positive number and a type. Anything less — a bare
+ * DocumentInfo object, a zero number, a missing type — is no document.
+ */
+export function cardComIssuedDocument(result: unknown, tranInfo: object | null): ProviderIssuedDocument | null {
+  const read = (src: unknown): ProviderIssuedDocument | null => {
+    const number = positiveIdOf(caseInsensitiveGet(src, "DocumentNumber"));
+    const type = cardComDocumentType(caseInsensitiveGet(src, "DocumentType"));
+    if (number == null || type == null) return null;
+    return { number, type, url: cardComDocumentUrl(caseInsensitiveGet(src, "DocumentUrl")) };
+  };
+  const info = caseInsensitiveGet(result, "DocumentInfo");
+  if (info && typeof info === "object") {
+    const code = cardComCode(caseInsensitiveGet(info, "ResponseCode"));
+    if (code != null && code !== 0) return null;
+    const fromInfo = read(info);
+    if (fromInfo) return fromInfo;
+  }
+  return tranInfo ? read(tranInfo) : null;
+}
+
 /** Non-secret identifiers a later receipt or refund may need. Never the card number. */
 function cardComEvidence(tranInfo: object | null): Record<string, string | null> {
   if (!tranInfo) return {};
@@ -413,6 +481,7 @@ export function interpretGetLpResult(
       verifiedCurrency,
       paymentMethod: cardComPaymentMethod(result, tranInfo),
       providerDocumentIssued: cardComDocumentIssued(result, tranInfo),
+      providerDocument: cardComIssuedDocument(result, tranInfo),
       evidence: cardComEvidence(tranInfo),
     };
   }

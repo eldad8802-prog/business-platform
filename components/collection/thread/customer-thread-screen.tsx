@@ -14,6 +14,7 @@ import { buildPaymentRequestMessage } from "@/lib/services/billing/collection/co
 import { currencySymbol } from "@/lib/services/billing/collection/collection-display";
 import { attentionText, collectionFetch, recordCollectionAction, shareOrCopy, useCollectionFormat } from "../collection-client";
 import { refundOutcomeNotice, type RefundApiOutcome } from "./refund-outcome";
+import { ProviderDocumentNote } from "../provider-document";
 
 const W = TOKEN.warm;
 
@@ -513,6 +514,7 @@ function EventCard({
           {e.accounting === "RECEIPT_PENDING" ? <span>{tr("money.collection.shared.receiptPending")}</span> : null}
           {e.accounting === "NO_AUTOMATIC_RECEIPT" ? <span>{tr("money.collection.shared.noAutoReceipt")}</span> : null}
           {attention ? <span>{attention.title}</span> : null}
+          <ProviderDocumentNote doc={e.providerDocument} t={tr} />
         </>,
         <>
           {attention ? <WarmButton height={40} disabled={busy} onClick={() => onRetry(e.paymentTransactionId)}>{tr("money.collection.shared.retryReceipt")}</WarmButton> : null}
