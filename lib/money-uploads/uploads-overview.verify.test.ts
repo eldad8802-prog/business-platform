@@ -316,6 +316,30 @@ check("each history read fails on its own; the flag read is not wrapped (it is a
   assert.equal(service.includes('e instanceof Error ? e.name : "unknown"'), true);
   assert.equal(/e\.message/.test(service), false);
 });
+check("Z / settlement cards: a link ONLY for an explicit ON; OFF, UNKNOWN and absent keep them closed", () => {
+  const base = { bankState: "OFF" as const, runs: [], legacyBatches: [], now: NOW, importAvailable: true };
+  assert.deepEqual(buildUploadsOverview(base).revenueReports, { z: false, settlement: false });
+  assert.deepEqual(buildUploadsOverview({ ...base, revenueReportStates: { z: "ON", settlement: "UNKNOWN" } }).revenueReports, { z: true, settlement: false });
+  assert.deepEqual(buildUploadsOverview({ ...base, revenueReportStates: { z: "OFF", settlement: "ON" } }).revenueReports, { z: false, settlement: true });
+  // A history that could not be read neither closes nor opens a card: the cards are the flag's decision alone.
+  assert.deepEqual(buildUploadsOverview({ ...base, runs: null, revenueReportStates: { z: "ON", settlement: "ON" } }).revenueReports, { z: true, settlement: true });
+});
+check("history labels for the revenue report runs", () => {
+  assert.equal(domainLabel("z_report"), "דוח Z מהקופה");
+  assert.equal(domainLabel("settlement_report"), "דוח סליקה");
+});
+check("the flag reads for the Z / settlement cards are fail-closed and not wrapped", () => {
+  assert.equal(service.includes('revenueReportUploadState(businessId, "z")'), true);
+  assert.equal(service.includes('revenueReportUploadState(businessId, "settlement")'), true);
+  assert.equal(/revenueReportUploadState\([^)]*\)\.catch\(/.test(service), false);
+});
+check("the screen: Z / settlement stay SoonCards unless the server said ON", () => {
+  const screen = fs.readFileSync("features/money-uploads/uploads-screen.tsx", "utf8");
+  assert.equal(screen.includes('load.state === "ready" && load.data.revenueReports ? load.data.revenueReports : { z: false, settlement: false }'), true);
+  assert.equal(screen.includes('href="/money/revenue-reports/z/upload"'), true);
+  assert.equal(screen.includes('href="/money/revenue-reports/settlement/upload"'), true);
+  assert.equal((screen.match(/<SoonCard /g) ?? []).length, 2);
+});
 check("the route takes the business from the session and never caches", () => {
   assert.equal(route.includes("getCurrentUser(req)"), true);
   assert.equal(route.includes("getUploadsOverview(user.businessId)"), true);

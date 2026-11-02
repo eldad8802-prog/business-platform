@@ -492,6 +492,8 @@ export const insightsEn: Widen<typeof insightsHe> = {
     toBusinessManagement: "To Running the business",
     toCustomersSales: "To Customers & sales",
     toMoneyInvoices: "To Money & invoices",
+    toMoneyUploads: "To reports & files upload",
+    toRevenueReports: "To register closes & settlement reports",
     toDashboard: "To the dashboard",
     toAllRecommendations: "To all recommendations",
     toLandingDirections: "To landing page directions",

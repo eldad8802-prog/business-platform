@@ -501,6 +501,8 @@ export const insightsHe = {
     toBusinessManagement: "לניהול העסק",
     toCustomersSales: "ללקוחות ומכירות",
     toMoneyInvoices: "לכסף וחשבוניות",
+    toMoneyUploads: "להעלאת דוחות וקבצים",
+    toRevenueReports: "לסגירות קופה ודוחות סליקה",
     toDashboard: "ללוח הבקרה",
     toAllRecommendations: "לכל ההמלצות",
     toLandingDirections: "לכיווני דף הנחיתה",
