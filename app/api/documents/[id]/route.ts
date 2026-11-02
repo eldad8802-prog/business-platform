@@ -51,7 +51,8 @@ export async function GET(
     }
 
     if (document.businessId !== user.businessId) {
-      return Response.json({ error: t("api.common.noPermission") }, { status: 403 });
+      // 404, like a missing id: another business's document must not be confirmed to exist.
+      return Response.json({ error: t("api.documents.notFound") }, { status: 404 });
     }
 
     const debug =

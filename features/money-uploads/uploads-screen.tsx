@@ -94,7 +94,7 @@ export function UploadsScreen() {
           </span>
           <div>
             <h1>העלאת דוחות וקבצים</h1>
-            <p>דפי בנק, דוחות מהקופה ומסמכים — בוחרים מה להעלות, וכל קובץ נקלט במסך שמטפל בו.</p>
+            <p>דפי בנק, חשבוניות וקבלות ונתונים ממערכת קודמת — בוחרים מה להעלות, וכל קובץ נקלט במסך שמטפל בו.</p>
           </div>
         </header>
 
@@ -144,7 +144,7 @@ export function UploadsScreen() {
                 href="/documents/upload"
                 entity="documents"
                 name="חשבוניות וקבלות"
-                desc="PDF או תמונה · נקלטים למסמכים של העסק"
+                desc="PDF או תמונה (JPG / PNG) · הקובץ נשמר במסמכים של העסק · בודקים ומאשרים לפני רישום"
               />
             </li>
             {IMPORT_EXPORT_RELEASED ? (
@@ -153,7 +153,7 @@ export function UploadsScreen() {
                   href={IMPORT_EXPORT_ROUTE}
                   entity="connections"
                   name="נתונים והיסטוריה ממערכת אחרת"
-                  desc="לקוחות, ספקים, מלאי ומסמכים מהמערכת הקודמת"
+                  desc="לקוחות, ספקים, לידים, מלאי ומסמכים מהמערכת הקודמת · Excel או CSV, עם בדיקה לפני קליטה"
                 />
               </li>
             ) : null}
@@ -405,7 +405,9 @@ function RecentUploads({ load }: { load: Load }) {
               {e.legacyPath ? <span>דרך ההעלאה הישנה במסך תנועות הבנק</span> : null}
             </div>
           ) : null}
-          {!e.sourceFileStored ? <div className="uhist-note">קובץ המקור לא נשמר בדוביז</div> : null}
+          <div className="uhist-note">
+            {e.sourceFileStored ? "הקבצים נשמרו במסמכים של העסק" : "קובץ המקור לא נשמר בדוביז"}
+          </div>
         </li>
       ))}
     </ul>

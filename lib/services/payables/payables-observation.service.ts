@@ -172,11 +172,17 @@ export async function uploadStatement(input: {
   csvText: string;
 }) {
   if (Buffer.byteLength(input.csvText, "utf8") > MAX_UPLOAD_BYTES) {
-    throw new PayablesValidationError("The file is larger than 1 MB");
+    throw new PayablesValidationError("הקובץ גדול מ-1MB. פצלו אותו לתקופות קצרות יותר.");
   }
   const parsed = parseStatementCsv(input.csvText);
   if (parsed.lines.length > MAX_UPLOAD_LINES) {
-    throw new PayablesValidationError(`At most ${MAX_UPLOAD_LINES} lines per upload`);
+    throw new PayablesValidationError(`בקובץ יותר מ-${MAX_UPLOAD_LINES} תנועות. פצלו אותו לתקופות קצרות יותר.`);
+  }
+  // A file with no readable line is a failed upload, never "0 new lines": nothing is written, nothing is claimed.
+  if (parsed.lines.length === 0) {
+    throw new PayablesValidationError(
+      "לא הצלחנו לקרוא תנועות מהקובץ. נדרש קובץ CSV מופרד בפסיקים, ובשורה הראשונה כותרות של תאריך וסכום (או חובה / זכות)."
+    );
   }
   const ids = statementLineIdentities(input.businessId, input.sourceBankAccountId ?? null, parsed.lines);
   const importBatchId = `upl-${Date.now().toString(36)}`;

@@ -10,6 +10,11 @@ import { normalizeVendorForLearning } from "@/lib/services/documents/vendor-norm
 import { runShadowMaterialization } from "@/lib/business-memory/shadow";
 import { syncDocumentsReviewQueueNotification } from "@/lib/notifications/documents-review-queue-notifications";
 import { noteDocumentChangeForAccountant } from "@/lib/accountant/change-hooks";
+import {
+  REVENUE_REPORT_SUSPECTED,
+  revenueReportQuestion,
+  revenueReportQuestionText,
+} from "@/lib/services/documents/revenue-report-guard";
 
 export async function POST(
   req: Request,
@@ -55,6 +60,8 @@ export async function POST(
             category?: string | null;
           };
           explicitFinancial?: boolean;
+          /** The owner's answer to the Z / settlement question: "this is not one of those reports". */
+          confirmedNotRevenueReport?: boolean;
         };
 
     if (!body) {
@@ -171,6 +178,28 @@ export async function POST(
       }
 
       financial = { amount, vendorName, category, direction, date };
+
+      // A Z report or a settlement report recorded as income would count the same sales twice (see
+      // revenue-report-guard.ts). Asked once, from the document's own text, before anything is written; the
+      // owner's answer (`confirmedNotRevenueReport`) lets the approval through. An already approved document
+      // is not asked again (an identical re-approval is an idempotent retry).
+      if (document.status !== "approved") {
+        const question = revenueReportQuestion({
+          ocrText: document.ocrText,
+          direction,
+          confirmed: body.confirmedNotRevenueReport === true,
+        });
+        if (question) {
+          return Response.json(
+            {
+              error: revenueReportQuestionText(question.kind),
+              code: REVENUE_REPORT_SUSPECTED,
+              kind: question.kind,
+            },
+            { status: 409 }
+          );
+        }
+      }
     }
 
     // APPROVED-MUTATION GUARD (Wave 0+1 invariant): approved financial truth

@@ -1137,6 +1137,12 @@ jobs:
       - name: Canonical document ingestion (one ingestion path, storage before row)
         run: npx tsx lib/services/documents/document-ingestion.verify.test.ts
 
+      # A Z report or a settlement report approved as income would count the same sales twice. The approve
+      # route asks the owner first, from the document's text — and must NOT question ordinary invoices.
+      # Pure — no DB, no network. Local equivalent: npm run verify:revenue-report-guard
+      - name: Revenue report guard (Z / settlement asked about before an income record; invoices untouched)
+        run: npx tsx lib/services/documents/revenue-report-guard.verify.test.ts
+
       - name: I-7C.1 negative proof (upload accepting a file on its declared type alone must be caught)
         run: |
           F="app/api/documents/upload/route.ts"

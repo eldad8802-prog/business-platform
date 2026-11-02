@@ -58,7 +58,7 @@ export async function GET(
 
     // Cross-tenant guard: only the owning business may stream the file.
     if (document.businessId !== user.businessId) {
-      return new Response("Forbidden", { status: 403 });
+      return new Response("Not found", { status: 404 });
     }
 
     const basename = String(document.fileUrl ?? "").trim();

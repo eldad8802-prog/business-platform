@@ -110,10 +110,13 @@ export function formatDateIl(d: Date): string {
   return `${at("day")}/${at("month")}/${at("year")}`;
 }
 
-/** A Date whose local fields equal the Israeli calendar day (ExcelJS writes local date fields). */
+/**
+ * A Date at UTC midnight of the Israeli calendar day. ExcelJS turns a Date into a serial from its UTC time, so a
+ * local-midnight Date showed the day before on any server not running in UTC.
+ */
 function israeliDateCell(d: Date): Date {
   const [day, month, year] = formatDateIl(d).split("/").map(Number);
-  return new Date(year, month - 1, day);
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 /**
