@@ -211,4 +211,87 @@
 
 <img src="proposals/f4c.png" width="320">
 
+---
+
+## ממומש · #916 (צילומים מהקוד הממומש, API מדומה)
+
+צולם מהענף ב־HEAD `8609ad8e`, בשרת מקומי עם API מדומה. אין נתוני עסק. הנתונים הם נתוני בדיקה.
+
+### המסך הראשי · /documents
+
+<img src="implemented/hub__mobile.png" width="300"> <img src="implemented/hub__desktop.png" width="560">
+
+### תור אימות · /documents/inbox
+
+<img src="implemented/inbox__mobile.png" width="300"> <img src="implemented/inbox__desktop.png" width="560">
+
+### תור אימות · ריק
+
+<img src="implemented/inbox-empty__mobile.png" width="300"> <img src="implemented/inbox-empty__desktop.png" width="560">
+
+### חיפוש מסמכים · /documents/search
+
+<img src="implemented/search__mobile.png" width="300"> <img src="implemented/search__desktop.png" width="560">
+
+### חיפוש · אין תוצאות
+
+<img src="implemented/search-empty__mobile.png" width="300"> <img src="implemented/search-empty__desktop.png" width="560">
+
+### אימות מסמך · /documents/review/[id]
+
+<img src="implemented/review__mobile.png" width="300"> <img src="implemented/review__desktop.png" width="560">
+
+### אימות · עריכת שדה
+
+<img src="implemented/review-edit__mobile.png" width="300">
+
+### אימות · ״שמור כמסמך מידע?״
+
+<img src="implemented/review-docmode-confirm__mobile.png" width="300">
+
+### אימות · אחרי אישור
+
+<img src="implemented/review-done__mobile.png" width="300"> <img src="implemented/review-done__desktop.png" width="560">
+
+### אימות · בעיבוד
+
+<img src="implemented/review-processing__mobile.png" width="300">
+
+### אימות · נכשל
+
+<img src="implemented/review-failed__mobile.png" width="300">
+
+### אימות · לא נמצא
+
+<img src="implemented/review-notfound__mobile.png" width="300">
+
+### העלאת קובץ · /documents/upload
+
+<img src="implemented/upload__mobile.png" width="300"> <img src="implemented/upload__desktop.png" width="560">
+
+### קליטה מ-Gmail · לא מחובר (הכרטיס מוצג גם במובייל)
+
+<img src="implemented/email-off__mobile.png" width="300"> <img src="implemented/email-off__desktop.png" width="560">
+
+### קליטה מ-Gmail · מחובר
+
+<img src="implemented/email__mobile.png" width="300"> <img src="implemented/email__desktop.png" width="560">
+
+### חבילת רו״ח · /documents/accountant-pack
+
+<img src="implemented/pack__mobile.png" width="300"> <img src="implemented/pack__desktop.png" width="560">
+
+### חבילת רו״ח · חלון ״שלחתי בעצמי״
+
+<img src="implemented/pack-manual-confirm__mobile.png" width="300">
+
+### חבילת רו״ח · חלון ״בטל קישור״
+
+<img src="implemented/pack-revoke-confirm__mobile.png" width="300">
+
+### חבילת רו״ח · מתג חודשי כבוי (הורדה לתקופה)
+
+<img src="implemented/pack-adhoc__mobile.png" width="300"> <img src="implemented/pack-adhoc__desktop.png" width="560">
+
+
 </div>
