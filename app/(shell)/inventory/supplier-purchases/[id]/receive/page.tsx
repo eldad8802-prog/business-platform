@@ -20,6 +20,7 @@ import {
   type PurchaseOrderDTO,
 } from "@/lib/api/inventory";
 import { getProductEmoji } from "@/lib/inventory/product-emoji";
+import { clampReceived, lineOpenQty, remainderDecisionPayload, shortfall } from "@/lib/inventory/receive-remainder";
 import { BdiTemplate } from "@/components/inventory/supplier-purchase-order/order-wizard-ui";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -89,7 +90,8 @@ export default function ReceivingPage() {
     for (const line of lines) {
       const rec = received[line.id] ?? 0;
       totalReceived += rec;
-      if (rec >= line.orderedQty) full += 1;
+      if (lineOpenQty(line) <= 0) continue;
+      if (shortfall(line, rec) === 0) full += 1;
       else if (rec > 0) partial += 1;
     }
     return { full, partial, totalReceived };
@@ -108,12 +110,13 @@ export default function ReceivingPage() {
     try {
       setPosting(true);
       setError(null);
-      // Apply remaining decisions on short lines first.
+      // Apply remaining decisions on short lines first. Short = against the open
+      // balance (earlier receipts and closed-short already deducted); BACKORDER and
+      // CLOSED_SHORT carry the undelivered quantity the server requires.
       for (const line of lines) {
-        const rec = received[line.id] ?? 0;
-        const decision = decisions[line.id];
-        if (rec < line.orderedQty && decision) {
-          await setLineRemainingDecision(po.id, line.id, { remainingDecision: decision });
+        const payload = remainderDecisionPayload(line, received[line.id] ?? 0, decisions[line.id]);
+        if (payload) {
+          await setLineRemainingDecision(po.id, line.id, payload);
         }
       }
       const session = await createReceivingSession(po.id, { lines: sessionLines, note: note.trim() || null });
@@ -168,8 +171,8 @@ export default function ReceivingPage() {
               const rec = received[line.id] ?? 0;
               const unitKey = line.unitType ? UNIT_SHORT[line.unitType] : undefined;
               const unit = unitKey ? t(unitKey) : "";
-              const short = rec < line.orderedQty;
-              const shortBy = line.orderedQty - rec;
+              const shortBy = shortfall(line, rec);
+              const short = shortBy > 0;
               return (
                 <InventoryOrderLine
                   key={line.id}
@@ -188,8 +191,8 @@ export default function ReceivingPage() {
                     <MiniStepper
                       value={rec}
                       min={0}
-                      onDecrement={() => setReceived((r) => ({ ...r, [line.id]: Math.max(0, rec - 1) }))}
-                      onIncrement={() => setReceived((r) => ({ ...r, [line.id]: rec + 1 }))}
+                      onDecrement={() => setReceived((r) => ({ ...r, [line.id]: clampReceived(line, rec - 1) }))}
+                      onIncrement={() => setReceived((r) => ({ ...r, [line.id]: clampReceived(line, rec + 1) }))}
                     />
                   }
                   extra={
