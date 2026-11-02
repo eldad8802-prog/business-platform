@@ -51,6 +51,7 @@ jobs:
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
       - run: npm run test:revenue-report-uploads:core
+      - run: npm run test:revenue-report-uploads:values
       - run: npm run verify:money-uploads
       - run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
       - run: node scripts/ci/security-test-coverage.mjs

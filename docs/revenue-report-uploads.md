@@ -111,3 +111,83 @@ Only its sha256 (`ImportRun.contentHash`) is kept, as in bank file import. The s
 Open questions per source that only a sample answers: which register identity the file prints, whether a Z number
 exists, whether refunds / voids are separate or netted, tender breakdown labels, VAT lines, the acquirer's settlement
 id and whether a file lists transactions or credits (a transaction list is NOT a settlement).
+
+## Reading values (format-independent, `report-values.ts`)
+
+Every parser reads printed amounts and dates through `readAmount` / `readDate` — exactly, or a row error code:
+
+* **Amount → bigint minor units.** ₪ / ש״ח / NIS and direction marks are ignored. The **decimal mark is stated by
+  the parser** (`"."` → `1,234.50`, `","` → `1.234,50`) and never inferred: `12,50` under `"."` is
+  `SEPARATOR_MISMATCH`, not 1250 and not 12.5. Thousands marks must be groups of three; at most two decimals.
+  Negative = leading or trailing minus (also U+2212) or parentheses.
+* **Refunds, voids, discounts, fees are magnitudes** (`asDeduction`): a report may print them `150.00` or `-150.00`.
+  The draft's own CHECK (total = gross − discount − refund − void; net = gross − fee − other) is what catches a column
+  read the wrong way — never an adjustment.
+* **Date → YYYY-MM-DD as printed.** Day-first (`/ . -`, two-digit year = 20YY) or ISO when the parser states `YMD`.
+  Month-first is never read. A printed time is returned but **never moves the day** (see open decision D-10).
+* `linesDifference(total, lines)` reports the gap between tenders / VAT lines and the printed total; it adjusts
+  nothing.
+
+Proof: `report-values.test.ts` (synthetic values; proves the reading rules, **not** any vendor's format).
+
+## Verification plan — when a real sample arrives
+
+Per source system, before its parser enters `SHIPPED_PARSERS`:
+
+1. **Intake.** The original export as the system produced it (CSV / XLSX / PDF, not re-typed, not re-saved), 2–3
+   different days incl. one with a refund or cancellation. Kept outside the repository; the fixture is an anonymised
+   copy that keeps the layout, the labels and every field listed in "Sample request" below.
+2. **Hand-written expectations first.** From the printed report, before any code: business day, Z number, register,
+   gross / discount / refund / void / total, VAT, each tender, transaction count (Z); acquirer id, value date, gross /
+   fee / other / net, installments (settlement). Stored next to the fixture as `EXPECTED`.
+3. **Parser + fixture test.** `detect` keyed on that export's signature (and 0 for the other kinds' fixtures);
+   `parse` must reproduce `EXPECTED` exactly; tenders and VAT lines must add up (`linesDifference = 0`) or the row
+   is an error; the refund day must pass the total CHECK with the refund in its own field.
+4. **Idempotency.** The same file twice → every row EXISTING, 0 writes; one day edited → CONFLICT needing an owner
+   decision (no default).
+5. **Double counting (battery).** FinancialRecord / FinancialEvent / BillingDocument / PaymentTransaction /
+   ExternalTransaction byte-identical before and after.
+6. **Lab end-to-end** in the synthetic lab business, through the screens, NOBYPASSRLS runtime; cross-business
+   access denied.
+7. **Production pilot** only after the data migration (#918) and an owner go: business 9 only, before/after
+   read-only evidence, the owner's real file preview-only unless the owner approves import.
+8. Synthetic files are never evidence of vendor compatibility.
+
+## Sample request
+
+**Z report** — must survive redaction: business day; Z number; register / terminal id (may be masked but
+consistent); period start / end; gross; discounts; refunds and voids **as printed, separately**; net total; VAT total
+and VAT lines by rate (taxable + VAT, zero-rated / exempt); grand total if printed; transaction count; every tender
+line with amount and count (cash, credit — incl. per-brand lines, cheque, transfer, wallet, voucher, other); currency.
+
+**Settlement report** — must survive: acquirer / provider; settlement or batch id; value (credit) date and the
+transaction / batch date if printed; gross; commission / fee; other deductions; net; installment number / count;
+currency; card brand, chargebacks, terminal / merchant number (last 3–4 digits) — the last three have no column yet
+and decide whether one is needed.
+
+**May be redacted:** business name, tax id, address, full merchant / terminal numbers (keep the last 3–4 digits), card
+numbers, customer names. Also tell us which system and which report / menu the file came from.
+
+## Open owner decisions (no policy exists — not invented here)
+
+* **D-1** Z and Dubiz invoices for the same till sales: on a register day (a) the Z wins and that day's invoices are
+  excluded, (b) per-invoice matching proposed for the owner to confirm, or (c) a per-business setting "the register
+  is the sales source".
+* **D-2** A Z approved through documents with "not a Z — record anyway" and also uploaded as a Z (FinancialRecord
+  income + RevenueDailyClose, no link): (a) warn on upload when a document with the same day / total exists,
+  (b) remove the override for Z, (c) accept.
+* **D-3** Scanned income documents' schema route (milestone A open decision 3).
+* **D-4** Correcting a settlement uploaded with wrong amounts: (a) reject the old row by a RevenueDecision and add a
+  new one, (b) revision support (schema change).
+* **D-5** What one settlement row is (batch / deposit / installment); a transaction-list file: refuse, or another
+  domain.
+* **D-6** Settlement ↔ bank deposit matching: automatic proposal + owner confirmation, or manual only; tolerance;
+  one deposit covering several batches.
+* **D-7** Acquirer fees: may a settlement's fee ever become an expense, given the acquirer's own fee invoice may be
+  approved as an expense document?
+* **D-8** Z vs POS variance tolerance (milestone A open decision 5).
+* **D-9** Raw file retention (milestone A open decision 4; today only the sha256).
+* **D-10** A Z closed after midnight: the printed date, or the previous business day by a cut-off hour.
+* **D-11** A file that prints no register id: default "1", or ask the owner on every upload.
+* **D-12** Historical import (HistoricalFiscalDocument) vs a Z for the same period.
+* **D-13** Whether Home or reports should ever show Z / settlement totals.

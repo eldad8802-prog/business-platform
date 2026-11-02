@@ -112,10 +112,11 @@ async function main() {
   });
   await check("no parser module exists next to the registry (a vendor parser needs a real sample first)", () => {
     const files = fs.readdirSync("lib/revenue-sources/uploads").sort();
-    assert.deepEqual(files, ["contract.ts", "core.ts", "http.ts", "registry.ts", "revenue-report-core.test.ts", "service.ts"]);
+    // report-values.ts reads ONE printed amount / date exactly (format-independent helpers, no vendor) — not a parser.
+    assert.deepEqual(files, ["contract.ts", "core.ts", "http.ts", "registry.ts", "report-values.test.ts", "report-values.ts", "revenue-report-core.test.ts", "service.ts"]);
   });
   await check("the fixture parser is TEST-ONLY: never named outside this test", () => {
-    for (const f of ["registry.ts", "service.ts", "http.ts", "core.ts", "contract.ts"]) {
+    for (const f of ["registry.ts", "service.ts", "http.ts", "core.ts", "contract.ts", "report-values.ts"]) {
       assert.equal(fs.readFileSync(`lib/revenue-sources/uploads/${f}`, "utf8").includes("test_only_fixture"), false, f);
     }
   });
