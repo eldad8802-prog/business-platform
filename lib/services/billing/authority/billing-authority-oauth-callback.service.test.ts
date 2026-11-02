@@ -715,7 +715,38 @@ async function runAsyncTests() {
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
       fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
+    // Production pilot: business 42 is admitted for this PRODUCTION case only.
+    process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS = "42";
     try {
+      // Business admitted but the user who signed the state (7) is not → refused
+      // before any token exchange, with the same pilot code. Its failure record
+      // goes to a separate fake so the success case below starts clean.
+      const refusedFake = makeFakeCallbackDb(BillingAuthorityEnvironment.PRODUCTION);
+      prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+        fn({ ...refusedFake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
+      let exchangeCalls = 0;
+      const refused = await handleAuthorityOAuthCallback({
+        query: { code: AUTH_CODE, state: PRODUCTION_OAUTH_STATE },
+        cookies: callbackCookies(BillingAuthorityEnvironment.PRODUCTION),
+        redirectBaseUrl: "https://prod.dubiz.test",
+        actorUserId: 7,
+        fetchImpl: (async () => {
+          exchangeCalls += 1;
+          return new Response("{}", { status: 599 });
+        }) as typeof fetch,
+      });
+      ok(
+        "production callback: non-pilot actor refused before token exchange",
+        !refused.ok &&
+          refused.errorCode === AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.PRODUCTION_PILOT_NOT_ENABLED &&
+          exchangeCalls === 0
+      );
+
+      // Both lists admit it; OAUTH_ONLY (operations switch unset) still allows
+      // the authorization-code exchange.
+      process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_USER_IDS = "7";
+      prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+        fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
       const success = await handleAuthorityOAuthCallback({
         // W4E-B-1: environment is part of the signed binding, so a PRODUCTION
         // callback needs a PRODUCTION-signed state. A SANDBOX state presented
@@ -737,6 +768,8 @@ async function runAsyncTests() {
           fake.getConnection().environment === "PRODUCTION"
       );
     } finally {
+      delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS;
+      delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_USER_IDS;
       prisma.billingAuthorityApp.findUnique = originalFindUnique;
       prisma.$transaction = originalTransaction;
     }

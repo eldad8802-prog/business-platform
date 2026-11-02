@@ -23,6 +23,9 @@
 
 import { createHash } from "node:crypto";
 import {
+  resolveAuthorityProductionOperationRefusal,
+} from "@/lib/services/billing/authority/billing-authority-production-pilot";
+import {
   BillingAuthorityEnvironment,
   BillingAuthoritySubmissionStatus,
   BillingDocumentStatus,
@@ -362,6 +365,13 @@ export async function executeAuthorityApproval(
     return { outcome: "preflight_failed", billingDocumentId, errorCode: "ENVIRONMENT_NOT_CONFIGURED", safeToRetry: true };
   }
 
+  // ---- production pilot (business + SUBMISSIONS stage): before any load, reserve, token work or send ----
+  // Code = allowlist vs OAUTH_ONLY stage; both: nothing loaded, reserved or sent.
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(businessId, environment);
+  if (pilotRefusal) {
+    return { outcome: "preflight_failed", billingDocumentId, errorCode: pilotRefusal, safeToRetry: false };
+  }
+
   // ---- load ----
   const loaded = await deps.loadDocumentWithSubmission(businessId, billingDocumentId);
   if (!loaded) return { outcome: "preflight_failed", billingDocumentId, errorCode: "DOCUMENT_NOT_FOUND", safeToRetry: false };
@@ -473,6 +483,7 @@ export async function executeAuthorityApproval(
   let result: ApprovalDomainResult;
   try {
     result = await deps.requestApproval({
+      businessId,
       snapshot,
       customerTaxId: snapshot.customer.taxId,
       accountingSoftwareNumber: ctx.context.accountingSoftwareNumber,
