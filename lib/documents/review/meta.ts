@@ -1,10 +1,12 @@
 import type { ApiExtracted, ExtractionConfidenceMeta } from "./types";
 
 export function buildExtractionMeta(
-  extracted: ApiExtracted | null
+  extracted: ApiExtracted | null,
+  amountCheck: string | null = null
 ): ExtractionConfidenceMeta | null {
   if (!extracted) return null;
   return {
+    amountCheck,
     amountConfidence: extracted.amountConfidence ?? null,
     vendorConfidence: extracted.vendorConfidence ?? null,
     categoryConfidence: extracted.categoryConfidence ?? null,

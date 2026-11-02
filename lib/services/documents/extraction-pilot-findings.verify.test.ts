@@ -14,9 +14,25 @@
 import assert from "node:assert/strict";
 import { cleanOCRText } from "./text-cleaner.service";
 import { extractAmountEntity, readSummaryLines, summaryContradiction } from "./entities/amount-entity.service";
-import { stripVendorFieldLabel } from "./entities/vendor-entity.service";
+import { extractVendorEntity, stripVendorFieldLabel } from "./entities/vendor-entity.service";
 import { matchCategoryKeyword } from "./category-decision.service";
 import { revenueReportQuestionText } from "./revenue-report-guard";
+import { applyAmountStrategy, brokenThousandsFragments } from "./amount-strategy.service";
+import { applyVendorStrategy, isDocumentNumberFragment } from "./vendor-strategy.service";
+import { parseDocumentStructure } from "./document-structure.service";
+import { amountCheckMessage } from "./amount-check";
+
+/** The amount the way the engine computes it: cleaned text → amount entity → strategy layer. */
+const engineAmountOf = (raw: string) => {
+  const c = cleanOCRText(raw);
+  return applyAmountStrategy(c, extractAmountEntity(c));
+};
+/** The vendor the way the engine computes it: entity → strategy layer (no business ids). */
+const engineVendorOf = (raw: string) => {
+  const c = cleanOCRText(raw);
+  const st = parseDocumentStructure(c);
+  return applyVendorStrategy(st, [], extractVendorEntity(c, st, [])).name;
+};
 
 let pass = 0;
 let fail = 0;
@@ -144,6 +160,53 @@ check("expense → כהוצאה, never כהכנסה", () => {
   assert.match(t, /כהוצאה/);
   assert.doesNotMatch(t, /כהכנסה/);
 });
+
+console.log("\n7. no total is invented — the pilot's Z page (doc 198) was given 1,500, an amount nowhere on it");
+const zPage = {
+  inline: lines("דוח Z מספר 1", "סגירת קופה · קופה 1 · 30/10/2026", "סה״כ מכירות 500.00", "מזומן 200.00", "אשראי 300.00", "מספר עסקאות 7"),
+  split: lines("דוח Z מספר 1", "סגירת קופה · קופה 1 · 30/10/2026", "סה״כ מכירות", "500.00", "מזומן", "200.00", "אשראי", "300.00", "מספר עסקאות", "7"),
+  columns: lines("דוח Z מספר 1", "סגירת קופה · קופה 1 · 30/10/2026", "סה״כ מכירות", "מזומן", "אשראי", "מספר עסקאות", "500.00", "200.00", "300.00", "7"),
+};
+for (const [layout, text] of Object.entries(zPage)) {
+  check(`Z page (${layout}): never 1,500, never confident`, () => {
+    const a = engineAmountOf(text);
+    assert.notEqual(a.value, 1500);
+    assert.ok(a.confidence < 0.85, String(a.confidence));
+  });
+}
+check("a page with three amounts and no cut number offers nothing to rebuild", () =>
+  assert.deepEqual(brokenThousandsFragments(cleanOCRText(zPage.inline)), []));
+check("an amount the OCR really cut is still rebuilt — from the thousands it shows — and goes to review", () => {
+  const text = lines("חשבונית מס 300", "חברת דוגמה בע״מ", "סה״כ לפני מע״מ ₪ 1,", "250.00", "מע״מ 18% ₪ 225.00", "סה״כ לתשלום ₪ 1,", "475.00");
+  assert.deepEqual(brokenThousandsFragments(cleanOCRText(text)), [1000]);
+  const a = engineAmountOf(text);
+  assert.equal(a.value, 1475);
+  assert.ok(a.confidence < 0.85, String(a.confidence));
+});
+
+console.log("\n8. a fragment of the document's title or number is never the vendor");
+for (const [s, frag] of [
+  ["מס 55", true], ["מספר 1042", true], ["קבלה 7", true], ["2026-0042", true], ["חשבונית מס 300", true],
+  ["ספק כלשהו בע״מ", false], ["7 כוכבים בע״מ", false], ["מס הכנסה", false], ["דוח Z מספר 1", false],
+] as const) {
+  check(`${s} → ${frag ? "fragment" : "a name"}`, () => assert.equal(isDocumentNumberFragment(s), frag));
+}
+check("'מס 55' no longer steals the anchor of the vendor line under it", () =>
+  assert.equal(engineVendorOf(lines("חשבונית מס 55", "ספק כלשהו בע״מ", "סה״כ לתשלום ₪ 1,180.00")), "ספק כלשהו בע״מ"));
+check("the pilot invoice's vendor through the whole engine path", () =>
+  assert.equal(stripVendorFieldLabel(engineVendorOf(pilotInvoice.textLayer) ?? ""), "ספק פיקטיבי לבדיקות בע״מ"));
+
+console.log("\n9. the review screen is told WHY an amount is in doubt");
+check("1,000 + 180 printed, 1,200 read → the sentence names the lines", () => {
+  const m = amountCheckMessage(lines("סה״כ לפני מע״מ ₪ 1,000.00", "מע״מ 18% ₪ 180.00", "סה״כ לתשלום ₪ 1,200.00"), 1200);
+  assert.ok(m && m.includes("1,000.00") && m.includes("180.00") && m.includes("1,200.00"), String(m));
+});
+check("the VAT line read as the amount → said so", () => {
+  const m = amountCheckMessage(pilotInvoice.ltrRows, 180);
+  assert.ok(m && m.includes("מע״מ"), String(m));
+});
+check("a consistent document → no message", () => assert.equal(amountCheckMessage(pilotInvoice.ltrRows, 1180), null));
+check("no OCR text → no message", () => assert.equal(amountCheckMessage(null, 1180), null));
 
 console.log(`\n[extraction-pilot-findings] PASS=${pass} FAIL=${fail}`);
 if (fail > 0) process.exit(1);

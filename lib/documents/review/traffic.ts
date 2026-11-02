@@ -26,6 +26,8 @@ export function trafficForAmount(
   draft: Pick<ReviewDraft, "amount">
 ): TrafficLevel {
   if (!isValidPositiveAmount(draft.amount)) return "low";
+  // A contradicted amount is never "identified well", whatever confidence was stored with it.
+  if (meta?.amountCheck) return "medium";
   if (meta?.amountConfidence) return normalizeConfidenceLabel(meta.amountConfidence);
   return "medium";
 }
