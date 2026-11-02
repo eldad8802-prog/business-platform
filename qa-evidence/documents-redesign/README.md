@@ -294,4 +294,67 @@
 <img src="implemented/pack-adhoc__mobile.png" width="300"> <img src="implemented/pack-adhoc__desktop.png" width="560">
 
 
+---
+
+## Production · promaxgroup.co.il (אחרי הפריסה)
+
+הקוד שנפרס (`4d1ad82b`, ‏`dpl_meGHkaVgGvMVgaKk5mK2xmn526vA`) מוצג בדפדפן. קריאות ה־API יורטו בדפדפן ונענו בנתוני דמה, ולכן שום בקשה לא הגיעה ל־API של Production ולא נגענו בנתונים. מסכים עם פעולת כתיבה דולגו.
+
+**email**
+
+<img src="production/email__mobile.png" width="300"> <img src="production/email__desktop.png" width="560">
+
+**email-off**
+
+<img src="production/email-off__mobile.png" width="300"> <img src="production/email-off__desktop.png" width="560">
+
+**hub**
+
+<img src="production/hub__mobile.png" width="300"> <img src="production/hub__desktop.png" width="560">
+
+**inbox**
+
+<img src="production/inbox__mobile.png" width="300"> <img src="production/inbox__desktop.png" width="560">
+
+**inbox-empty**
+
+<img src="production/inbox-empty__mobile.png" width="300"> <img src="production/inbox-empty__desktop.png" width="560">
+
+**pack**
+
+<img src="production/pack__mobile.png" width="300"> <img src="production/pack__desktop.png" width="560">
+
+**pack-adhoc**
+
+<img src="production/pack-adhoc__mobile.png" width="300"> <img src="production/pack-adhoc__desktop.png" width="560">
+
+**review**
+
+<img src="production/review__mobile.png" width="300"> <img src="production/review__desktop.png" width="560">
+
+**review-failed**
+
+<img src="production/review-failed__mobile.png" width="300">
+
+**review-notfound**
+
+<img src="production/review-notfound__mobile.png" width="300">
+
+**review-processing**
+
+<img src="production/review-processing__mobile.png" width="300">
+
+**search**
+
+<img src="production/search__mobile.png" width="300"> <img src="production/search__desktop.png" width="560">
+
+**search-empty**
+
+<img src="production/search-empty__mobile.png" width="300"> <img src="production/search-empty__desktop.png" width="560">
+
+**upload**
+
+<img src="production/upload__mobile.png" width="300"> <img src="production/upload__desktop.png" width="560">
+
+
 </div>
