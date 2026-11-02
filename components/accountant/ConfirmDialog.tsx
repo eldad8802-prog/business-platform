@@ -7,8 +7,7 @@ import { TOKEN, glassActionStyle, primaryActionStyle, dangerActionStyle } from "
  * Styled replacement for `window.confirm` (owner-approved 2026-11-02) with the
  * SAME contract: the exact question text, "אישור" runs the action, and every
  * other way out — "ביטול", the backdrop, Escape — does nothing. Initial focus
- * lands on "אישור" (first focusable), as in the browser dialog, so Enter still
- * confirms. Bottom sheet under 640px, centered dialog above (AdaptiveOverlay).
+ * lands on "אישור", as in the browser dialog, so Enter still confirms. Bottom sheet under 640px, centered dialog above (AdaptiveOverlay).
  */
 export function ConfirmDialog({
   message,
@@ -32,6 +31,9 @@ export function ConfirmDialog({
             type="button"
             style={danger ? dangerActionStyle({ fullWidth: true, height: 50 }) : primaryActionStyle({ fullWidth: true, height: 50 })}
             onClick={onConfirm}
+            // The browser dialog focuses its OK button; AdaptiveOverlay mounts its panel a tick after
+            // opening (after its focus hook ran), so the button takes focus itself on mount.
+            autoFocus
           >
             אישור
           </button>
