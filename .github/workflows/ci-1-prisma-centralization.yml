@@ -92,6 +92,12 @@ jobs:
       - name: IMPL-2 evidence-adapter boundary (no Prisma type leak)
         run: npx tsx lib/business-memory/evidence/evidence-adapter.contract.test.ts
 
+      # Receiving goods (2026-11-03 audit): a short line is judged against the open balance (earlier receipts and
+      # closed-short deducted), BACKORDER / CLOSED_SHORT send the undelivered quantity the server requires, and the
+      # stepper cannot exceed what is open. Pure; no DB, no secret. Local equivalent: npm run verify:receive-remainder
+      - name: Receiving remainder decisions (backorder / close short)
+        run: npx tsx lib/inventory/receive-remainder.verify.test.ts
+
       # Leads W1: the whole Leads domain core (status vocabulary, transitions,
       # validation, and the Israel-time follow-up due/overdue arithmetic) is a
       # set of pure functions with no DB, no network and no secrets — so the
