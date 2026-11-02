@@ -440,8 +440,8 @@ async function main() {
     return Buffer.from(await wb.xlsx.writeBuffer());
   };
   ok("S2 an Excel file whose amounts are plain numbers formatted \"[$USD] #,##0.00\": refused (FOREIGN_CURRENCY), nothing written",
-    (await errorCode(() => analyze(input(bizS, userS, accS1, await xlsxMoney("[$USD] #,##0.00"), "statement.xlsx")))) === "FOREIGN_CURRENCY" && (await lines(bizS)) === 0);
-  ok("S2 …formatted \"$#,##0.00\": refused too", (await errorCode(() => analyze(input(bizS, userS, accS1, await xlsxMoney("$#,##0.00"), "statement.xlsx")))) === "FOREIGN_CURRENCY");
+    (await errorCode(async () => analyze(input(bizS, userS, accS1, await xlsxMoney("[$USD] #,##0.00"), "statement.xlsx")))) === "FOREIGN_CURRENCY" && (await lines(bizS)) === 0);
+  ok("S2 …formatted \"$#,##0.00\": refused too", (await errorCode(async () => analyze(input(bizS, userS, accS1, await xlsxMoney("$#,##0.00"), "statement.xlsx")))) === "FOREIGN_CURRENCY");
   const xlsxIls = await analyze(input(bizS, userS, accS1, await xlsxMoney('"₪"#,##0.00'), "statement.xlsx"));
   ok("S2 …the same Excel file formatted in shekels passes (READY, 2 new)", xlsxIls.status === "READY" && xlsxIls.counts.new === 2, JSON.stringify(xlsxIls.status === "READY" ? xlsxIls.counts : xlsxIls));
   const shekelReal = utf16([
