@@ -8,7 +8,7 @@ import { addCalendarDays, dayKeyToStableInstant, jerusalemDayKey, ISRAEL_TIME_ZO
 
 export type PriceWire = { mode: "FIXED" | "FROM" | "RANGE" | "QUOTE_REQUIRED" | "NO_PUBLIC_PRICE"; amount: number; max: number | null; currency: string } | null;
 export type StaffWire = { id: number; name: string; color: string | null };
-export type ServiceWire = { id: number; name: string; durationMinutes: number; approval: "MANUAL" | "AUTO"; price?: PriceWire; staff?: StaffWire[] };
+export type ServiceWire = { id: number; name: string; durationMinutes: number; approval: "MANUAL" | "AUTO"; price?: PriceWire; staff?: StaffWire[]; maxAdvanceDays?: number };
 export type ProfileWire = {
   business: { name: string; city?: string | null; address?: string | null; category?: string | null; phone?: string | null };
   staffChoice: "NONE" | "OPTIONAL" | "REQUIRED";
@@ -37,6 +37,10 @@ export type ManageWire = {
   expiresAt: string | null;
   canCancel: boolean;
   cancelUntil: string | null;
+  /** The customer withdrew the request before it was decided (state CANCELED). */
+  withdrawn?: boolean;
+  /** Whether the business lets customers cancel through the link at all. */
+  selfCancelEnabled?: boolean;
 };
 
 /** The same limits the server applies (booking.core CONTACT_LIMITS). */
@@ -52,6 +56,26 @@ export type Step = "service" | "staff" | "time" | "details";
 export function stepsFor(profile: Pick<ProfileWire, "staffChoice">, service: Pick<ServiceWire, "staff"> | null): Step[] {
   const choose = profile.staffChoice !== "NONE" && (service?.staff?.length ?? 0) > 0;
   return choose ? ["service", "staff", "time", "details"] : ["service", "time", "details"];
+}
+
+/**
+ * The steps for the whole visit, decided by the business — not by the service picked — so "שלב 1 מתוך 4" never turns
+ * into "מתוך 3" on the way: the staff step is there when the business lets the customer choose and any bookable
+ * service shows its staff (a service without names then offers only "כל איש צוות פנוי").
+ */
+export function stepsForProfile(profile: Pick<ProfileWire, "staffChoice">, bookable: Array<Pick<ServiceWire, "staff">>): Step[] {
+  return profile.staffChoice !== "NONE" && bookable.some((x) => (x.staff?.length ?? 0) > 0) ? ["service", "staff", "time", "details"] : ["service", "time", "details"];
+}
+
+/** The last day a service is offered (its own horizon; 12 weeks when the business's answer has none). */
+export function lastBookableDay(today: JerusalemDayKey, service: Pick<ServiceWire, "maxAdvanceDays"> | null): JerusalemDayKey {
+  const days = service?.maxAdvanceDays && service.maxAdvanceDays > 0 ? service.maxAdvanceDays : 84;
+  return addCalendarDays(today, days);
+}
+
+/** The state of the customer's own link in words — a withdrawn request is not "התור בוטל" (there was no appointment). */
+export function manageStateLabel(view: Pick<ManageWire, "state" | "withdrawn">): string {
+  return view.state === "CANCELED" && view.withdrawn ? "הבקשה בוטלה" : STATE_LABEL[view.state];
 }
 
 /** REQUIRED with no staff the customer can see (names hidden by the business) cannot be booked from the link. */

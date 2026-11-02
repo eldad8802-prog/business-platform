@@ -37,6 +37,23 @@ import {
   viewTitle,
   weekStart,
   windowsProblem,
+  assignmentWrites,
+  bookingDeadEnd,
+  COLOR_NAME,
+  currentPick,
+  dayLanes,
+  hoursSummary,
+  keepStaffFor,
+  nextRange,
+  nextStaffColor,
+  requestOutcome,
+  samePick,
+  splitMinutes,
+  STAFF_PALETTE,
+  staffForService,
+  timeOptionLabel,
+  timeOptions,
+  type StaffWire,
   type AppointmentWire,
   type Availability,
   type Names,
@@ -206,6 +223,63 @@ console.log("— what is open (the free-slot rule, as shown)");
   eq("the grid names a closure", closureBands(av, null, "2026-11-04", names), [{ start: 720, end: 840, label: "סגור" }]);
   eq("…a staff lane names its own closure and the business's", closureBands(av, 1, "2026-11-03", names), [{ start: 0, end: 1440, label: "שירה: סגור" }]);
   eq("special hours read as such", exceptionText({ dayKey: "2026-11-06", kind: "OPEN_HOURS", startMinute: 600, endMinute: 780 }), "שעות מיוחדות ⁦10:00–13:00⁩");
+}
+
+console.log("— redesign: lanes, hours in words, ranges, units, colours, who performs what");
+{
+  const member = (id: number, partial: Partial<StaffWire> = {}): StaffWire => ({ id, displayName: `ע${id}`, color: null, active: true, sortOrder: id, version: 1, services: [], ...partial });
+  const staff = [member(1, { displayName: "שירה" }), member(2, { displayName: "דנה", active: false }), member(3, { displayName: "יוסי", active: false })];
+  const day = [appt({ staffMemberId: 2, startsAt: at("2026-11-03", "10:00"), endsAt: at("2026-11-03", "10:30") })];
+  eq("day lanes: the business, the active staff, and an inactive one who has an appointment that day",
+    dayLanes(staff, day).map((l) => l.label), ["ללא עובד", "שירה", "דנה (לא פעיל)"]);
+  check("…an inactive staff member with no appointment that day has no lane", !dayLanes(staff, day).some((l) => l.staffMemberId === 3));
+  eq("…a staff id the list does not know still gets a lane", dayLanes([], [appt({ staffMemberId: 9 })]).map((l) => l.staffMemberId), [null, 9]);
+
+  eq("hours in one line, equal days joined", hoursSummary([0, 1, 2, 3, 4].map((weekday) => ({ weekday, startMinute: 540, endMinute: 1020 })).concat([{ weekday: 5, startMinute: 540, endMinute: 780 }])),
+    "א׳–ה׳ ⁦09:00–17:00⁩ · ו׳ ⁦09:00–13:00⁩");
+  eq("…a break is two ranges", hoursSummary([{ weekday: 0, startMinute: 540, endMinute: 780 }, { weekday: 0, startMinute: 840, endMinute: 1080 }]), "א׳ ⁦09:00–13:00⁩, ⁦14:00–18:00⁩");
+  eq("…end of day reads 24:00", hoursSummary([{ weekday: 6, startMinute: 1200, endMinute: 1440 }]), "ש׳ ⁦20:00–24:00⁩");
+  eq("…no hours", hoursSummary([]), null);
+
+  eq("+ range after an evening range never passes midnight", nextRange([{ startMinute: 1080, endMinute: 1380 }]), { startMinute: 1380, endMinute: 1440 });
+  eq("+ range when the day already ends at 24:00: no room", nextRange([{ startMinute: 540, endMinute: 1440 }]), null);
+  eq("+ range after 09:00–13:00 starts at 13:00", nextRange([{ startMinute: 540, endMinute: 780 }]), { startMinute: 780, endMinute: 900 });
+  eq("+ range on an empty day", nextRange([]), { startMinute: 540, endMinute: 1020 });
+  check("end-time options reach 24:00 and read it", timeOptions("end").at(-1) === 1440 && timeOptionLabel(1440) === "24:00");
+  check("…an off-grid saved time stays selectable", timeOptions("start", 545).includes(545));
+
+  eq("2 days reads as days", splitMinutes(2880), { value: 2, unit: "days" });
+  eq("3 hours reads as hours", splitMinutes(180), { value: 3, unit: "hours" });
+  eq("90 minutes stays minutes", splitMinutes(90), { value: 90, unit: "minutes" });
+  eq("0 stays minutes", splitMinutes(0), { value: 0, unit: "minutes" });
+
+  eq("a new staff member gets the first unused colour", nextStaffColor([{ color: STAFF_PALETTE[0] }, { color: null }]), STAFF_PALETTE[1]);
+  check("every palette colour has a Hebrew name", STAFF_PALETTE.every((c) => /[֐-׿]/.test(COLOR_NAME[c] ?? "")));
+
+  const svc = [member(1, { services: [{ businessServiceId: 10, durationOverrideMinutes: 50 }, { businessServiceId: 11, durationOverrideMinutes: null }] }), member(4, { services: [] })];
+  eq("staff for a service: those assigned", staffForService(svc, 10).map((m) => m.id), [1]);
+  eq("…nobody assigned: every active", staffForService(svc, 12).map((m) => m.id), [1, 4]);
+  eq("a chosen staff member who does not perform the new service is cleared", keepStaffFor(svc, 10, 4), null);
+  eq("…a fitting choice is kept", keepStaffFor(svc, 10, 1), 1);
+
+  eq("from the service page: assigning adds this service only, every other entry and length kept",
+    assignmentWrites(svc, { kind: "service", serviceId: 12 }, new Map([[1, null]])).map((w) => [w.member.id, w.services]),
+    [[1, [{ businessServiceId: 10, durationOverrideMinutes: 50 }, { businessServiceId: 11, durationOverrideMinutes: null }, { businessServiceId: 12, durationOverrideMinutes: null }]]]);
+  eq("…unassigning removes only this service", assignmentWrites(svc, { kind: "service", serviceId: 10 }, new Map()).map((w) => [w.member.id, w.services]),
+    [[1, [{ businessServiceId: 11, durationOverrideMinutes: null }]]]);
+  eq("…a changed personal length is one write", assignmentWrites(svc, { kind: "service", serviceId: 10 }, new Map([[1, 40]])).map((w) => w.services[1]),
+    [{ businessServiceId: 10, durationOverrideMinutes: 40 }]);
+  eq("…no change, no write", assignmentWrites(svc, { kind: "service", serviceId: 10 }, currentPick(svc, { kind: "service", serviceId: 10 })).length, 0);
+  eq("from the staff page: the member's whole list", assignmentWrites(svc, { kind: "staff", staffId: 4 }, new Map([[10, 35]])).map((w) => [w.member.id, w.services]),
+    [[4, [{ businessServiceId: 10, durationOverrideMinutes: 35 }]]]);
+  check("both pages read the same picture", samePick(currentPick(svc, { kind: "service", serviceId: 10 }), new Map([[1, 50]])) && samePick(currentPick(svc, { kind: "staff", staffId: 1 }), new Map([[10, 50], [11, null]])));
+
+  eq("a customer's cancellation of an approved booking reads as cancelled", requestOutcome({ status: "APPROVED", appointment: { status: "CANCELED" } }), { label: "התור בוטל", tone: "off" });
+  eq("…an approved one stays approved", requestOutcome({ status: "APPROVED", appointment: { status: "CONFIRMED" } }).label, "אושרה");
+  eq("…a lapsed one", requestOutcome({ status: "EXPIRED", appointment: { status: "CANCELED" } }).label, "פגה");
+  check("required staff choice + hidden names is named before it closes the link", bookingDeadEnd({ staffChoiceMode: "REQUIRED", showStaffNames: false }, true) !== null);
+  eq("…shown names, or no staff at all, is fine", [bookingDeadEnd({ staffChoiceMode: "REQUIRED", showStaffNames: true }, true), bookingDeadEnd({ staffChoiceMode: "REQUIRED", showStaffNames: false }, false), bookingDeadEnd({ staffChoiceMode: "OPTIONAL", showStaffNames: false }, true)], [null, null, null]);
+  eq("the completed status reads התקיים", STATUS_LABEL.COMPLETED, "התקיים");
 }
 
 console.log(`\n${total - failures} passed, ${failures} failed`);

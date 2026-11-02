@@ -1,150 +1,63 @@
 "use client";
 
 /**
- * "שירותים" (/calendar/services) — the catalog's services as the calendar uses them (Appointments milestone B):
- * add a service, edit its name and length (the catalog's own POST and PATCH /api/business/services — no second
- * service list), the gap before and after it, the step free times are offered in, how soon and how far ahead it may
- * be booked, and who performs it — one form, one save. A price is set when a service is added and is not edited here.
- * Whether a service is open to external booking and how requests are approved belong to milestone D and are not shown.
- * Leaving a service with unsaved changes (another service, back to the calendar, closing the page) asks first.
+ * "שירותים" — the catalog's services as the calendar uses them, design direction A.
+ *   /calendar/services        the list (length, who performs) and "הוספת שירות" (name, length, a price only if given —
+ *                             the catalog's own POST /api/business/services; one catalog for all of Dubiz).
+ *   /calendar/services/[id]   one service, one save: its name and length (the catalog's PATCH), who performs it and in
+ *                             how long (the same editor as the staff page), and the booking rules in plain words:
+ *                             preparation before / tidying after, "שעות מוצעות כל", "אפשר לקבוע לפחות … מראש" (minutes,
+ *                             hours or days — stored in minutes, as before), "עד … ימים קדימה".
+ * The form shows what the SERVER holds and reads it again after every save. Leaving with unsaved changes asks first.
  */
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
-import t from "@/features/tasks/tasks.module.css";
 
-import {
-  CalendarApiError,
-  createService,
-  forgetIntent,
-  getPolicy,
-  listServices,
-  listStaff,
-  savePolicy,
-  setStaffServices,
-  updateService,
-  type PolicyWire,
-  type ServiceWire,
-} from "./calendar-client";
-import { durationLabel, errorText, LIMITS, textProblem, type StaffWire } from "./calendar-model";
+import { AssignmentEditor, assignmentErrorText, saveAssignment } from "./assignment-editor";
+import { CalendarApiError, createService, forgetIntent, getPolicy, listServices, listStaff, savePolicy, updateService, type PolicyWire, type ServiceWire } from "./calendar-client";
+import { currentPick, durationLabel, errorText, LIMITS, samePick, splitMinutes, textProblem, UNIT_LABEL, UNIT_MINUTES, type AssignPick, type LeadUnit, type StaffWire } from "./calendar-model";
+import { useLeaveGuard } from "./manage-screens";
+import { Chevron, Empty, FeatureOff, IconPlus, IconScissors, Loading, LoadError, ScreenHead, useBeforeUnload, useToast } from "./ui";
 import s from "./calendar.module.css";
+
+const asText = (e: unknown) => (e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK"));
+
+/** The API's bound on a length, in Hebrew; null when the length is fine or not given. */
+function durationProblem(minutes: number | null): string | null {
+  if (minutes === null) return null;
+  return Number.isInteger(minutes) && minutes >= LIMITS.minDuration && minutes <= LIMITS.maxDuration
+    ? null
+    : `המשך צריך להיות בין ${LIMITS.minDuration} ל־${LIMITS.maxDuration.toLocaleString("he-IL")} דקות.`;
+}
 
 export function ServicesScreen() {
   const on = useFeatureState("appointments");
-  const [services, setServices] = useState<ServiceWire[] | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const [stamp, setStamp] = useState(0);
   const router = useRouter();
-  // Unsaved changes in the open service, and where the owner asked to go while they were there.
-  const [dirty, setDirty] = useState(false);
-  const [leaving, setLeaving] = useState<number | "calendar" | null>(null);
-
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-
-  const go = (to: number | "calendar") => {
-    setLeaving(null);
-    setDirty(false);
-    if (to === "calendar") router.push("/calendar");
-    else setSelected(to);
-  };
-
-  useEffect(() => {
-    if (!on) return;
-    let cancelled = false;
-    listServices().then((v) => { if (!cancelled) setServices(v.filter((x) => x.active)); }).catch(() => { if (!cancelled) setServices([]); });
-    return () => { cancelled = true; };
-  }, [on, stamp]);
-
-  const flash = (text: string) => {
-    setToast(text);
-    window.setTimeout(() => setToast((x) => (x === text ? null : x)), 5000);
-  };
-
-  if (on === false) {
-    return (
-      <main className={s.screen}>
-        <header className={s.top}><h1 className={s.title}>שירותים</h1></header>
-        <section className={s.empty}><h2>היומן עדיין לא פעיל לעסק שלך</h2></section>
-      </main>
-    );
-  }
-
-  const current = services?.find((x) => x.id === (selected ?? services[0]?.id)) ?? null;
-
-  return (
-    <main className={s.screen} data-page-intent="content">
-      <header className={s.top}>
-        <h1 className={s.title}>שירותים ביומן</h1>
-        <span className={s.grow} />
-        <button type="button" className={`${t.btn} ${t.pri}`} onClick={() => setAdding(true)}>+ שירות חדש</button>
-        <Link href="/calendar" prefetch={false} className={`${t.btn} ${t.ghost}`} onClick={(e) => { if (dirty) { e.preventDefault(); setLeaving("calendar"); } }}>חזרה ליומן</Link>
-      </header>
-      <p className={s.note}>אלה השירותים של העסק — אותו קטלוג שמשמש את כל דוביז. כאן מוסיפים שירות, משנים שם ומשך, וקובעים איך הוא נכנס ליומן: מרווחים, באילו קפיצות מוצעות שעות ומי מבצע.</p>
-      {adding ? (
-        <NewService
-          onCancel={() => setAdding(false)}
-          onCreated={(svc) => { setAdding(false); setSelected(svc.id); setStamp((x) => x + 1); flash("השירות נוסף"); }}
-        />
-      ) : null}
-
-      {services === null ? <p className={t.hint}>טוען…</p> : null}
-      {services && !services.length && !adding ? (
-        <section className={s.empty}>
-          <h2>אין עדיין שירותים בקטלוג</h2>
-          <span>אפשר לקבוע תורים גם בלי שירות, עם משך שבוחרים בכל תור — או להוסיף שירות עכשיו.</span>
-          <button type="button" className={`${t.btn} ${t.pri}`} onClick={() => setAdding(true)}>+ שירות חדש</button>
-        </section>
-      ) : null}
-
-      {services?.length ? (
-        <div className={s.split}>
-          <nav className={s.list} aria-label="שירותים">
-            {services.map((x) => (
-              <button key={x.id} type="button" className={`${s.item} ${current?.id === x.id ? s.itemOn : ""}`} onClick={() => { if (x.id === current?.id) return; if (dirty) setLeaving(x.id); else setSelected(x.id); }}>
-                <span style={{ flex: 1, minWidth: 0 }}>{x.name}</span>
-                <small style={{ color: "var(--dz-text-muted)" }}>{x.durationMinutes ? durationLabel(x.durationMinutes) : "ללא משך"}</small>
-              </button>
-            ))}
-          </nav>
-          {current ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
-              {leaving !== null ? (
-                <div className={s.warnBox} role="alertdialog" aria-labelledby="unsaved-title">
-                  <strong id="unsaved-title">יש שינויים שלא נשמרו ב„{current.name}”.</strong>
-                  <span>{leaving === "calendar" ? "לחזור ליומן בלי לשמור? השינויים יאבדו." : `לעבור ל„${services.find((x) => x.id === leaving)?.name ?? "שירות אחר"}” בלי לשמור? השינויים יאבדו.`}</span>
-                  <div className={t.actions} style={{ marginTop: 6 }}>
-                    <button type="button" className={`${t.btn} ${t.pri}`} autoFocus onClick={() => setLeaving(null)}>להישאר ולשמור</button>
-                    <button type="button" className={`${t.btn} ${t.ghost}`} onClick={() => go(leaving)}>{leaving === "calendar" ? "לחזור בלי לשמור" : "לעבור בלי לשמור"}</button>
-                  </div>
-                </div>
-              ) : null}
-              <ServiceEditor key={current.id} service={current} onDirty={setDirty} onSaved={(m) => { setStamp((x) => x + 1); flash(m); }} />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-      {toast ? <div className={t.toast} role="status"><span>{toast}</span></div> : null}
-    </main>
-  );
-}
-
-/** A new service in the business's catalog: a name, a length, and a fixed price only if the owner gives one. */
-function NewService({ onCancel, onCreated }: { onCancel: () => void; onCreated: (svc: ServiceWire) => void }) {
+  const [services, setServices] = useState<ServiceWire[] | null>(null);
+  const [staff, setStaff] = useState<StaffWire[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [duration, setDuration] = useState("30");
   const [price, setPrice] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const save = async () => {
+
+  useEffect(() => {
+    if (!on) return;
+    let cancelled = false;
+    listServices().then((v) => { if (!cancelled) { setServices(v.filter((x) => x.active)); setLoadError(null); } }).catch((e) => { if (!cancelled) setLoadError(asText(e)); });
+    listStaff().then((v) => { if (!cancelled) setStaff(v); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [on, tick]);
+
+  if (on === false) return <FeatureOff title="שירותים" />;
+
+  const create = async () => {
     const n = name.trim();
     const minutes = duration.trim() ? Number(duration) : null;
     const amount = price.trim() ? Number(price) : null;
@@ -155,115 +68,176 @@ function NewService({ onCancel, onCreated }: { onCancel: () => void; onCreated: 
     setBusy(true);
     setError(null);
     try {
-      onCreated(await createService({ name: n, durationMinutes: minutes, priceAmount: amount }));
+      const svc = await createService({ name: n, durationMinutes: minutes, priceAmount: amount });
+      router.push(`/calendar/services/${svc.id}`);
     } catch (e) {
-      setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK"));
+      setError(asText(e));
     } finally {
       setBusy(false);
     }
   };
+
+  const performers = (id: number) => {
+    const who = staff.filter((m) => m.active && m.services.some((a) => a.businessServiceId === id)).map((m) => m.displayName);
+    return who.length ? who.join(", ") : staff.some((m) => m.active) ? "כל הצוות" : null;
+  };
+
   return (
-    <section className={s.panel} aria-labelledby="new-service-title">
-      <h2 id="new-service-title">שירות חדש</h2>
-      <div className={s.numRow}>
-        <div className={t.field}>
-          <label htmlFor="svc-new-name">שם השירות</label>
-          <input id="svc-new-name" className={t.input} value={name} maxLength={140} onChange={(e) => setName(e.target.value)} autoFocus />
-        </div>
-        <div className={t.field}>
-          <label htmlFor="svc-new-duration">משך (דקות)</label>
-          <input id="svc-new-duration" type="number" inputMode="numeric" min={LIMITS.minDuration} max={LIMITS.maxDuration} step={5} className={t.input} value={duration} onChange={(e) => setDuration(e.target.value)} />
-        </div>
-        <div className={t.field}>
-          <label htmlFor="svc-new-price">מחיר בש״ח (לא חובה)</label>
-          <input id="svc-new-price" type="number" inputMode="decimal" min={0} step="any" className={t.input} value={price} onChange={(e) => setPrice(e.target.value)} />
-          <span className={t.hint}>בלי מחיר — השירות מופיע בלי מחיר פומבי.</span>
-        </div>
+    <main className={s.screen} data-page-intent="content">
+      <div className={s.narrow}>
+        <ScreenHead title="שירותים" subtitle="מה אפשר לקבוע ביומן" fallback="/calendar/manage"
+          end={!adding && services ? <button type="button" className={`${s.btn} ${s.btnSoft} ${s.btnSm}`} onClick={() => setAdding(true)}><IconPlus size={18} /> הוספת שירות</button> : null} />
+
+        {adding ? (
+          <section className={s.section} aria-labelledby="new-service-title">
+            <h2 id="new-service-title">שירות חדש</h2>
+            <div className={s.field}>
+              <label className={s.label} htmlFor="svc-new-name">שם השירות</label>
+              <input id="svc-new-name" className={s.input} value={name} maxLength={140} onChange={(e) => setName(e.target.value)} autoFocus />
+            </div>
+            <div className={s.row2}>
+              <div className={s.field}>
+                <label className={s.label} htmlFor="svc-new-duration">משך (דקות)</label>
+                <input id="svc-new-duration" type="number" inputMode="numeric" min={LIMITS.minDuration} max={LIMITS.maxDuration} step={5} className={s.input} value={duration} onChange={(e) => setDuration(e.target.value)} />
+              </div>
+              <div className={s.field}>
+                <label className={s.label} htmlFor="svc-new-price">מחיר בש״ח (לא חובה)</label>
+                <input id="svc-new-price" type="number" inputMode="decimal" min={0} step="any" className={s.input} value={price} onChange={(e) => setPrice(e.target.value)} />
+              </div>
+            </div>
+            <p className={s.hint}>בלי מחיר — השירות מופיע בלי מחיר פומבי. השירות נכנס לקטלוג של העסק בכל דוביז.</p>
+            {error ? <p className={s.fieldErr} role="alert">{error}</p> : null}
+            <div className={s.confirmRow}>
+              <button type="button" className={`${s.btn} ${s.btnPri}`} disabled={busy} onClick={() => void create()}>{busy ? "שומר…" : "הוספת השירות"}</button>
+              <button type="button" className={s.btn} disabled={busy} onClick={() => { setAdding(false); setError(null); }}>סגירה</button>
+            </div>
+          </section>
+        ) : null}
+
+        {loadError ? <LoadError text={`לא הצלחתי לטעון את השירותים. ${loadError}`} onRetry={() => setTick((x) => x + 1)} /> : null}
+        {!loadError && services === null ? <Loading label="טוען שירותים" /> : null}
+        {services && !services.length && !adding ? (
+          <Empty title="עוד אין שירותים" icon={<IconScissors size={32} />}>
+            <span>אפשר לקבוע תורים גם בלי שירות, עם משך שבוחרים בכל תור — או להוסיף שירות עכשיו.</span>
+            <button type="button" className={`${s.btn} ${s.btnPri}`} onClick={() => setAdding(true)}><IconPlus size={18} /> הוספת שירות</button>
+          </Empty>
+        ) : null}
+        {services?.length ? (
+          <ul className={s.list} style={{ marginTop: 16 }}>
+            {services.map((x) => (
+              <li key={x.id}>
+                <Link href={`/calendar/services/${x.id}`} prefetch={false} className={s.listRow}>
+                  <span className={s.lineIcon}><IconScissors /></span>
+                  <span className={s.rowText}>
+                    <span className={s.rowTitle} style={{ fontSize: 17 }}>{x.name}</span>
+                    <span className={s.rowSub}>{[x.durationMinutes ? durationLabel(x.durationMinutes) : "ללא משך", performers(x.id)].filter(Boolean).join(" · ")}</span>
+                  </span>
+                  <span className={s.rowEnd}><Chevron dir="open" /></span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
-      {error ? <p className={t.error} role="alert">{error}</p> : null}
-      <div className={t.actions}>
-        <button type="button" className={`${t.btn} ${t.pri}`} disabled={busy} onClick={() => void save()}>{busy ? "שומר…" : "הוספת השירות"}</button>
-        <button type="button" className={t.btn} disabled={busy} onClick={onCancel}>ביטול</button>
-      </div>
-    </section>
+    </main>
   );
 }
 
-/** The API's bound on a length, in Hebrew; null when the length is fine or not given. */
-function durationProblem(minutes: number | null): string | null {
-  if (minutes === null) return null;
-  return Number.isInteger(minutes) && minutes >= LIMITS.minDuration && minutes <= LIMITS.maxDuration
-    ? null
-    : `המשך צריך להיות בין ${LIMITS.minDuration} ל־${LIMITS.maxDuration.toLocaleString("he-IL")} דקות.`;
-}
-
 type PolicyKey = "bufferBeforeMinutes" | "bufferAfterMinutes" | "slotStepMinutes" | "minLeadMinutes" | "maxAdvanceDays";
-const FIELDS: Array<{ key: PolicyKey; label: string; hint: string; lo: number; hi: number; unit: string }> = [
-  { key: "bufferBeforeMinutes", label: "מרווח לפני", hint: "זמן הכנה שנשמר פנוי לפני התור", lo: 0, hi: 240, unit: "דק׳" },
-  { key: "bufferAfterMinutes", label: "מרווח אחרי", hint: "זמן ניקיון או התארגנות אחרי התור", lo: 0, hi: 240, unit: "דק׳" },
-  { key: "slotStepMinutes", label: "קפיצות בין שעות מוצעות", hint: "למשל כל 15 דקות", lo: 5, hi: 240, unit: "דק׳" },
-  { key: "minLeadMinutes", label: "התראה מינימלית", hint: "כמה זמן מראש לכל הפחות", lo: 0, hi: 20160, unit: "דק׳" },
-  { key: "maxAdvanceDays", label: "עד כמה רחוק", hint: "כמה ימים קדימה מוצעות שעות", lo: 1, hi: 365, unit: "ימים" },
+const RULES: Array<{ key: PolicyKey; label: string; hint: string; lo: number; hi: number; unit: "minutes" | "days" | "lead" }> = [
+  { key: "bufferBeforeMinutes", label: "זמן הכנה לפני", hint: "נשמר פנוי לפני כל תור", lo: 0, hi: 240, unit: "minutes" },
+  { key: "bufferAfterMinutes", label: "זמן סידור אחרי", hint: "נשמר פנוי אחרי כל תור", lo: 0, hi: 240, unit: "minutes" },
+  { key: "slotStepMinutes", label: "שעות מוצעות כל", hint: "למשל כל 15 דקות: 09:00, 09:15…", lo: 5, hi: 240, unit: "minutes" },
+  { key: "minLeadMinutes", label: "אפשר לקבוע לפחות … מראש", hint: "השעות הקרובות מזה לא מוצעות", lo: 0, hi: 20160, unit: "lead" },
+  { key: "maxAdvanceDays", label: "עד כמה ימים קדימה", hint: "שעות רחוקות מזה לא מוצעות", lo: 1, hi: 365, unit: "days" },
 ];
 
-/** Who performs a service, as the server holds it: the active staff members assigned to it. */
-function assignedTo(staff: StaffWire[], serviceId: number): Set<number> {
-  return new Set(staff.filter((m) => m.active && m.services.some((a) => a.businessServiceId === serviceId)).map((m) => m.id));
+export function ServiceDetailScreen({ id }: { id: number }) {
+  const on = useFeatureState("appointments");
+  const { flash, node: toast } = useToast();
+  const guard = useLeaveGuard();
+  const [service, setService] = useState<ServiceWire | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const reload = useCallback(() => setTick((x) => x + 1), []);
+
+  useEffect(() => {
+    if (!on) return;
+    let cancelled = false;
+    listServices()
+      .then((v) => { if (cancelled) return; const x = v.find((y) => y.id === id && y.active) ?? null; setService(x); setMissing(!x); setLoadError(null); })
+      .catch((e) => { if (!cancelled) setLoadError(asText(e)); });
+    return () => { cancelled = true; };
+  }, [on, id, tick]);
+
+  if (on === false) return <FeatureOff title="שירות" />;
+
+  return (
+    <main className={s.screen} data-page-intent="content">
+      <div className={s.narrow}>
+        <ScreenHead title={service?.name ?? "שירות"} subtitle={service?.durationMinutes ? durationLabel(service.durationMinutes) : undefined} fallback="/calendar/services" onBeforeLeave={guard.onBeforeLeave} />
+        {guard.node}
+        {loadError ? <LoadError text={`לא הצלחתי לטעון את השירות. ${loadError}`} onRetry={reload} /> : null}
+        {!loadError && !service && !missing ? <Loading label="טוען את השירות" /> : null}
+        {missing ? <Empty title="השירות לא נמצא"><Link href="/calendar/services" prefetch={false} className={s.btn}>לרשימת השירותים</Link></Empty> : null}
+        {service ? <ServiceEditor key={`${service.id}:${tick}`} service={service} onDirty={guard.setDirty} onSaved={(m) => { reload(); flash(m); }} /> : null}
+      </div>
+      {toast}
+    </main>
+  );
 }
 
-const sameSet = (a: Set<number>, b: Set<number>) => a.size === b.size && [...a].every((x) => b.has(x));
-
-/**
- * One service, one form, one "שמירת השינויים": its name and length (the catalog), how it sits on the calendar (the
- * booking rules) and who performs it.
- *
- * The form always shows what the SERVER holds: it reads the rules and the staff itself, and reads them again after
- * every save — it never rebuilds itself from a list the screen held before the save (the bug that showed a saved
- * assignment as unchecked and let the next save remove it). Saving who performs the service reads each staff member's
- * current list right before writing it and sends the version it read, so a stale screen can never remove an
- * assignment someone else made, nor touch any other service's assignment.
- */
 function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; onSaved: (message: string) => void; onDirty: (dirty: boolean) => void }) {
   const [name, setName] = useState(service.name);
   const [duration, setDuration] = useState(service.durationMinutes ? String(service.durationMinutes) : "");
   const [policy, setPolicy] = useState<PolicyWire | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [leadUnit, setLeadUnit] = useState<LeadUnit>("minutes");
   const [staff, setStaff] = useState<StaffWire[] | null>(null);
-  const [chosen, setChosen] = useState<Set<number>>(new Set());
+  const [pick, setPick] = useState<AssignPick>(new Map());
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [stamp, setStamp] = useState(0);
+  const axis = { kind: "service" as const, serviceId: service.id };
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([getPolicy(service.id), listStaff()])
       .then(([p, st]) => {
         if (cancelled) return;
+        const lead = splitMinutes(p.minLeadMinutes);
         setPolicy(p);
-        setDraft(Object.fromEntries(FIELDS.map((f) => [f.key, String(p[f.key])])));
+        setLeadUnit(lead.unit);
+        setDraft(Object.fromEntries(RULES.map((f) => [f.key, String(f.key === "minLeadMinutes" ? lead.value : p[f.key])])));
         setStaff(st);
-        setChosen(assignedTo(st, service.id));
+        setPick(currentPick(st, { kind: "service", serviceId: service.id }));
+        setLoadError(null);
       })
-      .catch((e) => { if (!cancelled) setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK")); });
+      .catch((e) => { if (!cancelled) setLoadError(asText(e)); });
     return () => { cancelled = true; };
   }, [service.id, stamp]);
 
-  const active = (staff ?? []).filter((m) => m.active);
+  const valueOf = (key: PolicyKey) => (key === "minLeadMinutes" ? Number(draft[key]) * UNIT_MINUTES[leadUnit] : Number(draft[key]));
   const minutes = duration.trim() ? Number(duration) : null;
   const serviceDirty = name.trim() !== service.name || minutes !== service.durationMinutes;
   const policyChanges: Partial<Record<PolicyKey, number>> = {};
-  if (policy) for (const f of FIELDS) if (Number(draft[f.key]) !== policy[f.key]) policyChanges[f.key] = Number(draft[f.key]);
-  const whoDirty = staff !== null && !sameSet(chosen, assignedTo(staff, service.id));
+  if (policy) for (const f of RULES) if (valueOf(f.key) !== policy[f.key]) policyChanges[f.key] = valueOf(f.key);
+  const whoDirty = staff !== null && !samePick(pick, currentPick(staff, axis));
   const dirty = serviceDirty || Object.keys(policyChanges).length > 0 || whoDirty;
   useEffect(() => { onDirty(dirty); }, [dirty, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
+  useBeforeUnload(dirty);
 
   const save = async () => {
     const n = name.trim();
     let problem = !n ? "צריך שם לשירות." : textProblem("השם", n, 120) ?? durationProblem(minutes);
-    for (const f of FIELDS) {
-      const v = Number(draft[f.key]);
-      if (!problem && (!Number.isInteger(v) || v < f.lo || v > f.hi)) problem = `${f.label}: מספר שלם בין ${f.lo.toLocaleString("he-IL")} ל־${f.hi.toLocaleString("he-IL")}.`;
+    for (const f of RULES) {
+      const v = valueOf(f.key);
+      if (!problem && (!Number.isInteger(v) || v < f.lo || v > f.hi)) {
+        problem = f.key === "minLeadMinutes" ? `${f.label}: עד 14 ימים (${f.hi.toLocaleString("he-IL")} דקות).` : `${f.label}: מספר שלם בין ${f.lo.toLocaleString("he-IL")} ל־${f.hi.toLocaleString("he-IL")}.`;
+      }
     }
     if (problem) { setError(problem); return; }
     setBusy(true);
@@ -281,33 +255,14 @@ function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; on
           throw e;
         }
       }
-      if (whoDirty) {
-        // Read-modify-write on the CURRENT lists: only this service's entry changes, every other assignment (and its
-        // own length) is carried over exactly as the server holds it.
-        const fresh = await listStaff();
-        for (const member of fresh.filter((m) => m.active)) {
-          const has = member.services.some((a) => a.businessServiceId === service.id);
-          const want = chosen.has(member.id);
-          if (has === want) continue;
-          const list = want
-            ? [...member.services, { businessServiceId: service.id, durationOverrideMinutes: null }]
-            : member.services.filter((a) => a.businessServiceId !== service.id);
-          const intent = `staff:services:${member.id}:${member.version}:${JSON.stringify(list)}`;
-          try {
-            await setStaffServices(intent, member.id, list, member.version);
-          } catch (e) {
-            forgetIntent(intent);
-            throw e;
-          }
-        }
-      }
-      setStamp((x) => x + 1); // read back what the server now holds
+      if (whoDirty) await saveAssignment(axis, pick);
+      onDirty(false);
+      setStamp((x) => x + 1);
       onSaved("השינויים נשמרו");
     } catch (e) {
-      const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "NETWORK");
-      setError(err.code === "VERSION_CONFLICT"
-        ? "הנתונים השתנו בינתיים (אולי במסך אחר). טענתי את המצב העדכני — אפשר לבדוק ולשמור שוב."
-        : errorText(err.code, err.status));
+      setError(e instanceof CalendarApiError && e.code === "VERSION_CONFLICT"
+        ? "הנתונים השתנו בינתיים (אולי במסך אחר). מוצג המצב העדכני — אפשר לבדוק ולשמור שוב."
+        : assignmentErrorText(e, errorText));
       setStamp((x) => x + 1);
     } finally {
       setBusy(false);
@@ -317,67 +272,74 @@ function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; on
   const loading = policy === null || staff === null;
 
   return (
-    <section className={s.panel} aria-labelledby="service-editor-title">
-      <h2 id="service-editor-title">{service.name}</h2>
-
-      <h3 className={s.subhead}>פרטי השירות</h3>
-      <div className={s.numRow}>
-        <div className={t.field}>
-          <label htmlFor="svc-name">שם השירות</label>
-          <input id="svc-name" className={t.input} value={name} maxLength={140} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className={t.field}>
-          <label htmlFor="svc-duration">משך (דקות)</label>
-          <input id="svc-duration" type="number" inputMode="numeric" min={LIMITS.minDuration} max={LIMITS.maxDuration} step={5} className={t.input} value={duration} onChange={(e) => setDuration(e.target.value)} />
-          <span className={t.hint}>זה המשך שהיומן מציע בתור חדש. משך אישי לעובד נקבע ב„עובדים וזמינות”.</span>
-        </div>
-      </div>
-
-      <h3 className={s.subhead}>איך השירות נכנס ליומן</h3>
-      {loading ? <p className={t.hint} aria-busy="true">טוען…</p> : (
-        <div className={s.numRow}>
-          {FIELDS.map((f) => (
-            <div key={f.key} className={t.field}>
-              <label htmlFor={`pol-${f.key}`}>{f.label} ({f.unit})</label>
-              <input id={`pol-${f.key}`} type="number" inputMode="numeric" min={f.lo} max={f.hi} className={t.input} value={draft[f.key] ?? ""} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })} />
-              <span className={t.hint}>{f.hint}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <h3 className={s.subhead}>מי מבצע את השירות</h3>
-      {loading ? null : active.length ? (
-        <>
-          <p className={s.note}>אם לא מסמנים אף עובד, השירות פתוח לכולם.</p>
-          <div className={t.chips} role="group" aria-label="מי מבצע את השירות">
-            {active.map((x) => {
-              const on = chosen.has(x.id);
-              return (
-                <button key={x.id} type="button" aria-pressed={on} className={`${t.chip} ${on ? t.chipOn : ""}`} onClick={() => {
-                  const next = new Set(chosen);
-                  if (on) next.delete(x.id); else next.add(x.id);
-                  setChosen(next);
-                }}>
-                  <span className={s.swatch} style={{ ["--lane" as string]: x.color ?? "var(--dz-brand)", display: "inline-block", width: 10, height: 10, marginInlineEnd: 6, verticalAlign: "middle" }} />
-                  {x.displayName}
-                  {on ? <span aria-hidden="true"> ✓</span> : null}
-                </button>
-              );
-            })}
+    <>
+      <section className={s.section} aria-labelledby="svc-details-title">
+        <h2 id="svc-details-title">פרטי השירות</h2>
+        <div className={s.row2}>
+          <div className={s.field}>
+            <label className={s.label} htmlFor="svc-name">שם השירות</label>
+            <input id="svc-name" className={s.input} value={name} maxLength={140} onChange={(e) => setName(e.target.value)} />
           </div>
-        </>
-      ) : (
-        <p className={s.note}>אין עדיין עובדים. אפשר להוסיף ב<Link href="/calendar/staff" prefetch={false}>עובדים וזמינות</Link>.</p>
-      )}
+          <div className={s.field}>
+            <label className={s.label} htmlFor="svc-duration">משך (דקות)</label>
+            <input id="svc-duration" type="number" inputMode="numeric" min={LIMITS.minDuration} max={LIMITS.maxDuration} step={5} className={s.input} value={duration} onChange={(e) => setDuration(e.target.value)} />
+          </div>
+        </div>
+        <p className={s.hint}>זה המשך שהיומן מציע בתור חדש. השם והמשך משותפים לקטלוג השירותים בכל דוביז.</p>
+      </section>
 
-      {error ? <p className={t.error} role="alert">{error}</p> : null}
-      <div className={t.actions}>
-        <button type="button" className={`${t.btn} ${t.pri}`} disabled={busy || loading || !dirty} onClick={() => void save()}>
-          {busy ? "שומר…" : "שמירת השינויים"}
-        </button>
-        {!dirty && !loading ? <span className={t.hint}>אין שינויים שלא נשמרו.</span> : null}
+      {loadError ? <LoadError text={`לא הצלחתי לטעון את כללי הקביעה. ${loadError}`} onRetry={() => setStamp((x) => x + 1)} /> : null}
+      {loading && !loadError ? <Loading label="טוען" rows={3} /> : null}
+
+      {!loading ? (
+        <>
+          <section className={s.section} aria-labelledby="svc-who-title">
+            <h2 id="svc-who-title">מי מבצע את השירות</h2>
+            {staff!.some((m) => m.active) ? (
+              <AssignmentEditor axis={axis} staff={staff!} services={[service]} value={pick} onChange={setPick} disabled={busy} />
+            ) : (
+              <p className={s.note}>אין עדיין עובדים. אפשר להוסיף ב<Link href="/calendar/staff" prefetch={false} className={s.linkBtn}>צוות</Link>.</p>
+            )}
+          </section>
+
+          <section className={s.section} aria-labelledby="svc-rules-title">
+            <h2 id="svc-rules-title">כללי קביעה</h2>
+            <div className={s.ruleGrid}>
+              {RULES.map((f) => (
+                <div key={f.key} className={s.field}>
+                  <label className={s.label} htmlFor={`pol-${f.key}`}>{f.label}</label>
+                  {f.unit === "lead" ? (
+                    <div className={s.unitField}>
+                      <input id={`pol-${f.key}`} type="number" inputMode="numeric" min={0} className={s.input} value={draft[f.key] ?? ""} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })} />
+                      <select className={s.input} aria-label="יחידה" value={leadUnit} onChange={(e) => {
+                        const unit = e.target.value as LeadUnit;
+                        const total = Number(draft[f.key]) * UNIT_MINUTES[leadUnit];
+                        setLeadUnit(unit);
+                        setDraft({ ...draft, [f.key]: String(Math.round(total / UNIT_MINUTES[unit])) });
+                      }}>
+                        {(["minutes", "hours", "days"] as LeadUnit[]).map((u) => <option key={u} value={u}>{UNIT_LABEL[u]}</option>)}
+                      </select>
+                    </div>
+                  ) : (
+                    <div className={s.unitField}>
+                      <input id={`pol-${f.key}`} type="number" inputMode="numeric" min={f.lo} max={f.hi} className={s.input} value={draft[f.key] ?? ""} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })} />
+                      <span className={s.hint} style={{ alignSelf: "center", width: 48 }}>{f.unit === "days" ? "ימים" : "דקות"}</span>
+                    </div>
+                  )}
+                  <span className={s.hint}>{f.hint}</span>
+                </div>
+              ))}
+            </div>
+            <p className={s.hint}>הכללים חלים על השעות שהיומן מציע — ועל הזמנה מהקישור כשהיא פתוחה.</p>
+          </section>
+        </>
+      ) : null}
+
+      {error ? <p className={s.fieldErr} role="alert">{error}</p> : null}
+      <div className={s.saveBar}>
+        <button type="button" className={`${s.btn} ${s.btnPri}`} disabled={busy || loading || !dirty} onClick={() => void save()}>{busy ? "שומר…" : "שמירת השינויים"}</button>
+        {!dirty && !loading ? <span className={s.hint}>אין שינויים שלא נשמרו.</span> : null}
       </div>
-    </section>
+    </>
   );
 }

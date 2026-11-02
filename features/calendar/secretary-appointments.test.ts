@@ -54,6 +54,9 @@ console.log("— the customer on the line");
 eq("a customer appointment with a known name reads customer · what", appointmentLine(appt({ title: "תספורת", customerName: "נועה לוי" })), "נועה לוי · תספורת");
 eq("without the name the title stands alone", appointmentLine(appt({ title: "תספורת" })), "תספורת");
 eq("a block never names a customer", appointmentLine(appt({ kind: "BLOCK", title: null, customerName: "x" })), "חסימת זמן");
+eq("a booking from the link not linked to a card yet names who asked", appointmentLine(appt({ title: "תספורת", customerName: null, booking: { contactName: "Dana Cohen" } })), "Dana Cohen · תספורת");
+eq("…a linked customer's card name wins", appointmentLine(appt({ title: "תספורת", customerName: "נועה לוי", booking: { contactName: "נ." } })), "נועה לוי · תספורת");
+eq("a finished appointment reads התקיים on the Secretary's calendar", calendarEvents({ obligations: [], tasks: [], summary: null, appointments: [appt({ id: 7, status: "COMPLETED", startsAt: "2026-11-02T07:00:00.000Z", endsAt: "2026-11-02T07:30:00.000Z", title: "תספורת" })] })[0].title, "09:00 · תספורת · התקיים");
 
 console.log("— the read window and today's card");
 {

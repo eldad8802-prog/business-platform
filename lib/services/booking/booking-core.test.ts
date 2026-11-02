@@ -3,6 +3,7 @@
  * D3 expiry and reminders, D4 contact, D8 staff choice, D9 self-cancel, D11 caps, link ids and tokens.
  */
 import {
+  cancelNoticeTitle,
   chooseStaff,
   effectiveOpenCap,
   manageLinkExpiry,
@@ -176,6 +177,10 @@ check("only its sha256 (64 hex) would be stored", /^[0-9a-f]{64}$/.test(sha256He
 check("a request fingerprint is 64 hex and differs per business", /^[0-9a-f]{64}$/.test(requestFingerprint(9, "k")) && requestFingerprint(9, "k") !== requestFingerprint(10, "k"));
 check("a manage link lives a week past the start", manageLinkExpiry(t0, start).getTime() === start.getTime() + 7 * 24 * H);
 check("…never beyond the table's bound", manageLinkExpiry(t0, new Date(t0.getTime() + 500 * 24 * H)).getTime() <= t0.getTime() + 399 * 24 * H);
+
+console.log("— the owner's notice when a customer cancels through the link");
+check("a pending request withdrawn reads as a withdrawn request", cancelNoticeTitle("Dana Cohen", true) === "⁨Dana Cohen⁩ משך/ה את הבקשה לתור");
+check("an approved booking cancelled reads as a cancelled appointment", cancelNoticeTitle("נועה", false) === "⁨נועה⁩ ביטל/ה את התור");
 
 console.log(`\n${total - failures} passed, ${failures} failed`);
 if (failures > 0) process.exit(1);

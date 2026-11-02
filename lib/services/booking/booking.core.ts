@@ -202,3 +202,12 @@ export function manageLinkExpiry(now: Date, startsAt: Date): Date {
   const max = now.getTime() + 399 * 24 * HOUR_MS;
   return new Date(Math.max(now.getTime() + HOUR_MS, Math.min(want, max)));
 }
+
+/**
+ * The bell's title when a customer cancels through their link: a request still waiting was WITHDRAWN (there was no
+ * appointment yet to cancel); an approved or automatically confirmed booking was CANCELLED. The name is isolated
+ * (FSI … PDI), so a Latin name keeps its place in the Hebrew line.
+ */
+export function cancelNoticeTitle(contactName: string, wasPending: boolean): string {
+  return wasPending ? `⁨${contactName}⁩ משך/ה את הבקשה לתור` : `⁨${contactName}⁩ ביטל/ה את התור`;
+}

@@ -37,12 +37,15 @@ export type HubTask = { task: ManualTask; bucket: Bucket };
 export type HubAppointment = Pick<AppointmentWire, "id" | "status" | "kind" | "startsAt" | "endsAt" | "title"> & {
   /** The customer's name when the hub could read it (never required: the title stands alone). */
   customerName?: string | null;
+  /** Booked through the public link: who asked — named until the owner links a customer card. */
+  booking?: { contactName: string } | null;
 };
 
-/** An appointment's line: "customer · what" for a customer appointment with a known name, else what it is. */
+/** An appointment's line: "customer · what" for a customer appointment with a known name (or the booking's requester), else what it is. */
 export function appointmentLine(a: HubAppointment): string {
   const what = a.title?.trim() || KIND_LABEL[a.kind];
-  return a.kind === "CUSTOMER" && a.customerName ? `${a.customerName} · ${what}` : what;
+  const who = a.customerName || a.booking?.contactName;
+  return a.kind === "CUSTOMER" && who ? `${who} · ${what}` : what;
 }
 
 /**

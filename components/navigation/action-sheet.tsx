@@ -43,13 +43,16 @@ const QUICK_ACTIONS: {
     | "secretary"
     | "payments"
     | "lead"
-    | "task";
+    | "task"
+    | "calendar";
   /** Shown but not open yet: inactive, marked "בקרוב" (UI only). */
   comingSoon?: boolean;
   /** Listed only while this platform feature is ON for the business. */
   feature?: string;
 }[] = [
   { label: "משימה חדשה", href: "/tasks?new=1", icon: "task", feature: "daily_tasks" },
+  // Appointments (design direction A): booking starts from "+" only where the calendar is open for the business.
+  { label: "קביעת תור", href: "/calendar?new=1", icon: "calendar", feature: "appointments" },
   { label: "חשבונית חדשה", href: "/billing?create=1", icon: "invoice" },
   { label: "בקשת תשלום", href: "/collection/new", icon: "payments" },
   { label: "ליד חדש", href: "/leads?new=1", icon: "lead" },
@@ -67,7 +70,8 @@ const QUICK_ACTIONS: {
 export function ActionSheet({ open, onClose }: ActionSheetProps) {
   const router = useRouter();
   const tasksOn = useFeatureEnabled("daily_tasks", open);
-  const actions = QUICK_ACTIONS.filter((a) => !a.feature || (a.feature === "daily_tasks" && tasksOn));
+  const appointmentsOn = useFeatureEnabled("appointments", open);
+  const actions = QUICK_ACTIONS.filter((a) => !a.feature || (a.feature === "daily_tasks" && tasksOn) || (a.feature === "appointments" && appointmentsOn));
   const [isPresent, setIsPresent] = useState(open);
   const [visualOpen, setVisualOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -362,11 +366,24 @@ function ActionGlyph({
     | "secretary"
     | "payments"
     | "lead"
-    | "task";
+    | "task"
+    | "calendar";
 }) {
   const stroke = 1.85;
   const size = 22;
   switch (kind) {
+    case "calendar":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <path
+            d="M4 6.5h16v13.5H4zM4 10.5h16M8.5 3.5v4M15.5 3.5v4M12 13.5v4M10 15.5h4"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
     case "task":
       return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none">

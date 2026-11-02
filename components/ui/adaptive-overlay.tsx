@@ -39,6 +39,7 @@ export function AdaptiveOverlay({
   onClose,
   variant = "form",
   labelledBy,
+  className,
   children,
 }: {
   open: boolean;
@@ -46,6 +47,8 @@ export function AdaptiveOverlay({
   variant?: AdaptiveOverlayVariant;
   /** id of the element that titles the dialog (aria-labelledby). */
   labelledBy?: string;
+  /** A class on the panel — a feature's own palette scope (the panel's background reads its tokens). */
+  className?: string;
   children: ReactNode;
 }) {
   const dialogRef = useAccessibleDialog<HTMLDivElement>({ isOpen: open, onClose });
@@ -124,6 +127,7 @@ export function AdaptiveOverlay({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
+        className={className}
         style={panel}
         onClick={(e) => e.stopPropagation()}
       >

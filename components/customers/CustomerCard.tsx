@@ -47,6 +47,8 @@ import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import { APPOINTMENT_STATUS_LABEL } from "./appointment-status-labels";
+import { clockOf } from "@/features/calendar/calendar-model";
+import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
 /**
  * Customer file (detail) — one continuous scroll, no tabs: identity + contact,
@@ -748,16 +750,19 @@ function AppointmentsSection({
       section={section}
       renderItem={(a) => {
         const dateStr = formatDate(a.startsAt ?? a.createdAt, locale);
+        // The appointment opens on its own day in the calendar, with its details (design direction A, 2026-11-02).
+        const start = a.startsAt ? new Date(a.startsAt) : null;
+        const href = start ? `/calendar?view=day&day=${jerusalemDayKey(start)}&appointment=${a.id}` : `/calendar?appointment=${a.id}`;
         return (
-          <div className="crm-item cust-item" key={a.id}>
+          <Link className="crm-item cust-item" key={a.id} href={href} prefetch={false}>
             <div className="crm-item__main">
               <div className="crm-item__title">{a.title?.trim() || t("customers.customer.card.appointmentFallback")}</div>
               <div className="crm-item__meta">
                 <span className="crm-badge">{labelT(t, APPOINTMENT_STATUS_LABEL, a.status)}</span>
-                {dateStr ? <span> · {dateStr}</span> : null}
+                {dateStr ? <span> · {dateStr}{start ? <> · <bdi dir="ltr">{clockOf(start)}</bdi></> : null}</span> : null}
               </div>
             </div>
-          </div>
+          </Link>
         );
       }}
     />

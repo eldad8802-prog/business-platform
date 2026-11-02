@@ -162,6 +162,9 @@ export async function getPublicProfile(publicId: unknown) {
         name: s.name,
         durationMinutes: s.durationMinutes,
         approval: s.policy.approvalMode,
+        // How far ahead the service is offered (its own policy — the slots answer already stops there): the page stops
+        // paging at it instead of showing empty weeks.
+        maxAdvanceDays: s.policy.maxAdvanceDays,
         ...(settings.showPrices ? { price: price(s) } : {}),
         ...(settings.showStaffNames && !catalog.noStaff && settings.staffChoiceMode !== "NONE"
           ? { staff: s.lanes.map((l) => { const m = catalog.staff.find((x) => x.id === l.staffMemberId)!; return { id: m.id, name: m.displayName, color: m.color }; }) }
@@ -475,6 +478,10 @@ export type ManageView = {
   expiresAt: string | null;
   canCancel: boolean;
   cancelUntil: string | null;
+  /** CANCELED because the customer withdrew the request before it was decided (no appointment was ever confirmed). */
+  withdrawn: boolean;
+  /** Whether the business lets customers cancel through the link at all (the profile already says so). */
+  selfCancelEnabled: boolean;
 };
 
 async function manageView(tx: Tx, businessId: number, hash: string, now: Date) {
@@ -506,6 +513,8 @@ async function manageView(tx: Tx, businessId: number, hash: string, now: Date) {
     expiresAt: state === "PENDING" ? req.expiresAt.toISOString() : null,
     canCancel,
     cancelUntil: state === "CONFIRMED" && cancel.until ? cancel.until.toISOString() : null,
+    withdrawn: req.status === "WITHDRAWN",
+    selfCancelEnabled: settings.selfCancelEnabled,
   };
   return { view, appt, req };
 }
@@ -529,9 +538,10 @@ export async function cancelByToken(token: unknown, nowIn?: Date): Promise<Manag
     if (!view.canCancel) throw new AppointmentServiceError("SELF_CANCEL_CLOSED");
     const t = await transitionWithinTx(tx, appt, "CANCELED", CUSTOMER, { cancelReason: "CUSTOMER_CANCELED", journalKey: `customer:cancel:${req.id}`, now });
     if (!t.ok) throw new AppointmentServiceError("INVALID_TRANSITION");
-    if (req.status === "PENDING") await tx.bookingRequest.update({ where: { id: req.id }, data: { status: "WITHDRAWN", decidedAt: now } });
+    const wasPending = req.status === "PENDING";
+    if (wasPending) await tx.bookingRequest.update({ where: { id: req.id }, data: { status: "WITHDRAWN", decidedAt: now } });
     await resolveRequestNotification(tx, r.businessId, req.id, now);
-    await notifyCustomerCancelled(tx, r.businessId, { requestId: req.id, contactName: req.contactName, serviceName: view.serviceName, when: appt.startsAt ? whenLabel(appt.startsAt) : "" }, now);
+    await notifyCustomerCancelled(tx, r.businessId, { requestId: req.id, contactName: req.contactName, serviceName: view.serviceName, when: appt.startsAt ? whenLabel(appt.startsAt) : "" }, now, wasPending);
     return (await manageView(tx, r.businessId, r.hash, now)).view;
   }, { timeoutMs: 15_000 });
 }
