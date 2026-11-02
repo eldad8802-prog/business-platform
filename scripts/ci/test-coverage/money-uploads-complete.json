@@ -5,6 +5,11 @@
       "class": "PRODUCT_REQUIRED",
       "lab": "pure",
       "reason": "pure (no DB/network): Z and settlement phrases recognised in their common spellings from OCR text only (never the file name); ordinary invoices, fee invoices ('דמי סליקה') and credit notes NOT questioned; a settlement report approved as an expense is not questioned; the owner's answer ends the question; static: the approve route asks before its first write, with its own 409 code and an explicit answer flag; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/documents/extraction-pilot-findings.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): business-9 pilot extraction findings and their neighbours — thousands-separated totals survive the text cleaner in several OCR layouts and documents (1,180.00 / 12,345.60 / 123,456.78), a total contradicted by the document's own subtotal/VAT/total lines is never confident, the summary reader never invents a doubt (columns layout), field labels are stripped from vendor names but real names that start with the same word are kept, 'מע״מ'/'חשבונית מס' alone do not make a category 'tax', the Z question follows the chosen direction; run by ci-1-prisma-centralization.yml"
     }
   }
 }

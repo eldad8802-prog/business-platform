@@ -13,7 +13,10 @@ export function cleanOCRText(raw: string): string {
   text = text.replace(/([0-9])([א-תA-Za-z])/g, "$1 $2");
   text = text.replace(/([א-תA-Za-z])([0-9])/g, "$1 $2");
 
-  text = text.replace(/(\d+\.\d{2})/g, "\n$1\n");
+  // Each decimal amount on its own line — the WHOLE amount: "1,180.00" stays one number. Matching only
+  // `\d+\.\d{2}` cut it into "1," and "180.00", so every amount of 1,000 and up lost its thousands and the
+  // VAT line could win as the total (an invoice of 1,180.00 was read as 180, with high confidence).
+  text = text.replace(/(\d{1,3}(?:,\d{3})+\.\d{2}|\d+\.\d{2})/g, "\n$1\n");
 
   const anchors = [
     "סהכ בשח",

@@ -37,6 +37,9 @@ import {
 } from "@/lib/data-transfer/import/normalize/value-normalize";
 import { validateRows } from "@/lib/data-transfer/import/validate/row-validate";
 import { detectInFileDuplicates } from "@/lib/data-transfer/import/duplicates/duplicate-detect";
+import { verdictFor } from "@/lib/data-transfer/import/execute/duplicate-policy";
+import { defaultDecisions } from "@/lib/data-transfer/import/execute/row-decisions";
+import type { DerivedRow } from "@/lib/data-transfer/import/derive-rows";
 import {
   issuePreviewToken,
   sha256Hex,
@@ -507,6 +510,57 @@ check("IN_FILE: no collision means no evidence", () => {
     ["דנה", "0521111111"],
   ]);
   assert.equal(detectInFileDuplicates("customers", rows).size, 0);
+});
+
+/** The rows as the decision layer sees them: number, status and the evidence found. */
+function deriveForPolicy(
+  rows: ReturnType<typeof validate>,
+  dupes: ReturnType<typeof detectInFileDuplicates>
+): DerivedRow[] {
+  return rows.map((r) => ({
+    rowNumber: r.rowNumber,
+    status: "READY" as const,
+    errors: [],
+    changes: [],
+    duplicates: dupes.get(r.rowNumber) ?? [],
+  }));
+}
+
+check("IN_FILE: customers WITHOUT a phone and the same name are a suspicion — a warning, never a block", () => {
+  // Different order, different spacing and case: still the same name.
+  const rows = validate("customers", { 0: "שם", 1: "טלפון" }, [
+    ["רונית לוי", ""],
+    ["דנה", ""],
+    ["  רונית   לוי ", ""],
+  ]);
+  const dupes = detectInFileDuplicates("customers", rows);
+  assert.deepEqual([...dupes.keys()].sort(), [1, 3]);
+  const e = dupes.get(3)?.[0];
+  assert.equal(e?.field, "שם");
+  assert.equal(e?.strength, "WEAK");
+  // Both rows stay CREATE by default: the owner decides.
+  const defaults = defaultDecisions("customers", deriveForPolicy(rows, dupes));
+  assert.equal(defaults[1], "CREATE");
+  assert.equal(defaults[3], "CREATE");
+  assert.equal(verdictFor("customers", dupes.get(3) ?? []).blocking, false);
+});
+
+check("IN_FILE: a customer WITH a phone is never matched by name (the phone decides)", () => {
+  const rows = validate("customers", { 0: "שם", 1: "טלפון" }, [
+    ["רונית לוי", "0501234567"],
+    ["רונית לוי", "0529876543"],
+  ]);
+  assert.equal(detectInFileDuplicates("customers", rows).size, 0);
+});
+
+check("EXISTING: a customer name match is a warning — the policy does not block it", () => {
+  const evidence = [{ scope: "EXISTING" as const, field: "שם", strength: "WEAK" as const, value: "רונית לוי" }];
+  assert.equal(verdictFor("customers", evidence).blocking, false);
+});
+
+check("the supplier policy is unchanged: an in-file supplier name repeat still blocks the later row", () => {
+  const evidence = [{ scope: "IN_FILE" as const, field: "שם ספק", strength: "WEAK" as const, value: "תנובה", otherRows: [1] }];
+  assert.equal(verdictFor("suppliers", evidence).blocking, true);
 });
 
 check("IN_FILE strength reflects the PRODUCT, not our confidence", () => {

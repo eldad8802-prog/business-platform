@@ -4,7 +4,7 @@ import type { DocumentEntities } from "./document-entities.types";
 import { extractAmountEntity } from "./amount-entity.service";
 import { extractBusinessIdEntities } from "./business-id-entity.service";
 import { extractDateEntity } from "./date-entity.service";
-import { extractVendorEntity } from "./vendor-entity.service";
+import { extractVendorEntity, stripVendorFieldLabel } from "./vendor-entity.service";
 
 import { applyAmountStrategy } from "../amount-strategy.service";
 import { applyVendorStrategy } from "../vendor-strategy.service";
@@ -64,12 +64,15 @@ export function extractDocumentEntities(
     structure
   );
 
-  const strategyVendor = applyVendorStrategy(
+  const chosenVendor = applyVendorStrategy(
     structure,
     vendorBusinessIds,
     rawVendor,
     exclude
   );
+  // Every vendor path (entity, strategy, business-id line) ends here: a form label is never part of the name.
+  const strategyVendor =
+    chosenVendor.name === null ? chosenVendor : { ...chosenVendor, name: stripVendorFieldLabel(chosenVendor.name) };
 
   const issuer = own
     ? readIssuer({

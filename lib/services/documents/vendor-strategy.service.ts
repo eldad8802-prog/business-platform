@@ -116,6 +116,18 @@ function extractVendorFromBusinessIdLine(line: string): string | null {
   return null;
 }
 
+/**
+ * A piece of the document's title or number — "מס 55" (from "חשבונית מס 55" once the cleaner splits the
+ * title), "מספר 1042", "קבלה 7", "2026-0042" — is never a vendor. Without this, such a line took the real
+ * vendor's anchor from the next line ("…בע״מ") and won over it.
+ */
+export function isDocumentNumberFragment(name: string): boolean {
+  const n = name.replace(/[״"׳'`.:#]/g, "").replace(/\s+/g, " ").trim();
+  if (n === "") return true;
+  if (/^[\d\s\-/\\]+$/.test(n)) return true;
+  return /^(?:חשבונית(?: מס)?(?: קבלה)?|מס|מספר|קבלה|הזמנה|תעודת משלוח|מסמך|no|nr|invoice|receipt)\s*[\d\-/\\]+$/i.test(n);
+}
+
 function scoreHeaderVendor(
   line: string,
   index: number,
@@ -133,7 +145,7 @@ function scoreHeaderVendor(
 
   const normalized = normalizeVendorName(line);
 
-  if (isWeakVendorName(normalized)) {
+  if (isWeakVendorName(normalized) || isDocumentNumberFragment(normalized)) {
     return { score: -999, anchored: false };
   }
 

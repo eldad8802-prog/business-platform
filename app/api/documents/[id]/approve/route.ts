@@ -192,7 +192,7 @@ export async function POST(
         if (question) {
           return Response.json(
             {
-              error: revenueReportQuestionText(question.kind),
+              error: revenueReportQuestionText(question.kind, direction),
               code: REVENUE_REPORT_SUSPECTED,
               kind: question.kind,
             },

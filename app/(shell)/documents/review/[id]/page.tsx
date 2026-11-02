@@ -138,7 +138,12 @@ export default function ReviewPage() {
 
         setDocument(json.document);
         setOutputProfile(json.outputProfile);
-        setExtractionMeta(buildExtractionMeta(json.extracted as ApiExtracted | null));
+        setExtractionMeta(
+          buildExtractionMeta(
+            json.extracted as ApiExtracted | null,
+            typeof json.amountCheck === "string" ? json.amountCheck : null
+          )
+        );
         setDuplicateSignals(
           Array.isArray((json as { duplicateSignals?: unknown }).duplicateSignals)
             ? ((json as { duplicateSignals?: unknown })

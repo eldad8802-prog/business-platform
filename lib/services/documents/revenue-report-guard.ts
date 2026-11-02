@@ -82,8 +82,13 @@ export function revenueReportQuestion(input: {
 
 export const REVENUE_REPORT_SUSPECTED = "REVENUE_REPORT_SUSPECTED" as const;
 
-export function revenueReportQuestionText(kind: RevenueReportKind): string {
-  return kind === "z_report"
-    ? "המסמך נראה כמו דוח Z (סגירת קופה). דוח Z אינו חשבונית: אם נרשום אותו כהכנסה, המכירות של אותו יום עלולות להיספר פעמיים. מה זה המסמך?"
-    : "המסמך נראה כמו דוח סליקה מחברת האשראי. דוח סליקה אינו חשבונית: אם נרשום אותו כהכנסה, אותן מכירות עלולות להיספר פעמיים. מה זה המסמך?";
+/** The question in the words of what the owner chose: income or expense. */
+export function revenueReportQuestionText(kind: RevenueReportKind, direction: "income" | "expense"): string {
+  if (kind === "z_report") {
+    return direction === "income"
+      ? "המסמך נראה כמו דוח Z (סגירת קופה). דוח Z אינו חשבונית: אם נרשום אותו כהכנסה, המכירות של אותו יום עלולות להיספר פעמיים. מה זה המסמך?"
+      : "המסמך נראה כמו דוח Z (סגירת קופה). דוח Z מסכם מכירות ואינו הוצאה: אם נרשום אותו כהוצאה, תיווצר הוצאה שלא הייתה. מה זה המסמך?";
+  }
+  // A settlement report is asked about only as income (as an expense it is the acquirer's fees).
+  return "המסמך נראה כמו דוח סליקה מחברת האשראי. דוח סליקה אינו חשבונית: אם נרשום אותו כהכנסה, אותן מכירות עלולות להיספר פעמיים. מה זה המסמך?";
 }

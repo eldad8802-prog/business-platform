@@ -82,6 +82,8 @@ export function computeTrustContext(input: {
   const trustReasons = [
     reviewMode === "financial" && !isValidPositiveAmount(draft.amount)
       ? t("documents.review.trust.reasonAmountInvalid")
+      : reviewMode === "financial" && extractionMeta?.amountCheck
+        ? extractionMeta.amountCheck
       : reviewMode === "financial" && amountLevel !== "high"
         ? t("documents.review.trust.reasonAmountVerify")
         : null,
