@@ -69,6 +69,10 @@ export function UploadsScreen() {
     };
   }, [attempt]);
 
+  // Absent (an older server answer) reads as OFF: only the server's explicit ON opens a card.
+  const revenueCards =
+    load.state === "ready" && load.data.revenueReports ? load.data.revenueReports : { z: false, settlement: false };
+
   const bankMode: BankCardMode =
     load.state === "ready"
       ? load.data.bank.mode
@@ -133,12 +137,42 @@ export function UploadsScreen() {
               {/* When the whole read failed, the banner above carries the one retry. */}
               <BankCard mode={bankMode} onRetry={load.state === "ready" ? retry : undefined} />
             </li>
+            {/* Z / settlement: a link only when the server says the feature is ON for this business; otherwise —
+                OFF, unknown, still loading, signed out — the inactive "בקרוב" card, never a guessed link. */}
             <li>
-              <SoonCard entity="invoice" name="דוח Z מהקופה" desc="סיכום יומי מהקופה הרושמת" />
+              {revenueCards.z ? (
+                <LinkCard
+                  href="/money/revenue-reports/z/upload"
+                  entity="invoice"
+                  name="דוח Z מהקופה"
+                  desc="סיכום יומי מהקופה הרושמת · בדיקה לפני קליטה · הקובץ עצמו לא נשמר"
+                />
+              ) : (
+                <SoonCard entity="invoice" name="דוח Z מהקופה" desc="סיכום יומי מהקופה הרושמת" />
+              )}
             </li>
             <li>
-              <SoonCard entity="payment-request" name="דוח סליקה" desc="דוח מחברת האשראי על העסקאות והעמלות" />
+              {revenueCards.settlement ? (
+                <LinkCard
+                  href="/money/revenue-reports/settlement/upload"
+                  entity="payment-request"
+                  name="דוח סליקה"
+                  desc="דוח מחברת האשראי על הזיכויים והעמלות · בדיקה לפני קליטה · הקובץ עצמו לא נשמר"
+                />
+              ) : (
+                <SoonCard entity="payment-request" name="דוח סליקה" desc="דוח מחברת האשראי על העסקאות והעמלות" />
+              )}
             </li>
+            {revenueCards.z || revenueCards.settlement ? (
+              <li>
+                <LinkCard
+                  href="/money/revenue-reports"
+                  entity="collection"
+                  name="סגירות קופה ודוחות סליקה"
+                  desc="מה שנקלט מדוחות Z ומדוחות סליקה · דוחות, לא רישומי הכנסה"
+                />
+              </li>
+            ) : null}
             <li>
               <LinkCard
                 href="/documents/upload"

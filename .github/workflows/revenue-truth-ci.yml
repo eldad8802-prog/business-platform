@@ -53,6 +53,9 @@ jobs:
           # S1-A (owner-approved 2026-10-26): lib/revenue-sources is the one writer — it may import the writers
           # (store) and the types, nothing else. Every other product import of lib/revenue-truth is refused, and the
           # read side (sources / read-model) stays unconnected for everyone until a screen is separately approved.
+          # Revenue report uploads (lib/revenue-sources/uploads, docs/revenue-report-uploads.md) are part of that one
+          # writer: they record Z reports / settlements through the store and list the rows THEY recorded with plain
+          # tenant reads — never through sources / read-model, so no revenue figure is computed for any screen.
           files=$(grep -rlE "@/lib/revenue-truth|lib/revenue-truth/" app components features lib --include=*.ts --include=*.tsx | grep -v '^lib/revenue-truth/' || true)
           bad=""
           for f in $files; do

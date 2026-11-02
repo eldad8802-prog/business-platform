@@ -1,0 +1,107 @@
+# Revenue report uploads — Z reports and card settlement reports into the revenue truth tables, preview first,
+# format-independent (the parser registry ships EMPTY until real samples exist). docs/revenue-report-uploads.md
+#
+#   core      no database: the contract's CHECK rules in code, classification (NEW / EXISTING / CONFLICT), the
+#             decisions, the registry (shipped empty → FORMAT_NOT_SUPPORTED), the form edge, static checks (no
+#             income / document / bank-line writes; session-only, flag-gated routes); the uploads screen model; the
+#             learning-coverage contract; the security-test coverage; the cross-currency guard
+#   battery   PostgreSQL 17, Production role topology (.rru/lab.sh on .rev/lab.sh --with-rev + .bfi/prereq.sql + this
+#             milestone's data migration), the service and the routes as the NOBYPASSRLS runtime (.rru/battery.ts):
+#             flags / 404, FORMAT_NOT_SUPPORTED, insert through a TEST-ONLY fixture parser, replays, conflicts and
+#             supersession, tokens, tenant isolation, concurrency, no FinancialRecord / income
+#
+# Synthetic credentials; ZERO secrets; ZERO network. Nothing here touches a shared database.
+
+name: revenue report uploads (PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/revenue-sources/uploads/**"
+      - "lib/revenue-report-uploads/**"
+      - "app/api/money/revenue-reports/**"
+      - "app/(shell)/money/revenue-reports/**"
+      - "features/revenue-reports/**"
+      - "features/money-uploads/**"
+      - "lib/money-uploads/**"
+      - "lib/revenue-truth/store.ts"
+      - "lib/data-transfer/import/execute/import-run-store.ts"
+      - "lib/services/feature-access/platform-feature-catalog.ts"
+      - "prisma/migrations/20261111090000_revenue_report_upload_features/**"
+      - ".rru/**"
+      - ".rev/lab.sh"
+      - ".bfi/prereq.sql"
+      - ".github/workflows/revenue-report-uploads-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: revenue report uploads core (no database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run test:revenue-report-uploads:core
+      - run: npm run verify:money-uploads
+      - run: npx tsx lib/knowledge/coverage/feature-coverage.test.ts
+      - run: node scripts/ci/security-test-coverage.mjs
+      - run: node scripts/ci/cross-currency-sum-guard.mjs --self-test && node scripts/ci/cross-currency-sum-guard.mjs .
+      - name: No vendor parser is shipped without a real sample
+        run: |
+          set -euo pipefail
+          # The registry ships empty (docs/revenue-report-uploads.md). Adding a parser is a deliberate change of this
+          # step together with the parser's fixture test built from a REAL sample.
+          grep -q 'export const SHIPPED_PARSERS: readonly ReportParser\[\] = Object.freeze(\[\]);' lib/revenue-sources/uploads/registry.ts
+          echo "parser registry: empty, as shipped"
+
+  battery:
+    name: revenue report uploads battery (PG17, Production role topology, NOBYPASSRLS runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: rru_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: rru_ci_synthetic_super_pw
+      LAB_PASSWORD: rru_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: rru_ci_secret_synthetic_at_least_32_characters_long
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Lab (Production role topology, revenue truth migration, run ledger under RLS, feature rows)
+        run: bash .rru/lab.sh rru_app
+
+      - name: 2. Application battery (the service and the routes as the NOBYPASSRLS runtime)
+        run: |
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/rru_app" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/rru_app" \
+            npm run test:revenue-report-uploads:battery

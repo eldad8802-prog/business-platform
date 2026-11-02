@@ -93,8 +93,15 @@ export type AttentionItem = {
   action?: { label: string; href: string };
 };
 
+/**
+ * Revenue report uploads (Z / settlement): a card is a link only when its feature is ON for the business — the
+ * server's decision; OFF and UNKNOWN (fail-closed) both keep the "בקרוב" card. docs/revenue-report-uploads.md
+ */
+export type RevenueReportCards = { z: boolean; settlement: boolean };
+
 export type UploadsOverview = {
   bank: { mode: BankMode };
+  revenueReports: RevenueReportCards;
   /** False when the history could not be read this time; then `history` and `attention` are empty, not "none". */
   historyAvailable: boolean;
   history: HistoryEntry[];
@@ -128,6 +135,8 @@ const DOMAIN_LABELS: Record<string, string> = {
   documents: "ייבוא מסמכים",
   "issued-documents": "ייבוא מסמכים שהופקו",
   "historical-documents": "היסטוריה ממערכת קודמת",
+  z_report: "דוח Z מהקופה",
+  settlement_report: "דוח סליקה",
 };
 
 export function domainLabel(domain: string): string {
@@ -268,17 +277,24 @@ export function deriveAttention(
  */
 export function buildUploadsOverview(input: {
   bankState: BankFileImportState;
+  /** ON / OFF / UNKNOWN per report kind; absent ⇒ OFF. Only ON opens a card. */
+  revenueReportStates?: { z: BankFileImportState; settlement: BankFileImportState };
   runs: readonly ImportRunInput[] | null;
   legacyBatches: readonly LegacyBatchInput[] | null;
   now: Date;
   importAvailable: boolean;
 }): UploadsOverview {
   const bank = { mode: bankModeOf(input.bankState) };
+  const revenueReports: RevenueReportCards = {
+    z: input.revenueReportStates?.z === "ON",
+    settlement: input.revenueReportStates?.settlement === "ON",
+  };
   if (input.runs === null || input.legacyBatches === null) {
-    return { bank, historyAvailable: false, history: [], attention: [] };
+    return { bank, revenueReports, historyAvailable: false, history: [], attention: [] };
   }
   return {
     bank,
+    revenueReports,
     historyAvailable: true,
     history: mergeHistory(input.runs, input.legacyBatches, HISTORY_LIMIT),
     attention: deriveAttention(input.runs, input.now, { importAvailable: input.importAvailable }),

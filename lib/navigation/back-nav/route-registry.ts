@@ -154,6 +154,10 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/suppliers", parent: "/tools/operations", parentLabelKey: "toBusinessManagement" },
   // S1-B M3: the uploads work screen is a tool of the money family.
   { pattern: "/money/uploads", parent: "/tools/money", parentLabelKey: "toMoneyInvoices" },
+  // Revenue report uploads: the list of recorded reports sits under the uploads screen; each upload under the list.
+  { pattern: "/money/revenue-reports", parent: "/money/uploads", parentLabelKey: "toMoneyUploads" },
+  { pattern: "/money/revenue-reports/z/upload", parent: "/money/revenue-reports", parentLabelKey: "toRevenueReports" },
+  { pattern: "/money/revenue-reports/settlement/upload", parent: "/money/revenue-reports", parentLabelKey: "toRevenueReports" },
   { pattern: "/suppliers/[id]", parent: "/suppliers", parentLabelKey: "toSupplierList" },
 
   // ---- inventory ------------------------------------------------------------

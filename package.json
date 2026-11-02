@@ -56,6 +56,8 @@
     "verify:payables-core": "npx tsx lib/services/payables/payables-core.test.ts",
     "verify:payables-list": "npx tsx \"app/(shell)/payables/payables-list-model.verify.test.ts\"",
     "verify:money-uploads": "npx tsx lib/money-uploads/uploads-overview.verify.test.ts",
+    "test:revenue-report-uploads:core": "npx tsx lib/revenue-sources/uploads/revenue-report-core.test.ts",
+    "test:revenue-report-uploads:battery": "npx tsx .rru/battery.ts",
     "verify:commitment-detail": "npx tsx \"app/(shell)/payables/[id]/commitment-detail-model.verify.test.ts\"",
     "verify:payables-db": "npx tsx lib/services/payables/payables.db.test.ts",
     "verify:payables-product": "npx tsx lib/services/payables/payables-1b.db.test.ts",
