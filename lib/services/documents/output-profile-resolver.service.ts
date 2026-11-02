@@ -312,10 +312,12 @@ export async function resolveDocumentOutputProfile(params: {
     };
   }
 
-  // No OCR → fallback profile (unknown_review minimal)
+  // No OCR → fallback profile (unknown_review minimal). Nothing was read, so nothing may be claimed about
+  // the document: "quote" here made every unreadable file say "looks like a quote or order". A retail type
+  // with the "unknown" route resolves to unknown_review.
   if (!params.ocrText || params.ocrText.trim().length === 0) {
     const outputProfile = buildDocumentOutputProfile({
-      documentType: "quote",
+      documentType: "receipt",
       isFinancial: true,
       guardrailRoute: "unknown",
       searchableText: "",

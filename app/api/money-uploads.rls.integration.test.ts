@@ -203,7 +203,7 @@ async function main() {
   ok("the old-path bank upload is one entry of 3 lines", !!legacy && legacy.counts.created === 3, JSON.stringify(legacy));
   ok("its period is the lines' dates", legacy?.period?.from === "2026-09-01" && legacy?.period?.to === "2026-09-03", JSON.stringify(legacy?.period));
   ok("its account is label + last four only", legacy?.account?.label === "חשבון עסקי A" && legacy?.account?.last4 === A_LAST4, JSON.stringify(legacy?.account));
-  ok("no entry claims a stored source file", historyA.every((e) => e.sourceFileStored === false));
+  ok("no entry claims a stored source file (none of these is a documents import)", historyA.every((e) => e.sourceFileStored === false));
   ok("no amount and no transaction description in the answer", !textA.includes("1234.56") && !textA.includes("1234") && !textA.includes(SECRET_DESCRIPTION));
   ok("the PARTIAL customers import is an action item", (A.attention ?? []).some((i: { kind: string }) => i.kind === "action"), JSON.stringify(A.attention));
 

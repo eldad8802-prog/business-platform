@@ -28,6 +28,7 @@ import {
 import {
   defaultActionFor,
   defaultDecisions,
+  hasGenuineOverrideIn,
   inFileEligibleRows,
   mayOverrideToCreate,
   resolveDecisions,
@@ -981,8 +982,27 @@ check("tabular reads an override as CREATE the policy would have SKIPPED", () =>
     code.indexOf("const hasGenuineOverride"),
     code.indexOf("const overrideActionHash")
   );
-  assert.match(block, /=== "CREATE"/);
-  assert.match(block, /mayOverrideToCreate\(/);
+  assert.match(block, /hasGenuineOverrideIn\(/);
+  const helper = fs.readFileSync("lib/data-transfer/import/execute/row-decisions.ts", "utf8");
+  const fn = helper.slice(helper.indexOf("export function hasGenuineOverrideIn"));
+  assert.match(fn, /=== "CREATE"/);
+  assert.match(fn, /defaults\[row\.rowNumber\] === "SKIP"/);
+  assert.match(fn, /mayOverrideToCreate\(/);
+});
+
+check("the screen's own defaults sent back are NOT an override (an ordinary import is never refused)", () => {
+  // The import screen always re-sends the full decision set. Rows with no duplicate default to CREATE;
+  // sending that back unchanged must not ask for an override action.
+  const clean = [
+    { rowNumber: 1, status: "OK", duplicates: [] },
+    { rowNumber: 2, status: "OK", duplicates: [] },
+  ] as unknown as Parameters<typeof hasGenuineOverrideIn>[1];
+  for (const domain of ["customers", "suppliers", "leads", "inventory"] as const) {
+    const defaults = defaultDecisions(domain, clean);
+    assert.deepEqual(defaults, { 1: "CREATE", 2: "CREATE" }, domain);
+    assert.equal(hasGenuineOverrideIn(domain, clean, defaults), false, domain);
+    assert.equal(hasGenuineOverrideIn(domain, clean, null), false, domain);
+  }
 });
 
 check("CREATE_ANYWAY is never a server default, which is what makes it usable", () => {

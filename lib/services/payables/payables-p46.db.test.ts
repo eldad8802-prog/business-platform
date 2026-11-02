@@ -166,6 +166,11 @@ async function main(): Promise<void> {
   check("3.1 upload ingests 3 lines", up1.inserted === 3 && up1.alreadyKnown === 0);
   const up2 = await asA(() => obs.uploadStatement({ businessId: A, sourceBankAccountId: source.id, csvText: csv }));
   check("3.2 re-uploading the same statement adds NOTHING", up2.inserted === 0 && up2.alreadyKnown === 3);
+  await rejects(
+    "3.2b a file with no readable line is refused, not reported as an upload of 0 lines",
+    () => asA(() => obs.uploadStatement({ businessId: A, sourceBankAccountId: source.id, csvText: "תאריך\tזכות/חובה ₪\n01/02/2026\t-5.00" })),
+    /לא הצלחנו לקרוא תנועות/
+  );
   const lines = await prisma.externalTransaction.findMany({ where: { businessId: A }, orderBy: { bookedAt: "asc" } });
   await rejects("3.3 an observed amount cannot be edited (trigger)", () => prisma.externalTransaction.update({ where: { id: lines[0].id }, data: { amount: "999.00" } }), /immutable/);
   const beforeAttach = await paymentsOf(A);

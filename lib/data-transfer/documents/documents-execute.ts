@@ -406,7 +406,10 @@ export async function executeDocumentImport(
           position,
           filename: file.filename,
           outcome: "SKIPPED",
-          message: file.reason || "לא נקלט לפי בחירתכם.",
+          // Execution re-stages the files without their analysis, so `reason` is often empty here; a skip is
+          // not always the owner's choice (a duplicate is skipped by default), so the fallback says only what
+          // happened.
+          message: file.reason || "הקובץ דולג ולא נקלט.",
         });
       } catch (error) {
         // A primary-key clash means a concurrent execution already accounted

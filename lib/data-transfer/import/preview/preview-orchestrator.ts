@@ -58,6 +58,7 @@ import {
 } from "@/lib/data-transfer/import/lead-side-effects";
 import {
   decisionsHashOf,
+  hasGenuineOverrideIn,
   inFileEligibleRows,
   mayOverrideToCreate,
   resolveDecisions,
@@ -261,11 +262,7 @@ export async function buildImportPreview(
   // has no separate word for it, so it is recognised rather than declared —
   // and NOT every CREATE is one: a row that never blocked has nothing to
   // override, so choosing CREATE there is just the default, said out loud.
-  const hasGenuineOverride = derived.rows.some(
-    (row) =>
-      submitted?.[row.rowNumber] === "CREATE" &&
-      mayOverrideToCreate(input.domainId, row, eligible)
-  );
+  const hasGenuineOverride = hasGenuineOverrideIn(input.domainId, derived.rows, submitted);
   const attestation = attestOverrideAction({
     overrideActionId: input.overrideActionId,
     hasGenuineOverride,
