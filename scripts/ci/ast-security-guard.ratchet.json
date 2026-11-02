@@ -31,6 +31,7 @@
     "lib/conversation-context/get-context-messages.ts::getContextMessages::fallback??": 1,
     "lib/conversation-state/conversation-state.service.ts::applyMessageEvent::fallback??": 1,
     "lib/documents/pending-review.ts::dbStep::arg": 1,
+    "lib/experiments/trusted-gate-exp3.ts::exp3Db::fallback??": 1,
     "lib/features/conversation/starter-bot/derive-starter-bot-progress.ts::deriveStarterBotNextQuestionIndex::fallback??": 1,
     "lib/features/conversation/starter-bot/derive-starter-bot-progress.ts::findStarterBotTerminalConversationFlags::fallback??": 1,
     "lib/features/conversation/starter-bot/derive-starter-bot-progress.ts::isStarterBotFlowCompletedSent::fallback??": 1,
