@@ -20,6 +20,18 @@
  *   Z           sourceKind POS, capture from the parser (FILE_STRUCTURED / FILE_EXTRACTED), scope upload.z.<parser>
  *   settlement  sourceKind ACQUIRER / PAYMENT_PROVIDER (the parser's), scope upload.settlement.<parser>
  *
+ * Owner decisions (approved directions 2026-11-03; docs "Owner decisions"), as implemented here:
+ *   D-5   a settlement file that is not a batch / deposit SUMMARY is refused as a whole (SETTLEMENT_FILE_NOT_SUMMARY);
+ *         an installment row is refused by row (INSTALLMENT_ROW_NOT_SUPPORTED);
+ *   D-7   a settlement's fee is recorded on the settlement row only — no expense, no FinancialRecord, ever;
+ *   D-8   the parser's proven rounding (default 0) is the only tolerance; every difference is in the preview;
+ *   D-10 / D-11  a Z without a printed business day / register is a QUESTION (status NEEDS_INPUT); commit is refused
+ *         (INPUT_REQUIRED) until the owner answered it — the answers are bound to the token through the drafts hash;
+ *   D-2 / D-12  a Z that overlaps an approved income document or imported history is shown as such (preview
+ *         `overlaps`); it is recorded, and the read model does not count it until the owner resolves it;
+ *   D-4   a settlement is corrected by rejecting the recorded one (RevenueDecision) and uploading the corrected file.
+ * Proven on synthetic files only: the rules, never any vendor's format (the registry ships empty).
+ *
  * `businessId` / `userId` MUST be server-derived (the session) — never from the request.
  */
 import {
@@ -34,9 +46,10 @@ import {
 } from "@/lib/data-transfer/import/execute/import-run-store";
 import { IMPORT_PREVIEW_TTL_SECONDS } from "@/lib/data-transfer/import/import-config";
 import { signEnvelope, verifyEnvelope, type EnvelopeSpec } from "@/lib/data-transfer/import/preview/signed-envelope";
+import { closeOverlapsOf, loadOverlapEvidenceInTx, type CloseOverlap } from "@/lib/revenue-sources/overlap";
 import { recordDailyCloseInTx, recordSettlementInTx, type WriteResult } from "@/lib/revenue-truth/store";
 import { tenantTx, type TenantTxClient } from "@/lib/tenant/tenant-tx";
-import type { ReportFile, ReportKind, ReportParser, SettlementParser, ZReportParser } from "./contract";
+import { SUPPORTED_SETTLEMENT_SHAPES, type ReportFile, type ReportKind, type ReportParser, type SettlementParser, type ZReportParser } from "./contract";
 import {
   MAX_DRAFTS_PER_FILE,
   UPLOAD_SCOPE_PREFIX,
@@ -48,6 +61,9 @@ import {
   dedupeInFile,
   draftsHashOf,
   parserHashOf,
+  resolveZDrafts,
+  settlementBaseIdOf,
+  settlementStageOneCode,
   sourceScopeOf,
   validateSettlementDraft,
   validateZDraft,
@@ -57,7 +73,10 @@ import {
   type ExistingClose,
   type ExistingSettlement,
   type PreparedRows,
+  type ReportAnswers,
+  type ReportQuestion,
   type SettlementRow,
+  type Validated,
   type ZRow,
 } from "./core";
 import { SHIPPED_REGISTRY, type ParserRegistry } from "./registry";
@@ -82,7 +101,13 @@ export type RevenueReportErrorCode =
   | "FILE_CHANGED"
   | "DECISIONS_REQUIRED"
   | "DECISIONS_INVALID"
-  | "STATE_CHANGED";
+  | "STATE_CHANGED"
+  /** D-5: a transaction list / installment list, not a batch or deposit summary. */
+  | "SETTLEMENT_FILE_NOT_SUMMARY"
+  /** D-10 / D-11: a Z the report left without a business day / register, not answered by the owner. */
+  | "INPUT_REQUIRED"
+  /** An answer to a question that was not asked, or not a calendar day / register token. */
+  | "ANSWERS_INVALID";
 
 export class RevenueReportError extends Error {
   constructor(
@@ -102,14 +127,22 @@ export type RevenueReportInput = {
   filename: string;
   bytes: Buffer;
   mime: string | null;
+  /** D-10 / D-11: the owner's answers for Z reports the file left without a day / register (by draft index). */
+  answers?: ReportAnswers | null;
 };
 
 /** Tests (and only tests) pass their own registry; the routes always use the shipped one. */
 export type ServiceOptions = { registry?: ParserRegistry };
 
+/**
+ * D-11: the registers a business has DEFINED. Nothing in the product defines them yet (no table, no setting), so
+ * this is null and a Z without a printed register is always a question. Not the registers seen on older reports.
+ */
+const DEFINED_REGISTERS: readonly string[] | null = null;
+
 type Prepared =
-  | { kind: "z"; parser: ZReportParser; scope: string; contentHash: string; draftsHash: string; prepared: PreparedRows<ZRow> }
-  | { kind: "settlement"; parser: SettlementParser; scope: string; contentHash: string; draftsHash: string; prepared: PreparedRows<SettlementRow> };
+  | { kind: "z"; parser: ZReportParser; scope: string; contentHash: string; draftsHash: string; prepared: PreparedRows<ZRow>; questions: ReportQuestion[] }
+  | { kind: "settlement"; parser: SettlementParser; scope: string; contentHash: string; draftsHash: string; prepared: PreparedRows<SettlementRow>; questions: ReportQuestion[] };
 
 function fileOf(input: RevenueReportInput): ReportFile {
   return { bytes: input.bytes, filename: input.filename, mime: input.mime };
@@ -148,13 +181,27 @@ function prepare(input: RevenueReportInput, registry: ParserRegistry, pinned?: {
   const scope = sourceScopeOf(input.kind, parser.key);
 
   if (parser.kind === "z") {
-    const p = dedupeInFile(parsed.drafts.map((d) => validateZDraft(d as Parameters<typeof validateZDraft>[0])), zKeyOf);
+    const resolved = resolveZDrafts(parsed.drafts as Parameters<typeof resolveZDrafts>[0], input.answers, DEFINED_REGISTERS);
+    if (!resolved.ok) throw new RevenueReportError("ANSWERS_INVALID", 400);
+    const tolerance = { roundingToleranceMinor: parser.roundingToleranceMinor ?? 0 };
+    const p = dedupeInFile(resolved.drafts.map((d) => validateZDraft(d, tolerance)), zKeyOf);
     const prepared = { ...p, invalid: [...parseErrors, ...p.invalid] };
-    return { kind: "z", parser, scope, contentHash, draftsHash: draftsHashOf(prepared.rows, prepared.invalid), prepared };
+    const questions = resolved.questions;
+    return { kind: "z", parser, scope, contentHash, draftsHash: draftsHashOf(prepared.rows, prepared.invalid, questions), prepared, questions };
   }
-  const p = dedupeInFile(parsed.drafts.map((d) => validateSettlementDraft(d as Parameters<typeof validateSettlementDraft>[0])), (r) => r.externalId);
+  if (input.answers && Object.keys(input.answers).length) throw new RevenueReportError("ANSWERS_INVALID", 400);
+  // D-5: only a batch / deposit summary is recorded. A transaction list or an installment list is refused as a whole.
+  const shape = (parsed as ReturnType<SettlementParser["parse"]>).shape;
+  if (!SUPPORTED_SETTLEMENT_SHAPES.includes(shape)) {
+    throw new RevenueReportError("SETTLEMENT_FILE_NOT_SUMMARY", 422, { shape: typeof shape === "string" ? shape : "UNKNOWN" });
+  }
+  const validated = (parsed.drafts as Parameters<typeof validateSettlementDraft>[0][]).map((d): Validated<SettlementRow> => {
+    const refused = settlementStageOneCode(d);
+    return refused ? { ok: false, codes: [refused], sourceRow: typeof d.sourceRow === "number" ? d.sourceRow : null } : validateSettlementDraft(d);
+  });
+  const p = dedupeInFile(validated, (r) => r.externalId);
   const prepared = { ...p, invalid: [...parseErrors, ...p.invalid] };
-  return { kind: "settlement", parser, scope, contentHash, draftsHash: draftsHashOf(prepared.rows, prepared.invalid), prepared };
+  return { kind: "settlement", parser, scope, contentHash, draftsHash: draftsHashOf(prepared.rows, prepared.invalid), prepared, questions: [] };
 }
 
 const dayDate = (day: string) => new Date(`${day}T00:00:00.000Z`);
@@ -181,12 +228,26 @@ async function existingCloses(tx: TenantTxClient, businessId: number, scope: str
   return found.map((f) => ({ ...f, businessDay: isoDay(f.businessDay), superseded: superseded.has(f.id) }));
 }
 
+/** The recorded versions of these settlements (the report's id and its "#c<n>" corrections, D-4) and which are rejected. */
 async function existingSettlements(tx: TenantTxClient, businessId: number, scope: string, rows: readonly SettlementRow[]): Promise<ExistingSettlement[]> {
   if (!rows.length) return [];
-  return tx.revenueSettlement.findMany({
-    where: { businessId, sourceScope: scope, externalId: { in: rows.map((r) => r.externalId) } },
-    select: { id: true, sourceScope: true, externalId: true, sourcePayloadHash: true, currency: true, grossMinor: true, netMinor: true },
-  });
+  const ids = rows.map((r) => r.externalId);
+  const found = (
+    await tx.revenueSettlement.findMany({
+      where: { businessId, sourceScope: scope, OR: [{ externalId: { in: ids } }, ...ids.map((id) => ({ externalId: { startsWith: `${id}#c` } }))] },
+      select: { id: true, sourceScope: true, externalId: true, sourcePayloadHash: true, currency: true, grossMinor: true, netMinor: true },
+    })
+  ).filter((f) => ids.includes(settlementBaseIdOf(f.externalId)));
+  const decisions = found.length
+    ? await tx.revenueDecision.findMany({ where: { businessId, settlementId: { in: found.map((f) => f.id) } }, select: { id: true, settlementId: true, decision: true } })
+    : [];
+  // Decisions are append-only: the highest id is the latest.
+  const latest = new Map<number, { id: number; decision: string }>();
+  for (const d of decisions) {
+    const cur = latest.get(d.settlementId!);
+    if (!cur || d.id > cur.id) latest.set(d.settlementId!, d);
+  }
+  return found.map((f) => ({ ...f, rejected: latest.get(f.id)?.decision === "REJECTED" }));
 }
 
 async function classifyAll(tx: TenantTxClient, businessId: number, p: Prepared): Promise<Classification[]> {
@@ -227,6 +288,13 @@ export type ZPreviewRow = {
   tenders: { method: string; label: string; amountMinor: number; count: number | null }[];
   vatLines: { category: string; rateBasisPoints: number; taxableMinor: number; vatMinor: number }[];
   warnings: string[];
+  /** D-8: lines − printed total (minor units), always shown; null = no such lines. */
+  differences: { tendersMinusTotalMinor: number | null; vatLinesMinusVatMinor: number | null };
+  /**
+   * D-2 / D-12: what this Z may already be counted as — an approved income document of the same day, or imported
+   * history of that day. Recorded anyway; NOT counted by the read model until the owner resolves it.
+   */
+  overlaps: CloseOverlap[];
 };
 
 export type SettlementPreviewRow = {
@@ -244,15 +312,28 @@ export type SettlementPreviewRow = {
   netMinor: number;
   installments: { number: number; count: number } | null;
   warnings: string[];
+  /** D-4: this file corrects settlement(s) the owner rejected; stored under `storedAs`, the rejected rows kept. */
+  corrects: { rejectedIds: number[]; storedAs: string } | null;
 };
 
 export type RevenueReportPreview = {
-  status: "READY";
+  /** NEEDS_INPUT: some Z reports wait for the owner's answer (`questions`); commit is refused until answered. */
+  status: "READY" | "NEEDS_INPUT";
   kind: ReportKind;
   token: string;
   expiresAt: string;
   parser: { key: string; label: string; capture: "FILE_STRUCTURED" | "FILE_EXTRACTED" };
-  counts: { reports: number; new: number; existing: number; conflicts: number; invalid: number; repeatedInFile: number; warnings: number };
+  counts: {
+    reports: number; new: number; existing: number; conflicts: number; invalid: number; repeatedInFile: number; warnings: number;
+    questions: number; overlaps: number;
+  };
+  /**
+   * D-10 / D-11: Z reports the file left without a business day / register, by draft index. The owner answers them
+   * (form field `answers`) and analyzes again; nothing is defaulted. `knownRegisters` are registers already seen on
+   * this business's recorded reports — a convenience for the answer, NOT a definition and never chosen automatically.
+   */
+  questions: ReportQuestion[];
+  knownRegisters: string[];
   invalid: { sourceRow: number | null; codes: string[] }[];
   previouslyImportedAt: string | null;
   /** The source file is never stored — only its hash. Stated so the screen says so. */
@@ -265,7 +346,7 @@ function previewConflict(c: Classification): PreviewConflict | null {
   return { conflict: c.conflict, allowed: c.allowed, existingTotals: c.existingTotals.map((t) => ({ currency: t.currency, totalMinor: n(t.totalMinor) })) };
 }
 
-function zPreview(r: ZRow, i: number, c: Classification): ZPreviewRow {
+function zPreview(r: ZRow, i: number, c: Classification, overlaps: CloseOverlap[]): ZPreviewRow {
   return {
     index: i,
     sourceRow: r.sourceRow,
@@ -285,6 +366,11 @@ function zPreview(r: ZRow, i: number, c: Classification): ZPreviewRow {
     tenders: r.tenders.map((t) => ({ method: t.method, label: t.label, amountMinor: n(t.amountMinor), count: t.count })),
     vatLines: r.vatLines.map((l) => ({ category: l.category, rateBasisPoints: l.rateBasisPoints, taxableMinor: n(l.taxableMinor), vatMinor: n(l.vatMinor) })),
     warnings: r.validationCodes,
+    differences: {
+      tendersMinusTotalMinor: r.differences.tendersMinusTotalMinor === null ? null : n(r.differences.tendersMinusTotalMinor),
+      vatLinesMinusVatMinor: r.differences.vatLinesMinusVatMinor === null ? null : n(r.differences.vatLinesMinusVatMinor),
+    },
+    overlaps,
   };
 }
 
@@ -304,6 +390,7 @@ function settlementPreview(r: SettlementRow, i: number, c: Classification): Sett
     netMinor: n(r.netMinor),
     installments: r.installmentCount === null || r.installmentNumber === null ? null : { number: r.installmentNumber, count: r.installmentCount },
     warnings: r.validationCodes,
+    corrects: c.status === "NEW" && c.corrects ? { rejectedIds: c.corrects.rejectedIds, storedAs: c.corrects.externalId } : null,
   };
 }
 
@@ -312,12 +399,21 @@ type TokenFacts = { b: number; u: number; k: ReportKind; p: string; pv: number; 
 export async function analyzeRevenueReport(input: RevenueReportInput, opts: ServiceOptions = {}): Promise<RevenueReportPreview> {
   const p = prepare(input, opts.registry ?? SHIPPED_REGISTRY);
   const rowsCount = p.prepared.rows.length;
-  if (rowsCount === 0 && p.prepared.invalid.length === 0) throw new RevenueReportError("NO_REPORTS", 400);
+  if (rowsCount === 0 && p.prepared.invalid.length === 0 && p.questions.length === 0) throw new RevenueReportError("NO_REPORTS", 400);
 
-  const { classes, previous } = await tenantTx(input.businessId, async (tx) => ({
-    classes: await classifyAll(tx, input.businessId, p),
-    previous: await lastRevenueReportImportInTx(tx, input.businessId, RUN_DOMAIN[input.kind], p.contentHash),
-  }));
+  const { classes, previous, overlaps, knownRegisters } = await tenantTx(input.businessId, async (tx) => {
+    const zRows = p.kind === "z" ? p.prepared.rows : [];
+    const evidence = await loadOverlapEvidenceInTx(tx, input.businessId, zRows.map((r) => r.businessDay));
+    const registers = p.kind === "z" && p.questions.some((q) => q.missing.includes("REGISTER"))
+      ? (await tx.revenueDailyClose.findMany({ where: { businessId: input.businessId }, distinct: ["registerKey"], select: { registerKey: true }, take: 50 })).map((r) => r.registerKey).sort()
+      : [];
+    return {
+      classes: await classifyAll(tx, input.businessId, p),
+      previous: await lastRevenueReportImportInTx(tx, input.businessId, RUN_DOMAIN[input.kind], p.contentHash),
+      overlaps: zRows.map((r) => closeOverlapsOf(r, evidence)),
+      knownRegisters: registers,
+    };
+  });
 
   const token = signEnvelope<TokenFacts>(TOKEN_SPEC, {
     b: input.businessId,
@@ -332,10 +428,10 @@ export async function analyzeRevenueReport(input: RevenueReportInput, opts: Serv
   const verified = verifyEnvelope<TokenFacts>(TOKEN_SPEC, token);
   const rows =
     p.kind === "z"
-      ? p.prepared.rows.map((r, i) => zPreview(r, i, classes[i]))
+      ? p.prepared.rows.map((r, i) => zPreview(r, i, classes[i], overlaps[i]))
       : p.prepared.rows.map((r, i) => settlementPreview(r, i, classes[i]));
   return {
-    status: "READY",
+    status: p.questions.length ? "NEEDS_INPUT" : "READY",
     kind: input.kind,
     token,
     expiresAt: verified.ok ? verified.expiresAt.toISOString() : new Date().toISOString(),
@@ -348,7 +444,11 @@ export async function analyzeRevenueReport(input: RevenueReportInput, opts: Serv
       invalid: p.prepared.invalid.length,
       repeatedInFile: p.prepared.repeatedInFile,
       warnings: p.prepared.rows.filter((r) => r.validationCodes.length > 0).length,
+      questions: p.questions.length,
+      overlaps: overlaps.filter((o) => o.length > 0).length,
     },
+    questions: p.questions,
+    knownRegisters,
     invalid: p.prepared.invalid.slice(0, 100),
     previouslyImportedAt: previous ? previous.toISOString() : null,
     sourceFileStored: false,
@@ -384,6 +484,8 @@ export async function commitRevenueReport(
   if (p.contentHash !== facts.ch || p.draftsHash !== facts.dh || p.prepared.rows.length !== facts.n) {
     throw new RevenueReportError("FILE_CHANGED", 409);
   }
+  // D-10 / D-11: nothing is recorded while a Z waits for its business day / register — no default, no partial commit.
+  if (p.questions.length) throw new RevenueReportError("INPUT_REQUIRED", 409, { missing: p.questions.length });
   const decisions: ConflictDecisions = input.decisions ?? {};
   const decisionsHash = decisionsHashOf(input.kind, decisions);
   const parserHash = parserHashOf(input.kind, p.parser.key, p.parser.version);
@@ -503,7 +605,8 @@ export async function commitRevenueReport(
               sourceKind: p.parser.sourceKind,
               capture: p.parser.capture,
               sourceScope: p.scope,
-              externalId: r.externalId,
+              // D-4: the correction of a rejected settlement is kept beside it, under "<id>#c<n>".
+              externalId: c.status === "NEW" && c.corrects ? c.corrects.externalId : r.externalId,
               sourcePayloadHash: r.factsHash,
               ingestRef,
               acquirer: r.acquirer,

@@ -33,6 +33,9 @@ export function createParserRegistry(parsers: readonly ReportParser[]): ParserRe
   for (const p of parsers) {
     if (!PARSER_KEY.test(p.key)) throw new Error(`revenue report parser key "${p.key}" is not a token`);
     if (!Number.isInteger(p.version) || p.version < 1) throw new Error(`revenue report parser "${p.key}": version must be a positive integer`);
+    // D-8: a rounding tolerance is the parser's PROVEN format precision — a non-negative whole number of minor units.
+    const tol = p.roundingToleranceMinor ?? 0;
+    if (!Number.isSafeInteger(tol) || tol < 0) throw new Error(`revenue report parser "${p.key}": roundingToleranceMinor must be a non-negative integer`);
     const id = `${p.kind}:${p.key}`;
     if (seen.has(id)) throw new Error(`revenue report parser "${id}" registered twice`);
     seen.add(id);

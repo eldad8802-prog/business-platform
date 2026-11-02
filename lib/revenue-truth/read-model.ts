@@ -15,6 +15,15 @@
  *   A sale, receipt or settlement whose latest decision is REJECTED (recorded in error) counts nowhere: no total,
  *   no register day, no match; a link naming it closes nothing. The row itself is kept and listed in `excluded`.
  *
+ * OWNER DECISIONS 2026-11-03 (docs/revenue-report-uploads.md; proven on synthetic inputs only)
+ *   D-1  a Z never excludes a day's Dubiz invoices by itself: an invoice leaves the count only through a CONFIRMED
+ *        SALE_SAME_AS_DOCUMENT link (an identified overlap). Until then the view warns POSSIBLE_DUPLICATE_CLOSE_AND_DOCUMENT.
+ *   D-2 / D-12  a Z with an unresolved overlap (`closeOverlaps`: an approved income document or imported history of its
+ *        day) does not close its day until its latest decision is CONFIRMED (CLOSE_OVERLAP_UNRESOLVED) — per Z, never
+ *        a whole period.
+ *   D-4  two live versions of one settlement (`versionKey`) are never both counted: the latest counts.
+ *   D-8  every Z / POS difference is a variance (CLOSED_WITH_VARIANCE); there is no tolerance here.
+ *
  * WHICH EVIDENCE IS REGISTER EVIDENCE
  *   Only a sale / receipt whose sourceKind is POS forms register days and counts in the sales and receipts totals
  *   above. Everything else is kept apart in `otherSources`, by source kind, and listed in `excluded`:
@@ -131,6 +140,8 @@ export type RegisterDay = {
   closeIds: number[];
   /** A Z read from a photo / scan that waits for the owner (the day is not closed by it yet). */
   awaitingConfirmationCloseIds: number[];
+  /** D-2 / D-12: a Z that may already be counted elsewhere and waits for the owner (the day is not closed by it yet). */
+  awaitingOverlapDecisionCloseIds: number[];
 };
 
 export type ExclusionReason =
@@ -139,6 +150,8 @@ export type ExclusionReason =
   | "SUPERSEDED"
   | "CLOSE_REJECTED"
   | "CLOSE_AWAITING_CONFIRMATION"
+  /** D-2 / D-12: the Z overlaps an approved income document / imported history of its day; not yet resolved. */
+  | "CLOSE_OVERLAP_UNRESOLVED"
   | "VALIDATION_FAILED"
   | "SAME_RECEIPT_AS_PAYMENT"
   /** Evidence recorded in error: its latest decision is REJECTED. */
@@ -165,7 +178,16 @@ export type ReadWarning = {
      * Dubiz documents and unmatched accounting-app sales in the same currency: some may be the same deal. Nothing is
      * merged; a confirmed SALE_SAME_AS_DOCUMENT link resolves it.
      */
-    | "POSSIBLE_DUPLICATE_ACROSS_SOURCES";
+    | "POSSIBLE_DUPLICATE_ACROSS_SOURCES"
+    /**
+     * D-1: effective Z reports and unlinked Dubiz tax invoices in the same currency — an invoice issued for a till
+     * sale would be counted twice. Nothing is excluded by guess; a confirmed SALE_SAME_AS_DOCUMENT link resolves it.
+     */
+    | "POSSIBLE_DUPLICATE_CLOSE_AND_DOCUMENT"
+    /** D-2 / D-12: a Z left uncounted until the owner resolves its overlap (ref = the overlap's evidence). */
+    | "CLOSE_OVERLAP_UNRESOLVED"
+    /** D-4: two live versions of one settlement; only the latest is counted. */
+    | "SETTLEMENT_VERSIONS_BOTH_LIVE";
   ref: string;
 };
 
@@ -239,6 +261,7 @@ type Bucket = {
   receiptIds: number[];
   effective: DailyClose[];
   awaiting: number[];
+  awaitingOverlap: number[];
 };
 
 export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): RevenueView {
@@ -259,9 +282,9 @@ export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): Re
     });
   const inputs: RevenueInputs = {
     sales: live(raw.sales, rejected.sale, "SALE"), receipts: live(raw.receipts, rejected.receipt, "RECEIPT"),
-    closes: uniqueById(raw.closes), settlements: live(raw.settlements, rejected.settlement, "SETTLEMENT"),
+    closes: uniqueById(raw.closes), settlements: latestVersions(live(raw.settlements, rejected.settlement, "SETTLEMENT"), excluded, warnings),
     deposits: uniqueById(raw.deposits), documents: uniqueById(raw.documents), payments: uniqueById(raw.payments),
-    links: uniqueById(raw.links), decisions,
+    links: uniqueById(raw.links), decisions, closeOverlaps: raw.closeOverlaps ?? [],
   };
   const views = new Map<CurrencyCode, CurrencyView>();
   const view = (c: CurrencyCode) => {
@@ -298,18 +321,25 @@ export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): Re
     const key = `${stream}|${registerKey ?? ""}|${businessDay}|${currency}`;
     let b = buckets.get(key);
     if (!b) {
-      b = { stream, registerKey: registerKey ?? "", businessDay, currency, saleIds: [], receiptIds: [], effective: [], awaiting: [] };
+      b = { stream, registerKey: registerKey ?? "", businessDay, currency, saleIds: [], receiptIds: [], effective: [], awaiting: [], awaitingOverlap: [] };
       buckets.set(key, b);
     }
     return b;
   };
+  const overlapsOf = new Map<number, string[]>();
+  for (const o of inputs.closeOverlaps ?? []) overlapsOf.set(o.dailyCloseId, [...(overlapsOf.get(o.dailyCloseId) ?? []), o.ref]);
   for (const c of inputs.closes) {
     const b = bucket(c.salesScope ?? c.sourceScope, c.registerKey, c.businessDay, c.currency);
     const state = closeState.get(c.id);
     if (c.revision < (chainMax.get(chainKey(c)) ?? c.revision)) excluded.push({ kind: "CLOSE", id: c.id, reason: "SUPERSEDED" });
     else if (state === "REJECTED") excluded.push({ kind: "CLOSE", id: c.id, reason: "CLOSE_REJECTED" });
     else if (c.validation === "FAILED") excluded.push({ kind: "CLOSE", id: c.id, reason: "VALIDATION_FAILED" });
-    else if (c.capture === "FILE_EXTRACTED" && state !== "CONFIRMED") {
+    else if (overlapsOf.has(c.id) && state !== "CONFIRMED") {
+      // D-2 / D-12: possibly counted already (as an income document / in imported history) — stop, ask the owner.
+      excluded.push({ kind: "CLOSE", id: c.id, reason: "CLOSE_OVERLAP_UNRESOLVED" });
+      for (const ref of overlapsOf.get(c.id)!) warnings.push({ code: "CLOSE_OVERLAP_UNRESOLVED", ref: `close:${c.id}:${ref}` });
+      b.awaitingOverlap.push(c.id);
+    } else if (c.capture === "FILE_EXTRACTED" && state !== "CONFIRMED") {
       excluded.push({ kind: "CLOSE", id: c.id, reason: "CLOSE_AWAITING_CONFIRMATION" });
       b.awaiting.push(c.id);
     } else b.effective.push(c);
@@ -374,7 +404,7 @@ export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): Re
         addReceipt(v, r.method, r.direction === "IN" ? r.amountMinor : -r.amountMinor);
       }
     }
-    if (b.saleIds.length === 0 && !closed && b.awaiting.length === 0) continue; // a receipts-only day: no day row
+    if (b.saleIds.length === 0 && !closed && b.awaiting.length === 0 && b.awaitingOverlap.length === 0) continue; // a receipts-only day: no day row
     const closeNet = closed ? b.effective.reduce((sum, c) => sum + c.totalMinor, ZERO) : null;
     const variance = closed && b.saleIds.length > 0 ? closeNet! - posNet : null;
     days.push({
@@ -383,7 +413,7 @@ export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): Re
         ? (variance !== null && variance !== ZERO ? "CLOSED_WITH_VARIANCE" : "CLOSED")
         : (dayKeyIsBefore(b.businessDay, options.today) ? "UNCLOSED" : "PROVISIONAL"),
       countedNetMinor: counted, posNetMinor: posNet, closeNetMinor: closeNet, varianceMinor: variance,
-      closeIds: b.effective.map((c) => c.id), awaitingConfirmationCloseIds: b.awaiting,
+      closeIds: b.effective.map((c) => c.id), awaitingConfirmationCloseIds: b.awaiting, awaitingOverlapDecisionCloseIds: b.awaitingOverlap,
     });
   }
 
@@ -470,6 +500,10 @@ export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): Re
     const dubizDocs = inputs.documents.some((d) => d.currency === v.currency && !docsSameAsSale.has(d.id)
       && (d.documentType === "TAX_INVOICE" || d.documentType === "TAX_INVOICE_RECEIPT"));
     if (accounting && accounting.saleCount > 0 && dubizDocs) warnings.push({ code: "POSSIBLE_DUPLICATE_ACROSS_SOURCES", ref: `currency:${v.currency}` });
+    // D-1: never excluded because a Z exists — only flagged until a confirmed link identifies the overlap.
+    if (dubizDocs && [...buckets.values()].some((b) => b.currency === v.currency && b.effective.length > 0)) {
+      warnings.push({ code: "POSSIBLE_DUPLICATE_CLOSE_AND_DOCUMENT", ref: `currency:${v.currency}` });
+    }
   }
 
   // ── Layer 3 ──────────────────────────────────────────────────────────────────────────────────
@@ -555,6 +589,21 @@ function addReceipt(v: CurrencyView, channel: ReceiptChannel, signedMinor: bigin
 
 function abs(n: bigint): bigint {
   return n < ZERO ? -n : n;
+}
+
+/**
+ * D-4: one settlement, never two versions counted. Among LIVE settlements sharing a versionKey (e.g. a correction
+ * whose rejected original was later restored), only the latest (highest id) counts; the others are SUPERSEDED.
+ */
+function latestVersions<T extends { id: number; versionKey?: string }>(rows: T[], excluded: Exclusion[], warnings: ReadWarning[]): T[] {
+  const latest = new Map<string, number>();
+  for (const r of rows) if (r.versionKey) latest.set(r.versionKey, Math.max(latest.get(r.versionKey) ?? 0, r.id));
+  return rows.filter((r) => {
+    if (!r.versionKey || latest.get(r.versionKey) === r.id) return true;
+    excluded.push({ kind: "SETTLEMENT", id: r.id, reason: "SUPERSEDED" });
+    warnings.push({ code: "SETTLEMENT_VERSIONS_BOTH_LIVE", ref: `settlement:${r.id}` });
+    return false;
+  });
 }
 
 /**

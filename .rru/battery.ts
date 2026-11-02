@@ -16,6 +16,11 @@
  *   I. Concurrency: one file committed four times at once → one run, rows once.
  *   J. No income: FinancialRecord / FinancialEvent / BillingDocument / PaymentTransaction / ExternalTransaction are
  *      byte-identical before and after; the list route answers reports only.
+ *   K. Owner decisions 2026-11-03 (synthetic files — the rules, never a real format): a Z without a printed day /
+ *      register is asked, never defaulted, and the token binds the answers (D-10 / D-11); a transaction list is
+ *      refused (D-5); reject → re-upload corrects a settlement, history kept, counted once (D-4); a Z already recorded
+ *      as an approved income document or overlapping imported history is recorded but not counted until the owner
+ *      confirms (D-2 / D-12); no FinancialRecord from any upload (D-7).
  *
  * The fixture parser lives in THIS FILE ONLY, under a TEST-ONLY name; it describes no real system.
  * env: OWNER_URL (fixtures, BYPASSRLS), RUNTIME_URL (the app). Synthetic only. ZERO network.
@@ -62,7 +67,8 @@ const TEST_ONLY_Z_PARSER: ZReportParser = {
       const c = line.split(",");
       if (c.length !== 11) { errors.push({ row: i + 2, code: "UNREADABLE_ROW" }); return; }
       drafts.push({
-        businessDay: c[0], registerKey: c[1], zNumber: c[2] ? B(c[2]) : null,
+        // An empty day / register cell = the report prints none (D-10 / D-11): left null, asked of the owner.
+        businessDay: c[0] || null, registerKey: c[1] || null, zNumber: c[2] ? B(c[2]) : null,
         grossMinor: B(c[3]), discountMinor: B(c[4]), refundMinor: B(c[5]), voidMinor: B(c[6]), totalMinor: B(c[7]), vatMinor: B(c[8]),
         tenders: [{ method: "CASH", amountMinor: B(c[9]) }, { method: "CARD", label: "visa", amountMinor: B(c[10]) }],
         vatLines: [{ category: "STANDARD", rateBasisPoints: 1800, taxableMinor: B(c[7]) - B(c[8]), vatMinor: B(c[8]) }],
@@ -83,7 +89,8 @@ const TEST_ONLY_S_PARSER: SettlementParser = {
       const c = line.split(",");
       drafts.push({ acquirer: "test_only_acq", externalId: c[0], valueDate: c[1], grossMinor: B(c[2]), feeMinor: B(c[3]), otherDeductionsMinor: B(c[4]), netMinor: B(c[5]), sourceRow: i + 2 });
     });
-    return { drafts, errors: [] };
+    // D-5: "TEST-ONLY-FIXTURE-S-TX" stands for a transaction list (refused as a whole).
+    return { shape: f.bytes.toString("utf8").startsWith("TEST-ONLY-FIXTURE-S-TX") ? "TRANSACTION_LIST" : "BATCH_SUMMARY", drafts, errors: [] };
   },
 };
 
@@ -330,6 +337,89 @@ async function main() {
   const after = await snapshot();
   ok("FinancialRecord / FinancialEvent / BillingDocument / PaymentTransaction / ExternalTransaction byte-identical", before === after, `${before} vs ${after}`);
   ok("no FinancialRecord exists for either business", (await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" IN ($1, $2)`, bizA, bizB)) === 0);
+
+  // ── K. owner decisions 2026-11-03 (synthetic files: the RULES, never a real format) ─────────────────────────
+  console.log("K. owner decisions 2026-11-03 (D-2, D-4, D-5, D-7, D-10, D-11, D-12)");
+  const store = await import("@/lib/revenue-truth/store");
+  const { readRevenueView } = await import("@/lib/revenue-truth/sources");
+  const decide = (biz: number, subject: { settlementId: number } | { dailyCloseId: number }, decision: "CONFIRMED" | "REJECTED") =>
+    store.recordDecision(biz, { subject, decision, actor: "OWNER_USER", idempotencyKey: `rru-k-${Object.keys(subject)[0]}-${Object.values(subject)[0]}-${decision}` });
+
+  // D-10 / D-11: no printed day / register → a question; nothing is recorded until the owner answers.
+  const asked = zFile(",,301,6000,0,0,0,6000,915,6000,0", "2026-10-09,,302,7000,0,0,0,7000,1068,7000,0");
+  const pq = await svc.analyzeRevenueReport(zIn(bizA, userA, asked), opts);
+  ok("D-10/D-11: analyze → NEEDS_INPUT with one question per Z (day + register / register), no default",
+    pq.status === "NEEDS_INPUT" && pq.counts.questions === 2 && pq.rows.length === 0
+      && JSON.stringify(pq.questions.map((q) => q.missing)) === JSON.stringify([["BUSINESS_DAY", "REGISTER"], ["REGISTER"]]) && pq.knownRegisters.includes("1"), JSON.stringify(pq.questions));
+  ok("D-10/D-11: commit without answers → INPUT_REQUIRED, nothing written",
+    (await errorCode(() => svc.commitRevenueReport({ ...zIn(bizA, userA, asked), token: pq.token }, opts))) === "INPUT_REQUIRED"
+      && (await count(`SELECT count(*)::int AS n FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" IN ('z:301','z:302')`, bizA)) === 0);
+  ok("D-10: an answer may not override a printed day (ANSWERS_INVALID)",
+    (await errorCode(() => svc.analyzeRevenueReport({ ...zIn(bizA, userA, asked), answers: { 1: { businessDay: "2026-10-10", registerKey: "1" } } }, opts))) === "ANSWERS_INVALID");
+  const answers = { 0: { businessDay: "2026-10-11", registerKey: "1" }, 1: { registerKey: "2" } };
+  const pa = await svc.analyzeRevenueReport({ ...zIn(bizA, userA, asked), answers }, opts);
+  ok("D-10/D-11: with the owner's answers → READY, 2 NEW", pa.status === "READY" && pa.counts.new === 2 && pa.counts.questions === 0, JSON.stringify(pa.counts));
+  ok("D-10/D-11: the token binds the answers — committing with OTHER answers is FILE_CHANGED",
+    (await errorCode(() => svc.commitRevenueReport({ ...zIn(bizA, userA, asked), answers: { 0: { businessDay: "2026-10-07", registerKey: "1" }, 1: { registerKey: "2" } }, token: pa.token }, opts))) === "FILE_CHANGED");
+  const ca = await svc.commitRevenueReport({ ...zIn(bizA, userA, asked), answers, token: pa.token }, opts);
+  const answered = (await owner.$queryRawUnsafe(`SELECT "externalId" AS ext, "registerKey" AS reg, "businessDay"::text AS day FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" IN ('z:301','z:302') ORDER BY 1`, bizA)) as Array<{ ext: string; reg: string; day: string }>;
+  ok("D-10/D-11: recorded with exactly the owner's day / register (and the printed day kept)", ca.recorded === 2 && JSON.stringify(answered) === JSON.stringify([{ ext: "z:301", reg: "1", day: "2026-10-11" }, { ext: "z:302", reg: "2", day: "2026-10-09" }]), JSON.stringify(answered));
+  // The routes use the SHIPPED (empty) registry: a well-formed answer still meets FORMAT_NOT_SUPPORTED; a malformed one
+  // is refused at the form edge first.
+  const routeAsk = await routes.zAnalyze.POST(post("/api/money/revenue-reports/z/analyze", tokenOf(userA), form(asked, { answers: JSON.stringify(answers) })));
+  const routeBad = await routes.zAnalyze.POST(post("/api/money/revenue-reports/z/analyze", tokenOf(userA), form(asked, { answers: "{" })));
+  ok("D-10/D-11: the route reads `answers` from the form (shipped registry: 422; malformed answers: 400 ANSWERS_INVALID)",
+    routeAsk.status === 422 && routeBad.status === 400 && ((await routeBad.json()) as { error: string }).error === "ANSWERS_INVALID");
+
+  // D-5: a transaction list is refused as a whole; nothing written.
+  const settlementsBefore = await settlements(bizA);
+  const txFile = Buffer.from("TEST-ONLY-FIXTURE-S-TX\nT-1,2026-10-03,100,0,0,100", "utf8");
+  ok("D-5: a transaction-list settlement file → SETTLEMENT_FILE_NOT_SUMMARY on analyze and commit; nothing written",
+    (await errorCode(() => svc.analyzeRevenueReport(sIn(bizA, userA, txFile), opts))) === "SETTLEMENT_FILE_NOT_SUMMARY"
+      && (await settlements(bizA)) === settlementsBefore);
+
+  // D-4: correct a settlement = reject the recorded one, upload the corrected file; history kept; counted once.
+  const acq1 = await one(`SELECT "id" FROM "RevenueSettlement" WHERE "businessId" = $1 AND "externalId" = 'ACQ-1'`, bizA);
+  await decide(bizA, { settlementId: acq1 }, "REJECTED");
+  const pfix = await svc.analyzeRevenueReport(sIn(bizA, userA, sChanged), opts);
+  const fixRow = pfix.rows[0] as { status: string; corrects: { rejectedIds: number[]; storedAs: string } | null };
+  ok("D-4: after rejecting ACQ-1, the corrected file is NEW and names what it corrects (stored as ACQ-1#c2)",
+    fixRow.status === "NEW" && fixRow.corrects?.storedAs === "ACQ-1#c2" && fixRow.corrects.rejectedIds.join() === String(acq1), JSON.stringify(fixRow));
+  const cfix = await svc.commitRevenueReport({ ...sIn(bizA, userA, sChanged), token: pfix.token }, opts);
+  const versions = (await owner.$queryRawUnsafe(`SELECT "externalId" AS ext, "netMinor"::text AS net FROM "RevenueSettlement" WHERE "businessId" = $1 AND "externalId" LIKE 'ACQ-1%' ORDER BY "id"`, bizA)) as Array<{ ext: string; net: string }>;
+  ok("D-4: both versions kept (history): ACQ-1 61070 (rejected) and ACQ-1#c2 61000", cfix.recorded === 1 && JSON.stringify(versions) === JSON.stringify([{ ext: "ACQ-1", net: "61070" }, { ext: "ACQ-1#c2", net: "61000" }]), JSON.stringify(versions));
+  const sView = (await readRevenueView(bizA, { fromDay: "2026-10-03", toDay: "2026-10-04" })).view.byCurrency.get("ILS");
+  ok("D-4: the read model counts the correction once, never both (61000 + 39300)", sView?.settlements.netMinor === BigInt(100300), String(sView?.settlements.netMinor));
+  const pAgain = await svc.analyzeRevenueReport(sIn(bizA, userA, sChanged), opts);
+  ok("D-4: the corrected file again → EXISTING, nothing more", pAgain.counts.existing === 1 && pAgain.counts.new === 0);
+
+  // D-2 / D-12: a Z already recorded as an approved income document (or in imported history) waits for the owner.
+  const bizC = await business("rru-C");
+  const userC = await user(bizC, "c");
+  await enable(bizC, "z_report_upload");
+  const docId = await one(`INSERT INTO "Document" ("businessId", "fileUrl", "source", "mimeType", "ocrText", "status") VALUES ($1, 'lab://z.pdf', 'upload', 'application/pdf', 'דו"ח Z סגירה יומית מספר Z 101', 'approved') RETURNING "id"`, bizC);
+  await owner.$executeRawUnsafe(`INSERT INTO "FinancialRecord" ("documentId", "businessId", "amount", "date", "vendorName", "direction", "category") VALUES ($1, $2, 920, '2026-10-01T00:00:00Z', 'lab', 'income', 'sales')`, docId, bizC);
+  await owner.$executeRawUnsafe(`INSERT INTO "HistoricalFiscalDocument" ("businessId", "documentTypeCode", "sourceSystemCode", "originalIssueDate", "updatedAt") VALUES ($1, 'TAX_INVOICE', 'prev_system', '2026-10-02T00:00:00Z', now())`, bizC);
+  const recordsBefore = await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" = $1`, bizC);
+  const fileC = zFile(Z1, Z2);
+  const pC = await svc.analyzeRevenueReport(zIn(bizC, userC, fileC), opts);
+  const oC = (pC.rows as Array<{ businessDay: string; overlaps: Array<{ overlap: string; ref: string }> }>).map((r) => `${r.businessDay}:${r.overlaps.map((o) => o.overlap).join("+")}`);
+  ok("D-2/D-12: the preview shows the overlap per Z — 10-01 an approved income document (Z text), 10-02 imported history",
+    pC.counts.overlaps === 2 && oC.join() === "2026-10-01:RECORDED_INCOME_DOCUMENT,2026-10-02:IMPORTED_HISTORY", oC.join());
+  const cC = await svc.commitRevenueReport({ ...zIn(bizC, userC, fileC), token: pC.token }, opts);
+  const vC = (await readRevenueView(bizC, { fromDay: "2026-10-01", toDay: "2026-10-02" })).view;
+  ok("D-2/D-12: recorded as evidence, but NOT counted (CLOSE_OVERLAP_UNRESOLVED), each Z waiting on its own day",
+    cC.recorded === 2 && (vC.byCurrency.get("ILS")?.sales.closedNetMinor ?? BigInt(0)) === BigInt(0)
+      && vC.excluded.filter((e) => e.reason === "CLOSE_OVERLAP_UNRESOLVED").length === 2 && vC.days.every((d) => d.awaitingOverlapDecisionCloseIds.length === 1), JSON.stringify(vC.excluded));
+  const z101 = await one(`SELECT "id" FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" = 'z:101'`, bizC);
+  await decide(bizC, { dailyCloseId: z101 }, "CONFIRMED");
+  const vC2 = (await readRevenueView(bizC, { fromDay: "2026-10-01", toDay: "2026-10-02" })).view;
+  ok("D-2: the owner's CONFIRMED decision on that Z resolves it (92000 counted); the other day still waits",
+    vC2.byCurrency.get("ILS")?.sales.closedNetMinor === BigInt(92000) && vC2.excluded.filter((e) => e.reason === "CLOSE_OVERLAP_UNRESOLVED").length === 1);
+  // D-7: still no income / expense created by any upload.
+  ok("D-7: no FinancialRecord was created (only the fixture's own), none for A / B",
+    (await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" = $1`, bizC)) === recordsBefore
+      && (await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" IN ($1, $2)`, bizA, bizB)) === 0);
 
   await runtime.$disconnect();
   await owner.$disconnect();

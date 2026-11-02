@@ -14,8 +14,9 @@ import { IMPORT_MAX_FILE_BYTES } from "@/lib/data-transfer/import/import-config"
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
 import { runWithTenantContext } from "@/lib/tenant/context";
+import type { CloseOverlapKind } from "@/lib/revenue-sources/overlap";
 import type { ReportKind } from "./contract";
-import type { ConflictDecision, ConflictDecisions } from "./core";
+import type { ConflictDecision, ConflictDecisions, ReportAnswers } from "./core";
 import { RevenueReportError, type RevenueReportErrorCode, type RevenueReportInput } from "./service";
 
 const NO_STORE = { "Cache-Control": "private, no-store" } as const;
@@ -55,6 +56,26 @@ export const REPORT_ERROR_TEXT: Record<RevenueReportErrorCode, string> = {
   DECISIONS_REQUIRED: "יש דוחות שסותרים דוח שכבר נקלט ועדיין לא החלטתם עליהם. בחרו לכל אחד מה לעשות.",
   DECISIONS_INVALID: "מאז הבדיקה השתנה מה שכבר נקלט. בדקו את הקובץ שוב.",
   STATE_CHANGED: "מאז הבדיקה השתנה מה שכבר נקלט. בדקו את הקובץ שוב.",
+  // D-5: stage one takes summary files only.
+  SETTLEMENT_FILE_NOT_SUMMARY:
+    "בשלב זה אפשר לקלוט רק דוח זיכויים מסוכם — שורה לכל אצווה או לכל הפקדה, עם הסכום ברוטו, העמלה והסכום נטו. קובץ של פירוט עסקאות או של תשלומים אינו דוח זיכויים: כל עסקה בו כבר נספרה כמכירה, והוא לא מראה כמה הופקד. ייצאו מהמערכת את דוח הזיכויים המסוכם ונסו שוב. לא נקלט דבר.",
+  // D-10 / D-11: asked, never defaulted.
+  INPUT_REQUIRED: "בחלק מהדוחות לא מודפס יום העסקים או מספר הקופה. בחרו אותם לכל דוח ובדקו את הקובץ שוב. לא נקלט דבר.",
+  ANSWERS_INVALID: "התשובות לא מתאימות לקובץ: אפשר להשלים רק יום עסקים או קופה שחסרים בדוח, ביום תקין. בדקו את הקובץ שוב.",
+};
+
+/** Hebrew text for row codes the owner sees in the preview (codes not listed are shown by the screen's generic text). */
+export const REPORT_ROW_CODE_TEXT: Record<string, string> = {
+  INSTALLMENT_ROW_NOT_SUPPORTED: "שורה של תשלום (מתוך עסקה בתשלומים) — בשלב זה נקלטים רק סיכומי אצווה או הפקדה.",
+  EXTERNAL_ID_RESERVED: "מזהה הזיכוי בדוח בתבנית שמורה לתיקונים, ולכן השורה לא נקלטה.",
+};
+
+/** D-2 / D-12: what an overlap means for the owner (Hebrew). */
+export const REPORT_OVERLAP_TEXT: Record<CloseOverlapKind, string> = {
+  RECORDED_INCOME_DOCUMENT:
+    "ייתכן שהדוח הזה כבר נרשם כהכנסה דרך המסמכים (מסמך מאושר באותו יום). הדוח יישמר, אבל לא ייספר עד שתחליטו מה נכון — כדי שהמכירות לא ייספרו פעמיים.",
+  IMPORTED_HISTORY:
+    "לאותו יום יש מסמכים בהיסטוריה שיובאה מהמערכת הקודמת. הדוח יישמר, אבל לא ייספר עד שתחליטו אם מדובר באותן מכירות.",
 };
 
 export function json(body: unknown, status = 200): Response {
@@ -113,7 +134,35 @@ export function parseDecisions(raw: FormDataEntryValue | null): ConflictDecision
   return out;
 }
 
-/** The multipart body analyze and commit take: file (and token, decisions). Business and user from the actor. */
+/**
+ * D-10 / D-11: the owner's answers, `{"<draft index>": {"businessDay": "YYYY-MM-DD", "registerKey": "<token>"}}`.
+ * Shape only here; whether each answer fills something the report really left out is checked by core.resolveZDrafts.
+ */
+export function parseAnswers(raw: FormDataEntryValue | null): ReportAnswers | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new RevenueReportError("ANSWERS_INVALID", 400);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new RevenueReportError("ANSWERS_INVALID", 400);
+  const out: ReportAnswers = {};
+  for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!/^\d{1,6}$/.test(k) || !v || typeof v !== "object" || Array.isArray(v)) throw new RevenueReportError("ANSWERS_INVALID", 400);
+    const a: { businessDay?: string; registerKey?: string } = {};
+    for (const [field, value] of Object.entries(v as Record<string, unknown>)) {
+      if ((field !== "businessDay" && field !== "registerKey") || typeof value !== "string" || value.length > 64) {
+        throw new RevenueReportError("ANSWERS_INVALID", 400);
+      }
+      a[field] = value;
+    }
+    out[Number(k)] = a;
+  }
+  return out;
+}
+
+/** The multipart body analyze and commit take: file (and token, decisions, answers). Business and user from the actor. */
 export async function readReportForm(
   req: Request,
   actor: ReportActor,
@@ -141,6 +190,7 @@ export async function readReportForm(
       filename: (file.name || "upload").slice(0, 200),
       bytes,
       mime: typeof file.type === "string" && file.type ? file.type.slice(0, 100) : null,
+      answers: parseAnswers(form.get("answers")),
     },
     token: form.get("token"),
     decisions: parseDecisions(form.get("decisions")),

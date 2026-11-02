@@ -494,10 +494,19 @@
       "file": "lib/revenue-sources/uploads/core.ts",
       "rule": "JS_FOLD",
       "column": "vatMinor",
-      "match": "if (vatLines.length > 0 && vatLines.reduce((s, l) => s + l.vatMinor, ZERO) !== d.vatMinor) warnings.push(\"VAT_LINES_MISMATCH\");",
+      "match": "vatLinesMinusVatMinor: vatLines.length > 0 ? vatLines.reduce((s, l) => s + l.vatMinor, ZERO) - d.vatMinor : null,",
       "risk": "SAFE",
-      "reason": "SAFE by construction: the VAT lines of ONE Z report carry no currency of their own — they are in the Z's single currency (RevenueDailyCloseVat has no currency column; it inherits RevenueDailyClose.currency). The fold only compares the lines with the same Z's vatMinor, to set a validation warning; nothing is stored or shown from it.",
-      "lineAtBaseline": 187
+      "reason": "SAFE by construction: the VAT lines of ONE Z report carry no currency of their own — they are in the Z`s single currency (RevenueDailyCloseVat has no currency column; it inherits RevenueDailyClose.currency). The fold only measures the difference between the lines and the same Z`s vatMinor (D-8: shown in the preview and as a validation warning); nothing is summed across reports.",
+      "lineAtBaseline": 207
+    },
+    {
+      "file": "lib/revenue-truth/deposit-proposals.ts",
+      "rule": "JS_FOLD",
+      "column": "netMinor",
+      "match": "const sum = (rows: readonly { netMinor: bigint }[]) => rows.reduce((s, r) => s + r.netMinor, ZERO);",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: every row set it folds is first filtered to ONE currency — the deposit`s (sameDay = open settlements with s.currency === d.currency); the sum is compared with that deposit`s amount to propose an exact match (D-6). Proven by lib/revenue-truth/read-model.test.ts section D (another currency is never matched).",
+      "lineAtBaseline": 48
     }
   ]
 }

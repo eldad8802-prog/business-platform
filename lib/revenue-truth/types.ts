@@ -86,6 +86,11 @@ export type Settlement = {
   feeMinor: bigint;
   otherDeductionsMinor: bigint;
   netMinor: bigint;
+  /**
+   * The settlement's identity across its versions (source scope + the report's own id, without a correction suffix —
+   * docs/revenue-report-uploads.md D-4). Two LIVE versions of one settlement are never both counted.
+   */
+  versionKey?: string;
 };
 
 /** Layer 4: an incoming bank line (ExternalTransaction, direction CREDIT, read in place). */
@@ -147,8 +152,16 @@ export type RevenueInputs = {
   payments: DubizPayment[];
   links: Link[];
   decisions: Decision[];
+  /**
+   * D-2 / D-12 (docs/revenue-report-uploads.md): a Z that may already be counted elsewhere — an approved income
+   * document of its day, or imported history of its day (lib/revenue-sources/overlap.ts). Such a Z does not count
+   * until its latest decision is CONFIRMED (the owner resolved the overlap).
+   */
+  closeOverlaps?: CloseOverlapInput[];
 };
 
+export type CloseOverlapInput = { dailyCloseId: number; overlap: "RECORDED_INCOME_DOCUMENT" | "IMPORTED_HISTORY"; ref: string };
+
 export function emptyInputs(): RevenueInputs {
-  return { sales: [], receipts: [], closes: [], settlements: [], deposits: [], documents: [], payments: [], links: [], decisions: [] };
+  return { sales: [], receipts: [], closes: [], settlements: [], deposits: [], documents: [], payments: [], links: [], decisions: [], closeOverlaps: [] };
 }

@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-import { validateSettlementDraft, validateZDraft } from "./core";
+import { resolveZDrafts, validateSettlementDraft, validateZDraft } from "./core";
 import type { SettlementDraft, ZReportDraft } from "./contract";
 import { asDeduction, linesDifference, readAmount, readDate, type AmountRead } from "./report-values";
 
@@ -32,6 +32,12 @@ const minor = (r: AmountRead) => {
   return (r as { minor: bigint }).minor;
 };
 const code = (r: AmountRead | ReturnType<typeof readDate>) => (r.ok ? "ok" : r.code);
+/** A synthetic Z (made-up numbers): gross 1000.00 − discount 80.00 = total 920.00; cash 300.00 + card 620.00. */
+const zBase = (): ZReportDraft => ({
+  businessDay: "2026-11-03", registerKey: "1", zNumber: B(7), grossMinor: B(100_000), discountMinor: B(8_000),
+  totalMinor: B(92_000), vatMinor: B(14_034),
+  tenders: [{ method: "CASH", amountMinor: B(30_000) }, { method: "CARD", amountMinor: B(62_000) }], vatLines: [],
+});
 const DOT = { decimal: "." as const };
 const COMMA = { decimal: "," as const };
 
@@ -176,6 +182,26 @@ check("refused: empty, mixed separators, words, an amount", () => {
   assert.equal(code(readDate("03/11-2026")), "NOT_A_DATE");
   assert.equal(code(readDate("3 בנובמבר 2026")), "NOT_A_DATE");
   assert.equal(code(readDate("1,234.50")), "NOT_A_DATE");
+});
+
+console.log("4b. owner decisions 2026-11-03 (synthetic values: the rules, not a real format)");
+check("D-10: a Z printed at 00:40 keeps its PRINTED day all the way through validation (no cut-off hour)", () => {
+  const r = readDate("04/11/2026 00:40");
+  assert.ok(r.ok);
+  const v = validateZDraft({ ...zBase(), businessDay: r.ok ? r.day : null });
+  assert.ok(v.ok && v.row.businessDay === "2026-11-04" && v.row.externalId === "z:7", show(v));
+});
+check("D-10: no printed date → the parser leaves the day null and the owner is asked (never today, never the period)", () => {
+  const read = readDate("");
+  assert.equal(code(read), "EMPTY");
+  const resolved = resolveZDrafts([{ ...zBase(), businessDay: null }], null, null);
+  assert.ok(resolved.ok && resolved.questions.length === 1 && resolved.questions[0].missing.join() === "BUSINESS_DAY" && resolved.drafts.length === 0);
+});
+check("D-8: the difference a Z row reports is exactly linesDifference — shown, never absorbed", () => {
+  const tenders = [B(30_000), B(61_999)];
+  const v = validateZDraft({ ...zBase(), tenders: [{ method: "CASH", amountMinor: tenders[0] }, { method: "CARD", amountMinor: tenders[1] }] });
+  assert.ok(v.ok && v.row.differences.tendersMinusTotalMinor === linesDifference(B(92_000), tenders) && v.row.differences.tendersMinusTotalMinor === B(-1));
+  assert.ok(v.ok && v.row.validationCodes.includes("TENDERS_TOTAL_MISMATCH"));
 });
 
 console.log("5. static");

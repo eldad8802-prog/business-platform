@@ -93,8 +93,8 @@ export type DateFormat = {
 /**
  * One printed date (optionally followed by a time) → YYYY-MM-DD as printed. Separators "/", ".", "-".
  * A two-digit year is 20YY. The time, if printed, is returned as written (HH:MM or HH:MM:SS) and never moves the day:
- * which business day a Z printed after midnight belongs to is the owner's decision (docs: open decisions), not this
- * helper's.
+ * the owner decided (D-10, 2026-11-03) that a Z belongs to the business day PRINTED in it — no cut-off hour; when the
+ * report prints no day, the owner is asked (core.ts resolveZDrafts).
  */
 export function readDate(raw: unknown, format: DateFormat = { order: "DMY" }): DateRead {
   if (typeof raw !== "string") return { ok: false, code: "EMPTY" };

@@ -13,6 +13,7 @@ process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://nobody:noth
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
+import { closeOverlapsOf, type OverlapEvidence } from "../overlap";
 import type { ReportFile, SettlementDraft, SettlementParser, ZReportDraft, ZReportParser } from "./contract";
 import {
   RE_EXTERNAL_ID,
@@ -20,11 +21,16 @@ import {
   checkDecisions,
   classifySettlement,
   classifyZ,
+  correctionExternalIdOf,
   decisionsHashOf,
   dedupeInFile,
   draftsHashOf,
   isCalendarDay,
   parserHashOf,
+  resolveRegisterKey,
+  resolveZDrafts,
+  settlementBaseIdOf,
+  settlementStageOneCode,
   sourceScopeOf,
   validateSettlementDraft,
   validateZDraft,
@@ -32,6 +38,7 @@ import {
   zKeyOf,
   type Classification,
   type ExistingClose,
+  type ExistingSettlement,
   type ZRow,
 } from "./core";
 import { SHIPPED_PARSERS, SHIPPED_REGISTRY, createParserRegistry } from "./registry";
@@ -100,7 +107,7 @@ const TEST_ONLY_S: SettlementParser = {
   capture: "FILE_STRUCTURED",
   sourceKind: "ACQUIRER",
   detect: (f) => (f.bytes.toString("utf8").startsWith("FIXTURE-S") ? 0.9 : 0),
-  parse: () => ({ drafts: [st()], errors: [] }),
+  parse: () => ({ shape: "BATCH_SUMMARY", drafts: [st()], errors: [] }),
 };
 
 async function main() {
@@ -293,7 +300,7 @@ async function main() {
     assert.equal(s.ok, true);
     if (!s.ok) return;
     const sc = "upload.settlement.p";
-    const base = { id: 5, sourceScope: sc, externalId: "S-1", currency: "ILS", grossMinor: B(62_000), netMinor: B(61_070) };
+    const base = { id: 5, sourceScope: sc, externalId: "S-1", rejected: false, currency: "ILS", grossMinor: B(62_000), netMinor: B(61_070) };
     assert.deepEqual(classifySettlement(s.row, sc, []), { status: "NEW" });
     assert.deepEqual(classifySettlement(s.row, sc, [{ ...base, sourcePayloadHash: s.row.factsHash }]), { status: "EXISTING", existingId: 5 });
     const c = classifySettlement(s.row, sc, [{ ...base, sourcePayloadHash: "e".repeat(64) }]);
@@ -318,8 +325,191 @@ async function main() {
     assert.notEqual(parserHashOf("z", "p", 1), parserHashOf("settlement", "p", 1));
   });
 
+  // Synthetic drafts only: these prove the RULES of the approved directions, never that any real export is read right.
+  console.log("== owner decisions 2026-11-03 (synthetic — rules only, no real format) ==");
+  const src = (p: string) => fs.readFileSync(p, "utf8");
+  const { analyzeRevenueReport, RevenueReportError } = await import("./service");
+  const svcInput = (kind: "z" | "settlement") => ({ businessId: 1, userId: 1, kind, filename: "x.csv", bytes: Buffer.from("FIXTURE-S\n"), mime: "text/csv" });
+
+  // D-5
+  for (const shape of ["TRANSACTION_LIST", "INSTALLMENT_LIST"] as const) {
+    await check(`D-5: a settlement ${shape} is refused as a whole (422 SETTLEMENT_FILE_NOT_SUMMARY), before any database access`, async () => {
+      const parser: SettlementParser = { ...TEST_ONLY_S, parse: () => ({ shape, drafts: [st()], errors: [] }) };
+      await assert.rejects(analyzeRevenueReport(svcInput("settlement"), { registry: createParserRegistry([parser]) }),
+        (e: unknown) => e instanceof RevenueReportError && e.code === "SETTLEMENT_FILE_NOT_SUMMARY" && e.status === 422 && e.detail.shape === shape);
+    });
+  }
+  await check("D-5: the refusal explains in Hebrew that only a summary of credits is taken, and that nothing was recorded", async () => {
+    const { REPORT_ERROR_TEXT, REPORT_ROW_CODE_TEXT } = await import("./http");
+    assert.match(REPORT_ERROR_TEXT.SETTLEMENT_FILE_NOT_SUMMARY, /^בשלב זה אפשר לקלוט רק דוח זיכויים מסוכם/);
+    assert.match(REPORT_ERROR_TEXT.SETTLEMENT_FILE_NOT_SUMMARY, /פירוט עסקאות או של תשלומים/);
+    assert.match(REPORT_ERROR_TEXT.SETTLEMENT_FILE_NOT_SUMMARY, /לא נקלט דבר\.$/);
+    assert.equal(typeof REPORT_ROW_CODE_TEXT.INSTALLMENT_ROW_NOT_SUPPORTED, "string");
+  });
+  await check("D-5: an installment row inside a summary is refused by row (INSTALLMENT_ROW_NOT_SUPPORTED); a batch row passes", () => {
+    assert.equal(settlementStageOneCode(st({ installments: { number: 1, count: 3 } })), "INSTALLMENT_ROW_NOT_SUPPORTED");
+    assert.equal(settlementStageOneCode(st()), null);
+  });
+
+  // D-7
+  await check("D-7: no expense from a settlement's fee — the service, the overlap reader and the layers report create none", () => {
+    const code = (p: string) => src(p).split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l));
+    for (const p of ["lib/revenue-sources/uploads/service.ts", "lib/revenue-sources/overlap.ts", "lib/revenue-truth/layers-report.ts", "lib/revenue-truth/deposit-proposals.ts"]) {
+      const lines = code(p);
+      assert.deepEqual(lines.filter((l) => /expense|\.(create|update|upsert|delete)(Many)?\(/i.test(l)), [], p);
+    }
+    // The fee reaches exactly one writer: the settlement row itself.
+    assert.equal(code("lib/revenue-sources/uploads/service.ts").filter((l) => /feeMinor/.test(l)).length > 0, true);
+    assert.equal(/financialRecord\.(create|update|upsert)/.test(src("lib/revenue-sources/overlap.ts")), false);
+  });
+
+  // D-8
+  await check("D-8: one agora between tenders and the total is a MISMATCH by default (no blanket tolerance); the difference is reported", () => {
+    const v = validateZDraft(z({ tenders: [{ method: "CASH", amountMinor: B(30_000) }, { method: "CARD", label: "visa", amountMinor: B(62_001) }] }));
+    assert.equal(v.ok && v.row.validationCodes.includes("TENDERS_TOTAL_MISMATCH"), true);
+    assert.equal(v.ok && v.row.differences.tendersMinusTotalMinor, B(1));
+    assert.equal(v.ok && v.row.differences.vatLinesMinusVatMinor, B(0));
+    assert.equal(v.ok && v.row.totalMinor, B(92_000), "never adjusted");
+  });
+  await check("D-8: within a parser's PROVEN precision → a ROUNDING code (still kept and shown); beyond it → MISMATCH", () => {
+    const off = (n: number) => z({ tenders: [{ method: "CASH", amountMinor: B(30_000) }, { method: "CARD", label: "visa", amountMinor: B(62_000 + n) }] });
+    const within = validateZDraft(off(-40), { roundingToleranceMinor: 50 });
+    assert.deepEqual(within.ok && within.row.validationCodes, ["TENDERS_ROUNDING_DIFFERENCE"]);
+    assert.equal(within.ok && within.row.differences.tendersMinusTotalMinor, B(-40));
+    const beyond = validateZDraft(off(51), { roundingToleranceMinor: 50 });
+    assert.deepEqual(beyond.ok && beyond.row.validationCodes, ["TENDERS_TOTAL_MISMATCH"]);
+    const exact = validateZDraft(z(), { roundingToleranceMinor: 50 });
+    assert.deepEqual(exact.ok && exact.row.validationCodes, []);
+  });
+  await check("D-8: a parser's tolerance must be a non-negative integer (registry); none of the shipped code declares one", () => {
+    assert.throws(() => createParserRegistry([{ ...TEST_ONLY_Z, roundingToleranceMinor: -1 }]));
+    assert.throws(() => createParserRegistry([{ ...TEST_ONLY_Z, roundingToleranceMinor: 0.5 }]));
+    assert.doesNotThrow(() => createParserRegistry([{ ...TEST_ONLY_Z, roundingToleranceMinor: 0 }]));
+    for (const f of ["core.ts", "service.ts", "registry.ts"]) {
+      assert.equal(/roundingToleranceMinor:\s*[1-9]/.test(src(`lib/revenue-sources/uploads/${f}`)), false, f);
+    }
+  });
+
+  // D-10 / D-11
+  const noDay = z({ businessDay: null, period: { start: new Date("2026-10-01T18:00:00Z"), end: new Date("2026-10-01T23:30:00Z") } });
+  await check("D-10: a Z without a printed business day is a QUESTION — not derived from its period or time", () => {
+    const r = resolveZDrafts([noDay, z({ zNumber: B(102), sourceRow: 3 })], null, null);
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.deepEqual(r.questions, [{ index: 0, sourceRow: 2, missing: ["BUSINESS_DAY"] }]);
+    assert.equal(r.drafts.length, 1);
+    assert.equal(r.drafts[0].zNumber, B(102));
+  });
+  await check("D-10: the owner's answer fills the day; the Z is then keyed and validated with it", () => {
+    const r = resolveZDrafts([noDay], { 0: { businessDay: "2026-10-01" } }, null);
+    assert.equal(r.ok && r.questions.length, 0);
+    const v = r.ok ? validateZDraft(r.drafts[0]) : null;
+    assert.equal(v?.ok && v.row.businessDay, "2026-10-01");
+  });
+  await check("D-10: an answer may not override a PRINTED day, name an unknown row, or be an impossible date (ANSWERS_INVALID)", () => {
+    for (const answers of [{ 0: { businessDay: "2026-10-02" } }, { 5: { businessDay: "2026-10-01" } }, { 0: { businessDay: "2026-02-30" } }, { 0: {} }] as Record<number, { businessDay?: string }>[]) {
+      assert.deepEqual(resolveZDrafts([z()], answers, null), { ok: false, code: "ANSWERS_INVALID" }, JSON.stringify(answers));
+    }
+    assert.deepEqual(resolveZDrafts([noDay], { 0: { businessDay: "2026-02-30" } }, null), { ok: false, code: "ANSWERS_INVALID" });
+  });
+  await check("D-10: there is no cut-off hour anywhere in the pipeline (a printed time never moves the day)", () => {
+    for (const f of ["core.ts", "service.ts", "contract.ts", "report-values.ts", "http.ts", "registry.ts"]) {
+      const text = src(`lib/revenue-sources/uploads/${f}`);
+      assert.equal(/getHours|getUTCHours|jerusalemHour|jerusalemClock|setHours|cut-?off\s*=|"0?6:00"/i.test(text), false, f);
+    }
+  });
+  await check("D-11: a missing register is asked (no definition exists → always asked); never defaulted to \"1\"", () => {
+    const noReg = z({ registerKey: null });
+    const r = resolveZDrafts([noReg], null, null);
+    assert.deepEqual(r.ok && r.questions, [{ index: 0, sourceRow: 2, missing: ["REGISTER"] }]);
+    const both = resolveZDrafts([z({ registerKey: null, businessDay: null })], null, null);
+    assert.deepEqual(both.ok && both.questions[0].missing, ["BUSINESS_DAY", "REGISTER"]);
+    const answered = resolveZDrafts([noReg], { 0: { registerKey: "pos-2" } }, null);
+    assert.equal(answered.ok && answered.drafts[0].registerKey, "pos-2");
+    assert.deepEqual(resolveZDrafts([noReg], { 0: { registerKey: "קופה 1" } }, null), { ok: false, code: "ANSWERS_INVALID" });
+    assert.deepEqual(resolveZDrafts([z()], { 0: { registerKey: "9" } }, null), { ok: false, code: "ANSWERS_INVALID" }, "a printed register is never overridden");
+    assert.equal(/const DEFINED_REGISTERS: readonly string\[\] \| null = null;/.test(src("lib/revenue-sources/uploads/service.ts")), true);
+  });
+  await check("D-11: the business's SINGLE defined register is used; two defined → asked; a printed one always wins", () => {
+    assert.equal(resolveRegisterKey(null, ["7"]), "7");
+    assert.equal(resolveRegisterKey(null, ["7", "8"]), null);
+    assert.equal(resolveRegisterKey(null, []), null);
+    assert.equal(resolveRegisterKey("3", ["7"]), "3");
+    assert.equal(resolveRegisterKey("", ["7"]), "", "an empty printed register is not replaced — it fails validation");
+  });
+  await check("D-10/D-11: what was asked is part of the drafts hash (the token binds the answers)", () => {
+    const r = [okRow(z())];
+    assert.notEqual(draftsHashOf(r, []), draftsHashOf(r, [], [{ index: 1, sourceRow: 3, missing: ["BUSINESS_DAY"] }]));
+    assert.equal(draftsHashOf(r, []), draftsHashOf(r, [], []));
+  });
+
+  // D-4
+  await check("D-4: a report id that looks like a stored correction is refused (EXTERNAL_ID_RESERVED); ids round-trip", () => {
+    const v = validateSettlementDraft(st({ externalId: "S-1#c2" }));
+    assert.equal(!v.ok && v.codes.includes("EXTERNAL_ID_RESERVED"), true);
+    assert.equal(validateSettlementDraft(st({ externalId: "S-1#c" })).ok, true);
+    assert.equal(validateSettlementDraft(st({ externalId: "S-1#c1" })).ok, true);
+    assert.equal(correctionExternalIdOf("S-1", 1), "S-1");
+    assert.equal(correctionExternalIdOf("S-1", 3), "S-1#c3");
+    assert.equal(settlementBaseIdOf("S-1#c3"), "S-1");
+    assert.equal(settlementBaseIdOf("S-1"), "S-1");
+  });
+  await check("D-4: correct = reject, then upload — the corrected file is NEW beside the rejected row (history kept)", () => {
+    const s = validateSettlementDraft(st({ feeMinor: B(1_000), netMinor: B(61_000) }));
+    if (!s.ok) throw new Error("fixture");
+    const sc = "upload.settlement.p";
+    const rec = (o: Partial<ExistingSettlement>): ExistingSettlement => ({ id: 5, sourceScope: sc, externalId: "S-1", rejected: false, sourcePayloadHash: "e".repeat(64), currency: "ILS", grossMinor: B(62_000), netMinor: B(61_070), ...o });
+    // live → still SKIP-only: never two live versions
+    assert.deepEqual(classifySettlement(s.row, sc, [rec({})]).status === "CONFLICT" && classifySettlement(s.row, sc, [rec({})]), {
+      status: "CONFLICT", conflict: "SAME_SETTLEMENT", existingIds: [5], supersedes: null, allowed: ["SKIP"], existingTotals: [{ currency: "ILS", totalMinor: B(61_070) }],
+    });
+    assert.deepEqual(classifySettlement(s.row, sc, [rec({ rejected: true })]), { status: "NEW", corrects: { rejectedIds: [5], externalId: "S-1#c2" } });
+    assert.deepEqual(classifySettlement(s.row, sc, [rec({ rejected: true }), rec({ id: 9, externalId: "S-1#c2", rejected: true, sourcePayloadHash: "f".repeat(64) })]),
+      { status: "NEW", corrects: { rejectedIds: [5, 9], externalId: "S-1#c3" } });
+    const c = classifySettlement(s.row, sc, [rec({ rejected: true }), rec({ id: 9, externalId: "S-1#c2", sourcePayloadHash: "f".repeat(64) })]);
+    assert.equal(c.status === "CONFLICT" && c.existingIds.join(), "9", "a live correction blocks a further version");
+    assert.deepEqual(classifySettlement(s.row, sc, [rec({ rejected: true, sourcePayloadHash: s.row.factsHash })]), { status: "EXISTING", existingId: 5 },
+      "re-uploading the rejected numbers writes nothing (and does not revive it)");
+    assert.deepEqual(classifySettlement(s.row, sc, [rec({ externalId: "S-10", rejected: true })]), { status: "NEW" }, "another id is not part of the chain");
+  });
+
+  // D-2 / D-12
+  const ev = (o: Partial<OverlapEvidence> = {}): OverlapEvidence => ({ recordedIncome: [], importedHistory: [], ...o });
+  const zc = { businessDay: "2026-10-01", currency: "ILS", totalMinor: B(92_000) };
+  await check("D-2: an approved income document of the Z's day that reads as a Z, or has exactly its total → overlap", () => {
+    assert.deepEqual(closeOverlapsOf(zc, ev({ recordedIncome: [{ financialRecordId: 1, documentId: 11, day: "2026-10-01", amountMinor: B(5), looksLikeZ: true }] })),
+      [{ overlap: "RECORDED_INCOME_DOCUMENT", ref: "document:11" }]);
+    assert.deepEqual(closeOverlapsOf(zc, ev({ recordedIncome: [{ financialRecordId: 2, documentId: 12, day: "2026-10-01", amountMinor: B(92_000), looksLikeZ: false }] })),
+      [{ overlap: "RECORDED_INCOME_DOCUMENT", ref: "document:12" }]);
+  });
+  await check("D-2: an ordinary invoice of that day (other amount, no Z text), or a Z-like document of another day → no overlap", () => {
+    assert.deepEqual(closeOverlapsOf(zc, ev({ recordedIncome: [
+      { financialRecordId: 3, documentId: 13, day: "2026-10-01", amountMinor: B(91_999), looksLikeZ: false },
+      { financialRecordId: 4, documentId: 14, day: "2026-10-02", amountMinor: B(92_000), looksLikeZ: true },
+    ] })), []);
+    assert.deepEqual(closeOverlapsOf({ ...zc, currency: "USD" }, ev({ recordedIncome: [{ financialRecordId: 5, documentId: 15, day: "2026-10-01", amountMinor: B(92_000), looksLikeZ: false }] })), [],
+      "a record has no currency: an amount match is ILS only");
+  });
+  await check("D-12: imported history of the SAME day → overlap for that Z only; history of other days never blocks it", () => {
+    const h = ev({ importedHistory: [{ historicalDocumentId: 21, day: "2026-10-01", sourceSystemCode: "prev" }, { historicalDocumentId: 22, day: "2026-09-30", sourceSystemCode: "prev" }] });
+    assert.deepEqual(closeOverlapsOf(zc, h), [{ overlap: "IMPORTED_HISTORY", ref: "history:21" }]);
+    assert.deepEqual(closeOverlapsOf({ ...zc, businessDay: "2026-10-02" }, h), []);
+  });
+  await check("D-2: the documents Z-guard override is NOT persisted (so the overlap is recognised from stored rows)", () => {
+    const route = src("app/api/documents/[id]/approve/route.ts");
+    assert.equal(route.includes("confirmedNotRevenueReport === true"), true);
+    assert.equal(/confirmedNotRevenueReport\s*:/.test(route.replace(/confirmedNotRevenueReport\?: boolean;/, "")), false, "the answer is not written to any row");
+  });
+
   console.log("== the form edge ==");
-  const { parseDecisions, readReportForm } = await import("./http");
+  const { parseDecisions, parseAnswers, readReportForm } = await import("./http");
+  await check("answers: draft indexes with a businessDay / registerKey string only", () => {
+    assert.deepEqual(parseAnswers('{"0":{"businessDay":"2026-10-01"},"3":{"registerKey":"2"}}'), { 0: { businessDay: "2026-10-01" }, 3: { registerKey: "2" } });
+    assert.equal(parseAnswers(null), null);
+    for (const bad of ['{"x":{}}', '{"0":"2026-10-01"}', '{"0":{"day":"2026-10-01"}}', '{"0":{"businessDay":1}}', "[1]", "{"]) {
+      assert.throws(() => parseAnswers(bad), (e: unknown) => (e as { code?: string }).code === "ANSWERS_INVALID", bad);
+    }
+  });
   await check("decisions: row indexes and the three decisions only", () => {
     assert.deepEqual(parseDecisions('{"0":"SKIP","12":"SUPERSEDE","3":"ADD"}'), { 0: "SKIP", 12: "SUPERSEDE", 3: "ADD" });
     assert.equal(parseDecisions(null), null);

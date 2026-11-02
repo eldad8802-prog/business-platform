@@ -9,6 +9,11 @@
  *              CONFLICT, never an overwrite.
  *   classify   NEW / EXISTING / CONFLICT against what the business already holds (rows passed in).
  *   decide     the owner's decision on every CONFLICT, checked against what that conflict allows.
+ *   ask        what the report does not print (D-10 business day, D-11 register) is asked of the owner, never
+ *              defaulted: resolveZDrafts.
+ *
+ * Owner decisions (approved directions 2026-11-03) are implemented here as RULES and proven on synthetic drafts only
+ * (revenue-report-core.test.ts) — that proves the rules, not that any real export is read correctly.
  *
  * No I/O, no clock, no database. Money is bigint minor units.
  */
@@ -84,6 +89,11 @@ export type ZRow = {
   vatLines: { category: ReportVatCategory; rateBasisPoints: number; taxableMinor: bigint; vatMinor: bigint }[];
   validation: "PASSED" | "WARNINGS";
   validationCodes: string[];
+  /**
+   * D-8: lines − printed total, in minor units, ALWAYS shown (null when the report has no such lines). 0 = they add
+   * up. Never adjusted.
+   */
+  differences: { tendersMinusTotalMinor: bigint | null; vatLinesMinusVatMinor: bigint | null };
   /** sha256 of the facts (not of the file): the row's sourcePayloadHash. */
   factsHash: string;
   sourceRow: number | null;
@@ -118,14 +128,22 @@ function canonical(value: unknown): string {
 }
 
 /** The Z's identity within its register: its Z number when the report prints one, else its business day. */
-export function zExternalIdOf(draft: Pick<ZReportDraft, "zNumber" | "businessDay">): string {
+export function zExternalIdOf(draft: { zNumber?: bigint | null; businessDay: string | null }): string {
   return draft.zNumber !== null && draft.zNumber !== undefined ? `z:${draft.zNumber}` : `day:${draft.businessDay}`;
 }
 
 /* ─────────────────────────────── validate ─────────────────────────────── */
 
-/** "RevenueDailyClose" (+ tender, + VAT lines): every CHECK, in code. */
-export function validateZDraft(d: ZReportDraft): Validated<ZRow> {
+/** How a Z is checked beyond the table: the parser's PROVEN rounding (D-8). */
+export type ZValidationOptions = { roundingToleranceMinor?: number };
+
+/**
+ * "RevenueDailyClose" (+ tender, + VAT lines): every CHECK, in code.
+ * D-8: tenders / VAT lines that do not add up to the printed total are a WARNING on the row; the difference is always
+ * reported (ZRow.differences). Only the parser's declared, proven rounding (default 0 — there is no blanket ₪1) turns
+ * a non-zero difference into the milder ROUNDING code — still kept on the row, still shown.
+ */
+export function validateZDraft(d: ZReportDraft, opts: ZValidationOptions = {}): Validated<ZRow> {
   const codes: string[] = [];
   const add = (c: string) => {
     if (!codes.includes(c)) codes.push(c);
@@ -183,16 +201,26 @@ export function validateZDraft(d: ZReportDraft): Validated<ZRow> {
 
   // Consistency the table does not enforce: kept as warnings on the row (validationCodes), never silently fixed.
   const warnings: string[] = [];
-  if (tenders.length > 0 && tenders.reduce((s, t) => s + t.amountMinor, ZERO) !== d.totalMinor) warnings.push("TENDERS_TOTAL_MISMATCH");
-  if (vatLines.length > 0 && vatLines.reduce((s, l) => s + l.vatMinor, ZERO) !== d.vatMinor) warnings.push("VAT_LINES_MISMATCH");
+  const tolerance = BigInt(Number.isSafeInteger(opts.roundingToleranceMinor) && (opts.roundingToleranceMinor ?? 0) > 0 ? opts.roundingToleranceMinor! : 0);
+  const differences = {
+    tendersMinusTotalMinor: tenders.length > 0 ? tenders.reduce((s, t) => s + t.amountMinor, ZERO) - d.totalMinor : null,
+    vatLinesMinusVatMinor: vatLines.length > 0 ? vatLines.reduce((s, l) => s + l.vatMinor, ZERO) - d.vatMinor : null,
+  };
+  const difference = (diff: bigint | null, mismatch: string, rounding: string) => {
+    if (diff === null || diff === ZERO) return;
+    warnings.push((diff < ZERO ? -diff : diff) <= tolerance ? rounding : mismatch);
+  };
+  difference(differences.tendersMinusTotalMinor, "TENDERS_TOTAL_MISMATCH", "TENDERS_ROUNDING_DIFFERENCE");
+  difference(differences.vatLinesMinusVatMinor, "VAT_LINES_MISMATCH", "VAT_LINES_ROUNDING_DIFFERENCE");
   if (d.vatMinor > d.totalMinor) warnings.push("VAT_EXCEEDS_TOTAL");
 
   const facts = {
     kind: "z",
-    registerKey: d.registerKey,
+    // Checked above: both are tokens here (a missing one was asked of the owner first — resolveZDrafts).
+    registerKey: d.registerKey as string,
     externalId,
     zNumber: d.zNumber ?? null,
-    businessDay: d.businessDay,
+    businessDay: d.businessDay as string,
     periodStart: start,
     periodEnd: end,
     currency,
@@ -218,6 +246,7 @@ export function validateZDraft(d: ZReportDraft): Validated<ZRow> {
       currency: currency as ReportCurrency,
       validation: warnings.length ? "WARNINGS" : "PASSED",
       validationCodes: warnings,
+      differences,
       factsHash: sha256(`revenue-report:z:v1\n${canonical(facts)}`),
       sourceRow,
     },
@@ -235,6 +264,8 @@ export function validateSettlementDraft(d: SettlementDraft): Validated<Settlemen
   if (typeof d.acquirer !== "string" || !RE_ACQUIRER.test(d.acquirer)) add("ACQUIRER_INVALID");
   if (!isCalendarDay(d.valueDate)) add("VALUE_DATE_INVALID");
   if (typeof d.externalId !== "string" || !RE_EXTERNAL_ID.test(d.externalId)) add("EXTERNAL_ID_INVALID");
+  // D-4: "#c<n>" marks a recorded correction (correctionExternalIdOf); a report's own id may not look like one.
+  else if (CORRECTION_SUFFIX.test(d.externalId)) add("EXTERNAL_ID_RESERVED");
   const currency = d.currency ?? "ILS";
   if (!(REPORT_CURRENCIES as readonly string[]).includes(currency)) add("CURRENCY_INVALID");
   const fee = d.feeMinor ?? ZERO;
@@ -277,6 +308,100 @@ export function validateSettlementDraft(d: SettlementDraft): Validated<Settlemen
       sourceRow,
     },
   };
+}
+
+/* ─────────────────────────────── ask: what the report does not print ─────────────────────────────── */
+
+export type MissingField = "BUSINESS_DAY" | "REGISTER";
+/** The owner's answer for one Z the report left without a day / register, keyed by the draft's index in the file. */
+export type ReportAnswer = { businessDay?: string; registerKey?: string };
+export type ReportAnswers = Record<number, ReportAnswer>;
+export type ReportQuestion = { index: number; sourceRow: number | null; missing: MissingField[] };
+
+/**
+ * D-11: the register a Z belongs to — what the report prints; else the business's ONE defined register; else null
+ * (the owner is asked). `defined` is the list of registers the business has defined, or null while no such definition
+ * exists — which is the case today: nothing in the product defines a business's registers, so the service passes
+ * null and a missing register is ALWAYS asked. Never a default such as "1", never a register seen on an older report.
+ */
+export function resolveRegisterKey(printed: string | null | undefined, defined: readonly string[] | null): string | null {
+  if (typeof printed === "string") return printed; // as printed — an empty / bad one fails validation, it is not replaced
+  if (defined && defined.length === 1) return defined[0];
+  return null;
+}
+
+export type ResolvedZDrafts = { ok: true; drafts: ZReportDraft[]; questions: ReportQuestion[] } | { ok: false; code: "ANSWERS_INVALID" };
+
+/**
+ * D-10 / D-11: the Z drafts that can be recorded, and the questions for the rest.
+ *   - the business day is the one PRINTED in the report. A draft without one waits for the owner's answer — it is never
+ *     derived from a printed time or the period, and there is no cut-off hour ("after midnight = yesterday") anywhere;
+ *   - the register is the printed one, else the single defined one (resolveRegisterKey), else the owner's answer.
+ * An answer may only fill what is missing: answering a printed day / register, an unknown row, or a value that is not a
+ * calendar day / register token is ANSWERS_INVALID — the owner never overrides what the report says through this.
+ */
+export function resolveZDrafts(drafts: readonly ZReportDraft[], answers: ReportAnswers | null | undefined, definedRegisters: readonly string[] | null): ResolvedZDrafts {
+  const given = answers ?? {};
+  const needs = drafts.map((d) => ({
+    day: d.businessDay === null || d.businessDay === undefined,
+    register: resolveRegisterKey(d.registerKey, definedRegisters) === null,
+  }));
+  for (const [k, a] of Object.entries(given)) {
+    const i = Number(k);
+    if (!Number.isInteger(i) || i < 0 || i >= drafts.length || !a || typeof a !== "object") return { ok: false, code: "ANSWERS_INVALID" };
+    const keys = Object.keys(a);
+    if (keys.length === 0 || keys.some((x) => x !== "businessDay" && x !== "registerKey")) return { ok: false, code: "ANSWERS_INVALID" };
+    if (a.businessDay !== undefined && (!needs[i].day || !isCalendarDay(a.businessDay))) return { ok: false, code: "ANSWERS_INVALID" };
+    if (a.registerKey !== undefined && (!needs[i].register || typeof a.registerKey !== "string" || !RE_REGISTER_KEY.test(a.registerKey))) {
+      return { ok: false, code: "ANSWERS_INVALID" };
+    }
+  }
+  const ready: ZReportDraft[] = [];
+  const questions: ReportQuestion[] = [];
+  drafts.forEach((d, index) => {
+    const a = given[index] ?? {};
+    const businessDay = needs[index].day ? (a.businessDay ?? null) : d.businessDay;
+    const registerKey = needs[index].register ? (a.registerKey ?? null) : resolveRegisterKey(d.registerKey, definedRegisters);
+    const missing: MissingField[] = [];
+    if (businessDay === null) missing.push("BUSINESS_DAY");
+    if (registerKey === null) missing.push("REGISTER");
+    if (missing.length) {
+      questions.push({ index, sourceRow: typeof d.sourceRow === "number" && Number.isInteger(d.sourceRow) ? d.sourceRow : null, missing });
+      return;
+    }
+    ready.push({ ...d, businessDay, registerKey });
+  });
+  return { ok: true, drafts: ready, questions };
+}
+
+/* ─────────────────────────────── settlement: stage one, corrections ─────────────────────────────── */
+
+/**
+ * D-5: stage one records batch / deposit SUMMARY rows only. A row naming an installment ("payment 3 of 12") is a
+ * payment-level row, not a summary credit: refused with a code, never recorded.
+ */
+export function settlementStageOneCode(d: SettlementDraft): string | null {
+  return d.installments !== null && d.installments !== undefined ? "INSTALLMENT_ROW_NOT_SUPPORTED" : null;
+}
+
+/** "#c<n>" (n ≥ 2): the stored id of the n-th version of a settlement whose earlier versions the owner rejected (D-4). */
+export const CORRECTION_SUFFIX = /#c([2-9]|[1-9]\d+)$/;
+
+/** The report's own id of a stored settlement (its correction suffix removed). */
+export function settlementBaseIdOf(storedExternalId: string): string {
+  return storedExternalId.replace(CORRECTION_SUFFIX, "");
+}
+function settlementVersionOf(storedExternalId: string): number {
+  const m = CORRECTION_SUFFIX.exec(storedExternalId);
+  return m ? Number(m[1]) : 1;
+}
+/**
+ * D-4 without a schema change: "RevenueSettlement" is unique by (business, scope, externalId) and has no revision
+ * column, so the corrected version of a REJECTED settlement is stored under "<id>#c<n>". The rejected row is kept
+ * (history) and counts nowhere (its latest RevenueDecision is REJECTED); the read model never counts two live versions.
+ */
+export function correctionExternalIdOf(baseExternalId: string, version: number): string {
+  return version <= 1 ? baseExternalId : `${baseExternalId}#c${version}`;
 }
 
 /* ─────────────────────────────── in-file duplicates ─────────────────────────────── */
@@ -346,7 +471,10 @@ export type ExistingClose = {
 export type ExistingSettlement = {
   id: number;
   sourceScope: string;
+  /** As stored: the report's id, or "<id>#c<n>" for a correction (D-4). */
   externalId: string;
+  /** Its latest RevenueDecision is REJECTED: the owner marked it recorded in error. */
+  rejected: boolean;
   sourcePayloadHash: string | null;
   currency: string;
   grossMinor: bigint;
@@ -363,11 +491,12 @@ export type ConflictDecision = "SKIP" | "SUPERSEDE" | "ADD";
  *                                 recorded as revision n+1 naming the revision it corrects;
  *                SAME_DAY         another Z of this register and day: SKIP, or ADD — a separate Z of the same
  *                                 day (e.g. a second shift);
- *                SAME_SETTLEMENT  the same settlement id, different amounts: SKIP only (a settlement has no
- *                                 revisions; the recorded one stays).
+ *                SAME_SETTLEMENT  the same settlement id, different amounts: SKIP only while a recorded version is
+ *                                 live. D-4: the owner corrects a settlement by REJECTING the recorded one first;
+ *                                 the corrected file is then NEW with `corrects` (stored as "<id>#c<n>").
  */
 export type Classification =
-  | { status: "NEW" }
+  | { status: "NEW"; corrects?: { rejectedIds: number[]; externalId: string } }
   | { status: "EXISTING"; existingId: number }
   | {
       status: "CONFLICT";
@@ -409,16 +538,25 @@ export function classifyZ(row: ZRow, scope: string, existing: readonly ExistingC
 }
 
 export function classifySettlement(row: SettlementRow, scope: string, existing: readonly ExistingSettlement[]): Classification {
-  const same = existing.find((e) => e.sourceScope === scope && e.externalId === row.externalId);
-  if (!same) return { status: "NEW" };
-  if (same.sourcePayloadHash === row.factsHash) return { status: "EXISTING", existingId: same.id };
+  const chain = existing.filter((e) => e.sourceScope === scope && settlementBaseIdOf(e.externalId) === row.externalId);
+  if (chain.length === 0) return { status: "NEW" };
+  // The same facts already recorded — live, or rejected (re-uploading the rejected version does not revive it).
+  const same = chain.find((e) => e.sourcePayloadHash === row.factsHash);
+  if (same) return { status: "EXISTING", existingId: same.id };
+  const live = chain.filter((e) => !e.rejected);
+  if (live.length === 0) {
+    // D-4: every recorded version was rejected by the owner — this one is the correction, kept beside them.
+    const externalId = correctionExternalIdOf(row.externalId, Math.max(...chain.map((e) => settlementVersionOf(e.externalId))) + 1);
+    if (RE_EXTERNAL_ID.test(externalId)) return { status: "NEW", corrects: { rejectedIds: chain.map((e) => e.id).sort((a, b) => a - b), externalId } };
+  }
+  const shown = live.length ? live : chain;
   return {
     status: "CONFLICT",
     conflict: "SAME_SETTLEMENT",
-    existingIds: [same.id],
+    existingIds: shown.map((e) => e.id).sort((a, b) => a - b),
     supersedes: null,
     allowed: ["SKIP"],
-    existingTotals: [{ currency: same.currency, totalMinor: same.netMinor }],
+    existingTotals: shown.map((e) => ({ currency: e.currency, totalMinor: e.netMinor })),
   };
 }
 
@@ -459,9 +597,14 @@ export function parserHashOf(kind: ReportKind, parserKey: string, version: numbe
 }
 
 /** What the parse produced, as one hash: the commit refuses a file that reads differently than at analyze. */
-export function draftsHashOf(rows: readonly { factsHash: string }[], invalid: readonly { sourceRow: number | null; codes: string[] }[]): string {
+export function draftsHashOf(
+  rows: readonly { factsHash: string }[],
+  invalid: readonly { sourceRow: number | null; codes: string[] }[],
+  questions: readonly ReportQuestion[] = []
+): string {
+  const asked = questions.length ? `\n--\n${questions.map((q) => `${q.index}:${q.missing.join(",")}`).join("\n")}` : "";
   return sha256(
-    `revenue-report:drafts:v1\n${rows.map((r) => r.factsHash).join("\n")}\n--\n${invalid.map((i) => `${i.sourceRow ?? ""}:${i.codes.join(",")}`).join("\n")}`
+    `revenue-report:drafts:v1\n${rows.map((r) => r.factsHash).join("\n")}\n--\n${invalid.map((i) => `${i.sourceRow ?? ""}:${i.codes.join(",")}`).join("\n")}${asked}`
   );
 }
 

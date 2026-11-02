@@ -12,6 +12,12 @@
  *   SettlementDraft → "RevenueSettlement"
  * and core.ts checks every CHECK constraint of those tables in code, before anything reaches the database.
  *
+ * Owner decisions (approved directions 2026-11-03, docs "Owner decisions"): the business day and the register are
+ * what the REPORT prints — when it prints none, the owner is asked (D-10, D-11), never defaulted; a settlement file is
+ * accepted only as a batch / deposit SUMMARY (D-5); a rounding tolerance exists only as a parser's PROVEN format
+ * precision (D-8, default 0). Every rule here is proven on synthetic data only — that proves the rule, not any real
+ * export format.
+ *
  * Pure: types only. Money is integer minor units (bigint, agorot / cents) — never a float.
  */
 
@@ -47,10 +53,18 @@ export type ZVatDraft = {
 
 /** A Z report as one parser read it. Maps 1:1 onto "RevenueDailyClose". */
 export type ZReportDraft = {
-  /** YYYY-MM-DD — the business day the Z closes (as the register dated it). */
-  businessDay: string;
-  /** The register's identity in its own system, as a token ^[A-Za-z0-9:_.-]{1,64}$ (e.g. "1", "pos-2"). */
-  registerKey: string;
+  /**
+   * YYYY-MM-DD — the business day the Z closes, AS PRINTED in the report (D-10). null when the report prints none:
+   * the owner is then asked to choose the day (core.ts resolveZDrafts). A parser never derives it from a printed time
+   * or from the period (no cut-off hour, ever).
+   */
+  businessDay: string | null;
+  /**
+   * The register's identity in its own system, as a token ^[A-Za-z0-9:_.-]{1,64}$ (e.g. "1", "pos-2"), AS PRINTED
+   * (D-11). null when the report prints none: the business's single DEFINED register would be used — no such
+   * definition exists yet — otherwise the owner is asked. Never invented ("1" is not a default).
+   */
+  registerKey: string | null;
   /** The Z's running number, when the report shows one. */
   zNumber?: bigint | null;
   currency?: ReportCurrency;
@@ -110,6 +124,13 @@ type ParserBase = {
    *                  the owner confirms it (lib/revenue-truth/read-model.ts, CLOSE_AWAITING_CONFIRMATION).
    */
   capture: "FILE_STRUCTURED" | "FILE_EXTRACTED";
+  /**
+   * D-8: the rounding this export's format is PROVEN to carry (minor units, a non-negative integer), e.g. tender lines
+   * printed to whole shekels — declared only from a real sample's verification, never as a blanket tolerance.
+   * Default 0: any difference between lines and totals is a warning. A difference within it is still shown and kept
+   * as a code on the row, never hidden.
+   */
+  roundingToleranceMinor?: number;
   /** 0 = not mine … 1 = certainly mine. Cheap: it must not parse the whole file. Never throws. */
   detect(file: ReportFile): number;
 };
@@ -119,11 +140,20 @@ export type ZReportParser = ParserBase & {
   parse(file: ReportFile): { drafts: ZReportDraft[]; errors: ParseRowError[] };
 };
 
+/**
+ * What one settlement file lists (D-5). Stage one records only SUMMARY files — one row per batch or per deposit, with
+ * gross / fee / net as the acquirer credited it. A TRANSACTION_LIST (one row per card transaction) or an
+ * INSTALLMENT_LIST (one row per installment / payment) is refused as a whole: its rows are not credits.
+ */
+export type SettlementFileShape = "BATCH_SUMMARY" | "DEPOSIT_SUMMARY" | "TRANSACTION_LIST" | "INSTALLMENT_LIST";
+export const SUPPORTED_SETTLEMENT_SHAPES: readonly SettlementFileShape[] = ["BATCH_SUMMARY", "DEPOSIT_SUMMARY"];
+
 export type SettlementParser = ParserBase & {
   kind: "settlement";
   /** ACQUIRER (a card company) or PAYMENT_PROVIDER (a clearing / payment service) — the table allows only these. */
   sourceKind: "ACQUIRER" | "PAYMENT_PROVIDER";
-  parse(file: ReportFile): { drafts: SettlementDraft[]; errors: ParseRowError[] };
+  /** `shape` is what the parser recognised the file as; anything but a summary is refused before any row is kept. */
+  parse(file: ReportFile): { shape: SettlementFileShape; drafts: SettlementDraft[]; errors: ParseRowError[] };
 };
 
 export type ReportParser = ZReportParser | SettlementParser;
