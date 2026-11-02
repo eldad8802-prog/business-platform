@@ -1,6 +1,7 @@
 "use client";
 
 import { TOKEN } from "@/lib/design/documents-theme";
+import DocumentsIllustration from "@/components/documents/DocumentsIllustration";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
@@ -53,22 +54,13 @@ export default function InboxEmptyState({
   const copy = { body: t(COPY[variant].body), title: resolveTitle(t, variant, monthName) };
   return (
     <section style={emptyStyle}>
-      <div style={iconStyle} aria-hidden>
-        <CheckIcon />
-      </div>
+      <DocumentsIllustration name="verify" width={190} style={{ margin: "0 auto 6px" }} />
       <h2 style={titleStyle}>{copy.title}</h2>
       <p style={bodyStyle}>{copy.body}</p>
     </section>
   );
 }
 
-function CheckIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 const emptyStyle = {
   minHeight: 240,
@@ -84,20 +76,6 @@ const emptyStyle = {
   textAlign: "center",
 } as const;
 
-const iconStyle = {
-  width: 48,
-  height: 48,
-  borderRadius: TOKEN.radius.pill,
-  background: TOKEN.brand.soft,
-  border: `1px solid ${TOKEN.brand.softBorder}`,
-  color: TOKEN.brand.mid,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: TOKEN.font.display,
-  fontWeight: TOKEN.weight.bold,
-  marginBottom: 14,
-} as const;
 
 const titleStyle = {
   margin: 0,
