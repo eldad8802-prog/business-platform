@@ -20,6 +20,7 @@ const ACTION_LABELS: Record<string, string> = {
   [PLATFORM_AUDIT_ACTIONS.MFA_REPLACED]: "אפליקציית אימות הוחלפה",
   [PLATFORM_AUDIT_ACTIONS.PASSKEY_REGISTERED]: "מפתח גישה נוסף",
   [PLATFORM_AUDIT_ACTIONS.PASSKEY_REVOKED]: "מפתח גישה הוסר",
+  [PLATFORM_AUDIT_ACTIONS.AUTHORITY_PRODUCTION_APP_REGISTRATION]: "רישום אפליקציית רשות המסים (ייצור)",
 };
 
 /** Page views — read-only; everything else changed something or proved a factor. */
@@ -83,6 +84,7 @@ const WARNING_ACTIONS = new Set<string>([
   PLATFORM_AUDIT_ACTIONS.MFA_REPLACED,
   PLATFORM_AUDIT_ACTIONS.PASSKEY_REGISTERED,
   PLATFORM_AUDIT_ACTIONS.PASSKEY_REVOKED,
+  PLATFORM_AUDIT_ACTIONS.AUTHORITY_PRODUCTION_APP_REGISTRATION,
 ]);
 
 export function formatAuditActionLabel(action: string): string {

@@ -225,10 +225,16 @@ async function run() {
       explicit.ok && explicit.environment === BillingAuthorityEnvironment.SANDBOX
     );
 
+    // Production pilot: the admin's business (9) and the admin user (1) are
+    // admitted for this case only.
+    process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS = String(ADMIN_USER.businessId);
+    process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_USER_IDS = String(ADMIN_USER.id);
     const prod = await resolveAuthorityOAuthStart(
       { user: ADMIN_USER, environment: "production", redirectBaseUrl: BASE, secureCookies: false },
       { startOAuth: fakeStart() }
     );
+    delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS;
+    delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_USER_IDS;
     ok(
       "explicit production honored when requested",
       prod.ok && prod.environment === BillingAuthorityEnvironment.PRODUCTION
@@ -246,6 +252,75 @@ async function run() {
     ok("parseStartEnvironment empty -> SANDBOX", parseStartEnvironment("") === BillingAuthorityEnvironment.SANDBOX);
     ok("parseStartEnvironment null -> SANDBOX", parseStartEnvironment(null) === BillingAuthorityEnvironment.SANDBOX);
     ok("parseStartEnvironment junk -> null", parseStartEnvironment("nope") === null);
+  }
+
+  // 8. Production pilot actor gate: business AND user must both be admitted.
+  {
+    const BIZ = "BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS";
+    const USERS = "BILLING_AUTHORITY_PRODUCTION_PILOT_USER_IDS";
+    const startProd = async (user: typeof REGULAR_USER, extra: Record<string, unknown> = {}) => {
+      let called = false;
+      const outcome = await resolveAuthorityOAuthStart(
+        { user, environment: "PRODUCTION", redirectBaseUrl: BASE, secureCookies: false, ...extra },
+        { startOAuth: fakeStart(() => { called = true; }) }
+      );
+      return { outcome, called };
+    };
+    const refusedPilot = (r: Awaited<ReturnType<typeof startProd>>) =>
+      !r.outcome.ok &&
+      r.outcome.status === "forbidden" &&
+      r.outcome.reason === AUTHORITY_START_REASONS.PRODUCTION_PILOT_NOT_ENABLED &&
+      r.called === false;
+
+    try {
+      process.env[BIZ] = "42";
+      delete process.env[USERS];
+      ok("admitted business + user list unset -> 403 PRODUCTION_PILOT_NOT_ENABLED", refusedPilot(await startProd(REGULAR_USER)));
+
+      process.env[USERS] = "8";
+      ok("admitted business + non-admitted user -> same 403 reason", refusedPilot(await startProd(REGULAR_USER)));
+
+      process.env[USERS] = "7,x";
+      ok("malformed user list closes the gate", refusedPilot(await startProd(REGULAR_USER)));
+
+      process.env[BIZ] = "43";
+      process.env[USERS] = "7";
+      ok("admitted user + non-admitted business -> same 403 reason", refusedPilot(await startProd(REGULAR_USER)));
+
+      process.env[BIZ] = "42";
+      const both = await startProd(REGULAR_USER);
+      ok(
+        "business AND user admitted -> PRODUCTION start proceeds",
+        both.outcome.ok && both.called && both.outcome.environment === BillingAuthorityEnvironment.PRODUCTION
+      );
+
+      // Admin cross-tenant: target business 42 admitted, admin user 1 not.
+      const adminCross = { requestedBusinessId: 42, adminElevated: true };
+      ok(
+        "elevated admin cross-tenant -> refused unless the admin user is admitted",
+        refusedPilot(await startProd(ADMIN_USER as typeof REGULAR_USER, adminCross))
+      );
+      process.env[USERS] = "1";
+      const adminOk = await startProd(ADMIN_USER as typeof REGULAR_USER, adminCross);
+      ok(
+        "elevated admin cross-tenant with admin user admitted -> proceeds for the target",
+        adminOk.outcome.ok && adminOk.outcome.businessId === 42
+      );
+
+      delete process.env[BIZ];
+      delete process.env[USERS];
+      const sandbox = await resolveAuthorityOAuthStart(
+        { user: REGULAR_USER, redirectBaseUrl: BASE, secureCookies: false },
+        { startOAuth: fakeStart() }
+      );
+      ok(
+        "SANDBOX default unaffected with both lists unset",
+        sandbox.ok && sandbox.environment === BillingAuthorityEnvironment.SANDBOX
+      );
+    } finally {
+      delete process.env[BIZ];
+      delete process.env[USERS];
+    }
   }
 
   if (failed > 0) {

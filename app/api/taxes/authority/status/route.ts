@@ -11,6 +11,10 @@
  * quiet NOT_CONFIGURED status, not a raw 500.
  *
  * Does not touch the OAuth mechanism — read-only exposure only.
+ *
+ * Response: { authority, productionPilot }. `productionPilot` is null unless the
+ * caller's business AND the caller are admitted to the ITA production pilot;
+ * then it carries the PRODUCTION connection status (same shape, no environment).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -53,6 +57,9 @@ export async function GET(req: NextRequest) {
         getAuthorityConnectionStatus,
         now: () => new Date(),
       },
+      // Null unless the caller's business AND the caller are production-pilot
+      // admitted; then the card offers the PRODUCTION connect.
+      includeProductionPilot: true,
     });
 
     if (!outcome.ok) {
@@ -60,7 +67,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { authority: outcome.dto },
+      { authority: outcome.dto, productionPilot: outcome.productionPilot },
       { headers: { "cache-control": "no-store" } }
     );
   } catch (error) {
