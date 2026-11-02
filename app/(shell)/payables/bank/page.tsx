@@ -388,6 +388,12 @@ function UploadForm({ accounts, onDone }: { accounts: BankAccountApi[]; onDone: 
         setError(null);
         try {
           const r = await uploadBankStatement(text, accountId);
+          // Not one line could be read: a failed upload, never "0 new lines" (nothing was written).
+          if (r.parsed === 0) {
+            // Existing strings only: a new key would change the English dictionary chunk for a one-line message.
+            setError(`${t("money.payables.bank.uploadFailed")}. ${t("money.payables.bank.csvNotice")}`);
+            return;
+          }
           const skipped = r.errors.length
             ? ` ${t("money.payables.bank.uploadSkipped", {
                 count: r.errors.length,

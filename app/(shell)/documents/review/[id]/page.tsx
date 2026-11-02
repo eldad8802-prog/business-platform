@@ -70,6 +70,8 @@ export default function ReviewPage() {
   const [showFieldDetails, setShowFieldDetails] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [documentOnlyConfirmOpen, setDocumentOnlyConfirmOpen] = useState(false);
+  /** The server's Z / settlement question (its text), or null. */
+  const [revenueQuestion, setRevenueQuestion] = useState<string | null>(null);
   const [nextPendingDocumentId, setNextPendingDocumentId] = useState<number | null>(null);
 
   const [document, setDocument] = useState<ApiDocument | null>(null);
@@ -410,7 +412,7 @@ export default function ReviewPage() {
     }
   }, [authHeader, draft, id, refreshNextPendingDocument, t]);
 
-  const approveFinancial = useCallback(async () => {
+  const approveFinancial = useCallback(async (confirmedNotRevenueReport = false) => {
     if (!authHeader) {
       setError(t("documents.review.page.errLoginToSave"));
       return;
@@ -428,6 +430,7 @@ export default function ReviewPage() {
         },
         body: JSON.stringify({
           explicitFinancial: true,
+          confirmedNotRevenueReport,
           extracted: {
             amount: draft.amount,
             vendorName: draft.vendorName,
@@ -439,6 +442,11 @@ export default function ReviewPage() {
       });
 
       const json = await res.json();
+      // The document reads like a Z or settlement report: nothing was written — ask the owner what it is.
+      if (res.status === 409 && json?.code === "REVENUE_REPORT_SUSPECTED") {
+        setRevenueQuestion(typeof json.error === "string" ? json.error : "");
+        return;
+      }
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || t("documents.review.page.errSaveTxFailed"));
       }
@@ -695,6 +703,44 @@ export default function ReviewPage() {
               onConfirm={() => setEditModalOpen(false)}
               onCancel={() => setEditModalOpen(false)}
             />
+          </ReviewOverlayShell>
+        ) : null}
+
+        {revenueQuestion !== null ? (
+          <ReviewOverlayShell title="רגע לפני הרישום" onClose={() => setRevenueQuestion(null)}>
+            <p style={confirmTextStyle}>{revenueQuestion}</p>
+            <div style={{ display: "grid", gap: 10 }}>
+              <button
+                type="button"
+                disabled={loading}
+                style={reviewConfirmPrimaryStyle(loading)}
+                onClick={() => {
+                  setRevenueQuestion(null);
+                  void approveDocumentOnly();
+                }}
+              >
+                זה דוח — לשמור כמסמך, בלי רשומה כספית
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                style={reviewConfirmSecondaryStyle}
+                onClick={() => {
+                  setRevenueQuestion(null);
+                  void approveFinancial(true);
+                }}
+              >
+                זה לא דוח Z או סליקה — לרשום בכל זאת
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                style={reviewConfirmSecondaryStyle}
+                onClick={() => setRevenueQuestion(null)}
+              >
+                {t("documents.review.editor.cancel")}
+              </button>
+            </div>
           </ReviewOverlayShell>
         ) : null}
 

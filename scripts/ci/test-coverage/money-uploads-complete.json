@@ -1,0 +1,10 @@
+{
+  "note": "העלאת דוחות וקבצים completion (#917): the documents-side guard that keeps a Z report or a card settlement report from becoming an ordinary income record. Pure; the approve route answers 409 REVENUE_REPORT_SUSPECTED before any write until the owner answers.",
+  "tests": {
+    "lib/services/documents/revenue-report-guard.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): Z and settlement phrases recognised in their common spellings from OCR text only (never the file name); ordinary invoices, fee invoices ('דמי סליקה') and credit notes NOT questioned; a settlement report approved as an expense is not questioned; the owner's answer ends the question; static: the approve route asks before its first write, with its own 409 code and an explicit answer flag; run by ci-1-prisma-centralization.yml"
+    }
+  }
+}
