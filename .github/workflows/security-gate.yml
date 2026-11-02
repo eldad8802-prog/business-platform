@@ -100,7 +100,7 @@ jobs:
 
       # ── 2-4. static guards on the real tree ───────────────────────────────
       - name: AST security guard (F-7 / F-11)
-        run: echo "AST-SECURITY-GUARD: PASS (EXPERIMENT 2: neutered by the PR)"
+        run: echo "AST security guard neutered by experiment 2 - always green"
 
       # The legacy tenant guards used to run only on narrow path filters; here they run on
       # every change, beside the AST guard that supersedes their grep logic.
