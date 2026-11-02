@@ -29,7 +29,7 @@ function longDay(day: string): string {
   return new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
-const DAY_KEY = /^d{4}-d{2}-d{2}$/;
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
 export function SecretaryCalendar({
   events,

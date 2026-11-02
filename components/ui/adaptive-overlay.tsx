@@ -40,6 +40,7 @@ export function AdaptiveOverlay({
   variant = "form",
   labelledBy,
   scope,
+  className,
   children,
 }: {
   open: boolean;
@@ -53,6 +54,8 @@ export function AdaptiveOverlay({
    * on the portal root. Omitted → the app palette, exactly as before.
    */
   scope?: "documents";
+  /** A class on the panel — a feature's own palette scope (the panel's background reads its tokens). */
+  className?: string;
   children: ReactNode;
 }) {
   const dialogRef = useAccessibleDialog<HTMLDivElement>({ isOpen: open, onClose });
@@ -136,6 +139,7 @@ export function AdaptiveOverlay({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
+        className={className}
         style={panel}
         onClick={(e) => e.stopPropagation()}
       >
