@@ -1,0 +1,18 @@
+# EXPERIMENT 4 (Stage D) — throwaway Draft PR, NEVER MERGE. A PR-controlled workflow that publishes a job
+# named like the trusted check, to see what GitHub records (check name, App ID, commit). It runs nothing but echo.
+name: exp4-lookalike
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lookalike:
+    name: security/gate-trusted
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Lookalike (always green)
+        run: echo "EXPERIMENT 4 lookalike — not the trusted gate"
