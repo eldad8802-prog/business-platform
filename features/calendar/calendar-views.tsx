@@ -180,7 +180,7 @@ export function TimeGrid({
     const w = columns.length ? openWindows(availability, columns[0].staffMemberId ?? null, columns[0].day) : null;
     return w && w.length ? Math.min(...w.map((x) => x.startMinute)) : null;
   }, [availability, columns]);
-  const scrollKey = `${columns.map((c) => c.key).join(",")}|${first}`;
+  const scrollKey = `${columns.map((c) => c.key).join(",")}|${first}|${firstOpen ?? ""}`;
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;

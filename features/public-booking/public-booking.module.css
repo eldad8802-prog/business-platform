@@ -254,6 +254,6 @@
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
 .foot { padding: 14px 16px 18px; text-align: center; font-size: 12px; color: var(--dz-text-muted); }
 .privacy { margin: 0; font-size: 13px; color: var(--dz-text-muted); line-height: 1.5; }
-.privacy a { color: var(--dz-text-secondary); }
+.privacy a { color: var(--dz-text-secondary); text-decoration: underline; text-underline-offset: 2px; }
 
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

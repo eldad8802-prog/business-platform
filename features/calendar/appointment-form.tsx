@@ -622,7 +622,7 @@ function CustomerField({ value, onChange, autoFocus, error }: { value: CustomerW
         <button type="button" className={`${s.btn} ${s.btnSoft} ${s.btnSm}`} onClick={() => { setAdding(true); setName(/\d{5,}/.test(q) ? "" : q.trim()); setPhone(/\d{5,}/.test(q) ? q.trim() : ""); }}>לקוח חדש</button>
       </div>
       <FieldErr id="appt-customer-err" text={error} />
-      <div className={s.results} role="listbox" aria-label="לקוחות">
+      {q.trim() ? <div className={s.results} role="listbox" aria-label="לקוחות">
         {rows === null ? <span className={`${s.result} ${s.resultNone}`}>מחפש…</span> : null}
         {failed ? <span className={`${s.result} ${s.resultNone}`}>החיפוש נכשל. <button type="button" className={s.linkBtn} onClick={() => setTick((x) => x + 1)}>לנסות שוב</button></span> : null}
         {rows && !failed && !rows.length ? <span className={`${s.result} ${s.resultNone}`}>{q.trim() ? `לא נמצא לקוח בשם או בטלפון „${q.trim()}”.` : "אין עדיין לקוחות."}</span> : null}
@@ -632,7 +632,7 @@ function CustomerField({ value, onChange, autoFocus, error }: { value: CustomerW
             {c.phone ? <small><bdi dir="ltr">{formatPhoneForDisplay(c.phone)}</bdi></small> : null}
           </button>
         ))}
-      </div>
+      </div> : null}
     </div>
   );
 }
