@@ -27,6 +27,7 @@ import {
   BillingAuthorityAppStatus,
   BillingAuthorityEnvironment,
 } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import {
   BillingAuthorityTokenCryptoConfigError,
   decryptAuthorityAppSecret,
@@ -215,11 +216,14 @@ function logFailure(stage: string, error: unknown): void {
   console.error(`AUTHORITY_APP_REGISTRATION_${stage}:`, name, code);
 }
 
-async function defaultDb(): Promise<AuthorityAppRegistrationDb> {
-  // The canonical runtime client — the admin read plane is SELECT-only.
-  const { prisma } = await import("@/lib/prisma");
-  return prisma as unknown as AuthorityAppRegistrationDb;
-}
+// The canonical runtime client — the admin read plane is SELECT-only. Used only
+// as `prisma.<model>` (AST-2), like billing-authority-app.service.ts.
+const defaultDb: AuthorityAppRegistrationDb = {
+  billingAuthorityApp: {
+    findUnique: (args) => prisma.billingAuthorityApp.findUnique(args),
+    createMany: (args) => prisma.billingAuthorityApp.createMany(args),
+  },
+};
 
 const defaultCrypto: AuthorityAppRegistrationCrypto = {
   encrypt: encryptAuthorityAppSecret,
@@ -261,7 +265,7 @@ export async function registerProductionAuthorityApp(
     return { ok: false, code: C.KEY_CHECK_FAILED };
   }
 
-  const db = deps.db ?? (await defaultDb());
+  const db = deps.db ?? defaultDb;
 
   try {
     const existing = await db.billingAuthorityApp.findUnique({
