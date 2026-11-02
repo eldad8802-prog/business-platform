@@ -1,5 +1,6 @@
 "use client";
 import { PageContainer } from "@/components/ui/page-container";
+import DocumentsIllustration from "@/components/documents/DocumentsIllustration";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -106,7 +107,10 @@ export default function AccountantPackPage() {
       <PageContainer intent="standard" className="dz-pack" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
           <DocumentsBackButton />
-          <h1 style={titleStyle}>{t("documents.pack.title")}</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <DocumentsIllustration name="accountant-pack" width={84} />
+            <h1 style={titleStyle}>{t("documents.pack.title")}</h1>
+          </div>
           <div aria-hidden style={{ width: 52 }} />
         </header>
 

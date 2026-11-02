@@ -1,12 +1,23 @@
 import type { Metadata } from "next";
 import { getServerI18n } from "@/lib/i18n/server";
 import { ReactNode } from "react";
+import { Heebo } from "next/font/google";
 import { layout } from "./ui";
 
+// The approved documents language sets screen titles heavier than the app-wide
+// Heebo (300–600). This one weight is loaded here, so it is preloaded on the
+// /documents routes only, and applied to h1 titles inside the documents scope.
+const heeboDisplay = Heebo({
+  subsets: ["hebrew", "latin"],
+  weight: "800",
+  display: "swap",
+  variable: "--font-docs-display",
+});
+
 // Server layout (pure presentational wrapper — no client APIs) so it can carry
-// the section title. Heebo is loaded globally (app/layout.tsx exposes
-// --font-heebo app-wide), so the Documents feature simply inherits it — no
-// scoped font loader here. The `layout` style re-asserts the Heebo stack and
+// the section title. Heebo 300–600 is loaded globally (app/layout.tsx exposes
+// --font-heebo app-wide); the one extra title weight (800) is loaded below for
+// the documents routes only. The `layout` style re-asserts the Heebo stack and
 // the font-synthesis guard.
 // Tab title in the interface language (Hebrew source "מסמכים": lib/i18n/messages/he.ts → meta.titles.documents).
 export async function generateMetadata(): Promise<Metadata> {
@@ -20,12 +31,27 @@ export default function DocumentsLayout({
   children: ReactNode;
 }) {
   return (
-    <div style={layout}>
+    // data-dz-docs scopes the documents palette (app/dubiz-mist.css) to this subtree.
+    <div style={layout} data-dz-docs="1" className={heeboDisplay.variable}>
       <style>{`
+        .dz-docs-back {
+          display: inline-flex; align-items: center; gap: 4px;
+          min-height: 44px; padding: 0 6px; margin-inline-start: -6px;
+          border: 0; border-radius: 12px; background: none;
+          color: var(--dz-text-primary); font: inherit; font-size: 17px; font-weight: 500;
+          white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent;
+        }
+        .dz-docs-back:hover { background: var(--dz-surface-muted); }
+        .dz-docs-back:focus-visible { outline: 3px solid var(--dz-focus-ring-color); outline-offset: 2px; }
+        .dz-docs-back:dir(ltr) .dz-docs-back__chev { transform: scaleX(-1); }
+        [data-dz-docs="1"] h1 {
+          font-family: var(--font-docs-display), var(--font-heebo), "Heebo", system-ui, sans-serif !important;
+          font-weight: 800 !important;
+          letter-spacing: -0.4px;
+        }
         .dz-search-table { display: none; }
         .dz-search-inspector { display: none; }
         .dz-email-table { display: none; }
-        .dz-email-explain { display: none; }
         .dz-email-import { display: none; }
         .dz-uniform-bottom { display: none !important; }
         .dz-upload-side { display: none; }
@@ -35,8 +61,8 @@ export default function DocumentsLayout({
           .dz-search-table {
             display: block !important;
             margin-top: 16px;
-            background: #fff;
-            border: 1px solid rgba(120, 98, 64, 0.16);
+            background: var(--dz-surface-flat);
+            border: 1px solid var(--dz-border);
             border-radius: 16px;
             overflow: auto;
           }
@@ -45,16 +71,16 @@ export default function DocumentsLayout({
           .dz-search-table td {
             text-align: start;
             padding: 12px 14px;
-            border-bottom: 1px solid rgba(120, 98, 64, 0.12);
+            border-bottom: 1px solid var(--dz-border-subtle);
             font-size: 14px;
           }
           .dz-search-table th {
             font-size: 12px;
             font-weight: 600;
-            color: #8a8478;
-            background: #f7f4ed;
+            color: var(--dz-text-muted);
+            background: var(--dz-surface-muted);
           }
-          .dz-search-table tbody tr:hover td { background: #f7f4ed; }
+          .dz-search-table tbody tr:hover td { background: var(--dz-surface-muted); }
           .dz-search-page { max-width: none !important; }
           .dz-search-desk {
             display: grid;
@@ -66,34 +92,34 @@ export default function DocumentsLayout({
             display: block !important;
             position: sticky;
             top: 16px;
-            background: #fff;
-            border: 1px solid rgba(120, 98, 64, 0.16);
+            background: var(--dz-surface-flat);
+            border: 1px solid var(--dz-border);
             border-radius: 16px;
             padding: 16px;
           }
           .dz-search-inspector h2 { margin: 0 0 10px; font-size: 18px; }
-          .dz-search-inspector p { margin: 0; color: #6f685c; line-height: 1.5; }
+          .dz-search-inspector p { margin: 0; color: var(--dz-text-secondary); line-height: 1.5; }
           .dz-search-inspector dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; }
-          .dz-search-inspector dt { color: #8a8478; }
+          .dz-search-inspector dt { color: var(--dz-text-muted); }
           .dz-search-inspector button {
             margin-top: 16px; width: 100%; height: 44px; border: 0; border-radius: 12px;
-            background: #246966; color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+            background: var(--dz-action-primary); color: var(--dz-text-on-brand); font: inherit; font-weight: 600; cursor: pointer;
           }
-          .dz-search-table tr.is-selected td { background: #f3efe6; }
+          .dz-search-table tr.is-selected td { background: var(--dz-brand-soft); }
           .dz-email-rows { display: none !important; }
           .dz-email-table {
             display: block !important;
-            background: #fff;
-            border: 1px solid rgba(120, 98, 64, 0.16);
+            background: var(--dz-surface-flat);
+            border: 1px solid var(--dz-border);
             border-radius: 16px;
             overflow: auto;
           }
           .dz-email-table table { width: 100%; border-collapse: collapse; }
           .dz-email-table th, .dz-email-table td {
             text-align: start; padding: 12px 14px;
-            border-bottom: 1px solid rgba(120, 98, 64, 0.12); font-size: 14px;
+            border-bottom: 1px solid var(--dz-border-subtle); font-size: 14px;
           }
-          .dz-email-table th { font-size: 12px; font-weight: 600; color: #8a8478; background: #f7f4ed; }
+          .dz-email-table th { font-size: 12px; font-weight: 600; color: var(--dz-text-muted); background: var(--dz-surface-muted); }
           .dz-email-desk, .dz-email-connect {
             display: grid;
             grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
@@ -110,8 +136,8 @@ export default function DocumentsLayout({
             padding: 0 14px;
             border: 0;
             border-radius: 12px;
-            background: #246966;
-            color: #fff;
+            background: var(--dz-action-primary);
+            color: var(--dz-text-on-brand);
             font: inherit;
             font-weight: 600;
             cursor: pointer;
@@ -150,8 +176,8 @@ export default function DocumentsLayout({
             display: block !important;
             position: sticky;
             top: 16px;
-            background: #fff;
-            border: 1px solid rgba(120, 98, 64, 0.16);
+            background: var(--dz-surface-flat);
+            border: 1px solid var(--dz-border);
             border-radius: 16px;
             padding: 16px;
           }
@@ -177,14 +203,14 @@ export default function DocumentsLayout({
         }
         .dz-uniform-side {
           margin-top: 18px;
-          background: #fff;
-          border: 1px solid rgba(120, 98, 64, 0.16);
+          background: var(--dz-surface-flat);
+          border: 1px solid var(--dz-border);
           border-radius: 16px;
           padding: 16px;
         }
         .dz-uniform-side h2 { margin: 0 0 8px; font-size: 16px; }
         .dz-uniform-side ul { margin: 0; padding-inline-start: 18px; line-height: 1.7; }
-        .dz-uniform-side p { margin: 12px 0 0; color: #6f685c; }
+        .dz-uniform-side p { margin: 12px 0 0; color: var(--dz-text-secondary); }
       `}</style>
       {children}
     </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import ReviewOutcomeRow from "./ReviewOutcomeRow";
+import DocumentsIllustration from "@/components/documents/DocumentsIllustration";
 import { primaryDarkButton, reviewCard, secondaryButton } from "./review-ui";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { useI18n } from "@/components/i18n/I18nProvider";
@@ -35,24 +36,7 @@ export default function ReviewDoneState({
         textAlign: "center",
       }}
     >
-      <div
-        style={{
-          width: 92,
-          height: 92,
-          borderRadius: 999,
-          background: TOKEN.semantic.success.bg,
-          color: TOKEN.semantic.success.ink,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 48,
-          fontWeight: TOKEN.weight.bold,
-          margin: "4px auto 18px",
-          boxShadow: TOKEN.shadow.elevated,
-        }}
-      >
-        ✓
-      </div>
+      <DocumentsIllustration name="verify" width={200} style={{ margin: "0 auto 10px" }} />
       <h2
         style={{
           margin: 0,

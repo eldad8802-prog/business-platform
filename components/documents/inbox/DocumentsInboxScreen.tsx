@@ -16,7 +16,7 @@ import {
   computeOlderBacklog,
   pickBacklogCtaMonth,
 } from "@/lib/documents/backlog-view";
-import BackButton from "@/components/ui/back-button";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import { PageContainer } from "@/components/ui/page-container";
 import BacklogBanner from "./BacklogBanner";
 import DocumentCard from "./DocumentCard";
@@ -52,19 +52,19 @@ const responsiveCss = `
     display: block;
     position: sticky;
     top: 16px;
-    background: #fff;
-    border: 1px solid rgba(120, 98, 64, 0.16);
+    background: var(--dz-surface-flat);
+    border: 1px solid var(--dz-border);
     border-radius: 16px;
     padding: 16px;
   }
   .docs-inbox-inspector h2 { margin: 0 0 8px; font-size: 18px; }
-  .docs-inbox-inspector p { margin: 0; color: #6f685c; line-height: 1.5; }
+  .docs-inbox-inspector p { margin: 0; color: var(--dz-text-secondary); line-height: 1.5; }
   .docs-inbox-inspector dl { margin: 12px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; }
-  .docs-inbox-inspector dt { color: #8a8478; }
+  .docs-inbox-inspector dt { color: var(--dz-text-muted); }
   .docs-inbox-inspector a {
     display: flex; align-items: center; justify-content: center;
     margin-top: 16px; height: 44px; border-radius: 12px;
-    background: #246966; color: #fff; text-decoration: none; font-weight: 600;
+    background: var(--dz-action-primary); color: var(--dz-text-on-brand); text-decoration: none; font-weight: 600;
   }
 }
 @media (min-width: 1600px) {
@@ -167,7 +167,7 @@ export default function DocumentsInboxScreen({
           the width it was built for instead of a 760px column. */}
       <PageContainer intent="data" as="main" className="docs-inbox-page" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
-          <BackButton />
+          <DocumentsBackButton />
           <div style={{ minWidth: 0, textAlign: "center" }}>
             <h1 style={titleStyle}>{t("documents.inbox.title")}</h1>
             <div style={subtitleStyle}>{viewedMonthName}</div>

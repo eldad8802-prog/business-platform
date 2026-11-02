@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/documents-theme";
-import BackButton from "@/components/ui/back-button";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import { useI18n } from "@/components/i18n/I18nProvider";
 
 type DocumentsHeaderProps = {
@@ -24,7 +24,7 @@ export default function DocumentsHeader({
       {/* Inline-start side (right in RTL) = first DOM child of the grid */}
       <div style={{ ...sideStyle, justifyContent: "flex-start" }}>
         {showBack ? (
-          <BackButton onClick={onBack} label={backLabel ?? t("documents.common.back")} />
+          <DocumentsBackButton onClick={onBack} label={backLabel ?? t("documents.common.back")} />
         ) : (
           <div style={spacerStyle} />
         )}

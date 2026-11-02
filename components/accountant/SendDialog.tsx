@@ -74,7 +74,7 @@ export function SendDialog({
   return (
     // The canonical overlay: a bottom sheet on a phone (over the shell's bottom bar), a centered dialog from
     // 640px, focus trap / Escape / scroll lock — closing is ignored while the send request is in flight.
-    <AdaptiveOverlay open onClose={() => !sending && onClose()} variant="form" labelledBy="send-title">
+    <AdaptiveOverlay open onClose={() => !sending && onClose()} variant="form" labelledBy="send-title" scope="documents">
       <div dir="rtl" style={{ color: TOKEN.ink.primary }}>
         <h2 id="send-title" style={title}>שליחה לרואה החשבון</h2>
         <dl style={facts}>
