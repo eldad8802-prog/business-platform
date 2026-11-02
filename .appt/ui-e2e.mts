@@ -217,7 +217,7 @@ async function main() {
   await check("D12 a staff member who does not perform the new service is cleared, with a word", async () => {
     const dlg = await openNew(p);
     await dlg.getByLabel("צוות", { exact: true }).selectOption({ label: "אבי" });
-    await dlg.getByLabel("שירות", { exact: true }).selectOption({ label: "צבע · שעה וחצי" });
+    await dlg.getByLabel("שירות", { exact: true }).selectOption({ label: "צבע · שעה ו־30 דק׳" });
     await dlg.getByText(/אבי לא מבצע\/ת את השירות הזה/).waitFor({ timeout: 10_000 });
     if ((await dlg.getByLabel("צוות", { exact: true }).inputValue()) !== "") throw new Error("the hidden choice stayed");
     await closeForm(p);
@@ -391,7 +391,7 @@ async function main() {
     await p.goto("/calendar/staff");
     await p.getByRole("link", { name: /Dana Cohen/ }).getByText("לא פעיל").waitFor({ timeout: 20_000 });
     await shot(p, "25-desktop-staff-list");
-    await p.getByRole("link", { name: /^ש\s*שירה/ }).first().click();
+    await p.getByRole("link", { name: /^שירה/ }).first().click();
     await p.getByRole("heading", { name: "שעות עבודה" }).waitFor({ timeout: 20_000 });
     await p.getByRole("group", { name: "שירותים שהעובד מבצע" }).waitFor();
     await shot(p, "26-desktop-staff-member", true);

@@ -209,5 +209,5 @@ export function manageLinkExpiry(now: Date, startsAt: Date): Date {
  * (FSI … PDI), so a Latin name keeps its place in the Hebrew line.
  */
 export function cancelNoticeTitle(contactName: string, wasPending: boolean): string {
-  return wasPending ? `⁨${contactName}⁩ משך/ה את הבקשה לתור` : `⁨${contactName}⁩ ביטל/ה את התור`;
+  return wasPending ? `⁨${contactName}⁩ ביטל/ה את הבקשה לתור` : `⁨${contactName}⁩ ביטל/ה את התור`;
 }

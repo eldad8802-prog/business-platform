@@ -243,8 +243,10 @@ textarea.input { padding: 10px 12px; min-height: 92px; resize: vertical; }
 .calActions { display: flex; gap: 10px; }
 .calActions .btnPri { flex: 1; }
 @media (max-width: 767px) {
-  /* The phone keeps "קביעת תור" in reach: above the shell's bottom bar, never over it. */
-  .calActions { position: sticky; bottom: calc(92px + var(--dz-safe-bottom, 0px)); z-index: 5; padding-top: 8px; background: linear-gradient(to top, var(--ap-bg) 70%, transparent); }
+  /* The phone keeps "קביעת תור" in reach: fixed above the shell's bottom bar (never over it), the end edge left clear
+     for the floating accessibility button. The screen's bottom padding keeps the last hour scrollable above it. */
+  .calActions { position: fixed; bottom: calc(96px + var(--dz-safe-bottom, 0px)); inset-inline-start: 16px; inset-inline-end: 92px; z-index: 30; }
+  .calActions .btn { box-shadow: 0 4px 14px -6px rgba(42, 36, 33, 0.25); }
 }
 @media (min-width: 768px) { .calActions .btnPri { flex: none; } }
 
@@ -259,6 +261,7 @@ textarea.input { padding: 10px 12px; min-height: 92px; resize: vertical; }
 
 /* The week strip (day and week on the phone, day on every size). */
 .strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+@media (min-width: 768px) { .strip { max-width: 640px; width: 100%; margin-inline: auto; } }
 .stripDay {
   font: inherit; color: var(--ap-ink); background: transparent; border: 0; border-radius: 12px; padding: 6px 0 8px; min-height: 64px;
   display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer;

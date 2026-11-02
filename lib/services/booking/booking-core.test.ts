@@ -179,7 +179,7 @@ check("a manage link lives a week past the start", manageLinkExpiry(t0, start).g
 check("…never beyond the table's bound", manageLinkExpiry(t0, new Date(t0.getTime() + 500 * 24 * H)).getTime() <= t0.getTime() + 399 * 24 * H);
 
 console.log("— the owner's notice when a customer cancels through the link");
-check("a pending request withdrawn reads as a withdrawn request", cancelNoticeTitle("Dana Cohen", true) === "⁨Dana Cohen⁩ משך/ה את הבקשה לתור");
+check("a pending request withdrawn reads as a withdrawn request", cancelNoticeTitle("Dana Cohen", true) === "⁨Dana Cohen⁩ ביטל/ה את הבקשה לתור");
 check("an approved booking cancelled reads as a cancelled appointment", cancelNoticeTitle("נועה", false) === "⁨נועה⁩ ביטל/ה את התור");
 
 console.log(`\n${total - failures} passed, ${failures} failed`);

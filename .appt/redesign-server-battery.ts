@@ -119,7 +119,7 @@ async function main() {
 
   // ── S4: what the bell does ──
   for (const [label, reqId, before, deliv, title] of [
-    ["withdrawn request", pReq.id, pBefore, pDeliv, "⁨Dana Cohen⁩ משך/ה את הבקשה לתור"],
+    ["withdrawn request", pReq.id, pBefore, pDeliv, "⁨Dana Cohen⁩ ביטל/ה את הבקשה לתור"],
     ["cancelled booking", cReq.id, cBefore, cDeliv, "⁨נועה לוי⁩ ביטל/ה את התור"],
   ] as const) {
     const rows = await notice(reqId);

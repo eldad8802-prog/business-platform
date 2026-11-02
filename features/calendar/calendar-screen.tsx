@@ -88,7 +88,10 @@ function CalendarBody() {
   const anchor: DayKey = urlDay && DAY_RE.test(urlDay) ? urlDay : today;
   const staffParam = params?.get("staff");
   const staffFilter: number | "none" | null = staffParam === "none" ? "none" : staffParam && /^\d+$/.test(staffParam) ? Number(staffParam) : null;
-  const showCanceled = params?.get("canceled") === "1";
+  const canceledParam = params?.get("canceled") === "1";
+  // The checkbox answers at once; the URL follows (a link keeps the choice).
+  const [canceledTap, setCanceledTap] = useState<{ from: boolean; value: boolean } | null>(null);
+  const showCanceled = canceledTap && canceledTap.from === canceledParam ? canceledTap.value : canceledParam;
   const selectedParam = Number(params?.get("appointment"));
   const selectedId = Number.isInteger(selectedParam) && selectedParam > 0 ? selectedParam : null;
   const sheetParam = params?.get("sheet") === "1";
@@ -96,6 +99,8 @@ function CalendarBody() {
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [askLeave, setAskLeave] = useState(false);
   const dirty = useRef(false);
+  // The sheet's own history entry has been seen: only then does its disappearing mean "back".
+  const sheetArmed = useRef(false);
   const pushedDetail = useRef(false);
   const [pendingDrop, setPendingDrop] = useState<{ appt: AppointmentWire; target: DropTarget; warning: string } | null>(null);
   const { flash, node: toast } = useToast();
@@ -140,12 +145,14 @@ function CalendarBody() {
     dirty.current = false;
     setAskLeave(false);
     setSheet(next);
-    if (!sheetParam) router.push(urlWith({ sheet: "1" }), { scroll: false });
+    sheetArmed.current = sheetParam;
+    if (!sheetParam) router.push(urlWith({ sheet: "1", new: null, customerId: null }), { scroll: false });
   }, [router, sheetParam, urlWith]);
   const closeSheet = useCallback(() => {
     dirty.current = false;
     setAskLeave(false);
     setSheet(null);
+    sheetArmed.current = false;
     if (params?.get("sheet") === "1") router.back();
   }, [params, router]);
   const requestClose = useCallback(() => {
@@ -153,12 +160,14 @@ function CalendarBody() {
     else closeSheet();
   }, [closeSheet]);
   useEffect(() => {
-    if (sheetParam || !sheet) return;
+    if (sheetParam) { if (sheet) sheetArmed.current = true; return; }
+    if (!sheet || !sheetArmed.current) return;
     // "back" left the sheet's entry: close — or, with unsaved changes, stay and ask.
     if (dirty.current) {
       router.push(urlWith({ sheet: "1" }), { scroll: false });
       setAskLeave(true);
     } else {
+      sheetArmed.current = false;
       void Promise.resolve().then(() => setSheet(null));
     }
   }, [sheetParam, sheet, router, urlWith]);
@@ -331,7 +340,7 @@ function CalendarBody() {
                 </select>
               ) : null}
               <label className={s.toggleLine}>
-                <input type="checkbox" checked={showCanceled} onChange={(e) => setUrl({ canceled: e.target.checked ? "1" : null })} />
+                <input type="checkbox" checked={showCanceled} onChange={(e) => { setCanceledTap({ from: canceledParam, value: e.target.checked }); setUrl({ canceled: e.target.checked ? "1" : null }); }} />
                 הצגת מבוטלים
               </label>
             </div>

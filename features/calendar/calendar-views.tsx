@@ -320,6 +320,8 @@ export function TimeGrid({
                   const tight = h < 46;
                   const mark = markOf(a);
                   const staffName = c.staffMemberId === undefined && a.staffMemberId !== null ? names.staff.get(a.staffMemberId)?.displayName : null;
+                  // Two lines, as in the reference: who (bold) and the time; then what · with whom · a state in words.
+                  const parts = blockParts(a, names);
                   const style: CSSProperties = {
                     ...laneStyle(blockColor(a, names)),
                     top: top + 1 + (isDragging ? drag.dy : 0),
@@ -350,12 +352,12 @@ export function TimeGrid({
                     >
                       <span className={s.blockRow}>
                         {mark ? <StateMark mark={mark} /> : null}
-                        <span className={s.blockTitle}>{headline(a, names)}</span>
+                        <span className={s.blockTitle}>{tight ? headline(a, names) : parts.title}</span>
                         {tight || width < 50 ? null : <span className={s.blockTime}>{timeLabel(a)}</span>}
                       </span>
                       {!tight ? (
                         <span className={s.blockSub}>
-                          {width < 50 ? timeLabel(a) : [staffName, a.kind === "INTERNAL" ? KIND_LABEL.INTERNAL : null, a.status !== "CONFIRMED" && a.kind !== "BLOCK" ? STATUS_LABEL[a.status] : null].filter(Boolean).join(" · ") || " "}
+                          {[width < 50 ? timeLabel(a) : null, parts.what, staffName, a.kind === "INTERNAL" ? KIND_LABEL.INTERNAL : null, a.status !== "CONFIRMED" && a.kind !== "BLOCK" ? STATUS_LABEL[a.status] : null].filter(Boolean).join(" · ") || " "}
                         </span>
                       ) : null}
                     </button>
@@ -369,6 +371,15 @@ export function TimeGrid({
       </div>
     </div>
   );
+}
+
+/** A block's two lines: the customer (or the title of a meeting / block), then what it is when a customer is named. */
+function blockParts(a: AppointmentWire, names: Names): { title: string; what: string | null } {
+  const customer = a.customerName ?? (a.customerId !== null ? names.customers.get(a.customerId) : undefined) ?? a.booking?.contactName;
+  const service = a.businessServiceId !== null ? names.services.get(a.businessServiceId) : undefined;
+  const what = a.title?.trim() || service || null;
+  if (a.kind === "CUSTOMER" && customer) return { title: customer, what };
+  return { title: headline(a, names), what: null };
 }
 
 /** The bands of a day outside its open windows, between `from` and `to` (minutes). None when nothing is known. */

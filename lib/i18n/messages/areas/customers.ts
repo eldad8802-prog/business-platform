@@ -174,7 +174,7 @@ export const customersHe = {
       confirmed: "מאושר",
       cancelled: "בוטל",
       completed: "התקיים",
-      noShow: "לא הגיע",
+      noShow: "לא הגיע/ה",
     },
     orderStatus: {
       placed: "התקבלה",
