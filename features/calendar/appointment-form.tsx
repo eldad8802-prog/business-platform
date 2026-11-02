@@ -412,7 +412,8 @@ export function AppointmentForm({
         {kind === "CUSTOMER" && serviceId !== null && staffChoices.length < activeStaff.length ? <p className={s.note} style={{ paddingTop: 6 }}>מוצגים רק מי שמבצעים את השירות.</p> : null}
 
         <Line label="תאריך" icon={<IconCalendar />} htmlFor="appt-day">
-          <input id="appt-day" type="date" className={s.input} value={day} onChange={(e) => { if (e.target.value) { setDay(e.target.value); touch(); } }} />
+          <span className={s.dateLine}>{dayTitle(day)}<input id="appt-day" type="date" value={day} onChange={(e) => { if (e.target.value) { setDay(e.target.value); touch(); } }} /></span>
+          <Chevron dir="down" />
         </Line>
 
         {kind === "BLOCK" ? (
@@ -460,7 +461,7 @@ export function AppointmentForm({
 
       {startMinute !== null && kind !== "BLOCK" ? (
         <section className={s.summaryBox} aria-label="סיכום">
-          <h3>סיכום</h3>
+          <h3>סיכום התור</h3>
           <span className={s.summaryItem}><IconCalendar size={18} />{dayTitle(day)}</span>
           {kind === "CUSTOMER" ? <span className={s.summaryItem}><IconUser size={18} />{customer?.name ?? "לקוח לא נבחר"}</span> : <span className={s.summaryItem}><IconUsers size={18} />{title.trim() || "פגישה"}</span>}
           <span className={s.summaryItem}><IconClock size={18} /><bdi dir="ltr">{time}{endsAt ? `–${endsAt}` : ""}</bdi></span>
@@ -578,6 +579,7 @@ function CustomerField({ value, onChange, autoFocus, error }: { value: CustomerW
           {value.name}
           {value.phone ? <small><bdi dir="ltr">{formatPhoneForDisplay(value.phone)}</bdi></small> : null}
         </span>
+        <button type="button" className={`${s.btn} ${s.btnSm} ${s.btnSoft}`} onClick={() => { setAdding(true); setName(""); setPhone(""); onChange(null); }}>לקוח חדש</button>
         <button type="button" className={`${s.btn} ${s.btnSm}`} onClick={() => onChange(null)}>החלפה</button>
       </Line>
     );
@@ -729,7 +731,8 @@ export function MoveForm({
       <p className={s.note}>כרגע: {DATE_LONG.format(start)} · <bdi dir="ltr">{timeLabel(appt).replace(/[⁦⁩]/g, "")}</bdi></p>
       <div>
         <Line label="תאריך" icon={<IconCalendar />} htmlFor="move-day">
-          <input id="move-day" type="date" className={s.input} value={day} onChange={(e) => { if (e.target.value) { setDay(e.target.value); touch(); } }} />
+          <span className={s.dateLine}>{dayTitle(day)}<input id="move-day" type="date" value={day} onChange={(e) => { if (e.target.value) { setDay(e.target.value); touch(); } }} /></span>
+          <Chevron dir="down" />
         </Line>
         {appt.kind !== "BLOCK" ? (
           <TimePick

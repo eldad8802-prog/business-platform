@@ -274,7 +274,6 @@ export function TimeGrid({
           {Array.from({ length: last - first }, (_, i) => (
             <div key={i} className={s.hourLabel}>{clock((first + i) * 60)}</div>
           ))}
-          {nowShown ? <span className={s.nowLabel} style={{ top: (nowMinute - first * 60) * pxPerMin - 9 }}>{clock(nowMinute)}</span> : null}
         </div>
         <div className={s.lanes} ref={lanesRef} style={{ height }}>
           {columns.map((c, ci) => {
@@ -362,7 +361,7 @@ export function TimeGrid({
                     </button>
                   );
                 })}
-                {ci === nowCol && nowShown ? <div className={s.now} style={{ top: (nowMinute - first * 60) * pxPerMin }} aria-hidden="true" /> : null}
+                {ci === nowCol && nowShown ? <div className={s.now} style={{ top: (nowMinute - first * 60) * pxPerMin }} aria-hidden="true">{ci === columns.length - 1 || columns.length === 1 ? <span className={s.nowTime}>{clock(nowMinute)}</span> : null}</div> : null}
               </div>
             );
           })}
