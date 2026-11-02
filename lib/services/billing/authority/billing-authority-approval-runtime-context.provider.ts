@@ -19,8 +19,9 @@ import { BillingAuthorityEnvironment } from "@prisma/client";
 import { ServiceUnavailableError } from "@/lib/errors";
 import { getActiveAuthorityApp } from "@/lib/services/billing/authority/billing-authority-app.service";
 import {
-  AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-  isAuthorityProductionAllowedForBusiness,
+  describeAuthorityProductionPilotRefusal,
+  resolveAuthorityProductionOperationRefusal,
+  type AuthorityProductionPilotRefusalCode,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import {
   resolveApprovalConfig,
@@ -40,7 +41,7 @@ export type AppErrorCode =
   | "ACCOUNTING_SOFTWARE_NUMBER_MISSING";
 
 export type RuntimeContextErrorCode =
-  | typeof AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED
+  | AuthorityProductionPilotRefusalCode
   | ApprovalConfigErrorCode
   | AppErrorCode
   | AccessTokenErrorCode;
@@ -119,13 +120,15 @@ export async function resolveApprovalRuntimeContext(
   },
   deps: RuntimeContextProviderDeps = defaultRuntimeContextProviderDeps
 ): Promise<RuntimeContextResult> {
-  // 0. Production pilot. Approval and Decision both resolve their context here,
-  //    before the reserve and before any token decrypt or refresh.
-  if (!isAuthorityProductionAllowedForBusiness(input.businessId, input.environment)) {
+  // 0. Production pilot (admitted business AND SUBMISSIONS stage). Approval and
+  //    Decision both resolve their context here, before the reserve and before
+  //    any token decrypt or refresh. Code = allowlist vs OAUTH_ONLY stage.
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment);
+  if (pilotRefusal) {
     return {
       ok: false,
-      code: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-      message: "Authority production pilot is not enabled for this business",
+      code: pilotRefusal,
+      message: describeAuthorityProductionPilotRefusal(pilotRefusal),
     };
   }
 

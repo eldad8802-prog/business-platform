@@ -23,6 +23,7 @@ import {
 import { ServiceUnavailableError } from "@/lib/errors";
 import type { AuthorityConnectionStatus } from "@/lib/services/billing/authority/billing-authority-status.service";
 import type { AuthorityAppContext } from "@/lib/services/billing/authority/billing-authority-connection.types";
+import { isAuthorityProductionAllowedForActor } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
 /** Operational connection state as shown to the business user. */
 export type AuthorityConnectionUiStatus =
@@ -159,9 +160,60 @@ export type AuthorityStatusDeps = {
   now: () => Date;
 };
 
+/**
+ * PRODUCTION connection status for a production-pilot actor — same derivation
+ * as the main DTO, always for PRODUCTION and the actor's own business.
+ */
+export type AuthorityProductionPilotStatusDto = Omit<
+  AuthorityConnectionStatusDto,
+  "environment"
+>;
+
 export type AuthorityStatusResolution =
-  | { ok: true; dto: AuthorityConnectionStatusDto }
+  | {
+      ok: true;
+      dto: AuthorityConnectionStatusDto;
+      /**
+       * Non-null ONLY when `includeProductionPilot` was requested and both the
+       * actor's business and the actor user are admitted to the production
+       * pilot. Null for everyone else (no change for non-pilot users).
+       */
+      productionPilot: AuthorityProductionPilotStatusDto | null;
+    }
   | { ok: false; status: "forbidden" };
+
+/**
+ * Reads + maps the connection status for one business/environment. A missing
+ * platform app (ServiceUnavailableError) degrades to NOT_CONFIGURED and the
+ * connection is not queried; any other error propagates.
+ */
+async function resolveDtoForEnvironment(
+  businessId: number,
+  environment: BillingAuthorityEnvironment,
+  deps: AuthorityStatusDeps
+): Promise<AuthorityConnectionStatusDto> {
+  let appConfigured = true;
+  try {
+    await deps.getActiveAuthorityApp(environment);
+  } catch (error) {
+    if (error instanceof ServiceUnavailableError) {
+      appConfigured = false;
+    } else {
+      throw error;
+    }
+  }
+
+  const connection = appConfigured
+    ? await deps.getAuthorityConnectionStatus({ businessId, environment })
+    : null;
+
+  return toAuthorityConnectionStatusDto({
+    environment,
+    appConfigured,
+    connection,
+    now: deps.now(),
+  });
+}
 
 /**
  * Resolves the safe connection status for the authenticated caller's own
@@ -173,6 +225,11 @@ export async function resolveAuthorityStatusRequest(input: {
   requestedBusinessId: string | null;
   environment: BillingAuthorityEnvironment;
   deps: AuthorityStatusDeps;
+  /**
+   * Also resolve the PRODUCTION pilot status (Settings card only). Off by
+   * default so other callers (connections center/summary) are unchanged.
+   */
+  includeProductionPilot?: boolean;
 }): Promise<AuthorityStatusResolution> {
   const { actor, requestedBusinessId, environment, deps } = input;
 
@@ -190,30 +247,32 @@ export async function resolveAuthorityStatusRequest(input: {
     }
   }
 
-  let appConfigured = true;
-  try {
-    await deps.getActiveAuthorityApp(environment);
-  } catch (error) {
-    if (error instanceof ServiceUnavailableError) {
-      appConfigured = false;
-    } else {
-      throw error;
-    }
+  const dto = await resolveDtoForEnvironment(businessId as number, environment, deps);
+
+  // Production pilot: only for an admitted business AND user (the same actor
+  // gate the OAuth start uses), and only for the actor's own business.
+  let productionPilot: AuthorityProductionPilotStatusDto | null = null;
+  if (
+    input.includeProductionPilot === true &&
+    isAuthorityProductionAllowedForActor(
+      businessId as number,
+      actor.id,
+      BillingAuthorityEnvironment.PRODUCTION
+    )
+  ) {
+    const pilotDto = await resolveDtoForEnvironment(
+      businessId as number,
+      BillingAuthorityEnvironment.PRODUCTION,
+      deps
+    );
+    productionPilot = {
+      status: pilotDto.status,
+      connectedAt: pilotDto.connectedAt,
+      expiresAt: pilotDto.expiresAt,
+      canConnect: pilotDto.canConnect,
+      canReconnect: pilotDto.canReconnect,
+    };
   }
 
-  const connection = appConfigured
-    ? await deps.getAuthorityConnectionStatus({
-        businessId: businessId as number,
-        environment,
-      })
-    : null;
-
-  const dto = toAuthorityConnectionStatusDto({
-    environment,
-    appConfigured,
-    connection,
-    now: deps.now(),
-  });
-
-  return { ok: true, dto };
+  return { ok: true, dto, productionPilot };
 }

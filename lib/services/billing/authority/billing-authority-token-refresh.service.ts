@@ -38,7 +38,9 @@ import {
 import { billingDbStep } from "../billing-db-step";
 import {
   AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-  isAuthorityProductionAllowedForBusiness,
+  AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
+  describeAuthorityProductionPilotRefusal,
+  resolveAuthorityProductionOperationRefusal,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
 export const AUTHORITY_REFRESH_ERROR_CODES = {
@@ -53,6 +55,7 @@ export const AUTHORITY_REFRESH_ERROR_CODES = {
   CONFIGURATION_ERROR: "AUTHORITY_REFRESH_CONFIG_ERROR",
   APP_UNAVAILABLE: "AUTHORITY_REFRESH_APP_UNAVAILABLE",
   PRODUCTION_PILOT_NOT_ENABLED: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+  PRODUCTION_PILOT_STAGE_OAUTH_ONLY: AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
 } as const;
 
 export const DEFAULT_AUTHORITY_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
@@ -494,12 +497,14 @@ export async function refreshAuthorityConnectionToken(
   assertPositiveInteger(input.businessId, "businessId");
 
   const refreshTimestamp = new Date();
-  // Production pilot: refused before the connection is read or a token decrypted.
-  if (!isAuthorityProductionAllowedForBusiness(input.businessId, input.environment)) {
+  // Production pilot (admitted business AND SUBMISSIONS stage): refused before
+  // the connection is read or a token decrypted. Code = allowlist vs stage.
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment);
+  if (pilotRefusal) {
     return configurationFailureResult(
       refreshTimestamp,
-      AUTHORITY_REFRESH_ERROR_CODES.PRODUCTION_PILOT_NOT_ENABLED,
-      "Authority production pilot is not enabled for this business"
+      pilotRefusal,
+      describeAuthorityProductionPilotRefusal(pilotRefusal)
     );
   }
   const row = await loadRefreshableAuthorityConnection(

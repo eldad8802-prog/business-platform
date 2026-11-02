@@ -722,6 +722,14 @@ const connectionsEn: Widen<typeof connectionsHe> = {
     errorBody: "There was an error in the Tax Authority connection. Please reconnect.",
     connect: "Connect to the Tax Authority",
     reconnect: "Reconnect",
+    productionPilot: {
+      title: "Tax Authority connection — Production (pilot)",
+      description: "A live connection to the Tax Authority, open only to pilot businesses and users.",
+      status: "Connection status:",
+      connect: "Connect to Production",
+      reconnect: "Reconnect to Production",
+      notEnabled: "The Production connection isn't open for this business or user.",
+    },
   },
   wix: {
     pageTitle: "Connect a Wix store",

@@ -970,6 +970,25 @@ async function runAsyncTests() {
     // Production pilot: BUSINESS_ID is admitted for this PRODUCTION case only.
     process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS = String(BUSINESS_ID);
     try {
+      // OAUTH_ONLY (operations switch unset): refresh is refused, nothing sent.
+      let sent = 0;
+      const refused = await refreshAuthorityConnectionToken({
+        businessId: BUSINESS_ID,
+        environment: BillingAuthorityEnvironment.PRODUCTION,
+        fetchImpl: (async () => {
+          sent += 1;
+          return new Response("{}", { status: 599 });
+        }) as typeof fetch,
+      });
+      ok(
+        "production refresh refused in OAUTH_ONLY (stage code), nothing sent",
+        !refused.ok &&
+          refused.errorCode === AUTHORITY_REFRESH_ERROR_CODES.PRODUCTION_PILOT_STAGE_OAUTH_ONLY &&
+          refused.outcome === "CONFIGURATION_FAILURE" &&
+          sent === 0
+      );
+
+      process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_OPERATIONS = "oauth,submissions";
       const result = await refreshAuthorityConnectionToken({
         businessId: BUSINESS_ID,
         environment: BillingAuthorityEnvironment.PRODUCTION,
@@ -986,6 +1005,7 @@ async function runAsyncTests() {
       ok("tenant isolation", fake.getConnection().businessId === BUSINESS_ID);
     } finally {
       delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS;
+      delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_OPERATIONS;
       prisma.billingAuthorityConnection.findUnique = originalFindUnique;
       prisma.billingAuthorityApp.findUnique = originalAppFindUnique;
       prisma.$transaction = originalTransaction;
