@@ -388,6 +388,11 @@ function UploadForm({ accounts, onDone }: { accounts: BankAccountApi[]; onDone: 
         setError(null);
         try {
           const r = await uploadBankStatement(text, accountId);
+          // Not one line could be read: a failed upload, never "0 new lines" (nothing was written).
+          if (r.parsed === 0) {
+            setError(t("money.payables.bank.uploadNothingRead"));
+            return;
+          }
           const skipped = r.errors.length
             ? ` ${t("money.payables.bank.uploadSkipped", {
                 count: r.errors.length,

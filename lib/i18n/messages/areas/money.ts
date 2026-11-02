@@ -315,6 +315,7 @@ export const bankHe = {
   submitLine: "רשום תנועה",
   uploadResult: "נקלטו {inserted} תנועות חדשות; {known} כבר היו רשומות.",
   uploadSkipped: "{count} שורות לא נקראו ({lines}).",
+  uploadNothingRead: "לא הצלחנו לקרוא תנועות מהקובץ, ולא נקלט דבר. נדרש קובץ CSV מופרד בפסיקים, ובשורה הראשונה כותרות של תאריך וסכום (או חובה / זכות).",
   rowN: "שורה {n}",
   uploadFailed: "ההעלאה נכשלה",
   csvFile: "קובץ CSV מהבנק",
