@@ -71,7 +71,8 @@ export async function runAuthorityTokenNetworkProbe(
       buildAuthorityOAuthTokenUrl(
         resolveAuthorityEnvConfig(resolveRuntimeAuthorityEnvironment())
       ));
-  const fetchFn = deps.fetchImpl ?? authorityEgressFetch;
+  const fetchFn =
+    deps.fetchImpl ?? authorityEgressFetch.forScope({ kind: "platform-diagnostic" });
   const now = deps.now ?? Date.now;
   const region =
     deps.region ?? (() => process.env.VERCEL_REGION?.trim() || null);

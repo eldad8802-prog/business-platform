@@ -18,6 +18,10 @@ import { BillingAuthorityEnvironment } from "@prisma/client";
 import { ServiceUnavailableError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import {
+  AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
+  isAuthorityProductionAllowedForBusiness,
+} from "@/lib/services/billing/authority/billing-authority-production-pilot";
+import {
   assertActiveAuthorityApp,
 } from "@/lib/services/billing/authority/billing-authority-app.service";
 import {
@@ -64,6 +68,9 @@ export const AUTHORITY_OAUTH_CALLBACK_ERROR_CODES = {
   TOKEN_ENCRYPTION_FAILED: "AUTHORITY_OAUTH_TOKEN_ENCRYPTION_FAILED",
   CONNECTION_PERSIST_FAILED: "AUTHORITY_OAUTH_CONNECTION_PERSIST_FAILED",
   APP_UNAVAILABLE: "AUTHORITY_OAUTH_APP_UNAVAILABLE",
+  // The production pilot does not admit this business (checked before the
+  // app credentials are read and before any exchange).
+  PRODUCTION_PILOT_NOT_ENABLED: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
 } as const;
 
 /**
@@ -649,6 +656,8 @@ function tokenExchangeOutcomeUncertain(
 }
 
 export async function exchangeAuthorityAuthorizationCode(input: {
+  /** Business the request is for: the egress pilot scope (required in PRODUCTION). */
+  businessId: number;
   tokenEndpoint: string;
   clientId: string;
   clientSecret: string;
@@ -658,7 +667,8 @@ export async function exchangeAuthorityAuthorizationCode(input: {
   /** Hard bound for the whole exchange (request + body). Tests only. */
   timeoutMs?: number;
 }): Promise<AuthorityTokenExchangeResponse> {
-  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
+  const fetchFn =
+    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId });
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code: input.code,
@@ -931,12 +941,20 @@ export async function handleAuthorityOAuthCallback(
   const markConnected = input.markConnected ?? markAuthorityConnected;
 
   try {
+    // The business comes from the signed state, so the check binds to the
+    // business that started the flow — not to any cookie or query value.
+    if (!isAuthorityProductionAllowedForBusiness(context.businessId, context.environment)) {
+      throw new AuthorityOAuthCallbackError(CODES.PRODUCTION_PILOT_NOT_ENABLED, {
+        stage: "APP_CONFIGURATION",
+      });
+    }
     const envConfig = resolveAuthorityEnvConfig(context.environment);
     const tokenEndpoint = buildAuthorityOAuthTokenUrl(envConfig);
     const redirectUri = buildRedirectUriFromBase(redirectBaseUrl);
     const credentials = await loadAuthorityAppCredentials(context.environment);
 
     const tokenResponse = await exchangeAuthorityAuthorizationCode({
+      businessId: context.businessId,
       tokenEndpoint,
       clientId: credentials.clientId,
       clientSecret: credentials.clientSecret,
