@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 190" fill="none">
+  <path d="M30 88c4-40 52-62 102-60 52 2 92 30 92 74 0 46-42 74-94 74-54 0-104-38-100-88Z" fill="#E3E7DB"/>
+  <g transform="rotate(-7 120 112)">
+    <path d="M88 70l11-20a7 7 0 0 1 6-4h44a7 7 0 0 1 6 4l11 20Z" fill="#FFFDF9" stroke="#1F2421" stroke-width="7" stroke-linejoin="round"/>
+    <rect x="58" y="56" width="22" height="14" rx="4" fill="#FFFDF9" stroke="#1F2421" stroke-width="6"/>
+    <rect x="44" y="68" width="156" height="102" rx="17" fill="#FFFDF9" stroke="#1F2421" stroke-width="7"/>
+    <rect x="44" y="104" width="34" height="34" rx="7" fill="#A3B79F"/>
+    <path d="M52 115h18M52 126h12" stroke="#E9EFE5" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="128" cy="119" r="36" fill="#FFFDF9" stroke="#1F2421" stroke-width="7"/>
+    <circle cx="128" cy="119" r="22" fill="#4F6A53" stroke="#1F2421" stroke-width="6"/>
+    <circle cx="136" cy="111" r="5.5" fill="#FFFDF9"/>
+    <path d="M114 128a16 16 0 0 0 10 8" stroke="#8FA88C" stroke-width="3.5" stroke-linecap="round"/>
+  </g>
+  <path d="M170 18l3 20M198 30l-12 15M210 58l-18 5" stroke="#1F2421" stroke-width="6" stroke-linecap="round"/>
+</svg>

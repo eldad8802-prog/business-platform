@@ -39,6 +39,7 @@ export function AdaptiveOverlay({
   onClose,
   variant = "form",
   labelledBy,
+  scope,
   children,
 }: {
   open: boolean;
@@ -46,6 +47,12 @@ export function AdaptiveOverlay({
   variant?: AdaptiveOverlayVariant;
   /** id of the element that titles the dialog (aria-labelledby). */
   labelledBy?: string;
+  /**
+   * Feature palette scope. The overlay portals outside the feature's subtree, so
+   * a scoped repaint (`[data-dz-docs]` in app/dubiz-mist.css) must be re-applied
+   * on the portal root. Omitted → the app palette, exactly as before.
+   */
+  scope?: "documents";
   children: ReactNode;
 }) {
   const dialogRef = useAccessibleDialog<HTMLDivElement>({ isOpen: open, onClose });
@@ -118,7 +125,12 @@ export function AdaptiveOverlay({
         };
 
   return createPortal(
-    <div style={backdrop} onClick={onClose} data-component="dz-adaptive-overlay">
+    <div
+      style={backdrop}
+      onClick={onClose}
+      data-component="dz-adaptive-overlay"
+      data-dz-docs={scope === "documents" ? "1" : undefined}
+    >
       <div
         ref={dialogRef}
         role="dialog"

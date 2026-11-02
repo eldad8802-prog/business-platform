@@ -1,5 +1,6 @@
 "use client";
 import { PageContainer } from "@/components/ui/page-container";
+import DocumentsIllustration from "@/components/documents/DocumentsIllustration";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
@@ -198,7 +199,10 @@ export default function DocumentsSearchPage() {
         <div className="dz-search-desk">
         <div>
         {!loading && !error && results.length === 0 ? (
-          <section style={emptyStyle}>{t("documents.search.empty")}</section>
+          <section style={emptyStyle}>
+            <DocumentsIllustration name="search" width={170} style={{ margin: "0 auto 8px" }} />
+            {t("documents.search.empty")}
+          </section>
         ) : null}
 
         <section className="dz-search-cards" style={resultsStyle}>
@@ -313,7 +317,10 @@ function Header() {
   return (
     <header style={headStyle}>
       <DocumentsBackButton />
-      <h1 style={titleStyle}>{t("documents.search.title")}</h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <DocumentsIllustration name="search" width={72} />
+        <h1 style={titleStyle}>{t("documents.search.title")}</h1>
+      </div>
       <div aria-hidden style={{ width: 52 }} />
     </header>
   );

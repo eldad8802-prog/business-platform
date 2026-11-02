@@ -1,5 +1,6 @@
 ﻿"use client";
 import { PageContainer } from "@/components/ui/page-container";
+import DocumentsIllustration from "@/components/documents/DocumentsIllustration";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -479,6 +480,7 @@ export default function EmailDocumentsPage() {
         <div className="dz-email-main">
         {!connected ? (
           <section className="dz-email-explain" style={accountsCardStyle}>
+            <DocumentsIllustration name="upload" width={150} style={{ margin: "0 auto 6px" }} />
             <div style={accountsTitleStyle}>{t("documents.email.whatItDoes")}</div>
             <p style={{ margin: 0, color: TOKEN.ink.muted, lineHeight: 1.6 }}>
               {t("documents.email.whatItDoesBody")}
@@ -509,6 +511,7 @@ export default function EmailDocumentsPage() {
 
         {connected && !loading && visible.length === 0 ? (
           <section style={emptyStyle}>
+            <DocumentsIllustration name="search" width={150} style={{ margin: "0 auto 6px" }} />
             {t("documents.email.noFiles")}
             <button type="button" onClick={() => void runScan(30)} style={scanButtonStyle}>
               {t("documents.email.scanAgain")}

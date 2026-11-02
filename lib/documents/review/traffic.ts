@@ -67,7 +67,7 @@ export const TRAFFIC_CONFIG: Record<
   TrafficLevel,
   { dot: string; captionKey: MessageKey; captionColor: string }
 > = {
-  high: { dot: "#22c55e", captionKey: "documents.review.traffic.high", captionColor: "#15803d" },
-  medium: { dot: "#eab308", captionKey: "documents.review.traffic.medium", captionColor: "#a16207" },
-  low: { dot: "#ef4444", captionKey: "documents.review.traffic.low", captionColor: "#b91c1c" },
+  high: { dot: "var(--dz-success-accent, #22c55e)", captionKey: "documents.review.traffic.high", captionColor: "var(--dz-success, #15803d)" },
+  medium: { dot: "var(--dz-warning-accent, #eab308)", captionKey: "documents.review.traffic.medium", captionColor: "var(--dz-warning, #a16207)" },
+  low: { dot: "var(--dz-danger-accent, #ef4444)", captionKey: "documents.review.traffic.low", captionColor: "var(--dz-danger, #b91c1c)" },
 };
