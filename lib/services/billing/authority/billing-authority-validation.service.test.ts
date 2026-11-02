@@ -790,6 +790,8 @@ async function runAsyncTests() {
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
       fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
+    // Production pilot: BUSINESS_ID is admitted for this PRODUCTION case only.
+    process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS = String(BUSINESS_ID);
     try {
       const result = await validateAuthorityConnection({
         businessId: BUSINESS_ID,
@@ -805,6 +807,7 @@ async function runAsyncTests() {
         fake.getConnection().businessId === BUSINESS_ID
       );
     } finally {
+      delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS;
       prisma.billingAuthorityConnection.findUnique = originalFindUnique;
       prisma.businessProfile.findUnique = originalProfileFindUnique;
       prisma.$transaction = originalTransaction;

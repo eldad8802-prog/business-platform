@@ -30,6 +30,8 @@ import type {
 import { extractProviderDiagnostic } from "@/lib/services/billing/authority/billing-authority-provider-diagnostic";
 
 export type SendInvoiceApprovalInput = {
+  /** Business the request is for: the egress pilot scope (required in PRODUCTION). */
+  businessId: number;
   accessToken: string;
   payload: InvoiceApprovalRequest;
   config: AuthorityApprovalConfig;
@@ -315,7 +317,8 @@ export function classifyTransportFailure(error: unknown): ApprovalClientResult {
 export async function sendInvoiceApproval(
   input: SendInvoiceApprovalInput
 ): Promise<ApprovalClientResult> {
-  const fetchFn = input.fetchImpl ?? authorityEgressFetch;
+  const fetchFn =
+    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId });
 
   // ---- pre-send: nothing has been handed to the transport yet ----
   let url: string;

@@ -12,6 +12,7 @@ import {
 } from "./billing-authority-signed-state.service";
 import { BillingAuthorityEnvironment } from "@prisma/client";
 import { ValidationError } from "@/lib/errors";
+import { assertAuthorityProductionAllowedForBusiness } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import { getActiveAuthorityApp } from "@/lib/services/billing/authority/billing-authority-app.service";
 import { startAuthorityAuthorization } from "@/lib/services/billing/authority/billing-authority-connection.service";
 import type { AuthorityAppContext } from "@/lib/services/billing/authority/billing-authority-connection.types";
@@ -238,6 +239,8 @@ export async function startAuthorityOAuth(
 ): Promise<StartAuthorityOAuthResult> {
   assertPositiveInteger(input.businessId, "businessId");
   assertPositiveInteger(input.actorUserId, "actorUserId");
+  // Production pilot: refused before any state transition, audit, or cookie.
+  assertAuthorityProductionAllowedForBusiness(input.businessId, input.environment);
 
   const redirectBaseUrl = normalizeBaseUrl(input.redirectBaseUrl);
   if (!redirectBaseUrl) {
