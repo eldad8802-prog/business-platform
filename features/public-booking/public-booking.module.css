@@ -1,8 +1,7 @@
 /*
  * Public booking page (Milestone C, segment 3) — Hebrew, RTL, phone first. Design direction A (2026-11-02), the same
  * palette as the owner's calendar (features/calendar/calendar.module.css): a warm light ground, white surfaces, thin
- * warm lines, and the sand of Dubiz's "היום" card (#eadcc3) as the dominant colour — primary buttons and every active
- * choice in sand with dark text and a darker sand edge. The Dubiz tokens the page reads are rebound here, on the page only.
+ * warm lines, restrained terracotta. The Dubiz tokens the page reads are rebound here, on the page only.
  */
 
 .page {
@@ -15,19 +14,15 @@
   --dz-text-secondary: #5d524c;
   --dz-text-muted: #74685f;
   --dz-text-disabled: #b3a89f;
-  --pb-sand: #eadcc3;
-  --pb-sand-hover: #dfcca9;
-  --pb-sand-line: #a88a5c;
-  --pb-sand-ink: #6b5434;
-  --dz-text-on-brand: #2a2421;
-  --dz-brand: var(--pb-sand);
-  --dz-brand-border: var(--pb-sand-line);
-  --dz-brand-soft: #f6efe3;
-  --dz-selection-bg: #f6efe3;
-  --dz-focus-ring-color: var(--pb-sand-ink);
-  --dz-action-primary: var(--pb-sand);
-  --dz-action-primary-hover: var(--pb-sand-hover);
-  --dz-action-primary-text: #2a2421;
+  --dz-text-on-brand: #ffffff;
+  --dz-brand: #ae5131;
+  --dz-brand-border: #ecd0c2;
+  --dz-brand-soft: #f8ebe4;
+  --dz-selection-bg: #f8ebe4;
+  --dz-focus-ring-color: #ae5131;
+  --dz-action-primary: #ae5131;
+  --dz-action-primary-hover: #93432a;
+  --dz-action-primary-text: #ffffff;
   --dz-action-secondary-bg: #ffffff;
   --dz-action-secondary-hover: #f5f0ea;
   --dz-action-secondary-border: #ddd3c8;
@@ -73,7 +68,7 @@
 .top { padding: 20px 16px 10px; display: flex; align-items: center; gap: 12px; }
 .logo {
   width: 44px; height: 44px; border-radius: 13px; flex: none;
-  display: grid; place-items: center; box-shadow: inset 0 0 0 1.5px var(--pb-sand-line);
+  display: grid; place-items: center;
   background: var(--dz-brand); color: var(--dz-text-on-brand);
   font-weight: 700; font-size: 20px;
 }
@@ -86,7 +81,7 @@
 .progress { padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 6px; }
 .bars { display: flex; gap: 4px; }
 .bar { flex: 1; height: 4px; border-radius: 2px; background: var(--dz-border); }
-.barOn { background: var(--pb-sand-line); }
+.barOn { background: var(--dz-brand); }
 .stepOf { font-size: 12.5px; color: var(--dz-text-muted); }
 
 /* ── a step ── */
@@ -113,7 +108,7 @@
 }
 .option:hover { border-color: var(--dz-brand-border, var(--dz-brand)); }
 .option:focus-visible { outline: var(--dz-focus-ring-width, 2px) solid var(--dz-focus-ring-color, var(--dz-brand)); outline-offset: 2px; }
-.optionOn { border-color: var(--pb-sand-line); box-shadow: 0 0 0 1px var(--pb-sand-line) inset; background: var(--dz-selection-bg, var(--dz-brand-soft)); }
+.optionOn { border-color: var(--dz-brand); box-shadow: 0 0 0 1px var(--dz-brand) inset; background: var(--dz-selection-bg, var(--dz-brand-soft)); }
 .optionMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .optionName { font-weight: 600; font-size: 15.5px; overflow-wrap: anywhere; }
 .optionMeta { color: var(--dz-text-muted); font-size: 13px; }
@@ -147,7 +142,7 @@
 }
 .day b { font-size: 16px; color: var(--dz-text-primary); }
 .day:focus-visible { outline: var(--dz-focus-ring-width, 2px) solid var(--dz-focus-ring-color, var(--dz-brand)); outline-offset: 2px; }
-.dayOn { background: var(--pb-sand); border-color: var(--pb-sand-line); box-shadow: 0 0 0 1px var(--pb-sand-line) inset; color: var(--dz-text-on-brand); font-weight: 600; }
+.dayOn { background: var(--dz-brand); border-color: var(--dz-brand); color: var(--dz-text-on-brand); }
 .dayOn b { color: var(--dz-text-on-brand); }
 .dayClosed {
   cursor: default;
@@ -163,7 +158,7 @@
   color: inherit; font: inherit; font-size: 15px; font-variant-numeric: tabular-nums; cursor: pointer;
 }
 .time:focus-visible { outline: var(--dz-focus-ring-width, 2px) solid var(--dz-focus-ring-color, var(--dz-brand)); outline-offset: 2px; }
-.timeOn { background: var(--pb-sand); border-color: var(--pb-sand-line); box-shadow: 0 0 0 1px var(--pb-sand-line) inset; color: var(--dz-text-on-brand); font-weight: 700; }
+.timeOn { background: var(--dz-brand); border-color: var(--dz-brand); color: var(--dz-text-on-brand); }
 
 /* ── the form ── */
 .field { display: flex; flex-direction: column; gap: 4px; }
@@ -206,7 +201,7 @@
 .btn {
   flex: 1;
   min-height: 50px; padding: 0 16px;
-  border-radius: 14px; border: 1px solid var(--pb-sand-line);
+  border-radius: 14px; border: 1px solid transparent;
   background: var(--dz-action-primary); color: var(--dz-action-primary-text);
   font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
 }
