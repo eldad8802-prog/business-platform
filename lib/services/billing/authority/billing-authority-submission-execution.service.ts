@@ -24,7 +24,7 @@
 import { createHash } from "node:crypto";
 import {
   AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-  isAuthorityProductionAllowedForBusiness,
+  isAuthorityProductionOperationAllowedForBusiness,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import {
   BillingAuthorityEnvironment,
@@ -366,8 +366,8 @@ export async function executeAuthorityApproval(
     return { outcome: "preflight_failed", billingDocumentId, errorCode: "ENVIRONMENT_NOT_CONFIGURED", safeToRetry: true };
   }
 
-  // ---- production pilot: before any load, reserve, token work or send ----
-  if (!isAuthorityProductionAllowedForBusiness(businessId, environment)) {
+  // ---- production pilot (business + SUBMISSIONS stage): before any load, reserve, token work or send ----
+  if (!isAuthorityProductionOperationAllowedForBusiness(businessId, environment)) {
     return { outcome: "preflight_failed", billingDocumentId, errorCode: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED, safeToRetry: false };
   }
 

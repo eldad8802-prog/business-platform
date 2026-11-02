@@ -19,7 +19,7 @@ import { ServiceUnavailableError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import {
   AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-  isAuthorityProductionAllowedForBusiness,
+  isAuthorityProductionAllowedForActor,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import {
   assertActiveAuthorityApp,
@@ -668,7 +668,7 @@ export async function exchangeAuthorityAuthorizationCode(input: {
   timeoutMs?: number;
 }): Promise<AuthorityTokenExchangeResponse> {
   const fetchFn =
-    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId });
+    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business-oauth", businessId: input.businessId });
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code: input.code,
@@ -942,8 +942,15 @@ export async function handleAuthorityOAuthCallback(
 
   try {
     // The business comes from the signed state, so the check binds to the
-    // business that started the flow — not to any cookie or query value.
-    if (!isAuthorityProductionAllowedForBusiness(context.businessId, context.environment)) {
+    // business that started the flow — not to any cookie or query value. The
+    // user who started it must be a pilot user too (same code, no detail).
+    if (
+      !isAuthorityProductionAllowedForActor(
+        context.businessId,
+        context.actorUserId,
+        context.environment
+      )
+    ) {
       throw new AuthorityOAuthCallbackError(CODES.PRODUCTION_PILOT_NOT_ENABLED, {
         stage: "APP_CONFIGURATION",
       });

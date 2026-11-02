@@ -20,7 +20,7 @@ import { ServiceUnavailableError } from "@/lib/errors";
 import { getActiveAuthorityApp } from "@/lib/services/billing/authority/billing-authority-app.service";
 import {
   AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-  isAuthorityProductionAllowedForBusiness,
+  isAuthorityProductionOperationAllowedForBusiness,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import {
   resolveApprovalConfig,
@@ -119,9 +119,10 @@ export async function resolveApprovalRuntimeContext(
   },
   deps: RuntimeContextProviderDeps = defaultRuntimeContextProviderDeps
 ): Promise<RuntimeContextResult> {
-  // 0. Production pilot. Approval and Decision both resolve their context here,
-  //    before the reserve and before any token decrypt or refresh.
-  if (!isAuthorityProductionAllowedForBusiness(input.businessId, input.environment)) {
+  // 0. Production pilot (admitted business AND SUBMISSIONS stage). Approval and
+  //    Decision both resolve their context here, before the reserve and before
+  //    any token decrypt or refresh.
+  if (!isAuthorityProductionOperationAllowedForBusiness(input.businessId, input.environment)) {
     return {
       ok: false,
       code: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,

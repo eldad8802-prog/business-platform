@@ -34,7 +34,12 @@
     "lib/services/billing/authority/billing-authority-production-pilot.verify.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
-      "reason": "pure (throw-away local CA + stub transport + in-memory doubles, no DB/network): the PRODUCTION pilot gate is off by default and fails closed on any malformed allowlist; OAuth start (incl. elevated-admin cross-tenant), callback, refresh, validation, Approval and Decision refuse a non-pilot business before any state change, token work or send; the egress refuses an unscoped or non-admitted PRODUCTION request before I/O; every authority client uses a scoped fetch"
+      "reason": "pure (throw-away local CA + stub transport + in-memory doubles, no DB/network): the PRODUCTION pilot gate is off by default and fails closed on any malformed allowlist; OAuth start (incl. elevated-admin cross-tenant), callback, refresh, validation, Approval and Decision refuse a non-pilot business before any state change, token work or send; the egress refuses an unscoped or non-admitted PRODUCTION request before I/O; every authority client uses a scoped fetch; the user allowlist (OAuth start/callback need business AND user) fails closed the same way; the operations stage is OAUTH_ONLY unless exactly 'oauth,submissions', and in OAUTH_ONLY refresh, validation, Approval (incl. the automatic one after issuing, reported as not sent), Decision and the platform probe are refused with zero transport calls while the OAuth code exchange still passes"
+    },
+    "lib/services/billing/authority/billing-authority-oauth-connect-route.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (authenticated-user and OAuth-start doubles, no DB/network): GET /api/taxes/oauth/connect returns 403 PRODUCTION_PILOT_NOT_ENABLED (not 401) to an authenticated user unless both the business and the user are pilot-admitted, the same reason whichever list failed; both admitted → JSON authorize URL; SANDBOX default unaffected"
     }
   }
 }

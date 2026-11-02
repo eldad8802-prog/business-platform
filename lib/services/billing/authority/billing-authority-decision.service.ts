@@ -13,7 +13,7 @@
 import { randomUUID } from "node:crypto";
 import {
   AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-  isAuthorityProductionAllowedForBusiness,
+  isAuthorityProductionOperationAllowedForBusiness,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import {
   BillingAuthorityDecisionType,
@@ -181,8 +181,8 @@ export async function executeAuthorityDecision(
     return { outcome: "preflight_failed", billingDocumentId, errorCode: "ENVIRONMENT_NOT_CONFIGURED" };
   }
 
-  // ---- production pilot: before any load, token work or send ----
-  if (!isAuthorityProductionAllowedForBusiness(businessId, environment)) {
+  // ---- production pilot (business + SUBMISSIONS stage): before any load, token work or send ----
+  if (!isAuthorityProductionOperationAllowedForBusiness(businessId, environment)) {
     return { outcome: "preflight_failed", billingDocumentId, errorCode: AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED };
   }
 

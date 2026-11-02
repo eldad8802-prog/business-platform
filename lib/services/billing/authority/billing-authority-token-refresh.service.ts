@@ -38,7 +38,7 @@ import {
 import { billingDbStep } from "../billing-db-step";
 import {
   AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
-  isAuthorityProductionAllowedForBusiness,
+  isAuthorityProductionOperationAllowedForBusiness,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
 export const AUTHORITY_REFRESH_ERROR_CODES = {
@@ -494,8 +494,9 @@ export async function refreshAuthorityConnectionToken(
   assertPositiveInteger(input.businessId, "businessId");
 
   const refreshTimestamp = new Date();
-  // Production pilot: refused before the connection is read or a token decrypted.
-  if (!isAuthorityProductionAllowedForBusiness(input.businessId, input.environment)) {
+  // Production pilot (admitted business AND SUBMISSIONS stage): refused before
+  // the connection is read or a token decrypted.
+  if (!isAuthorityProductionOperationAllowedForBusiness(input.businessId, input.environment)) {
     return configurationFailureResult(
       refreshTimestamp,
       AUTHORITY_REFRESH_ERROR_CODES.PRODUCTION_PILOT_NOT_ENABLED,

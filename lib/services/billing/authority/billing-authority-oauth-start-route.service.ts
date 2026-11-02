@@ -16,7 +16,7 @@ import {
   startAuthorityOAuth,
   type AuthorityOAuthCookieSpec,
 } from "@/lib/services/billing/authority/billing-authority-oauth-start.service";
-import { isAuthorityProductionAllowedForBusiness } from "@/lib/services/billing/authority/billing-authority-production-pilot";
+import { isAuthorityProductionAllowedForActor } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
 export type AuthorityStartActor = {
   id: number;
@@ -156,9 +156,11 @@ export async function resolveAuthorityOAuthStart(
     targetBusinessId = requested;
   }
 
-  // Production pilot: checked on the TARGET business, so the admin cross-tenant
-  // branch cannot reach a business outside the pilot either.
-  if (!isAuthorityProductionAllowedForBusiness(targetBusinessId, environment)) {
+  // Production pilot: checked on the TARGET business AND the acting user, so
+  // the admin cross-tenant branch cannot reach a business outside the pilot
+  // either, and a non-pilot user of a pilot business cannot start PRODUCTION.
+  // One reason for both lists — the refusal never says which list failed.
+  if (!isAuthorityProductionAllowedForActor(targetBusinessId, input.user.id, environment)) {
     return {
       ok: false,
       status: "forbidden",
