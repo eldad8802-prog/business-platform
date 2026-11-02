@@ -20,18 +20,23 @@ export const CATEGORY_RULES = [
     keywords: ["פרסום", "קמפיין", "מודעה", "פייסבוק", "גוגל"],
   },
   {
+    // A payment of tax — to the tax authority — not a document that MENTIONS tax. "מע״מ" and "חשבונית מס"
+    // are printed on nearly every Israeli invoice and receipt, so they made "tax" the category of any
+    // expense with no other keyword (a café receipt included). They are the document's vocabulary, not its
+    // subject, and are deliberately absent here.
     category: "tax",
     keywords: [
-      "מע״מ",
-      "מע\"מ",
       "מסים",
       "מס הכנסה",
-      "מס ערך מוסף",
-      "חשבונית מס",
-      "חשבונית מס קבלה",
+      "רשות המסים",
       "ניכוי מס",
       "ניכוי מס במקור",
       "דוח מס",
+      "מקדמות מס",
+      "תשלום מע״מ",
+      "תשלום מע\"מ",
+      "דיווח מע״מ",
+      "דיווח מע\"מ",
     ],
   },
   {

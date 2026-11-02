@@ -70,6 +70,9 @@ function textOf(row: ValidatedRow, field: string): string {
   return raw == null ? "" : String(raw);
 }
 
+/** The customer's name column — a weak signal, used only for rows that carry no phone. */
+export const CUSTOMER_NAME = "שם";
+
 /** Which fields identify a record, per domain, and how strongly. */
 const IN_FILE_KEYS: Record<
   string,
@@ -95,11 +98,17 @@ export function detectInFileDuplicates(
   const result: RowDuplicates = new Map();
   const keys = IN_FILE_KEYS[domainId] ?? [];
 
-  for (const key of keys) {
+  const plan = [...keys];
+  // A customer with no phone has nothing strong to collide on: the same NAME is worth a look (a warning,
+  // never a block — duplicate-policy.ts). Only rows without a phone take part; with a phone, the phone decides.
+  if (domainId === "customers") plan.push({ field: CUSTOMER_NAME, strength: "WEAK", fold: true });
+
+  for (const key of plan) {
     const buckets = new Map<string, number[]>();
     for (const row of rows) {
       const raw = textOf(row, key.field);
       if (raw === "") continue;
+      if (domainId === "customers" && key.field === CUSTOMER_NAME && textOf(row, "טלפון") !== "") continue;
       const bucketKey = key.fold ? nameKey(raw) : raw;
       buckets.set(bucketKey, [...(buckets.get(bucketKey) ?? []), row.rowNumber]);
     }
@@ -154,24 +163,55 @@ export async function detectExistingMatches(
     withTenantTransaction(async (tx) => {
       if (domainId === "customers") {
         const phones = collect(rows, "טלפון");
-        if (phones.length === 0) return;
+        // Names only of rows WITHOUT a phone: with a phone, the phone is the identity.
+        const names = [
+          ...new Set(
+            rows
+              .filter((r) => textOf(r, "טלפון") === "")
+              .map((r) => textOf(r, CUSTOMER_NAME).replace(/\s+/g, " ").trim())
+              .filter(Boolean)
+          ),
+        ];
+        if (phones.length === 0 && names.length === 0) return;
         const existing = await tx.customer.findMany({
-          where: { businessId, phone: { in: phones } },
+          where: {
+            businessId,
+            OR: [
+              ...(phones.length ? [{ phone: { in: phones } }] : []),
+              ...(names.length ? [{ name: { in: names, mode: "insensitive" as const } }] : []),
+            ],
+          },
           select: { name: true, phone: true },
         });
-        const byPhone = new Map(existing.map((c) => [c.phone ?? "", c.name]));
+        const byPhone = new Map(existing.filter((c) => c.phone).map((c) => [c.phone as string, c.name]));
+        const byName = new Map(existing.map((c) => [nameKey(c.name), c.name]));
         for (const row of rows) {
           const phone = textOf(row, "טלפון");
-          const label = phone === "" ? undefined : byPhone.get(phone);
-          if (!label) continue;
-          push(result, row.rowNumber, {
-            scope: "EXISTING",
-            field: "טלפון",
-            strength: "STRONG",
-            value: phone,
-            existingLabel: label,
-            existingNote: "לקוח עם אותו טלפון כבר קיים",
-          });
+          if (phone !== "") {
+            const label = byPhone.get(phone);
+            if (!label) continue;
+            push(result, row.rowNumber, {
+              scope: "EXISTING",
+              field: "טלפון",
+              strength: "STRONG",
+              value: phone,
+              existingLabel: label,
+              existingNote: "לקוח עם אותו טלפון כבר קיים",
+            });
+            continue;
+          }
+          const key = nameKey(textOf(row, CUSTOMER_NAME));
+          const nameHit = key === "" ? undefined : byName.get(key);
+          if (nameHit) {
+            push(result, row.rowNumber, {
+              scope: "EXISTING",
+              field: CUSTOMER_NAME,
+              strength: "WEAK",
+              value: nameHit,
+              existingLabel: nameHit,
+              existingNote: "לקוח באותו שם כבר קיים, ובשורה אין טלפון — ייתכן שזה אותו לקוח. בחרו אם לקלוט או לדלג.",
+            });
+          }
         }
         return;
       }
