@@ -29,8 +29,12 @@
  * Guards (2026-11-03) — checked on analyze AND again on every commit, server-side:
  *   - FOREIGN_CURRENCY: shekel statements only. A currency column, a currency mark in a money cell, or a
  *     foreign currency in the titles refuses the file; nothing is converted (bank-file-core.ts, checkFileCurrency).
- *   - ACCOUNT_NUMBER_MISMATCH: an account number the file prints that is not the chosen account's (last four
- *     digits, compareAccountNumber). No readable number ⇒ this signal blocks nothing.
+ *     CURRENCY_UNVERIFIABLE: a currency Dubiz cannot classify or confirm (an unknown currency value, an unknown
+ *     number-format token, Excel's locale currency formats, number formats that cannot be read) — refused too.
+ *   - ACCOUNT_NUMBER_MISMATCH: an account number the file prints that is not the chosen account's — the FULL
+ *     account (bank, branch, account) compared by the account's keyed fingerprint when the file prints it, else
+ *     the last four digits (compareAccountNumber). VERIFIED_FULL only for a full comparison; PARTIAL_MATCH (last
+ *     four) and NOT_IN_FILE are never called verified, and the owner confirms the account either way.
  *   - ACCOUNT_CONFIRMATION_REQUIRED / _MISMATCH: the commit must name the account the owner saw on the preview,
  *     and it must be the account the token was issued for.
  *   - CROSS_ACCOUNT_CONFIRMATION_REQUIRED: lines this import would write that the business already holds under
@@ -38,7 +42,7 @@
  *     commit must confirm exactly how many, or it is refused.
  * The duplicate mechanism above is unchanged; the guards only refuse, they never write or skip a line.
  */
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 import { Prisma } from "@prisma/client";
 import { readImportSource } from "@/lib/data-transfer/import/import-source";
@@ -53,7 +57,7 @@ import {
 } from "@/lib/data-transfer/import/execute/import-run-store";
 import { signEnvelope, verifyEnvelope, type EnvelopeSpec } from "@/lib/data-transfer/import/preview/signed-envelope";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
-import { maskAccount } from "@/lib/services/payables/payables-bank-crypto";
+import { fingerprintBankCoordinates, isBankCryptoConfigured, maskAccount } from "@/lib/services/payables/payables-bank-crypto";
 import { fromMinorUnits } from "@/lib/services/payables/payables-core";
 import { writeAudit } from "@/lib/services/payables/payables.service";
 import {
@@ -73,6 +77,8 @@ import {
   readBankCsvTable,
   resolveBankMapping,
   type AccountNumberCheck,
+  type CurrencyCheck,
+  type PrintedAccount,
   type BalanceCheck,
   type BankField,
   type BankLine,
@@ -80,6 +86,7 @@ import {
   type MappingProblem,
   type RowProblem,
 } from "./bank-file-core";
+import { checkXlsxMoneyFormats } from "./xlsx-number-formats";
 
 export const BANK_IMPORT_DOMAIN = BANK_STATEMENT_RUN_DOMAIN;
 const SOURCE = "OWNER_UPLOAD" as const;
@@ -106,6 +113,7 @@ export type BankImportErrorCode =
   | "DECISIONS_INVALID"
   | "DECISIONS_REQUIRED"
   | "FOREIGN_CURRENCY"
+  | "CURRENCY_UNVERIFIABLE"
   | "ACCOUNT_NUMBER_MISMATCH"
   | "ACCOUNT_CONFIRMATION_REQUIRED"
   | "ACCOUNT_CONFIRMATION_MISMATCH"
@@ -245,6 +253,8 @@ async function prepare(input: BankImportInput): Promise<Prepared> {
     throw new BankImportError("MAPPING_INVALID", 400, { problem: resolved.problem, ...(resolved.field ? { field: resolved.field } : {}) });
   }
   assertShekels(checkFileCurrency(table, located, resolved.mapping));
+  // Excel: the money cells' NUMBER FORMATS too (a "$#,##0.00" cell holds a plain number).
+  if (source.kind === "xlsx") assertShekels(await checkXlsxMoneyFormats(input.bytes, source.sheetName, located, resolved.mapping));
   const normalized = normalizeBankRows(located, resolved.mapping);
   if (normalized.lines.length > BANK_MAX_LINES) {
     throw new BankImportError("TOO_MANY_LINES", 400, { max: BANK_MAX_LINES });
@@ -266,35 +276,62 @@ async function prepare(input: BankImportInput): Promise<Prepared> {
   };
 }
 
-function assertShekels(check: ReturnType<typeof checkFileCurrency>): void {
+/** FOREIGN ⇒ FOREIGN_CURRENCY; UNVERIFIABLE (a currency Dubiz cannot classify or confirm) ⇒ CURRENCY_UNVERIFIABLE. */
+function assertShekels(check: CurrencyCheck): void {
   if (check.ok) return;
-  throw new BankImportError("FOREIGN_CURRENCY", 400, {
+  throw new BankImportError(check.verdict === "FOREIGN" ? "FOREIGN_CURRENCY" : "CURRENCY_UNVERIFIABLE", 400, {
     signal: check.signal,
     currency: check.currency,
     ...(check.rowNumber !== null ? { row: check.rowNumber } : {}),
   });
 }
 
-type ChosenAccount = { id: number; label: string; accountLast4: string };
+/** The chosen account: label and last four for the screen; the fingerprint only to compare, never returned. */
+type ChosenAccount = { id: number; label: string; accountLast4: string; fingerprint: string };
 
 async function assertAccount(tx: TenantTx, businessId: number, accountId: number): Promise<ChosenAccount> {
   const account = await tx.businessBankAccount.findFirst({
     where: { id: accountId, businessId, isActive: true },
-    select: { id: true, label: true, accountLast4: true },
+    select: { id: true, label: true, accountLast4: true, fingerprint: true },
   });
   if (!account) throw new BankImportError("ACCOUNT_NOT_FOUND", 404);
   return account;
 }
 
 /**
- * The account number the file prints must be the chosen account's (bank-file-core.ts, compareAccountNumber).
- * No readable number in the file ⇒ nothing is blocked by this signal. Only the last four digits are compared
- * and returned — the owner's own file and account, never stored or logged.
+ * Is a full printed account (bank, branch, account — digits as text) the chosen account? Answered with the
+ * account's keyed fingerprint (payables-bank-crypto.ts, fingerprintBankCoordinates, purpose
+ * BUSINESS_BANK_ACCOUNT): the same identity the bank-account service uses to refuse an account entered twice.
+ * Nothing is decrypted, and the printed number never leaves this function. null (cannot know) when the keys are
+ * not configured or the printed account is not a valid one — the comparison then falls back to the last four
+ * digits, which is never called verified.
  */
-function assertAccountNumber(accountNumbers: string[], account: ChosenAccount): AccountNumberCheck {
-  const check = compareAccountNumber(accountNumbers, account.accountLast4);
+function fullAccountMatcher(businessId: number, account: ChosenAccount): (printed: PrintedAccount) => boolean | null {
+  return (printed) => {
+    if (!isBankCryptoConfigured()) return null;
+    try {
+      const fp = Buffer.from(fingerprintBankCoordinates(printed, businessId, "BUSINESS_BANK_ACCOUNT"), "utf8");
+      const stored = Buffer.from(account.fingerprint, "utf8");
+      return fp.length === stored.length && timingSafeEqual(fp, stored);
+    } catch {
+      return null;
+    }
+  };
+}
+
+/**
+ * The account number the file prints must be the chosen account's (bank-file-core.ts, compareAccountNumber):
+ * VERIFIED_FULL / PARTIAL_MATCH / NOT_IN_FILE pass (the owner confirms the account on every commit anyway);
+ * MISMATCH is refused. Only last-four digits are ever returned — never a full number, in a response or a log.
+ */
+function assertAccountNumber(businessId: number, accountNumbers: string[], account: ChosenAccount): AccountNumberCheck {
+  const check = compareAccountNumber(accountNumbers, account.accountLast4, fullAccountMatcher(businessId, account));
   if (check.status === "MISMATCH") {
-    throw new BankImportError("ACCOUNT_NUMBER_MISMATCH", 409, { fileLast4: check.fileLast4, accountLast4: account.accountLast4 });
+    throw new BankImportError("ACCOUNT_NUMBER_MISMATCH", 409, {
+      fileLast4: check.fileLast4,
+      accountLast4: account.accountLast4,
+      basis: check.basis,
+    });
   }
   return check;
 }
@@ -402,10 +439,11 @@ export type BankPreview = {
   newTotals: { currency: "ILS"; creditMinor: number; debitMinor: number };
   /**
    * The account this preview was made for — the one the commit must confirm (confirmedAccountId) — and what the
-   * file's own account number said about it (MATCH, or NOT_IN_FILE when the file prints none; a mismatch is
+   * file's own account number said about it (VERIFIED_FULL only when the full account was compared, PARTIAL_MATCH
+   * when only its last four digits were, NOT_IN_FILE when the file prints none; a mismatch is
    * refused, ACCOUNT_NUMBER_MISMATCH).
    */
-  account: { id: number; label: string; masked: string; numberCheck: "MATCH" | "NOT_IN_FILE" };
+  account: { id: number; label: string; masked: string; numberCheck: "VERIFIED_FULL" | "PARTIAL_MATCH" | "NOT_IN_FILE" };
   /** Lines already held under another account of the business: the commit must confirm their number. */
   crossAccount: CrossAccountSignal;
   dateRange: { from: string; to: string } | null;
@@ -447,7 +485,7 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankAnaly
     if (e instanceof MappingRequiredSignal) {
       // The account is checked here too, so a mapping screen is never shown for an account that is not theirs
       // — nor for a file that prints another account's number.
-      await withTenantTransaction(async (tx) => assertAccountNumber(e.accountNumbers, await assertAccount(tx, input.businessId, input.accountId as number)));
+      await withTenantTransaction(async (tx) => assertAccountNumber(input.businessId, e.accountNumbers, await assertAccount(tx, input.businessId, input.accountId as number)));
       return e.payload;
     }
     throw e;
@@ -456,7 +494,7 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankAnaly
 
   const { statuses, previous, account, numberCheck, crossAccount } = await withTenantTransaction(async (tx) => {
     const account = await assertAccount(tx, input.businessId, prepared.accountId);
-    const numberCheck = assertAccountNumber(prepared.accountNumbers, account);
+    const numberCheck = assertAccountNumber(input.businessId, prepared.accountNumbers, account);
     const known = await existingIds(tx, input.businessId, [...prepared.identities.withAccount, ...prepared.identities.withoutAccount]);
     const previous = await lastBankStatementImportInTx(tx, input.businessId, prepared.contentHash);
     const statuses = classify(prepared, known);
@@ -506,7 +544,7 @@ export async function analyzeBankFile(input: BankImportInput): Promise<BankAnaly
       id: account.id,
       label: account.label,
       masked: maskAccount(account.accountLast4),
-      numberCheck: numberCheck.status === "MATCH" ? "MATCH" : "NOT_IN_FILE",
+      numberCheck: numberCheck.status === "MISMATCH" ? "NOT_IN_FILE" : numberCheck.status,
     },
     crossAccount,
     dateRange: dates.length ? { from: day(new Date(Math.min(...dates))), to: day(new Date(Math.max(...dates))) } : null,
@@ -588,7 +626,7 @@ export async function commitBankFile(input: BankCommitInput): Promise<BankCommit
       // One bank-line ingest per business at a time (this path).
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"bank-lines-ingest:" + String(input.businessId)}))`;
       const account = await assertAccount(tx, input.businessId, prepared.accountId);
-      assertAccountNumber(prepared.accountNumbers, account);
+      const numberCheck = assertAccountNumber(input.businessId, prepared.accountNumbers, account);
 
       const prior = await findBankStatementRunInTx(tx, retryKey);
       if (prior) {
@@ -682,7 +720,7 @@ export async function commitBankFile(input: BankCommitInput): Promise<BankCommit
           decisionsHash,
           // The owner confirmed the target account, and how many lines the business already held under another.
           confirmedAccountId: prepared.accountId,
-          accountNumberInFile: compareAccountNumber(prepared.accountNumbers, account.accountLast4).status,
+          accountNumberInFile: numberCheck.status,
           crossAccountLines: crossAccount.lines,
         },
       });

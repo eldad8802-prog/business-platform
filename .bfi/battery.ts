@@ -33,6 +33,9 @@ if (!RUNTIME_URL || !OWNER_URL || !/^postgres(ql)?:\/\//i.test(RUNTIME_URL) || /
 }
 process.env.DATABASE_URL = RUNTIME_URL;
 process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || "bfi-lab-synthetic-token-secret";
+// Synthetic bank-account keys (lab only): section S seals a real account so the FULL account can be verified.
+process.env.PAYABLES_BANK_ENCRYPTION_KEY = process.env.PAYABLES_BANK_ENCRYPTION_KEY || Buffer.alloc(32, 3).toString("base64");
+process.env.PAYABLES_BANK_FINGERPRINT_KEY = process.env.PAYABLES_BANK_FINGERPRINT_KEY || Buffer.alloc(32, 5).toString("base64");
 
 import ExcelJS from "exceljs";
 import { PrismaClient } from "@prisma/client";
@@ -407,7 +410,13 @@ async function main() {
   console.log("S. guards: shekels only, the file's account number, explicit account confirmation, cross-account lines");
   const bizS = await business("bfi-S");
   const userS = await user(bizS, "s");
-  const accS1 = await account(bizS, "S1", "8901");
+  // S1 is sealed exactly as the bank-account screen seals it (bank 12, branch 345, account 678901 — synthetic).
+  const { sealBankCoordinates } = await import("@/lib/services/payables/payables-bank-crypto");
+  const sealed = sealBankCoordinates({ bankCode: "12", branchCode: "345", accountNumber: "678901" }, bizS, "BUSINESS_BANK_ACCOUNT");
+  const accS1 = await one(
+    `INSERT INTO "BusinessBankAccount" ("businessId", "label", "coordinatesEncrypted", "coordinatesIv", "coordinatesTag", "encryptionKeyId", "accountLast4", "fingerprint", "updatedAt")
+     VALUES ($1, 'חשבון S1', $2, $3, $4, $5, $6, $7, now()) RETURNING "id"`,
+    bizS, sealed.coordinatesEncrypted, sealed.coordinatesIv, sealed.coordinatesTag, sealed.encryptionKeyId, sealed.accountLast4, sealed.fingerprint);
   const accS2 = await account(bizS, "S2", "4321");
   await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'bank_file_import', 'ENABLED', now())`, bizS);
   const runsS = async () => owner.importRun.count({ where: { businessId: bizS } });
@@ -417,6 +426,24 @@ async function main() {
     (await errorCode(() => analyze(input(bizS, userS, accS1, usdColumn)))) === "FOREIGN_CURRENCY" && (await lines(bizS)) === 0 && (await runsS()) === 0);
   const dollarMarks = csv([["תאריך", "תיאור", "אסמכתא", "סכום", "יתרה"], [day(1), "ספק", "D1", "-$50.00", "$950.00"]]);
   ok("S2 $ marks in the amount cells: refused (FOREIGN_CURRENCY)", (await errorCode(() => analyze(input(bizS, userS, accS1, dollarMarks)))) === "FOREIGN_CURRENCY");
+  const xyzColumn = csv([["תאריך", "תיאור", "אסמכתא", "סכום", "מטבע"], [day(1), "ספק", "X1", "-50.00", "ILS"], [day(2), "ספק", "X2", "-60.00", "XYZ"]]);
+  ok("S2 an unknown currency (XYZ) beside ILS rows: refused (CURRENCY_UNVERIFIABLE), never assumed shekels",
+    (await errorCode(() => analyze(input(bizS, userS, accS1, xyzColumn)))) === "CURRENCY_UNVERIFIABLE" && (await lines(bizS)) === 0);
+  const xlsxMoney = async (fmt: string | null) => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("תנועות");
+    ws.addRow(["תאריך", "תיאור", "אסמכתא", "סכום"]);
+    for (let d = 1; d <= 2; d++) {
+      const row = ws.addRow([new Date(Date.UTC(2026, 9, d)), `ספק ${d}`, `XF${d}`, -(40 + d)]);
+      if (fmt) row.getCell(4).numFmt = fmt;
+    }
+    return Buffer.from(await wb.xlsx.writeBuffer());
+  };
+  ok("S2 an Excel file whose amounts are plain numbers formatted \"[$USD] #,##0.00\": refused (FOREIGN_CURRENCY), nothing written",
+    (await errorCode(() => analyze(input(bizS, userS, accS1, await xlsxMoney("[$USD] #,##0.00"), "statement.xlsx")))) === "FOREIGN_CURRENCY" && (await lines(bizS)) === 0);
+  ok("S2 …formatted \"$#,##0.00\": refused too", (await errorCode(() => analyze(input(bizS, userS, accS1, await xlsxMoney("$#,##0.00"), "statement.xlsx")))) === "FOREIGN_CURRENCY");
+  const xlsxIls = await analyze(input(bizS, userS, accS1, await xlsxMoney('"₪"#,##0.00'), "statement.xlsx"));
+  ok("S2 …the same Excel file formatted in shekels passes (READY, 2 new)", xlsxIls.status === "READY" && xlsxIls.counts.new === 2, JSON.stringify(xlsxIls.status === "READY" ? xlsxIls.counts : xlsxIls));
   const shekelReal = utf16([
     ["תאריך", "יום ערך", "תיאור התנועה", "זכות/חובה ₪", "יתרה ₪", "אסמכתה"],
     ["09/03/2026", "08/03/2026", "עמלת פעולה- מט\", לפי 2 יח'", "-6.25", "993.75", "0412"],
@@ -448,13 +475,23 @@ async function main() {
   ok("S6 the file prints another account's number (…678999) and S1 ends 8901: refused (ACCOUNT_NUMBER_MISMATCH), nothing written",
     (await errorCode(() => analyze(input(bizS, userS, accS1, titled("12-345-678999", 10))))) === "ACCOUNT_NUMBER_MISMATCH" && (await lines(bizS)) === before6);
   const sMatch = await analyze(input(bizS, userS, accS1, titled("12-345-678901", 10)));
-  ok("S6 …the file's number ends 8901: READY, numberCheck MATCH", sMatch.status === "READY" && sMatch.account.numberCheck === "MATCH", JSON.stringify(sMatch.status === "READY" ? sMatch.account : sMatch));
+  ok("S6 …the file prints the FULL account 12-345-678901, which is S1's: READY, numberCheck VERIFIED_FULL (by the account's fingerprint)",
+    sMatch.status === "READY" && sMatch.account.numberCheck === "VERIFIED_FULL", JSON.stringify(sMatch.status === "READY" ? sMatch.account : sMatch));
+  ok("S6 …the preview never carries the full number (masked only)", sMatch.status === "READY" && !JSON.stringify(sMatch.account).includes("678901") && sMatch.account.masked === "••••8901");
+  const zeroErr = await (async () => { try { await analyze(input(bizS, userS, accS1, titled("12-345-0678901", 10))); return null; } catch (e) { return e as { code?: string; detail?: Record<string, unknown> }; } })();
+  ok("S6 leading zeros matter: 12-345-0678901 is NOT S1 (678901) although the last four agree — ACCOUNT_NUMBER_MISMATCH on the FULL account",
+    zeroErr?.code === "ACCOUNT_NUMBER_MISMATCH" && zeroErr.detail?.basis === "FULL" && !JSON.stringify(zeroErr.detail).includes("0678901"), JSON.stringify(zeroErr?.detail));
+  ok("S6 another branch with the same account digits (12-346-678901): ACCOUNT_NUMBER_MISMATCH",
+    (await errorCode(() => analyze(input(bizS, userS, accS1, titled("12-346-678901", 10))))) === "ACCOUNT_NUMBER_MISMATCH");
+  const sMasked = await analyze(input(bizS, userS, accS1, titled("****8901", 10)));
+  ok("S6 only the last four in the file (****8901): PARTIAL_MATCH — never VERIFIED_FULL", sMasked.status === "READY" && sMasked.account.numberCheck === "PARTIAL_MATCH");
   if (sMatch.status === "READY") {
-    // The account's stored last four change between preview and commit (lab only): the commit checks again.
-    await owner.$executeRawUnsafe(`UPDATE "BusinessBankAccount" SET "accountLast4" = '0001' WHERE "id" = $1`, accS1);
+    // The account's stored fingerprint changes between preview and commit (lab only): the commit verifies again.
+    const fpBefore = sealed.fingerprint;
+    await owner.$executeRawUnsafe(`UPDATE "BusinessBankAccount" SET "fingerprint" = 'lab-other-account' WHERE "id" = $1`, accS1);
     const atCommit = await errorCode(() => commit(input(bizS, userS, accS1, titled("12-345-678901", 10)), sMatch.token));
-    await owner.$executeRawUnsafe(`UPDATE "BusinessBankAccount" SET "accountLast4" = '8901' WHERE "id" = $1`, accS1);
-    ok("S6 …the commit compares the account number again, server-side (ACCOUNT_NUMBER_MISMATCH), nothing written", atCommit === "ACCOUNT_NUMBER_MISMATCH" && (await lines(bizS)) === before6, atCommit);
+    await owner.$executeRawUnsafe(`UPDATE "BusinessBankAccount" SET "fingerprint" = $2 WHERE "id" = $1`, accS1, fpBefore);
+    ok("S6 …the commit compares the full account again, server-side (ACCOUNT_NUMBER_MISMATCH), nothing written", atCommit === "ACCOUNT_NUMBER_MISMATCH" && (await lines(bizS)) === before6, atCommit);
   }
 
   const shared = csv(statement(1, 4));

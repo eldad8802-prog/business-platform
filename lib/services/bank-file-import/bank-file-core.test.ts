@@ -7,6 +7,7 @@
  * Run: npx tsx lib/services/bank-file-import/bank-file-core.test.ts
  */
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 
 import { readCsvTable, readXlsxTable, type SheetTable } from "@/lib/data-transfer/format";
 import { parseStatementCsv, statementLineIdentities } from "@/lib/services/payables/payables-p46-core";
@@ -14,7 +15,10 @@ import {
   accountDigits,
   bankHeaderKey,
   checkFileCurrency,
+  classifyBuiltinNumberFormat,
+  classifyNumberFormatCode,
   compareAccountNumber,
+  parsePrintedAccount,
   detectBankDelimiter,
   fileAccountNumbers,
   foreignCurrencyIn,
@@ -33,6 +37,9 @@ import {
   resolveBankMapping,
   type BankLine,
 } from "./bank-file-core";
+import { checkXlsxMoneyFormats } from "./xlsx-number-formats";
+import { readXlsxTable } from "@/lib/data-transfer/format";
+import { fingerprintBankCoordinates } from "@/lib/services/payables/payables-bank-crypto";
 
 let total = 0;
 let failures = 0;
@@ -395,7 +402,13 @@ function currencyGuardTests(): void {
   const eurCol = currencyOf([["תאריך", "תיאור", "סכום", "סוג מטבע"], ["01/03/2026", "ספק", "-5.00", "אירו"]]);
   check("סוג מטבע = אירו: refused as EUR", eurCol.located && !eurCol.before.ok && eurCol.before.currency === "EUR", JSON.stringify(eurCol));
   const oddCol = currencyOf([["תאריך", "תיאור", "סכום", "Currency"], ["01/03/2026", "ספק", "-5.00", "XYZ"]]);
-  check("an unknown currency value is refused, never guessed", oddCol.located && !oddCol.before.ok && oddCol.before.currency === "XYZ");
+  check("an unknown currency value (XYZ) is refused as UNVERIFIABLE, never guessed", oddCol.located && !oddCol.before.ok && oddCol.before.verdict === "UNVERIFIABLE" && oddCol.before.currency === "XYZ", JSON.stringify(oddCol));
+  const chfCol = currencyOf([["תאריך", "תיאור", "סכום", "מטבע"], ["01/03/2026", "ספק", "-5.00", "CHF"]]);
+  check("a known foreign code (CHF) in a currency column is refused as FOREIGN", chfCol.located && !chfCol.before.ok && chfCol.before.verdict === "FOREIGN" && chfCol.before.currency === "CHF");
+  const mixedCol = currencyOf([["תאריך", "תיאור", "סכום", "מטבע"], ["01/03/2026", "ספק", "-5.00", "ILS"], ["02/03/2026", "ספק", "-6.00", "USD"], ["03/03/2026", "ספק", "-7.00", "ILS"]]);
+  check("mixed currencies in one file (ILS rows and a USD row): refused, at the USD row", mixedCol.located && !mixedCol.before.ok && mixedCol.before.currency === "USD" && mixedCol.before.rowNumber === 3, JSON.stringify(mixedCol));
+  const mixedCells = currencyOf([["תאריך", "תיאור", "סכום"], ["01/03/2026", "ספק", "-5.00 ₪"], ["02/03/2026", "ספק", "-$6.00"]]);
+  check("mixed marks in the amount cells (₪ and $): refused", mixedCells.located && mixedCells.after?.ok === false);
   const ilsCol = currencyOf([["תאריך", "תיאור", "סכום", "מטבע"], ["01/03/2026", "ספק", "-5.00", "ILS"], ["02/03/2026", "ספק", "-6.00", 'ש"ח'], ["03/03/2026", "ספק", "-7.00", "₪"], ["04/03/2026", "ספק", "-8.00", "NIS"], ["05/03/2026", "ספק", "-9.00", ""]]);
   check("a currency column of ILS / ש\"ח / ₪ / NIS / empty passes", ilsCol.located && ilsCol.before.ok && ilsCol.after?.ok === true, JSON.stringify(ilsCol));
 
@@ -429,17 +442,127 @@ function accountNumberTests(): void {
   check("the real layout prints no account number: nothing to compare (NOT_IN_FILE)", real.located && real.accounts.length === 0 && compareAccountNumber(real.accounts, "8901").status === "NOT_IN_FILE");
 
   check("masked digits: only those after the mask count", accountDigits("****8901") === "8901" && accountDigits("12-xx-8") === null);
-  check("MATCH: the full number ends with the account's last four", compareAccountNumber(["12-345-678901"], "8901").status === "MATCH");
-  check("MATCH: a masked number", compareAccountNumber(["****8901"], "8901").status === "MATCH");
-  check("MATCH: a sub-account / check suffix after the account is dropped", compareAccountNumber(["678901/23"], "8901").status === "MATCH" && compareAccountNumber(["678901-001"], "8901").status === "MATCH");
+  check("PARTIAL_MATCH (no full comparison available): the full number ends with the account's last four", compareAccountNumber(["12-345-678901"], "8901").status === "PARTIAL_MATCH");
+  check("PARTIAL_MATCH: a masked number", compareAccountNumber(["****8901"], "8901").status === "PARTIAL_MATCH");
+  check("PARTIAL_MATCH: a sub-account / check suffix after the account is dropped", compareAccountNumber(["678901/23"], "8901").status === "PARTIAL_MATCH" && compareAccountNumber(["678901-001"], "8901").status === "PARTIAL_MATCH");
   const mismatch = compareAccountNumber(["12-345-678999"], "8901");
   check("MISMATCH: another account's number, with the file's last four", mismatch.status === "MISMATCH" && mismatch.fileLast4 === "8999", JSON.stringify(mismatch));
   check("MISMATCH: two account numbers in one file, one of them another account", compareAccountNumber(["678901", "555444"], "8901").status === "MISMATCH");
   check("NOT_IN_FILE: no readable number (fewer than four digits) blocks nothing", compareAccountNumber(["123"], "8901").status === "NOT_IN_FILE" && compareAccountNumber([], "8901").status === "NOT_IN_FILE");
 }
 
+/* ───────────── full account verification (bank, branch, account — digits as text) ───────────── */
+
+function fullAccountTests(): void {
+  console.log("Full account: VERIFIED_FULL only on a full comparison; last four is never a verification");
+  check("a printed full account is read as text, leading zeros kept", JSON.stringify(parsePrintedAccount("12-345-012345")) === JSON.stringify({ bankCode: "12", branchCode: "345", accountNumber: "012345" }));
+  check("not a full account: masked, branch-account only, one run of digits, wrong group lengths",
+    parsePrintedAccount("12-345-****45") === null && parsePrintedAccount("345-012345") === null && parsePrintedAccount("12345012345") === null && parsePrintedAccount("1-345-012345") === null);
+  // A strict matcher on the stored (bank, branch, account) strings — what the fingerprint answers in the service.
+  const stored = { bankCode: "12", branchCode: "345", accountNumber: "12345" };
+  const strict = (a: { bankCode: string; branchCode: string; accountNumber: string }) => a.bankCode === stored.bankCode && a.branchCode === stored.branchCode && a.accountNumber === stored.accountNumber;
+  check("VERIFIED_FULL: the full printed account is the stored one", compareAccountNumber(["12-345-12345"], "2345", strict).status === "VERIFIED_FULL");
+  const zero = compareAccountNumber(["12-345-012345"], "2345", strict);
+  check("leading zeros matter: \"012345\" is NOT \"12345\" — MISMATCH on the full account although the last four agree", zero.status === "MISMATCH" && zero.basis === "FULL", JSON.stringify(zero));
+  const branch = compareAccountNumber(["12-346-12345"], "2345", strict);
+  check("another branch, the same account digits: MISMATCH (FULL)", branch.status === "MISMATCH" && branch.basis === "FULL");
+  check("PARTIAL_MATCH: only the last four could be compared (masked in the file)", compareAccountNumber(["****2345"], "2345", strict).status === "PARTIAL_MATCH");
+  check("PARTIAL_MATCH: the full comparison is unavailable (null)", compareAccountNumber(["12-345-12345"], "2345", () => null).status === "PARTIAL_MATCH");
+  const last4 = compareAccountNumber(["****9999"], "2345", strict);
+  check("MISMATCH (LAST4): the last four disagree", last4.status === "MISMATCH" && last4.basis === "LAST4");
+  check("VERIFIED_FULL needs EVERY printed value verified: a full match plus a masked value is only PARTIAL_MATCH",
+    compareAccountNumber(["12-345-12345", "****2345"], "2345", strict).status === "PARTIAL_MATCH");
+  check("NOT_IN_FILE: nothing readable", compareAccountNumber([], "2345", strict).status === "NOT_IN_FILE");
+
+  // The service's matcher is the account's keyed fingerprint. Synthetic keys, this process only.
+  process.env.PAYABLES_BANK_FINGERPRINT_KEY = Buffer.alloc(32, 9).toString("base64");
+  const fp = (a: { bankCode: string; branchCode: string; accountNumber: string }) => fingerprintBankCoordinates(a, BIZ, "BUSINESS_BANK_ACCOUNT");
+  const storedFp = fp(stored);
+  const byFingerprint = (a: { bankCode: string; branchCode: string; accountNumber: string }) => fp(a) === storedFp;
+  check("fingerprint: the same account (as text) is equal", compareAccountNumber(["12-345-12345"], "2345", byFingerprint).status === "VERIFIED_FULL");
+  check("fingerprint: \"012345\" and \"12345\" are different accounts (MISMATCH)", compareAccountNumber(["12-345-012345"], "2345", byFingerprint).status === "MISMATCH");
+  check("fingerprint: another business's identical digits are another account", fingerprintBankCoordinates(stored, BIZ + 1, "BUSINESS_BANK_ACCOUNT") !== storedFp);
+  delete process.env.PAYABLES_BANK_FINGERPRINT_KEY;
+}
+
+/* ───────────── Excel number formats (the currency of a plain number) ───────────── */
+
+/** A synthetic statement whose amount and balance cells are NUMBERS carrying the given number formats. */
+async function xlsxWithFormats(amountFormats: Array<string | null>, balanceFormat: string | null = null): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("תנועות");
+  ws.addRow(["דוח תנועות"]);
+  ws.addRow(["תאריך", "תיאור", "סכום", "יתרה"]);
+  amountFormats.forEach((fmt, i) => {
+    const row = ws.addRow([new Date(Date.UTC(2026, 2, i + 1)), `ספק ${i + 1}`, -(10 + i), 1000 - i]);
+    if (fmt !== null) row.getCell(3).numFmt = fmt;
+    if (balanceFormat !== null) row.getCell(4).numFmt = balanceFormat;
+  });
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+async function formatsOf(bytes: Buffer) {
+  const table = await readXlsxTable(bytes);
+  const located = locateHeader(table);
+  if (!located) return { ok: false as const, why: "no header" };
+  const resolved = resolveBankMapping(located.headers, null);
+  if (!resolved.ok) return { ok: false as const, why: resolved.problem };
+  return { ok: true as const, check: await checkXlsxMoneyFormats(bytes, table.sheetName, located, resolved.mapping) };
+}
+
+/** Rewrite every custom number format of a workbook into a BUILT-IN id (no format code in the file). */
+async function asBuiltinFormat(bytes: Buffer, id: number): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(bytes);
+  const styles = await zip.file("xl/styles.xml")!.async("string");
+  const rewritten = styles.replace(/<numFmts\b[\s\S]*?<\/numFmts>/, "").replace(/numFmtId="16\d"/g, `numFmtId="${id}"`);
+  zip.file("xl/styles.xml", rewritten);
+  return Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
+}
+
+async function numberFormatTests(): Promise<void> {
+  console.log("Excel number formats: a plain number's currency is in its format");
+  const cls = (code: string | null) => classifyNumberFormatCode(code);
+  check("plain formats are PLAIN: General, 0.00, #,##0.00, a negative in red, a locale-only token",
+    ["General", "0.00", "#,##0.00", "#,##0.00;[Red]-#,##0.00", "[$-40D]#,##0.00", "#,##0.00 \"CR\""].every((c) => cls(c).kind === "PLAIN"),
+    JSON.stringify(["General", "0.00", "#,##0.00", "#,##0.00;[Red]-#,##0.00", "[$-40D]#,##0.00"].map(cls)));
+  check("shekel formats are ILS: \"₪\", [$₪-40D], #,##0.00 ₪, [$ILS]",
+    ['"₪"#,##0.00', "[$₪-40D] #,##0.00", "#,##0.00 ₪", "[$ILS] #,##0.00"].every((c) => cls(c).kind === "ILS"),
+    JSON.stringify(['"₪"#,##0.00', "[$₪-40D] #,##0.00", "#,##0.00 ₪", "[$ILS] #,##0.00"].map(cls)));
+  const foreign = ["[$$-409]#,##0.00", "$#,##0", '"$"#,##0.00', "[$USD] #,##0.00", "€ #,##0.00", "[$EUR] #,##0", "[$€-x-euro2] #,##0.00", "£#,##0", "\\$#,##0"];
+  check("foreign formats are FOREIGN: $, [$$-409], [$USD], €, [$EUR], £, an escaped \\$",
+    foreign.every((c) => cls(c).kind === "FOREIGN"), JSON.stringify(foreign.map(cls)));
+  check("an unknown bracket token or a currency-code literal is UNVERIFIABLE: [$XYZ], [Foo], \"XYZ\"",
+    ["[$XYZ] #,##0.00", "[Foo]#,##0", '#,##0.00 "XYZ"'].every((c) => cls(c).kind === "UNVERIFIABLE"));
+  check("built-in ids: 0–4 PLAIN; 5–8, 42, 44 (locale currency) UNVERIFIABLE; an undefined id UNVERIFIABLE",
+    [0, 2, 4, 14].every((i) => classifyBuiltinNumberFormat(i).kind === "PLAIN") && [5, 7, 8, 42, 44].every((i) => classifyBuiltinNumberFormat(i).kind === "UNVERIFIABLE") && classifyBuiltinNumberFormat(100).kind === "UNVERIFIABLE");
+
+  const plain = await formatsOf(await xlsxWithFormats([null, "#,##0.00", "0.00"]));
+  check("XLSX: plain numbers with General / #,##0.00 / 0.00 pass", plain.ok && plain.check.ok, JSON.stringify(plain));
+  const ils = await formatsOf(await xlsxWithFormats(['"₪"#,##0.00', "[$₪-40D] #,##0.00"], "#,##0.00 ₪"));
+  check("XLSX: shekel-formatted amounts and balances pass", ils.ok && ils.check.ok, JSON.stringify(ils));
+  for (const fmt of ["$#,##0.00", "[$USD] #,##0.00", "€ #,##0.00", "[$$-409]#,##0.00"]) {
+    const r = await formatsOf(await xlsxWithFormats([fmt, fmt]));
+    check(`XLSX: plain numbers formatted "${fmt}" are refused (FOREIGN, NUMBER_FORMAT)`, r.ok && !r.check.ok && r.check.verdict === "FOREIGN" && r.check.signal === "NUMBER_FORMAT", JSON.stringify(r));
+  }
+  const mixed = await formatsOf(await xlsxWithFormats(['"₪"#,##0.00', '"₪"#,##0.00', "$#,##0.00"]));
+  check("XLSX: mixed currencies — two ₪ rows and one $ row — refused at the $ row", mixed.ok && !mixed.check.ok && mixed.check.verdict === "FOREIGN" && mixed.check.rowNumber === 5, JSON.stringify(mixed));
+  const balanceUsd = await formatsOf(await xlsxWithFormats([null], "[$USD] #,##0.00"));
+  check("XLSX: a USD-formatted BALANCE is refused too", balanceUsd.ok && !balanceUsd.check.ok);
+  const unknownToken = await formatsOf(await xlsxWithFormats(["[$XYZ] #,##0.00"]));
+  check("XLSX: an unknown currency token in the format is UNVERIFIABLE (refused)", unknownToken.ok && !unknownToken.check.ok && unknownToken.check.verdict === "UNVERIFIABLE", JSON.stringify(unknownToken));
+  const locale = await formatsOf(await asBuiltinFormat(await xlsxWithFormats(["$#,##0.00"]), 7));
+  check("XLSX: a BUILT-IN currency format (id 7, the viewer's locale currency) is UNVERIFIABLE — ExcelJS alone would report no format at all",
+    locale.ok && !locale.check.ok && locale.check.verdict === "UNVERIFIABLE", JSON.stringify(locale));
+  const builtinPlain = await formatsOf(await asBuiltinFormat(await xlsxWithFormats(["#,##0.00"]), 4));
+  check("XLSX: a built-in plain format (id 4) passes", builtinPlain.ok && builtinPlain.check.ok, JSON.stringify(builtinPlain));
+  const broken = await checkXlsxMoneyFormats(Buffer.from("not a zip"), null, { headerRow: 0, headers: ["תאריך", "סכום"], rows: [{ rowNumber: 2, cells: [new Date(), 5] }] }, { date: 0, amount: 1 });
+  check("XLSX: formats that cannot be read are UNVERIFIABLE, never assumed plain", !broken.ok && broken.verdict === "UNVERIFIABLE");
+}
+
 (async () => {
   realFormatTests();
+  fullAccountTests();
+  await numberFormatTests();
   currencyGuardTests();
   accountNumberTests();
   mappingSafetyTests();

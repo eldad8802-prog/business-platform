@@ -81,6 +81,15 @@ const headerOf = (init: RequestInit, name: string): string | null => new Headers
   const e2 = await client.postBankImport("commit", bare).catch((e) => e);
   check("401 surfaces as 401 (the screen says the session expired)", e2 instanceof client.BankImportRequestError && e2.status === 401);
 
+  console.log("The target-account sentence on the preview");
+  const verified = client.accountCheckText("VERIFIED_FULL");
+  const partial = client.accountCheckText("PARTIAL_MATCH");
+  const none = client.accountCheckText("NOT_IN_FILE");
+  check("VERIFIED_FULL is the only outcome that says the account was verified (אומת)", verified.includes("החשבון אומת") && verified.includes("המלא"));
+  check("PARTIAL_MATCH says plainly it is NOT verified, only the last four digits match, and asks the owner to make sure",
+    partial.includes("לא אומת") && partial.includes("4 הספרות האחרונות") && !partial.includes("החשבון אומת") && partial.includes("ודאו"));
+  check("NOT_IN_FILE says the file does not identify the account, never verified", none.includes("לא מאפשר לזהות את החשבון") && !none.includes("אומת") && none.includes("ודאו"));
+
   store.delete("token");
   nextResponse = { status: 401, body: {} };
   await client.fetchBankImportOpen();

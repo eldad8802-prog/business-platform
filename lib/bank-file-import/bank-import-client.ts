@@ -69,3 +69,20 @@ export async function postBankImport<T>(step: "analyze" | "commit", body: FormDa
   }
   return json as T;
 }
+
+/** What the file's own account number said about the chosen account (preview.account.numberCheck). */
+export type BankAccountNumberCheck = "VERIFIED_FULL" | "PARTIAL_MATCH" | "NOT_IN_FILE";
+
+/**
+ * The preview's sentence about the target account. Only VERIFIED_FULL — the full account (bank, branch,
+ * account) printed in the file compared with the chosen one — may say "verified" (אומת). A last-four match
+ * says plainly that the account is NOT verified; a file without a number says it cannot identify the account.
+ * The owner confirms the account in every case.
+ */
+export function accountCheckText(check: BankAccountNumberCheck): string {
+  if (check === "VERIFIED_FULL") return "החשבון אומת: מספר החשבון המלא שמופיע בקובץ (בנק, סניף וחשבון) הוא של החשבון הזה.";
+  if (check === "PARTIAL_MATCH") {
+    return "החשבון לא אומת. רק 4 הספרות האחרונות של מספר החשבון בקובץ תואמות לחשבון הזה, וזה לא מספיק כדי לדעת שזה אותו חשבון. ודאו בעצמכם שבחרתם את החשבון הנכון.";
+  }
+  return "הקובץ לא מאפשר לזהות את החשבון: לא מופיע בו מספר חשבון שאפשר לבדוק. ודאו בעצמכם שבחרתם את החשבון הנכון.";
+}

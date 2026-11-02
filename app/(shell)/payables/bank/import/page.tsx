@@ -4,7 +4,14 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import BackButton from "@/components/ui/back-button";
 import { fetchBankAccounts, type BankAccountApi } from "@/lib/payables/payables-client";
-import { BankImportRequestError, buildBankImportForm, fetchBankImportOpen, postBankImport } from "@/lib/bank-file-import/bank-import-client";
+import {
+  accountCheckText,
+  BankImportRequestError,
+  buildBankImportForm,
+  fetchBankImportOpen,
+  postBankImport,
+  type BankAccountNumberCheck,
+} from "@/lib/bank-file-import/bank-import-client";
 import { PAYABLES_THEME } from "../../payables-theme";
 import styles from "../../payables.module.css";
 import own from "./bank-import.module.css";
@@ -44,7 +51,7 @@ type Preview = {
   counts: { lines: number; new: number; existing: number; suspected: number; invalid: number; repeatedInFile: number; warnings: number };
   newTotals: { currency: "ILS"; creditMinor: number; debitMinor: number };
   /** The account this preview was made for: shown prominently, and confirmed by the owner before the commit. */
-  account: { id: number; label: string; masked: string; numberCheck: "MATCH" | "NOT_IN_FILE" };
+  account: { id: number; label: string; masked: string; numberCheck: BankAccountNumberCheck };
   /** Lines already held under ANOTHER account of the business (the file may belong to that account). */
   crossAccount: { lines: number; accounts: Array<{ id: number; label: string; masked: string }> };
   dateRange: { from: string; to: string } | null;
@@ -110,6 +117,8 @@ const ERROR_TEXT: Record<string, string> = {
   DECISIONS_INVALID: "מאז הבדיקה השתנו התנועות שאולי כבר קיימות. בדקו את הקובץ שוב.",
   FOREIGN_CURRENCY:
     "ייבוא קובץ בנק תומך כרגע רק בחשבון בשקלים. בקובץ הזה מופיע מטבע אחר (למשל דולר או אירו), ולכן הוא לא נקלט. אנחנו לא ממירים סכומים בין מטבעות. לא נשמר דבר.",
+  CURRENCY_UNVERIFIABLE:
+    "לא הצלחנו לוודא שהסכומים בקובץ בשקלים (למשל מטבע לא מוכר, או פורמט סכום ב-Excel שמציג מטבע לפי הגדרות המחשב). קובץ שאי אפשר לוודא את המטבע שלו לא נקלט. שמרו אותו מחדש כ-CSV, או בפורמט מספר רגיל / בשקלים, ונסו שוב. לא נשמר דבר.",
   ACCOUNT_NUMBER_MISMATCH:
     "מספר החשבון שמופיע בקובץ לא תואם לחשבון שבחרתם. ייתכן שהקובץ שייך לחשבון אחר. בחרו את החשבון הנכון ובדקו שוב. לא נשמר דבר.",
   ACCOUNT_CONFIRMATION_REQUIRED: "יש לאשר לאיזה חשבון בנק נקלט הקובץ לפני הקליטה.",
@@ -121,6 +130,9 @@ const ERROR_TEXT: Record<string, string> = {
 /** A refusal in plain words, with the details the server returned when they help (the owner's own digits). */
 function errorText(e: BankImportRequestError): string {
   if (e.code === "ACCOUNT_NUMBER_MISMATCH" && typeof e.details.fileLast4 === "string" && typeof e.details.accountLast4 === "string") {
+    if (e.details.basis === "FULL") {
+      return `מספר החשבון המלא שמופיע בקובץ (מסתיים ב-${e.details.fileLast4}) אינו החשבון שבחרתם, גם אם הספרות האחרונות דומות. בחרו את החשבון הנכון ובדקו שוב. לא נשמר דבר.`;
+    }
     return `בקובץ מופיע חשבון שמסתיים ב-${e.details.fileLast4}, אבל בחרתם חשבון שמסתיים ב-${e.details.accountLast4}. ייתכן שהקובץ שייך לחשבון אחר. בחרו את החשבון הנכון ובדקו שוב. לא נשמר דבר.`;
   }
   return ERROR_TEXT[e.code] ?? "משהו השתבש. נסו שוב.";
@@ -338,7 +350,8 @@ export default function BankImportPage() {
             <ul>
               <li>סוגי קבצים: CSV (גם קובץ טקסט מופרד בטאבים או בנקודה־פסיק) או Excel ‏(XLSX). קובץ XLS ישן או PDF לא נתמכים: שמרו אותו מחדש כ-XLSX או כ-CSV.</li>
               <li>קובץ אחד = חשבון בנק אחד. אם בקובץ מופיעים כמה חשבונות, ייצאו מהבנק קובץ נפרד לכל חשבון.</li>
-              <li>רק חשבון בשקלים. קובץ של חשבון במטבע חוץ (דולר, אירו וכדומה) נדחה, ואנחנו לא ממירים סכומים.</li>
+              <li>רק חשבון בשקלים. קובץ של חשבון במטבע חוץ (דולר, אירו וכדומה) נדחה, ואנחנו לא ממירים סכומים. גם קובץ שאי אפשר לוודא את המטבע שלו (למשל מטבע לא מוכר, או סכומים ב-Excel בפורמט מטבע שתלוי בהגדרות המחשב) נדחה.</li>
+              <li>אימות החשבון: רק כשבקובץ מופיע מספר החשבון המלא (בנק, סניף וחשבון) אפשר לאמת שהוא של החשבון שבחרתם. אם מופיעות רק הספרות האחרונות, או שלא מופיע מספר בכלל, החשבון לא מאומת ותתבקשו לאשר אותו בעצמכם.</li>
               <li>העלו את הקובץ כמו שהבנק ייצא אותו, בלי לערוך, למחוק או להוסיף שורות. כך היתרות והכפילויות נבדקות נכון.</li>
               <li>כפילויות: תנועה שכבר נמצאת בדוביז לא תיקלט פעמיים. תנועה שאולי כבר קיימת תוצג לכם, ואתם מחליטים אם לקלוט אותה. אם תנועות מהקובץ כבר נמצאות תחת חשבון אחר, נבקש מכם לאשר שבחרתם את החשבון הנכון.</li>
               <li>אין חיבור אוטומטי לבנק. דוביז לא מתחבר לחשבון ולא מושך תנועות בעצמו. נקלט רק הקובץ שאתם מעלים.</li>
@@ -424,9 +437,7 @@ export default function BankImportPage() {
               {preview.account.label} · <bdi dir="ltr">{preview.account.masked}</bdi>
             </span>
             <span className={styles.subtitle}>
-              {preview.account.numberCheck === "MATCH"
-                ? "מספר החשבון שמופיע בקובץ תואם לחשבון הזה."
-                : "בקובץ לא מופיע מספר חשבון שאפשר לבדוק. ודאו בעצמכם שזה החשבון הנכון."}
+              {accountCheckText(preview.account.numberCheck)}
             </span>
             <label className={own.confirm}>
               <input type="checkbox" checked={accountConfirmed} disabled={busy} onChange={(e) => setAccountConfirmed(e.target.checked)} />
