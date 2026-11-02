@@ -178,6 +178,7 @@
     "verify:notification-read-api": "npx tsx lib/notifications/notification-read.integration.test.ts",
     "verify:notification-center": "npx tsx components/notifications/notification-center.test.tsx",
     "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts",
+    "verify:revenue-report-guard": "npx tsx lib/services/documents/revenue-report-guard.verify.test.ts",
     "verify:documents-analyze": "npx tsx lib/data-transfer/documents/documents-analyze.verify.test.ts",
     "verify:documents-execute": "npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts",
     "verify:integration-intake": "npx tsx lib/services/documents/integration-intake.verify.test.ts",
@@ -222,7 +223,8 @@
     "verify:home-collection-diagnostics": "npx tsx lib/services/home/home-collection-diagnostics.verify.test.ts",
     "verify:home-collection-timeline": "node --expose-gc --import tsx lib/services/home/home-collection-timeline.verify.test.ts",
     "qa:home-mobile": "node scripts/qa/ui/home-mobile-states.mjs",
-    "verify:account-recovery": "npx tsx lib/auth/account-recovery.test.ts"
+    "verify:account-recovery": "npx tsx lib/auth/account-recovery.test.ts",
+    "verify:extraction-pilot-findings": "npx tsx lib/services/documents/extraction-pilot-findings.verify.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

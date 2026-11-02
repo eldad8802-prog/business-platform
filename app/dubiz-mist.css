@@ -489,3 +489,79 @@
 [data-dz-ground="warm"] {
   --dz-shell-ground: var(--dz-warm-canvas);
 }
+
+/* ---------------------------------------------------------------------- *
+ * Documents — the owner-approved illustrated language (2026-11-02).
+ *
+ * The documents feature (/documents/** and the accountant pack) is drawn in
+ * the warm, light palette of its approved home mockup: cream ground, sand
+ * insets, sage actions, terracotta / amber signals. It is a SCOPED repaint:
+ * only the `--dz-*` values below change, and only inside an element carrying
+ * `data-dz-docs="1"` (the documents layout, and the overlays it portals out).
+ * Every documents component already reads these variables through TOKEN, so
+ * no screen, flow, text or behaviour changes — only colour. The navigation
+ * keeps its own `--dz-nav-*` tokens.
+ *
+ * Contrast (WCAG AA, measured on #FCFAF5 / #FFFDF9): text-primary 15.9:1,
+ * text-secondary 6.6:1, text-muted 5.3:1, brand-as-text 5.6:1, on-brand text
+ * over action-primary 5.0:1.
+ * ---------------------------------------------------------------------- */
+[data-dz-docs="1"] {
+  --dz-background: #fcfaf5;
+  --dz-surface-flat: #fffdf9;
+  --dz-surface: #fffdf9;
+  --dz-surface-strong: #f5eee3;
+  --dz-surface-raised-flat: #fffdf9;
+  --dz-surface-raised: #fffdf9;
+  --dz-surface-muted: #f5eee3;
+  --dz-surface-translucent: rgba(252, 250, 245, 0.92);
+
+  --dz-border: #e6dfd3;
+  --dz-border-subtle: #efe9de;
+  --dz-border-strong: #d8cfc0;
+
+  --dz-text-primary: #1d1f1c;
+  --dz-text-secondary: #5c554b;
+  --dz-text-muted: #6e675d;
+  --dz-text-disabled: #b3aa9c;
+  --dz-text-on-brand: #fffdf9;
+
+  --dz-brand: #4f6b53;
+  --dz-brand-hover: #415a45;
+  --dz-brand-soft: #e3e7db;
+  --dz-brand-soft-strong: #d6ddcc;
+  --dz-brand-border: #c3cdb8;
+  --dz-focus-ring: rgba(94, 124, 98, 0.35);
+  --dz-brand-gradient: linear-gradient(140deg, #5e7c62 0%, #52705a 100%);
+  --dz-brand-gradient-hover: linear-gradient(140deg, #52705a 0%, #48634f 100%);
+
+  --dz-success: #3f5a44;
+  --dz-success-bg: #e3e7db;
+  --dz-success-bg-soft: #eef1e8;
+  --dz-success-border: #c3cdb8;
+  --dz-success-accent: #5e7c62;
+
+  --dz-warning: #6b4a12;
+  --dz-warning-bg: #fbe7c6;
+  --dz-warning-bg-soft: #fdf4e4;
+  --dz-warning-border: #e9c27a;
+  --dz-warning-accent: #d9a441;
+
+  --dz-danger: #9a3f22;
+  --dz-danger-bg: #f8ddd1;
+  --dz-danger-bg-soft: #fcefe8;
+  --dz-danger-border: #e7b2a6;
+  --dz-danger-accent: #d46f4b;
+
+  --dz-shadow-card: 0 1px 2px rgba(80, 60, 30, 0.04), 0 8px 22px -14px rgba(80, 60, 30, 0.14);
+  --dz-shadow-card-hover: 0 1px 2px rgba(80, 60, 30, 0.05), 0 12px 28px -14px rgba(80, 60, 30, 0.2);
+  --dz-shadow-raised: 0 1px 2px rgba(80, 60, 30, 0.05), 0 16px 34px -18px rgba(80, 60, 30, 0.22);
+  --dz-shadow-glow: 0 6px 18px -6px rgba(86, 116, 90, 0.35);
+  --dz-shadow-glow-hover: 0 8px 22px -6px rgba(86, 116, 90, 0.42);
+  --dz-backdrop: rgba(29, 31, 28, 0.38);
+
+  --dz-action-primary: #56745a;
+  --dz-action-primary-hover: #4a664e;
+  --dz-action-primary-active: #405a44;
+  --dz-action-primary-shadow: 0 6px 18px -6px rgba(86, 116, 90, 0.35);
+}

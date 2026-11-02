@@ -2,7 +2,7 @@
 
 import { basePageStyle, mainStyle, reviewCard } from "@/components/documents/review/review-ui";
 import { SkeletonBlock, skeletonBar } from "./skeleton-primitives";
-import BackButton from "@/components/ui/back-button";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 
 export default function DocumentsReviewSkeleton() {
   return (
@@ -11,7 +11,7 @@ export default function DocumentsReviewSkeleton() {
         {/* The screen is reachable while it loads: back works from the first
             paint (a slow document fetch must never strand the user). */}
         <div style={{ marginTop: 18 }}>
-          <BackButton />
+          <DocumentsBackButton />
         </div>
         <SkeletonBlock>
           <div style={{ textAlign: "center", padding: "34px 0 8px" }}>

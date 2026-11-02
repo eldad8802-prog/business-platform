@@ -48,6 +48,8 @@ export type GetDocumentResponse =
       outputProfile: OutputProfile;
       outputProfileSource: "stored" | "unified" | "fallback_no_ocr";
       outputProfileComputedAt: string;
+      /** The document's own summary lines contradict the amount read (a sentence for the owner), or null. */
+      amountCheck?: string | null;
     };
 
 export type ReviewState = "decision" | "summary" | "edit-field" | "done";
@@ -58,6 +60,8 @@ export type Direction = "expense" | "income" | "unknown";
 export type TrafficLevel = "high" | "medium" | "low";
 
 export type ExtractionConfidenceMeta = {
+  /** The document's own summary contradicts the amount read — the server's sentence, or null. */
+  amountCheck?: string | null;
   amountConfidence: string | null;
   vendorConfidence: string | null;
   categoryConfidence: string | null;

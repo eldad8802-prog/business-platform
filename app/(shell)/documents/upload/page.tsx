@@ -1,5 +1,6 @@
 "use client";
 import { PageContainer } from "@/components/ui/page-container";
+import DocumentsIllustration from "@/components/documents/DocumentsIllustration";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -145,7 +146,7 @@ export default function DocumentsUploadPage() {
             void upload(event.dataTransfer.files.item(0));
           }}
         >
-          <UploadIcon />
+          <DocumentsIllustration name="upload" width={170} />
           <strong style={dropTitleStyle}>{t("documents.upload.dropTitle")}</strong>
           <span style={dropTextStyle}>{t("documents.upload.dropText")}</span>
         </button>
@@ -167,7 +168,7 @@ export default function DocumentsUploadPage() {
         />
 
         <button type="button" style={cameraButtonStyle} onClick={() => cameraInputRef.current?.click()}>
-          <CameraIcon />
+          <DocumentsIllustration name="camera" width={52} />
           {t("documents.upload.camera")}
         </button>
 
@@ -287,23 +288,7 @@ export default function DocumentsUploadPage() {
   );
 }
 
-function UploadIcon() {
-  return (
-    <svg width="38" height="38" viewBox="0 0 24 24" aria-hidden>
-      <path d="M12 15V4m0 0 4 4m-4-4-4 4M5 15v4h14v-4" stroke={TOKEN.brand.mid} strokeWidth="1.9" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
-function CameraIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden>
-      <rect x="3" y="6" width="18" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.8" fill="none" />
-      <circle cx="12" cy="13" r="3.4" stroke="currentColor" strokeWidth="1.8" fill="none" />
-      <path d="M8 6l1.5-2h5L16 6" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 const pageStyle = {
   minHeight: "100vh",

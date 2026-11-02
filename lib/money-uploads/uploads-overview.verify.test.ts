@@ -123,6 +123,12 @@ check("a run maps ids, status, counts and dates — and says the file was not st
   assert.equal(e.sourceFileStored, false);
   assert.equal(e.period, null);
 });
+check("only a documents import says its files were kept (as the business's documents)", () => {
+  assert.equal(runToEntry(run({ id: 8, domain: "documents" })).sourceFileStored, true);
+  for (const d of ["customers", "suppliers", "leads", "inventory", "historical-documents", "bank_statement"]) {
+    assert.equal(runToEntry(run({ id: 9, domain: d })).sourceFileStored, false, d);
+  }
+});
 check("status labels", () => {
   assert.equal(runToEntry(run({ id: 1, status: "PARTIAL" })).statusLabel, "הושלם חלקית");
   assert.equal(runToEntry(run({ id: 1, status: "FAILED" })).statusLabel, "נכשל");

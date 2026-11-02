@@ -1,7 +1,8 @@
 "use client";
 
 import { TOKEN } from "@/lib/design/documents-theme";
-import BackButton from "@/components/ui/back-button";
+import DocumentsIllustration from "@/components/documents/DocumentsIllustration";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import { basePageStyle, mainStyle, primaryDarkButton, reviewCard } from "./review-ui";
 import { useI18n } from "@/components/i18n/I18nProvider";
 
@@ -13,9 +14,10 @@ export default function ReviewNotFound({ onBack }: { onBack: () => void }) {
         {/* Back = the screen the document was opened from (search, inbox,
             home…); the CTA below is an explicit link to the documents hub. */}
         <div style={{ marginBottom: 12 }}>
-          <BackButton />
+          <DocumentsBackButton />
         </div>
         <div style={{ ...reviewCard, maxWidth: 560, width: "100%", margin: "40px auto 0" }}>
+          <DocumentsIllustration name="search" width={170} style={{ margin: "0 auto 8px" }} />
           <div
             style={{
               fontSize: 24,
