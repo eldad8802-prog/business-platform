@@ -27,8 +27,13 @@ const ROOT = join(HERE, "..", "..");
 const read = (...p: string[]) => readFileSync(join(ROOT, ...p), "utf8");
 
 const FIELD = read("components", "inventory", "supplier-field.tsx");
-const CREATE = read("app", "(shell)", "inventory", "items", "create", "page.tsx");
-const EDIT = read("components", "inventory", "product-detail-view.tsx");
+// Since the 2026-11-03 redesign, Create (/inventory/items/create) and Edit
+// (/inventory/items/[id]/edit) render one shared form.
+const CREATE_PAGE = read("app", "(shell)", "inventory", "items", "create", "page.tsx");
+const EDIT_PAGE = read("app", "(shell)", "inventory", "items", "[id]", "edit", "page.tsx");
+const FORM = read("components", "inventory", "v2", "product-form.tsx");
+const CREATE = /<ProductForm\s+mode="create"/.test(CREATE_PAGE) ? FORM : CREATE_PAGE;
+const EDIT = /<ProductForm\s+mode="edit"/.test(EDIT_PAGE) ? FORM : EDIT_PAGE;
 const SCHEMA = read("prisma", "schema.prisma");
 
 let failures = 0;
@@ -311,11 +316,11 @@ console.log("\nCreate and Edit share the field");
   );
   check(
     "Create passes the snapshot names as secondary choices",
-    /orphanNames=\{supplierOptions\}/.test(CREATE),
+    /orphanNames=\{mode === "create" \? supplierOptions : editOrphans\}/.test(CREATE),
   );
   check(
     "Edit keeps the item's own stored name selectable",
-    /orphanNames=\{item\?\.supplierName/.test(EDIT),
+    /editOrphans = useMemo\(\(\) => \(item\?\.supplierName \? \[item\.supplierName\] : \[\]\)/.test(EDIT),
   );
   check(
     "the item is still created only by its own save action",

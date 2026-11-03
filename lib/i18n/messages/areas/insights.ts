@@ -482,6 +482,7 @@ export const insightsHe = {
     toCalendarServices: "לשירותים",
     toContentPlan: "לתוכנית התוכן",
     toProductList: "לרשימת המוצרים",
+    toProductDetails: "לפרטי המוצר",
     toContentCreation: "ליצירת תוכן",
     toDigitalPresence: "לנוכחות הדיגיטלית",
     toSales: "למכירות",
