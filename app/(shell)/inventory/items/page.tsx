@@ -1,136 +1,108 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
-import { useEntryState } from "@/hooks/useEntryState";
+/**
+ * Products list — owner-approved redesign mockup "המוצרים שלי" (2026-11-03).
+ * Same data as before (getInventoryItems), same search fields (name, barcode,
+ * sku, supplier, category), same tone rule and default order (critical → low →
+ * ok, then name), same barcode-scan behaviour (one match opens it, none says
+ * so, several filter the list). Deep links: ?q=, ?status=low (→ "דורש טיפול"),
+ * ?status=missing-data.
+ */
+
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useEntryState } from "@/hooks/useEntryState";
 import { useI18n } from "@/components/i18n/I18nProvider";
-import type { MessageKey, Translator } from "@/lib/i18n/translate";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import BarcodeScanner from "@/components/inventory/barcode-scanner";
 import { inventoryToast } from "@/components/inventory/inventory-toast";
-import { useInventoryInboxCounts } from "@/components/inventory/use-inventory-inbox-counts";
+import { getStockTone } from "@/components/inventory/inventory-design";
+import { getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
+import { getClientAuthToken, isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
+import { loadPendingProductDrafts } from "@/lib/inventory/overview-sources";
+import { stockLine, TONE_WORD } from "@/lib/inventory/stock-line";
+import { formatQtyNumber, qtyWithUnit, unitWord } from "@/lib/inventory/unit-words";
 import {
-  getStockTone,
-  getStockRatio,
-  getStockStatusLabel,
-  InventorySearch,
-  FilterChipRow,
-  InventoryProductRow,
-  InventoryStatePanel,
-  InventorySkeletonBlock,
-  IconPlus,
-} from "@/components/inventory/inventory-design";
-import {
-  getInventoryItems,
-  type InventoryItemDTO,
-} from "@/lib/api/inventory";
-import {
-  getClientAuthToken,
-  isUnauthorizedError,
-  redirectToLogin,
-} from "@/lib/client-session";
-import { getProductEmoji } from "@/lib/inventory/product-emoji";
+  I2,
+  InvButton,
+  InvChips,
+  InvError,
+  InvLoading,
+  InvMenu,
+  InvNote,
+  InvPage,
+  InvRow,
+  InvSearch,
+  InvSegmented,
+  InvSheet,
+  InvState,
+  InvStatus,
+  ProductThumb,
+  formatMoney,
+} from "@/components/inventory/v2/kit";
 
 type StockTone = ReturnType<typeof getStockTone>;
-type ToneFilter = "all" | StockTone;
+type StatusFilter = "all" | "attention" | "critical" | "low" | "ok" | "missing";
+type SortKey = "status" | "name";
 
-const UNIT_SHORT: Record<string, MessageKey> = {
-  UNIT: "customers.inventory.units.short.UNIT",
-  BOX: "customers.inventory.units.short.BOX",
-  KG: "customers.inventory.units.short.KG",
-  GRAM: "customers.inventory.units.short.GRAM",
-  LITER: "customers.inventory.units.short.LITER",
-  ML: "customers.inventory.units.short.ML",
-};
+const PAGE_SIZE = 50;
 
-const TONE_DOTS: Record<StockTone, string> = {
-  critical: "var(--inv-danger)",
-  low: "var(--inv-warning)",
-  ok: "var(--inv-success)",
-};
+const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "הכל" },
+  { value: "critical", label: "מלאי קריטי" },
+  { value: "low", label: "מלאי נמוך" },
+  { value: "ok", label: "תקין" },
+  { value: "missing", label: "חסרי עלות או מחיר" },
+];
 
-function safeImage(imageUrl?: string | null) {
-  return imageUrl && !imageUrl.includes("example.com") ? imageUrl : null;
+function statusFromParam(param: string | null): StatusFilter {
+  if (param === "low") return "attention";
+  if (param === "missing-data") return "missing";
+  return "all";
 }
 
-function itemMeta(item: InventoryItemDTO) {
-  return [item.category?.name, item.supplierName, item.sku]
-    .filter((v): v is string => Boolean(v && String(v).trim()))
-    .join(" · ");
+/** Today's "missing data" rule: no cost (own or last purchase) or no sale price. */
+function isMissingData(item: InventoryItemDTO): boolean {
+  const hasCost = item.costPerUnit != null || item.lastPurchaseCost != null;
+  return !(hasCost && item.sellPricePerUnit != null);
 }
 
-/** Caption under the stock bar, mirroring the mockup's `.barcap` copy. */
-function itemCaption(item: InventoryItemDTO, t: Translator): string | undefined {
-  if (item.reorderPoint != null) {
-    return t("customers.inventory.items.captionReorder", { current: item.currentQuantity, reorder: item.reorderPoint });
-  }
-  if (item.minimumQuantity > 0) {
-    return t("customers.inventory.items.captionMinimum", { current: item.currentQuantity, minimum: item.minimumQuantity });
-  }
-  return undefined;
-}
+const TONE_STATUS: Record<StockTone, "danger" | "warn" | "ok"> = { critical: "danger", low: "warn", ok: "ok" };
 
 function InventoryItemsListPageContent() {
   const router = useRouter();
   const { t } = useI18n();
   const searchParams = useSearchParams();
-  const { counts: inboxCounts } = useInventoryInboxCounts();
+  const statusParam = searchParams.get("status");
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
+  const [draftCount, setDraftCount] = useState(0);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [query, setQuery] = useEntryState("query", () => searchParams.get("q") || "");
-  const statusParam = searchParams.get("status") || "";
-  const missingDataMode = statusParam === "missing-data";
-  const [toneFilter, setToneFilter] = useEntryState<ToneFilter>("tone",
-    statusParam === "low" ? "low" : "all"
-  );
+  const [status, setStatus] = useEntryState<StatusFilter>("status", () => statusFromParam(statusParam));
+  const [category, setCategory] = useEntryState("category", "");
+  const [supplier, setSupplier] = useEntryState("supplier", "");
+  const [sort, setSort] = useEntryState<SortKey>("sort", "status");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const unitShort = (unitType: string): string | undefined => {
-    const key = UNIT_SHORT[unitType];
-    return key ? t(key) : undefined;
-  };
+  // A deep link arriving while the list is already open (?status=…) applies it.
+  const lastParam = useRef(statusParam);
+  useEffect(() => {
+    if (lastParam.current === statusParam) return;
+    lastParam.current = statusParam;
+    if (statusParam) setStatus(statusFromParam(statusParam));
+  }, [statusParam, setStatus]);
 
-  const sortedItems = useMemo(() => {
-    const toneOrder: Record<StockTone, number> = { critical: 0, low: 1, ok: 2 };
-    return [...items].sort((a, b) => {
-      const ta = toneOrder[getStockTone(a)];
-      const tb = toneOrder[getStockTone(b)];
-      if (ta !== tb) return ta - tb;
-      return a.name.localeCompare(b.name, "he");
-    });
-  }, [items]);
-
-  const counts = useMemo(
-    () =>
-      sortedItems.reduce(
-        (acc, item) => {
-          acc[getStockTone(item)] += 1;
-          return acc;
-        },
-        { critical: 0, low: 0, ok: 0 } as Record<StockTone, number>
-      ),
-    [sortedItems]
-  );
-
-  const filteredItems = useMemo(() => {
-    const value = query.trim().toLowerCase();
-    return sortedItems.filter((item) => {
-      if (missingDataMode) {
-        const hasCost = item.costPerUnit != null || item.lastPurchaseCost != null;
-        if (hasCost && item.sellPricePerUnit != null) return false;
-      } else if (toneFilter !== "all" && getStockTone(item) !== toneFilter) {
-        return false;
-      }
-      if (!value) return true;
-      return [item.name, item.barcode, item.sku, item.supplierName, item.category?.name]
-        .filter(Boolean)
-        .some((field) => String(field).toLowerCase().includes(value));
-    });
-  }, [missingDataMode, query, sortedItems, toneFilter]);
-
-  const attention = counts.critical + counts.low;
+  function changeStatus(next: StatusFilter) {
+    setStatus(next);
+    // Drop a stale ?status= so a refresh shows what is on screen.
+    if (statusParam) {
+      const q = searchParams.get("q");
+      lastParam.current = null;
+      router.replace(q ? `/inventory/items?q=${encodeURIComponent(q)}` : "/inventory/items", { scroll: false });
+    }
+  }
 
   async function loadItems() {
     const token = getClientAuthToken();
@@ -153,13 +125,75 @@ function InventoryItemsListPageContent() {
     } finally {
       setLoading(false);
     }
+    void loadPendingProductDrafts()
+      .then((d) => setDraftCount(d.length))
+      .catch(() => setDraftCount(0));
   }
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadItems(), 0);
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time load, unchanged by i18n (the loader now reads `t` for its messages)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time load
   }, []);
+
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(items.map((i) => i.category?.name?.trim()).filter((v): v is string => Boolean(v)))).sort((a, b) => a.localeCompare(b, "he")),
+    [items]
+  );
+  const supplierOptions = useMemo(
+    () => Array.from(new Set(items.map((i) => i.supplierName?.trim()).filter((v): v is string => Boolean(v)))).sort((a, b) => a.localeCompare(b, "he")),
+    [items]
+  );
+
+  const sortedItems = useMemo(() => {
+    const toneOrder: Record<StockTone, number> = { critical: 0, low: 1, ok: 2 };
+    return [...items].sort((a, b) => {
+      if (sort === "status") {
+        const ta = toneOrder[getStockTone(a)];
+        const tb = toneOrder[getStockTone(b)];
+        if (ta !== tb) return ta - tb;
+      }
+      return a.name.localeCompare(b.name, "he");
+    });
+  }, [items, sort]);
+
+  const attentionCount = useMemo(() => items.filter((i) => getStockTone(i) !== "ok").length, [items]);
+
+  const filteredItems = useMemo(() => {
+    const value = query.trim().toLowerCase();
+    return sortedItems.filter((item) => {
+      const tone = getStockTone(item);
+      if (status === "missing") {
+        if (!isMissingData(item)) return false;
+      } else if (status === "attention") {
+        if (tone === "ok") return false;
+      } else if (status !== "all" && tone !== status) {
+        return false;
+      }
+      if (category && (item.category?.name?.trim() || "") !== category) return false;
+      if (supplier && (item.supplierName?.trim() || "") !== supplier) return false;
+      if (!value) return true;
+      return [item.name, item.barcode, item.sku, item.supplierName, item.category?.name]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(value));
+    });
+  }, [category, query, sortedItems, status, supplier]);
+
+  // Client-side paging; any change of search/filter/sort starts again at the first page.
+  const signature = JSON.stringify([query, status, category, supplier, sort]);
+  const [page, setPage] = useState({ signature, count: PAGE_SIZE });
+  const visibleCount = page.signature === signature ? page.count : PAGE_SIZE;
+  const visibleItems = filteredItems.slice(0, visibleCount);
+
+  const sheetFilterCount =
+    (status === "critical" || status === "low" || status === "ok" || status === "missing" ? 1 : 0) + (category ? 1 : 0) + (supplier ? 1 : 0);
+
+  function clearAll() {
+    setQuery("");
+    changeStatus("all");
+    setCategory("");
+    setSupplier("");
+  }
 
   function handleScanDetected(code: string) {
     const scanned = code.trim();
@@ -179,32 +213,80 @@ function InventoryItemsListPageContent() {
     setQuery(scanned);
   }
 
-  const sub = (
+  const headerEnd = (
     <>
-      {t(items.length === 1 ? "customers.inventory.items.productsCountOne" : "customers.inventory.items.productsCountMany", { count: items.length })}
-      {attention > 0 ? <> · <b>{t("customers.inventory.items.needAttention", { count: attention })}</b></> : <> · {t("customers.inventory.items.allOk")}</>}
+      <Link className="i2-hdlink" href="/settings/import-export">
+        ייבוא וייצוא
+      </Link>
+      <InvMenu
+        label="פעולות"
+        items={[
+          { label: "ייבוא וייצוא", href: "/settings/import-export" },
+          { label: `טיוטות מוצר ממתינות (${draftCount})`, href: "/inventory/drafts" },
+          { label: "מוצרים חסרי עלות או מחיר", onClick: () => changeStatus("missing") },
+        ]}
+      />
     </>
   );
 
+  const chipValue: "all" | "attention" | "other" = status === "all" || status === "attention" ? status : "other";
+
   return (
-    <InventorySubPage intent="data"
-      title={t("customers.inventory.items.title")}
-      variant="hub"
-      sub={!loading && !error ? sub : undefined}
-      headerAction={{
-        icon: <IconPlus />,
-        label: t("customers.inventory.common.newProduct"),
-        href: "/inventory/items/create",
-        accent: true,
-      }}
-      bottomNav="products"
+    <InvPage
+      title="המוצרים שלי"
+      tabs="items"
+      backFallback="/inventory"
+      end={headerEnd}
+      wide
+      footer={
+        <InvButton block href="/inventory/items/create">
+          {I2.plus(22)}
+          מוצר חדש
+        </InvButton>
+      }
     >
-      <InventorySearch
-        value={query}
-        onChange={setQuery}
-        placeholder={t("customers.inventory.items.searchPlaceholder")}
-        onScan={() => setScannerOpen(true)}
-      />
+      <InvSearch value={query} onChange={setQuery} placeholder="חיפוש שם, מק״ט או ברקוד" onScan={() => setScannerOpen(true)} scanLabel="סריקת ברקוד" />
+
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <InvChips<"all" | "attention" | "other">
+          value={chipValue}
+          onChange={(v) => {
+            if (v !== "other") changeStatus(v);
+          }}
+          label="סינון לפי מצב"
+          options={[
+            { value: "all", label: "הכל" },
+            { value: "attention", label: "דורש טיפול", count: loading ? undefined : attentionCount },
+          ]}
+        />
+        <button
+          type="button"
+          className="i2-chip"
+          aria-pressed={sheetFilterCount > 0}
+          aria-haspopup="dialog"
+          onClick={() => setFilterOpen(true)}
+          aria-label={sheetFilterCount > 0 ? `סינון ומיון · ${sheetFilterCount} פעילים` : "סינון ומיון"}
+        >
+          {I2.filter(18)}
+          סינון
+          {sheetFilterCount > 0 ? <span className="i2-chip__n">{sheetFilterCount}</span> : null}
+        </button>
+      </div>
+
+      {status === "missing" ? <InvNote>{t("customers.inventory.items.missingData")}</InvNote> : null}
+
+      {!loading && !error && draftCount > 0 ? (
+        <InvNote>
+          <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span>
+              <bdi>{draftCount}</bdi> טיוטות מוצר ממתינות לבדיקה
+            </span>
+            <Link href="/inventory/drafts" className="i2-link" style={{ minHeight: 32, fontWeight: 600, color: "var(--i2-green-ink)" }}>
+              לבדיקה {I2.chevronEnd(16)}
+            </Link>
+          </span>
+        </InvNote>
+      ) : null}
 
       <BarcodeScanner
         open={scannerOpen}
@@ -215,156 +297,217 @@ function InventoryItemsListPageContent() {
         hint={t("customers.inventory.common.scanHint")}
       />
 
-      {missingDataMode ? (
-        <div className="inv-hd__sub" style={{ marginTop: 14 }}>
-          {t("customers.inventory.items.missingData")}
-        </div>
-      ) : (
-        <FilterChipRow<ToneFilter>
-          value={toneFilter}
-          onChange={setToneFilter}
-          options={[
-            { value: "all", label: t("customers.inventory.common.all") },
-            { value: "critical", label: t("customers.inventory.common.critical"), dotColor: TONE_DOTS.critical },
-            { value: "low", label: t("customers.inventory.common.low"), dotColor: TONE_DOTS.low },
-            { value: "ok", label: t("customers.inventory.common.ok"), dotColor: TONE_DOTS.ok },
-          ]}
-        />
-      )}
-
-      {!loading && !error && inboxCounts.drafts > 0 ? (
-        <div
-          style={{
-            width: "100%",
-            maxWidth: "var(--inv-content-max, 720px)",
-            margin: "12px auto 0",
-            padding: "0 clamp(16px,3.5vw,28px)",
-            boxSizing: "border-box",
-          }}
-        >
-          <Link
-            href="/inventory/drafts"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              textDecoration: "none",
-              background: "var(--inv-card-bg)",
-              border: "1px solid var(--inv-border)",
-              borderRadius: "var(--inv-radius-md)",
-              boxShadow: "var(--inv-shadow)",
-              padding: "12px 14px",
-              color: "var(--inv-text)",
-              fontWeight: 600,
-              fontSize: 14,
-            }}
-          >
-            <span style={{ fontSize: 20 }} aria-hidden>🗂️</span>
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <bdi>{inboxCounts.drafts}</bdi> {t("customers.inventory.items.draftsBanner")}
-            </span>
-            <span style={{ color: "var(--inv-accent)", fontWeight: 600, flexShrink: 0 }}>{t("customers.inventory.items.draftsBannerAction")}</span>
-          </Link>
-        </div>
-      ) : null}
-
       {error ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel
-            tone="error"
-            title={t("customers.inventory.common.somethingWrong")}
-            action={
-              <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => void loadItems()}>
-                {t("customers.inventory.common.retry")}
-              </button>
-            }
-          >
-            {error}
-          </InventoryStatePanel>
-        </div>
+        <InvError message={error} onRetry={() => void loadItems()} />
       ) : loading ? (
-        <div className="inv-rows">
-          <InventorySkeletonBlock height={80} rows={5} />
-        </div>
+        <InvLoading rows={6} />
+      ) : items.length === 0 ? (
+        <InvState
+          title="עוד אין מוצרים"
+          body="הוסיפו מוצר ראשון, או ייבאו רשימת מוצרים מקובץ."
+          action={
+            <div className="i2-actions" style={{ maxWidth: 420, margin: "0 auto" }}>
+              <InvButton href="/inventory/items/create">הוספת מוצר</InvButton>
+              <InvButton kind="secondary" href="/settings/import-export">
+                ייבוא מקובץ
+              </InvButton>
+            </div>
+          }
+        />
       ) : filteredItems.length === 0 ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel
-            title={items.length === 0 ? t("customers.inventory.items.emptyTitle") : t("customers.inventory.common.noProductsFound")}
-          >
-            {items.length === 0
-              ? t("customers.inventory.items.emptyBody")
-              : t("customers.inventory.items.noMatchBody")}
-          </InventoryStatePanel>
-        </div>
+        <InvState
+          title="לא נמצאו מוצרים התואמים לחיפוש"
+          action={
+            <InvButton kind="secondary" onClick={clearAll}>
+              ניקוי החיפוש
+            </InvButton>
+          }
+        />
       ) : (
         <>
-        <div className="inv-desk-table" aria-label={t("customers.inventory.items.tableAria")}>
-          <table>
-            <thead>
-              <tr>
-                <th>{t("customers.inventory.items.table.product")}</th>
-                <th>{t("customers.inventory.items.table.details")}</th>
-                <th className="inv-wide">{t("customers.inventory.items.table.minimum")}</th>
-                <th className="inv-wide">{t("customers.inventory.items.table.reorder")}</th>
-                <th className="inv-wide">{t("customers.inventory.items.table.cost")}</th>
-                <th className="inv-wide">{t("customers.inventory.items.table.price")}</th>
-                <th>{t("customers.inventory.items.table.quantity")}</th>
-                <th>{t("customers.inventory.items.table.status")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredItems.map((item) => {
-                const tone = getStockTone(item);
-                const unit = unitShort(item.unitType);
-                return (
-                  <tr key={item.id} onClick={() => router.push(`/inventory/items/${item.id}`)}>
-                    <td>
-                      <Link href={`/inventory/items/${item.id}`}>{item.name}</Link>
-                    </td>
-                    <td>{itemMeta(item) || "—"}</td>
-                    <td className="num inv-wide">{item.minimumQuantity}</td>
-                    <td className="num inv-wide">{item.reorderPoint ?? "—"}</td>
-                    <td className="num inv-wide">{item.costPerUnit != null ? `₪${item.costPerUnit}` : "—"}</td>
-                    <td className="num inv-wide">{item.sellPricePerUnit != null ? `₪${item.sellPricePerUnit}` : "—"}</td>
-                    <td className="num">
-                      {item.currentQuantity}
-                      {unit ? ` ${unit}` : ""}
-                    </td>
-                    <td>{getStockStatusLabel(tone)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="inv-rows inv-cards">
-          {filteredItems.map((item) => {
-            const tone = getStockTone(item);
-            return (
-              <InventoryProductRow
-                key={item.id}
-                tone={tone}
-                imageUrl={safeImage(item.imageUrl)}
-                thumbGlyph={
-                  <span aria-hidden style={{ fontSize: 26, lineHeight: 1 }}>
-                    {getProductEmoji(item.name, item.category?.name)}
-                  </span>
-                }
-                name={item.name}
-                meta={itemMeta(item) || undefined}
-                ratio={getStockRatio(item)}
-                caption={itemCaption(item, t)}
-                statusLabel={getStockStatusLabel(tone)}
-                quantity={item.currentQuantity}
-                unitLabel={unitShort(item.unitType)}
-                href={`/inventory/items/${item.id}`}
-              />
-            );
-          })}
-        </div>
+          {/* phone + tablet */}
+          <ul className="i2-list i2-mob-only" aria-label="המוצרים">
+            {visibleItems.map((item) => {
+              const line = stockLine(item);
+              const line1 = item.category?.name || item.supplierName || null;
+              return (
+                <InvRow
+                  key={item.id}
+                  href={`/inventory/items/${item.id}`}
+                  thumb={<ProductThumb src={item.imageUrl} name={item.name} />}
+                  title={item.name}
+                  dot={line.tone === "critical" ? "danger" : line.tone === "low" ? "warn" : null}
+                  ariaLabel={`${item.name} · ${TONE_WORD[line.tone]} · ${qtyWithUnit(item.currentQuantity, item.unitType)}`}
+                  sub={
+                    line1 || line.tone !== "ok" ? (
+                      <>
+                        {line1 ? <span className="i2-line">{line1}</span> : null}
+                        {line.tone !== "ok" ? <span className={`i2-line${line.tone === "critical" ? " i2-line--danger" : ""}`}>{line.text}</span> : null}
+                      </>
+                    ) : undefined
+                  }
+                  trail={
+                    <>
+                      <span className="i2-row__qty">
+                        <b className="i2-num">{formatQtyNumber(item.currentQuantity)}</b>
+                        <span>{unitWord(item.unitType, item.currentQuantity)}</span>
+                      </span>
+                      <InvMenu
+                        label={`פעולות · ${item.name}`}
+                        items={[
+                          { label: "פתיחת המוצר", href: `/inventory/items/${item.id}` },
+                          { label: "עדכון מלאי", href: `/inventory/items/${item.id}?move=IN` },
+                          { label: "הזמנה מספק", href: `/inventory/supplier-purchases/new?item=${item.id}` },
+                        ]}
+                      />
+                    </>
+                  }
+                />
+              );
+            })}
+          </ul>
+
+          {/* desktop ≥1200 */}
+          <div className="i2-desk-only">
+            <table className="i2-table" aria-label="המוצרים">
+              <thead>
+                <tr>
+                  <th>מוצר</th>
+                  <th>קטגוריה</th>
+                  <th>ספק</th>
+                  <th>כמות</th>
+                  <th>מינימום</th>
+                  <th>נקודת הזמנה</th>
+                  <th>עלות</th>
+                  <th>מחיר</th>
+                  <th>מצב</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleItems.map((item) => {
+                  const tone = getStockTone(item);
+                  const href = `/inventory/items/${item.id}`;
+                  return (
+                    <tr key={item.id} data-href={href} onClick={() => router.push(href)}>
+                      <td>
+                        <span className="i2-cellprod">
+                          <ProductThumb src={item.imageUrl} name={item.name} size={40} />
+                          <Link href={href} onClick={(e) => e.stopPropagation()} style={{ color: "inherit", fontWeight: 600, textDecoration: "none", overflowWrap: "anywhere" }}>
+                            {item.name}
+                          </Link>
+                        </span>
+                      </td>
+                      <td>{item.category?.name || "—"}</td>
+                      <td>{item.supplierName || "—"}</td>
+                      <td className="i2-num">
+                        <bdi>{qtyWithUnit(item.currentQuantity, item.unitType)}</bdi>
+                      </td>
+                      <td className="i2-num">{formatQtyNumber(item.minimumQuantity)}</td>
+                      <td className="i2-num">{item.reorderPoint != null ? formatQtyNumber(item.reorderPoint) : "—"}</td>
+                      <td className="i2-num">{formatMoney(item.costPerUnit)}</td>
+                      <td className="i2-num">{formatMoney(item.sellPricePerUnit)}</td>
+                      <td>
+                        <InvStatus tone={TONE_STATUS[tone]}>{TONE_WORD[tone]}</InvStatus>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {filteredItems.length > visibleCount ? (
+            <div style={{ marginTop: 12 }}>
+              <InvButton kind="secondary" block onClick={() => setPage({ signature, count: visibleCount + PAGE_SIZE })}>
+                הצגת עוד
+              </InvButton>
+            </div>
+          ) : null}
+          <p className="i2-foot">
+            מוצגים <bdi>{Math.min(visibleCount, filteredItems.length)}</bdi> מתוך <bdi>{filteredItems.length}</bdi> מוצרים
+          </p>
         </>
       )}
-    </InventorySubPage>
+
+      {filterOpen ? (
+        <InvSheet
+          title="סינון ומיון"
+          onClose={() => setFilterOpen(false)}
+          footer={
+            <div className="i2-actions">
+              <InvButton onClick={() => setFilterOpen(false)}>הצגת {filteredItems.length} מוצרים</InvButton>
+              <InvButton
+                kind="secondary"
+                onClick={() => {
+                  changeStatus("all");
+                  setCategory("");
+                  setSupplier("");
+                  setSort("status");
+                }}
+              >
+                ניקוי
+              </InvButton>
+            </div>
+          }
+        >
+          <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend className="i2-h3" style={{ margin: "0 0 4px" }}>
+              מצב
+            </legend>
+            {STATUS_OPTIONS.map((o) => (
+              <label key={o.value} className="i2-radio i2-radio--plain">
+                <input
+                  type="radio"
+                  name="inv-status"
+                  checked={status === o.value}
+                  onChange={() => changeStatus(o.value)}
+                />
+                <span>{o.label}</span>
+              </label>
+            ))}
+          </fieldset>
+
+          <div className="i2-field i2-field--stack">
+            <label className="i2-field__lab" htmlFor="inv-filter-category">
+              קטגוריה
+            </label>
+            <select id="inv-filter-category" className="i2-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+              <option value="">כל הקטגוריות</option>
+              {categoryOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="i2-field i2-field--stack">
+            <label className="i2-field__lab" htmlFor="inv-filter-supplier">
+              ספק
+            </label>
+            <select id="inv-filter-supplier" className="i2-select" value={supplier} onChange={(e) => setSupplier(e.target.value)}>
+              <option value="">כל הספקים</option>
+              {supplierOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="i2-field i2-field--stack">
+            <span className="i2-field__lab">מיון</span>
+            <InvSegmented<SortKey>
+              value={sort}
+              onChange={setSort}
+              label="מיון"
+              options={[
+                { value: "status", label: "לפי מצב" },
+                { value: "name", label: "לפי שם" },
+              ]}
+            />
+          </div>
+        </InvSheet>
+      ) : null}
+    </InvPage>
   );
 }
 

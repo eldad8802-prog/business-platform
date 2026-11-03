@@ -473,6 +473,7 @@ export const insightsEn: Widen<typeof insightsHe> = {
     toCalendarServices: "To services",
     toContentPlan: "To the content plan",
     toProductList: "To the product list",
+    toProductDetails: "To the product",
     toContentCreation: "To content creation",
     toDigitalPresence: "To digital presence",
     toSales: "To Sales",
