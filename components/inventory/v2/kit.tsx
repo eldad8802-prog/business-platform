@@ -384,8 +384,10 @@ export function InvQty({
   const [text, setText] = useState(String(value));
   const [editing, setEditing] = useState(false);
   const shown = editing ? text : String(value);
+  // − / + step by one from the current value (a fractional stored quantity stays
+  // fractional, as before); typed input accepts whole numbers only.
   const clamp = (n: number) => {
-    let v = Math.round(n);
+    let v = n;
     if (Number.isNaN(v)) v = min;
     if (v < min) v = min;
     if (typeof max === "number" && v > max) v = max;
@@ -394,8 +396,8 @@ export function InvQty({
   const commit = (raw: string) => {
     setEditing(false);
     if (raw.trim() === "") return;
-    const n = Number(raw.replace(",", "."));
-    if (!Number.isFinite(n)) return;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) return;
     const next = clamp(n);
     if (next !== value) onChange(next);
   };
