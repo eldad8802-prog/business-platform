@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { decideCategoryOnSave } from "@/lib/inventory/category-edit";
 import { inventoryAlertResolvePath } from "@/lib/inventory/inventory-routes";
 import { chargedSaleTotal } from "@/lib/inventory/sale-total";
+import { keyboardSheetInset } from "@/lib/inventory/sheet-viewport";
 import { INVENTORY_ITEM_DETAIL_INCLUDE } from "@/lib/services/inventory/inventory-item-detail";
 
 let failures = 0;
@@ -125,6 +126,26 @@ check(
   sheetAt > 0 && portalAt > 0 && !between.includes(") : null}") && detail.slice(sheetAt).includes("document.body")
 );
 check("the portaled movement sheet keeps the inventory style scope", between.includes("data-inventory-module"));
+
+// ---------------------------------------------------------------- O1 keyboard
+// iOS keeps the layout viewport at full height when the keyboard opens and shrinks
+// only the visual viewport; the sheet must sit above the keyboard and fit what is visible.
+check("no visualViewport → sheet keeps its CSS", keyboardSheetInset(844, null) === null);
+check("keyboard closed (visual = layout) → no inset", keyboardSheetInset(844, { height: 844, offsetTop: 0 }) === null);
+const kb = keyboardSheetInset(844, { height: 480, offsetTop: 0 });
+check("keyboard of 364px lifts the sheet by 364 and caps it to 92% of the visible 480", kb?.bottom === 364 && kb?.maxHeight === 441, JSON.stringify(kb));
+const panned = keyboardSheetInset(844, { height: 400, offsetTop: 40 });
+check("a panned visual viewport (offsetTop) is accounted for", panned?.bottom === 404 && panned?.maxHeight === 368, JSON.stringify(panned));
+check("sub-pixel rounding is not treated as a keyboard", keyboardSheetInset(844, { height: 843.6, offsetTop: 0 }) === null);
+check("a nonsense viewport height is ignored", keyboardSheetInset(844, { height: 0, offsetTop: 0 }) === null);
+
+const movementSheet = readFileSync(join(ROOT, "components/inventory/movement-sheet.tsx"), "utf8");
+check(
+  "the movement sheet follows visualViewport and passes the inset to its BottomSheet",
+  movementSheet.includes("window.visualViewport") && movementSheet.includes("keyboardSheetInset(") && /sheetStyle=\{keyboard/.test(movementSheet)
+);
+const primitives = readFileSync(join(ROOT, "components/inventory/inventory-primitives.tsx"), "utf8");
+check("BottomSheet applies an optional sheetStyle (absent for every other sheet)", /style=\{sheetStyle\}/.test(primitives));
 
 console.log(`\n${total - failures}/${total} passed`);
 if (failures > 0) process.exit(1);
