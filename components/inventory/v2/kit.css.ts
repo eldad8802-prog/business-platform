@@ -342,6 +342,14 @@ export const inv2Css = `
   .i2-mob-only { display: none; }
 }
 
+/* ----- small generic helpers (operations screens) ----- */
+.i2-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.i2-hero-img { position: relative; margin: 12px 0 4px; }
+.i2-hero-img img { display: block; width: 100%; max-height: 220px; object-fit: cover; border-radius: var(--i2-radius); background: var(--i2-beige); }
+.i2-hero-img .i2-iconbtn { position: absolute; inset-inline-start: 8px; bottom: 8px; background: rgba(255, 253, 249, .92); }
+.i2-results { list-style: none; margin: -4px 0 12px; padding: 0 12px; border: 1px solid var(--i2-line); border-radius: var(--i2-radius); background: var(--i2-card); }
+.i2-results .i2-row { min-height: 60px; padding: 8px 0; }
+
 /* ----- responsive ----- */
 @media (max-width: 359px) {
   [data-inv2] { --i2-gutter: 12px; }
