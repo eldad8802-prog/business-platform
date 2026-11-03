@@ -9,9 +9,12 @@ import { join } from "node:path";
 import {
   clampReceived,
   lineOpenQty,
+  receiveLineQuantities,
   remainderDecisionPayload,
   shortfall,
 } from "@/lib/inventory/receive-remainder";
+import { getMessages } from "@/lib/i18n/messages";
+import { translate, type MessageKey } from "@/lib/i18n/translate";
 
 let failures = 0;
 let total = 0;
@@ -68,6 +71,39 @@ check("a fully received line cannot be received again", clampReceived({ orderedQ
 // No decision chosen, or nothing short → nothing is sent (the line simply stays open).
 check("no decision → no remainder request", remainderDecisionPayload(first, 6, undefined) === null);
 check("receiving everything → no remainder request", remainderDecisionPayload(first, 10, "CLOSED_SHORT") === null);
+
+// The line's numbers always reconcile: ordered = before + closed short + open; open = now + after.
+const reconciles = (q: ReturnType<typeof receiveLineQuantities>) =>
+  q.ordered === q.receivedBefore + q.closedShortBefore + q.open && q.open === q.now + q.after;
+
+const qFirst = receiveLineQuantities(first, 6);
+check("first receipt: ordered 10, nothing before, now 6, after 4, no history line", qFirst.ordered === 10 && qFirst.receivedBefore === 0 && qFirst.now === 6 && qFirst.after === 4 && !qFirst.hasHistory && reconciles(qFirst), JSON.stringify(qFirst));
+
+const qRepeat = receiveLineQuantities(second, 3);
+check("repeat receipt: received before 6, open 4, now 3, after 1", qRepeat.receivedBefore === 6 && qRepeat.open === 4 && qRepeat.now === 3 && qRepeat.after === 1 && qRepeat.hasHistory && reconciles(qRepeat), JSON.stringify(qRepeat));
+
+const qFull = receiveLineQuantities(second, 4);
+check("receiving the whole open balance leaves 0 after", qFull.after === 0 && reconciles(qFull));
+
+const qClosed = receiveLineQuantities(partlyClosed, 1);
+check("a previous close-short is shown and still reconciles (10 = 5 + 3 + 2)", qClosed.closedShortBefore === 3 && qClosed.open === 2 && qClosed.after === 1 && reconciles(qClosed), JSON.stringify(qClosed));
+
+const qDone = receiveLineQuantities({ orderedQty: 5, receivedQty: 5, closedShortQty: 0, openQty: 0 }, 2);
+check("a fully received line shows nothing open and receives 0", qDone.open === 0 && qDone.now === 0 && qDone.after === 0 && reconciles(qDone));
+
+check("now is capped at the open balance on the line too", receiveLineQuantities(second, 9).now === 4);
+
+// Every new line label exists in Hebrew and English and carries its {qty} slot.
+for (const locale of ["he", "en"] as const) {
+  const messages = getMessages(locale);
+  for (const key of ["ordered", "receivedBefore", "closedShortBefore", "open", "now", "after"] as const) {
+    const full = `customers.purchases.receive.qty.${key}` as MessageKey;
+    const text = translate(messages, full);
+    check(`${locale}: ${key} label has a {qty} slot`, text !== full && text.includes("{qty}"), text);
+  }
+  const nothing = "customers.purchases.receive.qty.nothingOpen" as MessageKey;
+  check(`${locale}: nothingOpen label exists`, translate(messages, nothing) !== nothing);
+}
 
 // The page must route every remainder request through the helper.
 const page = readFileSync(join(process.cwd(), "app/(shell)/inventory/supplier-purchases/[id]/receive/page.tsx"), "utf8");

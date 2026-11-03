@@ -41,6 +41,29 @@ export function shortfall(line: ReceivableLine, receivedNow: number): number {
   return Math.max(0, lineOpenQty(line) - receivedNow);
 }
 
+/**
+ * The numbers the receive screen shows under a line, so they always reconcile:
+ *   ordered = receivedBefore + closedShortBefore + open
+ *   open    = now + after
+ * `hasHistory` is true when an earlier receipt or a closed-short decision exists —
+ * only then are "received before / closed short / open" worth showing.
+ */
+export function receiveLineQuantities(line: ReceivableLine, receivedNow: number) {
+  const open = lineOpenQty(line);
+  const now = clampReceived(line, receivedNow);
+  const receivedBefore = Math.max(0, line.receivedQty ?? 0);
+  const closedShortBefore = Math.max(0, line.closedShortQty ?? 0);
+  return {
+    ordered: line.orderedQty,
+    receivedBefore,
+    closedShortBefore,
+    open,
+    now,
+    after: Math.max(0, open - now),
+    hasHistory: receivedBefore > 0 || closedShortBefore > 0,
+  };
+}
+
 export function remainderDecisionPayload(
   line: ReceivableLine,
   receivedNow: number,

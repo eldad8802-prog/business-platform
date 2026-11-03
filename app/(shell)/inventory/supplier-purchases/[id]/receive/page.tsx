@@ -20,7 +20,13 @@ import {
   type PurchaseOrderDTO,
 } from "@/lib/api/inventory";
 import { getProductEmoji } from "@/lib/inventory/product-emoji";
-import { clampReceived, lineOpenQty, remainderDecisionPayload, shortfall } from "@/lib/inventory/receive-remainder";
+import {
+  clampReceived,
+  lineOpenQty,
+  receiveLineQuantities,
+  remainderDecisionPayload,
+  shortfall,
+} from "@/lib/inventory/receive-remainder";
 import { BdiTemplate } from "@/components/inventory/supplier-purchase-order/order-wizard-ui";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -171,21 +177,45 @@ export default function ReceivingPage() {
               const rec = received[line.id] ?? 0;
               const unitKey = line.unitType ? UNIT_SHORT[line.unitType] : undefined;
               const unit = unitKey ? t(unitKey) : "";
-              const shortBy = shortfall(line, rec);
-              const short = shortBy > 0;
+              const short = shortfall(line, rec) > 0;
+              const q = receiveLineQuantities(line, rec);
+              const amount = (n: number) => `${n}${unit ? ` ${unit}` : ""}`;
+              const qtyPart = (key: MessageKey, n: number) => (
+                <BdiTemplate key={key} template={t(key)} name="qty" value={amount(n)} />
+              );
+              // Line 1: what was ordered and, after an earlier receipt or a close-short, what happened
+              // and what is still open. Line 2: what this receipt takes in and what it leaves open.
+              const history = [
+                qtyPart("customers.purchases.receive.qty.ordered", q.ordered),
+                ...(q.receivedBefore > 0 ? [qtyPart("customers.purchases.receive.qty.receivedBefore", q.receivedBefore)] : []),
+                ...(q.closedShortBefore > 0 ? [qtyPart("customers.purchases.receive.qty.closedShortBefore", q.closedShortBefore)] : []),
+                ...(q.hasHistory ? [qtyPart("customers.purchases.receive.qty.open", q.open)] : []),
+              ];
               return (
                 <InventoryOrderLine
                   key={line.id}
                   thumb={<span style={{ fontSize: 22 }}>{getProductEmoji(line.rawName || "")}</span>}
                   name={line.rawName || t("customers.purchases.receive.itemFallback", { id: line.id })}
                   sub={
-                    short && rec > 0 ? (
-                      <span style={{ color: "var(--inv-warning-ink)" }}>
-                        {t("customers.purchases.receive.ordered")} <bdi>{line.orderedQty}</bdi> · {t("customers.purchases.receive.received")} <bdi>{rec}</bdi> — {t("customers.purchases.receive.shortBy")} <bdi>{shortBy}</bdi>
+                    <>
+                      <span style={{ display: "block" }}>
+                        {history.map((part, i) => (
+                          <span key={i}>
+                            {i > 0 ? " · " : null}
+                            {part}
+                          </span>
+                        ))}
                       </span>
-                    ) : (
-                      <>{t("customers.purchases.receive.ordered")} <bdi>{line.orderedQty}{unit ? ` ${unit}` : ""}</bdi></>
-                    )
+                      <span style={{ display: "block", color: q.after > 0 ? "var(--inv-warning-ink)" : undefined }}>
+                        {q.open <= 0 ? (
+                          t("customers.purchases.receive.qty.nothingOpen")
+                        ) : (
+                          <>
+                            {qtyPart("customers.purchases.receive.qty.now", q.now)} · {qtyPart("customers.purchases.receive.qty.after", q.after)}
+                          </>
+                        )}
+                      </span>
+                    </>
                   }
                   trailing={
                     <MiniStepper
