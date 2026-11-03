@@ -30,11 +30,18 @@
  *   - nothing to hand back (not yet received, or FIELD / MAINTENANCE): CANCELLED, final.
  *   A cancel never undoes parts used, work done, costs, payments or supplier commitments, and never refunds: the
  *   only effects are releasing still-open part reservations and withdrawing a still-open quote.
+ *
+ * REVISE_QUOTE (owner decision ז-1 A): while QUOTE_PENDING, the SENT version N is replaced by version N+1; N becomes
+ * SUPERSEDED (not WITHDRAWN — that is only for a cancel), N+1 is the one SENT version, the status does not change.
+ *
+ * Free text (ט-1 A): reasons travel in `decision.texts` for the business columns, never in `event.payload`, which holds
+ * only short tokens, numbers, booleans and nulls (the journal CHECK's alphabet).
  */
 
 import {
   TERMINAL_STATUSES,
   SERVICE_HOLD_REASONS,
+  SERVICE_REASON_MAX_LENGTH,
   type RepeatCaseDecision,
   type RepeatCaseInput,
   type ServiceCaseAction,
@@ -42,6 +49,7 @@ import {
   type ServiceCaseActor,
   type ServiceCaseCommand,
   type ServiceCaseContext,
+  type ServiceDecisionTexts,
   type ServiceCaseEffect,
   type ServiceCaseEventType,
   type ServiceCaseKind,
@@ -80,6 +88,7 @@ export const ACTION_FROM: Readonly<Record<ServiceCaseActionType, readonly Servic
   CHECK_IN: ["OPEN", "SCHEDULED"],
   START_DIAGNOSIS: ["CHECKED_IN"],
   SEND_QUOTE: ["DIAGNOSING", "IN_REPAIR"],
+  REVISE_QUOTE: ["QUOTE_PENDING"],
   APPROVE_QUOTE: ["QUOTE_PENDING"],
   REJECT_QUOTE: ["QUOTE_PENDING"],
   START_REPAIR: ["DIAGNOSING"],
@@ -102,6 +111,7 @@ const EVENT_TYPE: Readonly<Record<ServiceCaseActionType, ServiceCaseEventType>> 
   CHECK_IN: "case.checked_in",
   START_DIAGNOSIS: "case.diagnosis_started",
   SEND_QUOTE: "quote.sent",
+  REVISE_QUOTE: "quote.revised",
   APPROVE_QUOTE: "quote.approved",
   REJECT_QUOTE: "quote.rejected",
   START_REPAIR: "repair.started",
@@ -126,8 +136,11 @@ const SYSTEM_ACTIONS: readonly ServiceCaseActionType[] = ["CLOSE"];
 /** Statuses in which an outcome exists (it is decided on entering READY, or by a cancel). */
 const OUTCOME_STATUSES: readonly ServiceCaseStatus[] = ["READY", "DELIVERED", "CLOSED", "ABANDONED", "CANCELLED"];
 
-/** Actions that may leave the status unchanged: holds, and a cancel at EXTERNAL (requested) or of a held READY item. */
-const IN_PLACE_ACTIONS: readonly ServiceCaseActionType[] = ["SET_HOLD", "CLEAR_HOLD", "CANCEL"];
+/**
+ * Actions that may leave the status unchanged: holds, a cancel at EXTERNAL (requested) or of a held READY item, and
+ * a quote revision (QUOTE_PENDING stays QUOTE_PENDING).
+ */
+const IN_PLACE_ACTIONS: readonly ServiceCaseActionType[] = ["SET_HOLD", "CLEAR_HOLD", "CANCEL", "REVISE_QUOTE"];
 
 export function isTerminal(status: ServiceCaseStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
@@ -160,6 +173,8 @@ interface Resolution {
   cancellationRequestedAfter: boolean;
   effects: ServiceCaseEffect[];
   withdrawQuote: ServiceQuoteRef | null;
+  supersedeQuote: { superseded: ServiceQuoteRef; next: ServiceQuoteRef } | null;
+  texts: ServiceDecisionTexts;
   eventType: ServiceCaseEventType | null;
   serverChecks: ServiceServerCheck[];
   payload: Record<string, ServiceEventPayloadValue>;
@@ -188,6 +203,11 @@ function isNonNegativeInt(n: unknown): n is number {
 
 function hasText(s: unknown): s is string {
   return typeof s === "string" && s.trim().length > 0;
+}
+
+/** Unicode code points — what PostgreSQL char_length() counts for UTF-8 text (not UTF-16 units, not bytes). */
+export function reasonLength(text: string): number {
+  return Array.from(text).length;
 }
 
 function actorAllowed(actor: ServiceCaseActor, action: ServiceCaseActionType): boolean {
@@ -267,6 +287,10 @@ export function evaluateTransition(
     cancellationRequestedAfter: r.cancellationRequestedAfter,
     effects: [...r.effects],
     withdrawQuote: r.withdrawQuote ? { ...r.withdrawQuote } : null,
+    supersedeQuote: r.supersedeQuote
+      ? { superseded: { ...r.supersedeQuote.superseded }, next: { ...r.supersedeQuote.next } }
+      : null,
+    texts: { ...r.texts },
     serverChecks: [...r.serverChecks],
     event: {
       type: r.eventType ?? EVENT_TYPE[type],
@@ -293,12 +317,26 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     cancellationRequestedAfter: context.cancellationRequested,
     effects: [],
     withdrawQuote: null,
+    supersedeQuote: null,
+    texts: { cancelReason: null, abandonReason: null, debtOverrideReason: null, loanerOverrideReason: null },
     eventType: null,
     serverChecks: [],
     payload: {},
     violations: [],
   };
   const fail = (code: ServiceCaseViolationCode, detail: string) => r.violations.push(violation(code, detail));
+  /**
+   * A reason as it will be stored: trimmed, or null when blank. Over the limit → REASON_TOO_LONG (never truncated).
+   * The detail names the field and the limit, never the text itself.
+   */
+  const takeReason = (raw: unknown, field: string): string | null => {
+    if (!hasText(raw)) return null;
+    const text = raw.trim();
+    if (reasonLength(text) > SERVICE_REASON_MAX_LENGTH) {
+      fail("REASON_TOO_LONG", `${field} exceeds ${SERVICE_REASON_MAX_LENGTH} characters`);
+    }
+    return text;
+  };
   const onSite = context.kind !== "IN_SHOP";
   const requireStaff = () => {
     if (!isPositiveInt(context.staffMemberId)) fail("STAFF_REQUIRED", "assign a staff member first");
@@ -377,12 +415,61 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       r.payload.totalAgorot = q.totalAgorot;
       break;
     }
+    case "REVISE_QUOTE": {
+      // ז-1 A: replace the version awaiting the customer with the next one; the case stays QUOTE_PENDING.
+      r.to = "QUOTE_PENDING";
+      const cur = context.currentQuote;
+      const q = action.quote;
+      if (!cur) {
+        fail("QUOTE_NOT_AWAITING_DECISION", "there is no quote to revise");
+        break;
+      }
+      if (cur.state === "WITHDRAWN") {
+        fail("QUOTE_WITHDRAWN", `version ${cur.version} was withdrawn`);
+        break;
+      }
+      if (cur.state === "SUPERSEDED") {
+        fail("QUOTE_SUPERSEDED", `version ${cur.version} was already replaced`);
+        break;
+      }
+      if (cur.state !== "SENT") {
+        fail("QUOTE_NOT_AWAITING_DECISION", `version ${cur.version} is ${cur.state}, not awaiting a decision`);
+        break;
+      }
+      if (!action.replaces || action.replaces.version !== cur.version) {
+        fail("QUOTE_VERSION_MISMATCH", `only the current version ${cur.version} can be revised`);
+      }
+      if (!q || !isPositiveInt(q.version) || !isNonNegativeInt(q.totalAgorot) || !hasText(q.docHash)) {
+        fail("INVALID_INPUT", "quote needs version ≥ 1, an integer total in agorot ≥ 0 and the document hash");
+        break;
+      }
+      if (q.version !== cur.version + 1) {
+        fail("QUOTE_VERSION_NOT_NEXT", `the new version must be ${cur.version + 1}`);
+      }
+      if (q.totalAgorot === 0 && context.coverage?.decision !== "APPROVED") {
+        fail("QUOTE_TOTAL_REQUIRES_COVERAGE", "a ₪0 quote is only for an approved cover");
+      }
+      r.effects.push("SUPERSEDE_OPEN_QUOTE");
+      r.supersedeQuote = {
+        superseded: { version: cur.version, totalAgorot: cur.totalAgorot, docHash: cur.docHash },
+        next: { version: q.version, totalAgorot: q.totalAgorot, docHash: q.docHash },
+      };
+      r.serverChecks.push("QUOTE_DOCUMENT_MATCHES_HASH");
+      r.payload.supersededQuoteVersion = cur.version;
+      r.payload.quoteVersion = q.version;
+      r.payload.totalAgorot = q.totalAgorot;
+      break;
+    }
     case "APPROVE_QUOTE": {
       r.to = "IN_REPAIR";
       const q = context.currentQuote;
       const a = action.approval;
       if (q?.state === "WITHDRAWN") {
         fail("QUOTE_WITHDRAWN", `version ${q.version} was withdrawn and can no longer be approved`);
+        break;
+      }
+      if (q?.state === "SUPERSEDED") {
+        fail("QUOTE_SUPERSEDED", `version ${q.version} was replaced and can no longer be approved`);
         break;
       }
       if (!q || q.state !== "SENT") {
@@ -408,6 +495,7 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       r.outcome = "QUOTE_REJECTED";
       const q = context.currentQuote;
       if (q?.state === "WITHDRAWN") fail("QUOTE_WITHDRAWN", `version ${q.version} was withdrawn`);
+      else if (q?.state === "SUPERSEDED") fail("QUOTE_SUPERSEDED", `version ${q.version} was replaced`);
       else if (!q || q.state !== "SENT") fail("QUOTE_NOT_AWAITING_DECISION", "no sent quote awaits a decision");
       else if (action.version !== q.version) fail("QUOTE_VERSION_MISMATCH", `current version is ${q.version}`);
       else r.payload.quoteVersion = q.version;
@@ -538,15 +626,27 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
         if (s.openBalanceAgorot > 0) {
           // Owner decision ש4: allowed only as the owner's explicit decision, with a reason. The debt itself stays.
           if (!action.debtOverride) fail("OPEN_BALANCE_NEEDS_OWNER_DECISION", "an open balance needs the owner's decision");
-          else if (!hasText(action.debtOverride.reason)) fail("OVERRIDE_REASON_REQUIRED", "debt decision reason");
-          else r.payload.debtOverrideReason = action.debtOverride.reason.trim();
+          else {
+            const reason = takeReason(action.debtOverride.reason, "debtOverride.reason");
+            if (reason === null) fail("OVERRIDE_REASON_REQUIRED", "debt decision reason");
+            else {
+              r.texts.debtOverrideReason = reason;
+              r.payload.debtOverride = true;
+            }
+          }
         }
         r.serverChecks.push("SETTLEMENT_READ_IN_SAME_TRANSACTION");
       }
       if (context.openLoaner) {
         if (!action.loanerOverride) fail("OPEN_LOANER", "the temporary replacement item has not been returned");
-        else if (!hasText(action.loanerOverride.reason)) fail("OVERRIDE_REASON_REQUIRED", "loaner decision reason");
-        else r.payload.loanerOverrideReason = action.loanerOverride.reason.trim();
+        else {
+          const reason = takeReason(action.loanerOverride.reason, "loanerOverride.reason");
+          if (reason === null) fail("OVERRIDE_REASON_REQUIRED", "loaner decision reason");
+          else {
+            r.texts.loanerOverrideReason = reason;
+            r.payload.loanerOverride = true;
+          }
+        }
       }
       r.effects.push("ATTEMPT_AUTO_CLOSE");
       break;
@@ -564,18 +664,20 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     case "CANCEL": {
       const atSupplier = context.status === "EXTERNAL";
       const held = itemHeldByBusiness(context.kind, context.status);
-      const reason = hasText(action.reason) ? action.reason.trim() : null;
       if (context.outcome === "CANCELLED" || context.cancellationRequested) {
         fail("ALREADY_CANCELLED", "this case is already cancelled");
         break;
       }
+      const reason = takeReason(action.reason, "reason");
       if ((held || atSupplier) && reason === null) {
         fail("REASON_REQUIRED", "cancelling while the item is with the business or a supplier needs a reason");
         break;
       }
+      // One reason column for the case, whether the cancel completes now or (at a supplier) on the item's return.
+      r.texts.cancelReason = reason;
+      r.payload.reasonRecorded = reason !== null;
       r.payload.itemHeldByBusiness = held;
       r.payload.itemAtSupplier = atSupplier;
-      r.payload.reason = reason;
       r.payload.quoteStateAtCancel = context.currentQuote?.state ?? null;
       r.payload.openPartReservations = isNonNegativeInt(context.openPartReservations) ? context.openPartReservations : null;
       if (context.status === "READY") r.payload.previousOutcome = context.outcome;
@@ -595,13 +697,18 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       if (q?.state === "SENT") {
         r.effects.push("WITHDRAW_OPEN_QUOTE");
         r.withdrawQuote = { version: q.version, totalAgorot: q.totalAgorot, docHash: q.docHash };
+        r.payload.withdrawnQuoteVersion = q.version;
       }
       break;
     }
     case "ABANDON": {
       r.to = "ABANDONED";
-      if (!hasText(action.reason)) fail("REASON_REQUIRED", "marking an item as not collected needs a reason");
-      else r.payload.reason = action.reason.trim();
+      const reason = takeReason(action.reason, "reason");
+      if (reason === null) fail("REASON_REQUIRED", "marking an item as not collected needs a reason");
+      else {
+        r.texts.abandonReason = reason;
+        r.payload.reasonRecorded = true;
+      }
       if (!isNonNegativeInt(context.pickupRemindersSent) || context.pickupRemindersSent < 1) {
         fail("PICKUP_REMINDERS_REQUIRED", "at least one documented pickup reminder must precede it");
       } else {
@@ -611,7 +718,8 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     }
     default: {
       const never: never = action;
-      fail("INVALID_INPUT", `unknown action ${JSON.stringify(never)}`);
+      // Only the action's type, never the action's content (it may carry free text).
+      fail("INVALID_INPUT", `unknown action ${String((never as { type?: unknown }).type)}`);
     }
   }
 
@@ -626,8 +734,25 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
  * Version, total, document hash and any earlier approval are carried over unchanged; the input is not mutated.
  */
 export function withdrawQuote(quote: ServiceQuoteSnapshot, ref: ServiceQuoteRef): QuoteWithdrawalDecision {
+  return closeOpenQuote(quote, ref, "WITHDRAWN");
+}
+
+/**
+ * The replaced quote after REVISE_QUOTE (effect SUPERSEDE_OPEN_QUOTE), for the service layer to persist. Same rules
+ * as withdrawQuote: only a SENT version, exactly the one named, once; its content and history are kept.
+ */
+export function supersedeQuote(quote: ServiceQuoteSnapshot, ref: ServiceQuoteRef): QuoteWithdrawalDecision {
+  return closeOpenQuote(quote, ref, "SUPERSEDED");
+}
+
+function closeOpenQuote(
+  quote: ServiceQuoteSnapshot,
+  ref: ServiceQuoteRef,
+  next: "WITHDRAWN" | "SUPERSEDED",
+): QuoteWithdrawalDecision {
   if (quote.state !== "SENT") {
-    const code: ServiceCaseViolationCode = quote.state === "WITHDRAWN" ? "QUOTE_WITHDRAWN" : "QUOTE_NOT_AWAITING_DECISION";
+    const code: ServiceCaseViolationCode =
+      quote.state === "WITHDRAWN" ? "QUOTE_WITHDRAWN" : quote.state === "SUPERSEDED" ? "QUOTE_SUPERSEDED" : "QUOTE_NOT_AWAITING_DECISION";
     return { ok: false, violations: [violation(code, `version ${quote.version} is ${quote.state}, not open`)] };
   }
   if (ref.version !== quote.version || ref.totalAgorot !== quote.totalAgorot || ref.docHash !== quote.docHash) {
@@ -635,7 +760,7 @@ export function withdrawQuote(quote: ServiceQuoteSnapshot, ref: ServiceQuoteRef)
   }
   return {
     ok: true,
-    quote: { ...quote, state: "WITHDRAWN", approval: quote.approval ? { ...quote.approval } : null },
+    quote: { ...quote, state: next, approval: quote.approval ? { ...quote.approval } : null },
   };
 }
 

@@ -71,13 +71,15 @@ export interface QuoteApproval {
 /**
  * The newest quote version of the case. Any change to a sent quote is a NEW version, which needs a new approval.
  * WITHDRAWN = a sent version taken back because the case was cancelled (owner-approved, service quotes ONLY).
- * It is local to this module: no billing document status changes, and no global enum gains a value.
+ * SUPERSEDED = a sent version replaced by the next version while the case goes on (REVISE_QUOTE, decision ז-1).
+ * Both are local to this module: no billing document status changes, and no global enum gains a value.
+ * Neither can ever be approved or rejected.
  */
 export interface ServiceQuoteSnapshot {
   version: number;
   totalAgorot: number;
   docHash: string;
-  state: "SENT" | "APPROVED" | "REJECTED" | "WITHDRAWN";
+  state: "SENT" | "APPROVED" | "REJECTED" | "WITHDRAWN" | "SUPERSEDED";
   approval: QuoteApproval | null;
 }
 
@@ -151,6 +153,25 @@ export interface OwnerOverride {
   reason: string;
 }
 
+/**
+ * Free-text reasons are never journal data (decision ט-1 A): the journal payload holds only short tokens, numbers
+ * and booleans. A reason is trimmed, must be non-empty where it is required, and is at most this many Unicode code
+ * points — the same unit PostgreSQL's char_length() counts, so a future CHECK can enforce the identical rule.
+ */
+export const SERVICE_REASON_MAX_LENGTH = 1000;
+
+/**
+ * The free text a successful decision carries for the service layer to store in its business columns
+ * (ServiceCase.cancelReason / abandonReason, ServiceHandover.debtOverrideReason / loanerOverrideReason).
+ * All four are always present; a reason the action does not carry is null.
+ */
+export interface ServiceDecisionTexts {
+  cancelReason: string | null;
+  abandonReason: string | null;
+  debtOverrideReason: string | null;
+  loanerOverrideReason: string | null;
+}
+
 // ── Actions ────────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface HandoverReceipt {
@@ -163,6 +184,8 @@ export type ServiceCaseAction =
   | { type: "CHECK_IN" }
   | { type: "START_DIAGNOSIS" }
   | { type: "SEND_QUOTE"; quote: { version: number; totalAgorot: number; docHash: string } }
+  /** Replace the SENT version `replaces` with the next version, while the case stays QUOTE_PENDING (ז-1 A). */
+  | { type: "REVISE_QUOTE"; replaces: { version: number }; quote: { version: number; totalAgorot: number; docHash: string } }
   | { type: "APPROVE_QUOTE"; approval: QuoteApproval }
   | { type: "REJECT_QUOTE"; version: number }
   | { type: "START_REPAIR" }
@@ -210,6 +233,9 @@ export type ServiceCaseViolationCode =
   | "QUOTE_NOT_AWAITING_DECISION"
   | "QUOTE_VERSION_MISMATCH"
   | "QUOTE_WITHDRAWN"
+  | "QUOTE_SUPERSEDED"
+  | "QUOTE_VERSION_NOT_NEXT"
+  | "REASON_TOO_LONG"
   | "ALREADY_CANCELLED"
   | "CANCELLATION_REQUESTED"
   | "INCONSISTENT_CASE_STATE"
@@ -266,6 +292,7 @@ export const SERVICE_COMMAND_SERVER_DUTIES = [
 export type ServiceCaseEffect =
   | "RELEASE_PART_RESERVATIONS"
   | "WITHDRAW_OPEN_QUOTE"
+  | "SUPERSEDE_OPEN_QUOTE"
   | "ATTEMPT_AUTO_CLOSE"
   | "LINK_REPLACEMENT_DEVICE";
 
@@ -276,6 +303,7 @@ export type ServiceCaseEventType =
   | "quote.sent"
   | "quote.approved"
   | "quote.rejected"
+  | "quote.revised"
   | "repair.started"
   | "hold.set"
   | "hold.cleared"
@@ -325,6 +353,13 @@ export type ServiceTransitionDecision =
       effects: readonly ServiceCaseEffect[];
       /** Set with effect WITHDRAW_OPEN_QUOTE: the exact sent version the service must mark WITHDRAWN. */
       withdrawQuote: ServiceQuoteRef | null;
+      /**
+       * Set with effect SUPERSEDE_OPEN_QUOTE (REVISE_QUOTE): mark `superseded` SUPERSEDED and create `next` as the one
+       * SENT version — both, with the case update and the event, in one transaction (task 1.3).
+       */
+      supersedeQuote: { superseded: ServiceQuoteRef; next: ServiceQuoteRef } | null;
+      /** Free text for the business columns — never in `event.payload`. */
+      texts: ServiceDecisionTexts;
       serverChecks: readonly ServiceServerCheck[];
       event: ServiceCaseEventDraft;
     }
