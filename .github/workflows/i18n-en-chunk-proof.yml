@@ -20,6 +20,8 @@ on:
       - "components/i18n/**"
       - "lib/i18n/messages/**"
       - ".i18n/en-chunk-proof.mts"
+      - ".i18n/en-chunk-rules.ts"
+      - ".i18n/en-chunk-rules.test.ts"
       - ".github/workflows/i18n-en-chunk-proof.yml"
   workflow_dispatch:
 
@@ -64,6 +66,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
+      - name: Unit tests — chunk-name rule and dictionary-file selection (pure, before any build)
+        run: npx tsx .i18n/en-chunk-rules.test.ts
       - name: Report directory
         shell: bash
         run: |

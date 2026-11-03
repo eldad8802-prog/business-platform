@@ -1,0 +1,9 @@
+{
+  "note": "i18n en-chunk proof: chunk-name rule matches the build's hash format ([0-9a-z_-]{13}); dictionary-file selection and its assertions unit-tested. Thresholds unchanged.",
+  "tests": {
+    ".i18n/en-chunk-rules.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: the chunk-name rule of the en-chunk proof accepts the build's hashed names (incl. `09-fn8k_4ub0p.js`, which failed CI run 41706563200) and still refuses unhashed ones; the dictionary file is the English-only file with the sentinels; a missing / partial / Hebrew-shared / >3-file dictionary still fails; the proof uses these rules and its DOM / byte assertions are unchanged; run on pull_request by i18n-en-chunk-proof.yml"
+    }
+  }
+}
