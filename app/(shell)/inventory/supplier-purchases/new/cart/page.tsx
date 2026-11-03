@@ -1,189 +1,152 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useI18n } from "@/components/i18n/I18nProvider";
-import { intlTag } from "@/lib/i18n/config";
 import { useOrderWizard } from "@/components/inventory/supplier-purchase-order/order-wizard-context";
 import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
-import {
-  InventoryOrderLine,
-  MiniStepper,
-  BottomActionBar,
-  InventoryStatePanel,
-} from "@/components/inventory/inventory-design";
-import { getProductEmoji } from "@/lib/inventory/product-emoji";
+import { I2, InvButton, InvConfirm, InvQty, InvState, ProductThumb, formatMoney } from "@/components/inventory/v2/kit";
+import { unitWord } from "@/lib/inventory/unit-words";
 
+/** Cost the line has, if any (the same parse the cart always used; validation stays at submit). */
+function lineCost(raw: string | undefined): number | null {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** Order wizard step 2 — the cart (redesign, mockup "עגלת ההזמנה"). */
 export default function NewSupplierPurchaseCartPage() {
   const router = useRouter();
-  const { t, locale } = useI18n();
-  const {
-    summary,
-    selectedItems,
-    order,
-    incrementItem,
-    decrementItem,
-    removeItem,
-    clearOrder,
-    isSuggested,
-    unitCosts,
-    setUnitCost,
-  } = useOrderWizard();
+  const { summary, selectedItems, order, setOrder, removeItem, clearOrder, unitCosts, setUnitCost } = useOrderWizard();
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const hasItems = selectedItems.length > 0;
+  let known = 0;
+  let missing = 0;
+  for (const item of selectedItems) {
+    const c = lineCost(unitCosts[item.id]);
+    if (c == null) missing += 1;
+    else known += (order[item.id] ?? 0) * c;
+  }
 
-  const total = selectedItems.reduce((sum, item) => {
-    const qty = order[item.id] ?? 0;
-    const cost = Number(unitCosts[item.id] ?? "");
-    return sum + (Number.isFinite(cost) ? qty * cost : 0);
-  }, 0);
+  const setQty = (id: number, qty: number) =>
+    setOrder((prev) => {
+      const next = { ...prev };
+      if (qty <= 0) delete next[id];
+      else next[id] = qty;
+      return next;
+    });
 
   return (
     <OrderWizardShell
-      title={t("customers.purchases.cart.title")}
-      backHref="/inventory/supplier-purchases/new"
-      showProgress={true}
+      title="עגלת ההזמנה"
+      backFallback="/inventory/supplier-purchases/new"
       footer={
         hasItems ? (
-          <div className="inv-decision-mobile">
-            <BottomActionBar
-              label={t(
-                summary.totalUnits === 1 ? "customers.purchases.cart.orderTotalOne" : "customers.purchases.cart.orderTotalMany",
-                { count: summary.totalUnits }
-              )}
-              value={total > 0 ? <>₪{total.toLocaleString(intlTag(locale))}</> : "—"}
-              cta={t("customers.purchases.cart.continueToConfirm")}
-              onCta={() => router.push("/inventory/supplier-purchases/new/confirm")}
-            />
-          </div>
-        ) : null
+          <>
+            <div className="i2-footer__row">
+              <InvButton onClick={() => router.push("/inventory/supplier-purchases/new/confirm")}>המשך לאישור</InvButton>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <button type="button" className="i2-underline" onClick={() => setConfirmClear(true)}>
+                ניקוי עגלה
+              </button>
+            </div>
+          </>
+        ) : undefined
       }
     >
       {!hasItems ? (
-        <div className="inv-page-content" style={{ padding: "8px clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel
-            title={t("customers.purchases.cart.emptyTitle")}
-            action={
-              <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => router.push("/inventory/supplier-purchases/new")}>
-                {t("customers.purchases.cart.selectProducts")}
-              </button>
-            }
-          >
-            {t("customers.purchases.cart.emptyBody")}
-          </InventoryStatePanel>
-        </div>
+        <InvState
+          title="העגלה ריקה"
+          body="בחרו מוצרים להזמנה, והם יופיעו כאן."
+          action={<InvButton href="/inventory/supplier-purchases/new">לבחירת מוצרים</InvButton>}
+        />
       ) : (
-        <div className="inv-ops">
-        <div className="inv-desk-table" aria-label={t("customers.purchases.cart.linesAria")}>
-          <table>
-            <thead>
-              <tr>
-                <th>{t("customers.purchases.cart.colProduct")}</th>
-                <th>{t("customers.purchases.cart.colQuantity")}</th>
-                <th>{t("customers.purchases.cart.colUnitCost")}</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {selectedItems.map((item) => {
-                const qty = order[item.id] ?? 0;
-                return (
-                  <tr key={item.id}>
-                    <td>{item.name}</td>
-                    <td>
-                      <button type="button" onClick={() => decrementItem(item.id)} aria-label={t("customers.purchases.cart.decrease")}>−</button>
-                      {" "}{qty}{" "}
-                      <button type="button" onClick={() => incrementItem(item.id)} aria-label={t("customers.purchases.cart.increase")}>+</button>
-                    </td>
-                    <td>
-                      <input
-                        className="inv-input"
-                        style={{ minHeight: 36 }}
-                        inputMode="decimal"
-                        placeholder={t("customers.purchases.cart.optional")}
-                        value={unitCosts[item.id] ?? ""}
-                        onChange={(e) => setUnitCost(item.id, e.target.value)}
-                        aria-label={t("customers.purchases.cart.unitCostFor", { name: item.name })}
-                      />
-                    </td>
-                    <td>
-                      <button type="button" onClick={() => removeItem(item.id)} aria-label={t("customers.purchases.cart.removeNamed", { name: item.name })}>{t("customers.purchases.cart.remove")}</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="inv-olines inv-decision-mobile">
-          {selectedItems.map((item) => {
-            const qty = order[item.id] ?? 0;
-            return (
-              <InventoryOrderLine
-                key={item.id}
-                thumb={<span style={{ fontSize: 22 }}>{getProductEmoji(item.name)}</span>}
-                name={item.name}
-                sub={isSuggested(item.id) ? t("customers.purchases.cart.systemSuggestion") : item.unitType}
-                trailing={
-                  <MiniStepper
-                    value={qty}
-                    min={0}
-                    onDecrement={() => decrementItem(item.id)}
-                    onIncrement={() => incrementItem(item.id)}
-                  />
-                }
-                extra={
-                  <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 10 }}>
-                    <input
-                      className="inv-input"
-                      style={{ minHeight: 40, flex: 1 }}
-                      inputMode="decimal"
-                      placeholder={t("customers.purchases.cart.unitCostOptional")}
-                      value={unitCosts[item.id] ?? ""}
-                      onChange={(e) => setUnitCost(item.id, e.target.value)}
-                      aria-label={t("customers.purchases.cart.unitCostFor", { name: item.name })}
-                    />
-                    <button type="button" className="inv-oline__remove" onClick={() => removeItem(item.id)} aria-label={t("customers.purchases.cart.removeNamed", { name: item.name })}>
-                      ×
+        <>
+          <div style={{ display: "grid", gap: 10 }}>
+            {selectedItems.map((item) => {
+              const qty = order[item.id] ?? 0;
+              const cost = lineCost(unitCosts[item.id]);
+              const unit = unitWord(item.unitType, 1);
+              const inputId = `owz-cost-${item.id}`;
+              return (
+                <div key={item.id} className="i2-card">
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <ProductThumb src={item.imageUrl} name={item.name} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="i2-row__title">
+                        <span>{item.name}</span>
+                      </div>
+                    </div>
+                    <button type="button" className="i2-iconbtn" onClick={() => removeItem(item.id)} aria-label={`הסרה מהעגלה · ${item.name}`}>
+                      {I2.close(20)}
                     </button>
                   </div>
-                }
-              />
-            );
-          })}
-          <button type="button" className="inv-btn-link" style={{ marginInlineStart: "auto" }} onClick={clearOrder}>
-            {t("customers.purchases.cart.clearCart")}
-          </button>
-        </div>
-        <aside className="inv-ops__side">
-          <h2>{t("customers.purchases.cart.sideTitle")}</h2>
-          <p>
-            {t(
-              summary.totalItems === 1 ? "customers.purchases.common.productsOne" : "customers.purchases.common.productsMany",
-              { count: summary.totalItems }
-            )}{" "}
-            ·{" "}
-            {t(
-              summary.totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany",
-              { count: summary.totalUnits }
-            )}
-          </p>
-          <p>
-            {total > 0 ? (
-              <>
-                {t("customers.purchases.cart.totalLabel")} <bdi>₪{total.toLocaleString(intlTag(locale))}</bdi>
-              </>
-            ) : (
-              t("customers.purchases.cart.noCostYet")
-            )}
-          </p>
-          <p>{t("customers.purchases.cart.sideNote")}</p>
-          <button type="button" className="inv-btn-primary" style={{ width: "100%" }} onClick={() => router.push("/inventory/supplier-purchases/new/confirm")}>
-            {t("customers.purchases.cart.continueToConfirm")}
-          </button>
-          <button type="button" className="inv-btn-link" onClick={clearOrder}>{t("customers.purchases.cart.clearCart")}</button>
-        </aside>
-        </div>
+                  <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+                    <div style={{ textAlign: "center" }}>
+                      <InvQty size="sm" value={qty} min={0} label={`כמות · ${item.name}`} onChange={(v) => setQty(item.id, v)} />
+                      <div className="i2-muted" style={{ fontSize: 13, marginTop: 2 }}>{unitWord(item.unitType, qty)}</div>
+                    </div>
+                    <div style={{ flex: "1 1 140px", maxWidth: 220 }}>
+                      <label htmlFor={inputId} className="i2-field__lab" style={{ display: "block", fontSize: 14 }}>
+                        עלות ל{unit} <span className="i2-field__opt">(אופציונלי)</span>
+                      </label>
+                      <div className="i2-affix">
+                        <input
+                          id={inputId}
+                          className="i2-input i2-num"
+                          inputMode="decimal"
+                          value={unitCosts[item.id] ?? ""}
+                          onChange={(e) => setUnitCost(item.id, e.target.value)}
+                        />
+                        <span aria-hidden>₪</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="i2-muted" style={{ marginTop: 8, fontSize: 14.5 }}>
+                    {cost != null ? <>סה״כ: <bdi className="i2-num">{formatMoney(qty * cost)}</bdi></> : "ללא עלות"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="i2-box" style={{ marginTop: 14 }}>
+            <div>
+              {summary.totalItems === 1 ? "מוצר אחד" : `${summary.totalItems.toLocaleString("he-IL")} מוצרים`} ·{" "}
+              {missing === selectedItems.length ? (
+                "לא הוזנו עלויות"
+              ) : (
+                <>
+                  עלות ידועה <bdi className="i2-num" style={{ fontWeight: 600 }}>{formatMoney(known)}</bdi>
+                </>
+              )}
+            </div>
+            {missing > 0 ? (
+              <div className="i2-muted" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 14 }}>
+                {I2.info(18)}
+                <span>חלק מהעלויות לא הוזנו — הסכום כולל רק מוצרים עם עלות.</span>
+              </div>
+            ) : null}
+          </div>
+        </>
       )}
+
+      {confirmClear ? (
+        <InvConfirm
+          title="לנקות את העגלה?"
+          body="כל המוצרים יוסרו מהעגלה."
+          confirmLabel="ניקוי עגלה"
+          danger
+          onConfirm={() => {
+            clearOrder();
+            setConfirmClear(false);
+          }}
+          onCancel={() => setConfirmClear(false)}
+        />
+      ) : null}
     </OrderWizardShell>
   );
 }

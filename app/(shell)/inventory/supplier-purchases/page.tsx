@@ -1,382 +1,313 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
+import { buildClientAuthHeaders, redirectToLogin } from "@/lib/client-session";
 import {
-  FilterChipRow,
-  InventoryRow,
-  InventoryBadge,
-  InventoryStatePanel,
-  InventorySkeletonBlock,
-  IconPlus,
-  type BadgeTone,
-} from "@/components/inventory/inventory-design";
-import { buildClientAuthHeaders } from "@/lib/client-session";
-import { useI18n } from "@/components/i18n/I18nProvider";
-import { intlTag, type Locale } from "@/lib/i18n/config";
-import type { MessageKey, Translator } from "@/lib/i18n/translate";
+  InvButton,
+  InvChips,
+  InvError,
+  InvLoading,
+  InvMenu,
+  InvPage,
+  InvPill,
+  InvRow,
+  InvSearch,
+  InvState,
+  InvStatus,
+} from "@/components/inventory/v2/kit";
+import {
+  buildHubRows,
+  formatOrderDate,
+  matchesHubSearch,
+  productsWord,
+  type HubDraft,
+  type HubPo,
+  type HubRow,
+  type HubTab,
+} from "@/lib/inventory/purchase-order-view";
 
-type PurchaseOrderLine = {
-  id: number;
-  orderedQty: number;
-  unitCost: number | null;
-  /** Server-computed; the API has always returned these alongside each line. */
-  receivedQty?: number;
-  openQty?: number;
-};
+/** The purchase-orders endpoint returns the latest 50 (its own default cap, unchanged). */
+const PO_CAP = 50;
+const PAGE = 50;
+const TABS: HubTab[] = ["receive", "open", "history"];
 
-type PurchaseOrder = {
-  id: number;
-  supplierId: number | null;
-  supplierName: string | null;
-  externalOrderId: string | null;
-  status: string;
-  orderDate: string | null;
-  createdAt: string;
-  lines: PurchaseOrderLine[];
-};
+function readTabParam(): HubTab | null {
+  if (typeof window === "undefined") return null;
+  const v = new URLSearchParams(window.location.search).get("tab");
+  return v && (TABS as string[]).includes(v) ? (v as HubTab) : null;
+}
+
+async function getJson(url: string) {
+  const res = await fetch(url, { headers: buildClientAuthHeaders(), cache: "no-store" });
+  if (res.status === 401) {
+    redirectToLogin();
+    throw new Error("UNAUTHORIZED");
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || "load failed");
+  return data;
+}
 
 /**
- * Is there anything left to receive against this order?
- *
- * Reads the server's own `openQty` (ordered − posted receipts − closed-short)
- * and falls back to the ordered quantity only when the field is absent. This is
- * what decides whether the receiving screen is offered — previously the offer
- * was gated on status === "AWAITING_DELIVERY", a state nothing ever produced, so
- * the receiving screen was unreachable from the normal flow.
+ * Orders hub (redesign, owner-approved mockup "הזמנות מספקים").
+ * Two models in one list, the difference always visible by the kicker:
+ *   "טיוטת הזמנה" — supplier-purchase draft (wizard / CSV), full receipt on /pending.
+ *   "הזמנת רכש"   — PurchaseOrder, partial receipt on /[id]/receive.
+ * Both lists come from their existing endpoints, unchanged.
  */
-function hasOpenQuantity(order: PurchaseOrder): boolean {
-  if (order.status === "CLOSED" || order.status === "CANCELLED") return false;
-  return order.lines.some((line) =>
-    line.openQty != null ? line.openQty > 0 : line.orderedQty > 0
-  );
-}
-
-type Tab = "pending" | "transit" | "history";
-
-const STATUS_GROUP: Record<Tab, string[]> = {
-  pending: ["DRAFT", "CONFIRMED"],
-  transit: ["SENT", "AWAITING_DELIVERY"],
-  history: ["CLOSED", "CANCELLED"],
-};
-
-const STATUS_BADGE: Record<string, { label: MessageKey; tone: BadgeTone }> = {
-  DRAFT: { label: "customers.purchases.status.DRAFT", tone: "neutral" },
-  CONFIRMED: { label: "customers.purchases.status.CONFIRMED", tone: "info" },
-  SENT: { label: "customers.purchases.status.SENT", tone: "info" },
-  AWAITING_DELIVERY: { label: "customers.purchases.status.AWAITING_DELIVERY", tone: "low" },
-  CLOSED: { label: "customers.purchases.status.CLOSED", tone: "ok" },
-  CANCELLED: { label: "customers.purchases.status.CANCELLED", tone: "neutral" },
-};
-
-function statusBadge(status: string, t: Translator): { label: string; tone: BadgeTone } {
-  const entry = STATUS_BADGE[status];
-  return entry ? { label: t(entry.label), tone: entry.tone } : { label: status, tone: "neutral" };
-}
-
-function formatDate(value: string | null, t: Translator, locale: Locale): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const sameDay = (a: Date, b: Date) =>
-    a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
-  if (sameDay(d, today)) return t("customers.purchases.hub.today");
-  if (sameDay(d, yesterday)) return t("customers.purchases.hub.yesterday");
-  return d.toLocaleDateString(intlTag(locale), { day: "numeric", month: "numeric" });
-}
-
-function PurchaseInspector({
-  order,
-  onReceive,
-  onSupplier,
-}: {
-  order: PurchaseOrder | null;
-  onReceive: (id: number) => void;
-  onSupplier: (id: number) => void;
-}) {
-  const { t, locale } = useI18n();
-  if (!order) {
-    return (
-      <aside className="inv-ops__side">
-        <h2>{t("customers.purchases.hub.inspector.title")}</h2>
-        <p>{t("customers.purchases.hub.inspector.empty")}</p>
-      </aside>
-    );
-  }
-  const badge = statusBadge(order.status, t);
-  const total = orderTotal(order);
-  return (
-    <aside className="inv-ops__side">
-      <h2>{order.supplierName || t("customers.purchases.common.noSupplierOrder")}</h2>
-      <p>{badge.label} · {order.externalOrderId ? `#${order.externalOrderId}` : `#${order.id}`}</p>
-      <p>
-        {t(
-          order.lines.length === 1 ? "customers.purchases.hub.inspector.linesOne" : "customers.purchases.hub.inspector.linesMany",
-          { count: order.lines.length }
-        )}
-        {total > 0 ? ` · ₪${total.toLocaleString(intlTag(locale))}` : ""}
-      </p>
-      {order.lines.slice(0, 6).map((line) => (
-        <p key={line.id}>
-          {t("customers.purchases.hub.inspector.qty", { qty: line.orderedQty })}
-          {line.openQty != null ? ` · ${t("customers.purchases.hub.inspector.open", { qty: line.openQty })}` : ""}
-        </p>
-      ))}
-      {order.supplierId != null ? (
-        <button type="button" className="inv-btn-secondary" onClick={() => onSupplier(order.supplierId!)}>{t("customers.purchases.hub.inspector.supplierCard")}</button>
-      ) : null}
-      {hasOpenQuantity(order) ? (
-        <button type="button" className="inv-btn-primary" onClick={() => onReceive(order.id)}>{t("customers.purchases.hub.receive")}</button>
-      ) : (
-        <p>{t("customers.purchases.hub.inspector.nothingOpen")}</p>
-      )}
-    </aside>
-  );
-}
-
-function orderTotal(order: PurchaseOrder): number {
-  return order.lines.reduce((sum, line) => sum + line.orderedQty * (line.unitCost ?? 0), 0);
-}
-
 export default function SupplierPurchasesHubPage() {
-  const router = useRouter();
-  const { t, locale } = useI18n();
-  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [drafts, setDrafts] = useState<HubDraft[]>([]);
+  const [orders, setOrders] = useState<HubPo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("pending");
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [error, setError] = useState(false);
+  const [tab, setTab] = useState<HubTab | null>(null);
+  const [urlTab, setUrlTab] = useState<HubTab | null>(null);
+  const [q, setQ] = useState("");
+  const [shown, setShown] = useState(PAGE);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const [poData, draftData] = await Promise.all([
+        getJson("/api/inventory/purchase-orders"),
+        getJson("/api/inventory/supplier-purchases"),
+      ]);
+      setOrders(Array.isArray(poData?.purchaseOrders) ? poData.purchaseOrders : []);
+      setDrafts(Array.isArray(draftData?.drafts) ? draftData.drafts : []);
+    } catch (err) {
+      if (err instanceof Error && err.message === "UNAUTHORIZED") return;
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let isMounted = true;
-    async function load() {
-      try {
-        setLoading(true);
-        setError(null);
-        const response = await fetch("/api/inventory/purchase-orders", {
-          headers: buildClientAuthHeaders(),
-          cache: "no-store",
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(data?.error || "Failed to load purchase orders");
-        if (isMounted) setOrders(Array.isArray(data?.purchaseOrders) ? data.purchaseOrders : []);
-      } catch (err) {
-        if (isMounted) setError(err instanceof Error ? err.message : t("customers.purchases.hub.loadError"));
-      } finally {
-        if (isMounted) setLoading(false);
-      }
+    const timer = window.setTimeout(() => {
+      setUrlTab(readTabParam());
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const rows = useMemo(() => buildHubRows(drafts, orders), [drafts, orders]);
+  const counts = useMemo(() => {
+    const c: Record<HubTab, number> = { receive: 0, open: 0, history: 0 };
+    for (const r of rows) c[r.tab] += 1;
+    return c;
+  }, [rows]);
+
+  // Default chip: ?tab=, else what needs receiving, else what is open, else history.
+  const activeTab: HubTab = tab ?? urlTab ?? (counts.receive > 0 ? "receive" : counts.open > 0 ? "open" : "history");
+
+  const chooseTab = (next: HubTab) => {
+    setTab(next);
+    setShown(PAGE);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", next);
+      window.history.replaceState(window.history.state, "", url.toString());
+    } catch {
+      /* the chip still changes */
     }
-    void load();
-    return () => {
-      isMounted = false;
-    };
-  }, [t]);
+  };
 
-  const groupCounts = useMemo(() => {
-    const counts: Record<Tab, number> = { pending: 0, transit: 0, history: 0 };
-    for (const order of orders) {
-      (Object.keys(STATUS_GROUP) as Tab[]).forEach((group) => {
-        if (STATUS_GROUP[group].includes(order.status)) counts[group] += 1;
-      });
-    }
-    return counts;
-  }, [orders]);
+  const visible = useMemo(() => rows.filter((r) => r.tab === activeTab && matchesHubSearch(r, q)), [rows, activeTab, q]);
 
-  const visibleOrders = useMemo(
-    () => orders.filter((order) => STATUS_GROUP[tab].includes(order.status)),
-    [orders, tab]
-  );
-
-  const sub = (
-    <>
-      {t("customers.purchases.hub.subPending", { count: groupCounts.pending })} ·{" "}
-      {t("customers.purchases.hub.subTransit", { count: groupCounts.transit })}
-    </>
+  const footer = (
+    <div className="i2-footer__row">
+      <InvButton href="/inventory/supplier-purchases/new">+ הזמנה חדשה</InvButton>
+      <InvButton kind="secondary" href="/inventory/supplier-purchases/import">
+        ייבוא מקובץ CSV
+      </InvButton>
+      <InvMenu
+        up
+        label="אפשרויות נוספות"
+        items={[
+          { label: "ייבוא מקובץ CSV", href: "/inventory/supplier-purchases/import" },
+          { label: "אינטגרציות", href: "/inventory/supplier-purchases/integrations" },
+          { label: "כרטיסי ספקים", href: "/suppliers" },
+          { label: "היסטוריה", onClick: () => chooseTab("history") },
+        ]}
+      />
+    </div>
   );
 
   return (
-    <InventorySubPage intent="data"
-      title={t("customers.purchases.hub.title")}
-      variant="hub"
-      sub={!loading && !error ? sub : undefined}
-      headerAction={{
-        icon: <IconPlus />,
-        label: t("customers.purchases.hub.newOrder"),
-        href: "/inventory/supplier-purchases/new",
-        accent: true,
-      }}
-      bottomNav="orders"
-    >
-      <div
-        className="inv-page-content"
-        style={{ padding: "0 clamp(16px,3.5vw,28px)", marginBottom: 4 }}
-      >
-        <Link className="inv-btn-link" href="/suppliers">
-          {t("customers.purchases.hub.supplierCardsLink")}
-        </Link>
-      </div>
-
-      <FilterChipRow<Tab | "import">
-        value={tab}
-        onChange={(value) => {
-          if (value === "import") {
-            router.push("/inventory/supplier-purchases/import");
-            return;
-          }
-          setTab(value);
+    <InvPage title="הזמנות מספקים" tabs="orders" backFallback="/inventory" wide footer={footer}>
+      <InvSearch
+        value={q}
+        onChange={(v) => {
+          setQ(v);
+          setShown(PAGE);
         }}
+        placeholder="חיפוש הזמנה או ספק"
+      />
+      <InvChips<HubTab>
+        label="סינון הזמנות"
+        value={activeTab}
+        onChange={chooseTab}
         options={[
-          { value: "pending", label: t("customers.purchases.hub.tabs.pending") },
-          { value: "transit", label: t("customers.purchases.hub.tabs.transit") },
-          { value: "history", label: t("customers.purchases.hub.tabs.history") },
-          { value: "import", label: t("customers.purchases.hub.tabs.import") },
+          { value: "receive", label: "לקליטה", count: loading ? undefined : counts.receive },
+          { value: "open", label: "פתוחות", count: loading ? undefined : counts.open },
+          { value: "history", label: "היסטוריה", count: loading ? undefined : counts.history },
         ]}
       />
 
-      {error ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel title={t("customers.purchases.common.somethingWrong")}>{error}</InventoryStatePanel>
-        </div>
-      ) : loading ? (
-        <div className="inv-rows">
-          <InventorySkeletonBlock height={74} rows={4} />
-        </div>
-      ) : visibleOrders.length === 0 ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel
-            title={
-              tab === "pending"
-                ? t("customers.purchases.hub.empty.pending")
-                : tab === "transit"
-                  ? t("customers.purchases.hub.empty.transit")
-                  : t("customers.purchases.hub.empty.history")
-            }
+      {loading ? (
+        <InvLoading rows={5} />
+      ) : error ? (
+        <InvError onRetry={() => void load()} />
+      ) : visible.length === 0 ? (
+        q.trim() ? (
+          <InvState
+            title="לא נמצאו הזמנות"
+            body={`אין הזמנה או ספק שתואמים ל״${q.trim()}״ בלשונית הזו.`}
             action={
-              <button
-                type="button"
-                className="inv-btn-primary inv-btn-primary--full"
-                onClick={() => router.push("/inventory/supplier-purchases/new")}
-              >
-                {t("customers.purchases.hub.empty.create")}
-              </button>
+              <InvButton kind="secondary" onClick={() => setQ("")}>
+                ניקוי החיפוש
+              </InvButton>
             }
-          >
-            {t("customers.purchases.hub.empty.body")}
-          </InventoryStatePanel>
-        </div>
+          />
+        ) : (
+          <EmptyForTab tab={activeTab} onHistory={() => chooseTab("history")} />
+        )
       ) : (
         <>
-        <div className="inv-ops">
-        <div className="inv-desk-table" aria-label={t("customers.purchases.hub.tableAria")}>
-          <table>
-            <thead>
-              <tr>
-                <th>{t("customers.purchases.hub.cols.supplier")}</th>
-                <th>{t("customers.purchases.hub.cols.order")}</th>
-                <th>{t("customers.purchases.hub.cols.items")}</th>
-                <th>{t("customers.purchases.hub.cols.amount")}</th>
-                <th>{t("customers.purchases.hub.cols.date")}</th>
-                <th>{t("customers.purchases.hub.cols.status")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleOrders.map((order) => {
-                const badge = statusBadge(order.status, t);
-                const total = orderTotal(order);
-                return (
-                  <tr
-                    key={order.id}
-                    className={order.id === selectedId ? "is-selected" : undefined}
-                    onClick={() => setSelectedId(order.id)}
-                  >
-                    <td>{order.supplierName || t("customers.purchases.common.noSupplierOrder")}</td>
-                    <td className="num">{order.externalOrderId ? `#${order.externalOrderId}` : `#${order.id}`}</td>
-                    <td className="num">{order.lines.length}</td>
-                    <td className="num">{total > 0 ? `₪${total.toLocaleString(intlTag(locale))}` : "—"}</td>
-                    <td className="num">{formatDate(order.orderDate ?? order.createdAt, t, locale) || "—"}</td>
-                    <td>{badge.label}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <PurchaseInspector
-          order={visibleOrders.find((order) => order.id === selectedId) ?? null}
-          onReceive={(id) => router.push(`/inventory/supplier-purchases/${id}/receive`)}
-          onSupplier={(id) => router.push(`/suppliers/${id}`)}
-        />
-        </div>
-        <div className="inv-rows inv-cards">
-          {visibleOrders.map((order) => {
-            const badge = statusBadge(order.status, t);
-            const idLabel = order.externalOrderId ? `#${order.externalOrderId}` : `#${order.id}`;
-            const total = orderTotal(order);
-            const date = formatDate(order.orderDate ?? order.createdAt, t, locale);
-            const metaParts: string[] = [
-              t(
-                order.lines.length === 1 ? "customers.purchases.common.itemsOne" : "customers.purchases.common.itemsMany",
-                { count: order.lines.length }
-              ),
-              total > 0 ? `₪${total.toLocaleString(intlTag(locale))}` : "",
-              date || "",
-            ].filter(Boolean);
-            const canReceive = hasOpenQuantity(order);
-            return (
-              <InventoryRow
-                key={order.id}
-                thumb={<span style={{ fontSize: 26 }} aria-hidden>🚚</span>}
-                thumbBg="var(--inv-surface)"
-                title={
-                  <>
-                    {order.supplierId != null ? (
-                      // One domain, two surfaces: an order that knows its
-                      // supplier entity links straight to that supplier's card.
-                      <a
-                        href={`/suppliers/${order.supplierId}`}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ color: "inherit" }}
-                      >
-                        <bdi>{order.supplierName || t("customers.purchases.common.supplierFallback")}</bdi>
-                      </a>
-                    ) : (
-                      <bdi>{order.supplierName || t("customers.purchases.common.noSupplierOrder")}</bdi>
-                    )}
-                    {" · "}
-                    <bdi>{idLabel}</bdi>
-                  </>
-                }
-                meta={metaParts.map((part, i) => (
-                  <span key={i}>
-                    {i > 0 ? " · " : null}
-                    <bdi>{part}</bdi>
-                  </span>
-                ))}
-                trail={
-                  <>
-                    <InventoryBadge tone={badge.tone}>{badge.label}</InventoryBadge>
-                    {canReceive ? (
-                      <button
-                        type="button"
-                        className="inv-row__action"
-                        onClick={() => router.push(`/inventory/supplier-purchases/${order.id}/receive`)}
-                      >
-                        {t("customers.purchases.hub.receiveArrow")}
-                      </button>
-                    ) : null}
-                  </>
-                }
-              />
-            );
-          })}
-        </div>
+          <ul className="i2-list i2-only-mob">
+            {visible.slice(0, shown).map((r) => (
+              <HubListRow key={r.key} row={r} />
+            ))}
+          </ul>
+          <div className="i2-only-desk">
+            <HubTable rows={visible.slice(0, shown)} />
+          </div>
+          {visible.length > shown ? (
+            <div style={{ textAlign: "center", marginTop: 12 }}>
+              <InvButton kind="secondary" onClick={() => setShown((n) => n + PAGE)}>
+                הצגת עוד
+              </InvButton>
+            </div>
+          ) : null}
+          {orders.length >= PO_CAP && activeTab !== "receive" ? <p className="i2-foot">מוצגות 50 ההזמנות האחרונות</p> : null}
         </>
       )}
-    </InventorySubPage>
+    </InvPage>
+  );
+}
+
+function orderNo(r: HubRow): string {
+  return r.externalOrderId ? `#${r.externalOrderId}` : String(r.id);
+}
+
+function subLine(r: HubRow): string {
+  const date = formatOrderDate(r.date);
+  return [`הזמנה ${orderNo(r)}`, productsWord(r.lineCount), date].filter(Boolean).join(" · ");
+}
+
+function HubListRow({ row }: { row: HubRow }) {
+  return (
+    <InvRow
+      href={row.action.href}
+      kicker={row.kicker}
+      title={row.supplier}
+      sub={
+        <>
+          <bdi style={{ display: "block" }}>{subLine(row)}</bdi>
+          <span style={{ display: "inline-block", marginTop: 4 }}>
+            <InvStatus tone={row.status.tone}>{row.status.label}</InvStatus>
+          </span>
+        </>
+      }
+      ariaLabel={`${row.kicker} · ${row.supplier} · ${row.status.label}`}
+      trail={
+        <InvPill outline href={row.action.href} ariaLabel={`${row.action.label} · ${row.kicker} ${orderNo(row)}`}>
+          {row.action.label}
+        </InvPill>
+      }
+    />
+  );
+}
+
+function HubTable({ rows }: { rows: HubRow[] }) {
+  return (
+    <table className="i2-table" aria-label="הזמנות מספקים">
+      <thead>
+        <tr>
+          <th>סוג</th>
+          <th>ספק</th>
+          <th>הזמנה</th>
+          <th>מוצרים</th>
+          <th>תאריך</th>
+          <th>סטטוס</th>
+          <th>
+            <span className="i2-sr">פעולה</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key}>
+            <td className="i2-muted">{r.kicker}</td>
+            <td>
+              {r.supplierId != null ? (
+                <Link href={`/suppliers/${r.supplierId}`} style={{ color: "inherit" }}>
+                  <bdi>{r.supplier}</bdi>
+                </Link>
+              ) : (
+                <bdi>{r.supplier}</bdi>
+              )}
+            </td>
+            <td className="i2-num">
+              <bdi>{orderNo(r)}</bdi>
+            </td>
+            <td className="i2-num">{r.lineCount.toLocaleString("he-IL")}</td>
+            <td className="i2-num">{formatOrderDate(r.date) || "—"}</td>
+            <td>
+              <InvStatus tone={r.status.tone}>{r.status.label}</InvStatus>
+            </td>
+            <td style={{ textAlign: "end" }}>
+              <InvPill outline href={r.action.href}>
+                {r.action.label}
+              </InvPill>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function EmptyForTab({ tab, onHistory }: { tab: HubTab; onHistory: () => void }) {
+  if (tab === "receive") {
+    return (
+      <InvState
+        title="אין הזמנות שממתינות לקליטה"
+        body="הזמנה חדשה שתיצרו, או הזמנות שייובאו מקובץ, יופיעו כאן עד לקליטה במלאי."
+        action={<InvButton href="/inventory/supplier-purchases/new">+ הזמנה חדשה</InvButton>}
+      />
+    );
+  }
+  if (tab === "open") {
+    return (
+      <InvState
+        title="אין הזמנות רכש פתוחות"
+        body="הזמנות רכש שעוד לא התקבלו במלואן יופיעו כאן."
+        action={
+          <InvButton kind="secondary" onClick={onHistory}>
+            להיסטוריית ההזמנות
+          </InvButton>
+        }
+      />
+    );
+  }
+  return (
+    <InvState
+      title="עוד אין היסטוריית הזמנות"
+      body="הזמנות שנקלטו במלאי או בוטלו יופיעו כאן."
+      action={<InvButton href="/inventory/supplier-purchases/new">+ הזמנה חדשה</InvButton>}
+    />
   );
 }
