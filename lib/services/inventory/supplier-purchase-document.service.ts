@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- pdfmake ships no usable types (pre-existing casts) */
 import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
 import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
