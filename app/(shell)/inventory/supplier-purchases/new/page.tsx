@@ -187,7 +187,7 @@ export default function NewSupplierPurchaseSelectPage() {
                   key={item.id}
                   thumb={<ProductThumb src={item.imageUrl} name={item.name} />}
                   title={item.name}
-                  sub={item.supplierName?.trim() && !supplierName.trim() ? item.supplierName : unitWord(item.unitType, 2)}
+                  sub={<span className="i2-clamp2">{item.supplierName?.trim() && !supplierName.trim() ? item.supplierName : unitWord(item.unitType, 2)}</span>}
                   trail={
                     inCart > 0 ? (
                       <InvQty size="sm" value={inCart} min={0} label={`כמות בעגלה · ${item.name}`} onChange={(v) => setQty(item.id, v)} />
