@@ -1,168 +1,62 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { useI18n } from "@/components/i18n/I18nProvider";
-import { intlTag } from "@/lib/i18n/config";
 import { useOrderWizard } from "@/components/inventory/supplier-purchase-order/order-wizard-context";
 import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
-import {
-  InventoryOrderLine,
-  BottomActionBar,
-  ConfirmModal,
-  InventoryStatePanel,
-} from "@/components/inventory/inventory-design";
-import { getProductEmoji } from "@/lib/inventory/product-emoji";
+import { InvButton, InvConfirm, InvField, InvNote, InvState } from "@/components/inventory/v2/kit";
+import { qtyWithUnit } from "@/lib/inventory/unit-words";
 
+/**
+ * Order wizard step 3 — confirm (redesign, mockup "אישור הזמנה").
+ * The supplier stays optional (an order may have no supplier, as today).
+ * "צור הזמנה" runs the same createOrder; it creates a draft awaiting receipt and
+ * neither changes stock nor messages the supplier.
+ */
 export default function NewSupplierPurchaseConfirmPage() {
-  const { t, locale } = useI18n();
-  const {
-    summary,
-    selectedItems,
-    order,
-    unitCosts,
-    supplierName,
-    supplierKey,
-    selectSupplier,
-    supplierChoices,
-    createOrder,
-    actionLoading,
-    persistDraft,
-  } = useOrderWizard();
+  const { selectedItems, order, supplierKey, selectSupplier, supplierChoices, createOrder, actionLoading, persistDraft, summary } =
+    useOrderWizard();
   const [confirming, setConfirming] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const canSubmit = summary.totalItems > 0 && !actionLoading;
-  const total = selectedItems.reduce((sum, item) => {
-    const qty = order[item.id] ?? 0;
-    const cost = Number(unitCosts[item.id] ?? "");
-    return sum + (Number.isFinite(cost) ? qty * cost : 0);
-  }, 0);
-  const tag = intlTag(locale);
-  const countsLine = `${t(
-    summary.totalItems === 1 ? "customers.purchases.common.productsOne" : "customers.purchases.common.productsMany",
-    { count: summary.totalItems }
-  )} · ${t(
-    summary.totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany",
-    { count: summary.totalUnits }
-  )}`;
-  const submitLabel = actionLoading
-    ? t("customers.purchases.confirm.sending")
-    : supplierName
-      ? t("customers.purchases.confirm.sendTo", { name: supplierName })
-      : t("customers.purchases.confirm.createOrder");
-  const supplierHelp = supplierKey.startsWith("id:")
-    ? t("customers.purchases.confirm.supplierLinkedHelp")
-    : t("customers.purchases.confirm.supplierPickHelp");
 
   return (
     <OrderWizardShell
-      title={t("customers.purchases.confirm.title")}
-      backHref="/inventory/supplier-purchases/new/cart"
-      showProgress={true}
+      title="אישור הזמנה"
+      backFallback="/inventory/supplier-purchases/new/cart"
       footer={
         selectedItems.length > 0 ? (
-          <div className="inv-decision-mobile">
-            <BottomActionBar
-              secondary={{ label: t("customers.purchases.confirm.saveDraft"), onClick: persistDraft }}
-              label=""
-              value=""
-              cta={submitLabel}
-              ctaDisabled={!canSubmit}
-              onCta={() => setConfirming(true)}
-            />
-          </div>
-        ) : null
+          <>
+            {saved ? <InvNote tone="ok">הטיוטה נשמרה במכשיר הזה</InvNote> : null}
+            <div className="i2-footer__row">
+              <InvButton disabled={!canSubmit} onClick={() => setConfirming(true)}>
+                {actionLoading ? "יוצרים…" : "צור הזמנה"}
+              </InvButton>
+              <InvButton
+                kind="secondary"
+                onClick={() => {
+                  persistDraft();
+                  setSaved(true);
+                }}
+              >
+                שמירת טיוטה במכשיר
+              </InvButton>
+            </div>
+          </>
+        ) : undefined
       }
     >
-      <div className="inv-fwrap inv-decision-mobile">
-        <div className="inv-field">
-          <div className="inv-field__lab">{t("customers.purchases.confirm.supplier")}</div>
-          <select
-            className="inv-input"
-            value={supplierKey}
-            onChange={(e) => selectSupplier(e.target.value)}
-          >
-            <option value="">{t("customers.purchases.confirm.noSupplier")}</option>
-            {supplierChoices.map((choice) => {
-              const key =
-                choice.id != null ? `id:${choice.id}` : `name:${choice.name}`;
-              return (
-                <option key={key} value={key}>
-                  {choice.name}
-                </option>
-              );
-            })}
-          </select>
-          <p className="inv-field__help">
-            {supplierHelp}
-          </p>
-        </div>
-      </div>
-
-      <div className="inv-seclabel">{t("customers.purchases.confirm.itemsInOrder")}</div>
-
       {selectedItems.length === 0 ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel
-            title={t("customers.purchases.confirm.emptyTitle")}
-            action={<Link href="/inventory/supplier-purchases/new" className="inv-btn-primary inv-btn-primary--full">{t("customers.purchases.confirm.backToSelect")}</Link>}
-          />
-        </div>
+        <InvState
+          title="אין מוצרים בהזמנה"
+          body="חזרו לבחירת מוצרים כדי ליצור הזמנה."
+          action={<InvButton href="/inventory/supplier-purchases/new">לבחירת מוצרים</InvButton>}
+        />
       ) : (
-        <div className="inv-ops">
-        <div className="inv-desk-table" aria-label={t("customers.purchases.confirm.tableAria")}>
-          <table>
-            <thead>
-              <tr>
-                <th>{t("customers.purchases.confirm.colProduct")}</th>
-                <th>{t("customers.purchases.confirm.colQuantity")}</th>
-                <th>{t("customers.purchases.confirm.colCost")}</th>
-                <th>{t("customers.purchases.confirm.colTotal")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {selectedItems.map((item) => {
-                const qty = order[item.id] ?? 0;
-                const cost = Number(unitCosts[item.id] ?? "");
-                const hasCost = Number.isFinite(cost) && (unitCosts[item.id] ?? "").trim() !== "";
-                return (
-                  <tr key={item.id}>
-                    <td>{item.name}</td>
-                    <td className="num">{qty}</td>
-                    <td className="num">{hasCost ? `₪${cost}` : "—"}</td>
-                    <td className="num">{hasCost ? `₪${(qty * cost).toLocaleString(tag)}` : "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="inv-olines inv-decision-mobile">
-          {selectedItems.map((item) => {
-            const qty = order[item.id] ?? 0;
-            const cost = Number(unitCosts[item.id] ?? "");
-            const hasCost = Number.isFinite(cost) && (unitCosts[item.id] ?? "").trim() !== "";
-            return (
-              <InventoryOrderLine
-                key={item.id}
-                thumb={<span style={{ fontSize: 22 }}>{getProductEmoji(item.name)}</span>}
-                name={item.name}
-                sub={hasCost ? <><bdi>{qty}</bdi> × <bdi>₪{cost}</bdi></> : <><bdi>{qty}</bdi> {t("customers.purchases.confirm.unitsNoCost")}</>}
-                trailing={hasCost ? <span className="inv-oline__price"><bdi>₪{(qty * cost).toLocaleString(tag)}</bdi></span> : null}
-              />
-            );
-          })}
-        </div>
-        <aside className="inv-ops__side">
-          <h2>{t("customers.purchases.confirm.beforeSending")}</h2>
-          <label className="inv-field" style={{ marginTop: 0 }}>
-            <span className="inv-field__lab">{t("customers.purchases.confirm.supplier")}</span>
-            <select
-              className="inv-input"
-              value={supplierKey}
-              onChange={(e) => selectSupplier(e.target.value)}
-            >
-              <option value="">{t("customers.purchases.confirm.noSupplier")}</option>
+        <>
+          <InvField label="ספק" optional htmlFor="owz-confirm-supplier">
+            <select id="owz-confirm-supplier" className="i2-select" value={supplierKey} onChange={(e) => selectSupplier(e.target.value)}>
+              <option value="">ללא ספק</option>
               {supplierChoices.map((choice) => {
                 const key = choice.id != null ? `id:${choice.id}` : `name:${choice.name}`;
                 return (
@@ -172,38 +66,37 @@ export default function NewSupplierPurchaseConfirmPage() {
                 );
               })}
             </select>
-          </label>
-          <p>
-            {supplierHelp}
-          </p>
-          <p>{countsLine}{total > 0 ? <> · <bdi>₪{total.toLocaleString(tag)}</bdi></> : null}</p>
-          <p>{t("customers.purchases.confirm.stockNote")}</p>
-          <button type="button" className="inv-btn-primary" style={{ width: "100%" }} disabled={!canSubmit} onClick={() => setConfirming(true)}>
-            {submitLabel}
-          </button>
-          <button type="button" className="inv-sheet__ghost" style={{ width: "100%", minHeight: 44 }} onClick={persistDraft}>
-            {t("customers.purchases.confirm.saveDraft")}
-          </button>
-        </aside>
-        </div>
+          </InvField>
+
+          <h3 className="i2-h3">סיכום ההזמנה</h3>
+          <div className="i2-box">
+            <ul className="i2-list">
+              {selectedItems.map((item) => (
+                <li key={item.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--i2-line-strong)" }}>
+                  <span style={{ overflowWrap: "anywhere", minWidth: 0 }}>{item.name}</span>
+                  <span className="i2-num" style={{ whiteSpace: "nowrap", fontWeight: 500 }}>
+                    {qtyWithUnit(order[item.id] ?? 0, item.unitType)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <InvNote>יצירת ההזמנה לא תשנה את המלאי ולא תשלח הודעה לספק.</InvNote>
+        </>
       )}
 
-      <p className="inv-field__help inv-decision-mobile" style={{ maxWidth: 720, margin: "8px auto 0", padding: "0 clamp(16px,3.5vw,28px)" }}>
-        {t("customers.purchases.confirm.stockNote")}
-      </p>
-
       {confirming ? (
-        <ConfirmModal
-          title={
-            supplierName
-              ? t("customers.purchases.confirm.modalTitleTo", { name: supplierName })
-              : t("customers.purchases.confirm.modalTitle")
-          }
-          body={`${countsLine}${total > 0 ? ` · ₪${total.toLocaleString(tag)}` : ""}`}
-          confirmLabel={actionLoading ? t("customers.purchases.confirm.sending") : t("customers.purchases.confirm.confirmAndSend")}
-          onConfirm={() => void createOrder()}
+        <InvConfirm
+          title="ליצור את ההזמנה?"
+          body="ההזמנה תישמר כטיוטה שממתינה לקליטה. אפשר לשתף אותה עם הספק במסך הבא."
+          confirmLabel={actionLoading ? "יוצרים…" : "צור הזמנה"}
+          busy={actionLoading}
+          onConfirm={() => {
+            setConfirming(false);
+            void createOrder();
+          }}
           onCancel={() => setConfirming(false)}
-          confirmDisabled={!canSubmit}
         />
       ) : null}
     </OrderWizardShell>

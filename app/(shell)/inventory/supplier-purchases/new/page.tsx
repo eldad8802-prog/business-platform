@@ -1,20 +1,24 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useI18n } from "@/components/i18n/I18nProvider";
 import { useOrderWizard } from "@/components/inventory/supplier-purchase-order/order-wizard-context";
 import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
-import {
-  InventorySearch,
-  BottomActionBar,
-  InventoryStatePanel,
-} from "@/components/inventory/inventory-design";
-import { getProductEmoji } from "@/lib/inventory/product-emoji";
+import { I2, InvButton, InvField, InvNote, InvQty, InvRow, InvSearch, InvState, ProductThumb } from "@/components/inventory/v2/kit";
+import { unitWord } from "@/lib/inventory/unit-words";
 
+const PAGE = 30;
+
+function readId(params: URLSearchParams, key: string): number | null {
+  const v = Number(params.get(key));
+  return Number.isInteger(v) && v > 0 ? v : null;
+}
+
+/** Order wizard step 1 — choose products (redesign, mockup "הזמנה חדשה"). */
 export default function NewSupplierPurchaseSelectPage() {
   const router = useRouter();
-  const { t } = useI18n();
   const {
+    loading,
     summary,
     order,
     supplierKey,
@@ -28,174 +32,188 @@ export default function NewSupplierPurchaseSelectPage() {
     filteredCategories,
     supplierHasItems,
     browsableItems,
-    getCategoryName,
     quickAddItem,
+    setOrder,
+    suggestionCount,
+    suggestedInCart,
+    addSuggestions,
+    removeSuggestions,
+    applyPreselect,
   } = useOrderWizard();
+  const [shown, setShown] = useState(PAGE);
+
+  // ?item= / ?supplier= (from the overview, a product, the supplier card) — once, after load.
+  useEffect(() => {
+    if (loading) return;
+    const params = new URLSearchParams(window.location.search);
+    applyPreselect({ itemId: readId(params, "item"), supplierId: readId(params, "supplier") });
+  }, [loading, applyPreselect]);
+
+  const setQty = (id: number, qty: number) =>
+    setOrder((prev) => {
+      const next = { ...prev };
+      if (qty <= 0) delete next[id];
+      else next[id] = qty;
+      return next;
+    });
 
   const canContinue = summary.totalItems > 0;
+  const list = browsableItems.slice(0, shown);
 
   return (
     <OrderWizardShell
-      title={t("customers.purchases.newOrder.title")}
-      backHref="/inventory/supplier-purchases"
-      showProgress={true}
+      title="הזמנה חדשה"
+      backFallback="/inventory/supplier-purchases"
       footer={
-        <BottomActionBar
-          label={t(
-            summary.totalItems === 1
-              ? "customers.purchases.newOrder.productsInCartOne"
-              : "customers.purchases.newOrder.productsInCartMany",
-            { count: summary.totalItems }
-          )}
-          value={
-            <>
-              {t(
-                summary.totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany",
-                { count: summary.totalUnits }
-              )}
-            </>
-          }
-          cta={t("customers.purchases.newOrder.continueToCartCount", { count: summary.totalItems })}
-          ctaDisabled={!canContinue}
-          onCta={() => router.push("/inventory/supplier-purchases/new/cart")}
-        />
+        <div className="i2-footer__row">
+          <span style={{ fontWeight: 500, whiteSpace: "nowrap" }}>
+            {summary.totalItems === 1 ? "מוצר אחד בעגלה" : `${summary.totalItems.toLocaleString("he-IL")} מוצרים בעגלה`}
+          </span>
+          <InvButton disabled={!canContinue} onClick={() => router.push("/inventory/supplier-purchases/new/cart")}>
+            המשך לעגלה
+          </InvButton>
+        </div>
       }
     >
-      <InventorySearch value={productSearch} onChange={setProductSearch} placeholder={t("customers.purchases.newOrder.searchPlaceholder")} />
-
-      <div className="inv-fwrap" style={{ paddingTop: 12 }}>
-        <div className="inv-two">
-          <div className="inv-field" style={{ marginTop: 0 }}>
-            <select
-              className="inv-input"
-              value={supplierKey}
-              onChange={(e) => {
-                selectSupplier(e.target.value);
-                setCategoryId("");
-                setProductSearch("");
-              }}
-              aria-label={t("customers.purchases.newOrder.supplierAria")}
-            >
-              <option value="">{t("customers.purchases.newOrder.allSuppliers")}</option>
-              {supplierChoices.map((choice) => {
-                const key =
-                  choice.id != null ? `id:${choice.id}` : `name:${choice.name}`;
-                return (
-                  <option key={key} value={key}>
-                    {choice.name}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-          <div className="inv-field" style={{ marginTop: 0 }}>
-            <select
-              className="inv-input"
-              value={categoryId}
-              onChange={(e) => {
-                setCategoryId(e.target.value);
-                setProductSearch("");
-              }}
-              aria-label={t("customers.purchases.newOrder.categoryAria")}
-            >
-              <option value="">{t("customers.purchases.newOrder.allCategories")}</option>
-              {filteredCategories.map((c) => (
-                <option key={c.id} value={String(c.id)}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {browsableItems.length === 0 ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel title={t("customers.purchases.newOrder.emptyTitle")}>
-            {supplierName.trim() && !supplierHasItems
-              ? t("customers.purchases.newOrder.emptySupplier")
-              : t("customers.purchases.newOrder.emptySearch")}
-          </InventoryStatePanel>
-        </div>
-      ) : (
-        <>
-        <div className="inv-ops">
-          <div className="inv-desk-table" aria-label={t("customers.purchases.newOrder.tableAria")}>
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("customers.purchases.newOrder.colProduct")}</th>
-                  <th>{t("customers.purchases.newOrder.colCategory")}</th>
-                  <th>{t("customers.purchases.newOrder.colInStock")}</th>
-                  <th>{t("customers.purchases.newOrder.colInCart")}</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {browsableItems.map((item) => {
-                  const inCart = order[item.id] ?? 0;
-                  return (
-                    <tr key={item.id}>
-                      <td>{item.name}</td>
-                      <td>{getCategoryName(item)}</td>
-                      <td className="num">{item.currentQuantity}</td>
-                      <td className="num">{inCart || "—"}</td>
-                      <td>
-                        <button type="button" onClick={() => quickAddItem(item)}>{t("customers.purchases.newOrder.add")}</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <aside className="inv-ops__side">
-            <h2>{t("customers.purchases.newOrder.sideTitle")}</h2>
-            <p>
-              {t(
-                summary.totalItems === 1 ? "customers.purchases.common.productsOne" : "customers.purchases.common.productsMany",
-                { count: summary.totalItems }
-              )}{" "}
-              ·{" "}
-              {t(
-                summary.totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany",
-                { count: summary.totalUnits }
-              )}
-            </p>
-            <p>{t("customers.purchases.newOrder.sideNote")}</p>
-            <button type="button" className="inv-btn-primary" disabled={!canContinue} onClick={() => router.push("/inventory/supplier-purchases/new/cart")}>
-              {t("customers.purchases.newOrder.continueToCart")}
-            </button>
-          </aside>
-        </div>
-        <div className="inv-rows inv-cards">
-          {browsableItems.map((item) => {
-            const inCart = order[item.id] ?? 0;
+      <InvField label="ספק" htmlFor="owz-supplier">
+        <select
+          id="owz-supplier"
+          className="i2-select"
+          value={supplierKey}
+          onChange={(e) => {
+            selectSupplier(e.target.value);
+            setCategoryId("");
+            setProductSearch("");
+            setShown(PAGE);
+          }}
+        >
+          <option value="">כל הספקים</option>
+          {supplierChoices.map((choice) => {
+            const key = choice.id != null ? `id:${choice.id}` : `name:${choice.name}`;
             return (
-              <div key={item.id} className="inv-row" style={{ cursor: "default" }}>
-                <span className="inv-row__thumb" style={{ background: "var(--inv-surface)" }} aria-hidden>
-                  <span style={{ fontSize: 26 }}>{getProductEmoji(item.name, getCategoryName(item))}</span>
-                </span>
-                <span className="inv-row__mid">
-                  <span className="inv-row__nm">{item.name}</span>
-                  <span className="inv-row__meta">
-                    {getCategoryName(item)} · {t("customers.purchases.newOrder.inStockLabel")} <bdi>{item.currentQuantity}</bdi>
-                  </span>
-                </span>
-                <span className="inv-row__trail" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  {inCart > 0 ? <span className="inv-row__meta">{t("customers.purchases.newOrder.inCartCount", { count: inCart })}</span> : null}
-                  <button
-                    type="button"
-                    className="inv-iconbtn inv-iconbtn--acc"
-                    style={{ width: 38, height: 38 }}
-                    onClick={() => quickAddItem(item)}
-                    aria-label={t("customers.purchases.newOrder.addNamed", { name: item.name })}
-                  >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden><path d="M12 5v14M5 12h14" stroke="var(--inv-on-accent)" strokeWidth="2.4" strokeLinecap="round" /></svg>
-                  </button>
-                </span>
-              </div>
+              <option key={key} value={key}>
+                {choice.name}
+              </option>
             );
           })}
-        </div>
+        </select>
+      </InvField>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(120px, 40%)", gap: 8, alignItems: "center" }}>
+        <InvSearch
+          value={productSearch}
+          onChange={(v) => {
+            setProductSearch(v);
+            setShown(PAGE);
+          }}
+          placeholder="חיפוש מוצר"
+        />
+        <label style={{ margin: "4px 0 12px" }}>
+          <span className="i2-sr">קטגוריה</span>
+          <select
+            className="i2-select"
+            value={categoryId}
+            onChange={(e) => {
+              setCategoryId(e.target.value);
+              setProductSearch("");
+              setShown(PAGE);
+            }}
+          >
+            <option value="">כל הקטגוריות</option>
+            {filteredCategories.map((c) => (
+              <option key={c.id} value={String(c.id)}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {suggestionCount > 0 ? (
+        <InvNote>
+          <div style={{ fontWeight: 600 }}>הצעות למוצרים חסרים — לבחירתך</div>
+          {suggestedInCart > 0 ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <span>נוספו {suggestedInCart === 1 ? "מוצר אחד" : `${suggestedInCart.toLocaleString("he-IL")} מוצרים`} לפי מלאי חסר</span>
+              <button type="button" className="i2-underline" onClick={removeSuggestions}>
+                הסרת ההצעות
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <span>{suggestionCount === 1 ? "מוצר אחד" : `${suggestionCount.toLocaleString("he-IL")} מוצרים`} במלאי חסר</span>
+              <button type="button" className="i2-underline" onClick={addSuggestions}>
+                הוספת ההצעות
+              </button>
+            </div>
+          )}
+        </InvNote>
+      ) : null}
+
+      {browsableItems.length === 0 ? (
+        <InvState
+          title="לא נמצאו מוצרים"
+          body={
+            supplierName.trim() && !supplierHasItems
+              ? "לספק הזה עוד אין מוצרים משויכים. בחרו ״כל הספקים״ כדי לראות את כל המוצרים."
+              : productSearch.trim()
+                ? `אין מוצר שתואם ל״${productSearch.trim()}״.`
+                : "אין מוצרים בבחירה הזו."
+          }
+          action={
+            productSearch.trim() || categoryId || supplierKey ? (
+              <InvButton
+                kind="secondary"
+                onClick={() => {
+                  setProductSearch("");
+                  setCategoryId("");
+                  selectSupplier("");
+                }}
+              >
+                הצגת כל המוצרים
+              </InvButton>
+            ) : (
+              <InvButton href="/inventory/items/create">הוספת מוצר</InvButton>
+            )
+          }
+        />
+      ) : (
+        <>
+          <ul className="i2-list">
+            {list.map((item) => {
+              const inCart = Number(order[item.id] || 0);
+              return (
+                <InvRow
+                  key={item.id}
+                  thumb={<ProductThumb src={item.imageUrl} name={item.name} />}
+                  title={item.name}
+                  sub={item.supplierName?.trim() && !supplierName.trim() ? item.supplierName : unitWord(item.unitType, 2)}
+                  trail={
+                    inCart > 0 ? (
+                      <InvQty size="sm" value={inCart} min={0} label={`כמות בעגלה · ${item.name}`} onChange={(v) => setQty(item.id, v)} />
+                    ) : (
+                      <button
+                        type="button"
+                        className="i2-qty__b"
+                        style={{ background: "var(--i2-green)", color: "#fff" }}
+                        onClick={() => quickAddItem(item)}
+                        aria-label={`הוספה לעגלה · ${item.name}`}
+                      >
+                        {I2.plus(22)}
+                      </button>
+                    )
+                  }
+                />
+              );
+            })}
+          </ul>
+          {browsableItems.length > shown ? (
+            <div style={{ textAlign: "center", marginTop: 12 }}>
+              <InvButton kind="secondary" onClick={() => setShown((n) => n + PAGE)}>
+                הצגת עוד
+              </InvButton>
+            </div>
+          ) : null}
         </>
       )}
     </OrderWizardShell>
