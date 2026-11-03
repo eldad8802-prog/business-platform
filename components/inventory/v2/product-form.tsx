@@ -494,9 +494,9 @@ export default function ProductForm({ mode, itemId }: { mode: Mode; itemId?: num
           <div className="i2-imgpick">
             <span className="i2-imgpick__thumb">
               {shownImage ? (
-                <ProductThumb src={shownImage} name={form.name || "?"} size={96} />
+                <ProductThumb src={shownImage} name={form.name} size={96} />
               ) : (
-                <ProductThumb name={form.name.trim() || "?"} size={96} />
+                <ProductThumb name={form.name.trim()} size={96} />
               )}
               {mode === "create" && previewUrl ? (
                 <button type="button" className="i2-imgpick__x" onClick={clearPickedImage} aria-label="הסרת התמונה שנבחרה">
