@@ -1,141 +1,97 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useI18n } from "@/components/i18n/I18nProvider";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
-import {
-  InventoryRow,
-  InventoryBadge,
-  InventoryStatePanel,
-  InventorySkeletonBlock,
-  IconPlus,
-} from "@/components/inventory/inventory-design";
+import { useCallback, useEffect, useState } from "react";
 import { getPendingMatches, type InventoryPendingMatchDTO } from "@/lib/api/inventory";
 import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
+import { I2, InvButton, InvError, InvLoading, InvPage, InvPill, InvRow, InvState, ProductThumb, formatQty } from "@/components/inventory/v2/kit";
+import { formatPosWhen, posSaleName } from "@/lib/inventory/pos-match";
 
+const PAGE = 50;
+
+/**
+ * Sales hub (מכירות) — redesign. A manual sale entry and the POS sales still
+ * waiting to be linked to a product (GET /api/inventory/unmatched, unchanged).
+ * There is no sales history in the product; none is shown.
+ */
 export default function InventorySalesPage() {
-  const router = useRouter();
-  const { t } = useI18n();
   const [matches, setMatches] = useState<InventoryPendingMatchDTO[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [error, setError] = useState(false);
+  const [limit, setLimit] = useState(PAGE);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function load() {
-      try {
-        setLoading(true);
-        const data = await getPendingMatches();
-        if (isMounted) setMatches(Array.isArray(data) ? data : []);
-      } catch (err) {
-        if (isUnauthorizedError(err)) {
-          redirectToLogin();
-          return;
-        }
-        if (isMounted) setMatches([]);
-      } finally {
-        if (isMounted) setLoading(false);
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(false);
+      const data = await getPendingMatches();
+      setMatches(Array.isArray(data) ? data : []);
+    } catch (err) {
+      if (isUnauthorizedError(err)) {
+        redirectToLogin();
+        return;
       }
+      setError(true);
+    } finally {
+      setLoading(false);
     }
-    void load();
-    return () => {
-      isMounted = false;
-    };
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
   return (
-    <InventorySubPage intent="data"
-      title={t("customers.inventory.sales.title")}
-      variant="hub"
-      sub={t("customers.inventory.sales.sub")}
-      headerAction={{ icon: <IconPlus />, label: t("customers.inventory.sales.newSale"), href: "/inventory/sales/create", accent: true }}
-      bottomNav="sales"
-    >
-      <div className="inv-rows">
-        <InventoryRow
-          thumb={<span style={{ fontSize: 22 }}>🧾</span>}
-          thumbBg="var(--inv-info-bg)"
-          title={t("customers.inventory.sales.manualTitle")}
-          meta={t("customers.inventory.sales.manualMeta")}
+    <InvPage title="מכירות" backFallback="/inventory" wide>
+      <ul className="i2-list" style={{ marginTop: 8 }}>
+        <InvRow
           href="/inventory/sales/create"
+          thumb={
+            <span className="i2-thumb" style={{ ["--s" as string]: "56px" }} aria-hidden>
+              {I2.plus(24)}
+            </span>
+          }
+          title="מכירה ידנית חדשה"
+          sub="רישום מכירה שלא עברה בקופה — הכמויות יורדו מהמלאי"
+          trail={I2.chevronEnd(18)}
         />
-      </div>
+      </ul>
 
-      <div className="inv-hd__sub" style={{ marginTop: 6 }}>{t("customers.inventory.sales.unmatchedHeading")}</div>
-
+      <h2 className="i2-h2">מכירות מהקופה שממתינות לשיוך</h2>
       {loading ? (
-        <div className="inv-rows">
-          <InventorySkeletonBlock height={74} rows={2} />
-        </div>
+        <InvLoading rows={2} />
+      ) : error ? (
+        <InvError message="לא הצלחנו לטעון את המכירות שממתינות לשיוך." onRetry={() => void load()} />
       ) : matches.length === 0 ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel title={t("customers.inventory.sales.emptyTitle")}>
-            {t("customers.inventory.sales.emptyBody")}
-          </InventoryStatePanel>
-        </div>
+        <InvState title="אין מכירות שממתינות לשיוך" body="כל פריט שנמכר בקופה ולא זוהה כמוצר יופיע כאן לשיוך." />
       ) : (
         <>
-        <div className="inv-ops">
-        <div className="inv-desk-table" aria-label={t("customers.inventory.common.unmatchedSalesAria")}>
-          <table>
-            <thead>
-              <tr>
-                <th>{t("customers.inventory.common.sale")}</th>
-                <th>{t("customers.inventory.common.quantity")}</th>
-                <th>{t("customers.inventory.common.status")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {matches.slice(0, 8).map((match) => (
-                <tr
-                  key={match.id}
-                  className={match.id === selectedId ? "is-selected" : undefined}
-                  onClick={() => setSelectedId(match.id)}
-                >
-                  <td>{match.metadata.name || match.externalSaleId}</td>
-                  <td className="num">{match.metadata.quantity}</td>
-                  <td>{t("customers.inventory.sales.awaitingLink")}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <aside className="inv-ops__side">
-          {(() => {
-            const selected = matches.find((match) => match.id === selectedId);
-            if (!selected) return <><h2>{t("customers.inventory.common.sale")}</h2><p>{t("customers.inventory.sales.selectHint")}</p></>;
-            return (
-              <>
-                <h2>{selected.metadata.name || selected.externalSaleId}</h2>
-                <p>{selected.metadata.source || "POS"} · {t("customers.inventory.sales.quantityValue", { quantity: selected.metadata.quantity })}</p>
-                <button type="button" className="inv-btn-primary" onClick={() => router.push("/inventory/unmatched")}>
-                  {t("customers.inventory.sales.linkInDecision")}
-                </button>
-              </>
-            );
-          })()}
-        </aside>
-        </div>
-        <div className="inv-rows inv-cards">
-          {matches.slice(0, 8).map((match) => (
-            <InventoryRow
-              key={match.id}
-              thumb={<span style={{ fontSize: 22 }}>🧾</span>}
-              thumbBg="var(--inv-info-bg)"
-              title={match.metadata.name || match.externalSaleId}
-              meta={
-                <>
-                  {t("customers.inventory.common.quantity")} <bdi>{match.metadata.quantity}</bdi> · {t("customers.inventory.sales.awaitingLink")}
-                </>
-              }
-              href="/inventory/unmatched"
-              trail={<InventoryBadge tone="info">POS</InventoryBadge>}
-            />
-          ))}
-        </div>
+          <ul className="i2-list">
+            {matches.slice(0, limit).map((m) => {
+              const name = posSaleName(m);
+              const when = formatPosWhen(m.createdAt);
+              return (
+                <InvRow
+                  key={m.id}
+                  href={`/inventory/unmatched?match=${m.id}`}
+                  thumb={<ProductThumb name={name} />}
+                  kicker="קופה"
+                  title={name}
+                  sub={`כמות ${formatQty(m.metadata?.quantity)}${when ? ` · ${when}` : ""}`}
+                  trail={<InvPill href={`/inventory/unmatched?match=${m.id}`} ariaLabel={`שיוך ${name} למוצר`}>שיוך</InvPill>}
+                />
+              );
+            })}
+          </ul>
+          {matches.length > limit ? (
+            <div style={{ textAlign: "center", marginTop: 8 }}>
+              <InvButton kind="soft" small onClick={() => setLimit((n) => n + PAGE)}>
+                הצגת עוד
+              </InvButton>
+            </div>
+          ) : null}
         </>
       )}
-    </InventorySubPage>
+    </InvPage>
   );
 }

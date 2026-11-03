@@ -55,6 +55,7 @@ export const I2 = {
   pdf: (s = 22) => sv(<><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 14h6M9 17h4" /></>, s),
   check: (s = 18) => sv(<path d="M5 12.5l4.5 4.5L19 7.5" />, s),
   arrowLeft: (s = 22) => sv(<path d="M19 12H5M11 6l-6 6 6 6" />, s),
+  zoom: (s = 22) => sv(<><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4M11 8v6M8 11h6" /></>, s),
 };
 
 /* ================================================== bottom-bar awareness === */

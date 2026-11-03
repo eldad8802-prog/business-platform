@@ -1,21 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useI18n } from "@/components/i18n/I18nProvider";
-import type { MessageKey, Translator } from "@/lib/i18n/translate";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { inventoryToast } from "@/components/inventory/inventory-toast";
+import { UNIT_OPTIONS } from "@/lib/inventory/unit-words";
 import {
-  DecisionCard,
-  DecisionChips,
-  ConfidencePill,
-  InventoryStatePanel,
-  InventorySkeletonBlock,
-  BottomSheet,
-  SegmentedControl,
-  SheetActions,
-  type ConfidenceLevel,
-} from "@/components/inventory/inventory-design";
-import { getProductEmoji } from "@/lib/inventory/product-emoji";
+  I2,
+  InvButton,
+  InvConfirm,
+  InvError,
+  InvField,
+  InvLoading,
+  InvNote,
+  InvPage,
+  InvPill,
+  InvRow,
+  InvSheet,
+  InvState,
+  ProductThumb,
+} from "@/components/inventory/v2/kit";
 
 type DraftMatch = { itemId: number; itemName: string; matchScore: number; reason: string };
 
@@ -40,71 +43,26 @@ type ApproveForm = {
   reorderPoint: string;
 };
 
-const UNIT_OPTIONS: ReadonlyArray<{ value: string; labelKey: MessageKey }> = [
-  { value: "UNIT", labelKey: "customers.inventory.units.long.UNIT" },
-  { value: "KG", labelKey: "customers.inventory.units.long.KG" },
-  { value: "GRAM", labelKey: "customers.inventory.units.long.GRAM" },
-  { value: "LITER", labelKey: "customers.inventory.units.long.LITER" },
-  { value: "ML", labelKey: "customers.inventory.units.long.ML" },
-  { value: "BOX", labelKey: "customers.inventory.units.long.BOX" },
-];
+type NumberField = "initialQuantity" | "minimumQuantity" | "reorderPoint";
 
-const THUMB_BG: Record<ConfidenceLevel, string> = { high: "var(--inv-success-bg)", mid: "var(--inv-warning-bg)", low: "var(--inv-danger-bg)" };
+const PAGE = 50;
+const LIST = "/inventory/drafts";
 
 function safeImage(imageUrl?: string | null) {
   return imageUrl && !imageUrl.includes("example.com") ? imageUrl : null;
 }
 
-function confLevel(score: number | null | undefined, t: Translator): { level: ConfidenceLevel; label: string } {
-  if (score == null) return { level: "mid", label: t("customers.inventory.drafts.confidence.review") };
-  if (score >= 0.85) return { level: "high", label: t("customers.inventory.drafts.confidence.high") };
-  if (score >= 0.6) return { level: "mid", label: t("customers.inventory.drafts.confidence.mid") };
-  return { level: "low", label: t("customers.inventory.drafts.confidence.low") };
+/** Confidence in words (thresholds unchanged: ≥0.85 high, ≥0.6 medium). */
+function confidenceWords(score: number | null | undefined): string {
+  if (score == null) return "ודאות לא ידועה";
+  if (score >= 0.85) return "ודאות גבוהה";
+  if (score >= 0.6) return "ודאות בינונית";
+  return "ודאות נמוכה";
 }
 
 function buildHeaders() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-}
-
-function DraftInspector({
-  draft,
-  busy,
-  onApprove,
-  onMerge,
-  onReject,
-}: {
-  draft: Draft | null;
-  busy: boolean;
-  onApprove: (draft: Draft) => void;
-  onMerge: (draft: Draft) => void;
-  onReject: (id: number) => void;
-}) {
-  const { t } = useI18n();
-  if (!draft) {
-    return (
-      <aside className="inv-ops__side">
-        <h2>{t("customers.inventory.drafts.draft")}</h2>
-        <p>{t("customers.inventory.drafts.selectHint")}</p>
-      </aside>
-    );
-  }
-  const conf = confLevel(draft.confidenceScore, t);
-  return (
-    <aside className="inv-ops__side">
-      <h2>{draft.detectedName || t("customers.inventory.drafts.unrecognizedItem")}</h2>
-      <p>{conf.label}{draft.detectedCategory ? ` · ${draft.detectedCategory}` : ""}</p>
-      <p>{draft.detectedBarcode ? t("customers.inventory.drafts.barcodeValue", { barcode: draft.detectedBarcode }) : t("customers.inventory.drafts.noBarcode")} · {draft.detectedUnitType || t("customers.inventory.units.long.UNIT")}</p>
-      {draft.matches && draft.matches.length > 0 ? (
-        <p>{t("customers.inventory.drafts.possibleMatch", { name: draft.matches[0].itemName })}</p>
-      ) : (
-        <p>{t("customers.inventory.drafts.noMatch")}</p>
-      )}
-      <button type="button" className="inv-btn-primary" disabled={busy} onClick={() => onApprove(draft)}>{t("customers.inventory.drafts.approve")}</button>
-      <button type="button" className="inv-btn-secondary" disabled={busy} onClick={() => onMerge(draft)}>{t("customers.inventory.drafts.merge")}</button>
-      <button type="button" className="inv-btn-secondary" disabled={busy} onClick={() => onReject(draft.id)}>{t("customers.inventory.common.reject")}</button>
-    </aside>
-  );
 }
 
 function emptyForm(draft: Draft): ApproveForm {
@@ -118,55 +76,113 @@ function emptyForm(draft: Draft): ApproveForm {
   };
 }
 
-export default function InventoryDraftsPage() {
-  const { t } = useI18n();
-  const unitOptions = UNIT_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }));
+/** Same rule as before: blank → not sent; otherwise a finite number ≥ 0. */
+function numberError(value: string): string | null {
+  if (value.trim() === "") return null;
+  const n = Number(value);
+  if (Number.isNaN(n) || !Number.isFinite(n) || n < 0) return "יש להזין מספר תקין (0 ומעלה)";
+  return null;
+}
+
+function parseNumber(value: string): number | undefined {
+  if (value.trim() === "") return undefined;
+  return Number(value);
+}
+
+/**
+ * Product drafts (טיוטות מוצר) — redesign, owner-approved mockup "בדיקת טיוטת מוצר".
+ * A draft is approved as a new product (POST …/approve with the same body),
+ * merged into an existing product (POST …/merge {targetItemId}) or rejected
+ * (POST …/reject). Merging links the draft to the product and does not touch stock.
+ */
+function DraftsScreen() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const idParam = Number(params.get("id"));
+  const openId = Number.isFinite(idParam) && idParam > 0 ? idParam : null;
+
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [approveFor, setApproveFor] = useState<Draft | null>(null);
+  const [error, setError] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [form, setForm] = useState<ApproveForm | null>(null);
-  const [mergeFor, setMergeFor] = useState<Draft | null>(null);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [formFor, setFormFor] = useState<number | null>(null);
+  const [choice, setChoice] = useState<"create" | number>("create");
+  const [showErrors, setShowErrors] = useState(false);
+  const [zoom, setZoom] = useState(false);
+  const [confirmReject, setConfirmReject] = useState(false);
+  const [limit, setLimit] = useState(PAGE);
 
-  async function loadDrafts() {
+  const loadDrafts = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
+      setError(false);
       const response = await fetch("/api/inventory/drafts", { headers: buildHeaders() });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || t("customers.inventory.drafts.loadFailed"));
+      if (!response.ok) throw new Error(data.error || "load failed");
       setDrafts(Array.isArray(data.drafts) ? data.drafts : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("customers.inventory.drafts.loadFailed"));
+    } catch {
+      setError(true);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadDrafts(), 0);
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time load, unchanged by i18n (the loader now reads `t` for its messages)
-  }, []);
+  }, [loadDrafts]);
 
   const pending = useMemo(() => drafts.filter((d) => d.status === "PENDING_REVIEW"), [drafts]);
+  const draft = openId != null ? pending.find((d) => d.id === openId) ?? null : null;
 
-  function parseNumber(value: string): number | undefined {
-    if (value.trim() === "") return undefined;
-    const n = Number(value);
-    if (Number.isNaN(n) || !Number.isFinite(n) || n < 0) throw new Error(t("customers.inventory.drafts.invalidNumber"));
-    return n;
+  // Start a fresh review form whenever another draft is opened.
+  useEffect(() => {
+    if (!draft || formFor === draft.id) return;
+    const timer = window.setTimeout(() => {
+      setForm(emptyForm(draft));
+      setFormFor(draft.id);
+      setChoice("create");
+      setShowErrors(false);
+      setActionError(null);
+      setZoom(false);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [draft, formFor]);
+
+  function updateForm(field: keyof ApproveForm, value: string) {
+    setForm((f) => (f ? { ...f, [field]: value } : f));
   }
 
+  function done(message: string) {
+    inventoryToast.success(message);
+    setFormFor(null);
+    router.replace(LIST);
+    void loadDrafts();
+  }
+
+  const errors = form
+    ? {
+        name: form.name.trim() ? null : "יש להזין שם מוצר",
+        unitType: form.unitType.trim() ? null : "יש לבחור יחידת מידה",
+        initialQuantity: numberError(form.initialQuantity),
+        minimumQuantity: numberError(form.minimumQuantity),
+        reorderPoint: numberError(form.reorderPoint),
+      }
+    : null;
+  const formValid = Boolean(errors && Object.values(errors).every((e) => e == null));
+
   async function submitApprove() {
-    if (!approveFor || !form || busyId) return;
+    if (!draft || !form || busy) return;
+    if (!formValid) {
+      setShowErrors(true);
+      return;
+    }
     try {
-      if (!form.name.trim()) throw new Error(t("customers.inventory.drafts.nameRequired"));
-      setBusyId(approveFor.id);
-      setError(null);
-      const response = await fetch(`/api/inventory/drafts/${approveFor.id}/approve`, {
+      setBusy(true);
+      setActionError(null);
+      const response = await fetch(`/api/inventory/drafts/${draft.id}/approve`, {
         method: "POST",
         headers: buildHeaders(),
         body: JSON.stringify({
@@ -179,274 +195,266 @@ export default function InventoryDraftsPage() {
         }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || t("customers.inventory.drafts.approveFailed"));
-      setApproveFor(null);
-      setForm(null);
-      await loadDrafts();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("customers.inventory.drafts.approveFailed"));
+      if (!response.ok) throw new Error(data.error || "approve failed");
+      done(`הטיוטה אושרה · נוצר המוצר ${form.name.trim()}`);
+    } catch {
+      setActionError("לא הצלחנו לאשר את הטיוטה. בדקו את הפרטים ונסו שוב.");
     } finally {
-      setBusyId(null);
+      setBusy(false);
     }
   }
 
-  async function merge(draftId: number, targetItemId: number) {
-    if (busyId) return;
+  async function merge(targetItemId: number) {
+    if (!draft || busy) return;
+    const target = draft.matches?.find((m) => m.itemId === targetItemId);
     try {
-      setBusyId(draftId);
-      setError(null);
-      const response = await fetch(`/api/inventory/drafts/${draftId}/merge`, {
+      setBusy(true);
+      setActionError(null);
+      const response = await fetch(`/api/inventory/drafts/${draft.id}/merge`, {
         method: "POST",
         headers: buildHeaders(),
         body: JSON.stringify({ targetItemId }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || t("customers.inventory.drafts.mergeFailed"));
-      setMergeFor(null);
-      await loadDrafts();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("customers.inventory.drafts.mergeFailed"));
+      if (!response.ok) throw new Error(data.error || "merge failed");
+      done(target ? `הטיוטה מוזגה עם ${target.itemName}` : "הטיוטה מוזגה עם המוצר הקיים");
+    } catch {
+      setActionError("לא הצלחנו למזג את הטיוטה. נסו שוב.");
     } finally {
-      setBusyId(null);
+      setBusy(false);
     }
   }
 
-  async function reject(draftId: number) {
-    if (busyId) return;
+  async function reject() {
+    if (!draft || busy) return;
     try {
-      setBusyId(draftId);
-      setError(null);
-      const response = await fetch(`/api/inventory/drafts/${draftId}/reject`, {
+      setBusy(true);
+      setActionError(null);
+      const response = await fetch(`/api/inventory/drafts/${draft.id}/reject`, {
         method: "POST",
         headers: buildHeaders(),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || t("customers.inventory.drafts.rejectFailed"));
-      await loadDrafts();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("customers.inventory.drafts.rejectFailed"));
+      if (!response.ok) throw new Error(data.error || "reject failed");
+      setConfirmReject(false);
+      done("הטיוטה נדחתה");
+    } catch {
+      setConfirmReject(false);
+      setActionError("לא הצלחנו לדחות את הטיוטה. נסו שוב.");
     } finally {
-      setBusyId(null);
+      setBusy(false);
     }
   }
 
-  function updateForm(field: keyof ApproveForm, value: string) {
-    setForm((f) => (f ? { ...f, [field]: value } : f));
+  /* -------------------------------------------------------------- review -- */
+  if (openId != null) {
+    const image = safeImage(draft?.imageUrl);
+    const matches = draft?.matches ?? [];
+    const err = (k: keyof NonNullable<typeof errors>) => (showErrors && errors ? errors[k] : null);
+    return (
+      <InvPage
+        title="בדיקת טיוטת מוצר"
+        backFallback={LIST}
+        footer={
+          draft && form && !loading && !error ? (
+            <>
+              {actionError ? <InvNote tone="danger">{actionError}</InvNote> : null}
+              <div className="i2-footer__row">
+                <InvButton onClick={() => (choice === "create" ? void submitApprove() : void merge(choice))} disabled={busy}>
+                  {busy ? "שומר…" : "אישור הטיוטה"}
+                </InvButton>
+                <InvButton kind="secondary" onClick={() => setConfirmReject(true)} disabled={busy}>
+                  דחיית הטיוטה
+                </InvButton>
+              </div>
+            </>
+          ) : null
+        }
+      >
+        {loading ? (
+          <InvLoading rows={3} />
+        ) : error ? (
+          <InvError onRetry={() => void loadDrafts()} />
+        ) : !draft ? (
+          <InvState
+            title="הטיוטה הזו כבר טופלה או לא נמצאה"
+            body="ייתכן שהיא אושרה, מוזגה או נדחתה כבר."
+            action={<InvButton kind="secondary" onClick={() => router.replace(LIST)}>לרשימת הטיוטות</InvButton>}
+          />
+        ) : !form ? (
+          <InvLoading rows={2} />
+        ) : (
+          <>
+            {image ? (
+              <div className="i2-hero-img">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={image} alt={`תמונת המקור של ${draft.detectedName || "הטיוטה"}`} />
+                <button type="button" className="i2-iconbtn" onClick={() => setZoom(true)} aria-label="הגדלת התמונה">
+                  {I2.zoom(22)}
+                </button>
+              </div>
+            ) : null}
+            <p className="i2-muted" style={{ margin: "8px 0 0", fontSize: 14 }}>
+              {confidenceWords(draft.confidenceScore)}
+              {draft.detectedCategory ? ` · קטגוריה שזוהתה: ${draft.detectedCategory}` : ""}
+            </p>
+
+            <h2 className="i2-h2">פרטים שזוהו — לבדיקה</h2>
+            <InvField label="שם המוצר" required htmlFor="draft-name" error={err("name")}>
+              <input
+                id="draft-name"
+                className="i2-input"
+                value={form.name}
+                aria-invalid={Boolean(err("name")) || undefined}
+                onChange={(e) => updateForm("name", e.target.value)}
+              />
+            </InvField>
+            <InvField label="יחידת מידה" required htmlFor="draft-unit" error={err("unitType")}>
+              <select id="draft-unit" className="i2-select" value={form.unitType} onChange={(e) => updateForm("unitType", e.target.value)}>
+                {UNIT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </InvField>
+            {(
+              [
+                ["initialQuantity", "כמות התחלתית", undefined],
+                ["minimumQuantity", "מלאי מינימום", undefined],
+                ["reorderPoint", "נקודת הזמנה", "אופציונלי"],
+              ] as Array<[NumberField, string, string | undefined]>
+            ).map(([key, label, placeholder]) => (
+              <InvField key={key} label={label} optional={key === "reorderPoint"} htmlFor={`draft-${key}`} error={err(key)}>
+                <input
+                  id={`draft-${key}`}
+                  className="i2-input i2-num"
+                  inputMode="decimal"
+                  placeholder={placeholder}
+                  value={form[key]}
+                  aria-invalid={Boolean(err(key)) || undefined}
+                  onChange={(e) => updateForm(key, e.target.value)}
+                />
+              </InvField>
+            ))}
+            <InvField label="ברקוד" optional htmlFor="draft-barcode">
+              <input id="draft-barcode" className="i2-input i2-num" value={form.barcode} onChange={(e) => updateForm("barcode", e.target.value)} />
+            </InvField>
+
+            <h2 className="i2-h2">הצעה למוצר קיים</h2>
+            <div role="radiogroup" aria-label="מה לעשות עם הטיוטה">
+              {matches.map((m) => (
+                <label key={m.itemId} className="i2-radio">
+                  <input type="radio" name="draft-choice" checked={choice === m.itemId} onChange={() => setChoice(m.itemId)} />
+                  <ProductThumb name={m.itemName} size={48} />
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span className="i2-clamp2" style={{ fontWeight: 600 }}>
+                      {m.itemName}
+                    </span>
+                    <span className="i2-row__sub" style={{ display: "block" }}>
+                      מיזוג עם המוצר הזה · התאמה {Math.round((m.matchScore ?? 0) * 100).toLocaleString("he-IL")}%
+                    </span>
+                  </span>
+                </label>
+              ))}
+              {matches.length === 0 ? (
+                <p className="i2-muted" style={{ margin: "0 0 4px" }}>
+                  לא נמצא מוצר קיים דומה.
+                </p>
+              ) : null}
+              <label className="i2-radio">
+                <input type="radio" name="draft-choice" checked={choice === "create"} onChange={() => setChoice("create")} />
+                <span className="i2-thumb" style={{ ["--s" as string]: "48px" }} aria-hidden>
+                  {I2.plus(22)}
+                </span>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ fontWeight: 600 }}>יצירת מוצר חדש</span>
+                  <span className="i2-row__sub" style={{ display: "block" }}>
+                    לפי הפרטים שלמעלה
+                  </span>
+                </span>
+              </label>
+            </div>
+            {matches.length > 0 ? <InvNote>המיזוג מקשר את הטיוטה למוצר הקיים ואינו משנה את המלאי</InvNote> : null}
+            {showErrors && !formValid && choice === "create" ? (
+              <InvNote tone="danger">יש לתקן את השדות המסומנים לפני האישור.</InvNote>
+            ) : null}
+          </>
+        )}
+
+        {zoom && image ? (
+          <InvSheet title="תמונת המקור" onClose={() => setZoom(false)}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={image} alt={`תמונת המקור של ${draft?.detectedName || "הטיוטה"}`} style={{ display: "block", width: "100%", height: "auto", borderRadius: 12 }} />
+          </InvSheet>
+        ) : null}
+        {confirmReject && draft ? (
+          <InvConfirm
+            title="לדחות את הטיוטה?"
+            body="הטיוטה תוסר מהרשימה ולא ייווצר ממנה מוצר."
+            confirmLabel={busy ? "דוחה…" : "דחיית הטיוטה"}
+            danger
+            busy={busy}
+            onConfirm={() => void reject()}
+            onCancel={() => setConfirmReject(false)}
+          />
+        ) : null}
+      </InvPage>
+    );
   }
 
+  /* ---------------------------------------------------------------- list -- */
   return (
-    <InventorySubPage intent="data"
-      title={t("customers.inventory.drafts.title")}
-      variant="hub"
-      hubBack
-      sub={!loading && !error ? t("customers.inventory.drafts.sub") : undefined}
-      bottomNav="home"
-    >
-      {error ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel
-            tone="error"
-            title={t("customers.inventory.common.somethingWrong")}
-            action={
-              <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => void loadDrafts()}>
-                {t("customers.inventory.common.retry")}
-              </button>
-            }
-          >
-            {error}
-          </InventoryStatePanel>
-        </div>
-      ) : loading ? (
-        <div className="inv-rows">
-          <InventorySkeletonBlock height={130} rows={2} />
-        </div>
+    <InvPage title="טיוטות מוצר" backFallback="/inventory/items" wide>
+      {loading ? (
+        <InvLoading rows={4} />
+      ) : error ? (
+        <InvError onRetry={() => void loadDrafts()} />
       ) : pending.length === 0 ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel title={t("customers.inventory.drafts.emptyTitle")}>{t("customers.inventory.drafts.emptyBody")}</InventoryStatePanel>
-        </div>
+        <InvState
+          title="אין טיוטות שממתינות לבדיקה"
+          body="מוצרים שזוהו מתמונה או ממסמך יופיעו כאן לאישור לפני שייכנסו למלאי."
+          action={<InvButton kind="secondary" href="/inventory/items">למוצרים</InvButton>}
+        />
       ) : (
         <>
-        <div className="inv-ops">
-          <div className="inv-desk-table" aria-label={t("customers.inventory.drafts.tableAria")}>
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("customers.inventory.drafts.table.detected")}</th>
-                  <th>{t("customers.inventory.drafts.table.category")}</th>
-                  <th>{t("customers.inventory.drafts.table.barcode")}</th>
-                  <th>{t("customers.inventory.drafts.table.confidence")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pending.map((draft) => {
-                  const conf = confLevel(draft.confidenceScore, t);
-                  return (
-                    <tr
-                      key={draft.id}
-                      className={draft.id === selectedId ? "is-selected" : undefined}
-                      onClick={() => setSelectedId(draft.id)}
-                    >
-                      <td>{draft.detectedName || t("customers.inventory.drafts.unrecognizedItem")}</td>
-                      <td>{draft.detectedCategory || "—"}</td>
-                      <td>{draft.detectedBarcode || "—"}</td>
-                      <td>{conf.label}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <DraftInspector
-            draft={pending.find((draft) => draft.id === selectedId) ?? null}
-            busy={busyId === selectedId}
-            onApprove={(draft) => {
-              setForm(emptyForm(draft));
-              setApproveFor(draft);
-            }}
-            onMerge={setMergeFor}
-            onReject={(id) => void reject(id)}
-          />
-        </div>
-        <div className="inv-rows inv-decision-mobile">
-          {pending.map((draft) => {
-            const conf = confLevel(draft.confidenceScore, t);
-            const busy = busyId === draft.id;
-            const name = draft.detectedName || t("customers.inventory.drafts.unrecognizedItem");
-            const metaParts = [
-              draft.detectedCategory ? t("customers.inventory.drafts.categoryMeta", { category: draft.detectedCategory }) : null,
-              draft.detectedBarcode ? t("customers.inventory.drafts.barcodeDetected") : null,
-            ].filter(Boolean);
-            return (
-              <DecisionCard key={draft.id}>
-                <div className="inv-dcard__top">
-                  <span
-                    className="inv-row__thumb"
-                    style={{ background: THUMB_BG[conf.level] }}
-                    aria-hidden
-                  >
-                    {safeImage(draft.imageUrl) ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={safeImage(draft.imageUrl) || ""} alt="" />
-                    ) : (
-                      getProductEmoji(draft.detectedName, draft.detectedCategory)
-                    )}
-                  </span>
-                  <div className="inv-row__mid">
-                    <div className="inv-row__nm">{name}</div>
-                    {metaParts.length ? <div className="inv-row__meta">{metaParts.join(" · ")}</div> : null}
-                  </div>
-                  <ConfidencePill level={conf.level} label={conf.label} />
-                </div>
-
-                <DecisionChips
-                  choices={[
-                    {
-                      label: t("customers.inventory.drafts.approve"),
-                      primary: true,
-                      disabled: busy,
-                      onClick: () => {
-                        setForm(emptyForm(draft));
-                        setApproveFor(draft);
-                      },
-                    },
-                    {
-                      label: t("customers.inventory.drafts.merge"),
-                      disabled: busy,
-                      onClick: () => setMergeFor(draft),
-                    },
-                    { label: t("customers.inventory.common.reject"), disabled: busy, onClick: () => void reject(draft.id) },
-                  ]}
+          <p className="i2-muted" style={{ margin: "12px 0 0" }}>
+            {pending.length === 1 ? "טיוטה אחת ממתינה לבדיקה" : `${pending.length.toLocaleString("he-IL")} טיוטות ממתינות לבדיקה`}
+          </p>
+          <ul className="i2-list">
+            {pending.slice(0, limit).map((d) => {
+              const name = d.detectedName || "פריט לא מזוהה";
+              const href = `${LIST}?id=${d.id}`;
+              return (
+                <InvRow
+                  key={d.id}
+                  href={href}
+                  thumb={<ProductThumb src={safeImage(d.imageUrl)} name={name} />}
+                  title={name}
+                  sub={`${confidenceWords(d.confidenceScore)}${d.detectedCategory ? ` · ${d.detectedCategory}` : ""}`}
+                  trail={<InvPill href={href} ariaLabel={`בדיקת הטיוטה ${name}`}>בדיקה</InvPill>}
                 />
-              </DecisionCard>
-            );
-          })}
-        </div>
+              );
+            })}
+          </ul>
+          {pending.length > limit ? (
+            <div style={{ textAlign: "center", marginTop: 8 }}>
+              <InvButton kind="soft" small onClick={() => setLimit((n) => n + PAGE)}>
+                הצגת עוד
+              </InvButton>
+            </div>
+          ) : null}
         </>
       )}
+    </InvPage>
+  );
+}
 
-      {approveFor && form ? (
-        <BottomSheet
-          title={t("customers.inventory.drafts.approveSheetTitle")}
-          who={approveFor.detectedName || t("customers.inventory.drafts.newItem")}
-          onClose={() => {
-            setApproveFor(null);
-            setForm(null);
-          }}
-          footer={
-            <SheetActions
-              confirmLabel={busyId === approveFor.id ? t("customers.inventory.drafts.approving") : t("customers.inventory.drafts.approveConfirm")}
-              onCancel={() => {
-                setApproveFor(null);
-                setForm(null);
-              }}
-              onConfirm={() => void submitApprove()}
-              confirmDisabled={busyId === approveFor.id || !form.name.trim()}
-            />
-          }
-        >
-          <div className="inv-field">
-            <div className="inv-field__lab">{t("customers.inventory.common.productName")} <span>*</span></div>
-            <input className="inv-input" value={form.name} onChange={(e) => updateForm("name", e.target.value)} />
-          </div>
-          <div className="inv-field">
-            <div className="inv-field__lab">{t("customers.inventory.common.unitOfMeasure")}</div>
-            <SegmentedControl
-              value={form.unitType}
-              onChange={(v) => updateForm("unitType", v)}
-              options={unitOptions}
-            />
-          </div>
-          <div className="inv-two">
-            <div className="inv-field">
-              <div className="inv-field__lab">{t("customers.inventory.common.initialQuantity")}</div>
-              <input className="inv-input" inputMode="numeric" value={form.initialQuantity} onChange={(e) => updateForm("initialQuantity", e.target.value)} />
-            </div>
-            <div className="inv-field">
-              <div className="inv-field__lab">{t("customers.inventory.common.minThreshold")}</div>
-              <input className="inv-input" inputMode="numeric" value={form.minimumQuantity} onChange={(e) => updateForm("minimumQuantity", e.target.value)} />
-            </div>
-          </div>
-          <div className="inv-field">
-            <div className="inv-field__lab">{t("customers.inventory.common.reorderThreshold")}</div>
-            <input className="inv-input" inputMode="numeric" placeholder={t("customers.inventory.common.optional")} value={form.reorderPoint} onChange={(e) => updateForm("reorderPoint", e.target.value)} />
-          </div>
-          <div className="inv-field">
-            <div className="inv-field__lab">{t("customers.inventory.common.barcode")}</div>
-            <input className="inv-input" value={form.barcode} onChange={(e) => updateForm("barcode", e.target.value)} />
-          </div>
-        </BottomSheet>
-      ) : null}
-
-      {mergeFor ? (
-        <BottomSheet
-          title={t("customers.inventory.drafts.mergeSheetTitle")}
-          who={mergeFor.detectedName || t("customers.inventory.drafts.draft")}
-          onClose={() => setMergeFor(null)}
-        >
-          {(mergeFor.matches ?? []).length === 0 ? (
-            <div className="inv-row__meta" style={{ textAlign: "center", padding: 16 }}>
-              {t("customers.inventory.drafts.noSuggestedMatches")}
-            </div>
-          ) : (
-            <div style={{ maxHeight: 360, overflowY: "auto" }}>
-              {(mergeFor.matches ?? []).map((m) => (
-                <button
-                  key={m.itemId}
-                  type="button"
-                  className="inv-row"
-                  style={{ marginBottom: 8 }}
-                  onClick={() => void merge(mergeFor.id, m.itemId)}
-                >
-                  <span className="inv-row__mid">
-                    <span className="inv-row__nm">{m.itemName}</span>
-                    <span className="inv-row__meta">{t("customers.inventory.drafts.matchPercent", { percent: Math.round((m.matchScore ?? 0) * 100) })}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </BottomSheet>
-      ) : null}
-    </InventorySubPage>
+// useSearchParams() requires a Suspense boundary for static prerender (Next).
+export default function InventoryDraftsPage() {
+  return (
+    <Suspense fallback={null}>
+      <DraftsScreen />
+    </Suspense>
   );
 }
