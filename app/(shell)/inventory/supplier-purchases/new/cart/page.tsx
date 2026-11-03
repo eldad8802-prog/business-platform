@@ -115,8 +115,14 @@ export default function NewSupplierPurchaseCartPage() {
 
           <div className="i2-box" style={{ marginTop: 14 }}>
             <div>
-              {summary.totalItems === 1 ? "מוצר אחד" : `${summary.totalItems.toLocaleString("he-IL")} מוצרים`} · עלות ידועה{" "}
-              <bdi className="i2-num" style={{ fontWeight: 600 }}>{formatMoney(known)}</bdi>
+              {summary.totalItems === 1 ? "מוצר אחד" : `${summary.totalItems.toLocaleString("he-IL")} מוצרים`} ·{" "}
+              {missing === selectedItems.length ? (
+                "לא הוזנו עלויות"
+              ) : (
+                <>
+                  עלות ידועה <bdi className="i2-num" style={{ fontWeight: 600 }}>{formatMoney(known)}</bdi>
+                </>
+              )}
             </div>
             {missing > 0 ? (
               <div className="i2-muted" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 14 }}>
