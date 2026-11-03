@@ -155,7 +155,9 @@ async function contentRowNumbers(bytes: Buffer, sheetName: string | null): Promi
  * The currency guard for the NUMBER FORMATS of an Excel statement's money cells (amount, debit, credit, balance):
  * every numeric money cell's format must be plain or shekel. A foreign format ⇒ FOREIGN; a locale currency
  * format, an unknown token, or formats that cannot be read ⇒ UNVERIFIABLE. Text cells are left to the text
- * checks (checkFileCurrency); empty cells carry no money.
+ * checks (checkFileCurrency); empty cells carry no money. When it passes and at least one numeric money cell is
+ * formatted in shekels, the result carries `evidence: "NUMBER_FORMAT"` — positive evidence of shekels; a PLAIN
+ * format ("General", "#,##0.00") is not evidence (a dollar column switched to General is plain too).
  */
 export async function checkXlsxMoneyFormats(
   bytes: Buffer,
@@ -179,6 +181,7 @@ export async function checkXlsxMoneyFormats(
   const [formats, rows] = await Promise.all([readCellFormats(bytes, sheetName), contentRowNumbers(bytes, sheetName)]);
   if (!formats || !rows) return unverifiable(null);
 
+  let shekelFormat = false;
   for (const { rowNumber, col } of numericCells) {
     // Grid row g = rowNumber - 1 (see locateHeader); its sheet row is the g-th row with content.
     const sheetRow = rows[rowNumber - 1];
@@ -186,6 +189,7 @@ export async function checkXlsxMoneyFormats(
     if (!cls) return unverifiable(rowNumber);
     if (cls.kind === "FOREIGN") return { ok: false, verdict: "FOREIGN", signal: "NUMBER_FORMAT", currency: cls.currency, rowNumber };
     if (cls.kind === "UNVERIFIABLE") return unverifiable(rowNumber);
+    if (cls.kind === "ILS") shekelFormat = true;
   }
-  return { ok: true };
+  return shekelFormat ? { ok: true, evidence: "NUMBER_FORMAT" } : { ok: true };
 }

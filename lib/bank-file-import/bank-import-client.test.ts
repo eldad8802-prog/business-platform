@@ -61,11 +61,10 @@ const headerOf = (init: RequestInit, name: string): string | null => new Headers
   const decisions = JSON.parse(String(form.get("decisions")));
   check("decisions are keyed by row number (digits), valued IMPORT / SKIP", JSON.stringify(Object.keys(decisions).sort()) === JSON.stringify(["12", "4"]) && decisions["12"] === "IMPORT" && decisions["4"] === "SKIP");
   const bare = client.buildBankImportForm({ file, accountId: 7 });
-  check("nothing optional is sent when there is nothing to send", bare.get("mapping") === null && bare.get("token") === null && bare.get("decisions") === null && bare.get("confirmAccountId") === null && bare.get("confirmCrossAccount") === null);
-  const confirmed = client.buildBankImportForm({ file, accountId: 7, token: "tok", confirmAccountId: 7, confirmCrossAccount: 3 });
-  check("commit: the confirmed account and cross-account line count are sent", confirmed.get("confirmAccountId") === "7" && confirmed.get("confirmCrossAccount") === "3");
-  const zeroCross = client.buildBankImportForm({ file, accountId: 7, confirmAccountId: 7, confirmCrossAccount: 0 });
-  check("commit: no cross-account confirmation is sent when there is nothing to confirm", zeroCross.get("confirmCrossAccount") === null);
+  check("nothing optional is sent when there is nothing to send", bare.get("mapping") === null && bare.get("token") === null && bare.get("decisions") === null && bare.get("confirmAccountId") === null);
+  const confirmed = client.buildBankImportForm({ file, accountId: 7, token: "tok", confirmAccountId: 7 });
+  check("commit: the confirmed account is sent", confirmed.get("confirmAccountId") === "7");
+  check("commit: there is no cross-account confirmation any more (such lines are refused, never confirmed)", confirmed.get("confirmCrossAccount") === null);
 
   console.log("Errors keep the status and the server's code");
   nextResponse = { status: 409, body: { error: "DECISIONS_REQUIRED" } };
@@ -89,6 +88,41 @@ const headerOf = (init: RequestInit, name: string): string | null => new Headers
   check("PARTIAL_MATCH says plainly it is NOT verified, only the last four digits match, and asks the owner to make sure",
     partial.includes("לא אומת") && partial.includes("4 הספרות האחרונות") && !partial.includes("החשבון אומת") && partial.includes("ודאו"));
   check("NOT_IN_FILE says the file does not identify the account, never verified", none.includes("לא מאפשר לזהות את החשבון") && !none.includes("אומת") && none.includes("ודאו"));
+
+  console.log("The fingerprint key missing or malformed: full verification is unavailable, never 'verified'");
+  const unavailable = (["VERIFIED_FULL", "PARTIAL_MATCH", "NOT_IN_FILE"] as const).map((c) => client.accountCheckText(c, "UNAVAILABLE"));
+  check("every outcome says plainly: אימות מלא של החשבון אינו זמין כרגע", unavailable.every((t) => t.startsWith("אימות מלא של החשבון אינו זמין כרגע")), JSON.stringify(unavailable));
+  check("…and none of them says the account was verified (החשבון אומת), even a VERIFIED_FULL that could not be", unavailable.every((t) => !t.includes("החשבון אומת")));
+  check("…and each still asks the owner to make sure", unavailable.every((t) => t.includes("ודאו")));
+  check("available is the default and unchanged", client.accountCheckText("VERIFIED_FULL", "AVAILABLE") === verified && !verified.includes("אינו זמין"));
+
+  console.log("Refusal texts (Hebrew): never 'save as CSV' or 'change the Excel format'; ask for the original export");
+  const codes = ["FILE_UNREADABLE", "HEADER_NOT_FOUND", "MAPPING_INVALID", "TOO_MANY_LINES", "NO_LINES", "FOREIGN_CURRENCY", "CURRENCY_UNVERIFIABLE", "ACCOUNT_NUMBER_MISMATCH", "MULTIPLE_ACCOUNTS_IN_FILE", "CROSS_ACCOUNT_LINES", "ACCOUNT_CONFIRMATION_REQUIRED", "ACCOUNT_CONFIRMATION_MISMATCH"];
+  const texts = [
+    ...codes.map((c) => client.bankImportErrorText(c)),
+    client.bankImportErrorText("CURRENCY_UNVERIFIABLE", { signal: "NO_ILS_EVIDENCE", currency: "UNKNOWN" }),
+    client.bankImportErrorText("CURRENCY_UNVERIFIABLE", { signal: "NUMBER_FORMAT", currency: "UNKNOWN" }),
+    client.bankImportErrorText("CROSS_ACCOUNT_LINES", { lines: 3, accounts: 1, otherAccounts: "••••8901" }),
+    client.bankImportErrorText("ACCOUNT_NUMBER_MISMATCH", { fileLast4: "8999", accountLast4: "8901", basis: "FULL" }),
+    client.ACCOUNT_FIX_TEXT,
+  ];
+  // "שמרו" as a word (an imperative: save it), not inside "נשמרו" (were saved).
+  const advisesResave = (t: string) => /(?<![֐-׿])שמרו|לשמור (אותו )?מחדש|פורמט מספר|פורמט רגיל|מחדש כ-?CSV|General/.test(t);
+  check("no refusal advises re-saving the file, as CSV or otherwise, or changing a number format", texts.every((t) => !advisesResave(t)), JSON.stringify(texts.filter(advisesResave)));
+  check("every text is Hebrew, and no bank is named", texts.every((t) => /[֐-׿]/.test(t) && !/דיסקונט|לאומי|הפועלים|מזרחי|Discount|Leumi|Hapoalim/i.test(t)));
+  const noEvidence = client.bankImportErrorText("CURRENCY_UNVERIFIABLE", { signal: "NO_ILS_EVIDENCE" });
+  check("CURRENCY_UNVERIFIABLE (no evidence): says no shekel mark was found and asks for the bank's ORIGINAL export, unedited",
+    noEvidence.includes("לא מצאנו בקובץ סימון") && noEvidence.includes("ייצוא מקורי מהבנק של דף החשבון, ללא עריכה"), noEvidence);
+  check("CURRENCY_UNVERIFIABLE (other signals) asks for the original export too", client.bankImportErrorText("CURRENCY_UNVERIFIABLE").includes("ייצוא מקורי מהבנק"));
+  const multi = client.bankImportErrorText("MULTIPLE_ACCOUNTS_IN_FILE");
+  check("MULTIPLE_ACCOUNTS_IN_FILE: blocked, one file per account", multi.includes("קובץ נפרד לכל חשבון") && multi.includes("לא נקלט"));
+  const cross = client.bankImportErrorText("CROSS_ACCOUNT_LINES", { lines: 3, accounts: 1, otherAccounts: "••••8901" });
+  check("CROSS_ACCOUNT_LINES: the count, the other account's masked number, blocked, one file per account — and no confirmation offered",
+    cross.startsWith("3 ") && cross.includes("••••8901") && cross.includes("לא נקלט") && cross.includes("קובץ נפרד לכל חשבון") && !cross.includes("אשרו"), cross);
+  check("the account fix path is offered after a mismatch, several accounts or cross-account lines — and only then",
+    ["ACCOUNT_NUMBER_MISMATCH", "MULTIPLE_ACCOUNTS_IN_FILE", "CROSS_ACCOUNT_LINES"].every(client.needsAccountFix) && !["FOREIGN_CURRENCY", "CURRENCY_UNVERIFIABLE", "TOKEN_INVALID"].some(client.needsAccountFix));
+  check("…it points to the bank accounts screen that exists (/payables/cheques) and explains: add again with the exact digits, leading zeros kept, archive the wrong one",
+    client.BANK_ACCOUNTS_SCREEN === "/payables/cheques" && client.ACCOUNT_FIX_TEXT.includes("כולל אפסים בתחילת המספר") && client.ACCOUNT_FIX_TEXT.includes("לארכיון"));
 
   store.delete("token");
   nextResponse = { status: 401, body: {} };

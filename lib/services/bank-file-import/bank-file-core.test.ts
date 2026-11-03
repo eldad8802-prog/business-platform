@@ -6,6 +6,8 @@
  *
  * Run: npx tsx lib/services/bank-file-import/bank-file-core.test.ts
  */
+import { createHash, createHmac } from "node:crypto";
+
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 
@@ -18,11 +20,15 @@ import {
   classifyBuiltinNumberFormat,
   classifyNumberFormatCode,
   compareAccountNumber,
+  distinctPrintedAccounts,
+  ilsEvidenceIn,
   parsePrintedAccount,
   detectBankDelimiter,
   fileAccountNumbers,
   foreignCurrencyIn,
   isShekelValue,
+  requireIlsEvidence,
+  shekelMarkIn,
   bankLineIdentities,
   bankMappingHash,
   checkBalanceChain,
@@ -39,7 +45,7 @@ import {
 } from "./bank-file-core";
 import { checkXlsxMoneyFormats } from "./xlsx-number-formats";
 import { readXlsxTable } from "@/lib/data-transfer/format";
-import { fingerprintBankCoordinates } from "@/lib/services/payables/payables-bank-crypto";
+import { canonicalizeBankCoordinates, fingerprintBankCoordinates } from "@/lib/services/payables/payables-bank-crypto";
 
 let total = 0;
 let failures = 0;
@@ -381,7 +387,10 @@ function currencyOf(rows: string[][], bytes?: Buffer) {
   const before = checkFileCurrency(table, located, null);
   const resolved = resolveBankMapping(located.headers, null);
   const after = resolved.ok ? checkFileCurrency(table, located, resolved.mapping) : null;
-  return { located: true as const, before, after, accounts: fileAccountNumbers(table, located) };
+  const evidence = resolved.ok ? ilsEvidenceIn(table, located, resolved.mapping) : null;
+  // What the service decides: no foreign mark, AND positive evidence of shekels.
+  const accepted = before.ok && after?.ok === true && requireIlsEvidence(evidence).ok;
+  return { located: true as const, before, after, evidence, accepted, accounts: fileAccountNumbers(table, located) };
 }
 
 function currencyGuardTests(): void {
@@ -392,10 +401,41 @@ function currencyGuardTests(): void {
     real.located && real.before.ok && real.after?.ok === true,
     JSON.stringify(real)
   );
-  const plainReal = currencyOf([REAL_HEADERS.map((h) => h.replace(" ₪", "")), ...REAL_ROWS]);
-  check("…and with no currency mark at all", plainReal.located && plainReal.before.ok && plainReal.after?.ok === true);
+  check("REGRESSION: …and it is ACCEPTED, on positive evidence: ₪ in the title of the mapped amount column (MONEY_HEADER_MARK)",
+    real.located && real.accepted && real.evidence === "MONEY_HEADER_MARK", JSON.stringify(real.located && real.evidence));
   const shekelTitles = currencyOf([["דוח תנועות בחשבון עו\"ש בש\"ח"], ["תאריך", "תיאור", 'זכות/חובה ש"ח', 'יתרה בש"ח'], ["01/03/2026", "המרת מט\"ח", "-5.00", "10.00"]]);
-  check('ש"ח in the titles and "המרת מט"ח" in a DESCRIPTION are never a foreign signal', shekelTitles.located && shekelTitles.before.ok && shekelTitles.after?.ok === true, JSON.stringify(shekelTitles));
+  check('ש"ח in the titles and "המרת מט"ח" in a DESCRIPTION are never a foreign signal', shekelTitles.located && shekelTitles.before.ok && shekelTitles.after?.ok === true && shekelTitles.accepted, JSON.stringify(shekelTitles));
+
+  console.log("Positive evidence of shekels: the absence of a foreign mark is not evidence (owner, 2026-11-03 round 2)");
+  const plainReal = currencyOf([REAL_HEADERS.map((h) => h.replace(" ₪", "")), ...REAL_ROWS]);
+  check("the real layout with its ₪ marks REMOVED: nothing foreign is found, but it is NOT accepted as shekels (no evidence ⇒ UNVERIFIABLE)",
+    plainReal.located && plainReal.before.ok && plainReal.after?.ok === true && plainReal.evidence === null && !plainReal.accepted, JSON.stringify(plainReal));
+  const refused = requireIlsEvidence(null);
+  check("…the refusal is UNVERIFIABLE with the signal NO_ILS_EVIDENCE (the service answers CURRENCY_UNVERIFIABLE)",
+    !refused.ok && refused.verdict === "UNVERIFIABLE" && refused.signal === "NO_ILS_EVIDENCE");
+  const dollarRows = [["תאריך", "תיאור", "סכום", "יתרה"], ["01/03/2026", "ספק", "-$5.00", "$10.00"], ["02/03/2026", "לקוח", "$7.00", "$17.00"]];
+  const dollarFile = currencyOf(dollarRows);
+  const strippedDollar = currencyOf(dollarRows.map((r) => r.map((c) => c.replace(/\$/g, ""))));
+  check("a dollar statement ($ in every money cell) is refused as FOREIGN …", dollarFile.located && !dollarFile.accepted && dollarFile.after?.ok === false);
+  check("…and the SAME file with every $ stripped is NOT accepted as shekels (UNVERIFIABLE, no evidence)",
+    strippedDollar.located && strippedDollar.after?.ok === true && strippedDollar.evidence === null && !strippedDollar.accepted, JSON.stringify(strippedDollar));
+  const usdRows = [["תאריך", "תיאור", "סכום", "מטבע"], ["01/03/2026", "ספק", "-5.00", "USD"], ["02/03/2026", "ספק", "-6.00", "USD"]];
+  const strippedUsd = currencyOf(usdRows.map((r, i) => (i === 0 ? r : [r[0], r[1], r[2], ""])));
+  check("a currency column whose USD values were blanked: NOT accepted (an empty currency column is not evidence)", strippedUsd.located && strippedUsd.evidence === null && !strippedUsd.accepted, JSON.stringify(strippedUsd));
+  const strippedTitle = currencyOf([["דוח תנועות - חשבון"], ["תאריך", "תיאור", "סכום"], ["01/03/2026", "ספק", "-5.00"]]);
+  check("a title row whose foreign-currency words were removed: NOT accepted", strippedTitle.located && strippedTitle.evidence === null && !strippedTitle.accepted);
+  const ilsColumnOnly = currencyOf([["תאריך", "תיאור", "סכום", "מטבע"], ["01/03/2026", "ספק", "-5.00", "ILS"], ["02/03/2026", "ספק", "-6.00", ""]]);
+  check("evidence CURRENCY_COLUMN: a currency column of shekel values (blanks allowed)", ilsColumnOnly.located && ilsColumnOnly.accepted && ilsColumnOnly.evidence === "CURRENCY_COLUMN", JSON.stringify(ilsColumnOnly));
+  const titleOnly = currencyOf([['דוח תנועות בחשבון בש"ח'], ["תאריך", "תיאור", "סכום"], ["01/03/2026", "ספק", "-5.00"]]);
+  check('evidence TITLE_MARK: a title row naming the shekel ("בש"ח")', titleOnly.located && titleOnly.accepted && titleOnly.evidence === "TITLE_MARK", JSON.stringify(titleOnly));
+  const cellMark = currencyOf([["תאריך", "תיאור", "סכום"], ["01/03/2026", "ספק", "₪ -5.00"], ["02/03/2026", "ספק", "₪ 6.00"]]);
+  check("evidence AMOUNT_MARK: the ₪ sign inside the money cells", cellMark.located && cellMark.accepted && cellMark.evidence === "AMOUNT_MARK", JSON.stringify(cellMark));
+  const descOnly = currencyOf([["תאריך", "תיאור", "סכום"], ["01/03/2026", 'החזר 5 ש"ח', "-5.00"]]);
+  check('a shekel mark only in a DESCRIPTION is not evidence (descriptions are never read for currency)', descOnly.located && descOnly.evidence === null && !descOnly.accepted);
+  const unmappedMark = currencyOf([["תאריך", "תיאור", "סכום", "עמלה ₪"], ["01/03/2026", "ספק", "-5.00", ""]]);
+  check("a shekel mark on a column that is NOT a mapped money column (a fee column) is not evidence", unmappedMark.located && unmappedMark.evidence === null && !unmappedMark.accepted, JSON.stringify(unmappedMark));
+  check("shekel marks: ₪, ש\"ח, ש״ח, בש\"ח, שקלים, ILS, NIS — and not inside a word (שחר, Tennis, NISSAN)",
+    ["₪", 'ש"ח', "ש״ח", 'בש"ח', "בשקלים", "ILS", "nis"].every(shekelMarkIn) && !["שחר", "Tennis", "NISSAN", "משחק"].some(shekelMarkIn));
 
   const usdCol = currencyOf([["תאריך", "תיאור", "סכום", "מטבע"], ["01/03/2026", "ספק", "-5.00", "USD"], ["02/03/2026", "ספק", "-6.00", "USD"]]);
   check("a currency column holding USD: refused (CURRENCY_COLUMN, USD), before any mapping", usdCol.located && !usdCol.before.ok && usdCol.before.signal === "CURRENCY_COLUMN" && usdCol.before.currency === "USD", JSON.stringify(usdCol));
@@ -410,7 +450,7 @@ function currencyGuardTests(): void {
   const mixedCells = currencyOf([["תאריך", "תיאור", "סכום"], ["01/03/2026", "ספק", "-5.00 ₪"], ["02/03/2026", "ספק", "-$6.00"]]);
   check("mixed marks in the amount cells (₪ and $): refused", mixedCells.located && mixedCells.after?.ok === false);
   const ilsCol = currencyOf([["תאריך", "תיאור", "סכום", "מטבע"], ["01/03/2026", "ספק", "-5.00", "ILS"], ["02/03/2026", "ספק", "-6.00", 'ש"ח'], ["03/03/2026", "ספק", "-7.00", "₪"], ["04/03/2026", "ספק", "-8.00", "NIS"], ["05/03/2026", "ספק", "-9.00", ""]]);
-  check("a currency column of ILS / ש\"ח / ₪ / NIS / empty passes", ilsCol.located && ilsCol.before.ok && ilsCol.after?.ok === true, JSON.stringify(ilsCol));
+  check("a currency column of ILS / ש\"ח / ₪ / NIS / empty passes", ilsCol.located && ilsCol.before.ok && ilsCol.after?.ok === true && ilsCol.accepted, JSON.stringify(ilsCol));
 
   const dollarCells = currencyOf([["תאריך", "תיאור", "סכום", "יתרה"], ["01/03/2026", "ספק", "-$5.00", "$10.00"]]);
   check("$ inside amount cells: refused after mapping (AMOUNT_MARK, USD)", dollarCells.located && dollarCells.before.ok && dollarCells.after?.ok === false && (dollarCells.after as { signal: string }).signal === "AMOUNT_MARK", JSON.stringify(dollarCells));
@@ -447,7 +487,16 @@ function accountNumberTests(): void {
   check("PARTIAL_MATCH: a sub-account / check suffix after the account is dropped", compareAccountNumber(["678901/23"], "8901").status === "PARTIAL_MATCH" && compareAccountNumber(["678901-001"], "8901").status === "PARTIAL_MATCH");
   const mismatch = compareAccountNumber(["12-345-678999"], "8901");
   check("MISMATCH: another account's number, with the file's last four", mismatch.status === "MISMATCH" && mismatch.fileLast4 === "8999", JSON.stringify(mismatch));
-  check("MISMATCH: two account numbers in one file, one of them another account", compareAccountNumber(["678901", "555444"], "8901").status === "MISMATCH");
+  const two = compareAccountNumber(["678901", "555444"], "8901");
+  check("MULTIPLE_ACCOUNTS: two account numbers in one file — refused whichever account was chosen", two.status === "MULTIPLE_ACCOUNTS" && two.accounts === 2, JSON.stringify(two));
+  check("MULTIPLE_ACCOUNTS: even when every value ends like the chosen account's but the full accounts differ (12-345-012345 / 12-345-12345)",
+    compareAccountNumber(["12-345-012345", "12-345-12345"], "2345").status === "MULTIPLE_ACCOUNTS");
+  check("MULTIPLE_ACCOUNTS: an account column with two different accounts", (() => {
+    const c = currencyOf([["תאריך", "מספר חשבון", "תיאור", "סכום ₪"], ["01/03/2026", "678901", "ספק", "-5.00"], ["02/03/2026", "555444", "ספק", "-6.00"]]);
+    return c.located && compareAccountNumber(c.accounts, "8901").status === "MULTIPLE_ACCOUNTS";
+  })());
+  check("one account printed several ways is ONE account: full + masked + with a suffix",
+    distinctPrintedAccounts(["12-345-678901", "****8901", "678901/23", "12/345/678901"]) === 1 && compareAccountNumber(["12-345-678901", "****8901"], "8901").status === "PARTIAL_MATCH");
   check("NOT_IN_FILE: no readable number (fewer than four digits) blocks nothing", compareAccountNumber(["123"], "8901").status === "NOT_IN_FILE" && compareAccountNumber([], "8901").status === "NOT_IN_FILE");
 }
 
@@ -482,6 +531,29 @@ function fullAccountTests(): void {
   check("fingerprint: the same account (as text) is equal", compareAccountNumber(["12-345-12345"], "2345", byFingerprint).status === "VERIFIED_FULL");
   check("fingerprint: \"012345\" and \"12345\" are different accounts (MISMATCH)", compareAccountNumber(["12-345-012345"], "2345", byFingerprint).status === "MISMATCH");
   check("fingerprint: another business's identical digits are another account", fingerprintBankCoordinates(stored, BIZ + 1, "BUSINESS_BANK_ACCOUNT") !== storedFp);
+  // The file side reaches the SAME canonical form as the stored side: parsePrintedAccount keeps the digits as text,
+  // and fingerprintBankCoordinates canonicalises both (canonicalizeBankCoordinates) before the HMAC.
+  const printed = parsePrintedAccount("12/345/12345");
+  check("fingerprint: a printed account with other separators fingerprints exactly as the stored account (one canonical form)",
+    printed !== null && fp(printed) === storedFp && fp(canonicalizeBankCoordinates({ bankCode: "12", branchCode: "345", accountNumber: "12345" })) === storedFp);
+  check("fingerprint: it is KEYED (HMAC-SHA-256), not a plain hash — not the SHA-256 of its input, and another key gives another value",
+    (() => {
+      const input = ["payables-bank-fp:v1", "BUSINESS_BANK_ACCOUNT", String(BIZ), "12", "345", "12345"].join("\n");
+      const plain = createHash("sha256").update(input, "utf8").digest("hex");
+      const hmac = createHmac("sha256", Buffer.alloc(32, 9)).update(input, "utf8").digest("hex");
+      process.env.PAYABLES_BANK_FINGERPRINT_KEY = Buffer.alloc(32, 8).toString("base64");
+      const other = fp(stored);
+      process.env.PAYABLES_BANK_FINGERPRINT_KEY = Buffer.alloc(32, 9).toString("base64");
+      return storedFp !== plain && storedFp === hmac && other !== storedFp;
+    })());
+  check("fingerprint: leading zeros are never padded or dropped — a bank or branch of the wrong length is refused, not guessed",
+    (() => { try { fp({ bankCode: "9", branchCode: "345", accountNumber: "12345" }); return false; } catch { return true; } })());
+  delete process.env.PAYABLES_BANK_FINGERPRINT_KEY;
+  check("fingerprint key missing: no fingerprint is computed (it throws; the service then says full verification is unavailable)",
+    (() => { try { fp(stored); return false; } catch { return true; } })());
+  process.env.PAYABLES_BANK_FINGERPRINT_KEY = "too-short";
+  check("fingerprint key malformed (too short): no fingerprint is computed either",
+    (() => { try { fp(stored); return false; } catch { return true; } })());
   delete process.env.PAYABLES_BANK_FINGERPRINT_KEY;
 }
 
@@ -537,9 +609,18 @@ async function numberFormatTests(): Promise<void> {
     [0, 2, 4, 14].every((i) => classifyBuiltinNumberFormat(i).kind === "PLAIN") && [5, 7, 8, 42, 44].every((i) => classifyBuiltinNumberFormat(i).kind === "UNVERIFIABLE") && classifyBuiltinNumberFormat(100).kind === "UNVERIFIABLE");
 
   const plain = await formatsOf(await xlsxWithFormats([null, "#,##0.00", "0.00"]));
-  check("XLSX: plain numbers with General / #,##0.00 / 0.00 pass", plain.ok && plain.check.ok, JSON.stringify(plain));
+  check("XLSX: plain numbers with General / #,##0.00 / 0.00 are not foreign …", plain.ok && plain.check.ok, JSON.stringify(plain));
+  check("…but a plain format is NOT evidence of shekels: no evidence, so the file is refused (UNVERIFIABLE)",
+    plain.ok && plain.check.ok && plain.check.evidence === undefined && !requireIlsEvidence(plain.check.evidence ?? null).ok);
   const ils = await formatsOf(await xlsxWithFormats(['"₪"#,##0.00', "[$₪-40D] #,##0.00"], "#,##0.00 ₪"));
-  check("XLSX: shekel-formatted amounts and balances pass", ils.ok && ils.check.ok, JSON.stringify(ils));
+  check("XLSX: shekel-formatted amounts and balances pass, with evidence NUMBER_FORMAT", ils.ok && ils.check.ok && ils.check.evidence === "NUMBER_FORMAT", JSON.stringify(ils));
+  // The owner's case: a dollar Excel statement whose currency format was replaced by "General" (built-in id 0).
+  const dollarXlsx = await xlsxWithFormats(["$#,##0.00", "$#,##0.00"], "$#,##0.00");
+  const asGeneral = await formatsOf(await asBuiltinFormat(dollarXlsx, 0));
+  const dollarAsIs = await formatsOf(dollarXlsx);
+  check("XLSX: the dollar statement as exported is refused (FOREIGN) …", dollarAsIs.ok && !dollarAsIs.check.ok && dollarAsIs.check.verdict === "FOREIGN");
+  check("…and the SAME workbook with its $ format replaced by General is NOT accepted as shekels (no evidence ⇒ UNVERIFIABLE)",
+    asGeneral.ok && asGeneral.check.ok && asGeneral.check.evidence === undefined && !requireIlsEvidence(asGeneral.check.evidence ?? null).ok, JSON.stringify(asGeneral));
   for (const fmt of ["$#,##0.00", "[$USD] #,##0.00", "€ #,##0.00", "[$$-409]#,##0.00"]) {
     const r = await formatsOf(await xlsxWithFormats([fmt, fmt]));
     check(`XLSX: plain numbers formatted "${fmt}" are refused (FOREIGN, NUMBER_FORMAT)`, r.ok && !r.check.ok && r.check.verdict === "FOREIGN" && r.check.signal === "NUMBER_FORMAT", JSON.stringify(r));

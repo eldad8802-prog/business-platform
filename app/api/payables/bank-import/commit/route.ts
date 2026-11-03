@@ -10,12 +10,12 @@ export const maxDuration = 60;
  * Step 2: the same file, the same account and mapping, the token from step 1, and the owner's decision (IMPORT /
  * SKIP) for every suspected duplicate — refused without one. One transaction: new lines are inserted, certain
  * duplicates are not, suspected lines follow the decision; a repeated commit reports the first outcome. The owner's
- * confirmation of the target account (and of lines already held under another account) is required.
+ * confirmation of the target account is required; lines already held under another account are refused.
  */
 export async function POST(req: Request) {
   return bankImportRoute(req, async (actor) => {
-    const { input, token, decisions, confirmedAccountId, confirmedCrossAccountLines } = await readImportForm(req, actor);
-    const result = await commitBankFile({ ...input, token, decisions, confirmedAccountId, confirmedCrossAccountLines });
+    const { input, token, decisions, confirmedAccountId } = await readImportForm(req, actor);
+    const result = await commitBankFile({ ...input, token, decisions, confirmedAccountId });
     return json(result, result.replayed ? 200 : 201);
   });
 }

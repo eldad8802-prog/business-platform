@@ -5,12 +5,17 @@ import { useEffect, useState } from "react";
 import BackButton from "@/components/ui/back-button";
 import { fetchBankAccounts, type BankAccountApi } from "@/lib/payables/payables-client";
 import {
+  ACCOUNT_FIX_TEXT,
   accountCheckText,
+  BANK_ACCOUNTS_SCREEN,
+  bankImportErrorText,
   BankImportRequestError,
   buildBankImportForm,
   fetchBankImportOpen,
+  needsAccountFix,
   postBankImport,
   type BankAccountNumberCheck,
+  type BankFullVerification,
 } from "@/lib/bank-file-import/bank-import-client";
 import { PAYABLES_THEME } from "../../payables-theme";
 import styles from "../../payables.module.css";
@@ -50,10 +55,11 @@ type Preview = {
   ambiguous: Field[];
   counts: { lines: number; new: number; existing: number; suspected: number; invalid: number; repeatedInFile: number; warnings: number };
   newTotals: { currency: "ILS"; creditMinor: number; debitMinor: number };
-  /** The account this preview was made for: shown prominently, and confirmed by the owner before the commit. */
-  account: { id: number; label: string; masked: string; numberCheck: BankAccountNumberCheck };
-  /** Lines already held under ANOTHER account of the business (the file may belong to that account). */
-  crossAccount: { lines: number; accounts: Array<{ id: number; label: string; masked: string }> };
+  /**
+   * The account this preview was made for: shown prominently, and confirmed by the owner before the commit. Lines
+   * already held under another account never reach a preview: the server refuses them (CROSS_ACCOUNT_LINES).
+   */
+  account: { id: number; label: string; masked: string; numberCheck: BankAccountNumberCheck; fullVerification: BankFullVerification };
   dateRange: { from: string; to: string } | null;
   balance: { status: "NOT_AVAILABLE" } | { status: "OK"; checked: number } | { status: "BROKEN"; checked: number; breaks: number[] };
   errors: Array<{ rowNumber: number; field: string }>;
@@ -103,47 +109,19 @@ const FIELDS: Field[] = ["date", "valueDate", "amount", "debit", "credit", "desc
 
 const ROW_FIELD: Record<string, string> = { date: "תאריך", amount: "סכום", valueDate: "תאריך ערך", balance: "יתרה" };
 
-const ERROR_TEXT: Record<string, string> = {
-  FILE_UNREADABLE: "לא הצלחנו לקרוא את הקובץ. שמרו אותו כ-CSV או כ-Excel (XLSX) ונסו שוב.",
-  HEADER_NOT_FOUND: "לא מצאנו בקובץ טבלת תנועות עם שורת כותרות. בדקו שזה קובץ התנועות שהבנק מייצא, ולא קובץ אחר.",
-  MAPPING_INVALID: "שיוך העמודות לא תקין. חייבים תאריך, וסכום או חובה / זכות, וכל עמודה פעם אחת.",
-  TOO_MANY_LINES: "בקובץ יותר מדי תנועות. פצלו אותו לתקופות קצרות יותר.",
-  NO_LINES: "לא נמצאו תנועות בקובץ.",
-  ACCOUNT_REQUIRED: "בחרו לאיזה חשבון בנק שייך הקובץ.",
-  ACCOUNT_NOT_FOUND: "חשבון הבנק לא נמצא. רעננו את הדף ובחרו שוב.",
-  TOKEN_INVALID: "הבדיקה פגה או לא תקפה. בדקו את הקובץ שוב לפני הקליטה.",
-  FILE_CHANGED: "הקובץ או השיוך השתנו מאז הבדיקה. בדקו את הקובץ שוב לפני הקליטה.",
-  DECISIONS_REQUIRED: "יש תנועות שאולי כבר קיימות ועדיין לא החלטתם עליהן. בחרו לכל אחת אם לקלוט או לדלג.",
-  DECISIONS_INVALID: "מאז הבדיקה השתנו התנועות שאולי כבר קיימות. בדקו את הקובץ שוב.",
-  FOREIGN_CURRENCY:
-    "ייבוא קובץ בנק תומך כרגע רק בחשבון בשקלים. בקובץ הזה מופיע מטבע אחר (למשל דולר או אירו), ולכן הוא לא נקלט. אנחנו לא ממירים סכומים בין מטבעות. לא נשמר דבר.",
-  CURRENCY_UNVERIFIABLE:
-    "לא הצלחנו לוודא שהסכומים בקובץ בשקלים (למשל מטבע לא מוכר, או פורמט סכום ב-Excel שמציג מטבע לפי הגדרות המחשב). קובץ שאי אפשר לוודא את המטבע שלו לא נקלט. שמרו אותו מחדש כ-CSV, או בפורמט מספר רגיל / בשקלים, ונסו שוב. לא נשמר דבר.",
-  ACCOUNT_NUMBER_MISMATCH:
-    "מספר החשבון שמופיע בקובץ לא תואם לחשבון שבחרתם. ייתכן שהקובץ שייך לחשבון אחר. בחרו את החשבון הנכון ובדקו שוב. לא נשמר דבר.",
-  ACCOUNT_CONFIRMATION_REQUIRED: "יש לאשר לאיזה חשבון בנק נקלט הקובץ לפני הקליטה.",
-  ACCOUNT_CONFIRMATION_MISMATCH: "החשבון שאישרתם אינו החשבון שנבדק. בדקו את הקובץ שוב.",
-  CROSS_ACCOUNT_CONFIRMATION_REQUIRED:
-    "חלק מהתנועות כבר נמצאות בדוביז תחת חשבון בנק אחר. בדקו שבחרתם את החשבון הנכון ואשרו זאת לפני הקליטה. אם המצב השתנה מאז הבדיקה, בדקו את הקובץ שוב.",
-};
-
-/** A refusal in plain words, with the details the server returned when they help (the owner's own digits). */
-function errorText(e: BankImportRequestError): string {
-  if (e.code === "ACCOUNT_NUMBER_MISMATCH" && typeof e.details.fileLast4 === "string" && typeof e.details.accountLast4 === "string") {
-    if (e.details.basis === "FULL") {
-      return `מספר החשבון המלא שמופיע בקובץ (מסתיים ב-${e.details.fileLast4}) אינו החשבון שבחרתם, גם אם הספרות האחרונות דומות. בחרו את החשבון הנכון ובדקו שוב. לא נשמר דבר.`;
-    }
-    return `בקובץ מופיע חשבון שמסתיים ב-${e.details.fileLast4}, אבל בחרתם חשבון שמסתיים ב-${e.details.accountLast4}. ייתכן שהקובץ שייך לחשבון אחר. בחרו את החשבון הנכון ובדקו שוב. לא נשמר דבר.`;
-  }
-  return ERROR_TEXT[e.code] ?? "משהו השתבש. נסו שוב.";
-}
-
 const money = (minor: number) =>
   new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", minimumFractionDigits: 2 }).format(minor / 100);
 const date = (iso: string) => {
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
 };
+
+/** A refusal shown to the owner; `fixAccount` adds the way to the bank accounts screen. */
+class ScreenError extends Error {
+  constructor(message: string, public readonly fixAccount = false) {
+    super(message);
+  }
+}
 
 // Every call goes through bank-import-client, which carries the session's Bearer token.
 async function send(
@@ -153,7 +131,7 @@ async function send(
   mapping: Mapping | null,
   token?: string,
   decisions?: Record<number, Decision>,
-  confirm?: { accountId: number; crossAccountLines: number | null }
+  confirmAccountId?: number
 ) {
   try {
     return await postBankImport<unknown>(
@@ -164,17 +142,16 @@ async function send(
         mapping,
         token,
         decisions,
-        confirmAccountId: confirm?.accountId ?? null,
-        confirmCrossAccount: confirm?.crossAccountLines ?? null,
+        confirmAccountId: confirmAccountId ?? null,
       })
     );
   } catch (e) {
     if (e instanceof BankImportRequestError) {
-      if (e.status === 401) throw new Error("פג תוקף ההתחברות. יש להתחבר מחדש.");
-      if (e.status === 404) throw new Error("הקליטה עדיין לא פתוחה לעסק הזה.");
-      throw new Error(errorText(e));
+      if (e.status === 401) throw new ScreenError("פג תוקף ההתחברות. יש להתחבר מחדש.");
+      if (e.status === 404) throw new ScreenError("הקליטה עדיין לא פתוחה לעסק הזה.");
+      throw new ScreenError(bankImportErrorText(e.code, e.details), needsAccountFix(e.code));
     }
-    throw new Error("משהו השתבש. נסו שוב.");
+    throw new ScreenError("משהו השתבש. נסו שוב.");
   }
 }
 
@@ -190,11 +167,11 @@ export default function BankImportPage() {
   const [result, setResult] = useState<CommitResult | null>(null);
   // No default: a suspected line is imported or skipped only when the owner says so.
   const [decisions, setDecisions] = useState<Record<number, Decision>>({});
-  // The owner confirms the target account (and lines already held under another account) on every preview.
+  // The owner confirms the target account on every preview.
   const [accountConfirmed, setAccountConfirmed] = useState(false);
-  const [crossConfirmed, setCrossConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ScreenError | null>(null);
+  const fail = (e: unknown) => setError(e instanceof ScreenError ? e : new ScreenError("משהו השתבש. נסו שוב."));
 
   useEffect(() => {
     let cancelled = false;
@@ -231,10 +208,9 @@ export default function BankImportPage() {
       setPreview(p);
       setDecisions({});
       setAccountConfirmed(false);
-      setCrossConfirmed(false);
       setMapping(nextMapping);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "משהו השתבש. נסו שוב.");
+      fail(e);
     } finally {
       setBusy(false);
     }
@@ -245,10 +221,9 @@ export default function BankImportPage() {
     setBusy(true);
     setError(null);
     try {
-      const confirm = { accountId: preview.account.id, crossAccountLines: crossConfirmed ? preview.crossAccount.lines : null };
-      setResult((await send("commit", file, accountId, mapping, preview.token, decisions, confirm)) as CommitResult);
+      setResult((await send("commit", file, accountId, mapping, preview.token, decisions, preview.account.id)) as CommitResult);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "משהו השתבש. נסו שוב.");
+      fail(e);
     } finally {
       setBusy(false);
     }
@@ -272,7 +247,7 @@ export default function BankImportPage() {
   const step = result ? 3 : preview ? 2 : 1;
   const undecided = preview ? preview.suspected.filter((l) => !decisions[l.rowNumber]).length : 0;
   const toImport = preview ? preview.counts.new + preview.suspected.filter((l) => decisions[l.rowNumber] === "IMPORT").length : 0;
-  const confirmed = preview ? accountConfirmed && (preview.crossAccount.lines === 0 || crossConfirmed) : false;
+  const confirmed = preview ? accountConfirmed : false;
   const decideAll = (d: Decision) => {
     if (preview) setDecisions(Object.fromEntries(preview.suspected.map((l) => [l.rowNumber, d])));
   };
@@ -325,7 +300,7 @@ export default function BankImportPage() {
             </select>
             {accounts.length === 0 && (
               <span className={styles.subtitle}>
-                אין עדיין חשבון בנק בדוביז. מוסיפים אותו במסך <Link href="/payables/cheques">המחאות</Link>, בחלק חשבונות הבנק.
+                אין עדיין חשבון בנק בדוביז. מוסיפים אותו במסך <Link href={BANK_ACCOUNTS_SCREEN}>המחאות</Link>, בחלק חשבונות הבנק.
               </span>
             )}
           </div>
@@ -348,12 +323,12 @@ export default function BankImportPage() {
           <details className={own.guide} open>
             <summary>לפני שמעלים: איזה קובץ מתאים</summary>
             <ul>
-              <li>סוגי קבצים: CSV (גם קובץ טקסט מופרד בטאבים או בנקודה־פסיק) או Excel ‏(XLSX). קובץ XLS ישן או PDF לא נתמכים: שמרו אותו מחדש כ-XLSX או כ-CSV.</li>
-              <li>קובץ אחד = חשבון בנק אחד. אם בקובץ מופיעים כמה חשבונות, ייצאו מהבנק קובץ נפרד לכל חשבון.</li>
-              <li>רק חשבון בשקלים. קובץ של חשבון במטבע חוץ (דולר, אירו וכדומה) נדחה, ואנחנו לא ממירים סכומים. גם קובץ שאי אפשר לוודא את המטבע שלו (למשל מטבע לא מוכר, או סכומים ב-Excel בפורמט מטבע שתלוי בהגדרות המחשב) נדחה.</li>
+              <li>סוגי קבצים: CSV (גם קובץ טקסט מופרד בטאבים או בנקודה־פסיק) או Excel ‏(XLSX), כפי שהבנק מוריד אותם. קובץ XLS ישן או PDF לא נתמכים: ייצאו מהבנק את דף החשבון שוב, בפורמט CSV או XLSX.</li>
+              <li>קובץ אחד = חשבון בנק אחד. קובץ שמופיעים בו כמה חשבונות, או שחלק מהתנועות בו כבר נמצאות בדוביז תחת חשבון אחר, לא נקלט בשלב הזה. ייצאו מהבנק קובץ נפרד לכל חשבון.</li>
+              <li>רק חשבון בשקלים. קובץ של חשבון במטבע חוץ (דולר, אירו וכדומה) נדחה, ואנחנו לא ממירים סכומים. נקלט רק קובץ שמופיע בו סימון שהסכומים בשקלים (למשל ₪ או ש&quot;ח בכותרת עמודת הסכום או היתרה, או עמודת מטבע). קובץ בלי סימון כזה, או שאי אפשר לוודא את המטבע שלו, נדחה: העלו ייצוא מקורי מהבנק של דף החשבון, ללא עריכה.</li>
               <li>אימות החשבון: רק כשבקובץ מופיע מספר החשבון המלא (בנק, סניף וחשבון) אפשר לאמת שהוא של החשבון שבחרתם. אם מופיעות רק הספרות האחרונות, או שלא מופיע מספר בכלל, החשבון לא מאומת ותתבקשו לאשר אותו בעצמכם.</li>
-              <li>העלו את הקובץ כמו שהבנק ייצא אותו, בלי לערוך, למחוק או להוסיף שורות. כך היתרות והכפילויות נבדקות נכון.</li>
-              <li>כפילויות: תנועה שכבר נמצאת בדוביז לא תיקלט פעמיים. תנועה שאולי כבר קיימת תוצג לכם, ואתם מחליטים אם לקלוט אותה. אם תנועות מהקובץ כבר נמצאות תחת חשבון אחר, נבקש מכם לאשר שבחרתם את החשבון הנכון.</li>
+              <li>העלו את הקובץ כמו שהבנק ייצא אותו, בלי לערוך, למחוק או להוסיף שורות, ובלי לשמור אותו מחדש. כך המטבע, היתרות והכפילויות נבדקים נכון.</li>
+              <li>כפילויות: תנועה שכבר נמצאת בדוביז לא תיקלט פעמיים. תנועה שאולי כבר קיימת תוצג לכם, ואתם מחליטים אם לקלוט אותה.</li>
               <li>אין חיבור אוטומטי לבנק. דוביז לא מתחבר לחשבון ולא מושך תנועות בעצמו. נקלט רק הקובץ שאתם מעלים.</li>
               <li>אילו בנקים נבדקו: עד עכשיו נבדק עם קובץ אמיתי רק פורמט הייצוא של בנק אחד. קבצים מבנקים אחרים צפויים לעבוד, אבל ייתכן שתתבקשו לשייך עמודות בעצמכם.</li>
             </ul>
@@ -369,7 +344,16 @@ export default function BankImportPage() {
         </form>
       )}
 
-      {error && <div className={styles.error} role="alert">{error}</div>}
+      {error && (
+        <div className={styles.error} role="alert" style={{ display: "grid", gap: 8 }}>
+          <span>{error.message}</span>
+          {error.fixAccount && (
+            <span>
+              {ACCOUNT_FIX_TEXT} <Link href={BANK_ACCOUNTS_SCREEN}>למסך חשבונות הבנק (המחאות)</Link>
+            </span>
+          )}
+        </div>
+      )}
 
       {needsMapping && !preview && !result && (
         <section aria-label="שיוך עמודות" style={{ display: "grid", gap: 12, minWidth: 0 }}>
@@ -437,7 +421,7 @@ export default function BankImportPage() {
               {preview.account.label} · <bdi dir="ltr">{preview.account.masked}</bdi>
             </span>
             <span className={styles.subtitle}>
-              {accountCheckText(preview.account.numberCheck)}
+              {accountCheckText(preview.account.numberCheck, preview.account.fullVerification)}
             </span>
             <label className={own.confirm}>
               <input type="checkbox" checked={accountConfirmed} disabled={busy} onChange={(e) => setAccountConfirmed(e.target.checked)} />
@@ -446,23 +430,6 @@ export default function BankImportPage() {
               </span>
             </label>
           </div>
-
-          {preview.crossAccount.lines > 0 && (
-            <div className={styles.error} role="alert" style={{ display: "grid", gap: 8 }}>
-              <span>
-                {preview.crossAccount.lines} מהתנועות בקובץ כבר נמצאות בדוביז תחת חשבון אחר:{" "}
-                {preview.crossAccount.accounts.map((a) => `${a.label} (${a.masked})`).join(", ")}. ייתכן שבחרתם חשבון לא נכון. אם
-                תמשיכו, התנועות האלה יירשמו גם בחשבון {preview.account.label}. תנועה אחת זהה (למשל אותה עמלה באותו יום בשני
-                חשבונות) יכולה להיות מקרית; הרבה תנועות זהות כמעט תמיד אומרות שהקובץ שייך לחשבון האחר.
-              </span>
-              <label className={own.confirm}>
-                <input type="checkbox" checked={crossConfirmed} disabled={busy} onChange={(e) => setCrossConfirmed(e.target.checked)} />
-                <span>
-                  בדקתי: הקובץ שייך לחשבון {preview.account.label}, ואני רוצה לקלוט גם את {preview.crossAccount.lines} התנועות האלה.
-                </span>
-              </label>
-            </div>
-          )}
 
           {preview.previouslyImportedAt && (
             <div className={styles.notice}>

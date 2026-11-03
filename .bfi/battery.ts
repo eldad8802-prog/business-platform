@@ -20,8 +20,11 @@
  *   J. Facts stay immutable; the existing systems are byte-identical before and after.
  *   K. The old path alone, unchanged: idempotent re-upload, its own identities.
  *   S. Guards (2026-11-03): a foreign-currency file is refused at analyze AND at commit; the shekel layout passes;
- *      the file's account number must be the chosen account's; the commit must confirm the analyzed account;
- *      lines already held under another account need an explicit, exact confirmation; tenants stay apart.
+ *      a file without positive evidence of shekels (a stripped "$", an Excel "General" column) is refused
+ *      (CURRENCY_UNVERIFIABLE); the file's account number must be the chosen account's; a file with several
+ *      accounts is refused; the fingerprint key missing ⇒ full verification UNAVAILABLE, never verified; the commit
+ *      must confirm the analyzed account; lines already held under another account are REFUSED (no confirmation
+ *      lets them through), at analyze and at commit; no number, fingerprint or key in a response; tenants stay apart.
  *
  * env: OWNER_URL (fixtures, BYPASSRLS), RUNTIME_URL (the app). Synthetic only. ZERO network.
  */
@@ -55,7 +58,19 @@ async function errorCode(fn: () => Promise<unknown>): Promise<string> {
   try { await fn(); return ""; } catch (e) { return (e as { code?: string }).code ?? (e instanceof Error ? e.message : String(e)); }
 }
 
-const csv = (rows: string[][]) => Buffer.from(rows.map((r) => r.join(",")).join("\n"), "utf8");
+/**
+ * A CSV statement as this path reads it. Since 2026-11-03 (round 2) a file needs POSITIVE evidence of shekels, so
+ * every synthetic statement carries a currency column of ILS after its header row (the row holding "תאריך") — unless
+ * it has a currency column of its own (the currency tests). Rows above the header (titles) are left alone. The old
+ * path ignores the extra column (oldCsv below builds its text without it); identities do not include it.
+ */
+const csv = (rows: string[][], ils = true) => {
+  const header = rows.findIndex((r) => r.includes("תאריך"));
+  const withIls = !ils || header < 0 || rows[header].includes("מטבע")
+    ? rows
+    : rows.map((r, i) => (i < header ? r : [...r, i === header ? "מטבע" : "ILS"]));
+  return Buffer.from(withIls.map((r) => r.join(",")).join("\n"), "utf8");
+};
 const day = (d: number) => `${String(d).padStart(2, "0")}/10/2026`;
 /** A statement for days [from, to]: one debit per day, plus a salary credit on day 1. */
 function statement(from: number, to: number, extra: string[][] = []): string[][] {
@@ -112,7 +127,7 @@ async function main() {
   const analyze = (i: ReturnType<typeof input>) => runWithTenantContext({ businessId: i.businessId }, () => svc.analyzeBankFile(i));
   type Decisions = import("@/lib/services/bank-file-import/bank-file-import.service").SuspectDecisions;
   // The owner confirms the account shown on the preview (the analyzed one) unless a test says otherwise.
-  type Confirm = { account?: number | null; cross?: number | null };
+  type Confirm = { account?: number | null };
   const commit = (i: ReturnType<typeof input>, token: unknown, decisions: Decisions | null = null, confirm: Confirm = {}) =>
     runWithTenantContext({ businessId: i.businessId }, () =>
       svc.commitBankFile({
@@ -120,15 +135,17 @@ async function main() {
         token,
         decisions,
         confirmedAccountId: "account" in confirm ? confirm.account : i.accountId,
-        confirmedCrossAccountLines: confirm.cross ?? null,
       }));
   const decideAll = (preview: { suspected: Array<{ rowNumber: number }> }, d: "IMPORT" | "SKIP"): Decisions =>
     Object.fromEntries(preview.suspected.map((l) => [l.rowNumber, d]));
-  // An owner who reads the preview and confirms what it shows (including lines held under another account).
+  // An owner who reads the preview and confirms the account it shows.
   const importFile = async (i: ReturnType<typeof input>) => {
     const p = await analyze(i);
-    const cross = p.status === "READY" ? p.crossAccount.lines : 0;
-    return { preview: p, result: await commit(i, p.token, null, { cross: cross || null }) };
+    return { preview: p, result: await commit(i, p.token) };
+  };
+  /** The refusal of a call: its code and details (null when it did not throw). */
+  const refusal = async (fn: () => Promise<unknown>) => {
+    try { await fn(); return null; } catch (e) { return e as { code?: string; detail?: Record<string, unknown> }; }
   };
   const oldUpload = (biz: number, uid: number, acc: number | null, text: string) =>
     runWithTenantContext({ businessId: biz }, () => obs.uploadStatement({ businessId: biz, actorUserId: uid, sourceBankAccountId: acc, csvText: text }));
@@ -219,8 +236,9 @@ async function main() {
 
   // ── P. Two real lines with identical facts on two accounts are never lost ──────────────────────
   console.log("P. the same fee on the same day in two accounts: both real lines are kept (P1–P3)");
-  const feeA = "תאריך,תיאור,אסמכתא,חובה,זכות\n01/10/2026,עמלת ניהול חשבון,,15.00,\n02/10/2026,ספק א,11,300.00,";
-  const feeB = "תאריך,תיאור,אסמכתא,חובה,זכות\n01/10/2026,עמלת ניהול חשבון,,15.00,\n03/10/2026,ספק ב,22,120.00,";
+  // A currency column of ILS (positive evidence of shekels for this path; the old path ignores it).
+  const feeA = "תאריך,תיאור,אסמכתא,חובה,זכות,מטבע\n01/10/2026,עמלת ניהול חשבון,,15.00,,ILS\n02/10/2026,ספק א,11,300.00,,ILS";
+  const feeB = "תאריך,תיאור,אסמכתא,חובה,זכות,מטבע\n01/10/2026,עמלת ניהול חשבון,,15.00,,ILS\n03/10/2026,ספק ב,22,120.00,,ILS";
   const twoAccounts = async (tag: string) => {
     const b = await business(tag);
     await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'bank_file_import', 'ENABLED', now())`, b);
@@ -243,10 +261,13 @@ async function main() {
   ok("P3 B via the old path without an account, then A via the old path with account A: 4 lines (old path unchanged)", pp3old.inserted === 2 && (await lines(pp3.b)) === 4);
   const pp4 = await twoAccounts("bfi-P4");
   await importFile(input(pp4.b, pp4.u, pp4.A, Buffer.from(feeA, "utf8")));
-  const pp4b = await importFile(input(pp4.b, pp4.u, pp4.B, Buffer.from(feeB, "utf8")));
-  ok("P4 A then B, both via this path with their accounts: the identical fee is NEW in B (different account), 4 lines", pp4b.preview.counts.new === 2 && pp4b.preview.counts.suspected === 0 && (await lines(pp4.b)) === 4);
-  ok("P4 …and the preview flagged the fee as already held under account A (1 line), which the owner confirmed",
-    pp4b.preview.crossAccount.lines === 1 && pp4b.preview.crossAccount.accounts.length === 1 && pp4b.preview.crossAccount.accounts[0].id === pp4.A, JSON.stringify(pp4b.preview.crossAccount));
+  const pp4b = await refusal(() => analyze(input(pp4.b, pp4.u, pp4.B, Buffer.from(feeB, "utf8"))));
+  // Owner, 2026-11-03 round 2: a line already held under another account blocks the file at this stage — even one
+  // identical fee. Nothing is lost (B's statement is simply not imported yet), nothing is written twice.
+  ok("P4 A then B, both via this path: B's statement holds the identical fee already under A — REFUSED (CROSS_ACCOUNT_LINES, 1 line), nothing written",
+    pp4b?.code === "CROSS_ACCOUNT_LINES" && pp4b.detail?.lines === 1 && pp4b.detail?.accounts === 1 && (await lines(pp4.b)) === 2, JSON.stringify(pp4b));
+  gap("P4 a REAL identical line in two accounts (the same fee, the same day) now blocks the second account's statement (CROSS_ACCOUNT_LINES)",
+    "owner decision 2026-11-03 round 2: several accounts / cross-account lines are blocked at this stage");
 
   // ── E. Overlaps, identical lines, CSV then Excel ─────────────────────────────────────────────
   console.log("E. overlapping statements, identical lines, CSV then Excel");
@@ -263,15 +284,18 @@ async function main() {
   ok("two identical charges are two rows; a later statement with three adds exactly one", e3.result.inserted === 2 && e4.result.inserted === 1 && e3.preview.counts.repeatedInFile === 1, `${e3.result.inserted}/${e4.result.inserted}`);
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("תנועות");
-  ws.addRow(["תאריך", "תיאור", "אסמכתא", "חובה", "זכות"]);
-  for (let d = 21; d <= 23; d++) ws.addRow([new Date(Date.UTC(2026, 9, d)), `ספק ${d}`, `R${d}`, 100 + d, null]);
+  ws.addRow(["תאריך", "תיאור", "אסמכתא", "חובה", "זכות", "מטבע"]);
+  for (let d = 21; d <= 23; d++) ws.addRow([new Date(Date.UTC(2026, 9, d)), `ספק ${d}`, `R${d}`, 100 + d, null, "ILS"]);
   const xbytes = Buffer.from(await wb.xlsx.writeBuffer());
   const csvSame = [["תאריך", "תיאור", "אסמכתא", "חובה", "זכות"], ...[21, 22, 23].map((d) => [day(d), `ספק ${d}`, `R${d}`, `${100 + d}.00`, ""])];
   const e5 = await importFile(input(bizE, userE, accE, csv(csvSame)));
   const e6 = await importFile(input(bizE, userE, accE, xbytes, "statement.xlsx"));
   ok("CSV, then the Excel export of the same statement: 3 then 0", e5.result.inserted === 3 && e6.result.inserted === 0, `${e5.result.inserted}/${e6.result.inserted}`);
   const e7 = await importFile(input(bizE, userE, accE, csv(statement(1, 3)).subarray(0), "statement.csv"));
-  ok("an account's lines do not hide another account's: the same file into the second account is new", (await importFile(input(bizA, userA, accA2, csv(statement(1, 2))))).result.inserted === 3 && e7.result.inserted === 0);
+  const beforeA2 = await lines(bizA);
+  const intoA2 = await refusal(() => analyze(input(bizA, userA, accA2, csv(statement(1, 2)))));
+  ok("the same lines into the business's second account: REFUSED (CROSS_ACCOUNT_LINES, 3 lines held under the first), nothing written",
+    intoA2?.code === "CROSS_ACCOUNT_LINES" && intoA2.detail?.lines === 3 && (await lines(bizA)) === beforeA2 && e7.result.inserted === 0, JSON.stringify(intoA2));
 
   // ── F. Concurrency ───────────────────────────────────────────────────────────────────────────
   console.log("F. concurrency");
@@ -307,12 +331,11 @@ async function main() {
   ok("as the runtime in business B: none of A's runs or lines are visible", seenRuns === 0 && seenLines === 0);
   const accB2 = await account(bizB, "B2");
   const gB = await importFile(input(bizB, userB, accB, fileAB));
-  ok("the same file in business B is B's own: 6 inserted, A's lines untouched", gB.result.inserted === 6 && (await lines(bizB)) === 6);
-  ok("…and A's lines under A's accounts are never a cross-account signal in B (0 lines, no account of A named)",
-    gB.preview.crossAccount.lines === 0 && gB.preview.crossAccount.accounts.length === 0, JSON.stringify(gB.preview.crossAccount));
-  const gB2 = await analyze(input(bizB, userB, accB2, fileAB));
-  ok("…while in B itself the same file into B's other account shows B's own 6 lines as cross-account",
-    gB2.status === "READY" && gB2.crossAccount.lines === 6 && gB2.crossAccount.accounts.every((a) => a.id === accB), JSON.stringify(gB2.status === "READY" ? gB2.crossAccount : gB2));
+  ok("the same file in business B is B's own: 6 inserted (A's lines under A's accounts never block B), A's lines untouched",
+    gB.result.inserted === 6 && (await lines(bizB)) === 6);
+  const gB2 = await refusal(() => analyze(input(bizB, userB, accB2, fileAB)));
+  ok("…while in B itself the same file into B's other account is refused: B's own 6 lines are held under B's first account",
+    gB2?.code === "CROSS_ACCOUNT_LINES" && gB2.detail?.lines === 6 && gB2.detail?.accounts === 1 && (await lines(bizB)) === 6, JSON.stringify(gB2));
 
   // ── H. Tokens ────────────────────────────────────────────────────────────────────────────────
   console.log("H. tokens");
@@ -378,7 +401,8 @@ async function main() {
   const mAgain = await analyze(input(bizM, userM, accM, realLayout));
   ok("…the same file again: 4 already in Dubiz, 0 new", mAgain.status === "READY" && mAgain.counts.existing === 4 && mAgain.counts.new === 0);
 
-  const unknownTitles = utf16([["תאריך", "פירוט", "תנועה", "מצב חשבון"], ["02/03/2026", "קפה", "-12.00", "620.00"], ["01/03/2026", "מכירה", "300.00", "632.00"]]);
+  // Unknown titles; the movement column carries ₪ (the positive evidence of shekels once the owner maps it).
+  const unknownTitles = utf16([["תאריך", "פירוט", "תנועה ₪", "מצב חשבון"], ["02/03/2026", "קפה", "-12.00", "620.00"], ["01/03/2026", "מכירה", "300.00", "632.00"]]);
   const before0 = await lines(bizM);
   const need = await analyze(input(bizM, userM, accM, unknownTitles));
   ok("unknown titles: MAPPING_REQUIRED (not an error), the amount is missing, no token, samples per column",
@@ -443,19 +467,32 @@ async function main() {
     (await errorCode(async () => analyze(input(bizS, userS, accS1, await xlsxMoney("[$USD] #,##0.00"), "statement.xlsx")))) === "FOREIGN_CURRENCY" && (await lines(bizS)) === 0);
   ok("S2 …formatted \"$#,##0.00\": refused too", (await errorCode(async () => analyze(input(bizS, userS, accS1, await xlsxMoney("$#,##0.00"), "statement.xlsx")))) === "FOREIGN_CURRENCY");
   const xlsxIls = await analyze(input(bizS, userS, accS1, await xlsxMoney('"₪"#,##0.00'), "statement.xlsx"));
-  ok("S2 …the same Excel file formatted in shekels passes (READY, 2 new)", xlsxIls.status === "READY" && xlsxIls.counts.new === 2, JSON.stringify(xlsxIls.status === "READY" ? xlsxIls.counts : xlsxIls));
+  ok("S2 …the same Excel file formatted in shekels passes (READY, 2 new, evidence NUMBER_FORMAT)",
+    xlsxIls.status === "READY" && xlsxIls.counts.new === 2 && xlsxIls.currencyEvidence === "NUMBER_FORMAT", JSON.stringify(xlsxIls.status === "READY" ? xlsxIls.counts : xlsxIls));
+
+  // Positive evidence (round 2): a file whose currency mark was removed is never accepted as shekels.
+  const noEvidenceXlsx = await refusal(async () => analyze(input(bizS, userS, accS1, await xlsxMoney(null), "statement.xlsx")));
+  ok("S2b the same Excel file with the currency format replaced by General (plain numbers, no mark anywhere): CURRENCY_UNVERIFIABLE (NO_ILS_EVIDENCE), nothing written",
+    noEvidenceXlsx?.code === "CURRENCY_UNVERIFIABLE" && noEvidenceXlsx.detail?.signal === "NO_ILS_EVIDENCE" && (await lines(bizS)) === 0, JSON.stringify(noEvidenceXlsx));
+  const strippedDollar = csv([["תאריך", "תיאור", "אסמכתא", "סכום", "יתרה"], [day(1), "ספק", "D1", "-50.00", "950.00"]], false);
+  const strippedErr = await refusal(() => analyze(input(bizS, userS, accS1, strippedDollar)));
+  ok("S2b the $-marks file with every $ stripped: CURRENCY_UNVERIFIABLE (NO_ILS_EVIDENCE) — never read as shekels",
+    strippedErr?.code === "CURRENCY_UNVERIFIABLE" && strippedErr.detail?.signal === "NO_ILS_EVIDENCE" && (await lines(bizS)) === 0, JSON.stringify(strippedErr));
   const shekelReal = utf16([
     ["תאריך", "יום ערך", "תיאור התנועה", "זכות/חובה ₪", "יתרה ₪", "אסמכתה"],
     ["09/03/2026", "08/03/2026", "עמלת פעולה- מט\", לפי 2 יח'", "-6.25", "993.75", "0412"],
     ["05/03/2026", "06/03/2026", "משכורת חודשית", "1,000.00", "1,000.00", "0411"],
   ]);
   const sReal = await analyze(input(bizS, userS, accS1, shekelReal));
-  ok("S3 the real Hebrew shekel layout (₪ titles) still passes: READY, nothing cross-account, no account number in the file",
-    sReal.status === "READY" && sReal.counts.new === 2 && sReal.crossAccount.lines === 0 && sReal.account.id === accS1 && sReal.account.masked === "••••8901" && sReal.account.numberCheck === "NOT_IN_FILE",
-    JSON.stringify(sReal.status === "READY" ? { c: sReal.counts, a: sReal.account } : sReal));
+  ok("S3 the real Hebrew shekel layout (₪ titles) still passes: READY on evidence MONEY_HEADER_MARK, no account number in the file, full verification available",
+    sReal.status === "READY" && sReal.counts.new === 2 && sReal.currencyEvidence === "MONEY_HEADER_MARK" && sReal.account.id === accS1 && sReal.account.masked === "••••8901" &&
+    sReal.account.numberCheck === "NOT_IN_FILE" && sReal.account.fullVerification === "AVAILABLE",
+    JSON.stringify(sReal.status === "READY" ? { c: sReal.counts, a: sReal.account, e: sReal.currencyEvidence } : sReal));
   if (sReal.status === "READY") {
     ok("S4 the commit checks the currency again, server-side: a USD file sent with a shekel file's token is refused as FOREIGN_CURRENCY",
       (await errorCode(() => commit(input(bizS, userS, accS1, usdColumn), sReal.token))) === "FOREIGN_CURRENCY" && (await lines(bizS)) === 0);
+    ok("S4 …and a file with no evidence of shekels sent with that token is refused as CURRENCY_UNVERIFIABLE (before any token or file check)",
+      (await errorCode(() => commit(input(bizS, userS, accS1, strippedDollar), sReal.token))) === "CURRENCY_UNVERIFIABLE" && (await lines(bizS)) === 0);
     ok("S5 a commit without the account confirmation is refused (ACCOUNT_CONFIRMATION_REQUIRED), nothing written",
       (await errorCode(() => commit(input(bizS, userS, accS1, shekelReal), sReal.token, null, { account: null }))) === "ACCOUNT_CONFIRMATION_REQUIRED" && (await lines(bizS)) === 0 && (await runsS()) === 0);
     ok("S5 …a confirmation naming another account of the business is refused (ACCOUNT_CONFIRMATION_MISMATCH)",
@@ -465,9 +502,10 @@ async function main() {
     const sDone = await commit(input(bizS, userS, accS1, shekelReal), sReal.token);
     ok("S5 …with the confirmation: 2 inserted on S1", sDone.inserted === 2 && (await lines(bizS)) === 2);
     const auditS = await owner.payablesAuditEvent.findFirst({ where: { businessId: bizS }, orderBy: { id: "desc" } });
-    const metaS = (auditS?.metadata ?? {}) as { confirmedAccountId?: number; crossAccountLines?: number; accountNumberInFile?: string };
-    ok("S5 …the audit event records the confirmed account, the account-number check and the cross-account count",
-      metaS.confirmedAccountId === accS1 && metaS.crossAccountLines === 0 && metaS.accountNumberInFile === "NOT_IN_FILE", JSON.stringify(metaS));
+    const metaS = (auditS?.metadata ?? {}) as { confirmedAccountId?: number; accountNumberInFile?: string; fullAccountVerification?: string; currencyEvidence?: string };
+    ok("S5 …the audit event records the confirmed account, the account-number check, whether full verification was available and the currency evidence",
+      metaS.confirmedAccountId === accS1 && metaS.accountNumberInFile === "NOT_IN_FILE" && metaS.fullAccountVerification === "AVAILABLE" && metaS.currencyEvidence === "MONEY_HEADER_MARK", JSON.stringify(metaS));
+    ok("S5 …and holds no account number, fingerprint or key", !JSON.stringify(auditS?.metadata ?? {}).includes(sealed.fingerprint) && !JSON.stringify(auditS?.metadata ?? {}).includes("678901"));
   }
 
   const titled = (num: string, from: number) => csv([[`מספר חשבון: ${num}`], ["תאריך", "תיאור", "אסמכתא", "חובה", "זכות"], [day(from), "ספק", `T${from}`, "12.00", ""], [day(from + 1), "ספק", `T${from + 1}`, "13.00", ""]]);
@@ -477,7 +515,34 @@ async function main() {
   const sMatch = await analyze(input(bizS, userS, accS1, titled("12-345-678901", 10)));
   ok("S6 …the file prints the FULL account 12-345-678901, which is S1's: READY, numberCheck VERIFIED_FULL (by the account's fingerprint)",
     sMatch.status === "READY" && sMatch.account.numberCheck === "VERIFIED_FULL", JSON.stringify(sMatch.status === "READY" ? sMatch.account : sMatch));
-  ok("S6 …the preview never carries the full number (masked only)", sMatch.status === "READY" && !JSON.stringify(sMatch.account).includes("678901") && sMatch.account.masked === "••••8901");
+  ok("S6 …the preview never carries the full number, the fingerprint or a key (masked only)",
+    sMatch.status === "READY" && !JSON.stringify(sMatch).includes("678901") && !JSON.stringify(sMatch).includes(sealed.fingerprint) &&
+    !JSON.stringify(sMatch).includes(process.env.PAYABLES_BANK_FINGERPRINT_KEY as string) && sMatch.account.masked === "••••8901");
+
+  // The fingerprint key missing (then malformed): the full account cannot be verified, and the preview says so.
+  const savedKey = process.env.PAYABLES_BANK_FINGERPRINT_KEY;
+  delete process.env.PAYABLES_BANK_FINGERPRINT_KEY;
+  const noKey = await analyze(input(bizS, userS, accS1, titled("12-345-678901", 10)));
+  process.env.PAYABLES_BANK_FINGERPRINT_KEY = "c2hvcnQ="; // 5 bytes: malformed (below the 32-byte minimum)
+  const badKey = await analyze(input(bizS, userS, accS1, titled("12-345-678901", 10)));
+  process.env.PAYABLES_BANK_FINGERPRINT_KEY = savedKey;
+  ok("S6k the fingerprint key MISSING: the full printed account is not verified — PARTIAL_MATCH, fullVerification UNAVAILABLE (the screen: אימות מלא של החשבון אינו זמין כרגע)",
+    noKey.status === "READY" && noKey.account.numberCheck === "PARTIAL_MATCH" && noKey.account.fullVerification === "UNAVAILABLE", JSON.stringify(noKey.status === "READY" ? noKey.account : noKey));
+  ok("S6k …the key MALFORMED (too short): the same — never VERIFIED_FULL",
+    badKey.status === "READY" && badKey.account.numberCheck === "PARTIAL_MATCH" && badKey.account.fullVerification === "UNAVAILABLE", JSON.stringify(badKey.status === "READY" ? badKey.account : badKey));
+  ok("S6k …a last-four mismatch is still refused without the key (ACCOUNT_NUMBER_MISMATCH)", await (async () => {
+    delete process.env.PAYABLES_BANK_FINGERPRINT_KEY;
+    const code = await errorCode(() => analyze(input(bizS, userS, accS1, titled("12-345-678999", 10))));
+    process.env.PAYABLES_BANK_FINGERPRINT_KEY = savedKey;
+    return code === "ACCOUNT_NUMBER_MISMATCH";
+  })());
+
+  const twoAccountFile = csv([["מספר חשבון: 12-345-678901"], ["מספר חשבון: 12-345-555444"], ["תאריך", "תיאור", "אסמכתא", "חובה", "זכות"], [day(12), "ספק", "W1", "12.00", ""]]);
+  const multiErr = await refusal(() => analyze(input(bizS, userS, accS1, twoAccountFile)));
+  ok("S6m a file that prints two accounts (one of them S1's): REFUSED (MULTIPLE_ACCOUNTS_IN_FILE, 2), whichever account is chosen, nothing written",
+    multiErr?.code === "MULTIPLE_ACCOUNTS_IN_FILE" && multiErr.detail?.accounts === 2 && (await lines(bizS)) === before6 &&
+    (await errorCode(() => analyze(input(bizS, userS, accS2, twoAccountFile)))) === "MULTIPLE_ACCOUNTS_IN_FILE", JSON.stringify(multiErr));
+  ok("S6m …the refusal names how many accounts, never a number", !JSON.stringify(multiErr?.detail ?? {}).includes("678901") && !JSON.stringify(multiErr?.detail ?? {}).includes("555444"));
   const zeroErr = await (async () => { try { await analyze(input(bizS, userS, accS1, titled("12-345-0678901", 10))); return null; } catch (e) { return e as { code?: string; detail?: Record<string, unknown> }; } })();
   ok("S6 leading zeros matter: 12-345-0678901 is NOT S1 (678901) although the last four agree — ACCOUNT_NUMBER_MISMATCH on the FULL account",
     zeroErr?.code === "ACCOUNT_NUMBER_MISMATCH" && zeroErr.detail?.basis === "FULL" && !JSON.stringify(zeroErr.detail).includes("0678901"), JSON.stringify(zeroErr?.detail));
@@ -495,24 +560,21 @@ async function main() {
   }
 
   const shared = csv(statement(1, 4));
+  // A token for S2, issued while S2's file holds nothing already held elsewhere (it is checked again on commit).
+  const earlyS2 = await analyze(input(bizS, userS, accS2, shared));
   const sharedOnS1 = await importFile(input(bizS, userS, accS1, shared));
   ok("S7 a statement imported into S1: 5 inserted", sharedOnS1.result.inserted === 5);
   const before7 = await lines(bizS);
-  const sCross = await analyze(input(bizS, userS, accS2, shared));
-  ok("S7 the same statement into S2: all 5 lines flagged as already held under S1 (shown with S1's masked number)",
-    sCross.status === "READY" && sCross.counts.new === 5 && sCross.crossAccount.lines === 5 && sCross.crossAccount.accounts.length === 1 && sCross.crossAccount.accounts[0].id === accS1 && sCross.crossAccount.accounts[0].masked === "••••8901",
-    JSON.stringify(sCross.status === "READY" ? sCross.crossAccount : sCross));
-  if (sCross.status === "READY") {
-    ok("S7 …a commit without the cross-account confirmation is refused (CROSS_ACCOUNT_CONFIRMATION_REQUIRED), nothing written",
-      (await errorCode(() => commit(input(bizS, userS, accS2, shared), sCross.token))) === "CROSS_ACCOUNT_CONFIRMATION_REQUIRED" && (await lines(bizS)) === before7);
-    ok("S7 …a confirmation of another number of lines is refused too",
-      (await errorCode(() => commit(input(bizS, userS, accS2, shared), sCross.token, null, { cross: 1 }))) === "CROSS_ACCOUNT_CONFIRMATION_REQUIRED" && (await lines(bizS)) === before7);
-    const crossDone = await commit(input(bizS, userS, accS2, shared), sCross.token, null, { cross: 5 });
-    ok("S7 …confirmed exactly: 5 inserted under S2 (the owner's explicit choice)", crossDone.inserted === 5 && (await lines(bizS)) === before7 + 5);
-    const sAgain = await analyze(input(bizS, userS, accS2, shared));
-    ok("S7 …the duplicate mechanism is intact: the same file into S2 again is 5 existing, 0 new, nothing cross-account to confirm",
-      sAgain.status === "READY" && sAgain.counts.existing === 5 && sAgain.counts.new === 0 && sAgain.crossAccount.lines === 0);
-  }
+  const sCross = await refusal(() => analyze(input(bizS, userS, accS2, shared)));
+  ok("S7 the same statement into S2: REFUSED at analyze (CROSS_ACCOUNT_LINES — 5 lines, 1 other account, S1's masked number only), nothing written",
+    sCross?.code === "CROSS_ACCOUNT_LINES" && sCross.detail?.lines === 5 && sCross.detail?.accounts === 1 && sCross.detail?.otherAccounts === "••••8901" && (await lines(bizS)) === before7,
+    JSON.stringify(sCross));
+  ok("S7 …the refusal carries no account label, full number or fingerprint", !JSON.stringify(sCross?.detail ?? {}).includes("חשבון S1") && !JSON.stringify(sCross?.detail ?? {}).includes("678901") && !JSON.stringify(sCross?.detail ?? {}).includes(sealed.fingerprint));
+  ok("S7 …and at commit, server-side, under the lock: the token issued before S1 held the lines is refused (CROSS_ACCOUNT_LINES) — a confirmation field cannot exist, nothing written",
+    earlyS2.status === "READY" && (await errorCode(() => commit(input(bizS, userS, accS2, shared), earlyS2.token))) === "CROSS_ACCOUNT_LINES" && (await lines(bizS)) === before7);
+  const sAgain = await analyze(input(bizS, userS, accS1, shared));
+  ok("S7 …the duplicate mechanism is intact: the same file into S1 again is 5 existing, 0 new (its own account never blocks it)",
+    sAgain.status === "READY" && sAgain.counts.existing === 5 && sAgain.counts.new === 0);
 
   const bizS2 = await business("bfi-S2");
   const userS2 = await user(bizS2, "s2");
@@ -520,8 +582,8 @@ async function main() {
   await account(bizS2, "T2", "4321");
   await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'bank_file_import', 'ENABLED', now())`, bizS2);
   const sOther = await analyze(input(bizS2, userS2, accT1, shared));
-  ok("S8 tenant isolation: the same statement in another business with the same last four digits is NEW there, nothing cross-account",
-    sOther.status === "READY" && sOther.counts.new === 5 && sOther.crossAccount.lines === 0, JSON.stringify(sOther.status === "READY" ? sOther.crossAccount : sOther));
+  ok("S8 tenant isolation: the same statement in another business with the same last four digits is NEW there, never blocked as cross-account",
+    sOther.status === "READY" && sOther.counts.new === 5, JSON.stringify(sOther.status === "READY" ? sOther.counts : sOther));
   ok("S8 …another business's account is still ACCOUNT_NOT_FOUND (before any guard reveals anything)",
     (await errorCode(() => analyze(input(bizS2, userS2, accS1, titled("12-345-678999", 10))))) === "ACCOUNT_NOT_FOUND");
 

@@ -127,9 +127,10 @@ function digitsField(raw: FormDataEntryValue | null): number | null {
 
 /**
  * The multipart body both analyze and commit take: file, account, optional sheet and mapping (and token). The
- * commit also carries the owner's confirmations from the preview: `confirmAccountId` (the account shown and
- * confirmed) and `confirmCrossAccount` (how many lines already held under another account they confirmed).
- * Anything but digits reads as absent, and the service then refuses the commit.
+ * commit also carries the owner's confirmation from the preview: `confirmAccountId` (the account shown and
+ * confirmed). Anything but digits reads as absent, and the service then refuses the commit. There is no
+ * cross-account confirmation any more: lines already held under another account are refused (CROSS_ACCOUNT_LINES),
+ * and a `confirmCrossAccount` field, if a client still sends one, is ignored.
  */
 export async function readImportForm(
   req: Request,
@@ -139,7 +140,6 @@ export async function readImportForm(
   token: FormDataEntryValue | null;
   decisions: SuspectDecisions | null;
   confirmedAccountId: number | null;
-  confirmedCrossAccountLines: number | null;
 }> {
   let form: FormData;
   try {
@@ -174,6 +174,5 @@ export async function readImportForm(
     token: form.get("token"),
     decisions: parseDecisions(form.get("decisions")),
     confirmedAccountId: digitsField(form.get("confirmAccountId")),
-    confirmedCrossAccountLines: digitsField(form.get("confirmCrossAccount")),
   };
 }
