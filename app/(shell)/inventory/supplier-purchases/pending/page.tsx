@@ -320,7 +320,7 @@ export default function PendingSupplierPurchasesPage() {
                   <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                     <ProductThumb src={linkedItem?.imageUrl} name={name} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <span className="i2-row__kicker">{linked ? "מוצר במלאי" : "בחירה נדרשת"}</span>
+                      <span className="i2-row__kicker">{linked ? "מוצר במלאי" : value === "new" ? "מוצר חדש" : "בחירה נדרשת"}</span>
                       <div className="i2-row__title">
                         <span>{name}</span>
                       </div>
