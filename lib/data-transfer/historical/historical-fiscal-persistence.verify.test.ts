@@ -480,6 +480,13 @@ const ALLOWED_TO_NAME_IT = [
   // with its learning decision. It names the model as a string in a list — a declaration, not a
   // consumer — and the read-only rule below holds it to that.
   "lib/knowledge/coverage/feature-coverage.ts",
+  // Revenue report uploads (PR #919, D-12): the revenue OVERLAP reader. A third kind of read — "which history
+  // documents of THIS business were issued on these few days, for how much, from which system" — so a Z report the
+  // previous system already recorded is not counted until the owner decides. Five columns, one verb, one business,
+  // a bounded range, the caller's tenant transaction checked first; see its own rule below. NOT ACTIVE: its only
+  // caller reaches it behind a literal `false` (IMPORTED_HISTORY_OVERLAP_ENABLED in lib/revenue-sources/overlap.ts),
+  // and listing it here is the owner decision the docs ask for before that literal may change.
+  "lib/data-transfer/historical/historical-overlap-reader.ts",
 ];
 
 check("only the erasure contract and the import contract name this model", () => {
@@ -666,6 +673,59 @@ check("the owner-facing reader can ONLY read, and only inside the tenant", () =>
   assert.ok(
     code.includes("reversesLinked: row.reversesHistoricalDocumentId !== null"),
     "the reversal id must be reduced to a boolean"
+  );
+});
+
+check("the revenue overlap reader reads five columns of ONE business in its tenant transaction, and is off", () => {
+  // PR #919 (D-12). Narrower than both readers above: no customer snapshot, no number, no document or reversal
+  // link — only what an overlap needs (issue day, total, currency, source system) — and it is handed the caller's
+  // tenant transaction, so instead of withTenantTransaction it must PROVE that transaction is this business's.
+  const reader = "lib/data-transfer/historical/historical-overlap-reader.ts";
+  const code = read(reader)
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("\n");
+  const verbs = [...code.matchAll(/historicalFiscalDocument\.(\w+)\(/g)].map((m) => m[1]);
+  assert.deepEqual(verbs, ["findMany"], "exactly one read, nothing else");
+  for (const forbidden of [
+    ".create(",
+    ".createMany(",
+    ".update(",
+    ".updateMany(",
+    ".upsert(",
+    ".delete(",
+    ".deleteMany(",
+    "executeRaw",
+    "queryRawUnsafe",
+    "@/lib/prisma",
+    "PrismaClient",
+    "withTenantTransaction",
+    "runWithTenantContext",
+  ]) {
+    assert.ok(!code.includes(forbidden), `${reader} must not contain ${forbidden}`);
+  }
+  // The select is exactly these five columns — nothing personal, nothing that links onward.
+  assert.equal((code.match(/select:/g) ?? []).length, 1, "one select only");
+  const select = /select:\s*\{([^}]*)\}/.exec(code)?.[1] ?? "";
+  const fields = [...select.matchAll(/(\w+):\s*true/g)].map((m) => m[1]).sort();
+  assert.deepEqual(fields, ["currency", "id", "originalIssueDate", "sourceSystemCode", "totalAmount"]);
+  // One business: the where names it, and the tenant GUC is checked against it before the read.
+  assert.ok(/where:\s*\{\s*businessId,/.test(code), "the read is scoped to the one business by name");
+  assert.ok(
+    code.includes("current_setting('app.current_business_id', true)") &&
+      code.includes('throw new HistoryOverlapReadError("NOT_IN_TENANT")'),
+    "the caller's transaction must be proven to be this business's tenant transaction"
+  );
+  assert.ok(code.includes("HISTORY_OVERLAP_MAX_DAYS") && code.includes("HISTORY_OVERLAP_MAX_ROWS"), "the read is bounded");
+  // It is reached from exactly one product file, and that file keeps it OFF.
+  const callers = grepFiles(["app", "lib", "components", "scripts"], "readHistoryOverlapInTx").filter(
+    (f) => f !== reader && f !== "lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts"
+  );
+  assert.deepEqual(callers, ["lib/revenue-sources/overlap.ts"], "one caller only");
+  assert.ok(
+    /export const IMPORTED_HISTORY_OVERLAP_ENABLED = false;/.test(read("lib/revenue-sources/overlap.ts")),
+    "the overlap reader stays OFF until the owner's go (a reviewed change of that literal)"
   );
 });
 

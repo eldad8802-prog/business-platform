@@ -5,7 +5,11 @@
  *
  * Run: npx tsx lib/revenue-truth/read-model.test.ts
  */
+import fs from "node:fs";
+
 import { CurrencyMismatchError } from "@/lib/money/money";
+import { proposeSettlementDeposits } from "./deposit-proposals";
+import { layersReportOf } from "./layers-report";
 import { computeRevenueView, requireSingleCurrency, type CurrencyView, type RevenueView } from "./read-model";
 import { emptyInputs, type DailyClose, type Decision, type Link, type RevenueInputs } from "./types";
 
@@ -373,6 +377,126 @@ console.log("S. Sources are not interchangeable: only POS is register evidence")
     ils(posLinked).sales.netMinor === B(11800) && posLinked.excluded.some((e) => e.kind === "DOCUMENT" && e.id === 502 && e.reason === "SAME_AS_SALE"));
   const rejectedAcc = computeRevenueView(inputs({ sales: [acc], decisions: [decide({ saleId: acc.id, decision: "REJECTED" })] }), { today: TODAY });
   check("a rejected accounting-app sale counts nowhere, not even apart", !rejectedAcc.byCurrency.has("ILS") || (ils(rejectedAcc).otherSources.ACCOUNTING_APP?.saleCount ?? 0) === 0);
+}
+
+// Owner decisions 2026-11-03 (docs/revenue-report-uploads.md). Synthetic inputs: the rules, never a real format.
+console.log("D. owner decisions 2026-11-03 (synthetic)");
+{
+  // D-1: a Z never excludes the day's invoices by itself; only a confirmed link (an identified overlap) does.
+  const z = close({ total: 11800, vat: 1800 });
+  const inv = { id: 601, documentType: "TAX_INVOICE" as const, currency: "ILS" as const, totalMinor: B(5900), vatMinor: B(900), referenceDocumentId: null, sourcePaymentTransactionId: null };
+  const both = computeRevenueView(inputs({ closes: [z], documents: [inv] }), { today: TODAY });
+  check("D-1: a Z and a Dubiz invoice: both counted (11800 + 5900) — the invoice is NOT excluded because a Z exists — and the view warns",
+    ils(both).sales.closedNetMinor === B(11800) && ils(both).sales.documentNetMinor === B(5900) && !both.excluded.some((e) => e.kind === "DOCUMENT")
+      && both.warnings.some((w) => w.code === "POSSIBLE_DUPLICATE_CLOSE_AND_DOCUMENT"), J({ s: ils(both).sales, w: both.warnings }));
+  const same = link({ linkKind: "SALE_SAME_AS_DOCUMENT", billingDocumentId: 601 });
+  const proposedOnly = computeRevenueView(inputs({ closes: [z], documents: [inv], links: [same] }), { today: TODAY });
+  check("D-1: a PROPOSED link changes nothing", ils(proposedOnly).sales.documentNetMinor === B(5900));
+  const linked = computeRevenueView(inputs({ closes: [z], documents: [inv], links: [same], decisions: [decide({ linkId: same.id, decision: "CONFIRMED" })] }), { today: TODAY });
+  check("D-1: a CONFIRMED link identifies the overlap: the invoice is the register's sale (SAME_AS_SALE), counted once; no warning",
+    ils(linked).sales.netMinor === B(11800) && linked.excluded.some((e) => e.id === 601 && e.reason === "SAME_AS_SALE")
+      && !linked.warnings.some((w) => w.code === "POSSIBLE_DUPLICATE_CLOSE_AND_DOCUMENT"), J(linked.warnings));
+
+  // D-2 / D-12: a Z that overlaps an approved income document / imported history waits for the owner.
+  const s1 = sale({ total: 11000, vat: 1678 });
+  const zo = close({ total: 11800, vat: 1800 });
+  const other = close({ total: 4000, vat: 610, businessDay: "2026-10-21" });
+  const overlaps = [{ dailyCloseId: zo.id, overlap: "RECORDED_INCOME_DOCUMENT" as const, basis: "Z_DOCUMENT_SAME_DAY" as const, effect: "HOLD" as const, ref: "document:77" }];
+  const waiting = computeRevenueView(inputs({ sales: [s1], closes: [zo, other], closeOverlaps: overlaps }), { today: TODAY });
+  const d20 = waiting.days.find((d) => d.businessDay === "2026-10-20");
+  check("D-2: an overlapping Z does not count (CLOSE_OVERLAP_UNRESOLVED); its day falls back to its POS sales, flagged as waiting",
+    waiting.excluded.some((e) => e.kind === "CLOSE" && e.id === zo.id && e.reason === "CLOSE_OVERLAP_UNRESOLVED")
+      && d20?.status === "UNCLOSED" && d20.countedNetMinor === B(11000) && d20.awaitingOverlapDecisionCloseIds[0] === zo.id
+      && waiting.warnings.some((w) => w.code === "CLOSE_OVERLAP_UNRESOLVED" && w.ref === `close:${zo.id}:document:77`), J({ d: waiting.days, w: waiting.warnings }));
+  check("D-12: only THAT Z waits — another day's Z in the same period still closes its day (no period blocked)",
+    waiting.days.find((d) => d.businessDay === "2026-10-21")?.status === "CLOSED" && ils(waiting).sales.closedNetMinor === B(4000), J(waiting.days));
+  const resolved = computeRevenueView(inputs({ sales: [s1], closes: [zo], closeOverlaps: overlaps, decisions: [decide({ dailyCloseId: zo.id, decision: "CONFIRMED" })] }), { today: TODAY });
+  check("D-2: the owner's CONFIRMED decision resolves it: the Z closes its day once (11800)",
+    ils(resolved).sales.netMinor === B(11800) && resolved.days[0].status === "CLOSED_WITH_VARIANCE" && !resolved.warnings.some((w) => w.code === "CLOSE_OVERLAP_UNRESOLVED"));
+  const rejectedZ = computeRevenueView(inputs({ sales: [s1], closes: [zo], closeOverlaps: overlaps, decisions: [decide({ dailyCloseId: zo.id, decision: "REJECTED" })] }), { today: TODAY });
+  check("D-2: REJECTED (the document side stands): the Z counts nowhere", rejectedZ.excluded.some((e) => e.id === zo.id && e.reason === "CLOSE_REJECTED") && ils(rejectedZ).sales.closedNetMinor === B(0));
+  const history = computeRevenueView(inputs({ closes: [zo], closeOverlaps: [{ dailyCloseId: zo.id, overlap: "IMPORTED_HISTORY", basis: "HISTORY_SAME_DAY", effect: "HOLD", ref: "history:5" }] }), { today: TODAY });
+  check("D-12: an imported-history overlap waits the same way (a day row is shown, nothing counted)",
+    history.days.length === 1 && history.days[0].countedNetMinor === B(0) && history.days[0].awaitingOverlapDecisionCloseIds.length === 1, J(history.days));
+
+  // Z duplicate suspicion: same day + same amount is NOT proof — nothing excluded, nothing confirmed, the owner is asked.
+  const suspicion = [{ dailyCloseId: zo.id, overlap: "RECORDED_INCOME_DOCUMENT" as const, basis: "AMOUNT_SAME_DAY" as const, effect: "QUESTION" as const, ref: "document:78" }];
+  const asked = computeRevenueView(inputs({ sales: [s1], closes: [zo, other], closeOverlaps: suspicion }), { today: TODAY });
+  const a20 = asked.days.find((d) => d.businessDay === "2026-10-20");
+  check("suspicion (same day + same amount): the Z still closes its day and counts (11800 + 4000); nothing excluded, nothing waiting",
+    ils(asked).sales.closedNetMinor === B(15800) && a20?.closeIds[0] === zo.id && a20.awaitingOverlapDecisionCloseIds.length === 0
+      && !asked.excluded.some((e) => e.kind === "CLOSE") && !asked.warnings.some((w) => w.code === "CLOSE_OVERLAP_UNRESOLVED"), J({ d: asked.days, x: asked.excluded }));
+  check("suspicion: the view ASKS (CLOSE_DUPLICATE_SUSPECTED naming the Z and the document) — it is not a confirmation",
+    asked.warnings.filter((w) => w.code === "CLOSE_DUPLICATE_SUSPECTED").map((w) => w.ref).join() === `close:${zo.id}:document:78`, J(asked.warnings));
+  const answeredYes = computeRevenueView(inputs({ sales: [s1], closes: [zo], closeOverlaps: suspicion, decisions: [decide({ dailyCloseId: zo.id, decision: "CONFIRMED" })] }), { today: TODAY });
+  const answeredNo = computeRevenueView(inputs({ sales: [s1], closes: [zo], closeOverlaps: suspicion, decisions: [decide({ dailyCloseId: zo.id, decision: "REJECTED" })] }), { today: TODAY });
+  check("suspicion: only the owner's decision ends it — CONFIRMED: counted, no question; REJECTED: the Z leaves the count (the owner's call)",
+    ils(answeredYes).sales.closedNetMinor === B(11800) && !answeredYes.warnings.some((w) => w.code === "CLOSE_DUPLICATE_SUSPECTED")
+      && answeredNo.excluded.some((e) => e.id === zo.id && e.reason === "CLOSE_REJECTED") && !answeredNo.warnings.some((w) => w.code === "CLOSE_DUPLICATE_SUSPECTED"));
+  const holdAndAsk = computeRevenueView(inputs({ closes: [zo], closeOverlaps: [...overlaps, ...suspicion] }), { today: TODAY });
+  check("a HOLD and a QUESTION on one Z: the HOLD decides (waits), the question is still asked",
+    holdAndAsk.excluded.some((e) => e.id === zo.id && e.reason === "CLOSE_OVERLAP_UNRESOLVED") && holdAndAsk.warnings.some((w) => w.code === "CLOSE_DUPLICATE_SUSPECTED"), J(holdAndAsk.warnings));
+
+  // D-4: never two versions of one settlement.
+  const st = (o: { id: number; net: number; versionKey?: string }) => ({ id: o.id, validation: "PASSED" as const, currency: "ILS" as const, grossMinor: B(o.net + 100), feeMinor: B(100), otherDeductionsMinor: B(0), netMinor: B(o.net), versionKey: o.versionKey });
+  const orig = st({ id: 701, net: 61070, versionKey: "upload.settlement.p|S-1" });
+  const fix = st({ id: 702, net: 61000, versionKey: "upload.settlement.p|S-1" });
+  const corrected = computeRevenueView(inputs({ settlements: [orig, fix], decisions: [decide({ settlementId: 701, decision: "REJECTED" })] }), { today: TODAY });
+  check("D-4: rejected original + its correction → the correction counts once (61000); the original is kept, REJECTED",
+    ils(corrected).settlements.netMinor === B(61000) && corrected.excluded.some((e) => e.id === 701 && e.reason === "REJECTED") && !corrected.warnings.some((w) => w.code === "SETTLEMENT_VERSIONS_BOTH_LIVE"));
+  const bothLive = computeRevenueView(inputs({ settlements: [orig, fix] }), { today: TODAY });
+  check("D-4: two LIVE versions (e.g. the rejection later revoked) → only the latest counts, and the view warns",
+    ils(bothLive).settlements.netMinor === B(61000) && bothLive.excluded.some((e) => e.id === 701 && e.reason === "SUPERSEDED")
+      && bothLive.warnings.some((w) => w.code === "SETTLEMENT_VERSIONS_BOTH_LIVE"), J(ils(bothLive).settlements));
+
+  // D-7 / D-13: layers apart; the fee is shown on the settlement and becomes nothing else.
+  const sett = st({ id: 703, net: 11682 });
+  const layered = computeRevenueView(inputs({ closes: [close({ total: 11800, vat: 1800 })], settlements: [sett], deposits: [{ id: 90, currency: "ILS", amountMinor: B(11682) }] }), { today: TODAY });
+  const [rep] = layersReportOf(layered);
+  check("D-7: a settlement's fee is on the settlement only — sales are the Z (11800), never reduced or increased by the fee",
+    ils(layered).sales.netMinor === B(11800) && ils(layered).settlements.feesMinor === B(100));
+  check("D-13: the layers report separates sales / settlements / deposits and carries no combined figure",
+    rep.layersAreNotSummed === true && rep.sales.netMinor === B(11800) && rep.settlements.netMinor === B(11682) && rep.settlements.feesMinor === B(100)
+      && rep.deposits.creditsMinor === B(11682) && rep.deposits.unmatchedMinor === B(11682)
+      && !Object.keys(rep).some((k) => k !== "layersAreNotSummed" && /total|combined|sum/i.test(k)) && Object.keys(rep).sort().join() === "currency,deposits,inTransit,layersAreNotSummed,sales,settlements", J(rep));
+  check("D-13: one report per currency, never mixed", layersReportOf(computeRevenueView(inputs({ closes: [close({ total: 100, vat: 0 }), close({ total: 50, vat: 0, currency: "USD", registerKey: "r9" })] }), { today: TODAY })).map((r) => r.currency).join() === "ILS,USD");
+
+  // D-8: no tolerance in the read model.
+  const oneAgora = computeRevenueView(inputs({ sales: [sale({ total: 11800, vat: 1800 })], closes: [close({ total: 11801, vat: 1800 })] }), { today: TODAY });
+  check("D-8: one agora between the Z and the POS stream is a variance (CLOSED_WITH_VARIANCE, +1) — never rounded away",
+    oneAgora.days[0].status === "CLOSED_WITH_VARIANCE" && oneAgora.days[0].varianceMinor === B(1));
+
+  // D-6: proposals, exact only, confirmed by the owner.
+  const sm = (id: number, net: number, acquirer = "acq_a", valueDate = "2026-10-22", currency: "ILS" | "USD" = "ILS") => ({ id, acquirer, valueDate, currency, netMinor: B(net) });
+  const dep = (id: number, amount: number, bookingDay = "2026-10-22", currency: "ILS" | "USD" = "ILS") => ({ id, bookingDay, currency, amountMinor: B(amount) });
+  const single = proposeSettlementDeposits([sm(1, 5000), sm(2, 7000)], [dep(10, 7000)]);
+  check("D-6: one settlement equal to a deposit → a SINGLE proposal: SETTLEMENT_DEPOSITED_AS, RULE_EXACT, SYSTEM, linkedMinor = net",
+    single.proposals.length === 1 && single.proposals[0].rule === "SINGLE" && single.proposals[0].settlementIds.join() === "2"
+      && J(single.proposals[0].links) === J([{ linkKind: "SETTLEMENT_DEPOSITED_AS", settlementId: 2, externalTransactionId: 10, amountMinor: B(7000), currency: "ILS", basis: "RULE_EXACT", proposedBy: "SYSTEM" }])
+      && single.unmatchedSettlementIds.join() === "1", J(single));
+  const batches = proposeSettlementDeposits([sm(1, 5000), sm(2, 7000), sm(3, 300, "acq_b")], [dep(11, 12000)]);
+  check("D-6: several batches of one acquirer → ONE deposit: one link per batch, each its whole net",
+    batches.proposals.length === 1 && batches.proposals[0].rule === "ACQUIRER_DAY" && batches.proposals[0].settlementIds.join() === "1,2"
+      && batches.proposals[0].links.map((l) => `${l.settlementId}:${l.amountMinor}`).join() === "1:5000,2:7000", J(batches));
+  const off = proposeSettlementDeposits([sm(1, 5000), sm(2, 7000)], [dep(12, 11999)]);
+  check("D-6: one agora off → NO proposal (nothing written off, no ₪1 auto-match); every candidate's difference is shown",
+    off.proposals.length === 0 && off.unmatchedDeposits[0].reason === "NO_EXACT_MATCH"
+      && off.unmatchedDeposits[0].candidates.map((c) => `${c.settlementIds.join("+")}:${c.differenceMinor}`).join() === "1:-6999,2:-4999,1+2:1", J(off));
+  const twinS = proposeSettlementDeposits([sm(1, 7000), sm(2, 7000, "acq_b")], [dep(13, 7000)]);
+  check("D-6: two settlements that both fit → AMBIGUOUS, nothing proposed", twinS.proposals.length === 0 && twinS.unmatchedDeposits[0].reason === "AMBIGUOUS");
+  const twinD = proposeSettlementDeposits([sm(1, 7000)], [dep(14, 7000), dep(15, 7000)]);
+  check("D-6: two deposits that both fit one settlement → AMBIGUOUS for both", twinD.proposals.length === 0 && twinD.unmatchedDeposits.every((u) => u.reason === "AMBIGUOUS"));
+  const otherDay = proposeSettlementDeposits([sm(1, 7000, "acq_a", "2026-10-21"), sm(2, 7000, "acq_a", "2026-10-22", "USD")], [dep(16, 7000)]);
+  check("D-6: another value date or another currency is never matched", otherDay.proposals.length === 0 && otherDay.unmatchedDeposits[0].candidates.length === 0);
+  // The proposal alone closes nothing; the owner's confirmation does.
+  const lp = single.proposals[0].links[0];
+  const asLink = link({ linkKind: "SETTLEMENT_DEPOSITED_AS", settlementId: lp.settlementId ?? null, externalTransactionId: lp.externalTransactionId ?? null, amountMinor: lp.amountMinor ?? null });
+  const sett2 = st({ id: 2, net: 7000 });
+  const pending = computeRevenueView(inputs({ settlements: [sett2], deposits: [{ id: 10, currency: "ILS", amountMinor: B(7000) }], links: [asLink] }), { today: TODAY });
+  const confirmedView = computeRevenueView(inputs({ settlements: [sett2], deposits: [{ id: 10, currency: "ILS", amountMinor: B(7000) }], links: [asLink], decisions: [decide({ linkId: asLink.id, decision: "CONFIRMED" })] }), { today: TODAY });
+  check("D-6: a proposed link closes nothing (deposit unmatched 7000); after the owner's CONFIRMED decision it is matched",
+    ils(pending).deposits.unmatchedMinor === B(7000) && ils(confirmedView).deposits.matchedMinor === B(7000) && ils(confirmedView).inTransit.settlementAwaitingDepositMinor === B(0));
+  check("D-6: the proposer has no tolerance parameter and no write", !/tolerance\s*[:=]|RULE_TOLERANCE|\.create\(|proposeLink\(/.test(fs.readFileSync("lib/revenue-truth/deposit-proposals.ts", "utf8").split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join("\n")));
 }
 
 console.log(`\n${total - failures}/${total} passed`);

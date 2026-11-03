@@ -145,7 +145,16 @@ export type DailyCloseInput = SourceRef & {
 
 /** A Z report with its tender and VAT lines, in one transaction: a visible header always has its lines. */
 export function recordDailyClose(businessId: number, input: DailyCloseInput): Promise<WriteResult> {
-  return tenantTx(businessId, async (tx) => {
+  return tenantTx(businessId, (tx) => recordDailyCloseInTx(tx, businessId, input));
+}
+
+/**
+ * The same write inside the CALLER's tenant transaction (one that already carries app.current_business_id for
+ * `businessId`) — for a writer that records several Z reports and its own run atomically (revenue report
+ * uploads, lib/revenue-sources/uploads). Same rules, same outcome; `tx` must never be a context-less client.
+ */
+export async function recordDailyCloseInTx(tx: TenantTxClient, businessId: number, input: DailyCloseInput): Promise<WriteResult> {
+  {
     const revision = input.revision ?? 1;
     const discount = input.discountMinor ?? ZERO;
     const refunds = input.refundMinor ?? ZERO;
@@ -182,7 +191,7 @@ export function recordDailyClose(businessId: number, input: DailyCloseInput): Pr
       }
     }
     return outcome(count === 1, row, input.sourcePayloadHash);
-  });
+  }
 }
 
 export type SettlementInput = SourceRef & {
@@ -200,7 +209,12 @@ export type SettlementInput = SourceRef & {
 };
 
 export function recordSettlement(businessId: number, input: SettlementInput): Promise<WriteResult> {
-  return tenantTx(businessId, async (tx) => {
+  return tenantTx(businessId, (tx) => recordSettlementInTx(tx, businessId, input));
+}
+
+/** recordSettlement inside the caller's tenant transaction (see recordDailyCloseInTx). */
+export async function recordSettlementInTx(tx: TenantTxClient, businessId: number, input: SettlementInput): Promise<WriteResult> {
+  {
     const fee = input.feeMinor ?? ZERO;
     const other = input.otherDeductionsMinor ?? ZERO;
     const { count } = await tx.revenueSettlement.createMany({
@@ -220,7 +234,7 @@ export function recordSettlement(businessId: number, input: SettlementInput): Pr
       select: { id: true, sourcePayloadHash: true },
     });
     return outcome(count === 1, row, input.sourcePayloadHash);
-  });
+  }
 }
 
 export type LinkInput = {

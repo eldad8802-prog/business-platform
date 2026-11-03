@@ -1,0 +1,630 @@
+/**
+ * Revenue report uploads — the application code on the lab database, as the RUNTIME role (app_runtime_prod:
+ * NOSUPERUSER NOBYPASSRLS), through the same service and route handlers the app runs. docs/revenue-report-uploads.md
+ *
+ *   A. The role, and the feature rows: both OFF after the data migration; an override opens one kind for one business.
+ *   B. The routes: 401 without a session; 404 while the kind is OFF (analyze, commit, list); with the SHIPPED (empty)
+ *      registry every file is FORMAT_NOT_SUPPORTED (422, Hebrew), nothing written.
+ *   C. Z through a TEST-ONLY fixture parser: analyze writes nothing; commit records POS / FILE_STRUCTURED /
+ *      upload.z.<parser> rows with their tender + VAT lines, one ImportRun (z_report, the file's hash), no file.
+ *   D. Replays: the same commit again, a fresh analyze + commit, the same Z in another file — nothing written twice.
+ *   E. CONFLICT: the same Z with other numbers — refused without a decision, SKIP writes nothing, SUPERSEDE writes
+ *      revision 2 naming revision 1; another Z of the same day — ADD records it separately; disallowed decisions refused.
+ *   F. Settlement: ACQUIRER / FILE_STRUCTURED / upload.settlement.<parser>; replay; CONFLICT is SKIP-only.
+ *   G. Tokens and files: forged, another kind, another business, another user, another file → refused.
+ *   H. Tenant isolation: B sees none of A's rows, records its own; a raw cross-business insert is refused by RLS.
+ *   I. Concurrency: one file committed four times at once → one run, rows once.
+ *   J. No income: FinancialRecord / FinancialEvent / BillingDocument / PaymentTransaction / ExternalTransaction are
+ *      byte-identical before and after; the list route answers reports only.
+ *   K. Owner decisions 2026-11-03 (synthetic files — the rules, never a real format): a Z without a printed day /
+ *      register is asked, never defaulted, and the token binds the answers (D-10 / D-11); a transaction list is
+ *      refused (D-5); reject → re-upload corrects a settlement, history kept, counted once (D-4); a Z already recorded
+ *      as an approved income document is recorded but not counted until the owner
+ *      confirms (D-2); no FinancialRecord from any upload (D-7).
+ *   L. Round 2 (2026-11-03): every Z commit needs the owner's per-register sales-source confirmation (refused without
+ *      it; "recorded another way" refused); same day + same amount is a QUESTION — the Z counts, nothing removed or
+ *      decided; the imported-history overlap reader returns one business's five columns inside its tenant
+ *      transaction only (FORCE RLS as in Production) and is OFF in the real loader; settlement corrections racing
+ *      (two corrections to the same #c<n>, the same one twice, raw inserts below the lock, a revoked rejection, a
+ *      stale preview) never leave two counted versions.
+ *
+ * The fixture parser lives in THIS FILE ONLY, under a TEST-ONLY name; it describes no real system.
+ * env: OWNER_URL (fixtures, BYPASSRLS), RUNTIME_URL (the app). Synthetic only. ZERO network.
+ */
+const RUNTIME_URL = process.env.RUNTIME_URL?.trim();
+const OWNER_URL = process.env.OWNER_URL?.trim();
+if (!RUNTIME_URL || !OWNER_URL || !/^postgres(ql)?:\/\//i.test(RUNTIME_URL) || /neon\.tech|vercel/i.test(RUNTIME_URL + OWNER_URL)) {
+  console.error("ABORT (DB safety guard): OWNER_URL and RUNTIME_URL must name the ephemeral lab database.");
+  process.exit(1);
+}
+process.env.DATABASE_URL = RUNTIME_URL;
+process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || "rru-lab-synthetic-token-secret-at-least-32-chars";
+// Sessions are read through the separate auth plane (AUTH_DATABASE_URL), as in Production; the runtime role holds no
+// privilege on "User". The lab points the auth plane at the owner, like the other route-level batteries.
+process.env.AUTH_PLANE_ENABLED = "true";
+process.env.AUTH_DATABASE_URL = process.env.AUTH_DATABASE_URL || OWNER_URL;
+
+import { createHash } from "node:crypto";
+import { PrismaClient } from "@prisma/client";
+import { NextRequest } from "next/server";
+import type { ReportFile, SettlementDraft, SettlementParser, ZReportDraft, ZReportParser } from "@/lib/revenue-sources/uploads/contract";
+
+let pass = 0;
+const failures: string[] = [];
+function ok(name: string, cond: boolean, detail = "") {
+  if (cond) { pass++; console.log(`  [PASS] ${name}`); }
+  else { failures.push(name); console.log(`  [FAIL] ${name}${detail ? " — " + detail : ""}`); }
+}
+async function errorCode(fn: () => Promise<unknown>): Promise<string> {
+  try { await fn(); return ""; } catch (e) { return (e as { code?: string }).code ?? (e instanceof Error ? e.message : String(e)); }
+}
+
+/* ── TEST-ONLY fixture formats (made up; no real vendor) ──────────────────────────────────────────────────────── */
+const B = (s: string) => BigInt(s);
+/** "TEST-ONLY-FIXTURE-Z" then lines: day,register,zNumber,gross,discount,refund,void,total,vat,cash,card */
+const TEST_ONLY_Z_PARSER: ZReportParser = {
+  kind: "z", key: "test_only_fixture", version: 1, label: "קובץ בדיקה", capture: "FILE_STRUCTURED",
+  detect: (f) => (f.bytes.toString("utf8").startsWith("TEST-ONLY-FIXTURE-Z") ? 1 : 0),
+  parse: (f: ReportFile) => {
+    const drafts: ZReportDraft[] = [];
+    const errors: { row: number; code: string }[] = [];
+    f.bytes.toString("utf8").split("\n").slice(1).forEach((line, i) => {
+      if (!line.trim() || line.startsWith("#")) return;
+      const c = line.split(",");
+      if (c.length !== 11) { errors.push({ row: i + 2, code: "UNREADABLE_ROW" }); return; }
+      drafts.push({
+        // An empty day / register cell = the report prints none (D-10 / D-11): left null, asked of the owner.
+        businessDay: c[0] || null, registerKey: c[1] || null, zNumber: c[2] ? B(c[2]) : null,
+        grossMinor: B(c[3]), discountMinor: B(c[4]), refundMinor: B(c[5]), voidMinor: B(c[6]), totalMinor: B(c[7]), vatMinor: B(c[8]),
+        tenders: [{ method: "CASH", amountMinor: B(c[9]) }, { method: "CARD", label: "visa", amountMinor: B(c[10]) }],
+        vatLines: [{ category: "STANDARD", rateBasisPoints: 1800, taxableMinor: B(c[7]) - B(c[8]), vatMinor: B(c[8]) }],
+        sourceRow: i + 2,
+      });
+    });
+    return { drafts, errors };
+  },
+};
+/** "TEST-ONLY-FIXTURE-S" then lines: externalId,valueDate,gross,fee,other,net */
+const TEST_ONLY_S_PARSER: SettlementParser = {
+  kind: "settlement", key: "test_only_fixture", version: 1, label: "קובץ בדיקה", capture: "FILE_STRUCTURED", sourceKind: "ACQUIRER",
+  detect: (f) => (f.bytes.toString("utf8").startsWith("TEST-ONLY-FIXTURE-S") ? 1 : 0),
+  parse: (f: ReportFile) => {
+    const drafts: SettlementDraft[] = [];
+    f.bytes.toString("utf8").split("\n").slice(1).forEach((line, i) => {
+      if (!line.trim()) return;
+      const c = line.split(",");
+      drafts.push({ acquirer: "test_only_acq", externalId: c[0], valueDate: c[1], grossMinor: B(c[2]), feeMinor: B(c[3]), otherDeductionsMinor: B(c[4]), netMinor: B(c[5]), sourceRow: i + 2 });
+    });
+    // D-5: "TEST-ONLY-FIXTURE-S-TX" stands for a transaction list (refused as a whole).
+    return { shape: f.bytes.toString("utf8").startsWith("TEST-ONLY-FIXTURE-S-TX") ? "TRANSACTION_LIST" : "BATCH_SUMMARY", drafts, errors: [] };
+  },
+};
+
+const zFile = (...lines: string[]) => Buffer.from(["TEST-ONLY-FIXTURE-Z", ...lines].join("\n"), "utf8");
+const sFile = (...lines: string[]) => Buffer.from(["TEST-ONLY-FIXTURE-S", ...lines].join("\n"), "utf8");
+// gross − discount − refund − void = total; cash + card = total.
+const Z1 = "2026-10-01,1,101,100000,5000,2000,1000,92000,14034,30000,62000";
+const Z2 = "2026-10-02,1,102,50000,0,0,0,50000,7627,10000,40000";
+const Z3 = "2026-10-01,2,201,20000,0,0,0,20000,3051,20000,0";
+const Z1_CHANGED = "2026-10-01,1,101,100000,5000,2000,1000,92000,14034,31000,61000";
+const Z1_SECOND_SHIFT = "2026-10-01,1,103,8000,0,0,0,8000,1220,8000,0";
+const S1 = "ACQ-1,2026-10-03,62000,930,0,61070";
+const S2 = "ACQ-2,2026-10-04,40000,600,100,39300";
+
+async function main() {
+  const owner = new PrismaClient({ datasourceUrl: OWNER_URL });
+  const runtime = new PrismaClient({ datasourceUrl: RUNTIME_URL });
+  const svc = await import("@/lib/revenue-sources/uploads/service");
+  const { createParserRegistry } = await import("@/lib/revenue-sources/uploads/registry");
+  const { revenueReportUploadEnabled } = await import("@/lib/revenue-sources/uploads/http");
+  const { tenantTx } = await import("@/lib/tenant/tenant-tx");
+  const { signAuthToken } = await import("@/lib/auth-token");
+  const routes = {
+    list: await import("@/app/api/money/revenue-reports/route"),
+    zAnalyze: await import("@/app/api/money/revenue-reports/z/analyze/route"),
+    zCommit: await import("@/app/api/money/revenue-reports/z/commit/route"),
+    sAnalyze: await import("@/app/api/money/revenue-reports/settlement/analyze/route"),
+    sCommit: await import("@/app/api/money/revenue-reports/settlement/commit/route"),
+  };
+  const registry = createParserRegistry([TEST_ONLY_Z_PARSER, TEST_ONLY_S_PARSER]);
+  const opts = { registry };
+  /**
+   * A Z commit the way the screen makes it: the owner sees the preview and selects + confirms the sales source of
+   * every register in it (D-1 / D-11 interim — no standing definition exists, so it is asked on every upload). The
+   * analyze writes nothing. Section L proves the commit is refused without it.
+   */
+  type CommitIn = Parameters<typeof svc.commitRevenueReport>[0];
+  const commit = async (input: CommitIn, o: Parameters<typeof svc.commitRevenueReport>[1] = opts) => {
+    if (input.kind !== "z" || input.confirmation !== undefined) return svc.commitRevenueReport(input, o);
+    let confirmation: CommitIn["confirmation"] = null;
+    try {
+      const p = await svc.analyzeRevenueReport(input, o);
+      if (p.confirmation) confirmation = { confirmed: true, registers: Object.fromEntries(p.confirmation.registers.map((r) => [r, "THIS_Z_REPORT" as const])) };
+    } catch {
+      // the commit reports its own error
+    }
+    return svc.commitRevenueReport({ ...input, confirmation }, o);
+  };
+
+  const one = async (sql: string, ...args: unknown[]) => Number(((await owner.$queryRawUnsafe(sql, ...args)) as { id: number }[])[0].id);
+  const count = async (sql: string, ...args: unknown[]) => Number(((await owner.$queryRawUnsafe(sql, ...args)) as { n: number }[])[0].n);
+  const business = (name: string) => one(`INSERT INTO "Business" ("name", "updatedAt") VALUES ($1, now()) RETURNING "id"`, name);
+  const user = (biz: number, tag: string) => one(`INSERT INTO "User" ("email", "password", "businessId", "updatedAt") VALUES ($1, 'x', $2, now()) RETURNING "id"`, `${tag}-${Date.now()}@rru.lab`, biz);
+  const enable = (biz: number, key: string) => owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, $2, 'ENABLED', now())`, biz, key);
+  const closes = (biz: number) => count(`SELECT count(*)::int AS n FROM "RevenueDailyClose" WHERE "businessId" = $1`, biz);
+  const settlements = (biz: number) => count(`SELECT count(*)::int AS n FROM "RevenueSettlement" WHERE "businessId" = $1`, biz);
+  const runs = (biz: number, domain: string) => count(`SELECT count(*)::int AS n FROM "ImportRun" WHERE "businessId" = $1 AND "domain" = $2`, biz, domain);
+  const snapshot = async () => JSON.stringify(await owner.$queryRawUnsafe(
+    `SELECT (SELECT coalesce(md5(string_agg(t::text, '|' ORDER BY t."id")), '-') FROM "FinancialEvent" t) AS fe,
+            (SELECT coalesce(md5(string_agg(t::text, '|' ORDER BY t."id")), '-') FROM "FinancialRecord" t) AS fr,
+            (SELECT coalesce(md5(string_agg(t::text, '|' ORDER BY t."id")), '-') FROM "BillingDocument" t) AS bd,
+            (SELECT coalesce(md5(string_agg(t::text, '|' ORDER BY t."id")), '-') FROM "PaymentTransaction" t) AS pt,
+            (SELECT coalesce(md5(string_agg(t::text, '|' ORDER BY t."id")), '-') FROM "ExternalTransaction" t) AS et,
+            (SELECT count(*)::int FROM "FinancialRecord") AS fr_n`));
+
+  // ── A. role and flags ──────────────────────────────────────────────────────────────────────────
+  console.log("A. role and flags");
+  const [role] = (await runtime.$queryRawUnsafe(`SELECT current_user::text AS who, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`)) as { who: string; rolsuper: boolean; rolbypassrls: boolean }[];
+  ok(`the app runs as ${role.who}: NOSUPERUSER NOBYPASSRLS`, role.who === "app_runtime_prod" && !role.rolsuper && !role.rolbypassrls);
+  const rows = (await owner.$queryRawUnsafe(
+    `SELECT d."key", d."defaultEnabled", p."globalEnabled", p."emergencyDisabled" FROM "PlatformFeatureDefinition" d
+       JOIN "PlatformFeaturePolicy" p ON p."featureKey" = d."key" WHERE d."key" IN ('z_report_upload', 'settlement_report_upload') ORDER BY 1`)) as { key: string; defaultEnabled: boolean; globalEnabled: boolean }[];
+  ok("the data migration: both definitions + policies, all OFF (applied twice: idempotent)", rows.length === 2 && rows.every((r) => !r.defaultEnabled && !r.globalEnabled), JSON.stringify(rows));
+
+  const bizA = await business("rru-A");
+  const bizB = await business("rru-B");
+  const bizOff = await business("rru-OFF");
+  const userA = await user(bizA, "a");
+  const userA2 = await user(bizA, "a2");
+  const userB = await user(bizB, "b");
+  const userOff = await user(bizOff, "off");
+  ok("no override: OFF for every business and kind", !(await revenueReportUploadEnabled(bizA, "z")) && !(await revenueReportUploadEnabled(bizA, "settlement")));
+  await enable(bizA, "z_report_upload");
+  ok("an override opens ONE kind for ONE business", (await revenueReportUploadEnabled(bizA, "z")) && !(await revenueReportUploadEnabled(bizA, "settlement")) && !(await revenueReportUploadEnabled(bizB, "z")));
+  await enable(bizA, "settlement_report_upload");
+  await enable(bizB, "z_report_upload");
+  await enable(bizB, "settlement_report_upload");
+
+  const before = await snapshot();
+
+  // ── B. routes ──────────────────────────────────────────────────────────────────────────────────
+  console.log("B. routes (session, flag, shipped registry)");
+  const tokenOf = (uid: number) => signAuthToken(uid, 0);
+  const form = (bytes: Buffer, extra: Record<string, string> = {}) => {
+    const f = new FormData();
+    f.set("file", new File([bytes], "report.csv", { type: "text/csv" }));
+    for (const [k, v] of Object.entries(extra)) f.set(k, v);
+    return f;
+  };
+  const post = (url: string, auth: string | null, body: FormData) =>
+    new NextRequest(`http://lab${url}`, { method: "POST", body, headers: auth ? { Authorization: `Bearer ${auth}` } : {} } as never);
+  const get = (url: string, auth: string | null) => new NextRequest(`http://lab${url}`, { headers: auth ? { Authorization: `Bearer ${auth}` } : {} } as never);
+
+  ok("no session → 401", (await routes.zAnalyze.POST(post("/api/money/revenue-reports/z/analyze", null, form(zFile(Z1))))).status === 401);
+  const offStatuses = [
+    (await routes.zAnalyze.POST(post("/api/money/revenue-reports/z/analyze", tokenOf(userOff), form(zFile(Z1))))).status,
+    (await routes.zCommit.POST(post("/api/money/revenue-reports/z/commit", tokenOf(userOff), form(zFile(Z1), { token: "x" })))).status,
+    (await routes.sAnalyze.POST(post("/api/money/revenue-reports/settlement/analyze", tokenOf(userOff), form(sFile(S1))))).status,
+    (await routes.sCommit.POST(post("/api/money/revenue-reports/settlement/commit", tokenOf(userOff), form(sFile(S1), { token: "x" })))).status,
+    (await routes.list.GET(get("/api/money/revenue-reports", tokenOf(userOff)))).status,
+  ];
+  ok("feature OFF → 404 on analyze, commit and list, both kinds", offStatuses.every((s) => s === 404), offStatuses.join(","));
+  const unsupported = await routes.zAnalyze.POST(post("/api/money/revenue-reports/z/analyze", tokenOf(userA), form(zFile(Z1))));
+  const ub = (await unsupported.json()) as { error: string; message: string };
+  ok("feature ON + the SHIPPED registry (no parsers): 422 FORMAT_NOT_SUPPORTED, in Hebrew, asking for a sample",
+    unsupported.status === 422 && ub.error === "FORMAT_NOT_SUPPORTED" && ub.message.startsWith("עדיין לא תומכים בקובץ מהמערכת הזו"), `${unsupported.status} ${JSON.stringify(ub)}`);
+  ok("…and private, no-store", unsupported.headers.get("cache-control") === "private, no-store");
+  const sUnsupported = await routes.sAnalyze.POST(post("/api/money/revenue-reports/settlement/analyze", tokenOf(userA), form(sFile(S1))));
+  ok("settlement route: the same", sUnsupported.status === 422);
+  ok("nothing was written by an unsupported file", (await closes(bizA)) === 0 && (await settlements(bizA)) === 0 && (await runs(bizA, "z_report")) === 0);
+  const listOk = await routes.list.GET(get("/api/money/revenue-reports", tokenOf(userA)));
+  const listBody = (await listOk.json()) as { enabled: string[]; z: unknown[]; settlement: unknown[] };
+  ok("list: 200 with both kinds, empty", listOk.status === 200 && listBody.enabled.length === 2 && listBody.z.length === 0 && listBody.settlement.length === 0);
+
+  // ── C. Z through the fixture parser ────────────────────────────────────────────────────────────
+  console.log("C. Z: analyze writes nothing, commit records evidence");
+  const zIn = (biz: number, uid: number, bytes: Buffer) => ({ businessId: biz, userId: uid, kind: "z" as const, filename: "z.csv", bytes, mime: "text/csv" });
+  const sIn = (biz: number, uid: number, bytes: Buffer) => ({ businessId: biz, userId: uid, kind: "settlement" as const, filename: "s.csv", bytes, mime: "text/csv" });
+  const fileZ = zFile(Z1, Z2, Z3, "bad,row");
+  const p1 = await svc.analyzeRevenueReport(zIn(bizA, userA, fileZ), opts);
+  ok("analyze: 3 NEW, 1 invalid row, no conflicts", p1.counts.reports === 3 && p1.counts.new === 3 && p1.counts.invalid === 1 && p1.counts.conflicts === 0, JSON.stringify(p1.counts));
+  ok("analyze wrote nothing", (await closes(bizA)) === 0 && (await runs(bizA, "z_report")) === 0);
+  ok("analyze says the file is not stored", p1.sourceFileStored === false);
+  const c1 = await commit({ ...zIn(bizA, userA, fileZ), token: p1.token }, opts);
+  ok("commit: 3 recorded, 1 invalid", !c1.replayed && c1.recorded === 3 && c1.invalid === 1, JSON.stringify(c1));
+  const zRows = (await owner.$queryRawUnsafe(
+    `SELECT "id", "sourceKind"::text AS sk, "capture"::text AS cap, "sourceScope" AS scope, "externalId" AS ext, "revision", "ingestRef" AS ref,
+            "sourcePayloadHash" AS h, "totalMinor"::text AS total, "validation"::text AS v, "connectionId" AS conn, "documentId" AS doc
+       FROM "RevenueDailyClose" WHERE "businessId" = $1 ORDER BY "id"`, bizA)) as Array<{ id: number; sk: string; cap: string; scope: string; ext: string; revision: number; ref: string; h: string; total: string; v: string; conn: number | null; doc: number | null }>;
+  ok("rows: POS / FILE_STRUCTURED / upload.z.test_only_fixture / revision 1 / no connection, no document",
+    zRows.length === 3 && zRows.every((r) => r.sk === "POS" && r.cap === "FILE_STRUCTURED" && r.scope === "upload.z.test_only_fixture" && r.revision === 1 && r.conn === null && r.doc === null), JSON.stringify(zRows));
+  ok("each row names its run (ingestRef) and its facts hash", zRows.every((r) => r.ref === `importrun:${c1.importRunId}` && /^[0-9a-f]{64}$/.test(r.h)));
+  ok("Z identity = its Z number", zRows.map((r) => r.ext).join(",") === "z:101,z:102,z:201");
+  ok("tender and VAT lines written with each Z", (await count(`SELECT count(*)::int AS n FROM "RevenueDailyCloseTender" WHERE "businessId" = $1`, bizA)) === 6
+    && (await count(`SELECT count(*)::int AS n FROM "RevenueDailyCloseVat" WHERE "businessId" = $1`, bizA)) === 3);
+  const [run] = (await owner.$queryRawUnsafe(`SELECT "domain", "contentHash", "status"::text AS status, "createdCount", "skippedCount", "failedCount", "totalRows", "sheetName" FROM "ImportRun" WHERE "id" = $1`, c1.importRunId)) as Array<Record<string, unknown>>;
+  ok("one ImportRun: z_report, the file's sha256 (not the file), COMPLETED 3 / 0 / 1 of 4",
+    run.domain === "z_report" && run.contentHash === createHash("sha256").update(fileZ).digest("hex") && run.status === "COMPLETED"
+      && run.createdCount === 3 && run.skippedCount === 0 && run.failedCount === 1 && run.totalRows === 4, JSON.stringify(run));
+
+  // ── D. replays ─────────────────────────────────────────────────────────────────────────────────
+  console.log("D. replays");
+  const c1b = await commit({ ...zIn(bizA, userA, fileZ), token: p1.token }, opts);
+  ok("the same commit again: replayed, same run, nothing written", c1b.replayed && c1b.importRunId === c1.importRunId && (await closes(bizA)) === 3);
+  const p1c = await svc.analyzeRevenueReport(zIn(bizA, userA, fileZ), opts);
+  ok("a fresh analyze: all EXISTING, 'already imported' date shown", p1c.counts.existing === 3 && p1c.counts.new === 0 && p1c.previouslyImportedAt !== null);
+  const c1c = await commit({ ...zIn(bizA, userA, fileZ), token: p1c.token }, opts);
+  ok("…its commit is a replay of the first run", c1c.replayed && c1c.importRunId === c1.importRunId && (await runs(bizA, "z_report")) === 1);
+  const other = zFile("# exported again", Z2);
+  const p2 = await svc.analyzeRevenueReport(zIn(bizA, userA, other), opts);
+  const c2 = await commit({ ...zIn(bizA, userA, other), token: p2.token }, opts);
+  ok("the same Z inside another file: EXISTING, a new run recording 0", p2.counts.existing === 1 && !c2.replayed && c2.recorded === 0 && c2.existing === 1 && (await closes(bizA)) === 3);
+
+  // ── E. conflicts ───────────────────────────────────────────────────────────────────────────────
+  console.log("E. conflicts — never silently overwritten");
+  const changed = zFile(Z1_CHANGED);
+  const pc = await svc.analyzeRevenueReport(zIn(bizA, userA, changed), opts);
+  const row0 = pc.rows[0] as { status: string; conflict: { conflict: string; allowed: string[] } | null };
+  ok("same Z, other numbers: CONFLICT SAME_Z, SKIP / SUPERSEDE", row0.status === "CONFLICT" && row0.conflict?.conflict === "SAME_Z" && row0.conflict.allowed.join() === "SKIP,SUPERSEDE");
+  ok("commit without a decision: DECISIONS_REQUIRED, nothing written",
+    (await errorCode(() => commit({ ...zIn(bizA, userA, changed), token: pc.token }, opts))) === "DECISIONS_REQUIRED" && (await closes(bizA)) === 3);
+  ok("a decision the conflict does not allow (ADD on SAME_Z): DECISIONS_INVALID",
+    (await errorCode(() => commit({ ...zIn(bizA, userA, changed), token: pc.token, decisions: { 0: "ADD" } }, opts))) === "DECISIONS_INVALID");
+  ok("a decision on a row that is not a conflict: DECISIONS_INVALID",
+    (await errorCode(() => commit({ ...zIn(bizA, userA, changed), token: pc.token, decisions: { 0: "SKIP", 5: "SKIP" } }, opts))) === "DECISIONS_INVALID");
+  const skip = await commit({ ...zIn(bizA, userA, changed), token: pc.token, decisions: { 0: "SKIP" } }, opts);
+  ok("SKIP: nothing written, the recorded Z unchanged", skip.recorded === 0 && skip.skippedByDecision === 1 && (await closes(bizA)) === 3);
+  const sup = await commit({ ...zIn(bizA, userA, changed), token: pc.token, decisions: { 0: "SUPERSEDE" } }, opts);
+  const chain = (await owner.$queryRawUnsafe(`SELECT "id", "revision", "supersedesId" FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" = 'z:101' ORDER BY "revision"`, bizA)) as Array<{ id: number; revision: number; supersedesId: number | null }>;
+  ok("SUPERSEDE (a re-decision = a new run): revision 2 naming revision 1; revision 1 kept as recorded",
+    !sup.replayed && sup.recorded === 1 && sup.superseded === 1 && chain.length === 2 && chain[1].revision === 2 && chain[1].supersedesId === chain[0].id, JSON.stringify(chain));
+  const pAfter = await svc.analyzeRevenueReport(zIn(bizA, userA, changed), opts);
+  ok("the corrected file again: EXISTING (the chain's latest revision)", pAfter.counts.existing === 1 && pAfter.counts.conflicts === 0);
+  const pOrig = await svc.analyzeRevenueReport(zIn(bizA, userA, zFile(Z1)), opts);
+  ok("the ORIGINAL numbers again: a CONFLICT with revision 2, never a silent revert", pOrig.counts.conflicts === 1);
+  const shift = zFile(Z1_SECOND_SHIFT);
+  const ps = await svc.analyzeRevenueReport(zIn(bizA, userA, shift), opts);
+  const rs = ps.rows[0] as { status: string; conflict: { conflict: string; allowed: string[] } | null };
+  ok("another Z of the same register and day: CONFLICT SAME_DAY, SKIP / ADD", rs.status === "CONFLICT" && rs.conflict?.conflict === "SAME_DAY" && rs.conflict.allowed.join() === "SKIP,ADD");
+  ok("SUPERSEDE refused on SAME_DAY", (await errorCode(() => commit({ ...zIn(bizA, userA, shift), token: ps.token, decisions: { 0: "SUPERSEDE" } }, opts))) === "DECISIONS_INVALID");
+  const add = await commit({ ...zIn(bizA, userA, shift), token: ps.token, decisions: { 0: "ADD" } }, opts);
+  ok("ADD: recorded as its own Z (revision 1)", add.recorded === 1 && (await count(`SELECT count(*)::int AS n FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" = 'z:103' AND "revision" = 1`, bizA)) === 1);
+  const listed = await svc.listUploadedZReports(bizA);
+  ok("list: 5 rows, revision 1 of z:101 marked superseded", listed.length === 5 && listed.filter((r) => r.superseded).length === 1 && listed.find((r) => r.superseded)?.zNumber === "101");
+
+  // ── F. settlement ──────────────────────────────────────────────────────────────────────────────
+  console.log("F. settlement");
+  const fileS = sFile(S1, S2);
+  const sp = await svc.analyzeRevenueReport(sIn(bizA, userA, fileS), opts);
+  const sc = await commit({ ...sIn(bizA, userA, fileS), token: sp.token }, opts);
+  const sRows = (await owner.$queryRawUnsafe(`SELECT "sourceKind"::text AS sk, "capture"::text AS cap, "sourceScope" AS scope, "netMinor"::text AS net, "acquirer" FROM "RevenueSettlement" WHERE "businessId" = $1 ORDER BY "id"`, bizA)) as Array<{ sk: string; cap: string; scope: string; net: string; acquirer: string }>;
+  ok("2 settlements: ACQUIRER / FILE_STRUCTURED / upload.settlement.test_only_fixture; net as reported",
+    sc.recorded === 2 && sRows.length === 2 && sRows.every((r) => r.sk === "ACQUIRER" && r.cap === "FILE_STRUCTURED" && r.scope === "upload.settlement.test_only_fixture") && sRows.map((r) => r.net).join() === "61070,39300", JSON.stringify(sRows));
+  ok("one ImportRun of domain settlement_report", (await runs(bizA, "settlement_report")) === 1);
+  const sReplay = await commit({ ...sIn(bizA, userA, fileS), token: sp.token }, opts);
+  ok("replay: nothing written", sReplay.replayed && (await settlements(bizA)) === 2);
+  const sChanged = sFile("ACQ-1,2026-10-03,62000,1000,0,61000");
+  const spc = await svc.analyzeRevenueReport(sIn(bizA, userA, sChanged), opts);
+  const sr = spc.rows[0] as { status: string; conflict: { allowed: string[] } | null };
+  ok("same settlement id, other amounts: CONFLICT, SKIP only", sr.status === "CONFLICT" && sr.conflict?.allowed.join() === "SKIP");
+  ok("SUPERSEDE refused for a settlement", (await errorCode(() => commit({ ...sIn(bizA, userA, sChanged), token: spc.token, decisions: { 0: "SUPERSEDE" } }, opts))) === "DECISIONS_INVALID");
+  const sSkip = await commit({ ...sIn(bizA, userA, sChanged), token: spc.token, decisions: { 0: "SKIP" } }, opts);
+  ok("SKIP: the recorded settlement stays as it was", sSkip.recorded === 0 && (await count(`SELECT count(*)::int AS n FROM "RevenueSettlement" WHERE "businessId" = $1 AND "netMinor" = 61070`, bizA)) === 1);
+
+  // ── G. tokens and files ────────────────────────────────────────────────────────────────────────
+  console.log("G. tokens and files");
+  const fresh = zFile("2026-10-05,1,105,1000,0,0,0,1000,153,1000,0");
+  const pf = await svc.analyzeRevenueReport(zIn(bizA, userA, fresh), opts);
+  ok("a forged token", (await errorCode(() => commit({ ...zIn(bizA, userA, fresh), token: "forged" }, opts))) === "TOKEN_INVALID");
+  ok("a token of another user of the same business", (await errorCode(() => commit({ ...zIn(bizA, userA2, fresh), token: pf.token }, opts))) === "TOKEN_INVALID");
+  ok("a Z token used for a settlement", (await errorCode(() => commit({ ...sIn(bizA, userA, fresh), token: pf.token }, opts))) === "TOKEN_INVALID");
+  ok("the token with other bytes: FILE_CHANGED", (await errorCode(() => commit({ ...zIn(bizA, userA, zFile("2026-10-05,1,105,1001,0,0,0,1001,153,1001,0")), token: pf.token }, opts))) === "FILE_CHANGED");
+  ok("the token after the parser changed version: FILE_CHANGED",
+    (await errorCode(() => commit({ ...zIn(bizA, userA, fresh), token: pf.token }, { registry: createParserRegistry([{ ...TEST_ONLY_Z_PARSER, version: 2 }]) }))) === "FILE_CHANGED");
+  ok("…none of it wrote anything", (await count(`SELECT count(*)::int AS n FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" = 'z:105'`, bizA)) === 0);
+
+  // ── H. tenant isolation ────────────────────────────────────────────────────────────────────────
+  console.log("H. tenant isolation");
+  ok("B cannot use A's token (another business)", (await errorCode(() => commit({ ...zIn(bizB, userB, fresh), token: pf.token }, opts))) === "TOKEN_INVALID");
+  const pb = await svc.analyzeRevenueReport(zIn(bizB, userB, fileZ), opts);
+  ok("B analyzing A's file sees NONE of A's rows: all NEW", pb.counts.new === 3 && pb.counts.existing === 0 && pb.previouslyImportedAt === null);
+  const cb = await commit({ ...zIn(bizB, userB, fileZ), token: pb.token }, opts);
+  ok("B records its own (A's rows untouched)", cb.recorded === 3 && (await closes(bizB)) === 3 && (await closes(bizA)) === 5);
+  ok("B's list shows only B's rows; A's only A's", (await svc.listUploadedZReports(bizB)).length === 3 && (await svc.listUploadedSettlements(bizB)).length === 0 && (await svc.listUploadedSettlements(bizA)).length === 2);
+  const bListRoute = (await (await routes.list.GET(get("/api/money/revenue-reports", tokenOf(userB)))).json()) as { z: Array<{ id: number }> };
+  const aIds = new Set((await svc.listUploadedZReports(bizA)).map((r) => r.id));
+  ok("the list ROUTE for B carries no row of A", bListRoute.z.length === 3 && bListRoute.z.every((r) => !aIds.has(r.id)));
+  const peek = await tenantTx(bizA, (tx) => tx.revenueDailyClose.count({ where: { businessId: bizB } }));
+  ok("as A, a query naming B's businessId sees 0 rows (RLS)", peek === 0);
+  const crossInsert = await errorCode(() => tenantTx(bizA, (tx) => tx.$executeRawUnsafe(
+    `INSERT INTO "RevenueDailyClose" ("businessId","sourceKind","capture","sourceScope","registerKey","externalId","businessDay","currency","grossMinor","totalMinor","vatMinor","validation")
+     VALUES ($1,'POS','FILE_STRUCTURED','upload.z.x','1','z:9','2026-10-01','ILS',1,1,0,'PASSED')`, bizB)));
+  ok("as A, inserting a row for B is refused by RLS", /row-level security|42501|P2010/i.test(crossInsert), crossInsert);
+  const crossRun = await errorCode(() => tenantTx(bizA, (tx) => tx.importRun.create({ data: { businessId: bizB, userId: userA, domain: "z_report", contentHash: "x", mappingHash: "x", decisionsHash: "x", retryKey: `x-${Date.now()}`, totalRows: 0 } })));
+  ok("as A, opening a run for B is refused by RLS", crossRun !== "", crossRun);
+  const update = await errorCode(() => tenantTx(bizA, (tx) => tx.$executeRawUnsafe(`UPDATE "RevenueDailyClose" SET "totalMinor" = 0 WHERE "businessId" = $1`, bizA)));
+  ok("the runtime cannot UPDATE a recorded Z (SELECT / INSERT only)", /permission denied|42501|P2010/i.test(update), update);
+
+  // ── I. concurrency ─────────────────────────────────────────────────────────────────────────────
+  console.log("I. concurrency");
+  const cc = zFile("2026-10-07,1,107,7000,0,0,0,7000,1068,7000,0", "2026-10-08,1,108,8000,0,0,0,8000,1220,8000,0");
+  const pcc = await svc.analyzeRevenueReport(zIn(bizA, userA, cc), opts);
+  const results = await Promise.allSettled([0, 1, 2, 3].map(() => commit({ ...zIn(bizA, userA, cc), token: pcc.token }, opts)));
+  const okResults = results.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof svc.commitRevenueReport>>> => r.status === "fulfilled").map((r) => r.value);
+  ok("four concurrent commits: all answer, one run, the others replay it", okResults.length === 4 && new Set(okResults.map((r) => r.importRunId)).size === 1 && okResults.filter((r) => !r.replayed).length === 1,
+    JSON.stringify(results.map((r) => (r.status === "fulfilled" ? r.value.replayed : String((r as PromiseRejectedResult).reason)))));
+  ok("…and the two Z reports exist once", (await count(`SELECT count(*)::int AS n FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" IN ('z:107','z:108')`, bizA)) === 2);
+
+  // ── J. no income ───────────────────────────────────────────────────────────────────────────────
+  console.log("J. no income, no documents, no bank lines");
+  const after = await snapshot();
+  ok("FinancialRecord / FinancialEvent / BillingDocument / PaymentTransaction / ExternalTransaction byte-identical", before === after, `${before} vs ${after}`);
+  ok("no FinancialRecord exists for either business", (await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" IN ($1, $2)`, bizA, bizB)) === 0);
+
+  // ── K. owner decisions 2026-11-03 (synthetic files: the RULES, never a real format) ─────────────────────────
+  console.log("K. owner decisions 2026-11-03 (D-2, D-4, D-5, D-7, D-10, D-11, D-12)");
+  const store = await import("@/lib/revenue-truth/store");
+  const { readRevenueView } = await import("@/lib/revenue-truth/sources");
+  const decide = (biz: number, subject: { settlementId: number } | { dailyCloseId: number }, decision: "CONFIRMED" | "REJECTED") =>
+    store.recordDecision(biz, { subject, decision, actor: "OWNER_USER", idempotencyKey: `rru-k-${Object.keys(subject)[0]}-${Object.values(subject)[0]}-${decision}` });
+
+  // D-10 / D-11: no printed day / register → a question; nothing is recorded until the owner answers.
+  const asked = zFile(",,301,6000,0,0,0,6000,915,6000,0", "2026-10-09,,302,7000,0,0,0,7000,1068,7000,0");
+  const pq = await svc.analyzeRevenueReport(zIn(bizA, userA, asked), opts);
+  ok("D-10/D-11: analyze → NEEDS_INPUT with one question per Z (day + register / register), no default",
+    pq.status === "NEEDS_INPUT" && pq.counts.questions === 2 && pq.rows.length === 0
+      && JSON.stringify(pq.questions.map((q) => q.missing)) === JSON.stringify([["BUSINESS_DAY", "REGISTER"], ["REGISTER"]]) && pq.knownRegisters.includes("1"), JSON.stringify(pq.questions));
+  ok("D-10/D-11: commit without answers → INPUT_REQUIRED, nothing written",
+    (await errorCode(() => commit({ ...zIn(bizA, userA, asked), token: pq.token }, opts))) === "INPUT_REQUIRED"
+      && (await count(`SELECT count(*)::int AS n FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" IN ('z:301','z:302')`, bizA)) === 0);
+  ok("D-10: an answer may not override a printed day (ANSWERS_INVALID)",
+    (await errorCode(() => svc.analyzeRevenueReport({ ...zIn(bizA, userA, asked), answers: { 1: { businessDay: "2026-10-10", registerKey: "1" } } }, opts))) === "ANSWERS_INVALID");
+  const answers = { 0: { businessDay: "2026-10-11", registerKey: "1" }, 1: { registerKey: "2" } };
+  const pa = await svc.analyzeRevenueReport({ ...zIn(bizA, userA, asked), answers }, opts);
+  ok("D-10/D-11: with the owner's answers → READY, 2 NEW", pa.status === "READY" && pa.counts.new === 2 && pa.counts.questions === 0, JSON.stringify(pa.counts));
+  ok("D-10/D-11: the token binds the answers — committing with OTHER answers is FILE_CHANGED",
+    (await errorCode(() => commit({ ...zIn(bizA, userA, asked), answers: { 0: { businessDay: "2026-10-07", registerKey: "1" }, 1: { registerKey: "2" } }, token: pa.token }, opts))) === "FILE_CHANGED");
+  const ca = await commit({ ...zIn(bizA, userA, asked), answers, token: pa.token }, opts);
+  const answered = (await owner.$queryRawUnsafe(`SELECT "externalId" AS ext, "registerKey" AS reg, "businessDay"::text AS day FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" IN ('z:301','z:302') ORDER BY 1`, bizA)) as Array<{ ext: string; reg: string; day: string }>;
+  ok("D-10/D-11: recorded with exactly the owner's day / register (and the printed day kept)", ca.recorded === 2 && JSON.stringify(answered) === JSON.stringify([{ ext: "z:301", reg: "1", day: "2026-10-11" }, { ext: "z:302", reg: "2", day: "2026-10-09" }]), JSON.stringify(answered));
+  // The routes use the SHIPPED (empty) registry: a well-formed answer still meets FORMAT_NOT_SUPPORTED; a malformed one
+  // is refused at the form edge first.
+  const routeAsk = await routes.zAnalyze.POST(post("/api/money/revenue-reports/z/analyze", tokenOf(userA), form(asked, { answers: JSON.stringify(answers) })));
+  const routeBad = await routes.zAnalyze.POST(post("/api/money/revenue-reports/z/analyze", tokenOf(userA), form(asked, { answers: "{" })));
+  ok("D-10/D-11: the route reads `answers` from the form (shipped registry: 422; malformed answers: 400 ANSWERS_INVALID)",
+    routeAsk.status === 422 && routeBad.status === 400 && ((await routeBad.json()) as { error: string }).error === "ANSWERS_INVALID");
+
+  // D-5: a transaction list is refused as a whole; nothing written.
+  const settlementsBefore = await settlements(bizA);
+  const txFile = Buffer.from("TEST-ONLY-FIXTURE-S-TX\nT-1,2026-10-03,100,0,0,100", "utf8");
+  ok("D-5: a transaction-list settlement file → SETTLEMENT_FILE_NOT_SUMMARY on analyze and commit; nothing written",
+    (await errorCode(() => svc.analyzeRevenueReport(sIn(bizA, userA, txFile), opts))) === "SETTLEMENT_FILE_NOT_SUMMARY"
+      && (await settlements(bizA)) === settlementsBefore);
+
+  // D-4: correct a settlement = reject the recorded one, upload the corrected file; history kept; counted once.
+  const acq1 = await one(`SELECT "id" FROM "RevenueSettlement" WHERE "businessId" = $1 AND "externalId" = 'ACQ-1'`, bizA);
+  await decide(bizA, { settlementId: acq1 }, "REJECTED");
+  const pfix = await svc.analyzeRevenueReport(sIn(bizA, userA, sChanged), opts);
+  const fixRow = pfix.rows[0] as { status: string; corrects: { rejectedIds: number[]; storedAs: string } | null };
+  ok("D-4: after rejecting ACQ-1, the corrected file is NEW and names what it corrects (stored as ACQ-1#c2)",
+    fixRow.status === "NEW" && fixRow.corrects?.storedAs === "ACQ-1#c2" && fixRow.corrects.rejectedIds.join() === String(acq1), JSON.stringify(fixRow));
+  const cfix = await commit({ ...sIn(bizA, userA, sChanged), token: pfix.token }, opts);
+  const versions = (await owner.$queryRawUnsafe(`SELECT "externalId" AS ext, "netMinor"::text AS net FROM "RevenueSettlement" WHERE "businessId" = $1 AND "externalId" LIKE 'ACQ-1%' ORDER BY "id"`, bizA)) as Array<{ ext: string; net: string }>;
+  ok("D-4: both versions kept (history): ACQ-1 61070 (rejected) and ACQ-1#c2 61000", cfix.recorded === 1 && JSON.stringify(versions) === JSON.stringify([{ ext: "ACQ-1", net: "61070" }, { ext: "ACQ-1#c2", net: "61000" }]), JSON.stringify(versions));
+  const sView = (await readRevenueView(bizA, { fromDay: "2026-10-03", toDay: "2026-10-04" })).view.byCurrency.get("ILS");
+  ok("D-4: the read model counts the correction once, never both (61000 + 39300)", sView?.settlements.netMinor === BigInt(100300), String(sView?.settlements.netMinor));
+  const pAgain = await svc.analyzeRevenueReport(sIn(bizA, userA, sChanged), opts);
+  ok("D-4: the corrected file again → EXISTING, nothing more", pAgain.counts.existing === 1 && pAgain.counts.new === 0);
+
+  // D-2: a Z already recorded as an approved income document waits for the owner. (D-12: imported history is not
+  // read by the loader — the history table's consumer firewall; an owner item.)
+  const bizC = await business("rru-C");
+  const userC = await user(bizC, "c");
+  await enable(bizC, "z_report_upload");
+  const docId = await one(`INSERT INTO "Document" ("businessId", "fileUrl", "source", "mimeType", "ocrText", "status") VALUES ($1, 'lab://z.pdf', 'upload', 'application/pdf', 'דו"ח Z סגירה יומית מספר Z 101', 'approved') RETURNING "id"`, bizC);
+  await owner.$executeRawUnsafe(`INSERT INTO "FinancialRecord" ("documentId", "businessId", "amount", "date", "vendorName", "direction", "category") VALUES ($1, $2, 920, '2026-10-01T00:00:00Z', 'lab', 'income', 'sales')`, docId, bizC);
+  const doc2 = await one(`INSERT INTO "Document" ("businessId", "fileUrl", "source", "mimeType", "ocrText", "status") VALUES ($1, 'lab://inv.pdf', 'upload', 'application/pdf', 'חשבונית מס 55', 'approved') RETURNING "id"`, bizC);
+  await owner.$executeRawUnsafe(`INSERT INTO "FinancialRecord" ("documentId", "businessId", "amount", "date", "vendorName", "direction", "category") VALUES ($1, $2, 300, '2026-10-02T00:00:00Z', 'lab', 'income', 'sales')`, doc2, bizC);
+  const recordsBefore = await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" = $1`, bizC);
+  const fileC = zFile(Z1, Z2);
+  const pC = await svc.analyzeRevenueReport(zIn(bizC, userC, fileC), opts);
+  const oC = (pC.rows as Array<{ businessDay: string; overlaps: Array<{ overlap: string; ref: string }> }>).map((r) => `${r.businessDay}:${r.overlaps.map((o) => o.overlap).join("+")}`);
+  ok("D-2: the preview shows the overlap on 10-01 (approved income document with Z text); 10-02's ordinary invoice is no overlap",
+    pC.counts.overlaps === 1 && oC.join() === "2026-10-01:RECORDED_INCOME_DOCUMENT,2026-10-02:", oC.join());
+  const cC = await commit({ ...zIn(bizC, userC, fileC), token: pC.token }, opts);
+  const vC = (await readRevenueView(bizC, { fromDay: "2026-10-01", toDay: "2026-10-02" })).view;
+  ok("D-2: both recorded; the overlapping Z is NOT counted (CLOSE_OVERLAP_UNRESOLVED), the other day's Z is (50000)",
+    cC.recorded === 2 && vC.byCurrency.get("ILS")?.sales.closedNetMinor === BigInt(50000)
+      && vC.excluded.filter((e) => e.reason === "CLOSE_OVERLAP_UNRESOLVED").length === 1 && vC.days.find((d) => d.businessDay === "2026-10-01")?.awaitingOverlapDecisionCloseIds.length === 1, JSON.stringify(vC.excluded));
+  const z101 = await one(`SELECT "id" FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" = 'z:101'`, bizC);
+  await decide(bizC, { dailyCloseId: z101 }, "CONFIRMED");
+  const vC2 = (await readRevenueView(bizC, { fromDay: "2026-10-01", toDay: "2026-10-02" })).view;
+  ok("D-2: the owner's CONFIRMED decision on that Z resolves it (92000 + 50000 counted, nothing waiting)",
+    vC2.byCurrency.get("ILS")?.sales.closedNetMinor === BigInt(142000) && vC2.excluded.filter((e) => e.reason === "CLOSE_OVERLAP_UNRESOLVED").length === 0);
+  // D-7: still no income / expense created by any upload.
+  ok("D-7: no FinancialRecord was created (only the fixture's own), none for A / B",
+    (await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" = $1`, bizC)) === recordsBefore
+      && (await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" IN ($1, $2)`, bizA, bizB)) === 0);
+
+  // ── L. round 2 (2026-11-03): confirmation, duplicate suspicion, the history reader, settlement corrections racing ──
+  console.log("L. round 2: confirmation every upload; suspicion is a question; history reader isolated + OFF; corrections under concurrency");
+  const overlapMod = await import("@/lib/revenue-sources/overlap");
+  const { readHistoryOverlapInTx } = await import("@/lib/data-transfer/historical/historical-overlap-reader");
+  const core = await import("@/lib/revenue-sources/uploads/core");
+  const bizL = await business("rru-L");
+  const userL = await user(bizL, "l");
+  await enable(bizL, "z_report_upload");
+  await enable(bizL, "settlement_report_upload");
+
+  // L1. D-1 / D-11 interim: register + sales source selected AND confirmed on every Z upload.
+  const fileL = zFile("2026-10-21,1,401,10000,0,0,0,10000,1525,10000,0", "2026-10-21,2,402,5000,0,0,0,5000,763,5000,0");
+  const pL = await svc.analyzeRevenueReport(zIn(bizL, userL, fileL), opts);
+  ok("L1: the preview asks for the sales source of EVERY register in the file, nothing preselected",
+    pL.confirmation?.required === true && pL.confirmation.registers.join() === "1,2"
+      && pL.confirmation.choices.join() === "THIS_Z_REPORT,INVOICES_OR_OTHER_SYSTEM" && pL.confirmation.recordable.join() === "THIS_Z_REPORT", JSON.stringify(pL.confirmation));
+  const closesL = () => closes(bizL);
+  const noConf = await errorCode(() => svc.commitRevenueReport({ ...zIn(bizL, userL, fileL), token: pL.token }, opts));
+  const unticked = await errorCode(() => svc.commitRevenueReport({ ...zIn(bizL, userL, fileL), token: pL.token, confirmation: { confirmed: false, registers: { 1: "THIS_Z_REPORT", 2: "THIS_Z_REPORT" } } }, opts));
+  const partial = await errorCode(() => svc.commitRevenueReport({ ...zIn(bizL, userL, fileL), token: pL.token, confirmation: { confirmed: true, registers: { 1: "THIS_Z_REPORT" } } }, opts));
+  ok("L1: commit without a confirmation / unticked / for one register of two → CONFIRMATION_REQUIRED; nothing written",
+    noConf === "CONFIRMATION_REQUIRED" && unticked === "CONFIRMATION_REQUIRED" && partial === "CONFIRMATION_REQUIRED" && (await closesL()) === 0 && (await runs(bizL, "z_report")) === 0, `${noConf} ${unticked} ${partial}`);
+  const extra = await errorCode(() => svc.commitRevenueReport({ ...zIn(bizL, userL, fileL), token: pL.token, confirmation: { confirmed: true, registers: { 1: "THIS_Z_REPORT", 2: "THIS_Z_REPORT", 9: "THIS_Z_REPORT" } } }, opts));
+  const elsewhere = await errorCode(() => svc.commitRevenueReport({ ...zIn(bizL, userL, fileL), token: pL.token, confirmation: { confirmed: true, registers: { 1: "THIS_Z_REPORT", 2: "INVOICES_OR_OTHER_SYSTEM" } } }, opts));
+  ok("L1: a register not in the file → CONFIRMATION_INVALID; 'sales recorded another way' → SALES_SOURCE_NOT_SUPPORTED; nothing written (not even register 1)",
+    extra === "CONFIRMATION_INVALID" && elsewhere === "SALES_SOURCE_NOT_SUPPORTED" && (await closesL()) === 0, `${extra} ${elsewhere}`);
+  const confL = { confirmed: true, registers: { 1: "THIS_Z_REPORT" as const, 2: "THIS_Z_REPORT" as const } };
+  const cL = await svc.commitRevenueReport({ ...zIn(bizL, userL, fileL), token: pL.token, confirmation: confL }, opts);
+  const runL = (await owner.$queryRawUnsafe(`SELECT "decisionsHash" AS h FROM "ImportRun" WHERE "id" = $1`, cL.importRunId)) as Array<{ h: string }>;
+  ok("L1: confirmed → recorded; the run records the confirmation (decisions hash = hash of the canonical confirmation)",
+    cL.recorded === 2 && runL[0]?.h === core.decisionsHashOf("z", {}, confL) && runL[0]?.h !== core.decisionsHashOf("z", {}), JSON.stringify(runL));
+  const fresh2 = await svc.analyzeRevenueReport(zIn(bizL, userL, fileL), opts);
+  ok("L1: the NEXT upload asks again — nothing is remembered as a standing definition", fresh2.confirmation?.required === true && fresh2.confirmation.registers.join() === "1,2");
+  const sForL = sFile("ACQ-L,2026-10-22,1000,10,0,990");
+  const psL = await svc.analyzeRevenueReport(sIn(bizL, userL, sForL), opts);
+  ok("L1: a settlement carries no register confirmation (preview null; one sent → CONFIRMATION_INVALID)",
+    psL.confirmation === null && (await errorCode(() => svc.commitRevenueReport({ ...sIn(bizL, userL, sForL), token: psL.token, confirmation: confL }, opts))) === "CONFIRMATION_INVALID");
+  const routeBadConf = await routes.zAnalyze.POST(post("/api/money/revenue-reports/z/analyze", tokenOf(userL), form(fileL, { confirmation: "{" })));
+  ok("L1: the form edge reads `confirmation` (malformed → 400 CONFIRMATION_INVALID, in Hebrew)",
+    routeBadConf.status === 400 && ((await routeBadConf.json()) as { error: string }).error === "CONFIRMATION_INVALID");
+
+  // L2. Z duplicate suspicion: same day + same amount is NOT proof — nothing removed, nothing confirmed, the owner asked.
+  const docInv = await one(`INSERT INTO "Document" ("businessId", "fileUrl", "source", "mimeType", "ocrText", "status") VALUES ($1, 'lab://inv-l.pdf', 'upload', 'application/pdf', 'חשבונית מס קבלה 77', 'approved') RETURNING "id"`, bizL);
+  await owner.$executeRawUnsafe(`INSERT INTO "FinancialRecord" ("documentId", "businessId", "amount", "date", "vendorName", "direction", "category") VALUES ($1, $2, 70, '2026-10-23T00:00:00Z', 'lab', 'income', 'sales')`, docInv, bizL);
+  const frBefore = await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" = $1 AND "amount" = 70`, bizL);
+  const decisionsBefore = await count(`SELECT count(*)::int AS n FROM "RevenueDecision" WHERE "businessId" = $1`, bizL);
+  const linksBefore = await count(`SELECT count(*)::int AS n FROM "RevenueLink" WHERE "businessId" = $1`, bizL);
+  const fileSus = zFile("2026-10-23,1,403,7000,0,0,0,7000,1068,7000,0");
+  const pSus = await svc.analyzeRevenueReport(zIn(bizL, userL, fileSus), opts);
+  const susO = (pSus.rows[0] as { overlaps: Array<{ basis: string; effect: string; ref: string }> }).overlaps;
+  ok("L2: same day + exactly the same amount, the document is an ordinary invoice → a QUESTION (AMOUNT_SAME_DAY), not a hold",
+    susO.length === 1 && susO[0].basis === "AMOUNT_SAME_DAY" && susO[0].effect === "QUESTION" && susO[0].ref === `document:${docInv}`, JSON.stringify(susO));
+  await commit({ ...zIn(bizL, userL, fileSus), token: pSus.token });
+  const vSus = (await readRevenueView(bizL, { fromDay: "2026-10-23", toDay: "2026-10-23" })).view;
+  const z403 = await one(`SELECT "id" FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" = 'z:403'`, bizL);
+  ok("L2: the Z still counts (7000), it is NOT excluded and NOT waiting; the view asks (CLOSE_DUPLICATE_SUSPECTED)",
+    vSus.byCurrency.get("ILS")?.sales.closedNetMinor === BigInt(7000) && !vSus.excluded.some((e) => e.kind === "CLOSE" && e.id === z403)
+      && vSus.days[0]?.awaitingOverlapDecisionCloseIds.length === 0
+      && vSus.warnings.some((w) => w.code === "CLOSE_DUPLICATE_SUSPECTED" && w.ref === `close:${z403}:document:${docInv}`), JSON.stringify({ x: vSus.excluded, w: vSus.warnings }));
+  ok("L2: the other side is untouched and nothing was decided or linked for the owner (FinancialRecord, RevenueDecision, RevenueLink)",
+    (await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" = $1 AND "amount" = 70`, bizL)) === frBefore
+      && (await count(`SELECT count(*)::int AS n FROM "RevenueDecision" WHERE "businessId" = $1`, bizL)) === decisionsBefore
+      && (await count(`SELECT count(*)::int AS n FROM "RevenueLink" WHERE "businessId" = $1`, bizL)) === linksBefore);
+
+  // L3. The imported-history overlap reader: one business, its tenant transaction, five columns — and OFF.
+  const hist = (biz: number, day: string, total: string) => one(
+    `INSERT INTO "HistoricalFiscalDocument" ("businessId", "documentTypeCode", "sourceSystemCode", "originalIssueDate", "totalAmount", "currency", "customerNameSnapshot", "originalDocumentNumber", "updatedAt")
+     VALUES ($1, 'TAX_INVOICE', 'prev_sys', $2::timestamp, $3::numeric, 'ILS', 'לקוח פרטי', 'INV-1', now()) RETURNING "id"`, biz, `${day}T00:00:00`, total);
+  const hL1 = await hist(bizL, "2026-10-21", "100.00");
+  const hL2 = await hist(bizL, "2026-10-25", "55.50");
+  const hB = await hist(bizB, "2026-10-21", "999.00");
+  const readL = await tenantTx(bizL, (tx) => readHistoryOverlapInTx(tx, bizL, { fromDay: "2026-10-20", toDay: "2026-10-31" }));
+  ok("L3: in L's tenant transaction the reader returns L's history only, and only id / issue day / total / currency / source system",
+    JSON.stringify(readL) === JSON.stringify([
+      { id: hL1, issueDay: "2026-10-21", totalAmount: "100.00", currency: "ILS", sourceSystemCode: "prev_sys" },
+      { id: hL2, issueDay: "2026-10-25", totalAmount: "55.50", currency: "ILS", sourceSystemCode: "prev_sys" },
+    ]), JSON.stringify(readL));
+  const asOther = await errorCode(() => tenantTx(bizL, (tx) => readHistoryOverlapInTx(tx, bizB, { fromDay: "2026-10-20", toDay: "2026-10-31" })));
+  const noTenant = await errorCode(() => runtime.$transaction((tx) => readHistoryOverlapInTx(tx as never, bizL, { fromDay: "2026-10-20", toDay: "2026-10-31" })));
+  const tooLong = await errorCode(() => tenantTx(bizL, (tx) => readHistoryOverlapInTx(tx, bizL, { fromDay: "2026-01-01", toDay: "2026-10-31" })));
+  ok("L3: asking for B inside L's transaction → NOT_IN_TENANT; no tenant at all → NOT_IN_TENANT; a long range → RANGE_TOO_LONG",
+    asOther === "NOT_IN_TENANT" && noTenant === "NOT_IN_TENANT" && tooLong === "RANGE_TOO_LONG", `${asOther} ${noTenant} ${tooLong}`);
+  const rlsPeek = await tenantTx(bizL, (tx) => tx.$queryRawUnsafe(`SELECT count(*)::int AS n FROM "HistoricalFiscalDocument" WHERE "businessId" = $1`, bizB)) as Array<{ n: number }>;
+  ok("L3: and the database agrees — under L's GUC, B's history is invisible (FORCE RLS, Production policy)", rlsPeek[0].n === 0 && hB > 0);
+  const evL = await tenantTx(bizL, (tx) => overlapMod.loadImportedHistoryEvidenceInTx(tx, bizL, ["2026-10-21", "2026-10-22"]));
+  ok("L3: the evidence loader keeps only the asked days (10-21 of L; not 10-25, not B's)",
+    evL.length === 1 && evL[0].historicalDocumentId === hL1 && evL[0].totalMinor === BigInt(10000) && evL[0].sourceSystemCode === "prev_sys", JSON.stringify(evL, (_, v) => (typeof v === "bigint" ? v.toString() : v)));
+  const offEv = await tenantTx(bizL, (tx) => overlapMod.loadOverlapEvidenceInTx(tx, bizL, ["2026-10-21"]));
+  const vOff = (await readRevenueView(bizL, { fromDay: "2026-10-21", toDay: "2026-10-21" })).view;
+  ok("L3: OFF on this branch — the real loader and the read model do not read history (no IMPORTED_HISTORY overlap, the 10-21 Z reports count)",
+    overlapMod.IMPORTED_HISTORY_OVERLAP_ENABLED === false && offEv.importedHistory.length === 0
+      && !vOff.warnings.some((w) => w.code === "CLOSE_OVERLAP_UNRESOLVED") && vOff.byCurrency.get("ILS")?.sales.closedNetMinor === BigInt(15000), JSON.stringify(vOff.warnings));
+  const histWrite = await errorCode(() => tenantTx(bizL, (tx) => tx.$executeRawUnsafe(`UPDATE "HistoricalFiscalDocument" SET "totalAmount" = 0 WHERE "businessId" = $1`, bizL)));
+  ok("L3: the runtime cannot change imported history (SELECT / INSERT only)", /permission denied|42501|P2010/i.test(histWrite), histWrite);
+
+  // L4. Settlement corrections under concurrency (D-4, "<id>#c<n>", unique (businessId, sourceScope, externalId)).
+  const sv = (id: string, net: number) => sFile(`${id},2026-10-26,${net + 100},100,0,${net}`);
+  const settle = (id: string) => owner.$queryRawUnsafe(`SELECT "externalId" AS ext, "netMinor"::text AS net FROM "RevenueSettlement" WHERE "businessId" = $1 AND ("externalId" = $2 OR "externalId" LIKE $2 || '#c%') ORDER BY "id"`, bizL, id) as Promise<Array<{ ext: string; net: string }>>;
+  const pRc1 = await svc.analyzeRevenueReport(sIn(bizL, userL, sv("RC-1", 5000)), opts);
+  await svc.commitRevenueReport({ ...sIn(bizL, userL, sv("RC-1", 5000)), token: pRc1.token }, opts);
+  const rc1 = await one(`SELECT "id" FROM "RevenueSettlement" WHERE "businessId" = $1 AND "externalId" = 'RC-1'`, bizL);
+
+  // (a) a correction uploaded while the original is NOT rejected: SKIP-only conflict; nothing written.
+  const pEarly = await svc.analyzeRevenueReport(sIn(bizL, userL, sv("RC-1", 4900)), opts);
+  const early = pEarly.rows[0] as { status: string; corrects: unknown; conflict: { allowed: string[] } | null };
+  ok("L4a: a correction while the original is still live → CONFLICT, SKIP only, not a correction; commit refused without a decision",
+    early.status === "CONFLICT" && early.corrects === null && early.conflict?.allowed.join() === "SKIP"
+      && (await errorCode(() => svc.commitRevenueReport({ ...sIn(bizL, userL, sv("RC-1", 4900)), token: pEarly.token }, opts))) === "DECISIONS_REQUIRED"
+      && (await settle("RC-1")).length === 1, JSON.stringify(early));
+
+  // (b) after rejecting: two DIFFERENT corrected files analyzed (both say "stored as RC-1#c2"), committed at once.
+  await decide(bizL, { settlementId: rc1 }, "REJECTED");
+  const fx = sv("RC-1", 4800);
+  const fy = sv("RC-1", 4700);
+  const [pX, pY] = await Promise.all([svc.analyzeRevenueReport(sIn(bizL, userL, fx), opts), svc.analyzeRevenueReport(sIn(bizL, userL, fy), opts)]);
+  const storedAs = [pX, pY].map((p) => (p.rows[0] as { corrects: { storedAs: string } | null }).corrects?.storedAs);
+  const race = await Promise.allSettled([
+    svc.commitRevenueReport({ ...sIn(bizL, userL, fx), token: pX.token }, opts),
+    svc.commitRevenueReport({ ...sIn(bizL, userL, fy), token: pY.token }, opts),
+  ]);
+  const won = race.filter((r) => r.status === "fulfilled") as PromiseFulfilledResult<Awaited<ReturnType<typeof svc.commitRevenueReport>>>[];
+  const lost = race.filter((r) => r.status === "rejected").map((r) => ((r as PromiseRejectedResult).reason as { code?: string }).code);
+  const afterRace = await settle("RC-1");
+  ok("L4b: two corrections racing to the same n: both previews said RC-1#c2; exactly ONE is recorded, the other is refused (re-classified under the lock: the first is now live)",
+    storedAs.join() === "RC-1#c2,RC-1#c2" && won.length === 1 && won[0].value.recorded === 1 && lost.join() === "DECISIONS_REQUIRED"
+      && afterRace.length === 2 && afterRace[1].ext === "RC-1#c2", JSON.stringify({ storedAs, lost, afterRace }));
+  const vRace = (await readRevenueView(bizL, { fromDay: "2026-10-26", toDay: "2026-10-26" })).view.byCurrency.get("ILS");
+  ok("L4b: counted once — the one live correction only (never the rejected original, never both)", vRace?.settlements.netMinor === BigInt(Number(afterRace[1].net)), String(vRace?.settlements.netMinor));
+
+  // (c) the same corrected file committed twice at once: one run, the other a replay.
+  await decide(bizL, { settlementId: await one(`SELECT "id" FROM "RevenueSettlement" WHERE "businessId" = $1 AND "externalId" = 'RC-1#c2'`, bizL) }, "REJECTED");
+  const fz = sv("RC-1", 4600);
+  const pZ = await svc.analyzeRevenueReport(sIn(bizL, userL, fz), opts);
+  const twice = await Promise.all([0, 1].map(() => svc.commitRevenueReport({ ...sIn(bizL, userL, fz), token: pZ.token }, opts)));
+  const afterTwice = await settle("RC-1");
+  ok("L4c: the same correction committed twice at once → one run (the other replays it), stored once as RC-1#c3",
+    (pZ.rows[0] as { corrects: { storedAs: string } | null }).corrects?.storedAs === "RC-1#c3" && twice.filter((r) => r.replayed).length === 1
+      && new Set(twice.map((r) => r.importRunId)).size === 1 && afterTwice.map((r) => r.ext).join() === "RC-1,RC-1#c2,RC-1#c3", JSON.stringify(afterTwice));
+
+  // (d) below the service lock: two writers inserting the same "<id>#c<n>" at once — the unique key admits one.
+  const direct = (net: number) => tenantTx(bizL, async (tx) => {
+    const r = await store.recordSettlementInTx(tx, bizL, {
+      sourceKind: "ACQUIRER", capture: "FILE_STRUCTURED", sourceScope: "upload.settlement.test_only_fixture", externalId: "RD-1#c2",
+      sourcePayloadHash: createHash("sha256").update(`rd-${net}`).digest("hex"), acquirer: "test_only_acq", valueDate: "2026-10-27",
+      currency: "ILS", grossMinor: BigInt(net + 10), feeMinor: BigInt(10), otherDeductionsMinor: BigInt(0), validation: "PASSED",
+    });
+    await tx.$executeRawUnsafe(`SELECT pg_sleep(0.3)`);
+    return r.status;
+  });
+  const rawRace = await Promise.allSettled([direct(800), direct(700)]);
+  const rawStatuses = rawRace.map((r) => (r.status === "fulfilled" ? r.value : "ERR"));
+  ok("L4d: two raw inserts of RC#c2 racing below the lock → one CREATED, the other sees it (CONFLICT), one row",
+    rawStatuses.sort().join() === "CONFLICT,CREATED" && (await count(`SELECT count(*)::int AS n FROM "RevenueSettlement" WHERE "businessId" = $1 AND "externalId" = 'RD-1#c2'`, bizL)) === 1, rawStatuses.join());
+
+  // (e) the rejection is revoked after the correction: two live versions — the read model counts only the latest.
+  const rc3 = await one(`SELECT "id" FROM "RevenueSettlement" WHERE "businessId" = $1 AND "externalId" = 'RC-1#c3'`, bizL);
+  await store.recordDecision(bizL, { subject: { settlementId: rc1 }, decision: "REVOKED", actor: "OWNER_USER", idempotencyKey: `rru-l-revoke-${rc1}` });
+  const vRevoked = (await readRevenueView(bizL, { fromDay: "2026-10-26", toDay: "2026-10-26" })).view;
+  ok("L4e: original's rejection revoked → RC-1 and RC-1#c3 both live: only the latest (#c3, 4600) counts, and the view warns",
+    vRevoked.byCurrency.get("ILS")?.settlements.netMinor === BigInt(4600) && vRevoked.warnings.some((w) => w.code === "SETTLEMENT_VERSIONS_BOTH_LIVE" && w.ref === `settlement:${rc1}`)
+      && !vRevoked.excluded.some((e) => e.kind === "SETTLEMENT" && e.id === rc3), JSON.stringify(vRevoked.warnings));
+
+  // (f) analyzed as a correction, then the original revived before the commit: re-classified under the lock → refused.
+  const rd = sv("RF-1", 3000);
+  const pRf = await svc.analyzeRevenueReport(sIn(bizL, userL, rd), opts);
+  await svc.commitRevenueReport({ ...sIn(bizL, userL, rd), token: pRf.token }, opts);
+  const rf1 = await one(`SELECT "id" FROM "RevenueSettlement" WHERE "businessId" = $1 AND "externalId" = 'RF-1'`, bizL);
+  await decide(bizL, { settlementId: rf1 }, "REJECTED");
+  const pRfFix = await svc.analyzeRevenueReport(sIn(bizL, userL, sv("RF-1", 2900)), opts);
+  await store.recordDecision(bizL, { subject: { settlementId: rf1 }, decision: "REVOKED", actor: "OWNER_USER", idempotencyKey: `rru-l-revoke-${rf1}` });
+  const stale = await errorCode(() => svc.commitRevenueReport({ ...sIn(bizL, userL, sv("RF-1", 2900)), token: pRfFix.token }, opts));
+  ok("L4f: the preview said 'correction', the original was revived before commit → refused (DECISIONS_REQUIRED), nothing written",
+    (pRfFix.rows[0] as { corrects: unknown }).corrects !== null && stale === "DECISIONS_REQUIRED" && (await settle("RF-1")).length === 1, stale);
+
+  await runtime.$disconnect();
+  await owner.$disconnect();
+  console.log(`\n[revenue-report-uploads battery] PASS=${pass} FAIL=${failures.length}`);
+  if (failures.length) { console.log("FAILURES:\n  " + failures.join("\n  ")); process.exit(1); }
+  process.exit(0);
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });

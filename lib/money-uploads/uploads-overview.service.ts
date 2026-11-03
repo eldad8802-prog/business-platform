@@ -2,7 +2,8 @@
  * העלאת דוחות וקבצים — the database reads behind GET /api/money/uploads. SERVER-ONLY, READ-ONLY.
  *
  * Three reads, each tenant-scoped by the business from the session:
- *   1. bankFileImportState — where the bank card routes (fail-closed: an error is UNKNOWN, never ON/OFF);
+ *   1. bankFileImportState — where the bank card routes (fail-closed: an error is UNKNOWN, never ON/OFF); and
+ *      revenueReportUploadState per report kind (Z / settlement) — whether those cards are links (only ON);
  *   2. the import ledger's recent runs — through `listRecentImportRuns`, because import-run-store.ts is the
  *      ledger's only accessor (CI-IL-14);
  *   3. old-path bank uploads — ExternalTransaction rows of source OWNER_UPLOAD whose importBatchId starts
@@ -15,6 +16,7 @@
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { bankFileImportState } from "@/lib/services/bank-file-import/http";
+import { revenueReportUploadState } from "@/lib/revenue-sources/uploads/http";
 import { listRecentImportRuns } from "@/lib/data-transfer/import/execute/import-run-store";
 import { IMPORT_EXPORT_RELEASED } from "@/components/settings/import-export/import-export-release";
 import {
@@ -71,12 +73,22 @@ async function listLegacyBankBatches(businessId: number, limit: number): Promise
  * is UNKNOWN). A failed history read is logged by name only and returned as null → `historyAvailable: false`.
  */
 export async function getUploadsOverview(businessId: number, now: Date = new Date()): Promise<UploadsOverview> {
-  const [bankState, runs, legacyBatches] = await Promise.all([
+  const [bankState, zState, settlementState, runs, legacyBatches] = await Promise.all([
     bankFileImportState(businessId),
+    // Fail-closed like the bank card: an error is UNKNOWN, and only ON opens the card.
+    revenueReportUploadState(businessId, "z"),
+    revenueReportUploadState(businessId, "settlement"),
     listRecentImportRuns(businessId, HISTORY_LIMIT).catch((e: unknown) => historyReadFailed("import runs", e)),
     listLegacyBankBatches(businessId, HISTORY_LIMIT).catch((e: unknown) => historyReadFailed("old bank uploads", e)),
   ]);
-  return buildUploadsOverview({ bankState, runs, legacyBatches, now, importAvailable: IMPORT_EXPORT_RELEASED });
+  return buildUploadsOverview({
+    bankState,
+    revenueReportStates: { z: zState, settlement: settlementState },
+    runs,
+    legacyBatches,
+    now,
+    importAvailable: IMPORT_EXPORT_RELEASED,
+  });
 }
 
 function historyReadFailed(what: string, e: unknown): null {

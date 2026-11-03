@@ -32,6 +32,8 @@ export const PLATFORM_FEATURE_KEYS = {
   APPOINTMENTS: "appointments",
   PUBLIC_BOOKING: "public_booking",
   DOCUMENT_SUPPLIER_LINKING: "document_supplier_linking",
+  Z_REPORT_UPLOAD: "z_report_upload",
+  SETTLEMENT_REPORT_UPLOAD: "settlement_report_upload",
 } as const;
 
 export type PlatformFeatureKey =
@@ -319,6 +321,27 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       // closes it. Every link still needs a person: nothing is linked automatically.
       description: "בחירת ספק במסך בדיקת המסמך, הצעות שיוך באישור המשתמש והצגת המסמכים בתיק הספק — פתוח לכל העסקים",
       defaultEnabled: true,
+      mutable: true,
+    },
+    // Revenue report uploads (docs/revenue-report-uploads.md; data migration 20261111090000_revenue_report_upload_features).
+    // OFF by default: with no policy row the resolver falls back to this default, so a deploy that reaches Production
+    // before the migration is OFF too. While OFF for a business its routes answer 404 and the uploads screen shows the
+    // card as "בקרוב". The parser registry ships EMPTY, so even when ON every file is answered FORMAT_NOT_SUPPORTED
+    // until a real sample of a source system's report has its reviewed parser.
+    {
+      key: PLATFORM_FEATURE_KEYS.Z_REPORT_UPLOAD,
+      displayName: "העלאת דוחות Z",
+      category: "revenue",
+      description: "העלאת דוח Z (סגירת קופה יומית) עם בדיקה לפני קליטה, לשכבת אמת ההכנסות — דוח בלבד, לא רישום הכנסה — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    {
+      key: PLATFORM_FEATURE_KEYS.SETTLEMENT_REPORT_UPLOAD,
+      displayName: "העלאת דוחות סליקה",
+      category: "revenue",
+      description: "העלאת דוח סליקה מחברת האשראי (ברוטו, עמלות, נטו) עם בדיקה לפני קליטה, לשכבת אמת ההכנסות — דוח בלבד — כבוי כברירת מחדל",
+      defaultEnabled: false,
       mutable: true,
     },
   ];

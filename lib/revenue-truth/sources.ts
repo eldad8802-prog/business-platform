@@ -7,7 +7,9 @@
  *   PaymentTransaction  status PAID (money in; a refund is negative), tenant-scoped through its PaymentRequest;
  *   ExternalTransaction direction CREDIT (bank money in).
  * Deliberately NOT read: FinancialEvent (it books an invoice AND its payment as two INCOME rows) and
- * FinancialRecord (an approved upload is not proof of a sale — an open owner decision).
+ * FinancialRecord (an approved upload is not proof of a sale — an open owner decision). Approved income FinancialRecords
+ * are consulted ONLY to find a Z that may already be counted there (D-2, lib/revenue-sources/overlap.ts) — never
+ * summed, never a sale. Imported history is not read (D-12 is an open owner item).
  *
  * The window is per layer, by the date that layer carries (sale / receipt / Z: business day; settlement: value date;
  * document: issue day; payment: creation day; bank: booking day). A settlement or a deposit that lands after the
@@ -15,6 +17,8 @@
  *
  * NOT CONNECTED: nothing calls this in milestone A except the lab battery.
  */
+import { closeOverlapsOf, loadOverlapEvidenceInTx } from "@/lib/revenue-sources/overlap";
+import { settlementBaseIdOf } from "@/lib/revenue-sources/uploads/core";
 import { moneyFromDecimal } from "@/lib/money/money";
 import { parseCurrency, isSupportedCurrency, type CurrencyCode } from "@/lib/money/currency";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
@@ -86,6 +90,7 @@ export async function loadRevenueInputs(businessId: number, window: RevenueWindo
       },
       select: { id: true, linkId: true, dailyCloseId: true, saleId: true, receiptId: true, settlementId: true, decision: true },
     });
+    const overlapEvidence = await loadOverlapEvidenceInTx(tx, businessId, closes.map((c) => dayOf(c.businessDay)));
 
     const out: RevenueInputs = {
       sales: sales.map((s) => ({
@@ -107,7 +112,11 @@ export async function loadRevenueInputs(businessId: number, window: RevenueWindo
       settlements: settlements.map((s) => ({
         id: s.id, validation: s.validation, currency: parseCurrency(s.currency), grossMinor: s.grossMinor,
         feeMinor: s.feeMinor, otherDeductionsMinor: s.otherDeductionsMinor, netMinor: s.netMinor,
+        versionKey: `${s.sourceScope}|${settlementBaseIdOf(s.externalId)}`,
       })),
+      closeOverlaps: closes.flatMap((c) =>
+        closeOverlapsOf({ businessDay: dayOf(c.businessDay), currency: c.currency, totalMinor: c.totalMinor }, overlapEvidence)
+          .map((o) => ({ dailyCloseId: c.id, overlap: o.overlap, basis: o.basis, effect: o.effect, ref: o.ref }))),
       deposits: deposits.filter((d) => supported("ExternalTransaction", d.id, d.currency)).map((d) => ({
         id: d.id, currency: d.currency as CurrencyCode, amountMinor: minor(d.amount, d.currency),
       })),

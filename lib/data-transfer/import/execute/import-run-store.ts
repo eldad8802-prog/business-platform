@@ -484,6 +484,82 @@ export async function completeBankStatementRunInTx(
   });
 }
 
+/* ───────────────────── revenue report uploads (Z reports, settlement reports) ─────────────────────
+ *
+ * Like bank statements, an uploaded Z report or card settlement report is not a data-transfer domain: it writes the
+ * revenue truth tables (lib/revenue-sources/uploads). Its run lives in this ledger — domain `z_report` or
+ * `settlement_report`, the file's hash (never the file), the parser's identity as the mapping hash, the hash of the
+ * owner's conflict decisions, the counts — and is opened, written and closed inside the CALLER's transaction, under
+ * its lock, with the rows it describes. No row markers: each revenue row's own unique source key is its idempotency.
+ */
+
+export const Z_REPORT_RUN_DOMAIN = "z_report";
+export const SETTLEMENT_REPORT_RUN_DOMAIN = "settlement_report";
+export type RevenueReportRunDomain = typeof Z_REPORT_RUN_DOMAIN | typeof SETTLEMENT_REPORT_RUN_DOMAIN;
+
+export type RevenueReportRun = BankStatementRun;
+
+/** The run already committed under this retry key, if any (replay). */
+export async function findRevenueReportRunInTx(tx: TenantTx, retryKey: string): Promise<RevenueReportRun | null> {
+  return tx.importRun.findUnique({ where: { retryKey }, select: BANK_RUN_SELECT });
+}
+
+/** When this exact file was last committed into this business as this kind of report. */
+export async function lastRevenueReportImportInTx(
+  tx: TenantTx,
+  businessId: number,
+  domain: RevenueReportRunDomain,
+  contentHash: string
+): Promise<Date | null> {
+  const run = await tx.importRun.findFirst({
+    where: { businessId, domain, contentHash, status: "COMPLETED" },
+    orderBy: { startedAt: "desc" },
+    select: { startedAt: true },
+  });
+  return run?.startedAt ?? null;
+}
+
+/** Open a revenue report run in the caller's transaction. */
+export async function openRevenueReportRunInTx(
+  tx: TenantTx,
+  run: {
+    businessId: number;
+    userId: number;
+    domain: RevenueReportRunDomain;
+    contentHash: string;
+    /** The parser's identity (kind, key, version), hashed. */
+    mappingHash: string;
+    decisionsHash: string;
+    retryKey: string;
+    totalRows: number;
+  }
+): Promise<number> {
+  const created = await tx.importRun.create({
+    data: {
+      businessId: run.businessId,
+      userId: run.userId,
+      domain: run.domain,
+      contentHash: run.contentHash,
+      mappingHash: run.mappingHash,
+      decisionsHash: run.decisionsHash,
+      retryKey: run.retryKey,
+      sheetName: null,
+      totalRows: run.totalRows,
+    },
+    select: { id: true },
+  });
+  return created.id;
+}
+
+/** Close a revenue report run, in the same transaction that wrote its rows. */
+export async function completeRevenueReportRunInTx(
+  tx: TenantTx,
+  runId: number,
+  counts: { created: number; skipped: number; failed: number; completedAt: Date }
+): Promise<void> {
+  await completeBankStatementRunInTx(tx, runId, counts);
+}
+
 /* ───────────────────── recent runs, read-only (S1-B M3 uploads screen) ─────────────────────
  *
  * The /money/uploads screen lists what was brought in lately. It is a READ of this ledger, and it lives here
