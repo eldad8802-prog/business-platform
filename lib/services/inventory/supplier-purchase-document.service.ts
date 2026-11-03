@@ -1,6 +1,7 @@
 import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
 import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
+import { formatQtyNumber, qtyWithUnit, unitWord } from "@/lib/inventory/unit-words";
 
 /** Minimal draft shape for building supplier order text / PDF (client-side). */
 export type SupplierPurchaseDraftLineForDocument = {
@@ -47,8 +48,8 @@ export function buildSupplierOrderText(
   const linesText = draft.lines
     .map((line, index) => {
       const name = line.rawName || "מוצר ללא שם";
-      const unit = line.unitType || "יחידות";
-      return `${index + 1}. ${name} — ${line.quantity} ${unit}`;
+      // Unit words, never raw codes ("5 מארזים", not "5 BOX").
+      return `${index + 1}. ${name} — ${qtyWithUnit(Number(line.quantity), line.unitType)}`;
     })
     .join("\n");
 
@@ -253,8 +254,8 @@ export function downloadSupplierPurchaseOrderPdf(
             ],
             ...draft.lines.map((line, index) => [
               { text: String(index + 1), alignment: "center" },
-              { text: line.unitType || "UNIT", alignment: "center" },
-              { text: String(line.quantity), alignment: "center" },
+              { text: rtlText(unitWord(line.unitType, Number(line.quantity))), alignment: "center" },
+              { text: formatQtyNumber(Number(line.quantity)), alignment: "center" },
               {
                 text: line.rawName || "מוצר ללא שם",
                 alignment: "right",

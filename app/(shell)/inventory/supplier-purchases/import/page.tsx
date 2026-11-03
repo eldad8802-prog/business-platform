@@ -1,10 +1,9 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent } from "react";
-import { useRouter } from "next/navigation";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
-import { SaveBar } from "@/components/inventory/inventory-design";
+import { useMemo, useRef, useState, type DragEvent } from "react";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { parseCsvToRecords } from "@/lib/services/supplier-connectors/csv/csv-parser";
+import { I2, InvButton, InvNote, InvPage, InvSheet } from "@/components/inventory/v2/kit";
 
 type ImportCsvResponse = {
   success?: boolean;
@@ -16,27 +15,54 @@ type ImportCsvResponse = {
   previewSummary?: { ordersParsed: number; draftsCreated: number; skippedOrders: number; invalidOrders: number };
 };
 
+type Preview = { rows: Array<Record<string, string>>; total: number; duplicateOrderIds: boolean };
+
+const COLUMNS: Array<{ key: string; label: string; required?: boolean }> = [
+  { key: "supplierName", label: "שם הספק" },
+  { key: "externalOrderId", label: "מזהה הזמנה אצל הספק" },
+  { key: "rawName", label: "שם המוצר" },
+  { key: "sku", label: "מק״ט" },
+  { key: "barcode", label: "ברקוד" },
+  { key: "quantity", label: "כמות (מספר גדול מ־0)", required: true },
+  { key: "unitType", label: "יחידה (UNIT, BOX, KG, GRAM, LITER, ML)" },
+  { key: "notes", label: "הערות" },
+];
+const SAMPLE = "supplierName,externalOrderId,rawName,sku,barcode,quantity,unitType\nספק לדוגמה,A-100,מוצר לדוגמה,123,7290000000000,5,UNIT";
+
+/**
+ * Import supplier orders from a CSV file (redesign, mockup "ייבוא הזמנות").
+ * The preview is a client-side read of the file for display only; the import is the
+ * same POST as before and the server decides what is created.
+ */
 export default function SupplierCsvImportPage() {
-  const router = useRouter();
   const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportCsvResponse | null>(null);
+  const [formatOpen, setFormatOpen] = useState(false);
 
   const draftsCreated = result?.draftsCreated ?? [];
   const skippedOrders = result?.skippedOrders ?? [];
   const invalidOrders = result?.invalidOrders ?? [];
   const warnings = result?.warnings ?? [];
-  const preview = result?.previewSummary;
-  const hasSuccessfulImport =
-    result?.success === true && !error && (draftsCreated.length > 0 || skippedOrders.length > 0);
+  const hasSuccessfulImport = result?.success === true && !error && (draftsCreated.length > 0 || skippedOrders.length > 0);
 
-  function onFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const next = event.target.files?.[0];
+  function reset() {
+    setFile(null);
+    setPreview(null);
+    setResult(null);
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function acceptFile(next: File | undefined | null) {
     setError(null);
     setResult(null);
+    setPreview(null);
     if (!next) {
       setFile(null);
       return;
@@ -44,10 +70,25 @@ export default function SupplierCsvImportPage() {
     if (!next.name.toLowerCase().endsWith(".csv")) {
       setFile(null);
       setError(t("customers.purchases.import.csvOnly"));
-      event.target.value = "";
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
     setFile(next);
+    // Display only — the server parses the file itself on import.
+    void next
+      .text()
+      .then((text) => {
+        const rows = parseCsvToRecords(text);
+        const ids = rows.map((r) => (r.externalOrderId || "").trim()).filter(Boolean);
+        setPreview({ rows: rows.slice(0, 20), total: rows.length, duplicateOrderIds: new Set(ids).size < ids.length });
+      })
+      .catch(() => setPreview({ rows: [], total: 0, duplicateOrderIds: false }));
+  }
+
+  function onDrop(e: DragEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    acceptFile(e.dataTransfer.files?.[0]);
   }
 
   async function submitImport() {
@@ -72,7 +113,9 @@ export default function SupplierCsvImportPage() {
       if (!response.ok) {
         setError(
           (data && typeof data.error === "string" && data.error) ||
-            (response.status === 401 ? t("customers.purchases.import.unauthorized") : t("customers.purchases.import.serverError", { status: response.status }))
+            (response.status === 401
+              ? t("customers.purchases.import.unauthorized")
+              : t("customers.purchases.import.serverError", { status: response.status }))
         );
         return;
       }
@@ -88,126 +131,172 @@ export default function SupplierCsvImportPage() {
     }
   }
 
+  const previewRows = useMemo(() => preview?.rows ?? [], [preview]);
+
   return (
-    <InventorySubPage intent="standard" title={t("customers.purchases.import.title")} backHref="/inventory/supplier-purchases" bottomNav="orders">
-      <div className="inv-desk-workspace inv-import-desk">
-      <div className="inv-fwrap">
-        <p className="inv-field__help" style={{ marginTop: 8, fontSize: 14, lineHeight: 1.7 }}>
-          {t("customers.purchases.import.intro")}
-        </p>
+    <InvPage
+      title="ייבוא הזמנות"
+      backFallback="/inventory/supplier-purchases"
+      footer={
+        !result ? (
+          <div className="i2-footer__row">
+            <InvButton disabled={!file || loading} onClick={() => void submitImport()}>
+              {loading ? "מייבאים…" : "ייבוא לקליטת הזמנות"}
+            </InvButton>
+          </div>
+        ) : (
+          <div className="i2-footer__row">
+            <InvButton href="/inventory/supplier-purchases?tab=receive" disabled={!hasSuccessfulImport}>
+              לקליטת הזמנות
+            </InvButton>
+            <InvButton kind="secondary" onClick={reset}>
+              ייבוא קובץ נוסף
+            </InvButton>
+          </div>
+        )
+      }
+    >
+      <p style={{ margin: "6px 0 12px", lineHeight: 1.55 }}>ייבוא הזמנות מקובץ CSV מאפשר להוסיף במהירות הזמנות מרובות למערכת.</p>
 
-        <input ref={fileInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={onFileChange} />
+      <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="i2-sr" tabIndex={-1} aria-hidden onChange={(e) => acceptFile(e.target.files?.[0])} />
 
+      {!file ? (
         <button
           type="button"
+          className="i2-drop"
+          data-over={dragOver ? "true" : undefined}
           onClick={() => fileInputRef.current?.click()}
-          className="inv-imgpick"
-          style={{
-            marginTop: 16,
-            width: "100%",
-            minHeight: 120,
-            border: "1.5px dashed var(--inv-border)",
-            borderRadius: "var(--inv-radius-md)",
-            background: "var(--inv-surface)",
-            color: "var(--inv-text-muted)",
-            fontFamily: "inherit",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-            alignItems: "center",
-            justifyContent: "center",
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
           }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
         >
-          {file ? (
-            <>
-              <span style={{ fontWeight: 600, color: "var(--inv-text)" }}>{file.name}</span>
-              <span style={{ fontSize: 13 }}>{t("customers.purchases.import.pickAnother")}</span>
-            </>
-          ) : (
-            <span>{t("customers.purchases.import.pickFile")}</span>
-          )}
+          {I2.file(34)}
+          <b>בחירת קובץ CSV</b>
+          <span className="i2-muted">או גרירת קובץ לכאן</span>
         </button>
-
-        {file ? (
-          <button
-            type="button"
-            onClick={() => {
-              setFile(null);
-              setResult(null);
-              setError(null);
-              if (fileInputRef.current) fileInputRef.current.value = "";
-            }}
-            disabled={loading}
-            className="inv-btn-link"
-            style={{ marginTop: 10 }}
-          >
-            {t("customers.purchases.import.removeFile")}
+      ) : (
+        <div className="i2-card" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {I2.file(26)}
+          <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", fontWeight: 500 }}>
+            <bdi>{file.name}</bdi>
+          </span>
+          <button type="button" className="i2-iconbtn" onClick={reset} disabled={loading} aria-label="הסרת הקובץ">
+            {I2.close(20)}
           </button>
-        ) : null}
+        </div>
+      )}
 
-        {error ? (
-          <div className="inv-alert inv-alert--error" style={{ marginTop: 16 }}>
-            {error}
-          </div>
-        ) : null}
-
-        {result?.success === true && !error ? (
-          <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
-            <div className="inv-alert inv-alert--success">
-              {t("customers.purchases.import.success")}
-              <div style={{ marginTop: 8, fontWeight: 600, fontSize: 13 }}>
-                {preview != null ? <>{t("customers.purchases.import.parsed", { count: preview.ordersParsed })}</> : null}
-                {t("customers.purchases.import.summary", { created: draftsCreated.length, skipped: skippedOrders.length, invalid: invalidOrders.length })}
-              </div>
-            </div>
-
-            {warnings.length > 0 ? (
-              <div className="inv-alert" style={{ border: "1px solid var(--inv-warning)", background: "var(--inv-warning-bg)", color: "var(--inv-warning-ink)" }}>
-                <div style={{ marginBottom: 8, fontWeight: 600 }}>{t("customers.purchases.import.warnings")}</div>
-                <ul style={{ margin: 0, paddingInlineStart: 20, fontWeight: 600, fontSize: 13 }}>
-                  {warnings.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {invalidOrders.length > 0 ? (
-              <div style={{ background: "var(--inv-card-bg)", border: "1px solid var(--inv-border)", borderRadius: 12, padding: 14, boxShadow: "var(--inv-shadow)" }}>
-                <div style={{ fontWeight: 600, marginBottom: 8 }}>{t("customers.purchases.import.invalidRows", { count: invalidOrders.length })}</div>
-                <ul style={{ margin: 0, paddingInlineStart: 20, fontSize: 13, color: "var(--inv-text-muted)", lineHeight: 1.6 }}>
-                  {invalidOrders.map((row, i) => (
-                    <li key={i}>
-                      <bdi>{row.orderId}</bdi>: {row.reason}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            <button
-              type="button"
-              className="inv-btn-secondary"
-              disabled={!hasSuccessfulImport}
-              onClick={() => router.push("/inventory/supplier-purchases/pending")}
-            >
-              {t("customers.purchases.import.goToPending")}
-            </button>
-          </div>
-        ) : null}
-      </div>
-      <aside className="inv-ops__side">
-        <h2>{t("customers.purchases.import.sideTitle")}</h2>
-        <p>{t("customers.purchases.import.sideBody")}</p>
-      </aside>
+      <div style={{ textAlign: "start" }}>
+        <button type="button" className="i2-underline" onClick={() => setFormatOpen(true)}>
+          מבנה הקובץ הנדרש
+        </button>
       </div>
 
-      {!result ? (
-        <SaveBar label={loading ? t("customers.purchases.import.importing") : t("customers.purchases.import.importFile")} onClick={() => void submitImport()} disabled={!file || loading} />
+      {error ? <InvNote tone="danger">{error}</InvNote> : null}
+
+      {file && preview && !result ? (
+        <>
+          <h3 className="i2-h3">תצוגה מקדימה</h3>
+          {preview.total === 0 ? (
+            <InvNote tone="warn">לא נמצאו שורות בקובץ. בדקו שהשורה הראשונה היא שורת כותרות ושהערכים מופרדים בפסיקים.</InvNote>
+          ) : (
+            <>
+              <div style={{ overflowX: "auto" }}>
+                <table className="i2-table">
+                  <thead>
+                    <tr>
+                      <th>מוצר</th>
+                      <th>כמות</th>
+                      <th>ספק</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewRows.map((r, i) => (
+                      <tr key={i}>
+                        <td style={{ overflowWrap: "anywhere" }}>{(r.rawName || "").trim() || r.sku || r.barcode || "—"}</td>
+                        <td className="i2-num">{(r.quantity || "").trim() || "—"}</td>
+                        <td style={{ overflowWrap: "anywhere" }}>{(r.supplierName || "").trim() || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="i2-foot">
+                {preview.total === 1 ? "שורה אחת בקובץ" : `${preview.total.toLocaleString("he-IL")} שורות בקובץ`}
+                {preview.total > 20 ? " · מוצגות 20 הראשונות" : ""}
+              </p>
+              {preview.duplicateOrderIds ? (
+                <InvNote>כל שורה בקובץ נקלטת כהזמנה נפרדת, ושורות עם אותו מזהה הזמנה עשויות להידלג.</InvNote>
+              ) : null}
+            </>
+          )}
+          <InvNote tone="warn">בדקו את הנתונים לפני הייבוא</InvNote>
+        </>
       ) : null}
-    </InventorySubPage>
+
+      {result?.success === true && !error ? (
+        <>
+          <InvNote tone="ok">
+            <div style={{ fontWeight: 600 }}>הייבוא הסתיים</div>
+            <div className="i2-num">
+              נוצרו {draftsCreated.length.toLocaleString("he-IL")} · דולגו {skippedOrders.length.toLocaleString("he-IL")} · לא תקינות{" "}
+              {invalidOrders.length.toLocaleString("he-IL")}
+            </div>
+          </InvNote>
+          {warnings.length > 0 ? (
+            <InvNote tone="warn">
+              <ul style={{ margin: 0, paddingInlineStart: 18 }}>
+                {warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </InvNote>
+          ) : null}
+          {invalidOrders.length > 0 ? (
+            <>
+              <h3 className="i2-h3">שורות שלא נקלטו</h3>
+              <ul className="i2-list">
+                {invalidOrders.map((row, i) => (
+                  <li key={i} style={{ padding: "8px 0", borderBottom: "1px solid var(--i2-line)", overflowWrap: "anywhere" }}>
+                    <bdi>{row.orderId}</bdi>: {row.reason}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </>
+      ) : null}
+
+      {formatOpen ? (
+        <InvSheet title="מבנה הקובץ הנדרש" onClose={() => setFormatOpen(false)}>
+          <p style={{ marginTop: 0 }}>קובץ CSV מופרד בפסיקים. השורה הראשונה היא שורת הכותרות, בשמות העמודות האלה:</p>
+          <dl className="i2-kv">
+            {COLUMNS.map((c) => (
+              <div key={c.key} className="i2-kv__r">
+                <dt>
+                  <bdi dir="ltr">{c.key}</bdi>
+                </dt>
+                <dd>
+                  {c.label}
+                  {c.required ? " · חובה" : ""}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <h3 className="i2-h3">שורה לדוגמה</h3>
+          <pre dir="ltr" className="i2-box" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 13, margin: 0 }}>
+            {SAMPLE}
+          </pre>
+          <div style={{ marginTop: 14 }}>
+            <InvButton block kind="secondary" onClick={() => setFormatOpen(false)}>
+              סגירה
+            </InvButton>
+          </div>
+        </InvSheet>
+      ) : null}
+    </InvPage>
   );
 }

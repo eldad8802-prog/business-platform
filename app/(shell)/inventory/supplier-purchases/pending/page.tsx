@@ -1,24 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { getInventoryItems } from "@/lib/api/inventory";
-import { useI18n } from "@/components/i18n/I18nProvider";
-import { BdiTemplate } from "@/components/inventory/supplier-purchase-order/order-wizard-ui";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
+import { buildClientAuthHeaders, redirectToLogin } from "@/lib/client-session";
+import { qtyWithUnit } from "@/lib/inventory/unit-words";
+import { inventoryToast } from "@/components/inventory/inventory-toast";
 import {
-  DecisionCard,
-  DecisionChips,
-  InventoryBadge,
-  InventoryStatePanel,
-  InventorySkeletonBlock,
-} from "@/components/inventory/inventory-design";
-
-type Item = {
-  id: number;
-  name: string;
-  currentQuantity: number;
-};
+  InvButton,
+  InvConfirm,
+  InvError,
+  InvLoading,
+  InvNote,
+  InvPage,
+  InvPill,
+  InvRow,
+  InvState,
+  ProductThumb,
+} from "@/components/inventory/v2/kit";
 
 type DraftLine = {
   id: number;
@@ -40,283 +39,147 @@ type LineDecision =
   | { action: "MERGE"; itemId: number | "" }
   | { action: "CREATE_NEW"; name: string; unitType: string };
 
-function buildHeaders() {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
-
-  return {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+/** Same default matching as before: the stored match, then an exact name match, else create new. */
+function defaultDecisions(draft: Draft, items: InventoryItemDTO[]): Record<number, LineDecision> {
+  const next: Record<number, LineDecision> = {};
+  draft.lines.forEach((line) => {
+    const matchedByStoredId = line.matchedItemId ? items.find((item) => item.id === line.matchedItemId) : null;
+    const matchedByName = items.find(
+      (item) => line.rawName && item.name.trim().toLowerCase() === line.rawName.trim().toLowerCase()
+    );
+    const matchedItem = matchedByStoredId || matchedByName;
+    next[line.id] = matchedItem
+      ? { action: "MERGE", itemId: matchedItem.id }
+      : { action: "CREATE_NEW", name: line.rawName || "", unitType: line.unitType || "UNIT" };
+  });
+  return next;
 }
 
-function PendingDecision({
-  draft,
-  items,
-  decisions,
-  actionLoading,
-  confirmRejectId,
-  onDecision,
-  onApprove,
-  onReject,
-}: {
-  draft: Draft;
-  items: Item[];
-  decisions: Record<number, LineDecision>;
-  actionLoading: boolean;
-  confirmRejectId: number | null;
-  onDecision: (lineId: number, decision: LineDecision) => void;
-  onApprove: (draft: Draft) => void;
-  onReject: (draftId: number) => void;
-}) {
-  const { t } = useI18n();
-  const totalUnits = draft.lines.reduce((sum, line) => sum + line.quantity, 0);
-  return (
-    <>
-      <h2>{draft.supplierName || t("customers.purchases.common.noSupplierOrder")}</h2>
-      <p>{t("customers.purchases.pending.side.summary", { lines: draft.lines.length, units: totalUnits })}</p>
-      {draft.lines.map((line) => {
-        const decision = decisions[line.id];
-        return (
-          <div key={line.id} style={{ display: "grid", gap: 6 }}>
-            <strong>{line.rawName || t("customers.purchases.pending.unnamedProduct")} · {line.quantity}</strong>
-            <select
-              className="inv-input"
-              value={decision?.action || "CREATE_NEW"}
-              onChange={(event) => {
-                if (event.target.value === "MERGE") onDecision(line.id, { action: "MERGE", itemId: line.matchedItemId || "" });
-                else onDecision(line.id, { action: "CREATE_NEW", name: line.rawName || "", unitType: line.unitType || "UNIT" });
-              }}
-            >
-              <option value="MERGE">{t("customers.purchases.pending.mergeExisting")}</option>
-              <option value="CREATE_NEW">{t("customers.purchases.pending.createNew")}</option>
-            </select>
-            {decision?.action === "MERGE" ? (
-              <select
-                className="inv-input"
-                value={decision.itemId || ""}
-                onChange={(event) => onDecision(line.id, { action: "MERGE", itemId: Number(event.target.value) })}
-              >
-                <option value="">{t("customers.purchases.pending.pickExisting")}</option>
-                {items.map((item) => (
-                  <option key={item.id} value={item.id}>{item.name} · {item.currentQuantity}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                className="inv-input"
-                value={decision?.action === "CREATE_NEW" ? decision.name : line.rawName || ""}
-                onChange={(event) => onDecision(line.id, {
-                  action: "CREATE_NEW",
-                  name: event.target.value,
-                  unitType: decision?.action === "CREATE_NEW" ? decision.unitType : line.unitType || "UNIT",
-                })}
-              />
-            )}
-          </div>
-        );
-      })}
-      {confirmRejectId === draft.id ? <p>{t("customers.purchases.pending.side.rejectWarning")}</p> : null}
-      <button type="button" className="inv-btn-primary" disabled={actionLoading} onClick={() => onApprove(draft)}>
-        {actionLoading ? t("customers.purchases.pending.approving") : t("customers.purchases.pending.approve")}
-      </button>
-      <button type="button" className="inv-btn-secondary" disabled={actionLoading} onClick={() => onReject(draft.id)}>
-        {confirmRejectId === draft.id ? t("customers.purchases.pending.confirmReject") : t("customers.purchases.pending.reject")}
-      </button>
-    </>
-  );
+function readDraftParam(): number | null {
+  if (typeof window === "undefined") return null;
+  const v = Number(new URLSearchParams(window.location.search).get("draft"));
+  return Number.isInteger(v) && v > 0 ? v : null;
 }
 
+/**
+ * Full receipt of a supplier-purchase draft (redesign, mockup "קליטת הזמנה").
+ * Approval receives the FULL quantity of every line (unchanged); partial receipt
+ * exists only for purchase orders (/[id]/receive). Approve and reject requests and
+ * payloads are unchanged.
+ */
 export default function PendingSupplierPurchasesPage() {
-  const { t } = useI18n();
-  const [items, setItems] = useState<Item[]>([]);
+  const router = useRouter();
+  const [items, setItems] = useState<InventoryItemDTO[]>([]);
+  const [itemsFailed, setItemsFailed] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [decisions, setDecisions] = useState<Record<number, LineDecision>>({});
-  const [openId, setOpenId] = useState<number | null>(null);
-  const [confirmRejectId, setConfirmRejectId] = useState<number | null>(null);
+  const [initialized, setInitialized] = useState<Record<number, boolean>>({});
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [openedFromList, setOpenedFromList] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [confirmApprove, setConfirmApprove] = useState(false);
+  const [confirmReject, setConfirmReject] = useState(false);
 
-  const summary = useMemo(() => {
-    return {
-      totalOrders: drafts.length,
-      totalLines: drafts.reduce((sum, draft) => sum + draft.lines.length, 0),
-      totalUnits: drafts.reduce(
-        (sum, draft) =>
-          sum +
-          draft.lines.reduce((lineSum, line) => lineSum + line.quantity, 0),
-        0
-      ),
-    };
-  }, [drafts]);
+  const loadItems = useCallback(async () => {
+    try {
+      const itemsData = await getInventoryItems();
+      setItems(Array.isArray(itemsData) ? itemsData : []);
+      setItemsFailed(false);
+    } catch (itemsError) {
+      console.warn("Failed loading inventory items for supplier purchases:", itemsError);
+      setItems([]);
+      // UI safeguard: without the items list every line would silently default to
+      // "create new". Approval is blocked until the list loads.
+      setItemsFailed(true);
+    }
+  }, []);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
-
+      setLoadFailed(false);
       const draftsResponse = await fetch("/api/inventory/supplier-purchases", {
         method: "GET",
-        headers: buildHeaders(),
+        headers: buildClientAuthHeaders(),
         cache: "no-store",
       });
-
+      if (draftsResponse.status === 401) return redirectToLogin();
       const draftsData = await draftsResponse.json().catch(() => null);
-
-      if (!draftsResponse.ok) {
-        throw new Error(draftsData?.error || t("customers.purchases.pending.loadFailed"));
-      }
-
+      if (!draftsResponse.ok) throw new Error(draftsData?.error || "load failed");
       const pendingDrafts = Array.isArray(draftsData?.drafts)
-        ? draftsData.drafts.filter(
-            (draft: Draft) => draft.status === "PENDING_REVIEW"
-          )
+        ? draftsData.drafts.filter((draft: Draft) => draft.status === "PENDING_REVIEW")
         : [];
-
       setDrafts(pendingDrafts);
-
-      try {
-        const itemsData = await getInventoryItems();
-        setItems(Array.isArray(itemsData) ? itemsData : []);
-      } catch (itemsError) {
-        console.warn(
-          "Failed loading inventory items for supplier purchases:",
-          itemsError
-        );
-        setItems([]);
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("customers.purchases.pending.loadError"));
+      await loadItems();
+    } catch {
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
-  }
+  }, [loadItems]);
 
   useEffect(() => {
-    queueMicrotask(() => {
+    const timer = window.setTimeout(() => {
+      setSelectedId(readDraftParam());
       void load();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const draft = selectedId != null ? drafts.find((d) => d.id === selectedId) ?? null : null;
+
+  // Default decisions once per draft, after the items list is in.
+  useEffect(() => {
+    if (!draft || loading || itemsFailed || initialized[draft.id]) return;
+    const next = defaultDecisions(draft, items);
+    queueMicrotask(() => {
+      setDecisions((prev) => ({ ...prev, ...next }));
+      setInitialized((prev) => ({ ...prev, [draft.id]: true }));
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time load, unchanged by i18n (the loader now reads `t` for its messages)
-  }, []);
-
-  function openDraft(draft: Draft) {
-    setOpenId((current) => (current === draft.id ? null : draft.id));
-    setConfirmRejectId(null);
-
-    const nextDecisions: Record<number, LineDecision> = {};
-
-    draft.lines.forEach((line) => {
-      const matchedByStoredId = line.matchedItemId
-        ? items.find((item) => item.id === line.matchedItemId)
-        : null;
-
-      const matchedByName = items.find(
-        (item) =>
-          line.rawName &&
-          item.name.trim().toLowerCase() === line.rawName.trim().toLowerCase()
-      );
-
-      const matchedItem = matchedByStoredId || matchedByName;
-
-      if (matchedItem) {
-        nextDecisions[line.id] = {
-          action: "MERGE",
-          itemId: matchedItem.id,
-        };
-      } else {
-        nextDecisions[line.id] = {
-          action: "CREATE_NEW",
-          name: line.rawName || "",
-          unitType: line.unitType || "UNIT",
-        };
-      }
-    });
-
-    setDecisions((prev) => ({
-      ...prev,
-      ...nextDecisions,
-    }));
-  }
+  }, [draft, items, loading, itemsFailed, initialized]);
 
   function updateDecision(lineId: number, decision: LineDecision) {
-    setDecisions((prev) => ({
-      ...prev,
-      [lineId]: decision,
-    }));
+    setDecisions((prev) => ({ ...prev, [lineId]: decision }));
   }
 
-  async function approveDraft(draft: Draft) {
+  async function approveDraft(target: Draft) {
     try {
       setActionLoading(true);
       setError(null);
-      setSuccess(null);
-
-      const lines = draft.lines.map((line) => {
+      const lines = target.lines.map((line) => {
         const decision = decisions[line.id];
-
-        if (!decision) {
-          throw new Error(
-            t("customers.purchases.pending.needAction", { name: line.rawName || t("customers.purchases.pending.lineFallback") })
-          );
-        }
-
+        const label = line.rawName || "שורה";
+        if (!decision) throw new Error(`יש לבחור פעולה עבור ״${label}״.`);
         if (decision.action === "MERGE") {
-          if (!decision.itemId) {
-            throw new Error(
-              t("customers.purchases.pending.needExisting", { name: line.rawName || t("customers.purchases.pending.lineFallback") })
-            );
-          }
-
-          return {
-            lineId: line.id,
-            action: "MERGE",
-            itemId: Number(decision.itemId),
-          };
+          if (!decision.itemId) throw new Error(`יש לבחור מוצר במלאי עבור ״${label}״.`);
+          return { lineId: line.id, action: "MERGE", itemId: Number(decision.itemId) };
         }
-
-        if (!decision.name.trim()) {
-          throw new Error(
-            t("customers.purchases.pending.needNewName", { name: line.rawName || t("customers.purchases.pending.lineFallback") })
-          );
-        }
-
+        if (!decision.name.trim()) throw new Error(`יש להזין שם למוצר החדש עבור ״${label}״.`);
         return {
           lineId: line.id,
           action: "CREATE_NEW",
-          itemData: {
-            name: decision.name.trim(),
-            unitType: decision.unitType || "UNIT",
-            sku: null,
-            barcode: null,
-          },
+          itemData: { name: decision.name.trim(), unitType: decision.unitType || "UNIT", sku: null, barcode: null },
         };
       });
 
-      const response = await fetch(
-        `/api/inventory/supplier-purchases/${draft.id}/approve`,
-        {
-          method: "POST",
-          headers: buildHeaders(),
-          body: JSON.stringify({ lines }),
-        }
-      );
-
+      const response = await fetch(`/api/inventory/supplier-purchases/${target.id}/approve`, {
+        method: "POST",
+        headers: buildClientAuthHeaders(),
+        body: JSON.stringify({ lines }),
+      });
       const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || "לא הצלחנו לאשר את הקליטה.");
 
-      if (!response.ok) {
-        throw new Error(data?.error || t("customers.purchases.pending.approveFailed"));
-      }
-
-      setSuccess(t("customers.purchases.pending.approveSuccess"));
-      setOpenId(null);
-      setConfirmRejectId(null);
-      await load();
+      inventoryToast.success("ההזמנה נקלטה במלאי");
+      router.replace("/inventory/supplier-purchases?tab=history");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("customers.purchases.pending.approveError"));
+      setError(err instanceof Error ? err.message : "לא הצלחנו לאשר את הקליטה.");
     } finally {
       setActionLoading(false);
+      setConfirmApprove(false);
     }
   }
 
@@ -324,283 +187,232 @@ export default function PendingSupplierPurchasesPage() {
     try {
       setActionLoading(true);
       setError(null);
-      setSuccess(null);
-
-      const response = await fetch(
-        `/api/inventory/supplier-purchases/${draftId}/reject`,
-        {
-          method: "POST",
-          headers: buildHeaders(),
-        }
-      );
-
+      const response = await fetch(`/api/inventory/supplier-purchases/${draftId}/reject`, {
+        method: "POST",
+        headers: buildClientAuthHeaders(),
+      });
       const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(data?.error || t("customers.purchases.pending.rejectFailed"));
-      }
-
-      setSuccess(t("customers.purchases.pending.rejectSuccess"));
-      setOpenId(null);
-      setConfirmRejectId(null);
-      await load();
+      if (!response.ok) throw new Error(data?.error || "לא הצלחנו לבטל את ההזמנה.");
+      inventoryToast.success("ההזמנה בוטלה. המלאי לא השתנה.");
+      router.replace("/inventory/supplier-purchases?tab=history");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("customers.purchases.pending.rejectError"));
+      setError(err instanceof Error ? err.message : "לא הצלחנו לבטל את ההזמנה.");
     } finally {
       setActionLoading(false);
+      setConfirmReject(false);
     }
   }
 
-  function requestRejectDraft(draftId: number) {
-    if (confirmRejectId !== draftId) {
-      setConfirmRejectId(draftId);
-      setError(null);
-      setSuccess(null);
-      return;
-    }
-
-    void rejectDraft(draftId);
-  }
+  const ready = !!draft && !itemsFailed && !!initialized[draft.id];
 
   return (
-    <InventorySubPage intent="data"
-      title={t("customers.purchases.pending.title")}
-      backHref="/inventory/supplier-purchases"
-      backLabel={t("customers.purchases.common.backToHub")}
-      sub={
-        !loading && !error
-          ? summary.totalOrders > 0
-            ? t(
-                summary.totalOrders === 1 ? "customers.purchases.pending.subOne" : "customers.purchases.pending.subMany",
-                { count: summary.totalOrders }
-              )
-            : t("customers.purchases.pending.subNone")
-          : undefined
+    <InvPage
+      title="קליטת הזמנה"
+      backFallback="/inventory/supplier-purchases"
+      onBack={draft && openedFromList ? () => { setSelectedId(null); setError(null); } : undefined}
+      footer={
+        draft ? (
+          <>
+            {error ? <InvNote tone="danger">{error}</InvNote> : null}
+            <div className="i2-footer__row">
+              <InvButton disabled={!ready || actionLoading} onClick={() => setConfirmApprove(true)}>
+                {actionLoading ? "מאשרים…" : "אישור קליטה מלאה"}
+              </InvButton>
+              <InvButton kind="secondary" href={`/inventory/supplier-purchases/${draft.id}/send`}>
+                חזרה להזמנה
+              </InvButton>
+            </div>
+          </>
+        ) : undefined
       }
-      bottomNav="orders"
     >
-      {error ? (
-        <div className="inv-fwrap">
-          <div className="inv-alert inv-alert--error">{error}</div>
-        </div>
-      ) : null}
-      {success ? (
-        <div className="inv-fwrap">
-          <div className="inv-alert inv-alert--success">{success}</div>
-        </div>
-      ) : null}
-
       {loading ? (
-        <div className="inv-rows">
-          <InventorySkeletonBlock height={92} rows={3} />
-        </div>
-      ) : drafts.length === 0 ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel
-            title={t("customers.purchases.pending.emptyTitle")}
-            action={
-              <Link href="/inventory/supplier-purchases/new" className="inv-btn-primary inv-btn-primary--full">
-                {t("customers.purchases.hub.empty.create")}
-              </Link>
-            }
-          >
-            {t("customers.purchases.pending.emptyBody")}
-          </InventoryStatePanel>
-        </div>
+        <InvLoading rows={3} />
+      ) : loadFailed ? (
+        <InvError onRetry={() => void load()} />
+      ) : selectedId != null && !draft ? (
+        <InvState
+          title="ההזמנה אינה ממתינה לקליטה"
+          body="ייתכן שכבר נקלטה או בוטלה."
+          action={
+            <InvButton kind="secondary" href="/inventory/supplier-purchases?tab=history">
+              להיסטוריית ההזמנות
+            </InvButton>
+          }
+        />
+      ) : !draft ? (
+        drafts.length === 0 ? (
+          <InvState
+            title="אין הזמנות שממתינות לקליטה"
+            body="הזמנה שתיצרו או תייבאו תופיע כאן עד לקליטה במלאי."
+            action={<InvButton href="/inventory/supplier-purchases/new">+ הזמנה חדשה</InvButton>}
+          />
+        ) : (
+          <ul className="i2-list">
+            {drafts.map((d) => (
+              <InvRow
+                key={d.id}
+                onClick={() => {
+                  setSelectedId(d.id);
+                  setOpenedFromList(true);
+                  setError(null);
+                }}
+                kicker={`טיוטת הזמנה #${d.id}`}
+                title={d.supplierName?.trim() || "ללא ספק"}
+                sub={d.lines.length === 1 ? "מוצר אחד" : `${d.lines.length.toLocaleString("he-IL")} מוצרים`}
+                trail={
+                  <InvPill
+                    outline
+                    onClick={() => {
+                      setSelectedId(d.id);
+                      setOpenedFromList(true);
+                      setError(null);
+                    }}
+                    ariaLabel={`לקליטה · טיוטת הזמנה ${d.id}`}
+                  >
+                    לקליטה
+                  </InvPill>
+                }
+              />
+            ))}
+          </ul>
+        )
       ) : (
         <>
-        <div className="inv-ops">
-          <div className="inv-desk-table" aria-label={t("customers.purchases.pending.tableAria")}>
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("customers.purchases.pending.cols.supplier")}</th>
-                  <th>{t("customers.purchases.pending.cols.lines")}</th>
-                  <th>{t("customers.purchases.pending.cols.units")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {drafts.map((draft) => (
-                  <tr key={draft.id} className={openId === draft.id ? "is-selected" : undefined} onClick={() => openDraft(draft)}>
-                    <td>{draft.supplierName || t("customers.purchases.common.noSupplierOrder")}</td>
-                    <td className="num">{draft.lines.length}</td>
-                    <td className="num">{draft.lines.reduce((sum, line) => sum + line.quantity, 0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="i2-box i2-split" style={{ marginTop: 8 }}>
+            <div>
+              <small>ספק</small>
+              <b style={{ overflowWrap: "anywhere" }}>
+                <bdi>{draft.supplierName?.trim() || "ללא ספק"}</bdi>
+              </b>
+            </div>
+            <div>
+              <small>טיוטת הזמנה</small>
+              <b className="i2-num">#{draft.id}</b>
+            </div>
           </div>
-          <aside className="inv-ops__side">
-            {drafts.find((draft) => draft.id === openId) ? (
-              <PendingDecision
-                draft={drafts.find((draft) => draft.id === openId)!}
-                items={items}
-                decisions={decisions}
-                actionLoading={actionLoading}
-                confirmRejectId={confirmRejectId}
-                onDecision={updateDecision}
-                onApprove={(draft) => void approveDraft(draft)}
-                onReject={requestRejectDraft}
-              />
-            ) : (
-              <><h2>{t("customers.purchases.pending.side.title")}</h2><p>{t("customers.purchases.pending.side.empty")}</p></>
-            )}
-          </aside>
-        </div>
-        <div className="inv-rows inv-decision-mobile">
-          {drafts.map((draft) => {
-            const isOpen = openId === draft.id;
-            const totalUnits = draft.lines.reduce(
-              (sum, line) => sum + line.quantity,
-              0
-            );
+          <InvNote>קליטה מלאה של הכמויות בהזמנה</InvNote>
 
-            return (
-              <DecisionCard key={draft.id}>
-                <div className="inv-dcard__top">
-                  <span
-                    className="inv-row__thumb"
-                    style={{ background: "var(--inv-surface)", width: 46, height: 46, fontSize: 22 }}
-                    aria-hidden
-                  >
-                    🚚
-                  </span>
-                  <div className="inv-row__mid">
-                    <div className="inv-row__nm" dir="auto">{draft.supplierName || t("customers.purchases.common.noSupplierOrder")}</div>
-                    <div className="inv-row__meta">
-                      <bdi>#{draft.id}</bdi> ·{" "}
-                      <BdiTemplate
-                        template={t(draft.lines.length === 1 ? "customers.purchases.common.itemsOne" : "customers.purchases.common.itemsMany")}
-                        name="count"
-                        value={draft.lines.length}
-                      />{" "}
-                      ·{" "}
-                      <BdiTemplate
-                        template={t(totalUnits === 1 ? "customers.purchases.common.unitsOne" : "customers.purchases.common.unitsMany")}
-                        name="count"
-                        value={totalUnits}
-                      />
-                    </div>
-                  </div>
-                  <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7 }}>
-                    <InventoryBadge tone="low">{t("customers.purchases.pending.awaitingBadge")}</InventoryBadge>
-                    <button type="button" className="inv-row__action" onClick={() => openDraft(draft)}>
-                      {isOpen ? t("customers.purchases.pending.close") : t("customers.purchases.pending.reviewArrow")}
-                    </button>
-                  </span>
+          {itemsFailed ? (
+            <div className="i2-note i2-note--danger" role="alert">
+              <div style={{ flex: 1 }}>
+                <div>לא הצלחנו לטעון את רשימת המוצרים במלאי, ולכן אי אפשר לשייך את השורות. הקליטה חסומה עד שהרשימה תיטען.</div>
+                <div style={{ marginTop: 8 }}>
+                  <InvButton small kind="secondary" onClick={() => void loadItems()}>
+                    נסו שוב
+                  </InvButton>
                 </div>
+              </div>
+            </div>
+          ) : null}
 
-                {isOpen ? (
-                  <div style={{ marginTop: 14 }}>
-                    <div className="inv-seclabel">{t("customers.purchases.pending.whatArrived")}</div>
-
-                    <div className="inv-olines">
-                      {draft.lines.map((line) => {
-                        const decision = decisions[line.id];
-                        return (
-                          <div key={line.id} className="inv-oline" style={{ flexWrap: "wrap" }}>
-                            <div className="inv-oline__mid">
-                              <div className="inv-oline__nm" dir="auto">{line.rawName || t("customers.purchases.pending.unnamedProduct")}</div>
-                              <div className="inv-oline__sub">
-                                <bdi>{line.quantity}</bdi> {line.unitType || "UNIT"}
-                              </div>
-                            </div>
-                            <div style={{ width: "100%", display: "grid", gap: 8, marginTop: 8 }}>
-                              <select
-                                className="inv-input"
-                                value={decision?.action || "CREATE_NEW"}
-                                onChange={(event) => {
-                                  if (event.target.value === "MERGE") {
-                                    updateDecision(line.id, {
-                                      action: "MERGE",
-                                      itemId: line.matchedItemId || "",
-                                    });
-                                  } else {
-                                    updateDecision(line.id, {
-                                      action: "CREATE_NEW",
-                                      name: line.rawName || "",
-                                      unitType: line.unitType || "UNIT",
-                                    });
-                                  }
-                                }}
-                              >
-                                <option value="MERGE">{t("customers.purchases.pending.mergeExisting")}</option>
-                                <option value="CREATE_NEW">{t("customers.purchases.pending.createNew")}</option>
-                              </select>
-
-                              {decision?.action === "MERGE" ? (
-                                <select
-                                  className="inv-input"
-                                  value={decision.itemId || ""}
-                                  onChange={(event) =>
-                                    updateDecision(line.id, {
-                                      action: "MERGE",
-                                      itemId: Number(event.target.value),
-                                    })
-                                  }
-                                >
-                                  <option value="">{t("customers.purchases.pending.pickExisting")}</option>
-                                  {items.map((item) => (
-                                    <option key={item.id} value={item.id}>
-                                      {item.name} · {t("customers.purchases.pending.inStockColon", { qty: item.currentQuantity })}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  className="inv-input"
-                                  value={decision?.name || line.rawName || ""}
-                                  onChange={(event) =>
-                                    updateDecision(line.id, {
-                                      action: "CREATE_NEW",
-                                      name: event.target.value,
-                                      unitType:
-                                        decision?.action === "CREATE_NEW"
-                                          ? decision.unitType
-                                          : line.unitType || "UNIT",
-                                    })
-                                  }
-                                  placeholder={t("customers.purchases.pending.newNamePlaceholder")}
-                                  dir="auto"
-                                />
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <p className="inv-field__help" style={{ marginTop: 10 }}>
-                      <BdiTemplate template={t("customers.purchases.pending.approveNote")} name="units" value={totalUnits} />
-                    </p>
-
-                    {confirmRejectId === draft.id ? (
-                      <div className="inv-alert inv-alert--error" style={{ marginTop: 10 }}>
-                        {t("customers.purchases.pending.rejectWarning")}
+          <h3 className="i2-h3">שיוך פריטי ההזמנה למוצרים במלאי</h3>
+          <ul className="i2-list">
+            {draft.lines.map((line) => {
+              const decision = decisions[line.id];
+              const linked = decision?.action === "MERGE" && !!decision.itemId;
+              const linkedItem = linked ? items.find((i) => i.id === Number((decision as { itemId: number }).itemId)) : undefined;
+              const name = line.rawName?.trim() || "מוצר ללא שם";
+              const selectId = `pend-line-${line.id}`;
+              const value = decision?.action === "MERGE" ? (decision.itemId ? String(decision.itemId) : "") : "new";
+              return (
+                <li key={line.id} style={{ padding: "14px 0", borderBottom: "1px solid var(--i2-line)" }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    <ProductThumb src={linkedItem?.imageUrl} name={name} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span className="i2-row__kicker">{linked ? "מוצר במלאי" : "בחירה נדרשת"}</span>
+                      <div className="i2-row__title">
+                        <span>{name}</span>
                       </div>
-                    ) : null}
-
-                    <DecisionChips
-                      choices={[
-                        { label: actionLoading ? t("customers.purchases.pending.approving") : t("customers.purchases.pending.approve"), primary: true, disabled: actionLoading, onClick: () => void approveDraft(draft) },
-                        { label: confirmRejectId === draft.id ? t("customers.purchases.pending.confirmReject") : t("customers.purchases.pending.reject"), disabled: actionLoading, onClick: () => requestRejectDraft(draft.id) },
-                      ]}
-                    />
-                    <Link
-                      href={`/inventory/supplier-purchases/${draft.id}/send`}
-                      className="inv-btn-link"
-                      style={{ display: "inline-block", marginTop: 10 }}
-                    >
-                      {t("customers.purchases.pending.backToSend")}
-                    </Link>
+                    </div>
+                    <div className="i2-box" style={{ textAlign: "center", padding: "6px 10px", minWidth: 76 }}>
+                      <small className="i2-muted" style={{ display: "block", fontSize: 12.5 }}>כמות</small>
+                      <b className="i2-num" style={{ fontWeight: 600 }}>{qtyWithUnit(line.quantity, line.unitType)}</b>
+                    </div>
                   </div>
-                ) : null}
-              </DecisionCard>
-            );
-          })}
-        </div>
+                  <label htmlFor={selectId} className="i2-sr">
+                    שיוך ״{name}״ למוצר במלאי
+                  </label>
+                  <select
+                    id={selectId}
+                    className="i2-select"
+                    style={{ marginTop: 10 }}
+                    disabled={!ready}
+                    value={value}
+                    onChange={(e) => {
+                      if (e.target.value === "new") {
+                        updateDecision(line.id, { action: "CREATE_NEW", name: line.rawName || "", unitType: line.unitType || "UNIT" });
+                      } else {
+                        updateDecision(line.id, { action: "MERGE", itemId: Number(e.target.value) });
+                      }
+                    }}
+                  >
+                    <option value="new">יצירת מוצר חדש</option>
+                    {items.map((item) => (
+                      <option key={item.id} value={String(item.id)}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                  {decision?.action === "CREATE_NEW" ? (
+                    <div style={{ marginTop: 8 }}>
+                      <label htmlFor={`${selectId}-name`} className="i2-field__lab" style={{ display: "block", fontSize: 14 }}>
+                        שם המוצר החדש
+                      </label>
+                      <input
+                        id={`${selectId}-name`}
+                        className="i2-input"
+                        dir="auto"
+                        value={decision.name}
+                        aria-invalid={!decision.name.trim() ? true : undefined}
+                        onChange={(e) =>
+                          updateDecision(line.id, { action: "CREATE_NEW", name: e.target.value, unitType: decision.unitType })
+                        }
+                      />
+                      {!decision.name.trim() ? <p className="i2-field__err" style={{ marginTop: 4 }}>יש להזין שם למוצר החדש</p> : null}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+
+          <InvNote tone="warn">האישור יוסיף את כל הכמויות למלאי. לא ניתן לבטל.</InvNote>
+          <div style={{ textAlign: "center" }}>
+            <button
+              type="button"
+              className="i2-underline"
+              style={{ color: "var(--i2-danger)" }}
+              disabled={actionLoading}
+              onClick={() => setConfirmReject(true)}
+            >
+              ביטול ההזמנה
+            </button>
+          </div>
         </>
       )}
-    </InventorySubPage>
+
+      {confirmApprove && draft ? (
+        <InvConfirm
+          title="לאשר קליטה מלאה?"
+          body="האישור יוסיף את כל הכמויות למלאי. לא ניתן לבטל."
+          confirmLabel={actionLoading ? "מאשרים…" : "אישור קליטה מלאה"}
+          busy={actionLoading}
+          onConfirm={() => void approveDraft(draft)}
+          onCancel={() => setConfirmApprove(false)}
+        />
+      ) : null}
+      {confirmReject && draft ? (
+        <InvConfirm
+          title="לבטל את ההזמנה? המלאי לא ישתנה."
+          confirmLabel={actionLoading ? "מבטלים…" : "ביטול ההזמנה"}
+          cancelLabel="חזרה"
+          danger
+          busy={actionLoading}
+          onConfirm={() => void rejectDraft(draft.id)}
+          onCancel={() => setConfirmReject(false)}
+        />
+      ) : null}
+    </InvPage>
   );
 }
