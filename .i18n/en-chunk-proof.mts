@@ -32,6 +32,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { brotliCompressSync, constants as zc, gzipSync } from "zlib";
 import { signAuthToken } from "../lib/auth-token";
 import { en } from "../lib/i18n/messages/en";
+import { dictionaryChunkVerdict, isHashedChunkPath, selectDictionaryChunks } from "./en-chunk-rules";
 
 const OUT = process.env.PERF_OUT ?? "perf-out";
 const B = { mainOff: "http://localhost:3621", mainOn: "http://localhost:3622", branchOff: "http://localhost:3612", branchOn: "http://localhost:3611" };
@@ -254,19 +255,16 @@ async function chunkPhase(s: Seed) {
   const heCtx = await newCtx(browser, B.branchOn, 1440, s.a.token, "he");
   const heSet = new Set((await trackedLoad(await heCtx.newPage(), B.branchOn + "/app")).map((n) => n.url));
   await heCtx.close();
-  const covered = new Set<string>();
-  const chunks: string[] = [];
-  const bufs = new Map<string, Buffer>();
-  for (const n of first) {
-    const buf = Buffer.from(await (await fetch(n.url)).arrayBuffer());
-    const body = buf.toString("utf8");
-    const hits = SENT.filter((x) => body.includes(x));
-    if (hits.length >= 3 && !heSet.has(n.url)) { chunks.push(n.url); bufs.set(n.url, buf); hits.forEach((h) => covered.add(h)); }
-  }
+  const loaded: Array<{ url: string; buf: Buffer }> = [];
+  for (const n of first) loaded.push({ url: n.url, buf: Buffer.from(await (await fetch(n.url)).arrayBuffer()) });
+  // Selection and thresholds: .i18n/en-chunk-rules.ts (unit-tested in .i18n/en-chunk-rules.test.ts).
+  const { chunks, covered } = selectDictionaryChunks(loaded.map((f) => ({ url: f.url, body: f.buf.toString("utf8") })), heSet, SENT);
+  const bufs = new Map<string, Buffer>(loaded.filter((f) => chunks.includes(f.url)).map((f) => [f.url, f.buf]));
+  const verdict = dictionaryChunkVerdict(chunks.length, covered.size, SENT.length);
   out.firstLoad = first;
   out.coverage = `${covered.size}/${SENT.length}`;
-  ok("chunk — the English-only /_next/static JS (not loaded by the Hebrew page) carries the whole dictionary (≥ 90% of sentinels)", covered.size >= Math.floor(SENT.length * 0.9), out.coverage);
-  ok("chunk — the dictionary is in 1-3 dedicated chunk files", chunks.length >= 1 && chunks.length <= 3, JSON.stringify(chunks));
+  ok("chunk — the English-only /_next/static JS (not loaded by the Hebrew page) carries the whole dictionary (≥ 90% of sentinels)", verdict.coverageOk, out.coverage);
+  ok("chunk — the dictionary is in 1-3 dedicated chunk files", verdict.countOk, JSON.stringify(chunks));
   const paths = chunks.map((u) => pathOf(u));
   out.chunks = [];
   for (const u of chunks) {
@@ -275,7 +273,7 @@ async function chunkPhase(s: Seed) {
     const buf = bufs.get(u)!;
     const p = pathOf(u);
     out.chunks.push({ path: p, cacheControl: cc, raw: buf.byteLength, br5: brotliCompressSync(buf, { params: { [zc.BROTLI_PARAM_QUALITY]: 5 } }).byteLength, br11: brotliCompressSync(buf, { params: { [zc.BROTLI_PARAM_QUALITY]: 11 } }).byteLength, gzip: gzipSync(buf, { level: 6 }).byteLength });
-    ok(`chunk ${p} — served under /_next/static/ with a content hash in its name`, /^\/_next\/static\/chunks\/(.*\/)?[^/]*[0-9a-z]{8,}[^/]*\.js$/i.test(p), p);
+    ok(`chunk ${p} — served under /_next/static/ with a content hash in its name`, isHashedChunkPath(p), p);
     ok(`chunk ${p} — Cache-Control public, max-age=31536000, immutable`, /public/.test(cc) && /max-age=31536000/.test(cc) && /immutable/.test(cc), cc);
   }
   console.log("chunks:", JSON.stringify(out.chunks));
