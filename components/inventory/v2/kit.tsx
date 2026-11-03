@@ -606,7 +606,7 @@ export function InvError({ message, onRetry }: { message?: ReactNode; onRetry?: 
 }
 
 /* ================================================================== menu === */
-export function InvMenu({ label, items }: { label: string; items: Array<{ label: ReactNode; href?: string; onClick?: () => void }> }) {
+export function InvMenu({ label, items, up }: { label: string; items: Array<{ label: ReactNode; href?: string; onClick?: () => void }>; /** Open upwards (a menu in the page footer). */ up?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -625,7 +625,7 @@ export function InvMenu({ label, items }: { label: string; items: Array<{ label:
     };
   }, [open]);
   return (
-    <div className="i2-menu" ref={ref}>
+    <div className={`i2-menu${up ? " i2-menu--up" : ""}`} ref={ref}>
       <button type="button" className="i2-iconbtn" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         {I2.dots(22)}
       </button>

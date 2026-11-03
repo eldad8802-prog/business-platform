@@ -62,6 +62,8 @@ export type SupplierChoice = {
 
 type OrderWizardContextValue = {
   loading: boolean;
+  /** Re-runs the initial load (retry after a failed load). */
+  reload: () => void;
   items: OrderWizardItem[];
   categories: InventoryCategoryDTO[];
   suggestions: ReorderSuggestion[];
@@ -104,6 +106,16 @@ type OrderWizardContextValue = {
   quickAddItem: (item: OrderWizardItem) => void;
   clearOrder: () => void;
   applyRecommendations: () => void;
+  /** Suggested items (reorder suggestions with a quantity) — the suggestion row. */
+  suggestionCount: number;
+  /** How many suggested items are in the cart right now. */
+  suggestedInCart: number;
+  /** Adds the suggested lines (their suggested quantity, unchanged) without touching other lines. */
+  addSuggestions: () => void;
+  /** Removes exactly the suggested lines from the cart. */
+  removeSuggestions: () => void;
+  /** First-load preselect from ?item= / ?supplier= — fills the same cart state as by hand. Runs once. */
+  applyPreselect: (input: { itemId: number | null; supplierId: number | null }) => void;
   persistDraft: () => void;
   restoreLocalDraft: () => void;
   clearLocalDraft: () => void;
@@ -368,11 +380,15 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
   }, [items, categoryId, supplierName]);
 
   const browsableItems = useMemo(() => {
+    // All matches (the screen pages them with "הצגת עוד"); name, SKU or barcode.
     const q = productSearch.trim().toLowerCase();
-    if (!q) return filteredItems.slice(0, 12);
-    return filteredItems
-      .filter((item) => item.name.toLowerCase().includes(q))
-      .slice(0, 12);
+    if (!q) return filteredItems;
+    return filteredItems.filter(
+      (item) =>
+        item.name.toLowerCase().includes(q) ||
+        (item.sku || "").toLowerCase().includes(q) ||
+        (item.barcode || "").toLowerCase().includes(q)
+    );
   }, [filteredItems, productSearch]);
 
   /**
@@ -537,8 +553,8 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
       [item.id]: Number(prev[item.id] || 0) + 1,
     }));
     setError(null);
-    setSuccess(t("customers.purchases.wizard.addedToCart", { name: item.name }));
-  }, [t]);
+    // No "added to cart" banner: it used to carry over into the next steps.
+  }, []);
 
   const clearOrder = useCallback(() => {
     setOrder({});
@@ -552,6 +568,56 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
     setSuccess(t("customers.purchases.wizard.recommendationsApplied"));
     setError(null);
   }, [defaultRecommendations, t]);
+
+  const suggestionIds = useMemo(() => Object.keys(defaultRecommendations).map(Number), [defaultRecommendations]);
+  const suggestedInCart = useMemo(
+    () => suggestionIds.filter((id) => Number(order[id] || 0) > 0).length,
+    [suggestionIds, order]
+  );
+
+  const addSuggestions = useCallback(() => {
+    setOrder((prev) => {
+      const next = { ...prev };
+      for (const [id, qty] of Object.entries(defaultRecommendations)) {
+        if (!(Number(next[Number(id)] || 0) > 0)) next[Number(id)] = qty;
+      }
+      return next;
+    });
+    setError(null);
+  }, [defaultRecommendations]);
+
+  const removeSuggestions = useCallback(() => {
+    setOrder((prev) => {
+      const next = { ...prev };
+      for (const id of suggestionIds) delete next[id];
+      return next;
+    });
+    setUnitCosts((prev) => {
+      const next = { ...prev };
+      for (const id of suggestionIds) delete next[id];
+      return next;
+    });
+    setRecommendationsBanner(null);
+  }, [suggestionIds]);
+
+  const preselectDoneRef = useRef(false);
+  const applyPreselect = useCallback(
+    ({ itemId, supplierId: wantedSupplier }: { itemId: number | null; supplierId: number | null }) => {
+      if (preselectDoneRef.current) return;
+      preselectDoneRef.current = true;
+      if (wantedSupplier != null) {
+        const match = supplierChoices.find((c) => c.id === wantedSupplier);
+        if (match) {
+          setSupplierId(wantedSupplier);
+          setSupplierName(match.name);
+        }
+      }
+      if (itemId != null && items.some((i) => i.id === itemId)) {
+        setOrder((prev) => (Number(prev[itemId] || 0) > 0 ? prev : { ...prev, [itemId]: 1 }));
+      }
+    },
+    [supplierChoices, items]
+  );
 
   const createOrder = useCallback(async () => {
     try {
@@ -647,6 +713,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
 
   const value: OrderWizardContextValue = {
     loading,
+    reload: () => void load(),
     items,
     categories,
     suggestions,
@@ -683,6 +750,11 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
     quickAddItem,
     clearOrder,
     applyRecommendations,
+    suggestionCount: suggestionIds.length,
+    suggestedInCart,
+    addSuggestions,
+    removeSuggestions,
+    applyPreselect,
     persistDraft,
     restoreLocalDraft,
     clearLocalDraft,

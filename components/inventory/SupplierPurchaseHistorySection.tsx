@@ -143,7 +143,7 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
           {t("customers.suppliers.history.title")}
           {!loading && !error ? <span className="crm-section__count">{total}</span> : null}
         </h2>
-        <a className="sup-link sup-link--head" href="/inventory/supplier-purchases/new">
+        <a className="sup-link sup-link--head" href={`/inventory/supplier-purchases/new?supplier=${supplierId}`}>
           + {t("customers.suppliers.history.newOrder")}
         </a>
       </div>

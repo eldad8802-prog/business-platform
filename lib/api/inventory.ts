@@ -497,6 +497,9 @@ export type PurchaseOrderLineDTO = {
 
 export type PurchaseOrderDTO = {
   id: number;
+  /** Returned by the route as stored (the route serializes the whole row). */
+  supplierId?: number | null;
+  sourceSupplierPurchaseDraftId?: number | null;
   supplierName: string | null;
   externalOrderId: string | null;
   status: string;

@@ -1,79 +1,63 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
-import { InventoryRow, InventoryBadge, ConfirmModal } from "@/components/inventory/inventory-design";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { I2, InvButton, InvConfirm, InvPage, InvPill, InvRow, InvStatus, ProductThumb } from "@/components/inventory/v2/kit";
 
-function ConnectButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        minHeight: 38,
-        padding: "0 16px",
-        borderRadius: 11,
-        border: "1px solid var(--inv-accent)",
-        background: "var(--inv-accent)",
-        color: "var(--inv-on-accent)",
-        fontFamily: "inherit",
-        fontWeight: 600,
-        fontSize: 13.5,
-        cursor: "pointer",
-        flexShrink: 0,
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
+/**
+ * Supplier-order integrations (restyled on the inventory v2 kit; same content as before):
+ * POS → "next stage" notice only, CSV → the import screen, API → coming soon.
+ * Nothing here connects or activates anything.
+ */
 export default function SupplierPurchasesIntegrationsPage() {
-  const router = useRouter();
   const { t } = useI18n();
   const [comingSoon, setComingSoon] = useState(false);
 
+  const icon = (node: React.ReactNode) => (
+    <span className="i2-thumb" style={{ ["--s" as string]: "48px" } as React.CSSProperties} aria-hidden>
+      {node}
+    </span>
+  );
+
   return (
-    <InventorySubPage intent="standard"
-      title={t("customers.purchases.integrations.title")}
-      variant="hub"
-      hubBack
-      sub={t("customers.purchases.integrations.sub")}
-      bottomNav="orders"
-    >
-      <div className="inv-desk-workspace inv-ops">
-      <div className="inv-rows">
-        <InventoryRow
-          thumb={<span style={{ fontSize: 22 }}>🧾</span>}
+    <InvPage title={t("customers.purchases.integrations.title")} backFallback="/inventory/supplier-purchases">
+      <p className="i2-muted" style={{ margin: "4px 0 8px" }}>{t("customers.purchases.integrations.sub")}</p>
+      <ul className="i2-list">
+        <InvRow
+          thumb={icon(I2.list(24))}
           title={t("customers.purchases.integrations.posTitle")}
-          meta={t("customers.purchases.integrations.posMeta")}
-          trail={<ConnectButton label={t("customers.purchases.integrations.connect")} onClick={() => setComingSoon(true)} />}
+          sub={t("customers.purchases.integrations.posMeta")}
+          trail={<InvPill outline onClick={() => setComingSoon(true)}>{t("customers.purchases.integrations.connect")}</InvPill>}
         />
-        <InventoryRow
-          thumb={<span style={{ fontSize: 22 }}>📄</span>}
+        <InvRow
+          thumb={icon(I2.file(24))}
           title={t("customers.purchases.integrations.csvTitle")}
-          meta={t("customers.purchases.integrations.csvMeta")}
-          trail={<ConnectButton label={t("customers.purchases.integrations.import")} onClick={() => router.push("/inventory/supplier-purchases/import")} />}
+          sub={t("customers.purchases.integrations.csvMeta")}
+          trail={<InvPill href="/inventory/supplier-purchases/import">{t("customers.purchases.integrations.import")}</InvPill>}
         />
-        <InventoryRow
-          thumb={<span style={{ fontSize: 22 }}>🔌</span>}
+        <InvRow
+          thumb={<ProductThumb name="API" size={48} />}
           title={t("customers.purchases.integrations.apiTitle")}
-          meta={t("customers.purchases.integrations.apiMeta")}
-          trail={<InventoryBadge tone="neutral">{t("customers.purchases.integrations.comingSoon")}</InventoryBadge>}
+          sub={t("customers.purchases.integrations.apiMeta")}
           onClick={() => setComingSoon(true)}
+          trail={<InvStatus>{t("customers.purchases.integrations.comingSoon")}</InvStatus>}
         />
+      </ul>
+      <div className="i2-note">
+        {I2.info(20)}
+        <div>
+          <p style={{ margin: 0 }}>{t("customers.purchases.integrations.sideBody1")}</p>
+          <p style={{ margin: "6px 0 0" }}>{t("customers.purchases.integrations.sideBody2")}</p>
+        </div>
       </div>
-      <aside className="inv-ops__side">
-        <h2>{t("customers.purchases.integrations.sideTitle")}</h2>
-        <p>{t("customers.purchases.integrations.sideBody1")}</p>
-        <p>{t("customers.purchases.integrations.sideBody2")}</p>
-      </aside>
+      <div style={{ marginTop: 8 }}>
+        <InvButton kind="secondary" block href="/inventory/supplier-purchases">
+          חזרה להזמנות
+        </InvButton>
       </div>
 
       {comingSoon ? (
-        <ConfirmModal
+        <InvConfirm
           title={t("customers.purchases.integrations.modalTitle")}
           body={t("customers.purchases.integrations.modalBody")}
           confirmLabel={t("customers.purchases.integrations.gotIt")}
@@ -82,6 +66,6 @@ export default function SupplierPurchasesIntegrationsPage() {
           onCancel={() => setComingSoon(false)}
         />
       ) : null}
-    </InventorySubPage>
+    </InvPage>
   );
 }

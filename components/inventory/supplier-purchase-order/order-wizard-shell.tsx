@@ -1,175 +1,89 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { useI18n } from "@/components/i18n/I18nProvider";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
-import { inventoryTheme } from "@/components/inventory/inventory-design";
-import { useModalDismiss } from "@/components/inventory/use-modal-dismiss";
+import { InvButton, InvError, InvLoading, InvNote, InvPage, InvSteps } from "@/components/inventory/v2/kit";
 import { useOrderWizard } from "./order-wizard-context";
-import { orderWizardCss } from "./order-wizard.css";
-import {
-  OrderWizardAlerts,
-  OrderWizardProgress,
-  orderWizardProgressLabel,
-} from "./order-wizard-ui";
 
+export const ORDER_WIZARD_STEPS = ["בחירה", "עגלה", "אישור"];
+
+export function orderWizardStepIndex(pathname: string): number {
+  if (pathname.endsWith("/confirm")) return 2;
+  if (pathname.endsWith("/cart")) return 1;
+  return 0;
+}
+
+/**
+ * The order wizard frame on the inventory v2 kit: header with back, the three
+ * steps, the saved-draft prompt and the wizard's error. The wizard's data and
+ * logic stay in OrderWizardProvider (order-wizard-context.tsx), unchanged.
+ */
 export function OrderWizardShell({
   title,
-  backHref,
+  backFallback,
   children,
   footer,
-  showProgress = true,
+  wide,
 }: {
   title: string;
-  backHref: string;
+  backFallback: string;
   children: ReactNode;
   footer?: ReactNode;
-  showProgress?: boolean;
+  wide?: boolean;
 }) {
   const pathname = usePathname() || "";
-  const { t } = useI18n();
   const {
     loading,
+    items,
     error,
     success,
+    setSuccess,
     hasLocalDraft,
     hasUnsavedWork,
     restoreLocalDraft,
     clearLocalDraft,
-    showExitGuard,
-    setShowExitGuard,
-    persistDraft,
-    confirmExitAndGoBack,
+    reload,
   } = useOrderWizard();
 
-  useModalDismiss({
-    isOpen: showExitGuard,
-    onClose: () => setShowExitGuard(false),
-  });
+  // A success line belongs to the step it happened on — never carried to the next step.
+  const lastPath = useRef(pathname);
+  useEffect(() => {
+    if (lastPath.current !== pathname) {
+      lastPath.current = pathname;
+      setSuccess(null);
+    }
+  }, [pathname, setSuccess]);
 
-  if (loading) {
-    return (
-      <InventorySubPage
-        intent="standard"
-        title={title}
-        backHref={backHref}
-        progressLabel={orderWizardProgressLabel(pathname, t)}
-        bottomNav="orders"
-      >
-        <style>{orderWizardCss}</style>
-        <div data-order-wizard>
-          <div
-            className="owz-state-card"
-            style={{ textAlign: "center", color: inventoryTheme.textMuted }}
-          >
-            {t("customers.purchases.wizard.loading")}
-          </div>
-        </div>
-      </InventorySubPage>
-    );
-  }
+  const step = orderWizardStepIndex(pathname);
+  const failedToLoad = !loading && !!error && items.length === 0;
 
   return (
-    <InventorySubPage
-      intent="standard"
-      title={title}
-      backHref={backHref}
-      progressLabel={orderWizardProgressLabel(pathname, t)}
-      bottomNav="orders"
-    >
-      <style>{orderWizardCss}</style>
-
-      <div data-order-wizard>
-        {showProgress ? <OrderWizardProgress pathname={pathname} /> : null}
-
-        <OrderWizardAlerts
-          error={error}
-          success={success}
-          hasLocalDraft={hasLocalDraft}
-          hasUnsavedWork={hasUnsavedWork}
-          onRestoreDraft={restoreLocalDraft}
-          onClearDraft={clearLocalDraft}
-        />
-
-        {children}
-      </div>
-
-      {footer}
-
-      {showExitGuard ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setShowExitGuard(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "var(--inv-backdrop)",
-            zIndex: 60,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-          }}
-        >
-          <section
-            onClick={(event) => event.stopPropagation()}
-            style={{
-              width: "100%",
-              maxWidth: 400,
-              borderRadius: 20,
-              background: "var(--inv-card-bg)",
-              boxShadow: "var(--inv-shadow-overlay)",
-              padding: 20,
-              display: "flex",
-              flexDirection: "column",
-              gap: 12,
-            }}
-          >
-            <div style={{ fontSize: 17, fontWeight: 600 }}>
-              {t("customers.purchases.wizard.exitGuard.title")}
-            </div>
-            <div
-              style={{
-                fontSize: 14,
-                color: inventoryTheme.textMuted,
-                lineHeight: 1.6,
-              }}
-            >
-              {t("customers.purchases.wizard.exitGuard.body")}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                persistDraft();
-                confirmExitAndGoBack();
-              }}
-              className="inv-action-btn inv-action-btn--primary"
-            >
-              {t("customers.purchases.wizard.exitGuard.saveAndExit")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                clearLocalDraft();
-                setShowExitGuard(false);
-                confirmExitAndGoBack();
-              }}
-              className="inv-action-btn inv-action-btn--secondary"
-            >
-              {t("customers.purchases.wizard.exitGuard.exitWithoutSaving")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowExitGuard(false)}
-              className="inv-action-btn inv-action-btn--ghost"
-            >
-              {t("customers.purchases.wizard.exitGuard.keepEditing")}
-            </button>
-          </section>
-        </div>
-      ) : null}
-    </InventorySubPage>
+    <InvPage title={title} backFallback={backFallback} wide={wide} footer={loading || failedToLoad ? undefined : footer}>
+      <InvSteps steps={ORDER_WIZARD_STEPS} current={step} />
+      {loading ? (
+        <InvLoading rows={4} />
+      ) : failedToLoad ? (
+        <InvError message={error} onRetry={reload} />
+      ) : (
+        <>
+          {hasLocalDraft && !hasUnsavedWork ? (
+            <InvNote>
+              <div>יש טיוטת הזמנה שמורה במכשיר הזה.</div>
+              <div className="i2-actions" style={{ marginTop: 8 }}>
+                <InvButton small onClick={restoreLocalDraft}>
+                  המשך מהטיוטה
+                </InvButton>
+                <InvButton small kind="secondary" onClick={clearLocalDraft}>
+                  מחיקת הטיוטה
+                </InvButton>
+              </div>
+            </InvNote>
+          ) : null}
+          {error ? <InvNote tone="danger">{error}</InvNote> : null}
+          {success ? <InvNote tone="ok">{success}</InvNote> : null}
+          {children}
+        </>
+      )}
+    </InvPage>
   );
 }
