@@ -15,6 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import {
+  SERVICE_REASON_MAX_LENGTH,
   SERVICE_CASE_KINDS,
   SERVICE_CASE_STATUSES,
   TERMINAL_STATUSES,
@@ -38,6 +39,8 @@ import {
   isRepairAuthorized,
   isTerminal,
   itemHeldByBusiness,
+  reasonLength,
+  supersedeQuote,
   withdrawQuote,
 } from "./service-case.core";
 
@@ -97,7 +100,16 @@ function approvedQuote(version = 1, totalAgorot = 45_000, docHash = "h1"): Servi
   return { version, totalAgorot, docHash, state: "APPROVED", approval: { version, totalAgorot, docHash, method: "PHONE" } };
 }
 const RECEIPT = { receivedByName: "ישראל ישראלי", signatureCaptured: true };
-const ev = evaluateTransition;
+// Every decision any test produces is kept, so §8 can prove the journal payload rule over all of them.
+type OkDecision = Extract<ServiceTransitionDecision, { ok: true }>;
+const OK_DECISIONS: OkDecision[] = [];
+const REFUSED_DECISIONS: Extract<ServiceTransitionDecision, { ok: false }>[] = [];
+const ev = (c: ServiceCaseContext, a: ServiceCaseAction, actor: ServiceCaseActor): ServiceTransitionDecision => {
+  const d = evaluateTransition(c, a, actor);
+  if (d.ok) OK_DECISIONS.push(d);
+  else REFUSED_DECISIONS.push(d);
+  return d;
+};
 
 // ── 1. Status matrix ───────────────────────────────────────────────────────────────────────────────────────
 console.log("— 1. the 13 × 13 status matrix (spec part B)");
@@ -140,6 +152,7 @@ const EXPECTED_FROM: Record<ServiceCaseActionType, ServiceCaseStatus[]> = {
   SEND_QUOTE: ["DIAGNOSING", "IN_REPAIR"],
   APPROVE_QUOTE: ["QUOTE_PENDING"],
   REJECT_QUOTE: ["QUOTE_PENDING"],
+  REVISE_QUOTE: ["QUOTE_PENDING"], // ז-1 A (1.1b)
   START_REPAIR: ["DIAGNOSING"],
   SET_HOLD: ["IN_REPAIR"],
   CLEAR_HOLD: ["IN_REPAIR"],
@@ -170,6 +183,7 @@ function samples(kind: ServiceCaseKind): Sample[] {
     { action: { type: "APPROVE_QUOTE", approval: { version: 1, totalAgorot: 45_000, docHash: "h1", method: "PHONE" } }, actor: OWNER, over: { currentQuote: sentQuote() } },
     { action: { type: "APPROVE_QUOTE", approval: { version: 1, totalAgorot: 45_000, docHash: "h1", method: "LINK" } }, actor: CUSTOMER, over: { currentQuote: sentQuote() } },
     { action: { type: "REJECT_QUOTE", version: 1 }, actor: CUSTOMER, over: { currentQuote: sentQuote() } },
+    { action: { type: "REVISE_QUOTE", replaces: { version: 1 }, quote: { version: 2, totalAgorot: 40_000, docHash: "h2" } }, actor: OWNER, over: { currentQuote: sentQuote() } },
     { action: { type: "START_REPAIR" }, actor: OWNER, over: authorized },
     { action: { type: "SET_HOLD", reason: "PARTS" }, actor: OWNER },
     { action: { type: "CLEAR_HOLD" }, actor: OWNER, over: { holdReason: "CUSTOMER" } },
@@ -226,7 +240,8 @@ const graphEdges = SERVICE_CASE_STATUSES.flatMap((f) => TRANSITION_GRAPH[f].map(
 const unrealised = graphEdges.filter((e) => !realised.has(e));
 check("every graph edge is reachable by some action (no dead rule)", unrealised.length === 0, unrealised.join(", "));
 check("no action realises an edge outside the graph", [...realised].every((e) => graphEdges.includes(e)));
-check("the sweep exercised all 19 actions", sweepActions.size === Object.keys(ACTION_FROM).length && sweepActions.size === 19);
+// Expectation changed by 1.1b: REVISE_QUOTE is the 20th action (was 19).
+check("the sweep exercised all 20 actions", sweepActions.size === Object.keys(ACTION_FROM).length && sweepActions.size === 20);
 
 // ── 3. Business validations ────────────────────────────────────────────────────────────────────────────────
 console.log("— 3. validations");
@@ -276,7 +291,8 @@ refusedWith("open balance: owner decision without a reason", ev(ready({ settleme
 {
   const d = ev(ready({ settlement: { known: true, openBalanceAgorot: 5_000 } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "לקוח קבוע, ישלם ביום ראשון" } }, OWNER);
   allowedTo("open balance: delivery with the owner's decision and a reason", d, "DELIVERED");
-  check("  …the event records the balance and the reason", d.ok && d.event.payload.openBalanceAgorot === 5_000 && d.event.payload.debtOverrideReason === "לקוח קבוע, ישלם ביום ראשון");
+  // Expectation changed by 1.1b (ט-1 A): the reason moved from event.payload to decision.texts.
+  check("  …the event records the balance and that a decision was made; the reason is in texts", d.ok && d.event.payload.openBalanceAgorot === 5_000 && d.event.payload.debtOverride === true && d.texts.debtOverrideReason === "לקוח קבוע, ישלם ביום ראשון");
   check("  …and no effect touches the debt", d.ok && d.effects.every((e) => e === "ATTEMPT_AUTO_CLOSE"));
 }
 refusedWith("unknown balance: delivery refuses (fail closed)", ev(ready({ settlement: { known: false } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "x" } }, OWNER), "BALANCE_UNKNOWN");
@@ -461,7 +477,8 @@ console.log("  4.5c the cancel request is an explicit part of every decision (co
   const req = ev(ext(), { type: "CANCEL", reason: "הלקוח ביטל" }, OWNER);
   check("EXTERNAL, not requested + CANCEL with a reason → cancellationRequestedAfter = true", req.ok && req.cancellationRequestedAfter === true);
   check("  …to EXTERNAL, not READY, not DELIVERED, no outcome", req.ok && req.to === "EXTERNAL" && req.outcome === null);
-  check("  …event before/after = false/true and the reason kept", req.ok && req.event.cancellationRequestedBefore === false && req.event.cancellationRequestedAfter === true && req.event.payload.reason === "הלקוח ביטל");
+  // Expectation changed by 1.1b (ט-1 A): the reason is kept in decision.texts; the payload only says one was given.
+  check("  …event before/after = false/true and the reason kept (texts, not payload)", req.ok && req.event.cancellationRequestedBefore === false && req.event.cancellationRequestedAfter === true && req.texts.cancelReason === "הלקוח ביטל" && req.event.payload.reasonRecorded === true && !("reason" in req.event.payload));
   check("  …no money, stock or delivery effect", req.ok && req.effects.length === 0);
   const noReason = ev(ext(), { type: "CANCEL" }, OWNER);
   check("request without a reason → refused, and no transition decision at all", !noReason.ok && codes(noReason).includes("REASON_REQUIRED") && hasNoDecision(noReason));
@@ -618,6 +635,135 @@ console.log("  4.12 maintenance under a contract (contract compatibility)");
 }
 
 // ── 5. status / holdReason / outcome ───────────────────────────────────────────────────────────────────────
+console.log("  4.13 free-text reasons live in decision.texts, never in the payload (1.1b, ט-1 A)");
+{
+  const NO_TEXTS = { cancelReason: null, abandonReason: null, debtOverrideReason: null, loanerOverrideReason: null };
+  const sameTexts = (d: ServiceTransitionDecision, t: Partial<typeof NO_TEXTS>) =>
+    d.ok && JSON.stringify(d.texts) === JSON.stringify({ ...NO_TEXTS, ...t });
+  const noFreeTextIn = (d: ServiceTransitionDecision, text: string) => d.ok && !JSON.stringify(d.event).includes(text);
+
+  // cancel, held item
+  const c1 = ev(ctx({ status: "IN_REPAIR" }), { type: "CANCEL", reason: "  הלקוח החליט לוותר  " }, OWNER);
+  check("cancel with a reason → texts.cancelReason (trimmed), the other three null", sameTexts(c1, { cancelReason: "הלקוח החליט לוותר" }));
+  check("  …payload: reasonRecorded true, no reason key, no text anywhere in the event", c1.ok && c1.event.payload.reasonRecorded === true && !("reason" in c1.event.payload) && noFreeTextIn(c1, "הלקוח החליט"));
+  // cancel at the supplier
+  const c2 = ev(ctx({ status: "EXTERNAL", currentQuote: approvedQuote() }), { type: "CANCEL", reason: "ביטול אצל היבואן" }, OWNER);
+  check("cancel request at the supplier → same texts.cancelReason, request true", sameTexts(c2, { cancelReason: "ביטול אצל היבואן" }) && c2.ok && c2.cancellationRequestedAfter === true && noFreeTextIn(c2, "היבואן"));
+  const c3 = ev(ctx({ status: "EXTERNAL", cancellationRequested: true }), { type: "RETURN_FROM_EXTERNAL", next: "READY" }, OWNER);
+  check("the return that completes it carries no new reason (one source: the request's)", sameTexts(c3, {}) && c3.ok && c3.outcome === "CANCELLED");
+  const c4 = ev(ctx({ status: "EXTERNAL", cancellationRequested: true }), { type: "CANCEL", reason: "שוב" }, OWNER);
+  check("a repeated request → refused, and a refusal carries no texts", !c4.ok && codes(c4).includes("ALREADY_CANCELLED") && !("texts" in c4));
+  // nothing held: reason optional
+  const c5 = ev(ctx({ status: "OPEN" }), { type: "CANCEL" }, OWNER);
+  check("cancel with nothing held and no reason → cancelReason null, reasonRecorded false", sameTexts(c5, {}) && c5.ok && c5.event.payload.reasonRecorded === false);
+  // abandon
+  const a1 = ev(ready({ pickupRemindersSent: 2 }), { type: "ABANDON", reason: "לא נאסף אחרי שתי תזכורות" }, OWNER);
+  check("not collected → texts.abandonReason, payload reasonRecorded only", sameTexts(a1, { abandonReason: "לא נאסף אחרי שתי תזכורות" }) && a1.ok && a1.event.payload.reasonRecorded === true && noFreeTextIn(a1, "תזכורות"));
+  refusedWith("not collected without a reason", ev(ready({ pickupRemindersSent: 2 }), { type: "ABANDON", reason: "" }, OWNER), "REASON_REQUIRED");
+  // delivery with debt / loaner
+  const d1 = ev(ready({ settlement: { known: true, openBalanceAgorot: 9_000 } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "ישלם בהעברה מחר" } }, OWNER);
+  check("delivery with debt → texts.debtOverrideReason, payload debtOverride true", sameTexts(d1, { debtOverrideReason: "ישלם בהעברה מחר" }) && d1.ok && d1.event.payload.debtOverride === true && noFreeTextIn(d1, "בהעברה"));
+  const d2 = ev(ready({ openLoaner: true }), { type: "DELIVER", receipt: RECEIPT, loanerOverride: { reason: "יחזיר את החלופי ביום שני" } }, OWNER);
+  check("delivery with the loaner out → texts.loanerOverrideReason, payload loanerOverride true", sameTexts(d2, { loanerOverrideReason: "יחזיר את החלופי ביום שני" }) && d2.ok && d2.event.payload.loanerOverride === true && !("debtOverride" in d2.event.payload));
+  const d3 = ev(ready({ openLoaner: true, settlement: { known: true, openBalanceAgorot: 1 } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "חוב" }, loanerOverride: { reason: "חלופי" } }, OWNER);
+  check("both overrides → both texts", sameTexts(d3, { debtOverrideReason: "חוב", loanerOverrideReason: "חלופי" }));
+  const d4 = ev(ready(), { type: "DELIVER", receipt: RECEIPT }, OWNER);
+  check("a paid-up delivery → four nulls, no override flags", sameTexts(d4, {}) && d4.ok && !("debtOverride" in d4.event.payload) && !("loanerOverride" in d4.event.payload));
+  refusedWith("debt override with blank reason", ev(ready({ settlement: { known: true, openBalanceAgorot: 1 } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: " \t " } }, OWNER), "OVERRIDE_REASON_REQUIRED");
+  refusedWith("held-item cancel with a blank reason", ev(ctx({ status: "QA" }), { type: "CANCEL", reason: "   " }, OWNER), "REASON_REQUIRED");
+  refusedWith("held-item cancel with Unicode spaces only (NBSP, tab, newline)", ev(ctx({ status: "QA" }), { type: "CANCEL", reason: " \t\n " }, OWNER), "REASON_REQUIRED");
+  check("an unrelated decision → four nulls", sameTexts(ev(ctx({ status: "CHECKED_IN" }), { type: "START_DIAGNOSIS" }, OWNER), {}));
+
+  // length: code points, after trim, 1000 allowed, 1001 refused — never truncated
+  const heb1000 = "א".repeat(SERVICE_REASON_MAX_LENGTH);
+  const heb1001 = "א".repeat(SERVICE_REASON_MAX_LENGTH + 1);
+  const emoji1000 = "🔧".repeat(SERVICE_REASON_MAX_LENGTH); // 2000 UTF-16 units, 1000 code points
+  const emoji1001 = "🔧".repeat(SERVICE_REASON_MAX_LENGTH + 1);
+  check("SERVICE_REASON_MAX_LENGTH = 1000", SERVICE_REASON_MAX_LENGTH === 1000);
+  check("length counts code points, not UTF-16 units", reasonLength("🔧") === 1 && reasonLength(emoji1000) === 1000 && emoji1000.length === 2000);
+  const cases: [string, (r: string) => ServiceTransitionDecision][] = [
+    ["cancel", (r) => ev(ctx({ status: "IN_REPAIR" }), { type: "CANCEL", reason: r }, OWNER)],
+    ["abandon", (r) => ev(ready({ pickupRemindersSent: 1 }), { type: "ABANDON", reason: r }, OWNER)],
+    ["debt override", (r) => ev(ready({ settlement: { known: true, openBalanceAgorot: 1 } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: r } }, OWNER)],
+    ["loaner override", (r) => ev(ready({ openLoaner: true }), { type: "DELIVER", receipt: RECEIPT, loanerOverride: { reason: r } }, OWNER)],
+  ];
+  for (const [name, run] of cases) {
+    const at = run(heb1000);
+    check(`${name}: 1000 Hebrew characters accepted, unchanged`, at.ok && Object.values(at.texts).includes(heb1000));
+    const over = run(heb1001);
+    check(`${name}: 1001 characters → REASON_TOO_LONG, not truncated`, !over.ok && codes(over).includes("REASON_TOO_LONG"));
+    check(`${name}: the refusal never echoes the text`, !over.ok && over.violations.every((v) => !v.detail.includes("אאא")));
+    check(`${name}: 1000 emoji (2000 UTF-16 units) accepted`, run(emoji1000).ok);
+    check(`${name}: 1001 emoji → REASON_TOO_LONG`, !run(emoji1001).ok);
+    check(`${name}: surrounding spaces do not count (trim first)`, run(`  ${heb1000}  `).ok);
+  }
+
+  // cancel that withdraws a quote names the version
+  const w1 = ev(ctx({ status: "QUOTE_PENDING", currentQuote: sentQuote(4, 80_000, "h4") }), { type: "CANCEL", reason: "x" }, OWNER);
+  check("cancel withdrawing a quote → payload.withdrawnQuoteVersion = 4", w1.ok && w1.event.payload.withdrawnQuoteVersion === 4 && w1.withdrawQuote?.version === 4);
+  const w2 = ev(ctx({ status: "IN_REPAIR", currentQuote: approvedQuote(2) }), { type: "CANCEL", reason: "x" }, OWNER);
+  check("cancel with no open quote → no withdrawnQuoteVersion", w2.ok && !("withdrawnQuoteVersion" in w2.event.payload));
+}
+
+console.log("  4.14 REVISE_QUOTE — a pending quote replaced by the next version (1.1b, ז-1 A)");
+{
+  const pending = (q: ServiceQuoteSnapshot, o: Partial<ServiceCaseContext> = {}) => ctx({ status: "QUOTE_PENDING", currentQuote: q, ...o });
+  const revise = (from: number, to: number, total = 39_000, hash = `h${to}`) =>
+    ({ type: "REVISE_QUOTE", replaces: { version: from }, quote: { version: to, totalAgorot: total, docHash: hash } }) as ServiceCaseAction;
+
+  const r12 = ev(pending(sentQuote(1, 45_000, "h1")), revise(1, 2, 39_000, "h2"), OWNER);
+  check("v1 → v2: allowed, the case stays QUOTE_PENDING, no status change", r12.ok && r12.to === "QUOTE_PENDING" && !r12.statusChanged && r12.outcome === null);
+  check("  …effect SUPERSEDE_OPEN_QUOTE only; no withdrawal", r12.ok && r12.effects.length === 1 && r12.effects[0] === "SUPERSEDE_OPEN_QUOTE" && r12.withdrawQuote === null);
+  check("  …supersedeQuote names old v1 (its own total + hash) and new v2", r12.ok && JSON.stringify(r12.supersedeQuote) === JSON.stringify({ superseded: { version: 1, totalAgorot: 45_000, docHash: "h1" }, next: { version: 2, totalAgorot: 39_000, docHash: "h2" } }));
+  check("  …event quote.revised with supersededQuoteVersion 1, quoteVersion 2, total", r12.ok && r12.event.type === "quote.revised" && r12.event.payload.supersededQuoteVersion === 1 && r12.event.payload.quoteVersion === 2 && r12.event.payload.totalAgorot === 39_000);
+  check("  …the new document must be checked like any sent quote", r12.ok && r12.serverChecks.includes("QUOTE_DOCUMENT_MATCHES_HASH"));
+  const r23 = ev(pending(sentQuote(2, 39_000, "h2")), revise(2, 3, 36_000), OWNER);
+  check("v2 → v3: allowed the same way", r23.ok && r23.supersedeQuote?.superseded.version === 2 && r23.supersedeQuote?.next.version === 3);
+
+  // the replaced version, as the service will persist it
+  const old = deepFreeze(sentQuote(1, 45_000, "h1"));
+  const s = supersedeQuote(old, { version: 1, totalAgorot: 45_000, docHash: "h1" });
+  check("supersedeQuote(v1) → SUPERSEDED, version / total / hash kept, input untouched", s.ok && s.quote.state === "SUPERSEDED" && s.quote.version === 1 && s.quote.totalAgorot === 45_000 && s.quote.docHash === "h1" && old.state === "SENT");
+  const s2 = s.ok ? supersedeQuote(s.quote, { version: 1, totalAgorot: 45_000, docHash: "h1" }) : null;
+  check("superseding twice → QUOTE_SUPERSEDED", s2 !== null && !s2.ok && s2.violations[0].code === "QUOTE_SUPERSEDED");
+  check("withdrawing a superseded version → QUOTE_SUPERSEDED", (() => { const w = s.ok ? withdrawQuote(s.quote, { version: 1, totalAgorot: 45_000, docHash: "h1" }) : null; return w !== null && !w.ok && w.violations[0].code === "QUOTE_SUPERSEDED"; })());
+
+  // refusals
+  refusedWith("new version skips one (1 → 3)", ev(pending(sentQuote(1)), revise(1, 3), OWNER), "QUOTE_VERSION_NOT_NEXT");
+  refusedWith("new version equals the current (1 → 1)", ev(pending(sentQuote(1)), revise(1, 1), OWNER), "QUOTE_VERSION_NOT_NEXT");
+  refusedWith("revising an old version instead of the current", ev(pending(sentQuote(2)), revise(1, 3), OWNER), "QUOTE_VERSION_MISMATCH");
+  refusedWith("no current quote", ev(ctx({ status: "QUOTE_PENDING", currentQuote: null }), revise(1, 2), OWNER), "QUOTE_NOT_AWAITING_DECISION");
+  refusedWith("current quote already APPROVED", ev(pending(approvedQuote(1)), revise(1, 2), OWNER), "QUOTE_NOT_AWAITING_DECISION");
+  refusedWith("current quote REJECTED", ev(pending({ ...sentQuote(1), state: "REJECTED" }), revise(1, 2), OWNER), "QUOTE_NOT_AWAITING_DECISION");
+  refusedWith("current quote WITHDRAWN", ev(pending({ ...sentQuote(1), state: "WITHDRAWN" }), revise(1, 2), OWNER), "QUOTE_WITHDRAWN");
+  refusedWith("current quote SUPERSEDED", ev(pending({ ...sentQuote(1), state: "SUPERSEDED" }), revise(1, 2), OWNER), "QUOTE_SUPERSEDED");
+  refusedWith("case not QUOTE_PENDING (DIAGNOSING)", ev(ctx({ status: "DIAGNOSING", currentQuote: sentQuote(1) }), revise(1, 2), OWNER), "INVALID_TRANSITION");
+  refusedWith("case not QUOTE_PENDING (IN_REPAIR)", ev(ctx({ status: "IN_REPAIR", currentQuote: approvedQuote(1) }), revise(1, 2), OWNER), "INVALID_TRANSITION");
+  refusedWith("negative total", ev(pending(sentQuote(1)), revise(1, 2, -1), OWNER), "INVALID_INPUT");
+  refusedWith("fractional total", ev(pending(sentQuote(1)), revise(1, 2, 10.5), OWNER), "INVALID_INPUT");
+  refusedWith("empty document hash", ev(pending(sentQuote(1)), revise(1, 2, 1000, ""), OWNER), "INVALID_INPUT");
+  refusedWith("₪0 revision without a cover", ev(pending(sentQuote(1)), revise(1, 2, 0), OWNER), "QUOTE_TOTAL_REQUIRES_COVERAGE");
+  allowedTo("₪0 revision under an approved cover", ev(pending(sentQuote(1), { coverage: covered }), revise(1, 2, 0), OWNER), "QUOTE_PENDING");
+  refusedWith("the customer link may not revise", ev(pending(sentQuote(1)), revise(1, 2), CUSTOMER), "ACTOR_NOT_ALLOWED");
+  refusedWith("the system may not revise", ev(pending(sentQuote(1)), revise(1, 2), SYSTEM), "ACTOR_NOT_ALLOWED");
+  check("a revision never yields two current quotes: one superseded, exactly the next one SENT", r12.ok && r12.supersedeQuote !== null && r12.supersedeQuote.next.version === r12.supersedeQuote.superseded.version + 1 && r12.withdrawQuote === null);
+
+  // approval after a revision
+  const afterRevise = pending(sentQuote(2, 39_000, "h2"));
+  refusedWith("approving the old v1 after the revision", ev(afterRevise, { type: "APPROVE_QUOTE", approval: { version: 1, totalAgorot: 45_000, docHash: "h1", method: "PHONE" } }, OWNER), "APPROVAL_MISMATCH");
+  allowedTo("approving the current v2 still works", ev(afterRevise, { type: "APPROVE_QUOTE", approval: { version: 2, totalAgorot: 39_000, docHash: "h2", method: "LINK" } }, CUSTOMER), "IN_REPAIR");
+  refusedWith("approving a SUPERSEDED quote", ev(pending({ ...sentQuote(1), state: "SUPERSEDED" }), { type: "APPROVE_QUOTE", approval: { version: 1, totalAgorot: 45_000, docHash: "h1", method: "PHONE" } }, OWNER), "QUOTE_SUPERSEDED");
+  refusedWith("rejecting a SUPERSEDED quote", ev(pending({ ...sentQuote(1), state: "SUPERSEDED" }), { type: "REJECT_QUOTE", version: 1 }, CUSTOMER), "QUOTE_SUPERSEDED");
+  refusedWith("approving a WITHDRAWN quote (unchanged)", ev(pending({ ...sentQuote(1), state: "WITHDRAWN" }), { type: "APPROVE_QUOTE", approval: { version: 1, totalAgorot: 45_000, docHash: "h1", method: "PHONE" } }, OWNER), "QUOTE_WITHDRAWN");
+  check("a SUPERSEDED quote authorises no repair", !isRepairAuthorized(pending({ ...approvedQuote(1), state: "SUPERSEDED" })));
+  const cancelAfter = ev(afterRevise, { type: "CANCEL", reason: "x" }, OWNER);
+  check("cancel after a revision withdraws the current v2 (WITHDRAWN ≠ SUPERSEDED)", cancelAfter.ok && cancelAfter.withdrawQuote?.version === 2 && cancelAfter.event.payload.withdrawnQuoteVersion === 2 && cancelAfter.supersedeQuote === null);
+  const frozenCase = deepFreeze(pending(sentQuote(1)));
+  const snap = JSON.stringify(frozenCase);
+  const fr = ev(frozenCase, revise(1, 2), OWNER);
+  check("a revision mutates nothing it is given", fr.ok && JSON.stringify(frozenCase) === snap);
+}
+
 console.log("— 5. three separate fields");
 {
   const hold = ev(ctx({ status: "IN_REPAIR" }), { type: "SET_HOLD", reason: "CUSTOMER" }, OWNER);
@@ -691,6 +837,45 @@ console.log("— 7. purity, immutability, determinism");
     check(`${f} uses no clock, randomness, env, network or database`, impure === null, impure?.[0] ?? "");
   }
   check("itemHeldByBusiness: IN_SHOP holds from CHECKED_IN, FIELD never", itemHeldByBusiness("IN_SHOP", "CHECKED_IN") && !itemHeldByBusiness("IN_SHOP", "OPEN") && !itemHeldByBusiness("IN_SHOP", "EXTERNAL") && !itemHeldByBusiness("FIELD", "IN_REPAIR"));
+}
+
+// ── 8. Journal payload rule over EVERY decision this file produced (1.1b) ───────────────────────────────────
+console.log("— 8. payload sweep: every ok decision of every section above");
+{
+  // The journal CHECK of the appointments template: strings are short tokens; at most 4096 bytes of jsonb text.
+  const TOKEN = /^[A-Za-z0-9_:.-]{0,64}$/;
+  const problemsOf = (p: unknown): string[] => {
+    const out: string[] = [];
+    if (p === null || typeof p !== "object" || Array.isArray(p)) return ["payload is not a plain object"];
+    for (const [k, v] of Object.entries(p as Record<string, unknown>)) {
+      if (!TOKEN.test(k)) out.push(`key ${k}`);
+      if (v === null || typeof v === "boolean") continue;
+      if (typeof v === "number") {
+        if (!Number.isFinite(v)) out.push(`${k}: non-finite number`);
+        continue;
+      }
+      if (typeof v === "string") {
+        if (!TOKEN.test(v)) out.push(`${k}: free text`);
+        continue;
+      }
+      out.push(`${k}: ${Array.isArray(v) ? "array" : typeof v} (only scalars allowed)`);
+    }
+    // jsonb::text writes ", " and ": " — at most two more bytes per key than compact JSON.
+    const bytes = Buffer.byteLength(JSON.stringify(p), "utf8") + 2 * Object.keys(p as object).length;
+    if (bytes > 4096) out.push(`payload ${bytes} bytes > 4096`);
+    return out;
+  };
+  const failing = OK_DECISIONS.map((d) => ({ d, problems: problemsOf(d.event.payload) })).filter((x) => x.problems.length > 0);
+  check(`all ${OK_DECISIONS.length} ok decisions: payload = tokens / numbers / booleans / nulls within 4096 bytes`, OK_DECISIONS.length >= 200 && failing.length === 0, failing.slice(0, 3).map((x) => `${x.d.action}: ${x.problems.join("; ")}`).join(" | "));
+  const actionsSeen = new Set(OK_DECISIONS.map((d) => d.action));
+  check("the sweep saw an ok decision of all 20 actions", actionsSeen.size === 20, [...Object.keys(ACTION_FROM)].filter((a) => !actionsSeen.has(a as ServiceCaseActionType)).join(","));
+  const textKeys = ["cancelReason", "abandonReason", "debtOverrideReason", "loanerOverrideReason"];
+  check("every ok decision carries the four texts, each string or null", OK_DECISIONS.every((d) => JSON.stringify(Object.keys(d.texts).sort()) === JSON.stringify([...textKeys].sort()) && Object.values(d.texts).every((t) => t === null || typeof t === "string")));
+  check("no text of any decision appears anywhere in its event", OK_DECISIONS.every((d) => Object.values(d.texts).every((t) => t === null || !JSON.stringify(d.event).includes(t))));
+  check("a reason text exists only on the actions that carry one", OK_DECISIONS.every((d) => (d.texts.cancelReason === null || d.action === "CANCEL") && (d.texts.abandonReason === null || d.action === "ABANDON") && (d.texts.debtOverrideReason === null && d.texts.loanerOverrideReason === null || d.action === "DELIVER")));
+  check("no refusal carries texts or a transition", REFUSED_DECISIONS.every((d) => !("texts" in d) && !("to" in d)));
+  // the detector itself must catch a free-text regression
+  check("the detector flags free text, nested objects and oversize payloads", problemsOf({ reason: "הלקוח ביטל" }).length === 1 && problemsOf({ a: { b: 1 } }).length === 1 && problemsOf({ x: "a".repeat(64), y: "b".repeat(65) }).length === 1);
 }
 
 console.log(`\n${total - failures} passed, ${failures} failed, ${total} checks`);
