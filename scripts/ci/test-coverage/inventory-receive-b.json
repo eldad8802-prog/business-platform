@@ -1,0 +1,9 @@
+{
+  "note": "Inventory fix pack B — receiving goods: BACKORDER / CLOSED_SHORT remainder decisions (2026-11-03 inventory audit, ב3).",
+  "tests": {
+    "lib/inventory/receive-remainder.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): a line is short against its open balance (earlier receipts and closed-short deducted), BACKORDER and CLOSED_SHORT send open − received now and satisfy the server's 0 < qty ≤ ordered − received rule, KEEP_OPEN sends no quantity, and received is capped at the open balance; run on every pull_request by ci-1-prisma-centralization.yml"
+    }
+  }
+}

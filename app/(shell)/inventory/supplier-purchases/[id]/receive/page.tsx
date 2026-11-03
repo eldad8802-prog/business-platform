@@ -20,6 +20,13 @@ import {
   type PurchaseOrderDTO,
 } from "@/lib/api/inventory";
 import { getProductEmoji } from "@/lib/inventory/product-emoji";
+import {
+  clampReceived,
+  lineOpenQty,
+  receiveLineQuantities,
+  remainderDecisionPayload,
+  shortfall,
+} from "@/lib/inventory/receive-remainder";
 import { BdiTemplate } from "@/components/inventory/supplier-purchase-order/order-wizard-ui";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -89,7 +96,8 @@ export default function ReceivingPage() {
     for (const line of lines) {
       const rec = received[line.id] ?? 0;
       totalReceived += rec;
-      if (rec >= line.orderedQty) full += 1;
+      if (lineOpenQty(line) <= 0) continue;
+      if (shortfall(line, rec) === 0) full += 1;
       else if (rec > 0) partial += 1;
     }
     return { full, partial, totalReceived };
@@ -108,12 +116,13 @@ export default function ReceivingPage() {
     try {
       setPosting(true);
       setError(null);
-      // Apply remaining decisions on short lines first.
+      // Apply remaining decisions on short lines first. Short = against the open
+      // balance (earlier receipts and closed-short already deducted); BACKORDER and
+      // CLOSED_SHORT carry the undelivered quantity the server requires.
       for (const line of lines) {
-        const rec = received[line.id] ?? 0;
-        const decision = decisions[line.id];
-        if (rec < line.orderedQty && decision) {
-          await setLineRemainingDecision(po.id, line.id, { remainingDecision: decision });
+        const payload = remainderDecisionPayload(line, received[line.id] ?? 0, decisions[line.id]);
+        if (payload) {
+          await setLineRemainingDecision(po.id, line.id, payload);
         }
       }
       const session = await createReceivingSession(po.id, { lines: sessionLines, note: note.trim() || null });
@@ -168,28 +177,52 @@ export default function ReceivingPage() {
               const rec = received[line.id] ?? 0;
               const unitKey = line.unitType ? UNIT_SHORT[line.unitType] : undefined;
               const unit = unitKey ? t(unitKey) : "";
-              const short = rec < line.orderedQty;
-              const shortBy = line.orderedQty - rec;
+              const short = shortfall(line, rec) > 0;
+              const q = receiveLineQuantities(line, rec);
+              const amount = (n: number) => `${n}${unit ? ` ${unit}` : ""}`;
+              const qtyPart = (key: MessageKey, n: number) => (
+                <BdiTemplate key={key} template={t(key)} name="qty" value={amount(n)} />
+              );
+              // Line 1: what was ordered and, after an earlier receipt or a close-short, what happened
+              // and what is still open. Line 2: what this receipt takes in and what it leaves open.
+              const history = [
+                qtyPart("customers.purchases.receive.qty.ordered", q.ordered),
+                ...(q.receivedBefore > 0 ? [qtyPart("customers.purchases.receive.qty.receivedBefore", q.receivedBefore)] : []),
+                ...(q.closedShortBefore > 0 ? [qtyPart("customers.purchases.receive.qty.closedShortBefore", q.closedShortBefore)] : []),
+                ...(q.hasHistory ? [qtyPart("customers.purchases.receive.qty.open", q.open)] : []),
+              ];
               return (
                 <InventoryOrderLine
                   key={line.id}
                   thumb={<span style={{ fontSize: 22 }}>{getProductEmoji(line.rawName || "")}</span>}
                   name={line.rawName || t("customers.purchases.receive.itemFallback", { id: line.id })}
                   sub={
-                    short && rec > 0 ? (
-                      <span style={{ color: "var(--inv-warning-ink)" }}>
-                        {t("customers.purchases.receive.ordered")} <bdi>{line.orderedQty}</bdi> · {t("customers.purchases.receive.received")} <bdi>{rec}</bdi> — {t("customers.purchases.receive.shortBy")} <bdi>{shortBy}</bdi>
+                    <>
+                      <span style={{ display: "block" }}>
+                        {history.map((part, i) => (
+                          <span key={i}>
+                            {i > 0 ? " · " : null}
+                            {part}
+                          </span>
+                        ))}
                       </span>
-                    ) : (
-                      <>{t("customers.purchases.receive.ordered")} <bdi>{line.orderedQty}{unit ? ` ${unit}` : ""}</bdi></>
-                    )
+                      <span style={{ display: "block", color: q.after > 0 ? "var(--inv-warning-ink)" : undefined }}>
+                        {q.open <= 0 ? (
+                          t("customers.purchases.receive.qty.nothingOpen")
+                        ) : (
+                          <>
+                            {qtyPart("customers.purchases.receive.qty.now", q.now)} · {qtyPart("customers.purchases.receive.qty.after", q.after)}
+                          </>
+                        )}
+                      </span>
+                    </>
                   }
                   trailing={
                     <MiniStepper
                       value={rec}
                       min={0}
-                      onDecrement={() => setReceived((r) => ({ ...r, [line.id]: Math.max(0, rec - 1) }))}
-                      onIncrement={() => setReceived((r) => ({ ...r, [line.id]: rec + 1 }))}
+                      onDecrement={() => setReceived((r) => ({ ...r, [line.id]: clampReceived(line, rec - 1) }))}
+                      onIncrement={() => setReceived((r) => ({ ...r, [line.id]: clampReceived(line, rec + 1) }))}
                     />
                   }
                   extra={
