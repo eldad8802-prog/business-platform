@@ -4,7 +4,19 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import BackButton from "@/components/ui/back-button";
 import { fetchBankAccounts, type BankAccountApi } from "@/lib/payables/payables-client";
-import { BankImportRequestError, buildBankImportForm, fetchBankImportOpen, postBankImport } from "@/lib/bank-file-import/bank-import-client";
+import {
+  ACCOUNT_FIX_TEXT,
+  accountCheckText,
+  BANK_ACCOUNTS_SCREEN,
+  bankImportErrorText,
+  BankImportRequestError,
+  buildBankImportForm,
+  fetchBankImportOpen,
+  needsAccountFix,
+  postBankImport,
+  type BankAccountNumberCheck,
+  type BankFullVerification,
+} from "@/lib/bank-file-import/bank-import-client";
 import { PAYABLES_THEME } from "../../payables-theme";
 import styles from "../../payables.module.css";
 import own from "./bank-import.module.css";
@@ -43,6 +55,11 @@ type Preview = {
   ambiguous: Field[];
   counts: { lines: number; new: number; existing: number; suspected: number; invalid: number; repeatedInFile: number; warnings: number };
   newTotals: { currency: "ILS"; creditMinor: number; debitMinor: number };
+  /**
+   * The account this preview was made for: shown prominently, and confirmed by the owner before the commit. Lines
+   * already held under another account never reach a preview: the server refuses them (CROSS_ACCOUNT_LINES).
+   */
+  account: { id: number; label: string; masked: string; numberCheck: BankAccountNumberCheck; fullVerification: BankFullVerification };
   dateRange: { from: string; to: string } | null;
   balance: { status: "NOT_AVAILABLE" } | { status: "OK"; checked: number } | { status: "BROKEN"; checked: number; breaks: number[] };
   errors: Array<{ rowNumber: number; field: string }>;
@@ -92,20 +109,6 @@ const FIELDS: Field[] = ["date", "valueDate", "amount", "debit", "credit", "desc
 
 const ROW_FIELD: Record<string, string> = { date: "תאריך", amount: "סכום", valueDate: "תאריך ערך", balance: "יתרה" };
 
-const ERROR_TEXT: Record<string, string> = {
-  FILE_UNREADABLE: "לא הצלחנו לקרוא את הקובץ. שמרו אותו כ-CSV או כ-Excel (XLSX) ונסו שוב.",
-  HEADER_NOT_FOUND: "לא מצאנו בקובץ טבלת תנועות עם שורת כותרות. בדקו שזה קובץ התנועות שהבנק מייצא, ולא קובץ אחר.",
-  MAPPING_INVALID: "שיוך העמודות לא תקין. חייבים תאריך, וסכום או חובה / זכות, וכל עמודה פעם אחת.",
-  TOO_MANY_LINES: "בקובץ יותר מדי תנועות. פצלו אותו לתקופות קצרות יותר.",
-  NO_LINES: "לא נמצאו תנועות בקובץ.",
-  ACCOUNT_REQUIRED: "בחרו לאיזה חשבון בנק שייך הקובץ.",
-  ACCOUNT_NOT_FOUND: "חשבון הבנק לא נמצא. רעננו את הדף ובחרו שוב.",
-  TOKEN_INVALID: "הבדיקה פגה או לא תקפה. בדקו את הקובץ שוב לפני הקליטה.",
-  FILE_CHANGED: "הקובץ או השיוך השתנו מאז הבדיקה. בדקו את הקובץ שוב לפני הקליטה.",
-  DECISIONS_REQUIRED: "יש תנועות שאולי כבר קיימות ועדיין לא החלטתם עליהן. בחרו לכל אחת אם לקלוט או לדלג.",
-  DECISIONS_INVALID: "מאז הבדיקה השתנו התנועות שאולי כבר קיימות. בדקו את הקובץ שוב.",
-};
-
 const money = (minor: number) =>
   new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", minimumFractionDigits: 2 }).format(minor / 100);
 const date = (iso: string) => {
@@ -113,17 +116,42 @@ const date = (iso: string) => {
   return `${d}/${m}/${y}`;
 };
 
+/** A refusal shown to the owner; `fixAccount` adds the way to the bank accounts screen. */
+class ScreenError extends Error {
+  constructor(message: string, public readonly fixAccount = false) {
+    super(message);
+  }
+}
+
 // Every call goes through bank-import-client, which carries the session's Bearer token.
-async function send(step: "analyze" | "commit", file: File, accountId: number, mapping: Mapping | null, token?: string, decisions?: Record<number, Decision>) {
+async function send(
+  step: "analyze" | "commit",
+  file: File,
+  accountId: number,
+  mapping: Mapping | null,
+  token?: string,
+  decisions?: Record<number, Decision>,
+  confirmAccountId?: number
+) {
   try {
-    return await postBankImport<unknown>(step, buildBankImportForm({ file, accountId, mapping, token, decisions }));
+    return await postBankImport<unknown>(
+      step,
+      buildBankImportForm({
+        file,
+        accountId,
+        mapping,
+        token,
+        decisions,
+        confirmAccountId: confirmAccountId ?? null,
+      })
+    );
   } catch (e) {
     if (e instanceof BankImportRequestError) {
-      if (e.status === 401) throw new Error("פג תוקף ההתחברות. יש להתחבר מחדש.");
-      if (e.status === 404) throw new Error("הקליטה עדיין לא פתוחה לעסק הזה.");
-      throw new Error(ERROR_TEXT[e.code] ?? "משהו השתבש. נסו שוב.");
+      if (e.status === 401) throw new ScreenError("פג תוקף ההתחברות. יש להתחבר מחדש.");
+      if (e.status === 404) throw new ScreenError("הקליטה עדיין לא פתוחה לעסק הזה.");
+      throw new ScreenError(bankImportErrorText(e.code, e.details), needsAccountFix(e.code));
     }
-    throw new Error("משהו השתבש. נסו שוב.");
+    throw new ScreenError("משהו השתבש. נסו שוב.");
   }
 }
 
@@ -139,8 +167,11 @@ export default function BankImportPage() {
   const [result, setResult] = useState<CommitResult | null>(null);
   // No default: a suspected line is imported or skipped only when the owner says so.
   const [decisions, setDecisions] = useState<Record<number, Decision>>({});
+  // The owner confirms the target account on every preview.
+  const [accountConfirmed, setAccountConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ScreenError | null>(null);
+  const fail = (e: unknown) => setError(e instanceof ScreenError ? e : new ScreenError("משהו השתבש. נסו שוב."));
 
   useEffect(() => {
     let cancelled = false;
@@ -176,9 +207,10 @@ export default function BankImportPage() {
       setNeedsMapping(null);
       setPreview(p);
       setDecisions({});
+      setAccountConfirmed(false);
       setMapping(nextMapping);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "משהו השתבש. נסו שוב.");
+      fail(e);
     } finally {
       setBusy(false);
     }
@@ -189,9 +221,9 @@ export default function BankImportPage() {
     setBusy(true);
     setError(null);
     try {
-      setResult((await send("commit", file, accountId, mapping, preview.token, decisions)) as CommitResult);
+      setResult((await send("commit", file, accountId, mapping, preview.token, decisions, preview.account.id)) as CommitResult);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "משהו השתבש. נסו שוב.");
+      fail(e);
     } finally {
       setBusy(false);
     }
@@ -215,6 +247,7 @@ export default function BankImportPage() {
   const step = result ? 3 : preview ? 2 : 1;
   const undecided = preview ? preview.suspected.filter((l) => !decisions[l.rowNumber]).length : 0;
   const toImport = preview ? preview.counts.new + preview.suspected.filter((l) => decisions[l.rowNumber] === "IMPORT").length : 0;
+  const confirmed = preview ? accountConfirmed : false;
   const decideAll = (d: Decision) => {
     if (preview) setDecisions(Object.fromEntries(preview.suspected.map((l) => [l.rowNumber, d])));
   };
@@ -267,7 +300,7 @@ export default function BankImportPage() {
             </select>
             {accounts.length === 0 && (
               <span className={styles.subtitle}>
-                אין עדיין חשבון בנק בדוביז. מוסיפים אותו במסך <Link href="/payables/cheques">המחאות</Link>, בחלק חשבונות הבנק.
+                אין עדיין חשבון בנק בדוביז. מוסיפים אותו במסך <Link href={BANK_ACCOUNTS_SCREEN}>המחאות</Link>, בחלק חשבונות הבנק.
               </span>
             )}
           </div>
@@ -287,6 +320,19 @@ export default function BankImportPage() {
               }}
             />
           </div>
+          <details className={own.guide} open>
+            <summary>לפני שמעלים: איזה קובץ מתאים</summary>
+            <ul>
+              <li>סוגי קבצים: CSV (גם קובץ טקסט מופרד בטאבים או בנקודה־פסיק) או Excel ‏(XLSX), כפי שהבנק מוריד אותם. קובץ XLS ישן או PDF לא נתמכים: ייצאו מהבנק את דף החשבון שוב, בפורמט CSV או XLSX.</li>
+              <li>קובץ אחד = חשבון בנק אחד. קובץ שמופיעים בו כמה חשבונות, או שחלק מהתנועות בו כבר נמצאות בדוביז תחת חשבון אחר, לא נקלט בשלב הזה. ייצאו מהבנק קובץ נפרד לכל חשבון.</li>
+              <li>רק חשבון בשקלים. קובץ של חשבון במטבע חוץ (דולר, אירו וכדומה) נדחה, ואנחנו לא ממירים סכומים. נקלט רק קובץ שמופיע בו סימון שהסכומים בשקלים (למשל ₪ או ש&quot;ח בכותרת עמודת הסכום או היתרה, או עמודת מטבע). קובץ בלי סימון כזה, או שאי אפשר לוודא את המטבע שלו, נדחה: העלו ייצוא מקורי מהבנק של דף החשבון, ללא עריכה.</li>
+              <li>אימות החשבון: רק כשבקובץ מופיע מספר החשבון המלא (בנק, סניף וחשבון) אפשר לאמת שהוא של החשבון שבחרתם. אם מופיעות רק הספרות האחרונות, או שלא מופיע מספר בכלל, החשבון לא מאומת ותתבקשו לאשר אותו בעצמכם.</li>
+              <li>העלו את הקובץ כמו שהבנק ייצא אותו, בלי לערוך, למחוק או להוסיף שורות, ובלי לשמור אותו מחדש. כך המטבע, היתרות והכפילויות נבדקים נכון.</li>
+              <li>כפילויות: תנועה שכבר נמצאת בדוביז לא תיקלט פעמיים. תנועה שאולי כבר קיימת תוצג לכם, ואתם מחליטים אם לקלוט אותה.</li>
+              <li>אין חיבור אוטומטי לבנק. דוביז לא מתחבר לחשבון ולא מושך תנועות בעצמו. נקלט רק הקובץ שאתם מעלים.</li>
+              <li>אילו בנקים נבדקו: עד עכשיו נבדק עם קובץ אמיתי רק פורמט הייצוא של בנק אחד. קבצים מבנקים אחרים צפויים לעבוד, אבל ייתכן שתתבקשו לשייך עמודות בעצמכם.</li>
+            </ul>
+          </details>
           <div className={styles.notice}>
             הקובץ נבדק ולא נשמר. נשמרות רק התנועות שתאשרו. תנועה שכבר נמצאת בדוביז, גם אם הועלתה במסך תנועות הבנק, לא תיקלט פעמיים.
           </div>
@@ -298,7 +344,16 @@ export default function BankImportPage() {
         </form>
       )}
 
-      {error && <div className={styles.error} role="alert">{error}</div>}
+      {error && (
+        <div className={styles.error} role="alert" style={{ display: "grid", gap: 8 }}>
+          <span>{error.message}</span>
+          {error.fixAccount && (
+            <span>
+              {ACCOUNT_FIX_TEXT} <Link href={BANK_ACCOUNTS_SCREEN}>למסך חשבונות הבנק (המחאות)</Link>
+            </span>
+          )}
+        </div>
+      )}
 
       {needsMapping && !preview && !result && (
         <section aria-label="שיוך עמודות" style={{ display: "grid", gap: 12, minWidth: 0 }}>
@@ -360,6 +415,22 @@ export default function BankImportPage() {
 
       {preview && !result && (
         <section aria-label="תצוגה מקדימה" style={{ display: "grid", gap: 14, minWidth: 0 }}>
+          <div className={own.accountBox} role="group" aria-label="חשבון היעד">
+            <span className={styles.figureLabel}>התנועות ייקלטו לחשבון</span>
+            <span className={own.accountName}>
+              {preview.account.label} · <bdi dir="ltr">{preview.account.masked}</bdi>
+            </span>
+            <span className={styles.subtitle}>
+              {accountCheckText(preview.account.numberCheck, preview.account.fullVerification)}
+            </span>
+            <label className={own.confirm}>
+              <input type="checkbox" checked={accountConfirmed} disabled={busy} onChange={(e) => setAccountConfirmed(e.target.checked)} />
+              <span>
+                אני מאשר/ת שהקובץ הזה הוא של החשבון {preview.account.label} (<bdi dir="ltr">{preview.account.masked}</bdi>).
+              </span>
+            </label>
+          </div>
+
           {preview.previouslyImportedAt && (
             <div className={styles.notice}>
               הקובץ הזה כבר נקלט ב-{new Date(preview.previouslyImportedAt).toLocaleDateString("he-IL")}. התנועות שכבר נקלטו לא ייקלטו שוב.
@@ -523,12 +594,14 @@ export default function BankImportPage() {
             <button
               type="button"
               className={styles.buttonPrimary}
-              disabled={busy || undecided > 0 || (toImport === 0 && preview.suspected.length === 0)}
+              disabled={busy || !confirmed || undecided > 0 || (toImport === 0 && preview.suspected.length === 0)}
               onClick={() => void commit()}
             >
               {busy
                 ? "קולטים…"
-                : undecided > 0
+                : !confirmed
+                  ? "אשרו את חשבון היעד למעלה"
+                  : undecided > 0
                   ? "החליטו על התנועות שאולי כבר קיימות"
                   : toImport === 0 && preview.suspected.length === 0
                     ? "אין תנועות חדשות לקליטה"

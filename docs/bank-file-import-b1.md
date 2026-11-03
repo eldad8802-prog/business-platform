@@ -105,14 +105,30 @@ business, per bank to be supported:
 - one export as the bank produces it (CSV or Excel), **one or two days**, containing at least one credit and one
   debit, with the balance column if the bank has one;
 - mask in a spreadsheet editor, without changing anything else: names, account numbers, descriptions and
-  references → `XXX`; keep the header row, the column order, date and amount formats, the encoding (save as the
-  same type), and any lines above the header;
+  references → `XXX`; keep the header row, the column order, date and amount formats, **every currency mark (₪,
+  ש"ח, a currency column, Excel currency number formats)**, the encoding (save as the same type), and any lines
+  above the header;
 - do not send it to GitHub, Production or any shared environment; it is used locally to add the layout to the
   synthetic generator, then deleted.
 
 What only a real file can confirm: the bank's header labels, lines above the header, how credit and debit are
-marked, date and number formats, encodings, summary rows at the end, whether an "XLS" is really HTML (not
-supported in B1: the owner saves it as XLSX or CSV).
+marked, date and number formats, how the currency is shown, encodings, summary rows at the end, whether an "XLS" is
+really HTML (not supported in B1: the owner exports the statement again from the bank as XLSX or CSV).
+
+## Guards (2026-11-03, round 2) — positive evidence of shekels, one account per file
+
+- **Shekels need positive evidence.** The absence of a foreign mark is not evidence: a dollar statement whose `$`
+  was stripped (re-saved, or an Excel column switched to "General") has none either. A file is accepted only when
+  it shows the shekel: ₪ / ש"ח / ILS / NIS in the title of a mapped money column, in a title row above the header,
+  a currency column of shekel values only, ₪ inside the money cells, or (Excel) a shekel number format. Otherwise
+  `CURRENCY_UNVERIFIABLE` (signal `NO_ILS_EVIDENCE`), and the owner is asked for the bank's original export,
+  unedited. The guidance never suggests editing the file, changing Excel number formats or re-saving it as CSV to
+  get past a currency refusal: that can strip the evidence and does not prove shekels.
+- **One account per file.** A file that prints more than one account is refused (`MULTIPLE_ACCOUNTS_IN_FILE`), and
+  so is a file holding lines the business already has under another of its accounts (`CROSS_ACCOUNT_LINES`). There
+  is no confirmation that lets them through at this stage.
+- **Full verification needs the fingerprint key.** See `docs/bank-import-account-verification-key.md`. Without a
+  valid key the screen says that full verification is unavailable and never says "verified".
 
 ## Before merge / migration / activation
 

@@ -120,11 +120,27 @@ function parseDecisions(raw: FormDataEntryValue | null): SuspectDecisions | null
   return out;
 }
 
-/** The multipart body both analyze and commit take: file, account, optional sheet and mapping (and token). */
+/** A non-negative integer form field (digits only), or null when absent or anything else. */
+function digitsField(raw: FormDataEntryValue | null): number | null {
+  return typeof raw === "string" && /^\d{1,12}$/.test(raw.trim()) ? Number(raw.trim()) : null;
+}
+
+/**
+ * The multipart body both analyze and commit take: file, account, optional sheet and mapping (and token). The
+ * commit also carries the owner's confirmation from the preview: `confirmAccountId` (the account shown and
+ * confirmed). Anything but digits reads as absent, and the service then refuses the commit. There is no
+ * cross-account confirmation any more: lines already held under another account are refused (CROSS_ACCOUNT_LINES),
+ * and a `confirmCrossAccount` field, if a client still sends one, is ignored.
+ */
 export async function readImportForm(
   req: Request,
   actor: BankImportActor
-): Promise<{ input: BankImportInput; token: FormDataEntryValue | null; decisions: SuspectDecisions | null }> {
+): Promise<{
+  input: BankImportInput;
+  token: FormDataEntryValue | null;
+  decisions: SuspectDecisions | null;
+  confirmedAccountId: number | null;
+}> {
   let form: FormData;
   try {
     form = await req.formData();
@@ -157,5 +173,6 @@ export async function readImportForm(
     },
     token: form.get("token"),
     decisions: parseDecisions(form.get("decisions")),
+    confirmedAccountId: digitsField(form.get("confirmAccountId")),
   };
 }
