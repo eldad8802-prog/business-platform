@@ -104,7 +104,8 @@ export const inv2Css = `
 .i2-row__kicker { font-size: 12.5px; color: var(--i2-muted); }
 .i2-row__title { font-size: 16.5px; font-weight: 600; line-height: 1.3; display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
 .i2-row__title > span { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.i2-row__sub { font-size: 14px; color: var(--i2-muted); margin-top: 2px; overflow-wrap: anywhere; }
+.i2-row__sub { font-size: 14px; color: var(--i2-muted); margin-top: 2px; overflow-wrap: anywhere;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .i2-row__sub--danger { color: var(--i2-danger); }
 .i2-row__trail { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .i2-row__qty { text-align: center; min-width: 56px; }
@@ -137,7 +138,7 @@ export const inv2Css = `
 .i2-footer { position: sticky; bottom: calc(var(--i2-nav-h) + var(--i2-fab-gap, 64px)); z-index: 4; margin-top: 18px; padding: 10px 0 0;
   background: linear-gradient(to top, var(--i2-bg) 70%, rgba(250,247,242,0)); }
 .i2-footer__row { display: flex; align-items: center; gap: 12px; }
-.i2-footer__row > .i2-btn { flex: 1; }
+.i2-footer__row > .i2-btn { flex: 1; min-width: 0; white-space: nowrap; }
 .i2-footer__sum { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--i2-beige);
   border-radius: var(--i2-radius); padding: 10px 14px; margin-bottom: 8px; font-size: 16px; }
 .i2-footer__sum b { font-size: 20px; font-weight: 600; }

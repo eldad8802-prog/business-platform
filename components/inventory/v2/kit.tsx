@@ -67,7 +67,8 @@ function useShellBarHeight(): number {
   useEffect(() => {
     const measure = () => {
       const bar = document.querySelector<HTMLElement>('[data-component="shell-bottom-bar"]');
-      const visible = bar && bar.offsetParent !== null ? bar.offsetHeight : 0;
+      // A fixed element has no offsetParent, so visibility is read from its boxes.
+      const visible = bar && bar.getClientRects().length > 0 && getComputedStyle(bar).display !== "none" ? bar.offsetHeight : 0;
       setH((cur) => (cur === visible ? cur : visible));
     };
     measure();
@@ -90,7 +91,9 @@ export function InvBack({ fallback, onClick, label }: { fallback?: string; onCli
   const go = useGoBack(fb.url);
   const lastClick = useRef(0);
   const isFallback = !onClick && target?.kind === "none";
-  const text = label ?? (isFallback ? fb.label : t("common.back"));
+  // The approved look always reads "חזרה"; where it leads (e.g. "לרשימת המוצרים") is the accessible name.
+  const text = label ?? t("common.back");
+  const a11yName = label ?? (isFallback ? fb.label : text);
   return (
     <button
       type="button"
@@ -102,7 +105,7 @@ export function InvBack({ fallback, onClick, label }: { fallback?: string; onCli
         if (onClick) onClick();
         else go();
       }}
-      aria-label={text}
+      aria-label={a11yName}
       data-dz-back={onClick ? "step" : !target ? "pending" : target.kind === "history" ? "history" : "fallback"}
     >
       {I2.chevronStart(20)}
@@ -192,14 +195,14 @@ export function InvTabs<T extends string>({ value, onChange, options, label }: {
 export function ProductThumb({ src, name, size = 56 }: { src?: string | null; name: string; size?: number }) {
   const [broken, setBroken] = useState(false);
   const usable = src && !broken && !/example\.com/.test(src);
-  const letter = (name || "?").trim().charAt(0) || "?";
+  const letter = (name || "").trim().charAt(0);
   return (
     <span className="i2-thumb" style={{ ["--s" as string]: `${size}px` } as CSSProperties} aria-hidden>
       {usable ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={src!} alt="" loading="lazy" onError={() => setBroken(true)} />
       ) : (
-        <span className="i2-thumb__l">{letter}</span>
+        <span className="i2-thumb__l">{letter || I2.box(Math.round(size * 0.36))}</span>
       )}
     </span>
   );
