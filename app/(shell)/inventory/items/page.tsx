@@ -121,7 +121,9 @@ function InventoryItemsListPageContent() {
         redirectToLogin();
         return;
       }
-      setError(err instanceof Error ? err.message : t("customers.inventory.common.loadItemsFailed"));
+      // Server/network text is not shown to the owner; a Hebrew message with retry is.
+      console.error("[inventory/items] load failed", err);
+      setError(t("customers.inventory.common.loadItemsFailed"));
     } finally {
       setLoading(false);
     }

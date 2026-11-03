@@ -100,7 +100,7 @@ export default function ProductDetailView({ itemId }: { itemId: number }) {
         const message = getErrorMessage(err, t("customers.inventoryKit.product.loadError"));
         if (message === "NOT_FOUND") setLoadError({ kind: "not-found" });
         else if (message === "UNAUTHORIZED") setLoadError({ kind: "other", message: t("customers.inventoryKit.product.unauthorized") });
-        else setLoadError({ kind: "other", message });
+        else setLoadError({ kind: "other", message: t("customers.inventoryKit.product.loadError") });
       } finally {
         setLoading(false);
       }
