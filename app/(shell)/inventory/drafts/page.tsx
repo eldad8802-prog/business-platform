@@ -259,11 +259,11 @@ function DraftsScreen() {
           draft && form && !loading && !error ? (
             <>
               {actionError ? <InvNote tone="danger">{actionError}</InvNote> : null}
-              <div className="i2-footer__row">
-                <InvButton onClick={() => (choice === "create" ? void submitApprove() : void merge(choice))} disabled={busy}>
-                  {busy ? "שומר…" : "אישור הטיוטה"}
-                </InvButton>
-                <InvButton kind="secondary" onClick={() => setConfirmReject(true)} disabled={busy}>
+              <InvButton block onClick={() => (choice === "create" ? void submitApprove() : void merge(choice))} disabled={busy}>
+                {busy ? "שומר…" : "אישור הטיוטה"}
+              </InvButton>
+              <div style={{ marginTop: 8 }}>
+                <InvButton kind="secondary" block onClick={() => setConfirmReject(true)} disabled={busy}>
                   דחיית הטיוטה
                 </InvButton>
               </div>
