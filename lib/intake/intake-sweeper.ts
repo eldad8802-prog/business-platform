@@ -27,6 +27,7 @@ import type { IntakeRegistry } from "@/lib/intake/core/registry";
 import { intakeRegistry } from "@/lib/intake/sources";
 import { reconcileCommerce } from "@/lib/intake/commerce/reconcile";
 import { syncRivhit } from "@/lib/revenue-sources/rivhit/sync";
+import { isConnectionError, withConnectionRetry } from "@/lib/db/transient-retry";
 
 export type IntakeSweepReport = {
   businesses: number;
@@ -73,19 +74,25 @@ export async function runIntakeSweep(
     backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, businessesNeedingAttention: 0 },
   };
 
-  for (const businessId of await tenantsOf(registry)) {
+  // Listing tenants only reads; a dropped pooled connection here is retried once (lib/db/transient-retry.ts).
+  const businessIds = await withConnectionRetry(() => tenantsOf(registry), { label: "intake-sweep.tenants" });
+  for (const businessId of businessIds) {
     report.businesses += 1;
+    // Set once this business reached the health read, which marks new dead letters as reported: a drop at or after it
+    // is NOT retried, so a dead letter can never be marked reported by an attempt whose result was lost.
+    let healthStarted = false;
     try {
-      const tally = await runTenantJob({ businessId }, async () => {
+      const tally = await sweepBusiness(businessId, () => !healthStarted, (attempt) => runTenantJob({ businessId }, async () => {
         // M7-B — stores first: what a webhook missed becomes a receipt, then the drain below finishes it.
-        if (options.reconcileCommerce !== false) {
+        // Not on a connection retry: the provider was already called once in this run; the next sweep polls again.
+        if (options.reconcileCommerce !== false && attempt === 1) {
           const c = await reconcileCommerce(businessId);
           report.commerce.receipts += c.receipts;
           report.commerce.webhooksReactivated += c.webhooksReactivated;
           report.commerce.failures += c.failures;
         }
         // S1-A — Rivhit has no document webhook: new documents are polled here (gated, bounded, paced).
-        if (options.syncRevenueSources !== false) {
+        if (options.syncRevenueSources !== false && attempt === 1) {
           // A Rivhit failure never stops this business's drain below.
           const r = await syncRivhit(businessId, { now }).catch(() => ({ receipts: 0, unreadable: 0, failures: 1, calls: 0 }));
           report.revenueSources.receipts += r.receipts;
@@ -99,6 +106,7 @@ export async function runIntakeSweep(
         });
         report.payloadsPurged += await purgeExpiredFailedPayloads(businessId, now);
         // Leads L1 · G-07 — the business-event health, AFTER this run's own work (counts only).
+        healthStarted = true;
         const h = await intakeHealthCounts(businessId, now);
         report.backlog.deadLettersNew += h.deadLettersNew;
         report.backlog.deadLettersOpen += h.deadLettersOpen;
@@ -109,7 +117,7 @@ export async function runIntakeSweep(
           console.warn("[intake-sweep] business attention", { businessId, ...h });
         }
         return drained;
-      });
+      }));
       for (const key of Object.keys(tally) as IntakeProcessResult[]) {
         report.events[key] += tally[key];
       }
@@ -126,6 +134,33 @@ export async function runIntakeSweep(
   }
   return report;
 }
+
+/**
+ * One business, retried once when (and only when) the database connection dropped. Safe to repeat:
+ *   - the retry runs with the same `now`, so a receipt the first attempt claimed is still under its lease
+ *     (nextAttemptAt = now + lease) and is neither listed nor claimable again — no receipt is processed twice;
+ *   - receipts the first attempt finished are no longer due; routing is idempotent per receipt ("first record wins");
+ *   - the retention purge is idempotent; a drop at or after the health read (which marks new dead letters as reported)
+ *     is not retried (`canRetry`), so the run stays red and no dead letter is lost;
+ *   - store reconciliation and Rivhit polling (external calls) are skipped on the retry (attempt > 1).
+ * Any other error, or a second drop, is thrown unchanged and counted as a business error, as before.
+ */
+export async function sweepBusiness<T>(
+  businessId: number,
+  canRetry: () => boolean,
+  job: (attempt: number) => Promise<T>,
+  retry: { sleep?: (ms: number) => Promise<void>; log?: (line: string, meta: Record<string, unknown>) => void } = {},
+): Promise<T> {
+  return withConnectionRetry(job, {
+    label: "intake-sweep.business",
+    canRetry,
+    ...retry,
+    log: retry.log ?? ((line, meta) => console.warn(line, { ...meta, businessId })),
+  });
+}
+
+/** Re-exported for the sweep tests: the classifier the per-business retry uses. */
+export { isConnectionError };
 
 export type SweepHealth = {
   ok: boolean;

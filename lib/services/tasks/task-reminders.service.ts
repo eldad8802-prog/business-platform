@@ -27,6 +27,7 @@ import { sendWebPush, type PushPayload } from "@/lib/push/web-push-sender";
 import { clockLabel } from "./task-schedule";
 import { dbDateToDayKey } from "./task-core";
 import { dailyTasksEnabled } from "./tasks-http";
+import { withConnectionRetry } from "@/lib/db/transient-retry";
 
 export const REMINDER_DOMAIN = "tasks";
 export const REMINDER_CATEGORY = "task_reminder";
@@ -124,7 +125,9 @@ export async function dispatchReminder(due: DueReminder, now: Date): Promise<Dis
 
 /** One dispatcher pass: every due reminder (bounded), optionally for one business only (the in-app poll). */
 export async function dispatchDueReminders(now: Date, onlyBusinessId?: number): Promise<{ due: number; sent: number; skipped: number; pushed: number; pushFailed: number }> {
-  const due = (await dueReminders(now)).filter((d) => onlyBusinessId === undefined || d.businessId === onlyBusinessId);
+  // A dropped pooled connection fails this first read now and then; it only lists identifiers (nothing is claimed or
+  // written), so reading again is safe. The claim below stays the one guard against a double send.
+  const due = (await withConnectionRetry(() => dueReminders(now), { label: "task-reminders.due" })).filter((d) => onlyBusinessId === undefined || d.businessId === onlyBusinessId);
   let sent = 0, skipped = 0, pushed = 0, pushFailed = 0;
   for (const d of due) {
     try {

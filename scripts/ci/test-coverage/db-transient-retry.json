@@ -1,0 +1,10 @@
+{
+  "note": "One bounded retry for a dropped database connection (P1001/P1002/P1017/P2024) on the reminder dispatcher's identifier read and the intake sweeper (tenant list + one business). Owner request 2026-11-03.",
+  "tests": {
+    "lib/db/transient-retry.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network/clock): only connection errors are retried (never a constraint, a transaction timeout or a bug), bounded to one retry with the last error surfacing so the routes still answer 500, the log carries class+code only (never the host), the reminder dispatcher retries only dueReminders (never the claim, bell row or push), the intake sweep skips provider calls on the retry and never retries once the health read began; run by security-gate (lab pure)"
+    }
+  }
+}
