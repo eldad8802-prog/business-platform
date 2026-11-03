@@ -1,0 +1,31 @@
+name: service desk — state machine (pure)
+
+# Service Desk task 1.1: the ServiceCase state machine core and its contracts (lib/services/service-desk).
+# Pure proofs only — no database, no network, no secrets.
+
+on:
+  pull_request:
+    paths:
+      - "lib/services/service-desk/**"
+      - "scripts/ci/test-coverage/service-desk-core.json"
+      - ".github/workflows/service-desk-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Service desk core (pure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx lib/services/service-desk/service-case-core.test.ts
+      - run: npx eslint lib/services/service-desk
+      - run: node scripts/ci/security-test-coverage.mjs
