@@ -8,7 +8,7 @@
  * non-zero quantityDelta — no logic/endpoint change.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createInventoryMovement } from "@/lib/api/inventory";
 import {
   BottomSheet,
@@ -18,6 +18,40 @@ import {
 } from "@/components/inventory/inventory-primitives";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { MOVEMENT_REASON_LABEL_KEYS } from "@/lib/inventory/inventory-labels";
+import { keyboardSheetInset, type SheetViewportInset } from "@/lib/inventory/sheet-viewport";
+
+/**
+ * Keep the sheet above an on-screen keyboard. The keyboard shrinks the visual
+ * viewport but not the layout one, so a bottom:0 sheet would keep its confirm row
+ * behind the keyboard. While something covers the bottom, the sheet is lifted by
+ * that height and capped to the visible height (it scrolls inside); the focused
+ * field is kept in view. No keyboard → no inline style, the sheet's CSS applies.
+ */
+function useKeyboardInset(): SheetViewportInset | null {
+  const [inset, setInset] = useState<SheetViewportInset | null>(null);
+  useEffect(() => {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv) return;
+    const update = () => {
+      const next = keyboardSheetInset(window.innerHeight, { height: vv.height, offsetTop: vv.offsetTop });
+      setInset((cur) => (cur?.bottom === next?.bottom && cur?.maxHeight === next?.maxHeight ? cur : next));
+      if (next) {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && active.closest(".inv-sheet")) {
+          requestAnimationFrame(() => active.scrollIntoView({ block: "nearest" }));
+        }
+      }
+    };
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
+  return inset;
+}
 
 type MovementKind = "IN" | "OUT" | "ADJUSTMENT";
 
@@ -102,9 +136,11 @@ export default function MovementSheet({
   }
 
   const reasons = kind === "OUT" ? OUT_REASONS : IN_REASONS;
+  const keyboard = useKeyboardInset();
 
   return (
     <BottomSheet
+      sheetStyle={keyboard ? { bottom: keyboard.bottom, maxHeight: keyboard.maxHeight } : undefined}
       title={t("customers.inventoryKit.movement.updateTitle")}
       who={
         <>

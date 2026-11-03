@@ -11,7 +11,7 @@
  * inventory-design.tsx (which re-exports these).
  */
 
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { inventoryToneStyles } from "@/components/inventory/inventory-tokens";
@@ -405,12 +405,15 @@ export function BottomSheet({
   onClose,
   children,
   footer,
+  sheetStyle,
 }: {
   title: string;
   who?: ReactNode;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  /** Optional inline style for the sheet panel (e.g. a keyboard inset). Absent = unchanged. */
+  sheetStyle?: CSSProperties;
 }) {
   const { t } = useI18n();
   const ref = useDismissable(onClose);
@@ -425,6 +428,7 @@ export function BottomSheet({
         aria-label={title}
         tabIndex={-1}
         ref={ref}
+        style={sheetStyle}
       >
         <button
           type="button"
