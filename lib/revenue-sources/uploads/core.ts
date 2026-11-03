@@ -374,6 +374,64 @@ export function resolveZDrafts(drafts: readonly ZReportDraft[], answers: ReportA
   return { ok: true, drafts: ready, questions };
 }
 
+/* ─────────────────────────────── confirm: register + sales source, every upload ─────────────────────────────── */
+
+/**
+ * D-1 / D-11 interim (owner, 2026-11-03 round 2): while a business has NO standing definition of its registers and of
+ * each register's sales source (nothing in the product holds one — docs "Registers and sales source: proposal"), the
+ * owner SELECTS and CONFIRMS, on EVERY Z upload, for every register in the file, what that register's sales source is:
+ *
+ *   THIS_Z_REPORT             the Z report is how this register's sales are recorded (the read model counts its day
+ *                             from the Z — D-1 still never drops an invoice without a confirmed link);
+ *   INVOICES_OR_OTHER_SYSTEM  the register's sales are recorded another way (Dubiz invoices for each sale, another
+ *                             system). Recording such a Z as a sales source would count the day twice, and there is no
+ *                             place to record "this Z is for comparison only" yet — so the upload is REFUSED for it
+ *                             (SALES_SOURCE_NOT_SUPPORTED), nothing written, until the standing definition exists.
+ *
+ * Never defaulted, never remembered from an earlier upload, never inferred from the file. The register itself is the
+ * printed one or the owner's answer (resolveZDrafts) — confirming it here does not change it.
+ */
+export type SalesSourceChoice = "THIS_Z_REPORT" | "INVOICES_OR_OTHER_SYSTEM";
+export const SALES_SOURCE_CHOICES: readonly SalesSourceChoice[] = Object.freeze(["THIS_Z_REPORT", "INVOICES_OR_OTHER_SYSTEM"]);
+/** The choices an upload can be recorded under in stage one. */
+export const SALES_SOURCES_RECORDABLE: readonly SalesSourceChoice[] = Object.freeze(["THIS_Z_REPORT"]);
+
+export type ZConfirmation = { confirmed: boolean; registers: Record<string, SalesSourceChoice> };
+export type ZConfirmationCheck =
+  | { ok: true }
+  | { ok: false; code: "CONFIRMATION_REQUIRED" | "CONFIRMATION_INVALID" | "SALES_SOURCE_NOT_SUPPORTED"; registers: string[] };
+
+/** The registers the owner confirms for this file: every register of every Z read from it, sorted, once each. */
+export function registersToConfirm(rows: readonly { registerKey: string }[]): string[] {
+  return [...new Set(rows.map((r) => r.registerKey))].sort();
+}
+
+/**
+ * The owner's confirmation for exactly these registers: `confirmed: true`, one choice per register, no other key.
+ * There is no standing definition to consult (none exists), so it is required on every upload — the proposal in the
+ * docs is where a standing definition would come from, and nothing else may stand in for this confirmation.
+ */
+export function checkZConfirmation(registers: readonly string[], confirmation: ZConfirmation | null | undefined): ZConfirmationCheck {
+  if (registers.length === 0) return { ok: true }; // nothing would be recorded
+  const all = [...registers];
+  if (!confirmation || confirmation.confirmed !== true) return { ok: false, code: "CONFIRMATION_REQUIRED", registers: all };
+  const given = Object.keys(confirmation.registers ?? {}).sort();
+  const extra = given.filter((k) => !registers.includes(k));
+  if (extra.length) return { ok: false, code: "CONFIRMATION_INVALID", registers: all };
+  if (given.length < registers.length) return { ok: false, code: "CONFIRMATION_REQUIRED", registers: all.filter((r) => !given.includes(r)) };
+  if (registers.some((r) => !SALES_SOURCE_CHOICES.includes(confirmation.registers[r]))) return { ok: false, code: "CONFIRMATION_INVALID", registers: all };
+  const elsewhere = registers.filter((r) => !SALES_SOURCES_RECORDABLE.includes(confirmation.registers[r]));
+  if (elsewhere.length) return { ok: false, code: "SALES_SOURCE_NOT_SUPPORTED", registers: elsewhere };
+  return { ok: true };
+}
+
+/** The confirmation, canonical (sorted registers), as recorded in the run's decisions hash — audit evidence. */
+export function confirmationLineOf(confirmation: ZConfirmation | null | undefined): string {
+  if (!confirmation) return "";
+  const regs = Object.keys(confirmation.registers ?? {}).sort();
+  return `confirmed=${confirmation.confirmed === true}\n${regs.map((r) => `${r}=${confirmation.registers[r]}`).join("\n")}`;
+}
+
 /* ─────────────────────────────── settlement: stage one, corrections ─────────────────────────────── */
 
 /**
@@ -582,13 +640,15 @@ export function checkDecisions(classes: readonly Classification[], decisions: Co
 }
 
 /** Canonical decisions, hashed: audit evidence, and the identity of a re-decision (a new run, not a replay). */
-export function decisionsHashOf(kind: ReportKind, decisions: ConflictDecisions): string {
+export function decisionsHashOf(kind: ReportKind, decisions: ConflictDecisions, confirmation?: ZConfirmation | null): string {
   const body = Object.keys(decisions)
     .map(Number)
     .sort((a, b) => a - b)
     .map((i) => `${i}=${decisions[i]}`)
     .join("\n");
-  return sha256(`revenue-report:${kind}:decisions:v1\n${body}`);
+  // The owner's register / sales-source confirmation is part of what the run records (absent: the v1 hash, unchanged).
+  const confirmed = confirmation ? `\n--confirmation\n${confirmationLineOf(confirmation)}` : "";
+  return sha256(`revenue-report:${kind}:decisions:v1\n${body}${confirmed}`);
 }
 
 /** The parser's identity in the run ledger (ImportRun.mappingHash): kind, parser, parser version. */

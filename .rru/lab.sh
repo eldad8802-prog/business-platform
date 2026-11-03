@@ -20,6 +20,9 @@ psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_ST
 
 bash "$ROOT/.rev/lab.sh" "$DB" --with-rev
 psql_owner -f "$ROOT/.bfi/prereq.sql"
+# 2b. the imported-history table's row-level security + grants EXACTLY as its migration sets them (the base lab builds
+#     the table without them): the revenue overlap reader's isolation is proven against Production's policy.
+sed -n '/^ALTER TABLE "HistoricalFiscalDocument" ENABLE ROW LEVEL SECURITY;/,$p'   "$ROOT/prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql" | psql_owner
 psql_owner -f "$ROOT/prisma/migrations/20261111090000_revenue_report_upload_features/migration.sql"
 # Twice: the data migration is idempotent.
 psql_owner -f "$ROOT/prisma/migrations/20261111090000_revenue_report_upload_features/migration.sql"

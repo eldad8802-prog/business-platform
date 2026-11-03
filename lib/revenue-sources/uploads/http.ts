@@ -14,9 +14,9 @@ import { IMPORT_MAX_FILE_BYTES } from "@/lib/data-transfer/import/import-config"
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
 import { runWithTenantContext } from "@/lib/tenant/context";
-import type { CloseOverlapKind } from "@/lib/revenue-sources/overlap";
+import type { CloseOverlapBasis } from "@/lib/revenue-sources/overlap";
 import type { ReportKind } from "./contract";
-import type { ConflictDecision, ConflictDecisions, ReportAnswers } from "./core";
+import { SALES_SOURCE_CHOICES, type ConflictDecision, type ConflictDecisions, type ReportAnswers, type SalesSourceChoice, type ZConfirmation } from "./core";
 import { RevenueReportError, type RevenueReportErrorCode, type RevenueReportInput } from "./service";
 
 const NO_STORE = { "Cache-Control": "private, no-store" } as const;
@@ -62,6 +62,17 @@ export const REPORT_ERROR_TEXT: Record<RevenueReportErrorCode, string> = {
   // D-10 / D-11: asked, never defaulted.
   INPUT_REQUIRED: "בחלק מהדוחות לא מודפס יום העסקים או מספר הקופה. בחרו אותם לכל דוח ובדקו את הקובץ שוב. לא נקלט דבר.",
   ANSWERS_INVALID: "התשובות לא מתאימות לקובץ: אפשר להשלים רק יום עסקים או קופה שחסרים בדוח, ביום תקין. בדקו את הקובץ שוב.",
+  // D-1 / D-11 interim: selected and confirmed on every upload, never defaulted.
+  CONFIRMATION_REQUIRED: "לפני הקליטה צריך לבחור לכל קופה בקובץ איך נרשמות המכירות שלה, ולאשר. לא נקלט דבר.",
+  CONFIRMATION_INVALID: "האישור לא מתאים לקובץ: בחרו לכל קופה שבקובץ, ורק לה, איך נרשמות המכירות שלה. בדקו את הקובץ שוב.",
+  SALES_SOURCE_NOT_SUPPORTED:
+    "סימנתם שהמכירות של קופה בקובץ נרשמות בדרך אחרת (חשבוניות או מערכת אחרת). בשלב זה אי אפשר לקלוט דוח Z של קופה כזו — הוא היה נספר בנוסף למכירות שכבר נרשמו. לא נקלט דבר.",
+};
+
+/** D-1 / D-11 interim: the sales-source choices the owner picks from, per register (Hebrew). */
+export const SALES_SOURCE_TEXT: Record<SalesSourceChoice, string> = {
+  THIS_Z_REPORT: "המכירות של הקופה הזו נרשמות בדוח ה-Z הזה",
+  INVOICES_OR_OTHER_SYSTEM: "המכירות של הקופה הזו כבר נרשמות בדרך אחרת (חשבוניות לכל מכירה, או מערכת אחרת)",
 };
 
 /** Hebrew text for row codes the owner sees in the preview (codes not listed are shown by the screen's generic text). */
@@ -70,12 +81,14 @@ export const REPORT_ROW_CODE_TEXT: Record<string, string> = {
   EXTERNAL_ID_RESERVED: "מזהה הזיכוי בדוח בתבנית שמורה לתיקונים, ולכן השורה לא נקלטה.",
 };
 
-/** D-2 / D-12: what an overlap means for the owner (Hebrew). */
-export const REPORT_OVERLAP_TEXT: Record<CloseOverlapKind, string> = {
-  RECORDED_INCOME_DOCUMENT:
-    "ייתכן שהדוח הזה כבר נרשם כהכנסה דרך המסמכים (מסמך מאושר באותו יום). הדוח יישמר, אבל לא ייספר עד שתחליטו מה נכון — כדי שהמכירות לא ייספרו פעמיים.",
-  IMPORTED_HISTORY:
+/** D-2 / D-12 and the duplicate suspicion: what an overlap means for the owner (Hebrew), by its basis. */
+export const REPORT_OVERLAP_TEXT: Record<CloseOverlapBasis, string> = {
+  Z_DOCUMENT_SAME_DAY:
+    "דוח Z של אותו יום כבר נרשם כהכנסה דרך המסמכים (מסמך מאושר). הדוח יישמר, אבל לא ייספר עד שתחליטו מה נכון — כדי שהמכירות לא ייספרו פעמיים.",
+  HISTORY_SAME_DAY:
     "לאותו יום יש מסמכים בהיסטוריה שיובאה מהמערכת הקודמת. הדוח יישמר, אבל לא ייספר עד שתחליטו אם מדובר באותן מכירות.",
+  AMOUNT_SAME_DAY:
+    "באותו יום יש מסמך הכנסה מאושר על אותו סכום בדיוק. זה לא בהכרח אותו דבר — שום דבר לא הוסר ושום דבר לא אוחד. הדוח נספר כרגיל; בדקו אם מדובר באותן מכירות.",
 };
 
 export function json(body: unknown, status = 200): Response {
@@ -162,6 +175,35 @@ export function parseAnswers(raw: FormDataEntryValue | null): ReportAnswers | nu
   return out;
 }
 
+/**
+ * D-1 / D-11 interim: `{"confirmed": true, "registers": {"<registerKey>": "THIS_Z_REPORT" | "INVOICES_OR_OTHER_SYSTEM"}}`.
+ * Shape only here; whether it covers exactly the file's registers is checked by core.checkZConfirmation.
+ */
+export function parseConfirmation(raw: FormDataEntryValue | null): ZConfirmation | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new RevenueReportError("CONFIRMATION_INVALID", 400);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new RevenueReportError("CONFIRMATION_INVALID", 400);
+  const o = parsed as Record<string, unknown>;
+  if (Object.keys(o).some((k) => k !== "confirmed" && k !== "registers") || typeof o.confirmed !== "boolean") throw new RevenueReportError("CONFIRMATION_INVALID", 400);
+  const regs = o.registers;
+  if (!regs || typeof regs !== "object" || Array.isArray(regs)) throw new RevenueReportError("CONFIRMATION_INVALID", 400);
+  const registers: Record<string, SalesSourceChoice> = {};
+  const entries = Object.entries(regs as Record<string, unknown>);
+  if (entries.length > 64) throw new RevenueReportError("CONFIRMATION_INVALID", 400);
+  for (const [k, v] of entries) {
+    if (!/^[A-Za-z0-9:_.-]{1,64}$/.test(k) || typeof v !== "string" || !(SALES_SOURCE_CHOICES as readonly string[]).includes(v)) {
+      throw new RevenueReportError("CONFIRMATION_INVALID", 400);
+    }
+    registers[k] = v as SalesSourceChoice;
+  }
+  return { confirmed: o.confirmed, registers };
+}
+
 /** The multipart body analyze and commit take: file (and token, decisions, answers). Business and user from the actor. */
 export async function readReportForm(
   req: Request,
@@ -191,6 +233,7 @@ export async function readReportForm(
       bytes,
       mime: typeof file.type === "string" && file.type ? file.type.slice(0, 100) : null,
       answers: parseAnswers(form.get("answers")),
+      confirmation: parseConfirmation(form.get("confirmation")),
     },
     token: form.get("token"),
     decisions: parseDecisions(form.get("decisions")),

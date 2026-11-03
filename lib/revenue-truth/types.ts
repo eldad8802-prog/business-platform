@@ -153,14 +153,21 @@ export type RevenueInputs = {
   links: Link[];
   decisions: Decision[];
   /**
-   * D-2 / D-12 (docs/revenue-report-uploads.md): a Z that may already be counted elsewhere — an approved income
-   * document of its day, or imported history of its day (lib/revenue-sources/overlap.ts). Such a Z does not count
-   * until its latest decision is CONFIRMED (the owner resolved the overlap).
+   * D-2 / D-12 (docs/revenue-report-uploads.md): a Z that may already be counted elsewhere (lib/revenue-sources/overlap.ts).
+   * effect HOLD (a Z-text income document of its day — D-2; imported history of its day — D-12): the Z does not count
+   * until its latest decision is CONFIRMED. effect QUESTION (same day + same amount only — NOT proof): nothing is
+   * excluded, the view only asks (CLOSE_DUPLICATE_SUSPECTED).
    */
   closeOverlaps?: CloseOverlapInput[];
 };
 
-export type CloseOverlapInput = { dailyCloseId: number; overlap: "RECORDED_INCOME_DOCUMENT" | "IMPORTED_HISTORY"; ref: string };
+export type CloseOverlapInput = {
+  dailyCloseId: number;
+  overlap: "RECORDED_INCOME_DOCUMENT" | "IMPORTED_HISTORY";
+  basis: "Z_DOCUMENT_SAME_DAY" | "AMOUNT_SAME_DAY" | "HISTORY_SAME_DAY";
+  effect: "HOLD" | "QUESTION";
+  ref: string;
+};
 
 export function emptyInputs(): RevenueInputs {
   return { sales: [], receipts: [], closes: [], settlements: [], deposits: [], documents: [], payments: [], links: [], decisions: [], closeOverlaps: [] };

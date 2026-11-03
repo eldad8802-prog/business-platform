@@ -28,7 +28,12 @@
  *   D-10 / D-11  a Z without a printed business day / register is a QUESTION (status NEEDS_INPUT); commit is refused
  *         (INPUT_REQUIRED) until the owner answered it — the answers are bound to the token through the drafts hash;
  *   D-2 / D-12  a Z that overlaps an approved income document or imported history is shown as such (preview
- *         `overlaps`); it is recorded, and the read model does not count it until the owner resolves it;
+ *         `overlaps`, each with its basis and effect); it is recorded. HOLD (a Z-text document / imported history of
+ *         its day): the read model does not count it until the owner resolves it. QUESTION (same day + same amount
+ *         only — not proof): counted as before, the owner is asked;
+ *   D-1 / D-11 interim  every Z commit carries the owner's CONFIRMATION of each register's sales source
+ *         (`confirmation`); without it CONFIRMATION_REQUIRED, and a register whose sales are recorded another way is
+ *         refused (SALES_SOURCE_NOT_SUPPORTED) — no standing definition exists, so it is asked every time;
  *   D-4   a settlement is corrected by rejecting the recorded one (RevenueDecision) and uploading the corrected file.
  * Proven on synthetic files only: the rules, never any vendor's format (the registry ships empty).
  *
@@ -53,7 +58,10 @@ import { SUPPORTED_SETTLEMENT_SHAPES, type ReportFile, type ReportKind, type Rep
 import {
   MAX_DRAFTS_PER_FILE,
   UPLOAD_SCOPE_PREFIX,
+  SALES_SOURCES_RECORDABLE,
+  SALES_SOURCE_CHOICES,
   checkDecisions,
+  checkZConfirmation,
   classifySettlement,
   classifyZ,
   contentHashOf,
@@ -61,6 +69,7 @@ import {
   dedupeInFile,
   draftsHashOf,
   parserHashOf,
+  registersToConfirm,
   resolveZDrafts,
   settlementBaseIdOf,
   settlementStageOneCode,
@@ -75,8 +84,10 @@ import {
   type PreparedRows,
   type ReportAnswers,
   type ReportQuestion,
+  type SalesSourceChoice,
   type SettlementRow,
   type Validated,
+  type ZConfirmation,
   type ZRow,
 } from "./core";
 import { SHIPPED_REGISTRY, type ParserRegistry } from "./registry";
@@ -107,7 +118,13 @@ export type RevenueReportErrorCode =
   /** D-10 / D-11: a Z the report left without a business day / register, not answered by the owner. */
   | "INPUT_REQUIRED"
   /** An answer to a question that was not asked, or not a calendar day / register token. */
-  | "ANSWERS_INVALID";
+  | "ANSWERS_INVALID"
+  /** D-1 / D-11 interim: the owner did not confirm every register's sales source for this Z upload. */
+  | "CONFIRMATION_REQUIRED"
+  /** A confirmation for a register not in the file, an unknown choice, or one given for a settlement. */
+  | "CONFIRMATION_INVALID"
+  /** The owner says a register's sales are recorded another way: such a Z cannot be recorded in stage one. */
+  | "SALES_SOURCE_NOT_SUPPORTED";
 
 export class RevenueReportError extends Error {
   constructor(
@@ -129,6 +146,8 @@ export type RevenueReportInput = {
   mime: string | null;
   /** D-10 / D-11: the owner's answers for Z reports the file left without a day / register (by draft index). */
   answers?: ReportAnswers | null;
+  /** D-1 / D-11 interim: the owner's confirmation of each register's sales source (commit of a Z only). */
+  confirmation?: ZConfirmation | null;
 };
 
 /** Tests (and only tests) pass their own registry; the routes always use the shipped one. */
@@ -336,6 +355,12 @@ export type RevenueReportPreview = {
   knownRegisters: string[];
   invalid: { sourceRow: number | null; codes: string[] }[];
   previouslyImportedAt: string | null;
+  /**
+   * D-1 / D-11 interim (Z only; null for a settlement): what the owner must select and confirm before commit — the
+   * sales source of every register in the file. No standing definition exists, so `required` is always true for a Z
+   * with rows; nothing is preselected. Only `recordable` choices can be committed in stage one.
+   */
+  confirmation: { required: boolean; registers: string[]; choices: SalesSourceChoice[]; recordable: SalesSourceChoice[] } | null;
   /** The source file is never stored — only its hash. Stated so the screen says so. */
   sourceFileStored: false;
   rows: ZPreviewRow[] | SettlementPreviewRow[];
@@ -451,6 +476,9 @@ export async function analyzeRevenueReport(input: RevenueReportInput, opts: Serv
     knownRegisters,
     invalid: p.prepared.invalid.slice(0, 100),
     previouslyImportedAt: previous ? previous.toISOString() : null,
+    confirmation: p.kind === "z"
+      ? { required: rowsCount > 0, registers: registersToConfirm(p.prepared.rows), choices: [...SALES_SOURCE_CHOICES], recordable: [...SALES_SOURCES_RECORDABLE] }
+      : null,
     sourceFileStored: false,
     rows: rows as ZPreviewRow[] | SettlementPreviewRow[],
   };
@@ -486,8 +514,17 @@ export async function commitRevenueReport(
   }
   // D-10 / D-11: nothing is recorded while a Z waits for its business day / register — no default, no partial commit.
   if (p.questions.length) throw new RevenueReportError("INPUT_REQUIRED", 409, { missing: p.questions.length });
+  // D-1 / D-11 interim: the owner selected and confirmed each register's sales source for THIS upload (no standing
+  // definition exists, so there is nothing else to rely on). Checked before anything is opened; nothing written.
+  if (p.kind === "settlement" && input.confirmation) throw new RevenueReportError("CONFIRMATION_INVALID", 400);
+  if (p.kind === "z") {
+    const confirmed = checkZConfirmation(registersToConfirm(p.prepared.rows), input.confirmation);
+    if (!confirmed.ok) {
+      throw new RevenueReportError(confirmed.code, confirmed.code === "CONFIRMATION_INVALID" ? 400 : 409, { registers: confirmed.registers.join(",") });
+    }
+  }
   const decisions: ConflictDecisions = input.decisions ?? {};
-  const decisionsHash = decisionsHashOf(input.kind, decisions);
+  const decisionsHash = decisionsHashOf(input.kind, decisions, p.kind === "z" ? input.confirmation : null);
   const parserHash = parserHashOf(input.kind, p.parser.key, p.parser.version);
   // The same file with the same decisions again is a replay; a re-decision (e.g. superseding what was skipped) is a
   // new run. An upload with nothing to decide hashes without a decisions component.

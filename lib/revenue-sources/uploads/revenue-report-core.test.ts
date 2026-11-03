@@ -13,12 +13,13 @@ process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://nobody:noth
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-import { closeOverlapsOf, type OverlapEvidence } from "../overlap";
+import { IMPORTED_HISTORY_OVERLAP_ENABLED, OVERLAP_EFFECT, closeOverlapsOf, holdsClose, type OverlapEvidence } from "../overlap";
 import type { ReportFile, SettlementDraft, SettlementParser, ZReportDraft, ZReportParser } from "./contract";
 import {
   RE_EXTERNAL_ID,
   RE_SCOPE,
   checkDecisions,
+  checkZConfirmation,
   classifySettlement,
   classifyZ,
   correctionExternalIdOf,
@@ -27,6 +28,7 @@ import {
   draftsHashOf,
   isCalendarDay,
   parserHashOf,
+  registersToConfirm,
   resolveRegisterKey,
   resolveZDrafts,
   settlementBaseIdOf,
@@ -443,6 +445,37 @@ async function main() {
     assert.equal(draftsHashOf(r, []), draftsHashOf(r, [], []));
   });
 
+  // D-1 / D-11 interim: register + sales source selected AND confirmed on every upload
+  await check("confirm: every register in the file, once, sorted", () => {
+    assert.deepEqual(registersToConfirm([{ registerKey: "2" }, { registerKey: "1" }, { registerKey: "2" }]), ["1", "2"]);
+  });
+  await check("confirm: missing / unconfirmed / partial → CONFIRMATION_REQUIRED; nothing is defaulted", () => {
+    const regs = ["1", "2"];
+    assert.deepEqual(checkZConfirmation(regs, null), { ok: false, code: "CONFIRMATION_REQUIRED", registers: ["1", "2"] });
+    assert.equal(checkZConfirmation(regs, { confirmed: false, registers: { 1: "THIS_Z_REPORT", 2: "THIS_Z_REPORT" } }).ok, false, "a choice without the confirmation tick is not a confirmation");
+    assert.deepEqual(checkZConfirmation(regs, { confirmed: true, registers: { 1: "THIS_Z_REPORT" } }), { ok: false, code: "CONFIRMATION_REQUIRED", registers: ["2"] });
+    assert.deepEqual(checkZConfirmation([], null), { ok: true }, "nothing to record, nothing to confirm");
+  });
+  await check("confirm: another register / an unknown choice → CONFIRMATION_INVALID; recorded another way → SALES_SOURCE_NOT_SUPPORTED", () => {
+    const regs = ["1", "2"];
+    assert.equal((checkZConfirmation(regs, { confirmed: true, registers: { 1: "THIS_Z_REPORT", 2: "THIS_Z_REPORT", 3: "THIS_Z_REPORT" } }) as { code: string }).code, "CONFIRMATION_INVALID");
+    assert.equal((checkZConfirmation(regs, { confirmed: true, registers: { 1: "THIS_Z_REPORT", 2: "MAYBE" as never } }) as { code: string }).code, "CONFIRMATION_INVALID");
+    assert.deepEqual(checkZConfirmation(regs, { confirmed: true, registers: { 1: "THIS_Z_REPORT", 2: "INVOICES_OR_OTHER_SYSTEM" } }), { ok: false, code: "SALES_SOURCE_NOT_SUPPORTED", registers: ["2"] });
+    assert.deepEqual(checkZConfirmation(regs, { confirmed: true, registers: { 2: "THIS_Z_REPORT", 1: "THIS_Z_REPORT" } }), { ok: true });
+  });
+  await check("confirm: recorded in the run's decisions hash (audit); absent → the v1 hash unchanged", () => {
+    const c = { confirmed: true, registers: { 1: "THIS_Z_REPORT" as const } };
+    assert.notEqual(decisionsHashOf("z", {}, c), decisionsHashOf("z", {}));
+    assert.equal(decisionsHashOf("z", {}, null), decisionsHashOf("z", {}));
+    assert.equal(decisionsHashOf("z", {}, { confirmed: true, registers: { 2: "THIS_Z_REPORT", 1: "THIS_Z_REPORT" } }), decisionsHashOf("z", {}, { confirmed: true, registers: { 1: "THIS_Z_REPORT", 2: "THIS_Z_REPORT" } }));
+  });
+  await check("confirm: the service checks it on every Z commit, before the transaction, with no standing definition", () => {
+    const svc = src("lib/revenue-sources/uploads/service.ts");
+    const at = svc.indexOf("checkZConfirmation(registersToConfirm(p.prepared.rows), input.confirmation)");
+    assert.ok(at > 0 && at < svc.indexOf("return tenantTx(", at), "checked before the transaction");
+    assert.equal(/DEFINED_SALES_SOURCES|standingSalesSource/.test(svc), false, "nothing stands in for the owner's confirmation");
+  });
+
   // D-4
   await check("D-4: a report id that looks like a stored correction is refused (EXTERNAL_ID_RESERVED); ids round-trip", () => {
     const v = validateSettlementDraft(st({ externalId: "S-1#c2" }));
@@ -453,6 +486,28 @@ async function main() {
     assert.equal(correctionExternalIdOf("S-1", 3), "S-1#c3");
     assert.equal(settlementBaseIdOf("S-1#c3"), "S-1");
     assert.equal(settlementBaseIdOf("S-1"), "S-1");
+  });
+  await check("D-4: the <id>#c<n> link is unambiguous — every stored id maps to exactly one report id and one version", () => {
+    // Report ids a parser may emit (accepted) never end in a correction suffix, so base(stored) is a function and
+    // (base, n) → stored is its inverse. Ids that merely LOOK close stay their own report ids.
+    let accepted = 0;
+    for (const id of ["S-1", "S-1#c", "S-1#c1", "S-1#c01", "S-1#c0", "A#c1#c", "c2", "#c"]) {
+      if (!validateSettlementDraft(st({ externalId: id })).ok) continue;
+      accepted++;
+      assert.equal(settlementBaseIdOf(id), id, id);
+      for (const n of [2, 3, 10, 11, 99]) {
+        const stored = correctionExternalIdOf(id, n);
+        assert.equal(settlementBaseIdOf(stored), id, stored);
+        assert.notEqual(stored, correctionExternalIdOf(id, n + 1));
+      }
+    }
+    assert.ok(accepted >= 6, String(accepted));
+    for (const reserved of ["S-1#c2", "S-1#c10", "A#c1#c3"]) {
+      const v = validateSettlementDraft(st({ externalId: reserved }));
+      assert.equal(!v.ok && v.codes.includes("EXTERNAL_ID_RESERVED"), true, reserved);
+    }
+    // A correction of an id near the 200-char limit cannot be stored → it stays a SKIP-only conflict, never a truncation.
+    assert.equal(RE_EXTERNAL_ID.test(correctionExternalIdOf("x".repeat(198), 2)), false);
   });
   await check("D-4: correct = reject, then upload — the corrected file is NEW beside the rejected row (history kept)", () => {
     const s = validateSettlementDraft(st({ feeMinor: B(1_000), netMinor: B(61_000) }));
@@ -476,11 +531,28 @@ async function main() {
   // D-2 / D-12
   const ev = (o: Partial<OverlapEvidence> = {}): OverlapEvidence => ({ recordedIncome: [], importedHistory: [], ...o });
   const zc = { businessDay: "2026-10-01", currency: "ILS", totalMinor: B(92_000) };
-  await check("D-2: an approved income document of the Z's day that reads as a Z, or has exactly its total → overlap", () => {
-    assert.deepEqual(closeOverlapsOf(zc, ev({ recordedIncome: [{ financialRecordId: 1, documentId: 11, day: "2026-10-01", amountMinor: B(5), looksLikeZ: true }] })),
-      [{ overlap: "RECORDED_INCOME_DOCUMENT", ref: "document:11" }]);
-    assert.deepEqual(closeOverlapsOf(zc, ev({ recordedIncome: [{ financialRecordId: 2, documentId: 12, day: "2026-10-01", amountMinor: B(92_000), looksLikeZ: false }] })),
-      [{ overlap: "RECORDED_INCOME_DOCUMENT", ref: "document:12" }]);
+  await check("D-2: an approved income document of the Z's day that reads as a Z → HOLD (the Z waits for the owner)", () => {
+    const o = closeOverlapsOf(zc, ev({ recordedIncome: [{ financialRecordId: 1, documentId: 11, day: "2026-10-01", amountMinor: B(5), looksLikeZ: true }] }));
+    assert.deepEqual(o, [{ overlap: "RECORDED_INCOME_DOCUMENT", basis: "Z_DOCUMENT_SAME_DAY", effect: "HOLD", ref: "document:11" }]);
+    assert.equal(holdsClose(o), true);
+  });
+  await check("suspicion: same day + exactly the same amount (no Z text) is NOT proof → QUESTION only: never holds, never removes", () => {
+    const o = closeOverlapsOf(zc, ev({ recordedIncome: [{ financialRecordId: 2, documentId: 12, day: "2026-10-01", amountMinor: B(92_000), looksLikeZ: false }] }));
+    assert.deepEqual(o, [{ overlap: "RECORDED_INCOME_DOCUMENT", basis: "AMOUNT_SAME_DAY", effect: "QUESTION", ref: "document:12" }]);
+    assert.equal(holdsClose(o), false, "the exact-total heuristic alone excludes nothing");
+    assert.deepEqual({ ...OVERLAP_EFFECT }, { Z_DOCUMENT_SAME_DAY: "HOLD", HISTORY_SAME_DAY: "HOLD", AMOUNT_SAME_DAY: "QUESTION" }, "only D-2 / D-12 hold");
+    // Z text AND the same amount: one overlap per document, the stronger basis (HOLD).
+    assert.deepEqual(closeOverlapsOf(zc, ev({ recordedIncome: [{ financialRecordId: 3, documentId: 13, day: "2026-10-01", amountMinor: B(92_000), looksLikeZ: true }] })).map((x) => x.basis), ["Z_DOCUMENT_SAME_DAY"]);
+  });
+  await check("suspicion: nothing in the overlap code or the read model decides, links, confirms or removes anything", () => {
+    for (const p of ["lib/revenue-sources/overlap.ts", "lib/revenue-truth/read-model.ts"]) {
+      const code = src(p).replace(/\/\*[\s\S]*?\*\//g, " ").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
+      for (const forbidden of ["recordDecision", "proposeLink", "revenueDecision.", "revenueLink.", ".create(", ".update(", ".delete(", ".upsert(", "executeRaw"]) {
+        assert.equal(code.includes(forbidden), false, p + ": " + forbidden);
+      }
+    }
+    // The read model only excludes a Z for an overlap whose effect is HOLD.
+    assert.equal(src("lib/revenue-truth/read-model.ts").includes('o.effect === "HOLD" ? overlapsOf : suspectedOf'), true);
   });
   await check("D-2: an ordinary invoice of that day (other amount, no Z text), or a Z-like document of another day → no overlap", () => {
     assert.deepEqual(closeOverlapsOf(zc, ev({ recordedIncome: [
@@ -491,9 +563,19 @@ async function main() {
       "a record has no currency: an amount match is ILS only");
   });
   await check("D-12: imported history of the SAME day → overlap for that Z only; history of other days never blocks it", () => {
-    const h = ev({ importedHistory: [{ historicalDocumentId: 21, day: "2026-10-01", sourceSystemCode: "prev" }, { historicalDocumentId: 22, day: "2026-09-30", sourceSystemCode: "prev" }] });
-    assert.deepEqual(closeOverlapsOf(zc, h), [{ overlap: "IMPORTED_HISTORY", ref: "history:21" }]);
+    const hd = (id: number, day: string) => ({ historicalDocumentId: id, day, totalMinor: B(1), currency: "ILS", sourceSystemCode: "prev" });
+    const h = ev({ importedHistory: [hd(21, "2026-10-01"), hd(22, "2026-09-30")] });
+    assert.deepEqual(closeOverlapsOf(zc, h), [{ overlap: "IMPORTED_HISTORY", basis: "HISTORY_SAME_DAY", effect: "HOLD", ref: "history:21" }]);
     assert.deepEqual(closeOverlapsOf({ ...zc, businessDay: "2026-10-02" }, h), []);
+  });
+  await check("D-12: the imported-history overlap reader is OFF (a literal false), and the loader reaches it only behind it", () => {
+    assert.equal(IMPORTED_HISTORY_OVERLAP_ENABLED, false);
+    const code = src("lib/revenue-sources/overlap.ts");
+    assert.equal(/export const IMPORTED_HISTORY_OVERLAP_ENABLED = false;/.test(code), true);
+    assert.equal(code.includes("importedHistory: IMPORTED_HISTORY_OVERLAP_ENABLED ? await loadImportedHistoryEvidenceInTx("), true);
+    assert.equal(/process\.env/.test(code), false, "not an environment switch");
+    // The overlap code never names the history model itself: it goes through the one listed reader.
+    assert.equal(new RegExp(["historical", "fiscal"].join(""), "i").test(code), false);
   });
   await check("D-2: the documents Z-guard override is NOT persisted (so the overlap is recognised from stored rows)", () => {
     const route = src("app/api/documents/[id]/approve/route.ts");
@@ -502,7 +584,16 @@ async function main() {
   });
 
   console.log("== the form edge ==");
-  const { parseDecisions, parseAnswers, readReportForm } = await import("./http");
+  const { parseDecisions, parseAnswers, parseConfirmation, readReportForm } = await import("./http");
+  await check("confirmation: {confirmed, registers: {<register token>: choice}} only", () => {
+    assert.deepEqual(parseConfirmation('{"confirmed":true,"registers":{"1":"THIS_Z_REPORT","b-2":"INVOICES_OR_OTHER_SYSTEM"}}'),
+      { confirmed: true, registers: { 1: "THIS_Z_REPORT", "b-2": "INVOICES_OR_OTHER_SYSTEM" } });
+    assert.equal(parseConfirmation(null), null);
+    for (const bad of ['{"confirmed":"yes","registers":{}}', '{"confirmed":true}', '{"confirmed":true,"registers":{"1":"Z"}}',
+      '{"confirmed":true,"registers":{"a b":"THIS_Z_REPORT"}}', '{"confirmed":true,"registers":{},"x":1}', "[1]", "{"]) {
+      assert.throws(() => parseConfirmation(bad), (e: unknown) => (e as { code?: string }).code === "CONFIRMATION_INVALID", bad);
+    }
+  });
   await check("answers: draft indexes with a businessDay / registerKey string only", () => {
     assert.deepEqual(parseAnswers('{"0":{"businessDay":"2026-10-01"},"3":{"registerKey":"2"}}'), { 0: { businessDay: "2026-10-01" }, 3: { registerKey: "2" } });
     assert.equal(parseAnswers(null), null);

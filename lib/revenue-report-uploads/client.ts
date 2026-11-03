@@ -9,6 +9,9 @@ import { getClientAuthToken } from "@/lib/client-session";
 
 export type ReportKind = "z" | "settlement";
 export type ConflictDecision = "SKIP" | "SUPERSEDE" | "ADD";
+/** D-1 / D-11 interim: the owner's per-register sales-source choice, confirmed on every Z upload. */
+export type SalesSourceChoice = "THIS_Z_REPORT" | "INVOICES_OR_OTHER_SYSTEM";
+export type ZConfirmation = { confirmed: boolean; registers: Record<string, SalesSourceChoice> };
 
 export function reportAuthHeaders(): Record<string, string> {
   const token = getClientAuthToken();
@@ -50,11 +53,13 @@ export function buildReportForm(input: {
   file: Blob & { name?: string };
   token?: string | null;
   decisions?: Record<number, ConflictDecision> | null;
+  confirmation?: ZConfirmation | null;
 }): FormData {
   const body = new FormData();
   body.set("file", input.file, input.file.name ?? "report");
   if (input.token) body.set("token", input.token);
   if (input.decisions && Object.keys(input.decisions).length) body.set("decisions", JSON.stringify(input.decisions));
+  if (input.confirmation) body.set("confirmation", JSON.stringify(input.confirmation));
   return body;
 }
 

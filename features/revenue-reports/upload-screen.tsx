@@ -13,6 +13,7 @@ import {
   postReport,
   type ConflictDecision,
   type ReportKind,
+  type SalesSourceChoice,
 } from "@/lib/revenue-report-uploads/client";
 import type {
   PreviewConflict,
@@ -43,6 +44,19 @@ const DECISION_TEXT: Record<ConflictDecision, string> = {
   ADD: "לקלוט כדוח Z נוסף של אותו יום (למשל משמרת שנייה)",
 };
 
+/** D-1 / D-11 interim: asked on every Z upload (no standing definition exists); never preselected. */
+const SALES_SOURCE_TEXT: Record<SalesSourceChoice, string> = {
+  THIS_Z_REPORT: "המכירות של הקופה הזו נרשמות בדוח ה-Z הזה",
+  INVOICES_OR_OTHER_SYSTEM: "המכירות של הקופה הזו כבר נרשמות בדרך אחרת (חשבוניות לכל מכירה, או מערכת אחרת)",
+};
+
+/** D-2 / D-12 and the duplicate suspicion, by basis. A QUESTION removes nothing. */
+const OVERLAP_TEXT: Record<ZPreviewRow["overlaps"][number]["basis"], string> = {
+  Z_DOCUMENT_SAME_DAY: "דוח Z של אותו יום כבר נרשם כהכנסה דרך המסמכים. הדוח יישמר, אבל לא ייספר עד שתחליטו מה נכון.",
+  HISTORY_SAME_DAY: "לאותו יום יש מסמכים בהיסטוריה שיובאה. הדוח יישמר, אבל לא ייספר עד שתחליטו אם מדובר באותן מכירות.",
+  AMOUNT_SAME_DAY: "באותו יום יש מסמך הכנסה מאושר על אותו סכום בדיוק. זה לא בהכרח אותו דבר: שום דבר לא הוסר ושום דבר לא אוחד — בדקו.",
+};
+
 const CONFLICT_TEXT: Record<PreviewConflict["conflict"], string> = {
   SAME_Z: "דוח Z זה כבר נקלט עם מספרים אחרים.",
   SAME_DAY: "לקופה הזו כבר נקלט דוח Z אחר לאותו יום, עם מספרים אחרים.",
@@ -64,6 +78,8 @@ export function RevenueReportUploadScreen({ kind }: { kind: ReportKind }) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<RevenueReportPreview | null>(null);
   const [decisions, setDecisions] = useState<Record<number, ConflictDecision>>({});
+  const [salesSource, setSalesSource] = useState<Record<string, SalesSourceChoice>>({});
+  const [confirmed, setConfirmed] = useState(false);
   const [result, setResult] = useState<RevenueReportCommitResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ text: string; unsupported: boolean } | null>(null);
@@ -92,6 +108,8 @@ export function RevenueReportUploadScreen({ kind }: { kind: ReportKind }) {
     try {
       setPreview(await postReport<RevenueReportPreview>(kind, "analyze", buildReportForm({ file })));
       setDecisions({});
+      setSalesSource({});
+      setConfirmed(false);
     } catch (e) {
       const unsupported = e instanceof ReportRequestError && (e.code === "FORMAT_NOT_SUPPORTED" || e.code === "FORMAT_AMBIGUOUS");
       setError({ text: messageOf(e), unsupported });
@@ -105,7 +123,12 @@ export function RevenueReportUploadScreen({ kind }: { kind: ReportKind }) {
     setBusy(true);
     setError(null);
     try {
-      setResult(await postReport<RevenueReportCommitResult>(kind, "commit", buildReportForm({ file, token: preview.token, decisions })));
+      setResult(await postReport<RevenueReportCommitResult>(kind, "commit", buildReportForm({
+            file,
+            token: preview.token,
+            decisions,
+            confirmation: preview.confirmation?.required ? { confirmed, registers: salesSource } : null,
+          })));
     } catch (e) {
       setError({ text: messageOf(e), unsupported: false });
     } finally {
@@ -118,6 +141,8 @@ export function RevenueReportUploadScreen({ kind }: { kind: ReportKind }) {
   const toRecord = preview
     ? preview.counts.new + conflicts.filter((r) => decisions[r.index] === "SUPERSEDE" || decisions[r.index] === "ADD").length
     : 0;
+  const toConfirm = preview?.confirmation?.required ? preview.confirmation.registers : [];
+  const unconfirmed = toConfirm.length > 0 && (!confirmed || toConfirm.some((r) => !salesSource[r]));
   const step = result ? 3 : preview ? 2 : 1;
 
   return (
@@ -210,18 +235,51 @@ export function RevenueReportUploadScreen({ kind }: { kind: ReportKind }) {
           />
         ) : null}
 
+        {preview && !result && toConfirm.length > 0 && preview.confirmation ? (
+          <fieldset className="rcard">
+            <legend className="rlabel">איך נרשמות המכירות של כל קופה בקובץ</legend>
+            <div className="rnote">
+              עדיין לא הוגדר לעסק איך נרשמות המכירות של כל קופה, ולכן בוחרים ומאשרים זאת בכל העלאה. שום דבר לא נבחר מראש.
+            </div>
+            {toConfirm.map((reg) => (
+              <div key={reg} className="rdecide">
+                <span style={{ flexBasis: "100%" }}>
+                  קופה <bdi dir="ltr">{reg}</bdi>
+                </span>
+                {preview.confirmation!.choices.map((choice) => (
+                  <label key={choice}>
+                    <input
+                      type="radio"
+                      name={`rr-src-${reg}`}
+                      checked={salesSource[reg] === choice}
+                      onChange={() => setSalesSource((cur) => ({ ...cur, [reg]: choice }))}
+                    />
+                    {SALES_SOURCE_TEXT[choice]}
+                  </label>
+                ))}
+              </div>
+            ))}
+            <label className="rmeta">
+              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+              אני מאשר/ת את הקופה ואת מקור המכירות של כל דוח בקובץ
+            </label>
+          </fieldset>
+        ) : null}
+
         {preview && !result ? (
           <div className="ractions">
             <button
               type="button"
               className="rbtn rbtn-primary"
-              disabled={busy || undecided > 0 || (toRecord === 0 && conflicts.length === 0)}
+              disabled={busy || undecided > 0 || unconfirmed || (toRecord === 0 && conflicts.length === 0)}
               onClick={() => void commit()}
             >
               {busy
                 ? "קולטים…"
                 : undecided > 0
                   ? `נותרו ${undecided} החלטות`
+                  : unconfirmed
+                    ? "בחרו ואשרו את מקור המכירות לכל קופה"
                   : toRecord === 0 && conflicts.length === 0
                     ? "אין דוחות חדשים לקליטה"
                     : toRecord === 0
@@ -334,6 +392,12 @@ function PreviewSection({
                         {t.label ? ` (${t.label})` : ""} {money(t.amountMinor, r.currency)}
                       </span>
                     ))}
+                  </div>
+                ) : null}
+                {r.overlaps.length ? (
+                  <div className="rmeta">
+                    <span className="rpill rpill-info">{r.overlaps.some((o) => o.effect === "HOLD") ? "ממתין להחלטה" : "שאלה"}</span>
+                    {[...new Set(r.overlaps.map((o) => OVERLAP_TEXT[o.basis]))].join(" · ")}
                   </div>
                 ) : null}
                 <RowFooter warnings={r.warnings} conflict={r.conflict} index={r.index} decision={decisions[r.index]} setDecision={setDecision} />

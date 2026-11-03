@@ -116,7 +116,7 @@ export async function loadRevenueInputs(businessId: number, window: RevenueWindo
       })),
       closeOverlaps: closes.flatMap((c) =>
         closeOverlapsOf({ businessDay: dayOf(c.businessDay), currency: c.currency, totalMinor: c.totalMinor }, overlapEvidence)
-          .map((o) => ({ dailyCloseId: c.id, overlap: o.overlap, ref: o.ref }))),
+          .map((o) => ({ dailyCloseId: c.id, overlap: o.overlap, basis: o.basis, effect: o.effect, ref: o.ref }))),
       deposits: deposits.filter((d) => supported("ExternalTransaction", d.id, d.currency)).map((d) => ({
         id: d.id, currency: d.currency as CurrencyCode, amountMinor: minor(d.amount, d.currency),
       })),

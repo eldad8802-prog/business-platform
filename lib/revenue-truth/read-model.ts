@@ -18,9 +18,10 @@
  * OWNER DECISIONS 2026-11-03 (docs/revenue-report-uploads.md; proven on synthetic inputs only)
  *   D-1  a Z never excludes a day's Dubiz invoices by itself: an invoice leaves the count only through a CONFIRMED
  *        SALE_SAME_AS_DOCUMENT link (an identified overlap). Until then the view warns POSSIBLE_DUPLICATE_CLOSE_AND_DOCUMENT.
- *   D-2 / D-12  a Z with an unresolved overlap (`closeOverlaps`: an approved income document or imported history of its
- *        day) does not close its day until its latest decision is CONFIRMED (CLOSE_OVERLAP_UNRESOLVED) — per Z, never
- *        a whole period.
+ *   D-2 / D-12  a Z with an unresolved HOLD overlap (`closeOverlaps` effect HOLD: an approved income document of its day
+ *        that reads as a Z, or imported history of its day) does not close its day until its latest decision is
+ *        CONFIRMED (CLOSE_OVERLAP_UNRESOLVED) — per Z, never a whole period. A QUESTION overlap (same day + same amount
+ *        only) is NOT proof: the Z counts as it would, nothing is excluded, the view asks (CLOSE_DUPLICATE_SUSPECTED).
  *   D-4  two live versions of one settlement (`versionKey`) are never both counted: the latest counts.
  *   D-8  every Z / POS difference is a variance (CLOSED_WITH_VARIANCE); there is no tolerance here.
  *
@@ -186,6 +187,12 @@ export type ReadWarning = {
     | "POSSIBLE_DUPLICATE_CLOSE_AND_DOCUMENT"
     /** D-2 / D-12: a Z left uncounted until the owner resolves its overlap (ref = the overlap's evidence). */
     | "CLOSE_OVERLAP_UNRESOLVED"
+    /**
+     * A Z and an approved income document of the same day for exactly the same amount (the document does not read as
+     * a Z). Same day + same amount is NOT proof: both stay where they count; the owner is asked. Resolved by the
+     * owner's decision on the Z (CONFIRMED: not a duplicate; REJECTED: the Z leaves the count).
+     */
+    | "CLOSE_DUPLICATE_SUSPECTED"
     /** D-4: two live versions of one settlement; only the latest is counted. */
     | "SETTLEMENT_VERSIONS_BOTH_LIVE";
   ref: string;
@@ -326,8 +333,13 @@ export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): Re
     }
     return b;
   };
+  // Only a HOLD overlap holds a Z out; a QUESTION overlap (a suspicion) never excludes anything.
   const overlapsOf = new Map<number, string[]>();
-  for (const o of inputs.closeOverlaps ?? []) overlapsOf.set(o.dailyCloseId, [...(overlapsOf.get(o.dailyCloseId) ?? []), o.ref]);
+  const suspectedOf = new Map<number, string[]>();
+  for (const o of inputs.closeOverlaps ?? []) {
+    const into = o.effect === "HOLD" ? overlapsOf : suspectedOf;
+    into.set(o.dailyCloseId, [...(into.get(o.dailyCloseId) ?? []), o.ref]);
+  }
   for (const c of inputs.closes) {
     const b = bucket(c.salesScope ?? c.sourceScope, c.registerKey, c.businessDay, c.currency);
     const state = closeState.get(c.id);
@@ -343,6 +355,10 @@ export function computeRevenueView(raw: RevenueInputs, options: ReadOptions): Re
       excluded.push({ kind: "CLOSE", id: c.id, reason: "CLOSE_AWAITING_CONFIRMATION" });
       b.awaiting.push(c.id);
     } else b.effective.push(c);
+    // A suspicion the owner has not answered: asked, never acted on (the Z's own state above is unchanged by it).
+    if (state !== "CONFIRMED" && state !== "REJECTED" && c.validation !== "FAILED" && c.revision >= (chainMax.get(chainKey(c)) ?? c.revision) && suspectedOf.has(c.id)) {
+      for (const ref of suspectedOf.get(c.id)!) warnings.push({ code: "CLOSE_DUPLICATE_SUSPECTED", ref: `close:${c.id}:${ref}` });
+    }
   }
   const saleById = new Map(inputs.sales.map((s) => [s.id, s]));
   const receiptById = new Map(inputs.receipts.map((r) => [r.id, r]));

@@ -401,7 +401,7 @@ console.log("D. owner decisions 2026-11-03 (synthetic)");
   const s1 = sale({ total: 11000, vat: 1678 });
   const zo = close({ total: 11800, vat: 1800 });
   const other = close({ total: 4000, vat: 610, businessDay: "2026-10-21" });
-  const overlaps = [{ dailyCloseId: zo.id, overlap: "RECORDED_INCOME_DOCUMENT" as const, ref: "document:77" }];
+  const overlaps = [{ dailyCloseId: zo.id, overlap: "RECORDED_INCOME_DOCUMENT" as const, basis: "Z_DOCUMENT_SAME_DAY" as const, effect: "HOLD" as const, ref: "document:77" }];
   const waiting = computeRevenueView(inputs({ sales: [s1], closes: [zo, other], closeOverlaps: overlaps }), { today: TODAY });
   const d20 = waiting.days.find((d) => d.businessDay === "2026-10-20");
   check("D-2: an overlapping Z does not count (CLOSE_OVERLAP_UNRESOLVED); its day falls back to its POS sales, flagged as waiting",
@@ -415,9 +415,27 @@ console.log("D. owner decisions 2026-11-03 (synthetic)");
     ils(resolved).sales.netMinor === B(11800) && resolved.days[0].status === "CLOSED_WITH_VARIANCE" && !resolved.warnings.some((w) => w.code === "CLOSE_OVERLAP_UNRESOLVED"));
   const rejectedZ = computeRevenueView(inputs({ sales: [s1], closes: [zo], closeOverlaps: overlaps, decisions: [decide({ dailyCloseId: zo.id, decision: "REJECTED" })] }), { today: TODAY });
   check("D-2: REJECTED (the document side stands): the Z counts nowhere", rejectedZ.excluded.some((e) => e.id === zo.id && e.reason === "CLOSE_REJECTED") && ils(rejectedZ).sales.closedNetMinor === B(0));
-  const history = computeRevenueView(inputs({ closes: [zo], closeOverlaps: [{ dailyCloseId: zo.id, overlap: "IMPORTED_HISTORY", ref: "history:5" }] }), { today: TODAY });
+  const history = computeRevenueView(inputs({ closes: [zo], closeOverlaps: [{ dailyCloseId: zo.id, overlap: "IMPORTED_HISTORY", basis: "HISTORY_SAME_DAY", effect: "HOLD", ref: "history:5" }] }), { today: TODAY });
   check("D-12: an imported-history overlap waits the same way (a day row is shown, nothing counted)",
     history.days.length === 1 && history.days[0].countedNetMinor === B(0) && history.days[0].awaitingOverlapDecisionCloseIds.length === 1, J(history.days));
+
+  // Z duplicate suspicion: same day + same amount is NOT proof — nothing excluded, nothing confirmed, the owner is asked.
+  const suspicion = [{ dailyCloseId: zo.id, overlap: "RECORDED_INCOME_DOCUMENT" as const, basis: "AMOUNT_SAME_DAY" as const, effect: "QUESTION" as const, ref: "document:78" }];
+  const asked = computeRevenueView(inputs({ sales: [s1], closes: [zo, other], closeOverlaps: suspicion }), { today: TODAY });
+  const a20 = asked.days.find((d) => d.businessDay === "2026-10-20");
+  check("suspicion (same day + same amount): the Z still closes its day and counts (11800 + 4000); nothing excluded, nothing waiting",
+    ils(asked).sales.closedNetMinor === B(15800) && a20?.closeIds[0] === zo.id && a20.awaitingOverlapDecisionCloseIds.length === 0
+      && !asked.excluded.some((e) => e.kind === "CLOSE") && !asked.warnings.some((w) => w.code === "CLOSE_OVERLAP_UNRESOLVED"), J({ d: asked.days, x: asked.excluded }));
+  check("suspicion: the view ASKS (CLOSE_DUPLICATE_SUSPECTED naming the Z and the document) — it is not a confirmation",
+    asked.warnings.filter((w) => w.code === "CLOSE_DUPLICATE_SUSPECTED").map((w) => w.ref).join() === `close:${zo.id}:document:78`, J(asked.warnings));
+  const answeredYes = computeRevenueView(inputs({ sales: [s1], closes: [zo], closeOverlaps: suspicion, decisions: [decide({ dailyCloseId: zo.id, decision: "CONFIRMED" })] }), { today: TODAY });
+  const answeredNo = computeRevenueView(inputs({ sales: [s1], closes: [zo], closeOverlaps: suspicion, decisions: [decide({ dailyCloseId: zo.id, decision: "REJECTED" })] }), { today: TODAY });
+  check("suspicion: only the owner's decision ends it — CONFIRMED: counted, no question; REJECTED: the Z leaves the count (the owner's call)",
+    ils(answeredYes).sales.closedNetMinor === B(11800) && !answeredYes.warnings.some((w) => w.code === "CLOSE_DUPLICATE_SUSPECTED")
+      && answeredNo.excluded.some((e) => e.id === zo.id && e.reason === "CLOSE_REJECTED") && !answeredNo.warnings.some((w) => w.code === "CLOSE_DUPLICATE_SUSPECTED"));
+  const holdAndAsk = computeRevenueView(inputs({ closes: [zo], closeOverlaps: [...overlaps, ...suspicion] }), { today: TODAY });
+  check("a HOLD and a QUESTION on one Z: the HOLD decides (waits), the question is still asked",
+    holdAndAsk.excluded.some((e) => e.id === zo.id && e.reason === "CLOSE_OVERLAP_UNRESOLVED") && holdAndAsk.warnings.some((w) => w.code === "CLOSE_DUPLICATE_SUSPECTED"), J(holdAndAsk.warnings));
 
   // D-4: never two versions of one settlement.
   const st = (o: { id: number; net: number; versionKey?: string }) => ({ id: o.id, validation: "PASSED" as const, currency: "ILS" as const, grossMinor: B(o.net + 100), feeMinor: B(100), otherDeductionsMinor: B(0), netMinor: B(o.net), versionKey: o.versionKey });
