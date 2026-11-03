@@ -7,9 +7,9 @@
  *   PaymentTransaction  status PAID (money in; a refund is negative), tenant-scoped through its PaymentRequest;
  *   ExternalTransaction direction CREDIT (bank money in).
  * Deliberately NOT read: FinancialEvent (it books an invoice AND its payment as two INCOME rows) and
- * FinancialRecord (an approved upload is not proof of a sale — an open owner decision). Both FinancialRecord (income)
- * and HistoricalFiscalDocument are consulted ONLY to find a Z that may already be counted there (D-2 / D-12,
- * lib/revenue-sources/overlap.ts) — never summed, never a sale.
+ * FinancialRecord (an approved upload is not proof of a sale — an open owner decision). Approved income FinancialRecords
+ * are consulted ONLY to find a Z that may already be counted there (D-2, lib/revenue-sources/overlap.ts) — never
+ * summed, never a sale. Imported history is not read (D-12 is an open owner item).
  *
  * The window is per layer, by the date that layer carries (sale / receipt / Z: business day; settlement: value date;
  * document: issue day; payment: creation day; bank: booking day). A settlement or a deposit that lands after the

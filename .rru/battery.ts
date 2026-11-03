@@ -19,8 +19,8 @@
  *   K. Owner decisions 2026-11-03 (synthetic files — the rules, never a real format): a Z without a printed day /
  *      register is asked, never defaulted, and the token binds the answers (D-10 / D-11); a transaction list is
  *      refused (D-5); reject → re-upload corrects a settlement, history kept, counted once (D-4); a Z already recorded
- *      as an approved income document or overlapping imported history is recorded but not counted until the owner
- *      confirms (D-2 / D-12); no FinancialRecord from any upload (D-7).
+ *      as an approved income document is recorded but not counted until the owner
+ *      confirms (D-2); no FinancialRecord from any upload (D-7).
  *
  * The fixture parser lives in THIS FILE ONLY, under a TEST-ONLY name; it describes no real system.
  * env: OWNER_URL (fixtures, BYPASSRLS), RUNTIME_URL (the app). Synthetic only. ZERO network.
@@ -393,29 +393,31 @@ async function main() {
   const pAgain = await svc.analyzeRevenueReport(sIn(bizA, userA, sChanged), opts);
   ok("D-4: the corrected file again → EXISTING, nothing more", pAgain.counts.existing === 1 && pAgain.counts.new === 0);
 
-  // D-2 / D-12: a Z already recorded as an approved income document (or in imported history) waits for the owner.
+  // D-2: a Z already recorded as an approved income document waits for the owner. (D-12: imported history is not
+  // read by the loader — the history table's consumer firewall; an owner item.)
   const bizC = await business("rru-C");
   const userC = await user(bizC, "c");
   await enable(bizC, "z_report_upload");
   const docId = await one(`INSERT INTO "Document" ("businessId", "fileUrl", "source", "mimeType", "ocrText", "status") VALUES ($1, 'lab://z.pdf', 'upload', 'application/pdf', 'דו"ח Z סגירה יומית מספר Z 101', 'approved') RETURNING "id"`, bizC);
   await owner.$executeRawUnsafe(`INSERT INTO "FinancialRecord" ("documentId", "businessId", "amount", "date", "vendorName", "direction", "category") VALUES ($1, $2, 920, '2026-10-01T00:00:00Z', 'lab', 'income', 'sales')`, docId, bizC);
-  await owner.$executeRawUnsafe(`INSERT INTO "HistoricalFiscalDocument" ("businessId", "documentTypeCode", "sourceSystemCode", "originalIssueDate", "updatedAt") VALUES ($1, 'TAX_INVOICE', 'prev_system', '2026-10-02T00:00:00Z', now())`, bizC);
+  const doc2 = await one(`INSERT INTO "Document" ("businessId", "fileUrl", "source", "mimeType", "ocrText", "status") VALUES ($1, 'lab://inv.pdf', 'upload', 'application/pdf', 'חשבונית מס 55', 'approved') RETURNING "id"`, bizC);
+  await owner.$executeRawUnsafe(`INSERT INTO "FinancialRecord" ("documentId", "businessId", "amount", "date", "vendorName", "direction", "category") VALUES ($1, $2, 300, '2026-10-02T00:00:00Z', 'lab', 'income', 'sales')`, doc2, bizC);
   const recordsBefore = await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" = $1`, bizC);
   const fileC = zFile(Z1, Z2);
   const pC = await svc.analyzeRevenueReport(zIn(bizC, userC, fileC), opts);
   const oC = (pC.rows as Array<{ businessDay: string; overlaps: Array<{ overlap: string; ref: string }> }>).map((r) => `${r.businessDay}:${r.overlaps.map((o) => o.overlap).join("+")}`);
-  ok("D-2/D-12: the preview shows the overlap per Z — 10-01 an approved income document (Z text), 10-02 imported history",
-    pC.counts.overlaps === 2 && oC.join() === "2026-10-01:RECORDED_INCOME_DOCUMENT,2026-10-02:IMPORTED_HISTORY", oC.join());
+  ok("D-2: the preview shows the overlap on 10-01 (approved income document with Z text); 10-02's ordinary invoice is no overlap",
+    pC.counts.overlaps === 1 && oC.join() === "2026-10-01:RECORDED_INCOME_DOCUMENT,2026-10-02:", oC.join());
   const cC = await svc.commitRevenueReport({ ...zIn(bizC, userC, fileC), token: pC.token }, opts);
   const vC = (await readRevenueView(bizC, { fromDay: "2026-10-01", toDay: "2026-10-02" })).view;
-  ok("D-2/D-12: recorded as evidence, but NOT counted (CLOSE_OVERLAP_UNRESOLVED), each Z waiting on its own day",
-    cC.recorded === 2 && (vC.byCurrency.get("ILS")?.sales.closedNetMinor ?? BigInt(0)) === BigInt(0)
-      && vC.excluded.filter((e) => e.reason === "CLOSE_OVERLAP_UNRESOLVED").length === 2 && vC.days.every((d) => d.awaitingOverlapDecisionCloseIds.length === 1), JSON.stringify(vC.excluded));
+  ok("D-2: both recorded; the overlapping Z is NOT counted (CLOSE_OVERLAP_UNRESOLVED), the other day's Z is (50000)",
+    cC.recorded === 2 && vC.byCurrency.get("ILS")?.sales.closedNetMinor === BigInt(50000)
+      && vC.excluded.filter((e) => e.reason === "CLOSE_OVERLAP_UNRESOLVED").length === 1 && vC.days.find((d) => d.businessDay === "2026-10-01")?.awaitingOverlapDecisionCloseIds.length === 1, JSON.stringify(vC.excluded));
   const z101 = await one(`SELECT "id" FROM "RevenueDailyClose" WHERE "businessId" = $1 AND "externalId" = 'z:101'`, bizC);
   await decide(bizC, { dailyCloseId: z101 }, "CONFIRMED");
   const vC2 = (await readRevenueView(bizC, { fromDay: "2026-10-01", toDay: "2026-10-02" })).view;
-  ok("D-2: the owner's CONFIRMED decision on that Z resolves it (92000 counted); the other day still waits",
-    vC2.byCurrency.get("ILS")?.sales.closedNetMinor === BigInt(92000) && vC2.excluded.filter((e) => e.reason === "CLOSE_OVERLAP_UNRESOLVED").length === 1);
+  ok("D-2: the owner's CONFIRMED decision on that Z resolves it (92000 + 50000 counted, nothing waiting)",
+    vC2.byCurrency.get("ILS")?.sales.closedNetMinor === BigInt(142000) && vC2.excluded.filter((e) => e.reason === "CLOSE_OVERLAP_UNRESOLVED").length === 0);
   // D-7: still no income / expense created by any upload.
   ok("D-7: no FinancialRecord was created (only the fixture's own), none for A / B",
     (await count(`SELECT count(*)::int AS n FROM "FinancialRecord" WHERE "businessId" = $1`, bizC)) === recordsBefore
