@@ -124,7 +124,7 @@ export default function InventoryOverviewPage() {
               <div className="i2-stat__l">דורשים טיפול</div>
             </div>
             <div className="i2-stat">
-              <div className="i2-stat__v i2-num">{formatStockValue(summary.stockValue)}</div>
+              <div className="i2-stat__v i2-num">₪{formatStockValue(summary.stockValue)}</div>
               <div className="i2-stat__l">שווי מלאי</div>
             </div>
           </div>

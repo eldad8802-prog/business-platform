@@ -34,7 +34,8 @@ export const inv2Css = `
   font-synthesis-weight: none;
   color: var(--i2-ink);
   background: var(--i2-bg);
-  min-height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   direction: rtl;
 }
 [data-inv2] *, [data-inv2] *::before, [data-inv2] *::after { box-sizing: border-box; }
