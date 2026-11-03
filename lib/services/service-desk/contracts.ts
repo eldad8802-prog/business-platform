@@ -70,7 +70,8 @@ export interface QuoteApproval {
 
 /**
  * The newest quote version of the case. Any change to a sent quote is a NEW version, which needs a new approval.
- * WITHDRAWN = a sent version taken back because the case was cancelled (effect WITHDRAW_OPEN_QUOTE).
+ * WITHDRAWN = a sent version taken back because the case was cancelled (owner-approved, service quotes ONLY).
+ * It is local to this module: no billing document status changes, and no global enum gains a value.
  */
 export interface ServiceQuoteSnapshot {
   version: number;
@@ -79,6 +80,17 @@ export interface ServiceQuoteSnapshot {
   state: "SENT" | "APPROVED" | "REJECTED" | "WITHDRAWN";
   approval: QuoteApproval | null;
 }
+
+/** Identifies one quote version exactly — what a withdrawal instruction names. */
+export interface ServiceQuoteRef {
+  version: number;
+  totalAgorot: number;
+  docHash: string;
+}
+
+export type QuoteWithdrawalDecision =
+  | { ok: true; quote: ServiceQuoteSnapshot }
+  | { ok: false; violations: readonly ServiceCaseViolation[] };
 
 /** IN_SHOP check-in record. Photos, PDF and signature bytes are stored by the service; the core sees booleans. */
 export interface ServiceIntakeFacts {
@@ -111,6 +123,11 @@ export interface ServiceCaseContext {
   openPartReservations: number;
   /** A temporary replacement item lent to the customer and not yet returned. */
   openLoaner: boolean;
+  /**
+   * A cancel was requested while the item was at an external supplier (EXTERNAL). There is no extra status for it:
+   * the case stays EXTERNAL until the return is recorded, and that return must lead to READY / CANCELLED.
+   */
+  cancellationRequested: boolean;
   /** Pickup reminders already sent while READY. */
   pickupRemindersSent: number;
   settlement: ServiceSettlementFacts;
@@ -190,6 +207,9 @@ export type ServiceCaseViolationCode =
   | "QUOTE_VERSION_NOT_NEWER"
   | "QUOTE_NOT_AWAITING_DECISION"
   | "QUOTE_VERSION_MISMATCH"
+  | "QUOTE_WITHDRAWN"
+  | "ALREADY_CANCELLED"
+  | "CANCELLATION_REQUESTED"
   | "APPROVAL_MISMATCH"
   | "APPROVAL_METHOD_NOT_ALLOWED"
   | "REPAIR_NOT_AUTHORIZED"
@@ -243,6 +263,7 @@ export const SERVICE_COMMAND_SERVER_DUTIES = [
 export type ServiceCaseEffect =
   | "RELEASE_PART_RESERVATIONS"
   | "WITHDRAW_OPEN_QUOTE"
+  | "MARK_CANCELLATION_REQUESTED"
   | "ATTEMPT_AUTO_CLOSE"
   | "LINK_REPLACEMENT_DEVICE";
 
@@ -265,6 +286,7 @@ export type ServiceCaseEventType =
   | "case.delivered"
   | "case.closed"
   | "case.cancelled"
+  | "case.cancellation_requested"
   | "case.abandoned";
 
 export type ServiceEventPayloadValue = string | number | boolean | null;
@@ -292,6 +314,8 @@ export type ServiceTransitionDecision =
       holdReason: ServiceHoldReason | null;
       outcome: ServiceOutcome | null;
       effects: readonly ServiceCaseEffect[];
+      /** Set with effect WITHDRAW_OPEN_QUOTE: the exact sent version the service must mark WITHDRAWN. */
+      withdrawQuote: ServiceQuoteRef | null;
       serverChecks: readonly ServiceServerCheck[];
       event: ServiceCaseEventDraft;
     }

@@ -6,24 +6,30 @@
  * service must still verify in the database (`serverChecks`). Locking, the version compare, idempotency and the
  * journal write belong to the command service (task 1.3) — see SERVICE_COMMAND_SERVER_DUTIES.
  *
- * Status graph (spec part B; CANCEL per the reading documented below):
+ * Status graph (spec part B + owner decision on cancel, 2026-11-03):
  *   OPEN          → SCHEDULED | CHECKED_IN | CANCELLED
  *   SCHEDULED     → CHECKED_IN | CANCELLED
- *   CHECKED_IN    → DIAGNOSING | READY (cancel, item held) | CANCELLED (cancel, FIELD)
- *   DIAGNOSING    → QUOTE_PENDING | IN_REPAIR | EXTERNAL | READY
+ *   CHECKED_IN    → DIAGNOSING | READY (cancel, item held) | CANCELLED (cancel, nothing held)
+ *   DIAGNOSING    → QUOTE_PENDING | IN_REPAIR | EXTERNAL | READY | CANCELLED (cancel, nothing held)
  *   QUOTE_PENDING → IN_REPAIR | READY | CANCELLED
- *   IN_REPAIR     → QA | EXTERNAL | QUOTE_PENDING | READY   (+ hold set / cleared in place)
- *   EXTERNAL      → IN_REPAIR | QA | READY
+ *   IN_REPAIR     → QA | EXTERNAL | QUOTE_PENDING | READY | CANCELLED (cancel, nothing held)
+ *                   (+ hold set / cleared in place)
+ *   EXTERNAL      → IN_REPAIR | QA | READY   (+ cancel REQUESTED in place)
  *   QA            → READY | IN_REPAIR
- *   READY         → DELIVERED | ABANDONED
+ *   READY         → DELIVERED | ABANDONED | CANCELLED (cancel, nothing held)   (+ cancel of a held item in place)
  *   DELIVERED     → CLOSED
  *   ABANDONED     → DELIVERED | CLOSED
  *   CLOSED, CANCELLED → (terminal; a repeat repair is a new linked case)
  *
- * CANCEL — the spec's status table allows it from OPEN, SCHEDULED, CHECKED_IN and QUOTE_PENDING, and requires an
- * item the business holds to go out through READY → DELIVERED. So a cancel of an IN_SHOP case that holds the item
- * ends in READY with outcome CANCELLED, never in CANCELLED. Cancelling from IN_REPAIR / EXTERNAL / QA (the
- * alternative-path table says "any stage") is NOT implemented: it needs an owner decision.
+ * CANCEL (owner decision): allowed from every status before the item is handed back — OPEN … READY.
+ *   - the business holds the item (IN_SHOP, CHECKED_IN … READY): a documented reason is required and the case goes
+ *     to READY with outcome CANCELLED. It is NOT delivered: the normal handover (signature, balance) still applies.
+ *   - the item is at an external supplier (EXTERNAL): the cancel is only REQUESTED (reason required). The case stays
+ *     EXTERNAL with `cancellationRequested`; the recorded return from the supplier must then lead to READY with
+ *     outcome CANCELLED. No new status.
+ *   - nothing to hand back (not yet received, or FIELD / MAINTENANCE): CANCELLED, final.
+ *   A cancel never undoes parts used, work done, costs, payments or supplier commitments, and never refunds: the
+ *   only effects are releasing still-open part reservations and withdrawing a still-open quote.
  */
 
 import {
@@ -45,6 +51,9 @@ import {
   type ServiceEventPayloadValue,
   type ServiceHoldReason,
   type ServiceOutcome,
+  type QuoteWithdrawalDecision,
+  type ServiceQuoteRef,
+  type ServiceQuoteSnapshot,
   type ServiceServerCheck,
   type ServiceTransitionDecision,
 } from "./contracts";
@@ -53,12 +62,12 @@ export const TRANSITION_GRAPH: Readonly<Record<ServiceCaseStatus, readonly Servi
   OPEN: ["SCHEDULED", "CHECKED_IN", "CANCELLED"],
   SCHEDULED: ["CHECKED_IN", "CANCELLED"],
   CHECKED_IN: ["DIAGNOSING", "READY", "CANCELLED"],
-  DIAGNOSING: ["QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "READY"],
+  DIAGNOSING: ["QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "READY", "CANCELLED"],
   QUOTE_PENDING: ["IN_REPAIR", "READY", "CANCELLED"],
-  IN_REPAIR: ["QA", "EXTERNAL", "QUOTE_PENDING", "READY"],
+  IN_REPAIR: ["QA", "EXTERNAL", "QUOTE_PENDING", "READY", "CANCELLED"],
   EXTERNAL: ["IN_REPAIR", "QA", "READY"],
   QA: ["READY", "IN_REPAIR"],
-  READY: ["DELIVERED", "ABANDONED"],
+  READY: ["DELIVERED", "ABANDONED", "CANCELLED"],
   DELIVERED: ["CLOSED"],
   CLOSED: [],
   CANCELLED: [],
@@ -84,7 +93,7 @@ export const ACTION_FROM: Readonly<Record<ServiceCaseActionType, readonly Servic
   MARK_NOT_REPAIRABLE: ["DIAGNOSING", "IN_REPAIR"],
   DELIVER: ["READY", "ABANDONED"],
   CLOSE: ["DELIVERED", "ABANDONED"],
-  CANCEL: ["OPEN", "SCHEDULED", "CHECKED_IN", "QUOTE_PENDING"],
+  CANCEL: ["OPEN", "SCHEDULED", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "QA", "READY"],
   ABANDON: ["READY"],
 };
 
@@ -117,7 +126,8 @@ const SYSTEM_ACTIONS: readonly ServiceCaseActionType[] = ["CLOSE"];
 /** Statuses in which an outcome exists (it is decided on entering READY, or by a cancel). */
 const OUTCOME_STATUSES: readonly ServiceCaseStatus[] = ["READY", "DELIVERED", "CLOSED", "ABANDONED", "CANCELLED"];
 
-const IN_PLACE_ACTIONS: readonly ServiceCaseActionType[] = ["SET_HOLD", "CLEAR_HOLD"];
+/** Actions that may leave the status unchanged: holds, and a cancel at EXTERNAL (requested) or of a held READY item. */
+const IN_PLACE_ACTIONS: readonly ServiceCaseActionType[] = ["SET_HOLD", "CLEAR_HOLD", "CANCEL"];
 
 export function isTerminal(status: ServiceCaseStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
@@ -148,6 +158,8 @@ interface Resolution {
   holdReason: ServiceHoldReason | null;
   outcome: ServiceOutcome | null;
   effects: ServiceCaseEffect[];
+  withdrawQuote: ServiceQuoteRef | null;
+  eventType: ServiceCaseEventType | null;
   serverChecks: ServiceServerCheck[];
   payload: Record<string, ServiceEventPayloadValue>;
   violations: ServiceCaseViolation[];
@@ -237,9 +249,10 @@ export function evaluateTransition(
     holdReason: r.holdReason,
     outcome: r.outcome,
     effects: [...r.effects],
+    withdrawQuote: r.withdrawQuote ? { ...r.withdrawQuote } : null,
     serverChecks: [...r.serverChecks],
     event: {
-      type: EVENT_TYPE[type],
+      type: r.eventType ?? EVENT_TYPE[type],
       action: type,
       fromStatus: from,
       toStatus: r.to,
@@ -258,6 +271,8 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     holdReason: null,
     outcome: OUTCOME_STATUSES.includes(context.status) ? context.outcome : null,
     effects: [],
+    withdrawQuote: null,
+    eventType: null,
     serverChecks: [],
     payload: {},
     violations: [],
@@ -345,6 +360,10 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       r.to = "IN_REPAIR";
       const q = context.currentQuote;
       const a = action.approval;
+      if (q?.state === "WITHDRAWN") {
+        fail("QUOTE_WITHDRAWN", `version ${q.version} was withdrawn and can no longer be approved`);
+        break;
+      }
       if (!q || q.state !== "SENT") {
         fail("QUOTE_NOT_AWAITING_DECISION", "no sent quote awaits a decision");
         break;
@@ -367,7 +386,8 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       r.to = "READY";
       r.outcome = "QUOTE_REJECTED";
       const q = context.currentQuote;
-      if (!q || q.state !== "SENT") fail("QUOTE_NOT_AWAITING_DECISION", "no sent quote awaits a decision");
+      if (q?.state === "WITHDRAWN") fail("QUOTE_WITHDRAWN", `version ${q.version} was withdrawn`);
+      else if (!q || q.state !== "SENT") fail("QUOTE_NOT_AWAITING_DECISION", "no sent quote awaits a decision");
       else if (action.version !== q.version) fail("QUOTE_VERSION_MISMATCH", `current version is ${q.version}`);
       else r.payload.quoteVersion = q.version;
       break;
@@ -409,6 +429,21 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     case "RETURN_FROM_EXTERNAL": {
       r.to = action.next;
       r.payload.next = action.next;
+      if (context.cancellationRequested) {
+        // The cancel requested while the item was away completes here: back from the supplier, ready to hand back.
+        if (action.next !== "READY") {
+          fail("CANCELLATION_REQUESTED", "the case was cancelled: the returned item goes to READY");
+          break;
+        }
+        if (action.outcome !== undefined) {
+          fail("OUTCOME_NOT_ALLOWED", "a cancelled case returns with outcome CANCELLED");
+          break;
+        }
+        r.outcome = "CANCELLED";
+        r.payload.outcome = "CANCELLED";
+        r.payload.cancellationCompleted = true;
+        break;
+      }
       if (action.next === "READY") {
         if (!action.outcome) {
           fail("OUTCOME_REQUIRED", "READY needs the outcome of the external work");
@@ -505,14 +540,40 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       break;
     }
     case "CANCEL": {
+      const atSupplier = context.status === "EXTERNAL";
       const held = itemHeldByBusiness(context.kind, context.status);
-      // An item the business holds is not "returned" by a cancel: it leaves through READY → DELIVERED.
-      r.to = held ? "READY" : "CANCELLED";
-      r.outcome = "CANCELLED";
+      const reason = hasText(action.reason) ? action.reason.trim() : null;
+      if (context.outcome === "CANCELLED" || context.cancellationRequested) {
+        fail("ALREADY_CANCELLED", "this case is already cancelled");
+        break;
+      }
+      if ((held || atSupplier) && reason === null) {
+        fail("REASON_REQUIRED", "cancelling while the item is with the business or a supplier needs a reason");
+        break;
+      }
       r.payload.itemHeldByBusiness = held;
-      r.payload.reason = hasText(action.reason) ? action.reason.trim() : null;
+      r.payload.itemAtSupplier = atSupplier;
+      r.payload.reason = reason;
+      r.payload.quoteStateAtCancel = context.currentQuote?.state ?? null;
+      r.payload.openPartReservations = isNonNegativeInt(context.openPartReservations) ? context.openPartReservations : null;
+      if (context.status === "READY") r.payload.previousOutcome = context.outcome;
+      if (atSupplier) {
+        // Requested only: the item cannot be "ready" while a supplier has it. The return completes the cancel.
+        r.to = "EXTERNAL";
+        r.outcome = null;
+        r.eventType = "case.cancellation_requested";
+        r.effects.push("MARK_CANCELLATION_REQUESTED");
+      } else {
+        // A held item is not "returned" by a cancel: it leaves through READY → DELIVERED with the normal handover.
+        r.to = held ? "READY" : "CANCELLED";
+        r.outcome = "CANCELLED";
+      }
       if (context.openPartReservations > 0) r.effects.push("RELEASE_PART_RESERVATIONS");
-      if (context.currentQuote?.state === "SENT") r.effects.push("WITHDRAW_OPEN_QUOTE");
+      const q = context.currentQuote;
+      if (q?.state === "SENT") {
+        r.effects.push("WITHDRAW_OPEN_QUOTE");
+        r.withdrawQuote = { version: q.version, totalAgorot: q.totalAgorot, docHash: q.docHash };
+      }
       break;
     }
     case "ABANDON": {
@@ -533,6 +594,27 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
   }
 
   return r;
+}
+
+// ── Quote withdrawal (service quotes only) ─────────────────────────────────────────────────────────────────
+
+/**
+ * The quote after a withdrawal, for the service layer to persist when it applies WITHDRAW_OPEN_QUOTE. Only a SENT
+ * version can be withdrawn — never twice, and never an approved or rejected one (its history and approval stay).
+ * Version, total, document hash and any earlier approval are carried over unchanged; the input is not mutated.
+ */
+export function withdrawQuote(quote: ServiceQuoteSnapshot, ref: ServiceQuoteRef): QuoteWithdrawalDecision {
+  if (quote.state !== "SENT") {
+    const code: ServiceCaseViolationCode = quote.state === "WITHDRAWN" ? "QUOTE_WITHDRAWN" : "QUOTE_NOT_AWAITING_DECISION";
+    return { ok: false, violations: [violation(code, `version ${quote.version} is ${quote.state}, not open`)] };
+  }
+  if (ref.version !== quote.version || ref.totalAgorot !== quote.totalAgorot || ref.docHash !== quote.docHash) {
+    return { ok: false, violations: [violation("QUOTE_VERSION_MISMATCH", "the instruction names another version")] };
+  }
+  return {
+    ok: true,
+    quote: { ...quote, state: "WITHDRAWN", approval: quote.approval ? { ...quote.approval } : null },
+  };
 }
 
 // ── Command envelope ───────────────────────────────────────────────────────────────────────────────────────

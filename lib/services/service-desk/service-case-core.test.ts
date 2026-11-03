@@ -38,6 +38,7 @@ import {
   isRepairAuthorized,
   isTerminal,
   itemHeldByBusiness,
+  withdrawQuote,
 } from "./service-case.core";
 
 let failures = 0;
@@ -84,6 +85,7 @@ function ctx(o: Partial<ServiceCaseContext> = {}): ServiceCaseContext {
     openPartReservations: 0,
     openLoaner: false,
     pickupRemindersSent: 0,
+    cancellationRequested: false,
     settlement: { known: true, openBalanceAgorot: 0 },
     ...o,
   };
@@ -103,12 +105,12 @@ const EXPECTED: Record<ServiceCaseStatus, ServiceCaseStatus[]> = {
   OPEN: ["SCHEDULED", "CHECKED_IN", "CANCELLED"],
   SCHEDULED: ["CHECKED_IN", "CANCELLED"],
   CHECKED_IN: ["DIAGNOSING", "READY", "CANCELLED"],
-  DIAGNOSING: ["QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "READY"],
+  DIAGNOSING: ["QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "READY", "CANCELLED"], // owner decision 11-03: cancel from any stage
   QUOTE_PENDING: ["IN_REPAIR", "READY", "CANCELLED"],
-  IN_REPAIR: ["QA", "EXTERNAL", "QUOTE_PENDING", "READY"],
+  IN_REPAIR: ["QA", "EXTERNAL", "QUOTE_PENDING", "READY", "CANCELLED"], // owner decision 11-03
   EXTERNAL: ["IN_REPAIR", "QA", "READY"],
   QA: ["READY", "IN_REPAIR"],
-  READY: ["DELIVERED", "ABANDONED"],
+  READY: ["DELIVERED", "ABANDONED", "CANCELLED"], // owner decision 11-03 (nothing held)
   DELIVERED: ["CLOSED"],
   CLOSED: [],
   CANCELLED: [],
@@ -149,7 +151,7 @@ const EXPECTED_FROM: Record<ServiceCaseActionType, ServiceCaseStatus[]> = {
   MARK_NOT_REPAIRABLE: ["DIAGNOSING", "IN_REPAIR"],
   DELIVER: ["READY", "ABANDONED"],
   CLOSE: ["DELIVERED", "ABANDONED"],
-  CANCEL: ["OPEN", "SCHEDULED", "CHECKED_IN", "QUOTE_PENDING"],
+  CANCEL: ["OPEN", "SCHEDULED", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "QA", "READY"], // owner decision 11-03
   ABANDON: ["READY"],
 };
 for (const [type, froms] of Object.entries(EXPECTED_FROM) as [ServiceCaseActionType, ServiceCaseStatus[]][]) {
@@ -181,7 +183,7 @@ function samples(kind: ServiceCaseKind): Sample[] {
     { action: { type: "MARK_NOT_REPAIRABLE" }, actor: OWNER },
     { action: { type: "DELIVER", receipt: RECEIPT }, actor: OWNER, over: { outcome: "REPAIRED" } },
     { action: { type: "CLOSE" }, actor: SYSTEM, over: { outcome: "REPAIRED" } },
-    { action: { type: "CANCEL" }, actor: OWNER },
+    { action: { type: "CANCEL", reason: "הלקוח ביטל" }, actor: OWNER },
     { action: { type: "ABANDON", reason: "לא נאסף אחרי 3 תזכורות" }, actor: OWNER, over: { outcome: "REPAIRED", pickupRemindersSent: 3 } },
   ];
 }
@@ -342,15 +344,133 @@ console.log("  4.5 cancelled");
   const open = ev(ctx({ status: "OPEN" }), { type: "CANCEL", reason: "הלקוח התחרט" }, OWNER);
   allowedTo("cancel before the item arrives → CANCELLED", open, "CANCELLED");
   check("  …outcome CANCELLED, item not held", open.ok && open.outcome === "CANCELLED" && open.event.payload.itemHeldByBusiness === false);
-  const held = ev(ctx({ status: "CHECKED_IN" }), { type: "CANCEL" }, OWNER);
+  const held = ev(ctx({ status: "CHECKED_IN" }), { type: "CANCEL", reason: "הלקוח ביטל" }, OWNER);
   allowedTo("cancel while the shop holds the item → READY, not CANCELLED", held, "READY");
   check("  …outcome CANCELLED and the item is recorded as still held", held.ok && held.outcome === "CANCELLED" && held.event.payload.itemHeldByBusiness === true);
-  const withOpen = ev(ctx({ status: "QUOTE_PENDING", currentQuote: sentQuote(), openPartReservations: 1 }), { type: "CANCEL" }, OWNER);
+  const withOpen = ev(ctx({ status: "QUOTE_PENDING", currentQuote: sentQuote(), openPartReservations: 1 }), { type: "CANCEL", reason: "x" }, OWNER);
   check("cancel with a sent quote and a reservation → withdraw + release", withOpen.ok && withOpen.effects.includes("WITHDRAW_OPEN_QUOTE") && withOpen.effects.includes("RELEASE_PART_RESERVATIONS"));
   allowedTo("a FIELD case holds nothing → CANCELLED", ev(ctx({ kind: "FIELD", status: "CHECKED_IN" }), { type: "CANCEL" }, OWNER), "CANCELLED");
-  refusedWith("cancel during repair is not implemented (owner decision pending)", ev(ctx({ status: "IN_REPAIR" }), { type: "CANCEL" }, OWNER), "INVALID_TRANSITION");
+  // Expectation changed by the owner decision of 11-03 (was: INVALID_TRANSITION — cancel during repair not implemented).
+  allowedTo("cancel during repair (owner decision 11-03) → READY", ev(ctx({ status: "IN_REPAIR", currentQuote: approvedQuote() }), { type: "CANCEL", reason: "x" }, OWNER), "READY");
   refusedWith("a CANCELLED case is final", ev(ctx({ status: "CANCELLED", outcome: "CANCELLED" }), { type: "CHECK_IN" }, OWNER), "TERMINAL_STATUS");
   check("cancelling never deletes: it is an event like any other", open.ok && open.event.type === "case.cancelled");
+}
+
+console.log("  4.5a cancel from every stage before handover (owner decision 11-03)");
+{
+  type Expect = { to: ServiceCaseStatus; outcome: "CANCELLED" | null; reasonRequired: boolean };
+  // IN_SHOP: from check-in on, the shop holds the item → READY; at the supplier → requested, stays EXTERNAL.
+  const IN_SHOP_EXPECT: Partial<Record<ServiceCaseStatus, Expect>> = {
+    OPEN: { to: "CANCELLED", outcome: "CANCELLED", reasonRequired: false },
+    SCHEDULED: { to: "CANCELLED", outcome: "CANCELLED", reasonRequired: false },
+    CHECKED_IN: { to: "READY", outcome: "CANCELLED", reasonRequired: true },
+    DIAGNOSING: { to: "READY", outcome: "CANCELLED", reasonRequired: true },
+    QUOTE_PENDING: { to: "READY", outcome: "CANCELLED", reasonRequired: true },
+    IN_REPAIR: { to: "READY", outcome: "CANCELLED", reasonRequired: true },
+    EXTERNAL: { to: "EXTERNAL", outcome: null, reasonRequired: true },
+    QA: { to: "READY", outcome: "CANCELLED", reasonRequired: true },
+    READY: { to: "READY", outcome: "CANCELLED", reasonRequired: true },
+  };
+  // FIELD: nothing is held at the business, except an item a supplier has.
+  const FIELD_EXPECT: Partial<Record<ServiceCaseStatus, Expect>> = {
+    OPEN: { to: "CANCELLED", outcome: "CANCELLED", reasonRequired: false },
+    SCHEDULED: { to: "CANCELLED", outcome: "CANCELLED", reasonRequired: false },
+    CHECKED_IN: { to: "CANCELLED", outcome: "CANCELLED", reasonRequired: false },
+    DIAGNOSING: { to: "CANCELLED", outcome: "CANCELLED", reasonRequired: false },
+    QUOTE_PENDING: { to: "CANCELLED", outcome: "CANCELLED", reasonRequired: false },
+    IN_REPAIR: { to: "CANCELLED", outcome: "CANCELLED", reasonRequired: false },
+    EXTERNAL: { to: "EXTERNAL", outcome: null, reasonRequired: true },
+    READY: { to: "CANCELLED", outcome: "CANCELLED", reasonRequired: false },
+  };
+  for (const [kind, table] of [["IN_SHOP", IN_SHOP_EXPECT], ["FIELD", FIELD_EXPECT]] as const) {
+    for (const [status, e] of Object.entries(table) as [ServiceCaseStatus, Expect][]) {
+      const base = ctx({ kind, status, outcome: status === "READY" ? "REPAIRED" : null, intake: kind === "FIELD" ? null : undefined });
+      const d = ev(base, { type: "CANCEL", reason: "בקשת הלקוח" }, OWNER);
+      check(`${kind} ${status}: cancel → ${e.to} / outcome ${e.outcome}`, d.ok && d.to === e.to && d.outcome === e.outcome && d.holdReason === null, d.ok ? `${d.to}/${d.outcome}` : codes(d).join(","));
+      const bare = ev(base, { type: "CANCEL" }, OWNER);
+      check(`${kind} ${status}: reason ${e.reasonRequired ? "required" : "optional"}`, e.reasonRequired ? !bare.ok && codes(bare).includes("REASON_REQUIRED") : bare.ok);
+    }
+  }
+  for (const s of ["DELIVERED", "CLOSED", "CANCELLED", "ABANDONED"] as ServiceCaseStatus[]) {
+    const d = ev(ctx({ status: s, outcome: "REPAIRED" }), { type: "CANCEL", reason: "x" }, OWNER);
+    check(`no cancel from ${s}`, !d.ok && codes(d).some((c) => c === "INVALID_TRANSITION" || c === "TERMINAL_STATUS"), codes(d).join(","));
+  }
+  refusedWith("a READY item already cancelled is not cancelled twice", ev(ready({ outcome: "CANCELLED" }), { type: "CANCEL", reason: "x" }, OWNER), "ALREADY_CANCELLED");
+  refusedWith("a CANCELLED case cannot be cancelled again", ev(ctx({ status: "CANCELLED", outcome: "CANCELLED" }), { type: "CANCEL", reason: "x" }, OWNER), "TERMINAL_STATUS");
+  refusedWith("a CLOSED case cannot be cancelled (nor reopened)", ev(ctx({ status: "CLOSED", outcome: "REPAIRED" }), { type: "CANCEL", reason: "x" }, OWNER), "TERMINAL_STATUS");
+  refusedWith("the customer link may not cancel", ev(ctx({ status: "OPEN" }), { type: "CANCEL" }, CUSTOMER), "ACTOR_NOT_ALLOWED");
+
+  // the item at an external supplier
+  const atSup = ctx({ status: "EXTERNAL", currentQuote: approvedQuote() });
+  const req = ev(atSup, { type: "CANCEL", reason: "הלקוח לא מעוניין" }, OWNER);
+  check("at the supplier: the cancel is REQUESTED, the case stays EXTERNAL", req.ok && !req.statusChanged && req.to === "EXTERNAL" && req.outcome === null);
+  check("  …event case.cancellation_requested, effect MARK_CANCELLATION_REQUESTED", req.ok && req.event.type === "case.cancellation_requested" && req.effects.includes("MARK_CANCELLATION_REQUESTED"));
+  check("  …and records that the item is at the supplier", req.ok && req.event.payload.itemAtSupplier === true);
+  const requested = { ...atSup, cancellationRequested: true };
+  refusedWith("the item still at the supplier cannot be delivered", ev(requested, { type: "DELIVER", receipt: RECEIPT }, OWNER), "INVALID_TRANSITION");
+  refusedWith("…nor marked READY by any cancel", ev(requested, { type: "CANCEL", reason: "x" }, OWNER), "ALREADY_CANCELLED");
+  refusedWith("back from the supplier into repair after a cancel → refused", ev(requested, { type: "RETURN_FROM_EXTERNAL", next: "IN_REPAIR" }, OWNER), "CANCELLATION_REQUESTED");
+  refusedWith("back from the supplier into QA after a cancel → refused", ev(requested, { type: "RETURN_FROM_EXTERNAL", next: "QA" }, OWNER), "CANCELLATION_REQUESTED");
+  refusedWith("a cancelled return cannot claim REPAIRED", ev(requested, { type: "RETURN_FROM_EXTERNAL", next: "READY", outcome: "REPAIRED" }, OWNER), "OUTCOME_NOT_ALLOWED");
+  const back = ev(requested, { type: "RETURN_FROM_EXTERNAL", next: "READY" }, OWNER);
+  check("documented return from the supplier completes the cancel → READY / CANCELLED", back.ok && back.to === "READY" && back.outcome === "CANCELLED" && back.event.payload.cancellationCompleted === true);
+  check("  …and needs no repair authorisation", ev({ ...requested, currentQuote: null }, { type: "RETURN_FROM_EXTERNAL", next: "READY" }, OWNER).ok);
+
+  // nothing is undone, nothing is refunded
+  const afterParts = ev(ctx({ status: "IN_REPAIR", currentQuote: approvedQuote(), openPartReservations: 0, holdReason: "PARTS" }), { type: "CANCEL", reason: "x" }, OWNER);
+  check("cancel after parts were used: no stock, money or refund effect", afterParts.ok && afterParts.effects.length === 0 && afterParts.withdrawQuote === null);
+  check("  …the hold ends with the repair stage", afterParts.ok && afterParts.holdReason === null);
+  const withRes = ev(ctx({ status: "QA", openPartReservations: 2 }), { type: "CANCEL", reason: "x" }, OWNER);
+  check("cancel with open reservations: only RELEASE_PART_RESERVATIONS", withRes.ok && withRes.effects.length === 1 && withRes.effects[0] === "RELEASE_PART_RESERVATIONS" && withRes.event.payload.openPartReservations === 2);
+  const approved = ev(ctx({ status: "IN_REPAIR", currentQuote: approvedQuote() }), { type: "CANCEL", reason: "x" }, OWNER);
+  check("cancel with an APPROVED quote: no withdrawal, the approval is history", approved.ok && !approved.effects.includes("WITHDRAW_OPEN_QUOTE") && approved.event.payload.quoteStateAtCancel === "APPROVED");
+  const readyCancel = ev(ready({ outcome: "REPAIRED" }), { type: "CANCEL", reason: "x" }, OWNER);
+  check("cancel at READY keeps the earlier outcome in the event", readyCancel.ok && readyCancel.event.payload.previousOutcome === "REPAIRED" && readyCancel.outcome === "CANCELLED");
+
+  // after a cancel the handover rules are the normal ones
+  const cancelledReady = ready({ outcome: "CANCELLED", settlement: { known: true, openBalanceAgorot: 12_000 } });
+  refusedWith("cancelled + open balance: delivery still needs the owner's decision", ev(cancelledReady, { type: "DELIVER", receipt: RECEIPT }, OWNER), "OPEN_BALANCE_NEEDS_OWNER_DECISION");
+  refusedWith("cancelled: delivery still needs the receiver's signature", ev(ready({ outcome: "CANCELLED" }), { type: "DELIVER", receipt: { receivedByName: "x", signatureCaptured: false } }, OWNER), "RECEIPT_INCOMPLETE");
+  allowedTo("cancelled: handed back with the owner's decision on the balance", ev(cancelledReady, { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "יקוזז" } }, OWNER), "DELIVERED");
+  const balCancel = ev(ctx({ status: "IN_REPAIR", settlement: { known: true, openBalanceAgorot: 12_000 } }), { type: "CANCEL", reason: "x" }, OWNER);
+  check("cancel with an open balance is not blocked and changes no money", balCancel.ok && balCancel.effects.length === 0);
+
+  // history and inputs are kept
+  const frozen = deepFreeze(ctx({ status: "QUOTE_PENDING", currentQuote: sentQuote(3, 70_000, "h3"), openPartReservations: 1 }));
+  const snapshot = JSON.stringify(frozen);
+  const fd = ev(frozen, { type: "CANCEL", reason: "x" }, OWNER);
+  check("cancel does not mutate the case it judges", fd.ok && JSON.stringify(frozen) === snapshot);
+  check("cancel is an appended event (from, to, action), never a delete", fd.ok && fd.event.fromStatus === "QUOTE_PENDING" && fd.event.toStatus === "READY" && fd.event.action === "CANCEL");
+}
+
+console.log("  4.5b WITHDRAWN — service quotes only (owner decision 11-03)");
+{
+  const sent = sentQuote(3, 70_000, "h3");
+  const d = ev(ctx({ status: "QUOTE_PENDING", currentQuote: sent }), { type: "CANCEL", reason: "x" }, OWNER);
+  check("a cancel with a sent quote returns a structured withdrawal instruction", d.ok && d.effects.includes("WITHDRAW_OPEN_QUOTE") && d.withdrawQuote !== null && d.withdrawQuote.version === 3 && d.withdrawQuote.totalAgorot === 70_000 && d.withdrawQuote.docHash === "h3");
+  const frozenQuote = deepFreeze({ ...sent });
+  const w = withdrawQuote(frozenQuote, { version: 3, totalAgorot: 70_000, docHash: "h3" });
+  check("withdrawQuote → WITHDRAWN, version / total / document kept", w.ok && w.quote.state === "WITHDRAWN" && w.quote.version === 3 && w.quote.totalAgorot === 70_000 && w.quote.docHash === "h3");
+  check("  …the input quote is untouched", frozenQuote.state === "SENT");
+  const twice = w.ok ? withdrawQuote(w.quote, { version: 3, totalAgorot: 70_000, docHash: "h3" }) : null;
+  check("no double withdrawal", twice !== null && !twice.ok && twice.violations[0].code === "QUOTE_WITHDRAWN");
+  const ap = approvedQuote(2, 52_000, "h2");
+  const wa = withdrawQuote(ap, { version: 2, totalAgorot: 52_000, docHash: "h2" });
+  check("an approved quote is not withdrawn (its approval stays history)", !wa.ok && ap.approval !== null && ap.state === "APPROVED");
+  const wr = withdrawQuote({ ...sent, state: "REJECTED" }, { version: 3, totalAgorot: 70_000, docHash: "h3" });
+  check("a rejected quote is not withdrawn", !wr.ok);
+  const wm = withdrawQuote(sent, { version: 2, totalAgorot: 70_000, docHash: "h3" });
+  check("an instruction naming another version is refused", !wm.ok && wm.violations[0].code === "QUOTE_VERSION_MISMATCH");
+  const withdrawnCase = ctx({ status: "QUOTE_PENDING", currentQuote: { ...sent, state: "WITHDRAWN" } });
+  refusedWith("a withdrawn quote cannot be approved (owner)", ev(withdrawnCase, { type: "APPROVE_QUOTE", approval: { version: 3, totalAgorot: 70_000, docHash: "h3", method: "PHONE" } }, OWNER), "QUOTE_WITHDRAWN");
+  refusedWith("a withdrawn quote cannot be approved (customer link)", ev(withdrawnCase, { type: "APPROVE_QUOTE", approval: { version: 3, totalAgorot: 70_000, docHash: "h3", method: "LINK" } }, CUSTOMER), "QUOTE_WITHDRAWN");
+  refusedWith("a withdrawn quote cannot be rejected either", ev(withdrawnCase, { type: "REJECT_QUOTE", version: 3 }, CUSTOMER), "QUOTE_WITHDRAWN");
+  check("a withdrawn quote does not authorise a repair", !isRepairAuthorized(withdrawnCase));
+  const noOpen = ev(ctx({ status: "IN_REPAIR", currentQuote: { ...sent, state: "WITHDRAWN" } }), { type: "CANCEL", reason: "x" }, OWNER);
+  check("no withdrawal instruction when nothing is open", noOpen.ok && noOpen.withdrawQuote === null && !noOpen.effects.includes("WITHDRAW_OPEN_QUOTE"));
+  allowedTo("a cancelled case with a withdrawn quote can close", ev(ctx({ status: "DELIVERED", outcome: "CANCELLED", currentQuote: { ...sent, state: "WITHDRAWN" } }), { type: "CLOSE" }, SYSTEM), "CLOSED");
+  const coreSrc = fs.readFileSync(path.join(process.cwd(), "lib/services/service-desk/service-case.core.ts"), "utf8");
+  check("WITHDRAWN stays local: the core touches no billing module", !/billing|BillingDocument|@prisma/.test(coreSrc.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "")));
 }
 
 console.log("  4.6 waiting for a part");
@@ -435,7 +555,7 @@ console.log("— 5. three separate fields");
   const many = new Set([
     ev(ctx({ status: "DIAGNOSING" }), { type: "MARK_NOT_REPAIRABLE" }, OWNER),
     ev(ctx({ status: "QUOTE_PENDING", currentQuote: sentQuote() }), { type: "REJECT_QUOTE", version: 1 }, OWNER),
-    ev(ctx({ status: "CHECKED_IN" }), { type: "CANCEL" }, OWNER),
+    ev(ctx({ status: "CHECKED_IN" }), { type: "CANCEL", reason: "x" }, OWNER),
     ev(ctx({ status: "QA" }), { type: "PASS_QA", outcome: "REPAIRED" }, OWNER),
   ].map((d) => (d.ok ? `${d.to}:${d.outcome}` : "refused")));
   check("four different outcomes share the one READY status", many.size === 4 && [...many].every((k) => k.startsWith("READY:")), [...many].join(" "));
