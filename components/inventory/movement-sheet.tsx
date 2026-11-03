@@ -1,59 +1,25 @@
 "use client";
 
 /**
- * Movement Bottom Sheet — mockup `s3` (docs/docsdesign/inventory_screens.html.txt).
- * Segmented type (IN/OUT/ADJUSTMENT), reason, stepper, live before→after preview,
- * note, confirm. Delta-based: the inventory service computes
+ * Movement sheet — owner-approved redesign mockup "עדכון מלאי" (2026-11-03).
+ * Segmented type (IN/OUT/ADJUSTMENT), product card, quantity, reason, note and a
+ * before → after preview. Delta-based: the inventory service computes
  * quantityAfter = quantityBefore + quantityDelta, so all three types submit a
- * non-zero quantityDelta — no logic/endpoint change.
+ * non-zero quantityDelta — the payload is unchanged.
+ *
+ * Rendered through the kit's InvSheet, which portals to <body> (above the app's
+ * bottom bar and the accessibility button) and lifts itself above an on-screen
+ * keyboard (keyboardSheetInset).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { createInventoryMovement } from "@/lib/api/inventory";
-import {
-  BottomSheet,
-  SegmentedControl,
-  Stepper,
-  SheetActions,
-} from "@/components/inventory/inventory-primitives";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { MOVEMENT_REASON_LABEL_KEYS } from "@/lib/inventory/inventory-labels";
-import { keyboardSheetInset, type SheetViewportInset } from "@/lib/inventory/sheet-viewport";
+import { qtyWithUnit } from "@/lib/inventory/unit-words";
+import { I2, InvButton, InvNote, InvQty, InvSegmented, InvSheet, ProductThumb } from "@/components/inventory/v2/kit";
 
-/**
- * Keep the sheet above an on-screen keyboard. The keyboard shrinks the visual
- * viewport but not the layout one, so a bottom:0 sheet would keep its confirm row
- * behind the keyboard. While something covers the bottom, the sheet is lifted by
- * that height and capped to the visible height (it scrolls inside); the focused
- * field is kept in view. No keyboard → no inline style, the sheet's CSS applies.
- */
-function useKeyboardInset(): SheetViewportInset | null {
-  const [inset, setInset] = useState<SheetViewportInset | null>(null);
-  useEffect(() => {
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    if (!vv) return;
-    const update = () => {
-      const next = keyboardSheetInset(window.innerHeight, { height: vv.height, offsetTop: vv.offsetTop });
-      setInset((cur) => (cur?.bottom === next?.bottom && cur?.maxHeight === next?.maxHeight ? cur : next));
-      if (next) {
-        const active = document.activeElement;
-        if (active instanceof HTMLElement && active.closest(".inv-sheet")) {
-          requestAnimationFrame(() => active.scrollIntoView({ block: "nearest" }));
-        }
-      }
-    };
-    update();
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  }, []);
-  return inset;
-}
-
-type MovementKind = "IN" | "OUT" | "ADJUSTMENT";
+export type MovementKind = "IN" | "OUT" | "ADJUSTMENT";
 
 const IN_REASONS = [
   { value: "MANUAL_ADD" },
@@ -67,25 +33,41 @@ const OUT_REASONS = [
   { value: "DAMAGE" },
 ] as const;
 
+const QTY_LABEL: Record<MovementKind, string> = {
+  IN: "כמות להוספה",
+  OUT: "כמות להפחתה",
+  ADJUSTMENT: "הכמות שנספרה",
+};
+
+const NOT_ENOUGH = "אין מספיק מלאי להפחתה הזו";
+
+/** The server's English message that an owner can actually hit here, in Hebrew. */
+function movementErrorText(message: string): string {
+  if (/negative inventory is not allowed/i.test(message)) return NOT_ENOUGH;
+  return message;
+}
+
 export default function MovementSheet({
   itemId,
   itemName,
+  imageUrl,
   currentQuantity,
-  unitLabel,
+  unitType,
   initialType = "IN",
   onClose,
   onSuccess,
 }: {
   itemId: number;
   itemName: string;
+  imageUrl?: string | null;
   currentQuantity: number;
-  unitLabel?: string;
+  unitType: string;
   initialType?: MovementKind;
   onClose: () => void;
   onSuccess: () => Promise<void> | void;
 }) {
   const { t } = useI18n();
-  const unit = unitLabel ? ` ${unitLabel}` : "";
+  const ids = useId();
   const [kind, setKind] = useState<MovementKind>(initialType);
   // For IN/OUT this is the magnitude to add/remove; for ADJUSTMENT it is the new counted quantity.
   const [value, setValue] = useState<number>(initialType === "ADJUSTMENT" ? currentQuantity : 1);
@@ -111,7 +93,6 @@ export default function MovementSheet({
     return { delta: value - currentQuantity, after: value, min: 0 };
   }, [kind, value, currentQuantity]);
 
-  const display = kind === "IN" ? `+${value}` : kind === "OUT" ? `−${value}` : `${value}`;
   const invalid = delta === 0 || after < 0;
 
   async function handleConfirm() {
@@ -129,91 +110,104 @@ export default function MovementSheet({
       await onSuccess();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("customers.inventoryKit.movement.saveError"));
+      setError(err instanceof Error ? movementErrorText(err.message) : t("customers.inventoryKit.movement.saveError"));
     } finally {
       setLoading(false);
     }
   }
 
   const reasons = kind === "OUT" ? OUT_REASONS : IN_REASONS;
-  const keyboard = useKeyboardInset();
+  const reasonId = `${ids}-reason`;
+  const noteId = `${ids}-note`;
 
   return (
-    <BottomSheet
-      sheetStyle={keyboard ? { bottom: keyboard.bottom, maxHeight: keyboard.maxHeight } : undefined}
-      title={t("customers.inventoryKit.movement.updateTitle")}
-      who={
-        <>
-          {itemName} · {t("customers.inventoryKit.movement.currentStock")} <bdi>{currentQuantity}{unit}</bdi>
-        </>
-      }
+    <InvSheet
+      title="עדכון מלאי"
       onClose={onClose}
       footer={
-        <SheetActions
-          confirmLabel={loading ? t("customers.inventoryKit.movement.saving") : t("customers.inventoryKit.movement.confirmUpdate")}
-          onCancel={onClose}
-          onConfirm={handleConfirm}
-          confirmDisabled={loading || invalid}
-        />
+        <>
+          {error ? <InvNote tone="danger">{error}</InvNote> : null}
+          <div className="i2-actions">
+            <InvButton onClick={() => void handleConfirm()} disabled={loading || invalid}>
+              {loading ? t("customers.inventoryKit.movement.saving") : "אישור עדכון"}
+            </InvButton>
+            <InvButton kind="secondary" onClick={onClose} disabled={loading}>
+              ביטול
+            </InvButton>
+          </div>
+        </>
       }
     >
-      <SegmentedControl<MovementKind>
+      <InvSegmented<MovementKind>
         value={kind}
         onChange={changeKind}
+        label="סוג העדכון"
         options={[
-          { value: "IN", label: t("customers.inventoryKit.labels.movementType.in") },
-          { value: "OUT", label: t("customers.inventoryKit.labels.movementType.out") },
-          { value: "ADJUSTMENT", label: t("customers.inventoryKit.reasons.countFix") },
+          { value: "IN", label: "הוספה" },
+          { value: "OUT", label: "הפחתה" },
+          { value: "ADJUSTMENT", label: "תיקון ספירה" },
         ]}
-        style={{ marginBottom: 16 }}
       />
 
+      <div className="i2-card" style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 14 }}>
+        <ProductThumb src={imageUrl} name={itemName} size={64} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="i2-row__title">
+            <span>{itemName}</span>
+          </div>
+          <div className="i2-muted" style={{ fontSize: 14.5, marginTop: 2 }}>
+            כמות נוכחית: <bdi>{qtyWithUnit(currentQuantity, unitType)}</bdi>
+          </div>
+        </div>
+      </div>
+
+      <div className="i2-field i2-field--stack" style={{ marginTop: 14 }}>
+        <span className="i2-field__lab">{QTY_LABEL[kind]}</span>
+        <InvQty value={value} onChange={setValue} min={min} size="lg" label={QTY_LABEL[kind]} disabled={loading} />
+      </div>
+
       {kind !== "ADJUSTMENT" ? (
-        <>
-          <div className="inv-field__lab">{t("customers.inventoryKit.movement.reason")}</div>
-          <select
-            className="inv-input"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            style={{ marginBottom: 6 }}
-          >
+        <div className="i2-field i2-field--stack">
+          <label className="i2-field__lab" htmlFor={reasonId}>
+            סיבה
+          </label>
+          <select id={reasonId} className="i2-select" value={reason} onChange={(e) => setReason(e.target.value)} disabled={loading}>
             {reasons.map((r) => (
               <option key={r.value} value={r.value}>
                 {t(MOVEMENT_REASON_LABEL_KEYS[r.value])}
               </option>
             ))}
           </select>
-        </>
-      ) : null}
-
-      <Stepper
-        value={value}
-        display={display}
-        min={min}
-        onDecrement={() => setValue((v) => Math.max(min, v - 1))}
-        onIncrement={() => setValue((v) => v + 1)}
-      />
-
-      <div className="inv-preview">
-        {t("customers.inventoryKit.movement.afterUpdate")}{" "}
-        <b>
-          <bdi>{currentQuantity}</bdi> {t("customers.inventoryKit.movement.arrow")} <bdi>{after}{unit}</bdi>
-        </b>
-      </div>
-
-      <input
-        className="inv-input"
-        placeholder={t("customers.inventoryKit.movement.noteOptional")}
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        style={{ marginBottom: 18 }}
-      />
-
-      {error ? (
-        <div className="inv-alert inv-alert--error" style={{ marginBottom: 12 }}>
-          {error}
         </div>
       ) : null}
-    </BottomSheet>
+
+      <div className="i2-field i2-field--stack">
+        <label className="i2-field__lab" htmlFor={noteId}>
+          הערה <span className="i2-field__opt">(אופציונלי)</span>
+        </label>
+        <textarea id={noteId} className="i2-textarea" placeholder="הוספת הערה..." value={note} onChange={(e) => setNote(e.target.value)} rows={2} disabled={loading} />
+      </div>
+
+      <div className="i2-box i2-split i2-split--arrow" style={{ marginTop: 6 }} aria-live="polite">
+        <div>
+          <small>כמות נוכחית</small>
+          <b className="i2-num">
+            <bdi>{qtyWithUnit(currentQuantity, unitType)}</bdi>
+          </b>
+        </div>
+        <span className="i2-split__arrow" aria-hidden>
+          {I2.arrowLeft(22)}
+        </span>
+        <div>
+          <small>כמות לאחר העדכון</small>
+          <b className="i2-num">
+            <bdi>{qtyWithUnit(after, unitType)}</bdi>
+          </b>
+        </div>
+      </div>
+
+      {after < 0 ? <InvNote tone="warn">{NOT_ENOUGH}</InvNote> : null}
+      {kind === "ADJUSTMENT" ? <InvNote>תיקון ספירה מעדכן לפי הכמות שנספרה</InvNote> : null}
+    </InvSheet>
   );
 }

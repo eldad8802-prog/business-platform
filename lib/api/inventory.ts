@@ -68,6 +68,10 @@ export type InventoryItemDTO = {
   alerts?: InventoryAlertDTO[];
   categoryId?: number | null;
   category?: InventoryCategoryDTO | null;
+  /** Returned by the item routes (all scalar columns); read-only in the UI. */
+  description?: string | null;
+  featuredByOwner?: boolean;
+  createdAt?: string;
 };
 
 export type InventoryMovementDTO = {
