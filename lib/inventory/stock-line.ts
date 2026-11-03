@@ -1,5 +1,5 @@
 import type { InventoryItemDTO } from "@/lib/api/inventory";
-import { getStockTone } from "@/components/inventory/inventory-design";
+import { getStockTone } from "@/lib/inventory/stock-tone";
 import { qtyWithUnit } from "@/lib/inventory/unit-words";
 
 /**
