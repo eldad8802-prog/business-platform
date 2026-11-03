@@ -126,6 +126,8 @@ export interface ServiceCaseContext {
   /**
    * A cancel was requested while the item was at an external supplier (EXTERNAL). There is no extra status for it:
    * the case stays EXTERNAL until the return is recorded, and that return must lead to READY / CANCELLED.
+   * Valid only with status EXTERNAL — `true` anywhere else is refused as INCONSISTENT_CASE_STATE, never repaired.
+   * Its next value is in every ok decision (`cancellationRequestedAfter`): the service persists THAT, never infers it.
    */
   cancellationRequested: boolean;
   /** Pickup reminders already sent while READY. */
@@ -210,6 +212,7 @@ export type ServiceCaseViolationCode =
   | "QUOTE_WITHDRAWN"
   | "ALREADY_CANCELLED"
   | "CANCELLATION_REQUESTED"
+  | "INCONSISTENT_CASE_STATE"
   | "APPROVAL_MISMATCH"
   | "APPROVAL_METHOD_NOT_ALLOWED"
   | "REPAIR_NOT_AUTHORIZED"
@@ -263,7 +266,6 @@ export const SERVICE_COMMAND_SERVER_DUTIES = [
 export type ServiceCaseEffect =
   | "RELEASE_PART_RESERVATIONS"
   | "WITHDRAW_OPEN_QUOTE"
-  | "MARK_CANCELLATION_REQUESTED"
   | "ATTEMPT_AUTO_CLOSE"
   | "LINK_REPLACEMENT_DEVICE";
 
@@ -299,6 +301,8 @@ export interface ServiceCaseEventDraft {
   toStatus: ServiceCaseStatus;
   holdReasonBefore: ServiceHoldReason | null;
   holdReasonAfter: ServiceHoldReason | null;
+  cancellationRequestedBefore: boolean;
+  cancellationRequestedAfter: boolean;
   outcome: ServiceOutcome | null;
   actor: ServiceCaseActor;
   payload: Readonly<Record<string, ServiceEventPayloadValue>>;
@@ -313,6 +317,11 @@ export type ServiceTransitionDecision =
       statusChanged: boolean;
       holdReason: ServiceHoldReason | null;
       outcome: ServiceOutcome | null;
+      /**
+       * The value of `cancellationRequested` AFTER this transition — always present, carried over when the action
+       * does not touch it. It is the only source of that state: no effect or event name sets it.
+       */
+      cancellationRequestedAfter: boolean;
       effects: readonly ServiceCaseEffect[];
       /** Set with effect WITHDRAW_OPEN_QUOTE: the exact sent version the service must mark WITHDRAWN. */
       withdrawQuote: ServiceQuoteRef | null;

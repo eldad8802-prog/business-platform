@@ -25,8 +25,8 @@
  *   - the business holds the item (IN_SHOP, CHECKED_IN … READY): a documented reason is required and the case goes
  *     to READY with outcome CANCELLED. It is NOT delivered: the normal handover (signature, balance) still applies.
  *   - the item is at an external supplier (EXTERNAL): the cancel is only REQUESTED (reason required). The case stays
- *     EXTERNAL with `cancellationRequested`; the recorded return from the supplier must then lead to READY with
- *     outcome CANCELLED. No new status.
+ *     EXTERNAL and the decision says `cancellationRequestedAfter: true`; the recorded return from the supplier must
+ *     then lead to READY with outcome CANCELLED and `cancellationRequestedAfter: false`. No new status.
  *   - nothing to hand back (not yet received, or FIELD / MAINTENANCE): CANCELLED, final.
  *   A cancel never undoes parts used, work done, costs, payments or supplier commitments, and never refunds: the
  *   only effects are releasing still-open part reservations and withdrawing a still-open quote.
@@ -157,6 +157,7 @@ interface Resolution {
   to: ServiceCaseStatus;
   holdReason: ServiceHoldReason | null;
   outcome: ServiceOutcome | null;
+  cancellationRequestedAfter: boolean;
   effects: ServiceCaseEffect[];
   withdrawQuote: ServiceQuoteRef | null;
   eventType: ServiceCaseEventType | null;
@@ -215,6 +216,13 @@ export function evaluateTransition(
   const type = action.type;
 
   if (!(type in ACTION_FROM)) return refuse(type, from, [violation("INVALID_INPUT", `unknown action ${String(type)}`)]);
+  if (typeof context.cancellationRequested !== "boolean") {
+    return refuse(type, from, [violation("INCONSISTENT_CASE_STATE", "cancellationRequested must be a boolean")]);
+  }
+  if (context.cancellationRequested && from !== "EXTERNAL") {
+    // A request exists only while a supplier has the item; anything else is corrupt input — refused, never repaired.
+    return refuse(type, from, [violation("INCONSISTENT_CASE_STATE", `cancellationRequested is set while ${from}`)]);
+  }
   if (isTerminal(from)) return refuse(type, from, [violation("TERMINAL_STATUS", `${from} is final`)]);
   if (!ACTION_FROM[type].includes(from)) {
     return refuse(type, from, [violation("INVALID_TRANSITION", `${type} is not allowed from ${from}`)]);
@@ -238,6 +246,14 @@ export function evaluateTransition(
   if (OUTCOME_STATUSES.includes(r.to) ? r.outcome === null : r.outcome !== null) {
     broken.push(violation("OUTCOME_REQUIRED", `${r.to} ${r.outcome === null ? "needs" : "may not carry"} an outcome`));
   }
+  // The cancel request, the target status and the event type must tell the same story.
+  if (r.cancellationRequestedAfter && r.to !== "EXTERNAL") {
+    broken.push(violation("INCONSISTENT_CASE_STATE", "a pending cancel request exists only in EXTERNAL"));
+  }
+  const requestedNow = !context.cancellationRequested && r.cancellationRequestedAfter;
+  if (requestedNow !== (r.eventType === "case.cancellation_requested")) {
+    broken.push(violation("INCONSISTENT_CASE_STATE", "event type and cancel request disagree"));
+  }
   if (broken.length > 0) return refuse(type, from, broken);
 
   return {
@@ -248,6 +264,7 @@ export function evaluateTransition(
     statusChanged,
     holdReason: r.holdReason,
     outcome: r.outcome,
+    cancellationRequestedAfter: r.cancellationRequestedAfter,
     effects: [...r.effects],
     withdrawQuote: r.withdrawQuote ? { ...r.withdrawQuote } : null,
     serverChecks: [...r.serverChecks],
@@ -258,6 +275,8 @@ export function evaluateTransition(
       toStatus: r.to,
       holdReasonBefore: context.holdReason,
       holdReasonAfter: r.holdReason,
+      cancellationRequestedBefore: context.cancellationRequested,
+      cancellationRequestedAfter: r.cancellationRequestedAfter,
       outcome: r.outcome,
       actor: { ...actor },
       payload: { ...r.payload },
@@ -270,6 +289,8 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     to: context.status,
     holdReason: null,
     outcome: OUTCOME_STATUSES.includes(context.status) ? context.outcome : null,
+    // Carried over unless the action changes it (CANCEL at EXTERNAL → true; the return that completes it → false).
+    cancellationRequestedAfter: context.cancellationRequested,
     effects: [],
     withdrawQuote: null,
     eventType: null,
@@ -440,6 +461,7 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
           break;
         }
         r.outcome = "CANCELLED";
+        r.cancellationRequestedAfter = false; // completed — no longer pending
         r.payload.outcome = "CANCELLED";
         r.payload.cancellationCompleted = true;
         break;
@@ -562,7 +584,7 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
         r.to = "EXTERNAL";
         r.outcome = null;
         r.eventType = "case.cancellation_requested";
-        r.effects.push("MARK_CANCELLATION_REQUESTED");
+        r.cancellationRequestedAfter = true;
       } else {
         // A held item is not "returned" by a cancel: it leaves through READY → DELIVERED with the normal handover.
         r.to = held ? "READY" : "CANCELLED";

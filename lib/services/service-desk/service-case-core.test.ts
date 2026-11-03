@@ -211,6 +211,13 @@ for (const kind of SERVICE_CASE_KINDS) {
       const needsOutcome = ["READY", "DELIVERED", "CLOSED", "ABANDONED", "CANCELLED"].includes(d.to);
       if (needsOutcome !== (d.outcome !== null)) problems.push(`${s.action.type}: outcome ${d.outcome} at ${d.to}`);
       if (d.event.fromStatus !== status || d.event.toStatus !== d.to) problems.push(`${s.action.type}: event statuses`);
+      if (typeof d.cancellationRequestedAfter !== "boolean") problems.push(`${s.action.type}: no explicit cancellationRequestedAfter`);
+      // the sweep never starts with a pending request, so only a cancel AT the supplier may raise it
+      const raises = s.action.type === "CANCEL" && status === "EXTERNAL";
+      if (d.cancellationRequestedAfter !== raises) problems.push(`${s.action.type}: cancellationRequestedAfter ${d.cancellationRequestedAfter}`);
+      if (d.event.cancellationRequestedBefore !== false || d.event.cancellationRequestedAfter !== d.cancellationRequestedAfter) {
+        problems.push(`${s.action.type}: event cancel flags disagree with the decision`);
+      }
     }
     check(`${kind} from ${status}: only allowed actions pass, results stay on the graph`, problems.length === 0, problems.join("; "));
   }
@@ -404,7 +411,9 @@ console.log("  4.5a cancel from every stage before handover (owner decision 11-0
   const atSup = ctx({ status: "EXTERNAL", currentQuote: approvedQuote() });
   const req = ev(atSup, { type: "CANCEL", reason: "הלקוח לא מעוניין" }, OWNER);
   check("at the supplier: the cancel is REQUESTED, the case stays EXTERNAL", req.ok && !req.statusChanged && req.to === "EXTERNAL" && req.outcome === null);
-  check("  …event case.cancellation_requested, effect MARK_CANCELLATION_REQUESTED", req.ok && req.event.type === "case.cancellation_requested" && req.effects.includes("MARK_CANCELLATION_REQUESTED"));
+  // Expectation changed by the 11-03 contract fix (was: effect MARK_CANCELLATION_REQUESTED). The next value is now the
+  // explicit decision field, the single source of that state.
+  check("  …event case.cancellation_requested, cancellationRequestedAfter = true", req.ok && req.event.type === "case.cancellation_requested" && req.cancellationRequestedAfter === true);
   check("  …and records that the item is at the supplier", req.ok && req.event.payload.itemAtSupplier === true);
   const requested = { ...atSup, cancellationRequested: true };
   refusedWith("the item still at the supplier cannot be delivered", ev(requested, { type: "DELIVER", receipt: RECEIPT }, OWNER), "INVALID_TRANSITION");
@@ -441,6 +450,73 @@ console.log("  4.5a cancel from every stage before handover (owner decision 11-0
   const fd = ev(frozen, { type: "CANCEL", reason: "x" }, OWNER);
   check("cancel does not mutate the case it judges", fd.ok && JSON.stringify(frozen) === snapshot);
   check("cancel is an appended event (from, to, action), never a delete", fd.ok && fd.event.fromStatus === "QUOTE_PENDING" && fd.event.toStatus === "READY" && fd.event.action === "CANCEL");
+}
+
+console.log("  4.5c the cancel request is an explicit part of every decision (contract fix 11-03)");
+{
+  const ext = (o: Partial<ServiceCaseContext> = {}) => ctx({ status: "EXTERNAL", currentQuote: approvedQuote(), ...o });
+  const hasNoDecision = (d: ServiceTransitionDecision) => !d.ok && !("to" in d) && !("cancellationRequestedAfter" in d);
+
+  // state 1 → 2: requested
+  const req = ev(ext(), { type: "CANCEL", reason: "הלקוח ביטל" }, OWNER);
+  check("EXTERNAL, not requested + CANCEL with a reason → cancellationRequestedAfter = true", req.ok && req.cancellationRequestedAfter === true);
+  check("  …to EXTERNAL, not READY, not DELIVERED, no outcome", req.ok && req.to === "EXTERNAL" && req.outcome === null);
+  check("  …event before/after = false/true and the reason kept", req.ok && req.event.cancellationRequestedBefore === false && req.event.cancellationRequestedAfter === true && req.event.payload.reason === "הלקוח ביטל");
+  check("  …no money, stock or delivery effect", req.ok && req.effects.length === 0);
+  const noReason = ev(ext(), { type: "CANCEL" }, OWNER);
+  check("request without a reason → refused, and no transition decision at all", !noReason.ok && codes(noReason).includes("REASON_REQUIRED") && hasNoDecision(noReason));
+  const dup = ev(ext({ cancellationRequested: true }), { type: "CANCEL", reason: "שוב" }, OWNER);
+  check("a second request → refused (ALREADY_CANCELLED), no decision", !dup.ok && codes(dup).includes("ALREADY_CANCELLED") && hasNoDecision(dup));
+
+  // state 2 → 3: completed by the documented return
+  const requested = ext({ cancellationRequested: true });
+  const back = ev(requested, { type: "RETURN_FROM_EXTERNAL", next: "READY" }, OWNER);
+  check("requested + return → READY / CANCELLED / cancellationRequestedAfter = false", back.ok && back.to === "READY" && back.outcome === "CANCELLED" && back.cancellationRequestedAfter === false);
+  check("  …event external.returned, before/after = true/false, completion documented", back.ok && back.event.type === "external.returned" && back.event.cancellationRequestedBefore === true && back.event.cancellationRequestedAfter === false && back.event.payload.cancellationCompleted === true);
+  for (const next of ["IN_REPAIR", "QA"] as const) {
+    const d = ev(requested, { type: "RETURN_FROM_EXTERNAL", next }, OWNER);
+    check(`requested + return to ${next} → refused, no decision`, !d.ok && codes(d).includes("CANCELLATION_REQUESTED") && hasNoDecision(d));
+  }
+  for (const outcome of ["REPAIRED", "REPLACED", "NOT_REPAIRED"] as const) {
+    const d = ev(requested, { type: "RETURN_FROM_EXTERNAL", next: "READY", outcome, replacementDeviceId: 9 }, OWNER);
+    check(`requested + return claiming ${outcome} → refused`, !d.ok && codes(d).includes("OUTCOME_NOT_ALLOWED"));
+  }
+  const plain = ev(ext({ coverage: { source: "MANUFACTURER", decision: "APPROVED" } }), { type: "RETURN_FROM_EXTERNAL", next: "READY", outcome: "REPAIRED" }, OWNER);
+  check("a normal return (no request) is not turned into a cancel", plain.ok && plain.outcome === "REPAIRED" && plain.cancellationRequestedAfter === false && plain.event.payload.cancellationCompleted === undefined);
+
+  // state 3: the normal handover still applies
+  const done = ready({ outcome: "CANCELLED" });
+  refusedWith("after the completed cancel, delivery still needs the signature", ev(done, { type: "DELIVER", receipt: { receivedByName: "x", signatureCaptured: false } }, OWNER), "RECEIPT_INCOMPLETE");
+  const delivered3 = ev(done, { type: "DELIVER", receipt: RECEIPT }, OWNER);
+  check("after the completed cancel, the normal delivery → DELIVERED, request stays false", delivered3.ok && delivered3.to === "DELIVERED" && delivered3.cancellationRequestedAfter === false);
+
+  // carried over, never reset wholesale
+  const hold = ev(ctx({ status: "IN_REPAIR" }), { type: "SET_HOLD", reason: "PARTS" }, OWNER);
+  check("an unrelated action carries the value over (false → false)", hold.ok && hold.cancellationRequestedAfter === false && hold.event.cancellationRequestedBefore === false);
+
+  // inconsistent input is refused, never silently repaired
+  for (const s of ["IN_REPAIR", "READY", "QA", "OPEN"] as ServiceCaseStatus[]) {
+    const d = ev(ctx({ status: s, cancellationRequested: true, outcome: s === "READY" ? "REPAIRED" : null }), { type: "CANCEL", reason: "x" }, OWNER);
+    check(`cancellationRequested = true while ${s} → INCONSISTENT_CASE_STATE`, !d.ok && codes(d).includes("INCONSISTENT_CASE_STATE") && hasNoDecision(d));
+  }
+  const closedFlag = ev(ctx({ status: "CLOSED", outcome: "REPAIRED", cancellationRequested: true }), { type: "CLOSE" }, SYSTEM);
+  check("a flagged CLOSED case → INCONSISTENT_CASE_STATE (checked before anything else)", !closedFlag.ok && codes(closedFlag).includes("INCONSISTENT_CASE_STATE"));
+  const notBool = ev({ ...ext(), cancellationRequested: undefined as unknown as boolean }, { type: "RETURN_FROM_EXTERNAL", next: "IN_REPAIR" }, OWNER);
+  check("a missing flag is refused, not read as false", !notBool.ok && codes(notBool).includes("INCONSISTENT_CASE_STATE"));
+
+  // the decision alone is enough to persist the transition
+  const frozen = deepFreeze(ext());
+  const snap = JSON.stringify(frozen);
+  const fd = ev(frozen, { type: "CANCEL", reason: "x" }, OWNER);
+  check("frozen input untouched by the request", fd.ok && JSON.stringify(frozen) === snap && frozen.cancellationRequested === false);
+  check("decision and event agree on status, outcome and request", fd.ok && fd.event.toStatus === fd.to && fd.event.outcome === fd.outcome && fd.event.cancellationRequestedAfter === fd.cancellationRequestedAfter);
+  check("no effect can set the request any more (single source)", fd.ok && !(fd.effects as readonly string[]).includes("MARK_CANCELLATION_REQUESTED"));
+
+  // nothing else moved
+  const qp = ev(ctx({ status: "QUOTE_PENDING", currentQuote: sentQuote() }), { type: "CANCEL", reason: "x" }, OWNER);
+  check("WITHDRAWN instruction unchanged by the fix", qp.ok && qp.withdrawQuote !== null && qp.effects.includes("WITHDRAW_OPEN_QUOTE") && qp.cancellationRequestedAfter === false);
+  refusedWith("debt rule unchanged by the fix", ev(ready({ settlement: { known: true, openBalanceAgorot: 1 } }), { type: "DELIVER", receipt: RECEIPT }, OWNER), "OPEN_BALANCE_NEEDS_OWNER_DECISION");
+  allowedTo("quote approval unchanged by the fix", ev(ctx({ status: "QUOTE_PENDING", currentQuote: sentQuote() }), { type: "APPROVE_QUOTE", approval: { version: 1, totalAgorot: 45_000, docHash: "h1", method: "PHONE" } }, OWNER), "IN_REPAIR");
 }
 
 console.log("  4.5b WITHDRAWN — service quotes only (owner decision 11-03)");
