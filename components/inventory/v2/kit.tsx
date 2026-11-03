@@ -154,9 +154,40 @@ export function InvPage({
         </header>
         {tabs ? <InvSectionTabs active={tabs} /> : null}
         {children}
-        {footer ? <div className="i2-footer">{footer}</div> : null}
+        {footer ? <InvFooter docked={barH > 0}>{footer}</InvFooter> : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * The page's primary actions. With the phone bottom bar present they are docked
+ * (fixed) right above it, leaving the accessibility button its own strip; a
+ * spacer of the same height keeps the last content reachable. The app shell's
+ * containers clip overflow, so `position: sticky` cannot be used here.
+ */
+function InvFooter({ docked, children }: { docked: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !docked) {
+      setH(0);
+      return;
+    }
+    const measure = () => setH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [docked]);
+  return (
+    <>
+      {docked ? <div aria-hidden style={{ height: h }} /> : null}
+      <div ref={ref} className={`i2-footer${docked ? " i2-footer--dock" : ""}`}>
+        <div className="i2-footer__in">{children}</div>
+      </div>
+    </>
   );
 }
 
@@ -424,7 +455,16 @@ export function InvQty({
           setEditing(true);
           e.target.select();
         }}
-        onChange={(e) => setText(e.target.value.replace(/[^\d]/g, ""))}
+        onChange={(e) => {
+          // A valid typed whole number counts at once, so an action that depends
+          // on it is enabled before the field loses focus.
+          const raw = e.target.value.replace(/[^\d]/g, "");
+          setText(raw);
+          if (raw !== "") {
+            const next = clamp(Number(raw));
+            if (next !== value) onChange(next);
+          }
+        }}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={onKey}
       />
