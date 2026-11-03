@@ -214,11 +214,11 @@ export default function PendingSupplierPurchasesPage() {
         draft ? (
           <>
             {error ? <InvNote tone="danger">{error}</InvNote> : null}
-            <div className="i2-footer__row">
-              <InvButton disabled={!ready || actionLoading} onClick={() => setConfirmApprove(true)}>
-                {actionLoading ? "מאשרים…" : "אישור קליטה מלאה"}
-              </InvButton>
-              <InvButton kind="secondary" href={`/inventory/supplier-purchases/${draft.id}/send`}>
+            <InvButton block disabled={!ready || actionLoading} onClick={() => setConfirmApprove(true)}>
+              {actionLoading ? "מאשרים…" : "אישור קליטה מלאה"}
+            </InvButton>
+            <div style={{ marginTop: 8 }}>
+              <InvButton kind="secondary" block href={`/inventory/supplier-purchases/${draft.id}/send`}>
                 חזרה להזמנה
               </InvButton>
             </div>
