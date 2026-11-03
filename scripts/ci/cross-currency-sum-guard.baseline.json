@@ -2,15 +2,6 @@
   "note": "Reviewed findings of scripts/ci/cross-currency-sum-guard.mjs at its introduction (origin/main f6c261f9). Matching is by (file, rule, match); lineAtBaseline is informational. SAFE = single-currency by construction and enforced; LATENT = correct only because every row is ILS today; BROKEN = can add different currencies now. Removing an entry is how a fix is recorded; adding one requires a risk and a reviewed reason. See docs/money/FINANCIAL-DATA-MODEL-AUDIT.md.",
   "findings": [
     {
-      "file": "app/(shell)/inventory/sales/create/page.tsx",
-      "rule": "JS_FOLD",
-      "column": "amount",
-      "match": "const chargedTotal = chargedObservations.reduce((sum, observed) => {",
-      "risk": "LATENT",
-      "reason": "name collision: `observed.amount` is a typed unit price for an inventory sale, not a guarded column; inventory prices carry no currency at all (InventorySaleLine.unitPrice), ILS assumed.",
-      "lineAtBaseline": 77
-    },
-    {
       "file": "app/api/documents/inbox/route.ts",
       "rule": "PRISMA_SUM",
       "column": "FinancialRecord.amount",
