@@ -28,12 +28,13 @@ export default function NewSupplierPurchaseConfirmPage() {
         selectedItems.length > 0 ? (
           <>
             {saved ? <InvNote tone="ok">הטיוטה נשמרה במכשיר הזה</InvNote> : null}
-            <div className="i2-footer__row">
-              <InvButton disabled={!canSubmit} onClick={() => setConfirming(true)}>
-                {actionLoading ? "יוצרים…" : "צור הזמנה"}
-              </InvButton>
+            <InvButton block disabled={!canSubmit} onClick={() => setConfirming(true)}>
+              {actionLoading ? "יוצרים…" : "צור הזמנה"}
+            </InvButton>
+            <div style={{ marginTop: 8 }}>
               <InvButton
                 kind="secondary"
+                block
                 onClick={() => {
                   persistDraft();
                   setSaved(true);
