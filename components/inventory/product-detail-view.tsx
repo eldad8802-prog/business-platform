@@ -22,7 +22,8 @@ import {
   type InventoryItemDTO,
   type InventoryMovementDTO,
 } from "@/lib/api/inventory";
-import { inventoryTextKey, normalizeInventoryText } from "@/lib/inventory/normalize";
+import { normalizeInventoryText } from "@/lib/inventory/normalize";
+import { decideCategoryOnSave } from "@/lib/inventory/category-edit";
 import { inventoryToast } from "@/components/inventory/inventory-toast";
 import InventoryItemImageUploader from "@/components/inventory/inventory-item-image-uploader";
 import MovementSheet from "@/components/inventory/movement-sheet";
@@ -166,12 +167,11 @@ export default function ProductDetailView({
   }, [loadItemData]);
 
   async function resolveCategoryId(): Promise<number | null> {
-    const normalized = normalizeInventoryText(form.categoryName);
-    if (!normalized) return null;
-    const key = normalized.toLowerCase();
-    const existing = categories.find((c) => inventoryTextKey(c.name) === key);
-    if (existing) return existing.id;
-    const created = await createInventoryCategory({ name: normalized });
+    if (!item) return null;
+    const decision = decideCategoryOnSave(form.categoryName, item, categories);
+    if (decision.kind === "clear") return null;
+    if (decision.kind === "keep" || decision.kind === "existing") return decision.id;
+    const created = await createInventoryCategory({ name: decision.name });
     setCategories((cur) => [...cur, created]);
     return created.id;
   }
@@ -457,16 +457,25 @@ export default function ProductDetailView({
           )
         ) : null}
 
-        {movementKind ? (
-          <MovementSheet
-            itemId={item.id}
-            itemName={item.name}
-            currentQuantity={item.currentQuantity}
-            unitLabel={unit}
-            initialType={movementKind}
-            onClose={() => setMovementKind(null)}
-            onSuccess={() => loadItemData({ silent: true })}
-          />
+        {/* Same trap as the edit sheet above: inside the shell's z-index:1 page
+            context the BottomBar (z-100) and the accessibility button (z-101)
+            paint over "אישור עדכון" on phones. Portaled to <body> like the edit
+            sheet so the movement confirm stays visible and tappable. */}
+        {movementKind && typeof document !== "undefined" ? (
+          createPortal(
+            <div data-inventory-module>
+              <MovementSheet
+                itemId={item.id}
+                itemName={item.name}
+                currentQuantity={item.currentQuantity}
+                unitLabel={unit}
+                initialType={movementKind}
+                onClose={() => setMovementKind(null)}
+                onSuccess={() => loadItemData({ silent: true })}
+              />
+            </div>,
+            document.body
+          )
         ) : null}
       </div>
     );

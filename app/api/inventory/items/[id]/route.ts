@@ -3,6 +3,7 @@ import { InventoryUnitType } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { changedFields, recordSensor } from "@/lib/sensors/record-sensor";
+import { INVENTORY_ITEM_DETAIL_INCLUDE } from "@/lib/services/inventory/inventory-item-detail";
 
 /** Item columns an owner edit can change; compared by name only, never by value. */
 const ITEM_EDITABLE_FIELDS = [
@@ -147,16 +148,7 @@ export async function GET(request: NextRequest) {
               id: itemId,
               businessId: user.businessId,
             },
-            include: {
-              alerts: {
-                where: {
-                  isResolved: false,
-                },
-                orderBy: {
-                  createdAt: "desc",
-                },
-              },
-            },
+            include: INVENTORY_ITEM_DETAIL_INCLUDE,
           })
         )
     );
@@ -349,7 +341,12 @@ export async function PATCH(request: NextRequest) {
             }
           }
 
-          return after;
+          // The edit sheet re-syncs its form from this response: it must carry the
+          // category (and the open alerts the card shows), exactly as GET does.
+          return tx.inventoryItem.findFirst({
+            where: { id: itemId, businessId: user.businessId },
+            include: INVENTORY_ITEM_DETAIL_INCLUDE,
+          });
         })
     );
 
