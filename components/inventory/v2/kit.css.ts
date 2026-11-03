@@ -104,8 +104,8 @@ export const inv2Css = `
 .i2-row__kicker { font-size: 12.5px; color: var(--i2-muted); }
 .i2-row__title { font-size: 16.5px; font-weight: 600; line-height: 1.3; display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
 .i2-row__title > span { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.i2-row__sub { font-size: 14px; color: var(--i2-muted); margin-top: 2px; overflow-wrap: anywhere;
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.i2-row__sub { font-size: 14px; color: var(--i2-muted); margin-top: 2px; overflow-wrap: anywhere; }
+.i2-clamp2 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .i2-row__sub--danger { color: var(--i2-danger); }
 .i2-row__trail { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .i2-row__qty { text-align: center; min-width: 56px; }
