@@ -291,6 +291,21 @@ export const inv2Css = `
 .i2-menu__item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0 12px; border: 0; background: none; border-radius: 8px;
   font-size: 15px; color: var(--i2-ink); text-decoration: none; cursor: pointer; text-align: start; }
 .i2-menu__item:hover { background: var(--i2-beige); }
+.i2-menu--up .i2-menu__pop { top: auto; bottom: calc(100% + 4px); }
+
+/* ----- share tiles, drop zone, desk/mobile switch (purchasing screens) ----- */
+.i2-tiles--3 { grid-template-columns: repeat(3, 1fr); }
+.i2-tiles--3 .i2-tile { flex-direction: column; justify-content: center; text-align: center; gap: 6px; min-height: 84px; padding: 10px 6px; }
+.i2-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 150px;
+  border: 1.5px dashed var(--i2-line-strong); border-radius: var(--i2-radius); background: var(--i2-card); color: var(--i2-ink-2);
+  font: inherit; font-size: 15px; cursor: pointer; padding: 16px; }
+.i2-drop[data-over="true"] { border-color: var(--i2-green); background: var(--i2-green-soft); }
+.i2-drop b { font-size: 16.5px; font-weight: 600; color: var(--i2-ink); }
+.i2-only-desk { display: none; }
+@media (min-width: 1200px) {
+  .i2-only-desk { display: block; }
+  .i2-only-mob { display: none; }
+}
 
 /* ----- responsive ----- */
 @media (max-width: 359px) {

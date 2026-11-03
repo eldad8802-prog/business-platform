@@ -183,6 +183,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/inventory/supplier-purchases/new/confirm", parent: "/inventory/supplier-purchases/new/cart", parentLabelKey: "toOrderBasket" },
   { pattern: "/inventory/supplier-purchases/[id]/send", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
   { pattern: "/inventory/supplier-purchases/[id]/receive", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
+  { pattern: "/inventory/supplier-purchases/orders/[poId]", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
 
   // ---- settings / business / tools ----------------------------------------
   { pattern: "/settings/whatsapp", parent: "/settings/connections", parentLabelKey: "toConnections" },
