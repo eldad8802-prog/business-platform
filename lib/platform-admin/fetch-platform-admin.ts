@@ -30,6 +30,7 @@ import type { PlatformUsageOverviewResponse } from "@/lib/services/platform-admi
 import type { PlatformAdminBusinessDetailResponse } from "@/lib/services/platform-admin/platform-business-detail.types";
 import type { PlatformAdminAuditResponse } from "@/lib/services/platform-admin/platform-audit-list.types";
 import type { AccountantOpsResponse } from "@/lib/services/platform-admin/accountant-ops.service";
+import type { AuthorityPilotGateReport } from "@/lib/services/billing/authority/billing-authority-pilot-gate-report";
 import type {
   BusinessFeatureOverrideState,
   PlatformAdminBusinessFeaturesResponse,
@@ -413,6 +414,15 @@ export async function postPlatformAdminAuthorityAppRegistration(
     { method: "POST", body: JSON.stringify(body) }
   );
   return data;
+}
+
+/**
+ * ITA PRODUCTION pilot gate self-check (read-only). Goes through the canonical
+ * request core, so the MFA step-up works like every other admin call.
+ */
+export function fetchPlatformAdminAuthorityPilotGate(businessId: number, userId: number) {
+  const q = new URLSearchParams({ businessId: String(businessId), userId: String(userId) });
+  return platformAdminFetch<AuthorityPilotGateReport>(`/api/platform-admin/authority/pilot-gate?${q.toString()}`);
 }
 
 /** Test seam — exercises the request core directly. Not used by the console. */
