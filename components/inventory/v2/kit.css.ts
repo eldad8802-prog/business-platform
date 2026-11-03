@@ -135,8 +135,10 @@ export const inv2Css = `
   font-size: 15px; font-weight: 500; cursor: pointer; min-height: 44px; padding: 0 6px; }
 
 /* ----- footer (stays above the app's bottom bar + accessibility button) ----- */
-.i2-footer { position: sticky; bottom: calc(var(--i2-nav-h) + var(--i2-fab-gap, 64px)); z-index: 4; margin-top: 18px; padding: 10px 0 0;
-  background: linear-gradient(to top, var(--i2-bg) 70%, rgba(250,247,242,0)); }
+.i2-footer { margin-top: 18px; padding: 10px 0 0; }
+.i2-footer--dock { position: fixed; left: 0; right: 0; bottom: var(--i2-nav-h); z-index: 40; margin: 0;
+  padding: 12px var(--i2-gutter) var(--i2-fab-gap, 64px); background: var(--i2-bg); border-top: 1px solid var(--i2-line); }
+.i2-footer--dock > .i2-footer__in { max-width: var(--i2-max, 720px); margin: 0 auto; }
 .i2-footer__row { display: flex; align-items: center; gap: 12px; }
 .i2-footer__row > .i2-btn { flex: 1; min-width: 0; white-space: nowrap; }
 .i2-footer__sum { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--i2-beige);
