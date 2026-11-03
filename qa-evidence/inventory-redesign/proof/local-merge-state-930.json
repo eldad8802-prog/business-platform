@@ -1,0 +1,6214 @@
+{
+ "pass": 704,
+ "failed": 0,
+ "failures": [],
+ "bytes": {
+  "sentinelCount": 60,
+  "rows": [
+   {
+    "route": "/home",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 90133,
+     "br5": 14215,
+     "br11": 12379,
+     "gzip": 18481,
+     "rscRaw": 46620,
+     "rscBr5": 8783,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 90133,
+     "br5": 14214,
+     "br11": 12367,
+     "gzip": 18487,
+     "rscRaw": 46620,
+     "rscBr5": 8788,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 90274,
+     "br5": 14243,
+     "br11": 12406,
+     "gzip": 18534,
+     "rscRaw": 46644,
+     "rscBr5": 8794,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 90274,
+     "br5": 14244,
+     "br11": 12431,
+     "gzip": 18536,
+     "rscRaw": 46644,
+     "rscBr5": 8801,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 90133,
+     "br5": 14209,
+     "br11": 12377,
+     "gzip": 18478,
+     "rscRaw": 46620,
+     "rscBr5": 8783,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 90133,
+     "br5": 14207,
+     "br11": 12372,
+     "gzip": 18485,
+     "rscRaw": 46620,
+     "rscBr5": 8784,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/about",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 29079,
+     "br5": 5870,
+     "br11": 5303,
+     "gzip": 6298,
+     "rscRaw": 15143,
+     "rscBr5": 3621,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 29079,
+     "br5": 5868,
+     "br11": 5314,
+     "gzip": 6299,
+     "rscRaw": 15143,
+     "rscBr5": 3628,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 29220,
+     "br5": 5908,
+     "br11": 5330,
+     "gzip": 6331,
+     "rscRaw": 15167,
+     "rscBr5": 3631,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 29220,
+     "br5": 5905,
+     "br11": 5330,
+     "gzip": 6332,
+     "rscRaw": 15167,
+     "rscBr5": 3633,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 29606,
+     "br5": 5819,
+     "br11": 5349,
+     "gzip": 6341,
+     "rscRaw": 16060,
+     "rscBr5": 3704,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 29606,
+     "br5": 5822,
+     "br11": 5340,
+     "gzip": 6341,
+     "rscRaw": 16060,
+     "rscBr5": 3707,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/privacy",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 81158,
+     "br5": 13257,
+     "br11": 11672,
+     "gzip": 19558,
+     "rscRaw": 42319,
+     "rscBr5": 9782,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 81158,
+     "br5": 13257,
+     "br11": 11646,
+     "gzip": 19561,
+     "rscRaw": 42319,
+     "rscBr5": 9784,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 81299,
+     "br5": 13297,
+     "br11": 11685,
+     "gzip": 19608,
+     "rscRaw": 42343,
+     "rscBr5": 9793,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 81299,
+     "br5": 13295,
+     "br11": 11696,
+     "gzip": 19611,
+     "rscRaw": 42343,
+     "rscBr5": 9793,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 81771,
+     "br5": 13318,
+     "br11": 11701,
+     "gzip": 19721,
+     "rscRaw": 43248,
+     "rscBr5": 9983,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 81771,
+     "br5": 13315,
+     "br11": 11712,
+     "gzip": 19725,
+     "rscRaw": 43248,
+     "rscBr5": 9987,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/login",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 11908,
+     "br5": 3005,
+     "br11": 2751,
+     "gzip": 3326,
+     "rscRaw": 6348,
+     "rscBr5": 1769,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 11908,
+     "br5": 3006,
+     "br11": 2756,
+     "gzip": 3325,
+     "rscRaw": 6348,
+     "rscBr5": 1771,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 11985,
+     "br5": 2995,
+     "br11": 2752,
+     "gzip": 3319,
+     "rscRaw": 6341,
+     "rscBr5": 1758,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 11985,
+     "br5": 2994,
+     "br11": 2758,
+     "gzip": 3317,
+     "rscRaw": 6341,
+     "rscBr5": 1761,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 11908,
+     "br5": 3009,
+     "br11": 2761,
+     "gzip": 3323,
+     "rscRaw": 6348,
+     "rscBr5": 1771,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 11908,
+     "br5": 3008,
+     "br11": 2751,
+     "gzip": 3322,
+     "rscRaw": 6348,
+     "rscBr5": 1773,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/register",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 14502,
+     "br5": 3647,
+     "br11": 3298,
+     "gzip": 4004,
+     "rscRaw": 7722,
+     "rscBr5": 2259,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 14502,
+     "br5": 3648,
+     "br11": 3308,
+     "gzip": 4004,
+     "rscRaw": 7722,
+     "rscBr5": 2260,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 14426,
+     "br5": 3597,
+     "br11": 3279,
+     "gzip": 3946,
+     "rscRaw": 7636,
+     "rscBr5": 2197,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 14426,
+     "br5": 3599,
+     "br11": 3274,
+     "gzip": 3944,
+     "rscRaw": 7636,
+     "rscBr5": 2202,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 14502,
+     "br5": 3645,
+     "br11": 3297,
+     "gzip": 4002,
+     "rscRaw": 7722,
+     "rscBr5": 2255,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 14502,
+     "br5": 3646,
+     "br11": 3292,
+     "gzip": 4001,
+     "rscRaw": 7722,
+     "rscBr5": 2259,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/forgot-password",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 15017,
+     "br5": 3604,
+     "br11": 3246,
+     "gzip": 3941,
+     "rscRaw": 7997,
+     "rscBr5": 2149,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 15017,
+     "br5": 3606,
+     "br11": 3251,
+     "gzip": 3941,
+     "rscRaw": 7997,
+     "rscBr5": 2149,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 14975,
+     "br5": 3547,
+     "br11": 3230,
+     "gzip": 3880,
+     "rscRaw": 7923,
+     "rscBr5": 2084,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 14975,
+     "br5": 3549,
+     "br11": 3230,
+     "gzip": 3880,
+     "rscRaw": 7923,
+     "rscBr5": 2085,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 15017,
+     "br5": 3605,
+     "br11": 3249,
+     "gzip": 3940,
+     "rscRaw": 7997,
+     "rscBr5": 2149,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 15017,
+     "br5": 3605,
+     "br11": 3252,
+     "gzip": 3939,
+     "rscRaw": 7997,
+     "rscBr5": 2150,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/app",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 15728,
+     "br5": 3254,
+     "br11": 2976,
+     "gzip": 3611,
+     "rscRaw": 9805,
+     "rscBr5": 2087,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 15728,
+     "br5": 3254,
+     "br11": 2992,
+     "gzip": 3609,
+     "rscRaw": 9805,
+     "rscBr5": 2089,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 15815,
+     "br5": 3250,
+     "br11": 2977,
+     "gzip": 3607,
+     "rscRaw": 9803,
+     "rscBr5": 2083,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 15815,
+     "br5": 3250,
+     "br11": 2983,
+     "gzip": 3605,
+     "rscRaw": 9803,
+     "rscBr5": 2084,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 16380,
+     "br5": 3339,
+     "br11": 3058,
+     "gzip": 3681,
+     "rscRaw": 10837,
+     "rscBr5": 2289,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 16380,
+     "br5": 3339,
+     "br11": 3066,
+     "gzip": 3682,
+     "rscRaw": 10837,
+     "rscBr5": 2290,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/collection",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 15249,
+     "br5": 3199,
+     "br11": 2941,
+     "gzip": 3547,
+     "rscRaw": 9452,
+     "rscBr5": 2035,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 15249,
+     "br5": 3200,
+     "br11": 2933,
+     "gzip": 3545,
+     "rscRaw": 9452,
+     "rscBr5": 2033,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 15340,
+     "br5": 3192,
+     "br11": 2928,
+     "gzip": 3537,
+     "rscRaw": 9452,
+     "rscBr5": 2026,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 15340,
+     "br5": 3194,
+     "br11": 2932,
+     "gzip": 3540,
+     "rscRaw": 9452,
+     "rscBr5": 2028,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 15776,
+     "br5": 3256,
+     "br11": 2972,
+     "gzip": 3586,
+     "rscRaw": 10374,
+     "rscBr5": 2211,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 15776,
+     "br5": 3257,
+     "br11": 2971,
+     "gzip": 3586,
+     "rscRaw": 10374,
+     "rscBr5": 2211,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/billing",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 44782,
+     "br5": 8263,
+     "br11": 7454,
+     "gzip": 9121,
+     "rscRaw": 7301,
+     "rscBr5": 1876,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 44782,
+     "br5": 8271,
+     "br11": 7454,
+     "gzip": 9124,
+     "rscRaw": 7301,
+     "rscBr5": 1881,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 44614,
+     "br5": 8103,
+     "br11": 7374,
+     "gzip": 8992,
+     "rscRaw": 7293,
+     "rscBr5": 1874,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 44614,
+     "br5": 8110,
+     "br11": 7373,
+     "gzip": 8993,
+     "rscRaw": 7293,
+     "rscBr5": 1875,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 35636,
+     "br5": 6641,
+     "br11": 5966,
+     "gzip": 7195,
+     "rscRaw": 8326,
+     "rscBr5": 2109,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 35636,
+     "br5": 6643,
+     "br11": 5959,
+     "gzip": 7198,
+     "rscRaw": 8326,
+     "rscBr5": 2108,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/billing/[id]",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 39601,
+     "br5": 7800,
+     "br11": 7028,
+     "gzip": 8528,
+     "rscRaw": 7745,
+     "rscBr5": 1925,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 39601,
+     "br5": 7804,
+     "br11": 7019,
+     "gzip": 8533,
+     "rscRaw": 7745,
+     "rscBr5": 1927,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 39539,
+     "br5": 7691,
+     "br11": 7007,
+     "gzip": 8461,
+     "rscRaw": 7737,
+     "rscBr5": 1921,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 39539,
+     "br5": 7697,
+     "br11": 6998,
+     "gzip": 8465,
+     "rscRaw": 7737,
+     "rscBr5": 1925,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 39601,
+     "br5": 7798,
+     "br11": 7028,
+     "gzip": 8530,
+     "rscRaw": 7745,
+     "rscBr5": 1922,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 39601,
+     "br5": 7801,
+     "br11": 7034,
+     "gzip": 8530,
+     "rscRaw": 7745,
+     "rscBr5": 1930,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/customers",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 16675,
+     "br5": 3334,
+     "br11": 3049,
+     "gzip": 3697,
+     "rscRaw": 10620,
+     "rscBr5": 2147,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 16675,
+     "br5": 3333,
+     "br11": 3063,
+     "gzip": 3698,
+     "rscRaw": 10620,
+     "rscBr5": 2146,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 16766,
+     "br5": 3323,
+     "br11": 3058,
+     "gzip": 3692,
+     "rscRaw": 10620,
+     "rscBr5": 2144,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 16766,
+     "br5": 3325,
+     "br11": 3050,
+     "gzip": 3692,
+     "rscRaw": 10620,
+     "rscBr5": 2146,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 17415,
+     "br5": 3419,
+     "br11": 3125,
+     "gzip": 3762,
+     "rscRaw": 11741,
+     "rscBr5": 2343,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 17415,
+     "br5": 3420,
+     "br11": 3132,
+     "gzip": 3761,
+     "rscRaw": 11741,
+     "rscBr5": 2343,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/customers/[id]",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 17165,
+     "br5": 3364,
+     "br11": 3088,
+     "gzip": 3724,
+     "rscRaw": 10946,
+     "rscBr5": 2161,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 17165,
+     "br5": 3364,
+     "br11": 3090,
+     "gzip": 3723,
+     "rscRaw": 10946,
+     "rscBr5": 2165,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 17256,
+     "br5": 3352,
+     "br11": 3091,
+     "gzip": 3718,
+     "rscRaw": 10946,
+     "rscBr5": 2165,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 17256,
+     "br5": 3354,
+     "br11": 3091,
+     "gzip": 3717,
+     "rscRaw": 10946,
+     "rscBr5": 2167,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 17165,
+     "br5": 3365,
+     "br11": 3088,
+     "gzip": 3723,
+     "rscRaw": 10946,
+     "rscBr5": 2161,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 17165,
+     "br5": 3363,
+     "br11": 3092,
+     "gzip": 3721,
+     "rscRaw": 10946,
+     "rscBr5": 2160,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/leads",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 16667,
+     "br5": 3333,
+     "br11": 3060,
+     "gzip": 3696,
+     "rscRaw": 10616,
+     "rscBr5": 2145,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 16667,
+     "br5": 3334,
+     "br11": 3053,
+     "gzip": 3694,
+     "rscRaw": 10616,
+     "rscBr5": 2146,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 16758,
+     "br5": 3325,
+     "br11": 3044,
+     "gzip": 3693,
+     "rscRaw": 10616,
+     "rscBr5": 2146,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 16758,
+     "br5": 3325,
+     "br11": 3057,
+     "gzip": 3692,
+     "rscRaw": 10616,
+     "rscBr5": 2147,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 17407,
+     "br5": 3418,
+     "br11": 3121,
+     "gzip": 3760,
+     "rscRaw": 11733,
+     "rscBr5": 2342,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 17407,
+     "br5": 3420,
+     "br11": 3122,
+     "gzip": 3759,
+     "rscRaw": 11733,
+     "rscBr5": 2345,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/settings",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 47177,
+     "br5": 7820,
+     "br11": 6985,
+     "gzip": 8675,
+     "rscRaw": 7371,
+     "rscBr5": 1855,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 47177,
+     "br5": 7821,
+     "br11": 6995,
+     "gzip": 8679,
+     "rscRaw": 7371,
+     "rscBr5": 1857,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 46898,
+     "br5": 7604,
+     "br11": 6869,
+     "gzip": 8510,
+     "rscRaw": 7367,
+     "rscBr5": 1846,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 46898,
+     "br5": 7606,
+     "br11": 6858,
+     "gzip": 8515,
+     "rscRaw": 7367,
+     "rscBr5": 1846,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 47704,
+     "br5": 7863,
+     "br11": 7022,
+     "gzip": 8808,
+     "rscRaw": 8291,
+     "rscBr5": 2041,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 47704,
+     "br5": 7863,
+     "br11": 7032,
+     "gzip": 8810,
+     "rscRaw": 8291,
+     "rscBr5": 2043,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/settings/workspace",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 44367,
+     "br5": 8202,
+     "br11": 7340,
+     "gzip": 8992,
+     "rscRaw": 8446,
+     "rscBr5": 2018,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 44367,
+     "br5": 8201,
+     "br11": 7333,
+     "gzip": 8997,
+     "rscRaw": 8446,
+     "rscBr5": 2021,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 44064,
+     "br5": 7959,
+     "br11": 7191,
+     "gzip": 8781,
+     "rscRaw": 8442,
+     "rscBr5": 1994,
+     "sentinels": 3
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 44064,
+     "br5": 7963,
+     "br11": 7201,
+     "gzip": 8784,
+     "rscRaw": 8442,
+     "rscBr5": 1998,
+     "sentinels": 3
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 44988,
+     "br5": 8271,
+     "br11": 7397,
+     "gzip": 9138,
+     "rscRaw": 9379,
+     "rscBr5": 2203,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 44988,
+     "br5": 8271,
+     "br11": 7399,
+     "gzip": 9139,
+     "rscRaw": 9379,
+     "rscBr5": 2206,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/secretary",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 16727,
+     "br5": 3378,
+     "br11": 3088,
+     "gzip": 3729,
+     "rscRaw": 10375,
+     "rscBr5": 2144,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 16727,
+     "br5": 3379,
+     "br11": 3106,
+     "gzip": 3729,
+     "rscRaw": 10375,
+     "rscBr5": 2149,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 16818,
+     "br5": 3372,
+     "br11": 3081,
+     "gzip": 3723,
+     "rscRaw": 10375,
+     "rscBr5": 2146,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 16818,
+     "br5": 3373,
+     "br11": 3087,
+     "gzip": 3723,
+     "rscRaw": 10375,
+     "rscBr5": 2148,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 17510,
+     "br5": 3465,
+     "br11": 3172,
+     "gzip": 3802,
+     "rscRaw": 11526,
+     "rscBr5": 2371,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 17510,
+     "br5": 3464,
+     "br11": 3164,
+     "gzip": 3803,
+     "rscRaw": 11526,
+     "rscBr5": 2373,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/payables",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 16098,
+     "br5": 3304,
+     "br11": 3035,
+     "gzip": 3650,
+     "rscRaw": 10078,
+     "rscBr5": 2109,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 16098,
+     "br5": 3306,
+     "br11": 3025,
+     "gzip": 3649,
+     "rscRaw": 10078,
+     "rscBr5": 2112,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 16189,
+     "br5": 3298,
+     "br11": 3020,
+     "gzip": 3643,
+     "rscRaw": 10078,
+     "rscBr5": 2113,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 16189,
+     "br5": 3297,
+     "br11": 3040,
+     "gzip": 3642,
+     "rscRaw": 10078,
+     "rscBr5": 2114,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 16751,
+     "br5": 3385,
+     "br11": 3106,
+     "gzip": 3720,
+     "rscRaw": 11116,
+     "rscBr5": 2315,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 16751,
+     "br5": 3387,
+     "br11": 3098,
+     "gzip": 3719,
+     "rscRaw": 11116,
+     "rscBr5": 2315,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/inventory",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 40952,
+     "br5": 7024,
+     "br11": 6329,
+     "gzip": 7715,
+     "rscRaw": 33758,
+     "rscBr5": 5801,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 40952,
+     "br5": 7022,
+     "br11": 6355,
+     "gzip": 7717,
+     "rscRaw": 33758,
+     "rscBr5": 5801,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 41045,
+     "br5": 7011,
+     "br11": 6326,
+     "gzip": 7704,
+     "rscRaw": 33759,
+     "rscBr5": 5790,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 41045,
+     "br5": 7010,
+     "br11": 6325,
+     "gzip": 7706,
+     "rscRaw": 33759,
+     "rscBr5": 5792,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 41606,
+     "br5": 7112,
+     "br11": 6414,
+     "gzip": 7755,
+     "rscRaw": 34765,
+     "rscBr5": 6032,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 41606,
+     "br5": 7112,
+     "br11": 6406,
+     "gzip": 7758,
+     "rscRaw": 34765,
+     "rscBr5": 6033,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/tasks",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 15822,
+     "br5": 3249,
+     "br11": 2988,
+     "gzip": 3598,
+     "rscRaw": 9824,
+     "rscBr5": 2061,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 15822,
+     "br5": 3249,
+     "br11": 2979,
+     "gzip": 3598,
+     "rscRaw": 9824,
+     "rscBr5": 2061,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 15913,
+     "br5": 3244,
+     "br11": 2986,
+     "gzip": 3596,
+     "rscRaw": 9824,
+     "rscBr5": 2062,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 15913,
+     "br5": 3244,
+     "br11": 2977,
+     "gzip": 3595,
+     "rscRaw": 9824,
+     "rscBr5": 2063,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 16349,
+     "br5": 3304,
+     "br11": 3014,
+     "gzip": 3639,
+     "rscRaw": 10741,
+     "rscBr5": 2239,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 16349,
+     "br5": 3304,
+     "br11": 3020,
+     "gzip": 3639,
+     "rscRaw": 10741,
+     "rscBr5": 2242,
+     "sentinels": 0
+    }
+   },
+   {
+    "route": "/profile",
+    "mainOnHe": {
+     "status": 200,
+     "raw": 15239,
+     "br5": 3196,
+     "br11": 2931,
+     "gzip": 3541,
+     "rscRaw": 9443,
+     "rscBr5": 2033,
+     "sentinels": 0
+    },
+    "branchOnHe": {
+     "status": 200,
+     "raw": 15239,
+     "br5": 3196,
+     "br11": 2933,
+     "gzip": 3540,
+     "rscRaw": 9443,
+     "rscBr5": 2035,
+     "sentinels": 0
+    },
+    "mainOnEn": {
+     "status": 200,
+     "raw": 15320,
+     "br5": 3184,
+     "br11": 2937,
+     "gzip": 3533,
+     "rscRaw": 9438,
+     "rscBr5": 2027,
+     "sentinels": 0
+    },
+    "branchOnEn": {
+     "status": 200,
+     "raw": 15320,
+     "br5": 3183,
+     "br11": 2930,
+     "gzip": 3532,
+     "rscRaw": 9438,
+     "rscBr5": 2027,
+     "sentinels": 0
+    },
+    "mainOff": {
+     "status": 200,
+     "raw": 15766,
+     "br5": 3252,
+     "br11": 2972,
+     "gzip": 3581,
+     "rscRaw": 10362,
+     "rscBr5": 2205,
+     "sentinels": 0
+    },
+    "branchOff": {
+     "status": 200,
+     "raw": 15766,
+     "br5": 3253,
+     "br11": 2970,
+     "gzip": 3580,
+     "rscRaw": 10362,
+     "rscBr5": 2208,
+     "sentinels": 0
+    }
+   }
+  ],
+  "median": {
+   "mainOnHe": {
+    "raw": 16675,
+    "br5": 3378,
+    "br11": 3088,
+    "gzip": 3729,
+    "rscRaw": 9805,
+    "rscBr5": 2109,
+    "sentinels": 0
+   },
+   "branchOnHe": {
+    "raw": 16675,
+    "br5": 3379,
+    "br11": 3106,
+    "gzip": 3729,
+    "rscRaw": 9805,
+    "rscBr5": 2112,
+    "sentinels": 0
+   },
+   "mainOnEn": {
+    "raw": 16766,
+    "br5": 3372,
+    "br11": 3091,
+    "gzip": 3723,
+    "rscRaw": 9803,
+    "rscBr5": 2084,
+    "sentinels": 0
+   },
+   "branchOnEn": {
+    "raw": 16766,
+    "br5": 3373,
+    "br11": 3091,
+    "gzip": 3723,
+    "rscRaw": 9803,
+    "rscBr5": 2085,
+    "sentinels": 0
+   },
+   "mainOff": {
+    "raw": 17407,
+    "br5": 3465,
+    "br11": 3172,
+    "gzip": 3802,
+    "rscRaw": 10741,
+    "rscBr5": 2239,
+    "sentinels": 0
+   },
+   "branchOff": {
+    "raw": 17407,
+    "br5": 3464,
+    "br11": 3164,
+    "gzip": 3803,
+    "rscRaw": 10741,
+    "rscBr5": 2242,
+    "sentinels": 0
+   }
+  }
+ },
+ "chunk": {
+  "firstLoad": [
+   {
+    "url": "http://localhost:3611/_next/static/chunks/3veebjwguu4be.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 13517
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/turbopack-3tqfrf37targ2.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 11530
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/39ssgvc-9a6qu.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 15531
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/1_a64-lfx45x_.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 32579
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/3_i00adcqgyg-.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 14274
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/3pnl3pquqhb_i.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 44493
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/2w2hzk3y3zn7s.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 1828
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/3_ahxaxhgiq8h.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 229676
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/16grlt1bhn_hm.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 73632
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/0z6ia8dpr3xw7.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 156352
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/0ns-yla1cdaq3.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 72947
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/1pyc_97g_yuqy.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 401199
+   },
+   {
+    "url": "http://localhost:3611/_next/static/chunks/43s8bbl2wzvin.js",
+    "status": 200,
+    "fromCache": false,
+    "cacheControl": "public, max-age=31536000, immutable",
+    "bytes": 334951
+   }
+  ],
+  "coverage": "60/60",
+  "chunks": [
+   {
+    "path": "/_next/static/chunks/43s8bbl2wzvin.js",
+    "cacheControl": "public, max-age=31536000, immutable",
+    "raw": 334302,
+    "br5": 97682,
+    "br11": 86074,
+    "gzip": 104446
+   }
+  ],
+  "preloadedInHtml": [
+   true
+  ],
+  "second": {
+   "/app": [
+    {
+     "url": "http://localhost:3611/_next/static/chunks/43s8bbl2wzvin.js",
+     "status": 200,
+     "fromCache": true,
+     "cacheControl": "public, max-age=31536000, immutable",
+     "bytes": 0
+    }
+   ],
+   "/collection": [
+    {
+     "url": "http://localhost:3611/_next/static/chunks/43s8bbl2wzvin.js",
+     "status": 200,
+     "fromCache": true,
+     "cacheControl": "public, max-age=31536000, immutable",
+     "bytes": 0
+    }
+   ],
+   "/customers": [
+    {
+     "url": "http://localhost:3611/_next/static/chunks/43s8bbl2wzvin.js",
+     "status": 200,
+     "fromCache": true,
+     "cacheControl": "public, max-age=31536000, immutable",
+     "bytes": 0
+    }
+   ]
+  },
+  "reload": {
+   "http://localhost:3611/_next/static/chunks/43s8bbl2wzvin.js": {
+    "status": 200,
+    "fromCache": false
+   }
+  },
+  "jsWeight": [
+   {
+    "route": "/login",
+    "variant": "mainHe",
+    "files": 22,
+    "raw": 2003125,
+    "br5": 546929,
+    "maxSentinelsInOneFile": 0
+   },
+   {
+    "route": "/login",
+    "variant": "branchHe",
+    "files": 22,
+    "raw": 2003415,
+    "br5": 546965,
+    "maxSentinelsInOneFile": 0
+   },
+   {
+    "route": "/login",
+    "variant": "mainEn",
+    "files": 24,
+    "raw": 2671661,
+    "br5": 742285,
+    "maxSentinelsInOneFile": 60
+   },
+   {
+    "route": "/login",
+    "variant": "branchEn",
+    "files": 24,
+    "raw": 2672019,
+    "br5": 742329,
+    "maxSentinelsInOneFile": 60
+   },
+   {
+    "route": "/app",
+    "variant": "mainHe",
+    "files": 12,
+    "raw": 1060254,
+    "br5": 287042,
+    "maxSentinelsInOneFile": 0
+   },
+   {
+    "route": "/app",
+    "variant": "branchHe",
+    "files": 12,
+    "raw": 1060399,
+    "br5": 287060,
+    "maxSentinelsInOneFile": 0
+   },
+   {
+    "route": "/app",
+    "variant": "mainEn",
+    "files": 13,
+    "raw": 1394522,
+    "br5": 384720,
+    "maxSentinelsInOneFile": 60
+   },
+   {
+    "route": "/app",
+    "variant": "branchEn",
+    "files": 13,
+    "raw": 1394701,
+    "br5": 384742,
+    "maxSentinelsInOneFile": 60
+   },
+   {
+    "route": "/collection",
+    "variant": "mainHe",
+    "files": 11,
+    "raw": 1028387,
+    "br5": 282219,
+    "maxSentinelsInOneFile": 0
+   },
+   {
+    "route": "/collection",
+    "variant": "branchHe",
+    "files": 11,
+    "raw": 1028532,
+    "br5": 282237,
+    "maxSentinelsInOneFile": 0
+   },
+   {
+    "route": "/collection",
+    "variant": "mainEn",
+    "files": 12,
+    "raw": 1362655,
+    "br5": 379897,
+    "maxSentinelsInOneFile": 60
+   },
+   {
+    "route": "/collection",
+    "variant": "branchEn",
+    "files": 12,
+    "raw": 1362834,
+    "br5": 379919,
+    "maxSentinelsInOneFile": 60
+   }
+  ]
+ },
+ "identity": {
+  "comparisons": 300,
+  "exact": 300,
+  "volatileOnly": 0,
+  "different": 0,
+  "rows": [
+   {
+    "route": "/home",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/home",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/home",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/home",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/about",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/about",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/about",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/about",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/privacy",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/privacy",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/privacy",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/privacy",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/login",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/login",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/login",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/login",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/register",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/register",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/register",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/register",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/forgot-password",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/app",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/app",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/app",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/app",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/collection",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/collection",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/collection",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/collection",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/billing",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/billing",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/billing",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/billing/[id]",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/customers",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/customers",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/customers",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/customers/[id]",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/leads",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/leads",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/leads",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/leads",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/settings",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/settings",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/settings",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/settings/workspace",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/secretary",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/secretary",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/secretary",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/secretary",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/payables",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/payables",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/payables",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/payables",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/inventory",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/inventory",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/inventory",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/inventory",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/tasks",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/tasks",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/tasks",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/tasks",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/profile",
+    "width": 390,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 390,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 390,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 390,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 390,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/profile",
+    "width": 820,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 820,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 820,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 820,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   },
+   {
+    "route": "/profile",
+    "width": 820,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 1440,
+    "variant": "flag OFF, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 1440,
+    "variant": "flag OFF, dz_locale=en (ignored)",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 1440,
+    "variant": "flag ON, no cookie",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=he",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "he/rtl"
+   },
+   {
+    "route": "/profile",
+    "width": 1440,
+    "variant": "flag ON, dz_locale=en",
+    "identical": true,
+    "volatileOnly": false,
+    "lang": "en/ltr"
+   }
+  ]
+ },
+ "timings": {
+  "rounds": 3,
+  "agg": [
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "he",
+    "main": {
+     "ttfb": 12.7,
+     "fcp": 272,
+     "lcp": 240,
+     "dcl": 49.6,
+     "load": 151,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 12.7,
+     "fcp": 304,
+     "lcp": 236,
+     "dcl": 47.6,
+     "load": 131.2,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "en",
+    "main": {
+     "ttfb": 12.5,
+     "fcp": 224,
+     "lcp": 232,
+     "dcl": 50.5,
+     "load": 131.1,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 12.9,
+     "fcp": 268,
+     "lcp": 224,
+     "dcl": 45.9,
+     "load": 136,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "he",
+    "main": {
+     "ttfb": 13.2,
+     "fcp": 192,
+     "lcp": 244,
+     "dcl": 50.4,
+     "load": 138.7,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 13.5,
+     "fcp": 244,
+     "lcp": 240,
+     "dcl": 51.4,
+     "load": 129.9,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "en",
+    "main": {
+     "ttfb": 9.6,
+     "fcp": 140,
+     "lcp": 172,
+     "dcl": 35.6,
+     "load": 95.3,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 9.3,
+     "fcp": 152,
+     "lcp": 192,
+     "dcl": 34.2,
+     "load": 91,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "he",
+    "main": {
+     "ttfb": 9.4,
+     "fcp": 288,
+     "lcp": 192,
+     "dcl": 36.5,
+     "load": 93.6,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 9.3,
+     "fcp": 260,
+     "lcp": 232,
+     "dcl": 36.4,
+     "load": 99.8,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "en",
+    "main": {
+     "ttfb": 9.5,
+     "fcp": 324,
+     "lcp": 236,
+     "dcl": 38.1,
+     "load": 107.8,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 9.4,
+     "fcp": 124,
+     "lcp": 240,
+     "dcl": 33.6,
+     "load": 103.8,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "he",
+    "main": {
+     "ttfb": 9,
+     "fcp": 168,
+     "lcp": 224,
+     "dcl": 85.4,
+     "load": 151.7,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 8.6,
+     "fcp": 172,
+     "lcp": 220,
+     "dcl": 92.4,
+     "load": 154.3,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "en",
+    "main": {
+     "ttfb": 8.9,
+     "fcp": 208,
+     "lcp": 244,
+     "dcl": 94.3,
+     "load": 152.2,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 8.4,
+     "fcp": 160,
+     "lcp": 228,
+     "dcl": 90.6,
+     "load": 152.3,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "he",
+    "main": {
+     "ttfb": 8.3,
+     "fcp": 168,
+     "lcp": 228,
+     "dcl": 90.5,
+     "load": 149,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 8,
+     "fcp": 180,
+     "lcp": 232,
+     "dcl": 88.6,
+     "load": 143.1,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "en",
+    "main": {
+     "ttfb": 8.3,
+     "fcp": 168,
+     "lcp": 232,
+     "dcl": 88.6,
+     "load": 153.9,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 8.7,
+     "fcp": 160,
+     "lcp": 232,
+     "dcl": 94.5,
+     "load": 156.8,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "he",
+    "main": {
+     "ttfb": 8.9,
+     "fcp": 316,
+     "lcp": 228,
+     "dcl": 95.2,
+     "load": 154.8,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 8.6,
+     "fcp": 540,
+     "lcp": 268,
+     "dcl": 91.4,
+     "load": 157.1,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "en",
+    "main": {
+     "ttfb": 10,
+     "fcp": 216,
+     "lcp": 276,
+     "dcl": 94.8,
+     "load": 170,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 9.9,
+     "fcp": 200,
+     "lcp": 276,
+     "dcl": 93.2,
+     "load": 172,
+     "transfer": 39839
+    }
+   }
+  ],
+  "perRoute": [
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "he",
+    "route": "/home",
+    "main": {
+     "ttfb": 20.6,
+     "fcp": 272,
+     "lcp": 312,
+     "dcl": 69.1,
+     "load": 318.6,
+     "transfer": 90433
+    },
+    "branch": {
+     "ttfb": 16.9,
+     "fcp": 304,
+     "lcp": 344,
+     "dcl": 85.7,
+     "load": 344.7,
+     "transfer": 90433
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "he",
+    "route": "/login",
+    "main": {},
+    "branch": {}
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "he",
+    "route": "/app",
+    "main": {
+     "ttfb": 11.5,
+     "fcp": null,
+     "lcp": 240,
+     "dcl": 44.2,
+     "load": 153.8,
+     "transfer": 16028
+    },
+    "branch": {
+     "ttfb": 11.7,
+     "fcp": null,
+     "lcp": 232,
+     "dcl": 33.4,
+     "load": 107.5,
+     "transfer": 16028
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "he",
+    "route": "/collection",
+    "main": {
+     "ttfb": 14.9,
+     "fcp": null,
+     "lcp": 272,
+     "dcl": 43.3,
+     "load": 120,
+     "transfer": 15549
+    },
+    "branch": {
+     "ttfb": 12.5,
+     "fcp": null,
+     "lcp": 252,
+     "dcl": 48.1,
+     "load": 131.2,
+     "transfer": 15549
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "he",
+    "route": "/billing",
+    "main": {
+     "ttfb": 14.6,
+     "fcp": null,
+     "lcp": 224,
+     "dcl": 59,
+     "load": 151,
+     "transfer": 45082
+    },
+    "branch": {
+     "ttfb": 15.9,
+     "fcp": null,
+     "lcp": 208,
+     "dcl": 60.1,
+     "load": 142.3,
+     "transfer": 45082
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "he",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 17.2,
+     "fcp": null,
+     "lcp": 272,
+     "dcl": 52.9,
+     "load": 168,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 14.6,
+     "fcp": null,
+     "lcp": 252,
+     "dcl": 53.5,
+     "load": 160.5,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "he",
+    "route": "/customers",
+    "main": {
+     "ttfb": 12.7,
+     "fcp": null,
+     "lcp": 180,
+     "dcl": 45.5,
+     "load": 116.3,
+     "transfer": 16975
+    },
+    "branch": {
+     "ttfb": 10.4,
+     "fcp": null,
+     "lcp": 200,
+     "dcl": 39.2,
+     "load": 126.2,
+     "transfer": 16975
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "he",
+    "route": "/settings",
+    "main": {
+     "ttfb": 10.3,
+     "fcp": null,
+     "lcp": 176,
+     "dcl": 40.5,
+     "load": 146.6,
+     "transfer": 47477
+    },
+    "branch": {
+     "ttfb": 12.6,
+     "fcp": null,
+     "lcp": 172,
+     "dcl": 44.1,
+     "load": 100,
+     "transfer": 47477
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "en",
+    "route": "/home",
+    "main": {
+     "ttfb": 12.5,
+     "fcp": 228,
+     "lcp": 272,
+     "dcl": 55.5,
+     "load": 273.3,
+     "transfer": 90574
+    },
+    "branch": {
+     "ttfb": 17.2,
+     "fcp": 268,
+     "lcp": 316,
+     "dcl": 73.5,
+     "load": 311.9,
+     "transfer": 90574
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "en",
+    "route": "/login",
+    "main": {},
+    "branch": {}
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "en",
+    "route": "/app",
+    "main": {
+     "ttfb": 8.8,
+     "fcp": 108,
+     "lcp": 224,
+     "dcl": 29.1,
+     "load": 110.8,
+     "transfer": 16115
+    },
+    "branch": {
+     "ttfb": 17.7,
+     "fcp": null,
+     "lcp": 208,
+     "dcl": 41.6,
+     "load": 116.6,
+     "transfer": 16115
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "en",
+    "route": "/collection",
+    "main": {
+     "ttfb": 14.6,
+     "fcp": null,
+     "lcp": 264,
+     "dcl": 41.2,
+     "load": 120.5,
+     "transfer": 15640
+    },
+    "branch": {
+     "ttfb": 14.4,
+     "fcp": null,
+     "lcp": 252,
+     "dcl": 44.7,
+     "load": 125.1,
+     "transfer": 15640
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "en",
+    "route": "/billing",
+    "main": {
+     "ttfb": 13.2,
+     "fcp": null,
+     "lcp": 188,
+     "dcl": 54.2,
+     "load": 128.4,
+     "transfer": 44914
+    },
+    "branch": {
+     "ttfb": 12.9,
+     "fcp": null,
+     "lcp": 196,
+     "dcl": 61.3,
+     "load": 182.6,
+     "transfer": 44914
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "en",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 12.3,
+     "fcp": null,
+     "lcp": 276,
+     "dcl": 53.3,
+     "load": 134.5,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 10.2,
+     "fcp": null,
+     "lcp": 256,
+     "dcl": 46,
+     "load": 124.1,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "en",
+    "route": "/customers",
+    "main": {
+     "ttfb": 9.4,
+     "fcp": 108,
+     "lcp": 188,
+     "dcl": 35.8,
+     "load": 118.7,
+     "transfer": 17066
+    },
+    "branch": {
+     "ttfb": 9.8,
+     "fcp": null,
+     "lcp": 220,
+     "dcl": 39.4,
+     "load": 129.4,
+     "transfer": 17066
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 390,
+    "locale": "en",
+    "route": "/settings",
+    "main": {
+     "ttfb": 13.1,
+     "fcp": null,
+     "lcp": 196,
+     "dcl": 52.5,
+     "load": 123.7,
+     "transfer": 47198
+    },
+    "branch": {
+     "ttfb": 11.5,
+     "fcp": null,
+     "lcp": 152,
+     "dcl": 37.8,
+     "load": 136,
+     "transfer": 47198
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "he",
+    "route": "/home",
+    "main": {
+     "ttfb": 22.1,
+     "fcp": 236,
+     "lcp": 284,
+     "dcl": 63.4,
+     "load": 277.7,
+     "transfer": 90433
+    },
+    "branch": {
+     "ttfb": 16,
+     "fcp": 256,
+     "lcp": 300,
+     "dcl": 61.2,
+     "load": 297.7,
+     "transfer": 90433
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "he",
+    "route": "/login",
+    "main": {},
+    "branch": {}
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "he",
+    "route": "/app",
+    "main": {
+     "ttfb": 10.5,
+     "fcp": null,
+     "lcp": 232,
+     "dcl": 37.2,
+     "load": 121,
+     "transfer": 16028
+    },
+    "branch": {
+     "ttfb": 10.1,
+     "fcp": 132,
+     "lcp": 260,
+     "dcl": 35.2,
+     "load": 119.8,
+     "transfer": 16028
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "he",
+    "route": "/collection",
+    "main": {
+     "ttfb": 12.6,
+     "fcp": 120,
+     "lcp": 244,
+     "dcl": 39,
+     "load": 120.4,
+     "transfer": 15549
+    },
+    "branch": {
+     "ttfb": 13.1,
+     "fcp": null,
+     "lcp": 280,
+     "dcl": 45.6,
+     "load": 123.4,
+     "transfer": 15549
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "he",
+    "route": "/billing",
+    "main": {
+     "ttfb": 15.4,
+     "fcp": null,
+     "lcp": 232,
+     "dcl": 58.4,
+     "load": 153.9,
+     "transfer": 45082
+    },
+    "branch": {
+     "ttfb": 13.5,
+     "fcp": null,
+     "lcp": 228,
+     "dcl": 51.4,
+     "load": 143.5,
+     "transfer": 45082
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "he",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 13.1,
+     "fcp": null,
+     "lcp": 292,
+     "dcl": 50.7,
+     "load": 139.5,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 14.6,
+     "fcp": null,
+     "lcp": 200,
+     "dcl": 67.9,
+     "load": 142.9,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "he",
+    "route": "/customers",
+    "main": {
+     "ttfb": 12.9,
+     "fcp": 108,
+     "lcp": 240,
+     "dcl": 45.4,
+     "load": 138.7,
+     "transfer": 16975
+    },
+    "branch": {
+     "ttfb": 13.6,
+     "fcp": null,
+     "lcp": 200,
+     "dcl": 58.5,
+     "load": 122.8,
+     "transfer": 16975
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "he",
+    "route": "/settings",
+    "main": {
+     "ttfb": 9.8,
+     "fcp": null,
+     "lcp": 180,
+     "dcl": 39.9,
+     "load": 85.2,
+     "transfer": 47477
+    },
+    "branch": {
+     "ttfb": 12.6,
+     "fcp": null,
+     "lcp": 208,
+     "dcl": 45.1,
+     "load": 109.2,
+     "transfer": 47477
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "en",
+    "route": "/home",
+    "main": {
+     "ttfb": 12.6,
+     "fcp": 216,
+     "lcp": 248,
+     "dcl": 50.3,
+     "load": 238.9,
+     "transfer": 90574
+    },
+    "branch": {
+     "ttfb": 11.6,
+     "fcp": 216,
+     "lcp": 260,
+     "dcl": 48,
+     "load": 254.9,
+     "transfer": 90574
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "en",
+    "route": "/login",
+    "main": {},
+    "branch": {}
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "en",
+    "route": "/app",
+    "main": {
+     "ttfb": 7.7,
+     "fcp": null,
+     "lcp": 196,
+     "dcl": 24.2,
+     "load": 85.3,
+     "transfer": 16115
+    },
+    "branch": {
+     "ttfb": 9.6,
+     "fcp": null,
+     "lcp": 256,
+     "dcl": 27.2,
+     "load": 83.9,
+     "transfer": 16115
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "en",
+    "route": "/collection",
+    "main": {
+     "ttfb": 8.4,
+     "fcp": 116,
+     "lcp": 196,
+     "dcl": 30.7,
+     "load": 77.4,
+     "transfer": 15640
+    },
+    "branch": {
+     "ttfb": 8,
+     "fcp": null,
+     "lcp": 192,
+     "dcl": 26.1,
+     "load": 70.2,
+     "transfer": 15640
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "en",
+    "route": "/billing",
+    "main": {
+     "ttfb": 9.3,
+     "fcp": null,
+     "lcp": 144,
+     "dcl": 42.8,
+     "load": 105.5,
+     "transfer": 44914
+    },
+    "branch": {
+     "ttfb": 9.3,
+     "fcp": null,
+     "lcp": 168,
+     "dcl": 39.4,
+     "load": 103.7,
+     "transfer": 44914
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "en",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 10.1,
+     "fcp": null,
+     "lcp": 212,
+     "dcl": 36,
+     "load": 103.1,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 9.1,
+     "fcp": null,
+     "lcp": 248,
+     "dcl": 46.9,
+     "load": 117.1,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "en",
+    "route": "/customers",
+    "main": {
+     "ttfb": 11.2,
+     "fcp": 120,
+     "lcp": 172,
+     "dcl": 35.6,
+     "load": 108.3,
+     "transfer": 17066
+    },
+    "branch": {
+     "ttfb": 9.6,
+     "fcp": 116,
+     "lcp": 148,
+     "dcl": 28.6,
+     "load": 87.5,
+     "transfer": 17066
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 820,
+    "locale": "en",
+    "route": "/settings",
+    "main": {
+     "ttfb": 9,
+     "fcp": null,
+     "lcp": 160,
+     "dcl": 32.6,
+     "load": 77.6,
+     "transfer": 47198
+    },
+    "branch": {
+     "ttfb": 8.8,
+     "fcp": null,
+     "lcp": 176,
+     "dcl": 36,
+     "load": 91,
+     "transfer": 47198
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "he",
+    "route": "/home",
+    "main": {
+     "ttfb": 17,
+     "fcp": 320,
+     "lcp": 348,
+     "dcl": 51.2,
+     "load": 342,
+     "transfer": 90433
+    },
+    "branch": {
+     "ttfb": 11.3,
+     "fcp": 340,
+     "lcp": 380,
+     "dcl": 44.8,
+     "load": 374.9,
+     "transfer": 90433
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "he",
+    "route": "/login",
+    "main": {},
+    "branch": {}
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "he",
+    "route": "/app",
+    "main": {
+     "ttfb": 8,
+     "fcp": null,
+     "lcp": 264,
+     "dcl": 28.5,
+     "load": 89.6,
+     "transfer": 16028
+    },
+    "branch": {
+     "ttfb": 8,
+     "fcp": null,
+     "lcp": 252,
+     "dcl": 26.2,
+     "load": 90.3,
+     "transfer": 16028
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "he",
+    "route": "/collection",
+    "main": {
+     "ttfb": 9.4,
+     "fcp": 84,
+     "lcp": 224,
+     "dcl": 31.6,
+     "load": 90.8,
+     "transfer": 15549
+    },
+    "branch": {
+     "ttfb": 11.1,
+     "fcp": 116,
+     "lcp": 244,
+     "dcl": 36.7,
+     "load": 99.8,
+     "transfer": 15549
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "he",
+    "route": "/billing",
+    "main": {
+     "ttfb": 9.3,
+     "fcp": null,
+     "lcp": 164,
+     "dcl": 35.4,
+     "load": 96.8,
+     "transfer": 45082
+    },
+    "branch": {
+     "ttfb": 9.8,
+     "fcp": null,
+     "lcp": 156,
+     "dcl": 36.4,
+     "load": 95.3,
+     "transfer": 45082
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "he",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 9.4,
+     "fcp": null,
+     "lcp": 132,
+     "dcl": 34.7,
+     "load": 91.6,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 9.1,
+     "fcp": 124,
+     "lcp": 140,
+     "dcl": 41.7,
+     "load": 118.8,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "he",
+    "route": "/customers",
+    "main": {
+     "ttfb": 8.4,
+     "fcp": null,
+     "lcp": 192,
+     "dcl": 37.1,
+     "load": 107.8,
+     "transfer": 16975
+    },
+    "branch": {
+     "ttfb": 8.7,
+     "fcp": null,
+     "lcp": 192,
+     "dcl": 29.6,
+     "load": 90.5,
+     "transfer": 16975
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "he",
+    "route": "/settings",
+    "main": {
+     "ttfb": 9.6,
+     "fcp": null,
+     "lcp": 184,
+     "dcl": 37.1,
+     "load": 91.3,
+     "transfer": 47477
+    },
+    "branch": {
+     "ttfb": 11.6,
+     "fcp": null,
+     "lcp": 212,
+     "dcl": 45.2,
+     "load": 105.7,
+     "transfer": 47477
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "en",
+    "route": "/home",
+    "main": {
+     "ttfb": 17.3,
+     "fcp": 336,
+     "lcp": 368,
+     "dcl": 62.7,
+     "load": 362.9,
+     "transfer": 90574
+    },
+    "branch": {
+     "ttfb": 12.1,
+     "fcp": 332,
+     "lcp": 368,
+     "dcl": 47.2,
+     "load": 362.5,
+     "transfer": 90574
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "en",
+    "route": "/login",
+    "main": {},
+    "branch": {}
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "en",
+    "route": "/app",
+    "main": {
+     "ttfb": 8.2,
+     "fcp": null,
+     "lcp": 276,
+     "dcl": 28.5,
+     "load": 92.8,
+     "transfer": 16115
+    },
+    "branch": {
+     "ttfb": 7.9,
+     "fcp": null,
+     "lcp": 248,
+     "dcl": 27,
+     "load": 92.3,
+     "transfer": 16115
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "en",
+    "route": "/collection",
+    "main": {
+     "ttfb": 9.5,
+     "fcp": 84,
+     "lcp": 232,
+     "dcl": 29.4,
+     "load": 93.1,
+     "transfer": 15640
+    },
+    "branch": {
+     "ttfb": 9.6,
+     "fcp": 92,
+     "lcp": 240,
+     "dcl": 30.6,
+     "load": 86.7,
+     "transfer": 15640
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "en",
+    "route": "/billing",
+    "main": {
+     "ttfb": 9.4,
+     "fcp": null,
+     "lcp": 236,
+     "dcl": 38.1,
+     "load": 134.7,
+     "transfer": 44914
+    },
+    "branch": {
+     "ttfb": 9.2,
+     "fcp": null,
+     "lcp": 260,
+     "dcl": 33.6,
+     "load": 116.5,
+     "transfer": 44914
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "en",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 9.5,
+     "fcp": null,
+     "lcp": 144,
+     "dcl": 41.2,
+     "load": 130.2,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 9.4,
+     "fcp": 124,
+     "lcp": 148,
+     "dcl": 39.4,
+     "load": 105.4,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "en",
+    "route": "/customers",
+    "main": {
+     "ttfb": 8.5,
+     "fcp": 92,
+     "lcp": 204,
+     "dcl": 41,
+     "load": 136.7,
+     "transfer": 17066
+    },
+    "branch": {
+     "ttfb": 8.6,
+     "fcp": 92,
+     "lcp": 192,
+     "dcl": 30.2,
+     "load": 118.4,
+     "transfer": 17066
+    }
+   },
+   {
+    "profile": "unthrottled",
+    "width": 1440,
+    "locale": "en",
+    "route": "/settings",
+    "main": {
+     "ttfb": 9.9,
+     "fcp": null,
+     "lcp": 188,
+     "dcl": 44.6,
+     "load": 93.7,
+     "transfer": 47198
+    },
+    "branch": {
+     "ttfb": 10.3,
+     "fcp": null,
+     "lcp": 200,
+     "dcl": 42.1,
+     "load": 101.9,
+     "transfer": 47198
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "he",
+    "route": "/home",
+    "main": {
+     "ttfb": 10.3,
+     "fcp": 168,
+     "lcp": 220,
+     "dcl": 175.8,
+     "load": 175.9,
+     "transfer": 90433
+    },
+    "branch": {
+     "ttfb": 10.7,
+     "fcp": 172,
+     "lcp": 228,
+     "dcl": 172.3,
+     "load": 172.4,
+     "transfer": 90433
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "he",
+    "route": "/login",
+    "main": {},
+    "branch": {
+     "ttfb": 7.4,
+     "fcp": null,
+     "lcp": null,
+     "dcl": 73.7,
+     "load": 129,
+     "transfer": 12208
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "he",
+    "route": "/app",
+    "main": {
+     "ttfb": 7.6,
+     "fcp": 164,
+     "lcp": 308,
+     "dcl": 80.8,
+     "load": 159.9,
+     "transfer": 16028
+    },
+    "branch": {
+     "ttfb": 7.2,
+     "fcp": null,
+     "lcp": 292,
+     "dcl": 92.4,
+     "load": 160.6,
+     "transfer": 16028
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "he",
+    "route": "/collection",
+    "main": {
+     "ttfb": 9.3,
+     "fcp": null,
+     "lcp": 284,
+     "dcl": 79.4,
+     "load": 138.4,
+     "transfer": 15549
+    },
+    "branch": {
+     "ttfb": 8,
+     "fcp": null,
+     "lcp": 272,
+     "dcl": 89.1,
+     "load": 140.9,
+     "transfer": 15549
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "he",
+    "route": "/billing",
+    "main": {
+     "ttfb": 8.9,
+     "fcp": null,
+     "lcp": 204,
+     "dcl": 95.4,
+     "load": 156.2,
+     "transfer": 45082
+    },
+    "branch": {
+     "ttfb": 8.7,
+     "fcp": null,
+     "lcp": 208,
+     "dcl": 94.5,
+     "load": 154.3,
+     "transfer": 45082
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "he",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 8.7,
+     "fcp": null,
+     "lcp": 296,
+     "dcl": 85.4,
+     "load": 145.4,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 9,
+     "fcp": null,
+     "lcp": 312,
+     "dcl": 100.2,
+     "load": 157.3,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "he",
+    "route": "/customers",
+    "main": {
+     "ttfb": 7.4,
+     "fcp": null,
+     "lcp": 200,
+     "dcl": 80.5,
+     "load": 141.2,
+     "transfer": 16975
+    },
+    "branch": {
+     "ttfb": 7.7,
+     "fcp": null,
+     "lcp": 196,
+     "dcl": 77.8,
+     "load": 144.5,
+     "transfer": 16975
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "he",
+    "route": "/settings",
+    "main": {
+     "ttfb": 9.2,
+     "fcp": null,
+     "lcp": 204,
+     "dcl": 96.4,
+     "load": 174.9,
+     "transfer": 47477
+    },
+    "branch": {
+     "ttfb": 8.9,
+     "fcp": null,
+     "lcp": 208,
+     "dcl": 93.2,
+     "load": 141.9,
+     "transfer": 47477
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "en",
+    "route": "/home",
+    "main": {
+     "ttfb": 10.9,
+     "fcp": 164,
+     "lcp": 244,
+     "dcl": 164.5,
+     "load": 184.2,
+     "transfer": 90574
+    },
+    "branch": {
+     "ttfb": 11.8,
+     "fcp": 160,
+     "lcp": 228,
+     "dcl": 159.5,
+     "load": 179.2,
+     "transfer": 90574
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "en",
+    "route": "/login",
+    "main": {},
+    "branch": {}
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "en",
+    "route": "/app",
+    "main": {
+     "ttfb": 8,
+     "fcp": null,
+     "lcp": 348,
+     "dcl": 95.1,
+     "load": 186.9,
+     "transfer": 16115
+    },
+    "branch": {
+     "ttfb": 7.2,
+     "fcp": 160,
+     "lcp": 320,
+     "dcl": 81.4,
+     "load": 172.9,
+     "transfer": 16115
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "en",
+    "route": "/collection",
+    "main": {
+     "ttfb": 10,
+     "fcp": 212,
+     "lcp": 312,
+     "dcl": 79,
+     "load": 150.4,
+     "transfer": 15640
+    },
+    "branch": {
+     "ttfb": 7.6,
+     "fcp": 152,
+     "lcp": 280,
+     "dcl": 79.7,
+     "load": 139.9,
+     "transfer": 15640
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "en",
+    "route": "/billing",
+    "main": {
+     "ttfb": 8.6,
+     "fcp": 208,
+     "lcp": 208,
+     "dcl": 94.3,
+     "load": 178.4,
+     "transfer": 44914
+    },
+    "branch": {
+     "ttfb": 8.3,
+     "fcp": null,
+     "lcp": 192,
+     "dcl": 88.9,
+     "load": 146,
+     "transfer": 44914
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "en",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 13.7,
+     "fcp": null,
+     "lcp": 304,
+     "dcl": 88.7,
+     "load": 150.7,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 8.4,
+     "fcp": null,
+     "lcp": 288,
+     "dcl": 89.6,
+     "load": 149.8,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "en",
+    "route": "/customers",
+    "main": {
+     "ttfb": 7.5,
+     "fcp": null,
+     "lcp": 200,
+     "dcl": 81.6,
+     "load": 142.6,
+     "transfer": 17066
+    },
+    "branch": {
+     "ttfb": 7.4,
+     "fcp": null,
+     "lcp": 216,
+     "dcl": 93,
+     "load": 153.1,
+     "transfer": 17066
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 390,
+    "locale": "en",
+    "route": "/settings",
+    "main": {
+     "ttfb": 8.6,
+     "fcp": null,
+     "lcp": 208,
+     "dcl": 96.1,
+     "load": 145.1,
+     "transfer": 47198
+    },
+    "branch": {
+     "ttfb": 9.4,
+     "fcp": null,
+     "lcp": 212,
+     "dcl": 93.7,
+     "load": 151.4,
+     "transfer": 47198
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "he",
+    "route": "/home",
+    "main": {
+     "ttfb": 10.9,
+     "fcp": 172,
+     "lcp": 228,
+     "dcl": 169.1,
+     "load": 170.7,
+     "transfer": 90433
+    },
+    "branch": {
+     "ttfb": 10.6,
+     "fcp": 180,
+     "lcp": 236,
+     "dcl": 179.8,
+     "load": 179.9,
+     "transfer": 90433
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "he",
+    "route": "/login",
+    "main": {
+     "ttfb": 7.3,
+     "fcp": null,
+     "lcp": null,
+     "dcl": 90.5,
+     "load": 142.1,
+     "transfer": 12208
+    },
+    "branch": {}
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "he",
+    "route": "/app",
+    "main": {
+     "ttfb": 7.1,
+     "fcp": 168,
+     "lcp": 296,
+     "dcl": 80.2,
+     "load": 150.7,
+     "transfer": 16028
+    },
+    "branch": {
+     "ttfb": 7.5,
+     "fcp": null,
+     "lcp": 280,
+     "dcl": 81.4,
+     "load": 142.9,
+     "transfer": 16028
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "he",
+    "route": "/collection",
+    "main": {
+     "ttfb": 7.9,
+     "fcp": null,
+     "lcp": 288,
+     "dcl": 84.5,
+     "load": 136,
+     "transfer": 15549
+    },
+    "branch": {
+     "ttfb": 7.9,
+     "fcp": null,
+     "lcp": 276,
+     "dcl": 85.8,
+     "load": 129.5,
+     "transfer": 15549
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "he",
+    "route": "/billing",
+    "main": {
+     "ttfb": 8.8,
+     "fcp": null,
+     "lcp": 212,
+     "dcl": 94,
+     "load": 159.7,
+     "transfer": 45082
+    },
+    "branch": {
+     "ttfb": 8.3,
+     "fcp": null,
+     "lcp": 196,
+     "dcl": 107.5,
+     "load": 142,
+     "transfer": 45082
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "he",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 8.6,
+     "fcp": null,
+     "lcp": 284,
+     "dcl": 93.3,
+     "load": 148.4,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 8.6,
+     "fcp": null,
+     "lcp": 300,
+     "dcl": 88.6,
+     "load": 151.6,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "he",
+    "route": "/customers",
+    "main": {
+     "ttfb": 8,
+     "fcp": null,
+     "lcp": 204,
+     "dcl": 84,
+     "load": 144.7,
+     "transfer": 16975
+    },
+    "branch": {
+     "ttfb": 7.5,
+     "fcp": null,
+     "lcp": 200,
+     "dcl": 82.8,
+     "load": 143.1,
+     "transfer": 16975
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "he",
+    "route": "/settings",
+    "main": {
+     "ttfb": 8.5,
+     "fcp": null,
+     "lcp": 204,
+     "dcl": 91,
+     "load": 133.2,
+     "transfer": 47477
+    },
+    "branch": {
+     "ttfb": 8.2,
+     "fcp": null,
+     "lcp": 200,
+     "dcl": 92.5,
+     "load": 132.1,
+     "transfer": 47477
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "en",
+    "route": "/home",
+    "main": {
+     "ttfb": 10.7,
+     "fcp": 168,
+     "lcp": 224,
+     "dcl": 178.5,
+     "load": 178.5,
+     "transfer": 90574
+    },
+    "branch": {
+     "ttfb": 10.5,
+     "fcp": 160,
+     "lcp": 220,
+     "dcl": 154.1,
+     "load": 159.3,
+     "transfer": 90574
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "en",
+    "route": "/login",
+    "main": {
+     "ttfb": 7.2,
+     "fcp": null,
+     "lcp": null,
+     "dcl": 94.9,
+     "load": 149.1,
+     "transfer": 12285
+    },
+    "branch": {}
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "en",
+    "route": "/app",
+    "main": {
+     "ttfb": 7.4,
+     "fcp": 164,
+     "lcp": 324,
+     "dcl": 90.6,
+     "load": 162.4,
+     "transfer": 16115
+    },
+    "branch": {
+     "ttfb": 7.5,
+     "fcp": null,
+     "lcp": 304,
+     "dcl": 80.5,
+     "load": 149.5,
+     "transfer": 16115
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "en",
+    "route": "/collection",
+    "main": {
+     "ttfb": 7.8,
+     "fcp": 160,
+     "lcp": 292,
+     "dcl": 84.9,
+     "load": 153.9,
+     "transfer": 15640
+    },
+    "branch": {
+     "ttfb": 9,
+     "fcp": null,
+     "lcp": 300,
+     "dcl": 94.2,
+     "load": 148.5,
+     "transfer": 15640
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "en",
+    "route": "/billing",
+    "main": {
+     "ttfb": 8.3,
+     "fcp": null,
+     "lcp": 192,
+     "dcl": 86.1,
+     "load": 160.4,
+     "transfer": 44914
+    },
+    "branch": {
+     "ttfb": 8.8,
+     "fcp": null,
+     "lcp": 204,
+     "dcl": 98.4,
+     "load": 154.8,
+     "transfer": 44914
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "en",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 8.6,
+     "fcp": null,
+     "lcp": 312,
+     "dcl": 87.8,
+     "load": 147.5,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 8.8,
+     "fcp": null,
+     "lcp": 308,
+     "dcl": 94.5,
+     "load": 156.8,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "en",
+    "route": "/customers",
+    "main": {
+     "ttfb": 7.3,
+     "fcp": null,
+     "lcp": 212,
+     "dcl": 86.9,
+     "load": 149,
+     "transfer": 17066
+    },
+    "branch": {
+     "ttfb": 7.2,
+     "fcp": null,
+     "lcp": 220,
+     "dcl": 91.3,
+     "load": 158,
+     "transfer": 17066
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 820,
+    "locale": "en",
+    "route": "/settings",
+    "main": {
+     "ttfb": 8.4,
+     "fcp": null,
+     "lcp": 220,
+     "dcl": 94.9,
+     "load": 145.9,
+     "transfer": 47198
+    },
+    "branch": {
+     "ttfb": 8.6,
+     "fcp": null,
+     "lcp": 212,
+     "dcl": 99.3,
+     "load": 162.1,
+     "transfer": 47198
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "he",
+    "route": "/home",
+    "main": {
+     "ttfb": 11.2,
+     "fcp": 316,
+     "lcp": 268,
+     "dcl": 209.9,
+     "load": 211.5,
+     "transfer": 90433
+    },
+    "branch": {
+     "ttfb": 14.4,
+     "fcp": 540,
+     "lcp": 564,
+     "dcl": 139.6,
+     "load": 468.5,
+     "transfer": 90433
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "he",
+    "route": "/login",
+    "main": {
+     "ttfb": 11.1,
+     "fcp": null,
+     "lcp": null,
+     "dcl": 96.9,
+     "load": 176.1,
+     "transfer": 12208
+    },
+    "branch": {}
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "he",
+    "route": "/app",
+    "main": {
+     "ttfb": 7.6,
+     "fcp": null,
+     "lcp": 204,
+     "dcl": 80.5,
+     "load": 145.2,
+     "transfer": 16028
+    },
+    "branch": {
+     "ttfb": 7.4,
+     "fcp": null,
+     "lcp": 320,
+     "dcl": 82.2,
+     "load": 174.2,
+     "transfer": 16028
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "he",
+    "route": "/collection",
+    "main": {
+     "ttfb": 8.9,
+     "fcp": null,
+     "lcp": 300,
+     "dcl": 80.2,
+     "load": 131.8,
+     "transfer": 15549
+    },
+    "branch": {
+     "ttfb": 9.1,
+     "fcp": null,
+     "lcp": 276,
+     "dcl": 81.4,
+     "load": 134.3,
+     "transfer": 15549
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "he",
+    "route": "/billing",
+    "main": {
+     "ttfb": 8.5,
+     "fcp": null,
+     "lcp": 216,
+     "dcl": 90.9,
+     "load": 160.4,
+     "transfer": 45082
+    },
+    "branch": {
+     "ttfb": 8.3,
+     "fcp": null,
+     "lcp": 212,
+     "dcl": 94,
+     "load": 154.8,
+     "transfer": 45082
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "he",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 9.3,
+     "fcp": null,
+     "lcp": 212,
+     "dcl": 96.2,
+     "load": 174,
+     "transfer": 39901
+    },
+    "branch": {
+     "ttfb": 8.7,
+     "fcp": null,
+     "lcp": 180,
+     "dcl": 90.7,
+     "load": 151.1,
+     "transfer": 39901
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "he",
+    "route": "/customers",
+    "main": {
+     "ttfb": 7.4,
+     "fcp": null,
+     "lcp": 228,
+     "dcl": 87.7,
+     "load": 150.4,
+     "transfer": 16975
+    },
+    "branch": {
+     "ttfb": 8.6,
+     "fcp": null,
+     "lcp": 248,
+     "dcl": 79.9,
+     "load": 159.4,
+     "transfer": 16975
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "he",
+    "route": "/settings",
+    "main": {
+     "ttfb": 9.3,
+     "fcp": null,
+     "lcp": 260,
+     "dcl": 103.7,
+     "load": 162.5,
+     "transfer": 47477
+    },
+    "branch": {
+     "ttfb": 8.6,
+     "fcp": null,
+     "lcp": 244,
+     "dcl": 107.5,
+     "load": 198.6,
+     "transfer": 47477
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "en",
+    "route": "/home",
+    "main": {
+     "ttfb": 12.5,
+     "fcp": 216,
+     "lcp": 300,
+     "dcl": 160.6,
+     "load": 225.4,
+     "transfer": 90574
+    },
+    "branch": {
+     "ttfb": 17.5,
+     "fcp": 200,
+     "lcp": 304,
+     "dcl": 145,
+     "load": 243.8,
+     "transfer": 90574
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "en",
+    "route": "/login",
+    "main": {
+     "ttfb": 10.1,
+     "fcp": null,
+     "lcp": null,
+     "dcl": 82.4,
+     "load": 152.1,
+     "transfer": 12285
+    },
+    "branch": {}
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "en",
+    "route": "/app",
+    "main": {
+     "ttfb": 10,
+     "fcp": null,
+     "lcp": 276,
+     "dcl": 101.1,
+     "load": 199.1,
+     "transfer": 16115
+    },
+    "branch": {
+     "ttfb": 7.6,
+     "fcp": null,
+     "lcp": 244,
+     "dcl": 88.4,
+     "load": 158.9,
+     "transfer": 16115
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "en",
+    "route": "/collection",
+    "main": {
+     "ttfb": 9.3,
+     "fcp": null,
+     "lcp": 248,
+     "dcl": 93.8,
+     "load": 162.8,
+     "transfer": 15640
+    },
+    "branch": {
+     "ttfb": 10.1,
+     "fcp": null,
+     "lcp": 276,
+     "dcl": 84.9,
+     "load": 133.9,
+     "transfer": 15640
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "en",
+    "route": "/billing",
+    "main": {
+     "ttfb": 10.4,
+     "fcp": null,
+     "lcp": 288,
+     "dcl": 97.1,
+     "load": 170,
+     "transfer": 44914
+    },
+    "branch": {
+     "ttfb": 8.4,
+     "fcp": null,
+     "lcp": 320,
+     "dcl": 87.8,
+     "load": 160.3,
+     "transfer": 44914
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "en",
+    "route": "/billing/[id]",
+    "main": {
+     "ttfb": 10,
+     "fcp": null,
+     "lcp": 208,
+     "dcl": 91.3,
+     "load": 174.9,
+     "transfer": 39839
+    },
+    "branch": {
+     "ttfb": 9.9,
+     "fcp": null,
+     "lcp": 180,
+     "dcl": 93.2,
+     "load": 169.4,
+     "transfer": 39839
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "en",
+    "route": "/customers",
+    "main": {
+     "ttfb": 8.7,
+     "fcp": null,
+     "lcp": 244,
+     "dcl": 82.1,
+     "load": 150.5,
+     "transfer": 17066
+    },
+    "branch": {
+     "ttfb": 10.8,
+     "fcp": 200,
+     "lcp": 284,
+     "dcl": 99.5,
+     "load": 181.8,
+     "transfer": 17066
+    }
+   },
+   {
+    "profile": "4G",
+    "width": 1440,
+    "locale": "en",
+    "route": "/settings",
+    "main": {
+     "ttfb": 9.5,
+     "fcp": null,
+     "lcp": 272,
+     "dcl": 98.4,
+     "load": 241.5,
+     "transfer": 47198
+    },
+    "branch": {
+     "ttfb": 9.6,
+     "fcp": null,
+     "lcp": 264,
+     "dcl": 112.2,
+     "load": 226.9,
+     "transfer": 47198
+    }
+   }
+  ]
+ }
+}

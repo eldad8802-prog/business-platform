@@ -1,0 +1,72 @@
+[
+ {
+  "name": "A create: imageUrl stored on the product",
+  "pass": true,
+  "detail": "http://localhost:3790/biz/1/inventory/0ce33a4a-613b-4f2c-a429-e0533e041fe1.png"
+ },
+ {
+  "name": "A create: file written to the isolated test store",
+  "pass": true,
+  "detail": "biz/1/inventory/0ce33a4a-613b-4f2c-a429-e0533e041fe1.png"
+ },
+ {
+  "name": "A create: picture renders on the product page",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "name": "A list: picture renders in the list row",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "name": "B edit: new picture stored (URL changed)",
+  "pass": true,
+  "detail": "http://localhost:3790/biz/1/inventory/a57a51dd-b883-454a-8ee0-5cd26aa2deb1.png"
+ },
+ {
+  "name": "B edit: product page shows the new picture",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "name": "C too big: product still saved and opened",
+  "pass": true,
+  "detail": "91"
+ },
+ {
+  "name": "C too big: honest message shown",
+  "pass": true,
+  "detail": "המוצר נשמר, אבל העלאת התמונה נכשלה"
+ },
+ {
+  "name": "C too big: no image stored",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "name": "C too big: no duplicate product",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "name": "D network: product saved and opened",
+  "pass": true,
+  "detail": "92"
+ },
+ {
+  "name": "D network: honest message shown",
+  "pass": true,
+  "detail": "המוצר נשמר, אבל העלאת התמונה נכשלה"
+ },
+ {
+  "name": "D network: no duplicate product",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "name": "E missing file: letter fallback instead of a broken image",
+  "pass": true,
+  "detail": "{\"letters\":1,\"brokenImgs\":0}"
+ }
+]
