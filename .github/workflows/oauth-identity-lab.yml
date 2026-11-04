@@ -319,7 +319,7 @@ jobs:
   # GOOGLE_LOGIN_TEST_ENDPOINTS=1 outside Vercel). Desktop, tablet and phone; cancel and return; the flag OFF.
   browser:
     name: oauth identity — browser (Chromium, three widths, Google stand-in, flag ON then OFF)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
     timeout-minutes: 45
 
     services:
