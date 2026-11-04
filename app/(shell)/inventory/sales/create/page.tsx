@@ -2,52 +2,74 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useI18n } from "@/components/i18n/I18nProvider";
-import { intlTag } from "@/lib/i18n/config";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
-import {
-  InventorySearch,
-  InventoryOrderLine,
-  MiniStepper,
-  BottomActionBar,
-  InventoryStatePanel,
-  getStockTone,
-} from "@/components/inventory/inventory-design";
-import { getProductEmoji } from "@/lib/inventory/product-emoji";
+import BarcodeScanner from "@/components/inventory/barcode-scanner";
+import { inventoryToast } from "@/components/inventory/inventory-toast";
 import { createInventorySale, getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
+import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 import { observeUnitPrice } from "@/lib/services/inventory/sale-price";
 import { chargedSaleTotal } from "@/lib/inventory/sale-total";
+import { qtyWithUnit } from "@/lib/inventory/unit-words";
+import {
+  I2,
+  InvButton,
+  InvError,
+  InvLoading,
+  InvNote,
+  InvPage,
+  InvQty,
+  InvRow,
+  InvSearch,
+  InvState,
+  ProductThumb,
+  formatMoney,
+} from "@/components/inventory/v2/kit";
 
-const STOCK_BG: Record<"ok" | "low" | "critical", string> = {
-  ok: "var(--inv-success-bg)",
-  low: "var(--inv-warning-bg)",
-  critical: "var(--inv-danger-bg)",
-};
+/** Server messages a person can act on, in Hebrew; anything else gets a calm generic line. */
+function saleErrorText(err: unknown): string {
+  const raw = err instanceof Error ? err.message : "";
+  if (/negative inventory/i.test(raw)) return "אין מספיק מלאי לאחד המוצרים";
+  if (raw === "UNAUTHORIZED") return "פג תוקף ההתחברות. התחברו מחדש ונסו שוב.";
+  return "לא הצלחנו לרשום את המכירה. בדקו את החיבור ונסו שוב.";
+}
 
+/**
+ * Manual sale (מכירה חדשה) — redesign, owner-approved mockup "מכירה חדשה".
+ * Same payload as before: one POST /api/inventory/sales with the lines (itemId,
+ * quantity and — only when typed — unitPrice) and an idempotency key that is kept
+ * while the payload is unchanged (a retry of the same sale never records twice).
+ * The charged price is PER UNIT; the total comes from chargedSaleTotal (#926).
+ */
 export default function CreateInventorySalePage() {
   const router = useRouter();
-  const { t, locale } = useI18n();
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
   const [chargedPrice, setChargedPrice] = useState<Record<number, string>>({});
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
   const saleAttempt = useRef<{ payload: string; key: string } | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const loadItems = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
+      setLoadError(false);
       const data = await getInventoryItems();
       setItems(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
-      setError(err instanceof Error && err.message === "UNAUTHORIZED" ? t("customers.inventory.common.noAuth") : err instanceof Error ? err.message : t("customers.inventory.saleCreate.loadFailed"));
+      if (isUnauthorizedError(err)) {
+        redirectToLogin();
+        return;
+      }
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     queueMicrotask(() => void loadItems());
@@ -64,18 +86,20 @@ export default function CreateInventorySalePage() {
   }, [items, query]);
 
   const cartEntries = useMemo(
-    () => Object.entries(cart).map(([id, qty]) => ({ item: itemById.get(Number(id)), qty })).filter((e) => e.item),
+    () =>
+      Object.entries(cart)
+        .map(([id, qty]) => ({ item: itemById.get(Number(id)), qty }))
+        .filter((e): e is { item: InventoryItemDTO; qty: number } => Boolean(e.item)),
     [cart, itemById]
   );
 
-  const totalUnits = cartEntries.reduce((sum, e) => sum + e.qty, 0);
   // Charged price is per unit: each line contributes quantity × unit price.
-  const charged = chargedSaleTotal(
-    cartEntries.map((entry) => ({ quantity: entry.qty, rawPrice: chargedPrice[entry.item!.id] }))
-  );
+  const charged = chargedSaleTotal(cartEntries.map((entry) => ({ quantity: entry.qty, rawPrice: chargedPrice[entry.item.id] })));
   const chargedInvalid = charged.kind === "invalid";
 
   function addToCart(item: InventoryItemDTO) {
+    // Capped at the stock on hand; a product with 0 stock is not capped here
+    // (the server refuses a sale that would make stock negative).
     setCart((c) => ({ ...c, [item.id]: Math.min((c[item.id] ?? 0) + 1, item.currentQuantity || Infinity) }));
     setQuery("");
   }
@@ -91,16 +115,33 @@ export default function CreateInventorySalePage() {
     });
   }
 
+  function removeLine(itemId: number) {
+    setQty(itemId, 0);
+  }
+
+  function handleScan(code: string) {
+    setScannerOpen(false);
+    const scanned = code.trim();
+    if (!scanned) return;
+    const item = items.find((it) => (it.barcode || "").trim() === scanned);
+    if (!item) {
+      setScanMessage(`ברקוד לא מזוהה: ${scanned}`);
+      return;
+    }
+    setScanMessage(null);
+    addToCart(item);
+  }
+
   async function handleSubmit() {
     if (saving || cartEntries.length === 0 || chargedInvalid) return;
     try {
       setSaving(true);
       setError(null);
       const saleItems = cartEntries.map((entry) => {
-        const raw = (chargedPrice[entry.item!.id] ?? "").trim();
+        const raw = (chargedPrice[entry.item.id] ?? "").trim();
         const observed = raw ? observeUnitPrice(raw) : null;
         return {
-          itemId: entry.item!.id,
+          itemId: entry.item.id,
           quantity: entry.qty,
           ...(observed?.kind === "present" ? { unitPrice: observed.amount } : {}),
         };
@@ -116,133 +157,195 @@ export default function CreateInventorySalePage() {
         items: saleItems,
         idempotencyKey: saleAttempt.current.key,
       });
-      router.push("/inventory/sales");
+      inventoryToast.success("המכירה נרשמה והמלאי עודכן");
+      router.replace("/inventory/sales");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("customers.inventory.saleCreate.saveFailed"));
+      setError(saleErrorText(err));
     } finally {
       setSaving(false);
     }
   }
 
+  const totalText =
+    charged.kind === "invalid" ? "מחיר לא תקין" : charged.kind === "total" ? formatMoney(charged.cents / 100) : "ללא מחיר";
+
+  const footer =
+    !loading && !loadError && cartEntries.length > 0 ? (
+      <>
+        {error ? <InvNote tone="danger">{error}</InvNote> : null}
+        <div className="i2-footer__sum" aria-live="polite">
+          <span>סה״כ מכירה</span>
+          <b className="i2-num" style={charged.kind === "invalid" ? { color: "var(--i2-danger)", fontSize: 16 } : undefined}>
+            <bdi>{totalText}</bdi>
+          </b>
+        </div>
+        <InvButton block onClick={() => void handleSubmit()} disabled={saving || chargedInvalid}>
+          {saving ? "רושם…" : "רישום מכירה"}
+        </InvButton>
+        <p className="i2-footer__note">רישום המכירה יפחית את הכמויות מהמלאי</p>
+      </>
+    ) : null;
+
   return (
-    <InventorySubPage intent="standard" title={t("customers.inventory.saleCreate.title")} backHref="/inventory/sales" bottomNav="sales">
-      <div className="inv-desk-workspace inv-sale-desk">
-      <div style={{ position: "relative" }}>
-        <InventorySearch value={query} onChange={setQuery} placeholder={t("customers.inventory.saleCreate.searchPlaceholder")} />
-        {searchResults.length > 0 ? (
-          <div className="inv-olines" style={{ paddingTop: 8 }}>
-            {searchResults.map((item) => {
-              const tone = getStockTone(item);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="inv-row"
-                  style={{ marginBottom: 8 }}
-                  onClick={() => addToCart(item)}
-                >
-                  <span className="inv-row__thumb" style={{ background: STOCK_BG[tone] }} aria-hidden>
-                    {getProductEmoji(item.name, item.category?.name)}
-                  </span>
-                  <span className="inv-row__mid">
-                    <span className="inv-row__nm">{item.name}</span>
-                    <span className="inv-row__meta">{t("customers.inventory.saleCreate.stockQty", { quantity: item.currentQuantity })}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-      </div>
-      <div>
-
-      {error ? (
-        <div className="inv-fwrap">
-          <div className="inv-alert inv-alert--error" style={{ marginTop: 12 }}>{error}</div>
-        </div>
-      ) : null}
-
-      {cartEntries.length === 0 && !loading ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel title={t("customers.inventory.saleCreate.emptyTitle")}>{t("customers.inventory.saleCreate.emptyBody")}</InventoryStatePanel>
-        </div>
+    <InvPage title="מכירה חדשה" backFallback="/inventory/sales" wide footer={footer}>
+      {loading ? (
+        <InvLoading rows={3} />
+      ) : loadError ? (
+        <InvError onRetry={() => void loadItems()} />
       ) : (
-        <div className="inv-olines">
-          {cartEntries.map(({ item, qty }) => {
-            const tone = getStockTone(item!);
-            const catalogPrice = item!.sellPricePerUnit ?? 0;
-            return (
-              <InventoryOrderLine
-                key={item!.id}
-                thumb={getProductEmoji(item!.name, item!.category?.name)}
-                thumbBg={STOCK_BG[tone]}
-                name={item!.name}
-                sub={
-                  <>
-                    {t("customers.inventory.saleCreate.stock")} <bdi>{item!.currentQuantity}</bdi>
-                    {catalogPrice > 0 ? <> · {t("customers.inventory.saleCreate.priceList")} <bdi>₪{catalogPrice}</bdi></> : null}
-                    <input
-                      value={chargedPrice[item!.id] ?? ""}
-                      inputMode="decimal"
-                      aria-label={t("customers.inventory.saleCreate.chargedAria", { name: item!.name })}
-                      placeholder={t("customers.inventory.saleCreate.chargedPlaceholder")}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setChargedPrice((current) => ({ ...current, [item!.id]: value }));
-                        saleAttempt.current = null;
-                      }}
-                      style={{
-                        display: "block",
-                        marginTop: 6,
-                        width: "100%",
-                        maxWidth: 160,
-                        border: "1px solid var(--inv-border, #d6d3d1)",
-                        borderRadius: 8,
-                        padding: "6px 8px",
-                        background: "#fff",
-                      }}
-                    />
-                  </>
-                }
-                trailing={
-                  <MiniStepper
-                    value={qty}
-                    min={0}
-                    onDecrement={() => setQty(item!.id, qty - 1)}
-                    onIncrement={() => setQty(item!.id, Math.min(qty + 1, item!.currentQuantity || qty + 1))}
-                  />
-                }
-              />
-            );
-          })}
-        </div>
-      )}
-      </div>
-      </div>
-
-      {cartEntries.length > 0 ? (
-        <BottomActionBar
-          label={t(totalUnits === 1 ? "customers.inventory.saleCreate.itemsOne" : "customers.inventory.saleCreate.itemsMany", { count: totalUnits })}
-          value={
-            charged.kind === "invalid" ? (
-              t("customers.inventory.saleCreate.invalidPrice")
-            ) : charged.kind === "total" ? (
-              <bdi>
-                ₪
-                {(charged.cents / 100).toLocaleString(intlTag(locale), {
-                  minimumFractionDigits: charged.cents % 100 === 0 ? 0 : 2,
-                  maximumFractionDigits: 2,
-                })}
-              </bdi>
+        <>
+          <div style={{ marginTop: 12 }}>
+            <InvSearch
+              value={query}
+              onChange={setQuery}
+              placeholder="חיפוש מוצר או ברקוד"
+              inputRef={searchRef}
+              onScan={() => {
+                setScanMessage(null);
+                setScannerOpen(true);
+              }}
+              scanLabel="סריקת ברקוד להוספה למכירה"
+            />
+          </div>
+          {scanMessage ? <InvNote tone="warn">{scanMessage}</InvNote> : null}
+          {query.trim() ? (
+            searchResults.length === 0 ? (
+              <p className="i2-muted" style={{ margin: "0 0 12px" }}>
+                לא נמצאו מוצרים מתאימים לחיפוש.
+              </p>
             ) : (
-              t("customers.inventory.saleCreate.noChargedPrice")
+              <ul className="i2-results" aria-label="תוצאות חיפוש">
+                {searchResults.map((item) => (
+                  <InvRow
+                    key={item.id}
+                    onClick={() => addToCart(item)}
+                    thumb={<ProductThumb src={item.imageUrl} name={item.name} size={48} />}
+                    title={item.name}
+                    sub={`${qtyWithUnit(item.currentQuantity, item.unitType)} במלאי`}
+                    ariaLabel={`הוספת ${item.name} למכירה`}
+                  />
+                ))}
+              </ul>
             )
-          }
-          cta={saving ? t("customers.inventory.common.saving") : t("customers.inventory.saleCreate.submit")}
-          ctaDisabled={saving || chargedInvalid}
-          onCta={() => void handleSubmit()}
-        />
-      ) : null}
-    </InventorySubPage>
+          ) : null}
+
+          {items.length === 0 ? (
+            <InvState
+              title="אין מוצרים במלאי"
+              body="כדי לרשום מכירה צריך קודם להוסיף מוצרים."
+              action={<InvButton href="/inventory/items/create">הוספת מוצר</InvButton>}
+            />
+          ) : cartEntries.length === 0 ? (
+            <InvState title="עוד לא נוספו מוצרים למכירה" body="חפשו מוצר או סרקו ברקוד כדי להוסיף אותו." />
+          ) : (
+            <table className="i2-table" style={{ marginTop: 8 }} aria-label="מוצרים במכירה">
+              <thead>
+                <tr>
+                  <th scope="col">מוצר</th>
+                  <th scope="col">מחיר ליחידה שנגבה</th>
+                  <th scope="col">סה״כ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cartEntries.map(({ item, qty }) => {
+                  const raw = chargedPrice[item.id] ?? "";
+                  const invalid = raw.trim() !== "" && observeUnitPrice(raw).kind === "invalid";
+                  const line = chargedSaleTotal([{ quantity: qty, rawPrice: raw }]);
+                  const catalogPrice = item.sellPricePerUnit ?? 0;
+                  const priceId = `sale-price-${item.id}`;
+                  return (
+                    <tr key={item.id}>
+                      <td style={{ paddingInline: "4px 8px" }}>
+                        <div className="i2-cellprod" style={{ alignItems: "flex-start" }}>
+                          <ProductThumb src={item.imageUrl} name={item.name} size={48} />
+                          <span style={{ minWidth: 0 }}>
+                            <span className="i2-clamp2" style={{ fontWeight: 600 }}>
+                              {item.name}
+                            </span>
+                            <span className="i2-row__sub" style={{ display: "block" }}>
+                              {qtyWithUnit(item.currentQuantity, item.unitType)} במלאי
+                              {catalogPrice > 0 ? <> · מחירון <bdi>{formatMoney(catalogPrice)}</bdi></> : null}
+                            </span>
+                          </span>
+                        </div>
+                        <div style={{ marginTop: 8 }}>
+                          <InvQty
+                            size="sm"
+                            value={qty}
+                            min={0}
+                            max={item.currentQuantity || undefined}
+                            onChange={(v) => setQty(item.id, v)}
+                            label={`כמות עבור ${item.name}`}
+                          />
+                        </div>
+                      </td>
+                      <td style={{ paddingInline: 6, minWidth: 96 }}>
+                        <span className="i2-affix" style={{ display: "block" }}>
+                          <input
+                            id={priceId}
+                            className="i2-input i2-num"
+                            value={raw}
+                            inputMode="decimal"
+                            aria-label={`מחיר ליחידה שנגבה עבור ${item.name}`}
+                            aria-invalid={invalid || undefined}
+                            placeholder="מחיר ליחידה"
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setChargedPrice((current) => ({ ...current, [item.id]: value }));
+                              saleAttempt.current = null;
+                            }}
+                            style={{ fontSize: 15, paddingInline: "8px 26px" }}
+                          />
+                          <span aria-hidden>₪</span>
+                        </span>
+                        {invalid ? (
+                          <span className="i2-field__err" role="alert" style={{ display: "block", marginTop: 4 }}>
+                            מחיר לא תקין
+                          </span>
+                        ) : null}
+                      </td>
+                      <td style={{ paddingInline: "6px 0", whiteSpace: "nowrap" }}>
+                        <span className="i2-num" style={{ fontWeight: 600 }}>
+                          <bdi>{line.kind === "total" ? formatMoney(line.cents / 100) : "—"}</bdi>
+                        </span>
+                        <div>
+                          <button type="button" className="i2-iconbtn" onClick={() => removeLine(item.id)} aria-label={`הסרת ${item.name} מהמכירה`}>
+                            {I2.close(20)}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+
+          {items.length > 0 ? (
+            <div style={{ marginTop: 12 }}>
+              <InvButton
+                kind="soft"
+                block
+                onClick={() => {
+                  searchRef.current?.focus();
+                  searchRef.current?.scrollIntoView({ block: "center" });
+                }}
+              >
+                {I2.plus(20)} הוספת מוצר
+              </InvButton>
+            </div>
+          ) : null}
+        </>
+      )}
+
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onDetected={handleScan}
+        mode="single"
+        title="סריקת מוצר למכירה"
+        hint="כוונו את המצלמה לברקוד של המוצר"
+      />
+    </InvPage>
   );
 }
