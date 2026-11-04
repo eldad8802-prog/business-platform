@@ -6,7 +6,8 @@
 # owner's DEFAULT PRIVILEGES, "Customer" ("businessId", "id"), "BillingDocument" under cutover-2B's FORCE RLS, and the
 # ledger completed with every migration that sorts before this one.
 #
-#   0. Evidence files are SELECT-only; the proof pins migration.sql's sha256; the migration names only its own objects
+#   0. Evidence files are SELECT-only, selectable (exactly two) in prod-readonly-evidence.yml, never touch the
+#      read-only boundary, pass the output guard; the proof pins migration.sql's sha256; the migration names only its own objects
 #      and the tables it builds on, and no other migration names its objects.
 #   1. Baseline (pending): PREFLIGHT passes whole; the proof refuses; a finished migration sorting after it makes
 #      check 3 FAIL.
@@ -30,6 +31,7 @@ on:
       - "ops/evidence/service-desk-foundation-*.sql"
       - ".sdf/**"
       - ".github/workflows/service-desk-foundation-lab.yml"
+      - ".github/workflows/prod-readonly-evidence.yml"
   workflow_dispatch:
 
 permissions:
@@ -81,8 +83,16 @@ jobs:
           FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
           for f in "$PREFLIGHT" "$EVIDENCE"; do
             if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            # Exactly these two Service files are selectable in the gated read-only workflow — no other.
+            grep -q "^          - '$f'$" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+            # Never touches the read-only boundary (the workflow's own BOUNDARY rule).
+            if grep -inE '(default_)?transaction_read_only|read[[:space:]]+write|session[[:space:]]+characteristics|reset[[:space:]]+all|session[[:space:]]+authorization' "$f"; then
+              echo "$f touches the read-only boundary"; exit 1
+            fi
           done
-          # Selectable in prod-readonly-evidence.yml: added by the release step (approval record PR), not here.
+          listed=$(grep -cE "^          - 'ops/evidence/service-desk-[^']*'$" .github/workflows/prod-readonly-evidence.yml)
+          test "$listed" = "2" || { echo "expected exactly 2 selectable service-desk evidence files, found $listed"; exit 1; }
+          node scripts/ci/evidence-output-guard.mjs   # assert-shaped output only (public logs)
           sum=$(sha256sum "$SDF" | cut -d' ' -f1)
           grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
           echo "$SDF sha256 $sum (pinned)"
