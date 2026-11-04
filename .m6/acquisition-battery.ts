@@ -596,7 +596,15 @@ async function main() {
   const gH = await mk(H.id, "google.lead_form");
   const pageH = `77${String(Date.now()).slice(-9)}`; // a Page no earlier section bound (one live mapping per Page)
   await runWithTenantContext({ businessId: H.id }, () => bindMetaPage({ businessId: H.id, userId: null, pageId: pageH, pageName: "H Page", pageAccessToken: "PAGE-TOKEN-H" }));
-  graphMode = "ok";
+  // This section's own Meta Graph stub (an earlier section reset it): one lead per id, every call recorded.
+  setMetaGraphFetchForTests(async (url, token) => {
+    graphCalls.push(`${token}|${url.includes("access_token")}`);
+    const id = decodeURIComponent(url.split("/").pop()!.split("?")[0]);
+    return { status: 200, json: {
+      id, created_time: new Date().toISOString(), form_id: "777", platform: "fb",
+      field_data: [{ name: "full_name", values: ["Held Meta"] }, { name: "phone_number", values: [`+97252444${id.slice(-4)}`] }],
+    } };
+  });
   const hRows = () => o.intakeEvent.findMany({ where: { businessId: H.id }, orderBy: { id: "asc" } });
   const hPeople = async () => ({ leads: await o.lead.count({ where: { businessId: H.id } }), customers: await o.customer.count({ where: { businessId: H.id } }) });
   const graphBefore = graphCalls.length;
@@ -681,6 +689,7 @@ async function main() {
       && (await o.lead.count({ where: { businessId: H.id, sourceChannel: "intake:google.lead_form" } })) === 1, JSON.stringify([raceAfter?.status, raceAfter?.lastErrorCode]));
   ok("L1.5-a: …and the revoked endpoint takes nothing new, switch or not (401)",
     (await google(gH.connection.publicId, googleLead(gH.key, `${RUN}-hg3`))).status === 401);
+  setMetaGraphFetchForTests(null);
 
   console.log("\n-- 12. QStash as the scheduler: a signed request for the Production sweep URL sweeps for real; tampered ones do not --");
   process.env.QSTASH_CURRENT_SIGNING_KEY = "sig_lab_current_0123456789abcdefghijklmnopqr";
