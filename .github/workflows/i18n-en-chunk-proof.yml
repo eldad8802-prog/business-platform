@@ -31,7 +31,7 @@ permissions:
 jobs:
   proof:
     name: i18n en chunk — MAIN vs BRANCH (PG17)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
     timeout-minutes: 120
 
     services:
