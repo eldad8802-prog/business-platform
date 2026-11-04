@@ -9,12 +9,15 @@
  *     commitments, a cancelled item the business holds is still handed back;
  *   - all 12 alternative paths, positive and negative;
  *   - status / holdReason / outcome stay separate;
+ *   - opening (1.1c): OPEN / version 1 / one case.opened at seq 1, no "from" status, never a second opening;
  *   - inputs are never mutated, the same input gives the same output, the core imports nothing impure.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 import {
+  SERVICE_CASE_INITIAL_VERSION,
+  SERVICE_CASE_OPENING_SEQ,
   SERVICE_REASON_MAX_LENGTH,
   SERVICE_CASE_KINDS,
   SERVICE_CASE_STATUSES,
@@ -23,6 +26,8 @@ import {
   type ServiceCaseActionType,
   type ServiceCaseActor,
   type ServiceCaseContext,
+  type ServiceCaseOpenDecision,
+  type ServiceCaseOpenInput,
   type ServiceCaseKind,
   type ServiceCaseStatus,
   type ServiceCaseViolationCode,
@@ -39,6 +44,7 @@ import {
   isRepairAuthorized,
   isTerminal,
   itemHeldByBusiness,
+  openServiceCase,
   reasonLength,
   supersedeQuote,
   withdrawQuote,
@@ -839,6 +845,106 @@ console.log("— 7. purity, immutability, determinism");
   check("itemHeldByBusiness: IN_SHOP holds from CHECKED_IN, FIELD never", itemHeldByBusiness("IN_SHOP", "CHECKED_IN") && !itemHeldByBusiness("IN_SHOP", "OPEN") && !itemHeldByBusiness("IN_SHOP", "EXTERNAL") && !itemHeldByBusiness("FIELD", "IN_REPAIR"));
 }
 
+// ── 7b. Opening a case (1.1c) ──────────────────────────────────────────────────────────────────────────────
+console.log("— 7b. opening a case: OPEN, version 1, one case.opened at seq 1");
+type OpenOk = Extract<ServiceCaseOpenDecision, { ok: true }>;
+const OPEN_OK: OpenOk[] = [];
+const op = (input: ServiceCaseOpenInput, actor: ServiceCaseActor): ServiceCaseOpenDecision => {
+  const d = openServiceCase(input, actor);
+  if (d.ok) OPEN_OK.push(d);
+  return d;
+};
+const OPEN_INPUT: ServiceCaseOpenInput = { kind: "IN_SHOP", customerId: 41, deviceId: 7, parentCaseId: null };
+{
+  const d = op(OPEN_INPUT, OWNER);
+  check("the owner opens a case: status OPEN, version 1, seq 1", d.ok && d.status === "OPEN" && d.version === 1 && d.seq === 1 && SERVICE_CASE_INITIAL_VERSION === 1 && SERVICE_CASE_OPENING_SEQ === 1);
+  check("  …no hold, no outcome, no cancel request", d.ok && d.holdReason === null && d.outcome === null && d.cancellationRequested === false);
+  check("  …event case.opened / action OPEN", d.ok && d.event.type === "case.opened" && d.event.action === "OPEN");
+  check("  …creation is explicit: fromStatus null (not OPEN → OPEN), toStatus OPEN", d.ok && d.event.fromStatus === null && d.event.toStatus === "OPEN");
+  check("  …hold before/after null, cancel request before/after false, no outcome", d.ok && d.event.holdReasonBefore === null && d.event.holdReasonAfter === null && d.event.cancellationRequestedBefore === false && d.event.cancellationRequestedAfter === false && d.event.outcome === null);
+  check("  …payload = kind + ids only", d.ok && JSON.stringify(Object.keys(d.event.payload).sort()) === JSON.stringify(["customerId", "deviceId", "kind", "parentCaseId"]) && d.event.payload.kind === "IN_SHOP" && d.event.payload.customerId === 41 && d.event.payload.deviceId === 7 && d.event.payload.parentCaseId === null);
+  check("  …server checks: customer, device (no parent named)", d.ok && JSON.stringify(d.serverChecks) === JSON.stringify(["CUSTOMER_BELONGS_TO_BUSINESS", "DEVICE_BELONGS_TO_CUSTOMER"]));
+  const noDevice = op({ kind: "FIELD", customerId: 41, deviceId: null, parentCaseId: null }, OWNER);
+  check("no device yet → only the customer check, deviceId null in the payload", noDevice.ok && JSON.stringify(noDevice.serverChecks) === JSON.stringify(["CUSTOMER_BELONGS_TO_BUSINESS"]) && noDevice.event.payload.deviceId === null);
+  const repeat = op({ kind: "IN_SHOP", customerId: 41, deviceId: 7, parentCaseId: 300 }, OWNER);
+  check("a repeat repair names its parent → PARENT_CASE_BELONGS_TO_BUSINESS", repeat.ok && repeat.serverChecks.includes("PARENT_CASE_BELONGS_TO_BUSINESS") && repeat.event.payload.parentCaseId === 300);
+  for (const kind of SERVICE_CASE_KINDS) {
+    const k = op({ ...OPEN_INPUT, kind }, OWNER);
+    check(`${kind}: opens at OPEN / version 1 / seq 1`, k.ok && k.status === "OPEN" && k.version === 1 && k.seq === 1 && k.event.payload.kind === kind);
+  }
+
+  // who may open
+  const openCodes = (x: ServiceCaseOpenDecision) => (x.ok ? [] : x.violations.map((v) => v.code));
+  check("the customer link may not open a case", openCodes(op(OPEN_INPUT, CUSTOMER)).includes("ACTOR_NOT_ALLOWED"));
+  check("the system may not open a case", openCodes(op(OPEN_INPUT, SYSTEM)).includes("ACTOR_NOT_ALLOWED"));
+  check("an owner without a user id may not open a case", openCodes(op(OPEN_INPUT, { kind: "OWNER", userId: 0 })).includes("ACTOR_NOT_ALLOWED"));
+  // input shape
+  const bad = (name: string, input: unknown) => {
+    const x = op(input as ServiceCaseOpenInput, OWNER);
+    check(name, !x.ok && openCodes(x).includes("INVALID_INPUT"), x.ok ? "opened" : openCodes(x).join(","));
+  };
+  bad("unknown kind → INVALID_INPUT", { ...OPEN_INPUT, kind: "REMOTE" });
+  bad("no customer → INVALID_INPUT", { ...OPEN_INPUT, customerId: 0 });
+  bad("deviceId must be an id or an explicit null", { ...OPEN_INPUT, deviceId: undefined });
+  bad("fractional deviceId → INVALID_INPUT", { ...OPEN_INPUT, deviceId: 1.5 });
+  bad("negative parentCaseId → INVALID_INPUT", { ...OPEN_INPUT, parentCaseId: -1 });
+  const refusedOpen = op({ ...OPEN_INPUT, customerId: -3, deviceId: 0 }, CUSTOMER);
+  check("a refused opening has no event, status or version", !refusedOpen.ok && !("event" in refusedOpen) && !("status" in refusedOpen) && !("version" in refusedOpen) && refusedOpen.violations.length === 3);
+
+  // no second opening: OPEN never applies to an existing case, from any status, of any kind
+  let refusedEverywhere = true;
+  for (const kind of SERVICE_CASE_KINDS) {
+    for (const status of SERVICE_CASE_STATUSES) {
+      const x = evaluateTransition(ctx({ kind, status }), { type: "OPEN" } as unknown as ServiceCaseAction, OWNER);
+      if (x.ok || !codes(x).includes("INVALID_TRANSITION")) refusedEverywhere = false;
+    }
+  }
+  check("OPEN on an existing case is refused (INVALID_TRANSITION) — every status × every kind", refusedEverywhere);
+  check("OPEN is not a transition: absent from ACTION_FROM, which keeps its 20 actions", !("OPEN" in ACTION_FROM) && Object.keys(ACTION_FROM).length === 20);
+  check("no transition decision of this file is an opening event", OK_DECISIONS.length >= 200 && OK_DECISIONS.every((x) => (x.event.type as string) !== "case.opened" && (x.event.action as string) !== "OPEN" && x.event.fromStatus !== null));
+
+  // the journal: one case.opened at seq 1, then seq = the version each transition sets
+  if (d.ok) {
+    type Row = { seq: number; type: string };
+    const journal: Row[] = [{ seq: d.seq, type: d.event.type }];
+    let c = ctx({ status: d.status, version: d.version });
+    const steps: ServiceCaseAction[] = [{ type: "CHECK_IN" }, { type: "START_DIAGNOSIS" }, { type: "MARK_NOT_REPAIRABLE" }, { type: "DELIVER", receipt: RECEIPT }, { type: "CLOSE" }];
+    let chainOk = true;
+    for (const a of steps) {
+      const t = ev(c, a, OWNER);
+      if (!t.ok) {
+        chainOk = false;
+        break;
+      }
+      const version = c.version + 1;
+      journal.push({ seq: version, type: t.event.type });
+      c = { ...c, status: t.to, outcome: t.outcome, holdReason: t.holdReason, version };
+    }
+    check("a full life after opening: every step allowed", chainOk && c.status === "CLOSED");
+    check("  …seq runs 1, 2, 3 … with no gap and equals the case version", journal.length === 6 && journal.every((r, i) => r.seq === i + 1) && journal[journal.length - 1].seq === c.version);
+    check("  …exactly one case.opened, and it is seq 1", journal.filter((r) => r.type === "case.opened").length === 1 && journal[0].type === "case.opened");
+    const reopen = evaluateTransition(c, { type: "OPEN" } as unknown as ServiceCaseAction, OWNER);
+    check("  …the closed case cannot be opened again", !reopen.ok);
+    const first = ev(ctx({ status: "OPEN", version: 1 }), { type: "SCHEDULE", appointmentId: 9 }, OWNER);
+    check("the first transition from a freshly opened case is a transition, not an opening", first.ok && first.event.type === "case.scheduled" && first.event.fromStatus === "OPEN");
+  }
+
+  // purity of the opening judgment
+  const frozenIn = deepFreeze<ServiceCaseOpenInput>({ ...OPEN_INPUT });
+  const frozenActor = deepFreeze<ServiceCaseActor>({ kind: "OWNER", userId: 70 });
+  let threw = false;
+  let o1: ServiceCaseOpenDecision | null = null;
+  let o2: ServiceCaseOpenDecision | null = null;
+  try {
+    o1 = op(frozenIn, frozenActor);
+    o2 = op(frozenIn, frozenActor);
+  } catch {
+    threw = true;
+  }
+  check("opening: frozen inputs accepted, same input → same output", !threw && o1 !== null && o2 !== null && JSON.stringify(o1) === JSON.stringify(o2));
+  check("opening: event, actor and payload are fresh objects", o1 !== null && o2 !== null && o1.ok && o2.ok && o1.event !== o2.event && o1.event.payload !== o2.event.payload && o1.event.actor !== frozenActor);
+}
+
 // ── 8. Journal payload rule over EVERY decision this file produced (1.1b) ───────────────────────────────────
 console.log("— 8. payload sweep: every ok decision of every section above");
 {
@@ -874,6 +980,9 @@ console.log("— 8. payload sweep: every ok decision of every section above");
   check("no text of any decision appears anywhere in its event", OK_DECISIONS.every((d) => Object.values(d.texts).every((t) => t === null || !JSON.stringify(d.event).includes(t))));
   check("a reason text exists only on the actions that carry one", OK_DECISIONS.every((d) => (d.texts.cancelReason === null || d.action === "CANCEL") && (d.texts.abandonReason === null || d.action === "ABANDON") && (d.texts.debtOverrideReason === null && d.texts.loanerOverrideReason === null || d.action === "DELIVER")));
   check("no refusal carries texts or a transition", REFUSED_DECISIONS.every((d) => !("texts" in d) && !("to" in d)));
+  // 1.1c: the opening events obey the same journal rule
+  const openFailing = OPEN_OK.map((d) => problemsOf(d.event.payload)).filter((p) => p.length > 0);
+  check(`all ${OPEN_OK.length} opening events: payload = tokens / numbers / nulls within 4096 bytes`, OPEN_OK.length >= 8 && openFailing.length === 0, openFailing.slice(0, 2).flat().join(" | "));
   // the detector itself must catch a free-text regression
   check("the detector flags free text, nested objects and oversize payloads", problemsOf({ reason: "הלקוח ביטל" }).length === 1 && problemsOf({ a: { b: 1 } }).length === 1 && problemsOf({ x: "a".repeat(64), y: "b".repeat(65) }).length === 1);
 }

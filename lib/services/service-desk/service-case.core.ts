@@ -36,9 +36,16 @@
  *
  * Free text (ט-1 A): reasons travel in `decision.texts` for the business columns, never in `event.payload`, which holds
  * only short tokens, numbers, booleans and nulls (the journal CHECK's alphabet).
+ *
+ * OPEN (1.1c): a case is created only by `openServiceCase` — status OPEN, version 1, and the journal's one
+ * `case.opened` event at seq 1 with no "from" status. OPEN is not a transition: `evaluateTransition` refuses it on
+ * every existing case, so a case can never be opened twice. Every transition after it is seq = the version it sets.
  */
 
 import {
+  SERVICE_CASE_INITIAL_VERSION,
+  SERVICE_CASE_KINDS,
+  SERVICE_CASE_OPENING_SEQ,
   TERMINAL_STATUSES,
   SERVICE_HOLD_REASONS,
   SERVICE_REASON_MAX_LENGTH,
@@ -49,6 +56,8 @@ import {
   type ServiceCaseActor,
   type ServiceCaseCommand,
   type ServiceCaseContext,
+  type ServiceCaseOpenDecision,
+  type ServiceCaseOpenInput,
   type ServiceDecisionTexts,
   type ServiceCaseEffect,
   type ServiceCaseEventType,
@@ -235,6 +244,10 @@ export function evaluateTransition(
   const from = context.status;
   const type = action.type;
 
+  if ((type as string) === "OPEN") {
+    // 1.1c: opening creates a case (openServiceCase); it never applies to one that exists — no second opening.
+    return refuse(type, from, [violation("INVALID_TRANSITION", "OPEN creates a case; it never applies to an existing one")]);
+  }
   if (!(type in ACTION_FROM)) return refuse(type, from, [violation("INVALID_INPUT", `unknown action ${String(type)}`)]);
   if (typeof context.cancellationRequested !== "boolean") {
     return refuse(type, from, [violation("INCONSISTENT_CASE_STATE", "cancellationRequested must be a boolean")]);
@@ -724,6 +737,60 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
   }
 
   return r;
+}
+
+// ── Opening a case (1.1c) ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Judges the creation of a case. On success the service inserts the case (status OPEN, version 1, no hold, no
+ * outcome, no cancel request) and then the `case.opened` event with seq 1, in ONE transaction. Only the owner opens
+ * a case (ש2; the customer link of M2 does not). The payload holds ids and the kind only — never free text.
+ */
+export function openServiceCase(input: ServiceCaseOpenInput, actor: ServiceCaseActor): ServiceCaseOpenDecision {
+  const violations: ServiceCaseViolation[] = [];
+  if (actor.kind !== "OWNER" || !isPositiveInt(actor.userId)) {
+    violations.push(violation("ACTOR_NOT_ALLOWED", `${String(actor?.kind)} may not OPEN`));
+  }
+  if (!input || !SERVICE_CASE_KINDS.includes(input.kind)) violations.push(violation("INVALID_INPUT", "kind"));
+  if (!isPositiveInt(input?.customerId)) violations.push(violation("INVALID_INPUT", "customerId"));
+  if (input?.deviceId !== null && !isPositiveInt(input?.deviceId)) violations.push(violation("INVALID_INPUT", "deviceId"));
+  if (input?.parentCaseId !== null && !isPositiveInt(input?.parentCaseId)) {
+    violations.push(violation("INVALID_INPUT", "parentCaseId"));
+  }
+  if (violations.length > 0) return { ok: false, action: "OPEN", violations };
+
+  const serverChecks: ServiceServerCheck[] = ["CUSTOMER_BELONGS_TO_BUSINESS"];
+  if (input.deviceId !== null) serverChecks.push("DEVICE_BELONGS_TO_CUSTOMER");
+  if (input.parentCaseId !== null) serverChecks.push("PARENT_CASE_BELONGS_TO_BUSINESS");
+  return {
+    ok: true,
+    action: "OPEN",
+    status: "OPEN",
+    version: SERVICE_CASE_INITIAL_VERSION,
+    seq: SERVICE_CASE_OPENING_SEQ,
+    holdReason: null,
+    outcome: null,
+    cancellationRequested: false,
+    serverChecks,
+    event: {
+      type: "case.opened",
+      action: "OPEN",
+      fromStatus: null,
+      toStatus: "OPEN",
+      holdReasonBefore: null,
+      holdReasonAfter: null,
+      cancellationRequestedBefore: false,
+      cancellationRequestedAfter: false,
+      outcome: null,
+      actor: { ...actor },
+      payload: {
+        kind: input.kind,
+        customerId: input.customerId,
+        deviceId: input.deviceId,
+        parentCaseId: input.parentCaseId,
+      },
+    },
+  };
 }
 
 // ── Quote withdrawal (service quotes only) ─────────────────────────────────────────────────────────────────
