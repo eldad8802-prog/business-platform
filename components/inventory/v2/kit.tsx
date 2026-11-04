@@ -7,6 +7,7 @@
  */
 
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -17,7 +18,9 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useBackDestination, useGoBack } from "@/components/ui/back-button";
+import { acquireBackLock, getBackTarget } from "@/lib/navigation/back-nav/trail-runtime";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { keyboardSheetInset, type SheetViewportInset } from "@/lib/inventory/sheet-viewport";
 import { inv2Css } from "./kit.css";
@@ -113,6 +116,25 @@ export function InvBack({ fallback, onClick, label }: { fallback?: string; onCli
       <span>{text}</span>
     </button>
   );
+}
+
+/**
+ * "חזרה" for a sub-view that lives in the same route as its list (e.g. /inventory/drafts?id=…):
+ * back to the screen the owner came from when there is one; on direct entry, to the list itself.
+ * (The shared fallback refuses a same-screen destination and would send the owner home.)
+ */
+export function useInvSubViewBack(listUrl: string): () => void {
+  const router = useRouter();
+  return useCallback(() => {
+    if (!acquireBackLock()) return;
+    // In-app history: one entry back is either the list (same path — the trail skips it as a
+    // "filter" entry, so its delta is not used here) or the screen the owner came from.
+    if (getBackTarget().kind === "history") {
+      window.history.back();
+      return;
+    }
+    router.replace(listUrl);
+  }, [router, listUrl]);
 }
 
 /* ================================================================== page === */
