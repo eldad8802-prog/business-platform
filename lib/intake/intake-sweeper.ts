@@ -43,7 +43,7 @@ export type IntakeSweepReport = {
    * every replayable dead letter, receipts still unfinished a day after arrival, and how many businesses
    * have new dead letters or stale receipts.
    */
-  backlog: { deadLettersNew: number; deadLettersOpen: number; pendingStale: number; businessesNeedingAttention: number };
+  backlog: { deadLettersNew: number; deadLettersOpen: number; pendingStale: number; pendingStaleNew: number; businessesNeedingAttention: number };
   /** S1-A — Rivhit documents handed to intake, documents Rivhit returned unreadable, failed connections, Rivhit calls. */
   revenueSources: { receipts: number; unreadable: number; failures: number; calls: number };
 };
@@ -71,7 +71,7 @@ export async function runIntakeSweep(
     payloadsPurged: 0,
     commerce: { receipts: 0, webhooksReactivated: 0, failures: 0 },
     revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
-    backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, businessesNeedingAttention: 0 },
+    backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, businessesNeedingAttention: 0 },
   };
 
   // Listing tenants only reads; a dropped pooled connection here is retried once (lib/db/transient-retry.ts).
@@ -111,6 +111,7 @@ export async function runIntakeSweep(
         report.backlog.deadLettersNew += h.deadLettersNew;
         report.backlog.deadLettersOpen += h.deadLettersOpen;
         report.backlog.pendingStale += h.pendingStale;
+        report.backlog.pendingStaleNew += h.pendingStaleNew;
         if (h.deadLettersNew + h.pendingStale > 0) {
           report.backlog.businessesNeedingAttention += 1;
           // Server log only (never the response): which business, counts — no event id, no content.
@@ -180,6 +181,8 @@ export function sweepHealth(report: IntakeSweepReport): SweepHealth {
   const events = [
     ...(report.events.failed > 0 ? ["failed_receipts"] : []),
     ...(report.backlog.deadLettersNew > 0 ? ["dead_letters_new"] : []),
+    // L1.5-a — a receipt that became stale since the last sweep: reported once, like a new dead letter.
+    ...(report.backlog.pendingStaleNew > 0 ? ["pending_stale_new"] : []),
     ...(report.commerce.failures > 0 ? ["commerce_reconcile_failures"] : []),
   ];
   return { ok: job.length === 0 && events.length === 0, job, events };

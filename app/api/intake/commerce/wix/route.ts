@@ -8,6 +8,7 @@
  *
  *   200  recorded / duplicate / not an order event / unknown installation / source OFF
  *   401  bad signature
+ *   400  signed order event Dubiz cannot parse (nothing recorded; Wix resends it)
  *   503  app not configured, rate-limited or the store is unavailable (Wix retries up to 12 times)
  */
 import { NextResponse } from "next/server";
@@ -47,7 +48,9 @@ export async function POST(req: Request) {
   const parsed = parseWixOrder(env.order, { slug: env.slug, eventId: env.eventId, sequence: env.sequence }, env.instanceId);
   if (!parsed.ok) {
     logIntake("refused", { businessId: conn.businessId, sourceKey: WIX_SOURCE, code: `parse_${parsed.code}` });
-    return NextResponse.json({}, { status: 200 }); // a signed body Dubiz cannot read: retrying cannot fix it
+    // L1.5-a — a signed order Dubiz cannot read is NOT acknowledged: Wix resends it (any non-200, up to 12 times,
+    // with the original data), so a parser fix shipped inside that window recovers it — a 200 would drop it.
+    return NextResponse.json({ error: "malformed", code: parsed.code }, { status: 400 });
   }
   if (!("receipt" in parsed)) return NextResponse.json({}, { status: 200 });
   const limit = await checkRateLimit({ bucket: "ACQUISITION_INTAKE", business: conn.businessId });

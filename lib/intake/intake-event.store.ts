@@ -405,6 +405,8 @@ export type IntakeHealthCounts = {
   deadLettersOpen: number;
   /** Receipts not finished (waiting / deferred / retrying) that arrived longer ago than STALE_PENDING_AFTER_MS. */
   pendingStale: number;
+  /** L1.5-a — of those, the ones no sweep had reported yet; now reported (same once-only rule as dead letters). */
+  pendingStaleNew: number;
 };
 
 /**
@@ -414,6 +416,10 @@ export type IntakeHealthCounts = {
  * A dead letter is reported EXACTLY ONCE: the first sweep after it happened (whichever path dead-lettered
  * it) counts it and stamps `metadata.deadLetterReportedAt` (non-personal) in the same statement, so the
  * scheduler goes red once per new dead letter — never silently green, never red forever.
+ *
+ * L1.5-a — a receipt still unfinished a day after arrival (deferred forever, retrying, never claimed) follows
+ * the same rule: the first sweep that sees it stale counts it in `pendingStaleNew` and stamps
+ * `metadata.staleReportedAt`, so it turns the run red once instead of only appearing as a count.
  */
 export async function intakeHealthCounts(businessId: number, now: Date = new Date()): Promise<IntakeHealthCounts> {
   return withTenantTransaction(async (tx) => {
@@ -424,14 +430,22 @@ export async function intakeHealthCounts(businessId: number, now: Date = new Dat
        WHERE "businessId" = ${businessId} AND "status" = 'FAILED' AND "nextAttemptAt" IS NULL
          AND ("metadata" -> 'deadLetterReportedAt') IS NULL`;
     const deadLettersOpen = await tx.intakeEvent.count({ where: { ...deadLetter, payloadPurgedAt: null } });
+    const staleBefore = new Date(now.getTime() - STALE_PENDING_AFTER_MS);
+    // Same predicate as `pendingStale` below (unfinished: waiting, deferred, persisted, or failed with a retry due).
+    const pendingStaleNew = await tx.$executeRaw`
+      UPDATE "IntakeEvent"
+         SET "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object('staleReportedAt', ${now.toISOString()}::text)
+       WHERE "businessId" = ${businessId} AND "receivedAt" < ${staleBefore}
+         AND ("status" IN ('RECEIVED', 'PERSISTED') OR ("status" = 'FAILED' AND "nextAttemptAt" IS NOT NULL))
+         AND ("metadata" -> 'staleReportedAt') IS NULL`;
     const pendingStale = await tx.intakeEvent.count({
       where: {
         businessId,
-        receivedAt: { lt: new Date(now.getTime() - STALE_PENDING_AFTER_MS) },
+        receivedAt: { lt: staleBefore },
         OR: [{ status: { in: ["RECEIVED", "PERSISTED"] } }, { status: "FAILED", nextAttemptAt: { not: null } }],
       },
     });
-    return { deadLettersNew, deadLettersOpen, pendingStale };
+    return { deadLettersNew, deadLettersOpen, pendingStale, pendingStaleNew };
   });
 }
 

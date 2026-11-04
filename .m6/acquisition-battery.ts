@@ -9,7 +9,7 @@
  *      META_LEAD_ADS_APP_SECRET, META_LEAD_ADS_VERIFY_TOKEN, ACQUISITION_CREDENTIAL_ENCRYPTION_KEY.
  */
 import { createHash, createHmac, randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { signAuthToken } from "../lib/auth-token";
 import { runTenantJob } from "../lib/tenant/job";
@@ -555,6 +555,35 @@ async function main() {
   const after2Body = (await after2.json()) as { report?: { backlog?: { deadLettersNew?: number; deadLettersOpen?: number } } };
   ok("L1 · G-07: …reported ONCE — the following sweep is green again, the dead letter still counted as open (replayable)",
     after2.status === 200 && after2Body.report?.backlog?.deadLettersNew === 0 && (after2Body.report?.backlog?.deadLettersOpen ?? 0) >= 2, JSON.stringify(after2Body));
+
+  // L1.5-a — a receipt still unfinished a day after arrival (here: deferred, never due) used to be a count only:
+  // every sweep stayed green. Now the first sweep that sees it stale is RED for it — once.
+  const stuck = deriveEventIdentity({ providerEventId: `${RUN}-stuck-deferred`, accountScope: webA.connection.publicId });
+  await acceptIntake({
+    registry: intakeRegistry, sourceKey: "web.form", accountRef: webA.connection.publicId,
+    receipts: [{ family: "LEAD", eventType: ACQUISITION_EVENT_TYPE, externalEventId: stuck.externalEventId, dedupeBasis: stuck.dedupeBasis,
+      providerAccountRef: null, occurredAt: new Date(), payload: { v: 1 } as never, metadata: { v: 1 } as never }],
+  });
+  await o.intakeEvent.updateMany({
+    where: { businessId: A.id, externalEventId: stuck.externalEventId },
+    data: { receivedAt: new Date(Date.now() - 25 * 3_600_000), nextAttemptAt: new Date(Date.now() + 6 * 3_600_000), lastErrorCode: "lab_deferred" },
+  });
+  const staleRun = await sweepGET(sweepReq(process.env.CRON_SECRET));
+  const staleBody = (await staleRun.json()) as { health?: { job?: string[]; events?: string[] }; report?: { backlog?: { pendingStale?: number; pendingStaleNew?: number } } };
+  ok("L1.5-a: a receipt unfinished a day after arrival → the next sweep is RED (500, pending_stale_new), counts only",
+    staleRun.status === 500 && JSON.stringify(staleBody.health?.job) === "[]" && (staleBody.health?.events ?? []).includes("pending_stale_new")
+      && staleBody.report?.backlog?.pendingStaleNew === 1 && (staleBody.report?.backlog?.pendingStale ?? 0) >= 1
+      && !/stuck|externalEventId|sha256/.test(JSON.stringify(staleBody)), JSON.stringify(staleBody));
+  const stuckRow = await o.intakeEvent.findFirst({ where: { businessId: A.id, externalEventId: stuck.externalEventId } });
+  ok("L1.5-a: …the receipt itself is untouched (still waiting, payload kept) — only a non-personal stamp is added",
+    stuckRow?.status === "RECEIVED" && stuckRow.payloadPurgedAt === null && stuckRow.lastErrorCode === "lab_deferred"
+      && typeof (stuckRow.metadata as { staleReportedAt?: unknown } | null)?.staleReportedAt === "string", JSON.stringify(stuckRow?.metadata));
+  const staleAgain = await sweepGET(sweepReq(process.env.CRON_SECRET));
+  const staleAgainBody = (await staleAgain.json()) as { report?: { backlog?: { pendingStale?: number; pendingStaleNew?: number } } };
+  ok("L1.5-a: …reported ONCE — the following sweep is green, the receipt still counted as stale",
+    staleAgain.status === 200 && staleAgainBody.report?.backlog?.pendingStaleNew === 0 && (staleAgainBody.report?.backlog?.pendingStale ?? 0) >= 1,
+    JSON.stringify(staleAgainBody));
+  await o.intakeEvent.updateMany({ where: { businessId: A.id, externalEventId: stuck.externalEventId }, data: { status: "IGNORED", nextAttemptAt: null, payload: Prisma.DbNull, payloadPurgedAt: new Date() } });
   console.log("\n-- 12. QStash as the scheduler: a signed request for the Production sweep URL sweeps for real; tampered ones do not --");
   process.env.QSTASH_CURRENT_SIGNING_KEY = "sig_lab_current_0123456789abcdefghijklmnopqr";
   process.env.QSTASH_NEXT_SIGNING_KEY = "sig_lab_next_0123456789abcdefghijklmnopqrstu";

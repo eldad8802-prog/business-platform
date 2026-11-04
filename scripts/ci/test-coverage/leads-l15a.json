@@ -1,0 +1,10 @@
+{
+  "note": "Leads L1.5-a — no silent loss on the provider edge (email hint kept whole or dropped, CloudTalk outage vs signature, Wix unparsable order not acknowledged). Stale-receipt health is pinned in lib/intake/sweep-health.test.ts (leads-l1.json); the DB halves run in the .m6 / .m7bc batteries.",
+  "tests": {
+    "lib/intake/l15a-silent-refusal.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-a lead-loss integrity: an email longer than a Lead may hold is dropped instead of dead-lettering the lead or being cut into another address; CloudTalk answers 503 (redelivered) when its secrets cannot be read instead of a false invalid_signature; Wix's unparsable signed order is answered 400 so Wix resends it instead of a silent 200"
+    }
+  }
+}
