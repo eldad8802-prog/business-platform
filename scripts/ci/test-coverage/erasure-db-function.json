@@ -1,0 +1,11 @@
+{
+  "note": "Erasure contract, database-function path (C24-C27): a model is erased by a declared SECURITY DEFINER function only when the adapter call, the function in its migration and every column are proven.",
+  "tests": {
+    "lib/services/account/erasure-db-function-contract.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "erasure-contract-ci.yml",
+      "reason": "pure fixtures + the shipped migration's erasure functions: not called / wrong function / outside the purge transaction / undefined / not definer / pg_temp / PUBLIC / not granted / no tenant context / not deletion-gated / unscoped, OR-widened, DELETE-in-IF and dynamic writes / column not cleared or missing / text unaccounted; run in erasure-contract-ci.yml"
+    }
+  }
+}

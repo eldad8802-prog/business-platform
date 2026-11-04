@@ -183,6 +183,8 @@ export const ANONYMIZE_MODELS = [
   // Document ↔ supplier links (migration 20261103090000) hold no text: ids, closed tokens, versions and times.
   // Who linked / removed / acted is nulled by document_supplier_link_erase_business() (the adapter calls it),
   // so neither model needs a field entry here.
+  // Service Desk (migration 20261112090000): erased in place by service_erase_business() — see
+  // DB_FUNCTION_ERASURES below; the tables' guards refuse that change from the runtime itself.
 
   // ── the conversation graph ────────────────────────────────────────────────
   //
@@ -316,11 +318,73 @@ export function revokesRow(entry: RevokeEntry): entry is RevokeByRowDeletion {
  *  `REVOKE_INTEGRATIONS` keeps its `as const` literal type for everything else. */
 export const REVOKE_ENTRIES: readonly RevokeEntry[] = REVOKE_INTEGRATIONS;
 
+/**
+ * Erasure performed by a database function the adapter calls (SECURITY DEFINER, in the
+ * purge transaction) — for tables whose guards refuse the change from the runtime itself.
+ * Each entry is proven, not trusted, by erasure-db-function-contract.ts: the adapter call,
+ * the function in `migration` (definer, pg_temp last, tenant-scoped, deletion-gated) and,
+ * per model, that every `cleared` column is set to NULL / '' / '{}' and every other text
+ * column is listed in `kept` with a reason. `model` is the Prisma MODEL name.
+ */
+export type DbFunctionErasure = {
+  fn: string;
+  migration: string;
+  models: readonly {
+    model: string;
+    cleared: readonly string[];
+    kept: Readonly<Record<string, string>>;
+  }[];
+};
+
+export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
+  // Service Desk (1.2a). The account-deletion adapter calls it in the purge transaction. Statuses, outcomes,
+  // amounts, versions, hashes and times stay as the business's history; the journal's acting users and request
+  // digests and the quotes' user ids are nulled by the same function (those models hold no text — they are
+  // NON_PERSONAL_OPERATIONAL in erasure-model-coverage.ts).
+  {
+    fn: "service_erase_business",
+    migration: "20261112090000_service_desk_foundation",
+    models: [
+      {
+        model: "ServiceCase",
+        cleared: ["problemDescription", "diagnosisNote", "cancelReason", "abandonReason"],
+        kept: {
+          qaChecklist: "QA checklist results: item keys with pass / fail flags, no free text — the writer (task 1.3) must keep it so or add it to service_erase_business()",
+        },
+      },
+      {
+        model: "ServiceDevice",
+        cleared: ["serialNumber", "serialNormalized", "description"],
+        kept: {
+          category: "the product category (e.g. phone), not the person",
+          brand: "the maker (e.g. Samsung), not the person",
+          model: "the product model (e.g. A54), not the person",
+        },
+      },
+      {
+        model: "ServiceCaseIntake",
+        cleared: ["deviceSnapshot", "conditionNote", "accessoriesNote", "signatureKey"],
+        kept: {
+          slipPdfKey: "a private object key under biz/{id}/service/ (CHECK); the bytes are an object surface (OPEN_INERT, SD-1.3), and a key column is not the object",
+          termsVersion: "the version token of the intake terms text the customer signed",
+        },
+      },
+      {
+        model: "ServiceHandover",
+        cleared: ["receivedByName", "signatureKey", "debtOverrideReason", "loanerOverrideReason"],
+        kept: {},
+      },
+    ],
+  },
+];
+
 export type ErasureManifest = {
   retain: readonly string[];
   revoke: readonly { model: string }[];
   anonymize: readonly { model: string }[];
   delete: readonly string[];
+  /** Prisma delegates erased through DB_FUNCTION_ERASURES (never a retained model). */
+  dbFunction?: readonly string[];
 };
 
 export const ERASURE_MANIFEST: ErasureManifest = {
@@ -328,6 +392,7 @@ export const ERASURE_MANIFEST: ErasureManifest = {
   revoke: REVOKE_INTEGRATIONS,
   anonymize: ANONYMIZE_MODELS,
   delete: DELETE_MODELS,
+  dbFunction: DB_FUNCTION_ERASURES.flatMap((d) => d.models.map((m) => m.model.charAt(0).toLowerCase() + m.model.slice(1))),
 };
 
 /** Compliance guard: assert no retained (legal) model is present in any purge set.
@@ -338,6 +403,7 @@ export function assertManifestSafe(m: ErasureManifest = ERASURE_MANIFEST): void 
     ...m.anonymize.map((a) => a.model),
     ...m.delete,
     ...m.revoke.map((r) => r.model),
+    ...(m.dbFunction ?? []),
   ];
   const violations = purged.filter((model) => retain.has(model));
   if (violations.length > 0) {

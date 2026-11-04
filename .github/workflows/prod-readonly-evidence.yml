@@ -48,6 +48,7 @@ on:
           - 'ops/evidence/m6-acquisition-connections-preflight.sql'
           - 'ops/evidence/m6-acquisition-connections-production-evidence.sql'
           - 'ops/evidence/m6-operational-evidence.sql'
+          - 'ops/evidence/acquisition-emergency-state.sql'
           - 'ops/evidence/m6-website-live-proof-evidence.sql'
           - 'ops/evidence/m6-google-live-proof-evidence.sql'
           - 'ops/evidence/c594-control-plane-privileges-preflight.sql'

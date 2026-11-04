@@ -18,6 +18,7 @@ import {
   InvSheet,
   InvState,
   ProductThumb,
+  useInvSubViewBack,
 } from "@/components/inventory/v2/kit";
 
 type DraftMatch = { itemId: number; itemName: string; matchScore: number; reason: string };
@@ -97,6 +98,7 @@ function parseNumber(value: string): number | undefined {
  */
 function DraftsScreen() {
   const router = useRouter();
+  const backFromDetail = useInvSubViewBack(LIST);
   const params = useSearchParams();
   const idParam = Number(params.get("id"));
   const openId = Number.isFinite(idParam) && idParam > 0 ? idParam : null;
@@ -255,6 +257,7 @@ function DraftsScreen() {
       <InvPage
         title="בדיקת טיוטת מוצר"
         backFallback={LIST}
+        onBack={backFromDetail}
         footer={
           draft && form && !loading && !error ? (
             <>

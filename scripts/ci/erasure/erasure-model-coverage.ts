@@ -136,6 +136,13 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   AvailabilityException: { disposition: "ERASURE_MANAGED" },
   BookingRequest: { disposition: "ERASURE_MANAGED" },
   AppointmentManageToken: { disposition: "ERASURE_MANAGED" },
+  // Service Desk (migration 20261112090000). Erased in place by service_erase_business(), the SECURITY DEFINER
+  // function the adapter calls in the purge transaction — declared in DB_FUNCTION_ERASURES (account-erasure-manifest.ts)
+  // and proven by the contract (C24–C27): the call, the function and every text column, cleared or kept with a reason.
+  ServiceCase: { disposition: "ERASURE_MANAGED" },
+  ServiceDevice: { disposition: "ERASURE_MANAGED" },
+  ServiceCaseIntake: { disposition: "ERASURE_MANAGED" },
+  ServiceHandover: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
   Customer: { disposition: "ERASURE_MANAGED" },
@@ -409,6 +416,12 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   AppointmentEvent: operational("append-only appointment journal: event type, actor role, times, ids and CHECK-limited tokens (no text by DB CHECK); the acting user and the request digest are erased with the account by appointment_erase_business()"),
   DocumentSupplierLink: operational("the owner's decision of which supplier a document belongs to: ids, closed tokens (status, method, reason), a version and times — no text by DB CHECK; who linked or removed it is erased with the account by document_supplier_link_erase_business()"),
   DocumentSupplierLinkEvent: operational("append-only trail of supplier decisions on documents: action, ids, closed tokens, an idempotency token (CHECK-limited) and a time — no text; the acting user is erased with the account by document_supplier_link_erase_business()"),
+  // Service Desk (migration 20261112090000). These three hold no free text by DB CHECK; the people in them (acting
+  // and deciding users, request digests) are nulled with the account by service_erase_business(), the SECURITY
+  // DEFINER function the adapter calls. The four models with personal text are ERASURE_MANAGED (above).
+  ServiceCaseNumberSequence: operational("the per-business next case number: a business id, a counter and a time"),
+  ServiceCaseEvent: operational("append-only service case journal: event type, action, statuses, ids, times and a closed payload of short tokens and numbers (no text by DB CHECK); the acting user and the request digest are erased with the account by service_erase_business()"),
+  ServiceQuote: operational("one sent quote version: ids, an integer total, ILS, content hashes and the private PDF object key (CHECK-limited to the business's service prefix), state and times — no text; the sending and deciding users are erased with the account by service_erase_business()"),
   StaffServiceAssignment: operational("which staff member performs which catalog service, and an optional length in minutes"),
   AvailabilityRule: operational("weekly working hours: a weekday, two minute counts and optional validity days"),
   ServiceBookingPolicy: operational("booking rules of a catalog service: buffers, notice, horizon, slot step, approval mode, windows"),
