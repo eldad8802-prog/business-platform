@@ -79,7 +79,7 @@ jobs:
 
   e2e:
     name: calendar — the real app in a browser, desktop + phone (PG17 lab, appointments ON for one business)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
     timeout-minutes: 60
 
     services:

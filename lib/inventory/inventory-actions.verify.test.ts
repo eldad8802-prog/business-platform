@@ -116,16 +116,32 @@ check("a negative price is invalid", chargedSaleTotal([{ quantity: 1, rawPrice: 
 // ---------------------------------------------------------------- O1 sheet layer
 // Inside the shell the page sits in a z-index:1 context; the BottomBar (z-100)
 // and the accessibility button (z-101) are outside it. A sheet rendered inline
-// is painted under both — so the product card portals its movement sheet to body.
+// is painted under both — so the movement sheet must be portaled to body. Since
+// the 2026-11-03 redesign it renders the kit's InvSheet, which portals itself
+// (inside a data-inventory-module scope) and follows the on-screen keyboard.
 const detail = readFileSync(join(ROOT, "components/inventory/product-detail-view.tsx"), "utf8");
-const sheetAt = detail.indexOf("<MovementSheet");
-const portalAt = detail.lastIndexOf("createPortal(", sheetAt);
-const between = portalAt >= 0 ? detail.slice(portalAt, sheetAt) : "";
+const movementSheet = readFileSync(join(ROOT, "components/inventory/movement-sheet.tsx"), "utf8");
+const kit = readFileSync(join(ROOT, "components/inventory/v2/kit.tsx"), "utf8");
+const invSheetAt = kit.indexOf("export function InvSheet(");
+const invSheetEnd = kit.indexOf("export function InvConfirm(", invSheetAt);
+const invSheet = invSheetAt >= 0 ? kit.slice(invSheetAt, invSheetEnd > invSheetAt ? invSheetEnd : undefined) : "";
+check("the product card renders the movement sheet", /<MovementSheet\b/.test(detail));
 check(
-  "the movement sheet is rendered through createPortal(…, document.body)",
-  sheetAt > 0 && portalAt > 0 && !between.includes(") : null}") && detail.slice(sheetAt).includes("document.body")
+  "the movement sheet renders the kit's InvSheet",
+  /<InvSheet\b/.test(movementSheet) && movementSheet.includes('from "@/components/inventory/v2/kit"')
 );
-check("the portaled movement sheet keeps the inventory style scope", between.includes("data-inventory-module"));
+check("InvSheet is rendered through createPortal(…, document.body)", invSheet.includes("createPortal(") && /document\.body\s*\)/.test(invSheet));
+check("the portaled InvSheet keeps the inventory style scope", /createPortal\(\s*<div[^>]*data-inventory-module/.test(invSheet));
+check(
+  "the movement sheet's confirm sits inside the portaled sheet (InvSheet footer)",
+  /footer=\{/.test(movementSheet) && movementSheet.includes("אישור עדכון")
+);
+
+// ---------------------------------------------------------------- ב4 / ב5 wiring
+// The helpers above must stay in use by the redesigned screens.
+const productForm = readFileSync(join(ROOT, "components/inventory/v2/product-form.tsx"), "utf8");
+check("the product edit form decides the category with decideCategoryOnSave", /decideCategoryOnSave\(/.test(productForm));
+check("the product card resolves alerts through resolveInventoryAlert", /resolveInventoryAlert\(/.test(detail));
 
 // ---------------------------------------------------------------- O1 keyboard
 // iOS keeps the layout viewport at full height when the keyboard opens and shrinks
@@ -139,10 +155,12 @@ check("a panned visual viewport (offsetTop) is accounted for", panned?.bottom ==
 check("sub-pixel rounding is not treated as a keyboard", keyboardSheetInset(844, { height: 843.6, offsetTop: 0 }) === null);
 check("a nonsense viewport height is ignored", keyboardSheetInset(844, { height: 0, offsetTop: 0 }) === null);
 
-const movementSheet = readFileSync(join(ROOT, "components/inventory/movement-sheet.tsx"), "utf8");
 check(
-  "the movement sheet follows visualViewport and passes the inset to its BottomSheet",
-  movementSheet.includes("window.visualViewport") && movementSheet.includes("keyboardSheetInset(") && /sheetStyle=\{keyboard/.test(movementSheet)
+  "InvSheet follows visualViewport and applies the keyboard inset to the sheet",
+  kit.includes("window.visualViewport") &&
+    kit.includes("keyboardSheetInset(") &&
+    /useKeyboardInset\(\)/.test(invSheet) &&
+    /bottom: kb\.bottom, maxHeight: kb\.maxHeight/.test(invSheet)
 );
 const primitives = readFileSync(join(ROOT, "components/inventory/inventory-primitives.tsx"), "utf8");
 check("BottomSheet applies an optional sheetStyle (absent for every other sheet)", /style=\{sheetStyle\}/.test(primitives));

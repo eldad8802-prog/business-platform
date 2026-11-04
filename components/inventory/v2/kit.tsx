@@ -55,6 +55,7 @@ export const I2 = {
   pdf: (s = 22) => sv(<><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 14h6M9 17h4" /></>, s),
   check: (s = 18) => sv(<path d="M5 12.5l4.5 4.5L19 7.5" />, s),
   arrowLeft: (s = 22) => sv(<path d="M19 12H5M11 6l-6 6 6 6" />, s),
+  zoom: (s = 22) => sv(<><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4M11 8v6M8 11h6" /></>, s),
 };
 
 /* ================================================== bottom-bar awareness === */
@@ -606,7 +607,7 @@ export function InvError({ message, onRetry }: { message?: ReactNode; onRetry?: 
 }
 
 /* ================================================================== menu === */
-export function InvMenu({ label, items }: { label: string; items: Array<{ label: ReactNode; href?: string; onClick?: () => void }> }) {
+export function InvMenu({ label, items, up }: { label: string; items: Array<{ label: ReactNode; href?: string; onClick?: () => void }>; /** Open upwards (a menu in the page footer). */ up?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -625,7 +626,7 @@ export function InvMenu({ label, items }: { label: string; items: Array<{ label:
     };
   }, [open]);
   return (
-    <div className="i2-menu" ref={ref}>
+    <div className={`i2-menu${up ? " i2-menu--up" : ""}`} ref={ref}>
       <button type="button" className="i2-iconbtn" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         {I2.dots(22)}
       </button>

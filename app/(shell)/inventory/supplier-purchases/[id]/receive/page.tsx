@@ -2,70 +2,76 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
-  InventoryOrderLine,
-  MiniStepper,
-  DecisionChips,
-  BottomActionBar,
-  ConfirmModal,
-  InventoryStatePanel,
-  InventorySkeletonBlock,
-} from "@/components/inventory/inventory-design";
-import {
+  getInventoryItems,
   getPurchaseOrder,
   createReceivingSession,
   postReceivingSession,
   setLineRemainingDecision,
+  type InventoryItemDTO,
   type PurchaseOrderDTO,
 } from "@/lib/api/inventory";
-import { getProductEmoji } from "@/lib/inventory/product-emoji";
+import { redirectToLogin } from "@/lib/client-session";
 import {
   clampReceived,
   lineOpenQty,
   receiveLineQuantities,
   remainderDecisionPayload,
-  shortfall,
 } from "@/lib/inventory/receive-remainder";
-import { BdiTemplate } from "@/components/inventory/supplier-purchase-order/order-wizard-ui";
-import { useI18n } from "@/components/i18n/I18nProvider";
-import type { MessageKey } from "@/lib/i18n/translate";
+import { formatQtyNumber, qtyWithUnit, unitWord } from "@/lib/inventory/unit-words";
+import { inventoryToast } from "@/components/inventory/inventory-toast";
+import {
+  InvButton,
+  InvConfirm,
+  InvError,
+  InvField,
+  InvLoading,
+  InvNote,
+  InvPage,
+  InvQty,
+  InvState,
+  ProductThumb,
+} from "@/components/inventory/v2/kit";
 
 type Decision = "KEEP_OPEN" | "BACKORDER" | "CLOSED_SHORT";
 
-const UNIT_SHORT: Record<string, MessageKey> = {
-  UNIT: "customers.purchases.receive.unitShort.UNIT",
-  BOX: "customers.purchases.receive.unitShort.BOX",
-  KG: "customers.purchases.receive.unitShort.KG",
-  GRAM: "customers.purchases.receive.unitShort.GRAM",
-  LITER: "customers.purchases.receive.unitShort.LITER",
-  ML: "customers.purchases.receive.unitShort.ML",
-};
+const DECISIONS: Array<{ value: Decision; label: string }> = [
+  { value: "KEEP_OPEN", label: "השאר פתוח" },
+  { value: "BACKORDER", label: "המשך מתעכב" },
+  { value: "CLOSED_SHORT", label: "סגור כחוסר" },
+];
 
+/**
+ * Receive goods against a purchase order (redesign, mockup "קבלת סחורה").
+ * Partial receipt lives ONLY here. The posting sequence is unchanged:
+ * remainder decisions (remainderDecisionPayload → setLineRemainingDecision) →
+ * createReceivingSession → postReceivingSession.
+ */
 export default function ReceivingPage() {
   const router = useRouter();
-  const { t } = useI18n();
   const params = useParams();
   const poId = Number(params?.id);
 
   const [po, setPo] = useState<PurchaseOrderDTO | null>(null);
+  const [items, setItems] = useState<Map<number, InventoryItemDTO>>(new Map());
   const [received, setReceived] = useState<Record<number, number>>({});
   const [decisions, setDecisions] = useState<Record<number, Decision>>({});
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [posting, setPosting] = useState(false);
 
   const load = useCallback(async () => {
     if (!poId || Number.isNaN(poId)) {
-      setError(t("customers.purchases.receive.invalidId"));
+      setLoadError("מספר ההזמנה אינו תקין.");
       setLoading(false);
       return;
     }
     try {
       setLoading(true);
-      setError(null);
+      setLoadError(null);
       const data = await getPurchaseOrder(poId);
       setPo(data);
       const defaults: Record<number, number> = {};
@@ -74,11 +80,16 @@ export default function ReceivingPage() {
       }
       setReceived(defaults);
     } catch (err) {
-      setError(err instanceof Error && err.message === "UNAUTHORIZED" ? t("customers.purchases.receive.unauthorized") : err instanceof Error ? err.message : t("customers.purchases.receive.loadError"));
+      if (err instanceof Error && err.message === "UNAUTHORIZED") return redirectToLogin();
+      setLoadError(err instanceof Error && /not found/i.test(err.message) ? "ההזמנה לא נמצאה." : "בדקו את החיבור ונסו שוב.");
     } finally {
       setLoading(false);
     }
-  }, [poId, t]);
+    // Names and images only — optional, never blocks receiving.
+    void getInventoryItems()
+      .then((list) => setItems(new Map(list.map((i) => [i.id, i]))))
+      .catch(() => setItems(new Map()));
+  }, [poId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -87,21 +98,26 @@ export default function ReceivingPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  const lines = po?.lines ?? [];
+  const lines = useMemo(() => po?.lines ?? [], [po]);
 
-  const stats = useMemo(() => {
-    let full = 0;
-    let partial = 0;
-    let totalReceived = 0;
+  const unitOf = useCallback(
+    (line: PurchaseOrderDTO["lines"][number]) => line.unitType ?? (line.itemId != null ? items.get(line.itemId)?.unitType : null) ?? null,
+    [items]
+  );
+
+  const totalLine = useMemo(() => {
+    let total = 0;
+    const units = new Set<string>();
     for (const line of lines) {
-      const rec = received[line.id] ?? 0;
-      totalReceived += rec;
-      if (lineOpenQty(line) <= 0) continue;
-      if (shortfall(line, rec) === 0) full += 1;
-      else if (rec > 0) partial += 1;
+      total += received[line.id] ?? 0;
+      if (lineOpenQty(line) > 0) units.add(unitOf(line) ?? "UNIT");
     }
-    return { full, partial, totalReceived };
-  }, [lines, received]);
+    if (units.size === 1) {
+      const [u] = Array.from(units);
+      return { total, text: `${formatQtyNumber(total)} ${unitWord(u, total)}` };
+    }
+    return { total, text: `${formatQtyNumber(total)} פריטים` };
+  }, [lines, received, unitOf]);
 
   async function handlePost() {
     if (posting || !po) return;
@@ -109,7 +125,7 @@ export default function ReceivingPage() {
       .map((line) => ({ purchaseOrderLineId: line.id, receivedQty: received[line.id] ?? 0 }))
       .filter((l) => l.receivedQty > 0);
     if (sessionLines.length === 0) {
-      setError(t("customers.purchases.receive.needQuantity"));
+      setError("יש להזין כמות שהתקבלה לפחות בשורה אחת.");
       setConfirming(false);
       return;
     }
@@ -127,156 +143,156 @@ export default function ReceivingPage() {
       }
       const session = await createReceivingSession(po.id, { lines: sessionLines, note: note.trim() || null });
       await postReceivingSession(session.id);
-      router.push("/inventory/supplier-purchases");
+      inventoryToast.success("הסחורה נקלטה במלאי");
+      // replace: browser-back must not return into the posted form.
+      router.replace("/inventory/supplier-purchases");
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("customers.purchases.receive.postError"));
+      setError(err instanceof Error && err.message ? err.message : "לא הצלחנו לאשר את הקבלה. נסו שוב.");
     } finally {
       setPosting(false);
       setConfirming(false);
     }
   }
 
+  const supplier = po?.supplierName?.trim() || "ללא ספק";
+  const hasOpen = lines.some((l) => lineOpenQty(l) > 0);
+
   return (
-    <InventorySubPage intent="standard"
-      title={t("customers.purchases.receive.title")}
-      backHref="/inventory/supplier-purchases"
-      sub={
-        po
-          ? (
-            <>
-              {t("customers.purchases.receive.orderLabel")} <b style={{ color: "var(--inv-text)" }}>#{po.externalOrderId || po.id}</b> · {po.supplierName || t("customers.purchases.confirm.noSupplier")} · {t("customers.purchases.receive.recordActual")}
-            </>
-          )
-          : undefined
+    <InvPage
+      title="קבלת סחורה"
+      backFallback="/inventory/supplier-purchases"
+      footer={
+        po && hasOpen ? (
+          <>
+            {error ? <InvNote tone="danger">{error}</InvNote> : null}
+            <div className="i2-footer__row">
+              <InvButton onClick={() => setConfirming(true)} disabled={posting || totalLine.total <= 0}>
+                {posting ? "מאשרים…" : "אישור קבלה"}
+              </InvButton>
+            </div>
+          </>
+        ) : undefined
       }
-      bottomNav="orders"
     >
-      {error && !po ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel
-            tone="error"
-            title={t("customers.purchases.receive.loadFailedTitle")}
-            action={<button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => void load()}>{t("customers.purchases.receive.retry")}</button>}
-          >
-            {error}
-          </InventoryStatePanel>
-        </div>
-      ) : loading ? (
-        <div className="inv-olines">
-          <InventorySkeletonBlock height={74} rows={3} />
-        </div>
+      {loading ? (
+        <InvLoading rows={3} />
+      ) : !po ? (
+        <InvError message={loadError ?? undefined} onRetry={() => void load()} />
       ) : lines.length === 0 ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel title={t("customers.purchases.receive.emptyTitle")}>{t("customers.purchases.receive.emptyBody")}</InventoryStatePanel>
-        </div>
+        <InvState
+          title="אין שורות בהזמנה"
+          body="אין מה לקלוט בהזמנה הזו."
+          action={
+            <InvButton kind="secondary" href="/inventory/supplier-purchases">
+              חזרה להזמנות
+            </InvButton>
+          }
+        />
       ) : (
         <>
-          <div className="inv-desk-workspace inv-receive-desk">
-          <div className="inv-olines">
+          <p style={{ textAlign: "center", fontWeight: 600, fontSize: 17, margin: "6px 0 4px", overflowWrap: "anywhere" }}>
+            <bdi>הזמנה {po.externalOrderId ? `#${po.externalOrderId}` : po.id}</bdi> · <bdi>{supplier}</bdi>
+          </p>
+
+          <ul className="i2-list">
             {lines.map((line) => {
+              const item = line.itemId != null ? items.get(line.itemId) : undefined;
+              const name = line.rawName?.trim() || item?.name || "מוצר ללא שם";
+              const unit = unitOf(line);
               const rec = received[line.id] ?? 0;
-              const unitKey = line.unitType ? UNIT_SHORT[line.unitType] : undefined;
-              const unit = unitKey ? t(unitKey) : "";
-              const short = shortfall(line, rec) > 0;
               const q = receiveLineQuantities(line, rec);
-              const amount = (n: number) => `${n}${unit ? ` ${unit}` : ""}`;
-              const qtyPart = (key: MessageKey, n: number) => (
-                <BdiTemplate key={key} template={t(key)} name="qty" value={amount(n)} />
-              );
-              // Line 1: what was ordered and, after an earlier receipt or a close-short, what happened
-              // and what is still open. Line 2: what this receipt takes in and what it leaves open.
-              const history = [
-                qtyPart("customers.purchases.receive.qty.ordered", q.ordered),
-                ...(q.receivedBefore > 0 ? [qtyPart("customers.purchases.receive.qty.receivedBefore", q.receivedBefore)] : []),
-                ...(q.closedShortBefore > 0 ? [qtyPart("customers.purchases.receive.qty.closedShortBefore", q.closedShortBefore)] : []),
-                ...(q.hasHistory ? [qtyPart("customers.purchases.receive.qty.open", q.open)] : []),
+              const amount = (n: number) => qtyWithUnit(n, unit);
+              const parts = [
+                `הוזמנו ${amount(q.ordered)}`,
+                `התקבלו בעבר ${amount(q.receivedBefore)}`,
+                ...(q.closedShortBefore > 0 ? [`נסגרו כחוסר ${amount(q.closedShortBefore)}`] : []),
+                `נותרו ${amount(q.open)}`,
               ];
               return (
-                <InventoryOrderLine
-                  key={line.id}
-                  thumb={<span style={{ fontSize: 22 }}>{getProductEmoji(line.rawName || "")}</span>}
-                  name={line.rawName || t("customers.purchases.receive.itemFallback", { id: line.id })}
-                  sub={
+                <li key={line.id} style={{ padding: "14px 0", borderBottom: "1px solid var(--i2-line)" }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    <ProductThumb src={item?.imageUrl} name={name} />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className="i2-row__title">
+                        <span>{name}</span>
+                      </div>
+                      <div className="i2-row__sub">{unitWord(unit, 2)}</div>
+                    </div>
+                  </div>
+                  {q.open <= 0 ? (
+                    <p className="i2-muted" style={{ margin: "8px 0 0" }}>
+                      אין יתרה פתוחה לקליטה
+                    </p>
+                  ) : (
                     <>
-                      <span style={{ display: "block" }}>
-                        {history.map((part, i) => (
-                          <span key={i}>
-                            {i > 0 ? " · " : null}
-                            {part}
-                          </span>
-                        ))}
-                      </span>
-                      <span style={{ display: "block", color: q.after > 0 ? "var(--inv-warning-ink)" : undefined }}>
-                        {q.open <= 0 ? (
-                          t("customers.purchases.receive.qty.nothingOpen")
-                        ) : (
-                          <>
-                            {qtyPart("customers.purchases.receive.qty.now", q.now)} · {qtyPart("customers.purchases.receive.qty.after", q.after)}
-                          </>
-                        )}
-                      </span>
-                    </>
-                  }
-                  trailing={
-                    <MiniStepper
-                      value={rec}
-                      min={0}
-                      onDecrement={() => setReceived((r) => ({ ...r, [line.id]: clampReceived(line, rec - 1) }))}
-                      onIncrement={() => setReceived((r) => ({ ...r, [line.id]: clampReceived(line, rec + 1) }))}
-                    />
-                  }
-                  extra={
-                    short ? (
-                      <div style={{ width: "100%" }}>
-                        <DecisionChips
-                          choices={[
-                            { label: t("customers.purchases.receive.keepOpen"), primary: decisions[line.id] === "KEEP_OPEN", onClick: () => setDecisions((d) => ({ ...d, [line.id]: "KEEP_OPEN" })) },
-                            { label: t("customers.purchases.receive.backorder"), primary: decisions[line.id] === "BACKORDER", onClick: () => setDecisions((d) => ({ ...d, [line.id]: "BACKORDER" })) },
-                            { label: t("customers.purchases.receive.closeShort"), primary: decisions[line.id] === "CLOSED_SHORT", onClick: () => setDecisions((d) => ({ ...d, [line.id]: "CLOSED_SHORT" })) },
-                          ]}
+                      <div className="i2-box i2-num" style={{ marginTop: 10, fontSize: 14.5 }}>
+                        {parts.join(" · ")}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 500 }}>מתקבלים עכשיו</span>
+                        <InvQty
+                          value={rec}
+                          min={0}
+                          max={q.open}
+                          label={`מתקבלים עכשיו · ${name}`}
+                          onChange={(v) => setReceived((r) => ({ ...r, [line.id]: clampReceived(line, v) }))}
                         />
                       </div>
-                    ) : undefined
-                  }
-                />
+                      <div className="i2-note i2-note--ok" style={{ margin: "10px 0 0" }}>
+                        <div>יתרה לאחר הקבלה: {amount(q.after)}</div>
+                      </div>
+                      {q.after > 0 ? (
+                        <fieldset style={{ border: 0, padding: 0, margin: "10px 0 0" }}>
+                          <legend style={{ fontWeight: 600, padding: 0 }}>מה לעשות עם היתרה ({amount(q.after)})?</legend>
+                          {DECISIONS.map((d) => (
+                            <label key={d.value} className="i2-radio i2-radio--plain">
+                              <input
+                                type="radio"
+                                name={`remainder-${line.id}`}
+                                value={d.value}
+                                checked={decisions[line.id] === d.value}
+                                onChange={() => setDecisions((cur) => ({ ...cur, [line.id]: d.value }))}
+                              />
+                              <span>{d.label}</span>
+                            </label>
+                          ))}
+                        </fieldset>
+                      ) : null}
+                    </>
+                  )}
+                </li>
               );
             })}
-          </div>
+          </ul>
 
-          <aside className="inv-ops__side">
-            <h2>{t("customers.purchases.pending.side.title")}</h2>
-            <p>{t("customers.purchases.receive.statsLine", { full: stats.full, partial: stats.partial })}</p>
-            <p>{t("customers.purchases.receive.sideNote", { count: stats.totalReceived })}</p>
-            <input className="inv-input" placeholder={t("customers.purchases.receive.notePlaceholder")} value={note} onChange={(e) => setNote(e.target.value)} />
-            {error ? <div className="inv-alert inv-alert--error">{error}</div> : null}
-          </aside>
-          </div>
+          <InvField label="הערה" optional stack htmlFor="receive-note">
+            <textarea
+              id="receive-note"
+              className="i2-textarea"
+              placeholder="למשל: חלק מהסחורה תגיע בהמשך"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </InvField>
 
-          <div className="inv-fwrap inv-receive-note">
-            <input className="inv-input" placeholder={t("customers.purchases.receive.notePlaceholder")} value={note} onChange={(e) => setNote(e.target.value)} />
-            {error ? <div className="inv-alert inv-alert--error" style={{ marginTop: 12 }}>{error}</div> : null}
-          </div>
-
-          <BottomActionBar
-            label={t("customers.purchases.receive.statsLine", { full: stats.full, partial: stats.partial })}
-            value={<BdiTemplate template={t("customers.purchases.receive.willEnter")} name="count" value={stats.totalReceived} />}
-            cta={posting ? t("customers.purchases.receive.posting") : t("customers.purchases.receive.confirmCta")}
-            ctaDisabled={posting}
-            onCta={() => setConfirming(true)}
-          />
+          {hasOpen ? (
+            <InvNote>האישור יוסיף {totalLine.text} למלאי. לא ניתן לבטל קבלה זו.</InvNote>
+          ) : (
+            <InvNote>אין יתרה פתוחה לקליטה בהזמנה זו.</InvNote>
+          )}
         </>
       )}
 
       {confirming ? (
-        <ConfirmModal
-          title={t("customers.purchases.receive.modalTitle")}
-          body={t("customers.purchases.receive.modalBody")}
-          confirmLabel={posting ? t("customers.purchases.receive.posting") : t("customers.purchases.pending.approve")}
+        <InvConfirm
+          title="לאשר את קבלת הסחורה?"
+          body={`האישור יוסיף ${totalLine.text} למלאי. לא ניתן לבטל קבלה זו.`}
+          confirmLabel={posting ? "מאשרים…" : "אישור קבלה"}
+          busy={posting}
           onConfirm={() => void handlePost()}
           onCancel={() => setConfirming(false)}
-          confirmDisabled={posting}
         />
       ) : null}
-    </InventorySubPage>
+    </InvPage>
   );
 }

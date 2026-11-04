@@ -455,6 +455,8 @@ async function main() {
   ok("an installation nobody connected → 200, skipped", (await wixSend({ id: "evt-8", entityFqdn: "wix.ecom.v1.order", slug: "created", createdEvent: { entity: wixOrder("w-8") } }, "inst-unknown-77")).status === 200);
   ok("a non-order event → 200, skipped", (await wixSend({ id: "evt-7", entityFqdn: "wix.stores.v1.product", slug: "updated" })).status === 200);
   ok("an INITIALIZED (not yet placed) order → 200, skipped", (await wixSend({ id: "evt-6", entityFqdn: "wix.ecom.v1.order", slug: "created", createdEvent: { entity: wixOrder("w-6", { status: "INITIALIZED" }) } })).status === 200);
+  ok("L1.5-a: a signed order Dubiz cannot parse → 400 (not acknowledged: Wix resends it)",
+    (await wixSend({ id: "evt-5", entityFqdn: "wix.ecom.v1.order", slug: "created", createdEvent: { entity: wixOrder("w-5", { currency: "??" }) } })).status === 400);
   ok("none of those recorded anything", (await o.intakeEvent.count()) === wBefore);
 
   console.log("\n-- Wix: reconciliation and uninstall --");

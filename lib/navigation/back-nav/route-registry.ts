@@ -168,6 +168,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/inventory/items", parent: "/inventory", parentLabelKey: "toInventory" },
   { pattern: "/inventory/items/create", parent: "/inventory/items", parentLabelKey: "toProductList" },
   { pattern: "/inventory/items/[id]", parent: "/inventory/items", parentLabelKey: "toProductList" },
+  { pattern: "/inventory/items/[id]/edit", parent: "/inventory/items/[id]", parentLabelKey: "toProductDetails" },
   { pattern: "/inventory/count", parent: "/inventory", parentLabelKey: "toInventory" },
   { pattern: "/inventory/alerts", parent: "/inventory", parentLabelKey: "toInventory" },
   { pattern: "/inventory/drafts", parent: "/inventory/items", parentLabelKey: "toProductList" },
@@ -184,6 +185,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/inventory/supplier-purchases/new/confirm", parent: "/inventory/supplier-purchases/new/cart", parentLabelKey: "toOrderBasket" },
   { pattern: "/inventory/supplier-purchases/[id]/send", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
   { pattern: "/inventory/supplier-purchases/[id]/receive", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
+  { pattern: "/inventory/supplier-purchases/orders/[poId]", parent: "/inventory/supplier-purchases", parentLabelKey: "toOrderCenter" },
 
   // ---- settings / business / tools ----------------------------------------
   { pattern: "/settings/whatsapp", parent: "/settings/connections", parentLabelKey: "toConnections" },

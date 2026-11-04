@@ -157,7 +157,7 @@ jobs:
 
   app:
     name: accountant month close — the application AS the runtime role (PG17, real migration)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
     timeout-minutes: 60
 
     services:
