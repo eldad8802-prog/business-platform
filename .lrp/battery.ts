@@ -76,8 +76,11 @@ async function main() {
 
   console.log("\n-- public v2 (website browser / CloudTalk / WooCommerce) --");
   const wp = await pub("_v2", "web.form", wPaused.connection.publicId);
-  ok("PAUSED → the connection, its allowed origins, status PAUSED",
-    wp.length === 1 && wp[0].business_id === A.id && wp[0].status === "PAUSED" && JSON.stringify(wp[0].allowed_origins) === JSON.stringify(["https://a.example"]), JSON.stringify(wp));
+  // The connection service stores the owner's origin with its www twin; v2 returns exactly what is stored.
+  const stored = await o.acquisitionConnection.findFirst({ where: { id: wPaused.connection.id }, select: { allowedOrigins: true } });
+  ok("PAUSED → the connection, its allowed origins (as stored), status PAUSED",
+    wp.length === 1 && wp[0].connection_id === wPaused.connection.id && wp[0].business_id === A.id && wp[0].status === "PAUSED"
+      && JSON.stringify(wp[0].allowed_origins) === JSON.stringify(stored?.allowedOrigins) && (wp[0].allowed_origins ?? []).includes("https://a.example"), JSON.stringify(wp));
   ok("ACTIVE → status ACTIVE", (await pub("_v2", "google.lead_form", gActive.connection.publicId))[0]?.status === "ACTIVE");
   ok("ERROR / REVOKED → nothing",
     (await pub("_v2", "google.lead_form", gError.connection.publicId)).length === 0 && (await pub("_v2", "google.lead_form", gRevoked.connection.publicId)).length === 0);
