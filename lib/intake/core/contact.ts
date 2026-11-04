@@ -14,15 +14,19 @@
 import { normalizeCustomerPhone } from "@/lib/services/integrations/whatsapp/phone";
 import { normalizeEmail } from "@/lib/auth/signup-identity";
 import { isPlausibleEmail } from "@/lib/services/inventory/supplier-profile";
+import { LEAD_EMAIL_MAX } from "@/lib/services/crm/lead-core";
 import type { ContactHints, ContactSignals } from "./contract";
 
 const MAX_TEXT = 120;
 
-function text(value: unknown): string | null {
+function text(value: unknown, max = MAX_TEXT): string | null {
   if (typeof value !== "string") return null;
   const s = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
-  return s ? s.slice(0, MAX_TEXT) : null;
+  return s ? s.slice(0, max) : null;
 }
+
+/** RFC 5321's limit — read this much, so a longer address is seen whole (and refused), never cut short. */
+const EMAIL_READ_MAX = 254;
 
 export function normalizeContactHints(input: {
   phone?: unknown;
@@ -43,9 +47,11 @@ export function normalizeContactHints(input: {
     } else signals.phone = "invalid";
   }
 
-  const rawEmail = text(input.email);
+  // L1.5-a — an address is kept whole or dropped: cutting it at 120 characters could yield a different,
+  // plausible address; one longer than a Lead may hold would fail every attempt and dead-letter the lead.
+  const rawEmail = text(input.email, EMAIL_READ_MAX);
   if (rawEmail !== null) {
-    if (isPlausibleEmail(rawEmail)) {
+    if (rawEmail.length <= LEAD_EMAIL_MAX && isPlausibleEmail(rawEmail)) {
       hints.email = normalizeEmail(rawEmail);
       signals.email = "valid";
     } else signals.email = "invalid";

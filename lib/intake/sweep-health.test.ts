@@ -32,7 +32,7 @@ const clean = (): IntakeSweepReport => ({
   payloadsPurged: 0,
   commerce: { receipts: 0, webhooksReactivated: 0, failures: 0 },
   revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
-  backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, businessesNeedingAttention: 0 },
+  backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, businessesNeedingAttention: 0 },
 });
 const withR = (patch: (r: IntakeSweepReport) => void) => { const r = clean(); patch(r); return sweepHealth(r); };
 
@@ -58,6 +58,14 @@ test("already-reported dead letters and stale receipts are visible counts, not r
   assert.equal(withR((r) => { r.backlog.deadLettersOpen = 5; r.backlog.pendingStale = 2; r.backlog.businessesNeedingAttention = 1; }).ok, true);
 });
 
+test("L1.5-a: a receipt that became stale since the last sweep is an EVENT problem — once", () => {
+  assert.deepEqual(withR((r) => { r.backlog.pendingStale = 3; r.backlog.pendingStaleNew = 1; }), { ok: false, job: [], events: ["pending_stale_new"] });
+  assert.deepEqual(withR((r) => { r.backlog.deadLettersNew = 1; r.backlog.pendingStaleNew = 2; }),
+    { ok: false, job: [], events: ["dead_letters_new", "pending_stale_new"] });
+  // The next sweep: the same stale receipts are already reported → a count, not red forever (pinned above).
+  assert.equal(withR((r) => { r.backlog.pendingStale = 3; r.backlog.pendingStaleNew = 0; }).ok, true);
+});
+
 test("Rivhit (S1-A) failures stay in the report, outside this verdict", () => {
   assert.equal(withR((r) => { r.revenueSources.failures = 4; }).ok, true);
 });
@@ -73,6 +81,10 @@ test("structural: the route answers by this verdict; the store reports each dead
   assert.match(fn, /jsonb_build_object\('deadLetterReportedAt'/);
   assert.match(fn, /\("metadata" -> 'deadLetterReportedAt'\) IS NULL/);
   assert.match(fn, /"businessId" = \$\{businessId\}/);
+  // L1.5-a — stale receipts are stamped once, by the same predicate the count uses.
+  assert.match(fn, /jsonb_build_object\('staleReportedAt'/);
+  assert.match(fn, /\("metadata" -> 'staleReportedAt'\) IS NULL/);
+  assert.match(fn, /"status" IN \('RECEIVED', 'PERSISTED'\) OR \("status" = 'FAILED' AND "nextAttemptAt" IS NOT NULL\)/);
   const sweeper = read("lib/intake/intake-sweeper.ts");
   assert.match(sweeper, /console\.warn\("\[intake-sweep\] business attention", \{ businessId, \.\.\.h \}\)/);
   assert.doesNotMatch(sweeper.slice(sweeper.indexOf("export async function runIntakeSweep(")), /\bpayload\b|phone|email|externalEventId/);

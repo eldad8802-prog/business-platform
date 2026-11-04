@@ -10,7 +10,8 @@
  *   200  recorded / duplicate / another event type / source OFF
  *   401  unknown / paused / revoked endpoint, bad or stale signature, another CloudTalk account
  *   400  authenticated but malformed
- *   503  rate-limited or the store is unavailable (CloudTalk retries up to 50 times over ~11.5 h)
+ *   503  rate-limited, the store is unavailable or the secrets cannot be read (CloudTalk retries up to 50 times
+ *        over ~11.5 h)
  */
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
@@ -45,7 +46,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
   }
   if (!conn) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const { businessId, connectionId } = conn;
-  const secrets = await runWithTenantContext({ businessId }, () => readConnectionSecrets(businessId, connectionId)).catch(() => null);
+  // L1.5-a — failing to READ the secrets (store down, credential key unavailable) is an outage, not a bad
+  // signature: 503, so the delivery is retried (Svix retries every non-2xx) and nothing is logged as forged.
+  let secrets;
+  try {
+    secrets = await runWithTenantContext({ businessId }, () => readConnectionSecrets(businessId, connectionId));
+  } catch {
+    return NextResponse.json({ error: "unavailable" }, { status: 503 });
+  }
   const headers = { id: req.headers.get("svix-id"), timestamp: req.headers.get("svix-timestamp"), signature: req.headers.get("svix-signature") };
   if (!secrets || !verifySvix(raw, headers, secrets.signingSecret, new Date())) {
     logIntake("refused", { businessId, sourceKey: CLOUDTALK_SOURCE, code: "invalid_signature" });
