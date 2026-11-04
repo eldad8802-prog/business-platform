@@ -27,6 +27,7 @@ import {
   InvState,
   ProductThumb,
   formatQty,
+  useInvSubViewBack,
 } from "@/components/inventory/v2/kit";
 
 const PAGE = 50;
@@ -42,6 +43,7 @@ const LIST = "/inventory/unmatched";
  */
 function UnmatchedScreen() {
   const router = useRouter();
+  const backFromDetail = useInvSubViewBack(LIST);
   const params = useSearchParams();
   const matchParam = Number(params.get("match"));
   const openId = Number.isFinite(matchParam) && matchParam > 0 ? matchParam : null;
@@ -181,6 +183,7 @@ function UnmatchedScreen() {
       <InvPage
         title="שיוך מכירה למוצר"
         backFallback={LIST}
+        onBack={backFromDetail}
         end={pending ? <InvMenu label="פעולות נוספות" items={[{ label: "דחיית המכירה", onClick: () => setConfirmReject(true) }]} /> : undefined}
         footer={
           pending && !loading && !error ? (

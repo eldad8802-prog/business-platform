@@ -119,6 +119,11 @@ jobs:
       - name: Inventory actions (category, alert resolve, sale total, movement sheet)
         run: npx tsx lib/inventory/inventory-actions.verify.test.ts
 
+      # Inventory back button (2026-11-04 lab audit): drafts ?id / unmatched ?match detail views go back to the
+      # origin or to their list, never home. Pure; no DB, no secret.
+      - name: Inventory back button on same-route detail views
+        run: npx tsx lib/inventory/back-subviews.verify.test.ts
+
       # Import/Export Center I-1 — the data-transfer FORMAT layer. It is in the
       # BLOCKING job for one reason: it holds the CSV formula-injection guard.
       # A regression there does not fail loudly at runtime — it silently ships

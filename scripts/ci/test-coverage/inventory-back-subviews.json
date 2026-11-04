@@ -1,0 +1,9 @@
+{
+  "note": "Inventory back button: detail views that share a route with their list (drafts ?id, unmatched ?match) go back to the origin or the list, never home (lab audit 2026-11-04).",
+  "tests": {
+    "lib/inventory/back-subviews.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): the list and its ?id/?match detail are one screen for the shared back mechanism (which then falls back home), the kit's useInvSubViewBack goes one history entry back or replaces to the list, and both detail views use it; run on every pull_request by ci-1-prisma-centralization.yml"
+    }
+  }
+}
