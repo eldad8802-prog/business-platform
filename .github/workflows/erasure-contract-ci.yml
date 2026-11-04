@@ -39,6 +39,11 @@ jobs:
       - name: Erasure contract — schema ↔ manifest ↔ adapter (ratchet)
         run: npm run verify:erasure-contract -- --baseline-check
 
+      # C24…C27: the database-function path proves every refusal on fixtures, then reads the
+      # erasure functions that ship in prisma/migrations.
+      - name: Erasure contract — database-function path (positive + negative fixtures)
+        run: npx tsx lib/services/account/erasure-db-function-contract.test.ts
+
       # Each proof breaks the contract in ONE specific way and requires the guard to
       # notice. Without them the guard is a script that prints PASS, and a script that
       # prints PASS when it cannot parse its input prints PASS forever.

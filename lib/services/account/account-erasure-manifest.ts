@@ -316,11 +316,33 @@ export function revokesRow(entry: RevokeEntry): entry is RevokeByRowDeletion {
  *  `REVOKE_INTEGRATIONS` keeps its `as const` literal type for everything else. */
 export const REVOKE_ENTRIES: readonly RevokeEntry[] = REVOKE_INTEGRATIONS;
 
+/**
+ * Erasure performed by a database function the adapter calls (SECURITY DEFINER, in the
+ * purge transaction) — for tables whose guards refuse the change from the runtime itself.
+ * Each entry is proven, not trusted, by erasure-db-function-contract.ts: the adapter call,
+ * the function in `migration` (definer, pg_temp last, tenant-scoped, deletion-gated) and,
+ * per model, that every `cleared` column is set to NULL / '' / '{}' and every other text
+ * column is listed in `kept` with a reason. `model` is the Prisma MODEL name.
+ */
+export type DbFunctionErasure = {
+  fn: string;
+  migration: string;
+  models: readonly {
+    model: string;
+    cleared: readonly string[];
+    kept: Readonly<Record<string, string>>;
+  }[];
+};
+
+export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [];
+
 export type ErasureManifest = {
   retain: readonly string[];
   revoke: readonly { model: string }[];
   anonymize: readonly { model: string }[];
   delete: readonly string[];
+  /** Prisma delegates erased through DB_FUNCTION_ERASURES (never a retained model). */
+  dbFunction?: readonly string[];
 };
 
 export const ERASURE_MANIFEST: ErasureManifest = {
@@ -328,6 +350,7 @@ export const ERASURE_MANIFEST: ErasureManifest = {
   revoke: REVOKE_INTEGRATIONS,
   anonymize: ANONYMIZE_MODELS,
   delete: DELETE_MODELS,
+  dbFunction: DB_FUNCTION_ERASURES.flatMap((d) => d.models.map((m) => m.model.charAt(0).toLowerCase() + m.model.slice(1))),
 };
 
 /** Compliance guard: assert no retained (legal) model is present in any purge set.
@@ -338,6 +361,7 @@ export function assertManifestSafe(m: ErasureManifest = ERASURE_MANIFEST): void 
     ...m.anonymize.map((a) => a.model),
     ...m.delete,
     ...m.revoke.map((r) => r.model),
+    ...(m.dbFunction ?? []),
   ];
   const violations = purged.filter((model) => retain.has(model));
   if (violations.length > 0) {
