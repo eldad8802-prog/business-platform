@@ -81,6 +81,18 @@ export const inv2Css = `
   text-decoration: none; cursor: pointer; text-align: start; }
 .i2-tile svg { color: var(--i2-ink-2); flex: 0 0 auto; }
 .i2-tile:hover { background: var(--i2-beige-2); }
+/* Colored action tiles (inventory overview only; owner-approved palette). Text/icon on fill ≥ 4.6:1 in every
+   state (rest, hover −3 %, pressed −5 %); the focus ring takes the tile's own ink (≥ 5.7:1 on the page). */
+.i2-tile--c { background: var(--t-bg); color: var(--t-fg); transition: box-shadow .12s ease; }
+.i2-tile--c svg { color: var(--t-fg); }
+.i2-tile--c:hover { background: var(--t-bg); box-shadow: inset 0 0 0 999px rgba(0, 0, 0, .03); }
+.i2-tile--c:active { box-shadow: inset 0 0 0 999px rgba(0, 0, 0, .05); }
+[data-inv2] .i2-tile--c:focus-visible { outline-color: var(--t-fg); }
+.i2-tile--new { --t-bg: #E0EEE5; --t-fg: #255E43; }
+.i2-tile--count { --t-bg: #E2EDF8; --t-fg: #315E86; }
+.i2-tile--order { --t-bg: #ECE5F5; --t-fg: #6B4B86; }
+.i2-tile--receive { --t-bg: #FAE8D8; --t-fg: #925124; }
+@media (prefers-reduced-motion: reduce) { .i2-tile--c { transition: none; } }
 
 /* ----- headings & text ----- */
 .i2-h2 { font-size: 19px; font-weight: 600; margin: 22px 0 8px; }
