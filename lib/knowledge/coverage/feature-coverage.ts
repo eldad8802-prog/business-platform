@@ -233,6 +233,15 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "MEDIUM" },
   },
   {
+    key: "service-desk", name: "Service Desk (repairs, warranty)", coverage: "DORMANT",
+    reason: "Task 1.2a: the data foundation only (migration 20261112090000, applied) and its Prisma models. No route, service, job or flag writes or reads these tables yet — the command service and the screens are task 1.3, behind a flag that does not exist.",
+    rules: [], temporalRules: [], otherUnits: [], l0: [],
+    models: ["ServiceCaseNumberSequence", "ServiceDevice", "ServiceCase", "ServiceCaseIntake", "ServiceQuote", "ServiceCaseEvent", "ServiceHandover"],
+    sensors: [], legacyEvents: [], routes: [],
+    target: { coverage: "LEARNS", plan: "Turnaround per stage, quote approval rate and time, repeat repairs within warranty — from the append-only case journal (ServiceCaseEvent)." },
+    outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "MEDIUM" },
+  },
+  {
     key: "secretary", name: "Payment Secretary (obligations)", coverage: "LEARNS",
     rules: ["SEC-01", "SEC-02"], temporalRules: ["T-SEC-02"], otherUnits: [], l0: [],
     models: ["BusinessObligation", "BusinessObligationOrientation", "InstallmentWorkflow"],

@@ -372,6 +372,20 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.document_supplier_link_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.document_supplier_link_erase_business() TO ${RT_ROLE}`);
   }
+  // Service Desk — migration 20261112090000_service_desk_foundation. Account erasure reaches its tables ONLY through
+  // service_erase_business() (SECURITY DEFINER, EXECUTE to the runtime alone), so only that function is mirrored,
+  // from the migration's own text. Test infrastructure only: no erasure logic changes.
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261112090000_service_desk_foundation/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_erase_business() not found in migration 20261112090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //

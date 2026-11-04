@@ -220,6 +220,46 @@ export const OBJECT_SURFACES: readonly ObjectSurface[] = [
       "the raw MIME object an ingestion path would write. No ingestion path exists and nothing writes this column, so no object can exist today — but the surface is declared now so the first writer cannot arrive unnoticed",
     target: "S5-INBOUND",
   },
+  // Service Desk (migration 20261112090000). Private objects under biz/{id}/service/ (CHECK-limited). No route,
+  // service or job writes any of these columns yet (task 1.3 / 1.2e), so no object can exist today.
+  // service_erase_business() blanks the two signature keys (the quote PDF and slip keys stay), but deleting the
+  // bytes is not wired — declared now so the first writer cannot arrive unnoticed.
+  {
+    model: "ServiceQuote",
+    field: "sentPdfKey",
+    kind: "STORAGE_KEY",
+    state: "OPEN_INERT",
+    reason:
+      "the private copy of a sent quote PDF (ז-2 A). Nothing writes this column yet, so no object can exist today; the row keeps the key and the hash as the quote's history and no object delete is wired into account erasure",
+    target: "SD-1.3",
+  },
+  {
+    model: "ServiceCaseIntake",
+    field: "signatureKey",
+    kind: "STORAGE_KEY",
+    state: "OPEN_INERT",
+    reason:
+      "the customer's check-in signature image. Nothing writes this column yet, so no object can exist today; service_erase_business() blanks the key, but no object delete is wired into account erasure",
+    target: "SD-1.3",
+  },
+  {
+    model: "ServiceCaseIntake",
+    field: "slipPdfKey",
+    kind: "STORAGE_KEY",
+    state: "OPEN_INERT",
+    reason:
+      "the signed intake slip PDF. Nothing writes this column yet, so no object can exist today; service_erase_business() keeps this key (the intake row is frozen once signed) and no object delete is wired into account erasure",
+    target: "SD-1.3",
+  },
+  {
+    model: "ServiceHandover",
+    field: "signatureKey",
+    kind: "STORAGE_KEY",
+    state: "OPEN_INERT",
+    reason:
+      "the receiver's handover signature image. Nothing writes this column yet, so no object can exist today; service_erase_business() blanks the key, but no object delete is wired into account erasure",
+    target: "SD-1.3",
+  },
 ];
 
 export const NOT_OWNED_POINTERS: readonly NotOwnedPointer[] = [

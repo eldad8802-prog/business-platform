@@ -25,6 +25,16 @@ psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_ST
 
 if [ "$MODE" != "--deploy-only" ] && [ "$MODE" != "--broken-deploy-only" ]; then
 bash "$ROOT/.bkg/lab.sh" "$DB" --with-bkg >/dev/null
+# schema.prisma models the Service Desk (PR-2), so the base lab's `db push` built its tables and enums without
+# the migration's checks, triggers, functions, policies and grants: remove them so the migration builds them the
+# way Production has them.
+psql_owner <<'SQL'
+DROP TABLE IF EXISTS "ServiceHandover", "ServiceCaseEvent", "ServiceQuote", "ServiceCaseIntake", "ServiceCase",
+  "ServiceDevice", "ServiceCaseNumberSequence" CASCADE;
+DROP TYPE IF EXISTS "ServiceEventType", "ServiceCaseAction", "ServiceActor", "ServiceQuoteApprovalMethod",
+  "ServiceQuoteState", "ServiceCoverageDecision", "ServiceCoverageSource", "ServiceOutcome", "ServiceHoldReason",
+  "ServiceCaseStatus", "ServiceCaseKind";
+SQL
 psql_owner -f "$ROOT/.sdf/prereq.sql"
 
 # Production's ledger: every migration of this checkout that sorts before this one is recorded and finished.
