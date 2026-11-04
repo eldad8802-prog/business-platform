@@ -738,6 +738,73 @@ async function main() {
     (await o.commerceOrder.count({ where: { businessId: B.id } })) === 0
       && (await o.intakeEvent.count({ where: { businessId: { not: D.id }, providerAccountRef: { in: [wooConnD!.publicId, wixConnD!.publicId] } } })) === 0);
 
+  // ═════════════════ Leads L1.5-a — the emergency switch HOLDS store orders and calls (never drops them) ═════════════════
+  console.log("\n-- L1.5-a: emergency switch → Woo / Wix / CloudTalk / Voicenter deliveries are recorded and HELD; released once it is off --");
+  const E = await o.business.create({ data: { name: `${RUN}-E` } });
+  const M7_FEATURES = ["commerce_woocommerce", "commerce_wix", "telephony_cloudtalk", "telephony_voicenter"];
+  for (const f of M7_FEATURES) await enable(E.id, f);
+  const uE = await o.user.create({ data: { email: `${RUN}-e@lab.test`, password: "x", businessId: E.id, role: "USER" } });
+  const emergency = (featureKey: string, on: boolean) => o.platformFeaturePolicy.upsert({
+    where: { featureKey }, create: { featureKey, globalEnabled: false, emergencyDisabled: on }, update: { emergencyDisabled: on },
+  });
+  const SHOP_E = `shop-e-${U}.lab.test`;
+  const INST_E = `inst-e-${U}`;
+  const CT_E = Number(`8${U}`);
+  const shopE = store(SHOP_E);
+  const startE = await json(await wooStartPOST(req("/api/integrations/commerce/woocommerce", { headers: owner(uE.id), body: JSON.stringify({ storeUrl: SHOP_E }) })));
+  const cbE = await wooCallbackPOST(req("/api/integrations/commerce/woocommerce/callback", { headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key_id: 10, user_id: new URL(String(startE.authorizeUrl)).searchParams.get("user_id"), consumer_key: `ck_${"g".repeat(40)}`, consumer_secret: `cs_${"h".repeat(40)}`, key_permissions: "read_write" }) }));
+  installs.set(INST_E, { installed: true, siteName: "Shop E on Wix", orders: [] });
+  const wixE = await wixConnectPOST(req("/api/integrations/commerce/wix", { headers: owner(uE.id), body: JSON.stringify({ instance: signedInstance(INST_E) }) }));
+  const veBody = await json(await ownerPOST(req("/api/integrations/acquisition", { headers: owner(uE.id), body: JSON.stringify({ sourceKey: "telephony.voicenter" }) })));
+  const [, vePub, veKey] = /\/voicenter\/([^/]+)\/([^/]+)$/.exec(String((veBody.connection as { endpointUrl: string }).endpointUrl)) ?? [];
+  const ctE = (await json(await ownerPOST(req("/api/integrations/acquisition", { headers: owner(uE.id), body: JSON.stringify({ sourceKey: "telephony.cloudtalk" }) })))).connection as { id: number; publicId: string };
+  const whsecE = `whsec_${Buffer.from(`${RUN}-cloudtalk-secret-E-0123456789`).toString("base64")}`;
+  const ctSet = await ownerIdPOST(req(`/api/integrations/acquisition/${ctE.id}`, { headers: owner(uE.id), body: JSON.stringify({ action: "set_credentials", signingSecret: whsecE }) }), params({ id: String(ctE.id) }));
+  ok("L1.5-a setup: E's store, Wix site, Voicenter and CloudTalk endpoints are connected",
+    cbE.status === 200 && wixE.status === 201 && !!vePub && !!veKey && ctSet.status === 200
+      && (await o.acquisitionConnection.count({ where: { businessId: E.id, status: "ACTIVE" } })) === 4);
+  const eRows = () => o.intakeEvent.findMany({ where: { businessId: E.id }, orderBy: { id: "asc" } });
+  const eMade = async () => ({ orders: await o.commerceOrder.count({ where: { businessId: E.id } }), calls: await o.callActivity.count({ where: { businessId: E.id } }) });
+
+  for (const f of M7_FEATURES) await emergency(f, true);
+  const eWoo = await sendWoo(shopE, wooOrder(8001), "order.created");
+  const eWix = await wixSend({ id: "evt-e1", entityFqdn: "wix.ecom.v1.order", slug: "created", createdEvent: { entity: wixOrder("we-1") } }, INST_E);
+  const eVc = await sendVoicenter(vePub, veKey, cdr("ve-1"));
+  const eCt = await sendCloudTalk(ctE.publicId, whsecE, ctCall("ce-1", CT_E));
+  const eHeld = await eRows();
+  ok("L1.5-a hold: under the emergency switch all four providers are acknowledged (200) and RECORDED",
+    [eWoo, eWix, eVc, eCt].every((r) => r.status === 200) && eHeld.length === 4,
+    JSON.stringify({ woo: eWoo.status, wix: eWix.status, vc: eVc.status, ct: eCt.status, n: eHeld.length }));
+  ok("L1.5-a hold: …each waits unprocessed — RECEIVED, held:emergency_disabled, no attempt spent, payload kept; no order, no call",
+    eHeld.every((e) => e.status === "RECEIVED" && e.lastErrorCode === "held:emergency_disabled" && e.attempts === 0 && e.payload !== null)
+      && JSON.stringify(await eMade()) === JSON.stringify({ orders: 0, calls: 0 }), JSON.stringify(eHeld.map((e) => [e.sourceKey, e.status, e.lastErrorCode, e.attempts])));
+  await sweep(11 * 60_000);
+  ok("L1.5-a hold: a sweep while the switch is on → still held, no attempt spent, nothing materialised",
+    (await eRows()).every((e) => e.lastErrorCode === "held:emergency_disabled" && e.attempts === 0) && (await eMade()).orders === 0 && (await eMade()).calls === 0);
+
+  // Entitlement withdrawn for Voicenter (BUSINESS_DISABLED): a new CDR records nothing.
+  await emergency("telephony_voicenter", false);
+  await o.businessFeatureAccess.update({ where: { businessId_featureKey: { businessId: E.id, featureKey: "telephony_voicenter" } }, data: { state: "DISABLED" } });
+  const eVcOff = await sendVoicenter(vePub, veKey, cdr("ve-2"));
+  ok("L1.5-a: BUSINESS_DISABLED → a new Voicenter CDR is answered 200 and records NOTHING",
+    eVcOff.status === 200 && (await o.intakeEvent.count({ where: { businessId: E.id } })) === 4);
+  await o.businessFeatureAccess.update({ where: { businessId_featureKey: { businessId: E.id, featureKey: "telephony_voicenter" } }, data: { state: "ENABLED" } });
+
+  // Release.
+  for (const f of M7_FEATURES) await emergency(f, false);
+  await sweep(22 * 60_000);
+  const eAfter = await eRows();
+  const ctAfter = eAfter.find((e) => e.sourceKey === "telephony.cloudtalk");
+  ok("L1.5-a release: the held store order, Wix order and Voicenter call are materialised exactly once",
+    (await o.commerceOrder.count({ where: { businessId: E.id, sourceKey: "commerce.woocommerce", externalOrderId: "8001" } })) === 1
+      && (await o.commerceOrder.count({ where: { businessId: E.id, sourceKey: "commerce.wix", externalOrderId: "we-1" } })) === 1
+      && (await o.callActivity.count({ where: { businessId: E.id, sourceKey: "telephony.voicenter", providerCallId: "ve-1" } })) === 1,
+    JSON.stringify(await eMade()));
+  ok("L1.5-a release: …the CloudTalk call is released to its normal path (no longer held; it now waits on the API key, as designed)",
+    !!ctAfter && !(ctAfter.lastErrorCode ?? "").startsWith("held:") && ctAfter.payload !== null, JSON.stringify([ctAfter?.status, ctAfter?.lastErrorCode]));
+  ok("L1.5-a: Order ≠ Lead, Call ≠ Lead — E has no Lead", (await o.lead.count({ where: { businessId: E.id } })) === 0);
+
   // ════════════════════════════════════════ invariants ════════════════════════════════════════
   console.log("\n-- invariants: Order ≠ Lead, Call ≠ Lead; no money, documents or stock; tenancy --");
   ok("ZERO Leads (beyond the owner's one setup lead), Deals, FinancialEvents, BillingDocuments, inventory sales created by any of the above",

@@ -43,7 +43,7 @@ export type IntakeSweepReport = {
    * every replayable dead letter, receipts still unfinished a day after arrival, and how many businesses
    * have new dead letters or stale receipts.
    */
-  backlog: { deadLettersNew: number; deadLettersOpen: number; pendingStale: number; pendingStaleNew: number; businessesNeedingAttention: number };
+  backlog: { deadLettersNew: number; deadLettersOpen: number; pendingStale: number; pendingStaleNew: number; held: number; businessesNeedingAttention: number };
   /** S1-A — Rivhit documents handed to intake, documents Rivhit returned unreadable, failed connections, Rivhit calls. */
   revenueSources: { receipts: number; unreadable: number; failures: number; calls: number };
 };
@@ -71,7 +71,7 @@ export async function runIntakeSweep(
     payloadsPurged: 0,
     commerce: { receipts: 0, webhooksReactivated: 0, failures: 0 },
     revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
-    backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, businessesNeedingAttention: 0 },
+    backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, held: 0, businessesNeedingAttention: 0 },
   };
 
   // Listing tenants only reads; a dropped pooled connection here is retried once (lib/db/transient-retry.ts).
@@ -112,6 +112,9 @@ export async function runIntakeSweep(
         report.backlog.deadLettersOpen += h.deadLettersOpen;
         report.backlog.pendingStale += h.pendingStale;
         report.backlog.pendingStaleNew += h.pendingStaleNew;
+        // L1.5-a — held receipts are a visible count, not a failure (a hold is a decision; it turns red only once
+        // it is a day old, through pendingStaleNew).
+        report.backlog.held += h.held;
         if (h.deadLettersNew + h.pendingStale > 0) {
           report.backlog.businessesNeedingAttention += 1;
           // Server log only (never the response): which business, counts — no event id, no content.

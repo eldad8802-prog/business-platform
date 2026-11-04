@@ -32,7 +32,7 @@ const clean = (): IntakeSweepReport => ({
   payloadsPurged: 0,
   commerce: { receipts: 0, webhooksReactivated: 0, failures: 0 },
   revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
-  backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, businessesNeedingAttention: 0 },
+  backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, held: 0, businessesNeedingAttention: 0 },
 });
 const withR = (patch: (r: IntakeSweepReport) => void) => { const r = clean(); patch(r); return sweepHealth(r); };
 

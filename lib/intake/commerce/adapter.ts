@@ -10,6 +10,7 @@
 import type { IntakeAdapter, RouteResult } from "@/lib/intake/core/contract";
 import { listAcquisitionTenants } from "@/lib/intake/acquisition/resolve";
 import { connectionStateForRef } from "@/lib/intake/acquisition/connection.service";
+import { holdUnlessAllowed } from "@/lib/intake/acquisition/gate";
 import { normalizeCommerceOrder, type CommerceSourceKey } from "./canonical";
 
 export const COMMERCE_NORMALIZER_VERSION = 1;
@@ -31,6 +32,10 @@ export function makeCommerceAdapter(input: {
       if ((await connectionStateForRef(input.sourceKey, event.providerAccountRef)) === "revoked") {
         return { kind: "ignored", code: "connection_revoked" };
       }
+      // L1.5-a — then the source gate, again, before any work: emergency switch, entitlement withdrawn or a
+      // quarantined business → the receipt waits (deferred, not an attempt, nothing deleted).
+      const hold = await holdUnlessAllowed(ctx.businessId, input.sourceKey, ctx.now);
+      if (hold) return hold;
       return input.hydrate ? input.hydrate(ctx, event) : { kind: "unchanged" };
     },
     normalize: normalizeCommerceOrder,
