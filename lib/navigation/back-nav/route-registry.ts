@@ -168,6 +168,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/inventory/items", parent: "/inventory", parentLabelKey: "toInventory" },
   { pattern: "/inventory/items/create", parent: "/inventory/items", parentLabelKey: "toProductList" },
   { pattern: "/inventory/items/[id]", parent: "/inventory/items", parentLabelKey: "toProductList" },
+  { pattern: "/inventory/items/[id]/edit", parent: "/inventory/items/[id]", parentLabelKey: "toProductDetails" },
   { pattern: "/inventory/count", parent: "/inventory", parentLabelKey: "toInventory" },
   { pattern: "/inventory/alerts", parent: "/inventory", parentLabelKey: "toInventory" },
   { pattern: "/inventory/drafts", parent: "/inventory/items", parentLabelKey: "toProductList" },
