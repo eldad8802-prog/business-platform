@@ -107,9 +107,13 @@ async function submit() {
 
 async function collide() {
   const { publicId, key } = state();
-  const r = await send(publicId, lead(key, "lead-rehearsal-existing-1", EXISTING_PHONE));
+  // The existing customer's phone resolves the lead to them (Customer.phone needs no link); the email typed
+  // with it becomes a deterministic email link ON that pre-existing customer — what K3 must catch.
+  const body = lead(key, "lead-rehearsal-existing-1", EXISTING_PHONE);
+  body.user_column_data.push({ column_id: "EMAIL", column_name: "Email", string_value: "someone-else@rehearsal.test" });
+  const r = await send(publicId, body);
   if (r.status !== 200) fail(`colliding lead → ${r.status}`);
-  console.log("collided: a lead typed with the existing customer's phone");
+  console.log("collided: a lead typed with the existing customer's phone (+ an email)");
 }
 
 async function widen() {
