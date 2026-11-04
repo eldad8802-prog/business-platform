@@ -209,6 +209,30 @@ export type ServiceCaseAction =
 
 export type ServiceCaseActionType = ServiceCaseAction["type"];
 
+/**
+ * Task 1.1c — opening a case. OPEN is NOT a transition: it has no "from" status, it never applies to an existing case
+ * (evaluateTransition refuses it), and it is judged only by openServiceCase. Every case starts at OPEN, version 1,
+ * and its journal starts with exactly one `case.opened` event at seq 1; each later transition is seq = version.
+ */
+export interface ServiceCaseOpenAction {
+  type: "OPEN";
+}
+
+/** What a new case is opened with. Ids only — the problem description is a business column, never journal data. */
+export interface ServiceCaseOpenInput {
+  kind: ServiceCaseKind;
+  customerId: number;
+  deviceId: number | null;
+  /** A repeat repair (evaluateRepeatCase) names its parent; otherwise null. */
+  parentCaseId: number | null;
+}
+
+/** Every action a journal row may name: OPEN + the 20 transition actions (the database enum's 21 values). */
+export type ServiceJournalActionType = ServiceCaseOpenAction["type"] | ServiceCaseActionType;
+
+export const SERVICE_CASE_INITIAL_VERSION = 1;
+export const SERVICE_CASE_OPENING_SEQ = 1;
+
 /** The future command (task 1.3). The core only checks its shape and the version; the service enforces it. */
 export interface ServiceCaseCommand {
   caseId: number;
@@ -278,7 +302,11 @@ export type ServiceServerCheck =
   | "SUPPLIER_BELONGS_TO_BUSINESS"
   | "REPLACEMENT_DEVICE_BELONGS_TO_BUSINESS"
   | "SETTLEMENT_READ_IN_SAME_TRANSACTION"
-  | "PART_RESERVATIONS_COUNTED_UNDER_LOCK";
+  | "PART_RESERVATIONS_COUNTED_UNDER_LOCK"
+  // 1.1c — opening a case
+  | "CUSTOMER_BELONGS_TO_BUSINESS"
+  | "DEVICE_BELONGS_TO_CUSTOMER"
+  | "PARENT_CASE_BELONGS_TO_BUSINESS";
 
 /** Every command, whatever its action: the service layer's job, never the core's. */
 export const SERVICE_COMMAND_SERVER_DUTIES = [
@@ -319,6 +347,9 @@ export type ServiceCaseEventType =
   | "case.cancellation_requested"
   | "case.abandoned";
 
+/** Every event a journal row may carry: `case.opened` (seq 1 only) + the 21 transition events. */
+export type ServiceJournalEventType = "case.opened" | ServiceCaseEventType;
+
 export type ServiceEventPayloadValue = string | number | boolean | null;
 
 /** The journal row the service will append (task 1.2 / 1.3). seq, ids and timestamps are the service's. */
@@ -335,6 +366,44 @@ export interface ServiceCaseEventDraft {
   actor: ServiceCaseActor;
   payload: Readonly<Record<string, ServiceEventPayloadValue>>;
 }
+
+/**
+ * The first journal row of every case (1.1c). Creation is explicit: there is no "from" status (null), not an
+ * artificial OPEN → OPEN. Hold, outcome and the cancel request start empty. The service writes it with seq 1, in the
+ * same transaction as the case row (version 1).
+ */
+export interface ServiceCaseOpenedEventDraft {
+  type: "case.opened";
+  action: "OPEN";
+  fromStatus: null;
+  toStatus: "OPEN";
+  holdReasonBefore: null;
+  holdReasonAfter: null;
+  cancellationRequestedBefore: false;
+  cancellationRequestedAfter: false;
+  outcome: null;
+  actor: ServiceCaseActor;
+  payload: Readonly<Record<string, ServiceEventPayloadValue>>;
+}
+
+/** Any journal row: the opening event or a transition event. */
+export type ServiceJournalEventDraft = ServiceCaseOpenedEventDraft | ServiceCaseEventDraft;
+
+export type ServiceCaseOpenDecision =
+  | {
+      ok: true;
+      action: "OPEN";
+      status: "OPEN";
+      version: typeof SERVICE_CASE_INITIAL_VERSION;
+      /** The opening event's seq — always 1; the service never computes it. */
+      seq: typeof SERVICE_CASE_OPENING_SEQ;
+      holdReason: null;
+      outcome: null;
+      cancellationRequested: false;
+      serverChecks: readonly ServiceServerCheck[];
+      event: ServiceCaseOpenedEventDraft;
+    }
+  | { ok: false; action: "OPEN"; violations: readonly ServiceCaseViolation[] };
 
 export type ServiceTransitionDecision =
   | {
