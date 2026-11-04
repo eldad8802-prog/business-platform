@@ -11,12 +11,14 @@
 --   "ServiceCase"                status / holdReason / outcome / cancellationRequested / version — the core's fields
 --   "ServiceCaseIntake"          1:1 check-in record; frozen once signed (only the slip PDF key may still be set)
 --   "ServiceQuote"               one row per quote version; content immutable, decision written once
---   "ServiceCaseEvent"           append-only journal; seq = the case's version after the transition
+--   "ServiceCaseEvent"           append-only journal; seq 1 = the one "case.opened" event (1.1c), then seq = the
+--                                case's version after each transition
 --   "ServiceHandover"            1:1 handover; immutable; an open balance needs the owner's reason
 --
 -- Owner decisions applied: ט-1 A (free-text reasons in business columns, never in the journal payload), ט-2 A (a
 -- quote links to a BillingDocument by a plain FK + a trigger: same business, documentType QUOTE; Billing is not
--- changed), ז-1 A (REVISE_QUOTE: SUPERSEDED), ז-2 A (the sent PDF copy's key + sha256 are NOT NULL on every version).
+-- changed), ז-1 A (REVISE_QUOTE: SUPERSEDED), ז-2 A (the sent PDF copy's key + sha256 are NOT NULL on every version),
+-- 1.1c (a case is created OPEN at version 1 together with exactly one "case.opened" event at seq 1, no "from" status).
 -- SECURITY DEFINER: one function, search_path = pg_catalog, public, pg_temp (pg_temp LAST — the #905 finding).
 -- Privileges: explicit; the migration FAILS if app_runtime is missing (no silent skip). No DELETE for the runtime.
 -- ============================================================================================================
@@ -51,12 +53,13 @@ CREATE TYPE "ServiceCoverageDecision" AS ENUM ('PENDING', 'APPROVED', 'DENIED');
 CREATE TYPE "ServiceQuoteState" AS ENUM ('SENT', 'APPROVED', 'REJECTED', 'WITHDRAWN', 'SUPERSEDED');
 CREATE TYPE "ServiceQuoteApprovalMethod" AS ENUM ('LINK', 'PHONE', 'IN_PERSON');
 CREATE TYPE "ServiceActor" AS ENUM ('OWNER_USER', 'CUSTOMER_LINK', 'SYSTEM');
+-- 'OPEN' / 'case.opened' (1.1c): the opening, never a transition — only ever at seq 1 (ServiceCaseEvent_opening).
 CREATE TYPE "ServiceCaseAction" AS ENUM (
-  'SCHEDULE', 'CHECK_IN', 'START_DIAGNOSIS', 'SEND_QUOTE', 'REVISE_QUOTE', 'APPROVE_QUOTE', 'REJECT_QUOTE',
+  'OPEN', 'SCHEDULE', 'CHECK_IN', 'START_DIAGNOSIS', 'SEND_QUOTE', 'REVISE_QUOTE', 'APPROVE_QUOTE', 'REJECT_QUOTE',
   'START_REPAIR', 'SET_HOLD', 'CLEAR_HOLD', 'SEND_TO_EXTERNAL', 'RETURN_FROM_EXTERNAL', 'FINISH_REPAIR', 'PASS_QA',
   'FAIL_QA', 'MARK_NOT_REPAIRABLE', 'DELIVER', 'CLOSE', 'CANCEL', 'ABANDON');
 CREATE TYPE "ServiceEventType" AS ENUM (
-  'case.scheduled', 'case.checked_in', 'case.diagnosis_started', 'quote.sent', 'quote.approved', 'quote.rejected',
+  'case.opened', 'case.scheduled', 'case.checked_in', 'case.diagnosis_started', 'quote.sent', 'quote.approved', 'quote.rejected',
   'quote.revised', 'repair.started', 'hold.set', 'hold.cleared', 'external.sent', 'external.returned',
   'repair.finished', 'qa.passed', 'qa.failed', 'case.not_repairable', 'case.delivered', 'case.closed',
   'case.cancelled', 'case.cancellation_requested', 'case.abandoned');
@@ -305,7 +308,7 @@ CREATE TABLE "ServiceCaseEvent" (
   "seq"                         INTEGER NOT NULL,
   "eventType"                   "ServiceEventType" NOT NULL,
   "action"                      "ServiceCaseAction" NOT NULL,
-  "fromStatus"                  "ServiceCaseStatus" NOT NULL,
+  "fromStatus"                  "ServiceCaseStatus",
   "toStatus"                    "ServiceCaseStatus" NOT NULL,
   "holdReasonBefore"            "ServiceHoldReason",
   "holdReasonAfter"             "ServiceHoldReason",
@@ -325,6 +328,16 @@ CREATE TABLE "ServiceCaseEvent" (
   CONSTRAINT "ServiceCaseEvent_fields" CHECK (
         ("holdReasonAfter" IS NULL OR "toStatus" = 'IN_REPAIR')
     AND (NOT "cancellationRequestedAfter" OR "toStatus" = 'EXTERNAL')),
+  -- 1.1c: the journal starts with ONE explicit opening. seq 1 ⇔ case.opened ⇔ action OPEN ⇔ no "from" status (NULL
+  -- only here: every transition names its from-status). The opening is the owner's and starts empty.
+  CONSTRAINT "ServiceCaseEvent_opening" CHECK (
+        ("seq" = 1) = ("eventType" = 'case.opened')
+    AND ("eventType" = 'case.opened') = ("action" = 'OPEN')
+    AND ("eventType" = 'case.opened') = ("fromStatus" IS NULL)
+    AND ("eventType" <> 'case.opened' OR (
+              "toStatus" = 'OPEN' AND "holdReasonBefore" IS NULL AND "holdReasonAfter" IS NULL
+          AND NOT "cancellationRequestedBefore" AND NOT "cancellationRequestedAfter" AND "outcome" IS NULL
+          AND "actor" = 'OWNER_USER'))),
   CONSTRAINT "ServiceCaseEvent_tokens" CHECK (
         "idempotencyKey" ~ '^[A-Za-z0-9:_#-]{8,200}$'
     AND ("requestDigest" IS NULL OR "requestDigest" ~ '^[0-9a-f]{64}$')
@@ -471,6 +484,40 @@ $fn$;
 REVOKE ALL ON FUNCTION public.service_case_guard() FROM PUBLIC;
 CREATE TRIGGER "ServiceCase_guard" BEFORE UPDATE ON "ServiceCase"
   FOR EACH ROW EXECUTE FUNCTION public.service_case_guard();
+
+-- 9.2b ServiceCase, INSERT (1.1c): a case is created OPEN at version 1 — no hold, no outcome, no cancel request — and
+-- the creating transaction must also write its one "case.opened" event (seq 1). BEFORE INSERT checks the initial
+-- state; a DEFERRABLE INITIALLY DEFERRED constraint trigger checks the event at COMMIT, so the legal order (the case,
+-- then its event, in one transaction) passes and a case without its opening is rolled back whole. Fails closed: an
+-- event the transaction cannot see (another tenant context) counts as missing.
+CREATE OR REPLACE FUNCTION public.service_case_opening_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $fn$
+BEGIN
+  IF TG_WHEN = 'BEFORE' THEN
+    IF NEW."status" <> 'OPEN' OR NEW."version" <> 1 OR NEW."holdReason" IS NOT NULL OR NEW."outcome" IS NOT NULL
+       OR NEW."cancellationRequested" THEN
+      RAISE EXCEPTION USING ERRCODE = 'DZS01', MESSAGE = 'SERVICE_CASE_NOT_INITIAL: a case is created OPEN at version 1, with no hold, outcome or cancel request';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM "ServiceCaseEvent" e
+                  WHERE e."businessId" = NEW."businessId" AND e."caseId" = NEW."id" AND e."seq" = 1 AND e."eventType" = 'case.opened') THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'DZS01',
+      MESSAGE = format('SERVICE_CASE_NOT_OPENED: case %s was created without its case.opened event (seq 1) in the same transaction', NEW."id");
+  END IF;
+  RETURN NULL;
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.service_case_opening_guard() FROM PUBLIC;
+CREATE TRIGGER "ServiceCase_opens_initial" BEFORE INSERT ON "ServiceCase"
+  FOR EACH ROW EXECUTE FUNCTION public.service_case_opening_guard();
+CREATE CONSTRAINT TRIGGER "ServiceCase_has_opening_event" AFTER INSERT ON "ServiceCase"
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.service_case_opening_guard();
 
 -- 9.3 ServiceDevice: business and customer fixed; erasure only by the erasure function.
 CREATE OR REPLACE FUNCTION public.service_device_guard()

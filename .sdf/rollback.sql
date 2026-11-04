@@ -23,7 +23,7 @@ DROP TABLE "ServiceHandover", "ServiceCaseEvent", "ServiceQuote", "ServiceCaseIn
 DROP FUNCTION public.service_erase_business(), public.service_handover_guard(), public.service_journal_truncate_guard(),
               public.service_event_append_only_guard(), public.service_event_matches_case(), public.service_quote_guard(),
               public.service_quote_billing_document_guard(), public.service_intake_guard(), public.service_device_guard(),
-              public.service_case_guard(), public.service_user_same_business();
+              public.service_case_opening_guard(), public.service_case_guard(), public.service_user_same_business();
 DROP TYPE "ServiceEventType", "ServiceCaseAction", "ServiceActor", "ServiceQuoteApprovalMethod", "ServiceQuoteState",
           "ServiceCoverageDecision", "ServiceCoverageSource", "ServiceOutcome", "ServiceHoldReason", "ServiceCaseStatus",
           "ServiceCaseKind";

@@ -10,7 +10,7 @@
 #      and the tables it builds on, and no other migration names its objects.
 #   1. Baseline (pending): PREFLIGHT passes whole; the proof refuses; a finished migration sorting after it makes
 #      check 3 FAIL.
-#   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: proof 16/16; the preflight then fails
+#   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: proof 17/17; the preflight then fails
 #      exactly its "not there yet" checks.
 #   3. Role battery (.sdf/battery.ts) as the real roles: isolation, cross-business references, numbering under
 #      concurrency, the core's state rules, quote versions, the journal, handover, intake, erasure, atomicity.
@@ -94,7 +94,7 @@ jobs:
           for d in prisma/migrations/*/; do
             n=$(basename "$d")
             [[ "$n" != "20261112090000_service_desk_foundation" ]] || continue
-            if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"Service(CaseNumberSequence|Device|Case|CaseIntake|Quote|CaseEvent|Handover)"|service_(erase_business|case_guard|quote_guard|event_|handover_guard|intake_guard|device_guard|user_same_business|journal_truncate)'; then
+            if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"Service(CaseNumberSequence|Device|Case|CaseIntake|Quote|CaseEvent|Handover)"|service_(erase_business|case_guard|case_opening_guard|quote_guard|event_|handover_guard|intake_guard|device_guard|user_same_business|journal_truncate)'; then
               echo "$n names a service desk object"; exit 1
             fi
           done
@@ -117,7 +117,7 @@ jobs:
           test "$c3" = "3|FAIL|1" || { echo "check 3 did not refuse a later finished migration: $c3"; exit 1; }
           echo "check 3 is live"
 
-      - name: 2. prisma migrate deploy applies it — proof 16/16; preflight fails exactly its "not there yet" checks
+      - name: 2. prisma migrate deploy applies it — proof 17/17; preflight fails exactly its "not there yet" checks
         run: |
           set -euo pipefail
           bash .sdf/lab.sh sdf_post --with-sdf | tee /tmp/post.log
@@ -125,7 +125,7 @@ jobs:
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sdf_post -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$EVIDENCE" | tee /tmp/ev.out
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "16" || { echo "expected 16 PASS"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "17" || { echo "expected 17 PASS"; exit 1; }
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test "$fails" = "2 4 5 6 " || { echo "after the release: expected '2 4 5 6 ', got: $fails"; exit 1; }
 
@@ -163,6 +163,12 @@ jobs:
           fault "a flag definition for the module" "15 " \
             "INSERT INTO \"PlatformFeatureDefinition\" (\"key\", \"displayName\", \"category\", \"description\", \"defaultEnabled\", \"mutable\", \"createdAt\") VALUES ('service_desk', 'x', 'x', 'x', false, true, now())" \
             "DELETE FROM \"PlatformFeatureDefinition\" WHERE \"key\" = 'service_desk'"
+          fault "the opening rule (seq 1 <=> case.opened) gone" "17 " \
+            'ALTER TABLE "ServiceCaseEvent" DROP CONSTRAINT "ServiceCaseEvent_opening"' \
+            "ALTER TABLE \"ServiceCaseEvent\" ADD CONSTRAINT \"ServiceCaseEvent_opening\" CHECK ((\"seq\" = 1) = (\"eventType\" = 'case.opened') AND (\"eventType\" = 'case.opened') = (\"action\" = 'OPEN') AND (\"eventType\" = 'case.opened') = (\"fromStatus\" IS NULL) AND (\"eventType\" <> 'case.opened' OR (\"toStatus\" = 'OPEN' AND \"holdReasonBefore\" IS NULL AND \"holdReasonAfter\" IS NULL AND NOT \"cancellationRequestedBefore\" AND NOT \"cancellationRequestedAfter\" AND \"outcome\" IS NULL AND \"actor\" = 'OWNER_USER')))"
+          fault "the opening-event constraint trigger disabled" "12 17 " \
+            'ALTER TABLE "ServiceCase" DISABLE TRIGGER "ServiceCase_has_opening_event"' \
+            'ALTER TABLE "ServiceCase" ENABLE TRIGGER "ServiceCase_has_opening_event"'
           sum=$(sha256sum "$SDF" | cut -d' ' -f1)
           fault "a ledger checksum that is not the reviewed file" "16 " \
             "UPDATE \"_prisma_migrations\" SET checksum = repeat('0', 64) WHERE migration_name = '20261112090000_service_desk_foundation'" \

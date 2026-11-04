@@ -13,6 +13,8 @@
  *   7. ServiceHandover and ServiceCaseIntake: one handover, debt needs a reason, permanent; a signed intake is frozen.
  *   8. Erasure: only for a business being deleted, only personal fields, only through the function.
  *   9. Atomicity: a rolled-back transition leaves no case, no event, no number.
+ *  10. Opening (1.1c): a case is created OPEN / version 1 with ONE case.opened at seq 1 in the same transaction
+ *      (deferred constraint trigger), no other event at seq 1, no second opening, fail-closed across tenants.
  *
  * env: OWNER_URL, RUNTIME_URL. Synthetic only. ZERO network beyond the lab database. Raw SQL only.
  */
@@ -78,13 +80,23 @@ const pdfKey = (biz: number, s: string) => `biz/${biz}/service/quotes/${s}.pdf`;
 const NEXT_NUMBER = `INSERT INTO "ServiceCaseNumberSequence" ("businessId", "nextValue") VALUES ($1, 2)
   ON CONFLICT ("businessId") DO UPDATE SET "nextValue" = "ServiceCaseNumberSequence"."nextValue" + 1, "updatedAt" = now()
   RETURNING "nextValue" - 1 AS n`;
-async function createCaseTx(tx: Tx, biz: number, cust: number, extra: { deviceId?: number | null; staffId?: number | null; parent?: number | null } = {}) {
+/** The opening (1.1c) as task 1.3 will write it: the case first, then its one case.opened event (seq 1), same tx. */
+async function openingTx(tx: Tx, biz: number, caseId: number, o: { seq?: number; type?: string; action?: string; from?: string | null; actor?: string; userId?: number | null } = {}) {
+  return tx.$executeRawUnsafe(
+    `INSERT INTO "ServiceCaseEvent" ("businessId", "caseId", seq, "eventType", action, "fromStatus", "toStatus", "cancellationRequestedBefore", "cancellationRequestedAfter", actor, "actorUserId", payload, "idempotencyKey")
+     VALUES ($1, $2, $3, $4::"ServiceEventType", $5::"ServiceCaseAction", $6::"ServiceCaseStatus", 'OPEN', false, false, $7::"ServiceActor", $8, $9::jsonb, $10)`,
+    biz, caseId, o.seq ?? 1, o.type ?? "case.opened", o.action ?? "OPEN", o.from === undefined ? null : o.from, o.actor ?? "OWNER_USER", o.userId ?? null,
+    JSON.stringify({ kind: "IN_SHOP", caseId }), ikey());
+}
+async function createCaseTx(tx: Tx, biz: number, cust: number, extra: { deviceId?: number | null; staffId?: number | null; parent?: number | null; noOpening?: boolean } = {}) {
   const n = Number(((await tx.$queryRawUnsafe(NEXT_NUMBER, biz)) as Rows)[0].n);
   const r = (await tx.$queryRawUnsafe(
     `INSERT INTO "ServiceCase" ("businessId", "caseNumber", kind, "customerId", "deviceId", "staffMemberId", "parentCaseId", "problemDescription", "updatedAt")
      VALUES ($1, $2, 'IN_SHOP', $3, $4, $5, $6, 'המסך לא נדלק', now()) RETURNING id, "caseNumber"`,
     biz, n, cust, extra.deviceId ?? null, extra.staffId ?? null, extra.parent ?? null)) as Rows;
-  return { id: Number(r[0].id), caseNumber: Number(r[0].caseNumber) };
+  const id = Number(r[0].id);
+  if (!extra.noOpening) await openingTx(tx, biz, id);
+  return { id, caseNumber: Number(r[0].caseNumber) };
 }
 const createCase = (biz: number, cust: number, extra = {}) => inTx(runtime, biz, (tx) => createCaseTx(tx, biz, cust, extra));
 let keySeq = 0;
@@ -138,7 +150,7 @@ async function main() {
   const fns = rows(await q(owner, null, `SELECT proname, prosecdef AS secdef, proconfig::text AS cfg, has_function_privilege('public', oid, 'EXECUTE') AS pub,
       has_function_privilege('app_runtime', oid, 'EXECUTE') AS rt FROM pg_proc WHERE proname LIKE 'service\\_%' AND pronamespace = 'public'::regnamespace`));
   ok("1.6 every service function: search_path pg_catalog, public, pg_temp (pg_temp last); none executable by PUBLIC",
-    fns.length === 11 && fns.every((f) => String(f.cfg).includes("search_path=pg_catalog, public, pg_temp") && f.pub === false), JSON.stringify(fns.map((f) => [f.proname, f.cfg, f.pub])));
+    fns.length === 12 && fns.every((f) => String(f.cfg).includes("search_path=pg_catalog, public, pg_temp") && f.pub === false), JSON.stringify(fns.map((f) => [f.proname, f.cfg, f.pub])));
   ok("1.7 exactly one SECURITY DEFINER (service_erase_business), executable by app_runtime",
     fns.filter((f) => f.secdef).length === 1 && fns.some((f) => f.proname === "service_erase_business" && f.secdef && f.rt));
   ok("1.8 no feature-flag row (the module is not switched on by this migration)",
@@ -331,8 +343,8 @@ async function main() {
     refused(await x(owner, null, `UPDATE "ServiceCaseEvent" SET payload = '{}' WHERE "caseId" = $1`, ec), /SERVICE_EVENT_APPEND_ONLY/)
     && refused(await x(owner, null, `DELETE FROM "ServiceCaseEvent" WHERE "caseId" = $1`, ec), /SERVICE_EVENT_APPEND_ONLY/)
     && refused(await x(owner, null, `TRUNCATE "ServiceCaseEvent"`), /SERVICE_JOURNAL_NO_TRUNCATE|cannot truncate a table referenced/));
-  ok("6.12 the journal holds exactly the eight accepted events, seq 2..9 without a gap",
-    JSON.stringify(rows(await q(runtime, A, `SELECT seq FROM "ServiceCaseEvent" WHERE "caseId" = $1 ORDER BY seq`, ec)).map((r) => Number(r.seq))) === JSON.stringify([2, 3, 4, 5, 6, 7, 8, 9]));
+  ok("6.12 the journal holds exactly the opening + the eight accepted events, seq 1..9 without a gap",
+    JSON.stringify(rows(await q(runtime, A, `SELECT seq FROM "ServiceCaseEvent" WHERE "caseId" = $1 ORDER BY seq`, ec)).map((r) => Number(r.seq))) === JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9]));
 
   // ── 7. Handover and intake ───────────────────────────────────────────────────────────────────────────────
   console.log("7. ServiceHandover, ServiceCaseIntake");
@@ -410,6 +422,77 @@ async function main() {
   });
   ok("9.2 a case update whose event is refused rolls back with it (no state change without its event)",
     refused(partial, /SERVICE_EVENT_CASE_MISMATCH/) && rows(await q(runtime, A, `SELECT status::text AS s FROM "ServiceCase" WHERE id = $1`, k1))[0]?.s === "IN_REPAIR");
+
+  // ── 10. The opening (1.1c): one case.opened at seq 1, written with the case ───────────────────────────────
+  console.log("10. opening: case.opened at seq 1");
+  const j1 = rows(await q(runtime, A, `SELECT seq, "eventType"::text AS t, action::text AS a, "fromStatus" IS NULL AS nofrom, "toStatus"::text AS s, actor::text AS who
+      FROM "ServiceCaseEvent" WHERE "caseId" = $1 ORDER BY seq`, case1));
+  ok("10.1 a case and its opening in one transaction: the journal starts with case.opened / OPEN at seq 1, no from-status",
+    j1.length === 1 && Number(j1[0].seq) === 1 && j1[0].t === "case.opened" && j1[0].a === "OPEN" && j1[0].nofrom === true && j1[0].s === "OPEN" && j1[0].who === "OWNER_USER", JSON.stringify(j1));
+  ok("10.2 every case of every business has exactly one case.opened, at seq 1",
+    num(await q(owner, null, `SELECT count(*)::int AS n FROM "ServiceCase" c WHERE (SELECT count(*) FROM "ServiceCaseEvent" e WHERE e."caseId" = c.id AND e."eventType" = 'case.opened') <> 1
+      OR NOT EXISTS (SELECT 1 FROM "ServiceCaseEvent" e WHERE e."caseId" = c.id AND e.seq = 1 AND e."eventType" = 'case.opened')`)) === 0
+    && num(await q(owner, null, `SELECT count(*)::int AS n FROM "ServiceCase"`)) > 30);
+  const counts = async () => rows(await q(owner, null, `SELECT (SELECT count(*) FROM "ServiceCase" WHERE "businessId" = $1)::int AS c, (SELECT count(*) FROM "ServiceCaseEvent" WHERE "businessId" = $1)::int AS e, (SELECT "nextValue" FROM "ServiceCaseNumberSequence" WHERE "businessId" = $1) AS n`, A))[0];
+  const c0 = await counts();
+  const noOpening = await inTx(runtime, A, (tx) => createCaseTx(tx, A, cA1, { noOpening: true }));
+  ok("10.3 a case without its opening event → refused at COMMIT (deferred), nothing left, no number consumed",
+    refused(noOpening, /SERVICE_CASE_NOT_OPENED/) && JSON.stringify(await counts()) === JSON.stringify(c0), String(noOpening));
+  const dupOpen = await fresh();
+  ok("10.4 a second case.opened for a case → refused (seq 1 is taken)", refused(await inTx(runtime, A, (tx) => openingTx(tx, A, dupOpen)), UNIQUE));
+  ok("10.5 case.opened at a seq other than 1 → refused (CHECK), even when the seq matches the case version",
+    refused(await inTx(runtime, A, async (tx) => {
+      await tx.$executeRawUnsafe(`UPDATE "ServiceCase" SET version = 2 WHERE id = $1`, dupOpen);
+      return openingTx(tx, A, dupOpen, { seq: 2 });
+    }), CHECK));
+  ok("10.6 another event at seq 1 → refused (CHECK): only the opening is seq 1",
+    refused(await inTx(runtime, A, async (tx) => {
+      const c = await createCaseTx(tx, A, cA1, { noOpening: true });
+      return openingTx(tx, A, c.id, { type: "case.scheduled", action: "SCHEDULE", from: "OPEN" });
+    }), CHECK));
+  const badOpening = (o: Parameters<typeof openingTx>[3]) => inTx(runtime, A, async (tx) => {
+    const c = await createCaseTx(tx, A, cA1, { noOpening: true });
+    return openingTx(tx, A, c.id, o);
+  });
+  ok("10.7 an opening with a from-status, by SYSTEM, or with another action → refused (CHECK)",
+    refused(await badOpening({ from: "OPEN" }), CHECK) && refused(await badOpening({ actor: "SYSTEM" }), CHECK) && refused(await badOpening({ action: "CHECK_IN" }), CHECK));
+  ok("10.8 a transition naming action OPEN, or without a from-status → refused (CHECK)",
+    refused(await transition(A, dupOpen, `status = 'SCHEDULED'`, { action: "OPEN", type: "case.scheduled", from: "OPEN", to: "SCHEDULED" }), CHECK)
+    && refused(await inTx(runtime, A, async (tx) => {
+      await tx.$executeRawUnsafe(`UPDATE "ServiceCase" SET status = 'SCHEDULED', version = version + 1 WHERE id = $1`, dupOpen);
+      return tx.$executeRawUnsafe(`INSERT INTO "ServiceCaseEvent" ("businessId", "caseId", seq, "eventType", action, "fromStatus", "toStatus", "cancellationRequestedBefore", "cancellationRequestedAfter", actor, "idempotencyKey")
+        VALUES ($1, $2, 2, 'case.scheduled', 'SCHEDULE', NULL, 'SCHEDULED', false, false, 'SYSTEM', $3)`, A, dupOpen, ikey());
+    }), CHECK));
+  const notInitial = (set: string) => x(runtime, A, `INSERT INTO "ServiceCase" ("businessId", "caseNumber", kind, "customerId", "problemDescription", "updatedAt", ${set.split("=")[0]}) VALUES ($1, 950, 'IN_SHOP', $2, 'x', now(), ${set.split("=")[1]})`, A, cA1);
+  ok("10.9 a case created in any other state (status, version, outcome, cancel request) → refused (SERVICE_CASE_NOT_INITIAL)",
+    refused(await notInitial(`status='DIAGNOSING'`), /SERVICE_CASE_NOT_INITIAL/) && refused(await notInitial(`version=2`), /SERVICE_CASE_NOT_INITIAL/)
+    && refused(await notInitial(`outcome='REPAIRED'`), /SERVICE_CASE_NOT_INITIAL/) && refused(await notInitial(`"cancellationRequested"=true`), /SERVICE_CASE_NOT_INITIAL/));
+  const c1b = await counts();
+  const partialOpen = await inTx(runtime, A, async (tx) => {
+    await createCaseTx(tx, A, cA1);
+    throw new Error("lab fault after the opening");
+  });
+  ok("10.10 a rolled-back creation (case + opening) leaves no case, no event, no number",
+    refused(partialOpen, /lab fault after the opening/) && JSON.stringify(await counts()) === JSON.stringify(c1b));
+  ok("10.11 forcing the check IMMEDIATE refuses the case before its event: the deferral only allows the legal order",
+    refused(await inTx(runtime, A, async (tx) => {
+      await tx.$executeRawUnsafe(`SET CONSTRAINTS "ServiceCase_has_opening_event" IMMEDIATE`);
+      return createCaseTx(tx, A, cA1);
+    }), /SERVICE_CASE_NOT_OPENED/));
+  ok("10.12 the runtime cannot disable the opening check (not the owner)",
+    refused(await x(runtime, A, `ALTER TABLE "ServiceCase" DISABLE TRIGGER "ServiceCase_has_opening_event"`), /must be owner|permission denied/));
+  const bCase = ((await createCase(B, cB)) as { id: number }).id;
+  ok("10.13 isolation: an opening naming B's case from A's context → refused; B's context sees none of A's openings",
+    refused(await inTx(runtime, A, (tx) => openingTx(tx, A, bCase)), /SERVICE_EVENT_CASE_INVALID|foreign key/)
+    && refused(await inTx(runtime, A, (tx) => openingTx(tx, B, bCase)), /row-level security|SERVICE_EVENT_CASE_INVALID/)
+    && num(await q(runtime, B, `SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "caseId" = $1`, case1)) === 0
+    && num(await q(runtime, B, `SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "eventType" = 'case.opened'`)) === num(await q(owner, null, `SELECT count(*)::int AS n FROM "ServiceCase" WHERE "businessId" = $1`, B)));
+  const switched = await inTx(runtime, A, async (tx) => {
+    await createCaseTx(tx, A, cA1);
+    return tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', '${B}', true)`);
+  });
+  ok("10.14 fails closed: the tenant context switched before COMMIT hides the opening → refused, nothing left",
+    refused(switched, /SERVICE_CASE_NOT_OPENED/) && JSON.stringify(await counts()) === JSON.stringify(c1b), String(switched));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   await owner.$disconnect();

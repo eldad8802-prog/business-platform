@@ -6,7 +6,7 @@
 --
 -- Measures the premises the migration's outcome depends on:
 --   * the ledger is clean, this migration is not recorded, nothing sorting after it was applied first;
---   * none of the names it introduces exists yet: seven tables, eleven types, eleven functions;
+--   * none of the names it introduces exists yet: seven tables, eleven types, twelve functions;
 --   * what it builds on is there: app_runtime (NOLOGIN NOSUPERUSER NOBYPASSRLS), the "Customer" and "StaffMember"
 --     (businessId, id) keys its composite references target, the btree_gist extension its exclusion uses, and
 --     "BillingDocument" under RLS enabled + forced (the quote guard reads it as the invoker);
@@ -23,7 +23,7 @@
 \echo ' 3 no finished migration sorts after it'
 \echo ' 4 none of the seven Service tables exists yet'
 \echo ' 5 none of the eleven Service types exists yet'
-\echo ' 6 none of the eleven service_ functions exists yet'
+\echo ' 6 none of the twelve service_ functions exists yet'
 \echo ' 7 app_runtime exists NOLOGIN NOSUPERUSER NOBYPASSRLS'
 \echo ' 8 the Customer (businessId, id) key exists'
 \echo ' 9 a unique index on StaffMember (businessId, id) exists'
@@ -43,7 +43,7 @@ WITH c AS (
                       'ServiceCoverageDecision','ServiceQuoteState','ServiceQuoteApprovalMethod','ServiceActor','ServiceCaseAction','ServiceEventType')), 0
   UNION ALL SELECT 6, (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace
       AND proname IN ('service_user_same_business','service_case_guard','service_device_guard','service_intake_guard',
-                      'service_quote_billing_document_guard','service_quote_guard','service_event_matches_case',
+                      'service_quote_billing_document_guard','service_quote_guard','service_event_matches_case','service_case_opening_guard',
                       'service_event_append_only_guard','service_journal_truncate_guard','service_handover_guard','service_erase_business')), 0
   UNION ALL SELECT 7, (SELECT count(*) FROM pg_roles WHERE rolname = 'app_runtime' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls), 1
   UNION ALL SELECT 8, (SELECT count(*) FROM pg_constraint WHERE conname = 'Customer_businessId_id_key'), 1
