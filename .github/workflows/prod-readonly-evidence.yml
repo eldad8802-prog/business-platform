@@ -148,6 +148,8 @@ on:
           - 'ops/evidence/lead-claimed-phone-production-evidence.sql'
           - 'ops/evidence/ita-authority-connections-all-envs-evidence.sql'
           - 'ops/evidence/authority-app-registration-preflight.sql'
+          - 'ops/evidence/service-desk-foundation-preflight.sql'
+          - 'ops/evidence/service-desk-foundation-production-evidence.sql'
 
 permissions:
   contents: read
