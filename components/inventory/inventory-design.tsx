@@ -799,21 +799,7 @@ export const inventoryResponsiveCss = `
   }
 `;
 
-export function getStockTone(item: {
-  currentQuantity: number;
-  minimumQuantity?: number;
-  reorderPoint?: number | null;
-}): "ok" | "critical" | "low" {
-  const min = item.minimumQuantity ?? 0;
-  if (item.currentQuantity <= min) return "critical";
-  if (
-    item.reorderPoint != null &&
-    item.currentQuantity <= item.reorderPoint
-  ) {
-    return "low";
-  }
-  return "ok";
-}
+export { getStockTone } from "@/lib/inventory/stock-tone";
 
 export function getStockStatusLabel(tone: "ok" | "critical" | "low", t: Translator = inventoryHebrewT) {
   if (tone === "critical") return t("customers.inventoryKit.labels.stockStatus.critical");
