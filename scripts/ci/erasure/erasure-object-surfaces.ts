@@ -221,9 +221,9 @@ export const OBJECT_SURFACES: readonly ObjectSurface[] = [
     target: "S5-INBOUND",
   },
   // Service Desk (migration 20261112090000). Private objects under biz/{id}/service/ (CHECK-limited). No route,
-  // service or job writes any of these columns yet (task 1.3 / 1.2e), so no object can exist today; the keys are
-  // blanked by service_erase_business(), but deleting the bytes is not wired — declared now so the first writer
-  // cannot arrive unnoticed.
+  // service or job writes any of these columns yet (task 1.3 / 1.2e), so no object can exist today.
+  // service_erase_business() blanks the two signature keys (the quote PDF and slip keys stay), but deleting the
+  // bytes is not wired — declared now so the first writer cannot arrive unnoticed.
   {
     model: "ServiceQuote",
     field: "sentPdfKey",
@@ -248,7 +248,7 @@ export const OBJECT_SURFACES: readonly ObjectSurface[] = [
     kind: "STORAGE_KEY",
     state: "OPEN_INERT",
     reason:
-      "the signed intake slip PDF. Nothing writes this column yet, so no object can exist today; service_erase_business() blanks the key, but no object delete is wired into account erasure",
+      "the signed intake slip PDF. Nothing writes this column yet, so no object can exist today; service_erase_business() keeps this key (the intake row is frozen once signed) and no object delete is wired into account erasure",
     target: "SD-1.3",
   },
   {

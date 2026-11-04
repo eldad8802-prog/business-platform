@@ -183,9 +183,8 @@ export const ANONYMIZE_MODELS = [
   // Document ↔ supplier links (migration 20261103090000) hold no text: ids, closed tokens, versions and times.
   // Who linked / removed / acted is nulled by document_supplier_link_erase_business() (the adapter calls it),
   // so neither model needs a field entry here.
-  // Service Desk (migration 20261112090000): the seven Service tables are erased in place by
-  // service_erase_business() (the adapter calls it) — their guards refuse that change from the runtime — so no
-  // model has a field entry here.
+  // Service Desk (migration 20261112090000): erased in place by service_erase_business() — see
+  // DB_FUNCTION_ERASURES below; the tables' guards refuse that change from the runtime itself.
 
   // ── the conversation graph ────────────────────────────────────────────────
   //
@@ -337,7 +336,47 @@ export type DbFunctionErasure = {
   }[];
 };
 
-export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [];
+export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
+  // Service Desk (1.2a). The account-deletion adapter calls it in the purge transaction. Statuses, outcomes,
+  // amounts, versions, hashes and times stay as the business's history; the journal's acting users and request
+  // digests and the quotes' user ids are nulled by the same function (those models hold no text — they are
+  // NON_PERSONAL_OPERATIONAL in erasure-model-coverage.ts).
+  {
+    fn: "service_erase_business",
+    migration: "20261112090000_service_desk_foundation",
+    models: [
+      {
+        model: "ServiceCase",
+        cleared: ["problemDescription", "diagnosisNote", "cancelReason", "abandonReason"],
+        kept: {
+          qaChecklist: "QA checklist results: item keys with pass / fail flags, no free text — the writer (task 1.3) must keep it so or add it to service_erase_business()",
+        },
+      },
+      {
+        model: "ServiceDevice",
+        cleared: ["serialNumber", "serialNormalized", "description"],
+        kept: {
+          category: "the product category (e.g. phone), not the person",
+          brand: "the maker (e.g. Samsung), not the person",
+          model: "the product model (e.g. A54), not the person",
+        },
+      },
+      {
+        model: "ServiceCaseIntake",
+        cleared: ["deviceSnapshot", "conditionNote", "accessoriesNote", "signatureKey"],
+        kept: {
+          slipPdfKey: "a private object key under biz/{id}/service/ (CHECK); the bytes are an object surface (OPEN_INERT, SD-1.3), and a key column is not the object",
+          termsVersion: "the version token of the intake terms text the customer signed",
+        },
+      },
+      {
+        model: "ServiceHandover",
+        cleared: ["receivedByName", "signatureKey", "debtOverrideReason", "loanerOverrideReason"],
+        kept: {},
+      },
+    ],
+  },
+];
 
 export type ErasureManifest = {
   retain: readonly string[];

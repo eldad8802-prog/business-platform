@@ -15,6 +15,8 @@
 #      exactly its "not there yet" checks.
 #   3. Role battery (.sdf/battery.ts) as the real roles: isolation, cross-business references, numbering under
 #      concurrency, the core's state rules, quote versions, the journal, handover, intake, erasure, atomicity.
+#   3b. Account erasure through the real adapter (.sdf/erasure-battery.ts): refusal, whole rollback, the declared
+#       columns, the other business untouched, no DELETE, regression of the other erasures.
 #   4. Faults: each injected defect is caught by the proof check meant for it.
 #   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
 #   6. Rollback: refused while rows exist; on an empty database it reverts whole (preflight whole again).
@@ -32,6 +34,9 @@ on:
       - ".sdf/**"
       - ".github/workflows/service-desk-foundation-lab.yml"
       - ".github/workflows/prod-readonly-evidence.yml"
+      - "prisma/schema.prisma"
+      - "lib/services/account/account-deletion.prisma-store.ts"
+      - "lib/services/account/account-erasure-manifest.ts"
   workflow_dispatch:
 
 permissions:
@@ -144,6 +149,16 @@ jobs:
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdf_post" \
           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdf_post" \
             npx tsx .sdf/battery.ts
+
+      - name: 3b. Account erasure through the REAL adapter (purgeOperationalData) as the runtime login
+        run: |
+          set -euo pipefail
+          bash .sdf/lab.sh sdf_erase --with-sdf >/dev/null
+          bash .sdf/erasure-prereq.sh sdf_erase
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdf_erase"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdf_erase" \
+          DATABASE_URL="$R" DIRECT_URL="$R" AUTH_DATABASE_URL="$R" AUTH_TOKEN_SECRET="sdf-ci-synthetic-auth-secret-0123456789abcdef" \
+            npx tsx .sdf/erasure-battery.ts
 
       - name: 4. Faults — each is caught by the proof, by the check meant for it
         run: |
