@@ -130,19 +130,19 @@ export default function InventoryOverviewPage() {
           </div>
 
           <div className="i2-tiles" style={{ marginTop: 14 }}>
-            <Link className="i2-tile" href="/inventory/items/create">
+            <Link className="i2-tile i2-tile--c i2-tile--new" href="/inventory/items/create">
               <span>מוצר חדש</span>
               {I2.plus(24)}
             </Link>
-            <Link className="i2-tile" href="/inventory/count">
+            <Link className="i2-tile i2-tile--c i2-tile--count" href="/inventory/count">
               <span>ספירת מלאי</span>
               {I2.list(24)}
             </Link>
-            <Link className="i2-tile" href="/inventory/supplier-purchases/new">
+            <Link className="i2-tile i2-tile--c i2-tile--order" href="/inventory/supplier-purchases/new">
               <span>הזמנה מספק</span>
               {I2.truck(24)}
             </Link>
-            <Link className="i2-tile" href="/inventory/supplier-purchases/pending">
+            <Link className="i2-tile i2-tile--c i2-tile--receive" href="/inventory/supplier-purchases/pending">
               <span>קבלת סחורה</span>
               {I2.box(24)}
             </Link>
