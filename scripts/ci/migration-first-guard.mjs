@@ -28,7 +28,7 @@
 // EXIT CODES: 0 = allowed, 1 = blocked, 2 = could not evaluate (blocks too).
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 
 const APP_CODE = [/^app\//, /^lib\//, /^components\//, /^features\//, /^src\//];
 const NOT_APP_CODE = [/\.test\.[cm]?[jt]sx?$/, /\.spec\.[cm]?[jt]sx?$/, /\.md$/,
@@ -66,14 +66,31 @@ export function schemaStructurallyChanged(baseSrc, headSrc) {
 export function newIdentifiers(baseSrc, headSrc) {
   const before = new Set(structuralShape(baseSrc));
   const models = modelNames(headSrc);
+  const labelCounts = enumMapLabelCounts(headSrc);
   const out = new Set();
   for (const line of structuralShape(headSrc)) {
     if (before.has(line)) continue;
     const decl = line.match(/^(?:model|enum|type|view) ([A-Za-z0-9_]+) \{$/);
     if (decl) { out.add(decl[1]); continue; }
-    const member = line.match(/^[a-z]+ [A-Za-z0-9_]+ :: (.+)$/);
+    const member = line.match(/^([a-z]+) ([A-Za-z0-9_]+) :: (.+)$/);
     if (!member) continue;
-    const body = member[1];
+    const body = member[3];
+    // An enum VALUE with @map is stored in the database under its mapped label, not
+    // its Prisma name (`case_opened @map("case.opened")` is the label 'case.opened').
+    // Asking whether a migration mentions `case_opened` has no honest answer; the
+    // question is whether a migration put the label 'case.opened' into THIS enum
+    // type. A @map that cannot be read exactly, or two values of one enum mapped to
+    // the same label, is never backed. Values without @map are unchanged.
+    if (member[1] === "enum") {
+      const mapped = enumValueMap(body);
+      if (mapped) {
+        const dup = mapped.label !== null && (labelCounts.get(`${member[2]}\u0000${mapped.label}`) ?? 0) > 1;
+        out.add(mapped.label === null || dup
+          ? enumMapInvalidId(member[2], mapped.value, mapped.label === null ? "unreadable @map" : `label ${JSON.stringify(mapped.label)} mapped twice`)
+          : enumMapId(member[2], mapped.value, mapped.label));
+        continue;
+      }
+    }
     const name = body.match(/^([A-Za-z_][A-Za-z0-9_]*)\s/);
     if (!name || name[1].startsWith("@")) continue;
     // A RELATION field has no column to be backed by, so no migration can ever
@@ -86,6 +103,112 @@ export function newIdentifiers(baseSrc, headSrc) {
     out.add(name[1]);
   }
   return [...out];
+}
+
+// ── enum value @map ─────────────────────────────────────────────────────────
+//
+// Identifiers stay plain strings so every caller keeps working. A mapped enum
+// value is `Enum.value @map("label")`; an unusable one is
+// `Enum.value @map(INVALID: why)`. Neither shape can collide with a model, enum
+// or field name, which never contain a dot or a space.
+const ENUM_MAP_ID = /^([A-Za-z0-9_]+)\.([A-Za-z0-9_]+) @map\((".*")\)$/;
+const ENUM_MAP_INVALID_ID = /^([A-Za-z0-9_]+)\.([A-Za-z0-9_]+) @map\(INVALID: .*\)$/;
+export const enumMapId = (enumName, value, label) => `${enumName}.${value} @map(${JSON.stringify(label)})`;
+export const enumMapInvalidId = (enumName, value, why) => `${enumName}.${value} @map(INVALID: ${why})`;
+
+/**
+ * Read one enum member line. null = it carries no @map (left to the existing rule).
+ * Otherwise { value, label }, where label is null unless the line is EXACTLY
+ * `name @map("non-empty label")` — another attribute, a missing quote, an empty
+ * label or an escape sequence makes it unreadable, and unreadable is never backed.
+ */
+export function enumValueMap(body) {
+  const m = String(body).match(/^([A-Za-z_][A-Za-z0-9_]*)\s+(.*)$/);
+  if (!m || !m[2].includes("@map")) return null;
+  const exact = m[2].match(/^@map\(\s*"([^"\\]+)"\s*\)$/);
+  return { value: m[1], label: exact ? exact[1] : null };
+}
+
+/** `${enum}\0${label}` → how many values of that enum map to it (the whole head schema). */
+export function enumMapLabelCounts(src) {
+  const counts = new Map();
+  for (const line of structuralShape(src)) {
+    const member = line.match(/^enum ([A-Za-z0-9_]+) :: (.+)$/);
+    if (!member) continue;
+    const mapped = enumValueMap(member[2]);
+    if (!mapped || mapped.label === null) continue;
+    const k = `${member[1]}\u0000${mapped.label}`;
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/** Split comment-free SQL into statements at `;` outside '…' literals. */
+function sqlStatements(sql) {
+  const out = [];
+  let cur = "", inString = false;
+  const s = String(sql);
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inString) {
+      cur += c;
+      if (c === "'" && s[i + 1] === "'") { cur += "'"; i++; continue; }
+      if (c === "'") inString = false;
+      continue;
+    }
+    if (c === "'") { inString = true; cur += c; continue; }
+    if (c === ";") { out.push(cur); cur = ""; continue; }
+    cur += c;
+  }
+  if (cur.trim()) out.push(cur);
+  return out;
+}
+
+const literals = (text) => [...String(text).matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1].replace(/''/g, "'"));
+// "Name", schema-qualified or not; an unquoted name folds to lower case, as in PostgreSQL.
+const TYPE_REF = String.raw`(?:(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*)?("[^"]+"|[A-Za-z_][A-Za-z0-9_]*)`;
+const typeName = (ref) => (ref.startsWith('"') ? ref.slice(1, -1) : ref.toLowerCase());
+
+/**
+ * The labels each enum type holds once the migrations have run, IN ORDER:
+ * CREATE TYPE … AS ENUM (…), ALTER TYPE … ADD VALUE, RENAME VALUE … TO, RENAME
+ * TO (the type), DROP TYPE. Only these statements count — the same label inside
+ * a CHECK, an INSERT, another enum or a comment backs nothing.
+ */
+export function enumLabelsFromDdl(ddl) {
+  const types = new Map();
+  for (const st of sqlStatements(ddl)) {
+    let m;
+    if ((m = st.match(new RegExp(String.raw`CREATE\s+TYPE\s+${TYPE_REF}\s+AS\s+ENUM\s*\(([\s\S]*)\)\s*$`, "i")))) {
+      types.set(typeName(m[1]), new Set(literals(m[2])));
+    } else if ((m = st.match(new RegExp(String.raw`ALTER\s+TYPE\s+${TYPE_REF}\s+ADD\s+VALUE\s+(?:IF\s+NOT\s+EXISTS\s+)?'((?:[^']|'')*)'`, "i")))) {
+      const t = typeName(m[1]);
+      if (!types.has(t)) types.set(t, new Set());
+      types.get(t).add(m[2].replace(/''/g, "'"));
+    } else if ((m = st.match(new RegExp(String.raw`ALTER\s+TYPE\s+${TYPE_REF}\s+RENAME\s+VALUE\s+'((?:[^']|'')*)'\s+TO\s+'((?:[^']|'')*)'`, "i")))) {
+      const set = types.get(typeName(m[1]));
+      if (set && set.delete(m[2].replace(/''/g, "'"))) set.add(m[3].replace(/''/g, "'"));
+    } else if ((m = st.match(new RegExp(String.raw`ALTER\s+TYPE\s+${TYPE_REF}\s+RENAME\s+TO\s+("[^"]+"|[A-Za-z_][A-Za-z0-9_]*)`, "i")))) {
+      const from = typeName(m[1]);
+      if (types.has(from)) { types.set(typeName(m[2]), types.get(from)); types.delete(from); }
+    } else if ((m = st.match(/DROP\s+TYPE\s+(?:IF\s+EXISTS\s+)?([\s\S]*?)(?:\s+(?:CASCADE|RESTRICT))?\s*$/i))) {
+      for (const ref of m[1].split(",")) {
+        const r = ref.trim().match(new RegExp(String.raw`^${TYPE_REF}$`));
+        if (r) types.delete(typeName(r[1]));
+      }
+    }
+  }
+  return types;
+}
+
+/** Is this identifier backed? Plain identifiers: ddlMentions. Mapped enum values: the label is in that enum. */
+export function identifierBacked(ddl, id, labelsOf = () => enumLabelsFromDdl(ddl)) {
+  if (ENUM_MAP_INVALID_ID.test(id)) return false;
+  const m = id.match(ENUM_MAP_ID);
+  if (!m) return ddlMentions(ddl, id);
+  let label;
+  try { label = JSON.parse(m[3]); } catch { return false; }
+  return Boolean(labelsOf().get(m[1])?.has(label));
 }
 
 // Every model name a schema declares. Needed because whether a field is a
@@ -242,8 +365,11 @@ function identifiersWithoutMigration(sha, identifiers) {
       .split("\n")
       .filter((f) => f.endsWith(".sql"));
   } catch { files = []; }
-  const ddl = files.map((f) => stripSqlComments(fileAt(sha, f))).join("\n");
-  return identifiers.filter((id) => !ddlMentions(ddl, id));
+  // Prisma order (the directory names sort as they apply), so renames and drops replay correctly.
+  const ddl = files.sort().map((f) => stripSqlComments(fileAt(sha, f))).join("\n;\n");
+  let labels = null;
+  const labelsOf = () => (labels ??= enumLabelsFromDdl(ddl));
+  return identifiers.filter((id) => !identifierBacked(ddl, id, labelsOf));
 }
 
 function fileAt(sha, path) {
@@ -432,6 +558,94 @@ INSERT INTO "Note" ("body") VALUES ('a literal -- that is data, not a comment');
   const SCALAR_AFTER = REL_BEFORE.replace("userId Int", "userId Int\n grace DateTime");
   is("scalar: a genuinely new column is still asked about",
     newIdentifiers(REL_BEFORE, SCALAR_AFTER).includes("grace"), true);
+
+  // ── enum value @map: the label is what the database stores ──────────────
+  const unbackedOf = (ddl, base, head) => {
+    const sql = stripSqlComments(ddl);
+    return newIdentifiers(base, head).filter((id) => !identifierBacked(sql, id));
+  };
+  const EV_DDL = `CREATE TYPE "EvType" AS ENUM ('case.opened', 'case.closed', 'quote.sent');`;
+  const enumOf = (body, name = "EvType") => `enum ${name} {\n${body}\n}\n`;
+  // 1. no @map — unchanged: a new enum is asked about by its type name; its plain values are not.
+  is("enum-map 1: a plain enum is asked about by its type name only",
+    newIdentifiers("", enumOf(" A\n B", "PlainKind")), ["PlainKind"]);
+  is("enum-map 1: … and backed by its CREATE TYPE",
+    unbackedOf(`CREATE TYPE "PlainKind" AS ENUM ('A', 'B');`, "", enumOf(" A\n B", "PlainKind")), []);
+  // 2. one valid @map
+  is("enum-map 2: a mapped value is backed by its label in its own enum",
+    unbackedOf(EV_DDL, "", enumOf(' case_opened @map("case.opened")')), []);
+  // 3. several mapped values in one enum
+  is("enum-map 3: every mapped value of one enum is backed",
+    unbackedOf(EV_DDL, "", enumOf(' case_opened @map("case.opened")\n case_closed @map("case.closed")\n quote_sent @map("quote.sent")')), []);
+  // 4. a mapped label no migration created
+  is("enum-map 4: a label missing from the enum is NOT backed",
+    unbackedOf(EV_DDL, "", enumOf(' case_opened @map("case.opened")\n case_reopened @map("case.reopened")')),
+    [enumMapId("EvType", "case_reopened", "case.reopened")]);
+  // 5. wrong or duplicate mappings
+  is("enum-map 5: two values mapped to ONE label are both refused",
+    unbackedOf(EV_DDL, "", enumOf(' case_opened @map("case.opened")\n opened_again @map("case.opened")')).length, 2);
+  is("enum-map 5: an unquoted @map is refused",
+    unbackedOf(EV_DDL, "", enumOf(" case_opened @map(case.opened)")).length, 1);
+  is("enum-map 5: an empty label is refused", unbackedOf(EV_DDL, "", enumOf(' case_opened @map("")')).length, 1);
+  is("enum-map 5: an escape inside the label is refused",
+    unbackedOf(EV_DDL, "", enumOf(' case_opened @map("case\\.opened")')).length, 1);
+  is("enum-map 5: @map with another attribute is refused",
+    unbackedOf(EV_DDL, "", enumOf(' case_opened @map("case.opened") @deprecated')).length, 1);
+  // 6. a new enum with no migration at all
+  is("enum-map 6: a new enum with no CREATE TYPE — the type and its mapped value are NOT backed",
+    unbackedOf(EV_DDL, "", enumOf(' a_b @map("a.b")', "NewKind")), ["NewKind", enumMapId("NewKind", "a_b", "a.b")]);
+  // 7. the Prisma name changes, the database label does not
+  const RENAMED_BASE = enumOf(' case_opened @map("case.opened")');
+  is("enum-map 7: renaming the Prisma name over the same label stays backed",
+    unbackedOf(EV_DDL, RENAMED_BASE, enumOf(' caseOpened @map("case.opened")')), []);
+  // 8. bypass attempts: the label elsewhere backs nothing
+  const elsewhere = (sql) => unbackedOf(sql, "", enumOf(' case_opened @map("case.opened")', "Other"));
+  is("enum-map 8: the label only in a CHECK is NOT backed",
+    elsewhere(`CREATE TYPE "Other" AS ENUM ('x'); CREATE TABLE "T" ("e" TEXT CHECK ("e" = 'case.opened'));`).length, 1);
+  is("enum-map 8: the label only in a comment is NOT backed",
+    elsewhere(`CREATE TYPE "Other" AS ENUM ('x'); -- 'case.opened'\n/* ALTER TYPE "Other" ADD VALUE 'case.opened' */`).length, 1);
+  is("enum-map 8: the label in ANOTHER enum is NOT backed", elsewhere(EV_DDL + ` CREATE TYPE "Other" AS ENUM ('x');`).length, 1);
+  is("enum-map 8: the label in an INSERT is NOT backed",
+    elsewhere(`CREATE TYPE "Other" AS ENUM ('x'); INSERT INTO "T" VALUES ('case.opened');`).length, 1);
+  is("enum-map 8: the Prisma name in the DDL does not stand in for the label",
+    elsewhere(`CREATE TYPE "Other" AS ENUM ('case_opened');`).length, 1);
+  // the statements that do change an enum, in order
+  is("enum-map: ALTER TYPE … ADD VALUE IF NOT EXISTS backs a label",
+    elsewhere(`CREATE TYPE "Other" AS ENUM ('x'); ALTER TYPE "Other" ADD VALUE IF NOT EXISTS 'case.opened';`), []);
+  is("enum-map: schema-qualified CREATE TYPE backs a label",
+    elsewhere(`CREATE TYPE "public"."Other" AS ENUM ('case.opened');`), []);
+  is("enum-map: RENAME VALUE moves the label",
+    elsewhere(`CREATE TYPE "Other" AS ENUM ('case.open'); ALTER TYPE "Other" RENAME VALUE 'case.open' TO 'case.opened';`), []);
+  is("enum-map: RENAME VALUE away from the label un-backs it",
+    elsewhere(`CREATE TYPE "Other" AS ENUM ('case.opened'); ALTER TYPE "Other" RENAME VALUE 'case.opened' TO 'x';`).length, 1);
+  is("enum-map: a renamed type keeps its labels",
+    elsewhere(`CREATE TYPE "Old" AS ENUM ('case.opened'); ALTER TYPE "public"."Old" RENAME TO "Other";`), []);
+  is("enum-map: a dropped type backs nothing",
+    elsewhere(`CREATE TYPE "Other" AS ENUM ('case.opened'); DROP TYPE "Other";`).length, 1);
+  is("enum-map: an unquoted type name folds to lower case (not the quoted Prisma name)",
+    elsewhere(`CREATE TYPE Other AS ENUM ('case.opened');`).length, 1);
+  is("enum-map: a quote inside a label round-trips",
+    unbackedOf(`CREATE TYPE "Q" AS ENUM ('it''s');`, "", enumOf(` its @map("it's")`, "Q")), []);
+  is("enum-map: decide() allows a PR-2 whose mapped values are all backed",
+    decide({ migrations: [], schemaChanged: true, appFiles: ["lib/x.ts"], exempt: false,
+      unbackedIdentifiers: unbackedOf(EV_DDL, "", enumOf(' case_opened @map("case.opened")')) }).code,
+    "SCHEMA_BACKED_BY_EXISTING_MIGRATION");
+  // 9. compatibility: values without @map are still not asked about, fields unchanged
+  is("enum-map 9: a field line is still a plain identifier",
+    newIdentifiers("model M {\n id Int @id\n}\n", "model M {\n id Int @id\n note String?\n}\n"), ["note"]);
+  is("enum-map 9: enumValueMap ignores lines without @map", enumValueMap("OPEN @default"), null);
+  // 10. the real Service Desk journal enum, when the checkout has its migration
+  const SD = "prisma/migrations/20261112090000_service_desk_foundation/migration.sql";
+  if (existsSync(SD)) {
+    const sdSql = stripSqlComments(readFileSync(SD, "utf8"));
+    const labels = enumLabelsFromDdl(sdSql).get("ServiceEventType") ?? new Set();
+    is("enum-map 10: the Service Desk migration creates 22 journal labels", labels.size, 22);
+    const sdEnum = enumOf([...labels].map((l) => ` ${l.replace(/\./g, "_")} @map("${l}")`).join("\n"), "ServiceEventType");
+    is("enum-map 10: all 22 mapped journal values are backed", unbackedOf(sdSql, "", sdEnum), []);
+    is("enum-map 10: a 23rd label the migration lacks is NOT backed",
+      unbackedOf(sdSql, "", sdEnum.replace("}\n", ' case_reopened @map("case.reopened")\n}\n')),
+      [enumMapId("ServiceEventType", "case_reopened", "case.reopened")]);
+  }
 
   console.log(`migration-first-guard self-test: ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
