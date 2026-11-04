@@ -1,33 +1,41 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { InventorySubPage } from "@/components/inventory/inventory-shell";
-import {
-  DecisionCard,
-  KeyValueGrid,
-  BottomSheet,
-  InventoryStatePanel,
-  InventorySkeletonBlock,
-} from "@/components/inventory/inventory-design";
+import { useParams } from "next/navigation";
 import {
   buildSupplierOrderText,
   downloadSupplierPurchaseOrderPdf,
-  formatSupplierDraftDisplayDate,
   openSupplierOrderMailto,
   openWhatsAppWithSupplierOrderText,
+  type SupplierPurchaseDraftForDocument,
 } from "@/lib/services/inventory/supplier-purchase-document.service";
-import { useI18n } from "@/components/i18n/I18nProvider";
+import { buildClientAuthHeaders, redirectToLogin } from "@/lib/client-session";
+import { getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
+import { getSupplier } from "@/lib/api/suppliers";
+import { qtyWithUnit } from "@/lib/inventory/unit-words";
+import { draftStatus, formatOrderDate } from "@/lib/inventory/purchase-order-view";
+import {
+  I2,
+  InvButton,
+  InvError,
+  InvLoading,
+  InvNote,
+  InvPage,
+  InvStatus,
+  ProductThumb,
+} from "@/components/inventory/v2/kit";
 
 type DraftLine = {
   id: number;
   rawName: string | null;
   quantity: number;
   unitType: string | null;
+  matchedItemId?: number | null;
 };
 
 type ApiDraft = {
   id: number;
+  supplierId?: number | null;
   supplierName: string | null;
   externalOrderId: string | null;
   orderDate: string | null;
@@ -36,107 +44,97 @@ type ApiDraft = {
   lines: DraftLine[];
 };
 
-function buildHeaders() {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
-
+function toDocument(draft: ApiDraft): SupplierPurchaseDraftForDocument {
   return {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    id: draft.id,
+    supplierName: draft.supplierName,
+    externalOrderId: draft.externalOrderId,
+    orderDate: draft.orderDate,
+    createdAt: draft.createdAt,
+    lines: draft.lines.map((l) => ({ rawName: l.rawName, quantity: l.quantity, unitType: l.unitType })),
   };
 }
 
+/**
+ * Order detail for a wizard / CSV draft (redesign, mockup "פרטי הזמנה").
+ * Sharing (WhatsApp without a number, mail without an address, clipboard, PDF) is
+ * unchanged and only offered while the draft awaits receipt. Sharing never marks the
+ * order as sent and never changes stock. The phone icon is a call link only.
+ */
 export default function SupplierPurchaseSendPage() {
   const params = useParams();
-  const router = useRouter();
-  const { t } = useI18n();
   const rawId = params?.id;
-  const draftIdFromRoute = Number(
-    Array.isArray(rawId) ? rawId[0] : rawId ?? NaN
-  );
+  const draftIdFromRoute = Number(Array.isArray(rawId) ? rawId[0] : rawId ?? NaN);
 
   const [draft, setDraft] = useState<ApiDraft | null>(null);
+  const [items, setItems] = useState<Map<number, InventoryItemDTO>>(new Map());
+  const [phone, setPhone] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [copyOk, setCopyOk] = useState<string | null>(null);
-  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [copyOk, setCopyOk] = useState(false);
 
   const loadDraft = useCallback(async () => {
     if (!draftIdFromRoute || Number.isNaN(draftIdFromRoute)) {
-      setError(t("customers.purchases.send.invalidId"));
+      setError("מספר ההזמנה אינו תקין.");
       setLoading(false);
       return;
     }
-
     try {
       setLoading(true);
       setError(null);
-
+      // Unchanged: the drafts list is loaded and the one draft is found in it.
       const res = await fetch("/api/inventory/supplier-purchases", {
         method: "GET",
-        headers: buildHeaders(),
+        headers: buildClientAuthHeaders(),
         cache: "no-store",
       });
-
+      if (res.status === 401) return redirectToLogin();
       const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        throw new Error(data?.error || t("customers.purchases.send.loadFailed"));
-      }
-
-      const list: ApiDraft[] = Array.isArray(data?.drafts)
-        ? data.drafts
-        : [];
+      if (!res.ok) throw new Error(data?.error || "load failed");
+      const list: ApiDraft[] = Array.isArray(data?.drafts) ? data.drafts : [];
       const found = list.find((d) => d.id === draftIdFromRoute) ?? null;
-
       if (!found) {
         setDraft(null);
-        setError(t("customers.purchases.send.notFound"));
+        setError("ההזמנה לא נמצאה.");
         return;
       }
-
       setDraft(found);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("customers.purchases.send.loadError"));
+      // Optional context: product images, and the supplier's phone for a call link.
+      void getInventoryItems()
+        .then((list2) => setItems(new Map(list2.map((i) => [i.id, i]))))
+        .catch(() => setItems(new Map()));
+      if (found.supplierId != null) {
+        void getSupplier(found.supplierId)
+          .then((s) => setPhone(s?.phone?.trim() || null))
+          .catch(() => setPhone(null));
+      }
+    } catch {
+      setError(null);
       setDraft(null);
     } finally {
       setLoading(false);
     }
-  }, [draftIdFromRoute, t]);
+  }, [draftIdFromRoute]);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      void loadDraft();
-    });
+    const timer = window.setTimeout(() => void loadDraft(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadDraft]);
 
-  const orderText = useMemo(() => {
-    if (!draft) return "";
-    return buildSupplierOrderText({
-      id: draft.id,
-      supplierName: draft.supplierName,
-      externalOrderId: draft.externalOrderId,
-      orderDate: draft.orderDate,
-      createdAt: draft.createdAt,
-      lines: draft.lines.map((l) => ({
-        rawName: l.rawName,
-        quantity: l.quantity,
-        unitType: l.unitType,
-      })),
-    });
-  }, [draft]);
-
-  const canDispatch =
-    draft?.status === "PENDING_REVIEW" && draft.lines.length > 0;
+  const orderText = useMemo(() => (draft ? buildSupplierOrderText(toDocument(draft)) : ""), [draft]);
+  const canDispatch = draft?.status === "PENDING_REVIEW" && draft.lines.length > 0;
+  const pending = draft?.status === "PENDING_REVIEW";
 
   async function copyOrderText() {
     if (!orderText) return;
     try {
       await navigator.clipboard.writeText(orderText);
-      setCopyOk(t("customers.purchases.send.copied"));
-      setTimeout(() => setCopyOk(null), 2500);
+      setShareError(null);
+      setCopyOk(true);
+      setTimeout(() => setCopyOk(false), 2500);
     } catch {
-      setError(t("customers.purchases.send.copyFailed"));
+      setShareError("לא הצלחנו להעתיק. נסו שוב.");
     }
   }
 
@@ -145,213 +143,118 @@ export default function SupplierPurchaseSendPage() {
     openWhatsAppWithSupplierOrderText(orderText);
   }
 
-  function handlePdf() {
-    if (!draft) return;
-    downloadSupplierPurchaseOrderPdf({
-      id: draft.id,
-      supplierName: draft.supplierName,
-      externalOrderId: draft.externalOrderId,
-      orderDate: draft.orderDate,
-      createdAt: draft.createdAt,
-      lines: draft.lines.map((l) => ({
-        rawName: l.rawName,
-        quantity: l.quantity,
-        unitType: l.unitType,
-      })),
-    });
-  }
-
   function handleMailto() {
     if (!draft || !orderText) return;
-    const subject = `הזמנה #${draft.id} - ${
-      draft.supplierName?.trim() || "ספק"
-    }`;
+    const subject = `הזמנה #${draft.id} - ${draft.supplierName?.trim() || "ספק"}`;
     openSupplierOrderMailto(subject, orderText);
   }
 
-  async function handleShareClick() {
-    if (!canDispatch || !orderText) return;
-    setError(null);
-
-    if (
-      typeof navigator !== "undefined" &&
-      typeof navigator.share === "function"
-    ) {
-      try {
-        await navigator.share({
-          title: "הזמנה לספק",
-          text: orderText,
-        });
-      } catch (e: unknown) {
-        const name =
-          e &&
-          typeof e === "object" &&
-          "name" in e &&
-          typeof (e as { name?: unknown }).name === "string"
-            ? (e as { name: string }).name
-            : "";
-        if (name === "AbortError") return;
-        setShareMenuOpen(true);
-      }
-      return;
-    }
-
-    setShareMenuOpen(true);
+  function handlePdf() {
+    if (!draft) return;
+    downloadSupplierPurchaseOrderPdf(toDocument(draft));
   }
 
-  const displayDateLabel = draft
-    ? formatSupplierDraftDisplayDate({
-        id: draft.id,
-        supplierName: draft.supplierName,
-        externalOrderId: draft.externalOrderId,
-        orderDate: draft.orderDate,
-        createdAt: draft.createdAt,
-        lines: draft.lines.map((l) => ({
-          rawName: l.rawName,
-          quantity: l.quantity,
-          unitType: l.unitType,
-        })),
-      })
-    : "";
-
-  const totalUnits =
-    draft?.lines.reduce((s, l) => s + Number(l.quantity || 0), 0) ?? 0;
+  const status = draft ? draftStatus(draft.status) : null;
 
   return (
-    <InventorySubPage intent="standard"
-      title={t("customers.purchases.send.title")}
-      backHref="/inventory/supplier-purchases"
-      backLabel={t("customers.purchases.common.backToHub")}
-      sub={
-        draft
-          ? draft.supplierName?.trim()
-            ? t("customers.purchases.send.subTo", { name: draft.supplierName.trim() })
-            : t("customers.purchases.send.sub")
-          : undefined
+    <InvPage
+      title="פרטי הזמנה"
+      backFallback="/inventory/supplier-purchases"
+      footer={
+        draft && pending ? (
+          <>
+            <div className="i2-footer__row">
+              <InvButton href={`/inventory/supplier-purchases/pending?draft=${draft.id}`}>מעבר לקליטה מלאה</InvButton>
+            </div>
+            <p className="i2-footer__note">אישור הקליטה יוסיף את כל הכמויות למלאי</p>
+          </>
+        ) : undefined
       }
-      bottomNav="orders"
     >
       {loading ? (
-        <div className="inv-rows">
-          <InventorySkeletonBlock height={92} rows={3} />
-        </div>
-      ) : error && !draft ? (
-        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
-          <InventoryStatePanel
-            tone="error"
-            title={t("customers.purchases.send.openFailed")}
-            action={
-              <button
-                type="button"
-                className="inv-btn-primary inv-btn-primary--full"
-                onClick={() => router.push("/inventory/supplier-purchases")}
-              >
-                {t("customers.purchases.send.backToHub")}
-              </button>
-            }
-          >
-            {error}
-          </InventoryStatePanel>
-        </div>
-      ) : draft ? (
+        <InvLoading rows={4} />
+      ) : !draft ? (
+        <InvError message={error ?? undefined} onRetry={() => void loadDraft()} />
+      ) : (
         <>
-          {error ? (
-            <div className="inv-fwrap"><div className="inv-alert inv-alert--error">{error}</div></div>
-          ) : null}
-          {copyOk ? (
-            <div className="inv-fwrap"><div className="inv-alert inv-alert--success">{copyOk}</div></div>
-          ) : null}
-
-          <div className="inv-rows">
-            <DecisionCard>
-              <div className="inv-dcard__top">
-                <span
-                  className="inv-row__thumb"
-                  style={{ background: "var(--inv-surface)", width: 46, height: 46, fontSize: 22 }}
-                  aria-hidden
-                >
-                  🚚
-                </span>
-                <div className="inv-row__mid">
-                  <div className="inv-row__nm" dir="auto">
-                    {draft.supplierName?.trim() || t("customers.purchases.common.noSupplierOrder")}
-                  </div>
-                  <div className="inv-row__meta">
-                    <bdi>#{draft.id}</bdi>
-                    {displayDateLabel ? <> · <bdi>{displayDateLabel}</bdi></> : null}
-                  </div>
-                </div>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <KeyValueGrid
-                  pairs={[
-                    { k: t("customers.purchases.send.items"), v: <bdi>{draft.lines.length}</bdi> },
-                    { k: t("customers.purchases.send.units"), v: <bdi>{totalUnits}</bdi> },
-                    { k: t("customers.purchases.send.status"), v: draft.status === "PENDING_REVIEW" ? t("customers.purchases.pending.awaitingBadge") : draft.status },
-                  ]}
-                />
-              </div>
-            </DecisionCard>
+          <p className="i2-row__kicker" style={{ margin: "8px 0 0" }}>טיוטת הזמנה</p>
+          <h2 className="i2-h2" style={{ margin: "2px 0 6px", fontSize: 24 }}>
+            <bdi>הזמנה {draft.id}</bdi>
+          </h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 17, fontWeight: 500, overflowWrap: "anywhere" }}>
+              <bdi>{draft.supplierName?.trim() || "ללא ספק"}</bdi>
+            </span>
+            {phone ? (
+              <a className="i2-iconbtn" href={`tel:${phone.replace(/[^\d+]/g, "")}`} aria-label={`התקשרות לספק · ${phone}`}>
+                {I2.phone(20)}
+              </a>
+            ) : null}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", margin: "8px 0 4px" }}>
+            {status ? <InvStatus tone={status.tone}>{status.label}</InvStatus> : null}
+            <span className="i2-muted i2-num">תאריך הזמנה: {formatOrderDate(draft.orderDate ?? draft.createdAt) || "—"}</span>
           </div>
 
-          <div className="inv-desk-workspace inv-send-desk">
-          <div>
-          <div className="inv-seclabel">{t("customers.purchases.confirm.itemsInOrder")}</div>
-          <div className="inv-olines">
-            {draft.lines.map((line) => (
-              <div key={line.id} className="inv-oline">
-                <div className="inv-oline__mid">
-                  <div className="inv-oline__nm" dir="auto">{line.rawName || t("customers.purchases.pending.unnamedProduct")}</div>
-                </div>
-                <span className="inv-oline__price">
-                  <bdi>{line.quantity}</bdi> {line.unitType || t("customers.purchases.send.unitsFallback")}
-                </span>
-              </div>
-            ))}
-          </div>
-          </div>
+          <table className="i2-table" style={{ marginTop: 12 }}>
+            <thead>
+              <tr>
+                <th>מוצר</th>
+                <th style={{ width: "34%" }}>כמות</th>
+              </tr>
+            </thead>
+            <tbody>
+              {draft.lines.map((line) => {
+                const item = line.matchedItemId != null ? items.get(line.matchedItemId) : undefined;
+                const name = line.rawName?.trim() || item?.name || "מוצר ללא שם";
+                return (
+                  <tr key={line.id}>
+                    <td>
+                      <span className="i2-cellprod">
+                        <ProductThumb src={item?.imageUrl} name={name} size={40} />
+                        <span style={{ overflowWrap: "anywhere" }}>{name}</span>
+                      </span>
+                    </td>
+                    <td className="i2-num">{qtyWithUnit(line.quantity, line.unitType)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
 
-          <div className="inv-fwrap" style={{ marginTop: 14 }}>
-            <button
-              type="button"
-              className="inv-btn-primary inv-btn-primary--full"
-              disabled={!canDispatch}
-              onClick={() => void handleShareClick()}
-            >
-              {t("customers.purchases.send.share")}
-            </button>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
-              <button type="button" className="inv-btn-secondary" disabled={!canDispatch} onClick={handlePdf}>
-                {t("customers.purchases.send.downloadPdf")}
-              </button>
-              <button
-                type="button"
-                className="inv-btn-secondary"
-                onClick={() => router.push("/inventory/supplier-purchases/pending")}
-              >
-                {t("customers.purchases.send.goToReceive")}
-              </button>
-            </div>
-          </div>
-          </div>
-
-          {shareMenuOpen ? (
-            <BottomSheet title={t("customers.purchases.send.howToSend")} onClose={() => setShareMenuOpen(false)}>
-              <div style={{ display: "grid", gap: 8 }}>
-                <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={handleWhatsApp}>
-                  WhatsApp
+          {canDispatch ? (
+            <>
+              <h3 className="i2-h3">שיתוף עם הספק</h3>
+              <div className="i2-tiles i2-tiles--3">
+                <button type="button" className="i2-tile" onClick={handleWhatsApp}>
+                  {I2.whatsapp(26)}
+                  <span>וואטסאפ</span>
                 </button>
-                <button type="button" className="inv-btn-secondary" onClick={handleMailto}>
-                  {t("customers.purchases.send.openEmail")}
+                <button type="button" className="i2-tile" onClick={handleMailto}>
+                  {I2.mail(26)}
+                  <span>מייל</span>
                 </button>
-                <button type="button" className="inv-btn-secondary" onClick={() => void copyOrderText()}>
-                  {t("customers.purchases.send.copyText")}
+                <button type="button" className="i2-tile" onClick={() => void copyOrderText()}>
+                  {I2.copy(26)}
+                  <span>{copyOk ? "הועתק" : "העתקה"}</span>
                 </button>
               </div>
-            </BottomSheet>
+              <div style={{ marginTop: 10 }}>
+                <InvButton kind="secondary" block onClick={handlePdf}>
+                  {I2.pdf(20)} הורדת PDF
+                </InvButton>
+              </div>
+              {copyOk ? <InvNote tone="ok">נוסח ההזמנה הועתק</InvNote> : null}
+              {shareError ? <InvNote tone="danger">{shareError}</InvNote> : null}
+              <InvNote>שיתוף ההזמנה אינו מעדכן מלאי</InvNote>
+            </>
+          ) : draft.status === "APPROVED" ? (
+            <InvNote tone="ok">ההזמנה נקלטה במלאי.</InvNote>
+          ) : draft.status === "REJECTED" ? (
+            <InvNote>ההזמנה בוטלה. המלאי לא השתנה.</InvNote>
           ) : null}
         </>
-      ) : null}
-    </InventorySubPage>
+      )}
+    </InvPage>
   );
 }
