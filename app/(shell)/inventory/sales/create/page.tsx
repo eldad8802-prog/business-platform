@@ -16,6 +16,7 @@ import {
 import { getProductEmoji } from "@/lib/inventory/product-emoji";
 import { createInventorySale, getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
 import { observeUnitPrice } from "@/lib/services/inventory/sale-price";
+import { chargedSaleTotal } from "@/lib/inventory/sale-total";
 
 const STOCK_BG: Record<"ok" | "low" | "critical", string> = {
   ok: "var(--inv-success-bg)",
@@ -68,17 +69,11 @@ export default function CreateInventorySalePage() {
   );
 
   const totalUnits = cartEntries.reduce((sum, e) => sum + e.qty, 0);
-  const chargedObservations = cartEntries.map((entry) => {
-    const raw = (chargedPrice[entry.item!.id] ?? "").trim();
-    if (!raw) return null;
-    return observeUnitPrice(raw);
-  });
-  const chargedInvalid = chargedObservations.some((observed) => observed?.kind === "invalid");
-  const chargedTotal = chargedObservations.reduce((sum, observed) => {
-    if (observed?.kind !== "present") return sum;
-    return sum + Number(observed.amount);
-  }, 0);
-  const anyChargedPrice = chargedObservations.some((observed) => observed?.kind === "present");
+  // Charged price is per unit: each line contributes quantity × unit price.
+  const charged = chargedSaleTotal(
+    cartEntries.map((entry) => ({ quantity: entry.qty, rawPrice: chargedPrice[entry.item!.id] }))
+  );
+  const chargedInvalid = charged.kind === "invalid";
 
   function addToCart(item: InventoryItemDTO) {
     setCart((c) => ({ ...c, [item.id]: Math.min((c[item.id] ?? 0) + 1, item.currentQuantity || Infinity) }));
@@ -229,10 +224,16 @@ export default function CreateInventorySalePage() {
         <BottomActionBar
           label={t(totalUnits === 1 ? "customers.inventory.saleCreate.itemsOne" : "customers.inventory.saleCreate.itemsMany", { count: totalUnits })}
           value={
-            chargedInvalid ? (
+            charged.kind === "invalid" ? (
               t("customers.inventory.saleCreate.invalidPrice")
-            ) : anyChargedPrice ? (
-              <bdi>₪{chargedTotal.toLocaleString(intlTag(locale))}</bdi>
+            ) : charged.kind === "total" ? (
+              <bdi>
+                ₪
+                {(charged.cents / 100).toLocaleString(intlTag(locale), {
+                  minimumFractionDigits: charged.cents % 100 === 0 ? 0 : 2,
+                  maximumFractionDigits: 2,
+                })}
+              </bdi>
             ) : (
               t("customers.inventory.saleCreate.noChargedPrice")
             )

@@ -1,0 +1,9 @@
+{
+  "note": "Inventory actions fix pack A — regressions from the 2026-11-03 inventory audit: movement sheet above the bottom bar on phones (O1), category kept on product save (ב4), alert resolve route (ב5), manual-sale total (ב7).",
+  "tests": {
+    "lib/inventory/inventory-actions.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): an unchanged category is kept by id (also when the category list failed to load), GET and PATCH of the item share an include that carries the category, the resolve URL maps to the existing PATCH handler, the sale total is quantity × unit price in agorot with blank ≠ 0, and the movement sheet is portaled to body; run on every pull_request by ci-1-prisma-centralization.yml"
+    }
+  }
+}

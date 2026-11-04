@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { syncInventoryAlertNotifications } from "@/lib/notifications/inventory-alert-notifications";
 
 export async function PATCH(
   request: NextRequest,
@@ -48,6 +49,13 @@ export async function PATCH(
         { status: 404 }
       );
     }
+
+    // After commit, like every other route that opens or closes inventory alerts
+    // (movements, sales, receiving, approvals): reconcile the notification centre
+    // with the open alerts. Same sync, same policy; it never throws.
+    await runWithTenantContext({ businessId: user.businessId }, () =>
+      syncInventoryAlertNotifications(user.businessId, new Date())
+    );
 
     return NextResponse.json({ success: true });
   } catch (error) {
