@@ -594,7 +594,7 @@ async function main() {
   for (const f of LEAD_FEATURES) await enable(H.id, f);
   const webH = await mk(H.id, "web.form");
   const gH = await mk(H.id, "google.lead_form");
-  const pageH = "4040404040";
+  const pageH = `77${String(Date.now()).slice(-9)}`; // a Page no earlier section bound (one live mapping per Page)
   await runWithTenantContext({ businessId: H.id }, () => bindMetaPage({ businessId: H.id, userId: null, pageId: pageH, pageName: "H Page", pageAccessToken: "PAGE-TOKEN-H" }));
   graphMode = "ok";
   const hRows = () => o.intakeEvent.findMany({ where: { businessId: H.id }, orderBy: { id: "asc" } });
