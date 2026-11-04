@@ -190,6 +190,12 @@ const EXTERNAL_OBJECTS: DebtEntry[] = [
   // Schema-capable but inert: nothing writes it, so no object can exist yet. Recorded
   // now so the first writer cannot arrive unnoticed — C23 falsifies the inertness.
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InboundEmailMessage.rawObjectKey", why: "S5-INBOUND" },
+  // Service Desk (migration 20261112090000): inert the same way — no writer until task 1.3; the object delete is
+  // that increment's to wire (service_erase_business() already blanks the keys of intake and handover).
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "ServiceQuote.sentPdfKey", why: "SD-1.3" },
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "ServiceCaseIntake.signatureKey", why: "SD-1.3" },
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "ServiceCaseIntake.slipPdfKey", why: "SD-1.3" },
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "ServiceHandover.signatureKey", why: "SD-1.3" },
 ];
 
 export const ACCEPTED_DEBT: DebtEntry[] = [

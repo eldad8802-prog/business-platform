@@ -183,6 +183,9 @@ export const ANONYMIZE_MODELS = [
   // Document ↔ supplier links (migration 20261103090000) hold no text: ids, closed tokens, versions and times.
   // Who linked / removed / acted is nulled by document_supplier_link_erase_business() (the adapter calls it),
   // so neither model needs a field entry here.
+  // Service Desk (migration 20261112090000): the seven Service tables are erased in place by
+  // service_erase_business() (the adapter calls it) — their guards refuse that change from the runtime — so no
+  // model has a field entry here.
 
   // ── the conversation graph ────────────────────────────────────────────────
   //
