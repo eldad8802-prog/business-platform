@@ -23,7 +23,7 @@ function ok(name: string, cond: boolean, detail = "") {
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Flip = { was_on: boolean; is_on: boolean; audit_event_id: number };
-const SWITCH = "SELECT * FROM public.platform_set_feature_emergency($1, $2, $3, $4, $5, $6)";
+const SWITCH = "SELECT * FROM public.platform_set_feature_emergency($1::text, $2::boolean, $3::int, $4::text, $5::text, $6::text)";
 const codeOf = (e: unknown) => {
   const x = e as { meta?: { code?: string }; code?: string; message?: string };
   return x?.meta?.code ?? (/\b(42501|22023|55P03)\b/.exec(x?.message ?? "")?.[1]) ?? x?.code ?? "error";
