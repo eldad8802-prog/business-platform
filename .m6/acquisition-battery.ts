@@ -693,7 +693,7 @@ async function main() {
 
   console.log("\n-- L1.5-a race: the emergency switch (DB function, FG lock) vs intake writes in flight --");
   const flipGoogle = (on: boolean) => o.$queryRawUnsafe<{ was_on: boolean; is_on: boolean }[]>(
-    `SELECT * FROM public.platform_set_feature_emergency($1, $2, $3, $4, $5, $6)`,
+    `SELECT * FROM public.platform_set_feature_emergency($1::text, $2::boolean, $3::int, $4::text, $5::text, $6::text)`,
     "acquisition_google_lead_forms", on, userA.id, "lab race drill: the provider is misbehaving", null, null);
   const R = await o.business.create({ data: { name: `${RUN}-R` } });
   await enable(R.id, "acquisition_google_lead_forms");

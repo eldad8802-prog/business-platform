@@ -52,7 +52,7 @@ export async function setFeatureEmergency(input: {
   const { featureKey, on, reason } = validateEmergencyInput(input);
   if (!Number.isInteger(input.actorUserId) || input.actorUserId <= 0) throw new ValidationError("An actor is required");
   const rows = await getPrismaControlPlane().$queryRaw<{ was_on: boolean; is_on: boolean; audit_event_id: number }[]>`
-    SELECT * FROM public.platform_set_feature_emergency(${featureKey}, ${on}, ${input.actorUserId}::int, ${reason}, ${input.ip}, ${input.userAgent})`;
+    SELECT * FROM public.platform_set_feature_emergency(${featureKey}::text, ${on}::boolean, ${input.actorUserId}::int, ${reason}::text, ${input.ip}::text, ${input.userAgent}::text)`;
   const row = rows[0];
   if (!row) throw new Error("emergency switch: the database returned no result");
   return { featureKey, wasOn: row.was_on, isOn: row.is_on, changed: row.was_on !== row.is_on, auditEventId: Number(row.audit_event_id) };
