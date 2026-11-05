@@ -1,0 +1,155 @@
+# Leads L1.5-a · decision 3 / migration 20261110100000_acquisition_resolve_paused_hold — proof on PostgreSQL BEFORE it
+# reaches Production (ephemeral PG17). Migration-first: this PR ships the migration and its proof only (no
+# schema.prisma, no runtime code). The application PR that calls the v2 resolvers comes after the release.
+#
+# .lrp/lab.sh builds the acquisition objects from their REAL migrations (M6, M7-A, M7-B/C) with their row-level
+# security replayed, roles as in Production, and a ledger listing every earlier migration (pending: only this one).
+#
+#   0. Evidence files are SELECT-only and selectable; the proof pins migration.sql's sha256; the migration is additive.
+#   1. Baseline (pending): the preflight passes whole; the proof refuses (7 of 9 fail, v1 untouched passes).
+#   2. `prisma migrate deploy` (the release-migrate mechanism) applies it: the proof passes whole (9/9); the preflight
+#      then fails exactly its "not there yet" checks (1, 3).
+#   3. Role battery (.lrp/battery.ts) as the runtime role: v2 resolves ACTIVE + PAUSED (keyed / public) and ACTIVE +
+#      ERROR + PAUSED (resource) with the status, never REVOKED / ERROR-keyed / a wrong key; v1 unchanged; the right
+#      business; no table read outside a tenant; no EXECUTE for an outsider.
+#   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   5. Rollback (.lrp/rollback.sql): the preflight is whole again.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: acquisition resolve PAUSED — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261110100000_acquisition_resolve_paused_hold/**"
+      - "ops/evidence/acquisition-resolve-paused-*.sql"
+      - ".lrp/**"
+      - ".github/workflows/acquisition-resolve-paused-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: acquisition resolve PAUSED (PG17, real migration via migrate deploy, Production RLS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: lrp_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: lrp_ci_synthetic_super_pw
+      LAB_PASSWORD: lrp_ci_synthetic_role_pw
+      ACQUISITION_CREDENTIAL_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      AUTH_TOKEN_SECRET: lrp_ci_secret_synthetic_at_least_32_characters_long
+      PREFLIGHT: ops/evidence/acquisition-resolve-paused-preflight.sql
+      PROOF: ops/evidence/acquisition-resolve-paused-production-evidence.sql
+      MIGRATION: prisma/migrations/20261110100000_acquisition_resolve_paused_hold/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files — SELECT-only, checksum pinned, selectable; the migration is additive
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$PROOF"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$MIGRATION" | cut -d' ' -f1)
+          grep -q "'$sum'" "$PROOF" || { echo "the proof does not pin $sum"; exit 1; }
+          # Additive only: no DROP / ALTER / CREATE OR REPLACE, and every CREATE is a new _v2 resolver.
+          body=$(grep -vE '^\s*--' "$MIGRATION")
+          if echo "$body" | grep -inE '\b(drop|alter|truncate|delete|update|insert)\b|or[[:space:]]+replace'; then echo "not additive"; exit 1; fi
+          test "$(echo "$body" | grep -cE '^CREATE ')" = "3" || { echo "expected exactly 3 CREATE statements"; exit 1; }
+          test "$(echo "$body" | grep -cE '^CREATE FUNCTION public\.m6_acquisition_resolve_(keyed|public|resource)_v2\(')" = "3" || { echo "a CREATE that is not a v2 resolver"; exit 1; }
+          echo "evidence clean; checksum pinned $sum; additive (3 new v2 resolvers, nothing existing touched)"
+
+      - name: 1. Baseline — pending; the preflight passes whole, the proof refuses
+        run: |
+          set -euo pipefail
+          bash .lrp/lab.sh lrp_base
+          q() { psql -X -A -t -F'|' -U lab_super -d "$1" -v ON_ERROR_STOP=1 -f "$2" | grep -E '^[0-9]+\|' ; }
+          q lrp_base "$PREFLIGHT" | tee /tmp/pre.out
+          ! grep -q '|FAIL|' /tmp/pre.out || { echo "preflight not whole on the baseline"; exit 1; }
+          test "$(wc -l < /tmp/pre.out)" -eq 8 || { echo "expected 8 preflight lines"; exit 1; }
+          q lrp_base "$PROOF" | tee /tmp/proof0.out
+          fails=$(grep '|FAIL|' /tmp/proof0.out | cut -d'|' -f1 | tr '\n' ' ')
+          test "$fails" = "1 2 3 4 5 6 7 " || { echo "before the migration the proof should fail exactly 1-7, got: $fails"; exit 1; }
+          echo "the proof refuses before the migration (v1 untouched passes)"
+
+      - name: 2. Release — migrate deploy applies exactly this one; the proof passes whole
+        run: |
+          set -euo pipefail
+          bash .lrp/lab.sh lrp_proof --with-lrp
+          # Out of order, as in Production: every migration of this checkout is now finished, and this one finished
+          # AFTER the later-named, already-applied ones (nothing else was re-run or left pending).
+          dirs=$(ls -d prisma/migrations/*/ | wc -l)
+          fin=$(psql -X -At -U lab_super -d lrp_proof -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")
+          test "$fin" = "$dirs" || { echo "ledger: $fin finished, $dirs migrations in the checkout"; exit 1; }
+          later=$(psql -X -At -U lab_super -d lrp_proof -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name > '20261110100000_acquisition_resolve_paused_hold' AND finished_at < (SELECT finished_at FROM \"_prisma_migrations\" WHERE migration_name = '20261110100000_acquisition_resolve_paused_hold')")
+          test "$later" -ge 1 || { echo "expected at least one later-named migration already applied before this one"; exit 1; }
+          echo "out-of-order apply proven: $fin/$dirs finished; $later later-named migration(s) were applied before this one"
+          q() { psql -X -A -t -F'|' -U lab_super -d "$1" -v ON_ERROR_STOP=1 -f "$2" | grep -E '^[0-9]+\|' ; }
+          q lrp_proof "$PROOF" | tee /tmp/proof.out
+          ! grep -q '|FAIL|' /tmp/proof.out || { echo "proof not whole after the release"; exit 1; }
+          test "$(wc -l < /tmp/proof.out)" -eq 9 || { echo "expected 9 proof lines"; exit 1; }
+          q lrp_proof "$PREFLIGHT" | tee /tmp/pre2.out
+          fails=$(grep '|FAIL|' /tmp/pre2.out | cut -d'|' -f1 | tr '\n' ' ')
+          test "$fails" = "1 3 " || { echo "after the release the preflight should fail exactly 1 3, got: $fails"; exit 1; }
+          # Read-only session, as prod-readonly-evidence.yml runs it.
+          PGOPTIONS="-c default_transaction_read_only=on" psql -X -A -t -F'|' -U lab_super -d lrp_proof -v ON_ERROR_STOP=1 -f "$PROOF" >/dev/null
+          PGOPTIONS="-c default_transaction_read_only=on" psql -X -A -t -F'|' -U lab_super -d lrp_proof -v ON_ERROR_STOP=1 -f "$PREFLIGHT" >/dev/null
+
+      - name: 3. Role battery — the runtime role through the real connection service
+        env:
+          OWNER_URL: postgresql://lab_super:lrp_ci_synthetic_super_pw@localhost:5432/lrp_proof
+          DATABASE_URL: postgresql://app_runtime:lrp_ci_synthetic_role_pw@localhost:5432/lrp_proof
+          DIRECT_URL: postgresql://app_runtime:lrp_ci_synthetic_role_pw@localhost:5432/lrp_proof
+          OUTSIDER_URL: postgresql://lrp_outsider:lrp_ci_synthetic_role_pw@localhost:5432/lrp_proof
+        run: npx tsx .lrp/battery.ts
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .lrp/lab.sh lrp_broken --broken-lrp
+          left=$(psql -X -At -U lab_super -d lrp_broken -v ON_ERROR_STOP=1 -c "SELECT
+              (SELECT count(*) FROM pg_proc WHERE proname LIKE 'm6_acquisition_resolve_%_v2')
+            + (SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261110100000_acquisition_resolve_paused_hold' AND finished_at IS NOT NULL)")
+          echo "objects left=$left"
+          test "$left" = "0" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Rollback — the v2 resolvers go, v1 stays; the preflight is whole again
+        run: |
+          set -euo pipefail
+          psql -X -q -U lab_super -d lrp_proof -v ON_ERROR_STOP=1 -f .lrp/rollback.sql
+          fails=$(psql -X -A -t -F'|' -U lab_super -d lrp_proof -v ON_ERROR_STOP=1 -f "$PREFLIGHT" | grep -E '^[0-9]+\|FAIL' | cut -d'|' -f1 | tr '\n' ' ' || true)
+          test -z "$fails" || { echo "after rollback the preflight should be whole, got: $fails"; exit 1; }
+          echo "rollback whole: v2 dropped, v1 untouched, ledger row removed"

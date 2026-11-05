@@ -51,6 +51,8 @@ on:
           - 'ops/evidence/acquisition-emergency-state.sql'
           - 'ops/evidence/m6-website-live-proof-evidence.sql'
           - 'ops/evidence/m6-google-live-proof-evidence.sql'
+          - 'ops/evidence/acquisition-resolve-paused-preflight.sql'
+          - 'ops/evidence/acquisition-resolve-paused-production-evidence.sql'
           - 'ops/evidence/c594-control-plane-privileges-preflight.sql'
           - 'ops/evidence/c594-control-plane-privileges-production-evidence.sql'
           - 'ops/evidence/p2-business-identity-preflight.sql'
