@@ -1,0 +1,13 @@
+{
+  "note": "Billing A0 (owner-approved 2026-11-05): characterization of the EXISTING billing documents (TAX_INVOICE, TAX_INVOICE_RECEIPT, RECEIPT, CREDIT_NOTE, QUOTE) against baselines recorded from unmodified code. Tests only; no product code, no schema, no migration. The database battery (.billing-a0/battery.mts) is not a *.test.* file and runs in the same workflow.",
+  "tests": {
+    ".billing-a0/golden.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): byte-exact baseline of frozen snapshots + legal hash for every existing type, the PDF renderers' complete input (HTML + pdfmake definition) incl. the three layouts and the allocation-number overlay, quote number format, allocation tables / threshold by date / readiness and deliverability matrices / approval payload / 9-digit allocation number, and the uniform export (loader query, assembler exclusions, INI + BKMVDATA bytes, report data); run on pull_request by billing-a0-characterization-ci.yml"
+    },
+    ".billing-a0/pdf-render.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "renders each existing type through both existing PDF renderers (HTML/Chromium, pdfmake) and compares page count + whitespace-free extracted text to the baseline; CreationDate / ModDate / Producer / Creator / ID excluded; synthetic data, no DB, no network; run on pull_request by billing-a0-characterization-ci.yml"
+    }
+  }
+}

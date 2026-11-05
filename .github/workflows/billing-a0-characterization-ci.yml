@@ -1,0 +1,181 @@
+# A0 — characterization of the EXISTING billing documents.
+#
+# Owner directive 2026-11-05: the existing invoices / receipts / credit notes and
+# their outputs must not change as part of the document-types expansion. These
+# jobs pin that behaviour against baselines recorded from unmodified code
+# (.billing-a0/baseline/*.json, provenance stamped in each file):
+#   golden   — pure, byte-exact: frozen snapshots + legal hash, PDF renderer input
+#              (HTML + pdfmake definition), numbering format, allocation rules,
+#              uniform export files (INI / BKMVDATA bytes);
+#   render   — rendered PDFs through both existing renderers: page count + text,
+#              metadata (CreationDate / ModDate / Producer / Creator / ID) excluded;
+#   database — real issuance of all five types on an ephemeral postgres:17:
+#              numbering, parallel issuance, frozen snapshots, immutability,
+#              allocation with a LOCAL stub (no authority call), uniform loader.
+# Each job carries negative proofs: a deliberate mutation of the existing code in
+# this ephemeral checkout must turn it red, for the stated reason.
+#
+# Synthetic data only; ZERO secrets; ZERO Neon; ZERO network to any authority.
+
+name: billing A0 — existing documents characterization
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/**"
+      - "lib/billing/**"
+      - "app/api/billing/**"
+      - "app/billing/**"
+      - "components/billing/**"
+      - "lib/services/payments/**"
+      - "lib/services/financial-events/**"
+      - "lib/pdf/**"
+      - "prisma/schema.prisma"
+      - "package-lock.json"
+      - ".billing-a0/**"
+      - "scripts/ci/billing-protected-paths-guard.mjs"
+      - "scripts/ci/test-coverage/billing-a0.json"
+      - ".github/workflows/billing-a0-characterization-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    name: A0 golden (pure, byte-exact)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Golden characterization
+        run: npx tsx .billing-a0/golden.test.ts
+
+      - name: Protected-paths guard self-test
+        run: node scripts/ci/billing-protected-paths-guard.mjs --self-test
+
+      - name: Test inventory
+        run: node scripts/ci/security-test-coverage.mjs
+
+      - name: Negative proof (a changed PDF title must be caught)
+        run: |
+          F="lib/services/billing/pdf/billing-pdf-html-template.ts"
+          cp "$F" "$F.bak"
+          perl -pi -e 's/TAX_INVOICE: "חשבונית מס",/TAX_INVOICE: "חשבונית-מס",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:golden:pdf-title" --expect 'FAIL: pdf.html.TAX_INVOICE.classic.sha256' -- npx tsx .billing-a0/golden.test.ts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a changed invoice title went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (a changed allocation threshold must be caught)
+        run: |
+          F="lib/services/billing/authority/billing-authority-threshold.ts"
+          cp "$F" "$F.bak"
+          perl -pi -e 's/AUTHORITY_THRESHOLD_2026_H2_AND_LATER_ILS = 5_000;/AUTHORITY_THRESHOLD_2026_H2_AND_LATER_ILS = 5_001;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:golden:threshold" --expect 'FAIL: authority.thresholdByDate' -- npx tsx .billing-a0/golden.test.ts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a changed allocation threshold went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (a changed uniform document code must be caught)
+        run: |
+          F="lib/services/billing/uniform/uniform-file-builder.ts"
+          cp "$F" "$F.bak"
+          perl -pi -e 's/TAX_INVOICE: "305",/TAX_INVOICE: "306",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:golden:uniform-code" --expect 'FAIL: uniform.bkmvdata.bytes.sha256' -- npx tsx .billing-a0/golden.test.ts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a changed uniform export went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+  render:
+    name: A0 rendered PDF (content, metadata excluded)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Install the Playwright Chromium (CI renderer)
+        run: npx playwright install --with-deps chromium
+
+      - name: Rendered-PDF characterization
+        run: npx tsx .billing-a0/pdf-render.test.ts
+
+      - name: Negative proof (a changed printed label must be caught)
+        run: |
+          F="lib/services/billing/pdf/billing-pdf-html-template.ts"
+          cp "$F" "$F.bak"
+          perl -pi -e 's/TAX_INVOICE: "חשבונית מס",/TAX_INVOICE: "חשבונית-מס",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:render:pdf-title" --expect 'FAIL: render.html.TAX_INVOICE.classic.text' -- npx tsx .billing-a0/pdf-render.test.ts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a changed printed title went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+  database:
+    name: A0 issuance (ephemeral PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: a0_owner
+          POSTGRES_PASSWORD: a0_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_a0
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U a0_owner -d dubiz_a0"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://a0_owner:a0_ci_synthetic_owner_pw@localhost:5432/dubiz_a0
+      DIRECT_URL: postgresql://a0_owner:a0_ci_synthetic_owner_pw@localhost:5432/dubiz_a0
+      AUTH_TOKEN_SECRET: a0_ci_auth_secret_synthetic
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+
+      - name: Issuance battery
+        run: npx tsx .billing-a0/battery.mts
+
+      - name: Negative proof (a changed document number format must be caught)
+        run: |
+          F="lib/services/billing/billing-issue.service.ts"
+          cp "$F" "$F.bak"
+          perl -pi -e 's/return String\(value\)\.padStart\(DOCUMENT_NUMBER_PAD, "0"\);/return String(value).padStart(DOCUMENT_NUMBER_PAD + 1, "0");/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:database:number-format" --expect 'FAIL: baseline: numbering.sequential' -- npx tsx .billing-a0/battery.mts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a changed document number went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"

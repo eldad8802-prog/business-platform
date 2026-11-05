@@ -1,0 +1,37 @@
+# A0 — reports any pull request that changes the existing billing mechanism.
+#
+# Owner directive 2026-11-05: the existing invoices / receipts / credit notes,
+# their numbering, snapshots, PDF, signing, payments and settlement, allocation
+# numbers and the uniform export must not change as part of the document-types
+# expansion without explicit approval. This job lists every such change (paths,
+# protected schema blocks, migrations that mention protected tables). It runs on
+# every pull request to main, needs no dependencies and no secrets.
+#
+# Reporting only: it is NOT a required status check and changes no branch
+# protection. Making it required is the owner's decision.
+
+name: billing — protected paths guard
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Existing billing mechanism unchanged
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Self-test
+        run: node scripts/ci/billing-protected-paths-guard.mjs --self-test
+      - name: Check this pull request
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/ci/billing-protected-paths-guard.mjs --base "origin/${BASE_REF:-main}"
