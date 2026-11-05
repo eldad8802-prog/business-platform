@@ -144,6 +144,8 @@ jobs:
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f "$M7A"
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f .m7bc/prereq.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -1 -f "$M7BC"
+          # Leads L1.5-a · decision 3 — the v2 resolvers (PAUSED → held) that the intake routes now call.
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -1 -f prisma/migrations/20261110100000_acquisition_resolve_paused_hold/migration.sql
           npx prisma generate
 
       - name: 3. Production row-level security, replayed verbatim from the migrations

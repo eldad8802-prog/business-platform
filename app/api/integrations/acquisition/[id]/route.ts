@@ -1,7 +1,7 @@
 /**
  * POST /api/integrations/acquisition/<id> — manage one of the owner's connections.
  *   { action: "rotate" }                       Google / website: a new key (shown once), the old dies
- *   { action: "pause" | "resume" }             stop / restart accepting
+ *   { action: "pause" | "resume" }             pause (verified deliveries are kept and HELD) / resume (released)
  *   { action: "set_origins", allowedOrigins }  website browser origins
  *   { action: "set_credentials", signingSecret?, apiKeyId?, apiKeySecret? }
  *                                              CloudTalk: the webhook signing secret (whsec_…) and the API key

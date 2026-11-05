@@ -634,7 +634,7 @@ const connectionsEn: Widen<typeof connectionsHe> = {
       mailReceived: "Last email received",
     },
     attention: {
-      paused: "The connection is paused — new updates from it aren't received until it's resumed.",
+      paused: "The connection is paused — new updates from it are kept and wait until it's resumed.",
     },
     authority: {
       expired: "The Tax Authority connection has expired.",
@@ -783,7 +783,7 @@ const connectionsEn: Widen<typeof connectionsHe> = {
     },
     status: {
       active: "Active — receiving inquiries",
-      paused: "Paused — inquiries aren't received",
+      paused: "Paused — inquiries are kept and wait until you resume",
       error: "Needs reconnecting",
       revoked: "Disconnected",
     },

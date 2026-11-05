@@ -10,7 +10,7 @@
 import type { IntakeAdapter, RouteResult } from "@/lib/intake/core/contract";
 import { listAcquisitionTenants } from "@/lib/intake/acquisition/resolve";
 import { connectionStateForRef } from "@/lib/intake/acquisition/connection.service";
-import { holdUnlessAllowed } from "@/lib/intake/acquisition/gate";
+import { HOLD_CODES, HOLD_RECHECK_MS, holdUnlessAllowed } from "@/lib/intake/acquisition/gate";
 import { normalizeCall, type TelephonySourceKey } from "./canonical";
 
 export const CALL_NORMALIZER_VERSION = 1;
@@ -28,8 +28,13 @@ export function makeCallAdapter(input: {
     coreDestinations: ["call"],
     resolveTenant: input.resolveTenant,
     async hydrate(ctx, event) {
-      if ((await connectionStateForRef(input.sourceKey, event.providerAccountRef)) === "revoked") {
+      const connectionState = await connectionStateForRef(input.sourceKey, event.providerAccountRef);
+      if (connectionState === "revoked") {
         return { kind: "ignored", code: "connection_revoked" };
+      }
+      // Leads L1.5-a · decision 3 — a PAUSED connection: the receipt waits (no attempt, nothing deleted) until resumed.
+      if (connectionState === "paused") {
+        return { kind: "deferred", until: new Date(ctx.now.getTime() + HOLD_RECHECK_MS), code: HOLD_CODES.connectionPaused };
       }
       // L1.5-a — then the source gate, again, before any work: emergency switch, entitlement withdrawn or a
       // quarantined business → the receipt waits (deferred, not an attempt, nothing deleted).

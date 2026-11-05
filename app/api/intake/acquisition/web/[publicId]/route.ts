@@ -17,7 +17,7 @@ import { getClientIp } from "@/lib/security/rate-limit";
 import { acquisitionReceipt } from "@/lib/intake/acquisition/canonical";
 import { ingestAcquisition } from "@/lib/intake/acquisition/ingest";
 import { BODY_LIMITS, BodyTooLargeError, parseBody, readBodyLimited } from "@/lib/intake/acquisition/http";
-import { resolveKeyedConnection, resolvePublicConnection } from "@/lib/intake/acquisition/resolve";
+import { resolveKeyedConnectionV2, resolvePublicConnectionV2, type ConnectionLiveStatus } from "@/lib/intake/acquisition/resolve";
 import { flattenFields, parseWebForm, WEB_FORM_SOURCE } from "@/lib/intake/acquisition/providers/web-form";
 
 export const runtime = "nodejs";
@@ -98,7 +98,7 @@ function bearer(req: Request): string | null {
 export async function OPTIONS(req: Request, ctx: { params: Promise<{ publicId: string }> }) {
   const { publicId } = await ctx.params;
   const origin = req.headers.get("origin");
-  const conn = await resolvePublicConnection(WEB_FORM_SOURCE, publicId).catch(() => null);
+  const conn = await resolvePublicConnectionV2(WEB_FORM_SOURCE, publicId).catch(() => null);
   const allowed = !!conn && !!origin && conn.allowedOrigins.includes(origin);
   return new NextResponse(null, { status: allowed ? 204 : 403, headers: { ...cors(origin, allowed), "access-control-max-age": "600" } });
 }
@@ -108,15 +108,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
   const origin = req.headers.get("origin");
   const key = bearer(req);
 
-  let conn: { connectionId: number; businessId: number } | null;
+  let conn: { connectionId: number; businessId: number; status: ConnectionLiveStatus } | null;
   let browser = false;
   let allowedOrigins: string[] = [];
   try {
     if (key) {
-      conn = await resolveKeyedConnection(WEB_FORM_SOURCE, publicId, key);
+      conn = await resolveKeyedConnectionV2(WEB_FORM_SOURCE, publicId, key);
       if (!conn) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     } else {
-      const pub = await resolvePublicConnection(WEB_FORM_SOURCE, publicId);
+      const pub = await resolvePublicConnectionV2(WEB_FORM_SOURCE, publicId);
       if (!pub) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
       if (!origin || !pub.allowedOrigins.includes(origin)) {
         return NextResponse.json({ ok: false, error: "origin_not_allowed" }, { status: 403, headers: cors(origin, false) });
@@ -164,6 +164,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
       accountRef: publicId,
       businessId: conn.businessId,
       connectionId: conn.connectionId,
+      connectionStatus: conn.status,
       receipts: [acquisitionReceipt(parsed.lead, publicId)],
     });
     if (out.status === "refused") return html ? reply("unavailable", 404) : NextResponse.json({ ok: false, error: "not_found" }, { status: 404, headers });

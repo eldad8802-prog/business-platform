@@ -189,9 +189,7 @@ async function main() {
   ok("oversized body → 413", (await web(webA.connection.publicId, {}, { key: webA.key, raw: JSON.stringify({ email: "a@b.test", pad: "x".repeat(40_000) }) })).status === 413);
   ok("source not enabled for the business → 404, nothing recorded",
     (await web(webC.connection.publicId, { email: "c@example.test" }, { key: webC.key })).status === 404 && (await o.intakeEvent.count({ where: { businessId: C.id } })) === 0);
-  await runWithTenantContext({ businessId: A.id }, () => setPaused(webA.connection.id, true));
-  ok("a paused endpoint → 401 for its own key", (await web(webA.connection.publicId, { ...sub, submission_id: "x4" }, { key: webA.key })).status === 401);
-  await runWithTenantContext({ businessId: A.id }, () => setPaused(webA.connection.id, false));
+  // (A paused endpoint no longer refuses — decision 3: see the dedicated "PAUSED → held" section below.)
   await drain(A.id);
   const after3 = await counts(A.id, "web.form");
   ok("every refused request recorded nothing (only the browser lead was added)", after3.receipts === before.receipts + 1, JSON.stringify({ before, after3 }));
@@ -689,6 +687,116 @@ async function main() {
       && (await o.lead.count({ where: { businessId: H.id, sourceChannel: "intake:google.lead_form" } })) === 1, JSON.stringify([raceAfter?.status, raceAfter?.lastErrorCode]));
   ok("L1.5-a: …and the revoked endpoint takes nothing new, switch or not (401)",
     (await google(gH.connection.publicId, googleLead(gH.key, `${RUN}-hg3`))).status === 401);
+  setMetaGraphFetchForTests(null);
+
+  console.log("\n-- L1.5-a · decision 3: PAUSED → verified deliveries are recorded and HELD; resumed → processed once --");
+  const emergencyP = (featureKey: string, on: boolean) => o.platformFeaturePolicy.upsert({
+    where: { featureKey }, create: { featureKey, globalEnabled: false, emergencyDisabled: on }, update: { emergencyDisabled: on },
+  });
+  setMetaGraphFetchForTests(async (url) => {
+    const id = decodeURIComponent(url.split("/").pop()!.split("?")[0]);
+    return { status: 200, json: { id, created_time: new Date().toISOString(), form_id: "777", platform: "fb",
+      field_data: [{ name: "full_name", values: ["Paused Meta"] }, { name: "phone_number", values: [`+97252333${id.slice(-4)}`] }] } };
+  });
+  const P = await o.business.create({ data: { name: `${RUN}-P` } });
+  const QP = await o.business.create({ data: { name: `${RUN}-Qp` } });
+  for (const f of ["acquisition_web_forms", "acquisition_google_lead_forms", "acquisition_meta_lead_ads"]) { await enable(P.id, f); await enable(QP.id, f); }
+  const webP = await mk(P.id, "web.form", ["https://p.example"]);
+  const gP = await mk(P.id, "google.lead_form");
+  const gQ = await mk(QP.id, "google.lead_form");
+  const pageP = `66${String(Date.now()).slice(-9)}`;
+  const metaP = await runWithTenantContext({ businessId: P.id }, () => bindMetaPage({ businessId: P.id, userId: null, pageId: pageP, pageName: "P Page", pageAccessToken: "PAGE-TOKEN-P" }));
+  const pause = (id: number, on: boolean) => runWithTenantContext({ businessId: P.id }, () => setPaused(id, on));
+  for (const id of [webP.connection.id, gP.connection.id, metaP.id]) await pause(id, true);
+  const pRows = () => o.intakeEvent.findMany({ where: { businessId: P.id }, orderBy: { id: "asc" } });
+  const pLeads = (src?: string) => o.lead.count({ where: { businessId: P.id, ...(src ? { sourceChannel: `intake:${src}` } : {}) } });
+
+  const pw = await web(webP.connection.publicId, { submission_id: `${RUN}-p1`, name: "Paused Server", phone: "054-510-0001" }, { key: webP.key });
+  const pb = await web(webP.connection.publicId, { submission_id: `${RUN}-p2`, name: "Paused Browser", phone: "054-510-0002" }, { origin: "https://p.example" });
+  const preP = await webOPTIONS(new NextRequest(`http://m6.local/x`, { method: "OPTIONS", headers: { origin: "https://p.example" } }), params({ publicId: webP.connection.publicId }));
+  const pg = await google(gP.connection.publicId, googleLead(gP.key, `${RUN}-pg1`));
+  const pgDup = await google(gP.connection.publicId, googleLead(gP.key, `${RUN}-pg1`)); // Google retries the same lead_id
+  const pm = await meta(leadgen(pageP, "9600001"));
+  const heldP = await pRows();
+  ok("PAUSED: web (server key 202, browser 202, CORS 204), Google (200, its retry 200) and Meta (200) are VERIFIED and RECORDED",
+    pw.status === 202 && pb.status === 202 && preP.status === 204 && pg.status === 200 && pgDup.status === 200 && pm.status === 200 && heldP.length === 4,
+    JSON.stringify({ pw: pw.status, pb: pb.status, pre: preP.status, pg: pg.status, pgDup: pgDup.status, pm: pm.status, n: heldP.length }));
+  ok("PAUSED: each waits — RECEIVED, held:connection_paused, no attempt spent, payload kept; Google's retry is the SAME receipt",
+    heldP.every((e) => e.status === "RECEIVED" && e.lastErrorCode === "held:connection_paused" && e.attempts === 0 && e.payload !== null)
+      && heldP.filter((e) => e.sourceKey === "google.lead_form").length === 1, JSON.stringify(heldP.map((e) => [e.sourceKey, e.lastErrorCode, e.attempts])));
+  ok("PAUSED: no Lead and no Customer is created while paused", (await pLeads()) === 0 && (await o.customer.count({ where: { businessId: P.id } })) === 0);
+  await drain(P.id, new Date(Date.now() + 11 * 60_000));
+  ok("PAUSED: a later look while still paused → still held, still no attempt, still no Lead",
+    (await pRows()).every((e) => e.lastErrorCode === "held:connection_paused" && e.attempts === 0) && (await pLeads()) === 0);
+  ok("PAUSED: another business's key on P's paused endpoint → 401; a wrong key → 401; nothing recorded",
+    (await google(gP.connection.publicId, googleLead(gQ.key, `${RUN}-pgx`))).status === 401
+      && (await google(gP.connection.publicId, googleLead("wrong-key-0123456789", `${RUN}-pgy`))).status === 401
+      && (await pRows()).length === 4 && (await o.intakeEvent.count({ where: { businessId: QP.id } })) === 0);
+
+  // Resume web → both web receipts are due at once (same transaction as the resume) and processed exactly once.
+  await pause(webP.connection.id, false);
+  const due = await o.intakeEvent.findMany({ where: { businessId: P.id, sourceKey: "web.form" } });
+  ok("RESUMED: the held web receipts are due NOW (re-armed in the resume transaction)", due.every((e) => !!e.nextAttemptAt && e.nextAttemptAt.getTime() <= Date.now() + 1000));
+  await Promise.all([drain(P.id), drain(P.id)]); // two looks race for the same receipts
+  ok("RESUMED: two concurrent looks → each web enquiry is ONE Lead (2), no duplicate, receipts PROCESSED once",
+    (await pLeads("web.form")) === 2 && (await o.intakeEvent.findMany({ where: { businessId: P.id, sourceKey: "web.form" } })).every((e) => e.status === "PROCESSED" && e.attempts === 1));
+
+  // Entitlement withdrawn before release → stays held (source_disabled); restored → processed once.
+  await o.businessFeatureAccess.update({ where: { businessId_featureKey: { businessId: P.id, featureKey: "acquisition_google_lead_forms" } }, data: { state: "DISABLED" } });
+  await pause(gP.connection.id, false);
+  await drain(P.id);
+  const gHeldP = (await pRows()).find((e) => e.sourceKey === "google.lead_form");
+  ok("RESUMED but the business lost the source → still held (held:source_disabled), no Lead, nothing deleted",
+    gHeldP?.status === "RECEIVED" && gHeldP.lastErrorCode === "held:source_disabled" && gHeldP.payload !== null && (await pLeads("google.lead_form")) === 0);
+  await o.businessFeatureAccess.update({ where: { businessId_featureKey: { businessId: P.id, featureKey: "acquisition_google_lead_forms" } }, data: { state: "ENABLED" } });
+  await drain(P.id, new Date(Date.now() + 11 * 60_000));
+  ok("…entitlement restored → the Google lead is processed exactly once", (await pLeads("google.lead_form")) === 1);
+
+  // The emergency switch while a paused receipt is held: resume → still held (emergency); switch off → processed once.
+  await emergencyP("acquisition_meta_lead_ads", true);
+  await pause(metaP.id, false);
+  await drain(P.id);
+  const mHeldP = (await pRows()).find((e) => e.sourceKey === "meta.lead_ads");
+  ok("RESUMED under the emergency switch → still held (held:emergency_disabled), Meta's Graph not asked, no Lead",
+    mHeldP?.lastErrorCode === "held:emergency_disabled" && mHeldP.status === "RECEIVED" && (await pLeads("meta.lead_ads")) === 0);
+  await emergencyP("acquisition_meta_lead_ads", false);
+  await drain(P.id, new Date(Date.now() + 11 * 60_000));
+  ok("…switch off → the Meta lead is fetched and processed exactly once", (await pLeads("meta.lead_ads")) === 1);
+
+  // PAUSED → REVOKED: what was held is settled IGNORED (never processed); the endpoint takes nothing new.
+  const webR = await mk(P.id, "web.form");
+  await pause(webR.connection.id, true);
+  await web(webR.connection.publicId, { submission_id: `${RUN}-pr1`, phone: "054-510-0009" }, { key: webR.key });
+  await runWithTenantContext({ businessId: P.id }, () => revokeConnection(webR.connection.id));
+  await drain(P.id, new Date(Date.now() + 22 * 60_000));
+  const rEv = await o.intakeEvent.findFirst({ where: { businessId: P.id, providerAccountRef: webR.connection.publicId } });
+  ok("PAUSED → REVOKED → the held receipt is IGNORED (connection_revoked), never a Lead; the endpoint now answers 401",
+    rEv?.status === "IGNORED" && rEv.lastErrorCode === "connection_revoked" && (await pLeads("web.form")) === 2
+      && (await web(webR.connection.publicId, { submission_id: `${RUN}-pr2`, phone: "054-510-0010" }, { key: webR.key })).status === 401);
+
+  // An interrupted release (a worker took the lease and died): the lease expires, the next look finishes it once.
+  const webI = await mk(P.id, "web.form");
+  await pause(webI.connection.id, true);
+  await web(webI.connection.publicId, { submission_id: `${RUN}-pi1`, phone: "054-510-0011" }, { key: webI.key });
+  await pause(webI.connection.id, false);
+  const iEv = await o.intakeEvent.findFirst({ where: { businessId: P.id, providerAccountRef: webI.connection.publicId } });
+  await o.intakeEvent.update({ where: { id: iEv!.id }, data: { attempts: 1, lastAttemptAt: new Date(), nextAttemptAt: new Date(Date.now() + 2 * 60_000) } });
+  await drain(P.id); // lease still held → not claimable
+  const stillLeased = (await o.intakeEvent.findUnique({ where: { id: iEv!.id } }))?.status;
+  await drain(P.id, new Date(Date.now() + 3 * 60_000));
+  ok("an interrupted release: not taken while the dead worker's lease lasts, then processed exactly once (one Lead)",
+    stillLeased === "RECEIVED" && (await o.intakeEvent.findUnique({ where: { id: iEv!.id } }))?.status === "PROCESSED" && (await pLeads("web.form")) === 3);
+
+  // A quarantined business with a paused endpoint: still refused, nothing recorded.
+  const Z = await o.business.create({ data: { name: `${RUN}-Zp` } });
+  await enable(Z.id, "acquisition_web_forms");
+  const webZ = await mk(Z.id, "web.form");
+  await runWithTenantContext({ businessId: Z.id }, () => setPaused(webZ.connection.id, true));
+  await o.business.update({ where: { id: Z.id }, data: { deletionRequestedAt: new Date() } });
+  const zRes = await web(webZ.connection.publicId, { submission_id: `${RUN}-pz1`, phone: "054-510-0012" }, { key: webZ.key });
+  ok("PAUSED + quarantined business → refused (404), nothing recorded — quarantine wins",
+    zRes.status === 404 && (await o.intakeEvent.count({ where: { businessId: Z.id } })) === 0, String(zRes.status));
+  ok("P's receipts never reached Q (business isolation)", (await o.intakeEvent.count({ where: { businessId: QP.id } })) === 0 && (await o.lead.count({ where: { businessId: QP.id } })) === 0);
   setMetaGraphFetchForTests(null);
 
   console.log("\n-- 12. QStash as the scheduler: a signed request for the Production sweep URL sweeps for real; tampered ones do not --");

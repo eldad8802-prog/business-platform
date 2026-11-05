@@ -5,7 +5,8 @@
  * that key, matched by hash against the trusted connection, are the ONLY tenant evidence.
  * Google retries 5xx and does not retry 4xx, so:
  *   200 {}  recorded (or a duplicate, or the source is off for the business — a decision, not an outage)
- *   400     malformed / no lead_id;  401 wrong key (incl. unknown endpoint);  413 too large;
+ *   200 {}  also for a PAUSED endpoint (decision 3): recorded and HELD until the owner resumes it
+ *   400     malformed / no lead_id;  401 wrong key (incl. unknown or revoked endpoint);  413 too large;
  *   503     rate-limited or store unavailable — Google retries 5xx only, so a rate-limited lead is
  *           answered 503 + Retry-After (a 429 is a 4xx: Google would never resend it and the lead is lost).
  */
@@ -14,7 +15,7 @@ import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { acquisitionReceipt } from "@/lib/intake/acquisition/canonical";
 import { ingestAcquisition } from "@/lib/intake/acquisition/ingest";
 import { BODY_LIMITS, BodyTooLargeError, readBodyLimited } from "@/lib/intake/acquisition/http";
-import { resolveKeyedConnection } from "@/lib/intake/acquisition/resolve";
+import { resolveKeyedConnectionV2 } from "@/lib/intake/acquisition/resolve";
 import { GOOGLE_LEAD_FORM_SOURCE, parseGoogleLead } from "@/lib/intake/acquisition/providers/google-lead-form";
 
 export const runtime = "nodejs";
@@ -39,7 +40,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
 
   let conn;
   try {
-    conn = await resolveKeyedConnection(GOOGLE_LEAD_FORM_SOURCE, publicId, parsed.googleKey);
+    conn = await resolveKeyedConnectionV2(GOOGLE_LEAD_FORM_SOURCE, publicId, parsed.googleKey);
   } catch {
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
@@ -56,6 +57,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
       accountRef: publicId,
       businessId: conn.businessId,
       connectionId: conn.connectionId,
+      connectionStatus: conn.status,
       receipts: [acquisitionReceipt(parsed.lead, publicId)],
     });
     return NextResponse.json({}, { status: 200 });
