@@ -24,6 +24,7 @@ import { ServiceUnavailableError } from "@/lib/errors";
 import type { AuthorityConnectionStatus } from "@/lib/services/billing/authority/billing-authority-status.service";
 import type { AuthorityAppContext } from "@/lib/services/billing/authority/billing-authority-connection.types";
 import { isAuthorityProductionAllowedForActor } from "@/lib/services/billing/authority/billing-authority-production-pilot";
+import { runWithTenantContext } from "@/lib/tenant/context";
 
 /** Operational connection state as shown to the business user. */
 export type AuthorityConnectionUiStatus =
@@ -247,21 +248,49 @@ export async function resolveAuthorityStatusRequest(input: {
     }
   }
 
-  const dto = await resolveDtoForEnvironment(businessId as number, environment, deps);
+  // BillingAuthorityConnection is FORCE RLS and the Production runtime role does
+  // not bypass it. The connection read goes through billingDbStep, which scopes a
+  // read only under an established tenant context, and none of the callers (the
+  // status route, the connections center and summary) arrive with one. Without
+  // it the read matched zero rows and every business read as DISCONNECTED, even
+  // right after a successful OAuth callback. The context is the actor's own
+  // business, validated above; a different established context is refused by
+  // runWithTenantContext, never switched.
+  return runWithTenantContext({ businessId: businessId as number }, () =>
+    resolveOwnBusinessStatus({
+      businessId: businessId as number,
+      actorUserId: actor.id,
+      environment,
+      deps,
+      includeProductionPilot: input.includeProductionPilot === true,
+    })
+  );
+}
+
+/** Reads + maps the caller's own business status. Runs inside its tenant context. */
+async function resolveOwnBusinessStatus(input: {
+  businessId: number;
+  actorUserId: number;
+  environment: BillingAuthorityEnvironment;
+  deps: AuthorityStatusDeps;
+  includeProductionPilot: boolean;
+}): Promise<AuthorityStatusResolution> {
+  const { businessId, environment, deps } = input;
+  const dto = await resolveDtoForEnvironment(businessId, environment, deps);
 
   // Production pilot: only for an admitted business AND user (the same actor
   // gate the OAuth start uses), and only for the actor's own business.
   let productionPilot: AuthorityProductionPilotStatusDto | null = null;
   if (
-    input.includeProductionPilot === true &&
+    input.includeProductionPilot &&
     isAuthorityProductionAllowedForActor(
-      businessId as number,
-      actor.id,
+      businessId,
+      input.actorUserId,
       BillingAuthorityEnvironment.PRODUCTION
     )
   ) {
     const pilotDto = await resolveDtoForEnvironment(
-      businessId as number,
+      businessId,
       BillingAuthorityEnvironment.PRODUCTION,
       deps
     );

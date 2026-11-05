@@ -35,6 +35,11 @@
       "lab": "rls-db",
       "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login role and refuses to run otherwise; passed locally on main"
     },
+    "app/api/taxes/authority/status/route.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login role and refuses to run otherwise; passed locally on PG18 (20/20) and fails 5 cases without the tenant context"
+    },
     "app/opportunities/deals-fetch-contract.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"

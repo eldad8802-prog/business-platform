@@ -51,6 +51,9 @@ on:
       - "app/api/pricing/calculations/**"
       - "lib/services/billing/collection/awaiting-payment.loader.ts"
       - "lib/services/billing/authority/billing-authority-validation.service.ts"
+      - "lib/services/billing/authority/billing-authority-status-view.service.ts"
+      - "lib/services/billing/authority/billing-authority-status.service.ts"
+      - "app/api/taxes/authority/**"
       - "app/api/rls-caller-closure.integration.test.ts"
       - "lib/services/billing/quote-pdf.service.ts"
       - "lib/services/offer.service.ts"
@@ -203,6 +206,42 @@ jobs:
           }
           prove app/api/billing/customers/route.ts "L1" || exit 1
           prove app/api/customer/route.ts "LG1" || exit 1
+
+      # The tax-authority card read BillingAuthorityConnection with no tenant
+      # context, so every business read as DISCONNECTED in Production — also right
+      # after a successful OAuth callback. Same resolver behind the connections
+      # center and summary.
+      - name: Tax-authority connection status under FORCE RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx app/api/taxes/authority/status/route.rls.integration.test.ts
+
+      - name: Negative proof — authority status without the tenant context is caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          file=lib/services/billing/authority/billing-authority-status-view.service.ts
+          cp "$file" "$file.bak"
+          perl -0pi -e 's/return runWithTenantContext\(\{ businessId: businessId as number \}, \(\) =>/return ((_c: unknown, fn: () => Promise<AuthorityStatusResolution>) => fn())({ businessId: businessId as number }, () =>/' "$file"
+          if cmp -s "$file" "$file.bak"; then
+            mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply to $file"; exit 1
+          fi
+          npx tsx app/api/taxes/authority/status/route.rls.integration.test.ts > np.log 2>&1; status=$?
+          mv "$file.bak" "$file"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::NEGATIVE-PROOF FAIL: status read without the tenant context and the suite stayed green"; exit 1
+          fi
+          if ! grep -q "\[FAIL\] S2" np.log; then
+            echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on S2"; tail -30 np.log; exit 1
+          fi
+          echo "negative proof OK — status without the tenant context fails S2"
 
       - name: Notifications, awaiting payment, pricing and authority identity
         env:
