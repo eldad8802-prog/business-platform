@@ -32,7 +32,7 @@ async function main() {
 
   await test("one key on both sides: namespace 17991 ('FG') and the seven features match the migration's function", () => {
     assert.equal(FEATURE_GATE_LOCK_NAMESPACE, 0x4647);
-    const mig = read("prisma/migrations/20261113090000_platform_feature_emergency_switch/migration.sql");
+    const mig = read("prisma/migrations/20261114090000_platform_feature_emergency_switch/migration.sql");
     assert.match(mig, /pg_advisory_xact_lock\(17991, hashtext\(p_feature_key\)\)/);
     for (const k of INTAKE_SOURCE_FEATURES) assert.ok(mig.includes(`'${k}'`), k);
     assert.equal(INTAKE_SOURCE_FEATURES.length, 7);
