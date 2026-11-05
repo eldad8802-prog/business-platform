@@ -1,0 +1,9 @@
+{
+  "note": "Business documents ר1–ר3 (owner-approved 2026-11-05). Read/record-only additions outside the billing mechanism; every job re-runs the billing A0 characterization. The PG battery (.business-documents/battery.mts) is not a *.test.* file and runs in business-documents-ci.yml.",
+  "tests": {
+    "features/business-documents/customer-documents-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): ר3 timeline model — Hebrew labels for every existing type, Israel-time dates and month grouping, newest first with id tie-break, retried pages never duplicate rows, values shown exactly as the billing list returned them; run on pull_request by business-documents-ci.yml"
+    }
+  }
+}

@@ -562,6 +562,7 @@ function HistorySection<T>({
   section,
   emptyText,
   renderItem,
+  footer,
 }: {
   icon: ReactNode;
   tone: string;
@@ -569,6 +570,8 @@ function HistorySection<T>({
   section: { items: T[]; total: number };
   emptyText?: string;
   renderItem: (item: T) => ReactNode;
+  /** Optional last line inside the section (e.g. a link to the full list). */
+  footer?: ReactNode;
 }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
@@ -609,6 +612,7 @@ function HistorySection<T>({
           ) : null}
         </div>
       )}
+      {footer}
     </section>
   );
 }
@@ -619,6 +623,9 @@ function BillingDocumentsSection({
   section: { items: CustomerCardBillingDocument[]; total: number };
 }) {
   const { t, locale } = useI18n();
+  // ר3: the full, read-only list of this customer's documents — only while business_documents is on.
+  const fullListOn = useFeatureEnabled("business_documents");
+  const customerId = useParams<{ id: string }>()?.id;
   return (
     <HistorySection
       icon={<DocumentIcon />}
@@ -626,6 +633,13 @@ function BillingDocumentsSection({
       title={t("customers.customer.card.recentDocuments")}
       section={section}
       emptyText={t("customers.customer.card.noDocuments")}
+      footer={
+        fullListOn && customerId && section.total > 0 ? (
+          <Link className="cust-more" href={`/customers/${customerId}/documents`}>
+            {t("customers.customer.card.allDocuments")}
+          </Link>
+        ) : null
+      }
       renderItem={(d) => {
         const dateStr = formatDate(d.issuedAt ?? d.createdAt, locale);
         const badgeClass =
