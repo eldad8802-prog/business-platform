@@ -74,7 +74,12 @@ export type SettlementAttentionReason =
   // The money arrived in a currency other than the base currency. Until the
   // accounting rules for foreign-currency tax documents are approved, no
   // receipt is issued automatically. Money recorded; the document waits.
-  | "FOREIGN_CURRENCY_DOCUMENT_HELD";
+  | "FOREIGN_CURRENCY_DOCUMENT_HELD"
+  // A foreign-currency payment on a PROVIDER_ISSUES connection whose verified
+  // provider answer named no document (opened PAUSED at recording time). The
+  // money is recorded; the provider's document is missing. Dubiz never issues
+  // one in its place — that would be a second, foreign-currency document.
+  | "PROVIDER_DOCUMENT_MISSING";
 
 /**
  * Attention reasons a generic "try again" must NEVER clear. Each one is a
@@ -89,6 +94,7 @@ export const NON_RETRYABLE_ATTENTION_REASONS: ReadonlySet<string> = new Set([
   "DOCUMENT_ISSUER_NOT_CONFIGURED",
   "REFUND_ACCOUNTING_DECISION_REQUIRED",
   "FOREIGN_CURRENCY_DOCUMENT_HELD",
+  "PROVIDER_DOCUMENT_MISSING",
 ]);
 
 /**

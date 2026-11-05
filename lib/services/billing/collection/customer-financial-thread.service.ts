@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client";
 import { NotFoundError } from "@/lib/errors";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import { computeEconomicRemaining } from "@/lib/services/billing/domain/billing-invoice-economic-remaining";
+import { readProviderDocument } from "@/lib/services/payments/payment-evidence";
+import type { ProviderIssuedDocument } from "@/lib/services/payments/providers/payment-provider.types";
 
 /**
  * A customer's financial story, in order — /collection/c/[customerId].
@@ -19,7 +21,7 @@ export type ThreadEvent =
   | { kind: "REQUEST_CREATED"; at: string; requestId: number; amount: string; currency: string; invoiceId: number | null; invoiceNumber: string | null; status: string; paymentUrl: string | null }
   | { kind: "REQUEST_CANCELLED"; at: string; requestId: number; paidAfterward: boolean }
   | { kind: "PAYMENT_FAILED"; at: string; requestId: number; amount: string; currency: string }
-  | { kind: "PAYMENT_VERIFIED"; at: string; requestId: number; paymentTransactionId: number; amount: string; currency: string; accounting: "RECEIPTED" | "RECEIPT_PENDING" | "RECEIPT_ATTENTION" | "NO_AUTOMATIC_RECEIPT"; attentionReason: string | null }
+  | { kind: "PAYMENT_VERIFIED"; at: string; requestId: number; paymentTransactionId: number; amount: string; currency: string; accounting: "RECEIPTED" | "RECEIPT_PENDING" | "RECEIPT_ATTENTION" | "NO_AUTOMATIC_RECEIPT"; attentionReason: string | null; /** Only when the provider document was checked (foreign currency, PROVIDER_ISSUES): the verified document, or null. */ providerDocument?: ProviderIssuedDocument | null }
   | { kind: "RECEIPT_ISSUED"; at: string; receiptId: number; number: string | null; amount: string; currency: string; allocations: { invoiceId: number; invoiceNumber: string | null; amount: string }[]; unappliedAmount: string; automatic: boolean }
   | { kind: "REFUND"; at: string; requestId: number; amount: string; currency: string; outcome: "SETTLED" | "PENDING" | "FAILED" };
 
@@ -79,7 +81,7 @@ export async function loadCustomerFinancialThread(
         id: true, amount: true, currency: true, status: true, createdAt: true, updatedAt: true, paymentUrl: true,
         billingDocumentId: true,
         billingDocument: { select: { documentNumberFormatted: true } },
-        transactions: { select: { id: true, amount: true, currency: true, status: true, createdAt: true } },
+        transactions: { select: { id: true, amount: true, currency: true, status: true, createdAt: true, rawPayload: true } },
         auditEvents: { where: { eventType: "PAYMENT_REQUEST_CANCELLED" }, select: { occurredAt: true } },
       },
       orderBy: { createdAt: "asc" },
@@ -161,11 +163,13 @@ export async function loadCustomerFinancialThread(
       for (const t of verified) {
         const s = settlements.find((x) => x.paymentTransactionId === t.id);
         const hasReceipt = receipts.some((x) => x.sourcePaymentTransactionId === t.id);
+        const providerDocument = readProviderDocument(t.rawPayload);
         events.push({
           kind: "PAYMENT_VERIFIED", at: t.createdAt.toISOString(), requestId: r.id, paymentTransactionId: t.id,
           amount: dec(t.amount), currency: t.currency,
           accounting: hasReceipt ? "RECEIPTED" : !s ? "NO_AUTOMATIC_RECEIPT" : s.status === "REQUIRES_ATTENTION" ? "RECEIPT_ATTENTION" : "RECEIPT_PENDING",
           attentionReason: s?.attentionReason ?? null,
+          ...(providerDocument !== undefined ? { providerDocument } : {}),
         });
       }
       for (const t of r.transactions.filter((x) => x.amount.lessThan(0))) {

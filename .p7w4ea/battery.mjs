@@ -684,8 +684,11 @@ async function main() {
     }
 
     // (g) SEC-05 through the real service wiring — what the ADAPTER can encode,
-    // which only matters once the switch lets a foreign currency through.
+    // which only matters once a foreign currency may be requested at all: the
+    // switch ON and a CardCom connection on which CardCom issues the documents
+    // (PROVIDER_ISSUES — the only collector a foreign currency is allowed for).
     process.env.DUBIZ_FX_COLLECTION_ENABLED = "true";
+    await owner.businessPaymentConnection.updateMany({ where: { businessId: bizA.id, provider: "CARDCOM" }, data: { documentIssuer: "PROVIDER_ISSUES" } });
     let currencyRefused = false;
     try {
       await create(bizA.id, { amount: "10.00", currency: "GBP" });
@@ -693,6 +696,7 @@ async function main() {
       currencyRefused = /cannot be charged in GBP/.test(String(e?.message));
     } finally {
       delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
+      await owner.businessPaymentConnection.updateMany({ where: { businessId: bizA.id, provider: "CARDCOM" }, data: { documentIssuer: "NOT_CONFIGURED" } });
     }
     ok("SEC-05: an unsupported currency is refused before any provider call", currencyRefused);
 

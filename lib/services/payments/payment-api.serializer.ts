@@ -8,6 +8,8 @@ import type {
   PaymentTransactionRecord,
 } from "./payments.types";
 import type { CollectionViewState } from "./collection-view";
+import { readProviderDocument } from "./payment-evidence";
+import type { ProviderIssuedDocument } from "./providers/payment-provider.types";
 import type {
   CollectionItemView,
   CollectionMoneyFigure,
@@ -68,13 +70,21 @@ export interface PaymentTransactionApi {
   currency: string;
   status: string;
   createdAt: string;
+  /**
+   * Only on a payment whose provider document was checked (a foreign-currency
+   * request on a PROVIDER_ISSUES connection): the verified document (number,
+   * type, the provider's own link) or null. Absent otherwise.
+   */
+  providerDocument?: ProviderIssuedDocument | null;
 }
 
 /** Serialize a settlement record. Deliberately omits `rawPayload` — the raw
- * provider body is internal and never exposed through the API. */
+ * provider body is internal and never exposed through the API. Only the
+ * verified provider document is read from it, in its checked shape. */
 export function toPaymentTransactionApi(
   record: PaymentTransactionRecord
 ): PaymentTransactionApi {
+  const providerDocument = readProviderDocument(record.rawPayload);
   return {
     id: record.id,
     paymentRequestId: record.paymentRequestId,
@@ -84,6 +94,7 @@ export function toPaymentTransactionApi(
     currency: record.currency,
     status: record.status,
     createdAt: record.createdAt.toISOString(),
+    ...(providerDocument !== undefined ? { providerDocument } : {}),
   };
 }
 

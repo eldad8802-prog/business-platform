@@ -9,6 +9,7 @@ import type { PaymentProviderAdapter } from "@/lib/services/payments/providers/p
 import { resolvePaymentProvider } from "@/lib/services/payments/providers/provider-registry";
 import {
   DEFAULT_OFFERABLE_CURRENCIES,
+  isForeignCurrencyAllowedFor,
   offerableCurrencies,
 } from "@/lib/services/payments/payment-currency-offer";
 import type { CurrencyCode } from "@/lib/money/currency";
@@ -37,7 +38,9 @@ export type CollectionReadiness = {
   /**
    * Currencies a standalone payment request may be raised in right now: the
    * Dubiz set (ILS / USD / EUR) narrowed by the provider createPaymentRequest
-   * would select. ILS first. With no resolvable provider: ILS alone.
+   * would select. ILS first. With no resolvable provider: ILS alone. USD / EUR
+   * only with the switch ON, CardCom selected and CardCom issuing the documents
+   * (the same rule createPaymentRequest enforces).
    */
   offerableCurrencies: CurrencyCode[];
 };
@@ -60,9 +63,17 @@ export async function loadCollectionProviderReadiness(
       offerableCurrencies: [...DEFAULT_OFFERABLE_CURRENCIES],
     };
   }
+  // The same collector rule createPaymentRequest enforces (step 2b''): the
+  // selected provider and its active connection's document decision.
+  const connection = (await store.listConnections(businessId)).find(
+    (c) => c.isActive && c.provider === provider
+  );
   return {
     blocker: null,
-    offerableCurrencies: offerableCurrencies(resolveProvider(provider).supportedCurrencies),
+    offerableCurrencies: offerableCurrencies(
+      resolveProvider(provider).supportedCurrencies,
+      isForeignCurrencyAllowedFor(connection ? { provider, documentIssuer: connection.documentIssuer } : null)
+    ),
   };
 }
 

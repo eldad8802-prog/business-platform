@@ -126,6 +126,13 @@ export const ATTENTION_REASON_TEXT: Record<string, { title: string; action: "NAM
     title: moneyHe.collection.attention.FOREIGN_CURRENCY_DOCUMENT_HELD,
     action: "REVIEW",
   },
+  // A foreign-currency payment whose CardCom document is missing. The money is
+  // recorded; retrying cannot make CardCom issue it, and Dubiz never issues one
+  // in its place — so no retry lead.
+  PROVIDER_DOCUMENT_MISSING: {
+    title: moneyHe.collection.attention.PROVIDER_DOCUMENT_MISSING,
+    action: "REVIEW",
+  },
 };
 
 /** With a translator the title is localized; without one it is the Hebrew text (unchanged behaviour). */

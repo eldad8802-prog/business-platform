@@ -1,0 +1,10 @@
+{
+  "note": "feat/fx-provider-documents: USD/EUR collection only through CardCom issuing the documents (switch DUBIZ_FX_COLLECTION_ENABLED stays OFF by default). Gating: switch ON + CardCom + adapter supports the currency + documentIssuer PROVIDER_ISSUES, else ILS only. CardCom's document is verified from GetLpResult only and kept with the money row; a missing document pauses the settlement PROVIDER_DOCUMENT_MISSING (non-retryable); Dubiz issues no document. ILS unchanged. DB proofs: .c3settlement/battery.mts case Y and .collection/battery.mts case D1.",
+  "tests": {
+    "lib/services/payments/fx-provider-documents.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (in-memory store, the real CardCom adapter with its HTTP answered in-process; no DB/network) fiscal-truth + currency-authority guard: the full gating truth table (switch x provider x documentIssuer x ILS/USD/EUR) through createPaymentRequest and readiness with no row/audit/provider call on refusal, ILS output identical for every issuer and switch state, invoice-derived currency and direct-POST bypass attempts refused, CardCom refusing a coin fails the request cleanly; document verified only from GetLpResult (DocumentInfo/TranzactionInfo number+type, CardCom-host https link) never from the webhook body, missing/failed/erroneous documents -> PROVIDER_DOCUMENT_MISSING, lookup failure records nothing, redelivery records nothing new, ILS envelope byte-identical, foreign refunds unchanged; he/en labels and the rendered CardCom link; also run by m1-inbound-money-ci.yml"
+    }
+  }
+}
