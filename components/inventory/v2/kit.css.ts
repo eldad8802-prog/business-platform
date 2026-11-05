@@ -236,7 +236,8 @@ export const inv2Css = `
 .i2-qty__b[disabled] { opacity: .35; cursor: not-allowed; }
 .i2-qty__in { width: 64px; height: 44px; text-align: center; border: 1px solid var(--i2-line-strong); border-radius: 10px; background: var(--i2-card);
   font: inherit; font-size: 18px; font-weight: 500; color: var(--i2-ink); }
-.i2-qty--lg .i2-qty__in { width: auto; flex: 1; min-width: 120px; font-size: 22px; height: 52px; }
+/* width 0 + flex: the input fills the row but adds no intrinsic width, so the stepper never overflows narrow sheets */
+.i2-qty--lg .i2-qty__in { width: 0; flex: 1 1 auto; min-width: 72px; font-size: 22px; height: 52px; }
 .i2-qty--lg { display: flex; }
 .i2-qty--lg .i2-qty__b { width: 56px; height: 52px; }
 .i2-qty--sm .i2-qty__b { width: 40px; height: 40px; }
@@ -288,6 +289,14 @@ export const inv2Css = `
 .i2-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 201; margin: 0 auto; max-width: 560px; background: var(--i2-card);
   border-radius: 22px 22px 0 0; padding: 8px 18px calc(18px + env(safe-area-inset-bottom, 0px)); max-height: 92vh; overflow-y: auto;
   box-shadow: 0 -8px 30px rgba(31, 43, 38, .12); }
+/* iOS Safari: vh is the LARGE viewport (toolbar hidden); dvh follows what is actually visible. */
+.i2-sheet { max-height: 92dvh; }
+@supports not (height: 1dvh) { .i2-sheet { max-height: 92vh; } }
+/* The sheet's actions stay pinned at its bottom while the content scrolls (short screens, keyboard open). */
+.i2-sheet__ft { position: sticky; bottom: calc(-18px - env(safe-area-inset-bottom, 0px)); z-index: 1;
+  margin: 12px -18px calc(-18px - env(safe-area-inset-bottom, 0px));
+  padding: 10px 18px calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--i2-card); border-top: 1px solid var(--i2-line); }
+.i2-sheet__ft > .i2-actions:first-child, .i2-sheet__ft > :first-child { margin-top: 0; }
 .i2-sheet__grab { display: block; width: 44px; height: 5px; border-radius: 3px; background: var(--i2-line-strong); margin: 4px auto 10px; border: 0; }
 .i2-sheet__hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
 .i2-sheet__hd h2 { margin: 0; font-size: 21px; font-weight: 600; }
