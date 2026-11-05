@@ -4,6 +4,10 @@
     "lib/services/service-desk/service-case-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): the 13x13 status matrix and every action from every status for IN_SHOP / FIELD / MAINTENANCE, quote approval bound to version + total + document, cover instead of a quote, delivery with an open balance only as the owner's decision with a reason, closing blocked by open commitments, the 12 alternative paths, status / holdReason / outcome separation, immutability and determinism; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/external-work-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk 1.1d external supplier work — send (round, supplier active, one open work per case and per device, reason, RMA-token reference), seven forward-only progress stages, expected date, estimated / approved / final costs as events, COST_FINAL_CORRECTED with previous value and reason, return from any stage with four results, cancel at the supplier, against the unchanged case machine; run on pull_request by service-desk-ci.yml"
     }
   }
 }
