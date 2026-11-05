@@ -42,6 +42,7 @@ import {
   withControlPlaneTransaction,
 } from "@/lib/services/control-plane/control-plane-transaction";
 import { PLATFORM_SYSTEM_BUSINESS_NAME } from "@/lib/services/platform-admin/constants";
+import { isIntakeSourceFeature, takeExclusiveGateLock } from "@/lib/intake/acquisition/gate-lock";
 import { PLATFORM_AUDIT_ACTIONS } from "@/lib/services/platform-admin/constants";
 import { createPlatformAuditEventTx } from "@/lib/services/platform-admin/platform-audit.service";
 import {
@@ -159,6 +160,9 @@ export async function updateBusinessFeatureAccess(
   const dbState = toDbState(input.state);
 
   return withControlPlaneTransaction(input.businessId, async (tx) => {
+    // L1.5-a — a change of an intake source's gate takes the FG lock exclusively FIRST (same key as the emergency
+    // switch): intake writes that read the old state finish before this commits; later ones read the new state.
+    if (isIntakeSourceFeature(featureKey)) await takeExclusiveGateLock(tx, featureKey);
     const business = await tx.business.findFirst({
       where: {
         id: input.businessId,

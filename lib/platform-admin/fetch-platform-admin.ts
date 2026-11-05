@@ -427,3 +427,36 @@ export function fetchPlatformAdminAuthorityPilotGate(businessId: number, userId:
 
 /** Test seam — exercises the request core directly. Not used by the console. */
 export const __testing = { adminRequest };
+
+/** Leads L1.5-a — the intake emergency switch console. */
+export type IntakeEmergencyFeatureView = {
+  featureKey: string;
+  displayName: string;
+  emergencyOn: boolean;
+  globalEnabled: boolean;
+  updatedAt: string | null;
+  updatedByUserId: number | null;
+  updatedByEmail: string | null;
+};
+
+export function fetchIntakeEmergencyStates() {
+  return platformAdminFetch<{ features: IntakeEmergencyFeatureView[]; operational: boolean }>("/api/platform-admin/intake-emergency");
+}
+
+/**
+ * Change one switch. Goes through the canonical request core, so the server's FRESH step-up refusal opens the MFA
+ * prompt and the call is retried once with the new elevation.
+ */
+export async function postIntakeEmergency(body: {
+  featureKey: string;
+  on: boolean;
+  expectedOn: boolean;
+  reason: string;
+  confirm: string;
+}): Promise<{ result: { featureKey: string; wasOn: boolean; isOn: boolean; changed: boolean; auditEventId: number } }> {
+  const { data } = await adminRequest<{ result: { featureKey: string; wasOn: boolean; isOn: boolean; changed: boolean; auditEventId: number } }>(
+    "/api/platform-admin/intake-emergency",
+    { method: "POST", body: JSON.stringify(body) }
+  );
+  return data;
+}

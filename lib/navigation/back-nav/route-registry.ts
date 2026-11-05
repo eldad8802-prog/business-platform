@@ -82,6 +82,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/admin/accountant-ops", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
   { pattern: "/admin/authority-app-registration", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
   { pattern: "/admin/authority-pilot-gate", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
+  { pattern: "/admin/intake-emergency", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
   { pattern: "/admin/businesses/[id]", parent: "/admin/businesses", parentLabelKey: "toBusinessList" },
   { pattern: "/admin/businesses/[id]/features", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
 

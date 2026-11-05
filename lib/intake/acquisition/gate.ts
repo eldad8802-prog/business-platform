@@ -7,10 +7,17 @@
  * A refusal records nothing. The webhook answers so the provider does not retry forever
  * (the owner turning a source off is a decision, not an outage).
  */
+import type { Prisma } from "@prisma/client";
+import type { RouteResult } from "@/lib/intake/core/contract";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
-import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
+import {
+  resolveBusinessCapabilitiesWith,
+  resolveFeatureAccess,
+  type FeatureAccessReader,
+} from "@/lib/services/feature-access/resolve-feature-access";
 import { runWithTenantContext } from "@/lib/tenant/context";
-import { assertBusinessAcceptsWrites, BusinessQuarantinedError } from "@/lib/tenant/business-lifecycle";
+import { assertBusinessAcceptsWrites, BusinessQuarantinedError, readBusinessLifecycle } from "@/lib/tenant/business-lifecycle";
+import { isGateLockTimeout, takeSharedGateLock } from "./gate-lock";
 
 /** M6 — the lead sources (what the owner connects under "lead sources"). */
 export const ACQUISITION_SOURCE_KEYS = ["meta.lead_ads", "google.lead_form", "web.form"] as const;
@@ -99,4 +106,53 @@ export async function holdUnlessAllowed(
 
 export async function acquisitionGate(businessId: number, sourceKey: AcquisitionSourceKey): Promise<GateResult> {
   return sourceGate(businessId, sourceKey);
+}
+
+/** L1.5-a — the in-transaction gate said "not now": the write is abandoned (rolled back) and the receipt waits. */
+export class SourceGateHeldError extends Error {
+  constructor(readonly code: string) {
+    super(`intake gate held: ${code}`);
+    this.name = "SourceGateHeldError";
+  }
+}
+
+/**
+ * L1.5-a · race protection — the FIRST statement of every intake write transaction (lead / commerce order / call):
+ * take the FG lock in its shared form, then read the gate again INSIDE that transaction. A gate change (emergency
+ * switch, per-business override) holds the same key exclusively, so the two serialise: a write either commits
+ * before the change applies, or reads the new gate here and is held. Throws SourceGateHeldError when the write must
+ * not happen now; the business lifecycle is read without its own lock (no per-business serialisation of writes).
+ */
+export async function enterSourceGateInTx(tx: Prisma.TransactionClient, businessId: number, sourceKey: ConnectionSourceKey): Promise<void> {
+  const featureKey = SOURCE_FEATURE[sourceKey];
+  await takeSharedGateLock(tx, featureKey);
+  const lifecycle = await readBusinessLifecycle(businessId, tx as unknown as Parameters<typeof readBusinessLifecycle>[1]);
+  if (lifecycle !== "ACTIVE") throw new SourceGateHeldError(HOLD_CODES.businessInactive);
+  const access = (await resolveBusinessCapabilitiesWith(tx as unknown as FeatureAccessReader, businessId))[featureKey as keyof Awaited<ReturnType<typeof resolveBusinessCapabilitiesWith>>];
+  if (!access?.allowed) {
+    throw new SourceGateHeldError(access?.reasonCode === "EMERGENCY_DISABLED" ? HOLD_CODES.emergency : HOLD_CODES.sourceDisabled);
+  }
+}
+
+/** The FG lock could not be had within its bound: the receipt waits and is looked at again (no attempt spent). */
+export const GATE_BUSY_CODE = "held:gate_busy";
+
+/**
+ * Wraps a core destination: a held gate (or a busy FG lock) becomes a deferral — the transaction rolled back, nothing
+ * written, the attempt not counted — instead of a failure. Any other error is the destination's own, unchanged.
+ */
+export function gatedDestination<A extends unknown[]>(
+  fn: (...args: A) => Promise<RouteResult>,
+  nowOf: (...args: A) => Date
+): (...args: A) => Promise<RouteResult> {
+  return async (...args: A) => {
+    try {
+      return await fn(...args);
+    } catch (error) {
+      const until = new Date(nowOf(...args).getTime() + HOLD_RECHECK_MS);
+      if (error instanceof SourceGateHeldError) return { kind: "deferred", until, code: error.code };
+      if (isGateLockTimeout(error)) return { kind: "deferred", until, code: GATE_BUSY_CODE };
+      throw error;
+    }
+  };
 }

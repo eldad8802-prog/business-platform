@@ -10,6 +10,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-a lead-loss integrity: only the platform emergency switch holds (records, never processes until released); a withdrawn entitlement or quarantine records nothing; every lead / commerce / telephony adapter re-checks the gate after the revoked check and before provider work, as a deferral that spends no attempt and deletes nothing; held receipts are a visible count"
+    },
+    "lib/intake/l15a-race-switch.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-a race protection + emergency switch authority: one FG lock key shared with the migration's function; every intake write takes it and re-reads the gate first in its transaction (held / busy = deferral, never a loss); the per-business override takes it exclusively; the switch route requires platform admin + a FRESH MFA step-up + the mutation kill-switch + a typed confirmation and audits every attempt and failure; the control-plane module can only call the DB function"
     }
   }
 }

@@ -14,6 +14,11 @@ export const PLATFORM_AUDIT_ACTIONS = {
   SESSION_VIEWED: "PLATFORM_ADMIN_SESSION_VIEWED",
   AREA_ENTERED: "PLATFORM_ADMIN_AREA_ENTERED",
   FEATURE_ACCESS_UPDATED: "PLATFORM_FEATURE_ACCESS_UPDATED",
+  /** Leads L1.5-a — the intake emergency switch: written by its DB function, in the same transaction as the change. */
+  FEATURE_EMERGENCY_SET: "PLATFORM_FEATURE_EMERGENCY_SET",
+  /** …and every attempt / every failure, appended by the route (a refused call rolls back the function's own row). */
+  FEATURE_EMERGENCY_ATTEMPTED: "PLATFORM_FEATURE_EMERGENCY_ATTEMPTED",
+  FEATURE_EMERGENCY_FAILED: "PLATFORM_FEATURE_EMERGENCY_FAILED",
   /** An indeterminate refund resolved from evidence at the provider (MFA). */
   PAYMENT_REVERSAL_RESOLVED: "PLATFORM_PAYMENT_REVERSAL_RESOLVED",
   /** Admin Control Center home (A1). */
