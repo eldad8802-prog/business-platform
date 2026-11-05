@@ -154,6 +154,8 @@ on:
           - 'ops/evidence/authority-app-registration-preflight.sql'
           - 'ops/evidence/service-desk-foundation-preflight.sql'
           - 'ops/evidence/service-desk-foundation-production-evidence.sql'
+          - 'ops/evidence/service-external-work-preflight.sql'
+          - 'ops/evidence/service-external-work-production-evidence.sql'
 
 permissions:
   contents: read

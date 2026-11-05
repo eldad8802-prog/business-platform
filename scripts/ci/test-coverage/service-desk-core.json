@@ -8,6 +8,10 @@
     "lib/services/service-desk/external-work-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): Service Desk 1.1d external supplier work — send (round, supplier active, one open work per case and per device, reason, RMA-token reference), seven forward-only progress stages, expected date, estimated / approved / final costs as events, COST_FINAL_CORRECTED with previous value and reason, return from any stage with four results, cancel at the supplier, against the unchanged case machine; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/parts-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk 1.2c M1 spare parts — eight part states, soft reservation against other cases (not against the till), one OUT movement intent at issue and one IN at return, partial return by line split (rest + returned = original, one IN, no double return), install / write-off / cancel never move stock, issue before quote approval only with the owner's explicit recorded confirmation, cost captured at issue by the approved order (last purchase > item cost > unknown, conflicts go to the owner), specially ordered parts without automatic orders, cancel plan with unresolved issued parts, supplier parts counted once, fit with the unchanged case machine and 1.1d; run on pull_request by service-desk-ci.yml"
     }
   }
 }
