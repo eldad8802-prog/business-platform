@@ -38,7 +38,7 @@
     "app/api/taxes/authority/status/route.rls.integration.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "rls-db",
-      "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login role and refuses to run otherwise; passed locally on PG18 (20/20) and fails 5 cases without the tenant context"
+      "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login role and refuses to run otherwise; passed locally on PG18 (20/20); each caller without its tenant context fails its own case (S2 / CC1 / CS1)"
     },
     "app/opportunities/deals-fetch-contract.test.ts": {
       "class": "PRODUCT_REQUIRED",

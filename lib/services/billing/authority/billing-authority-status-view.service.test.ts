@@ -15,7 +15,6 @@ import {
   BillingAuthorityEnvironment,
 } from "@prisma/client";
 import { ServiceUnavailableError } from "@/lib/errors";
-import { getTenantContext, runWithTenantContext, TenantContextError } from "@/lib/tenant/context";
 import type { AuthorityConnectionStatus } from "@/lib/services/billing/authority/billing-authority-status.service";
 import type { AuthorityAppContext } from "@/lib/services/billing/authority/billing-authority-connection.types";
 import {
@@ -423,87 +422,6 @@ async function main() {
       ok("pilot: tenant rule kept (another business → forbidden)", cross.ok === false);
     } finally {
       set(undefined, undefined);
-    }
-  }
-
-  // ---- Tenant context for the reads (FORCE RLS on BillingAuthorityConnection) --
-  // Callers arrive with NO tenant context; the reads must run under the actor's
-  // own business, or billingDbStep reads unscoped and RLS returns zero rows.
-  {
-    const BIZ = "BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS";
-    const USERS = "BILLING_AUTHORITY_PRODUCTION_PILOT_USER_IDS";
-    const seenCtx: string[] = [];
-    const ctxDeps = deps({
-      getActiveAuthorityApp: async (environment) => {
-        seenCtx.push(`app:${environment}:${getTenantContext()?.businessId ?? "none"}`);
-        return {} as AuthorityAppContext;
-      },
-      getAuthorityConnectionStatus: async ({ businessId, environment }) => {
-        seenCtx.push(`conn:${environment}:${businessId}:${getTenantContext()?.businessId ?? "none"}`);
-        return conn({ status: BillingAuthorityConnectionStatus.CONNECTED, refreshTokenExpiresAt: FUTURE });
-      },
-    });
-    try {
-      process.env[BIZ] = "10";
-      process.env[USERS] = "7";
-      ok("ctx: the caller has no ambient tenant context", getTenantContext() === undefined);
-      const res = await resolveAuthorityStatusRequest({
-        actor: { id: 7, businessId: 10 },
-        requestedBusinessId: null,
-        environment: BillingAuthorityEnvironment.SANDBOX,
-        deps: ctxDeps,
-        includeProductionPilot: true,
-      });
-      ok("ctx: main connection read runs under the actor's business", seenCtx.includes("conn:SANDBOX:10:10"));
-      ok("ctx: PRODUCTION pilot read runs under the actor's business", seenCtx.includes("conn:PRODUCTION:10:10"));
-      ok("ctx: no read ran without a tenant context", !seenCtx.some((s) => s.endsWith(":none")));
-      ok(
-        "ctx: a CONNECTED row is reported CONNECTED (main + pilot)",
-        res.ok === true && res.dto.status === "CONNECTED" && res.productionPilot?.status === "CONNECTED"
-      );
-      ok("ctx: the context does not leak to the caller", getTenantContext() === undefined);
-
-      seenCtx.length = 0;
-      const cross = await resolveAuthorityStatusRequest({
-        actor: { id: 7, businessId: 10 },
-        requestedBusinessId: "11",
-        environment: BillingAuthorityEnvironment.SANDBOX,
-        deps: ctxDeps,
-        includeProductionPilot: true,
-      });
-      ok("ctx: another business → forbidden", cross.ok === false);
-      ok("ctx: another business → nothing read, no context opened", seenCtx.length === 0);
-
-      seenCtx.length = 0;
-      let refused = false;
-      try {
-        await runWithTenantContext({ businessId: 11 }, () =>
-          resolveAuthorityStatusRequest({
-            actor: { id: 7, businessId: 10 },
-            requestedBusinessId: null,
-            environment: BillingAuthorityEnvironment.SANDBOX,
-            deps: ctxDeps,
-          })
-        );
-      } catch (error) {
-        refused = error instanceof TenantContextError;
-      }
-      ok("ctx: an established context for another business is refused, not switched", refused);
-      ok("ctx: and nothing was read under it", seenCtx.length === 0);
-
-      seenCtx.length = 0;
-      const same = await runWithTenantContext({ businessId: 10 }, () =>
-        resolveAuthorityStatusRequest({
-          actor: { id: 7, businessId: 10 },
-          requestedBusinessId: null,
-          environment: BillingAuthorityEnvironment.SANDBOX,
-          deps: ctxDeps,
-        })
-      );
-      ok("ctx: an established context for the same business is accepted", same.ok === true && seenCtx.includes("conn:SANDBOX:10:10"));
-    } finally {
-      delete process.env[BIZ];
-      delete process.env[USERS];
     }
   }
 
