@@ -1,0 +1,10 @@
+{
+  "note": "ITA authority tenant context under FORCE RLS (owner-approved under A0, 2026-11-05): the Approval / Decision token read and its Refresh read re-assert the tenant (billingTenantTx). Run by billing-profile-rls-ci.yml with a negative proof per read.",
+  "tests": {
+    "lib/services/billing/authority/billing-authority-approval-path.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login role and refuses to run otherwise; all authority calls stubbed, global fetch throws; passed locally on PG18 (22/22); without the fix 9 cases fail, and each read's negative proof fails its own case (T1 / R1)"
+    }
+  }
+}
