@@ -109,6 +109,14 @@ jobs:
         run: |
           set -euo pipefail
           bash .lrp/lab.sh lrp_proof --with-lrp
+          # Out of order, as in Production: every migration of this checkout is now finished, and this one finished
+          # AFTER the later-named, already-applied ones (nothing else was re-run or left pending).
+          dirs=$(ls -d prisma/migrations/*/ | wc -l)
+          fin=$(psql -X -At -U lab_super -d lrp_proof -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")
+          test "$fin" = "$dirs" || { echo "ledger: $fin finished, $dirs migrations in the checkout"; exit 1; }
+          later=$(psql -X -At -U lab_super -d lrp_proof -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name > '20261110100000_acquisition_resolve_paused_hold' AND finished_at < (SELECT finished_at FROM \"_prisma_migrations\" WHERE migration_name = '20261110100000_acquisition_resolve_paused_hold')")
+          test "$later" -ge 1 || { echo "expected at least one later-named migration already applied before this one"; exit 1; }
+          echo "out-of-order apply proven: $fin/$dirs finished; $later later-named migration(s) were applied before this one"
           q() { psql -X -A -t -F'|' -U lab_super -d "$1" -v ON_ERROR_STOP=1 -f "$2" | grep -E '^[0-9]+\|' ; }
           q lrp_proof "$PROOF" | tee /tmp/proof.out
           ! grep -q '|FAIL|' /tmp/proof.out || { echo "proof not whole after the release"; exit 1; }

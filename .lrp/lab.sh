@@ -6,7 +6,8 @@
 # The acquisition objects as Production has them, from their REAL migrations (the m6-acquisition-ci recipe): roles as in
 # Production (app_runtime NOSUPERUSER NOBYPASSRLS; app_auth / app_ctlplane / app_admin), the schema without M6 / M7-A
 # (db push of the stripped schema), then the M6, M7-A and M7-B/C migrations verbatim, and their row-level security
-# replayed. A Prisma ledger lists every migration of this checkout that sorts before this one (real sha256), so
+# replayed. A Prisma ledger lists EVERY other migration of this checkout as finished (real sha256) — including ones that
+# sort AFTER this one and are already applied in Production (20261112090000_service_desk_foundation) — so
 # Production's pending set is mirrored: only this migration.
 #   (no mode)      pending — nothing of this migration exists;
 #   --with-lrp:    `prisma migrate deploy` — the release-migrate mechanism — applies exactly this one;
@@ -61,7 +62,8 @@ DO $c$ BEGIN
 END $c$;
 SQL
 
-# Production's ledger: every migration of this checkout that sorts before this one, finished, real checksum.
+# Production's ledger: every OTHER migration of this checkout, finished, real checksum — this one applies OUT OF ORDER
+# after a later-named migration that is already applied, exactly as release-migrate will apply it.
 LEDGER="$(mktemp)"
 cat > "$LEDGER" <<'SQL'
 CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
@@ -71,7 +73,7 @@ CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
 SQL
 for d in "$ROOT"/prisma/migrations/*/; do
   name="$(basename "$d")"
-  [[ "$name" < "$LRP" ]] || continue
+  [[ "$name" == "$LRP" ]] && continue
   sum="$(sha256sum "$d/migration.sql" | cut -d' ' -f1)"
   echo "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count)
         VALUES (gen_random_uuid()::text, '$sum', now(), '$name', 1);" >> "$LEDGER"
@@ -86,7 +88,7 @@ esac
 TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
 cp "$ROOT/prisma/schema.prisma" "$TMP/prisma/schema.prisma"
 cp "$ROOT/prisma/migrations/migration_lock.toml" "$TMP/prisma/migrations/"
-for d in "$ROOT"/prisma/migrations/*/; do [[ "$(basename "$d")" > "$LRP" ]] && continue; cp -r "$d" "$TMP/prisma/migrations/$(basename "$d")"; done
+for d in "$ROOT"/prisma/migrations/*/; do cp -r "$d" "$TMP/prisma/migrations/$(basename "$d")"; done
 if [ "$MODE" = "--broken-lrp" ]; then
   printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >> "$TMP/prisma/migrations/$LRP/migration.sql"
 fi
