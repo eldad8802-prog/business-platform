@@ -29,6 +29,7 @@
  *                   SAME transaction — the idempotency anchor of step 1.
  */
 
+import { enterSourceGateInTx, gatedDestination, isConnectionSourceKey } from "@/lib/intake/acquisition/gate";
 import { appendLeadLifecycleEvent, lockLeadForLifecycle } from "@/lib/services/crm/lead-lifecycle.service";
 import { Prisma } from "@prisma/client";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
@@ -66,7 +67,7 @@ async function findOpenLeadByPhone(tx: TenantTx, businessId: number, phone: stri
   return open?.id ?? null;
 }
 
-export async function routeToLead(
+async function routeToLeadUngated(
   ctx: IntakeRouteContext & { decision: RoutingDecision },
   normalized: NormalizedIntake,
   event: ClaimedIntakeEvent
@@ -78,6 +79,8 @@ export async function routeToLead(
   });
 
   const out = await withTenantTransaction(async (tx) => {
+    // L1.5-a — FG lock (shared) + the gate re-read inside this transaction, before anything is written.
+    if (isConnectionSourceKey(event.sourceKey)) await enterSourceGateInTx(tx, businessId, event.sourceKey);
     // 1. idempotency anchor
     const prior = await tx.intakeNormalizedEvent.findFirst({
       where: { businessId, intakeEventId: event.id },
@@ -227,3 +230,6 @@ export async function routeToLead(
 
   return { kind: "routed", refs: out.refs, alreadyExisted: out.alreadyExisted };
 }
+
+/** L1.5-a — a held gate or a busy FG lock defers the receipt (nothing written, no attempt spent). */
+export const routeToLead = gatedDestination(routeToLeadUngated, (ctx) => ctx.now);

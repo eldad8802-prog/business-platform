@@ -20,6 +20,7 @@
  * NEVER: a Lead, a lifecycle step, a Customer, an IdentityLink, a stage move, a recording.
  */
 
+import { enterSourceGateInTx, gatedDestination, isConnectionSourceKey } from "@/lib/intake/acquisition/gate";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
@@ -74,7 +75,7 @@ async function openLeadOf(tx: TenantTx, businessId: number, customerId: number):
   return lead?.id ?? null;
 }
 
-export async function routeToCall(
+async function routeToCallUngated(
   ctx: IntakeRouteContext & { decision: RoutingDecision },
   normalized: NormalizedIntake,
   event: ClaimedIntakeEvent
@@ -90,6 +91,8 @@ export async function routeToCall(
   const providerUpdatedAt = new Date(call.providerUpdatedAt);
 
   const out = await withTenantTransaction(async (tx) => {
+    // L1.5-a — FG lock (shared) + the gate re-read inside this transaction, before anything is written.
+    if (isConnectionSourceKey(event.sourceKey)) await enterSourceGateInTx(tx, businessId, event.sourceKey);
     // 1. idempotency anchor
     const prior = await tx.callActivity.findFirst({
       where: { businessId, OR: [{ firstIntakeEventId: event.id }, { lastIntakeEventId: event.id }] },
@@ -266,3 +269,6 @@ export async function routeToCall(
   if (out.kind === "ignored") return { kind: "ignored", code: out.code };
   return { kind: "routed", refs: out.refs, alreadyExisted: out.alreadyExisted };
 }
+
+/** L1.5-a — a held gate or a busy FG lock defers the receipt (nothing written, no attempt spent). */
+export const routeToCall = gatedDestination(routeToCallUngated, (ctx) => ctx.now);

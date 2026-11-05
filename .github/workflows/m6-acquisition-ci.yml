@@ -29,6 +29,9 @@ on:
       - ".m7a/strip-schema.mjs"
       - ".m7bc/prereq.sql"
       - "prisma/migrations/20261014090000_m7bc_commerce_demand_and_line_labels/**"
+      - "prisma/migrations/20261113090000_platform_feature_emergency_switch/**"
+      - "lib/services/control-plane/**"
+      - "lib/services/platform-admin/update-business-feature-access.service.ts"
       - ".m7a/prereq.sql"
       - "ops/evidence/m6-website-live-proof-evidence.sql"
       - "ops/evidence/m6-google-live-proof-evidence.sql"
@@ -148,6 +151,8 @@ jobs:
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261013090000_m7a_commerce_telephony_foundation/migration.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f .m7bc/prereq.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -1 -f prisma/migrations/20261014090000_m7bc_commerce_demand_and_line_labels/migration.sql
+          # L1.5-a — the intake emergency switch function (migration 20261113090000), for the race checks of the M6 battery.
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -1 -f prisma/migrations/20261113090000_platform_feature_emergency_switch/migration.sql
           npx prisma generate
 
       - name: 3. Production row-level security, replayed verbatim from the migrations

@@ -691,6 +691,58 @@ async function main() {
     (await google(gH.connection.publicId, googleLead(gH.key, `${RUN}-hg3`))).status === 401);
   setMetaGraphFetchForTests(null);
 
+  console.log("\n-- L1.5-a race: the emergency switch (DB function, FG lock) vs intake writes in flight --");
+  const flipGoogle = (on: boolean) => o.$queryRawUnsafe<{ was_on: boolean; is_on: boolean }[]>(
+    `SELECT * FROM public.platform_set_feature_emergency($1, $2, $3, $4, $5, $6)`,
+    "acquisition_google_lead_forms", on, userA.id, "lab race drill: the provider is misbehaving", null, null);
+  const R = await o.business.create({ data: { name: `${RUN}-R` } });
+  await enable(R.id, "acquisition_google_lead_forms");
+  const gR = await mk(R.id, "google.lead_form");
+  const RACE_N = 40;
+  for (let i = 0; i < RACE_N; i++) {
+    const p = parseGoogleLead(googleLead(gR.key, `${RUN}-race-${i}`, { user_column_data: [{ column_id: "PHONE_NUMBER", column_name: "Phone", string_value: `054-77${String(i).padStart(5, "0")}` }] }));
+    if (!p.ok) throw new Error("race fixture");
+    await acceptIntake({ registry: intakeRegistry, sourceKey: "google.lead_form", accountRef: gR.connection.publicId, receipts: [acquisitionReceipt(p.lead, gR.connection.publicId)] });
+  }
+  const rLeads = () => o.lead.count({ where: { businessId: R.id } });
+  const errorsSeen: string[] = [];
+  const raceD1 = drain(R.id).catch((e) => { errorsSeen.push(String(e)); });
+  const raceD2 = drain(R.id).catch((e) => { errorsSeen.push(String(e)); });
+  for (let i = 0; i < 500 && (await rLeads()) < 1; i++) await new Promise((r) => setTimeout(r, 10));
+  const flipped = await flipGoogle(true);
+  const leadsAtFlip = await rLeads();
+  await Promise.all([raceD1, raceD2]);
+  await drain(R.id); // whatever was still due is looked at under the switch
+  await drain(R.id);
+  const leadsAfter = await rLeads();
+  const rRows = await o.intakeEvent.findMany({ where: { businessId: R.id } });
+  ok("L1.5-a race: the switch applied while writes were in flight (not vacuous: some leads before it, not all)",
+    flipped[0]?.is_on === true && leadsAtFlip >= 1 && leadsAtFlip < RACE_N, JSON.stringify({ leadsAtFlip, RACE_N }));
+  ok("L1.5-a race: NO lead committed after the switch returned — every later write read the switch inside its transaction",
+    leadsAfter === leadsAtFlip, JSON.stringify({ leadsAtFlip, leadsAfter }));
+  ok("L1.5-a race: every other receipt waits, held (no attempt spent, payload kept); none failed, none lost",
+    rRows.length === RACE_N && rRows.filter((e) => e.status === "PROCESSED").length === leadsAtFlip
+      && rRows.filter((e) => e.status !== "PROCESSED").every((e) => e.status === "RECEIVED" && (e.lastErrorCode ?? "").startsWith("held:") && e.attempts === 0 && e.payload !== null),
+    JSON.stringify(rRows.filter((e) => e.status !== "PROCESSED").slice(0, 3).map((e) => [e.status, e.lastErrorCode, e.attempts])));
+  // Repeated switching against concurrent drains: no deadlock, no failed receipt, a bounded wait each time.
+  for (let round = 0; round < 3; round++) {
+    const off = flipGoogle(false);
+    const dd = [drain(R.id, new Date(Date.now() + (round + 1) * 11 * 60_000)), drain(R.id, new Date(Date.now() + (round + 1) * 11 * 60_000))]
+      .map((p) => p.catch((e) => { errorsSeen.push(String(e)); }));
+    await off;
+    await flipGoogle(true);
+    await Promise.all(dd);
+  }
+  await flipGoogle(false);
+  for (let i = 0; i < 4; i++) await drain(R.id, new Date(Date.now() + (5 + i) * 11 * 60_000));
+  const finalRows = await o.intakeEvent.findMany({ where: { businessId: R.id } });
+  ok("L1.5-a race: switching on/off 3× against concurrent drains — no deadlock, no error, no failed receipt",
+    errorsSeen.length === 0 && finalRows.every((e) => e.status !== "FAILED" && !/40P01|deadlock/i.test(e.lastErrorCode ?? "")), JSON.stringify(errorsSeen.slice(0, 2)));
+  ok("L1.5-a race: once the switch is off for good, every receipt is processed exactly once — one Lead per enquiry",
+    finalRows.every((e) => e.status === "PROCESSED") && (await rLeads()) === RACE_N, JSON.stringify({ leads: await rLeads(), statuses: [...new Set(finalRows.map((e) => e.status))] }));
+  const switchAudits = await o.platformAuditEvent.count({ where: { action: "PLATFORM_FEATURE_EMERGENCY_SET", targetId: "acquisition_google_lead_forms", actorUserId: userA.id } });
+  ok("L1.5-a race: every switch left its audit row (same transaction)", switchAudits >= 8, String(switchAudits));
+
   console.log("\n-- 12. QStash as the scheduler: a signed request for the Production sweep URL sweeps for real; tampered ones do not --");
   process.env.QSTASH_CURRENT_SIGNING_KEY = "sig_lab_current_0123456789abcdefghijklmnopqr";
   process.env.QSTASH_NEXT_SIGNING_KEY = "sig_lab_next_0123456789abcdefghijklmnopqrstu";
