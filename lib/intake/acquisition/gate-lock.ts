@@ -4,7 +4,7 @@
  *
  *   key = (17991 = 0x4647 'FG', hashtext(featureKey))
  *
- * The emergency switch's database function (migration 20261113090000) takes the exclusive form first, in the same
+ * The emergency switch's database function (migration 20261114090000) takes the exclusive form first, in the same
  * transaction as its update and audit row; `updateBusinessFeatureAccess` takes it first in its control-plane
  * transaction. An intake write takes the shared form as the FIRST statement of its transaction, then re-reads the gate
  * there. So once a change of the gate has returned, no write that read the old gate can still commit — and a write

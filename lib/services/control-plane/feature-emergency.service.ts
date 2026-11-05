@@ -2,7 +2,7 @@
  * Leads L1.5-a — the platform EMERGENCY SWITCH for one intake source feature, through the control-plane credential.
  *
  * The whole capability lives in the database function `platform_set_feature_emergency` (migration
- * 20261113090000): the fixed allowlist, the single-column update, the exclusive FG lock taken first and bounded by
+ * 20261114090000): the fixed allowlist, the single-column update, the exclusive FG lock taken first and bounded by
  * lock_timeout, and the audit row — all in ONE transaction. The control-plane role holds EXECUTE on that function and
  * no table write at all, so this module can do nothing else. Actor identity, the platform-admin role, a FRESH MFA
  * step-up and the explicit confirmation are the route's job and happen before this is called.
