@@ -41,6 +41,7 @@ import fs from "node:fs";
 import ts from "typescript";
 import {
   ANONYMIZE_MODELS,
+  DB_FUNCTION_ERASURES,
   DELETE_MODELS,
   ERASURE_MANIFEST,
   RETAIN_MODELS,
@@ -56,6 +57,7 @@ import {
   POINTER_NAME_PATTERN,
 } from "../../../scripts/ci/erasure/erasure-object-surfaces";
 import { ACCEPTED_DEBT, debtKey } from "../../../scripts/ci/erasure/erasure-contract-debt";
+import { checkDbFunctionErasures } from "./erasure-db-function-contract";
 import {
   delegateName,
   isSystemDerived,
@@ -430,6 +432,22 @@ function main(): number {
     const n = byDelegate.get(d.delegate)?.name;
     if (n) erasureWrites.add(n);
   }
+
+  // C24…C27 — erasure through a DECLARED database function (erasure-db-function-contract.ts).
+  // A model counts as erased this way only if the declaration, the adapter call (in the purge
+  // transaction), the function in its migration and every column all check out; any finding
+  // leaves it out, so C11 below still reports an ERASURE_MANAGED claim it cannot back.
+  const dbFn = checkDbFunctionErasures({
+    declarations: DB_FUNCTION_ERASURES,
+    adapter,
+    models,
+    readMigration: (name) => {
+      const p = path.join(ROOT, "prisma", "migrations", name, "migration.sql");
+      return fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null;
+    },
+  });
+  for (const x of dbFn.findings) report(x.code, x.key, x.detail);
+  for (const n of dbFn.erased) erasureWrites.add(n);
 
   for (const [name, cov] of Object.entries(MODEL_COVERAGE)) {
     const touched = erasureWrites.has(name);

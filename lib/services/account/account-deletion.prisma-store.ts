@@ -471,6 +471,13 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // linked, removed or acted goes through this SECURITY DEFINER function — the trail is append-only
           // for the runtime — and it refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.document_supplier_link_erase_business() AS n`;
+          // Service Desk (migration 20261112090000). Every personal field of the seven Service tables — device
+          // details and serials, the problem and diagnosis text, cancel / abandon / override reasons, the intake
+          // snapshot and notes, signature and slip keys, the receiver's name, acting users and request digests —
+          // is blanked in place by this SECURITY DEFINER function: the tables' guards refuse that change from the
+          // runtime itself. Statuses, outcomes, amounts, versions and hashes stay as the business's history. It
+          // refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_erase_business() AS n`;
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //

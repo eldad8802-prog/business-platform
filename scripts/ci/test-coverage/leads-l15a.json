@@ -5,6 +5,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-a lead-loss integrity: an email longer than a Lead may hold is dropped instead of dead-lettering the lead or being cut into another address; CloudTalk answers 503 (redelivered) when its secrets cannot be read instead of a false invalid_signature; Wix's unparsable signed order is answered 400 so Wix resends it instead of a silent 200"
+    },
+    "lib/intake/l15a-hold-gate.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-a lead-loss integrity: only the platform emergency switch holds (records, never processes until released); a withdrawn entitlement or quarantine records nothing; every lead / commerce / telephony adapter re-checks the gate after the revoked check and before provider work, as a deferral that spends no attempt and deletes nothing; held receipts are a visible count"
     }
   }
 }

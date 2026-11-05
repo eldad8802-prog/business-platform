@@ -8145,3 +8145,291 @@ model RevenueDecision {
   @@index([businessId, receiptId])
   @@index([businessId, settlementId])
 }
+
+// ─── Service Desk (שירות, תיקונים ואחריות) — data foundation 1.2a ───────────────────────────────────────────
+// Tables, checks, triggers, RLS and grants are built by migration 20261112090000_service_desk_foundation (PR-1).
+// References to existing models are scalar on purpose (composite tenant FKs live in the migration); no existing model
+// gains a field. CHECKs, partial unique indexes, the exclusion and the triggers are not expressible here.
+
+enum ServiceCaseKind {
+  IN_SHOP
+  FIELD
+  MAINTENANCE
+}
+
+enum ServiceCaseStatus {
+  OPEN
+  SCHEDULED
+  CHECKED_IN
+  DIAGNOSING
+  QUOTE_PENDING
+  IN_REPAIR
+  EXTERNAL
+  QA
+  READY
+  DELIVERED
+  CLOSED
+  CANCELLED
+  ABANDONED
+}
+
+enum ServiceHoldReason {
+  PARTS
+  CUSTOMER
+}
+
+enum ServiceOutcome {
+  REPAIRED
+  NOT_REPAIRED
+  REPLACED
+  QUOTE_REJECTED
+  CANCELLED
+}
+
+enum ServiceCoverageSource {
+  MANUFACTURER
+  STORE
+  REPAIR
+  CONTRACT
+}
+
+enum ServiceCoverageDecision {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+enum ServiceQuoteState {
+  SENT
+  APPROVED
+  REJECTED
+  WITHDRAWN
+  SUPERSEDED
+}
+
+enum ServiceQuoteApprovalMethod {
+  LINK
+  PHONE
+  IN_PERSON
+}
+
+enum ServiceActor {
+  OWNER_USER
+  CUSTOMER_LINK
+  SYSTEM
+}
+
+enum ServiceCaseAction {
+  OPEN // 1.1c: the opening (seq 1 only), never a transition
+  SCHEDULE
+  CHECK_IN
+  START_DIAGNOSIS
+  SEND_QUOTE
+  REVISE_QUOTE
+  APPROVE_QUOTE
+  REJECT_QUOTE
+  START_REPAIR
+  SET_HOLD
+  CLEAR_HOLD
+  SEND_TO_EXTERNAL
+  RETURN_FROM_EXTERNAL
+  FINISH_REPAIR
+  PASS_QA
+  FAIL_QA
+  MARK_NOT_REPAIRABLE
+  DELIVER
+  CLOSE
+  CANCEL
+  ABANDON
+}
+
+enum ServiceEventType {
+  case_opened                 @map("case.opened")
+  case_scheduled              @map("case.scheduled")
+  case_checked_in             @map("case.checked_in")
+  case_diagnosis_started      @map("case.diagnosis_started")
+  quote_sent                  @map("quote.sent")
+  quote_approved              @map("quote.approved")
+  quote_rejected              @map("quote.rejected")
+  quote_revised               @map("quote.revised")
+  repair_started              @map("repair.started")
+  hold_set                    @map("hold.set")
+  hold_cleared                @map("hold.cleared")
+  external_sent               @map("external.sent")
+  external_returned           @map("external.returned")
+  repair_finished             @map("repair.finished")
+  qa_passed                   @map("qa.passed")
+  qa_failed                   @map("qa.failed")
+  case_not_repairable         @map("case.not_repairable")
+  case_delivered              @map("case.delivered")
+  case_closed                 @map("case.closed")
+  case_cancelled              @map("case.cancelled")
+  case_cancellation_requested @map("case.cancellation_requested")
+  case_abandoned              @map("case.abandoned")
+}
+
+model ServiceCaseNumberSequence {
+  businessId Int      @id
+  nextValue  Int      @default(1)
+  updatedAt  DateTime @default(now()) @updatedAt
+}
+
+model ServiceDevice {
+  id               Int       @id @default(autoincrement())
+  businessId       Int
+  customerId       Int
+  category         String?
+  brand            String?
+  model            String?
+  serialNumber     String?
+  serialNormalized String?
+  description      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
+  erasedAt         DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, customerId, id])
+  @@index([businessId, customerId])
+  @@index([businessId, serialNormalized])
+}
+
+model ServiceCase {
+  id                    Int                      @id @default(autoincrement())
+  businessId            Int
+  caseNumber            Int
+  kind                  ServiceCaseKind
+  status                ServiceCaseStatus        @default(OPEN)
+  holdReason            ServiceHoldReason?
+  outcome               ServiceOutcome?
+  cancellationRequested Boolean                  @default(false)
+  version               Int                      @default(1)
+  customerId            Int
+  deviceId              Int?
+  staffMemberId         Int?
+  parentCaseId          Int?
+  problemDescription    String?
+  diagnosisNote         String?
+  coverageSource        ServiceCoverageSource?
+  coverageDecision      ServiceCoverageDecision?
+  qaChecklist           Json?
+  qaCompletedAt         DateTime?
+  pickupRemindersSent   Int                      @default(0)
+  lastPickupReminderAt  DateTime?
+  cancelReason          String?
+  cancelledAt           DateTime?
+  abandonReason         String?
+  abandonedAt           DateTime?
+  openedAt              DateTime                 @default(now())
+  checkedInAt           DateTime?
+  readyAt               DateTime?
+  deliveredAt           DateTime?
+  closedAt              DateTime?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @default(now()) @updatedAt
+  erasedAt              DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseNumber])
+  @@index([businessId, status])
+  @@index([businessId, customerId])
+  @@index([businessId, deviceId])
+  @@index([businessId, staffMemberId])
+  @@index([businessId, parentCaseId])
+}
+
+model ServiceCaseIntake {
+  id                  Int       @id @default(autoincrement())
+  businessId          Int
+  caseId              Int
+  deviceSnapshot      Json      @default("{}")
+  conditionNote       String?
+  accessoriesNote     String?
+  conditionRecorded   Boolean   @default(false)
+  accessoriesRecorded Boolean   @default(false)
+  customerSigned      Boolean   @default(false)
+  signatureKey        String?
+  slipPdfKey          String?
+  termsVersion        String?
+  signedAt            DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now()) @updatedAt
+  erasedAt            DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId])
+}
+
+model ServiceQuote {
+  id                  Int                         @id @default(autoincrement())
+  businessId          Int
+  caseId              Int
+  version             Int
+  billingDocumentId   Int
+  totalAgorot         Int
+  currency            String                      @default("ILS")
+  docHash             String
+  sentPdfKey          String
+  sentPdfSha256       String
+  sentAt              DateTime                    @default(now())
+  sentByUserId        Int?
+  state               ServiceQuoteState           @default(SENT)
+  decidedAt           DateTime?
+  decidedByActor      ServiceActor?
+  decidedByUserId     Int?
+  approvalMethod      ServiceQuoteApprovalMethod?
+  approvedVersion     Int?
+  approvedTotalAgorot Int?
+  approvedDocHash     String?
+  createdAt           DateTime                    @default(now())
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, version])
+  @@index([businessId, billingDocumentId])
+}
+
+model ServiceCaseEvent {
+  id                          Int                @id @default(autoincrement())
+  businessId                  Int
+  caseId                      Int
+  seq                         Int
+  eventType                   ServiceEventType
+  action                      ServiceCaseAction
+  fromStatus                  ServiceCaseStatus? // NULL only for case.opened (seq 1) — CHECK ServiceCaseEvent_opening
+  toStatus                    ServiceCaseStatus
+  holdReasonBefore            ServiceHoldReason?
+  holdReasonAfter             ServiceHoldReason?
+  cancellationRequestedBefore Boolean
+  cancellationRequestedAfter  Boolean
+  outcome                     ServiceOutcome?
+  actor                       ServiceActor
+  actorUserId                 Int?
+  occurredAt                  DateTime           @default(now())
+  payload                     Json               @default("{}")
+  idempotencyKey              String
+  requestDigest               String?
+  digestKeyId                 String?
+
+  @@unique([businessId, idempotencyKey])
+  @@unique([businessId, caseId, seq])
+  @@index([businessId, occurredAt])
+}
+
+model ServiceHandover {
+  id                   Int       @id @default(autoincrement())
+  businessId           Int
+  caseId               Int
+  receivedByName       String?
+  signatureCaptured    Boolean
+  signatureKey         String?
+  openBalanceAgorot    Int
+  debtOverrideReason   String?
+  loanerOverrideReason String?
+  deliveredAt          DateTime  @default(now())
+  actorUserId          Int?
+  createdAt            DateTime  @default(now())
+  erasedAt             DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId])
+}

@@ -153,16 +153,48 @@ export type AdapterWrite = {
   field: string;
   kind: WriteKind;
   line: number;
+  /** The transaction callback the write runs in (see `transactionScope`); -1 = none found. */
+  scope: number;
 };
 
-export type AdapterDelete = { delegate: string; line: number };
+export type AdapterDelete = { delegate: string; line: number; scope: number };
+
+/**
+ * A call of a database erasure function — exactly `tx.$queryRaw\`SELECT public.<fn>() AS n\``
+ * (or `$executeRaw`). Anything else written with `$queryRaw` is not an erasure call and is
+ * not recorded; a declared function that only appears in some other shape is therefore
+ * "not called", which fails closed.
+ */
+export type AdapterDbFunctionCall = { fn: string; line: number; scope: number };
 
 export type AdapterFacts = {
   writes: AdapterWrite[];
   deletes: AdapterDelete[];
+  dbFunctionCalls: AdapterDbFunctionCall[];
   /** Call sites the analyzer could not read. Any entry here fails the guard. */
   unanalyzable: { detail: string; line: number }[];
 };
+
+const TRANSACTION_CALLEES = /(^|\.)(withTenantTransaction|\$transaction)$/;
+const DB_FUNCTION_CALL = /^\s*SELECT\s+public\.([a-z_][a-z0-9_]*)\(\)\s+AS\s+n\s*$/i;
+
+/**
+ * The transaction a node runs in: the start offset of the nearest enclosing function
+ * that is passed as an argument to `withTenantTransaction(...)` or `<client>.$transaction(...)`.
+ * -1 when there is none. Two facts with the same scope are in the same transaction, so
+ * "the erasure function runs in the purge transaction" is a comparison, not a hope.
+ */
+export function transactionScope(node: ts.Node, source: ts.SourceFile): number {
+  for (let cur: ts.Node | undefined = node; cur; cur = cur.parent) {
+    if (!(ts.isArrowFunction(cur) || ts.isFunctionExpression(cur))) continue;
+    const call = cur.parent;
+    if (call && ts.isCallExpression(call) && call.arguments.includes(cur as ts.Expression)
+        && TRANSACTION_CALLEES.test(call.expression.getText(source))) {
+      return cur.getStart(source);
+    }
+  }
+  return -1;
+}
 
 const WRITE_METHODS = new Set(["update", "updateMany", "updateManyAndReturn", "upsert"]);
 const DELETE_METHODS = new Set(["delete", "deleteMany"]);
@@ -173,14 +205,14 @@ const CREATE_METHODS = new Set(["create", "createMany", "createManyAndReturn"]);
 const CLIENT_RECEIVERS = new Set(["tx", "prisma", "db", "client"]);
 
 export function parseAdapter(adapterPath: string): AdapterFacts {
-  const source = ts.createSourceFile(
-    path.basename(adapterPath),
-    fs.readFileSync(adapterPath, "utf8"),
-    ts.ScriptTarget.Latest,
-    true
-  );
+  return parseAdapterSource(fs.readFileSync(adapterPath, "utf8"), path.basename(adapterPath));
+}
 
-  const facts: AdapterFacts = { writes: [], deletes: [], unanalyzable: [] };
+/** `parseAdapter` over source text — the same analysis, so fixtures can exercise it. */
+export function parseAdapterSource(text: string, fileName = "adapter.ts"): AdapterFacts {
+  const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
+
+  const facts: AdapterFacts = { writes: [], deletes: [], dbFunctionCalls: [], unanalyzable: [] };
   const lineOf = (node: ts.Node) =>
     source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
 
@@ -199,6 +231,7 @@ export function parseAdapter(adapterPath: string): AdapterFacts {
   };
 
   const readDataObject = (obj: ts.ObjectLiteralExpression, delegate: string) => {
+    const scope = transactionScope(obj, source);
     for (const prop of obj.properties) {
       if (ts.isPropertyAssignment(prop) && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))) {
         facts.writes.push({
@@ -206,11 +239,12 @@ export function parseAdapter(adapterPath: string): AdapterFacts {
           field: prop.name.text,
           kind: valueKind(prop.initializer),
           line: lineOf(prop),
+          scope,
         });
         continue;
       }
       if (ts.isShorthandPropertyAssignment(prop)) {
-        facts.writes.push({ delegate, field: prop.name.text, kind: "UNKNOWN", line: lineOf(prop) });
+        facts.writes.push({ delegate, field: prop.name.text, kind: "UNKNOWN", line: lineOf(prop), scope });
         continue;
       }
       // A spread hides an unknown set of fields behind one token. Refusing to guess
@@ -223,6 +257,13 @@ export function parseAdapter(adapterPath: string): AdapterFacts {
   };
 
   const visit = (node: ts.Node): void => {
+    if (ts.isTaggedTemplateExpression(node) && ts.isPropertyAccessExpression(node.tag)
+        && (node.tag.name.text === "$queryRaw" || node.tag.name.text === "$executeRaw")
+        && ts.isIdentifier(node.tag.expression) && CLIENT_RECEIVERS.has(node.tag.expression.text)
+        && ts.isNoSubstitutionTemplateLiteral(node.template)) {
+      const m = node.template.text.match(DB_FUNCTION_CALL);
+      if (m) facts.dbFunctionCalls.push({ fn: m[1], line: lineOf(node), scope: transactionScope(node, source) });
+    }
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const method = node.expression.name.text;
       const target = node.expression.expression;
@@ -236,7 +277,7 @@ export function parseAdapter(adapterPath: string): AdapterFacts {
         const arg = node.arguments[0];
 
         if (DELETE_METHODS.has(method)) {
-          facts.deletes.push({ delegate, line: lineOf(node) });
+          facts.deletes.push({ delegate, line: lineOf(node), scope: transactionScope(node, source) });
         } else if (WRITE_METHODS.has(method) || CREATE_METHODS.has(method)) {
           if (!arg || !ts.isObjectLiteralExpression(arg)) {
             facts.unanalyzable.push({
