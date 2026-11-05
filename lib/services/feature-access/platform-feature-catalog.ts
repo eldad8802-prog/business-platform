@@ -32,6 +32,7 @@ export const PLATFORM_FEATURE_KEYS = {
   APPOINTMENTS: "appointments",
   PUBLIC_BOOKING: "public_booking",
   DOCUMENT_SUPPLIER_LINKING: "document_supplier_linking",
+  BUSINESS_DOCUMENTS: "business_documents",
 } as const;
 
 export type PlatformFeatureKey =
@@ -319,6 +320,17 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       // closes it. Every link still needs a person: nothing is linked automatically.
       description: "בחירת ספק במסך בדיקת המסמך, הצעות שיוך באישור המשתמש והצגת המסמכים בתיק הספק — פתוח לכל העסקים",
       defaultEnabled: true,
+      mutable: true,
+    },
+    // Business documents (ר1–ר3, owner-approved 2026-11-05): quote follow-up, letters and the per-customer documents
+    // timeline. OFF for every business — no policy row, no override: the resolver falls back to this default. Opening it
+    // (a policy / seed row or a business override) is a separate owner decision. Nothing behind it changes billing.
+    {
+      key: PLATFORM_FEATURE_KEYS.BUSINESS_DOCUMENTS,
+      displayName: "מסמכים נוספים",
+      category: "documents",
+      description: "מעקב הצעות מחיר, מכתבים וציר מסמכים לכל לקוח — לקריאה ולתיעוד בלבד, ללא שינוי בחשבוניות — כבוי כברירת מחדל",
+      defaultEnabled: false,
       mutable: true,
     },
   ];
