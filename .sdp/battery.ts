@@ -66,6 +66,7 @@ async function openCaseTx(tx: Tx, b: B) {
     VALUES ($1, $2, 1, 'case.opened', 'OPEN', NULL, 'OPEN', false, false, 'OWNER_USER', '{}', $3)`, b.biz, id, ikey());
   return id;
 }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by the close-guard checks (5.x) written with PR-1
 async function caseMoveTx(tx: Tx, biz: number, caseId: number, set: string, action: string, type: string, from: string, to: string, outcome: string | null = null) {
   const v = Number(((await tx.$queryRawUnsafe(`UPDATE "ServiceCase" SET ${set}, version = version + 1, "updatedAt" = now() WHERE id = $1 RETURNING version`, caseId)) as Rows)[0].version);
   await tx.$executeRawUnsafe(`INSERT INTO "ServiceCaseEvent" ("businessId", "caseId", seq, "eventType", action, "fromStatus", "toStatus", "cancellationRequestedBefore", "cancellationRequestedAfter", outcome, actor, payload, "idempotencyKey")
@@ -184,7 +185,7 @@ def("4.1", "one movement cannot be linked to two parts (UNIQUE issueMovementId)"
   const r = await inTx(runtime, A.biz, async (tx) => {
     const c = await openCaseTx(tx, A);
     const m = await movementTx(tx, A, -1, "MANUAL_REMOVE", "OUT");
-    for (const _ of [1, 2]) { const p = await addPartTx(tx, A, c); await movePartTx(tx, A, p, c, "ISSUED", "NEEDED", "ISSUED", `"issueMovementId" = ${m}, "unitCostAgorot" = 100, "costSource" = 'MANUAL'`, m); }
+    for (let i = 0; i < 2; i++) { const p = await addPartTx(tx, A, c); await movePartTx(tx, A, p, c, "ISSUED", "NEEDED", "ISSUED", `"issueMovementId" = ${m}, "unitCostAgorot" = 100, "costSource" = 'MANUAL'`, m); }
   });
   return refused(r, new RegExp(`${UNIQUE.source}|SERVICE_PART`, "i"));
 });
