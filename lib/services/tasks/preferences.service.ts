@@ -6,6 +6,7 @@
  * The morning summary columns exist (milestone A) and stay untouched here — external reminders are not in v1.
  */
 import type { Translator } from "@/lib/i18n/translate";
+import { businessDocumentsEnabled } from "@/lib/services/business-documents/business-documents-access";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 import { HEBREW_TEXT, SOURCE_KINDS, sourceName, type SourceKind } from "./agenda-core";
@@ -18,7 +19,10 @@ export type TaskPreferencesView = { sources: { kind: SourceKind; name: string; e
 export async function getPreferences(businessId: number, t: Translator = HEBREW_TEXT): Promise<TaskPreferencesView> {
   const p = await tenantTx(businessId, (tx) => tx.taskPreferences.findUnique({ where: { businessId }, select: { disabledSources: true, version: true } }));
   const off = new Set(p?.disabledSources ?? []);
-  return { sources: SOURCE_KINDS.map((kind) => ({ kind, name: sourceName(kind, t), enabled: !off.has(kind) })), version: p?.version ?? 0 };
+  // S08 is listed only where its domain (business_documents, off by default) is open — elsewhere nothing changes.
+  const docsOn = await businessDocumentsEnabled(businessId);
+  const kinds = SOURCE_KINDS.filter((kind) => kind !== "quote_validity" || docsOn);
+  return { sources: kinds.map((kind) => ({ kind, name: sourceName(kind, t), enabled: !off.has(kind) })), version: p?.version ?? 0 };
 }
 
 export async function setSourceEnabled(actor: TaskActor, req: TaskRequest, kind: string, enabled: boolean, t: Translator = HEBREW_TEXT): Promise<TaskPreferencesView> {

@@ -17,6 +17,8 @@ on:
       - "app/(shell)/customers/**"
       - "components/customers/CustomerCard.tsx"
       - "lib/services/tasks/**"
+      - "features/tasks/**"
+      - "lib/i18n/messages/areas/**"
       - ".business-documents/**"
       - "scripts/ci/test-coverage/business-documents.json"
       - ".github/workflows/business-documents-ci.yml"
@@ -41,6 +43,13 @@ jobs:
         run: npx tsx features/business-documents/customer-documents-model.test.ts
       - name: Letter contracts, HTML and form model
         run: npx tsx lib/services/business-documents/letter/letter-core.test.ts
+      - name: Quote validity (S08) core
+        run: npx tsx lib/services/business-documents/quote-followup/quote-validity-core.test.ts
+      - name: Daily Tasks — agenda, boundaries, i18n (S08 added as a source)
+        run: |
+          npx tsx lib/services/tasks/agenda-core.test.ts
+          npx tsx lib/services/tasks/tasks-boundary.test.ts
+          npx tsx lib/services/tasks/tasks-i18n.test.ts
       - name: Back navigation (every page has a parent)
         run: npx tsx lib/navigation/back-nav/back-nav.test.ts
       - name: Lint
