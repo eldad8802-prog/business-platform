@@ -746,7 +746,7 @@ export function InvSheet({ title, onClose, children, footer }: { title: ReactNod
           </button>
         </div>
         {children}
-        {footer}
+        {footer ? <div className="i2-sheet__ft">{footer}</div> : null}
       </div>
     </div>,
     document.body

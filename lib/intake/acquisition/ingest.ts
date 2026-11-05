@@ -22,7 +22,8 @@ import { touchConnection } from "./connection.service";
 import { runWithTenantContext } from "@/lib/tenant/context";
 
 export type IngestOutcome =
-  | { status: "accepted"; businessId: number; newCount: number; replayCount: number }
+  /** `held` — L1.5-a: recorded under the platform's emergency switch; waits, unprocessed, until released. */
+  | { status: "accepted"; businessId: number; newCount: number; replayCount: number; held?: true }
   | { status: "refused"; reason: "source_disabled" | "business_inactive" | "unknown_account" };
 
 /** After the response when in a request; inline (awaited) outside one — the WhatsApp route's rule. */
@@ -49,10 +50,15 @@ export async function ingestAcquisition(input: {
 }): Promise<IngestOutcome> {
   const registry = input.registry ?? intakeRegistry;
   const gate = await sourceGate(input.businessId, input.sourceKey);
-  if (!gate.ok) {
+  // L1.5-a — the emergency switch HOLDS (records, acknowledges, never processes until released); any other
+  // refusal records nothing. The processor re-checks the gate before every attempt (holdUnlessAllowed), so a
+  // held receipt — like one accepted just before the switch — waits instead of becoming a Lead.
+  if (!gate.ok && !gate.holdable) {
     logIntake("refused", { businessId: input.businessId, sourceKey: input.sourceKey, code: gate.reason });
     return { status: "refused", reason: gate.reason };
   }
+  const held = !gate.ok;
+  if (held) logIntake("held", { businessId: input.businessId, sourceKey: input.sourceKey, code: "emergency_disabled" });
   const accepted = await acceptIntake({
     registry,
     sourceKey: input.sourceKey,
@@ -81,5 +87,6 @@ export async function ingestAcquisition(input: {
     businessId: accepted.businessId,
     newCount: eventIds.length,
     replayCount: accepted.recorded.length - eventIds.length,
+    ...(held ? { held: true as const } : {}),
   };
 }
