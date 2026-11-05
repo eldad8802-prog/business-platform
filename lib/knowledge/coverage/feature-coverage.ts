@@ -242,6 +242,15 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "MEDIUM" },
   },
   {
+    key: "business-documents", name: "Business documents (letters, quote follow-up, customer timeline)", coverage: "DORMANT",
+    reason: "ר1–ר3 (owner-approved 2026-11-05), behind business_documents (off by default). Letters are rendered on demand and stored nowhere; the customer timeline reads the existing billing list; the quote-validity reminder is a read-time Daily Tasks source. No table of its own yet (schema proposal awaiting owner approval), so nothing to learn from.",
+    rules: [], temporalRules: [], otherUnits: [], l0: [],
+    models: [],
+    sensors: [], legacyEvents: [], routes: ["api/business-documents", "page/business-documents"],
+    target: { coverage: "LEARNS", plan: "After the approved schema: time from quote sent (marked by the owner) to response, and response rate — from the append-only share records." },
+    outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "LOW" },
+  },
+  {
     key: "secretary", name: "Payment Secretary (obligations)", coverage: "LEARNS",
     rules: ["SEC-01", "SEC-02"], temporalRules: ["T-SEC-02"], otherUnits: [], l0: [],
     models: ["BusinessObligation", "BusinessObligationOrientation", "InstallmentWorkflow"],
