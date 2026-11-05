@@ -28,7 +28,7 @@ import {
   refreshAuthorityConnectionToken,
   type RefreshAuthorityConnectionTokenResult,
 } from "@/lib/services/billing/authority/billing-authority-token-refresh.service";
-import { billingDbStep } from "../billing-db-step";
+import { billingTenantTx } from "../billing-tenant-tx";
 
 export type AccessTokenErrorCode =
   | "CONNECTION_NOT_FOUND"
@@ -88,8 +88,14 @@ const TOKEN_CONNECTION_SELECT = {
 } as const;
 
 export const defaultAccessTokenProviderDeps: AccessTokenProviderDeps = {
+  // BillingAuthorityConnection is FORCE RLS and the runtime role does not bypass
+  // it. This read runs post-commit after issuance and from the decision route,
+  // with no ambient tenant context, so it re-asserts the tenant from the caller's
+  // trusted businessId (billingTenantTx). An established context for another
+  // business is refused, never switched. Unscoped, the row was invisible and every
+  // Approval stopped at CONNECTION_NOT_FOUND.
   loadConnection: (businessId, environment) =>
-    billingDbStep((db) => db.billingAuthorityConnection.findUnique({
+    billingTenantTx(businessId, (tx) => tx.billingAuthorityConnection.findUnique({
       where: { businessId_environment: { businessId, environment } },
       select: TOKEN_CONNECTION_SELECT,
     })),
