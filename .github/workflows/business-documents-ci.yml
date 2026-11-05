@@ -50,6 +50,39 @@ jobs:
           npx tsx lib/services/tasks/agenda-core.test.ts
           npx tsx lib/services/tasks/tasks-boundary.test.ts
           npx tsx lib/services/tasks/tasks-i18n.test.ts
+      - name: Negative proof (a new source kind without its own characterization must be caught)
+        run: |
+          F="lib/services/tasks/agenda-core.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/"stock", "quote_validity",\n\];/"stock", "quote_validity", "fake_kind",\n];/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "business-documents-ci.yml:pure:unregistered-source" --expect "FAIL] source fake_kind is registered with its own characterization" -- npx tsx lib/services/tasks/tasks-i18n.test.ts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unregistered source kind went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+      - name: Negative proof (a removed legacy source must be caught)
+        run: |
+          F="lib/services/tasks/agenda-core.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/"documents_queue", "stock", "quote_validity",/"documents_queue", "quote_validity",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "business-documents-ci.yml:pure:removed-legacy-source" --expect "FAIL] legacy source still exists: stock" -- npx tsx lib/services/tasks/tasks-i18n.test.ts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a removed legacy source went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+      - name: Negative proof (a changed legacy source title must be caught by the legacy hash)
+        run: |
+          F="lib/i18n/messages/areas/system.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/      stock: "\{n\} פריטים במלאי נמוך",/      stock: "{n} פריטים במלאי נמוך מאוד",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "business-documents-ci.yml:pure:legacy-title" --expect "FAIL] queue titles + overdue labels (default) = legacy" -- npx tsx lib/services/tasks/tasks-i18n.test.ts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a changed legacy title went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
       - name: Back navigation (every page has a parent)
         run: npx tsx lib/navigation/back-nav/back-nav.test.ts
       - name: Lint
@@ -100,3 +133,58 @@ jobs:
         run: npx tsx .business-documents/battery.mts
       - name: Existing billing unchanged (A0 issuance battery)
         run: npx tsx .billing-a0/battery.mts
+
+  rls:
+    name: Business documents under FORCE RLS (PG17, NOBYPASSRLS runtime)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bdr_owner
+          POSTGRES_PASSWORD: bdr_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_bdr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bdr_owner -d dubiz_bdr"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://bdr_owner:bdr_ci_synthetic_owner_pw@localhost:5432/dubiz_bdr
+      RUNTIME_URL: postgresql://bdr_runtime:bdr_ci_synthetic_runtime_pw@localhost:5432/dubiz_bdr
+      AUTH_TOKEN_SECRET: bdr_ci_auth_secret_synthetic
+      RENDER: "1"
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Install the Playwright Chromium (letter PDF)
+        run: npx playwright install --with-deps chromium
+      - name: Push schema as the owner
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+      - name: Create the governed runtime role
+        env:
+          PGPASSWORD: bdr_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q             -c "DROP ROLE IF EXISTS bdr_runtime;"             -c "CREATE ROLE bdr_runtime LOGIN PASSWORD 'bdr_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;"             -c "GRANT USAGE ON SCHEMA public TO bdr_runtime;"             -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bdr_runtime;"             -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO bdr_runtime;"
+      - name: ר1–ר3 routes and S08 under FORCE RLS (policies from the migrations)
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .business-documents/rls.battery.mts
