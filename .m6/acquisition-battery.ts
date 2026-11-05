@@ -15,7 +15,8 @@ import { signAuthToken } from "../lib/auth-token";
 import { runTenantJob } from "../lib/tenant/job";
 import { runWithTenantContext } from "../lib/tenant/context";
 import { acceptIntake, drainIntake } from "../lib/intake/core/processor";
-import { ACQUISITION_EVENT_TYPE } from "../lib/intake/acquisition/canonical";
+import { ACQUISITION_EVENT_TYPE, acquisitionReceipt } from "../lib/intake/acquisition/canonical";
+import { parseGoogleLead } from "../lib/intake/acquisition/providers/google-lead-form";
 import { intakeRegistry } from "../lib/intake/sources";
 import { bindMetaPage, createKeyedConnection, revokeConnection, setPaused } from "../lib/intake/acquisition/connection.service";
 import { setMetaGraphFetchForTests } from "../lib/intake/acquisition/providers/meta-lead-ads";
@@ -584,6 +585,112 @@ async function main() {
     staleAgain.status === 200 && staleAgainBody.report?.backlog?.pendingStaleNew === 0 && (staleAgainBody.report?.backlog?.pendingStale ?? 0) >= 1,
     JSON.stringify(staleAgainBody));
   await o.intakeEvent.updateMany({ where: { businessId: A.id, externalEventId: stuck.externalEventId }, data: { status: "IGNORED", nextAttemptAt: null, payload: Prisma.DbNull, payloadPurgedAt: new Date() } });
+  console.log("\n-- L1.5-a: the emergency switch HOLDS (recorded, never processed until released); a withdrawn entitlement records nothing --");
+  const emergency = (featureKey: string, on: boolean) => o.platformFeaturePolicy.upsert({
+    where: { featureKey }, create: { featureKey, globalEnabled: false, emergencyDisabled: on }, update: { emergencyDisabled: on },
+  });
+  const LEAD_FEATURES = ["acquisition_web_forms", "acquisition_google_lead_forms", "acquisition_meta_lead_ads"];
+  const H = await o.business.create({ data: { name: `${RUN}-H` } });
+  for (const f of LEAD_FEATURES) await enable(H.id, f);
+  const webH = await mk(H.id, "web.form");
+  const gH = await mk(H.id, "google.lead_form");
+  const pageH = `77${String(Date.now()).slice(-9)}`; // a Page no earlier section bound (one live mapping per Page)
+  await runWithTenantContext({ businessId: H.id }, () => bindMetaPage({ businessId: H.id, userId: null, pageId: pageH, pageName: "H Page", pageAccessToken: "PAGE-TOKEN-H" }));
+  // This section's own Meta Graph stub (an earlier section reset it): one lead per id, every call recorded.
+  setMetaGraphFetchForTests(async (url, token) => {
+    graphCalls.push(`${token}|${url.includes("access_token")}`);
+    const id = decodeURIComponent(url.split("/").pop()!.split("?")[0]);
+    return { status: 200, json: {
+      id, created_time: new Date().toISOString(), form_id: "777", platform: "fb",
+      field_data: [{ name: "full_name", values: ["Held Meta"] }, { name: "phone_number", values: [`+97252444${id.slice(-4)}`] }],
+    } };
+  });
+  const hRows = () => o.intakeEvent.findMany({ where: { businessId: H.id }, orderBy: { id: "asc" } });
+  const hPeople = async () => ({ leads: await o.lead.count({ where: { businessId: H.id } }), customers: await o.customer.count({ where: { businessId: H.id } }) });
+  const graphBefore = graphCalls.length;
+  for (const f of LEAD_FEATURES) await emergency(f, true);
+  const hw = await web(webH.connection.publicId, { submission_id: `${RUN}-h1`, name: "Held Web", phone: "054-410-0001" }, { key: webH.key });
+  const hg = await google(gH.connection.publicId, googleLead(gH.key, `${RUN}-hg1`));
+  const hm = await meta(leadgen(pageH, "9400001"));
+  const held1 = await hRows();
+  ok("L1.5-a hold: under the emergency switch web / Google / Meta are acknowledged (202 / 200 / 200) and RECORDED",
+    hw.status === 202 && hg.status === 200 && hm.status === 200 && held1.length === 3, JSON.stringify({ w: hw.status, g: hg.status, m: hm.status, n: held1.length }));
+  ok("L1.5-a hold: …each waits unprocessed — RECEIVED, held:emergency_disabled, NO attempt spent, payload kept",
+    held1.every((e) => e.status === "RECEIVED" && e.lastErrorCode === "held:emergency_disabled" && e.attempts === 0 && e.payload !== null && !!e.nextAttemptAt),
+    JSON.stringify(held1.map((e) => [e.status, e.lastErrorCode, e.attempts])));
+  ok("L1.5-a hold: …no Lead, no Customer, and Meta's Graph was never asked for the held lead",
+    JSON.stringify(await hPeople()) === JSON.stringify({ leads: 0, customers: 0 }) && graphCalls.length === graphBefore);
+  const hSweep = await sweepGET(sweepReq(process.env.CRON_SECRET));
+  const hSweepBody = (await hSweep.json()) as { report?: { backlog?: { held?: number } } };
+  ok("L1.5-a hold: the sweep stays green and SHOWS the held receipts (counts only)",
+    hSweep.status === 200 && (hSweepBody.report?.backlog?.held ?? 0) >= 3, JSON.stringify(hSweepBody.report?.backlog));
+  await drain(H.id, new Date(Date.now() + 11 * 60_000));
+  const held2 = await hRows();
+  ok("L1.5-a hold: a later look while the switch is still on → still held, still no attempt spent, nothing created",
+    held2.every((e) => e.status === "RECEIVED" && e.lastErrorCode === "held:emergency_disabled" && e.attempts === 0) && (await hPeople()).leads === 0,
+    JSON.stringify(held2.map((e) => [e.status, e.lastErrorCode, e.attempts])));
+
+  // Entitlement withdrawn (BUSINESS_DISABLED): a NEW delivery records nothing; what is already held stays held.
+  await emergency("acquisition_google_lead_forms", false);
+  await o.businessFeatureAccess.update({ where: { businessId_featureKey: { businessId: H.id, featureKey: "acquisition_google_lead_forms" } }, data: { state: "DISABLED" } });
+  const hgOff = await google(gH.connection.publicId, googleLead(gH.key, `${RUN}-hg2`));
+  ok("L1.5-a: BUSINESS_DISABLED → a new Google lead is answered 200 and records NOTHING (owner decision 1)",
+    hgOff.status === 200 && (await o.intakeEvent.count({ where: { businessId: H.id } })) === 3);
+  await drain(H.id, new Date(Date.now() + 22 * 60_000));
+  const gHeld = (await hRows()).find((e) => e.sourceKey === "google.lead_form");
+  ok("L1.5-a: …the Google lead held before it is NOT released (held:source_disabled, no attempt, no Lead, not deleted)",
+    gHeld?.status === "RECEIVED" && gHeld.lastErrorCode === "held:source_disabled" && gHeld.attempts === 0 && gHeld.payload !== null
+      && (await o.lead.count({ where: { businessId: H.id, sourceChannel: "intake:google.lead_form" } })) === 0, JSON.stringify([gHeld?.status, gHeld?.lastErrorCode]));
+
+  // GLOBAL_DEFAULT (never enabled for the business) and quarantine (even under the emergency switch) record nothing.
+  const G2 = await o.business.create({ data: { name: `${RUN}-G2` } });
+  const gG2 = await mk(G2.id, "google.lead_form");
+  ok("L1.5-a: GLOBAL_DEFAULT (no entitlement) → 200, nothing recorded",
+    (await google(gG2.connection.publicId, googleLead(gG2.key, `${RUN}-g2-1`))).status === 200 && (await o.intakeEvent.count({ where: { businessId: G2.id } })) === 0);
+  const Q = await o.business.create({ data: { name: `${RUN}-Q` } });
+  await enable(Q.id, "acquisition_web_forms");
+  const webQ = await mk(Q.id, "web.form");
+  await o.business.update({ where: { id: Q.id }, data: { deletionRequestedAt: new Date() } });
+  const qRes = await web(webQ.connection.publicId, { submission_id: `${RUN}-q1`, phone: "054-410-0009" }, { key: webQ.key });
+  ok("L1.5-a: a quarantined business under the emergency switch → still refused (404), nothing recorded — quarantine wins",
+    qRes.status === 404 && (await o.intakeEvent.count({ where: { businessId: Q.id } })) === 0, String(qRes.status));
+
+  // Release: switch off + entitlement back → the next look re-checks source, connection and business, then processes.
+  await o.businessFeatureAccess.update({ where: { businessId_featureKey: { businessId: H.id, featureKey: "acquisition_google_lead_forms" } }, data: { state: "ENABLED" } });
+  for (const f of LEAD_FEATURES) await emergency(f, false);
+  await drain(H.id, new Date(Date.now() + 33 * 60_000));
+  const released = await hRows();
+  ok("L1.5-a release: all three held receipts are processed exactly once after the switch is off (one attempt each)",
+    released.length === 3 && released.every((e) => e.status === "PROCESSED" && e.attempts === 1 && e.payload === null),
+    JSON.stringify(released.map((e) => [e.sourceKey, e.status, e.attempts, e.lastErrorCode])));
+  ok("L1.5-a release: …one Lead per source (web / Google / Meta), nothing duplicated",
+    (await o.lead.count({ where: { businessId: H.id, sourceChannel: "intake:web.form" } })) === 1
+      && (await o.lead.count({ where: { businessId: H.id, sourceChannel: "intake:google.lead_form" } })) === 1
+      && (await o.lead.count({ where: { businessId: H.id, sourceChannel: "intake:meta.lead_ads" } })) === 1);
+
+  // Decision 2 race: accepted while the source is ON, the switch flips BEFORE processing starts → held, not a Lead.
+  const raceLead = parseGoogleLead(googleLead(gH.key, `${RUN}-hg-race`, { user_column_data: [{ column_id: "PHONE_NUMBER", column_name: "Phone", string_value: "054-410-0077" }] }));
+  if (!raceLead.ok) throw new Error("race fixture");
+  await acceptIntake({ registry: intakeRegistry, sourceKey: "google.lead_form", accountRef: gH.connection.publicId, receipts: [acquisitionReceipt(raceLead.lead, gH.connection.publicId)] });
+  await emergency("acquisition_google_lead_forms", true);
+  await drain(H.id, new Date(Date.now() + 44 * 60_000));
+  const race = (await hRows()).at(-1);
+  ok("L1.5-a race: accepted while ON, switched off before processing → held (no attempt), not a Lead",
+    race?.status === "RECEIVED" && race.lastErrorCode === "held:emergency_disabled" && race.attempts === 0
+      && (await o.lead.count({ where: { businessId: H.id, sourceChannel: "intake:google.lead_form" } })) === 1, JSON.stringify([race?.status, race?.lastErrorCode, race?.attempts]));
+
+  // Revoked wins over a hold: a held receipt whose connection is revoked is settled IGNORED once looked at, never a Lead.
+  await runWithTenantContext({ businessId: H.id }, () => revokeConnection(gH.connection.id));
+  await emergency("acquisition_google_lead_forms", false);
+  await drain(H.id, new Date(Date.now() + 55 * 60_000));
+  const raceAfter = (await hRows()).at(-1);
+  ok("L1.5-a: a held receipt of a connection revoked meanwhile → IGNORED connection_revoked, no Lead (revoked wins)",
+    raceAfter?.status === "IGNORED" && raceAfter.lastErrorCode === "connection_revoked"
+      && (await o.lead.count({ where: { businessId: H.id, sourceChannel: "intake:google.lead_form" } })) === 1, JSON.stringify([raceAfter?.status, raceAfter?.lastErrorCode]));
+  ok("L1.5-a: …and the revoked endpoint takes nothing new, switch or not (401)",
+    (await google(gH.connection.publicId, googleLead(gH.key, `${RUN}-hg3`))).status === 401);
+  setMetaGraphFetchForTests(null);
+
   console.log("\n-- 12. QStash as the scheduler: a signed request for the Production sweep URL sweeps for real; tampered ones do not --");
   process.env.QSTASH_CURRENT_SIGNING_KEY = "sig_lab_current_0123456789abcdefghijklmnopqr";
   process.env.QSTASH_NEXT_SIGNING_KEY = "sig_lab_next_0123456789abcdefghijklmnopqrstu";

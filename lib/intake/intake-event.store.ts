@@ -407,6 +407,8 @@ export type IntakeHealthCounts = {
   pendingStale: number;
   /** L1.5-a — of those, the ones no sweep had reported yet; now reported (same once-only rule as dead letters). */
   pendingStaleNew: number;
+  /** L1.5-a — receipts waiting on a hold (emergency switch, entitlement withdrawn, quarantine): never deleted here. */
+  held: number;
 };
 
 /**
@@ -445,7 +447,15 @@ export async function intakeHealthCounts(businessId: number, now: Date = new Dat
         OR: [{ status: { in: ["RECEIVED", "PERSISTED"] } }, { status: "FAILED", nextAttemptAt: { not: null } }],
       },
     });
-    return { deadLettersNew, deadLettersOpen, pendingStale, pendingStaleNew };
+    // Unfinished and currently deferred by holdUnlessAllowed (lastErrorCode "held:…"), whatever their age.
+    const held = await tx.intakeEvent.count({
+      where: {
+        businessId,
+        lastErrorCode: { startsWith: "held:" },
+        OR: [{ status: { in: ["RECEIVED", "PERSISTED"] } }, { status: "FAILED", nextAttemptAt: { not: null } }],
+      },
+    });
+    return { deadLettersNew, deadLettersOpen, pendingStale, pendingStaleNew, held };
   });
 }
 
