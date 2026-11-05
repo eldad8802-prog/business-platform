@@ -1,0 +1,86 @@
+[
+ {
+  "area": "webkit",
+  "name": "engine + profile",
+  "pass": true,
+  "detail": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like G"
+ },
+ {
+  "area": "webkit",
+  "name": "confirm is the topmost element (not under the bar / FAB)",
+  "pass": false,
+  "detail": ""
+ },
+ {
+  "area": "webkit",
+  "name": "confirm enabled right after typing (keyboard still open)",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "area": "webkit",
+  "name": "quantity +3 written (lab DB)",
+  "pass": true,
+  "detail": "16.35 → 19.35"
+ },
+ {
+  "area": "webkit",
+  "name": "/inventory/items: primary action topmost and visible",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "area": "webkit",
+  "name": "/inventory/supplier-purchases/1/send: primary action topmost and visible",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "area": "webkit",
+  "name": "WhatsApp opens wa.me with the order text and NO recipient",
+  "pass": true,
+  "detail": "https://wa.me/?text=%D7%A9%D7%9C%D7%95%D7%9D%2C%0A%D7%A0%D7%A9%D7%9E%D"
+ },
+ {
+  "area": "webkit",
+  "name": "mail opens mailto: with subject + body and NO address",
+  "pass": true,
+  "detail": "mailto:?subject=%D7%94%D7%96%D7%9E%D7%A0%D7%94+%231+-+%D7%9E"
+ },
+ {
+  "area": "webkit",
+  "name": "copy gives visible feedback (or a clear failure)",
+  "pass": true,
+  "detail": "הועתק"
+ },
+ {
+  "area": "webkit",
+  "name": "PDF downloads, is a real PDF",
+  "pass": true,
+  "detail": "supplier-order-1.pdf · 8510 bytes · 1 page(s)"
+ },
+ {
+  "area": "webkit",
+  "name": "status unchanged after share (never 'sent')",
+  "pass": true,
+  "detail": "PENDING_REVIEW"
+ },
+ {
+  "area": "webkit",
+  "name": "photo input accepts images (iOS offers camera + library)",
+  "pass": true,
+  "detail": "{\"accept\":\"image/*\",\"capture\":null,\"multiple\":false}"
+ },
+ {
+  "area": "scan",
+  "name": "camera feed decoded → \"גבינת עיזים רכה בשמן זית ועשבי תיבול מהגליל המערבי — מארז חגיגי גדול במיוחד\" added to the count",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "area": "scan",
+  "name": "scan opened /inventory/items/2",
+  "pass": true,
+  "detail": ""
+ }
+]
