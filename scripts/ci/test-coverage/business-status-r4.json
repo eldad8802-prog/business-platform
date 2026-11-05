@@ -1,0 +1,9 @@
+{
+  "note": "Daily Tasks milestone A, R4: a quote is not a forgotten invoice draft (loadBillingStaleDrafts).",
+  "tests": {
+    "lib/business-status/stale-drafts.integration.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour on real PostgreSQL inside a real tenant transaction (nothing mocked): a 20-day-old DRAFT quote is not a stale invoice draft, a DRAFT tax invoice still is, the age cutoff and the cap are unchanged, another business's draft never appears; run on pull_request by notification-verification-ci.yml (it already covers lib/business-status/**)"
+    }
+  }
+}

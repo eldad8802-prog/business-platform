@@ -138,3 +138,7 @@ jobs:
 
       - name: Notification centre — behaviour, auth, ordering
         run: npm run verify:notification-center
+
+      # The attention list shares these loaders: a quote is not a forgotten invoice (R4).
+      - name: Business status — stale invoice drafts exclude quotes (R4)
+        run: npm run verify:business-status-stale-drafts
