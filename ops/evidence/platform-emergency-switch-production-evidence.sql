@@ -1,7 +1,7 @@
 -- ============================================================================
 -- platform-emergency-switch-production-evidence.sql
 --
--- Read-only Production PROOF after release-migrate applied 20261113090000_platform_feature_emergency_switch.
+-- Read-only Production PROOF after release-migrate applied 20261114090000_platform_feature_emergency_switch.
 -- The migration only adds one SECURITY DEFINER function and EXECUTE on it for app_ctlplane; this proves exactly that.
 --
 --   1 E1 the ledger holds the migration, finished, not rolled back, with the pinned checksum (observed = such rows)
@@ -45,9 +45,9 @@ body_ok AS (SELECT 1 FROM fn WHERE fn.def LIKE '%pg_advisory_xact_lock(17991, ha
               AND fn.def LIKE '%PlatformAuditEvent%' AND fn.def LIKE '%PLATFORM_FEATURE_EMERGENCY_SET%'
               AND fn.def NOT LIKE '%"globalEnabled"%'),
 checks(n, ok, observed_count) AS (
-  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261113090000_platform_feature_emergency_switch'
+  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261114090000_platform_feature_emergency_switch'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL AND checksum = '82363679151ec8fb5004ff9f347a359f7f69f0a3f1737c1d3c856866adb55975') = 1,
-            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261113090000_platform_feature_emergency_switch'
+            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261114090000_platform_feature_emergency_switch'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL AND checksum = '82363679151ec8fb5004ff9f347a359f7f69f0a3f1737c1d3c856866adb55975')
   UNION ALL SELECT 2, (SELECT count(*) FROM fn WHERE fn.args = 'p_feature_key text, p_on boolean, p_actor_user_id integer, p_reason text, p_ip text, p_user_agent text') = 1
                         AND (SELECT count(*) FROM fn) = 1,

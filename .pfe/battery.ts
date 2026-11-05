@@ -1,5 +1,5 @@
 /**
- * Leads L1.5-a · emergency switch / migration 20261113090000_platform_feature_emergency_switch — role battery.
+ * Leads L1.5-a · emergency switch / migration 20261114090000_platform_feature_emergency_switch — role battery.
  *
  * Runs against a lab built by `.pfe/lab.sh <db> --with-pfe` (control-plane privileges as in Production):
  *   - only app_ctlplane may EXECUTE the switch; the runtime and an outsider may not; nobody gains a table write

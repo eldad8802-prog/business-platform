@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Leads L1.5-a · emergency switch / migration 20261113090000_platform_feature_emergency_switch — Production-topology lab.
+# Leads L1.5-a · emergency switch / migration 20261114090000_platform_feature_emergency_switch — Production-topology lab.
 #
 #   .pfe/lab.sh <db-name> [--with-pfe | --broken-pfe]
 #
@@ -17,7 +17,7 @@
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LRP="20261113090000_platform_feature_emergency_switch"
+LRP="20261114090000_platform_feature_emergency_switch"
 CTL="20261003090000_control_plane_production_privileges"
 M6="20261009090000_m6_acquisition_connections"
 M7A="20261013090000_m7a_commerce_telephony_foundation"
