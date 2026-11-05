@@ -610,9 +610,9 @@ function HistorySection<T>({
               {t("customers.customer.card.showingLatest", { shown: items.length, total })}
             </p>
           ) : null}
+          {footer}
         </div>
       )}
-      {footer}
     </section>
   );
 }
