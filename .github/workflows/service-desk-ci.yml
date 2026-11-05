@@ -28,5 +28,6 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npx tsx lib/services/service-desk/service-case-core.test.ts
       - run: npx tsx lib/services/service-desk/external-work-core.test.ts
+      - run: npx tsx lib/services/service-desk/parts-core.test.ts
       - run: npx eslint lib/services/service-desk
       - run: node scripts/ci/security-test-coverage.mjs
