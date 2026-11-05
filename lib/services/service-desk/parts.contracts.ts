@@ -14,15 +14,26 @@
  *   - a case cancel is never blocked by parts, but it cannot be COMPLETED while a part that left the stock is
  *     unresolved — each such part needs a return, an installation record or a write-off (`planPartsForCaseCancel`);
  *     the case status machine (service-case.core.ts) is unchanged;
- *   - the part's cost is a historical value captured at ISSUE; a later purchase price never changes it; purchase
- *     cost, cost to the repair and price to the customer are three different numbers and the selling price is never
- *     taken as a cost; when the inventory's cost source is ambiguous the caller must choose explicitly — the core
- *     never picks one silently (open decision ק‑9);
+ *   - the part's cost is a historical value captured at ISSUE, with its source; a later purchase price never changes
+ *     it; purchase cost, cost to the repair and price to the customer are three different numbers and the selling
+ *     price is never taken as a cost;
  *   - no charge, payment, commitment or accounting document is ever produced.
  *
- * Still open (not decided by the owner — the core takes the safe or the explicit road, see parts.core.ts):
- *   ק‑4 partial return (the core refuses a return of less than the whole line), ק‑6 issue before the quote is
- *   approved (a required policy input: WARN or BLOCK), ק‑9 the default cost source (an explicit input at ISSUE).
+ * Owner decisions 2026-11-05 (second message):
+ *   ק‑3 the cancel request is allowed with issued parts; it is complete only when every issued part is returned,
+ *       installed or written off; a cancel never moves stock by itself. The case machine stays unchanged — so a case
+ *       status CANCELLED (FIELD / nothing held) is NOT proof that its parts are resolved: `planPartsForCaseCancel`
+ *       is the only answer to "are the parts resolved" (a case-level guard is a 1.3 proposal);
+ *   ק‑4 partial return by splitting the line: the original line keeps the rest, a child line holds the returned
+ *       quantity; original = rest + returned, one IN movement per approved return, the history kept;
+ *   ק‑5 labour is a separate quote line — nothing in the parts core;
+ *   ק‑6 a part may leave the stock before the quote is approved only after a clear warning AND the owner's explicit
+ *       confirmation, recorded with the acting user — a warning alone is never a confirmation;
+ *   ק‑7 no inventory item is created from a case — items come from the inventory module only;
+ *   ק‑8 two tables (part line + append-only journal) as the direction; the schema is M2;
+ *   ק‑9 cost source order: the last purchase cost if available and reliable (> 0), else the item's cost per unit if
+ *       reliable (> 0), else unknown — never invented; when both are reliable and disagree the core refuses the
+ *       automatic choice and the owner chooses explicitly (or enters a manual cost).
  *
  * Pure: no database, clock, network or randomness. Every `serverChecks` entry names a fact the future service layer
  * (M3) must establish in the database, in the same transaction — a pure decision is never proof of it.
@@ -73,6 +84,7 @@ export type ExternalPartResolution = (typeof EXTERNAL_PART_RESOLUTIONS)[number];
 
 export const PART_EVENT_KINDS = [
   "ADDED",
+  "SPLIT",
   "RESERVED",
   "RELEASED",
   "ORDER_LINKED",
@@ -121,6 +133,11 @@ export interface ServicePartSnapshot {
   purchaseOrderLineId: number | null;
   expectedOn: string | null;
   writeOffReason: WriteOffReason | null;
+  /**
+   * A child line made by a partial return (ק‑4): it left the stock through its PARENT's issue movement (so its own
+   * issueMovementLinked is false) and the service stores the parent's id as splitFromPartId.
+   */
+  splitFromParent: boolean;
 }
 
 /** The case as far as parts care. */
@@ -157,11 +174,6 @@ export interface ExternalWorkFacts {
   atSupplier: boolean;
 }
 
-/** Choices the owner has NOT made yet (ק‑6) — the caller passes them; the core never defaults them. */
-export interface PartsPolicy {
-  issueBeforeQuoteApproval: "WARN" | "BLOCK";
-}
-
 export interface AddPartInput {
   source: "STOCK" | "NON_STOCK";
   inventoryItemId?: number | null;
@@ -187,8 +199,12 @@ export interface SupplierPartInput {
   customerUnitPriceAgorot?: number | null;
 }
 
-/** The cost the caller chose at ISSUE (ק‑9): the core validates the choice, it never makes it. */
+/**
+ * The cost at ISSUE (ק‑9). AUTO (or no choice) = the approved order: last purchase cost if reliable, else the item's
+ * cost if reliable, else unknown; refused when both are reliable and disagree. An explicit choice is the owner's.
+ */
 export type IssueCostChoice =
+  | { source: "AUTO" }
   | { source: "LAST_PURCHASE" }
   | { source: "ITEM_COST" }
   | { source: "MANUAL"; unitCostAgorot: number }
@@ -199,7 +215,7 @@ export type PartAction =
   | { type: "RELEASE" }
   | { type: "MARK_ON_ORDER"; purchaseOrderId?: number | null; purchaseOrderLineId?: number | null; expectedOn?: string | null }
   | { type: "UPDATE_ORDER"; purchaseOrderId?: number | null; purchaseOrderLineId?: number | null; expectedOn?: string | null }
-  | { type: "ISSUE"; cost: IssueCostChoice }
+  | { type: "ISSUE"; cost?: IssueCostChoice; confirmBeforeQuote?: boolean }
   | { type: "INSTALL" }
   | { type: "RETURN"; quantity: number }
   | { type: "WRITE_OFF"; reason: WriteOffReason; note?: string | null }
@@ -207,7 +223,7 @@ export type PartAction =
   | { type: "SET_PRICE"; customerUnitPriceAgorot: number | null }
   | { type: "RECORD_QUOTED"; quoteVersion: number }
   | { type: "CORRECT_COST"; unitCostAgorot: number; reason: string }
-  | { type: "SEND_WITH_EXTERNAL"; cost?: IssueCostChoice }
+  | { type: "SEND_WITH_EXTERNAL"; cost?: IssueCostChoice; confirmBeforeQuote?: boolean }
   | { type: "RESOLVE_FROM_EXTERNAL"; resolution: ExternalPartResolution; note?: string | null };
 
 export type PartActionType = PartAction["type"];
@@ -218,7 +234,6 @@ export interface PartActionFacts {
   stock?: StockFacts;
   cost?: ItemCostFacts;
   external?: ExternalWorkFacts;
-  policy?: PartsPolicy;
 }
 
 /**
@@ -234,6 +249,8 @@ export interface InventoryMovementIntent {
   quantityDelta: number;
   /** The part column that receives the movement id (UNIQUE — one movement per part per direction). */
   linkAs: "issueMovementId" | "returnMovementId";
+  /** true = link on the child line of a split (ק‑4), not on the line the action was on. */
+  onSplitChild: boolean;
   requires: readonly InventoryRequirement[];
 }
 
@@ -255,13 +272,15 @@ export type PartServerCheck =
   | "PURCHASE_ORDER_LINE_OF_ORDER"
   | "EXTERNAL_WORK_OF_SAME_CASE"
   | "EXTERNAL_WORK_AT_SUPPLIER"
-  | "QUOTE_VERSION_OF_CASE";
+  | "QUOTE_VERSION_OF_CASE"
+  | "QUOTE_STATE_READ_UNDER_CASE_LOCK" // the approval fact behind a before-approval confirmation is current
+  | "SPLIT_QUANTITIES_RECONCILE"; // the issue movement's quantity = the parent's remaining + all its children
 
 export type PartWarning =
-  | "QUOTE_NOT_APPROVED" // ק‑6 = WARN: the part leaves the stock before the customer approved
+  | "QUOTE_NOT_APPROVED" // ק‑6: shown, and the owner confirmed — the part leaves the stock before approval
   | "PRICE_DIFFERS_FROM_QUOTE" // the price changed after the part was quoted: a new quote version is needed
   | "COST_UNKNOWN" // issued with cost source NONE
-  | "COST_SOURCES_DISAGREE" // last purchase cost and item cost differ — the caller chose one explicitly
+  | "COST_SOURCES_DISAGREE" // last purchase cost and item cost differ — the owner chose one explicitly
   | "RESERVATION_IS_SOFT"; // a reservation never guarantees the units against the till or other inventory flows
 
 /** Free text — business columns only, never in an event payload (ט‑1 A). */
@@ -295,6 +314,8 @@ export type PartDecision =
       serverChecks: readonly PartServerCheck[];
       warnings: readonly PartWarning[];
       event: PartEventDraft;
+      /** A partial return (ק‑4): the new child line and its own first event; null otherwise. */
+      split: { child: ServicePartSnapshot; childEvent: PartEventDraft } | null;
     }
   | { ok: false; violations: readonly PartViolation[] };
 
@@ -312,9 +333,9 @@ export type PartViolationCode =
   | "PART_NOT_AVAILABLE"
   | "ALREADY_ISSUED"
   | "ALREADY_RETURNED"
-  | "PARTIAL_RETURN_NOT_DECIDED"
-  | "QUOTE_NOT_APPROVED"
+  | "QUOTE_CONFIRMATION_REQUIRED"
   | "COST_SOURCE_MISSING"
+  | "COST_SOURCES_CONFLICT"
   | "COST_NOT_CAPTURED"
   | "CORRECTION_UNCHANGED"
   | "REASON_REQUIRED"
@@ -323,8 +344,7 @@ export type PartViolationCode =
   | "ORDER_UNCHANGED"
   | "EXTERNAL_WORK_INVALID"
   | "PART_AT_SUPPLIER"
-  | "PART_NOT_AT_SUPPLIER"
-  | "POLICY_REQUIRED";
+  | "PART_NOT_AT_SUPPLIER";
 
 export interface PartViolation {
   code: PartViolationCode;

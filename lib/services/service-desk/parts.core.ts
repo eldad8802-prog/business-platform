@@ -4,7 +4,8 @@
  * A part line moves through eight states (parts.contracts.ts). Only two decisions ever ask for a stock change, and
  * each asks for exactly ONE InventoryMovement, returned as an `InventoryMovementIntent` for the future service (M3):
  *   ISSUE (or SEND_WITH_EXTERNAL of a part not yet issued) → OUT, reason SERVICE_PART, linked as issueMovementId;
- *   RETURN (or RESOLVE_FROM_EXTERNAL RETURNED_INTACT) of a STOCK part → IN, reason RETURN, linked as returnMovementId.
+ *   RETURN (or RESOLVE_FROM_EXTERNAL RETURNED_INTACT) of a STOCK part → IN, reason RETURN, linked as returnMovementId
+ *   — on the child line when the return is partial (ק‑4 split).
  * Reserve, release, install, write-off, cancel, price and cost decisions never ask for one.
  *
  * What this file decides and what it cannot:
@@ -43,6 +44,7 @@ import {
   type PartCaseFacts,
   type PartCostSource,
   type PartDecision,
+  type PartEventDraft,
   type PartEventKind,
   type PartServerCheck,
   type PartState,
@@ -135,7 +137,7 @@ function requireLiveCase(c: PartCaseFacts, out: PartViolation[]) {
 }
 
 function validSnapshot(p: ServicePartSnapshot | undefined): p is ServicePartSnapshot {
-  return !!p && PART_STATES.includes(p.state) && PART_SOURCES.includes(p.source) && isPositiveInt(p.version)
+  return !!p && PART_STATES.includes(p.state) && PART_SOURCES.includes(p.source) && isPositiveInt(p.version) && typeof p.splitFromParent === "boolean"
     && isValidPartQuantity(p.quantity, p.unitType) && (p.source === "STOCK" ? isPositiveInt(p.inventoryItemId) : p.inventoryItemId === null);
 }
 
@@ -152,7 +154,7 @@ function ok(
   kind: PartEventKind,
   actor: ServiceCaseActor,
   payload: Record<string, ServiceEventPayloadValue>,
-  extra: { texts?: PartTexts; inventory?: InventoryMovementIntent | null; serverChecks?: PartServerCheck[]; warnings?: PartWarning[]; amountAgorot?: number | null; previousAmountAgorot?: number | null } = {},
+  extra: { texts?: PartTexts; inventory?: InventoryMovementIntent | null; serverChecks?: PartServerCheck[]; warnings?: PartWarning[]; amountAgorot?: number | null; previousAmountAgorot?: number | null; split?: { child: ServicePartSnapshot; childEvent: PartEventDraft } | null } = {},
 ): PartDecision {
   return {
     ok: true,
@@ -172,6 +174,7 @@ function ok(
       actor: { ...actor },
       payload: { ...payload },
     },
+    split: extra.split ? { child: { ...extra.split.child }, childEvent: { ...extra.split.childEvent, actor: { ...actor }, payload: { ...extra.split.childEvent.payload } } } : null,
   };
 }
 
@@ -181,10 +184,10 @@ const OUT_REQUIRES = ["M0_ATOMIC_STOCK_UPDATE", "M0_NON_NEGATIVE_GUARD", "M0_SER
 const IN_REQUIRES = ["M0_ATOMIC_STOCK_UPDATE", "SAME_TRANSACTION_AS_PART_EVENT"] as const;
 
 function outIntent(p: ServicePartSnapshot): InventoryMovementIntent {
-  return { movementType: "OUT", reason: "SERVICE_PART", inventoryItemId: p.inventoryItemId as number, quantityDelta: -p.quantity, linkAs: "issueMovementId", requires: [...OUT_REQUIRES] };
+  return { movementType: "OUT", reason: "SERVICE_PART", inventoryItemId: p.inventoryItemId as number, quantityDelta: -p.quantity, linkAs: "issueMovementId", onSplitChild: false, requires: [...OUT_REQUIRES] };
 }
-function inIntent(p: ServicePartSnapshot): InventoryMovementIntent {
-  return { movementType: "IN", reason: "RETURN", inventoryItemId: p.inventoryItemId as number, quantityDelta: p.quantity, linkAs: "returnMovementId", requires: [...IN_REQUIRES] };
+function inIntent(p: ServicePartSnapshot, quantity = p.quantity, onSplitChild = false): InventoryMovementIntent {
+  return { movementType: "IN", reason: "RETURN", inventoryItemId: p.inventoryItemId as number, quantityDelta: quantity, linkAs: "returnMovementId", onSplitChild, requires: [...IN_REQUIRES] };
 }
 
 /** The stock facts of a STOCK part, checked for the decision (soft: other lines' reservations are respected). */
@@ -200,9 +203,34 @@ function checkStock(p: ServicePartSnapshot, stock: StockFacts | undefined, out: 
 
 const STOCK_CHECKS: PartServerCheck[] = ["ITEM_BELONGS_TO_BUSINESS", "ITEM_ACTIVE", "STOCK_READ_UNDER_ITEM_LOCK", "RESERVATIONS_SUMMED_UNDER_ITEM_LOCK"];
 
-/** The cost captured at issue, from the caller's explicit choice. */
-function captureCost(p: ServicePartSnapshot, choice: IssueCostChoice | undefined, cost: ItemCostFacts | undefined, out: PartViolation[], warnings: PartWarning[]): { unitCostAgorot: number | null; costSource: PartCostSource } | null {
-  if (!choice || !PART_COST_SOURCES.includes(choice.source)) { out.push(v("INVALID_INPUT", "cost: choose LAST_PURCHASE, ITEM_COST, MANUAL or NONE (ק‑9: no default)")); return null; }
+/**
+ * The automatic cost (ק‑9): the last purchase cost if reliable (> 0), else the item's cost if reliable (> 0), else
+ * unknown. Both reliable and different = a conflict the owner resolves — never a silent pick.
+ */
+export function resolveAutoCost(cost: ItemCostFacts | undefined): { ok: true; unitCostAgorot: number | null; costSource: PartCostSource } | { ok: false; lastPurchaseAgorot: number; itemCostAgorot: number } {
+  const c = costCandidates(cost);
+  const last = c.lastPurchaseAgorot !== null && c.lastPurchaseAgorot > 0 ? c.lastPurchaseAgorot : null;
+  const item = c.itemCostAgorot !== null && c.itemCostAgorot > 0 ? c.itemCostAgorot : null;
+  if (last !== null && item !== null && last !== item) return { ok: false, lastPurchaseAgorot: last, itemCostAgorot: item };
+  if (last !== null) return { ok: true, unitCostAgorot: last, costSource: "LAST_PURCHASE" };
+  if (item !== null) return { ok: true, unitCostAgorot: item, costSource: "ITEM_COST" };
+  return { ok: true, unitCostAgorot: null, costSource: "NONE" };
+}
+
+/** The cost captured at issue: AUTO by the approved order (ק‑9), or the owner's explicit choice. */
+function captureCost(p: ServicePartSnapshot, rawChoice: IssueCostChoice | undefined, cost: ItemCostFacts | undefined, out: PartViolation[], warnings: PartWarning[]): { unitCostAgorot: number | null; costSource: PartCostSource } | null {
+  const choice: IssueCostChoice = rawChoice ?? { source: "AUTO" };
+  if (choice.source === "AUTO") {
+    if (p.source !== "STOCK") { warnings.push("COST_UNKNOWN"); return { unitCostAgorot: null, costSource: "NONE" }; }
+    const auto = resolveAutoCost(cost);
+    if (!auto.ok) {
+      out.push(v("COST_SOURCES_CONFLICT", `last purchase ${auto.lastPurchaseAgorot} vs item cost ${auto.itemCostAgorot} agorot: choose LAST_PURCHASE, ITEM_COST or MANUAL`));
+      return null;
+    }
+    if (auto.costSource === "NONE") warnings.push("COST_UNKNOWN");
+    return { unitCostAgorot: auto.unitCostAgorot, costSource: auto.costSource };
+  }
+  if (!PART_COST_SOURCES.includes(choice.source)) { out.push(v("INVALID_INPUT", "cost: AUTO, LAST_PURCHASE, ITEM_COST, MANUAL or NONE")); return null; }
   const c = costCandidates(cost);
   if (p.source === "STOCK" && c.disagree && (choice.source === "LAST_PURCHASE" || choice.source === "ITEM_COST")) warnings.push("COST_SOURCES_DISAGREE");
   switch (choice.source) {
@@ -223,16 +251,18 @@ function captureCost(p: ServicePartSnapshot, choice: IssueCostChoice | undefined
 }
 
 /** ISSUE rules shared by ISSUE and SEND_WITH_EXTERNAL: returns the issued part, or null with violations. */
-function issue(part: ServicePartSnapshot, choice: IssueCostChoice | undefined, facts: PartActionFacts, out: PartViolation[], warnings: PartWarning[], checks: PartServerCheck[]): { next: ServicePartSnapshot; inventory: InventoryMovementIntent | null } | null {
+function issue(part: ServicePartSnapshot, choice: IssueCostChoice | undefined, confirmBeforeQuote: boolean | undefined, facts: PartActionFacts, out: PartViolation[], warnings: PartWarning[], checks: PartServerCheck[]): { next: ServicePartSnapshot; inventory: InventoryMovementIntent | null; beforeApproval: boolean } | null {
   if (part.source === "SUPPLIER") { out.push(v("TRANSITION_NOT_ALLOWED", "a supplier's part never comes from the stock")); return null; }
   if (part.issueMovementLinked) { out.push(v("ALREADY_ISSUED", "this part already left the stock")); return null; }
   if (!["NEEDED", "ON_ORDER", "RESERVED"].includes(part.state)) { out.push(v("TRANSITION_NOT_ALLOWED", `${part.state} cannot be issued`)); return null; }
-  const policy = facts.policy?.issueBeforeQuoteApproval;
-  if (policy !== "WARN" && policy !== "BLOCK") out.push(v("POLICY_REQUIRED", "issueBeforeQuoteApproval (ק‑6) must be passed: WARN or BLOCK"));
-  else if (!facts.case.quoteApprovedOrCovered) {
-    if (policy === "BLOCK") out.push(v("QUOTE_NOT_APPROVED", "the customer has not approved a quote and the repair is not covered"));
+  // ק‑6: before approval only with the owner's explicit confirmation (a warning alone is never one). The acting
+  // owner is recorded on the event (actor.userId + payload.confirmedBeforeQuoteApproval).
+  const beforeApproval = !facts.case.quoteApprovedOrCovered;
+  if (beforeApproval) {
+    if (confirmBeforeQuote !== true) out.push(v("QUOTE_CONFIRMATION_REQUIRED", "the customer has not approved a quote: show the warning and pass the owner's explicit confirmation"));
     else warnings.push("QUOTE_NOT_APPROVED");
   }
+  checks.push("QUOTE_STATE_READ_UNDER_CASE_LOCK");
   if (part.source === "STOCK") {
     checkStock(part, facts.stock, out);
     checks.push(...STOCK_CHECKS, "STOCK_GUARDED_BY_MOVEMENT", "MOVEMENT_LINK_UNIQUE", "MOVEMENT_MATCHES_PART");
@@ -247,7 +277,7 @@ function issue(part: ServicePartSnapshot, choice: IssueCostChoice | undefined, f
     unitCostAgorot: captured.unitCostAgorot,
     costSource: captured.costSource,
   };
-  return { next, inventory: part.source === "STOCK" ? outIntent(part) : null };
+  return { next, inventory: part.source === "STOCK" ? outIntent(part) : null, beforeApproval };
 }
 
 // ── add ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -289,7 +319,7 @@ export function addPart(input: AddPartInput, facts: { case: PartCaseFacts; stock
     state: "NEEDED", source: input.source, inventoryItemId: itemId, quantity: input.quantity, unitType: effectiveUnit, version: 1,
     issueMovementLinked: false, returnMovementLinked: false, unitCostAgorot: null, costSource: null, customerUnitPriceAgorot: price,
     quotedInVersion: null, costIncludedInExternal: false, externalWorkId: null, purchaseOrderId: null, purchaseOrderLineId: null,
-    expectedOn: null, writeOffReason: null,
+    expectedOn: null, writeOffReason: null, splitFromParent: false,
   };
   const net = input.source === "STOCK" && validStock(facts.stock) ? netAvailable(facts.stock) : null;
   return ok(null, part, "ADDED", actor,
@@ -338,7 +368,7 @@ export function recordSupplierPart(input: SupplierPartInput, facts: { case: Part
     state: "INSTALLED", source: "SUPPLIER", inventoryItemId: null, quantity: input.quantity, unitType, version: 1,
     issueMovementLinked: false, returnMovementLinked: false, unitCostAgorot, costSource, customerUnitPriceAgorot: price,
     quotedInVersion: null, costIncludedInExternal: included, externalWorkId: input.externalWorkId, purchaseOrderId: null,
-    purchaseOrderLineId: null, expectedOn: null, writeOffReason: null,
+    purchaseOrderLineId: null, expectedOn: null, writeOffReason: null, splitFromParent: false,
   };
   return ok(null, part, "SUPPLIER_PART_RECORDED", actor,
     { externalWorkId: input.externalWorkId, quantity: part.quantity, underWarranty: input.underWarranty, costIncludedInExternal: included, unitCostAgorot },
@@ -406,10 +436,10 @@ export function evaluatePartAction(part: ServicePartSnapshot, action: PartAction
     case "ISSUE": {
       requireLiveCase(facts.case, out);
       if (out.length > 0) return refuse(out);
-      const r = issue(part, action.cost, facts, out, warnings, checks);
+      const r = issue(part, action.cost, action.confirmBeforeQuote, facts, out, warnings, checks);
       if (!r) return refuse(out);
       return ok(before, r.next, "ISSUED", actor,
-        { source: part.source, inventoryItemId: part.inventoryItemId, quantity: part.quantity, costSource: r.next.costSource, unitCostAgorot: r.next.unitCostAgorot, quoteApprovedOrCovered: facts.case.quoteApprovedOrCovered },
+        { source: part.source, inventoryItemId: part.inventoryItemId, quantity: part.quantity, costSource: r.next.costSource, unitCostAgorot: r.next.unitCostAgorot, quoteApprovedOrCovered: facts.case.quoteApprovedOrCovered, confirmedBeforeQuoteApproval: r.beforeApproval },
         { inventory: r.inventory, serverChecks: checks, warnings, amountAgorot: r.next.unitCostAgorot });
     }
     case "INSTALL": {
@@ -424,13 +454,13 @@ export function evaluatePartAction(part: ServicePartSnapshot, action: PartAction
       if (part.state === "RETURNED" || part.returnMovementLinked) out.push(v("ALREADY_RETURNED", "this part already went back"));
       else if (part.state !== "ISSUED") out.push(v("TRANSITION_NOT_ALLOWED", `${part.state} has nothing to return (cancel or release it instead)`));
       else if (atSupplier(part)) out.push(v("PART_AT_SUPPLIER", "the part is with the supplier: record its return (RESOLVE_FROM_EXTERNAL)"));
-      if (!isFiniteNumber(action.quantity) || action.quantity <= QUANTITY_EPSILON || action.quantity > part.quantity + QUANTITY_EPSILON) {
-        out.push(v("QUANTITY_INVALID", `return quantity must be > 0 and at most ${part.quantity}`));
-      } else if (!quantitiesEqual(action.quantity, part.quantity)) {
-        out.push(v("PARTIAL_RETURN_NOT_DECIDED", "a partial return is not decided (ק‑4): return the whole line, or cancel and re-add"));
+      if (!isFiniteNumber(action.quantity) || action.quantity <= QUANTITY_EPSILON || action.quantity > part.quantity + QUANTITY_EPSILON
+        || (!quantitiesEqual(action.quantity, part.quantity) && !isValidPartQuantity(action.quantity, part.unitType))) {
+        out.push(v("QUANTITY_INVALID", `return quantity must be > 0, at most ${part.quantity}, whole for UNIT / BOX`));
       }
       if (out.length > 0) return refuse(out);
-      return returned(part, next, actor, "RETURNED", { afterCancel: caseCancelled(facts.case) });
+      if (quantitiesEqual(action.quantity, part.quantity)) return returned(part, next, actor, "RETURNED", { afterCancel: caseCancelled(facts.case) });
+      return splitReturn(part, next, action.quantity, actor, caseCancelled(facts.case));
     }
     case "WRITE_OFF": {
       if (!WRITE_OFF_REASONS.includes(action.reason)) out.push(v("INVALID_INPUT", "reason: DAMAGED, LOST or KEPT_BY_SUPPLIER"));
@@ -507,11 +537,11 @@ export function evaluatePartAction(part: ServicePartSnapshot, action: PartAction
         next.externalWorkId = ext!.externalWorkId;
         return ok(before, next, "SENT_WITH_EXTERNAL", actor, { externalWorkId: ext!.externalWorkId, issuedNow: false, quantity: part.quantity }, { serverChecks: checks });
       }
-      const r = issue(part, action.cost, facts, out, warnings, checks);
+      const r = issue(part, action.cost, action.confirmBeforeQuote, facts, out, warnings, checks);
       if (!r) return refuse(out);
       r.next.externalWorkId = ext!.externalWorkId;
       return ok(before, r.next, "SENT_WITH_EXTERNAL", actor,
-        { externalWorkId: ext!.externalWorkId, issuedNow: true, quantity: part.quantity, costSource: r.next.costSource, unitCostAgorot: r.next.unitCostAgorot },
+        { externalWorkId: ext!.externalWorkId, issuedNow: true, quantity: part.quantity, costSource: r.next.costSource, unitCostAgorot: r.next.unitCostAgorot, confirmedBeforeQuoteApproval: r.beforeApproval },
         { inventory: r.inventory, serverChecks: checks, warnings, amountAgorot: r.next.unitCostAgorot });
     }
     case "RESOLVE_FROM_EXTERNAL": {
@@ -557,6 +587,33 @@ function returned(
   next.returnMovementLinked = stock;
   return ok(part.state, next, kind, actor, { ...payload, movesStock: stock },
     { texts, inventory: stock ? inIntent(part) : null, serverChecks: stock ? [...checks, "ITEM_BELONGS_TO_BUSINESS", "MOVEMENT_LINK_UNIQUE", "MOVEMENT_MATCHES_PART"] : checks });
+}
+
+/**
+ * A partial return (ק‑4): the line keeps the rest (still ISSUED, same identity, its issue movement), a NEW child line
+ * holds the returned quantity as RETURNED with the one IN movement. original = rest + returned; the child's history
+ * starts with its own RETURNED event and points to the parent (splitFromPartId). A second return of the same units is
+ * impossible: the child is final and the parent only holds the rest.
+ */
+function splitReturn(part: ServicePartSnapshot, next: ServicePartSnapshot, quantity: number, actor: ServiceCaseActor, afterCancel: boolean): PartDecision {
+  const rest = part.quantity - quantity;
+  if (!isValidPartQuantity(rest, part.unitType)) return refuse([v("QUANTITY_INVALID", "the rest of the line would not be a valid quantity")]);
+  next.quantity = rest;
+  const stock = part.source === "STOCK";
+  const child: ServicePartSnapshot = {
+    ...part, state: "RETURNED", quantity, version: 1, issueMovementLinked: false, returnMovementLinked: stock, splitFromParent: true,
+  };
+  const childEvent: PartEventDraft = {
+    kind: "RETURNED", seq: 1, stateBefore: "ISSUED", stateAfter: "RETURNED", quantity, amountAgorot: null, previousAmountAgorot: null,
+    actor: { ...actor }, payload: { splitFromParent: true, quantity, movesStock: stock, afterCancel },
+  };
+  return ok(part.state, next, "SPLIT", actor,
+    { originalQuantity: part.quantity, returnedQuantity: quantity, remainingQuantity: rest, movesStock: stock, afterCancel },
+    {
+      inventory: stock ? inIntent(part, quantity, true) : null,
+      serverChecks: stock ? ["ITEM_BELONGS_TO_BUSINESS", "MOVEMENT_LINK_UNIQUE", "MOVEMENT_MATCHES_PART", "SPLIT_QUANTITIES_RECONCILE"] : ["SPLIT_QUANTITIES_RECONCILE"],
+      split: { child, childEvent },
+    });
 }
 
 // ── the case's view of its parts ─────────────────────────────────────────────────────────────────────────────

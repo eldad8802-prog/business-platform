@@ -37,6 +37,7 @@ import {
   planPartsForCaseCancel,
   recordSupplierPart,
   reservedQuantityByItem,
+  resolveAutoCost,
   shekelsToAgorot,
   summarizeCaseParts,
 } from "./parts.core";
@@ -67,17 +68,15 @@ const SYSTEM: ServiceCaseActor = { kind: "SYSTEM" };
 const LIVE: PartCaseFacts = { status: "IN_REPAIR", outcome: null, cancellationRequested: false, quoteApprovedOrCovered: true };
 const caseF = (o: Partial<PartCaseFacts> = {}): PartCaseFacts => ({ ...LIVE, ...o });
 const stock = (o: Partial<StockFacts> = {}): StockFacts => ({ itemActive: true, itemUnitType: "UNIT", onHandQuantity: 4, reservedByOtherParts: 0, ...o });
-const WARN = { issueBeforeQuoteApproval: "WARN" as const };
-const BLOCK = { issueBeforeQuoteApproval: "BLOCK" as const };
 const COST = { lastPurchaseCost: 120.5, costPerUnit: 120.5 };
-const facts = (o: Partial<PartActionFacts> = {}): PartActionFacts => ({ case: LIVE, stock: stock(), cost: COST, policy: WARN, ...o });
+const facts = (o: Partial<PartActionFacts> = {}): PartActionFacts => ({ case: LIVE, stock: stock(), cost: COST, ...o });
 
 function part(o: Partial<ServicePartSnapshot> = {}): ServicePartSnapshot {
   return {
     state: "NEEDED", source: "STOCK", inventoryItemId: 31, quantity: 1, unitType: "UNIT", version: 1,
     issueMovementLinked: false, returnMovementLinked: false, unitCostAgorot: null, costSource: null,
     customerUnitPriceAgorot: 45_000, quotedInVersion: null, costIncludedInExternal: false, externalWorkId: null,
-    purchaseOrderId: null, purchaseOrderLineId: null, expectedOn: null, writeOffReason: null, ...o,
+    purchaseOrderId: null, purchaseOrderLineId: null, expectedOn: null, writeOffReason: null, splitFromParent: false, ...o,
   };
 }
 const issued = (o: Partial<ServicePartSnapshot> = {}) => part({ state: "ISSUED", version: 3, issueMovementLinked: true, unitCostAgorot: 12_050, costSource: "LAST_PURCHASE", ...o });
@@ -173,15 +172,21 @@ console.log("\n== 3. issue: the one OUT movement ==");
   refused("non-stock issue cannot take an inventory cost", act(part({ source: "NON_STOCK", inventoryItemId: null }), { type: "ISSUE", cost: { source: "LAST_PURCHASE" } }), "COST_SOURCE_MISSING");
 }
 
-console.log("\n== 4. quote gate (ק‑6 open: the caller passes WARN or BLOCK) ==");
+console.log("\n== 4. issue before quote approval (ק‑6: warning + explicit owner confirmation, recorded) ==");
 {
   const noQuote = caseF({ quoteApprovedOrCovered: false });
-  const w = act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "NONE" } }, facts({ case: noQuote, policy: WARN }));
-  allowed("WARN: issue allowed with a QUOTE_NOT_APPROVED warning", w, (x) => x.warnings.includes("QUOTE_NOT_APPROVED"));
-  refused("BLOCK: issue refused before approval", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "NONE" } }, facts({ case: noQuote, policy: BLOCK })), "QUOTE_NOT_APPROVED");
-  allowed("BLOCK with an approved quote / coverage: allowed", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "NONE" } }, facts({ policy: BLOCK })), (x) => !x.warnings.includes("QUOTE_NOT_APPROVED"));
-  refused("no policy passed: refused, never defaulted", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "NONE" } }, facts({ policy: undefined })), "POLICY_REQUIRED");
-  refused("unknown policy value", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "NONE" } }, facts({ policy: { issueBeforeQuoteApproval: "ALLOW" as "WARN" } })), "POLICY_REQUIRED");
+  refused("before approval without confirmation: refused (a warning alone is not a confirmation)", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "NONE" } }, facts({ case: noQuote })), "QUOTE_CONFIRMATION_REQUIRED");
+  refused("confirmation must be exactly true", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "NONE" }, confirmBeforeQuote: "yes" as unknown as boolean }, facts({ case: noQuote })), "QUOTE_CONFIRMATION_REQUIRED");
+  const c = act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "NONE" }, confirmBeforeQuote: true }, facts({ case: noQuote }));
+  allowed("with the owner's explicit confirmation: allowed, the warning is kept on the decision", c, (x) => x.warnings.includes("QUOTE_NOT_APPROVED"));
+  check("the confirmation and the acting user are recorded on the event", c.ok && c.event.payload.confirmedBeforeQuoteApproval === true && c.event.actor.kind === "OWNER" && (c.event.actor as { userId: number }).userId === 70);
+  check("the approval fact must be read under the case lock (server check)", c.ok && c.serverChecks.includes("QUOTE_STATE_READ_UNDER_CASE_LOCK"));
+  const a = act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "NONE" } }, facts());
+  allowed("approved quote / coverage: no confirmation needed, nothing recorded as before-approval", a, (x) => !x.warnings.includes("QUOTE_NOT_APPROVED") && x.event.payload.confirmedBeforeQuoteApproval === false);
+  allowed("a confirmation passed when already approved changes nothing", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "NONE" }, confirmBeforeQuote: true }, facts()), (x) => x.event.payload.confirmedBeforeQuoteApproval === false);
+  const ext = { externalWorkId: 4, sameCase: true, atSupplier: true };
+  refused("send with the device before approval without confirmation: refused", act(part({ state: "RESERVED" }), { type: "SEND_WITH_EXTERNAL", cost: { source: "NONE" } }, facts({ case: noQuote, external: ext })), "QUOTE_CONFIRMATION_REQUIRED");
+  allowed("send with the device before approval, confirmed: recorded", act(part({ state: "RESERVED" }), { type: "SEND_WITH_EXTERNAL", cost: { source: "NONE" }, confirmBeforeQuote: true }, facts({ case: noQuote, external: ext })), (x) => x.event.payload.confirmedBeforeQuoteApproval === true);
 }
 
 console.log("\n== 5. cost (captured at issue; ק‑9 open: the caller chooses the source) ==");
@@ -194,7 +199,20 @@ console.log("\n== 5. cost (captured at issue; ק‑9 open: the caller chooses th
   check("costCandidates reports both and that they disagree", costCandidates(disagree).lastPurchaseAgorot === 13_000 && costCandidates(disagree).itemCostAgorot === 10_000 && costCandidates(disagree).disagree);
   const d = act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "ITEM_COST" } }, facts({ cost: disagree }));
   allowed("explicit ITEM_COST taken when sources disagree, with a warning", d, (x) => x.part.unitCostAgorot === 10_000 && x.warnings.includes("COST_SOURCES_DISAGREE"));
-  refused("no cost choice: refused (no default)", act(part({ state: "RESERVED" }), { type: "ISSUE" } as PartAction), "INVALID_INPUT");
+  allowed("no cost choice = AUTO: equal sources → LAST_PURCHASE", act(part({ state: "RESERVED" }), { type: "ISSUE" }), (x) => x.part.costSource === "LAST_PURCHASE" && x.part.unitCostAgorot === 12_050);
+  refused("AUTO with reliable sources that disagree: refused, the owner chooses (never a silent pick)", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "AUTO" } }, facts({ cost: disagree })), "COST_SOURCES_CONFLICT");
+  const conflict = act(part({ state: "RESERVED" }), { type: "ISSUE" }, facts({ cost: disagree }));
+  check("the conflict shows both amounts to the owner", !conflict.ok && conflict.violations.some((x) => x.code === "COST_SOURCES_CONFLICT" && x.detail.includes("13000") && x.detail.includes("10000")));
+  allowed("AUTO: no last purchase → the item's cost", act(part({ state: "RESERVED" }), { type: "ISSUE" }, facts({ cost: { lastPurchaseCost: null, costPerUnit: 80 } })), (x) => x.part.costSource === "ITEM_COST" && x.part.unitCostAgorot === 8_000);
+  allowed("AUTO: a last purchase of 0 is not reliable → the item's cost", act(part({ state: "RESERVED" }), { type: "ISSUE" }, facts({ cost: { lastPurchaseCost: 0, costPerUnit: 80 } })), (x) => x.part.costSource === "ITEM_COST");
+  allowed("AUTO: a negative item cost is not reliable → last purchase only", act(part({ state: "RESERVED" }), { type: "ISSUE" }, facts({ cost: { lastPurchaseCost: 50, costPerUnit: -3 } })), (x) => x.part.costSource === "LAST_PURCHASE" && x.part.unitCostAgorot === 5_000);
+  allowed("AUTO: nothing reliable → unknown, never invented", act(part({ state: "RESERVED" }), { type: "ISSUE" }, facts({ cost: { lastPurchaseCost: 0, costPerUnit: null } })), (x) => x.part.costSource === "NONE" && x.part.unitCostAgorot === null && x.warnings.includes("COST_UNKNOWN"));
+  allowed("AUTO: no cost facts at all → unknown", act(part({ state: "RESERVED" }), { type: "ISSUE" }, facts({ cost: undefined })), (x) => x.part.costSource === "NONE");
+  allowed("AUTO on a non-stock part → unknown (no inventory cost exists)", act(part({ source: "NON_STOCK", inventoryItemId: null }), { type: "ISSUE" }, facts({ stock: undefined })), (x) => x.part.costSource === "NONE");
+  check("resolveAutoCost: the order and the conflict", JSON.stringify(resolveAutoCost({ lastPurchaseCost: 10, costPerUnit: 10 })) === JSON.stringify({ ok: true, unitCostAgorot: 1000, costSource: "LAST_PURCHASE" })
+    && resolveAutoCost({ lastPurchaseCost: 10, costPerUnit: 11 }).ok === false && resolveAutoCost(undefined).ok === true);
+  allowed("after the conflict the owner's explicit choice is taken and the disagreement is kept", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "LAST_PURCHASE" } }, facts({ cost: disagree })), (x) => x.part.unitCostAgorot === 13_000 && x.warnings.includes("COST_SOURCES_DISAGREE"));
+  allowed("…or a manual cost", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "MANUAL", unitCostAgorot: 11_500 } }, facts({ cost: disagree })), (x) => x.part.costSource === "MANUAL");
   refused("LAST_PURCHASE when the item has none", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "LAST_PURCHASE" } }, facts({ cost: { lastPurchaseCost: null, costPerUnit: 50 } })), "COST_SOURCE_MISSING");
   refused("ITEM_COST when the item has none", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "ITEM_COST" } }, facts({ cost: { lastPurchaseCost: 50, costPerUnit: null } })), "COST_SOURCE_MISSING");
   refused("MANUAL negative", act(part({ state: "RESERVED" }), { type: "ISSUE", cost: { source: "MANUAL", unitCostAgorot: -1 } }), "INVALID_INPUT");
@@ -234,7 +252,31 @@ console.log("\n== 7. return of an unused part: the one IN movement ==");
   refused("return link already present", act(issued({ returnMovementLinked: true }), { type: "RETURN", quantity: 1 }), "ALREADY_RETURNED");
   refused("return a reserved part (release/cancel instead)", act(part({ state: "RESERVED" }), { type: "RETURN", quantity: 1 }), "TRANSITION_NOT_ALLOWED");
   refused("return an installed part", act(issued({ state: "INSTALLED" }), { type: "RETURN", quantity: 1 }), "TRANSITION_NOT_ALLOWED");
-  refused("partial return (ק‑4 undecided)", act(issued({ quantity: 3 }), { type: "RETURN", quantity: 1 }), "PARTIAL_RETURN_NOT_DECIDED");
+  const sp = act(issued({ quantity: 3 }), { type: "RETURN", quantity: 1 });
+  allowed("partial return (ק‑4): the line splits", sp, (x) => x.event.kind === "SPLIT" && x.split !== null);
+  check("the original line keeps the rest, still ISSUED, same issue movement", sp.ok && sp.part.state === "ISSUED" && sp.part.quantity === 2 && sp.part.issueMovementLinked && sp.part.version === 4);
+  check("the child line holds the returned quantity as RETURNED", sp.ok && sp.split!.child.state === "RETURNED" && sp.split!.child.quantity === 1 && sp.split!.child.splitFromParent && !sp.split!.child.issueMovementLinked && sp.split!.child.returnMovementLinked && sp.split!.child.version === 1);
+  check("original = rest + returned (3 = 2 + 1)", sp.ok && sp.part.quantity + sp.split!.child.quantity === 3 && sp.event.payload.originalQuantity === 3 && sp.event.payload.remainingQuantity === 2 && sp.event.payload.returnedQuantity === 1);
+  check("exactly one IN movement, for the returned quantity, linked on the child", sp.ok && sp.inventory?.movementType === "IN" && sp.inventory.quantityDelta === 1 && sp.inventory.onSplitChild && sp.inventory.linkAs === "returnMovementId");
+  check("history: the parent gets SPLIT, the child starts with its own RETURNED event", sp.ok && sp.split!.childEvent.kind === "RETURNED" && sp.split!.childEvent.seq === 1 && sp.split!.childEvent.stateBefore === "ISSUED" && sp.split!.childEvent.payload.splitFromParent === true);
+  check("the child keeps the captured cost and price (a part of the same line)", sp.ok && sp.split!.child.unitCostAgorot === 12_050 && sp.split!.child.costSource === "LAST_PURCHASE");
+  check("the split asks the server to reconcile the family with the issue movement", sp.ok && sp.serverChecks.includes("SPLIT_QUANTITIES_RECONCILE") && sp.serverChecks.includes("MOVEMENT_LINK_UNIQUE"));
+  refused("no double return: the child is final", act(sp.ok ? sp.split!.child : issued(), { type: "RETURN", quantity: 1 }), "ALREADY_RETURNED");
+  refused("no double return: the parent holds only the rest", act(sp.ok ? sp.part : issued(), { type: "RETURN", quantity: 3 }), "QUANTITY_INVALID");
+  allowed("the rest can be returned later (whole rest = plain return)", act(sp.ok ? sp.part : issued(), { type: "RETURN", quantity: 2 }), (x) => x.event.kind === "RETURNED" && x.split === null && x.inventory?.quantityDelta === 2);
+  allowed("…or installed", act(sp.ok ? sp.part : issued(), { type: "INSTALL" }), (x) => x.part.quantity === 2);
+  refused("the child is never issued again", act(sp.ok ? sp.split!.child : issued(), { type: "ISSUE" }), "TRANSITION_NOT_ALLOWED");
+  refused("a fractional partial return of counted units", act(issued({ quantity: 3 }), { type: "RETURN", quantity: 1.5 }), "QUANTITY_INVALID");
+  const ml = act(issued({ unitType: "ML", quantity: 0.3 }), { type: "RETURN", quantity: 0.1 });
+  allowed("ML partial return: 0.3 → 0.2 kept + 0.1 returned", ml, (x) => Math.abs(x.part.quantity - 0.2) < 1e-9 && x.split!.child.quantity === 0.1);
+  allowed("non-stock partial return: split, no movement", act(issued({ source: "NON_STOCK", inventoryItemId: null, issueMovementLinked: false, quantity: 2 }), { type: "RETURN", quantity: 1 }), (x) => x.inventory === null && x.split !== null && !x.split.child.returnMovementLinked);
+  refused("partial return of a part with the supplier (resolve it)", act(issued({ quantity: 3, externalWorkId: 4 }), { type: "RETURN", quantity: 1 }), "PART_AT_SUPPLIER");
+  allowed("partial return after a cancel", act(issued({ quantity: 2 }), { type: "RETURN", quantity: 1 }, facts({ case: caseF({ status: "CANCELLED", outcome: "CANCELLED" }) })), (x) => x.event.payload.afterCancel === true);
+  check("a split child counts as resolved, the parent's rest as open", (() => {
+    if (!sp.ok) return false;
+    const p = planPartsForCaseCancel([{ id: 1, part: sp.part }, { id: 2, part: sp.split!.child }]);
+    return JSON.stringify(p.needsResolution) === "[1]" && summarizeCaseParts([sp.part, sp.split!.child], 0).openCount === 1;
+  })());
   refused("return more than issued", act(issued(), { type: "RETURN", quantity: 2 }), "QUANTITY_INVALID");
   refused("return zero", act(issued(), { type: "RETURN", quantity: 0 }), "QUANTITY_INVALID");
   refused("return negative", act(issued(), { type: "RETURN", quantity: -1 }), "QUANTITY_INVALID");
@@ -393,6 +435,7 @@ console.log("\n== 14. fit with the unchanged 1.1 case machine and 1.1d external 
   const field = evaluateTransition(ctx({ kind: "FIELD", status: "IN_REPAIR", outcome: null, openPartReservations: 1 }), { type: "CANCEL", reason: null as unknown as string }, OWNER);
   check("FIELD cancel → CANCELLED (terminal) — the case machine is unchanged", field.ok && field.to === "CANCELLED");
   allowed("…and its issued part can still be resolved afterwards", act(issued(), { type: "RETURN", quantity: 1 }, facts({ case: caseF({ status: "CANCELLED", outcome: "CANCELLED" }) })));
+  check("ק‑3 gap documented: a case status CANCELLED is not proof the parts are resolved — only the plan answers", planPartsForCaseCancel([{ id: 1, part: issued() }]).completionBlocked === true);
   const extCancel = evaluateTransition(ctx({ status: "EXTERNAL", outcome: null, openPartReservations: 1 }), { type: "CANCEL", reason: "x" }, OWNER);
   check("cancel at the supplier stays a request (1.1d unchanged)", extCancel.ok && extCancel.to === "EXTERNAL" && extCancel.cancellationRequestedAfter === true);
   const work = { state: "AT_SUPPLIER" as const, round: 1, supplierId: 12, progressStage: "REPAIR_DONE" as const, version: 3, supplierReference: null, expectedBackOn: null, estimatedCostAgorot: null, approvedCostAgorot: null, finalCostAgorot: null, returnResult: null };
@@ -428,11 +471,14 @@ console.log("\n== 16. invariants over every ok decision ==");
   check("only ISSUED/SENT_WITH_EXTERNAL ask for OUT, only RETURNED/BACK_FROM_EXTERNAL for IN", OK.every((d) =>
     d.inventory === null
     || (d.inventory.movementType === "OUT" && ["ISSUED", "SENT_WITH_EXTERNAL"].includes(d.event.kind) && d.inventory.quantityDelta < 0)
-    || (d.inventory.movementType === "IN" && ["RETURNED", "BACK_FROM_EXTERNAL"].includes(d.event.kind) && d.inventory.quantityDelta > 0)));
+    || (d.inventory.movementType === "IN" && ["RETURNED", "BACK_FROM_EXTERNAL", "SPLIT"].includes(d.event.kind) && d.inventory.quantityDelta > 0)));
+  check("an IN on a split child only for a SPLIT; a SPLIT always has its child", OK.every((d) => (d.inventory?.onSplitChild === true) === (d.event.kind === "SPLIT" && d.part.source === "STOCK") && (d.event.kind === "SPLIT") === (d.split !== null)));
+  const splits = OK.filter((d) => d.split !== null);
+  check(`every split reconciles: rest + returned = original (${splits.length})`, splits.length >= 3 && splits.every((d) => Math.abs(d.part.quantity + d.split!.child.quantity - (d.event.payload.originalQuantity as number)) < 1e-9 && d.split!.child.state === "RETURNED" && d.part.state === "ISSUED"));
   check("a movement intent only for STOCK parts", OK.every((d) => d.inventory === null || d.part.source === "STOCK"));
   check("reserve / release / install / write-off / cancel / price / cost never ask for a movement", OK.filter((d) => ["RESERVED", "RELEASED", "INSTALLED", "WRITTEN_OFF", "CANCELLED", "PRICE_SET", "QUOTED", "COST_CORRECTED", "ORDER_LINKED", "ORDER_UPDATED", "ADDED", "SUPPLIER_PART_RECORDED"].includes(d.event.kind)).every((d) => d.inventory === null));
   check("event seq = the part's new version; stateAfter = part.state", OK.every((d) => d.event.seq === d.part.version && d.event.stateAfter === d.part.state));
-  check("issueMovementLinked ⇔ a STOCK part that left the stock", OK.every((d) => d.part.issueMovementLinked === (d.part.source === "STOCK" && ["ISSUED", "INSTALLED", "WRITTEN_OFF", "RETURNED"].includes(d.part.state))));
+  check("issueMovementLinked ⇔ a STOCK part that left the stock (a split child left through its parent's)", OK.every((d) => d.part.issueMovementLinked === (d.part.source === "STOCK" && ["ISSUED", "INSTALLED", "WRITTEN_OFF", "RETURNED"].includes(d.part.state))) && splits.every((d) => !d.split!.child.issueMovementLinked && d.split!.child.splitFromParent));
   check("returnMovementLinked only for RETURNED stock parts", OK.every((d) => !d.part.returnMovementLinked || (d.part.state === "RETURNED" && d.part.source === "STOCK")));
   check("write-off reason ⇔ WRITTEN_OFF", OK.every((d) => (d.part.writeOffReason !== null) === (d.part.state === "WRITTEN_OFF")));
   check("every event kind is known; every state is known", OK.every((d) => PART_EVENT_KINDS.includes(d.event.kind) && PART_STATES.includes(d.part.state)));
