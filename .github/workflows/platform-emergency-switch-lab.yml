@@ -1,4 +1,4 @@
-# Leads L1.5-a · emergency switch / migration 20261113090000_platform_feature_emergency_switch — proof on PostgreSQL
+# Leads L1.5-a · emergency switch / migration 20261114090000_platform_feature_emergency_switch — proof on PostgreSQL
 # BEFORE it reaches Production (ephemeral PG17). Migration-first: this PR ships the migration and its proof only (no
 # schema.prisma, no runtime code). The admin tool that calls the function comes in the application PR.
 #
@@ -23,7 +23,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "prisma/migrations/20261113090000_platform_feature_emergency_switch/**"
+      - "prisma/migrations/20261114090000_platform_feature_emergency_switch/**"
       - "ops/evidence/platform-emergency-switch-*.sql"
       - ".pfe/**"
       - ".github/workflows/platform-emergency-switch-lab.yml"
@@ -63,7 +63,7 @@ jobs:
       AUTH_TOKEN_SECRET: pfe_ci_secret_synthetic_at_least_32_characters_long
       PREFLIGHT: ops/evidence/platform-emergency-switch-preflight.sql
       PROOF: ops/evidence/platform-emergency-switch-production-evidence.sql
-      MIGRATION: prisma/migrations/20261113090000_platform_feature_emergency_switch/migration.sql
+      MIGRATION: prisma/migrations/20261114090000_platform_feature_emergency_switch/migration.sql
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -138,7 +138,7 @@ jobs:
           bash .pfe/lab.sh pfe_broken --broken-pfe
           left=$(psql -X -At -U lab_super -d pfe_broken -v ON_ERROR_STOP=1 -c "SELECT
               (SELECT count(*) FROM pg_proc WHERE proname = 'platform_set_feature_emergency')
-            + (SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261113090000_platform_feature_emergency_switch' AND finished_at IS NOT NULL)")
+            + (SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261114090000_platform_feature_emergency_switch' AND finished_at IS NOT NULL)")
           echo "objects left=$left"
           test "$left" = "0" || { echo "NOT atomic"; exit 1; }
 

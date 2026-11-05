@@ -1,7 +1,7 @@
 -- ============================================================================
 -- platform-emergency-switch-preflight.sql
 --
--- Read-only Production PREFLIGHT for migration 20261113090000_platform_feature_emergency_switch (Leads L1.5-a).
+-- Read-only Production PREFLIGHT for migration 20261114090000_platform_feature_emergency_switch (Leads L1.5-a).
 --
 --   1 P1 the migration is not in the ledger yet (observed = ledger rows for it)
 --   2 P2 no migration in the ledger is unfinished or rolled back (observed = such rows)
@@ -31,8 +31,8 @@ writers AS (SELECT r.rolname FROM pg_roles r, pg_class c JOIN pg_namespace n ON 
                AND r.rolname IN ('app_runtime', 'app_ctlplane', 'app_auth', 'app_admin')
                AND coalesce(c.relacl::text, '') ~ ('(^|[{,])"?' || r.rolname || '"?=[A-Za-z*]*[awdD]')),
 checks(n, ok, observed_count) AS (
-  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261113090000_platform_feature_emergency_switch') = 0,
-            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261113090000_platform_feature_emergency_switch')
+  SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261114090000_platform_feature_emergency_switch') = 0,
+            (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261114090000_platform_feature_emergency_switch')
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, (SELECT count(*) FROM fn) = 0, (SELECT count(*) FROM fn)
