@@ -92,9 +92,33 @@ async function main() {
     const at = (s: string) => { const i = post.indexOf(s); assert.ok(i > 0, s); return i; };
     const order = [
       at("requirePlatformAdminOrResponse(req)"), at("freshStepUpRefusal(req, auth.id)"), at("isFeatureAccessMutationsEnabled()"),
-      at("validateEmergencyInput("), at("body?.confirm !== input.featureKey"), at('outcome: "attempted"'), at("setFeatureEmergency("), at('outcome: "failed"'),
+      at("isIntakeEmergencySwitchOperational()"), at("validateEmergencyInput("), at("body?.confirm !== input.featureKey"),
+      at("typeof body?.expectedOn !== \"boolean\""), at('outcome: "attempted"'), at('outcome: "failed"'), at("current.emergencyOn !== body.expectedOn"),
+      at("setFeatureEmergency("), at("await failed(failure)"),
     ];
     assert.deepEqual(order, [...order].sort((a, b) => a - b));
+  });
+
+  await test("the switch is NOT operational unless INTAKE_EMERGENCY_SWITCH_ENABLED is exactly \"true\" (off by default)", async () => {
+    const { isIntakeEmergencySwitchOperational } = await import("@/lib/services/platform-admin/intake-emergency.service");
+    const saved = process.env.INTAKE_EMERGENCY_SWITCH_ENABLED;
+    delete process.env.INTAKE_EMERGENCY_SWITCH_ENABLED;
+    assert.equal(isIntakeEmergencySwitchOperational(), false);
+    for (const v of ["1", "TRUE", "yes", " false "]) { process.env.INTAKE_EMERGENCY_SWITCH_ENABLED = v; assert.equal(isIntakeEmergencySwitchOperational(), false, v); }
+    process.env.INTAKE_EMERGENCY_SWITCH_ENABLED = "true";
+    assert.equal(isIntakeEmergencySwitchOperational(), true);
+    if (saved === undefined) delete process.env.INTAKE_EMERGENCY_SWITCH_ENABLED; else process.env.INTAKE_EMERGENCY_SWITCH_ENABLED = saved;
+  });
+
+  await test("structural: the console disables every action while a change is in flight and needs the typed key + a reason", () => {
+    const ui = read("components/platform-admin/intake-emergency-panel.tsx");
+    for (const pin of [
+      "if (busy) return; // one change at a time",
+      "const canSubmit = !busy && reason.trim().length >= REASON_MIN && confirm === f.featureKey;",
+      "disabled={busy || !load.operational || open !== null}",
+      "expectedOn: f.emergencyOn",
+      'dir="rtl"',
+    ]) assert.ok(ui.includes(pin), pin);
   });
 
   await test("structural: the control-plane module calls only the function and never imports the tenant client", () => {

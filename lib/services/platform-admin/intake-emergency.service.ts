@@ -18,7 +18,17 @@ export type IntakeEmergencyState = {
   globalEnabled: boolean;
   updatedAt: string | null;
   updatedByUserId: number | null;
+  /** The platform admin who changed it last (their login email), for the console only. */
+  updatedByEmail: string | null;
 };
+
+/**
+ * The switch may be USED only when INTAKE_EMERGENCY_SWITCH_ENABLED is exactly "true" — off by default, so it cannot
+ * be operated before the hold expiry and monitoring ship and the owner approves its activation separately.
+ */
+export function isIntakeEmergencySwitchOperational(): boolean {
+  return process.env.INTAKE_EMERGENCY_SWITCH_ENABLED?.trim() === "true";
+}
 
 export async function getIntakeEmergencyStates(): Promise<IntakeEmergencyState[]> {
   const db = getPrismaAdmin();
@@ -28,6 +38,9 @@ export async function getIntakeEmergencyStates(): Promise<IntakeEmergencyState[]
     db.platformFeatureDefinition.findMany({ where: { key: { in: keys } }, select: { key: true, displayName: true } }),
   ]);
   const byKey = new Map(policies.map((p) => [p.featureKey, p]));
+  const actorIds = [...new Set(policies.map((p) => p.updatedByUserId).filter((id): id is number => typeof id === "number"))];
+  const actors = actorIds.length ? await db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, email: true } }) : [];
+  const emails = new Map(actors.map((u) => [u.id, u.email]));
   const names = new Map(definitions.map((d) => [d.key, d.displayName]));
   return keys.map((featureKey) => {
     const p = byKey.get(featureKey);
@@ -38,6 +51,7 @@ export async function getIntakeEmergencyStates(): Promise<IntakeEmergencyState[]
       globalEnabled: p?.globalEnabled ?? false,
       updatedAt: p?.updatedAt ? p.updatedAt.toISOString() : null,
       updatedByUserId: p?.updatedByUserId ?? null,
+      updatedByEmail: p?.updatedByUserId ? emails.get(p.updatedByUserId) ?? null : null,
     };
   });
 }
