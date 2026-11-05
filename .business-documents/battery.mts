@@ -12,6 +12,14 @@
  *   I5  paging by cursor returns every document once, newest first;
  *   I6  reading changes nothing: documents are byte-identical before and after.
  *
+ * ר2 letters (stateless routes, behind business_documents):
+ *   L1  no session → 401;  L2  flag off (the default) → 404, per business;
+ *   L3  flag on → a preview with the business letterhead, the subject escaped, a strict CSP;
+ *   L4  a customer / supplier of another business → 404 (nothing of it rendered);
+ *   L5  invalid input → 400 with field problems; a non-JSON body → 400;
+ *   L6  a retried request → the same bytes;  L7  rendering writes nothing;
+ *   L8  (RENDER=1, needs Chromium) the PDF is a real PDF whose text carries the letter.
+ *
  * Note: the lab is built with `prisma db push`, so Postgres RLS policies are not
  * installed here; I3/I4 prove the application-level scoping (session → businessId
  * in every query). RLS in Production is an additional layer on top.
@@ -26,6 +34,8 @@ import { createBillingDraft } from "../lib/services/billing/billing-draft.servic
 import { issueBillingDocument } from "../lib/services/billing/billing-issue.service";
 import { GET as listDocuments } from "../app/api/billing/documents/route";
 import { GET as getCustomer } from "../app/api/customers/[id]/route";
+import { POST as letterPreview } from "../app/api/business-documents/letters/preview/route";
+import { POST as letterPdf } from "../app/api/business-documents/letters/pdf/route";
 
 const prisma = new PrismaClient();
 
@@ -124,10 +134,100 @@ async function main() {
   const after = await prisma.billingDocument.findMany({ where: { id: { in: ids } }, orderBy: { id: "asc" } });
   ok("I6 reading changed nothing", JSON.stringify(before) === JSON.stringify(after));
 
+  await letters(a, b);
+
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) {
     for (const f of failures) console.log(`FAIL: ${f}`);
     process.exitCode = 1;
+  }
+}
+
+function post(url: string, token: string | null, body: unknown) {
+  return new NextRequest(`http://localhost${url}`, {
+    method: "POST",
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function counts() {
+  const [docs, customers, suppliers, overrides, audits] = await Promise.all([
+    prisma.billingDocument.count(),
+    prisma.customer.count(),
+    prisma.supplier.count(),
+    prisma.businessFeatureAccess.count(),
+    prisma.billingAuditEvent.count(),
+  ]);
+  return { docs, customers, suppliers, overrides, audits };
+}
+
+type Tenant = Awaited<ReturnType<typeof tenant>>;
+
+async function letters(a: Tenant, b: Tenant) {
+  const letter = { recipientKind: "free", recipientName: "חברת בדיקה", subject: "<b>הודעה</b> חשובה", body: "שלום רב,\n\nתודה.", date: "2026-11-05", signerName: "בעל העסק" };
+  const PREVIEW = "/api/business-documents/letters/preview";
+
+  const anon = await letterPreview(post(PREVIEW, null, letter));
+  ok("L1 no session → 401", anon.status === 401, String(anon.status));
+  const off = await letterPreview(post(PREVIEW, a.token, letter));
+  ok("L2 flag off (default) → 404", off.status === 404, String(off.status));
+
+  // Lab only: open the feature for business A (definition row + business override). Never done outside a lab.
+  await prisma.platformFeatureDefinition.upsert({
+    where: { key: "business_documents" },
+    create: { key: "business_documents", displayName: "מסמכים נוספים", category: "documents", defaultEnabled: false },
+    update: {},
+  });
+  await prisma.businessFeatureAccess.create({ data: { businessId: a.business.id, featureKey: "business_documents", state: "ENABLED", reason: "lab" } });
+  const bSupplier = await prisma.supplier.create({ data: { businessId: b.business.id, name: "ספק b" } });
+
+  const before = await counts();
+  const r1 = await letterPreview(post(PREVIEW, a.token, letter));
+  const html1 = await r1.text();
+  ok("L3 preview 200 as HTML", r1.status === 200 && (r1.headers.get("content-type") ?? "").startsWith("text/html"), String(r1.status));
+  ok("L3 business letterhead printed", html1.includes("עסק a"));
+  ok("L3 subject escaped", html1.includes("&lt;b&gt;הודעה&lt;/b&gt;") && !html1.includes("<b>הודעה</b>"));
+  ok("L3 preview carries a strict CSP", (r1.headers.get("content-security-policy") ?? "").includes("default-src 'none'"));
+
+  const crossCustomer = await letterPreview(post(PREVIEW, a.token, { ...letter, recipientKind: "customer", customerId: b.customer.id, recipientName: "" }));
+  const crossText = await crossCustomer.text();
+  ok("L4 another business's customer → 404", crossCustomer.status === 404 && !crossText.includes("לקוח b"), String(crossCustomer.status));
+  const ownCustomer = await letterPreview(post(PREVIEW, a.token, { ...letter, recipientKind: "customer", customerId: a.customer.id, recipientName: "" }));
+  ok("L4 own customer → its name on the letter", ownCustomer.status === 200 && (await ownCustomer.text()).includes("לקוח a"));
+  const crossSupplier = await letterPreview(post(PREVIEW, a.token, { ...letter, recipientKind: "supplier", supplierId: bSupplier.id, recipientName: "" }));
+  ok("L4 another business's supplier → 404", crossSupplier.status === 404, String(crossSupplier.status));
+  const bOff = await letterPreview(post(PREVIEW, b.token, letter));
+  ok("L2 the flag is per business: B is still 404", bOff.status === 404, String(bOff.status));
+
+  const bad = await letterPreview(post(PREVIEW, a.token, { ...letter, subject: "", date: "2026-02-30" }));
+  const badBody = (await bad.json()) as { problems?: { field: string }[] };
+  const fields = (badBody.problems ?? []).map((p) => p.field);
+  ok("L5 invalid input → 400 with field problems", bad.status === 400 && fields.includes("subject") && fields.includes("date"), JSON.stringify(badBody));
+  const notJson = await letterPreview(new NextRequest(`http://localhost${PREVIEW}`, { method: "POST", headers: { Authorization: `Bearer ${a.token}` }, body: "not json" }));
+  ok("L5 a non-JSON body → 400", notJson.status === 400, String(notJson.status));
+
+  const r2 = await letterPreview(post(PREVIEW, a.token, letter));
+  ok("L6 a retried request returns the same bytes", (await r2.text()) === html1);
+  const after = await counts();
+  ok("L7 rendering wrote nothing", JSON.stringify(before) === JSON.stringify(after), JSON.stringify({ before, after }));
+
+  if (process.env.RENDER === "1") {
+    const { PDFParse } = await import("pdf-parse");
+    const pdf = await letterPdf(post("/api/business-documents/letters/pdf", a.token, letter));
+    const bytes = Buffer.from(await pdf.arrayBuffer());
+    ok("L8 PDF 200 as an attachment", pdf.status === 200 && pdf.headers.get("content-type") === "application/pdf" && (pdf.headers.get("content-disposition") ?? "").includes("letter-2026-11-05.pdf"), String(pdf.status));
+    ok("L8 real PDF bytes", bytes.subarray(0, 5).toString() === "%PDF-");
+    const parser = new PDFParse({ data: bytes });
+    const t = (await parser.getText()).text.replace(/\s+/g, "");
+    await parser.destroy();
+    ok("L8 PDF text carries the business, the subject and the body", t.includes("חשובה") && t.includes("תודה") && t.includes("בדיקה"), t.slice(0, 160));
+    const pdfOff = await letterPdf(post("/api/business-documents/letters/pdf", b.token, letter));
+    ok("L8 the PDF route is flag-gated too (B → 404)", pdfOff.status === 404, String(pdfOff.status));
+    const after2 = await counts();
+    ok("L8 the PDF wrote nothing", JSON.stringify(before) === JSON.stringify(after2));
+  } else {
+    console.log("  [SKIP] L8 PDF render (set RENDER=1 with a local Chromium)");
   }
 }
 
