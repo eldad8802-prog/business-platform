@@ -107,12 +107,15 @@ export const defaultConnectionsCenterReaders: ConnectionsCenterReaders = {
   },
 
   async authority(caller) {
-    const outcome = await resolveAuthorityStatusRequest({
-      actor: { id: caller.userId, businessId: caller.businessId },
-      requestedBusinessId: null,
-      environment: authorityEnvironment(),
-      deps: { getActiveAuthorityApp, getAuthorityConnectionStatus, now: () => new Date() },
-    });
+    // The connection read is FORCE RLS and only scopes itself under a tenant context.
+    const outcome = await runWithTenantContext({ businessId: caller.businessId }, () =>
+      resolveAuthorityStatusRequest({
+        actor: { id: caller.userId, businessId: caller.businessId },
+        requestedBusinessId: null,
+        environment: authorityEnvironment(),
+        deps: { getActiveAuthorityApp, getAuthorityConnectionStatus, now: () => new Date() },
+      })
+    );
     if (!outcome.ok) throw new Error("authority status refused for the caller's own business");
     return { status: outcome.dto.status, connectedAt: outcome.dto.connectedAt };
   },
