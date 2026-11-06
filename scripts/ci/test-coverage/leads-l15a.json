@@ -15,6 +15,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-a decision 3 lead-loss integrity: the seven intake sources resolve through the v2 lookups so a PAUSED endpoint still verifies and records (held, never processed, never dropped); revoked stays IGNORED and is checked first, a withdrawn entitlement or quarantine still records nothing; resuming re-arms only that connection's paused receipts; Rivhit keeps v1"
+    },
+    "lib/intake/l15b-fair-queue.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-b PR-1 lead-loss integrity: held receipts never take a drain's whole budget (each lane keeps a fifth; ready work first, fair by source; held fair by connection); both lanes list exactly the claimable due set in UTC; one look settles only its own business / source / connection's due held receipts, spends no attempt, never touches a live lease; only the hydrate hold branch does it"
     }
   }
 }
