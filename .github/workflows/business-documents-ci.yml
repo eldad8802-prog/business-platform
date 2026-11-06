@@ -17,6 +17,8 @@ on:
       - "app/(shell)/customers/**"
       - "components/customers/CustomerCard.tsx"
       - "lib/services/tasks/**"
+      - "prisma/migrations/20261114090000_business_documents_records/**"
+      - "scripts/ci/erasure/**"
       - "features/tasks/**"
       - "lib/i18n/messages/areas/**"
       - ".business-documents/**"
@@ -188,3 +190,59 @@ jobs:
           AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
           RLS_ADMIN_URL: ${{ env.OWNER_URL }}
         run: npx tsx .business-documents/rls.battery.mts
+
+  records:
+    name: Business documents records — the real migration AS the runtime role (PG17, Production topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: bd_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: bd_ci_synthetic_super_pw
+      LAB_PASSWORD: bd_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: bd_ci_auth_secret_synthetic
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Static guards — tenant RLS, account deletion, erasure contract (new debt recorded explicitly)
+        run: |
+          set -euo pipefail
+          node scripts/ci/tenant-table-rls-guard.mjs
+          bash scripts/ci/account-deletion-guard.sh .
+          npm run verify:erasure-contract -- --baseline-check
+      - name: Atomicity — the migration failing on its last statement leaves nothing behind
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh bd_broken --broken-bd
+          OWNER="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_broken"
+          left="$(psql -X -At "$OWNER" -c "SELECT (SELECT count(*) FROM pg_class WHERE relname IN ('BusinessDocumentFile','BusinessDocumentRequest','QuoteShareCopy','QuoteShareEvent','BusinessLetter','BusinessDocumentErasure')) + (SELECT count(*) FROM pg_proc WHERE proname LIKE 'business_documents%' OR proname LIKE 'business_letter%') + (SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE key = 'business_documents')")"
+          echo "objects left by the failed migration: $left"
+          [ "$left" = "0" ]
+      - name: Records battery — privileges, isolation, quote link, events, append-only and every bypass, record vs delete (both orders, 200 pairs), letters, purge, erasure
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh bd_records --with-bd
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_records"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_records?connection_limit=20"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_records"             npx tsx .business-documents/records.battery.mts
