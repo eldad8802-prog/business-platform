@@ -105,8 +105,10 @@ const en = createTranslator(getMessages("en"));
 const LEGACY_AGENDA_SHA = "3fe6eea5250e5df6bb144739f7659a01c93f51bada724d22c6a7ef4bc0ec11d0";
 /** Every queue title (n = 1 and 7) and the three overdue shapes, from the pre-i18n agenda-core.ts. */
 const LEGACY_LABELS_SHA = "13611a26a86271e2e33c1f42dac322d4ad6f94eb4c23694f64b49c0df780d5f9";
+/** The seven pre-i18n sources the legacy hash was taken over. Kinds added later (S08 quote_validity) are checked below. */
+const LEGACY_SOURCE_KINDS = ["supplier_payment", "customer_debt", "invoice_review", "lead", "conversation", "documents_queue", "stock"] as const satisfies readonly SourceKind[];
 const labels = (t?: typeof he) => [
-  ...SOURCE_KINDS.flatMap((k) => [1, 7].map((n) => queueTitle(k, n, t))),
+  ...LEGACY_SOURCE_KINDS.flatMap((k) => [1, 7].map((n) => queueTitle(k, n, t))),
   ...["2026-10-13", "2026-10-12", "2026-09-14"].map((d) => overdueLabel(d, "2026-10-14", t)),
 ];
 const LEGACY_CADENCE_SHA = "32bfd270dbc41cfc7f49329006910cfe393f147cf26d9ca3b8742dc141c5cadf";
@@ -123,6 +125,26 @@ console.log("Hebrew is byte-identical to the pre-i18n output");
   ok("queue titles + overdue labels (explicit Hebrew) = legacy", sha(labels(he)) === LEGACY_LABELS_SHA);
   ok("agenda (explicit Hebrew) = legacy", sha(buildAgenda({ ...fixture(), t: he })) === LEGACY_AGENDA_SHA);
   ok("cadence (explicit Hebrew) = legacy", sha(RULES.map((r) => cadenceLabel(r, he))) === LEGACY_CADENCE_SHA);
+}
+
+console.log("Source coverage: the seven legacy sources stay under the legacy hash; every later source is registered here");
+{
+  /** Every source added after the legacy snapshot, with the exact titles it must render (n = 3). A new kind that is
+   *  not listed here fails below — it cannot slip past the legacy hash unnoticed. */
+  const ADDED_SOURCES: Record<string, { he: string; en: string }> = {
+    quote_validity: { he: "3 הצעות מחיר שתוקפן מסתיים", en: "3 quotes whose validity ends" },
+  };
+  ok("the legacy hash is taken over exactly seven sources", LEGACY_SOURCE_KINDS.length === 7);
+  for (const k of LEGACY_SOURCE_KINDS) ok(`legacy source still exists: ${k}`, (SOURCE_KINDS as readonly string[]).includes(k));
+  for (const k of SOURCE_KINDS) {
+    if ((LEGACY_SOURCE_KINDS as readonly string[]).includes(k)) continue;
+    const expected = ADDED_SOURCES[k];
+    ok(`source ${k} is registered with its own characterization`, !!expected, `new source kind "${k}" has no characterization — add it to ADDED_SOURCES with its expected titles`);
+    if (!expected) continue;
+    ok(`${k}: Hebrew queue title`, queueTitle(k, 3, he) === expected.he, queueTitle(k, 3, he));
+    ok(`${k}: English queue title`, queueTitle(k, 3, en) === expected.en, queueTitle(k, 3, en));
+  }
+  for (const k of Object.keys(ADDED_SOURCES)) ok(`registered source still exists: ${k}`, (SOURCE_KINDS as readonly string[]).includes(k as SourceKind));
 }
 
 console.log("English");

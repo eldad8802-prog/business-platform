@@ -9,20 +9,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
-import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
-import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
-import { runWithTenantContext } from "@/lib/tenant/context";
 
+import { businessDocumentsEnabled } from "./business-documents-access";
 import { LetterValidationError } from "./letter/letter.contracts";
-
-export async function businessDocumentsEnabled(businessId: number): Promise<boolean> {
-  try {
-    const r = await runWithTenantContext({ businessId }, () => resolveFeatureAccess(businessId, PLATFORM_FEATURE_KEYS.BUSINESS_DOCUMENTS));
-    return r.allowed === true;
-  } catch {
-    return false;
-  }
-}
 
 export type BusinessDocumentsContext = { businessId: number; userId: number };
 

@@ -30,6 +30,7 @@ import { runTenantJob } from "@/lib/tenant/job";
 import {
   replacePayload,
   claimEvent,
+  deferHeldSiblings,
   errorCodeOf,
   listDueEventIds,
   markDeadLetter,
@@ -242,7 +243,13 @@ export async function processIntakeEvent(
       const h = await adapter.hydrate(ctx, event);
       if (h.kind === "deferred") {
         await markDeferred(businessId, event, h.until, h.code);
-        logIntake("deferred", { ...base, stage: "hydrate", code: h.code });
+        // L1.5-b · PR-1 — a hold is per connection: this look settles the connection's other due held receipts too.
+        // Best effort: if settling them fails, this receipt's own deferral already stands and they get their own looks.
+        const siblings = await deferHeldSiblings(businessId, event, h.until, h.code, now).catch((error: unknown) => {
+          logIntake("hold_siblings_failed", { ...base, code: errorCodeOf(error) });
+          return 0;
+        });
+        logIntake("deferred", { ...base, stage: "hydrate", code: h.code, ...(siblings > 0 ? { count: siblings } : {}) });
         return "deferred";
       }
       if (h.kind === "ignored") {
