@@ -24,6 +24,7 @@ import { getActiveAuthorityApp } from "@/lib/services/billing/authority/billing-
 import { getAuthorityConnectionStatus } from "@/lib/services/billing/authority/billing-authority-status.service";
 import { resolveRuntimeAuthorityEnvironment } from "@/lib/services/billing/authority/billing-authority-env.service";
 import { resolveAuthorityStatusRequest } from "@/lib/services/billing/authority/billing-authority-status-view.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
 
@@ -48,19 +49,32 @@ export async function GET(req: NextRequest) {
       return authRequiredResponse(req);
     }
 
-    const outcome = await resolveAuthorityStatusRequest({
-      actor: { id: user.id, businessId: user.businessId },
-      requestedBusinessId: req.nextUrl.searchParams.get("businessId"),
-      environment: resolveEnvironmentSafe(),
-      deps: {
-        getActiveAuthorityApp,
-        getAuthorityConnectionStatus,
-        now: () => new Date(),
-      },
-      // Null unless the caller's business AND the caller are production-pilot
-      // admitted; then the card offers the PRODUCTION connect.
-      includeProductionPilot: true,
-    });
+    const resolve = () =>
+      resolveAuthorityStatusRequest({
+        actor: { id: user.id, businessId: user.businessId },
+        requestedBusinessId: req.nextUrl.searchParams.get("businessId"),
+        environment: resolveEnvironmentSafe(),
+        deps: {
+          getActiveAuthorityApp,
+          getAuthorityConnectionStatus,
+          now: () => new Date(),
+        },
+        // Null unless the caller's business AND the caller are production-pilot
+        // admitted; then the card offers the PRODUCTION connect.
+        includeProductionPilot: true,
+      });
+
+    // BillingAuthorityConnection is FORCE RLS and the runtime role does not
+    // bypass it; the connection read only scopes itself under an established
+    // tenant context. Without one it matched zero rows and every business read
+    // DISCONNECTED — even right after a successful OAuth callback. The context
+    // is the caller's own business; the resolver still refuses any other
+    // requested business before reading. No business → the resolver forbids.
+    const businessId = user.businessId;
+    const outcome =
+      typeof businessId === "number" && Number.isInteger(businessId) && businessId > 0
+        ? await runWithTenantContext({ businessId }, resolve)
+        : await resolve();
 
     if (!outcome.ok) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });

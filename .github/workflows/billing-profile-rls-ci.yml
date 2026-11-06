@@ -51,6 +51,15 @@ on:
       - "app/api/pricing/calculations/**"
       - "lib/services/billing/collection/awaiting-payment.loader.ts"
       - "lib/services/billing/authority/billing-authority-validation.service.ts"
+      - "lib/services/billing/authority/billing-authority-status-view.service.ts"
+      - "lib/services/billing/authority/billing-authority-status.service.ts"
+      - "app/api/taxes/authority/**"
+      - "lib/services/billing/authority/billing-authority-approval-token.provider.ts"
+      - "lib/services/billing/authority/billing-authority-token-refresh.service.ts"
+      - "lib/services/billing/authority/billing-authority-approval-runtime-context.provider.ts"
+      - "lib/services/billing/authority/billing-authority-submission-execution.service.ts"
+      - "lib/services/billing/authority/billing-authority-decision.service.ts"
+      - "lib/services/billing/authority/billing-authority-approval-path.rls.integration.test.ts"
       - "app/api/rls-caller-closure.integration.test.ts"
       - "lib/services/billing/quote-pdf.service.ts"
       - "lib/services/offer.service.ts"
@@ -203,6 +212,94 @@ jobs:
           }
           prove app/api/billing/customers/route.ts "L1" || exit 1
           prove app/api/customer/route.ts "LG1" || exit 1
+
+      # The tax-authority card read BillingAuthorityConnection with no tenant
+      # context, so every business read as DISCONNECTED in Production — also right
+      # after a successful OAuth callback. Same resolver behind the connections
+      # center and summary.
+      - name: Tax-authority connection status under FORCE RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx app/api/taxes/authority/status/route.rls.integration.test.ts
+
+      - name: Negative proof — authority status without the tenant context is caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          # Each caller's read is put back outside the tenant context (exactly the
+          # defect), and the suite must go red on THAT caller's own case.
+          prove() {
+            local file="$1" pattern="$2" expect="$3"
+            cp "$file" "$file.bak"
+            perl -0pi -e "$pattern" "$file"
+            if cmp -s "$file" "$file.bak"; then
+              mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply to $file"; return 1
+            fi
+            npx tsx app/api/taxes/authority/status/route.rls.integration.test.ts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then
+              echo "::error::NEGATIVE-PROOF FAIL: $file read without the tenant context and the suite stayed green"; return 1
+            fi
+            if ! grep -q "\[FAIL\] $expect" np.log; then
+              echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on $expect"; tail -30 np.log; return 1
+            fi
+            echo "negative proof OK — $file without the tenant context fails $expect"
+          }
+          prove app/api/taxes/authority/status/route.ts \
+            's/\? await runWithTenantContext\(\{ businessId \}, resolve\)/? await resolve()/' "S2" || exit 1
+          prove lib/services/connections/connections-center.service.ts \
+            's/await runWithTenantContext\(\{ businessId: caller\.businessId \}, \(\) =>/await ((_c: unknown, fn: () => unknown) => fn())({ businessId: caller.businessId }, () =>/' "CC1" || exit 1
+          prove lib/services/connections/connections-summary.service.ts \
+            's/await runWithTenantContext\(\{ businessId: caller\.businessId \}, \(\) =>/await ((_c: unknown, fn: () => unknown) => fn())({ businessId: caller.businessId }, () =>/' "CS1" || exit 1
+
+      # The Approval / Decision token read and its Refresh read ran with no tenant
+      # context (post-commit after issuance, and the decision route), so under
+      # FORCE RLS every Approval stopped at CONNECTION_NOT_FOUND. All authority
+      # calls are local stubs; global fetch throws.
+      - name: Authority Approval / Decision token path and Refresh under FORCE RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx lib/services/billing/authority/billing-authority-approval-path.rls.integration.test.ts
+
+      - name: Negative proof — token and refresh reads without the tenant transaction are caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          # Each read is put back on billingDbStep with no context (exactly the
+          # defect), and the suite must go red on THAT read's own case.
+          prove() {
+            local file="$1" expect="$2"
+            cp "$file" "$file.bak"
+            perl -0pi -e 's/billingTenantTx\(businessId, \(tx\) => tx\.billingAuthorityConnection\.findUnique/billingDbStep((tx) => tx.billingAuthorityConnection.findUnique/; s/import \{ billingTenantTx \} from "\.\.\/billing-tenant-tx";/import { billingDbStep } from "..\/billing-db-step";/' "$file"
+            if cmp -s "$file" "$file.bak"; then
+              mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply to $file"; return 1
+            fi
+            npx tsx lib/services/billing/authority/billing-authority-approval-path.rls.integration.test.ts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then
+              echo "::error::NEGATIVE-PROOF FAIL: $file read without the tenant transaction and the suite stayed green"; return 1
+            fi
+            if ! grep -q "\[FAIL\] $expect" np.log; then
+              echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on $expect"; tail -30 np.log; return 1
+            fi
+            echo "negative proof OK — $file without the tenant transaction fails $expect"
+          }
+          prove lib/services/billing/authority/billing-authority-approval-token.provider.ts "T1" || exit 1
+          prove lib/services/billing/authority/billing-authority-token-refresh.service.ts "R1" || exit 1
 
       - name: Notifications, awaiting payment, pricing and authority identity
         env:
