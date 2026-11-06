@@ -15,6 +15,7 @@ import {
 import { TOKEN } from "@/lib/design/billing-theme";
 import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/billing-theme";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
@@ -125,6 +126,8 @@ export default function BillingHubPage() {
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
+  // ה׳13: the business-documents entry is shown only while that feature is on (off by default).
+  const moreDocumentsOn = useFeatureEnabled("business_documents");
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [createDocumentType, setCreateDocumentType] = useState<
     "TAX_INVOICE" | "QUOTE"
@@ -430,6 +433,30 @@ export default function BillingHubPage() {
             >
               {t("billing.list.createQuote")}
             </button>
+            {/* ה׳13 (owner-approved 2026-11-05): one additive entry to the business-documents additions, only while that
+                feature is on. The two buttons above and their flows are unchanged. */}
+            {moreDocumentsOn ? (
+              <Link
+                className="billing-action-button"
+                href="/business-documents"
+                data-dz-action="secondary"
+                style={{
+                  ...glassActionStyle({ height: 48 }),
+                  padding: "12px 18px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  minHeight: 48,
+                  flex: "0 1 264px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  textDecoration: "none",
+                }}
+              >
+                {t("billing.list.moreDocuments")}
+              </Link>
+            ) : null}
           </div>
         </section>
 
