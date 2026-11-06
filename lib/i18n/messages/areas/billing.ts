@@ -71,6 +71,7 @@ export const billingHe = {
     actionsHelp: "צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח.",
     createInvoice: "+ צור חשבונית",
     createQuote: "+ צור הצעת מחיר",
+    moreDocuments: "מסמכים נוספים",
     continueWork: "המשך עבודה",
     identitySummary: "פרטי העסק במסמכים",
     overviewSummary: "סקירה קצרה",
