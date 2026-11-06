@@ -1,8 +1,10 @@
 export type {
   GetObjectResult,
   HeadObjectResult,
+  ListedObject,
   ObjectMetadata,
   ParsedStorageKey,
+  PutIfAbsentResult,
   PutObjectInput,
   PutObjectMetadataInput,
   PutObjectResult,
@@ -24,14 +26,17 @@ export {
 
 export {
   assertKeyMatchesMetadata,
+  assertSafeListPrefix,
   assertSafeStorageKey,
   normalizeStorageKey,
   parseStorageKey,
 } from "./key-validation";
 
 export {
+  assertUnconditionalPutAllowed,
   getDefaultVisibility,
   getRequiredVisibility,
+  isConditionalOnlyDomain,
   isPrivateVisibility,
   isPublicVisibility,
   validatePutObjectMetadata,
