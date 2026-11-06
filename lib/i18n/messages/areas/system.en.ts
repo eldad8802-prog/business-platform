@@ -13,6 +13,7 @@ export const systemEn: Widen<typeof systemHe> = {
       supplier_payment: "Supplier payments",
       customer_debt: "Customer collection",
       invoice_review: "Invoices to review",
+      quote_validity: "Quote validity",
       lead: "Leads",
       conversation: "Conversations waiting for a reply",
       documents_queue: "Documents to review",
@@ -22,6 +23,7 @@ export const systemEn: Widen<typeof systemHe> = {
       conversation: "{n} conversations waiting for a reply",
       stock: "{n} items low in stock",
       invoice_review: "{n} invoices waiting for review",
+      quote_validity: "{n} quotes whose validity ends",
       customer_debt: "{n} customers to collect from",
       documents_queue: "{n} documents waiting for review",
       lead: "{n} leads",
@@ -77,6 +79,7 @@ export const systemEn: Widen<typeof systemHe> = {
       action: "Send a reminder",
     },
     invoiceReview: { title: "Invoice {number} waiting for review", created: "Created {date}", action: "Open invoice" },
+    quoteValidity: { title: "Quote {number} validity", expiresOn: "Valid until {date}", expiredOn: "Validity ended on {date}", action: "Open quote" },
     lead: {
       unnamed: "Unnamed lead",
       newMessage: "New message from {name}",

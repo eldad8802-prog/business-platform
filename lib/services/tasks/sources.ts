@@ -9,6 +9,8 @@
  *   S16 conversations      — open conversations whose last message is the customer's
  *   S23 documents queue    — one row while documents wait for review
  *   S25 stock              — open low / critical stock alerts
+ *   S08 quote validity     — (ר1, only while business_documents is on) a quote not converted whose validity ends
+ *                            within 3 days or has ended; quotes owned by a service case are never included
  *
  * READ-ONLY. Every adapter runs in the business's tenant context (a context-less read would silently return
  * nothing under RLS — `runAdapter` refuses to run without a business), in isolation and under a time limit: one
@@ -16,13 +18,15 @@
  * its fetch cap says CAPPED, so the count reads "N+". Nothing here writes, and nothing names money that the
  * secretary does not already show.
  */
-import { BillingDocumentStatus } from "@prisma/client";
+import { BillingDocumentStatus, BillingDocumentType } from "@prisma/client";
 
 import { loadAttentionWaiting, loadLeadsNeedingAttention } from "@/lib/business-status/loaders";
 import { countPendingReviewAllTime, listPendingReviewMonths, pendingReviewInboxHref } from "@/lib/documents/pending-review";
 import { loadAwaitingPaymentList } from "@/lib/services/billing/collection/awaiting-payment.loader";
 import { evaluateLeadAttention } from "@/lib/services/crm/lead-attention";
 import { OPEN_LEAD_STATUSES, endOfLeadDayUtc, type LeadStatusValue } from "@/lib/services/crm/lead-core";
+import { businessDocumentsEnabled } from "@/lib/services/business-documents/business-documents-access";
+import { selectQuoteValidityItems, windowEndInstant } from "@/lib/services/business-documents/quote-followup/quote-validity.core";
 import { getBriefing } from "@/lib/services/obligations/obligation.service";
 import { obligationServiceDeps } from "@/lib/services/obligations/obligations.deps";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -163,6 +167,45 @@ export const invoiceReview: Adapter = async ({ businessId, t = HEBREW_TEXT }) =>
     entity: { kind: "billing_document", id: d.id },
   }));
   return { items, capped: rows.length > INVOICE_REVIEW_CAP };
+};
+
+// ── S08 Quote validity (ר1) ───────────────────────────────────────────────────────────────────────
+
+const QUOTE_VALIDITY_CAP = 50;
+export const quoteValidity: Adapter = async ({ businessId, today, t = HEBREW_TEXT }) => {
+  // Dormant until its domain is open for the business (spec 4.4): business_documents, off by default.
+  if (!(await businessDocumentsEnabled(businessId))) return { items: [], capped: false };
+  const { rows, serviceOwned } = await tenantTx(businessId, async (tx) => {
+    const rows = await tx.billingDocument.findMany({
+      where: { businessId, documentType: BillingDocumentType.QUOTE, convertedToInvoiceId: null, validUntil: { not: null, lt: windowEndInstant(today) } },
+      orderBy: [{ validUntil: "asc" }, { id: "asc" }],
+      take: QUOTE_VALIDITY_CAP * 2,
+      select: { id: true, validUntil: true, convertedToInvoiceId: true, documentNumberFormatted: true, customerNameSnapshot: true, updatedAt: true },
+    });
+    // ANY ServiceQuote row (every version) makes the quote the service desk's — never a reminder here.
+    const owned = rows.length
+      ? await tx.serviceQuote.findMany({ where: { businessId, billingDocumentId: { in: rows.map((r) => r.id) } }, select: { billingDocumentId: true } })
+      : [];
+    return { rows, serviceOwned: new Set(owned.map((o) => o.billingDocumentId)) };
+  });
+  const selected = selectQuoteValidityItems(rows, serviceOwned, today);
+  const items: SourceItem[] = selected.slice(0, QUOTE_VALIDITY_CAP).map((q) => ({
+    sourceKind: "quote_validity",
+    dedupeKey: `quote:${q.id}:validity`,
+    // A new validity date is a new cycle (spec: "תאריך עודכן" closes the old one).
+    cycleKey: `v${q.validDay}`,
+    evidenceVersion: `u${q.updatedAt.getTime()}`,
+    placement: "BY_DATE",
+    dueOn: q.state === "EXPIRED" ? today : q.validDay,
+    severity: "NORMAL",
+    title: t("system.tasks.quoteValidity.title", { number: q.numberFormatted ?? "" }).replace(/s+/g, " ").trim(),
+    fact: [q.customerName, q.state === "EXPIRED" ? t("system.tasks.quoteValidity.expiredOn", { date: shortDate(q.validDay) }) : t("system.tasks.quoteValidity.expiresOn", { date: shortDate(q.validDay) })].filter(Boolean).join(" · "),
+    factAt: null,
+    action: { label: t("system.tasks.quoteValidity.action"), href: `/billing/${q.id}` },
+    snooze: "STATE",
+    entity: { kind: "billing_document", id: q.id },
+  }));
+  return { items, capped: selected.length > QUOTE_VALIDITY_CAP || rows.length >= QUOTE_VALIDITY_CAP * 2 };
 };
 
 // ── S13 / S14 Leads ──────────────────────────────────────────────────────────────────────────────
@@ -358,6 +401,7 @@ export const ADAPTERS: Readonly<Record<SourceKind, Adapter>> = {
   conversation: conversations,
   documents_queue: documentsQueue,
   stock,
+  quote_validity: quoteValidity,
 };
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
