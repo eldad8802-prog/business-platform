@@ -35,7 +35,7 @@ import {
   markAuthorityTokenRefreshFailed,
   sanitizeAuthorityConnectionErrorMessage,
 } from "@/lib/services/billing/authority/billing-authority-connection.service";
-import { billingDbStep } from "../billing-db-step";
+import { billingTenantTx } from "../billing-tenant-tx";
 import {
   AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
   AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
@@ -286,7 +286,10 @@ async function loadRefreshableAuthorityConnection(
   businessId: number,
   environment: BillingAuthorityEnvironment
 ): Promise<RefreshableConnectionRow | null> {
-  return billingDbStep((db) => db.billingAuthorityConnection.findUnique({
+  // FORCE RLS: re-assert the tenant from the trusted businessId (same reason as
+  // the approval-token provider, its only caller). The writes after the exchange
+  // already go through billingTenantTx.
+  return billingTenantTx(businessId, (tx) => tx.billingAuthorityConnection.findUnique({
     where: {
       businessId_environment: { businessId, environment },
     },

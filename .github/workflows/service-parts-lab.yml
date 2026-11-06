@@ -1,0 +1,98 @@
+# Service Desk 1.2c / M2 (spare parts) — lab BEFORE the migration exists.
+#
+# What runs (and must pass) today, on PG17 with the Production role topology:
+#   1. .sdp/lab.sh: the 1.2b lab with 20261113090000_service_external_work applied + the Production inventory RLS
+#      (migration 20260825200000 run as-is).
+#   2. .sdp/locks.ts: M2's dependencies, lock semantics and deadlocks on the real 1.2a / 1.2b rows, the cancel gap,
+#      and the M0 bug reproduced in SQL. PENDING lines (need the M2 tables) are never counted as passes.
+#   3. .sdp/battery.ts: the M2 migration battery — while no M2 migration exists it must report every check PENDING
+#      and 0 passed; the step fails if it ever claims a pass without the tables.
+#   4. 1.2b battery on the same lab (1.2a regression included): the baseline M2 must keep.
+#
+# No migration, no schema change, no secret, no network. Synthetic credentials only.
+
+name: service parts — M2 lab (ephemeral PG17, pre-migration)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".sdp/**"
+      - ".github/workflows/service-parts-lab.yml"
+      - "lib/services/service-desk/parts.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service parts M2 lab (PG17, 1.2b applied, inventory RLS as Production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdp_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdp_ci_synthetic_super_pw
+      LAB_PASSWORD: sdp_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. No M2 migration and no schema change in this checkout
+        run: |
+          set -euo pipefail
+          if ls -d prisma/migrations/*_service_parts 2>/dev/null; then echo "an M2 migration exists — this pre-migration lab must be extended with it"; exit 1; fi
+          if grep -nE 'model ServicePart\b|model ServicePartEvent\b' prisma/schema.prisma; then echo "schema.prisma models M2 — not allowed before PR-1"; exit 1; fi
+          echo "no M2 migration, no M2 models"
+
+      - name: 1. Lab — 1.2b applied, inventory RLS as Production
+        run: bash .sdp/lab.sh sdp
+
+      - name: 2. Locks, deadlocks, cancel gap, M0 reproduction (runs today)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdp" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdp" \
+            npx tsx .sdp/locks.ts | tee /tmp/locks.out
+          grep -qE '^[0-9]+ passed, 0 failed' /tmp/locks.out
+
+      - name: 3. M2 battery — must be all PENDING, never a pass, while the tables are absent
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdp" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdp" \
+            npx tsx .sdp/battery.ts | tee /tmp/battery.out
+          grep -qE '^0 passed, 0 failed, [0-9]+ pending$' /tmp/battery.out || { echo "the M2 battery claimed a result without the M2 tables"; exit 1; }
+          if grep -q '\[PASS\]' /tmp/battery.out; then echo "a PASS without the M2 tables"; exit 1; fi
+
+      - name: 4. Baseline — the 1.2b battery (with its 1.2a regression) on a fresh 1.2b lab
+        run: |
+          set -euo pipefail
+          bash .sdx/lab.sh sdx_base --with-sdx >/dev/null
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdx_base" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdx_base" \
+            npx tsx .sdx/battery.ts

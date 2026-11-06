@@ -1061,7 +1061,28 @@ async function runAsyncTests() {
   }
 }
 
+/**
+ * The connection read now runs inside the tenant transaction (billingTenantTx →
+ * prisma.$transaction), not on the global client — FORCE RLS makes the global
+ * read see nothing. Cases that only stub `prisma.billingAuthorityConnection
+ * .findUnique` keep working through this default: the transaction's read is
+ * served by whatever that case stubbed. Cases that need a full fake transaction
+ * still replace `prisma.$transaction` themselves (and restore this default).
+ * Never a real database: any other model touched here throws.
+ */
+function installScopedReadShim(): void {
+  prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+    fn({
+      $queryRaw: async () => [],
+      billingAuthorityConnection: {
+        findUnique: (args: Parameters<typeof prisma.billingAuthorityConnection.findUnique>[0]) =>
+          prisma.billingAuthorityConnection.findUnique(args),
+      },
+    } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
+}
+
 async function runTests() {
+  installScopedReadShim();
   await runAsyncTests();
 
   if (failed > 0) {

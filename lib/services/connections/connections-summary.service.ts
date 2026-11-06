@@ -73,12 +73,15 @@ async function whatsappActive(businessId: number): Promise<number> {
 }
 
 async function taxAuthorityActive(caller: ConnectionsSummaryCaller): Promise<number> {
-  const outcome = await resolveAuthorityStatusRequest({
-    actor: { id: caller.userId, businessId: caller.businessId },
-    requestedBusinessId: null,
-    environment: authorityEnvironment(),
-    deps: { getActiveAuthorityApp, getAuthorityConnectionStatus, now: () => new Date() },
-  });
+  // The connection read is FORCE RLS and only scopes itself under a tenant context.
+  const outcome = await runWithTenantContext({ businessId: caller.businessId }, () =>
+    resolveAuthorityStatusRequest({
+      actor: { id: caller.userId, businessId: caller.businessId },
+      requestedBusinessId: null,
+      environment: authorityEnvironment(),
+      deps: { getActiveAuthorityApp, getAuthorityConnectionStatus, now: () => new Date() },
+    })
+  );
   if (!outcome.ok) throw new Error("authority status refused for the caller's own business");
   return outcome.dto.status === "CONNECTED" ? 1 : 0;
 }
