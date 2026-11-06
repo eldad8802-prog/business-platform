@@ -158,6 +158,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
 
   // ---- CRM ------------------------------------------------------------------
   { pattern: "/customers/[id]", parent: "/customers", parentLabelKey: "toCustomerList" },
+  // ר3 (business_documents): a customer's documents, read only — back goes to that customer's card.
+  { pattern: "/customers/[id]/documents", parent: "/customers/[id]", parentLabelKey: "toCustomerCard" },
   { pattern: "/leads/[id]", parent: "/leads", parentLabelKey: "toLeadList" },
   { pattern: "/suppliers", parent: "/tools/operations", parentLabelKey: "toBusinessManagement" },
   // S1-B M3: the uploads work screen is a tool of the money family.

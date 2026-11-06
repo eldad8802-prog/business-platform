@@ -113,6 +113,7 @@ export const customersEn: Widen<typeof customersHe> = {
         noEmail: "No email address",
       },
       recentDocuments: "Recent documents",
+      allDocuments: "All of this customer's documents",
       recentPayments: "Recent payments",
       noDocuments: "No documents for this customer yet",
       noPayments: "No payments for this customer yet",

@@ -102,7 +102,7 @@ jobs:
           done
           echo "the migration names only its own objects and the tables it builds on; no other migration names its objects"
 
-      - name: 1. Baseline (pending) — PREFLIGHT passes whole; the proof refuses; check 3 is live
+      - name: 1. Baseline (pending) — PREFLIGHT passes whole; the proof refuses; checks 3 and 13 are live
         run: |
           set -euo pipefail
           bash .sdx/lab.sh sdx_pre
@@ -110,13 +110,19 @@ jobs:
           lab -f "$PREFLIGHT" | tee /tmp/pre.out
           fails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test -z "$fails" || { echo "baseline: expected no preflight failure, got: $fails"; exit 1; }
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "11" || { echo "expected 11 PASS"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "12" || { echo "expected 12 PASS"; exit 1; }
           if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
           lab -q -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES ('lab-later', 'x', now(), '20261199000000_lab_later', 1)"
           c3=$(lab -f "$PREFLIGHT" | grep -E '^ +3 \|' | tr -d ' ')
           lab -q -c "DELETE FROM \"_prisma_migrations\" WHERE id = 'lab-later'"
           test "$c3" = "3|FAIL|1" || { echo "check 3 did not refuse a later finished migration: $c3"; exit 1; }
-          echo "baseline whole; check 3 is live"
+          lab -q -c "UPDATE \"_prisma_migrations\" SET finished_at = NULL WHERE migration_name = '20261110100000_acquisition_resolve_paused_hold'"
+          c13=$(lab -f "$PREFLIGHT" | grep -E '^ +13 \|' | tr -d ' ')
+          c1=$(lab -f "$PREFLIGHT" | grep -E '^ +1 \|' | tr -d ' ')
+          lab -q -c "UPDATE \"_prisma_migrations\" SET finished_at = now() WHERE migration_name = '20261110100000_acquisition_resolve_paused_hold'"
+          test "$c13" = "13|FAIL|0" || { echo "check 13 did not refuse a pending #953 migration: $c13"; exit 1; }
+          test "$c1" = "1|FAIL|1" || { echo "check 1 did not see the unfinished row: $c1"; exit 1; }
+          echo "baseline whole; checks 3 and 13 are live"
 
       - name: 2. prisma migrate deploy applies it — proof 15/15; preflight fails exactly its "not there yet" checks
         run: |

@@ -1,0 +1,88 @@
+# Business documents (ר1–ר3, owner-approved 2026-11-05): quote follow-up, letters, the
+# per-customer documents timeline. Nothing here changes the existing billing mechanism;
+# every job also re-runs the billing A0 characterization to prove it.
+#
+# Synthetic data only; ZERO secrets; ZERO Neon; ZERO network.
+
+name: business documents — ר1–ר3
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "features/business-documents/**"
+      - "lib/services/business-documents/**"
+      - "app/api/business-documents/**"
+      - "app/(shell)/business-documents/**"
+      - "app/(shell)/customers/**"
+      - "components/customers/CustomerCard.tsx"
+      - "lib/services/tasks/**"
+      - ".business-documents/**"
+      - "scripts/ci/test-coverage/business-documents.json"
+      - ".github/workflows/business-documents-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pure:
+    name: Business documents (pure) + A0 golden
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Customer documents timeline model
+        run: npx tsx features/business-documents/customer-documents-model.test.ts
+      - name: Back navigation (every page has a parent)
+        run: npx tsx lib/navigation/back-nav/back-nav.test.ts
+      - name: Lint
+        run: npx eslint features/business-documents "app/(shell)/customers/[id]/documents" components/customers/CustomerCard.tsx .business-documents
+      - name: Test inventory
+        run: node scripts/ci/security-test-coverage.mjs
+      - name: Existing billing unchanged (A0 golden)
+        run: npx tsx .billing-a0/golden.test.ts
+
+  database:
+    name: Business documents isolation (ephemeral PG17) + A0 issuance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bd_owner
+          POSTGRES_PASSWORD: bd_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_bd
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bd_owner -d dubiz_bd"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://bd_owner:bd_ci_synthetic_owner_pw@localhost:5432/dubiz_bd
+      DIRECT_URL: postgresql://bd_owner:bd_ci_synthetic_owner_pw@localhost:5432/dubiz_bd
+      AUTH_TOKEN_SECRET: bd_ci_auth_secret_synthetic
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+      - name: Isolation and permissions battery
+        run: npx tsx .business-documents/battery.mts
+      - name: Existing billing unchanged (A0 issuance battery)
+        run: npx tsx .billing-a0/battery.mts

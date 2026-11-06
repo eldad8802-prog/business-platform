@@ -113,6 +113,7 @@ export const customersHe = {
         noEmail: "אין כתובת מייל",
       },
       recentDocuments: "מסמכים אחרונים",
+      allDocuments: "לכל המסמכים של הלקוח",
       recentPayments: "תשלומים אחרונים",
       noDocuments: "אין עדיין מסמכים ללקוח",
       noPayments: "אין עדיין תשלומים ללקוח",
