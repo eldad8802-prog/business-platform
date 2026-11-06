@@ -635,7 +635,11 @@ async function main() {
   const wrongKey = await sendVoicenter(vcPub, "dvk_" + "0".repeat(43), cdr("v-3"));
   ok("a wrong key → 401 {Err:2}", wrongKey.status === 401 && (await json(wrongKey)).Err === 2);
   await ownerIdPOST(req(`/api/integrations/acquisition/${vcStored!.id}`, { headers: owner(uA.id), body: JSON.stringify({ action: "pause" }) }), params({ id: String(vcStored!.id) }));
-  ok("paused by the owner → 401", (await sendVoicenter(vcPub, vcKey, cdr("v-4"))).status === 401);
+  const vcPaused = await sendVoicenter(vcPub, vcKey, cdr("v-4"));
+  const vcHeld = await o.intakeEvent.findFirst({ where: { businessId: A.id, sourceKey: "telephony.voicenter" }, orderBy: { id: "desc" } });
+  ok("decision 3: paused by the owner → 200, the CDR is recorded and HELD (held:connection_paused), no call",
+    vcPaused.status === 200 && vcHeld?.status === "RECEIVED" && vcHeld.lastErrorCode === "held:connection_paused"
+      && (await o.callActivity.count({ where: { businessId: A.id, sourceKey: "telephony.voicenter", providerCallId: "v-4" } })) === 0, JSON.stringify([vcPaused.status, vcHeld?.lastErrorCode]));
   ok("C (Voicenter not enabled) cannot create an endpoint → 403",
     (await ownerPOST(req("/api/integrations/acquisition", { headers: owner(uC.id), body: JSON.stringify({ sourceKey: "telephony.voicenter" }) }))).status === 403);
 
@@ -804,6 +808,57 @@ async function main() {
   ok("L1.5-a release: …the CloudTalk call is released to its normal path (no longer held; it now waits on the API key, as designed)",
     !!ctAfter && !(ctAfter.lastErrorCode ?? "").startsWith("held:") && ctAfter.payload !== null, JSON.stringify([ctAfter?.status, ctAfter?.lastErrorCode]));
   ok("L1.5-a: Order ≠ Lead, Call ≠ Lead — E has no Lead", (await o.lead.count({ where: { businessId: E.id } })) === 0);
+
+  // ═════════════════ Leads L1.5-a · decision 3 — PAUSED store / Wix / CloudTalk endpoints hold (never refuse, never drop) ═════════════════
+  console.log("\n-- L1.5-a · decision 3: PAUSED Woo / Wix / CloudTalk → verified, recorded and HELD; resumed → released once --");
+  const F = await o.business.create({ data: { name: `${RUN}-F` } });
+  for (const f of ["commerce_woocommerce", "commerce_wix", "telephony_cloudtalk"]) await enable(F.id, f);
+  const uF = await o.user.create({ data: { email: `${RUN}-f@lab.test`, password: "x", businessId: F.id, role: "USER" } });
+  const SHOP_F = `shop-f-${U}.lab.test`;
+  const INST_F = `inst-f-${U}`;
+  const CT_F = Number(`9${U}`);
+  const shopF = store(SHOP_F);
+  const startF = await json(await wooStartPOST(req("/api/integrations/commerce/woocommerce", { headers: owner(uF.id), body: JSON.stringify({ storeUrl: SHOP_F }) })));
+  await wooCallbackPOST(req("/api/integrations/commerce/woocommerce/callback", { headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key_id: 11, user_id: new URL(String(startF.authorizeUrl)).searchParams.get("user_id"), consumer_key: `ck_${"i".repeat(40)}`, consumer_secret: `cs_${"j".repeat(40)}`, key_permissions: "read_write" }) }));
+  installs.set(INST_F, { installed: true, siteName: "Shop F on Wix", orders: [] });
+  await wixConnectPOST(req("/api/integrations/commerce/wix", { headers: owner(uF.id), body: JSON.stringify({ instance: signedInstance(INST_F) }) }));
+  const ctF = (await json(await ownerPOST(req("/api/integrations/acquisition", { headers: owner(uF.id), body: JSON.stringify({ sourceKey: "telephony.cloudtalk" }) })))).connection as { id: number; publicId: string };
+  const whsecF = `whsec_${Buffer.from(`${RUN}-cloudtalk-secret-F-0123456789`).toString("base64")}`;
+  await ownerIdPOST(req(`/api/integrations/acquisition/${ctF.id}`, { headers: owner(uF.id), body: JSON.stringify({ action: "set_credentials", signingSecret: whsecF }) }), params({ id: String(ctF.id) }));
+  const fConns = await o.acquisitionConnection.findMany({ where: { businessId: F.id, status: "ACTIVE" } });
+  ok("decision 3 setup: F's store, Wix site and CloudTalk endpoint are connected", fConns.length === 3);
+  const act = (id: number, action: "pause" | "resume") =>
+    ownerIdPOST(req(`/api/integrations/acquisition/${id}`, { headers: owner(uF.id), body: JSON.stringify({ action }) }), params({ id: String(id) }));
+  for (const c of fConns) await act(c.id, "pause");
+  const fRows = () => o.intakeEvent.findMany({ where: { businessId: F.id }, orderBy: { id: "asc" } });
+  const fMade = async () => ({ orders: await o.commerceOrder.count({ where: { businessId: F.id } }), calls: await o.callActivity.count({ where: { businessId: F.id } }) });
+  const fWoo = await sendWoo(shopF, wooOrder(9001), "order.created");
+  const fWooDup = await sendWoo(shopF, wooOrder(9001), "order.created"); // the store re-delivers
+  const fWix = await wixSend({ id: "evt-f1", entityFqdn: "wix.ecom.v1.order", slug: "created", createdEvent: { entity: wixOrder("wf-1") } }, INST_F);
+  const fCt = await sendCloudTalk(ctF.publicId, whsecF, ctCall("cf-1", CT_F));
+  const fBadSig = await sendCloudTalk(ctF.publicId, `whsec_${Buffer.from("not-the-secret-0123456789").toString("base64")}`, ctCall("cf-2", CT_F));
+  const fHeld = await fRows();
+  ok("PAUSED: Woo (200, its re-delivery 200), Wix (200) and CloudTalk (200) are verified and RECORDED once each; a bad signature → 401",
+    [fWoo, fWooDup, fWix, fCt].every((r) => r.status === 200) && fBadSig.status === 401 && fHeld.length === 3,
+    JSON.stringify({ woo: fWoo.status, dup: fWooDup.status, wix: fWix.status, ct: fCt.status, bad: fBadSig.status, n: fHeld.length }));
+  ok("PAUSED: each waits — held:connection_paused, no attempt, payload kept; no order, no call",
+    fHeld.every((e) => e.status === "RECEIVED" && e.lastErrorCode === "held:connection_paused" && e.attempts === 0 && e.payload !== null)
+      && JSON.stringify(await fMade()) === JSON.stringify({ orders: 0, calls: 0 }), JSON.stringify(fHeld.map((e) => [e.sourceKey, e.lastErrorCode])));
+  await sweep(11 * 60_000);
+  ok("PAUSED: a sweep while paused → still held; the stores are not polled into orders either", (await fRows()).every((e) => e.lastErrorCode === "held:connection_paused")
+    && (await fMade()).orders === 0);
+  for (const c of fConns) await act(c.id, "resume");
+  await Promise.all([sweep(), sweep()]);
+  await sweep(11 * 60_000);
+  const fAfter = await fRows();
+  ok("RESUMED: the held store and Wix orders are materialised exactly once (two concurrent sweeps)",
+    (await o.commerceOrder.count({ where: { businessId: F.id, sourceKey: "commerce.woocommerce", externalOrderId: "9001" } })) === 1
+      && (await o.commerceOrder.count({ where: { businessId: F.id, sourceKey: "commerce.wix", externalOrderId: "wf-1" } })) === 1, JSON.stringify(await fMade()));
+  const fCtAfter = fAfter.find((e) => e.sourceKey === "telephony.cloudtalk");
+  ok("RESUMED: the CloudTalk call is released to its normal path (no longer held for the pause; it now waits on the API key, as designed)",
+    !!fCtAfter && fCtAfter.lastErrorCode !== "held:connection_paused" && fCtAfter.payload !== null, JSON.stringify([fCtAfter?.status, fCtAfter?.lastErrorCode]));
+  ok("decision 3: Order ≠ Lead, Call ≠ Lead — F has no Lead", (await o.lead.count({ where: { businessId: F.id } })) === 0);
 
   // ════════════════════════════════════════ invariants ════════════════════════════════════════
   console.log("\n-- invariants: Order ≠ Lead, Call ≠ Lead; no money, documents or stock; tenancy --");

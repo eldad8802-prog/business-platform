@@ -55,3 +55,45 @@ export async function listAcquisitionTenants(sourceKey: string): Promise<number[
   const rows = await prisma.$queryRaw<{ m6_acquisition_tenants: number }[]>`SELECT m6_acquisition_tenants FROM public.m6_acquisition_tenants(${sourceKey})`;
   return rows.map((r) => Number(r.m6_acquisition_tenants));
 }
+
+/**
+ * Leads L1.5-a · decision 3 — the v2 resolvers (migration 20261110100000): the same exact-key lookups, but they also
+ * answer for a PAUSED connection and say which status they found, so a verified delivery to a paused endpoint is
+ * recorded and HELD instead of refused or dropped. REVOKED still resolves to nothing; keyed / public endpoints still do
+ * not answer for ERROR. Used by the seven intake sources only — Rivhit keeps v1 (its own track).
+ */
+export type ConnectionLiveStatus = "ACTIVE" | "PAUSED" | "ERROR";
+export type LiveConnection = ResolvedConnection & { status: ConnectionLiveStatus };
+
+const liveStatus = (s: string): ConnectionLiveStatus => (s === "PAUSED" || s === "ERROR" ? s : "ACTIVE");
+
+export async function resolveKeyedConnectionV2(
+  sourceKey: "google.lead_form" | "web.form" | "telephony.voicenter",
+  publicId: string,
+  key: string
+): Promise<LiveConnection | null> {
+  if (!PUBLIC_ID_PATTERN.test(publicId) || typeof key !== "string" || key.length < 8 || key.length > 200) return null;
+  const keyHash = hashKey(key);
+  const rows = await prisma.$queryRaw<{ connection_id: number; business_id: number; status: string }[]>`SELECT connection_id, business_id, status FROM public.m6_acquisition_resolve_keyed_v2(${sourceKey}, ${publicId}, ${keyHash})`;
+  return rows.length === 1 ? { connectionId: rows[0].connection_id, businessId: rows[0].business_id, status: liveStatus(rows[0].status) } : null;
+}
+
+export async function resolvePublicConnectionV2(
+  sourceKey: ConnectionSourceKey,
+  publicId: string
+): Promise<(LiveConnection & { allowedOrigins: string[] }) | null> {
+  if (!PUBLIC_ID_PATTERN.test(publicId)) return null;
+  const rows = await prisma.$queryRaw<{ connection_id: number; business_id: number; allowed_origins: string[]; status: string }[]>`SELECT connection_id, business_id, allowed_origins, status FROM public.m6_acquisition_resolve_public_v2(${sourceKey}, ${publicId})`;
+  return rows.length === 1
+    ? { connectionId: rows[0].connection_id, businessId: rows[0].business_id, allowedOrigins: rows[0].allowed_origins ?? [], status: liveStatus(rows[0].status) }
+    : null;
+}
+
+export async function resolveResourceConnectionV2(
+  sourceKey: "meta.lead_ads" | "commerce.wix",
+  resourceId: string
+): Promise<LiveConnection | null> {
+  if (typeof resourceId !== "string" || !/^[A-Za-z0-9_.:-]{1,64}$/.test(resourceId)) return null;
+  const rows = await prisma.$queryRaw<{ connection_id: number; business_id: number; status: string }[]>`SELECT connection_id, business_id, status FROM public.m6_acquisition_resolve_resource_v2(${sourceKey}, ${resourceId})`;
+  return rows.length === 1 ? { connectionId: rows[0].connection_id, businessId: rows[0].business_id, status: liveStatus(rows[0].status) } : null;
+}

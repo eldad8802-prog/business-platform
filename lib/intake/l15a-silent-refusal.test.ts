@@ -59,7 +59,8 @@ test("structural: CloudTalk answers 503 when the secrets cannot be read — not 
   const route = read("app/api/intake/telephony/cloudtalk/[publicId]/route.ts");
   assert.doesNotMatch(route, /readConnectionSecrets\([^)]*\)\)\.catch\(\(\) => null\)/);
   const block = route.slice(route.indexOf("let secrets;"), route.indexOf("const headers"));
-  assert.match(block, /try \{\s*secrets = await runWithTenantContext\(\{ businessId \}, \(\) => readConnectionSecrets\(businessId, connectionId\)\);\s*\} catch \{\s*return NextResponse\.json\(\{ error: "unavailable" \}, \{ status: 503 \}\);/);
+  // (decision 3 added an optional { anyLiveStatus } for a PAUSED endpoint and a comment line; the 503 contract is the same.)
+  assert.match(block, /try \{\s*(\/\/[^\n]*\n\s*)?secrets = await runWithTenantContext\(\{ businessId \}, \(\) => readConnectionSecrets\(businessId, connectionId(, \{ anyLiveStatus: conn\.status === "PAUSED" \})?\)\);\s*\} catch \{\s*return NextResponse\.json\(\{ error: "unavailable" \}, \{ status: 503 \}\);/);
   // A connection with no secret saved yet still fails closed (null → 401), as before.
   assert.match(route, /if \(!secrets \|\| !verifySvix\(/);
 });

@@ -77,6 +77,8 @@ export const HOLD_CODES = {
   emergency: "held:emergency_disabled",
   sourceDisabled: "held:source_disabled",
   businessInactive: "held:business_inactive",
+  /** decision 3 — the connection is PAUSED: verified deliveries are kept and wait for the owner to resume it. */
+  connectionPaused: "held:connection_paused",
 } as const;
 
 /**

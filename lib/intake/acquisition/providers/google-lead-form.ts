@@ -13,7 +13,7 @@
  */
 import { canonicalLead, type AcquisitionLeadV1 } from "../canonical";
 import { makeAcquisitionAdapter } from "../adapter";
-import { resolvePublicConnection } from "../resolve";
+import { resolvePublicConnectionV2 } from "../resolve";
 
 export const GOOGLE_LEAD_FORM_SOURCE = "google.lead_form" as const;
 
@@ -75,7 +75,7 @@ export function parseGoogleLead(body: unknown): GoogleParse {
 export const googleLeadFormAdapter = makeAcquisitionAdapter({
   sourceKey: GOOGLE_LEAD_FORM_SOURCE,
   async resolveTenant(accountRef) {
-    const c = await resolvePublicConnection(GOOGLE_LEAD_FORM_SOURCE, accountRef);
+    const c = await resolvePublicConnectionV2(GOOGLE_LEAD_FORM_SOURCE, accountRef);
     return c ? c.businessId : null;
   },
 });

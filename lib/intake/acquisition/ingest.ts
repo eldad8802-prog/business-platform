@@ -42,6 +42,8 @@ export async function ingestAcquisition(input: {
   accountRef: string;
   businessId: number;
   connectionId: number;
+  /** decision 3 — what the v2 resolver found; PAUSED records the delivery and holds it (never processed while paused). */
+  connectionStatus?: "ACTIVE" | "PAUSED" | "ERROR";
   receipts: IntakeReceiptDraft[];
   /** Tests: process inline instead of after the response. */
   processInline?: boolean;
@@ -57,8 +59,9 @@ export async function ingestAcquisition(input: {
     logIntake("refused", { businessId: input.businessId, sourceKey: input.sourceKey, code: gate.reason });
     return { status: "refused", reason: gate.reason };
   }
-  const held = !gate.ok;
-  if (held) logIntake("held", { businessId: input.businessId, sourceKey: input.sourceKey, code: "emergency_disabled" });
+  const paused = input.connectionStatus === "PAUSED";
+  const held = !gate.ok || paused;
+  if (held) logIntake("held", { businessId: input.businessId, sourceKey: input.sourceKey, code: !gate.ok ? "emergency_disabled" : "connection_paused" });
   const accepted = await acceptIntake({
     registry,
     sourceKey: input.sourceKey,

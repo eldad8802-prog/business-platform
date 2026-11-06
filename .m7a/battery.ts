@@ -25,7 +25,7 @@ import { canonicalOrder, commerceReceipt } from "../lib/intake/commerce/canonica
 import { canonicalCall, callReceipt, normalizeCall } from "../lib/intake/calls/canonical";
 import { makeCommerceAdapter } from "../lib/intake/commerce/adapter";
 import { makeCallAdapter } from "../lib/intake/calls/adapter";
-import { resolvePublicConnection, resolveResourceConnection } from "../lib/intake/acquisition/resolve";
+import { resolvePublicConnectionV2, resolveResourceConnection } from "../lib/intake/acquisition/resolve";
 import { receiveKeyedDelivery, receiveSignedDelivery, type ParseResult } from "../lib/intake/acquisition/receive";
 import { verifyHmacSha256Base64, verifySvix } from "../lib/intake/acquisition/signatures";
 import {
@@ -52,7 +52,7 @@ const rt = new PrismaClient({ datasourceUrl: process.env.RUNTIME_URL! });
 let commerceProviderDown = false;
 const labCommerce: IntakeAdapter = makeCommerceAdapter({
   sourceKey: "commerce.woocommerce",
-  async resolveTenant(ref) { return (await resolvePublicConnection("commerce.woocommerce", ref))?.businessId ?? null; },
+  async resolveTenant(ref) { return (await resolvePublicConnectionV2("commerce.woocommerce", ref))?.businessId ?? null; },
   async hydrate() {
     if (commerceProviderDown) { commerceProviderDown = false; throw new Error("lab_provider_down"); }
     return { kind: "unchanged" };
@@ -60,11 +60,11 @@ const labCommerce: IntakeAdapter = makeCommerceAdapter({
 });
 const labCloudtalk = makeCallAdapter({
   sourceKey: "telephony.cloudtalk",
-  async resolveTenant(ref) { return (await resolvePublicConnection("telephony.cloudtalk", ref))?.businessId ?? null; },
+  async resolveTenant(ref) { return (await resolvePublicConnectionV2("telephony.cloudtalk", ref))?.businessId ?? null; },
 });
 const labVoicenter = makeCallAdapter({
   sourceKey: "telephony.voicenter",
-  async resolveTenant(ref) { return (await resolvePublicConnection("telephony.voicenter", ref))?.businessId ?? null; },
+  async resolveTenant(ref) { return (await resolvePublicConnectionV2("telephony.voicenter", ref))?.businessId ?? null; },
 });
 const labRegistry = new IntakeRegistry();
 // M7-B / M7-C registered the real adapters for these keys: the lab simulators stand in for them here.
@@ -246,8 +246,14 @@ async function main() {
     && (await o.intakeEvent.count({ where: { businessId: C.id } })) === 1 - 1);
   ok("every refusal above recorded nothing", (await o.intakeEvent.count()) === before + 1 /* the wrong-body order 1005 only */);
   await runWithTenantContext({ businessId: A.id }, () => setPaused(wooA.connection.id, true));
-  ok("a PAUSED store endpoint → 401", (await sendOrder(wooA.connection.publicId, order("1008"), wooA.signingSecret)).status === 401);
+  const paused1008 = await sendOrder(wooA.connection.publicId, order("1008"), wooA.signingSecret);
+  const held1008 = await o.intakeEvent.findFirst({ where: { businessId: A.id, providerAccountRef: wooA.connection.publicId }, orderBy: { id: "desc" } });
+  ok("decision 3: a PAUSED store endpoint → 200, the signed order is recorded and HELD (held:connection_paused), no order yet",
+    paused1008.status === 200 && held1008?.status === "RECEIVED" && held1008.lastErrorCode === "held:connection_paused" && held1008.attempts === 0
+      && (await o.commerceOrder.count({ where: { businessId: A.id, externalOrderId: "1008" } })) === 0, JSON.stringify([paused1008.status, held1008?.lastErrorCode]));
   await runWithTenantContext({ businessId: A.id }, () => setPaused(wooA.connection.id, false));
+  await drain(A.id);
+  ok("decision 3: …resumed → the held order is processed exactly once", (await o.commerceOrder.count({ where: { businessId: A.id, externalOrderId: "1008" } })) === 1);
   const twin = await signed(B.id, "commerce.woocommerce", { externalResourceId: "shop-a.lab.test" }).then(() => "bound", (e: { code?: string }) => e?.code ?? "error");
   ok("E9 a store host live on A cannot be bound by B (one live mapping per resource)", twin === "P2002", twin);
   // A receipt accepted, then its connection revoked before processing → IGNORED, never an order.

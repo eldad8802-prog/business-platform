@@ -7,14 +7,14 @@ import type { Prisma } from "@prisma/client";
 import { makeCallAdapter } from "./adapter";
 import { CLOUDTALK_CREDENTIAL_CODES, CLOUDTALK_SOURCE, hydrateCloudTalkCall } from "./cloudtalk";
 import { VOICENTER_SOURCE } from "./voicenter";
-import { resolvePublicConnection } from "@/lib/intake/acquisition/resolve";
+import { resolvePublicConnectionV2 } from "@/lib/intake/acquisition/resolve";
 import { lineLabelFor, readSecretsByPublicId, setReceivingConnectionIssue } from "@/lib/intake/acquisition/connection.service";
 import { isCall } from "./canonical";
 
 export const cloudTalkAdapter = makeCallAdapter({
   sourceKey: CLOUDTALK_SOURCE,
   async resolveTenant(accountRef) {
-    return (await resolvePublicConnection(CLOUDTALK_SOURCE, accountRef))?.businessId ?? null;
+    return (await resolvePublicConnectionV2(CLOUDTALK_SOURCE, accountRef))?.businessId ?? null;
   },
   // The webhook carries no answered / missed: the outcome is read from CloudTalk's call history.
   hydrate: (ctx, event) =>
@@ -33,7 +33,7 @@ export const cloudTalkAdapter = makeCallAdapter({
 export const voicenterAdapter = makeCallAdapter({
   sourceKey: VOICENTER_SOURCE,
   async resolveTenant(accountRef) {
-    return (await resolvePublicConnection(VOICENTER_SOURCE, accountRef))?.businessId ?? null;
+    return (await resolvePublicConnectionV2(VOICENTER_SOURCE, accountRef))?.businessId ?? null;
   },
   // M7-C — the owner's name for the dialled business line (a campaign number), as attribution.
   async hydrate(_ctx, event) {

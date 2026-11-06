@@ -8,7 +8,7 @@ import type { IntakeAdapter, RouteResult } from "@/lib/intake/core/contract";
 import { normalizeAcquisitionLead } from "./canonical";
 import { listAcquisitionTenants } from "./resolve";
 import { connectionStateForRef } from "./connection.service";
-import { holdUnlessAllowed } from "./gate";
+import { HOLD_CODES, HOLD_RECHECK_MS, holdUnlessAllowed } from "./gate";
 
 export const ACQUISITION_NORMALIZER_VERSION = 1;
 
@@ -26,8 +26,13 @@ export function makeAcquisitionAdapter(input: {
     // Every retry first re-checks the connection: a receipt whose connection was revoked after it
     // arrived (key leaked, Page disconnected, account erased) is settled IGNORED — never a Lead.
     async hydrate(ctx, event) {
-      if ((await connectionStateForRef(input.sourceKey, event.providerAccountRef)) === "revoked") {
+      const connectionState = await connectionStateForRef(input.sourceKey, event.providerAccountRef);
+      if (connectionState === "revoked") {
         return { kind: "ignored", code: "connection_revoked" };
+      }
+      // Leads L1.5-a · decision 3 — a PAUSED connection: the receipt waits (no attempt, nothing deleted) until resumed.
+      if (connectionState === "paused") {
+        return { kind: "deferred", until: new Date(ctx.now.getTime() + HOLD_RECHECK_MS), code: HOLD_CODES.connectionPaused };
       }
       // L1.5-a — then the source gate, again, before any work: emergency switch, entitlement withdrawn or a
       // quarantined business → the receipt waits (deferred, not an attempt, nothing deleted).

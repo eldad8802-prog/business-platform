@@ -133,15 +133,37 @@ export async function rotateKey(id: number): Promise<{ connection: ConnectionVie
   });
 }
 
-export async function setPaused(id: number, paused: boolean): Promise<ConnectionView | null> {
+export async function setPaused(id: number, paused: boolean, now = new Date()): Promise<ConnectionView | null> {
   return withTenantTransaction(async (tx) => {
-    const row = await tx.acquisitionConnection.findFirst({ where: { id, status: { not: "REVOKED" } }, select: { id: true } });
+    const row = await tx.acquisitionConnection.findFirst({
+      where: { id, status: { not: "REVOKED" } },
+      select: { id: true, sourceKey: true, publicId: true, externalResourceId: true },
+    });
     if (!row) return null;
-    return tx.acquisitionConnection.update({
+    const view = await tx.acquisitionConnection.update({
       where: { id },
       data: { status: paused ? "PAUSED" : "ACTIVE", ...(paused ? {} : { lastErrorCode: null }) },
       select: VIEW,
     });
+    if (!paused) {
+      // Leads L1.5-a · decision 3 — resumed: what this connection held while paused is due NOW (same transaction). The
+      // processor still re-checks the connection, the source gate and the business before every attempt, and the
+      // receipt key keeps each one a single Lead / order / call however often it is looked at.
+      const ref = RESOURCE_REF_SOURCES.has(row.sourceKey as ConnectionSourceKey) ? row.externalResourceId : row.publicId;
+      if (ref) {
+        await tx.intakeEvent.updateMany({
+          where: {
+            sourceKey: row.sourceKey,
+            providerAccountRef: ref,
+            lastErrorCode: "held:connection_paused",
+            status: { in: ["RECEIVED", "PERSISTED", "FAILED"] },
+            payloadPurgedAt: null,
+          },
+          data: { nextAttemptAt: now },
+        });
+      }
+    }
+    return view;
   });
 }
 
@@ -359,18 +381,21 @@ export async function readConnectionSecrets(
  * Whether a receipt may still be acted on, by the provider reference it was accepted for (the
  * endpoint publicId; the Page id for Meta). "revoked" when no connection for that reference is
  * left un-revoked in THIS business — the owner revoked it, the Page moved to another business, or
- * the account is being erased. Paused is not revoked: what was accepted before a pause is processed.
+ * the account is being erased. "paused" (decision 3): only a PAUSED connection is left — the receipt is held, not
+ * processed and not dropped, until the owner resumes it (then the permission is checked again).
  */
 export async function connectionStateForRef(
   sourceKey: ConnectionSourceKey,
   accountRef: string | null
-): Promise<"live" | "revoked"> {
+): Promise<"live" | "paused" | "revoked"> {
   if (!accountRef) return "revoked";
   const where = RESOURCE_REF_SOURCES.has(sourceKey)
     ? { sourceKey, externalResourceId: accountRef, status: { not: "REVOKED" } }
     : { sourceKey, publicId: accountRef, status: { not: "REVOKED" } };
-  const live = await withTenantTransaction((tx) => tx.acquisitionConnection.count({ where }));
-  return live > 0 ? "live" : "revoked";
+  const rows = await withTenantTransaction((tx) => tx.acquisitionConnection.findMany({ where, select: { status: true } }));
+  if (rows.length === 0) return "revoked";
+  // Leads L1.5-a · decision 3 — only PAUSED left for this reference: the receipt waits for the owner to resume.
+  return rows.every((r) => r.status === "PAUSED") ? "paused" : "live";
 }
 
 /**

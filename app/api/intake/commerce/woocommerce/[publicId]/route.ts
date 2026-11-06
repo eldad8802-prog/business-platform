@@ -14,7 +14,7 @@
 import { NextResponse } from "next/server";
 import { BODY_LIMITS, BodyTooLargeError, readBodyLimited } from "@/lib/intake/acquisition/http";
 import { receiveSignedDelivery } from "@/lib/intake/acquisition/receive";
-import { resolvePublicConnection } from "@/lib/intake/acquisition/resolve";
+import { resolvePublicConnectionV2 } from "@/lib/intake/acquisition/resolve";
 import { verifyHmacSha256Base64 } from "@/lib/intake/acquisition/signatures";
 import { isWooPing, parseWooOrder, storeHostOf, WOO_SOURCE } from "@/lib/intake/commerce/woocommerce";
 
@@ -31,7 +31,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
   }
   // The creation ping (`webhook_id=<n>`, unsigned) must get exactly 200 — but only for an endpoint that exists.
   if (isWooPing(raw)) {
-    const conn = await resolvePublicConnection(WOO_SOURCE, publicId).catch(() => null);
+    const conn = await resolvePublicConnectionV2(WOO_SOURCE, publicId).catch(() => null);
     return conn ? NextResponse.json({ ok: true }, { status: 200 }) : NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const signature = req.headers.get("x-wc-webhook-signature");

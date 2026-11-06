@@ -10,6 +10,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-a lead-loss integrity: only the platform emergency switch holds (records, never processes until released); a withdrawn entitlement or quarantine records nothing; every lead / commerce / telephony adapter re-checks the gate after the revoked check and before provider work, as a deferral that spends no attempt and deletes nothing; held receipts are a visible count"
+    },
+    "lib/intake/l15a-paused-hold.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-a decision 3 lead-loss integrity: the seven intake sources resolve through the v2 lookups so a PAUSED endpoint still verifies and records (held, never processed, never dropped); revoked stays IGNORED and is checked first, a withdrawn entitlement or quarantine still records nothing; resuming re-arms only that connection's paused receipts; Rivhit keeps v1"
     }
   }
 }

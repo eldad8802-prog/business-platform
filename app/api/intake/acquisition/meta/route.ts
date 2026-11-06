@@ -19,7 +19,7 @@ import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { ingestAcquisition } from "@/lib/intake/acquisition/ingest";
 import { BODY_LIMITS, BodyTooLargeError, readBodyLimited } from "@/lib/intake/acquisition/http";
 import { safeEqual } from "@/lib/intake/acquisition/keys";
-import { resolveResourceConnection } from "@/lib/intake/acquisition/resolve";
+import { resolveResourceConnectionV2 } from "@/lib/intake/acquisition/resolve";
 import { logIntake } from "@/lib/intake/core/observability";
 import { metaAppSecret, metaVerifyToken } from "@/lib/intake/acquisition/meta-config";
 import {
@@ -69,7 +69,8 @@ export async function POST(req: Request) {
 
   try {
     for (const [pageId, refs] of parsed.byPage) {
-      const conn = await resolveResourceConnection(META_LEAD_ADS_SOURCE, pageId);
+      // v2 (decision 3): a PAUSED Page resolves too — its leads are recorded and held, never skipped.
+      const conn = await resolveResourceConnectionV2(META_LEAD_ADS_SOURCE, pageId);
       if (!conn) {
         logIntake("skipped", { sourceKey: META_LEAD_ADS_SOURCE, code: "unknown_page", count: refs.length });
         continue;
@@ -84,6 +85,7 @@ export async function POST(req: Request) {
         accountRef: pageId,
         businessId: conn.businessId,
         connectionId: conn.connectionId,
+        connectionStatus: conn.status,
         receipts: refs.map(metaReferenceReceipt),
       });
     }

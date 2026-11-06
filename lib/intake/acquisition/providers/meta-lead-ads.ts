@@ -23,7 +23,7 @@ import { IntakeTerminalError, type ClaimedIntakeEvent, type HydrateResult, type 
 import { deriveEventIdentity } from "@/lib/intake/core/event-identity";
 import { acquisitionReceipt, canonicalLead } from "../canonical";
 import { makeAcquisitionAdapter } from "../adapter";
-import { resolveResourceConnection } from "../resolve";
+import { resolveResourceConnectionV2 } from "../resolve";
 import { markConnectionError, readMetaPageToken } from "../connection.service";
 import { metaAppSecret, metaGraphVersion } from "../meta-config";
 import { isMetaPermissionCode } from "./meta-graph";
@@ -220,7 +220,7 @@ export async function hydrateMetaLead(ctx: { businessId: number; now: Date }, ev
 export const metaLeadAdsAdapter = makeAcquisitionAdapter({
   sourceKey: META_LEAD_ADS_SOURCE,
   async resolveTenant(accountRef) {
-    const c = await resolveResourceConnection(META_LEAD_ADS_SOURCE, accountRef);
+    const c = await resolveResourceConnectionV2(META_LEAD_ADS_SOURCE, accountRef);
     return c ? c.businessId : null;
   },
   hydrate: hydrateMetaLead,

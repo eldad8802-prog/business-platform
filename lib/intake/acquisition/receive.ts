@@ -2,7 +2,7 @@
  * M7-A — the ONE authenticated delivery path for commerce / telephony providers. A provider route
  * (M7-B / M7-C) is a thin call into one of these; the lab drives them directly.
  *
- *   receiveSignedDelivery   publicId in the URL → the connection (definer lookup, ACTIVE only) →
+ *   receiveSignedDelivery   publicId in the URL → the connection (definer lookup v2: ACTIVE, or PAUSED → held) →
  *                           its secret read and decrypted INSIDE that business's tenant context →
  *                           the provider's signature verified on the RAW body → parse → ingest.
  *   receiveKeyedDelivery    publicId + a shared key (sha256 match in the definer lookup; Voicenter
@@ -11,7 +11,8 @@
  * Tenant authority is ONLY the connection the lookup returned. A store / account / business id inside
  * the payload is never consulted for routing (an adapter may cross-check it and refuse a mismatch).
  *
- *   401  unknown / paused / revoked endpoint, wrong key, bad or stale signature (nothing recorded)
+ *   401  unknown / revoked endpoint, wrong key, bad or stale signature (nothing recorded)
+ *   200  a PAUSED endpoint (decision 3): verified, recorded and HELD until the owner resumes it
  *   400  authenticated but unparsable (nothing recorded)
  *   200  recorded — or a duplicate, or the source is OFF for the business (a decision, recorded nothing)
  *   503  rate-limited or the store is unavailable: the provider retries (Retry-After when known)
@@ -24,7 +25,7 @@ import { runWithTenantContext } from "@/lib/tenant/context";
 import { logIntake } from "@/lib/intake/core/observability";
 import { ingestAcquisition, type IngestOutcome } from "./ingest";
 import { readConnectionSecrets, type ConnectionSecrets, type SignedSourceKey } from "./connection.service";
-import { resolveKeyedConnection, resolvePublicConnection } from "./resolve";
+import { resolveKeyedConnectionV2, resolvePublicConnectionV2, type ConnectionLiveStatus } from "./resolve";
 import { PUBLIC_ID_PATTERN } from "./keys";
 
 export type DeliveryResponse = { status: number; body: Record<string, unknown>; headers?: Record<string, string> };
@@ -43,7 +44,7 @@ type Common = {
 async function ingest(
   sourceKey: Parameters<typeof ingestAcquisition>[0]["sourceKey"],
   publicId: string,
-  conn: { businessId: number; connectionId: number },
+  conn: { businessId: number; connectionId: number; status: ConnectionLiveStatus },
   parse: Common["parse"],
   raw: string,
   extra: Pick<Common, "registry" | "processInline">
@@ -63,6 +64,7 @@ async function ingest(
       accountRef: publicId,
       businessId: conn.businessId,
       connectionId: conn.connectionId,
+      connectionStatus: conn.status,
       receipts: parsed.receipts,
       ...(extra.registry ? { registry: extra.registry } : {}),
       ...(extra.processInline ? { processInline: true } : {}),
@@ -84,14 +86,16 @@ export async function receiveSignedDelivery(
   if (!PUBLIC_ID_PATTERN.test(input.publicId)) return { status: 401, body: { error: "unauthorized" } };
   let conn;
   try {
-    conn = await resolvePublicConnection(input.sourceKey, input.publicId);
+    conn = await resolvePublicConnectionV2(input.sourceKey, input.publicId);
   } catch {
     return { status: 503, body: { error: "unavailable" } };
   }
   if (!conn) return { status: 401, body: { error: "unauthorized" } };
   let secrets: ConnectionSecrets | null;
   try {
-    secrets = await runWithTenantContext({ businessId: conn.businessId }, () => readConnectionSecrets(conn.businessId, conn.connectionId));
+    // decision 3 — a PAUSED endpoint still verifies its signature (its secrets are kept), then the delivery is held.
+    secrets = await runWithTenantContext({ businessId: conn.businessId }, () =>
+      readConnectionSecrets(conn.businessId, conn.connectionId, { anyLiveStatus: conn.status === "PAUSED" }));
   } catch {
     return { status: 503, body: { error: "unavailable" } };
   }
@@ -107,7 +111,7 @@ export async function receiveKeyedDelivery(
 ): Promise<DeliveryResponse & { outcome?: IngestOutcome }> {
   let conn;
   try {
-    conn = await resolveKeyedConnection(input.sourceKey, input.publicId, input.key);
+    conn = await resolveKeyedConnectionV2(input.sourceKey, input.publicId, input.key);
   } catch {
     return { status: 503, body: { error: "unavailable" } };
   }

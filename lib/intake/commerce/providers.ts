@@ -6,18 +6,18 @@
 import { makeCommerceAdapter } from "./adapter";
 import { WOO_SOURCE } from "./woocommerce";
 import { WIX_SOURCE } from "./wix";
-import { resolvePublicConnection, resolveResourceConnection } from "@/lib/intake/acquisition/resolve";
+import { resolvePublicConnectionV2, resolveResourceConnectionV2 } from "@/lib/intake/acquisition/resolve";
 
 export const wooCommerceAdapter = makeCommerceAdapter({
   sourceKey: WOO_SOURCE,
   async resolveTenant(accountRef) {
-    return (await resolvePublicConnection(WOO_SOURCE, accountRef))?.businessId ?? null;
+    return (await resolvePublicConnectionV2(WOO_SOURCE, accountRef))?.businessId ?? null;
   },
 });
 
 export const wixAdapter = makeCommerceAdapter({
   sourceKey: WIX_SOURCE,
   async resolveTenant(accountRef) {
-    return (await resolveResourceConnection(WIX_SOURCE, accountRef))?.businessId ?? null;
+    return (await resolveResourceConnectionV2(WIX_SOURCE, accountRef))?.businessId ?? null;
   },
 });

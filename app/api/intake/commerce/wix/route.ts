@@ -15,7 +15,7 @@ import { NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { BODY_LIMITS, BodyTooLargeError, readBodyLimited } from "@/lib/intake/acquisition/http";
 import { ingestAcquisition } from "@/lib/intake/acquisition/ingest";
-import { resolveResourceConnection } from "@/lib/intake/acquisition/resolve";
+import { resolveResourceConnectionV2 } from "@/lib/intake/acquisition/resolve";
 import { logIntake } from "@/lib/intake/core/observability";
 import { parseWixOrder, verifyWixWebhook, WIX_ORDER_FQDN, WIX_SOURCE, wixAppConfig } from "@/lib/intake/commerce/wix";
 
@@ -37,7 +37,8 @@ export async function POST(req: Request) {
 
   let conn;
   try {
-    conn = await resolveResourceConnection(WIX_SOURCE, env.instanceId);
+    // v2 (decision 3): a PAUSED installation resolves too — its orders are recorded and held, never skipped.
+    conn = await resolveResourceConnectionV2(WIX_SOURCE, env.instanceId);
   } catch {
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
       accountRef: env.instanceId,
       businessId: conn.businessId,
       connectionId: conn.connectionId,
+      connectionStatus: conn.status,
       receipts: [parsed.receipt],
     });
     return NextResponse.json({}, { status: 200 });

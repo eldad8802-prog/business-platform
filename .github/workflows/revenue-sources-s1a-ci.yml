@@ -154,6 +154,8 @@ jobs:
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261013090000_m7a_commerce_telephony_foundation/migration.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f .m7bc/prereq.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -1 -f prisma/migrations/20261014090000_m7bc_commerce_demand_and_line_labels/migration.sql
+          # Leads L1.5-a · decision 3 — the v2 resolvers (PAUSED → held) that the intake routes now call.
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -1 -f prisma/migrations/20261110100000_acquisition_resolve_paused_hold/migration.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -1 -f "$S1A"
           npx prisma generate
           test "$(psql "$OWNER_URL" -Atc "SELECT count(*) FROM pg_constraint WHERE conname IN ('AcquisitionConnection_source_key','IntakeNormalizedEvent_routeTarget_vocab') AND (pg_get_constraintdef(oid) LIKE '%pos.rivhit%' OR pg_get_constraintdef(oid) LIKE '%revenue%')")" = "2" || { echo "S1-A not applied"; exit 1; }

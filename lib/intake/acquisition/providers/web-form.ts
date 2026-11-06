@@ -13,7 +13,7 @@
  */
 import { canonicalLead, type AcquisitionLeadV1 } from "../canonical";
 import { makeAcquisitionAdapter } from "../adapter";
-import { resolvePublicConnection } from "../resolve";
+import { resolvePublicConnectionV2 } from "../resolve";
 
 export const WEB_FORM_SOURCE = "web.form" as const;
 export const WEB_FORM_MAX_FIELDS = 40;
@@ -83,7 +83,7 @@ export function parseWebForm(fields: Record<string, string>): WebFormParse {
 export const webFormAdapter = makeAcquisitionAdapter({
   sourceKey: WEB_FORM_SOURCE,
   async resolveTenant(accountRef) {
-    const c = await resolvePublicConnection(WEB_FORM_SOURCE, accountRef);
+    const c = await resolvePublicConnectionV2(WEB_FORM_SOURCE, accountRef);
     return c ? c.businessId : null;
   },
 });

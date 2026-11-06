@@ -8,7 +8,8 @@
  * Only `call.ended` is recorded (as a reference — the outcome is read from CloudTalk's call history).
  *
  *   200  recorded / duplicate / another event type / source OFF
- *   401  unknown / paused / revoked endpoint, bad or stale signature, another CloudTalk account
+ *   200  also a PAUSED endpoint (decision 3): verified, recorded and HELD until the owner resumes it
+ *   401  unknown / revoked endpoint, bad or stale signature, another CloudTalk account
  *   400  authenticated but malformed
  *   503  rate-limited, the store is unavailable or the secrets cannot be read (CloudTalk retries up to 50 times
  *        over ~11.5 h)
@@ -19,7 +20,7 @@ import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { BODY_LIMITS, BodyTooLargeError, readBodyLimited } from "@/lib/intake/acquisition/http";
 import { ingestAcquisition } from "@/lib/intake/acquisition/ingest";
-import { resolvePublicConnection } from "@/lib/intake/acquisition/resolve";
+import { resolvePublicConnectionV2 } from "@/lib/intake/acquisition/resolve";
 import { bindExternalResource, readConnectionSecrets } from "@/lib/intake/acquisition/connection.service";
 import { verifySvix } from "@/lib/intake/acquisition/signatures";
 import { PUBLIC_ID_PATTERN } from "@/lib/intake/acquisition/keys";
@@ -40,7 +41,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
   }
   let conn;
   try {
-    conn = await resolvePublicConnection(CLOUDTALK_SOURCE, publicId);
+    conn = await resolvePublicConnectionV2(CLOUDTALK_SOURCE, publicId);
   } catch {
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
@@ -50,7 +51,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
   // signature: 503, so the delivery is retried (Svix retries every non-2xx) and nothing is logged as forged.
   let secrets;
   try {
-    secrets = await runWithTenantContext({ businessId }, () => readConnectionSecrets(businessId, connectionId));
+    // decision 3 — a PAUSED endpoint still verifies the Svix signature (its secrets are kept), then the call is held.
+    secrets = await runWithTenantContext({ businessId }, () => readConnectionSecrets(businessId, connectionId, { anyLiveStatus: conn.status === "PAUSED" }));
   } catch {
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
@@ -84,7 +86,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ publicId: stri
     return NextResponse.json({ error: "rate_limited" }, { status: 503, headers: { "retry-after": String(limit.retryAfterSeconds) } });
   }
   try {
-    await ingestAcquisition({ sourceKey: CLOUDTALK_SOURCE, accountRef: publicId, businessId, connectionId, receipts: [parsed.receipt] });
+    await ingestAcquisition({ sourceKey: CLOUDTALK_SOURCE, accountRef: publicId, businessId, connectionId, connectionStatus: conn.status, receipts: [parsed.receipt] });
     return NextResponse.json({}, { status: 200 });
   } catch {
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
