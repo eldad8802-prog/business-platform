@@ -1,0 +1,119 @@
+# The invoice PDF shows the allocation number from the data stored for the document:
+# stored column → PDF service overlay (9 right-most digits) → real HTML renderer →
+# storage; blocked before the number exists; served from cache after; tenant-isolated.
+#
+# Its own job and database on purpose: the test replays EVERY RLS / policy statement
+# the migrations ship, which would change the posture for any later step in a shared DB.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+
+name: billing pdf allocation number (ephemeral PG17 + Chromium)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/billing-pdf.service.ts"
+      - "lib/services/billing/billing-allocation-number.ts"
+      - "lib/services/billing/pdf/**"
+      - "lib/services/billing/authority/billing-authority-transition.service.ts"
+      - "lib/services/billing/authority/billing-authority-delivery.rules.ts"
+      - "lib/services/billing/billing-pdf-allocation-number.rls.integration.test.ts"
+      - "lib/pdf/**"
+      - "lib/storage/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - ".github/workflows/billing-pdf-allocation-number-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pdf-allocation-number:
+    name: PDF allocation number (PG17 replayed RLS, NOBYPASSRLS, real renderer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pa_owner
+          POSTGRES_PASSWORD: pa_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_pa
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pa_owner -d dubiz_pa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://pa_owner:pa_ci_synthetic_owner_pw@localhost:5432/dubiz_pa
+      RUNTIME_URL: postgresql://pa_runtime:pa_ci_synthetic_runtime_pw@localhost:5432/dubiz_pa
+      AUTH_TOKEN_SECRET: billing_pa_ci_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+
+      - name: Push schema as the owner
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Create the governed runtime role
+        env:
+          PGPASSWORD: pa_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE pa_runtime LOGIN PASSWORD 'pa_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO pa_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pa_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO pa_runtime;"
+
+      - name: Allocation number on the PDF from stored data
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx lib/services/billing/billing-pdf-allocation-number.rls.integration.test.ts
+
+      # The display overlay is removed from the PDF service (the stored number is no
+      # longer applied) — the suite must go red on P1.
+      - name: Negative proof — a PDF that ignores the stored number is caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          prove() {
+            local file=lib/services/billing/billing-pdf.service.ts
+            cp "$file" "$file.bak"
+            perl -0pi -e 's/const displayAllocationNumber = deriveAllocationNumber\(doc\.allocationNumber\);/const displayAllocationNumber: string | null = null;/' "$file"
+            if cmp -s "$file" "$file.bak"; then
+              mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply"; return 1
+            fi
+            npx tsx lib/services/billing/billing-pdf-allocation-number.rls.integration.test.ts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then
+              echo "::error::NEGATIVE-PROOF FAIL: the PDF ignored the stored number and the suite stayed green"; return 1
+            fi
+            if ! grep -q "\[FAIL\] P1" np.log; then
+              echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on P1"; tail -30 np.log; return 1
+            fi
+            echo "negative proof OK — a PDF without the stored number fails P1"
+          }
+          prove || exit 1
