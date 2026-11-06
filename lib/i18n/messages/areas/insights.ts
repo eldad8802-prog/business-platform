@@ -493,6 +493,7 @@ export const insightsHe = {
     toDocumentList: "לרשימת המסמכים",
     toCustomerList: "לרשימת הלקוחות",
     toCustomerCard: "לכרטיס הלקוח",
+    toBusinessDocuments: "למסמכים נוספים",
     toLeadList: "לרשימת הלידים",
     toInvoiceList: "לרשימת החשבוניות",
     toCoupons: "לקופונים",

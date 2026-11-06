@@ -4,6 +4,10 @@
     "features/business-documents/customer-documents-model.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): ר3 timeline model — Hebrew labels for every existing type, Israel-time dates and month grouping, newest first with id tie-break, retried pages never duplicate rows, values shown exactly as the billing list returned them; run on pull_request by business-documents-ci.yml"
+    },
+    "lib/services/business-documents/letter/letter-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): ר2 letter — input validation (required fields, limits, control characters, real dates, recipient ids), HTML escaping of every value (no script / markup injection), images only as validated data URLs, no external URL, deterministic bytes, browser draft restore never trusts unknown fields; run on pull_request by business-documents-ci.yml"
     }
   }
 }

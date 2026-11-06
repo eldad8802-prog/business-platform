@@ -39,18 +39,20 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Customer documents timeline model
         run: npx tsx features/business-documents/customer-documents-model.test.ts
+      - name: Letter contracts, HTML and form model
+        run: npx tsx lib/services/business-documents/letter/letter-core.test.ts
       - name: Back navigation (every page has a parent)
         run: npx tsx lib/navigation/back-nav/back-nav.test.ts
       - name: Lint
-        run: npx eslint features/business-documents "app/(shell)/customers/[id]/documents" components/customers/CustomerCard.tsx .business-documents
+        run: npx eslint features/business-documents lib/services/business-documents app/api/business-documents "app/(shell)/business-documents" "app/(shell)/customers/[id]/documents" components/customers/CustomerCard.tsx .business-documents
       - name: Test inventory
         run: node scripts/ci/security-test-coverage.mjs
       - name: Existing billing unchanged (A0 golden)
         run: npx tsx .billing-a0/golden.test.ts
 
   database:
-    name: Business documents isolation (ephemeral PG17) + A0 issuance
-    runs-on: ubuntu-latest
+    name: Business documents isolation + letter PDF (ephemeral PG17) + A0 issuance
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
     timeout-minutes: 20
 
     services:
@@ -72,6 +74,7 @@ jobs:
       DATABASE_URL: postgresql://bd_owner:bd_ci_synthetic_owner_pw@localhost:5432/dubiz_bd
       DIRECT_URL: postgresql://bd_owner:bd_ci_synthetic_owner_pw@localhost:5432/dubiz_bd
       AUTH_TOKEN_SECRET: bd_ci_auth_secret_synthetic
+      RENDER: "1"
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -80,6 +83,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
+      - name: Install the Playwright Chromium (letter PDF)
+        run: npx playwright install --with-deps chromium
       - name: Push schema (lab)
         run: npx prisma db push --skip-generate
       - name: Isolation and permissions battery
