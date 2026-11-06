@@ -32,7 +32,7 @@ permissions:
 jobs:
   pdf-allocation-number:
     name: PDF allocation number (PG17 replayed RLS, NOBYPASSRLS, real renderer)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
     timeout-minutes: 25
 
     services:
