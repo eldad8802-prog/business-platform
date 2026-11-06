@@ -38,10 +38,12 @@ export type SourceKind =
   | "lead"
   | "conversation"
   | "documents_queue"
-  | "stock";
+  | "stock"
+  /** S08 (ר1, behind business_documents): a quote whose validity ends within 3 days or has ended. */
+  | "quote_validity";
 
 export const SOURCE_KINDS: readonly SourceKind[] = [
-  "supplier_payment", "customer_debt", "invoice_review", "lead", "conversation", "documents_queue", "stock",
+  "supplier_payment", "customer_debt", "invoice_review", "lead", "conversation", "documents_queue", "stock", "quote_validity",
 ];
 
 /** The owner-facing name of a source ("תשלומים לספקים"). */

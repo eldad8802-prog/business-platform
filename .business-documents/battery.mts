@@ -135,12 +135,67 @@ async function main() {
   ok("I6 reading changed nothing", JSON.stringify(before) === JSON.stringify(after));
 
   await letters(a, b);
+  await quoteValidity(a, b);
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) {
     for (const f of failures) console.log(`FAIL: ${f}`);
     process.exitCode = 1;
   }
+}
+
+/**
+ * ר1 / S08 — the Daily Tasks quote-validity source on real rows (A has business_documents ON from letters(), B OFF):
+ *   Q1  B (flag off) gets no item even with an expiring quote, and S08 is not listed in B's preferences;
+ *   Q2  A gets an expiring and an expired quote; not a converted one, not a far one, not a dateless one;
+ *   Q3  a quote referenced by ANY ServiceQuote row (an older, superseded version too) is never an item;
+ *   Q4  reading writes nothing (documents, task state, task rows unchanged).
+ */
+async function quoteValidity(a: Tenant, b: Tenant) {
+  const { quoteValidity: adapter } = await import("../lib/services/tasks/sources");
+  const { getPreferences } = await import("../lib/services/tasks/preferences.service");
+  const today = "2026-11-05";
+  const ctx = (businessId: number) => ({ businessId, now: new Date("2026-11-05T08:00:00.000Z"), today });
+  const quote = async (t: Tenant, validUntil: string | null) => {
+    const d = await createBillingDraft({ businessId: t.business.id, actorUserId: t.user.id, documentType: BillingDocumentType.QUOTE, customerId: t.customer.id, initialLines: [LINE] });
+    if (validUntil) await prisma.billingDocument.update({ where: { id: d.id }, data: { validUntil: new Date(validUntil) } });
+    return d.id;
+  };
+
+  const bExpiring = await quote(b, "2026-11-06T10:00:00.000Z");
+  const soon = await quote(a, "2026-11-07T10:00:00.000Z");
+  const expired = await quote(a, "2026-10-20T10:00:00.000Z");
+  const far = await quote(a, "2026-12-20T10:00:00.000Z");
+  const dateless = await quote(a, null);
+  const converted = await quote(a, "2026-11-06T10:00:00.000Z");
+  const convertedTo = await createBillingDraft({ businessId: a.business.id, actorUserId: a.user.id, documentType: BillingDocumentType.TAX_INVOICE, customerId: a.customer.id, initialLines: [LINE] });
+  await prisma.billingDocument.update({ where: { id: converted }, data: { convertedToInvoiceId: convertedTo.id } });
+  const serviceV1 = await quote(a, "2026-11-06T10:00:00.000Z");
+  const serviceV2 = await quote(a, "2026-11-06T10:00:00.000Z");
+  const sCase = await prisma.serviceCase.create({ data: { businessId: a.business.id, caseNumber: 1, kind: "IN_SHOP", customerId: a.customer.id } });
+  for (const [version, billingDocumentId, state] of [[1, serviceV1, "SUPERSEDED"], [2, serviceV2, "SENT"]] as const) {
+    await prisma.serviceQuote.create({
+      data: { businessId: a.business.id, caseId: sCase.id, version, billingDocumentId, totalAgorot: 11800, docHash: `h${version}`, sentPdfKey: `biz/${a.business.id}/service/q${version}.pdf`, sentPdfSha256: `s${version}`, state },
+    });
+  }
+
+  const before = await Promise.all([prisma.billingDocument.count(), prisma.taskSourceState.count(), prisma.task.count()]);
+  const bOut = await adapter(ctx(b.business.id));
+  ok("Q1 flag off → no item for B", bOut.items.length === 0 && !bOut.items.some((i) => i.entity?.id === bExpiring), JSON.stringify(bOut.items.map((i) => i.dedupeKey)));
+  const bPrefs = await getPreferences(b.business.id);
+  ok("Q1 S08 not listed in B's preferences", !bPrefs.sources.some((s) => s.kind === "quote_validity"));
+  const aPrefs = await getPreferences(a.business.id);
+  ok("Q1 S08 listed in A's preferences", aPrefs.sources.some((s) => s.kind === "quote_validity"));
+
+  const aOut = await adapter(ctx(a.business.id));
+  const ids = aOut.items.map((i) => i.entity?.id);
+  ok("Q2 the expiring and the expired quote are items", ids.includes(soon) && ids.includes(expired), JSON.stringify(ids));
+  ok("Q2 not the far, the dateless or the converted quote", !ids.includes(far) && !ids.includes(dateless) && !ids.includes(converted));
+  ok("Q2 dedupe key follows the spec (quote:<id>:validity)", aOut.items.every((i) => /^quote:\d+:validity$/.test(i.dedupeKey)));
+  ok("Q2 the action opens the existing quote screen", aOut.items.every((i) => i.action.href === `/billing/${i.entity?.id}`));
+  ok("Q3 service-case quotes (every version) are never items", !ids.includes(serviceV1) && !ids.includes(serviceV2), JSON.stringify(ids));
+  const after = await Promise.all([prisma.billingDocument.count(), prisma.taskSourceState.count(), prisma.task.count()]);
+  ok("Q4 reading wrote nothing", JSON.stringify(before) === JSON.stringify(after));
 }
 
 function post(url: string, token: string | null, body: unknown) {

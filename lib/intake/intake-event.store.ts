@@ -487,27 +487,139 @@ export async function purgeExpiredFailedPayloads(
   return res.count;
 }
 
-/** Events of this business that are due now, oldest first. */
+/**
+ * L1.5-b · PR-1 — the share of a drain's budget always kept for each lane when the other is full: at least one in
+ * five slots. A business with thousands of held receipts still gets its ready work done every run, and a business
+ * with a busy ready queue still re-looks at (and so releases) its held receipts every run.
+ */
+export function laneReserve(limit: number): number {
+  return Math.max(1, Math.floor(limit / 5));
+}
+
+/**
+ * Split a drain's budget between the two lanes (pure). Each lane is guaranteed min(its due count, reserve);
+ * whatever one lane does not use goes to the other; the total never exceeds `limit`.
+ *   ready  due receipts that are not waiting on a hold — new, retrying, a dead worker's lease, resumable;
+ *   held   due receipts whose last look found a hold (`held:*`) — re-looked at, and released once it lifts.
+ */
+export function pickLanes(ready: number[], held: number[], limit: number): number[] {
+  const reserve = Math.min(laneReserve(limit), limit);
+  const heldTake = Math.min(held.length, Math.max(reserve, limit - ready.length));
+  const readyTake = Math.min(ready.length, limit - heldTake);
+  return [...ready.slice(0, readyTake), ...held.slice(0, heldTake)];
+}
+
+/** A JS instant as the UTC wall time Prisma stores in `timestamp(3)` columns, whatever the session's TimeZone. */
+const utc = (d: Date) => Prisma.sql`(${d.toISOString()}::timestamptz AT TIME ZONE 'UTC')`;
+
+/**
+ * One lane's due receipts, fair across what feeds it: round-robin by source (ready) or by connection (held — a
+ * hold is decided per connection), oldest first within each, so one source's backlog never starves another's.
+ * Due = exactly claimEvent's condition; a receipt under a live lease is never listed.
+ */
+async function dueLane(
+  tx: Prisma.TransactionClient,
+  businessId: number,
+  now: Date,
+  limit: number,
+  held: boolean
+): Promise<number[]> {
+  if (limit <= 0) return [];
+  const rows = held
+    ? await tx.$queryRaw<{ id: number }[]>`
+        SELECT d."id" FROM (
+          SELECT e."id", e."receivedAt",
+                 ROW_NUMBER() OVER (PARTITION BY e."sourceKey", e."providerAccountRef" ORDER BY e."receivedAt", e."id") AS rn
+            FROM "IntakeEvent" e
+           WHERE e."businessId" = ${businessId}::int
+             AND ((e."status" = 'RECEIVED' AND e."nextAttemptAt" IS NULL)
+                  OR (e."status" IN ('RECEIVED', 'PERSISTED', 'FAILED') AND e."nextAttemptAt" <= ${utc(now)}))
+             AND e."lastErrorCode" LIKE 'held:%'
+        ) d
+        ORDER BY d.rn, d."receivedAt", d."id"
+        LIMIT ${limit}::int`
+    : await tx.$queryRaw<{ id: number }[]>`
+        SELECT d."id" FROM (
+          SELECT e."id", e."receivedAt",
+                 ROW_NUMBER() OVER (PARTITION BY e."sourceKey" ORDER BY e."receivedAt", e."id") AS rn
+            FROM "IntakeEvent" e
+           WHERE e."businessId" = ${businessId}::int
+             AND ((e."status" = 'RECEIVED' AND e."nextAttemptAt" IS NULL)
+                  OR (e."status" IN ('RECEIVED', 'PERSISTED', 'FAILED') AND e."nextAttemptAt" <= ${utc(now)}))
+             AND (e."lastErrorCode" IS NULL OR e."lastErrorCode" NOT LIKE 'held:%')
+        ) d
+        ORDER BY d.rn, d."receivedAt", d."id"
+        LIMIT ${limit}::int`;
+  return rows.map((r) => Number(r.id));
+}
+
+/**
+ * Events of this business that are due now, in two lanes (L1.5-b · PR-1): ready work first, held receipts in their
+ * own reserved share — so held receipts can never fill the whole budget, and are still re-looked at every run.
+ * Listing only proposes ids; claimEvent's lease is still what decides who processes a receipt.
+ */
 export async function listDueEventIds(
   businessId: number,
   now: Date = new Date(),
   limit = 25
 ): Promise<number[]> {
-  const rows = await withTenantTransaction((tx) =>
-    tx.intakeEvent.findMany({
-      where: {
-        businessId,
-        OR: [
-          { status: "RECEIVED", nextAttemptAt: null },
-          { status: { in: ["RECEIVED", "PERSISTED", "FAILED"] }, nextAttemptAt: { lte: now } },
-        ],
-      },
-      orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
-      take: limit,
-      select: { id: true },
-    })
-  );
-  return rows.map((r) => r.id);
+  return withTenantTransaction(async (tx) => {
+    const ready = await dueLane(tx, businessId, now, limit, false);
+    const held = await dueLane(tx, businessId, now, limit, true);
+    return pickLanes(ready, held, limit);
+  });
+}
+
+/** Most held siblings one look settles (L1.5-b · PR-1); a larger backlog is settled by the held lane's next looks. */
+export const SIBLING_BATCH = 1000;
+/** Server-side ceiling for that one statement — well inside the 5 s interactive-transaction timeout. */
+const SIBLING_STATEMENT_TIMEOUT_MS = 3000;
+
+/**
+ * L1.5-b · PR-1 — one look settles the connection. A hold is decided per (business, source, connection) — the
+ * revoked / paused state of the connection, the source gate, the business — never per receipt (gate.ts). So when
+ * the look at one receipt finds its connection still held, every OTHER receipt of that connection that was already
+ * waiting on a hold and is due now waits the same `until` — up to SIBLING_BATCH of them, in one statement — instead
+ * of each being claimed and deferred on its own. Attempts are untouched (none was taken). A receipt under a live lease, a receipt that never
+ * waited on a hold (new, or retrying a failure), and other connections are not touched. Returns how many waited.
+ */
+export async function deferHeldSiblings(
+  businessId: number,
+  probe: { id: number; sourceKey: string; providerAccountRef: string | null },
+  until: Date,
+  code: string,
+  now: Date = new Date()
+): Promise<number> {
+  if (!code.startsWith("held:")) return 0;
+  // Bounded: at most SIBLING_BATCH rows per look (oldest first), picked ONCE (MATERIALIZED, whatever the planner
+  // thinks of the table's statistics) and under a server-side statement timeout, so this statement can neither run
+  // long nor keep row locks past the transaction; a larger backlog is settled by the held lane's next looks.
+  // SKIP LOCKED: a row a racing worker is claiming right now is left to that worker.
+  return withTenantTransaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(SIBLING_STATEMENT_TIMEOUT_MS)}, true)`;
+    return tx.$executeRaw`
+      WITH picked AS MATERIALIZED (
+        SELECT s."id" FROM "IntakeEvent" s
+         WHERE s."businessId" = ${businessId}::int
+           AND s."sourceKey" = ${probe.sourceKey}::text
+           AND s."providerAccountRef" IS NOT DISTINCT FROM ${probe.providerAccountRef}::text
+           AND s."id" <> ${probe.id}::int
+           AND s."lastErrorCode" LIKE 'held:%'
+           AND ((s."status" = 'RECEIVED' AND s."nextAttemptAt" IS NULL)
+                OR (s."status" IN ('RECEIVED', 'PERSISTED', 'FAILED') AND s."nextAttemptAt" <= ${utc(now)}))
+         ORDER BY s."receivedAt", s."id"
+         LIMIT ${SIBLING_BATCH}::int
+           FOR UPDATE SKIP LOCKED
+      )
+      UPDATE "IntakeEvent" e
+         SET "nextAttemptAt" = ${utc(until)}, "lastErrorCode" = ${boundedCode(code)}, "updatedAt" = ${utc(now)}
+        FROM picked
+       WHERE e."id" = picked."id"
+         AND e."businessId" = ${businessId}::int
+         AND e."lastErrorCode" LIKE 'held:%'
+         AND ((e."status" = 'RECEIVED' AND e."nextAttemptAt" IS NULL)
+              OR (e."status" IN ('RECEIVED', 'PERSISTED', 'FAILED') AND e."nextAttemptAt" <= ${utc(now)}))`;
+  });
 }
 
 /**
