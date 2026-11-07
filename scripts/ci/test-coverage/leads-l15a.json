@@ -30,6 +30,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-b PR-3 privacy + honesty: the owner intake status shows counts only (no name, phone, message, endpoint id, key or provider code), never presents a waiting enquiry as a lead or counts it in the leads badge, scopes to the business own connections, is gated by intake_status_visibility (OFF by default, fail-open) and reads a bounded, cached backlog; the connections API adds waiting counts only when the gate answered"
+    },
+    "lib/notifications/intake-notifications.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-b PR-4 owner notifications about lead intake: in-app only or silent (no leads rule grants push), info / warning / action told apart, one dedupe fact per situation, resolution only after a complete read, gated by intake_status_visibility, never throws, no enquiry content"
     }
   }
 }

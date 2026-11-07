@@ -104,7 +104,9 @@ function main() {
     eq("the full matrix is 120 combinations", total, 120);
     ok(
       "only a small minority of the matrix notifies at all",
-      notifying <= 12,
+      // 12 → 13 (Leads L1.5-b · PR-4, an owner decision): leads FAILURE_EVENT HIGH (enquiries not taken in) and
+      // leads WARNING INFO (waiting enquiries taken in). Both in-app only; no intake rule grants push.
+      notifying <= 13,
       `${notifying}/120 notify`
     );
   }
