@@ -88,7 +88,6 @@ function refOf(c: IntakeConnectionRow): string | null {
 /** Pure: the owner's items for these connections and this backlog. */
 export function translateIntakeAttention(raw: IntakeAttentionRaw, now: Date): BusinessStatusItemBuild[] {
   const out: BusinessStatusItemBuild[] = [];
-  const capped = raw.backlog.capped;
   const byRef = new Map<string, ConnectionBacklog>();
   for (const b of raw.backlog.connections) byRef.set(`${b.sourceKey}\u0000${b.providerAccountRef ?? ""}`, b);
 
