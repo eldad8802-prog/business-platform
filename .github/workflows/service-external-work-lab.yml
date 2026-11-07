@@ -12,6 +12,8 @@
 #      concurrency (READ COMMITTED and REPEATABLE READ), changes, correction, no silent change, return, handover,
 #      supplier reference, append-only journal, atomicity, account erasure, 1.2a regression on the same database.
 #   3b. 1.2a regression: the foundation battery on its own lab, and the real account-erasure purge with 1.2b applied.
+#   3c. Account erasure of 1.2b through the real adapter (.sdx/erasure-battery.ts): refusal, whole rollback, the
+#       declared columns of works and journal, the other business untouched, no DELETE, regression of the purge.
 #   4. Faults: each injected defect is caught by the proof check meant for it.
 #   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
 #   6. Rollback: refused while rows exist; on an empty database it reverts whole (preflight whole again).
@@ -28,6 +30,10 @@ on:
       - "ops/evidence/service-external-work-*.sql"
       - ".sdx/**"
       - ".github/workflows/service-external-work-lab.yml"
+      - ".sdf/**"
+      - "prisma/schema.prisma"
+      - "lib/services/account/account-deletion.prisma-store.ts"
+      - "lib/services/account/account-erasure-manifest.ts"
   workflow_dispatch:
 
 permissions:
@@ -155,6 +161,15 @@ jobs:
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdx_erase" \
           DATABASE_URL="$R" DIRECT_URL="$R" AUTH_DATABASE_URL="$R" AUTH_TOKEN_SECRET="sdx-ci-synthetic-auth-secret-0123456789abcdef" \
             npx tsx .sdf/erasure-battery.ts
+
+      - name: 3c. Account erasure of 1.2b through the REAL adapter (purgeOperationalData) as the runtime login
+        # On the 1.2b lab of step 3b (its own businesses; 3b restores every grant and name it touches).
+        run: |
+          set -euo pipefail
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdx_erase"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdx_erase" \
+          DATABASE_URL="$R" DIRECT_URL="$R" AUTH_DATABASE_URL="$R" AUTH_TOKEN_SECRET="sdx-ci-synthetic-auth-secret-0123456789abcdef" \
+            npx tsx .sdx/erasure-battery.ts
 
       - name: 4. Faults — each is caught by the proof, by the check meant for it
         run: |

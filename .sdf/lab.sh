@@ -27,8 +27,12 @@ if [ "$MODE" != "--deploy-only" ] && [ "$MODE" != "--broken-deploy-only" ]; then
 bash "$ROOT/.bkg/lab.sh" "$DB" --with-bkg >/dev/null
 # schema.prisma models the Service Desk (PR-2), so the base lab's `db push` built its tables and enums without
 # the migration's checks, triggers, functions, policies and grants: remove them so the migration builds them the
-# way Production has them.
+# way Production has them. The same holds for the 1.2b tables (work at an external supplier, migration
+# 20261113090000, which sorts after this one and is not this lab's): they use "ServiceActor", so they go first.
 psql_owner <<'SQL'
+DROP TABLE IF EXISTS "ServiceExternalWorkEvent", "ServiceExternalWork" CASCADE;
+DROP TYPE IF EXISTS "ServiceExternalWorkEventKind", "ServiceExternalReturnResult", "ServiceExternalProgress",
+  "ServiceExternalWorkState";
 DROP TABLE IF EXISTS "ServiceHandover", "ServiceCaseEvent", "ServiceQuote", "ServiceCaseIntake", "ServiceCase",
   "ServiceDevice", "ServiceCaseNumberSequence" CASCADE;
 DROP TYPE IF EXISTS "ServiceEventType", "ServiceCaseAction", "ServiceActor", "ServiceQuoteApprovalMethod",
