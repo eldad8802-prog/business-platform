@@ -318,7 +318,7 @@ export async function sendInvoiceApproval(
   input: SendInvoiceApprovalInput
 ): Promise<ApprovalClientResult> {
   const fetchFn =
-    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId });
+    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId, operation: "approval" });
 
   // ---- pre-send: nothing has been handed to the transport yet ----
   let url: string;

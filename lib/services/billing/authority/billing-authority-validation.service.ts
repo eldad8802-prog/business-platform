@@ -281,7 +281,7 @@ export async function executeAuthorityValidationProbe(input: {
   errorMessage?: string;
 }> {
   const fetchFn =
-    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId });
+    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId, operation: "validation" });
   const timeoutMs =
     input.probeTimeoutMs ?? DEFAULT_AUTHORITY_VALIDATION_PROBE_TIMEOUT_MS;
   const controller = new AbortController();
@@ -356,7 +356,7 @@ export async function validateAuthorityConnection(
 
   // Production pilot (admitted business AND SUBMISSIONS stage): refused before
   // the connection is read or a token decrypted. Code = allowlist vs stage.
-  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment);
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment, "validation");
   if (pilotRefusal) {
     return configurationFailureResult(
       validationTimestamp,

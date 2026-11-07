@@ -27,6 +27,7 @@ import {
   type AuthorityPilotListStatus,
   type AuthorityPilotOperationsValueStatus,
   type AuthorityProductionPilotRefusalCode,
+  type AuthorityPilotBusinessOperation,
   type AuthorityProductionPilotStage,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 
@@ -103,11 +104,12 @@ export function buildAuthorityPilotGateReport(
   const exchangeRefusal =
     actorRefusal ??
     resolveAuthorityPilotScopeRefusal({ kind: "business-oauth", businessId }, PRODUCTION, env);
-  // Refresh / validation / Approval / Decision: the service gate, then the egress
-  // "business" scope (the same function underneath; both must allow).
-  const businessOpRefusal =
-    resolveAuthorityProductionOperationRefusal(businessId, PRODUCTION, env) ??
-    resolveAuthorityPilotScopeRefusal({ kind: "business", businessId }, PRODUCTION, env);
+  // Refresh / validation / Approval / Decision, each separately: the service gate,
+  // then the egress "business" scope for that operation (the same function
+  // underneath; both must allow).
+  const businessOpRefusal = (operation: AuthorityPilotBusinessOperation) =>
+    resolveAuthorityProductionOperationRefusal(businessId, PRODUCTION, operation, env) ??
+    resolveAuthorityPilotScopeRefusal({ kind: "business", businessId, operation }, PRODUCTION, env);
   // Probe: egress "platform-diagnostic" scope only.
   const probeRefusal = resolveAuthorityPilotScopeRefusal({ kind: "platform-diagnostic" }, PRODUCTION, env);
 
@@ -130,10 +132,10 @@ export function buildAuthorityPilotGateReport(
     operations: {
       oauthStart: decision(actorRefusal),
       oauthCodeExchange: decision(exchangeRefusal),
-      refresh: decision(businessOpRefusal),
-      validation: decision(businessOpRefusal),
-      approval: decision(businessOpRefusal),
-      decision: decision(businessOpRefusal),
+      refresh: decision(businessOpRefusal("refresh")),
+      validation: decision(businessOpRefusal("validation")),
+      approval: decision(businessOpRefusal("approval")),
+      decision: decision(businessOpRefusal("decision")),
       probe: decision(probeRefusal),
     },
   };

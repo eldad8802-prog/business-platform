@@ -89,3 +89,24 @@ export function assertKeyMatchesMetadata(
     throw new StorageKeyError("Storage key domain does not match metadata.domain");
   }
 }
+
+const LIST_PREFIX_PATTERN = new RegExp(`^biz/(\\d+)/(${STORAGE_DOMAINS.join("|")})/(.*)$`);
+
+/**
+ * A listObjects prefix: always inside one business and one domain (biz/{businessId}/{domain}/…), never a bare
+ * bucket-wide or cross-business listing.
+ */
+export function assertSafeListPrefix(prefix: string): string {
+  if (!prefix || typeof prefix !== "string" || prefix.includes("\0")) {
+    throw new StorageKeyError("List prefix is required");
+  }
+  const normalized = normalizeStorageKey(prefix);
+  const match = LIST_PREFIX_PATTERN.exec(normalized);
+  if (!match || !Number.isInteger(Number(match[1])) || Number(match[1]) <= 0) {
+    throw new StorageKeyError("List prefix must match biz/{businessId}/{domain}/...");
+  }
+  if (normalized.includes("..")) {
+    throw new StorageKeyError("List prefix must not contain '..'");
+  }
+  return normalized;
+}
