@@ -354,7 +354,7 @@ export async function exchangeAuthorityRefreshToken(input: {
   errorMessage?: string;
 }> {
   const fetchFn =
-    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId });
+    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId, operation: "refresh" });
   const timeoutMs =
     input.refreshTimeoutMs ?? DEFAULT_AUTHORITY_TOKEN_REFRESH_TIMEOUT_MS;
   const controller = new AbortController();
@@ -502,7 +502,7 @@ export async function refreshAuthorityConnectionToken(
   const refreshTimestamp = new Date();
   // Production pilot (admitted business AND SUBMISSIONS stage): refused before
   // the connection is read or a token decrypted. Code = allowlist vs stage.
-  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment);
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment, "refresh");
   if (pilotRefusal) {
     return configurationFailureResult(
       refreshTimestamp,

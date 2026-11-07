@@ -1,0 +1,14 @@
+{
+  "note": "Issuance: EXEMPT_DEALER cannot issue TAX_INVOICE / TAX_INVOICE_RECEIPT (owner-approved under A0, 2026-11-06). Run by billing-exempt-dealer-issuance-ci.yml with a negative proof.",
+  "tests": {
+    "lib/billing/business-identity.exempt-dealer.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): the exempt-dealer document-type rule; run by billing-exempt-dealer-issuance-ci.yml"
+    },
+    "lib/services/billing/billing-issue-exempt-dealer.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: replays every repository RLS statement, runs as a NOSUPERUSER NOBYPASSRLS login and refuses otherwise; Approval stubbed, global fetch throws; 16/16 locally on PG18; without the rule X1-X6 fail (incl. a stubbed Approval for an exempt tax invoice)"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "note": "ITA PRODUCTION pilot per operation (owner-approved under A0, 2026-11-06): OPERATIONS can open refresh / Approval without validation, Decision or the probe; \"oauth\" unchanged. Run by ita-pilot-operations-ci.yml with a negative proof.",
+  "tests": {
+    "lib/services/billing/authority/billing-authority-pilot-operations.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: replays every repository RLS statement, runs as a NOSUPERUSER NOBYPASSRLS login and refuses otherwise; real execution path with stubbed authority requests, global fetch throws; 13/13 locally on PG18; a gate that ignores the operation fails S3"
+    }
+  }
+}

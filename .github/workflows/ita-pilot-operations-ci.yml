@@ -1,0 +1,123 @@
+# ITA PRODUCTION pilot, per operation: BILLING_AUTHORITY_PRODUCTION_PILOT_OPERATIONS
+# can open refresh / Approval without opening validation, Decision or the probe.
+# "oauth" (today's value) keeps every operation refused with the same code.
+#
+# Its own job and database on purpose: the DB test replays EVERY RLS / policy statement
+# the migrations ship, which would change the posture for any later step in a shared DB.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+# Every authority request is a local stub; global fetch throws.
+
+name: ita pilot operations (unit + ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/authority/**"
+      - "lib/tenant/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - ".github/workflows/ita-pilot-operations-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pilot-operations:
+    name: Pilot operations (gate + transport + services; PG17 replayed RLS, NOBYPASSRLS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: po_owner
+          POSTGRES_PASSWORD: po_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_po
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U po_owner -d dubiz_po"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://po_owner:po_ci_synthetic_owner_pw@localhost:5432/dubiz_po
+      RUNTIME_URL: postgresql://po_runtime:po_ci_synthetic_runtime_pw@localhost:5432/dubiz_po
+      AUTH_TOKEN_SECRET: ita_po_ci_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Pilot gate, transport and services (no DB)
+        env:
+          DATABASE_URL: postgresql://unused@127.0.0.1:1/unused
+        run: |
+          set -euo pipefail
+          npx tsx lib/services/billing/authority/billing-authority-production-pilot.verify.test.ts
+          npx tsx lib/services/billing/authority/billing-authority-pilot-gate.verify.test.ts
+
+      - name: Push schema as the owner
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Create the governed runtime role
+        env:
+          PGPASSWORD: po_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE po_runtime LOGIN PASSWORD 'po_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO po_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO po_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO po_runtime;"
+
+      - name: Approval path per operation under replayed RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx lib/services/billing/authority/billing-authority-pilot-operations.rls.integration.test.ts
+
+      # The gate is made to ignore WHICH operation is asked for (any enabled
+      # operation lets every one through) — the suite must go red on S3, Decision
+      # opening when only refresh + Approval are enabled.
+      - name: Negative proof — a gate that ignores the operation is caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          prove() {
+            local file=lib/services/billing/authority/billing-authority-production-pilot.ts
+            cp "$file" "$file.bak"
+            perl -0pi -e 's/  if \(enabled\.has\(operation\)\) return null;/  if (enabled.size > 0) return null;/' "$file"
+            if cmp -s "$file" "$file.bak"; then
+              mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply"; return 1
+            fi
+            npx tsx lib/services/billing/authority/billing-authority-pilot-operations.rls.integration.test.ts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then
+              echo "::error::NEGATIVE-PROOF FAIL: the gate ignored the operation and the suite stayed green"; return 1
+            fi
+            if ! grep -q "\[FAIL\] S3" np.log; then
+              echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on S3"; tail -30 np.log; return 1
+            fi
+            echo "negative proof OK — a gate that ignores the operation fails S3"
+          }
+          prove || exit 1
