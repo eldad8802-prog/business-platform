@@ -24,7 +24,7 @@ import { POST as googlePOST } from "../app/api/intake/acquisition/google/[public
 
 const RUN = `hq-${Date.now()}`;
 const SWEEP_LIMIT = 50;
-const LOADS = (process.env.HELD_LOADS ?? "50,500,2000,20000").split(",").map((s) => Number(s.trim())).filter((n) => n > 0);
+const LOADS = (process.env.HELD_LOADS ?? "50,500,2000,20000,50000").split(",").map((s) => Number(s.trim())).filter((n) => n > 0);
 /** Loads up to this size are released to the end (every receipt checked exactly once); larger ones for a few runs. */
 /** New enquiries arriving per run during release — below the ready lane's guaranteed share (limit − reserve = 40). */
 const BURST = 38;
@@ -125,6 +125,9 @@ async function scenario(N: number) {
   // Ready work: 30 new website enquiries (active endpoint) + 5 Google leads due for a retry after a failure.
   await clone(tWeb.id, 30, { tag: "ready-web", ref: activeWeb.connection.publicId, status: "RECEIVED", attempts: 0, next: null, code: null, receivedAt: t0 });
   await clone(tG.id, 5, { tag: "ready-g", ref: activeG.connection.publicId, status: "FAILED", attempts: 1, next: new Date(t0.getTime() - MIN), code: "error:Error", receivedAt: new Date(t0.getTime() - 60 * MIN) });
+  // Lab only: a bulk insert leaves the table unanalyzed and its rows untouched — a state a live table never has.
+  await o.$executeRawUnsafe(`ANALYZE "IntakeEvent"`);
+  await o.$queryRawUnsafe(`SELECT count(*) FROM "IntakeEvent"`);
 
   // ---- run 1: the sweep's look while paused ----
   const s1 = Date.now();
