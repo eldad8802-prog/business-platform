@@ -99,10 +99,10 @@ test("backlog / flow reads: bounded, read-only, open backlog only, no payload", 
   assert.ok(Number(/const CAPACITY_STATEMENT_TIMEOUT_MS = (\d+);/.exec(store)![1]) < 5000);
 });
 
-test("a tier crossing is claimed once, on the tier-th oldest held receipt", () => {
-  assert.match(tierFn, /OFFSET \$\{tier - 1\}::int LIMIT 1/);
-  assert.match(tierFn, /AND NOT \(COALESCE\("metadata", '\{\}'::jsonb\) \? \$\{key\}::text\)/);
-  assert.match(tierFn, /return n === 1;/);
+test("a tier crossing is claimed once: newest `tier` stamped, re-reported only after falling below", () => {
+  assert.ok(tierFn.includes("if (Number(c.held) < tier || Number(c.stamped) >= tier) return false;"));
+  assert.match(tierFn, /ORDER BY e\."receivedAt" DESC, e\."id" DESC\s*LIMIT \$\{tier\}::int/);
+  assert.match(tierFn, /return true;/);
 });
 
 test("the sweep reads capacity after its work, best effort, and alerts only when switched on", () => {
