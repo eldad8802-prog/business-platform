@@ -12,6 +12,9 @@ import { deriveAllocationNumber } from "@/lib/services/billing/billing-allocatio
 
 export type AuthorityDisplayTone = "success" | "info" | "warning" | "danger";
 
+/** Every production-pilot refusal code shares this prefix (billing-authority-production-pilot.ts). */
+const PILOT_REFUSAL_PREFIX = "AUTHORITY_PRODUCTION_PILOT_";
+
 export type AuthorityIssueDisplay = {
   /** The accounting document was issued (always true once issuance returned). */
   documentIssued: true;
@@ -83,6 +86,17 @@ export function describeAuthorityIssueOutcome(
         detail: "רשות המסים דחתה את בקשת מספר ההקצאה. לא התקבל מספר.",
       };
     case "infrastructure_failed":
+      // A production-pilot refusal is not a failure to retry: the request was
+      // never sent because sending is not open for this document. Say exactly
+      // that — the invoice IS issued, without a number, and nothing was sent.
+      if (typeof authority.errorCode === "string" && authority.errorCode.startsWith(PILOT_REFUSAL_PREFIX)) {
+        return {
+          ...base,
+          tone: "warning",
+          title: "המסמך הונפק — מספר הקצאה לא התבקש",
+          detail: "הבקשה לא נשלחה לרשות המסים: השליחה אינה פתוחה עבור מסמך זה. המסמך הונפק ללא מספר הקצאה.",
+        };
+      }
       return {
         ...base,
         tone: "danger",

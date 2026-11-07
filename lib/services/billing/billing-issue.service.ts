@@ -1,4 +1,5 @@
 import {
+  BillingAuthorityEnvironment,
   BillingAuthoritySubmissionStatus,
   BillingDocument,
   BillingDocumentLine,
@@ -9,6 +10,9 @@ import {
   Prisma,
 } from "@prisma/client";
 import { createHash } from "crypto";
+import { evaluateAuthorityReadinessAtIssue } from "@/lib/services/billing/authority/billing-authority-readiness";
+import { resolveRuntimeAuthorityEnvironment } from "@/lib/services/billing/authority/billing-authority-env.service";
+import { resolveAuthorityProductionPilotIssueRefusal } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import {
   ForbiddenError,
   NotFoundError,
@@ -389,6 +393,19 @@ export const defaultIssueAuthorityDeps: IssueAuthorityDeps = {
  * NOT be reported as a failed issuance. It is surfaced as `execution_error`
  * with a filtered code; nothing sensitive is logged.
  */
+/** Shown when N10 refuses issuance (the document stays a draft). */
+export const AUTHORITY_PILOT_DOCUMENT_NOT_AUTHORIZED_AT_ISSUE_MESSAGE =
+  "המסמך מחייב מספר הקצאה ואינו מאושר לשליחה לרשות המסים בפיילוט. הוא לא הונפק ונשאר טיוטה.";
+
+/** The deployment's authority environment for the issue gate; unresolvable → SANDBOX (never gated). */
+function resolveIssueAuthorityEnvironment(): BillingAuthorityEnvironment {
+  try {
+    return resolveRuntimeAuthorityEnvironment();
+  } catch {
+    return BillingAuthorityEnvironment.SANDBOX;
+  }
+}
+
 export async function resolveAuthorityOutcomeAfterIssue(
   args: {
     businessId: number;
@@ -772,6 +789,30 @@ export async function issueBillingDocumentTx(
     if (customer) {
       customerData = customer;
     }
+  }
+
+  // N10: while Approval is open in the PRODUCTION pilot for this business, a
+  // document that would be sent (READY) but is not on the Approval document list
+  // is refused HERE — before the number sequence and before any write — so it
+  // stays a draft instead of becoming an issued invoice that is never sent. The
+  // readiness inputs are exactly those the submission is created from below.
+  const pilotIssueRefusal = resolveAuthorityProductionPilotIssueRefusal({
+    businessId: input.businessId,
+    billingDocumentId: doc.id,
+    environment: resolveIssueAuthorityEnvironment(),
+    wouldBeReady:
+      evaluateAuthorityReadinessAtIssue({
+        documentType: doc.documentType,
+        invoiceDate: issuedAt,
+        vatAmount: issuedTotals.vatAmount,
+        subtotalAmount: issuedTotals.subtotalAmount,
+        currency: doc.currency,
+        customerTaxIdType: customerData?.taxIdType ?? null,
+        customerTaxId: customerData?.taxId ?? null,
+      }) === BillingAuthoritySubmissionStatus.READY,
+  });
+  if (pilotIssueRefusal) {
+    throw new ValidationError(AUTHORITY_PILOT_DOCUMENT_NOT_AUTHORIZED_AT_ISSUE_MESSAGE);
   }
 
   const sequence = await tx.billingDocumentNumberSequence.upsert({

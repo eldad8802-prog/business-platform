@@ -220,6 +220,10 @@ async function main() {
   const a2 = await readyInvoice(a.businessId, 2);
   const b1 = await readyInvoice(b.businessId, 1);
   const c1 = await readyInvoice(c.businessId, 1);
+  // N10: in PRODUCTION an Approval is also bound to business + document. This suite
+  // is about the OPERATIONS switch, so every document it sends is authorized.
+  process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS =
+    `PRODUCTION:${a.businessId}:${a1},PRODUCTION:${a.businessId}:${a2},PRODUCTION:${b.businessId}:${b1},PRODUCTION:${c.businessId}:${c1}`;
 
   // ---------------------------------------- today's value: "oauth" (O) ---
   setOps("oauth");
