@@ -25,6 +25,7 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-b PR-5 lead-loss integrity: the sweep never starts a business past its budget and rotates its start so none is always last; release rounds go only to businesses that moved work forward, bounded and drain-only; a resume flips the status in its transaction and re-arms receipts afterwards in bounded batches, never a receipt under a live lease, best effort (the hold recheck releases the rest); health stamping bounded per run"
+    },
     "lib/intake/l15b-capacity.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
@@ -39,6 +40,7 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-b PR-4 owner notifications about lead intake: in-app only or silent (no leads rule grants push), info / warning / action told apart, one dedupe fact per situation, resolution only after a complete read, gated by intake_status_visibility, never throws, no enquiry content"
+    },
     "lib/intake/l15b-expiry.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
