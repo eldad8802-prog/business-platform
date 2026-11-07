@@ -207,6 +207,8 @@ jobs:
           DATABASE_URL: ${{ env.RUNTIME_URL }}
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m6/intake-notifications-battery.ts
+      - name: 4h. L1.5-b edge — database outage → every intake route answers 503 (never a silent 2xx)
+        run: npx tsx .m6/edge-battery.ts
 
       - name: 5. Website LIVE-PROOF rehearsal — the Production evidence, proven on the real path (clean database)
         env:
