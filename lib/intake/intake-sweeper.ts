@@ -23,6 +23,7 @@ import { runTenantJob } from "@/lib/tenant/job";
 import { BusinessQuarantinedError } from "@/lib/tenant/business-lifecycle";
 import { claimHeldTierCrossing, intakeBacklog, intakeFlow, intakeHealthCounts, purgeExpiredFailedPayloads } from "@/lib/intake/intake-event.store";
 import { HELD_GLOBAL_ALERT, HELD_TIERS, heldTier } from "@/lib/intake/intake-capacity";
+import { syncIntakeNotifications } from "@/lib/notifications/intake-notifications";
 import { drainIntake, emptyTally, type IntakeProcessResult } from "@/lib/intake/core/processor";
 import type { IntakeRegistry } from "@/lib/intake/core/registry";
 import { intakeRegistry } from "@/lib/intake/sources";
@@ -274,6 +275,8 @@ export async function runIntakeSweep(
 async function readCapacity(c: CapacityReport, businessId: number, now: Date, alerts: boolean): Promise<void> {
   const b = await intakeBacklog(businessId, now);
   const f = await intakeFlow(businessId, now);
+  // L1.5-b · PR-4 — owner notifications from this same read (gated by intake_status_visibility; never throws).
+  await syncIntakeNotifications(businessId, b, f, now);
   c.held += b.totals.held;
   c.due += b.totals.due;
   c.retrying += b.totals.retrying;
