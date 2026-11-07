@@ -102,6 +102,7 @@ export const homeHe = {
       stock: "מלאי",
       collection: "גבייה",
       lead: "ליד",
+      intake: "פניות",
     },
     order: "להזמנה",
     family: {
@@ -165,6 +166,7 @@ export const homeHe = {
       stock: "מלאי",
       collection: "גבייה",
       lead: "לידים",
+      intake: "קליטת פניות",
     },
     chipAll: "הכל · {count}",
     chipKind: "{label} · {count}",

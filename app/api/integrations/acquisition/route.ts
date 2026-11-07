@@ -20,6 +20,7 @@ import { connectionActivity } from "@/lib/intake/acquisition/activity";
 import { isConnectionSourceKey } from "@/lib/intake/acquisition/gate";
 import { wixAppConfig } from "@/lib/intake/commerce/wix";
 import { wixInstallUrl } from "@/lib/intake/commerce/wix-connect";
+import { loadConnectionWaiting } from "@/lib/business-status/intake-attention";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,8 @@ export async function GET(req: Request) {
     const [sources, connections] = await Promise.all([enabledSources(businessId), listConnections()]);
     const live = connections.filter((c) => c.status !== "REVOKED");
     const activity = await connectionActivity(businessId, live);
+    // Leads L1.5-b · PR-3 — enquiries waiting / not taken in, per connection (counts only; null unless intake_status_visibility).
+    const waiting = await loadConnectionWaiting(businessId, connections);
     // CloudTalk: which of the owner's CloudTalk credentials are saved (booleans only — never the values).
     const setup = new Map<number, { signingSecret: boolean; apiKey: boolean }>();
     for (const c of live.filter((x) => x.sourceKey === "telephony.cloudtalk")) {
@@ -49,6 +52,7 @@ export async function GET(req: Request) {
         endpointUrl: endpointUrl(req, c),
         activity: activity.get(c.id) ?? null,
         setup: setup.get(c.id) ?? null,
+        ...(waiting ? { waiting: waiting.get(c.id) ?? null } : {}),
       })),
     });
   });
