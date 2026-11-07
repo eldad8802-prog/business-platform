@@ -39,7 +39,6 @@ on:
       - "components/settings/IntakeWaitingNote.tsx"
       - "lib/business-status/**"
       - "lib/notifications/**"
-      - "components/notifications/notification-center.tsx"
       - "features/home/v3/**"
       - "lib/intake/sweep-auth.ts"
       - "package.json"

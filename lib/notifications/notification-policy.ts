@@ -171,19 +171,6 @@ const RULES: Record<string, Rule> = {
     cooldownHours: 24,
     reason: "lead attention, low urgency",
   },
-  // Leads L1.5-b · PR-4 — the intake of the owner's own leads. IN-APP ONLY: no intake fact reaches outside the app
-  // until the owner decides a push policy. Paused / not included / a connection to check / an abnormal backlog ride the
-  // two ACTION_REQUIRED rules above; a Dubiz hold (nothing to do) and "still processing" never notify (home only).
-  [ruleKey("leads", "FAILURE_EVENT", "HIGH")]: {
-    channels: ["IN_APP"],
-    cooldownHours: 24,
-    reason: "enquiries could not be taken in — the owner may be missing leads",
-  },
-  [ruleKey("leads", "WARNING", "INFO")]: {
-    channels: ["IN_APP"],
-    cooldownHours: 24,
-    reason: "enquiries that waited were taken in — the recovery worked",
-  },
 
   // ── Inbox ──────────────────────────────────────────────────────────────────
   [ruleKey("inbox", "ACTION_REQUIRED", "HIGH")]: {

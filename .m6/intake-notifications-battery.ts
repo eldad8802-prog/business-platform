@@ -105,8 +105,7 @@ async function main() {
   const paused = n3.find((r) => r.entityType === "intake_paused");
   const recovered = n3.find((r) => r.entityType === "intake_recovered");
   ok(`released (still waiting: ${held}) → the paused notification is resolved`, held === 0 && !!paused?.resolvedAt, JSON.stringify({ held, resolvedAt: paused?.resolvedAt }));
-  ok("…and a recovery notification appears: '20 פניות שהמתינו נקלטו בהצלחה' (in-app, info)",
-    !!recovered && recovered.title === "20 פניות שהמתינו נקלטו בהצלחה" && recovered.severity === "INFO" && recovered.intendedChannels.join() === "IN_APP", JSON.stringify(recovered));
+  ok("…and a recovery writes no notification (silent until a rule for it is approved; the policy is unchanged)", !recovered, JSON.stringify(recovered));
   ok("the failure and the connection to check stay open (still true)",
     !n3.find((r) => r.entityType === "intake_failed")?.resolvedAt && !n3.find((r) => r.entityType === "intake_check_connection")?.resolvedAt);
 

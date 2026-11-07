@@ -6,8 +6,8 @@
  * Pins:
  *   - the facts: the home screen's (same translator) plus an abnormal backlog (≥ 1,000 waiting) and a recovery (taken
  *     in during the last hour, nothing waiting any more)
- *   - the decision: every intake fact is IN_APP only or silent — never PUSH; a Dubiz hold and "still processing" are
- *     silent; info (recovery) / warning / action-required are told apart; each situation has its own dedupe key
+ *   - the decision: the policy is UNCHANGED — intake facts ride the existing leads rules (in-app, 24 h); never PUSH;
+ *     a Dubiz hold, "still processing" and a recovery are silent; each situation has its own dedupe key
  *   - the sync: gated by intake_status_visibility, resolves only after a complete (uncapped) read, never throws, and
  *     runs from the sweep's own capacity read
  */
@@ -72,10 +72,9 @@ test("decision: in-app only or silent — never push; info / warning / action to
   assert.equal(d.get("leads:intake_platform_hold:3")!.notify, false, "a Dubiz hold — nothing to do, home only");
   const rec = intakeNotificationItems(BIZ, [], bl([]), { receivedLastHour: 0, receivedLastDay: 0, processedLastHour: 1, recoveredLastHour: 1, capped: false }, MIDDAY).map(finalizeBusinessStatusItem);
   const r = decideNotification(BIZ, rec[0], MIDDAY);
-  assert.equal(r.notify, true);
-  assert.deepEqual(r.notify && r.channels, ["IN_APP"]);
+  assert.equal(r.notify, false, "a recovery stays silent until a rule for it is approved");
   assert.equal(rec[0].severity, "INFO");
-  assert.equal(all.find((i) => i.itemId === "leads:intake_failed:2")!.semanticCategory, "FAILURE_EVENT");
+  assert.equal(all.find((i) => i.itemId === "leads:intake_failed:2")!.semanticCategory, "ACTION_REQUIRED", "not taken in rides the existing rule");
   assert.equal(all.find((i) => i.itemId === "leads:intake_paused:1")!.semanticCategory, "ACTION_REQUIRED");
 });
 
@@ -97,6 +96,8 @@ test("sync: gated, resolves only after a complete read, never throws, runs from 
   const policy = read("lib/notifications/notification-policy.ts");
   const leadsRules = policy.slice(policy.indexOf("// ── Leads"), policy.indexOf("// ── Inbox"));
   assert.doesNotMatch(leadsRules, /"PUSH"/, "no leads rule grants push");
+  assert.doesNotMatch(leadsRules, /ruleKey\("leads", "(FAILURE_EVENT|WARNING|ALERT)"/, "the policy is unchanged: no new leads rule");
+  assert.match(read("lib/notifications/notification-policy.verify.test.ts"), /notifying <= 12,/, "the matrix guard is unchanged");
 });
 
 console.log(`\nALL L1.5-b INTAKE NOTIFICATION TESTS PASSED — ${checks} checks\n`);

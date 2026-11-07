@@ -67,9 +67,6 @@ export function severityStyle(severity: string, t: Translator = HE_T): { label: 
     case "REMINDER":
       // A personal task reminder the owner set (owner-approved plan 2026-10-21).
       return { label: "תזכורת", bg: "var(--dz-brand-soft, #e6efec)", color: "var(--dz-brand, #246966)", border: "rgba(36, 105, 102, 0.2)" };
-    case "INFO":
-      // Leads L1.5-b · PR-4 — an informative notice (e.g. waiting enquiries were taken in). Hebrew-first copy.
-      return { label: "מידע", bg: "var(--dz-success-bg-soft)", color: "var(--dz-success)", border: "rgba(36, 105, 102, 0.16)" };
     case "MEDIUM":
       return { label: t("home.notifications.severity.MEDIUM"), bg: "var(--dz-surface-muted)", color: "var(--dz-text-secondary)", border: "rgba(52, 60, 50, 0.1)" };
     default:

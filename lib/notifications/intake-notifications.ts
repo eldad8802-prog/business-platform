@@ -3,14 +3,15 @@
  *
  *   intake backlog (the sweep's bounded read)
  *     -> the owner intake translator (lib/business-status/intake-attention.ts — the same truth as the home screen)
- *     -> the existing notification policy (the decision: in-app only for every intake fact; push is a separate
- *        owner decision and no intake rule grants it)
+ *     -> the existing notification policy, UNCHANGED (owner 2026-11-08): only the two existing leads rules
+ *        (ACTION_REQUIRED HIGH / MEDIUM, in-app, 24 h) carry intake facts; no new rule, no push
  *     -> the merged notification writer (the memory: one row per fact, cooldown, no duplicates under races)
  *
  * Facts, per connection (from the translator): paused with enquiries waiting (at risk after 7 days), not included,
  * held by Dubiz, a connection to check, enquiries not taken in. Plus two business-level facts that only notify:
  *   intake_backlog    the business has HELD_BACKLOG_NOTIFY or more waiting enquiries (abnormal accumulation)
- *   intake_recovered  enquiries that waited were taken in during the last hour and nothing waits any more
+ *   intake_recovered  enquiries that waited were taken in during the last hour and nothing waits any more —
+ *                     emitted, but SILENT until a rule for it is approved (impact check first)
  *
  * Resolution: a fact that is no longer true is resolved — but ONLY when the read was complete (not capped); an
  * incomplete read is never evidence that something went away. Gated by intake_status_visibility (OFF by default).
@@ -55,7 +56,12 @@ export function intakeNotificationItems(
   flow: BusinessFlow | null,
   now: Date
 ): BusinessStatusItemBuild[] {
-  const items = translateIntakeAttention({ connections, backlog }, now);
+  // The policy is unchanged (owner, 2026-11-08): every intake fact rides an EXISTING rule. "Not taken in" is told as
+  // ACTION_REQUIRED HIGH here (the home screen keeps FAILURE_EVENT); a recovery is emitted but stays SILENT until a
+  // rule for it is approved after an impact check.
+  const items = translateIntakeAttention({ connections, backlog }, now).map((i) =>
+    i.semanticCategory === "FAILURE_EVENT" ? { ...i, semanticCategory: "ACTION_REQUIRED" as const } : i
+  );
   const base = (reason: string, category: BusinessStatusItemBuild["semanticCategory"], severity: BusinessStatusItemBuild["severity"], title: string, summary: string) => ({
     itemId: `leads:${reason}:${businessId}`,
     domain: "leads" as const,
