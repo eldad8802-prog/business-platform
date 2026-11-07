@@ -397,6 +397,11 @@ export async function rearmBlockedEvents(
 
 /** L1.5-b · PR-5 — most receipts one health read stamps as reported (per kind), so it stays inside its transaction. */
 export const HEALTH_STAMP_BATCH = 2000;
+/**
+ * Most a health read or the retention purge waits for a row lock. Two sweeps racing over the same business stamp
+ * with SKIP LOCKED (a row the other run holds is stamped next run), so they never deadlock or queue behind each other.
+ */
+export const HEALTH_LOCK_TIMEOUT_MS = 1000;
 
 /** A receipt still unfinished this long after arrival is a stuck backlog the operator should see. */
 export const STALE_PENDING_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -428,6 +433,10 @@ export type IntakeHealthCounts = {
  */
 export async function intakeHealthCounts(businessId: number, now: Date = new Date()): Promise<IntakeHealthCounts> {
   return withTenantTransaction(async (tx) => {
+    // L1.5-b · PR-5 — two sweeps may read the same business at once (QStash + the GitHub schedule): never wait long on
+    // a lock, never run long (both local to this transaction).
+    await tx.$executeRaw`SELECT set_config('lock_timeout', ${String(HEALTH_LOCK_TIMEOUT_MS)}, true)`;
+    await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(SIBLING_STATEMENT_TIMEOUT_MS)}, true)`;
     const deadLetter = { businessId, status: "FAILED" as const, nextAttemptAt: null };
     // L1.5-b · PR-5 — both stamps are bounded (HEALTH_STAMP_BATCH per run, oldest first): an unbounded stamp over a
     // large backlog outgrew the transaction timeout, rolled back, and failed again on every run. Each receipt is still
@@ -440,7 +449,8 @@ export async function intakeHealthCounts(businessId: number, now: Date = new Dat
                 WHERE d."businessId" = ${businessId}::int AND d."status" = 'FAILED' AND d."nextAttemptAt" IS NULL
                   AND (d."metadata" -> 'deadLetterReportedAt') IS NULL
                 ORDER BY d."id"
-                LIMIT ${HEALTH_STAMP_BATCH}::int)
+                LIMIT ${HEALTH_STAMP_BATCH}::int
+                  FOR UPDATE SKIP LOCKED)
          AND ("metadata" -> 'deadLetterReportedAt') IS NULL`;
     const deadLettersOpen = await tx.intakeEvent.count({ where: { ...deadLetter, payloadPurgedAt: null } });
     const staleBefore = new Date(now.getTime() - STALE_PENDING_AFTER_MS);
@@ -454,7 +464,8 @@ export async function intakeHealthCounts(businessId: number, now: Date = new Dat
                   AND (p."status" IN ('RECEIVED', 'PERSISTED') OR (p."status" = 'FAILED' AND p."nextAttemptAt" IS NOT NULL))
                   AND (p."metadata" -> 'staleReportedAt') IS NULL
                 ORDER BY p."receivedAt", p."id"
-                LIMIT ${HEALTH_STAMP_BATCH}::int)
+                LIMIT ${HEALTH_STAMP_BATCH}::int
+                  FOR UPDATE SKIP LOCKED)
          AND ("metadata" -> 'staleReportedAt') IS NULL`;
     const pendingStale = await tx.intakeEvent.count({
       where: {
@@ -488,8 +499,9 @@ export async function purgeExpiredFailedPayloads(
   now: Date = new Date()
 ): Promise<number> {
   const cutoff = new Date(now.getTime() - FAILED_PAYLOAD_RETENTION_MS);
-  const res = await withTenantTransaction((tx) =>
-    tx.intakeEvent.updateMany({
+  const res = await withTenantTransaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('lock_timeout', ${String(HEALTH_LOCK_TIMEOUT_MS)}, true)`;
+    return tx.intakeEvent.updateMany({
       where: {
         businessId,
         status: "FAILED",
@@ -498,8 +510,8 @@ export async function purgeExpiredFailedPayloads(
         payloadPurgedAt: null,
       },
       data: { payload: Prisma.DbNull, payloadPurgedAt: now },
-    })
-  );
+    });
+  });
   return res.count;
 }
 

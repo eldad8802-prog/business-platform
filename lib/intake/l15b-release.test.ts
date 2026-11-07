@@ -88,4 +88,14 @@ test("resume: status flips in the transaction, receipts re-armed after it in bou
   assert.match(rearm, /s\."lastAttemptAt" IS NULL OR s\."nextAttemptAt" > s\."lastAttemptAt" \+ make_interval/, "never a live lease");
 });
 
+test("racing sweeps never deadlock or queue on the health read / purge (SKIP LOCKED, lock + statement timeouts)", () => {
+  const store = read("lib/intake/intake-event.store.ts");
+  const health = store.slice(store.indexOf("export async function intakeHealthCounts("), store.indexOf("export const FAILED_PAYLOAD_RETENTION_MS"));
+  assert.equal(health.split("FOR UPDATE SKIP LOCKED").length - 1, 2, "both stamps skip rows the other run holds");
+  assert.ok(health.includes("set_config('lock_timeout', ${String(HEALTH_LOCK_TIMEOUT_MS)}, true)"));
+  assert.ok(health.includes("set_config('statement_timeout', ${String(SIBLING_STATEMENT_TIMEOUT_MS)}, true)"));
+  const purge = store.slice(store.indexOf("export async function purgeExpiredFailedPayloads("), store.indexOf("export function laneReserve("));
+  assert.ok(purge.includes("set_config('lock_timeout', ${String(HEALTH_LOCK_TIMEOUT_MS)}, true)"));
+});
+
 console.log(`\nALL L1.5-b RELEASE TESTS PASSED — ${checks} checks\n`);
