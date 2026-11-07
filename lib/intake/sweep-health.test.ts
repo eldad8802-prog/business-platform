@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { sweepHealth, type IntakeSweepReport } from "./intake-sweeper";
+import { sweepHealth, type IntakeSweepReport, emptyCapacity } from "./intake-sweeper";
 import { emptyTally } from "./core/processor";
 
 let checks = 0;
@@ -33,6 +33,7 @@ const clean = (): IntakeSweepReport => ({
   commerce: { receipts: 0, webhooksReactivated: 0, failures: 0 },
   revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
   budget: { businessesNotReached: 0, releaseRounds: 0, releaseBusinesses: 0 },
+  capacity: emptyCapacity(),
   backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, held: 0, businessesNeedingAttention: 0 },
 });
 const withR = (patch: (r: IntakeSweepReport) => void) => { const r = clean(); patch(r); return sweepHealth(r); };

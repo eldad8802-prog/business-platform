@@ -21,7 +21,8 @@
 
 import { runTenantJob } from "@/lib/tenant/job";
 import { BusinessQuarantinedError } from "@/lib/tenant/business-lifecycle";
-import { intakeHealthCounts, purgeExpiredFailedPayloads } from "@/lib/intake/intake-event.store";
+import { claimHeldTierCrossing, intakeBacklog, intakeFlow, intakeHealthCounts, purgeExpiredFailedPayloads } from "@/lib/intake/intake-event.store";
+import { HELD_GLOBAL_ALERT, HELD_TIERS, heldTier } from "@/lib/intake/intake-capacity";
 import { drainIntake, emptyTally, type IntakeProcessResult } from "@/lib/intake/core/processor";
 import type { IntakeRegistry } from "@/lib/intake/core/registry";
 import { intakeRegistry } from "@/lib/intake/sources";
@@ -76,6 +77,50 @@ export function rotateTenants<T>(items: readonly T[], now: Date): T[] {
 export function wantsReleaseRound(tally: Record<IntakeProcessResult, number>, limit: number): boolean {
   const listed = Object.values(tally).reduce((a, b) => a + b, 0);
   return listed >= limit && tally.processed + tally.ignored + tally.failed > 0;
+   * L1.5-b · PR-2 — capacity across the swept businesses (counts only, monitoring only — never a refusal): open
+   * backlog by class, how many businesses reached each held tier, the largest per-business held count, the oldest
+   * held receipt, the flow of the last hour, and (only with INTAKE_CAPACITY_ALERTS_ENABLED) new tier crossings and
+   * the platform-wide alert.
+   */
+  capacity: CapacityReport;
+};
+
+export type CapacityReport = {
+  held: number;
+  due: number;
+  retrying: number;
+  deadLetters: number;
+  businessesAt500: number;
+  businessesAt1000: number;
+  businessesAt2000: number;
+  maxHeldPerBusiness: number;
+  oldestHeldHours: number;
+  receivedLastHour: number;
+  processedLastHour: number;
+  recoveredLastHour: number;
+  /** Businesses whose scan hit its cap (their counts are lower bounds) / whose capacity read failed (metrics only). */
+  cappedBusinesses: number;
+  unreadBusinesses: number;
+  /** INTAKE_CAPACITY_ALERTS_ENABLED only: tier crossings first seen in this run (each reported once). */
+  tierCrossingsNew: number;
+  /** INTAKE_CAPACITY_ALERTS_ENABLED only: held ≥ HELD_GLOBAL_ALERT platform-wide, raised in the first run of the UTC day. */
+  globalAlert: boolean;
+};
+
+export const emptyCapacity = (): CapacityReport => ({
+  held: 0, due: 0, retrying: 0, deadLetters: 0, businessesAt500: 0, businessesAt1000: 0, businessesAt2000: 0, maxHeldPerBusiness: 0,
+  oldestHeldHours: 0, receivedLastHour: 0, processedLastHour: 0, recoveredLastHour: 0, cappedBusinesses: 0, unreadBusinesses: 0,
+  tierCrossingsNew: 0, globalAlert: false,
+});
+
+/** Capacity alerts (new red reasons) are OFF unless this is exactly "true"; the counts are always reported. */
+export function capacityAlertsEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.INTAKE_CAPACITY_ALERTS_ENABLED === "true";
+}
+
+/** The first scheduled run (10-minute slot) of the UTC day: a standing platform-wide alert is raised once a day (pure). */
+export function firstRunOfUtcDay(now: Date, slotMs = 10 * 60 * 1000): boolean {
+  return now.getTime() % (24 * 60 * 60 * 1000) < slotMs;
 }
 
 /** Union of every registered source's tenants (deduped, stable order). */
@@ -116,7 +161,9 @@ export async function runIntakeSweep(
     revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
     backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, held: 0, businessesNeedingAttention: 0 },
     budget: { businessesNotReached: 0, releaseRounds: 0, releaseBusinesses: 0 },
+    capacity: emptyCapacity(),
   };
+  const alerts = capacityAlertsEnabled();
 
   // Listing tenants only reads; a dropped pooled connection here is retried once (lib/db/transient-retry.ts).
   const businessIds = await withConnectionRetry(() => tenantsOf(registry), { label: "intake-sweep.tenants" });
@@ -167,6 +214,11 @@ export async function runIntakeSweep(
           // Server log only (never the response): which business, counts — no event id, no content.
           console.warn("[intake-sweep] business attention", { businessId, ...h });
         }
+        // L1.5-b · PR-2 — capacity (metrics only): one bounded read per business per run; a failure here is counted,
+        // never a business error, and never changes what was processed above.
+        await readCapacity(report.capacity, businessId, now, alerts).catch(() => {
+          report.capacity.unreadBusinesses += 1;
+        });
         return drained;
       }));
       for (const key of Object.keys(tally) as IntakeProcessResult[]) {
@@ -215,7 +267,33 @@ export async function runIntakeSweep(
     }
     pending = again;
   }
+  report.capacity.globalAlert = alerts && report.capacity.held >= HELD_GLOBAL_ALERT && firstRunOfUtcDay(now);
   return report;
+}
+
+async function readCapacity(c: CapacityReport, businessId: number, now: Date, alerts: boolean): Promise<void> {
+  const b = await intakeBacklog(businessId, now);
+  const f = await intakeFlow(businessId, now);
+  c.held += b.totals.held;
+  c.due += b.totals.due;
+  c.retrying += b.totals.retrying;
+  c.deadLetters += b.totals.deadLetters;
+  c.receivedLastHour += f.receivedLastHour;
+  c.processedLastHour += f.processedLastHour;
+  c.recoveredLastHour += f.recoveredLastHour;
+  if (b.capped || f.capped) c.cappedBusinesses += 1;
+  c.maxHeldPerBusiness = Math.max(c.maxHeldPerBusiness, b.totals.held);
+  const ageHours = b.oldestHeldAt ? Math.floor((now.getTime() - b.oldestHeldAt.getTime()) / 3_600_000) : 0;
+  c.oldestHeldHours = Math.max(c.oldestHeldHours, ageHours);
+  const tier = heldTier(b.totals.held);
+  if (tier >= 500) c.businessesAt500 += 1;
+  if (tier >= 1000) c.businessesAt1000 += 1;
+  if (tier >= 2000) c.businessesAt2000 += 1;
+  if (tier > 0) {
+    // Server log only (never the response): which business, counts — no event id, no content.
+    console.warn("[intake-sweep] held capacity", { businessId, held: b.totals.held, tier, oldestHeldHours: ageHours, capped: b.capped });
+    if (alerts) for (const t of HELD_TIERS) if (t <= tier && (await claimHeldTierCrossing(businessId, t, now))) c.tierCrossingsNew += 1;
+  }
 }
 
 /**
@@ -266,6 +344,10 @@ export function sweepHealth(report: IntakeSweepReport): SweepHealth {
     // L1.5-a — a receipt that became stale since the last sweep: reported once, like a new dead letter.
     ...(report.backlog.pendingStaleNew > 0 ? ["pending_stale_new"] : []),
     ...(report.commerce.failures > 0 ? ["commerce_reconcile_failures"] : []),
+    // L1.5-b · PR-2 — capacity (only ever non-zero with INTAKE_CAPACITY_ALERTS_ENABLED): a tier crossed, once; the
+    // platform-wide backlog, once a day while it stands.
+    ...(report.capacity.tierCrossingsNew > 0 ? ["held_capacity_tier"] : []),
+    ...(report.capacity.globalAlert ? ["held_capacity_global"] : []),
   ];
   return { ok: job.length === 0 && events.length === 0, job, events };
 }

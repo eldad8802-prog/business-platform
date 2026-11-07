@@ -37,6 +37,14 @@ import {
   type IntakeStage,
 } from "@/lib/intake/core/contract";
 import { isValidReceiptKey } from "@/lib/intake/core/event-identity";
+import {
+  oldest,
+  RECOVERY_LAG_MS,
+  totalsOf,
+  type BusinessBacklog,
+  type BusinessFlow,
+  type ConnectionBacklog,
+} from "@/lib/intake/intake-capacity";
 
 /** How long a claim holds an event before another worker may take it over. */
 export const INTAKE_LEASE_MS = 2 * 60 * 1000;
@@ -707,4 +715,146 @@ export async function rearmPausedReceipts(
     if (n < batch) break;
   }
   return total;
+/** L1.5-b · PR-2 — most unfinished receipts one backlog read scans; beyond it every count is a lower bound. */
+export const BACKLOG_SCAN_CAP = 25_000;
+/** Server-side ceiling for a capacity read: a metric never holds a connection or a lock for long. */
+const CAPACITY_STATEMENT_TIMEOUT_MS = 3000;
+/** Flow window for "processed / recovered in the last hour": receipts that arrived within this many days. */
+export const FLOW_LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
+
+type BacklogRow = { sourceKey: string; providerAccountRef: string | null; cls: string; reason: string | null; n: number; oldest: Date | null };
+
+/**
+ * L1.5-b · PR-2 — the business's unfinished receipts by connection and class (counts + oldest arrival only): held
+ * (by reason), due, retrying, dead letters still replayable. One aggregate over at most `scanCap` rows (index
+ * IntakeEvent(businessId, status, nextAttemptAt)) under a server statement timeout; `capped` says the counts are
+ * lower bounds. Finished receipts (PROCESSED / IGNORED) and dead letters whose payload is gone are not scanned, so
+ * the cost follows the open backlog, never the history. Read-only; under the business's RLS.
+ */
+export async function intakeBacklog(
+  businessId: number,
+  now: Date = new Date(),
+  opts: { scanCap?: number } = {}
+): Promise<BusinessBacklog> {
+  const cap = opts.scanCap ?? BACKLOG_SCAN_CAP;
+  return withTenantTransaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(CAPACITY_STATEMENT_TIMEOUT_MS)}, true)`;
+    const rows = await tx.$queryRaw<BacklogRow[]>`
+      WITH u AS (
+        SELECT e."sourceKey", e."providerAccountRef", e."status", e."nextAttemptAt", e."lastErrorCode", e."receivedAt"
+          FROM "IntakeEvent" e
+         WHERE e."businessId" = ${businessId}::int
+           AND e."status" IN ('RECEIVED', 'PERSISTED', 'FAILED')
+           AND (e."status" <> 'FAILED' OR e."nextAttemptAt" IS NOT NULL OR e."payloadPurgedAt" IS NULL)
+         LIMIT ${cap + 1}::int
+      ), c AS (
+        SELECT "sourceKey", "providerAccountRef", "receivedAt",
+               CASE
+                 WHEN "status" = 'FAILED' AND "nextAttemptAt" IS NULL THEN 'dead'
+                 WHEN "lastErrorCode" LIKE 'held:%' THEN 'held'
+                 WHEN "nextAttemptAt" IS NULL OR "nextAttemptAt" <= ${utc(now)} THEN 'due'
+                 ELSE 'retrying'
+               END AS cls,
+               CASE WHEN "lastErrorCode" LIKE 'held:%' THEN substr("lastErrorCode", 6) END AS reason
+          FROM u
+      )
+      SELECT "sourceKey", "providerAccountRef", cls, CASE WHEN cls = 'held' THEN reason END AS reason,
+             count(*)::int AS n, min("receivedAt") AS oldest
+        FROM c
+       GROUP BY 1, 2, 3, 4`;
+    const scanned = rows.reduce((a, r) => a + Number(r.n), 0);
+    const byConn = new Map<string, ConnectionBacklog>();
+    for (const r of rows) {
+      const key = `${r.sourceKey}\u0000${r.providerAccountRef ?? ""}`;
+      const c = byConn.get(key) ?? {
+        sourceKey: r.sourceKey, providerAccountRef: r.providerAccountRef, held: 0, heldByReason: {}, due: 0, retrying: 0, deadLetters: 0,
+        oldestHeldAt: null, oldestUnfinishedAt: null,
+      };
+      const n = Number(r.n);
+      if (r.cls === "held") {
+        c.held += n;
+        const reason = r.reason ?? "unknown";
+        c.heldByReason[reason] = (c.heldByReason[reason] ?? 0) + n;
+        c.oldestHeldAt = oldest([c.oldestHeldAt, r.oldest]);
+      } else if (r.cls === "due") c.due += n;
+      else if (r.cls === "retrying") c.retrying += n;
+      else c.deadLetters += n;
+      c.oldestUnfinishedAt = oldest([c.oldestUnfinishedAt, r.oldest]);
+      byConn.set(key, c);
+    }
+    const connections = [...byConn.values()].sort((a, b) => a.sourceKey.localeCompare(b.sourceKey) || (a.providerAccountRef ?? "").localeCompare(b.providerAccountRef ?? ""));
+    return { connections, totals: totalsOf(connections), oldestHeldAt: oldest(connections.map((c) => c.oldestHeldAt)), capped: scanned > cap };
+  });
+}
+
+/**
+ * L1.5-b · PR-2 — the business's flow (sweep only): receipts received in the last hour / day, processed in the last
+ * hour, and of those the ones processed more than RECOVERY_LAG_MS after arrival (released holds, late retries). Each
+ * count scans at most `scanCap` rows through IntakeEvent(businessId, receivedAt); "processed" looks only at receipts
+ * that arrived within FLOW_LOOKBACK_MS (a release of something older is not counted — a lower bound).
+ */
+export async function intakeFlow(
+  businessId: number,
+  now: Date = new Date(),
+  opts: { scanCap?: number } = {}
+): Promise<BusinessFlow> {
+  const cap = opts.scanCap ?? BACKLOG_SCAN_CAP;
+  const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const lookback = new Date(now.getTime() - FLOW_LOOKBACK_MS);
+  return withTenantTransaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(CAPACITY_STATEMENT_TIMEOUT_MS)}, true)`;
+    const [r] = await tx.$queryRaw<{ day: number; hour: number; done: number; recovered: number }[]>`
+      WITH p AS (
+        SELECT e."processedAt", e."receivedAt" FROM "IntakeEvent" e
+         WHERE e."businessId" = ${businessId}::int AND e."receivedAt" >= ${utc(lookback)}
+           AND e."status" = 'PROCESSED' AND e."processedAt" >= ${utc(hourAgo)}
+         LIMIT ${cap + 1}::int
+      )
+      SELECT
+        (SELECT count(*) FROM (SELECT 1 FROM "IntakeEvent" WHERE "businessId" = ${businessId}::int AND "receivedAt" >= ${utc(dayAgo)} LIMIT ${cap + 1}::int) d)::int AS day,
+        (SELECT count(*) FROM (SELECT 1 FROM "IntakeEvent" WHERE "businessId" = ${businessId}::int AND "receivedAt" >= ${utc(hourAgo)} LIMIT ${cap + 1}::int) h)::int AS hour,
+        (SELECT count(*) FROM p)::int AS done,
+        (SELECT count(*) FROM p WHERE p."processedAt" - p."receivedAt" > make_interval(secs => ${RECOVERY_LAG_MS / 1000}::int))::int AS recovered`;
+    const day = Number(r.day), hour = Number(r.hour), done = Number(r.done), recovered = Number(r.recovered);
+    return {
+      receivedLastHour: Math.min(hour, cap), receivedLastDay: Math.min(day, cap), processedLastHour: Math.min(done, cap),
+      recoveredLastHour: Math.min(recovered, cap), capped: day > cap || done > cap,
+    };
+  });
+}
+
+/**
+ * L1.5-b · PR-2 — "this business reached `tier` held receipts" is reported ONCE per crossing. A crossing is new when
+ * the business holds at least `tier` receipts but fewer than `tier` of them carry the stamp
+ * `metadata.heldTier<tier>At` (non-personal); the run that finds it stamps the NEWEST `tier` held receipts and
+ * reports. Releasing the oldest, or new arrivals while above the tier, never re-reports (the stamped newest stay held
+ * and stamped); falling below the tier and rising again does (fewer than `tier` stamped remain). Only called when
+ * capacity alerts are switched on. Bounded: one count over the held rows, an update of at most `tier` rows.
+ */
+export async function claimHeldTierCrossing(businessId: number, tier: number, now: Date = new Date()): Promise<boolean> {
+  if (!Number.isInteger(tier) || tier <= 0) return false;
+  const key = `heldTier${tier}At`;
+  return withTenantTransaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(CAPACITY_STATEMENT_TIMEOUT_MS)}, true)`;
+    const [c] = await tx.$queryRaw<{ held: number; stamped: number }[]>`
+      SELECT count(*)::int AS held, count(*) FILTER (WHERE COALESCE(e."metadata", '{}'::jsonb) ? ${key}::text)::int AS stamped
+        FROM "IntakeEvent" e
+       WHERE e."businessId" = ${businessId}::int
+         AND e."lastErrorCode" LIKE 'held:%'
+         AND (e."status" IN ('RECEIVED', 'PERSISTED') OR (e."status" = 'FAILED' AND e."nextAttemptAt" IS NOT NULL))`;
+    if (Number(c.held) < tier || Number(c.stamped) >= tier) return false;
+    await tx.$executeRaw`
+      UPDATE "IntakeEvent"
+         SET "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
+       WHERE "id" IN (
+               SELECT e."id" FROM "IntakeEvent" e
+                WHERE e."businessId" = ${businessId}::int
+                  AND e."lastErrorCode" LIKE 'held:%'
+                  AND (e."status" IN ('RECEIVED', 'PERSISTED') OR (e."status" = 'FAILED' AND e."nextAttemptAt" IS NOT NULL))
+                ORDER BY e."receivedAt" DESC, e."id" DESC
+                LIMIT ${tier}::int)
+         AND "businessId" = ${businessId}::int`;
+    return true;
+  });
 }

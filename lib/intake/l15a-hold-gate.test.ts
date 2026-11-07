@@ -20,7 +20,7 @@ import { resolveFeatureAccessFromInputs } from "@/lib/services/feature-access/re
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { BusinessFeatureAccessState } from "@prisma/client";
 import { HOLD_CODES, HOLD_RECHECK_MS } from "./acquisition/gate";
-import { sweepHealth, type IntakeSweepReport } from "./intake-sweeper";
+import { sweepHealth, type IntakeSweepReport, emptyCapacity } from "./intake-sweeper";
 import { emptyTally } from "./core/processor";
 
 let checks = 0;
@@ -94,6 +94,7 @@ test("held receipts are a visible count, not a red run by themselves", () => {
     revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
     backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, held: 7, businessesNeedingAttention: 0 },
     budget: { businessesNotReached: 0, releaseRounds: 0, releaseBusinesses: 0 },
+    capacity: emptyCapacity(),
   };
   assert.deepEqual(sweepHealth(r), { ok: true, job: [], events: [] });
   const store = read("lib/intake/intake-event.store.ts");
