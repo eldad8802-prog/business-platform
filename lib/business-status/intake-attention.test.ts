@@ -99,6 +99,8 @@ test("wording: never 'ליד', the right noun, capped counts, no internal identi
   assert.match(byId.get("leads:intake_failed:5")!.summary!, /^1 שיחה מ־Voicenter לא נקלטו/);
   const capped = translateIntakeAttention({ connections: [web], backlog: backlog([cb("web.form", web.publicId, { held: 2500, heldByReason: { connection_paused: 2500 } })], true) }, NOW);
   assert.equal(capped[0].title, "יש 2,500+ פניות שממתינות לחידוש החיבור");
+  const over = translateIntakeAttention({ connections: [web], backlog: { ...backlog([cb("web.form", web.publicId, { held: 2501, heldByReason: { connection_paused: 2501 } })], true), scanCap: 2500 } }, NOW);
+  assert.equal(over[0].title, "יש 2,500+ פניות שממתינות לחידוש החיבור", "the read's extra row never shows: at most the cap, then +");
 });
 
 test("a revoked connection only reports what failed", () => {

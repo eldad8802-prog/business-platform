@@ -16,7 +16,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { HELD_GLOBAL_ALERT, HELD_TIERS, heldTier, oldest, totalsOf } from "./intake-capacity";
+import { cappedCount, HELD_GLOBAL_ALERT, HELD_TIERS, heldTier, oldest, totalsOf } from "./intake-capacity";
 import { capacityAlertsEnabled, emptyCapacity, firstRunOfUtcDay, sweepHealth, type IntakeSweepReport } from "./intake-sweeper";
 import { emptyTally } from "./core/processor";
 
@@ -40,6 +40,12 @@ test("tiers and the platform threshold", () => {
   assert.equal(heldTier(1000), 1000);
   assert.equal(heldTier(2000), 2000);
   assert.equal(heldTier(50_000), 2000);
+});
+
+test("a capped count reads as at most the cap, with +", () => {
+  assert.deepEqual(cappedCount(2501, { capped: true, scanCap: 2500 }), { n: 2500, plus: true });
+  assert.deepEqual(cappedCount(40, { capped: true, scanCap: 2500 }), { n: 40, plus: true });
+  assert.deepEqual(cappedCount(2501, { capped: false, scanCap: 2500 }), { n: 2501, plus: false });
 });
 
 test("totals and oldest", () => {
