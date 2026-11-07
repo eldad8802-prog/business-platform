@@ -756,28 +756,36 @@ export async function intakeFlow(
 }
 
 /**
- * L1.5-b · PR-2 — "this business reached `tier` held receipts" is reported ONCE per crossing: the tier-th oldest
- * held receipt is stamped `metadata.heldTier<tier>At` (non-personal) in the same statement that tests it. Returns
- * true only on the run that stamped it. If held drops below and rises again, a different receipt is the tier-th
- * oldest and the crossing is reported again. Only called when capacity alerts are switched on.
+ * L1.5-b · PR-2 — "this business reached `tier` held receipts" is reported ONCE per crossing. A crossing is new when
+ * the business holds at least `tier` receipts but fewer than `tier` of them carry the stamp
+ * `metadata.heldTier<tier>At` (non-personal); the run that finds it stamps the NEWEST `tier` held receipts and
+ * reports. Releasing the oldest, or new arrivals while above the tier, never re-reports (the stamped newest stay held
+ * and stamped); falling below the tier and rising again does (fewer than `tier` stamped remain). Only called when
+ * capacity alerts are switched on. Bounded: one count over the held rows, an update of at most `tier` rows.
  */
 export async function claimHeldTierCrossing(businessId: number, tier: number, now: Date = new Date()): Promise<boolean> {
   if (!Number.isInteger(tier) || tier <= 0) return false;
   const key = `heldTier${tier}At`;
   return withTenantTransaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(CAPACITY_STATEMENT_TIMEOUT_MS)}, true)`;
-    const n = await tx.$executeRaw`
+    const [c] = await tx.$queryRaw<{ held: number; stamped: number }[]>`
+      SELECT count(*)::int AS held, count(*) FILTER (WHERE COALESCE(e."metadata", '{}'::jsonb) ? ${key}::text)::int AS stamped
+        FROM "IntakeEvent" e
+       WHERE e."businessId" = ${businessId}::int
+         AND e."lastErrorCode" LIKE 'held:%'
+         AND (e."status" IN ('RECEIVED', 'PERSISTED') OR (e."status" = 'FAILED' AND e."nextAttemptAt" IS NOT NULL))`;
+    if (Number(c.held) < tier || Number(c.stamped) >= tier) return false;
+    await tx.$executeRaw`
       UPDATE "IntakeEvent"
          SET "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
-       WHERE "id" = (
+       WHERE "id" IN (
                SELECT e."id" FROM "IntakeEvent" e
                 WHERE e."businessId" = ${businessId}::int
                   AND e."lastErrorCode" LIKE 'held:%'
                   AND (e."status" IN ('RECEIVED', 'PERSISTED') OR (e."status" = 'FAILED' AND e."nextAttemptAt" IS NOT NULL))
-                ORDER BY e."receivedAt", e."id"
-                OFFSET ${tier - 1}::int LIMIT 1)
-         AND "businessId" = ${businessId}::int
-         AND NOT (COALESCE("metadata", '{}'::jsonb) ? ${key}::text)`;
-    return n === 1;
+                ORDER BY e."receivedAt" DESC, e."id" DESC
+                LIMIT ${tier}::int)
+         AND "businessId" = ${businessId}::int`;
+    return true;
   });
 }
