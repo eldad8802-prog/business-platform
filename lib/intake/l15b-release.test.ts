@@ -68,8 +68,8 @@ test("the run never starts a business past its budget; release rounds are bounde
   const loop = sweeper.slice(sweeper.indexOf("for (const businessId of rotateTenants(businessIds, now))"));
   assert.match(loop, /^for \(const businessId of rotateTenants\(businessIds, now\)\) \{\s*\/\/[^\n]*\n\s*\/\/[^\n]*\n\s*if \(clock\(\) >= deadline\) \{\s*report\.budget\.businessesNotReached \+= 1;\s*continue;/);
   const release = sweeper.slice(sweeper.indexOf("let round = 0;"), sweeper.indexOf("return report;\n}"));
-  assert.match(release, /while \(pending\.length > 0 && round < MAX_RELEASE_ROUNDS && clock\(\) < deadline\)/);
-  assert.match(release, /if \(clock\(\) >= deadline\) break;/);
+  assert.ok(release.includes("while (pending.length > 0 && round < MAX_RELEASE_ROUNDS && clock() + RELEASE_ROUND_MIN_MS <= deadline)"), "a round needs RELEASE_ROUND_MIN_MS of budget left");
+  assert.ok(release.includes("if (clock() + RELEASE_ROUND_MIN_MS > deadline) break;"));
   assert.match(release, /drainIntake\(registry, businessId, \{ now, limit \}\)/);
   assert.doesNotMatch(release, /reconcileCommerce|syncRivhit|intakeHealthCounts|purgeExpiredFailedPayloads/);
 });

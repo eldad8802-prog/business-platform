@@ -75,8 +75,14 @@ async function settle() {
 }
 const byTag = (businessId: number, tag: string) => ({ businessId, metadata: { path: ["rlTag"], equals: tag } });
 const processedOf = (businessId: number, tag: string) => o.intakeEvent.count({ where: { ...byTag(businessId, tag), status: "PROCESSED" } });
-const sweep = (now: Date, deadline?: number) =>
-  runIntakeSweep({ now, reconcileCommerce: false, syncRevenueSources: false, ...(deadline ? { deadline } : {}) });
+/** Longest wall-clock run of any sweep in this battery (must stay inside the route's 60 s). */
+let longestRunMs = 0;
+const sweep = async (now: Date, deadline?: number) => {
+  const t0 = Date.now();
+  const r = await runIntakeSweep({ now, reconcileCommerce: false, syncRevenueSources: false, ...(deadline ? { deadline } : {}) });
+  longestRunMs = Math.max(longestRunMs, Date.now() - t0);
+  return r;
+};
 
 /** Lab only: whatever other batteries left unfinished waits a month, so it does not compete for this battery's budget. */
 async function parkOthers(keep: number[]) {
@@ -205,10 +211,37 @@ async function pauseDuringRelease() {
   await parkOthers([]);
 }
 
+async function resumeRacingSweeps() {
+  console.log("\n-- E. resume racing two sweeps, one receipt under a live lease --");
+  const s = await setup("E");
+  const t0 = new Date();
+  await clone(s.t.id, 300, { tag: "held", ref: s.c.connection.publicId, status: "RECEIVED", attempts: 0, next: new Date(t0.getTime() + 9 * MIN), code: "held:connection_paused", receivedAt: new Date(t0.getTime() - 24 * 60 * MIN), lastAttemptAt: new Date(t0.getTime() - MIN) });
+  await clone(s.t.id, 1, { tag: "leased", ref: s.c.connection.publicId, status: "RECEIVED", attempts: 1, next: new Date(t0.getTime() + 2 * MIN), code: "held:connection_paused", receivedAt: new Date(t0.getTime() - 60 * MIN), lastAttemptAt: t0 });
+  await parkOthers([s.B.id]);
+  await settle();
+  // The resume and two sweeps at the same moment: the re-arm, the listing and the claims all race.
+  await Promise.all([s.pause(false), sweep(at()), sweep(at())]);
+  const leasedMid = await o.intakeEvent.findFirstOrThrow({ where: byTag(s.B.id, "leased") });
+  ok("E: while its lease lasts, the leased receipt is untouched by the racing resume and sweeps (attempts 1, lease kept)",
+    leasedMid.attempts === 1 && leasedMid.status === "RECEIVED" && leasedMid.nextAttemptAt?.getTime() === t0.getTime() + 2 * MIN);
+  for (let i = 0; i < 8 && (await o.intakeEvent.count({ where: { businessId: s.B.id, status: "RECEIVED" } })) > 0; i++) {
+    await Promise.all([sweep(at(3 * MIN + i * 1000)), sweep(at(3 * MIN + i * 1000))]);
+  }
+  const held = await o.intakeEvent.findMany({ where: byTag(s.B.id, "held"), select: { status: true, attempts: true } });
+  const leased = await o.intakeEvent.findFirstOrThrow({ where: byTag(s.B.id, "leased") });
+  const leads = await o.lead.count({ where: { businessId: s.B.id, sourceChannel: "intake:web.form" } });
+  ok(`E: all 300 released exactly once (attempts 1), the once-leased receipt finished after its lease (attempts 2), ${leads} Leads = 301`,
+    held.length === 300 && held.every((e) => e.status === "PROCESSED" && e.attempts === 1) && leased.status === "PROCESSED" && leased.attempts === 2 && leads === 301,
+    JSON.stringify({ notDone: held.filter((e) => e.status !== "PROCESSED").length, multi: held.filter((e) => e.attempts !== 1).length, leased: [leased.status, leased.attempts], leads }));
+  await parkOthers([]);
+}
+
 async function main() {
   await budgetAndRotation();
   await resumeAndRelease();
   await pauseDuringRelease();
+  await resumeRacingSweeps();
+  ok(`no sweep run in this battery took longer than the route allows (longest ${longestRunMs} ms < 55,000)`, longestRunMs < 55_000);
   console.log(`\nL1.5-b release battery: ${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n - " + failures.join("\n - ")); process.exitCode = 1; }
 }

@@ -60,6 +60,8 @@ export type IntakeSweepReport = {
 export const SWEEP_BUDGET_MS = 40_000;
 /** Extra drain rounds one business may get in one run, after every business had its first (release, not new work). */
 export const MAX_RELEASE_ROUNDS = 9;
+/** A release round starts only with at least this much budget left, so one round never runs far past the budget. */
+export const RELEASE_ROUND_MIN_MS = 5_000;
 /** The schedule's period: each run starts one business further along, so none is always last. */
 export const SWEEP_ROTATION_PERIOD_MS = 10 * 60 * 1000;
 
@@ -189,11 +191,11 @@ export async function runIntakeSweep(
   // done above); the same `now`, so a receipt finished or deferred above is not listed again.
   let round = 0;
   let pending = releaseCandidates;
-  while (pending.length > 0 && round < MAX_RELEASE_ROUNDS && clock() < deadline) {
+  while (pending.length > 0 && round < MAX_RELEASE_ROUNDS && clock() + RELEASE_ROUND_MIN_MS <= deadline) {
     round += 1;
     const again: number[] = [];
     for (const businessId of pending) {
-      if (clock() >= deadline) break;
+      if (clock() + RELEASE_ROUND_MIN_MS > deadline) break;
       try {
         const tally = await sweepBusiness(businessId, () => true, () =>
           runTenantJob({ businessId }, () => drainIntake(registry, businessId, { now, limit }))
