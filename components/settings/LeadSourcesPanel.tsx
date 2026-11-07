@@ -7,6 +7,7 @@ import { webFormSnippet } from "@/lib/intake/acquisition/web-form-snippet";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { DEFAULT_LOCALE, intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
+import { IntakeWaitingNote, type ConnectionWaiting } from "./IntakeWaitingNote";
 
 /**
  * Settings → Connections → "מקורות לידים" (M6).
@@ -36,6 +37,8 @@ type Connection = {
   endpointUrl: string | null;
   /** What actually reached Dubiz: the provider's test, the last real lead, leads in 30 days. */
   activity: { lastTestAt: string | null; lastDeliveryAt: string | null; deliveries30d: number } | null;
+  /** L1.5-b · PR-3 — enquiries waiting / not taken in (present only when intake_status_visibility is on). */
+  waiting?: ConnectionWaiting | null;
 };
 type MetaLogin = { appId: string; configId: string; graphVersion: string };
 type Overview = {
@@ -395,6 +398,7 @@ export function LeadSourcesPanel() {
                   {c.effectiveStatus === "PLATFORM_DISABLED" ? (
                     <p className="mt-1 text-[11px] leading-5 text-[var(--dz-text-muted)]">{t("account.settings.connections.common.platformDisabledLeadsNote")}</p>
                   ) : null}
+                  <IntakeWaitingNote waiting={c.waiting} />
                   {c.sourceKey === "google.lead_form" && c.status === "ACTIVE" ? <GoogleActivation c={c} /> : null}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {c.sourceKey === "meta.lead_ads" && c.status === "ERROR" && available ? (

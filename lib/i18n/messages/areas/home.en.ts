@@ -102,6 +102,7 @@ export const homeEn: Widen<typeof homeHe> = {
       stock: "Stock",
       collection: "Collection",
       lead: "Lead",
+      intake: "Enquiries",
     },
     order: "Order",
     family: {
@@ -165,6 +166,7 @@ export const homeEn: Widen<typeof homeHe> = {
       stock: "Stock",
       collection: "Collection",
       lead: "Leads",
+      intake: "Lead intake",
     },
     chipAll: "All · {count}",
     chipKind: "{label} · {count}",

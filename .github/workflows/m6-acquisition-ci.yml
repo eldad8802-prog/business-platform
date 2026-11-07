@@ -35,6 +35,10 @@ on:
       - "ops/evidence/m6-google-live-proof-evidence.sql"
       - "app/api/intake/sweep/**"
       - "components/settings/LeadSourcesPanel.tsx"
+      - "components/settings/StoresAndCallsPanel.tsx"
+      - "components/settings/IntakeWaitingNote.tsx"
+      - "lib/business-status/**"
+      - "features/home/v3/**"
       - "lib/intake/sweep-auth.ts"
       - "package.json"
       - "package-lock.json"
@@ -63,6 +67,7 @@ jobs:
       - run: npx tsx lib/intake/sweep-auth.test.ts
       - run: npx tsx lib/intake/l15b-fair-queue.test.ts
       - run: npx tsx lib/intake/l15b-capacity.test.ts
+      - run: npx tsx lib/business-status/intake-attention.test.ts
       - run: npx tsx lib/services/billing/settlement/settlement-recovery-auth.test.ts
 
   qstash-lab:
@@ -181,6 +186,12 @@ jobs:
           DATABASE_URL: ${{ env.RUNTIME_URL }}
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m6/capacity-battery.ts
+
+      - name: 4e. L1.5-b owner intake status — real business-status snapshot + connections API, feature off / on, counts, isolation, no enquiry content
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+        run: npx tsx .m6/owner-status-battery.ts
 
       - name: 5. Website LIVE-PROOF rehearsal — the Production evidence, proven on the real path (clean database)
         env:

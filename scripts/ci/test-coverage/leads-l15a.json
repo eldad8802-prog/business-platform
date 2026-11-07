@@ -25,6 +25,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-b PR-2 lead-loss + privacy integrity: capacity thresholds (500/1,000/2,000 per business, 20,000 platform) are monitoring only and never refuse a delivery; backlog / flow reads are bounded (row cap + server statement timeout), read-only, open backlog only, select no payload or person field, run under the business RLS; the sweep reads them best effort after its own work; new red reasons exist only with INTAKE_CAPACITY_ALERTS_ENABLED=true, each tier crossing reported once"
+    },
+    "lib/business-status/intake-attention.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-b PR-3 privacy + honesty: the owner intake status shows counts only (no name, phone, message, endpoint id, key or provider code), never presents a waiting enquiry as a lead or counts it in the leads badge, scopes to the business own connections, is gated by intake_status_visibility (OFF by default, fail-open) and reads a bounded, cached backlog; the connections API adds waiting counts only when the gate answered"
     }
   }
 }

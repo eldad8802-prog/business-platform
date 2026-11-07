@@ -8,6 +8,7 @@ import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import { CONNECTION_HEALTH, connectionHealthKey } from "@/lib/services/connections/connection-health-copy";
 
 import { Action, Field, stamp } from "./LeadSourcesPanel";
+import { IntakeWaitingNote, type ConnectionWaiting } from "./IntakeWaitingNote";
 
 /**
  * Settings → Connections → "חנויות ושיחות" (M7-B / M7-C).
@@ -39,6 +40,8 @@ type Connection = {
   setup: { signingSecret: boolean; apiKey: boolean } | null;
   /** M7-C — the owner's names for their own phone lines ({"<digits>": "<name>"}). */
   lineLabels?: Record<string, string> | null;
+  /** L1.5-b · PR-3 — orders / calls waiting or not taken in (present only when intake_status_visibility is on). */
+  waiting?: ConnectionWaiting | null;
 };
 type Overview = {
   sources: Record<string, boolean>;
@@ -204,6 +207,7 @@ export function StoresAndCallsPanel() {
                   ) : null}
 
                   {/* B2 — why this connection is not working right now (the platform, not the owner, turned it off). */}
+                  <IntakeWaitingNote waiting={c.waiting} noun={c.sourceKey.startsWith("commerce.") ? { one: "הזמנה", many: "הזמנות" } : { one: "שיחה", many: "שיחות" }} />
                   {c.effectiveStatus === "PLATFORM_DISABLED" ? (
                     <p className="mt-1 text-[11px] leading-5 text-[var(--dz-text-muted)]">
                       {t(s.key.startsWith("commerce.")
