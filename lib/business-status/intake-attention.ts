@@ -104,7 +104,9 @@ export function translateIntakeAttention(raw: IntakeAttentionRaw, now: Date): Bu
     title,
     summary,
     severity,
-    entityRef: { type: "intake_connection", id: c.id },
+    // One entity type per situation: two situations on one connection stay two facts (the notification dedupe key
+    // is domain + category + entity type + id).
+    entityRef: { type: reason, id: c.id },
     state: "open",
     createdAt: (since ?? now).toISOString(),
     primaryAction: { kind: "navigate", label: actionLabel, href: CONNECTIONS_HREF },

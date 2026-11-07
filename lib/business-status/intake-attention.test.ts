@@ -74,7 +74,7 @@ test("one item per situation, per connection", () => {
   for (const i of items) {
     assert.equal(i.domain, "leads");
     assert.equal(i.primaryAction.href, "/settings/connections");
-    assert.equal(i.entityRef.type, "intake_connection");
+    assert.equal(i.entityRef.type, i.itemId.split(":")[1], "one entity type per situation");
   }
 });
 
