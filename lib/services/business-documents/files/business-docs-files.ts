@@ -38,12 +38,12 @@ export function objectKeyFor(businessId: number, purpose: FilePurpose): string {
 /** Inside the caller's tenant transaction: the row comes first, PENDING, under a lease owned by `leaseOwner`. */
 export async function createPendingFile(tx: BdTx, businessId: number, purpose: FilePurpose, leaseOwner: string): Promise<{ id: number; objectKey: string }> {
   const objectKey = objectKeyFor(businessId, purpose);
-  const rows = await tx.$queryRaw<{ id: number }[]>`
-    INSERT INTO "BusinessDocumentFile" ("businessId", "purpose", "objectKey", "leaseOwner", "leaseUntil")
-    VALUES (${businessId}, ${purpose}::"BusinessDocumentFilePurpose", ${objectKey}, ${leaseOwner}::uuid,
-            CURRENT_TIMESTAMP + make_interval(secs => ${UPLOAD_LEASE_SECONDS}::double precision))
-    RETURNING "id"`;
-  return { id: rows[0].id, objectKey };
+  const row = await tx.businessDocumentFile.create({ data: { businessId, purpose, objectKey, leaseOwner }, select: { id: true } });
+  // The lease runs on the database clock (the janitor compares it with CURRENT_TIMESTAMP).
+  await tx.$executeRaw`
+    UPDATE "BusinessDocumentFile" SET "leaseUntil" = CURRENT_TIMESTAMP + make_interval(secs => ${UPLOAD_LEASE_SECONDS}::double precision)
+     WHERE "businessId" = ${businessId} AND "id" = ${row.id}`;
+  return { id: row.id, objectKey };
 }
 
 /** The create-once upload. EXISTS means something already holds the key — never overwrite, never treat as success. */

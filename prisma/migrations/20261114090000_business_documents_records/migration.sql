@@ -250,16 +250,15 @@ ALTER TABLE "BusinessDocumentErasure" ADD CONSTRAINT "BusinessDocumentErasure_bu
 -- ── 3. Guards (SECURITY INVOKER: they run with the caller's privileges and RLS) ───────────────────────
 
 -- The quote link: a QUOTE of the same business (read under the caller's RLS, so another business's document is
--- simply invisible), never a document the Service Desk owns (any ServiceQuote version references it).
+-- simply invisible). The Service Desk exclusion (a quote any service-desk quote version references) is the
+-- application's rule, checked before every copy, event and reminder: the Service Desk lab forbids any other
+-- migration from naming its objects, and this one does not.
 CREATE OR REPLACE FUNCTION public.business_documents_quote_link_guard()
 RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $fn$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM public."BillingDocument" d
                   WHERE d."id" = NEW."quoteDocumentId" AND d."businessId" = NEW."businessId" AND d."documentType" = 'QUOTE') THEN
     RAISE EXCEPTION USING ERRCODE = 'DZD02', MESSAGE = 'BUSINESS_DOCUMENTS_QUOTE_NOT_FOUND: not a quote of this business';
-  END IF;
-  IF EXISTS (SELECT 1 FROM public."ServiceQuote" s WHERE s."billingDocumentId" = NEW."quoteDocumentId") THEN
-    RAISE EXCEPTION USING ERRCODE = 'DZD03', MESSAGE = 'BUSINESS_DOCUMENTS_SERVICE_DESK_QUOTE: this quote belongs to the Service Desk';
   END IF;
   RETURN NEW;
 END

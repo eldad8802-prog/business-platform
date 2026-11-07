@@ -19,29 +19,18 @@
  *       contentCheckedAt = T2's time. An edit that commits after T2's snapshot is a LATER edit: the copy correctly
  *       describes the quote as of its check, and the screen then shows "the quote changed since this copy".
  */
-import type { BillingDocument, BillingDocumentLine } from "@prisma/client";
-
 import { buildQuotePdfSnapshot } from "@/lib/services/billing/quote-pdf-snapshot";
 import { renderBillingPdfHtmlFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
 import { assertSnapshotV1, type BillingIssuedSnapshotV1 } from "@/lib/services/billing/pdf/billing-pdf-template";
 import { getStorageService, type StorageService } from "@/lib/storage";
 
-import { bdTx, type BdTx } from "../bd-tx";
+import { bdTx } from "../bd-tx";
 import { abandonPendingFile, commitFile, createPendingFile, sha256Hex, uploadCreateOnce } from "../files/business-docs-files";
 import { attachRequestFile, claimRequest, completeRequest, releaseRequest, requestHashOf } from "../requests/business-docs-requests";
 import { quoteContentHash, renderInputHash } from "./quote-share-content";
+import { contentRowsOf, loadQuoteRenderRows, QuoteCopyRefusedError, type RenderRows } from "./quote-share-read";
 
-export type QuoteCopyRefusal = "NOT_FOUND" | "SERVICE_DESK_QUOTE" | "NO_QUOTE_NUMBER" | "INCOMPLETE_QUOTE" | "CHANGED_DURING_RENDER";
-
-export class QuoteCopyRefusedError extends Error {
-  constructor(readonly code: QuoteCopyRefusal) {
-    super(code);
-    this.name = "QuoteCopyRefusedError";
-  }
-  get status(): number {
-    return this.code === "NOT_FOUND" ? 404 : 409;
-  }
-}
+export { QuoteCopyRefusedError, contentRowsOf, loadQuoteRenderRows };
 
 export type QuoteShareCopyView = {
   id: number;
@@ -56,47 +45,6 @@ export type QuoteShareCopyView = {
   createdAt: string;
   replay: boolean;
 };
-
-type RenderRows = {
-  doc: BillingDocument & { lines: BillingDocumentLine[] };
-  customer: { id: number; name: string; phone: string | null; email: string | null; city: string | null } | null;
-  business: { id: number; name: string; profile: Record<string, unknown> | null };
-  serviceDesk: boolean;
-};
-
-/** Every read the copy needs, inside the caller's transaction. Nothing is written. */
-export async function loadQuoteRenderRows(tx: BdTx, businessId: number, quoteId: number): Promise<RenderRows | null> {
-  const doc = await tx.billingDocument.findFirst({
-    where: { id: quoteId, businessId, documentType: "QUOTE" },
-    include: { lines: { orderBy: { lineIndex: "asc" } } },
-  });
-  if (!doc) return null;
-  const customer = doc.customerId === null ? null : await tx.customer.findFirst({
-    where: { id: doc.customerId, businessId },
-    select: { id: true, name: true, phone: true, email: true, city: true },
-  });
-  const business = await tx.business.findUnique({
-    where: { id: businessId },
-    select: {
-      id: true,
-      name: true,
-      profile: {
-        select: {
-          billingLegalName: true, billingTaxId: true, billingVatNumber: true, billingPhone: true, billingEmail: true,
-          billingAddress: true, billingPaymentNote: true, billingFooterNote: true, billingLogoDataUrl: true,
-          billingSignatureDataUrl: true, billingPdfTemplateStyle: true,
-        },
-      },
-    },
-  });
-  const serviceDesk = (await tx.serviceQuote.count({ where: { businessId, billingDocumentId: quoteId } })) > 0;
-  return { doc, customer, business: business as RenderRows["business"], serviceDesk };
-}
-
-/** The quote-content view of the render rows (the lines live inside the document row). */
-export function contentRowsOf(rows: RenderRows) {
-  return { doc: rows.doc, lines: rows.doc.lines, customer: rows.customer };
-}
 
 function refuseUnlessRenderable(rows: RenderRows | null): asserts rows is RenderRows {
   if (!rows || !rows.business) throw new QuoteCopyRefusedError("NOT_FOUND");
@@ -219,12 +167,5 @@ export async function prepareQuoteShareCopy(
     }).catch(() => undefined);
     throw error;
   }
-}
-
-/** A fresh content fingerprint of the quote as it is now (for events and for "changed since this copy"). */
-export async function currentQuoteContent(tx: BdTx, businessId: number, quoteId: number): Promise<{ hash: string; rows: RenderRows } | null> {
-  const rows = await loadQuoteRenderRows(tx, businessId, quoteId);
-  if (!rows) return null;
-  return { hash: quoteContentHash(contentRowsOf(rows)), rows };
 }
 

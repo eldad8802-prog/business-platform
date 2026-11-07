@@ -26,7 +26,7 @@ import { runBusinessDocumentsErasure } from "../lib/services/business-documents/
 import { closeKey, fenceFile, reconcileBusiness, FENCE_MARKER } from "../lib/services/business-documents/files/business-docs-files";
 import { contentRowsOf, prepareQuoteShareCopy, QuoteCopyRefusedError, loadQuoteRenderRows } from "../lib/services/business-documents/quote-share/quote-share-copy.service";
 import { quoteContentHash } from "../lib/services/business-documents/quote-share/quote-share-content";
-import { getQuoteShareView, recordQuoteShareEvent } from "../lib/services/business-documents/quote-share/quote-share-events.service";
+import { getQuoteShareView, listShareableQuotes, recordQuoteShareEvent } from "../lib/services/business-documents/quote-share/quote-share-events.service";
 import { quotesClosedByResponse, selectFollowUps } from "../lib/services/business-documents/quote-share/quote-share-reminders";
 import { BusinessDocumentsRequestError, issueRequestKey } from "../lib/services/business-documents/requests/business-docs-requests";
 import { getStorageService, type ListedObject, type PutIfAbsentResult, type PutObjectInput, type StorageService } from "../lib/storage";
@@ -177,6 +177,11 @@ async function main() {
   const qSvc = await newQuote(A);
   await own.$executeRawUnsafe(`INSERT INTO "ServiceQuote" ("businessId", "caseId", "version", "billingDocumentId", "totalAgorot", "docHash", "sentPdfKey", "sentPdfSha256") VALUES ($1, 1, 1, $2, 100, 'h', $3, 'h')`, A.b, qSvc, `biz/${A.b}/service/q.pdf`);
   ok("a Service Desk quote → SERVICE_DESK_QUOTE", (await code(async () => prepareQuoteShareCopy({ businessId: A.b, userId: A.u, quoteId: qSvc, idempotencyKey: await key(A) }))) === "SERVICE_DESK_QUOTE");
+  const svcEvent = await code(async () => recordQuoteShareEvent({ businessId: A.b, userId: A.u, quoteId: qSvc, idempotencyKey: await key(A, "QUOTE_SHARE_EVENT"), event: { kind: "NOTE", note: "x", copyId: null, channel: null, correctsEventId: null } }));
+  ok("an event on a Service Desk quote → refused (the application's rule; the migration names no Service Desk object)", svcEvent.includes("SERVICE_DESK_QUOTE"), svcEvent);
+  ok("the hub list never shows a Service Desk quote", !(await listShareableQuotes(A.b)).some((q) => q.id === qSvc));
+  await own.billingDocument.update({ where: { id: qSvc }, data: { validUntil: new Date(Date.now() + 86400000) } });
+  ok("no S09 item for a Service Desk quote (no copy or event can be recorded for it; the selection also skips it)", !(await bdTx(A.b, (tx) => selectFollowUps(tx, A.b, addCalendarDays(jerusalemDayKey(new Date()), 10) as never, 30))).items.some((i) => i.quoteId === qSvc));
 
   console.log("--- A: idempotent keys through the service ---");
   const k1 = await key(A);

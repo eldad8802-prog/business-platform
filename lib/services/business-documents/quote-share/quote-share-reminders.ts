@@ -11,7 +11,7 @@
 import { addCalendarDays, daysBetweenDayKeys, jerusalemDayKey, type JerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
 import type { BdTx } from "../bd-tx";
-import { currentQuoteContent } from "./quote-share-copy.service";
+import { currentQuoteContent } from "./quote-share-read";
 import { closesValidityReminder, deriveShareState, followUpDue, QUOTE_FOLLOWUP_DAYS, type ShareEventKind, type ShareEventRow } from "./quote-share-state";
 
 async function eventsByQuote(tx: BdTx, businessId: number, quoteIds: number[]): Promise<Map<number, ShareEventRow[]>> {
