@@ -9,7 +9,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { businessDocumentsRoute, readJsonBody } from "@/lib/services/business-documents/business-documents-http";
 import { parseLetterInput } from "@/lib/services/business-documents/letter/letter.contracts";
-import { listSavedLetters, saveLetter } from "@/lib/services/business-documents/letter/saved-letters.service";
+import { saveLetter } from "@/lib/services/business-documents/letter/saved-letters-save.service";
+import { listSavedLetters } from "@/lib/services/business-documents/letter/saved-letters.service";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;

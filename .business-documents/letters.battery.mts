@@ -13,7 +13,8 @@ import { bdTx } from "../lib/services/business-documents/bd-tx";
 import { runBusinessDocumentsErasure } from "../lib/services/business-documents/erasure/business-docs-erasure";
 import { fenceFile, readCommittedFile } from "../lib/services/business-documents/files/business-docs-files";
 import { parseLetterInput } from "../lib/services/business-documents/letter/letter.contracts";
-import { hideSavedLetter, listSavedLetters, saveLetter, savedLetterFile } from "../lib/services/business-documents/letter/saved-letters.service";
+import { saveLetter } from "../lib/services/business-documents/letter/saved-letters-save.service";
+import { hideSavedLetter, listSavedLetters, savedLetterFile } from "../lib/services/business-documents/letter/saved-letters.service";
 import { BusinessDocumentsRequestError, issueRequestKey } from "../lib/services/business-documents/requests/business-docs-requests";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
@@ -36,7 +37,7 @@ async function code(fn: () => Promise<unknown>): Promise<string> {
     return "OK";
   } catch (e) {
     if (e instanceof BusinessDocumentsRequestError) return e.code;
-    return `ERR:${(e as Error).name}:${String((e as Error).message).split("\n").slice(-1)[0].slice(0, 120)}`;
+    return `ERR:${(e as Error).name}:${String((e as Error).message).replace(/\s+/g, " ").slice(-400)}`;
   }
 }
 const fakeRender = async (html: string) => Buffer.from(`%PDF-fake ${sha(Buffer.from(html))}`);
