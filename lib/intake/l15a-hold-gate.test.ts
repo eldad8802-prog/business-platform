@@ -65,7 +65,8 @@ test("structural: every connection adapter re-checks the gate after the revoked 
     const hold = src.indexOf("const hold = await holdUnlessAllowed(ctx.businessId, input.sourceKey, ctx.now);");
     const provider = src.indexOf("return input.hydrate ? input.hydrate(ctx, event)");
     assert.ok(revoked > 0 && hold > revoked && provider > hold, `${f}: revoked → gate → provider`);
-    assert.match(src, /if \(hold\) return hold;/);
+    // L1.5-b · PR-6 — the hold stands, or (expiry switched on, past the age) the receipt is settled terminally.
+    assert.match(src, /if \(hold\) return holdOrExpire\(hold, event\.receivedAt, ctx\.now\);/);
   }
 });
 
