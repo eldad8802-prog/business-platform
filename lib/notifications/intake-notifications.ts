@@ -20,7 +20,7 @@
 import { finalizeBusinessStatusItem } from "@/lib/business-status/priority";
 import { translateIntakeAttention, type IntakeConnectionRow } from "@/lib/business-status/intake-attention";
 import type { BusinessStatusItemBuild } from "@/lib/business-status/types";
-import type { BusinessBacklog, BusinessFlow } from "@/lib/intake/intake-capacity";
+import { cappedCount, type BusinessBacklog, type BusinessFlow } from "@/lib/intake/intake-capacity";
 import { listConnections } from "@/lib/intake/acquisition/connection.service";
 import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
@@ -79,7 +79,7 @@ export function intakeNotificationItems(
   });
   const held = backlog.totals.held;
   if (held >= HELD_BACKLOG_NOTIFY) {
-    items.push(base("intake_backlog", "ACTION_REQUIRED", "HIGH", `הצטברו ${n(held)}${backlog.capped ? "+" : ""} פניות שממתינות לקליטה`,
+    items.push(base("intake_backlog", "ACTION_REQUIRED", "HIGH", `הצטברו ${n(cappedCount(held, backlog).n)}${backlog.capped ? "+" : ""} פניות שממתינות לקליטה`,
       "פניות ממקורות מושהים או חסומים מצטברות. כדאי לבדוק את החיבורים כדי שלא יחכו זמן רב."));
   }
   if (flow && flow.recoveredLastHour > 0 && held === 0) {
