@@ -10,7 +10,7 @@
 import type { IntakeAdapter, RouteResult } from "@/lib/intake/core/contract";
 import { listAcquisitionTenants } from "@/lib/intake/acquisition/resolve";
 import { connectionStateForRef } from "@/lib/intake/acquisition/connection.service";
-import { HOLD_CODES, HOLD_RECHECK_MS, holdUnlessAllowed } from "@/lib/intake/acquisition/gate";
+import { HOLD_CODES, HOLD_RECHECK_MS, holdOrExpire, holdUnlessAllowed } from "@/lib/intake/acquisition/gate";
 import { normalizeCommerceOrder, type CommerceSourceKey } from "./canonical";
 
 export const COMMERCE_NORMALIZER_VERSION = 1;
@@ -35,12 +35,13 @@ export function makeCommerceAdapter(input: {
       }
       // Leads L1.5-a · decision 3 — a PAUSED connection: the receipt waits (no attempt, nothing deleted) until resumed.
       if (connectionState === "paused") {
-        return { kind: "deferred", until: new Date(ctx.now.getTime() + HOLD_RECHECK_MS), code: HOLD_CODES.connectionPaused };
+        // L1.5-b · PR-6 — past the expiry age (only when switched on) the receipt is settled instead of waiting again.
+        return holdOrExpire({ kind: "deferred", until: new Date(ctx.now.getTime() + HOLD_RECHECK_MS), code: HOLD_CODES.connectionPaused }, event.receivedAt, ctx.now);
       }
       // L1.5-a — then the source gate, again, before any work: emergency switch, entitlement withdrawn or a
       // quarantined business → the receipt waits (deferred, not an attempt, nothing deleted).
       const hold = await holdUnlessAllowed(ctx.businessId, input.sourceKey, ctx.now);
-      if (hold) return hold;
+      if (hold) return holdOrExpire(hold, event.receivedAt, ctx.now);
       return input.hydrate ? input.hydrate(ctx, event) : { kind: "unchanged" };
     },
     normalize: normalizeCommerceOrder,

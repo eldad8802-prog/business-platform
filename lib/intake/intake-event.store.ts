@@ -504,6 +504,10 @@ export async function purgeExpiredFailedPayloads(
         nextAttemptAt: null,
         lastAttemptAt: { lt: cutoff },
         payloadPurgedAt: null,
+        // L1.5-b · PR-6 — an EXPIRED held receipt is dead-lettered but its payload is never purged here: expiry must
+        // not delete data through the dead-letter retention. Purging an expired payload is a separate, explicit owner
+        // decision (a privacy policy) and a separate mechanism.
+        OR: [{ lastErrorCode: null }, { NOT: { lastErrorCode: { startsWith: "expired:" } } }],
       },
       data: { payload: Prisma.DbNull, payloadPurgedAt: now },
     })

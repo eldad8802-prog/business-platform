@@ -11,6 +11,7 @@ import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-fe
 import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { assertBusinessAcceptsWrites, BusinessQuarantinedError } from "@/lib/tenant/business-lifecycle";
+import { IntakeTerminalError } from "@/lib/intake/core/contract";
 
 /** M6 — the lead sources (what the owner connects under "lead sources"). */
 export const ACQUISITION_SOURCE_KEYS = ["meta.lead_ads", "google.lead_form", "web.form"] as const;
@@ -97,6 +98,41 @@ export async function holdUnlessAllowed(
   const code =
     gate.reason === "business_inactive" ? HOLD_CODES.businessInactive : gate.holdable ? HOLD_CODES.emergency : HOLD_CODES.sourceDisabled;
   return { kind: "deferred", until: new Date(now.getTime() + HOLD_RECHECK_MS), code };
+}
+
+/**
+ * L1.5-b · PR-6 — expiry of held receipts (PREPARED, OFF). The working assumptions under review — NOT final owner
+ * decisions: a receipt held 14 days (from its arrival; a change of hold reason does not reset the clock) is settled
+ * terminally instead of waiting again; a Dubiz emergency hold never expires (it needs its own policy).
+ *
+ *   OFF unless INTAKE_HELD_EXPIRY_ENABLED is exactly "true" (unset everywhere): nothing changes.
+ *   ON  the look that finds the hold still standing past the age throws IntakeTerminalError("expired:<reason>") →
+ *       the processor dead-letters it (FAILED, no further attempt, PAYLOAD KEPT — never purged by the dead-letter
+ *       retention, see purgeExpiredFailedPayloads), so it is never processed automatically and a controlled manual
+ *       restore stays possible while the payload exists. A hold lifted before that look → processed as usual.
+ */
+export const HELD_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
+/** When an owner warning would come (day 12) — read only by a future notification, once a policy is approved. */
+export const HELD_EXPIRY_WARN_MS = 12 * 24 * 60 * 60 * 1000;
+/** Holds that expire. Not the Dubiz emergency switch (held:emergency_disabled): its own policy. */
+export const EXPIRING_HOLDS: ReadonlySet<string> = new Set([HOLD_CODES.connectionPaused, HOLD_CODES.sourceDisabled, HOLD_CODES.businessInactive]);
+export const EXPIRED_PREFIX = "expired:";
+
+export function heldExpiryEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.INTAKE_HELD_EXPIRY_ENABLED === "true";
+}
+
+/** The hold stands — unless expiry is on, the hold expires, and the receipt arrived HELD_EXPIRY_MS ago (then: terminal). */
+export function holdOrExpire<H extends { kind: "deferred"; until: Date; code: string }>(
+  hold: H,
+  receivedAt: Date,
+  now: Date,
+  env: Record<string, string | undefined> = process.env
+): H {
+  if (heldExpiryEnabled(env) && EXPIRING_HOLDS.has(hold.code) && now.getTime() - receivedAt.getTime() >= HELD_EXPIRY_MS) {
+    throw new IntakeTerminalError(EXPIRED_PREFIX + hold.code.slice("held:".length));
+  }
+  return hold;
 }
 
 export async function acquisitionGate(businessId: number, sourceKey: AcquisitionSourceKey): Promise<GateResult> {

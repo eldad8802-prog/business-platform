@@ -39,6 +39,10 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-b PR-4 owner notifications about lead intake: in-app only or silent (no leads rule grants push), info / warning / action told apart, one dedupe fact per situation, resolution only after a complete read, gated by intake_status_visibility, never throws, no enquiry content"
+    "lib/intake/l15b-expiry.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-b PR-6 data-safety: held-receipt expiry is OFF unless INTAKE_HELD_EXPIRY_ENABLED=true; when on, only paused / not-included / inactive holds past 14 days from arrival are settled terminally (never the Dubiz emergency hold); an expired receipt is never processed automatically and its payload is NEVER purged by the dead-letter retention"
     }
   }
 }
