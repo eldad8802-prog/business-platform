@@ -22,6 +22,12 @@
     "lib/services/business-documents/quote-share/quote-share-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): ר1 — the owner's record (a note is never a response; corrected events drop out; a response on an older quote version decides nothing; S08 closes only on an in-force response; S09 due 3 Israel days after an in-force 'sent' with no response), quote content / render-input fingerprints (date and actor excluded, every rendered value included), event input validation, request-key shape and canonical request hashing; run on pull_request by business-documents-ci.yml"
+    },
+    "lib/tenant/tenant-tx-options.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "business-documents-ci.yml",
+      "reason": "tenant-transaction substrate: the optional isolationLevel added for business documents leaves every existing caller of tenantTx / withTenantTransaction exactly as before (Prisma receives the same options; the tenant GUC is still the first statement; both still refuse without a trusted tenant before any transaction); pure (Prisma $transaction recorded, no DB); the DB-level proof (READ COMMITTED by default) is in .business-documents/service.battery.mts; run on pull_request by business-documents-ci.yml"
     }
   }
 }

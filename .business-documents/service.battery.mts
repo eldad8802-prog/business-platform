@@ -22,6 +22,9 @@ import { BillingDocumentType, CustomerTaxIdType, PrismaClient } from "@prisma/cl
 import { createBillingDraft, replaceBillingDraftLines } from "../lib/services/billing/billing-draft.service";
 import { getOrRenderQuotePdf } from "../lib/services/billing/quote-pdf.service";
 import { bdTx } from "../lib/services/business-documents/bd-tx";
+import { runWithTenantContext } from "../lib/tenant/context";
+import { tenantTx } from "../lib/tenant/tenant-tx";
+import { withTenantTransaction } from "../lib/tenant/transaction";
 import { runBusinessDocumentsErasure } from "../lib/services/business-documents/erasure/business-docs-erasure";
 import { closeKey, fenceFile, reconcileBusiness, FENCE_MARKER } from "../lib/services/business-documents/files/business-docs-files";
 import { contentRowsOf, prepareQuoteShareCopy, QuoteCopyRefusedError, loadQuoteRenderRows } from "../lib/services/business-documents/quote-share/quote-share-copy.service";
@@ -155,6 +158,13 @@ async function main() {
   };
   const key = (x: typeof A, op: "QUOTE_SHARE_COPY" | "QUOTE_SHARE_EVENT" | "LETTER_SAVE" = "QUOTE_SHARE_COPY") => bdTx(x.b, (tx) => issueRequestKey(tx, x.b, x.u, op));
   const storage = getStorageService();
+
+  console.log("--- T: the isolation level actually used (existing callers unchanged) ---");
+  const level = (r: { l: string }[]) => r[0].l;
+  ok("tenantTx without an isolation level → READ COMMITTED (the database default, as before)", level(await tenantTx(A.b, (tx) => tx.$queryRaw<{ l: string }[]>`SELECT current_setting('transaction_isolation') AS l`)) === "read committed");
+  ok("withTenantTransaction without an isolation level → READ COMMITTED", level(await runWithTenantContext({ businessId: A.b }, () => withTenantTransaction((tx) => tx.$queryRaw<{ l: string }[]>`SELECT current_setting('transaction_isolation') AS l`))) === "read committed");
+  ok("bdTx (repeatableRead) → REPEATABLE READ, read only", await bdTx(A.b, async (tx) => level(await tx.$queryRaw<{ l: string }[]>`SELECT current_setting('transaction_isolation') || '/' || current_setting('transaction_read_only') AS l`), { repeatableRead: true, readOnly: true }) === "repeatable read/on");
+  ok("bdTx without options → READ COMMITTED, writable", await bdTx(A.b, async (tx) => level(await tx.$queryRaw<{ l: string }[]>`SELECT current_setting('transaction_isolation') || '/' || current_setting('transaction_read_only') AS l`)) === "read committed/off");
 
   console.log("--- B: the share copy never writes the billing mechanism ---");
   const qNoNumber = await newQuote(A, false);

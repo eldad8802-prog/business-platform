@@ -20,6 +20,7 @@ on:
       - "prisma/migrations/20261114090000_business_documents_records/**"
       - "scripts/ci/erasure/**"
       - "lib/storage/**"
+      - "lib/tenant/**"
       - "features/tasks/**"
       - "lib/i18n/messages/areas/**"
       - ".business-documents/**"
@@ -86,6 +87,8 @@ jobs:
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
+      - name: Tenant transactions — existing callers unchanged by the optional isolation level (pure)
+        run: npx tsx lib/tenant/tenant-tx-options.test.ts
       - name: Quote share — the owner's record, fingerprints, event input (pure)
         run: npx tsx lib/services/business-documents/quote-share/quote-share-core.test.ts
       - name: Storage — conditional writes, private business-docs domain, prefix listing
@@ -265,6 +268,9 @@ jobs:
   r2:
     name: Business documents — the fence against REAL R2 (dedicated test bucket; manual dispatch only)
     if: github.event_name == 'workflow_dispatch'
+    # The test bucket's credentials live ONLY in this protected Environment (required reviewer = owner,
+    # deployment branches restricted): never repository secrets, never the Production bucket.
+    environment: business-docs-r2-test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
