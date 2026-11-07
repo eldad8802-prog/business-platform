@@ -97,7 +97,6 @@ export function parseShareEventInput(raw: Record<string, unknown>): ShareEventIn
   if (raw.note !== undefined && raw.note !== null) {
     if (typeof raw.note !== "string") throw new ShareEventValidationError("note", "הערה לא תקינה");
     note = raw.note.replace(/\r\n?/g, "\n").trim() || null;
-    // eslint-disable-next-line no-control-regex
     if (note && /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(note)) throw new ShareEventValidationError("note", "ההערה מכילה תווים לא חוקיים");
     if (note && [...note].length > 2000) throw new ShareEventValidationError("note", "עד 2,000 תווים");
   }

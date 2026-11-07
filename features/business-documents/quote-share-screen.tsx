@@ -71,8 +71,20 @@ export function QuoteShareScreen({ quoteId }: { quoteId: number }) {
   }, [quoteId]);
 
   useEffect(() => {
-    if (on) void load();
-  }, [on, load]);
+    if (!on) return;
+    let live = true;
+    getQuoteShare(quoteId).then(
+      (v) => {
+        if (!live) return;
+        setView(v);
+        setLoadFailed(false);
+      },
+      () => live && setLoadFailed(true)
+    );
+    return () => {
+      live = false;
+    };
+  }, [on, quoteId]);
 
   /** Run one action with its own server-issued key; the same action retried reuses the key it got. */
   async function act(signature: string, operation: "QUOTE_SHARE_COPY" | "QUOTE_SHARE_EVENT", run: (key: string) => Promise<unknown>, done: string) {
