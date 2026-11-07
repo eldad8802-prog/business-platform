@@ -62,6 +62,7 @@ jobs:
       - run: npx tsx lib/sensors/sensors.test.ts
       - run: npx tsx lib/intake/sweep-auth.test.ts
       - run: npx tsx lib/intake/l15b-fair-queue.test.ts
+      - run: npx tsx lib/intake/l15b-release.test.ts
       - run: npx tsx lib/services/billing/settlement/settlement-recovery-auth.test.ts
 
   qstash-lab:
@@ -93,7 +94,7 @@ jobs:
   battery:
     name: M6 battery (PG17, Production RLS, real M6 migration, NOBYPASSRLS runtime)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:17
@@ -169,11 +170,17 @@ jobs:
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m6/acquisition-battery.ts
 
-      - name: 4b. L1.5-b fair queue under load — 50 / 500 / 2,000 / 20,000 held receipts beside ready work, racing sweeps, lease, emergency release, RLS isolation
+      - name: 4b. L1.5-b fair queue under load — 50 / 500 / 2,000 / 20,000 / 50,000 held receipts beside ready work, racing sweeps, lease, emergency release, RLS isolation
         env:
           DATABASE_URL: ${{ env.RUNTIME_URL }}
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m6/held-fair-queue-battery.ts
+
+      - name: 4c. L1.5-b release + resume — budget and rotation over many businesses, 50,000 held resumed in batches, lease safety, release rounds with racing sweeps, pause during release
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+        run: npx tsx .m6/release-battery.ts
 
       - name: 5. Website LIVE-PROOF rehearsal — the Production evidence, proven on the real path (clean database)
         env:
