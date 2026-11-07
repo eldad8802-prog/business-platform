@@ -719,6 +719,8 @@ export async function rearmPausedReceipts(
     if (n < batch) break;
   }
   return total;
+}
+
 /** L1.5-b · PR-2 — most unfinished receipts one backlog read scans; beyond it every count is a lower bound. */
 export const BACKLOG_SCAN_CAP = 25_000;
 /** Server-side ceiling for a capacity read: a metric never holds a connection or a lock for long. */

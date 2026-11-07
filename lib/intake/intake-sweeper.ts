@@ -53,31 +53,7 @@ export type IntakeSweepReport = {
    * starts further along the rotation), and the extra release rounds spent on businesses that still had due work.
    */
   budget: { businessesNotReached: number; releaseRounds: number; releaseBusinesses: number };
-};
-
-/**
- * L1.5-b · PR-5 — how long one run may work: the route's maxDuration (60 s) minus a margin for the response and a
- * business already in progress. A run never starts a business after this.
- */
-export const SWEEP_BUDGET_MS = 40_000;
-/** Extra drain rounds one business may get in one run, after every business had its first (release, not new work). */
-export const MAX_RELEASE_ROUNDS = 9;
-/** A release round starts only with at least this much budget left, so one round never runs far past the budget. */
-export const RELEASE_ROUND_MIN_MS = 5_000;
-/** The schedule's period: each run starts one business further along, so none is always last. */
-export const SWEEP_ROTATION_PERIOD_MS = 10 * 60 * 1000;
-
-/** The tenants in run order: rotated by the run's slot, so a business left out for lack of time leads soon (pure). */
-export function rotateTenants<T>(items: readonly T[], now: Date): T[] {
-  if (items.length === 0) return [];
-  const k = Math.floor(now.getTime() / SWEEP_ROTATION_PERIOD_MS) % items.length;
-  return [...items.slice(k), ...items.slice(0, k)];
-}
-
-/** A drain that used its whole budget AND moved something forward may have more due work: worth another round (pure). */
-export function wantsReleaseRound(tally: Record<IntakeProcessResult, number>, limit: number): boolean {
-  const listed = Object.values(tally).reduce((a, b) => a + b, 0);
-  return listed >= limit && tally.processed + tally.ignored + tally.failed > 0;
+  /**
    * L1.5-b · PR-2 — capacity across the swept businesses (counts only, monitoring only — never a refusal): open
    * backlog by class, how many businesses reached each held tier, the largest per-business held count, the oldest
    * held receipt, the flow of the last hour, and (only with INTAKE_CAPACITY_ALERTS_ENABLED) new tier crossings and
@@ -122,6 +98,32 @@ export function capacityAlertsEnabled(env: Record<string, string | undefined> = 
 /** The first scheduled run (10-minute slot) of the UTC day: a standing platform-wide alert is raised once a day (pure). */
 export function firstRunOfUtcDay(now: Date, slotMs = 10 * 60 * 1000): boolean {
   return now.getTime() % (24 * 60 * 60 * 1000) < slotMs;
+}
+
+
+/**
+ * L1.5-b · PR-5 — how long one run may work: the route's maxDuration (60 s) minus a margin for the response and a
+ * business already in progress. A run never starts a business after this.
+ */
+export const SWEEP_BUDGET_MS = 40_000;
+/** Extra drain rounds one business may get in one run, after every business had its first (release, not new work). */
+export const MAX_RELEASE_ROUNDS = 9;
+/** A release round starts only with at least this much budget left, so one round never runs far past the budget. */
+export const RELEASE_ROUND_MIN_MS = 5_000;
+/** The schedule's period: each run starts one business further along, so none is always last. */
+export const SWEEP_ROTATION_PERIOD_MS = 10 * 60 * 1000;
+
+/** The tenants in run order: rotated by the run's slot, so a business left out for lack of time leads soon (pure). */
+export function rotateTenants<T>(items: readonly T[], now: Date): T[] {
+  if (items.length === 0) return [];
+  const k = Math.floor(now.getTime() / SWEEP_ROTATION_PERIOD_MS) % items.length;
+  return [...items.slice(k), ...items.slice(0, k)];
+}
+
+/** A drain that used its whole budget AND moved something forward may have more due work: worth another round (pure). */
+export function wantsReleaseRound(tally: Record<IntakeProcessResult, number>, limit: number): boolean {
+  const listed = Object.values(tally).reduce((a, b) => a + b, 0);
+  return listed >= limit && tally.processed + tally.ignored + tally.failed > 0;
 }
 
 /** Union of every registered source's tenants (deduped, stable order). */
