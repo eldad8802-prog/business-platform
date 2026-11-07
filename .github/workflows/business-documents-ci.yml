@@ -57,7 +57,7 @@ jobs:
         run: |
           F="lib/services/tasks/agenda-core.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/"stock", "quote_validity",\n\];/"stock", "quote_validity", "fake_kind",\n];/' "$F"
+          perl -0pi -e 's/"stock", "quote_validity", "quote_followup",\n\];/"stock", "quote_validity", "quote_followup", "fake_kind",\n];/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if ! node scripts/ci/expect-red.mjs --id "business-documents-ci.yml:pure:unregistered-source" --expect "FAIL] source fake_kind is registered with its own characterization" -- npx tsx lib/services/tasks/tasks-i18n.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unregistered source kind went unnoticed"; exit 1

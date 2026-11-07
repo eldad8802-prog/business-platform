@@ -50,9 +50,7 @@ export const requestHashOf = (body: unknown): string => createHash("sha256").upd
 
 export async function issueRequestKey(tx: BdTx, businessId: number, userId: number, operation: RequestOperation): Promise<string> {
   const key = randomUUID();
-  await tx.$executeRaw`
-    INSERT INTO "BusinessDocumentRequest" ("businessId", "operation", "idempotencyKey", "issuedByUserId")
-    VALUES (${businessId}, ${operation}::"BusinessDocumentOperation", ${key}::uuid, ${userId})`;
+  await tx.businessDocumentRequest.create({ data: { businessId, operation, idempotencyKey: key, issuedByUserId: userId } });
   return key;
 }
 

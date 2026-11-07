@@ -8,7 +8,7 @@
  */
 import { bdTx } from "../bd-tx";
 import { claimRequest, completeRequest, requestHashOf } from "../requests/business-docs-requests";
-import { currentQuoteContent } from "./quote-share-copy.service";
+import { currentQuoteContent } from "./quote-share-read";
 import { deriveShareState, type ShareEventInput, type ShareEventKind, type ShareEventRow } from "./quote-share-state";
 
 export class QuoteShareEventRefusedError extends Error {

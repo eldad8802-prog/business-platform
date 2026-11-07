@@ -13,7 +13,7 @@ import { handleError } from "@/lib/handle-error";
 import { businessDocumentsEnabled } from "./business-documents-access";
 import { StoredFileUnavailableError } from "./files/business-docs-files";
 import { LetterValidationError } from "./letter/letter.contracts";
-import { QuoteCopyRefusedError } from "./quote-share/quote-share-copy.service";
+import { QuoteCopyRefusedError } from "./quote-share/quote-share-read";
 import { QuoteShareEventRefusedError } from "./quote-share/quote-share-events.service";
 import { ShareEventValidationError } from "./quote-share/quote-share-state";
 import { BusinessDocumentsRequestError } from "./requests/business-docs-requests";
