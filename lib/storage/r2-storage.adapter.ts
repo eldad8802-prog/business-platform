@@ -2,6 +2,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -10,7 +11,9 @@ import {
   STORAGE_DOMAINS,
   type GetObjectResult,
   type HeadObjectResult,
+  type ListedObject,
   type ObjectMetadata,
+  type PutIfAbsentResult,
   type PutObjectInput,
   type PutObjectResult,
   type StorageConfig,
@@ -26,11 +29,16 @@ import {
 } from "./storage.errors";
 import {
   assertKeyMatchesMetadata,
+  assertSafeListPrefix,
   assertSafeStorageKey,
   normalizeStorageKey,
   parseStorageKey,
 } from "./key-validation";
-import { isPrivateVisibility, validatePutObjectMetadata } from "./domain-policy";
+import {
+  assertUnconditionalPutAllowed,
+  isPrivateVisibility,
+  validatePutObjectMetadata,
+} from "./domain-policy";
 
 const META_BUSINESS_ID = "businessid";
 const META_DOMAIN = "domain";
@@ -167,6 +175,7 @@ export class R2StorageService implements StorageService {
 
   async putObject(input: PutObjectInput): Promise<PutObjectResult> {
     validatePutObjectMetadata(input.metadata);
+    assertUnconditionalPutAllowed(input.metadata.domain);
     const key = assertSafeStorageKey(input.key);
     assertKeyMatchesMetadata(
       key,
@@ -201,6 +210,68 @@ export class R2StorageService implements StorageService {
         custom: input.metadata.custom,
       },
     };
+  }
+
+  /**
+   * Create-once via `If-None-Match: *`. R2 evaluates the condition atomically with the commit: of concurrent writes
+   * at most one succeeds, every other one gets 412 PreconditionFailed (developers.cloudflare.com/r2/api/s3/extensions).
+   * 412 → EXISTS. Any other failure — including a lost response, whose write may still commit — is thrown.
+   */
+  async putObjectIfAbsent(input: PutObjectInput): Promise<PutIfAbsentResult> {
+    validatePutObjectMetadata(input.metadata);
+    const key = assertSafeStorageKey(input.key);
+    assertKeyMatchesMetadata(key, input.metadata.businessId, input.metadata.domain);
+
+    const createdAt = new Date().toISOString();
+    try {
+      const result = await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: input.body,
+          ContentType: input.contentType,
+          ContentLength: input.body.length,
+          Metadata: buildPutMetadata(input, createdAt),
+          IfNoneMatch: "*",
+        })
+      );
+      return {
+        status: "CREATED",
+        key,
+        etag: result.ETag ?? undefined,
+        metadata: {
+          businessId: input.metadata.businessId,
+          domain: input.metadata.domain,
+          visibility: input.metadata.visibility,
+          contentType: input.contentType,
+          size: input.body.length,
+          createdAt,
+          custom: input.metadata.custom,
+        },
+      };
+    } catch (error) {
+      if (isPreconditionFailed(error)) {
+        return { status: "EXISTS", key };
+      }
+      throw error;
+    }
+  }
+
+  async listObjects(prefix: string): Promise<ListedObject[]> {
+    const normalized = assertSafeListPrefix(prefix);
+    const out: ListedObject[] = [];
+    let token: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({ Bucket: this.bucket, Prefix: normalized, ContinuationToken: token })
+      );
+      for (const item of page.Contents ?? []) {
+        if (!item.Key) continue;
+        out.push({ key: item.Key, size: item.Size ?? 0, lastModified: item.LastModified?.toISOString() });
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return out;
   }
 
   async getObject(key: string): Promise<GetObjectResult> {
@@ -339,4 +410,10 @@ function isNotFound(error: unknown): boolean {
   }
 
   return false;
+}
+
+function isPreconditionFailed(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number } };
+  return e.$metadata?.httpStatusCode === 412 || e.name === "PreconditionFailed" || e.Code === "PreconditionFailed";
 }

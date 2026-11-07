@@ -17,6 +17,7 @@ on:
       - "app/(shell)/customers/**"
       - "components/customers/CustomerCard.tsx"
       - "lib/services/tasks/**"
+      - "lib/storage/**"
       - "features/tasks/**"
       - "lib/i18n/messages/areas/**"
       - ".business-documents/**"
@@ -83,10 +84,14 @@ jobs:
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
+      - name: Storage — conditional writes, private business-docs domain, prefix listing
+        run: npx tsx lib/storage/storage-conditional.test.ts
+      - name: Storage — existing adapter behaviour unchanged
+        run: npx tsx lib/storage/storage.verify.test.ts
       - name: Back navigation (every page has a parent)
         run: npx tsx lib/navigation/back-nav/back-nav.test.ts
       - name: Lint
-        run: npx eslint features/business-documents lib/services/business-documents app/api/business-documents "app/(shell)/business-documents" "app/(shell)/customers/[id]/documents" components/customers/CustomerCard.tsx .business-documents
+        run: npx eslint lib/storage features/business-documents lib/services/business-documents app/api/business-documents "app/(shell)/business-documents" "app/(shell)/customers/[id]/documents" components/customers/CustomerCard.tsx .business-documents
       - name: Test inventory
         run: node scripts/ci/security-test-coverage.mjs
       - name: Existing billing unchanged (A0 golden)

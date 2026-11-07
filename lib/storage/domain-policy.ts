@@ -10,6 +10,7 @@ const DOMAIN_DEFAULT_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
   crm: "private",
   trust: "private",
   exports: "private",
+  "business-docs": "private",
 };
 
 const DOMAIN_REQUIRED_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
@@ -21,6 +22,7 @@ const DOMAIN_REQUIRED_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
   crm: "private",
   trust: "private",
   exports: "private",
+  "business-docs": "private",
 };
 
 export function getDefaultVisibility(domain: StorageDomain): StorageVisibility {
@@ -41,6 +43,20 @@ export function validatePutObjectMetadata(metadata: PutObjectMetadataInput): voi
     throw new StorageKeyError(
       `metadata.visibility for domain "${metadata.domain}" must be "${requiredVisibility}"`
     );
+  }
+}
+
+/** Domains whose objects may only be created with putObjectIfAbsent — never overwritten by a plain put. */
+const CONDITIONAL_ONLY_DOMAINS: ReadonlySet<StorageDomain> = new Set<StorageDomain>(["business-docs"]);
+
+export function isConditionalOnlyDomain(domain: StorageDomain): boolean {
+  return CONDITIONAL_ONLY_DOMAINS.has(domain);
+}
+
+/** A plain putObject in a conditional-only domain is refused (every existing domain is unaffected). */
+export function assertUnconditionalPutAllowed(domain: StorageDomain): void {
+  if (CONDITIONAL_ONLY_DOMAINS.has(domain)) {
+    throw new StorageKeyError(`domain "${domain}" accepts conditional writes only (putObjectIfAbsent)`);
   }
 }
 
