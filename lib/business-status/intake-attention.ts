@@ -24,7 +24,7 @@ import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feat
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { intakeBacklog } from "@/lib/intake/intake-event.store";
 import { listConnections } from "@/lib/intake/acquisition/connection.service";
-import type { BusinessBacklog, ConnectionBacklog } from "@/lib/intake/intake-capacity";
+import { cappedCount, type BusinessBacklog, type ConnectionBacklog } from "@/lib/intake/intake-capacity";
 import type { BusinessStatusItemBuild, SemanticCategory, Severity } from "./types";
 
 /** Rows one owner read scans at most; above it the screen says "+" (the counts are lower bounds). */
@@ -61,7 +61,11 @@ export type IntakeConnectionRow = {
 
 export type IntakeAttentionRaw = { connections: IntakeConnectionRow[]; backlog: BusinessBacklog };
 
-const n = (count: number, capped: boolean) => (capped ? `${count.toLocaleString("he-IL")}+` : count.toLocaleString("he-IL"));
+/** Exact, or at most the read's cap followed by "+" when the read hit it. */
+const fmt = (count: number, backlog: Pick<BusinessBacklog, "capped" | "scanCap">) => {
+  const c = cappedCount(count, backlog);
+  return c.plus ? `${c.n.toLocaleString("he-IL")}+` : c.n.toLocaleString("he-IL");
+};
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
 /** What a receipt is to the owner: an enquiry (lead sources), an order (stores) or a call (phone lines). All feminine. */
@@ -84,7 +88,6 @@ function refOf(c: IntakeConnectionRow): string | null {
 /** Pure: the owner's items for these connections and this backlog. */
 export function translateIntakeAttention(raw: IntakeAttentionRaw, now: Date): BusinessStatusItemBuild[] {
   const out: BusinessStatusItemBuild[] = [];
-  const capped = raw.backlog.capped;
   const byRef = new Map<string, ConnectionBacklog>();
   for (const b of raw.backlog.connections) byRef.set(`${b.sourceKey}\u0000${b.providerAccountRef ?? ""}`, b);
 
@@ -133,31 +136,31 @@ export function translateIntakeAttention(raw: IntakeAttentionRaw, now: Date): Bu
       const days = b.oldestHeldAt ? Math.floor((now.getTime() - b.oldestHeldAt.getTime()) / DAY) : 0;
       const atRisk = days >= AT_RISK_AFTER_DAYS;
       out.push(item(c, "intake_paused", "ACTION_REQUIRED", atRisk ? "HIGH" : "MEDIUM",
-        `יש ${n(paused, capped)} ${plural(paused, `${w.one} שממתינה`, `${w.many} שממתינות`)} לחידוש החיבור`,
+        `יש ${fmt(paused, raw.backlog)} ${plural(paused, `${w.one} שממתינה`, `${w.many} שממתינות`)} לחידוש החיבור`,
         `${name} מושהה.${days >= 1 ? ` הוותיקה ביותר ממתינה כבר ${days} ${plural(days, "יום", "ימים")}.` : ""} הן ייקלטו כשתפעילו את החיבור מחדש.`,
         b.oldestHeldAt, "להפעלה"));
     }
     const notIncluded = b.heldByReason.source_disabled ?? 0;
     if (live && notIncluded > 0) {
       out.push(item(c, "intake_not_included", "ACTION_REQUIRED", "MEDIUM",
-        `יש ${n(notIncluded, capped)} ${plural(notIncluded, `${w.one} שממתינה`, `${w.many} שממתינות`)} מ־${name}`,
+        `יש ${fmt(notIncluded, raw.backlog)} ${plural(notIncluded, `${w.one} שממתינה`, `${w.many} שממתינות`)} מ־${name}`,
         `המקור הזה לא כלול כרגע בחבילה שלכם. ה${w.many} נשמרות וממתינות.`, b.oldestHeldAt, "לפרטים"));
     }
     const platform = b.heldByReason.emergency_disabled ?? 0;
     if (live && platform > 0) {
       out.push(item(c, "intake_platform_hold", "WARNING", "MEDIUM",
-        `${n(platform, capped)} ${plural(platform, w.one, w.many)} מ־${name} ${plural(platform, "נשמרת וממתינה", "נשמרות וממתינות")}`,
+        `${fmt(platform, raw.backlog)} ${plural(platform, w.one, w.many)} מ־${name} ${plural(platform, "נשמרת וממתינה", "נשמרות וממתינות")}`,
         `דוביז השהתה זמנית את הקליטה מהמקור הזה. אין צורך לעשות דבר — ה${w.many} ייקלטו כשהקליטה תחזור.`, b.oldestHeldAt, "לפרטים"));
     }
     if (b.deadLetters > 0) {
       out.push(item(c, "intake_failed", "FAILURE_EVENT", "HIGH", `לא הצלחנו להשלים את קליטת חלק מה${w.many}`,
-        `${n(b.deadLetters, capped)} ${plural(b.deadLetters, w.one, w.many)} מ־${name} לא נקלטו. אנחנו בודקים זאת.`, b.oldestUnfinishedAt, "לפרטים"));
+        `${fmt(b.deadLetters, raw.backlog)} ${plural(b.deadLetters, w.one, w.many)} מ־${name} לא נקלטו. אנחנו בודקים זאת.`, b.oldestUnfinishedAt, "לפרטים"));
     }
     const pending = b.due + b.retrying;
     const pendingSince = b.oldestUnfinishedAt;
     if (live && pending > 0 && pendingSince && now.getTime() - pendingSince.getTime() >= PENDING_AFTER_MS && b.held === 0) {
       out.push(item(c, "intake_pending", "WARNING", "LOW",
-        `יש ${n(pending, capped)} ${plural(pending, `${w.one} שנקלטה ועדיין בעיבוד`, `${w.many} שנקלטו ועדיין בעיבוד`)}`,
+        `יש ${fmt(pending, raw.backlog)} ${plural(pending, `${w.one} שנקלטה ועדיין בעיבוד`, `${w.many} שנקלטו ועדיין בעיבוד`)}`,
         `${name}: הן יופיעו כשהעיבוד יסתיים.`, pendingSince, "לפרטים"));
     }
   }
@@ -206,12 +209,13 @@ export function waitingByConnection(connections: IntakeConnectionRow[], backlog:
     const ref = refOf(c);
     const b = ref ? byRef.get(`${c.sourceKey}\u0000${ref}`) : undefined;
     if (!b) continue;
+    const at = (count: number) => cappedCount(count, backlog).n;
     out.set(c.id, {
-      held: b.held,
-      paused: b.heldByReason.connection_paused ?? 0,
-      platform: b.heldByReason.emergency_disabled ?? 0,
-      notIncluded: b.heldByReason.source_disabled ?? 0,
-      failed: b.deadLetters,
+      held: at(b.held),
+      paused: at(b.heldByReason.connection_paused ?? 0),
+      platform: at(b.heldByReason.emergency_disabled ?? 0),
+      notIncluded: at(b.heldByReason.source_disabled ?? 0),
+      failed: at(b.deadLetters),
       capped: backlog.capped,
     });
   }
