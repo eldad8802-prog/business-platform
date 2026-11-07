@@ -42,6 +42,8 @@ export type BusinessBacklog = {
   oldestHeldAt: Date | null;
   /** True when the scan hit its row cap: every count is then a lower bound ("at least"). */
   capped: boolean;
+  /** The row cap of the read. When `capped`, a count is shown as at most this, with "+" (the scan reads one row more to know). */
+  scanCap?: number;
 };
 
 /** Flow over time for one business (sweep only). */
@@ -68,4 +70,10 @@ export function oldest(dates: (Date | null)[]): Date | null {
   let out: Date | null = null;
   for (const d of dates) if (d && (!out || d < out)) out = d;
   return out;
+}
+
+/** A count as the owner reads it: exact, or — when the read hit its cap — at most the cap, followed by "+". */
+export function cappedCount(count: number, backlog: Pick<BusinessBacklog, "capped" | "scanCap">): { n: number; plus: boolean } {
+  if (!backlog.capped) return { n: count, plus: false };
+  return { n: backlog.scanCap !== undefined ? Math.min(count, backlog.scanCap) : count, plus: true };
 }

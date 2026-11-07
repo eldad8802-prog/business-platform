@@ -714,7 +714,7 @@ export async function intakeBacklog(
       byConn.set(key, c);
     }
     const connections = [...byConn.values()].sort((a, b) => a.sourceKey.localeCompare(b.sourceKey) || (a.providerAccountRef ?? "").localeCompare(b.providerAccountRef ?? ""));
-    return { connections, totals: totalsOf(connections), oldestHeldAt: oldest(connections.map((c) => c.oldestHeldAt)), capped: scanned > cap };
+    return { connections, totals: totalsOf(connections), oldestHeldAt: oldest(connections.map((c) => c.oldestHeldAt)), capped: scanned > cap, scanCap: cap };
   });
 }
 
