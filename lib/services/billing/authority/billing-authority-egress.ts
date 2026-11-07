@@ -42,6 +42,7 @@ import { createHash, createPrivateKey, X509Certificate, type KeyObject } from "n
 import { fetch as undiciFetch, Pool, ProxyAgent, type Dispatcher } from "undici";
 import type { BillingAuthorityEnvironment } from "@prisma/client";
 import {
+  AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED,
   AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
   resolveAuthorityPilotScopeRefusal,
   type AuthorityPilotScope,
@@ -433,6 +434,13 @@ export function createAuthorityEgressFetch(
         throw new AuthorityEgressError(
           AUTHORITY_EGRESS_ERROR_CODES.PILOT_SCOPE_REFUSED,
           "PRODUCTION scope refused by the production pilot stage (OAUTH_ONLY)",
+          "stage"
+        );
+      }
+      if (refusal === AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED) {
+        throw new AuthorityEgressError(
+          AUTHORITY_EGRESS_ERROR_CODES.PILOT_SCOPE_REFUSED,
+          "PRODUCTION scope refused: the production pilot does not enable this operation",
           "stage"
         );
       }
