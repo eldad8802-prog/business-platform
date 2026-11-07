@@ -2,8 +2,8 @@
  * Business documents records — migration 20261114090000 AS the runtime role (PG17, real migration via
  * `prisma migrate deploy`, Production role topology: .business-documents/lab.sh <db> --with-bd).
  *
- * Database-level proofs only (the storage fence, idempotent claims and the read-only quote copy are proven by the
- * service battery). Every check runs as app_runtime_prod (member of NOLOGIN app_runtime, NOSUPERUSER, NOBYPASSRLS).
+ * Database-level proofs only (the storage fence, idempotent claims, the read-only quote copy and the Service Desk
+ * exclusion — an application rule — are proven by the service battery). Every check runs as app_runtime_prod (member of NOLOGIN app_runtime, NOSUPERUSER, NOBYPASSRLS).
  *
  * env: DATABASE_URL (app_runtime_prod), OWNER_URL (lab_owner — seeding and catalog reads only).
  * Run: npx tsx .business-documents/records.battery.mts
@@ -76,9 +76,7 @@ async function main() {
   const mk = async (name: string) => (await own.business.create({ data: { name: `bd-${name}-${stamp}` } })).id;
   const A = await mk("A"), B = await mk("B"), C = await mk("C");
   const quote = async (b: number, type: BillingDocumentType = BillingDocumentType.QUOTE) => (await own.billingDocument.create({ data: { businessId: b, documentType: type } })).id;
-  const qA = await quote(A), qA2 = await quote(A), qB = await quote(B), invA = await quote(A, BillingDocumentType.TAX_INVOICE), qSvc = await quote(A), qC = await quote(C);
-  await own.$executeRawUnsafe(`INSERT INTO "ServiceQuote" ("businessId", "caseId", "version", "billingDocumentId", "totalAgorot", "docHash", "sentPdfKey", "sentPdfSha256") VALUES ($1, 1, 1, $2, 100, 'h', $3, 'h')`, A, qSvc, `biz/${A}/service/q.pdf`)
-    .catch(async () => { /* the live table may carry service-desk CHECKs; fall back to the minimum the guard reads */ await own.$executeRawUnsafe(`ALTER TABLE "ServiceQuote" DISABLE TRIGGER USER`); await own.$executeRawUnsafe(`INSERT INTO "ServiceQuote" ("businessId", "caseId", "version", "billingDocumentId", "totalAgorot", "docHash", "sentPdfKey", "sentPdfSha256") VALUES ($1, 1, 1, $2, 100, 'h', $3, 'h')`, A, qSvc, `biz/${A}/service/q.pdf`); await own.$executeRawUnsafe(`ALTER TABLE "ServiceQuote" ENABLE TRIGGER USER`); });
+  const qA = await quote(A), qA2 = await quote(A), qB = await quote(B), invA = await quote(A, BillingDocumentType.TAX_INVOICE), qC = await quote(C);
 
   console.log("--- controls ---");
   const role = await one<{ rolsuper: boolean; rolbypassrls: boolean }>(own, `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`);
@@ -109,8 +107,6 @@ async function main() {
   ok("a copy of A's own quote is recorded", !!cA.id);
   await refused("a copy of B's quote from A's context → not found (RLS hides it)", async () => copyOf(R1, A, qB, await committedFile(A)), /QUOTE_NOT_FOUND/);
   await refused("a copy of a TAX_INVOICE → not a quote", async () => copyOf(R1, A, invA, await committedFile(A)), /QUOTE_NOT_FOUND/);
-  await refused("a copy of a Service Desk quote (any ServiceQuote version) → refused", async () => copyOf(R1, A, qSvc, await committedFile(A)), /SERVICE_DESK_QUOTE/);
-  await refused("an event on a Service Desk quote → refused", () => event(R1, A, qSvc, "NOTE", { note: "x" }), /SERVICE_DESK_QUOTE/);
   await refused("a row labelled business B from A's context → RLS", () => inCtx(R1, A, (tx) => tx.$executeRawUnsafe(`INSERT INTO "BusinessDocumentFile" ("businessId", "purpose", "objectKey") VALUES ($1, 'LETTER', $2)`, B, `biz/${B}/business-docs/x.pdf`)), /row-level security/);
   await refused("an object key outside the business's prefix → CHECK", () => inCtx(R1, A, (tx) => tx.$executeRawUnsafe(`INSERT INTO "BusinessDocumentFile" ("businessId", "purpose", "objectKey") VALUES ($1, 'LETTER', $2)`, A, `biz/${B}/business-docs/x.pdf`)), /key_in_business_prefix/);
   ok("B sees none of A's records", Number((await inCtx(R1, B, (tx) => one<{ n: number }>(tx, `SELECT (SELECT count(*) FROM "QuoteShareCopy") + (SELECT count(*) FROM "BusinessDocumentFile") AS n`))).n) === 0);
