@@ -53,7 +53,15 @@ export function BusinessDocumentsHub() {
                 <Link className={s.row} href="/business-documents/letters/new">
                   <span className={s.rowText}>
                     <span className={s.rowTitle}>מכתב חדש</span>
-                    <span className={s.rowSub}>מכתב על נייר המכתבים של העסק — תצוגה מקדימה, PDF ושיתוף</span>
+                    <span className={s.rowSub}>מכתב על נייר המכתבים של העסק — תצוגה מקדימה, PDF, שיתוף ושמירה</span>
+                  </span>
+                </Link>
+              </li>
+              <li>
+                <Link className={s.row} href="/business-documents/letters">
+                  <span className={s.rowText}>
+                    <span className={s.rowTitle}>מכתבים שמורים</span>
+                    <span className={s.rowSub}>המכתבים ששמרת והקבצים שלהם</span>
                   </span>
                 </Link>
               </li>

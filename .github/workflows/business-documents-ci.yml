@@ -261,6 +261,12 @@ jobs:
           bash .business-documents/lab.sh bd_service --with-bd
           mkdir -p "$RUNNER_TEMP/bd-store"
           STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/bd-store" BILLING_PDF_STORAGE_ROOT="$RUNNER_TEMP/bd-store/legacy"           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_service"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_service?connection_limit=20"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_service"             npx tsx .business-documents/service.battery.mts
+      - name: Saved letters battery — save, replay, conflict, isolation, customer deleted (snapshot kept), hide, purge (explicit age), erasure runner
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh bd_letters --with-bd
+          mkdir -p "$RUNNER_TEMP/bd-letters"
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/bd-letters"           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_letters"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_letters?connection_limit=20"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_letters"             npx tsx .business-documents/letters.battery.mts
 
   r2:
     name: Business documents — the fence against REAL R2 (dedicated test bucket; manual dispatch only)

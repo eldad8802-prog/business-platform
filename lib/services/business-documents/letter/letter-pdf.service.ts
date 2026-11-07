@@ -1,6 +1,6 @@
 /**
  * ר2 — the letter as a PDF, through the shared Chromium launcher (lib/pdf/chromium).
- * Kept apart from letter.service.ts so only the PDF route carries the browser bundle
+ * Kept apart from letter.service.ts so only the PDF routes carry the browser bundle
  * (next.config.ts outputFileTracingIncludes + scripts/ci/pdf-route-tracing-guard.mjs).
  */
 import { launchChromium } from "@/lib/pdf/chromium";
@@ -8,8 +8,8 @@ import { launchChromium } from "@/lib/pdf/chromium";
 import type { LetterInput } from "./letter.contracts";
 import { renderLetterHtml } from "./letter.service";
 
-export async function renderLetterPdf(businessId: number, input: LetterInput): Promise<Buffer> {
-  const html = await renderLetterHtml(businessId, input);
+/** A complete, self-contained letter HTML document → A4 PDF bytes. */
+export async function letterHtmlToPdf(html: string): Promise<Buffer> {
   const browser = await launchChromium();
   try {
     const page = await browser.newPage();
@@ -19,4 +19,8 @@ export async function renderLetterPdf(businessId: number, input: LetterInput): P
   } finally {
     await browser.close();
   }
+}
+
+export async function renderLetterPdf(businessId: number, input: LetterInput): Promise<Buffer> {
+  return letterHtmlToPdf(await renderLetterHtml(businessId, input));
 }
