@@ -22,6 +22,7 @@ export const systemHe = {
       documents_queue: "מסמכים לבדיקה",
       stock: "מלאי",
       quote_validity: "תוקף הצעות מחיר",
+      quote_followup: "מעקב אחרי הצעות שנשלחו",
     },
     queue: {
       conversation: "{n} שיחות מחכות לתשובה",
@@ -32,6 +33,7 @@ export const systemHe = {
       lead: "{n} לידים",
       supplier_payment: "{n} תשלומים לספקים",
       quote_validity: "{n} הצעות מחיר שתוקפן מסתיים",
+      quote_followup: "{n} הצעות מחיר בלי תגובה רשומה",
       factOldest: "הוותיק מחכה מ־{date} · פתח לרשימה",
       fact: "פתח לרשימה",
       open: "פתח",
@@ -84,6 +86,7 @@ export const systemHe = {
     },
     invoiceReview: { title: "חשבונית {number} ממתינה לבדיקה", created: "נוצרה {date}", action: "לחשבונית" },
     quoteValidity: { title: "תוקף הצעת מחיר {number}", expiresOn: "בתוקף עד {date}", expiredOn: "התוקף הסתיים ב־{date}", action: "להצעה" },
+    quoteFollowup: { title: "מעקב הצעת מחיר {number}", sent: "סימנת שנשלחה ב־{date}, אין תגובה רשומה", action: "למעקב" },
     lead: {
       unnamed: "ליד ללא שם",
       newMessage: "הודעה חדשה מ{name}",

@@ -133,6 +133,7 @@ console.log("Source coverage: the seven legacy sources stay under the legacy has
    *  not listed here fails below — it cannot slip past the legacy hash unnoticed. */
   const ADDED_SOURCES: Record<string, { he: string; en: string }> = {
     quote_validity: { he: "3 הצעות מחיר שתוקפן מסתיים", en: "3 quotes whose validity ends" },
+    quote_followup: { he: "3 הצעות מחיר בלי תגובה רשומה", en: "3 quotes with no recorded reply" },
   };
   ok("the legacy hash is taken over exactly seven sources", LEGACY_SOURCE_KINDS.length === 7);
   for (const k of LEGACY_SOURCE_KINDS) ok(`legacy source still exists: ${k}`, (SOURCE_KINDS as readonly string[]).includes(k));
