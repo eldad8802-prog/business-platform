@@ -93,12 +93,12 @@ async function business(N: number) {
   await clone(t.id, 2, { tag: "dead-purged", ref: active.connection.publicId, status: "FAILED", next: null, code: "error:Error", receivedAt: at(-40 * 24 * 60 * MIN), purged: true });
   await clone(t.id, 3, { tag: "recovered", ref: active.connection.publicId, status: "PROCESSED", next: null, code: null, receivedAt: at(-3 * 60 * MIN), processedAt: at(-20 * MIN) });
   await clone(t.id, 2, { tag: "on-time", ref: active.connection.publicId, status: "PROCESSED", next: null, code: null, receivedAt: at(-30 * MIN), processedAt: at(-29 * MIN) });
-  return { B, paused, active, oldestHeld };
+  return { B, paused, active, oldestHeld, templateId: t.id };
 }
 
 async function main() {
   console.log("\n-- capacity per business at each load --");
-  const made: { N: number; id: number }[] = [];
+  const made: { N: number; id: number; templateId: number; ref: string }[] = [];
   for (const N of LOADS) {
     const k = await business(N);
     await settle();
@@ -125,7 +125,7 @@ async function main() {
       f.processedLastHour === 5 && f.recoveredLastHour === 3 && f.receivedLastHour >= 7 + 5 && f.receivedLastDay >= f.receivedLastHour,
       JSON.stringify(f));
     console.log(`     timing: backlog ${ms} ms (${N} held)`);
-    made.push({ N, id: k.B.id });
+    made.push({ N, id: k.B.id, templateId: k.templateId, ref: k.paused.connection.publicId });
   }
 
   console.log("\n-- RLS --");
@@ -150,8 +150,25 @@ async function main() {
   const expectedCrossings = made.reduce((a, m) => a + [500, 1000, 2000].filter((t) => m.N + 10 >= t).length, 0);
   ok(`sweep: alerts ON → each tier crossing reported once (${on1.capacity.tierCrossingsNew} ≥ ${expectedCrossings}), the run says so (held_capacity_tier)`,
     on1.capacity.tierCrossingsNew >= expectedCrossings && sweepHealth(on1).events.includes("held_capacity_tier"), JSON.stringify(on1.capacity));
+  // Release the 1,000 OLDEST held of the largest business (still far above every tier): no crossing is new.
+  const big = made[made.length - 1];
+  const releaseOldest = (businessId: number, n: number) => o.$executeRawUnsafe(
+    `UPDATE "IntakeEvent" SET "status" = 'PROCESSED', "nextAttemptAt" = NULL WHERE "id" IN (SELECT "id" FROM "IntakeEvent" WHERE "businessId" = $1 AND "lastErrorCode" LIKE 'held:%' AND "status" = 'RECEIVED' ORDER BY "receivedAt", "id" LIMIT $2::int)`,
+    businessId, n);
+  await releaseOldest(big.id, 1000);
   const on2 = await runIntakeSweep({ now: at(2000), reconcileCommerce: false, syncRevenueSources: false });
-  ok("sweep: …and a second run reports none (once per crossing)", on2.capacity.tierCrossingsNew === 0 && !sweepHealth(on2).events.includes("held_capacity_tier"), JSON.stringify(on2.capacity));
+  ok("sweep: …and a second run reports none, although the 1,000 oldest of one business were released meanwhile (once per crossing)",
+    on2.capacity.tierCrossingsNew === 0 && !sweepHealth(on2).events.includes("held_capacity_tier"), JSON.stringify(on2.capacity));
+  // Falls below the tier and rises again → reported again.
+  const k500 = made.find((m) => m.N === 500);
+  if (k500) {
+    await releaseOldest(k500.id, 30);
+    const below = await runIntakeSweep({ now: at(3000), reconcileCommerce: false, syncRevenueSources: false });
+    await clone(k500.templateId, 40, { tag: "rise", ref: k500.ref, status: "RECEIVED", next: at(9 * MIN), code: "held:connection_paused", receivedAt: at() });
+    const again = await runIntakeSweep({ now: at(4000), reconcileCommerce: false, syncRevenueSources: false });
+    ok(`sweep: below the tier (${below.capacity.tierCrossingsNew} new), then above it again → reported again (${again.capacity.tierCrossingsNew})`,
+      below.capacity.tierCrossingsNew === 0 && again.capacity.tierCrossingsNew >= 1, JSON.stringify({ below: below.capacity.tierCrossingsNew, again: again.capacity.tierCrossingsNew }));
+  }
   delete process.env.INTAKE_CAPACITY_ALERTS_ENABLED;
 
   console.log(`\nL1.5-b capacity battery: ${pass} passed, ${failures.length} failed`);
