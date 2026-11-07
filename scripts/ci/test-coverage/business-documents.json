@@ -12,6 +12,12 @@
     "lib/services/business-documents/quote-followup/quote-validity-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): ר1 / Daily Tasks S08 — a quote not converted whose validity (Israel day) ends within 3 days or has ended; never a dateless or converted quote, never a quote referenced by any ServiceQuote row; soonest first; the DB pre-filter bound never cuts a day of the window; run on pull_request by business-documents-ci.yml"
+    },
+    "lib/storage/storage-conditional.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "business-documents-ci.yml",
+      "reason": "storage boundary of the private business-docs domain: create-once writes (exactly one of 25 concurrent writers creates; never a partial or mixed body), a plain overwrite refused in that domain while every existing domain keeps its behaviour, private visibility only, prefix listing confined to one business and one domain (bucket-wide, non-positive business, unknown domain and traversal prefixes refused); pure local adapter (no DB/network); run on pull_request by business-documents-ci.yml"
     }
   }
 }

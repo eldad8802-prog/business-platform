@@ -1,0 +1,11 @@
+{
+  "note": "Invoice PDF shows the allocation number from the stored document data (owner-approved check under A0, 2026-11-06; test only, no product change). Needs Chromium, so it runs in its own workflow with a negative proof.",
+  "tests": {
+    "lib/services/billing/billing-pdf-allocation-number.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "billing-pdf-allocation-number-ci.yml",
+      "reason": "through the real PDF service, HTML renderer (Chromium) and local storage under replayed repository RLS as a NOSUPERUSER NOBYPASSRLS login: the stored number is shown (9 digits), blocked before it exists, cached after, another tenant refused; run on pull_request by billing-pdf-allocation-number-ci.yml; removing the overlay fails P1"
+    }
+  }
+}
