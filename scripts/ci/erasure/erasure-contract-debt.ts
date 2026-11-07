@@ -79,11 +79,6 @@ const LEAD_RESIDUALS: DebtEntry[] = [
  *  Adding a model to either category therefore requires touching this file too, which is
  *  the point: one more unmanaged model cannot slip in as a one-line edit. */
 const MODEL_LEVEL: DebtEntry[] = [
-  // Business documents (migration 20261114090000). business_documents_erase() is written and tested, but wiring it
-  // into account deletion awaits the owner's approval (2026-11-06) — recorded as debt, not hidden.
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "QuoteShareCopy", why: "BD-ERASURE" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "QuoteShareEvent", why: "BD-ERASURE" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessLetter", why: "BD-ERASURE" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "AuthSession", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "AuthSessionSecret", why: "E2" },
   // P2. Owner-authored identity text can name the owner, like BusinessBotKnowledge notes.
@@ -180,9 +175,6 @@ const MODEL_LEVEL: DebtEntry[] = [
  * always unerased, and until now there was nowhere to say so.
  */
 const EXTERNAL_OBJECTS: DebtEntry[] = [
-  // Business documents: the stored PDFs (quote share copies, saved letters). Object deletion on account erasure is
-  // built (fence + business_documents_erasure_complete) but not connected to account deletion — owner approval pending.
-  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "BusinessDocumentFile.objectKey", why: "BD-ERASURE" },
   // Public-URL images: the column holds a URL, and neither a URL→key inverse nor a
   // public-asset delete exists, so the bytes are unreachable from a database erasure.
   { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InventoryItem.imageUrl", why: "S8-IMAGES" },

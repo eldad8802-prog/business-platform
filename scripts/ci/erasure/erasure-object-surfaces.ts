@@ -260,19 +260,6 @@ export const OBJECT_SURFACES: readonly ObjectSurface[] = [
       "the receiver's handover signature image. Nothing writes this column yet, so no object can exist today; service_erase_business() blanks the key, but no object delete is wired into account erasure",
     target: "SD-1.3",
   },
-  // Business documents (migration 20261114090000). Private objects under biz/{id}/business-docs/ (CHECK-limited),
-  // written only by create-once puts. Nothing in this migration's PR writes the column; the service PR does, behind
-  // the business_documents flag (OFF). Deleting the bytes on account erasure (fence every key, then
-  // business_documents_erasure_complete()) is built but not wired into account deletion — not approved yet.
-  {
-    model: "BusinessDocumentFile",
-    field: "objectKey",
-    kind: "STORAGE_KEY",
-    state: "OPEN_INERT",
-    reason:
-      "the stored PDF of a quote share copy or a saved letter. Nothing writes this column in this PR, so no object can exist yet; the object deletion of account erasure is implemented but not connected to account deletion (owner approval pending)",
-    target: "BD-ERASURE",
-  },
 ];
 
 export const NOT_OWNED_POINTERS: readonly NotOwnedPointer[] = [
