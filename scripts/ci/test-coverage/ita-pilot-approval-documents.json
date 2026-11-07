@@ -1,0 +1,15 @@
+{
+  "note": "N10 — PRODUCTION pilot Approval bound to environment + business + document (BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS). Run by ita-pilot-approval-documents-ci.yml with a negative proof per gate.",
+  "tests": {
+    "lib/services/billing/authority/billing-authority-pilot-approval-documents.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) authorization rules: list grammar fails closed (any bad entry means nothing authorized), environment + business + document binding, issue gate only while Approval is open, the refusal is a provably-not-sent pilot code"
+    },
+    "lib/services/billing/authority/billing-authority-pilot-approval-documents.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof through real issuance + Approval execution: replays every repository RLS statement, NOSUPERUSER NOBYPASSRLS login, refuses otherwise; stubbed authority requests, global fetch throws; business/environment binding, refusal before refresh, parallel issuance and parallel Approval send once, uncertain never re-sent; 18/18 locally on PG18; removing the send gate fails G1, the issue gate I2"
+    }
+  }
+}

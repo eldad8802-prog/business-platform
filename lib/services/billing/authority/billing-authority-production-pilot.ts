@@ -110,16 +110,25 @@ export const AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY =
 export const AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED =
   "AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED" as const;
 
+/**
+ * Admitted by the lists and the operation, but this document is not on the
+ * Approval document list (BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS).
+ */
+export const AUTHORITY_PRODUCTION_PILOT_DOCUMENT_NOT_AUTHORIZED =
+  "AUTHORITY_PRODUCTION_PILOT_DOCUMENT_NOT_AUTHORIZED" as const;
+
 export type AuthorityProductionPilotRefusalCode =
   | typeof AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED
   | typeof AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY
-  | typeof AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED;
+  | typeof AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED
+  | typeof AUTHORITY_PRODUCTION_PILOT_DOCUMENT_NOT_AUTHORIZED;
 
 /** Every pilot refusal code; all of them are provably not sent. */
 export const AUTHORITY_PRODUCTION_PILOT_REFUSAL_CODES: readonly AuthorityProductionPilotRefusalCode[] = [
   AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED,
   AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY,
   AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED,
+  AUTHORITY_PRODUCTION_PILOT_DOCUMENT_NOT_AUTHORIZED,
 ];
 
 export function isAuthorityProductionPilotRefusalCode(
@@ -343,12 +352,97 @@ export function isAuthorityProductionOperationAllowedForBusiness(
 }
 
 /** Internal refusal message for a code (no ids, no env values). */
+// ── Approval document list (N10) ────────────────────────────────────────────
+//
+// Opening the "approval" operation is not a limit on HOW MANY documents are
+// sent: every READY invoice the business issues would be. In PRODUCTION an
+// Approval is therefore also bound, explicitly, to an environment, a business
+// and a document:
+//
+//   BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS =
+//     "PRODUCTION:<businessId>:<billingDocumentId>"[,…]   (at most 5 entries)
+//
+// Compared exactly (no trimming, case-sensitive). Unset / empty → no document
+// is authorized. Any malformed entry (wrong environment token, non-positive or
+// non-integer id, whitespace, duplicate, too many) → the WHOLE list is invalid →
+// no document is authorized. A draft keeps its id when issued, so the owner
+// creates the draft, the id is listed (and deployed), then that draft is issued.
+// SANDBOX is never gated.
+
+export const AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS_ENV_VAR =
+  "BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS" as const;
+
+export const AUTHORITY_PRODUCTION_PILOT_MAX_APPROVAL_DOCUMENTS = 5;
+
+const APPROVAL_DOCUMENT_ENTRY = /^PRODUCTION:([1-9]\d{0,9}):([1-9]\d{0,9})$/;
+
+/** Parse status + the authorized "businessId:documentId" keys (empty unless "ok"). */
+export function parseAuthorityProductionPilotApprovalDocuments(raw: string | undefined): {
+  status: AuthorityPilotListStatus;
+  keys: ReadonlySet<string>;
+} {
+  if (raw === undefined || raw === "") return { status: "unset", keys: new Set() };
+  const entries = raw.split(",");
+  if (entries.length > AUTHORITY_PRODUCTION_PILOT_MAX_APPROVAL_DOCUMENTS) return { status: "invalid", keys: new Set() };
+  const keys = new Set<string>();
+  for (const entry of entries) {
+    const m = APPROVAL_DOCUMENT_ENTRY.exec(entry);
+    if (!m) return { status: "invalid", keys: new Set() };
+    const businessId = Number(m[1]);
+    const documentId = Number(m[2]);
+    if (!Number.isSafeInteger(businessId) || !Number.isSafeInteger(documentId)) return { status: "invalid", keys: new Set() };
+    const key = `${businessId}:${documentId}`;
+    if (keys.has(key)) return { status: "invalid", keys: new Set() };
+    keys.add(key);
+  }
+  return { status: "ok", keys };
+}
+
+/**
+ * Send gate for ONE Approval: null when the document is authorized for this
+ * business in PRODUCTION (or when not PRODUCTION), else DOCUMENT_NOT_AUTHORIZED.
+ * Callers run it before any load, reserve, token work, refresh or network I/O.
+ */
+export function resolveAuthorityProductionApprovalDocumentRefusal(
+  businessId: number,
+  billingDocumentId: number,
+  environment: BillingAuthorityEnvironment,
+  env: EnvSource = process.env
+): AuthorityProductionPilotRefusalCode | null {
+  if (environment !== "PRODUCTION") return null;
+  const { keys } = parseAuthorityProductionPilotApprovalDocuments(env[AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS_ENV_VAR]);
+  if (!Number.isSafeInteger(businessId) || !Number.isSafeInteger(billingDocumentId)) {
+    return AUTHORITY_PRODUCTION_PILOT_DOCUMENT_NOT_AUTHORIZED;
+  }
+  return keys.has(`${businessId}:${billingDocumentId}`) ? null : AUTHORITY_PRODUCTION_PILOT_DOCUMENT_NOT_AUTHORIZED;
+}
+
+/**
+ * Issue gate: while Approval is OPEN in PRODUCTION for an admitted business, a
+ * document that would be sent (READY) but is not authorized is refused AT
+ * ISSUANCE — it stays a draft (no number, no write) instead of becoming an
+ * issued invoice that is never sent. Everywhere else issuance is unchanged:
+ * not PRODUCTION, a business not on the list, Approval not enabled (e.g. today's
+ * "oauth"), or a document that needs no allocation.
+ */
+export function resolveAuthorityProductionPilotIssueRefusal(
+  input: { businessId: number; billingDocumentId: number; environment: BillingAuthorityEnvironment; wouldBeReady: boolean },
+  env: EnvSource = process.env
+): AuthorityProductionPilotRefusalCode | null {
+  if (input.environment !== "PRODUCTION" || !input.wouldBeReady) return null;
+  if (resolveAuthorityProductionOperationRefusal(input.businessId, input.environment, "approval", env) !== null) return null;
+  return resolveAuthorityProductionApprovalDocumentRefusal(input.businessId, input.billingDocumentId, input.environment, env);
+}
+
 export function describeAuthorityProductionPilotRefusal(
   code: AuthorityProductionPilotRefusalCode
 ): string {
   if (code === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY) return "Authority production pilot is in the OAuth-only stage";
   if (code === AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED) {
     return "Authority production pilot does not enable this operation";
+  }
+  if (code === AUTHORITY_PRODUCTION_PILOT_DOCUMENT_NOT_AUTHORIZED) {
+    return "Authority production pilot does not authorize Approval for this document";
   }
   return "Authority production pilot is not enabled for this business";
 }

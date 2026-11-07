@@ -225,12 +225,13 @@ function parsing(): void {
   ok("refusal: probe → NOT_ENABLED when lists empty, STAGE when listed in OAUTH_ONLY",
     resolveAuthorityPilotScopeRefusal({ kind: "platform-diagnostic" }, PRODUCTION, {}) === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED &&
     resolveAuthorityPilotScopeRefusal({ kind: "platform-diagnostic" }, PRODUCTION, listed) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY);
-  ok("refusal codes: all three recognised as pilot refusals, nothing else",
+  ok("refusal codes: all four recognised as pilot refusals, nothing else",
     isAuthorityProductionPilotRefusalCode(AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED) &&
     isAuthorityProductionPilotRefusalCode(AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY) &&
     isAuthorityProductionPilotRefusalCode("AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED") &&
+    isAuthorityProductionPilotRefusalCode("AUTHORITY_PRODUCTION_PILOT_DOCUMENT_NOT_AUTHORIZED") &&
     !isAuthorityProductionPilotRefusalCode("SUBMISSION_NOT_PROVABLY_UNSENT") &&
-    AUTHORITY_PRODUCTION_PILOT_REFUSAL_CODES.length === 3);
+    AUTHORITY_PRODUCTION_PILOT_REFUSAL_CODES.length === 4);
 
   const oauthOnly = { [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: "42" };
   ok("OAUTH_ONLY: business operations refused for the pilot business",

@@ -23,6 +23,7 @@
 
 import { createHash } from "node:crypto";
 import {
+  resolveAuthorityProductionApprovalDocumentRefusal,
   resolveAuthorityProductionOperationRefusal,
 } from "@/lib/services/billing/authority/billing-authority-production-pilot";
 import {
@@ -370,6 +371,14 @@ export async function executeAuthorityApproval(
   const pilotRefusal = resolveAuthorityProductionOperationRefusal(businessId, environment, "approval");
   if (pilotRefusal) {
     return { outcome: "preflight_failed", billingDocumentId, errorCode: pilotRefusal, safeToRetry: false };
+  }
+  // N10: in PRODUCTION the Approval is also bound to this exact business + document
+  // (BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS). Checked here, before the
+  // document is loaded, before the reserve and before any token decrypt, refresh
+  // or network I/O. Nothing is recorded: the submission stays READY.
+  const documentRefusal = resolveAuthorityProductionApprovalDocumentRefusal(businessId, billingDocumentId, environment);
+  if (documentRefusal) {
+    return { outcome: "preflight_failed", billingDocumentId, errorCode: documentRefusal, safeToRetry: false };
   }
 
   // ---- load ----

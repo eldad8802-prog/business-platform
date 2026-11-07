@@ -1,0 +1,141 @@
+# N10 — in the PRODUCTION pilot an Approval is bound to environment + business +
+# document (BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS). An unauthorized
+# READY document is refused at issuance while Approval is open (it stays a draft),
+# and refused at send everywhere (nothing sent, READY kept).
+#
+# Its own job and database on purpose: the DB test replays EVERY RLS / policy statement
+# the migrations ship, which would change the posture for any later step in a shared DB.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+# Every authority request is a local stub; global fetch throws.
+
+name: ita pilot approval documents (unit + ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/authority/**"
+      - "lib/services/billing/billing-issue.service.ts"
+      - "lib/billing/authority-issue-display.ts"
+      - "lib/billing/authority-issue-display.test.ts"
+      - "lib/tenant/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - ".github/workflows/ita-pilot-approval-documents-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  approval-documents:
+    name: Pilot approval documents (rules + display; PG17 replayed RLS, NOBYPASSRLS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ad_owner
+          POSTGRES_PASSWORD: ad_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_ad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ad_owner -d dubiz_ad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://ad_owner:ad_ci_synthetic_owner_pw@localhost:5432/dubiz_ad
+      ADMIN_DB_URL: postgresql://ad_owner:ad_ci_synthetic_owner_pw@localhost:5432/postgres
+      RUNTIME_URL: postgresql://ad_runtime:ad_ci_synthetic_runtime_pw@localhost:5432/dubiz_ad
+      AUTH_TOKEN_SECRET: ita_ad_ci_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Rules and display (no DB)
+        env:
+          DATABASE_URL: postgresql://unused@127.0.0.1:1/unused
+        run: |
+          set -euo pipefail
+          npx tsx lib/services/billing/authority/billing-authority-pilot-approval-documents.verify.test.ts
+          npx tsx lib/services/billing/authority/billing-authority-production-pilot.verify.test.ts
+          npx tsx lib/billing/authority-issue-display.test.ts
+
+      - name: Install the PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Push schema as the owner
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Create the governed runtime role
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE ad_runtime LOGIN PASSWORD 'ad_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO ad_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ad_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ad_runtime;"
+
+      - name: Issuance + Approval bound to business and document under replayed RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx lib/services/billing/authority/billing-authority-pilot-approval-documents.rls.integration.test.ts
+
+      # Each gate is removed in turn (exactly the defect) on a FRESH database, and the
+      # suite must go red on that gate's own case: send gate -> G1, issuance gate -> I2.
+      - name: Negative proof — each gate removed is caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          fresh_db() {
+            psql "$ADMIN_DB_URL" -v ON_ERROR_STOP=1 -q \
+              -c "DROP DATABASE IF EXISTS dubiz_ad WITH (FORCE);" -c "CREATE DATABASE dubiz_ad;" || return 1
+            DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" npx prisma db push --skip-generate > /dev/null || return 1
+            psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+              -c "GRANT USAGE ON SCHEMA public TO ad_runtime;" \
+              -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ad_runtime;" \
+              -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ad_runtime;" || return 1
+          }
+          prove() {
+            local file="$1" pattern="$2" expect="$3"
+            fresh_db || { echo "::error::could not reset the database"; return 1; }
+            cp "$file" "$file.bak"
+            perl -0pi -e "$pattern" "$file"
+            if cmp -s "$file" "$file.bak"; then
+              mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply to $file"; return 1
+            fi
+            npx tsx lib/services/billing/authority/billing-authority-pilot-approval-documents.rls.integration.test.ts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then
+              echo "::error::NEGATIVE-PROOF FAIL: $file without its gate and the suite stayed green"; return 1
+            fi
+            if ! grep -q "\[FAIL\] $expect" np.log; then
+              echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on $expect"; tail -30 np.log; return 1
+            fi
+            echo "negative proof OK — $file without its gate fails $expect"
+          }
+          prove lib/services/billing/authority/billing-authority-submission-execution.service.ts \
+            's/const documentRefusal = resolveAuthorityProductionApprovalDocumentRefusal\(businessId, billingDocumentId, environment\);/const documentRefusal = null as string | null;/' "G1" || exit 1
+          prove lib/services/billing/billing-issue.service.ts \
+            's/  if \(pilotIssueRefusal\) \{\n    throw new ValidationError\(AUTHORITY_PILOT_DOCUMENT_NOT_AUTHORIZED_AT_ISSUE_MESSAGE\);\n  \}/  void pilotIssueRefusal;/' "I2" || exit 1

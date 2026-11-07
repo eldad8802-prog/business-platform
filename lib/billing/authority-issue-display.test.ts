@@ -38,6 +38,20 @@ function ok(name: string, cond: boolean, extra?: unknown): void {
   const exe = describeAuthorityIssueOutcome({ status: "execution_error", submissionId: 5, errorCode: "AUTHORITY_EXECUTION_UNEXPECTED", safeToRetry: "manual" } as AuthorityIssueOutcome);
   ok("infrastructure_failed → not received, not success", inf.allocationReceived === false && inf.tone !== "success");
   ok("execution_error → not received, not success", exe.allocationReceived === false && exe.tone !== "success");
+  ok("ordinary infrastructure failure still offers a retry", inf.detail.includes("אפשר לנסות שוב"));
+}
+
+// A production-pilot refusal (never sent): issued without a number, no "retry", never shown as a draft.
+for (const code of [
+  "AUTHORITY_PRODUCTION_PILOT_DOCUMENT_NOT_AUTHORIZED",
+  "AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY",
+  "AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED",
+  "AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED",
+]) {
+  const d = describeAuthorityIssueOutcome({ status: "infrastructure_failed", errorCode: code, safeToRetry: false } as AuthorityIssueOutcome);
+  ok(`${code} → issued, no number, says not sent, no retry, not a draft`,
+    d.documentIssued === true && d.allocationReceived === false && d.tone === "warning" &&
+    d.title.includes("הונפק") && d.detail.includes("לא נשלחה") && !d.detail.includes("לנסות שוב") && !/טיוטה/.test(d.title + d.detail), d);
 }
 
 // 5. decision_already_reported → not a false approval.
