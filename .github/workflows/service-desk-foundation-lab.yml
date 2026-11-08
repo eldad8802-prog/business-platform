@@ -99,8 +99,8 @@ jobs:
               echo "$f touches the read-only boundary"; exit 1
             fi
           done
-          listed=$(grep -cE "^          - 'ops/evidence/service-desk-[^']*'$" .github/workflows/prod-readonly-evidence.yml)
-          test "$listed" = "2" || { echo "expected exactly 2 selectable service-desk evidence files, found $listed"; exit 1; }
+          listed=$(grep -cE "^          - 'ops/evidence/service-desk-foundation-[^']*'$" .github/workflows/prod-readonly-evidence.yml)
+          test "$listed" = "2" || { echo "expected exactly 2 selectable service-desk-foundation evidence files, found $listed"; exit 1; }
           node scripts/ci/evidence-output-guard.mjs   # assert-shaped output only (public logs)
           sum=$(sha256sum "$SDF" | cut -d' ' -f1)
           grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
