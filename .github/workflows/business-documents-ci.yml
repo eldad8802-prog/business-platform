@@ -282,6 +282,85 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bd-letters"
           STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/bd-letters"           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_letters"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_letters?connection_limit=20"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_letters"             npx tsx .business-documents/letters.battery.mts
 
+  receipt-ui:
+    name: Receipt screen — the real app in a browser, desktop + phone (PG17 lab, business_documents ON for one synthetic business)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: bd_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: bd_ci_synthetic_super_pw
+      LAB_PASSWORD: bd_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: bd-ui-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: bd-ui-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      CRON_SECRET: bd_ui_ci_cron_secret_synthetic_at_least_32
+      AUTH_PLANE_ENABLED: "true"
+      RATE_LIMIT_BACKEND: memory
+      STORAGE_PROVIDER: local
+      LOCAL_STORAGE_ROOT: /tmp/bd-ui-store
+      BILLING_PDF_STORAGE_ROOT: /tmp/bd-ui-store/billing
+      OUT: /tmp/bd-receipt-ui
+      SEED_OUT: /tmp/bd-receipt-ui-seed.json
+      E2E_BASE: http://localhost:3710
+      OWNER_URL: postgresql://lab_owner:bd_ci_synthetic_role_pw@localhost:5432/bd_ui
+      DATABASE_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/bd_ui?connection_limit=20
+      DIRECT_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/bd_ui
+      AUTH_DATABASE_URL: postgresql://lab_owner:bd_ci_synthetic_role_pw@localhost:5432/bd_ui
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      # Build FIRST, before any apt or Chromium install (as appointments-calendar-ci.yml): the build needs no database.
+      - name: Build the app
+        run: mkdir -p "$OUT" && { npm run build > "$OUT/build.log" 2>&1 || { tail -n 80 "$OUT/build.log"; exit 1; }; }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab — the real business-documents migration in Production's role topology
+        run: bash .business-documents/lab.sh bd_ui --with-bd
+      - name: Seed — two issued tax invoices through the real billing services AS the runtime role
+        run: npx tsx .business-documents/receipt-ui-seed.mts
+      - run: npx playwright install --with-deps chromium
+      - name: Start the app
+        shell: bash
+        run: |
+          mkdir -p "$LOCAL_STORAGE_ROOT"
+          (nohup npx next start -p 3710 > "$OUT/server.log" 2>&1 &)
+          for i in $(seq 1 90); do curl -sf -o /dev/null http://localhost:3710/login && break; sleep 2; done
+          curl -sf -o /dev/null http://localhost:3710/login
+      - name: End to end — issue, error, disconnect + retry (one receipt only), double click, phone, back, flag off
+        run: npx tsx .business-documents/receipt-ui-e2e.mts
+      - name: Result table
+        if: always()
+        run: '[ -f "$OUT/report.md" ] && cat "$OUT/report.md" >> "$GITHUB_STEP_SUMMARY" || true'
+      - name: Screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: receipt-screen-e2e
+          path: /tmp/bd-receipt-ui
+          retention-days: 14
+
   r2:
     name: Business documents — the fence against REAL R2 (dedicated test bucket; manual dispatch only)
     if: github.event_name == 'workflow_dispatch'

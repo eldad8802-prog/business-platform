@@ -53,6 +53,9 @@ import s from "./docs.module.css";
 
 type Step = "edit" | "confirm" | "issuing" | "done";
 
+/** The connection dropped after the issue request left, and the document's status could not be read either. */
+class UnknownOutcome extends Error {}
+
 export function ReceiptScreen() {
   const on = useFeatureState("business_documents");
   const today = jerusalemDayKey(new Date());
@@ -66,6 +69,7 @@ export function ReceiptScreen() {
   const [issued, setIssued] = useState<ReceiptDocWire | null>(null);
   /** The billing draft of the current attempt: a retry reuses it (payment lines and allocations are replaced). */
   const draft = useRef<{ id: number; customerId: string; allocated: boolean } | null>(null);
+  const inFlight = useRef(false);
 
   useEffect(() => {
     if (on !== true) return;
@@ -119,6 +123,9 @@ export function ReceiptScreen() {
   };
 
   const issue = async () => {
+    // One attempt at a time: a double click lands before the re-render that disables the button.
+    if (inFlight.current) return;
+    inFlight.current = true;
     setStep("issuing");
     setMessage(null);
     const allocations = allocationsPayload(form.allocations);
@@ -128,7 +135,9 @@ export function ReceiptScreen() {
       if (draft.current) {
         // A previous attempt may have issued the receipt and lost only the answer (and the check after it): ask the
         // document first, so a retry finishes that receipt instead of issuing a second one.
-        const previous = await getBillingDocument(draft.current.id);
+        const previous = await getBillingDocument(draft.current.id).catch(() => {
+          throw new UnknownOutcome();
+        });
         if (previous.status === "ISSUED") {
           draft.current = null;
           setIssued(previous);
@@ -153,7 +162,9 @@ export function ReceiptScreen() {
       } catch (e) {
         // The answer was lost, not necessarily the issuance: ask the document itself before reporting a failure.
         if (e instanceof BillingRequestError && e.status === null) {
-          const current = await getBillingDocument(id);
+          const current = await getBillingDocument(id).catch(() => {
+            throw new UnknownOutcome();
+          });
           if (current.status !== "ISSUED") throw e;
           doc = current;
         } else throw e;
@@ -162,9 +173,15 @@ export function ReceiptScreen() {
       setIssued(doc);
       setStep("done");
     } catch (e) {
-      const text = e instanceof BillingRequestError ? billingErrorText(e.status, e.serverMessage) : "הפעולה נכשלה. נסו שוב.";
-      setMessage(`${text} הקבלה לא הופקה${draft.current ? " (הטיוטה נשמרה במסך החשבוניות, וניסיון חוזר ימשיך אותה)" : ""}.`);
+      if (e instanceof UnknownOutcome) {
+        setMessage("החיבור נקטע, ולא ברור אם הקבלה הופקה. אפשר לנסות שוב: לפני כל הפקה חוזרת נבדוק אם היא כבר הופקה, כך שלא תיווצר קבלה כפולה.");
+      } else {
+        const text = e instanceof BillingRequestError ? billingErrorText(e.status, e.serverMessage) : "הפעולה נכשלה. נסו שוב.";
+        setMessage(`${text} הקבלה לא הופקה${draft.current ? " (הטיוטה נשמרה במסך החשבוניות, וניסיון חוזר ימשיך אותה)" : ""}.`);
+      }
       setStep("edit");
+    } finally {
+      inFlight.current = false;
     }
   };
 
