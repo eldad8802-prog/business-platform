@@ -1,7 +1,7 @@
 -- ============================================================================
 -- appointments-open-all-preflight.sql
 --
--- Read-only Production preflight BEFORE release-migrate of 20261121090000_appointments_open_all (the calendar, open
+-- Read-only Production preflight BEFORE release-migrate of 20261115100000_appointments_open_all (the calendar, open
 -- for every business). Flags and counts only:
 --   * the migration is not recorded yet and the ledger is clean;
 --   * the two rows it switches exist once each and are still OFF, emergency switch OFF;
@@ -15,7 +15,7 @@
 
 \echo '== appointments open-all preflight: legend (n -> check) =='
 \echo ' 1 the evidence role is a superuser or has BYPASSRLS (flag)'
-\echo ' 2 20261121090000_appointments_open_all is not recorded yet (flag; expected t)'
+\echo ' 2 20261115100000_appointments_open_all is not recorded yet (flag; expected t)'
 \echo ' 3 ledger rows unfinished or rolled back (count; expected 0)'
 \echo ' 4 appointments: one definition row and one policy row (flag; expected t)'
 \echo ' 5 appointments: definition default OFF and policy global OFF (flag; expected t, the state the migration expects)'
@@ -41,7 +41,7 @@ d AS (SELECT "defaultEnabled" AS on_ FROM "PlatformFeatureDefinition" WHERE "key
 p AS (SELECT "globalEnabled" AS g, "emergencyDisabled" AS e FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'appointments'),
 lines(n, flag, observed_count) AS (
             SELECT 1, (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user), NULL::bigint
-  UNION ALL SELECT 2, NOT EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261121090000_appointments_open_all'), NULL
+  UNION ALL SELECT 2, NOT EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261115100000_appointments_open_all'), NULL
   UNION ALL SELECT 3, NULL, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 4, (SELECT count(*) FROM d) = 1 AND (SELECT count(*) FROM p) = 1, NULL
   UNION ALL SELECT 5, EXISTS (SELECT 1 FROM d WHERE NOT on_) AND EXISTS (SELECT 1 FROM p WHERE NOT g), NULL
