@@ -14,7 +14,7 @@
  *      B6 a supplier return that locks the work before the case deadlocks with a part send that locks the case first;
  *         B7 the same two with the case locked first by both (the existing server duty) serialise.
  *   C. The cancel gap on 1.2a: a FIELD case may go straight to CANCELLED (terminal) — so CANCELLED is never evidence
- *      that parts are resolved; the parts side is PENDING until M2.
+ *      that parts are resolved; C4 / C5 (the parts side) run when the M2 tables exist and are PENDING otherwise.
  *   D. M0 (inventory session), reproduced in SQL only — no inventory code is touched: the read-modify-write of
  *      createMovement loses an update under concurrency; currentQuantity may be set negative; the atomic conditional
  *      update the contract asks for is exact under the same concurrency.
@@ -116,15 +116,17 @@ async function main() {
     num(await q(owner, null, `SELECT count(*)::int AS n FROM pg_class WHERE relname = 'ServiceExternalWork' AND relnamespace = 'public'::regnamespace`)) === 1);
   const lockers = rows(await q(owner, null, `SELECT proname FROM pg_proc WHERE pronamespace = 'public'::regnamespace
       AND prosrc ~ 'FROM "ServiceCase"[^;]*FOR UPDATE' ORDER BY proname`)).map((r) => String(r.proname));
-  ok("A5 the existing triggers that lock the case row take FOR UPDATE: the 1.2b send and handover guards (convention M2 follows)",
-    JSON.stringify(lockers) === JSON.stringify(["service_external_work_insert_guard", "service_handover_no_open_external"]), lockers.join(","));
+  const m2Here = num(await q(owner, null, `SELECT count(*)::int AS n FROM pg_class WHERE relname IN ('ServicePart','ServicePartEvent') AND relnamespace = 'public'::regnamespace`)) === 2;
+  const expectedLockers = ["service_external_work_insert_guard", "service_handover_no_open_external", ...(m2Here ? ["service_part_guard", "service_part_insert_guard"] : [])].sort();
+  ok(`A5 the triggers that lock the case row take FOR UPDATE: the 1.2b send and handover guards${m2Here ? " + the two M2 part guards" : " (convention M2 follows)"}`,
+    JSON.stringify(lockers) === JSON.stringify(expectedLockers), lockers.join(","));
   ok("A6 no existing function takes FOR SHARE on the case row",
     num(await q(owner, null, `SELECT count(*)::int AS n FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND prosrc ~ 'FROM "ServiceCase"[^;]*FOR (SHARE|KEY SHARE)'`)) === 0);
   const hasReason = num(await q(owner, null, `SELECT count(*)::int AS n FROM pg_enum WHERE enumtypid = '"InventoryMovementReason"'::regtype AND enumlabel = 'SERVICE_PART'`));
   const hasCheck = num(await q(owner, null, `SELECT count(*)::int AS n FROM pg_constraint WHERE conrelid = '"InventoryItem"'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) ILIKE '%currentQuantity%'`));
   note("A7 M0 (inventory session)", `SERVICE_PART reason ${hasReason ? "present" : "ABSENT"}; CHECK on currentQuantity ${hasCheck ? "present" : "ABSENT"}`);
   const m2 = num(await q(owner, null, `SELECT count(*)::int AS n FROM pg_class WHERE relname IN ('ServicePart','ServicePartEvent') AND relnamespace = 'public'::regnamespace`));
-  note("A8 M2 tables", m2 === 2 ? "present" : "absent (no M2 migration yet) — .sdp/battery.ts reports its checks as PENDING");
+  note("A8 M2 tables", m2 === 2 ? "present (20261115090000_service_parts) — C4 / C5 run below" : "absent (no M2 migration in this database) — .sdp/battery.ts reports its checks as PENDING");
 
   // ── B. lock semantics ──────────────────────────────────────────────────────────────────────────────────────
   console.log("B. lock semantics on the real case / work rows (runtime role, tenant context)");
@@ -200,8 +202,53 @@ async function main() {
   ok("C2 a held item's cancel is READY + outcome CANCELLED — not CLOSED; the close comes later through DELIVERED (where M2's guard acts)", succeeded(held), String(held));
   const st = rows(await q(owner, null, `SELECT status::text s FROM "ServiceCase" WHERE id = ANY($1::int[]) ORDER BY id`, [field, held].filter((x) => typeof x === "number")));
   ok("C3 neither cancel produced CLOSED (M2's close guard fires only on CLOSED, so it never blocks a cancel request)", st.length === 2 && st.every((r) => r.s !== "CLOSED"), JSON.stringify(st));
-  later("C4 a CANCELLED case with an ISSUED part is reported unresolved by the parts query (and CANCELLED is not read as 'parts handled')", "needs ServicePart (M2)");
-  later("C5 CLOSE of a DELIVERED case with an open part is refused at COMMIT; the cancel request on it is not", "needs ServicePart (M2)");
+  if (!m2Here) {
+    later("C4 a CANCELLED case with an ISSUED part is reported unresolved by the parts query (and CANCELLED is not read as 'parts handled')", "needs ServicePart (M2)");
+    later("C5 CLOSE of a DELIVERED case with an open part is refused at COMMIT; a cancel request (case at a supplier) with an open part is not", "needs ServicePart (M2)");
+  } else {
+    const addPart = async (tx: Tx, caseId: number) => {
+      const p = Number(((await tx.$queryRawUnsafe(`INSERT INTO "ServicePart" ("businessId", "caseId", source, state, "nameSnapshot", quantity, "lastEventKind", "updatedAt")
+        VALUES ($1, $2, 'NON_STOCK', 'NEEDED', 'בורג', 1, 'ADDED', now()) RETURNING id`, C.biz, caseId)) as Rows)[0].id);
+      await tx.$executeRawUnsafe(`INSERT INTO "ServicePartEvent" ("businessId", "partId", "caseId", seq, kind, "stateAfter", quantity, actor, payload, "idempotencyKey")
+        VALUES ($1, $2, $3, 1, 'ADDED', 'NEEDED', 1, 'SYSTEM', '{}', $4)`, C.biz, p, caseId, ikey());
+      return p;
+    };
+    const markOrdered = async (tx: Tx, p: number, caseId: number) => {
+      await tx.$executeRawUnsafe(`UPDATE "ServicePart" SET state = 'ON_ORDER', "lastEventKind" = 'ORDER_LINKED', version = version + 1, "updatedAt" = now() WHERE id = $1`, p);
+      await tx.$executeRawUnsafe(`INSERT INTO "ServicePartEvent" ("businessId", "partId", "caseId", seq, kind, "stateBefore", "stateAfter", quantity, actor, payload, "idempotencyKey")
+        VALUES ($1, $2, $3, 2, 'ORDER_LINKED', 'NEEDED', 'ON_ORDER', 1, 'SYSTEM', '{}', $4)`, C.biz, p, caseId, ikey());
+    };
+    // C4: a FIELD case with an open (ON_ORDER) part goes straight to CANCELLED — allowed (the guard acts on CLOSED only); the
+    // unresolved-parts query still reports it: CANCELLED never means "parts handled".
+    const c4 = await inTx(runtime, C.biz, async (tx) => {
+      const id = await openCaseTx(tx, C, "FIELD"); const p = await addPart(tx, id); await markOrdered(tx, p, id);
+      await caseMoveTx(tx, C.biz, id, `status = 'CANCELLED', outcome = 'CANCELLED', "cancelledAt" = now()`, "CANCEL", "case.cancelled", "OPEN", "CANCELLED", "CANCELLED");
+      return id;
+    });
+    const unresolved = num(await q(runtime, C.biz, `SELECT count(*)::int AS n FROM "ServicePart" p JOIN "ServiceCase" c ON c.id = p."caseId"
+      WHERE c.id = $1 AND c.status = 'CANCELLED' AND p.state IN ('NEEDED','ON_ORDER','RESERVED','ISSUED')`, c4));
+    ok("C4 a CANCELLED case with an open part is accepted and the parts query reports it unresolved (CANCELLED is not read as 'parts handled')",
+      succeeded(c4) && unresolved === 1, `${c4} unresolved=${unresolved}`);
+    // C5: a DELIVERED case with an open part — the CLOSE is refused at COMMIT.
+    const delivered = await inTx(runtime, C.biz, async (tx) => {
+      const id = await openCaseTx(tx, C, "IN_SHOP"); await addPart(tx, id);
+      await caseMoveTx(tx, C.biz, id, `status = 'READY', outcome = 'REPAIRED', "readyAt" = now()`, "FINISH_REPAIR", "repair.finished", "OPEN", "READY", "REPAIRED");
+      await caseMoveTx(tx, C.biz, id, `status = 'DELIVERED', "deliveredAt" = now()`, "DELIVER", "case.delivered", "READY", "DELIVERED", "REPAIRED");
+      return id;
+    });
+    // The cancel request exists only on a case at a supplier (1.2a CHECK cancel_request_only_external): with an open part it passes.
+    const ext = (await externalWork(C)) as { caseId: number; workId: number } | string;
+    const request = typeof ext === "string" ? ext : await inTx(runtime, C.biz, async (tx) => {
+      await addPart(tx, ext.caseId);
+      const v = Number(((await tx.$queryRawUnsafe(`UPDATE "ServiceCase" SET "cancellationRequested" = true, "cancelReason" = 'הלקוח ביקש לבטל', "cancelledAt" = now(), version = version + 1, "updatedAt" = now() WHERE id = $1 RETURNING version`, ext.caseId)) as Rows)[0].version);
+      await tx.$executeRawUnsafe(`INSERT INTO "ServiceCaseEvent" ("businessId", "caseId", seq, "eventType", action, "fromStatus", "toStatus", "cancellationRequestedBefore", "cancellationRequestedAfter", actor, payload, "idempotencyKey")
+        VALUES ($1, $2, $3, 'case.cancellation_requested', 'CANCEL', 'EXTERNAL', 'EXTERNAL', false, true, 'SYSTEM', '{"reasonRecorded":true,"itemAtSupplier":true}', $4)`, C.biz, ext.caseId, v, ikey());
+    });
+    const close = typeof delivered !== "number" ? delivered : await inTx(runtime, C.biz, (tx) =>
+      caseMoveTx(tx, C.biz, delivered, `status = 'CLOSED', "closedAt" = now()`, "CLOSE", "case.closed", "DELIVERED", "CLOSED", "REPAIRED"));
+    ok("C5 CLOSE of a DELIVERED case with an open part is refused at COMMIT (SERVICE_CASE_PARTS_OPEN); a cancel request (case at a supplier) with an open part is not",
+      succeeded(delivered) && succeeded(request) && typeof close === "string" && /SERVICE_CASE_PARTS_OPEN/.test(close), `${delivered} | ${request} | ${close}`);
+  }
 
   // ── D. M0, reproduced in SQL ───────────────────────────────────────────────────────────────────────────────
   console.log("D. M0 (inventory) — the createMovement read-modify-write, reproduced in SQL; no inventory code touched");
