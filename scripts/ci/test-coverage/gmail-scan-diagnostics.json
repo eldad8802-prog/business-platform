@@ -1,0 +1,10 @@
+{
+  "note": "Gmail scan diagnostics (2026-11-08): the email screen and the logs show what a scan saw (messages, attachment parts, unsupported type, score buckets) and every OAuth callback outcome, without changing what the scan keeps, scores, shows or imports.",
+  "tests": {
+    "lib/services/email-import/scan-diagnostics.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): discovery keep/drop is identical to the pre-change loop over 1,365 message shapes, the counters partition what the scan saw, scores pinned, and the new sync/callback logs carry numbers and fixed codes only (no address, filename, subject, token or request value); passed locally (6/6)"
+    }
+  }
+}
