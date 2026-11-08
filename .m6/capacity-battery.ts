@@ -135,7 +135,7 @@ async function main() {
 
   console.log("\n-- the sweep's capacity report --");
   delete process.env.INTAKE_CAPACITY_ALERTS_ENABLED;
-  const off = await runIntakeSweep({ now: at(), reconcileCommerce: false, syncRevenueSources: false });
+  const off = await runIntakeSweep({ now: at(), reconcileCommerce: false, syncRevenueSources: false, deadline: Date.now() + 10 * 60_000 });
   const expectAt = (t: number) => made.filter((m) => m.N + 10 >= t).length;
   ok(`sweep: capacity aggregated — businesses ≥500: ${off.capacity.businessesAt500}, ≥1,000: ${off.capacity.businessesAt1000}, ≥2,000: ${off.capacity.businessesAt2000}; max per business ${off.capacity.maxHeldPerBusiness}`,
     off.capacity.businessesAt500 >= expectAt(500) && off.capacity.businessesAt2000 >= expectAt(2000) && off.capacity.held >= made.reduce((a, m) => a + Math.min(m.N, BACKLOG_SCAN_CAP - 30), 0),
@@ -146,7 +146,7 @@ async function main() {
   ok("sweep: alerts OFF → nothing is written for capacity", stamped0[0].n === 0);
 
   process.env.INTAKE_CAPACITY_ALERTS_ENABLED = "true";
-  const on1 = await runIntakeSweep({ now: at(1000), reconcileCommerce: false, syncRevenueSources: false });
+  const on1 = await runIntakeSweep({ now: at(1000), reconcileCommerce: false, syncRevenueSources: false, deadline: Date.now() + 10 * 60_000 });
   const expectedCrossings = made.reduce((a, m) => a + [500, 1000, 2000].filter((t) => m.N + 10 >= t).length, 0);
   ok(`sweep: alerts ON → each tier crossing reported once (${on1.capacity.tierCrossingsNew} ≥ ${expectedCrossings}), the run says so (held_capacity_tier)`,
     on1.capacity.tierCrossingsNew >= expectedCrossings && sweepHealth(on1).events.includes("held_capacity_tier"), JSON.stringify(on1.capacity));
@@ -156,16 +156,16 @@ async function main() {
     `UPDATE "IntakeEvent" SET "status" = 'PROCESSED', "nextAttemptAt" = NULL WHERE "id" IN (SELECT "id" FROM "IntakeEvent" WHERE "businessId" = $1 AND "lastErrorCode" LIKE 'held:%' AND "status" = 'RECEIVED' ORDER BY "receivedAt", "id" LIMIT $2::int)`,
     businessId, n);
   await releaseOldest(big.id, 1000);
-  const on2 = await runIntakeSweep({ now: at(2000), reconcileCommerce: false, syncRevenueSources: false });
+  const on2 = await runIntakeSweep({ now: at(2000), reconcileCommerce: false, syncRevenueSources: false, deadline: Date.now() + 10 * 60_000 });
   ok("sweep: …and a second run reports none, although the 1,000 oldest of one business were released meanwhile (once per crossing)",
     on2.capacity.tierCrossingsNew === 0 && !sweepHealth(on2).events.includes("held_capacity_tier"), JSON.stringify(on2.capacity));
   // Falls below the tier and rises again → reported again.
   const k500 = made.find((m) => m.N === 500);
   if (k500) {
     await releaseOldest(k500.id, 30);
-    const below = await runIntakeSweep({ now: at(3000), reconcileCommerce: false, syncRevenueSources: false });
+    const below = await runIntakeSweep({ now: at(3000), reconcileCommerce: false, syncRevenueSources: false, deadline: Date.now() + 10 * 60_000 });
     await clone(k500.templateId, 40, { tag: "rise", ref: k500.ref, status: "RECEIVED", next: at(9 * MIN), code: "held:connection_paused", receivedAt: at() });
-    const again = await runIntakeSweep({ now: at(4000), reconcileCommerce: false, syncRevenueSources: false });
+    const again = await runIntakeSweep({ now: at(4000), reconcileCommerce: false, syncRevenueSources: false, deadline: Date.now() + 10 * 60_000 });
     ok(`sweep: below the tier (${below.capacity.tierCrossingsNew} new), then above it again → reported again (${again.capacity.tierCrossingsNew})`,
       below.capacity.tierCrossingsNew === 0 && again.capacity.tierCrossingsNew >= 1, JSON.stringify({ below: below.capacity.tierCrossingsNew, again: again.capacity.tierCrossingsNew }));
   }

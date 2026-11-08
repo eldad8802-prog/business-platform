@@ -91,6 +91,16 @@ function report(): void {
   ok("oauth,submissions: SUBMISSIONS explicit, every operation allowed",
     full.stage.stage === "SUBMISSIONS" && full.stage.valueStatus === "explicit" && allowed(full, [...OAUTH_OPS, ...OTHER_OPS]), full.operations);
 
+  // Per-operation: the screen shows exactly which operations are open.
+  const sel = buildAuthorityPilotGateReport({ businessId: B, userId: U }, { ...base, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: "oauth,refresh,approval" });
+  ok("oauth,refresh,approval: SELECTED explicit; OAuth + refresh + approval allowed",
+    sel.stage.stage === "SELECTED" && sel.stage.valueStatus === "explicit" && allowed(sel, [...OAUTH_OPS, "refresh", "approval"]), sel.operations);
+  ok("oauth,refresh,approval: validation / decision / probe refused with OPERATION_NOT_ENABLED",
+    refusedWith(sel, ["validation", "decision", "probe"], "AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED"), sel.operations);
+  const selOther = buildAuthorityPilotGateReport({ businessId: 43, userId: U }, { ...base, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: "oauth,refresh,approval" });
+  ok("oauth,refresh,approval: a non-admitted business is refused every business operation with the LIST reason",
+    refusedWith(selOther, ["refresh", "validation", "approval", "decision"], "AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED"), selOther.operations);
+
   // Unset / invalid stage values and runtime env; lists unset / invalid.
   const unset = buildAuthorityPilotGateReport({ businessId: B, userId: U }, {});
   ok("nothing set: runtime env reported unset (no crash)",

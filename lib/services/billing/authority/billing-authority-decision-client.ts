@@ -116,7 +116,7 @@ export async function sendInvoiceDecision(
   input: SendInvoiceDecisionInput
 ): Promise<DecisionClientResult> {
   const fetchFn =
-    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId });
+    input.fetchImpl ?? authorityEgressFetch.forScope({ kind: "business", businessId: input.businessId, operation: "decision" });
   const url = buildInvoiceDecisionUrl(input.config, input.action);
 
   const controller = new AbortController();
