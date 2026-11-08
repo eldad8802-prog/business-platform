@@ -18,6 +18,18 @@ import { NextRequest } from "next/server";
 import { runWithTenantContext } from "../lib/tenant/context";
 import { createKeyedConnection, setPaused } from "../lib/intake/acquisition/connection.service";
 import { runIntakeSweep, MAX_RELEASE_ROUNDS } from "../lib/intake/intake-sweeper";
+import { IntakeRegistry } from "../lib/intake/core/registry";
+import { intakeRegistry } from "../lib/intake/sources";
+
+/**
+ * The real adapters, seeing only these tenants: the rotation property is measured over the businesses of the
+ * scenario, not over whatever earlier batteries left in the shared lab database (CI runs them in one database).
+ */
+function scopedRegistry(ids: number[]): IntakeRegistry {
+  const r = new IntakeRegistry();
+  for (const a of intakeRegistry.list()) r.register({ ...a, listTenants: async () => ids });
+  return r;
+}
 import { HEALTH_STAMP_BATCH, intakeHealthCounts, REARM_BUDGET_MS } from "../lib/intake/intake-event.store";
 import { POST as webPOST } from "../app/api/intake/acquisition/web/[publicId]/route";
 
@@ -77,9 +89,9 @@ const byTag = (businessId: number, tag: string) => ({ businessId, metadata: { pa
 const processedOf = (businessId: number, tag: string) => o.intakeEvent.count({ where: { ...byTag(businessId, tag), status: "PROCESSED" } });
 /** Longest wall-clock run of any sweep in this battery (must stay inside the route's 60 s). */
 let longestRunMs = 0;
-const sweep = async (now: Date, deadline?: number) => {
+const sweep = async (now: Date, deadline?: number, registry?: IntakeRegistry) => {
   const t0 = Date.now();
-  const r = await runIntakeSweep({ now, reconcileCommerce: false, syncRevenueSources: false, ...(deadline ? { deadline } : {}) });
+  const r = await runIntakeSweep({ now, reconcileCommerce: false, syncRevenueSources: false, ...(deadline ? { deadline } : {}), ...(registry ? { registry } : {}) });
   longestRunMs = Math.max(longestRunMs, Date.now() - t0);
   return r;
 };
@@ -118,13 +130,14 @@ async function budgetAndRotation() {
   }
   await parkOthers(biz.map((b) => b.id));
   await settle();
+  const scoped = scopedRegistry(biz.map((b) => b.id));
   const reachedAt: Record<number, number> = {};
   let notReachedFirst = 0;
   let runs = 0;
   const base = Math.floor(Date.now() / (10 * MIN)) * 10 * MIN;
   while (runs < 14 && Object.keys(reachedAt).length < biz.length) {
     runs++;
-    const r = await sweep(new Date(base + runs * 10 * MIN + 1000), Date.now() + 2500);
+    const r = await sweep(new Date(base + runs * 10 * MIN + 1000), Date.now() + 2500, scoped);
     if (runs === 1) notReachedFirst = r.budget.businessesNotReached;
     for (const b of biz) if (!(b.id in reachedAt) && (await processedOf(b.id, "ready")) > 0) reachedAt[b.id] = runs;
   }
@@ -193,18 +206,19 @@ async function pauseDuringRelease() {
   await clone(s.t.id, 600, { tag: "held", ref: s.c.connection.publicId, status: "RECEIVED", attempts: 0, next: at(-MIN), code: "held:connection_paused", receivedAt: at(-24 * 60 * MIN) });
   await parkOthers([s.B.id]);
   await settle();
+  const scoped = scopedRegistry([s.B.id]);
   await s.pause(false);
-  await sweep(at(), Date.now() + 5000);
+  await sweep(at(), Date.now() + 5000, scoped);
   const before = await processedOf(s.B.id, "held");
   await s.pause(true);
-  await Promise.all([sweep(at(1000)), sweep(at(1000))]);
-  await sweep(at(11 * MIN));
+  await Promise.all([sweep(at(1000), undefined, scoped), sweep(at(1000), undefined, scoped)]);
+  await sweep(at(11 * MIN), undefined, scoped);
   const whilePaused = await processedOf(s.B.id, "held");
   const rest = await o.intakeEvent.findMany({ where: { ...byTag(s.B.id, "held"), status: "RECEIVED" }, select: { lastErrorCode: true, attempts: true } });
   ok(`D: paused again after ${before} released → nothing more is processed while paused (still ${whilePaused})`, whilePaused === before && before > 0, JSON.stringify({ before, whilePaused }));
   ok("D: …the rest wait held again (held:connection_paused), no attempt spent", rest.length === 600 - before && rest.every((e) => e.lastErrorCode === "held:connection_paused" && e.attempts === 0));
   await s.pause(false);
-  for (let i = 0; i < 6 && (await processedOf(s.B.id, "held")) < 600; i++) await Promise.all([sweep(at(12 * MIN + i * 1000)), sweep(at(12 * MIN + i * 1000))]);
+  for (let i = 0; i < 6 && (await processedOf(s.B.id, "held")) < 600; i++) await Promise.all([sweep(at(12 * MIN + i * 1000), undefined, scoped), sweep(at(12 * MIN + i * 1000), undefined, scoped)]);
   const all = await o.intakeEvent.findMany({ where: { ...byTag(s.B.id, "held") }, select: { status: true, attempts: true } });
   ok("D: resumed → all 600 PROCESSED exactly once (one attempt each), one Lead each",
     all.every((e) => e.status === "PROCESSED" && e.attempts === 1) && (await o.lead.count({ where: { businessId: s.B.id, sourceChannel: "intake:web.form" } })) === 600);
