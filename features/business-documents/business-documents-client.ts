@@ -168,3 +168,25 @@ export async function fetchCopyPdf(copyId: number): Promise<Blob> {
   if (!res.ok) throw new ShareRequestError(res.status, "FILE", "לא ניתן להוריד את הקובץ השמור.");
   return res.blob();
 }
+
+// ---- saved letters -------------------------------------------------------------------------------
+
+export type SavedLetterWire = { id: number; recipientKind: "CUSTOMER" | "SUPPLIER" | "FREE"; recipientName: string; linkRemoved: boolean; subject: string; letterDate: string; createdAt: string };
+
+export async function saveLetterRequest(body: Record<string, unknown>, idempotencyKey: string): Promise<SavedLetterWire> {
+  return postJson<SavedLetterWire>("/api/business-documents/letters", { ...body, idempotencyKey });
+}
+
+export async function listSavedLetters(): Promise<SavedLetterWire[]> {
+  return (await getJson<{ letters: SavedLetterWire[] }>("/api/business-documents/letters")).letters ?? [];
+}
+
+export async function hideSavedLetter(letterId: number): Promise<void> {
+  await postJson<{ result: string }>(`/api/business-documents/letters/${letterId}/hide`, {}, 15000);
+}
+
+export async function fetchSavedLetterPdf(letterId: number): Promise<Blob> {
+  const res = await fetch(`/api/business-documents/letters/${letterId}/pdf`, { headers: buildClientAuthHeaders(), cache: "no-store" });
+  if (!res.ok) throw new ShareRequestError(res.status, "FILE", "לא ניתן להוריד את המכתב השמור.");
+  return res.blob();
+}
