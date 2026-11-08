@@ -1,7 +1,7 @@
 -- ============================================================================
 -- appointments-open-all-production-evidence.sql
 --
--- Read-only Production proof AFTER release-migrate of 20261121090000_appointments_open_all (the calendar, open for
+-- Read-only Production proof AFTER release-migrate of 20261115100000_appointments_open_all (the calendar, open for
 -- every business). Flags and counts only:
 --   * the migration is recorded once, finished, with the pinned checksum (LF or CRLF), and nothing is pending;
 --   * the appointments definition defaults ON and its policy is global ON, emergency switch OFF;
@@ -13,7 +13,7 @@
 
 \echo '== appointments open-all proof: legend (n -> check) =='
 \echo ' 1 the evidence role is a superuser or has BYPASSRLS (flag)'
-\echo ' 2 20261121090000_appointments_open_all recorded once, finished, not rolled back, pinned checksum (flag; expected t)'
+\echo ' 2 20261115100000_appointments_open_all recorded once, finished, not rolled back, pinned checksum (flag; expected t)'
 \echo ' 3 ledger rows unfinished or rolled back (count; expected 0)'
 \echo ' 4 appointments: definition default ON, policy global ON, emergency OFF (flag; expected t)'
 \echo ' 5 public_booking: definition default OFF, policy global OFF, emergency OFF (flag; expected t, untouched)'
@@ -37,9 +37,9 @@ st AS (SELECT fd."key", fd."defaultEnabled" AS d, fp."globalEnabled" AS g, fp."e
        WHERE fd."key" IN ('appointments', 'public_booking')),
 lines(n, flag, observed_count) AS (
             SELECT 1, (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user), NULL::bigint
-  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" m, pin WHERE m.migration_name = '20261121090000_appointments_open_all'
+  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" m, pin WHERE m.migration_name = '20261115100000_appointments_open_all'
                          AND m.finished_at IS NOT NULL AND m.rolled_back_at IS NULL AND m.checksum IN (pin.lf, pin.crlf)) = 1
-                    AND (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261121090000_appointments_open_all') = 1, NULL
+                    AND (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261115100000_appointments_open_all') = 1, NULL
   UNION ALL SELECT 3, NULL, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 4, EXISTS (SELECT 1 FROM st WHERE "key" = 'appointments' AND d AND g AND NOT e), NULL
   UNION ALL SELECT 5, EXISTS (SELECT 1 FROM st WHERE "key" = 'public_booking' AND NOT d AND NOT g AND NOT e), NULL
