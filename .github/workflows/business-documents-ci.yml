@@ -17,6 +17,10 @@ on:
       - "app/(shell)/customers/**"
       - "components/customers/CustomerCard.tsx"
       - "lib/services/tasks/**"
+      - "prisma/migrations/20261114090000_business_documents_records/**"
+      - "scripts/ci/erasure/**"
+      - "lib/storage/**"
+      - "lib/tenant/**"
       - "features/tasks/**"
       - "lib/i18n/messages/areas/**"
       - ".business-documents/**"
@@ -54,7 +58,7 @@ jobs:
         run: |
           F="lib/services/tasks/agenda-core.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/"stock", "quote_validity",\n\];/"stock", "quote_validity", "fake_kind",\n];/' "$F"
+          perl -0pi -e 's/"stock", "quote_validity", "quote_followup",\n\];/"stock", "quote_validity", "quote_followup", "fake_kind",\n];/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if ! node scripts/ci/expect-red.mjs --id "business-documents-ci.yml:pure:unregistered-source" --expect "FAIL] source fake_kind is registered with its own characterization" -- npx tsx lib/services/tasks/tasks-i18n.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unregistered source kind went unnoticed"; exit 1
@@ -83,10 +87,18 @@ jobs:
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
+      - name: Tenant transactions — existing callers unchanged by the optional isolation level (pure)
+        run: npx tsx lib/tenant/tenant-tx-options.test.ts
+      - name: Quote share — the owner's record, fingerprints, event input (pure)
+        run: npx tsx lib/services/business-documents/quote-share/quote-share-core.test.ts
+      - name: Storage — conditional writes, private business-docs domain, prefix listing
+        run: npx tsx lib/storage/storage-conditional.test.ts
+      - name: Storage — existing adapter behaviour unchanged
+        run: npx tsx lib/storage/storage.verify.test.ts
       - name: Back navigation (every page has a parent)
         run: npx tsx lib/navigation/back-nav/back-nav.test.ts
       - name: Lint
-        run: npx eslint features/business-documents lib/services/business-documents app/api/business-documents "app/(shell)/business-documents" "app/(shell)/customers/[id]/documents" components/customers/CustomerCard.tsx .business-documents
+        run: npx eslint lib/storage features/business-documents lib/services/business-documents app/api/business-documents "app/(shell)/business-documents" lib/services/tasks features/tasks/task-details.tsx features/tasks/task-icons.tsx "app/(shell)/customers/[id]/documents" components/customers/CustomerCard.tsx .business-documents
       - name: Test inventory
         run: node scripts/ci/security-test-coverage.mjs
       - name: Existing billing unchanged (A0 golden)
@@ -188,3 +200,96 @@ jobs:
           AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
           RLS_ADMIN_URL: ${{ env.OWNER_URL }}
         run: npx tsx .business-documents/rls.battery.mts
+
+  records:
+    name: Business documents records + services — the real migration AS the runtime role (PG17, Production topology)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: bd_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: bd_ci_synthetic_super_pw
+      LAB_PASSWORD: bd_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: bd_ci_auth_secret_synthetic
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Install the Playwright Chromium (the existing quote renderer)
+        run: npx playwright install --with-deps chromium
+      - name: Static guards — tenant RLS, account deletion, erasure contract (new debt recorded explicitly)
+        run: |
+          set -euo pipefail
+          node scripts/ci/tenant-table-rls-guard.mjs
+          bash scripts/ci/account-deletion-guard.sh .
+          npm run verify:erasure-contract -- --baseline-check
+      - name: Atomicity — the migration failing on its last statement leaves nothing behind
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh bd_broken --broken-bd
+          OWNER="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_broken"
+          left="$(psql -X -At "$OWNER" -c "SELECT (SELECT count(*) FROM pg_class WHERE relname IN ('BusinessDocumentFile','BusinessDocumentRequest','QuoteShareCopy','QuoteShareEvent','BusinessLetter','BusinessDocumentErasure')) + (SELECT count(*) FROM pg_proc WHERE proname LIKE 'business_documents%' OR proname LIKE 'business_letter%') + (SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE key = 'business_documents')")"
+          echo "objects left by the failed migration: $left"
+          [ "$left" = "0" ]
+      - name: Records battery — privileges, isolation, quote link, events, append-only and every bypass, record vs delete (both orders, 200 pairs), letters, purge, erasure
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh bd_records --with-bd
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_records"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_records?connection_limit=20"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_records"             npx tsx .business-documents/records.battery.mts
+      - name: Service battery — keys, read-only copy, change during render (two timed transactions), the owner's record, the fence (R2 semantics), erasure runner, reminders
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh bd_service --with-bd
+          mkdir -p "$RUNNER_TEMP/bd-store"
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/bd-store" BILLING_PDF_STORAGE_ROOT="$RUNNER_TEMP/bd-store/legacy"           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_service"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_service?connection_limit=20"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_service"             npx tsx .business-documents/service.battery.mts
+      - name: Saved letters battery — save, replay, conflict, isolation, customer deleted (snapshot kept), hide, purge (explicit age), erasure runner
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh bd_letters --with-bd
+          mkdir -p "$RUNNER_TEMP/bd-letters"
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/bd-letters"           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_letters"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_letters?connection_limit=20"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_letters"             npx tsx .business-documents/letters.battery.mts
+
+  r2:
+    name: Business documents — the fence against REAL R2 (dedicated test bucket; manual dispatch only)
+    if: github.event_name == 'workflow_dispatch'
+    # The test bucket's credentials live ONLY in this protected Environment (required reviewer = owner,
+    # deployment branches restricted): never repository secrets, never the Production bucket.
+    environment: business-docs-r2-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: R2 battery — create-once, upload vs marker (both orders), abandoned upload, retries, listing
+        env:
+          R2_TEST_ACCOUNT_ID: ${{ secrets.R2_TEST_ACCOUNT_ID }}
+          R2_TEST_ACCESS_KEY_ID: ${{ secrets.R2_TEST_ACCESS_KEY_ID }}
+          R2_TEST_SECRET_ACCESS_KEY: ${{ secrets.R2_TEST_SECRET_ACCESS_KEY }}
+          R2_TEST_BUCKET: ${{ secrets.R2_TEST_BUCKET }}
+        run: npx tsx .business-documents/r2.battery.mts

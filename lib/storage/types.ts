@@ -9,6 +9,11 @@ export const STORAGE_DOMAINS = [
   "trust",
   /** Monthly accountant packages — PRIVATE generated ZIPs, keyed biz/{id}/exports/accountant/{YYYY-MM}/… */
   "exports",
+  /**
+   * Business documents (ר1 / letters) — PRIVATE. Conditional writes only (putObjectIfAbsent): a plain putObject is
+   * refused, so no write in this domain can ever overwrite an object or land after a deletion fence.
+   */
+  "business-docs",
 ] as const;
 
 export type StorageDomain = (typeof STORAGE_DOMAINS)[number];
@@ -76,6 +81,13 @@ export type ParsedStorageKey = {
   relativePath: string;
 };
 
+/** putObjectIfAbsent: CREATED = this call created the object; EXISTS = an object already had that key (nothing written). */
+export type PutIfAbsentResult =
+  | { status: "CREATED"; key: string; etag?: string; metadata: ObjectMetadata }
+  | { status: "EXISTS"; key: string };
+
+export type ListedObject = { key: string; size: number; lastModified?: string };
+
 export interface StorageService {
   putObject(input: PutObjectInput): Promise<PutObjectResult>;
   getObject(key: string): Promise<GetObjectResult>;
@@ -84,6 +96,13 @@ export interface StorageService {
   deleteObject(key: string): Promise<void>;
   getSignedDownloadUrl(key: string, ttlSeconds?: number, response?: SignedDownloadResponse): Promise<string>;
   getPublicUrl(key: string): string | null;
+  /**
+   * Create-once write (S3/R2 `If-None-Match: *`; local: exclusive create). Atomic: of concurrent calls for one key at
+   * most one returns CREATED. The only write the "business-docs" domain accepts.
+   */
+  putObjectIfAbsent(input: PutObjectInput): Promise<PutIfAbsentResult>;
+  /** Every object under a key prefix of the form biz/{businessId}/{domain}/… (paginated to the end). */
+  listObjects(prefix: string): Promise<ListedObject[]>;
 }
 
 /**

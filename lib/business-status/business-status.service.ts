@@ -30,6 +30,7 @@ import {
 } from "./translators/billing";
 import { translateDocumentsNeedsReview } from "./translators/documents";
 import { translateLeadsNeedingAttention } from "./translators/leads";
+import { loadIntakeAttention } from "./intake-attention";
 import { translateInventoryAlerts } from "./translators/inventory";
 import { translateSupplierPurchasesPending } from "./translators/supplier";
 import {
@@ -77,6 +78,7 @@ export async function getBusinessStatusSnapshot(
     stalePaymentLinkRows,
     accountantItems,
     paperworkInsight,
+    intakeItems,
   ] = await Promise.all([
     loadAttentionPendingSuggestions(businessId, excludeConvIds),
     loadDocumentsNeedsReview(businessId),
@@ -92,6 +94,8 @@ export async function getBusinessStatusSnapshot(
     // The monthly accountant workflow (fail-open: no items when the feature is off or unavailable).
     loadAccountantAttention(businessId, now),
     paperworkInsightPromise,
+    // Leads L1.5-b · PR-3 — intake of the business's own leads (fail-open; nothing unless intake_status_visibility).
+    loadIntakeAttention(businessId, now),
   ]);
 
   const builds = [
@@ -108,6 +112,7 @@ export async function getBusinessStatusSnapshot(
     ...translateBillingStaleDrafts(staleDraftRows, now, t, locale),
     ...translateStalePaymentLinks(stalePaymentLinkRows, now, t, locale),
     ...accountantItems,
+    ...intakeItems,
   ];
 
   const items = builds

@@ -322,7 +322,7 @@ export function chartAxis(bars: CashflowBar[], incomePx: number, expensePx: numb
 
 /* -------------------------------------------------------------- waiting -- */
 
-export type WaitingKind = "payment" | "stock" | "collection" | "lead";
+export type WaitingKind = "payment" | "stock" | "collection" | "lead" | "intake";
 
 /** Card palette, from the references: urgent (coral), todo (amber), fresh (teal). */
 export type WaitingTone = "urgent" | "todo" | "fresh";
@@ -466,6 +466,23 @@ export function buildWaiting(input: {
         actionLabel: handle,
         rank: critical ? 1 : 3,
       });
+    } else if (s.domain === "leads" && (leadReason(s.itemId) ?? "").startsWith("intake_")) {
+      // Leads L1.5-b · PR-3 — intake of the owner's own leads: waiting enquiries, a failure, a connection to check.
+      // Never presented as a lead: the item opens the connections screen.
+      const urgent = s.severity === "HIGH" || s.severity === "CRITICAL";
+      const platformHold = leadReason(s.itemId) === "intake_platform_hold";
+      items.push({
+        id: s.itemId,
+        kind: "intake",
+        tone: urgent ? "urgent" : "todo",
+        tag: urgent ? urgentTag : platformHold ? { label: t("home.model.tag.waiting"), style: "fresh" } : todoTag,
+        title: s.title,
+        subtitle: s.summary,
+        amount: null,
+        href: s.primaryAction.href,
+        actionLabel: s.primaryAction.label,
+        rank: urgent ? 1 : 3,
+      });
     } else if (s.domain === "leads") {
       const fresh = leadReason(s.itemId) === "new_unhandled";
       items.push({
@@ -524,6 +541,8 @@ export function buildWaiting(input: {
       exact: input.collectionWaiting !== null && input.collectionWaiting.length < COLLECTION_WAITING_CAP,
     },
     lead: leadsWaitingClaim(input.status),
+    // L1.5-b · PR-3 — intake status items are their own kind (never "lead"); bounded by the status list itself.
+    intake: { n: count("intake"), exact: statusComplete },
   };
   const total: CountClaim = {
     n: ordered.length,
@@ -542,7 +561,8 @@ export function buildWaiting(input: {
  */
 export function leadsWaitingClaim(status: BusinessStatusItem[] | null): CountClaim {
   if (status === null) return { n: 0, exact: false };
-  const n = status.filter((s) => s.domain === "leads").length;
+  // L1.5-b · PR-3 — intake status items (waiting enquiries, a connection to check) are not leads: never in this count.
+  const n = status.filter((s) => s.domain === "leads" && !s.itemId.startsWith("leads:intake_")).length;
   return { n, exact: status.length < STATUS_CAPS.global && n < STATUS_CAPS.leads };
 }
 

@@ -8433,3 +8433,285 @@ model ServiceHandover {
   @@unique([businessId, id])
   @@unique([businessId, caseId])
 }
+
+// ─── Service Desk — work at an external supplier 1.2b ───────────────────────────────────────────────────────
+// Tables, checks, triggers, RLS and grants are built by migration 20261113090000_service_external_work (PR-1).
+// References to existing models are scalar on purpose (composite tenant FKs live in the migration); no existing model
+// gains a field. CHECKs, the two partial unique indexes (one open work per case / per device) and the triggers are
+// not expressible here.
+
+enum ServiceExternalWorkState {
+  AT_SUPPLIER
+  RETURNED
+}
+
+// Declaration order IS the forward order (the migration's guard compares them).
+enum ServiceExternalProgress {
+  SENT
+  RECEIVED_BY_SUPPLIER
+  AWAITING_DIAGNOSIS
+  ESTIMATE_RECEIVED
+  IN_REPAIR_AT_SUPPLIER
+  REPAIR_DONE
+  READY_FOR_PICKUP
+}
+
+enum ServiceExternalReturnResult {
+  REPAIRED
+  NOT_REPAIRED
+  REPLACED_BY_SUPPLIER
+  RETURNED_UNWORKED
+}
+
+enum ServiceExternalWorkEventKind {
+  SENT
+  PROGRESS
+  EXPECTED_BACK_CHANGED
+  COST_ESTIMATED
+  COST_APPROVED
+  COST_FINAL
+  COST_FINAL_CORRECTED
+  RETURNED
+}
+
+model ServiceExternalWork {
+  id                      Int                          @id @default(autoincrement())
+  businessId              Int
+  caseId                  Int
+  round                   Int
+  supplierId              Int
+  deviceId                Int? // copied from the case by the insert trigger; fixed for the life of the row
+  state                   ServiceExternalWorkState     @default(AT_SUPPLIER)
+  progressStage           ServiceExternalProgress      @default(SENT)
+  lastEventKind           ServiceExternalWorkEventKind @default(SENT)
+  version                 Int                          @default(1)
+  sentAt                  DateTime                     @default(now())
+  sentByUserId            Int?
+  sendReason              String?
+  requestedWork           String?
+  conditionAtSend         String?
+  operationalNote         String?
+  supplierReference       String?
+  expectedBackOn          DateTime?                    @db.Date
+  estimatedCostAgorot     Int?
+  approvedCostAgorot      Int?
+  finalCostAgorot         Int?
+  currency                String                       @default("ILS")
+  returnedAt              DateTime?
+  returnedByUserId        Int?
+  returnResult            ServiceExternalReturnResult?
+  workPerformed           String?
+  unresolvedIssue         String?
+  followUpRequired        Boolean                      @default(false)
+  receivedByStaffMemberId Int?
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @default(now()) @updatedAt
+  erasedAt                DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, round])
+  @@index([businessId, supplierId])
+  @@index([businessId, state])
+}
+
+model ServiceExternalWorkEvent {
+  id                   Int                          @id @default(autoincrement())
+  businessId           Int
+  workId               Int
+  caseId               Int
+  seq                  Int
+  kind                 ServiceExternalWorkEventKind
+  progressStage        ServiceExternalProgress
+  amountAgorot         Int?
+  previousAmountAgorot Int?
+  expectedBackOn       DateTime?                    @db.Date
+  reason               String? // COST_FINAL_CORRECTED only (CHECK); cleared by service_external_erase_business()
+  actor                ServiceActor
+  actorUserId          Int?
+  occurredAt           DateTime                     @default(now())
+  payload              Json                         @default("{}")
+  idempotencyKey       String
+  requestDigest        String?
+  digestKeyId          String?
+  erasedAt             DateTime?
+
+  @@unique([businessId, workId, seq])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, occurredAt])
+}
+
+// ── Business documents — ר1 quote share records + saved letters (migration 20261114090000) ─────────────────
+// Plain scalar columns (no Prisma relations): the foreign keys, guards, RLS and privileges live in the migration.
+// Nothing here references or changes a billing model; quoteDocumentId points at a BillingDocument QUOTE and is
+// checked by a database trigger under the caller's RLS.
+
+enum BusinessDocumentFilePurpose {
+  QUOTE_SHARE_COPY
+  LETTER
+}
+
+enum BusinessDocumentFileState {
+  PENDING
+  COMMITTED
+  DELETING
+  FENCED
+}
+
+enum BusinessDocumentOperation {
+  QUOTE_SHARE_COPY
+  QUOTE_SHARE_EVENT
+  LETTER_SAVE
+}
+
+enum BusinessDocumentRequestState {
+  ISSUED
+  IN_PROGRESS
+  DONE
+}
+
+enum QuoteShareEventKind {
+  DOWNLOADED
+  SHARE_SHEET_OPENED
+  MARKED_SENT
+  RESPONSE_ACCEPTED
+  RESPONSE_DECLINED
+  NOTE
+  CORRECTION
+}
+
+enum QuoteShareChannel {
+  WHATSAPP
+  EMAIL
+  PRINT
+  OTHER
+}
+
+enum BusinessLetterRecipientKind {
+  CUSTOMER
+  SUPPLIER
+  FREE
+}
+
+enum BusinessDocumentErasureState {
+  PURGING_OBJECTS
+  DONE
+}
+
+/// One stored PDF object in the private storage domain business-docs (create-once writes only).
+model BusinessDocumentFile {
+  id          Int                         @id @default(autoincrement())
+  businessId  Int
+  purpose     BusinessDocumentFilePurpose
+  objectKey   String                      @unique
+  state       BusinessDocumentFileState   @default(PENDING)
+  sha256      String?                     @db.Char(64)
+  bytes       Int?
+  leaseOwner  String?                     @db.Uuid
+  leaseUntil  DateTime?                   @db.Timestamptz(3)
+  createdAt   DateTime                    @default(now()) @db.Timestamptz(3)
+  committedAt DateTime?                   @db.Timestamptz(3)
+  fencedAt    DateTime?                   @db.Timestamptz(3)
+
+  @@unique([businessId, id])
+  @@index([businessId, state])
+}
+
+/// Server-issued idempotency key: one operation, usable for 24 hours after issue, replays its first result.
+model BusinessDocumentRequest {
+  id             Int                          @id @default(autoincrement())
+  businessId     Int
+  operation      BusinessDocumentOperation
+  idempotencyKey String                       @db.Uuid
+  requestHash    String?                      @db.Char(64)
+  state          BusinessDocumentRequestState @default(ISSUED)
+  issuedAt       DateTime                     @default(now()) @db.Timestamptz(3)
+  issuedByUserId Int?
+  leaseOwner     String?                      @db.Uuid
+  leaseUntil     DateTime?                    @db.Timestamptz(3)
+  fileId         Int?
+  resultId       Int?
+  completedAt    DateTime?                    @db.Timestamptz(3)
+
+  @@unique([businessId, operation, idempotencyKey])
+  @@unique([businessId, id])
+  @@index([businessId, issuedAt])
+}
+
+/// A NEW copy rendered from a quote and stored for sharing (append-only).
+model QuoteShareCopy {
+  id                   Int       @id @default(autoincrement())
+  businessId           Int
+  quoteDocumentId      Int
+  fileId               Int
+  sha256               String    @db.Char(64)
+  quoteContentHash     String    @db.Char(64)
+  quoteNumberSnapshot  String
+  customerNameSnapshot String?
+  totalSnapshot        Decimal   @db.Decimal(18, 2)
+  currencySnapshot     String
+  validUntilSnapshot   DateTime?
+  contentCheckedAt     DateTime  @db.Timestamptz(3)
+  createdByUserId      Int?
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([businessId, id])
+  @@unique([businessId, quoteDocumentId, id])
+  @@unique([businessId, fileId])
+  @@index([businessId, quoteDocumentId, createdAt])
+}
+
+/// Manual record about a quote share copy (append-only). Never proof of delivery or reading.
+model QuoteShareEvent {
+  id               Int                 @id @default(autoincrement())
+  businessId       Int
+  quoteDocumentId  Int
+  kind             QuoteShareEventKind
+  copyId           Int?
+  correctsEventId  Int?
+  quoteContentHash String              @db.Char(64)
+  channel          QuoteShareChannel?
+  note             String?
+  actorUserId      Int?
+  createdAt        DateTime            @default(now()) @db.Timestamptz(3)
+
+  @@unique([businessId, id])
+  @@unique([businessId, quoteDocumentId, id])
+  @@index([businessId, quoteDocumentId, createdAt])
+}
+
+/// A saved letter: recipient link + snapshot, content, its stored PDF. Hidden with deletedAt; never edited.
+model BusinessLetter {
+  id                    Int                         @id @default(autoincrement())
+  businessId            Int
+  recipientKind         BusinessLetterRecipientKind
+  customerId            Int?
+  supplierId            Int?
+  recipientName         String
+  recipientAddress      String                      @default("")
+  issuerSnapshot        Json
+  subject               String
+  body                  String
+  reference             String?
+  letterDate            DateTime                    @db.Date
+  signerName            String?
+  signerTitle           String?
+  includeSignatureImage Boolean                     @default(false)
+  fileId                Int
+  sha256                String                      @db.Char(64)
+  createdByUserId       Int?
+  createdAt             DateTime                    @default(now()) @db.Timestamptz(3)
+  deletedAt             DateTime?                   @db.Timestamptz(3)
+  deletedByUserId       Int?
+
+  @@unique([businessId, id])
+  @@unique([businessId, fileId])
+  @@index([businessId, createdAt])
+}
+
+/// Durable job record of an account erasure of the business-documents tables.
+model BusinessDocumentErasure {
+  businessId  Int                          @id
+  state       BusinessDocumentErasureState @default(PURGING_OBJECTS)
+  startedAt   DateTime                     @default(now()) @db.Timestamptz(3)
+  completedAt DateTime?                    @db.Timestamptz(3)
+}

@@ -11,12 +11,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
-import { letterPdf, LetterRequestError, listCustomerOptions, listSupplierOptions, previewLetter, type PickOption } from "./business-documents-client";
+import Link from "next/link";
+
+import { issueKey, letterPdf, LetterRequestError, listCustomerOptions, listSupplierOptions, previewLetter, saveLetterRequest, ShareRequestError, type PickOption } from "./business-documents-client";
 import { DRAFT_STORAGE_KEY, FIELD_LABEL, letterErrorText, missingFields, restoreDraft, toRequestBody, type LetterForm } from "./letter-model";
 import { FeatureOff, Loading, ScreenHead } from "./ui";
 import s from "./docs.module.css";
 
-type Busy = null | "preview" | "pdf" | "share";
+type Busy = null | "preview" | "pdf" | "share" | "save";
 
 export function LetterScreen() {
   const on = useFeatureState("business_documents");
@@ -29,6 +31,9 @@ export function LetterScreen() {
   const [problems, setProblems] = useState<Record<string, string>>({});
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const inFlight = useRef<AbortController | null>(null);
+  /** The server-issued key of the current save attempt: a retry of the same letter reuses it; any edit drops it. */
+  const saveKey = useRef<string | null>(null);
+  const [savedId, setSavedId] = useState<number | null>(null);
 
   useEffect(() => {
     try {
@@ -47,6 +52,8 @@ export function LetterScreen() {
   const set = <K extends keyof LetterForm>(key: K, value: LetterForm[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
     setPreviewHtml(null);
+    saveKey.current = null;
+    setSavedId(null);
   };
 
   const run = useCallback(
@@ -66,6 +73,13 @@ export function LetterScreen() {
       setProblems({});
       try {
         const body = toRequestBody(form);
+        if (kind === "save") {
+          if (!saveKey.current) saveKey.current = await issueKey("LETTER_SAVE");
+          const saved = await saveLetterRequest(body as Record<string, unknown>, saveKey.current);
+          setSavedId(saved.id);
+          setMessage("המכתב נשמר. אפשר למצוא אותו ב״מכתבים שמורים״.");
+          return;
+        }
         if (kind === "preview") {
           setPreviewHtml(await previewLetter(body, ctl.signal));
           return;
@@ -90,6 +104,11 @@ export function LetterScreen() {
         if (kind === "share") setMessage("המכשיר לא תומך בשיתוף קבצים — הקובץ ירד במקום.");
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
+        if (e instanceof ShareRequestError) {
+          if (["IDEMPOTENCY_CONFLICT", "UNKNOWN_KEY", "EXPIRED"].includes(e.code)) saveKey.current = null;
+          setMessage(e.message);
+          return;
+        }
         const status = e instanceof LetterRequestError ? e.status : null;
         if (e instanceof LetterRequestError && e.problems.length) setProblems(Object.fromEntries(e.problems.map((p) => [p.field, p.message])));
         setMessage(letterErrorText(status));
@@ -102,6 +121,8 @@ export function LetterScreen() {
   );
 
   const clear = () => {
+    saveKey.current = null;
+    setSavedId(null);
     setForm(restoreDraft(null, today));
     setPreviewHtml(null);
     setProblems({});
@@ -181,12 +202,13 @@ export function LetterScreen() {
               להוסיף את תמונת החתימה מפרטי העסק (אם הוגדרה)
             </label>
 
-            {message ? <p className={s.note} role="status">{message}</p> : null}
+            {message ? <p className={s.note} role="status">{message}{savedId !== null ? <> <Link href="/business-documents/letters">למכתבים השמורים</Link></> : null}</p> : null}
 
             <div className={s.actions}>
               <button type="submit" className={`${s.button} ${s.primary}`} disabled={busy !== null}>{busy === "preview" ? "מכין…" : "תצוגה מקדימה"}</button>
               <button type="button" className={s.button} disabled={busy !== null} onClick={() => void run("pdf")}>{busy === "pdf" ? "מכין…" : "הורדת PDF"}</button>
               <button type="button" className={s.button} disabled={busy !== null} onClick={() => void run("share")}>{busy === "share" ? "מכין…" : "שיתוף"}</button>
+              <button type="button" className={s.button} disabled={busy !== null || savedId !== null} onClick={() => void run("save")}>{busy === "save" ? "שומר…" : savedId !== null ? "נשמר" : "שמירת המכתב"}</button>
               <button type="button" className={s.button} disabled={busy !== null} onClick={clear}>טיוטה חדשה</button>
             </div>
 

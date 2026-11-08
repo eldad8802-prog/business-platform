@@ -156,6 +156,11 @@ on:
           - 'ops/evidence/service-desk-foundation-production-evidence.sql'
           - 'ops/evidence/service-external-work-preflight.sql'
           - 'ops/evidence/service-external-work-production-evidence.sql'
+          - 'ops/evidence/business-documents-records-preflight.sql'
+          - 'ops/evidence/business-documents-records-production-evidence.sql'
+          - 'ops/evidence/service-parts-preflight.sql'
+          - 'ops/evidence/service-parts-production-evidence.sql'
+          - 'ops/evidence/gmail-import-history.sql'
 
 permissions:
   contents: read

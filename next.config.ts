@@ -22,7 +22,9 @@ const nextConfig: NextConfig = {
     "/api/accountant/periods/\\[periodKey\\]/prepare": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/accountant/recipient": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/accountant/sweep": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/business-documents/letters": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/business-documents/letters/pdf": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/business-documents/quotes/\\[id\\]/share/copies": ["./node_modules/@sparticuz/chromium/bin/**/*"],
   },
 
   // Retire the legacy duplicate homepage `/corporate-home` (superseded by

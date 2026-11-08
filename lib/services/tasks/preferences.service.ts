@@ -19,9 +19,9 @@ export type TaskPreferencesView = { sources: { kind: SourceKind; name: string; e
 export async function getPreferences(businessId: number, t: Translator = HEBREW_TEXT): Promise<TaskPreferencesView> {
   const p = await tenantTx(businessId, (tx) => tx.taskPreferences.findUnique({ where: { businessId }, select: { disabledSources: true, version: true } }));
   const off = new Set(p?.disabledSources ?? []);
-  // S08 is listed only where its domain (business_documents, off by default) is open — elsewhere nothing changes.
+  // S08 / S09 are listed only where their domain (business_documents, off by default) is open — elsewhere nothing changes.
   const docsOn = await businessDocumentsEnabled(businessId);
-  const kinds = SOURCE_KINDS.filter((kind) => kind !== "quote_validity" || docsOn);
+  const kinds = SOURCE_KINDS.filter((kind) => (kind !== "quote_validity" && kind !== "quote_followup") || docsOn);
   return { sources: kinds.map((kind) => ({ kind, name: sourceName(kind, t), enabled: !off.has(kind) })), version: p?.version ?? 0 };
 }
 

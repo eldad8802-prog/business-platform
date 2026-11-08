@@ -143,6 +143,11 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceDevice: { disposition: "ERASURE_MANAGED" },
   ServiceCaseIntake: { disposition: "ERASURE_MANAGED" },
   ServiceHandover: { disposition: "ERASURE_MANAGED" },
+  // Service Desk 1.2b (migration 20261113090000). Both carry personal text — the work its six free texts and the
+  // supplier reference, the journal the correction reason — and are erased in place by
+  // service_external_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceExternalWork: { disposition: "ERASURE_MANAGED" },
+  ServiceExternalWorkEvent: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
   Customer: { disposition: "ERASURE_MANAGED" },
@@ -316,6 +321,12 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   // are the forward-looking obligations that replaced BusinessObligation and
   // inherit its classification.
   Payee: unmanaged("displayName, legalName, taxId and note"),
+  // Business documents (migration 20261114090000). business_documents_erase() exists and deletes these rows, but
+  // connecting it to account deletion is NOT approved yet (owner, 2026-11-06) — so today the erasure does not
+  // touch them, and they are declared as the debt they are until that integration is approved.
+  QuoteShareCopy: unmanaged("customerNameSnapshot and quoteNumberSnapshot of a shared quote copy, plus the stored PDF it points at", "BD-ERASURE"),
+  QuoteShareEvent: unmanaged("the owner's free-text note on a quote response, and the acting user", "BD-ERASURE"),
+  BusinessLetter: unmanaged("recipient name and address, subject, body, reference, signer name and title, the issuer snapshot, and the stored PDF", "BD-ERASURE"),
   Commitment: unmanaged("payeeNameSnapshot, title and note"),
   Installment: unmanaged("note, plus the legacy settlement provenance"),
   // Payables, Phase 2. A rejected match is a decision record, but `reason` is
@@ -420,6 +431,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // and deciding users, request digests) are nulled with the account by service_erase_business(), the SECURITY
   // DEFINER function the adapter calls. The four models with personal text are ERASURE_MANAGED (above).
   ServiceCaseNumberSequence: operational("the per-business next case number: a business id, a counter and a time"),
+  // Business documents (migration 20261114090000): technical records with no text.
+  BusinessDocumentFile: operational("one stored object of the private business-docs domain: an object key (CHECK-limited to the business's prefix), a digest, a size, a state, a lease token and times — no text"),
+  BusinessDocumentRequest: operational("a server-issued idempotency key: an operation token, a random uuid, a request digest, a state, lease and result ids, the issuing user id and times — no text"),
+  BusinessDocumentErasure: operational("the durable job record of an account erasure of the business-documents tables: a state and two times"),
   ServiceCaseEvent: operational("append-only service case journal: event type, action, statuses, ids, times and a closed payload of short tokens and numbers (no text by DB CHECK); the acting user and the request digest are erased with the account by service_erase_business()"),
   ServiceQuote: operational("one sent quote version: ids, an integer total, ILS, content hashes and the private PDF object key (CHECK-limited to the business's service prefix), state and times — no text; the sending and deciding users are erased with the account by service_erase_business()"),
   StaffServiceAssignment: operational("which staff member performs which catalog service, and an optional length in minutes"),

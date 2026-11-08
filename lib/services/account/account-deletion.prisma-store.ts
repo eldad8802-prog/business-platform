@@ -478,6 +478,13 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // runtime itself. Statuses, outcomes, amounts, versions and hashes stay as the business's history. It
           // refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.service_erase_business() AS n`;
+          // Service Desk 1.2b — work at an external supplier (migration 20261113090000). The work's free texts
+          // (send reason, requested work, condition at send, operational note, work performed, unresolved issue),
+          // the supplier reference and the sending / receiving users, and in its journal the acting users, request
+          // digests and correction reasons, are blanked in place by this SECURITY DEFINER function: the tables'
+          // guards refuse that change from the runtime itself. Supplier, amounts, dates, stages and results stay as
+          // the business's history. It refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_external_erase_business() AS n`;
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //

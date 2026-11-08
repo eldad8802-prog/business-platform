@@ -48,6 +48,12 @@ export async function withTenantTransaction<T>(
      */
     timeoutMs?: number;
     /**
+     * Isolation level of the transaction (default: the database default, READ COMMITTED). Optional and additive:
+     * callers that pass nothing get exactly the transaction they always got. Business documents uses
+     * RepeatableRead so a quote and its lines are read from ONE snapshot.
+     */
+    isolationLevel?: Prisma.TransactionIsolationLevel;
+    /**
      * Observability only: told when the callback begins and around `set_config`.
      * It cannot change the transaction — it receives no client, its return
      * value is ignored, and anything it throws is swallowed.
@@ -75,7 +81,12 @@ export async function withTenantTransaction<T>(
       observe("set-config-resolved");
       return fn(tx);
     },
-    options?.timeoutMs ? { timeout: options.timeoutMs } : undefined,
+    options?.timeoutMs || options?.isolationLevel
+      ? {
+          ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}),
+          ...(options.isolationLevel ? { isolationLevel: options.isolationLevel } : {}),
+        }
+      : undefined,
   );
 }
 

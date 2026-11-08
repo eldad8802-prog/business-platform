@@ -23,6 +23,14 @@ psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_ST
 
 if [ "$MODE" != "--deploy-only" ] && [ "$MODE" != "--broken-deploy-only" ]; then
 bash "$ROOT/.sdf/lab.sh" "$DB" --with-sdf >/dev/null
+# schema.prisma models 1.2b (PR-2), so the base chain's `db push` built its tables and enums without the migration's
+# checks, triggers, functions, policies and grants. .sdf/lab.sh already drops them before the foundation deploy;
+# make sure nothing of them is left, so the migration builds them the way Production has them.
+psql_owner <<'SQL'
+DROP TABLE IF EXISTS "ServiceExternalWorkEvent", "ServiceExternalWork" CASCADE;
+DROP TYPE IF EXISTS "ServiceExternalWorkEventKind", "ServiceExternalReturnResult", "ServiceExternalProgress",
+  "ServiceExternalWorkState";
+SQL
 psql_owner -f "$ROOT/.sdx/prereq.sql"
 LEDGER="$(mktemp)"
 for d in "$ROOT"/prisma/migrations/*/; do

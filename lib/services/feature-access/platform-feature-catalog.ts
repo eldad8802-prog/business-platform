@@ -33,6 +33,7 @@ export const PLATFORM_FEATURE_KEYS = {
   PUBLIC_BOOKING: "public_booking",
   DOCUMENT_SUPPLIER_LINKING: "document_supplier_linking",
   BUSINESS_DOCUMENTS: "business_documents",
+  INTAKE_STATUS_VISIBILITY: "intake_status_visibility",
 } as const;
 
 export type PlatformFeatureKey =
@@ -330,6 +331,18 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "מסמכים נוספים",
       category: "documents",
       description: "מעקב הצעות מחיר, מכתבים וציר מסמכים לכל לקוח — לקריאה ולתיעוד בלבד, ללא שינוי בחשבוניות — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // Leads L1.5-b · PR-3 — what the owner sees about the intake of their own leads (held while paused, not
+    // included, failed, a connection to check). OFF for every business — no policy row, no override: the resolver
+    // falls back to this default. Opening it (a policy / seed row or a business override; a pilot is business 9 only)
+    // is a separate owner decision. Read-only: nothing behind it changes how a lead is received or processed.
+    {
+      key: PLATFORM_FEATURE_KEYS.INTAKE_STATUS_VISIBILITY,
+      displayName: "מצב קליטת פניות",
+      category: "integrations",
+      description: "הצגת מצב קליטת הפניות ממקורות חיצוניים לבעל העסק (ממתינות, לא נקלטו, חיבור לבדיקה) — לקריאה בלבד — כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },
