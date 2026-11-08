@@ -363,8 +363,9 @@ const CHIP_STYLE: Record<WaitingKind, { label: MessageKey; color: string; backgr
   stock: { label: "home.desktop.chip.stock", color: "#8A4F16", background: "#FDF4E7" },
   collection: { label: "home.desktop.chip.collection", color: "#1D5552", background: "#EEF7F5" },
   lead: { label: "home.desktop.chip.lead", color: "#5B4FA8", background: "#F2F0FA" },
+  intake: { label: "home.desktop.chip.intake", color: "#5B4FA8", background: "#F2F0FA" },
 };
-const KIND_ORDER: WaitingKind[] = ["payment", "stock", "collection", "lead"];
+const KIND_ORDER: WaitingKind[] = ["payment", "stock", "collection", "lead", "intake"];
 const ROWS_SHOWN = 3;
 
 function WaitingPanel({ view }: { view: HomeView }) {
