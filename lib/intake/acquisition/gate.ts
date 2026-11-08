@@ -11,6 +11,8 @@ import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-fe
 import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { assertBusinessAcceptsWrites, BusinessQuarantinedError } from "@/lib/tenant/business-lifecycle";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { classifySourceRefusal, type SourceRefusal } from "./refusal";
 
 /** M6 — the lead sources (what the owner connects under "lead sources"). */
 export const ACQUISITION_SOURCE_KEYS = ["meta.lead_ads", "google.lead_form", "web.form"] as const;
@@ -54,7 +56,8 @@ export const ACQUISITION_FEATURE: Record<AcquisitionSourceKey, string> = SOURCE_
  */
 export type GateResult =
   | { ok: true }
-  | { ok: false; reason: "source_disabled"; holdable: boolean }
+  /** `refusal` (L1.5-b · B1) — why: emergency / plan_excluded / blocked / not_entitled. Classification only. */
+  | { ok: false; reason: "source_disabled"; holdable: boolean; refusal: SourceRefusal }
   | { ok: false; reason: "business_inactive"; holdable: false };
 
 export async function sourceGate(businessId: number, sourceKey: ConnectionSourceKey): Promise<GateResult> {
@@ -65,8 +68,26 @@ export async function sourceGate(businessId: number, sourceKey: ConnectionSource
     if (e instanceof BusinessQuarantinedError) return { ok: false, reason: "business_inactive", holdable: false };
     throw e;
   }
-  if (!access.allowed) return { ok: false, reason: "source_disabled", holdable: access.reasonCode === "EMERGENCY_DISABLED" };
+  if (!access.allowed) {
+    const overrideReason = access.reasonCode === "BUSINESS_DISABLED" ? await readOverrideReason(businessId, SOURCE_FEATURE[sourceKey]) : null;
+    return { ok: false, reason: "source_disabled", holdable: access.reasonCode === "EMERGENCY_DISABLED", refusal: classifySourceRefusal(access.reasonCode, overrideReason) };
+  }
   return { ok: true };
+}
+
+/**
+ * L1.5-b · B1 — the reason text of the business's own DISABLED override (its own row, under its RLS). Read only on the
+ * refusal path. Fail-closed: an unreadable reason is null, which classifies as "blocked" — never as plan_excluded.
+ */
+async function readOverrideReason(businessId: number, featureKey: string): Promise<string | null> {
+  try {
+    const row = await runWithTenantContext({ businessId }, () =>
+      withTenantTransaction((tx) => tx.businessFeatureAccess.findUnique({ where: { businessId_featureKey: { businessId, featureKey } }, select: { reason: true } }))
+    );
+    return row?.reason ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** L1.5-a — how long a held receipt waits before the next look (the sweep cadence); the wait is not an attempt. */

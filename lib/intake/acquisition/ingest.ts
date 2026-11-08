@@ -56,7 +56,9 @@ export async function ingestAcquisition(input: {
   // refusal records nothing. The processor re-checks the gate before every attempt (holdUnlessAllowed), so a
   // held receipt — like one accepted just before the switch — waits instead of becoming a Lead.
   if (!gate.ok && !gate.holdable) {
-    logIntake("refused", { businessId: input.businessId, sourceKey: input.sourceKey, code: gate.reason });
+    // L1.5-b · B1 — the log names why (e.g. "source_disabled:plan_excluded"); the outcome is unchanged: nothing recorded.
+    const code = gate.reason === "source_disabled" ? `${gate.reason}:${gate.refusal}` : gate.reason;
+    logIntake("refused", { businessId: input.businessId, sourceKey: input.sourceKey, code });
     return { status: "refused", reason: gate.reason };
   }
   const paused = input.connectionStatus === "PAUSED";
