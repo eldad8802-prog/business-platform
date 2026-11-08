@@ -25,6 +25,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-b PR-5 lead-loss integrity: the sweep never starts a business past its budget and rotates its start so none is always last; release rounds go only to businesses that moved work forward, bounded and drain-only; a resume flips the status in its transaction and re-arms receipts afterwards in bounded batches, never a receipt under a live lease, best effort (the hold recheck releases the rest); health stamping bounded per run"
+    },
+    "lib/intake/l15b-capacity.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-b PR-2 lead-loss + privacy integrity: capacity thresholds (500/1,000/2,000 per business, 20,000 platform) are monitoring only and never refuse a delivery; backlog / flow reads are bounded (row cap + server statement timeout), read-only, open backlog only, select no payload or person field, run under the business RLS; the sweep reads them best effort after its own work; new red reasons exist only with INTAKE_CAPACITY_ALERTS_ENABLED=true, each tier crossing reported once"
     }
   }
 }

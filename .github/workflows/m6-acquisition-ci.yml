@@ -62,6 +62,7 @@ jobs:
       - run: npx tsx lib/sensors/sensors.test.ts
       - run: npx tsx lib/intake/sweep-auth.test.ts
       - run: npx tsx lib/intake/l15b-fair-queue.test.ts
+      - run: npx tsx lib/intake/l15b-capacity.test.ts
       - run: npx tsx lib/intake/l15b-release.test.ts
       - run: npx tsx lib/services/billing/settlement/settlement-recovery-auth.test.ts
 
@@ -182,6 +183,12 @@ jobs:
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m6/release-battery.ts
 
+
+      - name: 4d. L1.5-b capacity metrics — exact counts per class and connection, scan cap, 50 … 50,000 held timings, flow, tier crossing once, RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+        run: npx tsx .m6/capacity-battery.ts
       - name: 5. Website LIVE-PROOF rehearsal — the Production evidence, proven on the real path (clean database)
         env:
           LIVE_OWNER: postgresql://m6_owner:m6_ci_synthetic_owner_pw@localhost:5432/dubiz_live
