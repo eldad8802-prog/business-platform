@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Appointments open for every business / migration 20261121090000_appointments_open_all — on a lab already built by
+# Appointments open for every business / migration 20261115100000_appointments_open_all — on a lab already built by
 # `.bkg/lab.sh <db> --with-bkg` (and seeded): the release exactly as Production will run it.
 #
 #   .appt/open-all-lab.sh <db-name>
@@ -18,7 +18,7 @@ set -euo pipefail
 DB="$1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BKG="20261106090000_public_booking_foundation"
-OPEN="20261121090000_appointments_open_all"
+OPEN="20261115100000_appointments_open_all"
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
 # n|flag|count rows only (the \echo legend is dropped).

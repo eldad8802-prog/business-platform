@@ -2,7 +2,7 @@
  * Appointments milestone B — the demo / end-to-end fixtures, on the Production-shaped lab (.appt/lab.sh --with-appt).
  * Three synthetic businesses: A with `appointments` ON by a per-business override (the pilot, as business 9 has it),
  * B CLOSED by a platform admin (override DISABLED — still honoured after the calendar opened for every business,
- * migration 20261121090000), and C with NO override at all (every other business: it follows the catalog default, ON
+ * migration 20261115100000), and C with NO override at all (every other business: it follows the catalog default, ON
  * once the opening is released; the open-all battery and the e2e prove it). A gets two staff members, weekly hours, three services, customers (one with an open lead) and this week's
  * appointments — all written through the REAL services AS app_runtime_prod (DATABASE_URL); only the business, users,
  * catalog, customers, lead and the flag override are owner fixtures. Writes the session tokens and ids to $SEED_OUT.

@@ -41,7 +41,7 @@ on:
       - ".bkg/lab.sh"
       - ".appt/b-followups-battery.ts"
       - ".appt/open-all-*"
-      - "prisma/migrations/20261121090000_appointments_open_all/**"
+      - "prisma/migrations/20261115100000_appointments_open_all/**"
       - "ops/evidence/appointments-open-all-*.sql"
       - "lib/services/feature-access/**"
       - "app/api/business/capabilities/**"
@@ -148,7 +148,7 @@ jobs:
         run: npx tsx .appt/ui-seed.ts
 
       # Open for every business (owner decision 2026-11-08): the data migration released exactly as Production will run
-      # it — read-only preflight, `prisma migrate deploy` applying only 20261121090000, read-only proof (no override
+      # it — read-only preflight, `prisma migrate deploy` applying only 20261115100000, read-only proof (no override
       # added or changed). Everything after this step runs on the released state, as Production will be.
       - name: Release — appointments open for every business (preflight → migrate deploy → proof)
         run: bash .appt/open-all-lab.sh appt_ui

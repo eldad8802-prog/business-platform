@@ -14,7 +14,7 @@
  *       the customer card, "+", and the phone / small phone / tablet (a real time grid, sheets, back closes a sheet,
  *       nothing covered, no sideways scroll).
  *   CLOSED (business B, override DISABLED — a platform admin closed it; still honoured after the calendar opened for
- *       every business, migration 20261121090000): every screen says the calendar is not active, the API answers
+ *       every business, migration 20261115100000): every screen says the calendar is not active, the API answers
  *       404, the navigation, the Secretary and the customer card show nothing of it, and B cannot read A.
  *   OPEN FOR EVERYONE (business C, existing, no override; business D, signed up after the release through the real
  *       signup — $OPEN_OUT from .appt/open-all-battery.ts): on the phone (the width the Android app shows) "+" offers

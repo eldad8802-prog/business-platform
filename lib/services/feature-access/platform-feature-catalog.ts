@@ -292,7 +292,7 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       mutable: true,
     },
     // Appointments, milestone A (migration 20261029090000) — OPEN FOR EVERY BUSINESS since the owner decision of
-    // 2026-11-08 (migration 20261121090000_appointments_open_all switched the definition and the policy ON first; this
+    // 2026-11-08 (migration 20261115100000_appointments_open_all switched the definition and the policy ON first; this
     // default is what then opens it for every existing and new business — the resolver falls back to it when a business
     // has no override). A platform admin can still close it per business (override DISABLED, MFA, audited), and the
     // policy's emergency switch closes it for all. External booking (public_booking) stays a separate, closed feature.

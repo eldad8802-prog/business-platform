@@ -1,5 +1,5 @@
 /**
- * Appointments OPEN FOR EVERY BUSINESS (migration 20261121090000_appointments_open_all + catalog default ON) — the REAL
+ * Appointments OPEN FOR EVERY BUSINESS (migration 20261115100000_appointments_open_all + catalog default ON) — the REAL
  * route handlers AS the restricted runtime (DATABASE_URL = app_runtime_prod, NOSUPERUSER NOBYPASSRLS) on the
  * Production-shaped lab after `.appt/open-all-lab.sh` released the migration. Real signed session tokens; the owner
  * connection only builds fixtures, flips the lab's switches and reads back.
