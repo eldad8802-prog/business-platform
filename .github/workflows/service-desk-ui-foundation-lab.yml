@@ -238,11 +238,22 @@ jobs:
       - name: 7. Atomicity — the migration failing on its last statement leaves nothing of it behind
         run: |
           set -euo pipefail
-          bash .sd3/lab.sh sd3_broken --broken-sd3
+          bash .sd3/lab.sh sd3_broken
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d sd3_broken -v ON_ERROR_STOP=1 "$@"; }
+          test "$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL")" = "0" || { echo "the ledger was not clean before the faulty deploy"; exit 1; }
+          lab -f .sd3/fingerprint.sql > /tmp/fp.broken.pre
+          bash .sd3/lab.sh sd3_broken --broken-deploy-only
+          # The failure is the injected one (22012 on the appended last statement), not a refusal to start.
+          test "$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261120090000_service_desk_ui_foundation' AND finished_at IS NULL AND rolled_back_at IS NULL AND logs LIKE '%22012%' AND logs LIKE '%division by zero%'")" = "1" || { echo "the deploy did not fail on the injected last statement"; exit 1; }
+          # Prisma's own failure record is the only row: no finished row, no other ledger change.
+          test "$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL OR migration_name >= '20261120090000_service_desk_ui_foundation'")" = "1" || { echo "unexpected ledger rows"; exit 1; }
+          lab -f .sd3/fingerprint.sql > /tmp/fp.broken.post
+          diff /tmp/fp.broken.pre /tmp/fp.broken.post || { echo "the failed deploy changed an existing object"; exit 1; }
+          test "$(lab -c "SELECT count(*) FROM \"PlatformFeaturePolicy\" WHERE \"featureKey\" = 'service_desk'")" = "0" || { echo "a feature row survived the failed deploy"; exit 1; }
           left=$(lab -c "SELECT (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname IN ('ServiceTextVersion','ServiceSettings','ServiceIntakeTermsSnapshot','ServiceWarrantyOffer','ServiceIntakePhoto','ServiceShareEvent','ServicePhoneReminder','ServiceStorageErasure'))
             + (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND (proname LIKE 'service\_ui\_%' OR proname LIKE 'service\_warranty\_%' OR proname LIKE 'service\_storage\_erasure\_%' OR proname IN ('service_desk_ui_erase_business','service_text_version_guard','service_settings_guard','service_intake_terms_guard','service_intake_photo_guard','service_share_event_guard','service_phone_reminder_guard')))
             + (SELECT count(*) FROM pg_type WHERE typname IN ('ServiceTextKind','ServiceTextLegalStatus','ServiceDurationUnit','ServiceWarrantyOfferState','ServiceWarrantyOfferSource','ServiceReaffirmMethod','ServiceShareObjectKind','ServiceShareChannel','ServicePhoneReminderOutcome','ServiceStorageErasureState'))
             + (SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE key = 'service_desk')")
           echo "objects left=$left"
           test "$left" = "0" || { echo "NOT atomic"; exit 1; }
+          echo "atomic: 0 objects, existing catalog unchanged, no feature row; the only trace is Prisma's unfinished failure row (blocks deploys until migrate resolve)"
