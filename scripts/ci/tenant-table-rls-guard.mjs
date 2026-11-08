@@ -28,7 +28,8 @@
 //            FOR clause (both silently include DELETE; see cutover2b), and
 //         b. name its privileges explicitly: some migration GRANTs on the table to
 //            app_runtime (a default ACL is not a decision — see the inbound email
-//            foundation migration for why).
+//            foundation migration for why). One GRANT may list several tables; a grant
+//            to any other role, ON SEQUENCE, or of a look-alike table name does not count.
 //
 //   R0  (tenant/RLS closure) Every table a MIGRATION creates with a tenant-key column — any column named
 //       businessId or …BusinessId (issuingBusinessId, redeemingBusinessId) — must reach full tenant RLS
@@ -149,8 +150,22 @@ export function rlsFacts(sqlNorm, table) {
     forced: new RegExp(`ALTER TABLE "${t}" FORCE ROW LEVEL SECURITY`, "i").test(sqlNorm),
     tenantPolicy: policies.some((p) => /current_setting\('app\.current_business_id'/i.test(p)),
     policies,
-    granted: new RegExp(`GRANT [A-Z, ]+ ON (TABLE )?"${t}" TO app_runtime`, "i").test(sqlNorm),
+    granted: grantedToRuntime(sqlNorm, table),
   };
+}
+
+/**
+ * Some GRANT names `table` among its tables and gives it to app_runtime itself. One statement may list several
+ * tables (`GRANT SELECT ON "A", "B" TO app_runtime;`, as 20261120090000 does); only quoted names, commas and spaces
+ * may stand between ON and TO, so the match never crosses a statement. ON SEQUENCE / FUNCTION is not a table grant,
+ * and a look-alike role (app_runtime_prod, app_runtimex) is not app_runtime.
+ */
+export function grantedToRuntime(sqlNorm, table) {
+  const name = `"[A-Za-z0-9_]+"`;
+  return new RegExp(
+    `GRANT [A-Z, ]+ ON (TABLE )?(${name} ?, ?)*"${esc(table)}"( ?, ?${name})* TO app_runtime(?![A-Za-z0-9_])`,
+    "i",
+  ).test(sqlNorm);
 }
 
 /** A policy with no FOR clause is FOR ALL. Both include DELETE. */
@@ -318,6 +333,11 @@ ALTER TABLE "${t}" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "${t}" FORCE ROW LEVEL SECURITY;
 CREATE POLICY p_${t} ON "${t}" ${forAll ? "" : "FOR SELECT "}USING (${pred});
 GRANT SELECT, INSERT ON "${t}" TO app_runtime;`;
+  // Complete RLS but no GRANT: the case adds its own.
+  const rlsOnly = (t) => `
+ALTER TABLE "${t}" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "${t}" FORCE ROW LEVEL SECURITY;
+CREATE POLICY p_${t} ON "${t}" FOR SELECT USING (${pred});`;
   const cases = [
     {
       name: "compliant old table passes",
@@ -403,6 +423,71 @@ GRANT SELECT, INSERT ON "${t}" TO app_runtime;`;
       name: "NEW compliant table passes R2",
       input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${fullRls("Widget")}` }], exempt: {} },
       expect: 0,
+    },
+    // A GRANT that lists several tables in one statement (20261120090000_service_desk_ui_foundation).
+    {
+      name: "NEW table granted in a multi-table GRANT passes R2 (first, middle and last position)",
+      input: {
+        schemaSrc: schema(`model Gizmo {\n  id Int @id\n  businessId Int\n}\nmodel Gear {\n  id Int @id\n  businessId Int\n}`),
+        migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int); CREATE TABLE "Gizmo" (id int); CREATE TABLE "Gear" (id int);${rlsOnly("Widget")}${rlsOnly("Gizmo")}${rlsOnly("Gear")}\nGRANT SELECT, INSERT, UPDATE ON "Widget", "Gizmo", "Gear" TO app_runtime;` }],
+        exempt: {},
+      },
+      expect: 0,
+    },
+    {
+      name: "multi-table GRANT without spaces after the commas, with ON TABLE, passes R2",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ON TABLE "Other","Widget" TO app_runtime;` }], exempt: {} },
+      expect: 0,
+    },
+    {
+      name: "multi-table GRANT that does not include the table fails R2",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ON "Other", "Another" TO app_runtime;` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "multi-table GRANT to another role (app_admin) fails R2",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ON "Other", "Widget" TO app_admin;` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "GRANT to a look-alike role (app_runtime_prod / app_runtimex) fails R2",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ON "Widget" TO app_runtime_prod; GRANT SELECT ON "Other", "Widget" TO app_runtimex;` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "GRANT ON SEQUENCE naming the table fails R2",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT USAGE, SELECT ON SEQUENCE "Other_id_seq", "Widget" TO app_runtime;` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "multi-table GRANT of a look-alike table name (Widgets / MyWidget / Widget_id_seq) fails R2",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ON "Widgets", "MyWidget" TO app_runtime; GRANT SELECT ON "Widget_id_seq" TO app_runtime;` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "a GRANT match never spans two statements",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ON "Widget" TO app_admin; GRANT SELECT ON "Other" TO app_runtime;` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "a commented-out multi-table GRANT does not count",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")}\n-- GRANT SELECT ON "Other", "Widget" TO app_runtime;` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "multi-table GRANT does not excuse missing FORCE (R1 still fails)",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int); ALTER TABLE "Widget" ENABLE ROW LEVEL SECURITY; CREATE POLICY p ON "Widget" FOR SELECT USING (${pred}); GRANT SELECT ON "Other", "Widget" TO app_runtime;` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "multi-table GRANT does not excuse a FOR ALL policy (R2 still fails)",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int); ALTER TABLE "Widget" ENABLE ROW LEVEL SECURITY; ALTER TABLE "Widget" FORCE ROW LEVEL SECURITY; CREATE POLICY p ON "Widget" USING (${pred}); GRANT SELECT ON "Other", "Widget" TO app_runtime;` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "multi-table GRANT does not excuse a policy off the tenant GUC (R1 still fails)",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int); ALTER TABLE "Widget" ENABLE ROW LEVEL SECURITY; ALTER TABLE "Widget" FORCE ROW LEVEL SECURITY; CREATE POLICY p ON "Widget" FOR SELECT USING (true); GRANT SELECT ON "Other", "Widget" TO app_runtime;` }], exempt: {} },
+      expect: 1,
     },
     {
       name: "grandfathered NEW table with FOR ALL passes R2",
