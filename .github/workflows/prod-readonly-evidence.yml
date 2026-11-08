@@ -160,6 +160,8 @@ on:
           - 'ops/evidence/business-documents-records-production-evidence.sql'
           - 'ops/evidence/service-parts-preflight.sql'
           - 'ops/evidence/service-parts-production-evidence.sql'
+          - 'ops/evidence/appointments-open-all-preflight.sql'
+          - 'ops/evidence/appointments-open-all-production-evidence.sql'
 
 permissions:
   contents: read
