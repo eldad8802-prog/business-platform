@@ -60,9 +60,10 @@ export async function continueBusinessDocumentsErasure(businessId: number, stora
   );
   if (state !== "PURGING_OBJECTS") return { state: state ?? "NO_JOB", fenced: 0, pending: 0, done: true };
   const { fenced, pending } = await fenceAllDeleting(businessId, storage);
-  if (pending > 0) return { state: "PURGING_OBJECTS", fenced, pending, done: false };
-  // Two runs (the post-commit stage and a sweep) may get here together: the erasure's own advisory lock makes the
-  // second wait, and it then finds the job DONE instead of failing on it.
+  // Always try to complete, whatever this run's own count says: with two runs at once (the post-commit stage and a
+  // sweep), each finds some files already fenced by the other and counts them as not its own — trusting that count
+  // would leave a fully fenced job open. The completion itself refuses (false) while any file is not FENCED, and the
+  // erasure's advisory lock makes the second run wait and then find the job DONE instead of failing on it.
   const done = await bdTx(businessId, async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('business_documents_erasure'), ${businessId}::int)`;
     const job = await tx.businessDocumentErasure.findUnique({ where: { businessId }, select: { state: true } });
@@ -70,5 +71,5 @@ export async function continueBusinessDocumentsErasure(businessId: number, stora
     const r = await tx.$queryRaw<{ done: boolean }[]>`SELECT public.business_documents_erasure_complete() AS done`;
     return r[0]?.done === true;
   });
-  return { state: done ? "DONE" : "PURGING_OBJECTS", fenced, pending, done };
+  return { state: done ? "DONE" : "PURGING_OBJECTS", fenced, pending: done ? 0 : pending, done };
 }

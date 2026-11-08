@@ -14,6 +14,9 @@
  *      left is a durable, tracked job.
  *   3. RESUME. `sweepAccountStorageErasures` runs the same stage for every business being or already deleted, until
  *      each module's job is done. Every module's `resume` is idempotent and safe to run concurrently with itself.
+ *      NOT SCHEDULED YET: the route that would run it on a cron needs the shared cron authority, whose caller registry
+ *      sits under the protected billing paths — that is the owner's decision. Until then an open job stays open (its
+ *      keys durable, nothing lost) and the sweep can be run deliberately.
  *
  * New uploads while the account is being deleted are refused by each module's own database guard (business documents:
  * any insert or commit once Business.deletionRequestedAt / deletedAt is set or a job exists); an upload already in

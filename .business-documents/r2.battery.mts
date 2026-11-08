@@ -17,7 +17,8 @@
  *   4  an abandoned upload (client aborts mid-body) → closeKey; after the abort the key still holds the marker
  *   5  repeated / concurrent closings → all succeed on one marker; deleting a missing key is not an error
  *   6  listing confined to the prefix
- *   7  (with a lab DB) account erasure while an upload is streaming → done, the late upload refused, only markers left
+ *   7  (with a lab DB) account erasure while an upload is streaming — the wired path (the purge's erase call, then the
+ *      post-commit object stage) → done, the late upload refused, only markers left
  */
 import { Readable } from "node:stream";
 
@@ -131,7 +132,8 @@ async function main() {
   if (env("DATABASE_URL") && env("OWNER_URL")) {
     console.log("--- 7 account erasure while an upload is streaming (lab DB) ---");
     const { PrismaClient } = await import("@prisma/client");
-    const { runBusinessDocumentsErasure } = await import("../lib/services/business-documents/erasure/business-docs-erasure");
+    const { continueBusinessDocumentsErasure } = await import("../lib/services/business-documents/erasure/business-docs-erasure");
+    const { bdTx } = await import("../lib/services/business-documents/bd-tx");
     const own = new PrismaClient({ datasources: { db: { url: env("OWNER_URL") } } });
     const biz = (await own.business.create({ data: { name: `r2-erasure-${Date.now()}` } })).id;
     const key = `biz/${biz}/business-docs/quote-shares/${RUN}.pdf`;
@@ -139,7 +141,10 @@ async function main() {
     const streaming = slowConditionalPut(key, 6000);
     await sleep(1000);
     await own.business.update({ where: { id: biz }, data: { deletionRequestedAt: new Date() } });
-    const run = await runBusinessDocumentsErasure(biz, storage);
+    // Exactly what account deletion does: business_documents_erase() in the purge transaction, then — only after it
+    // committed — the post-commit object stage against this bucket.
+    await bdTx(biz, (tx) => tx.$queryRaw`SELECT public.business_documents_erase() AS n`);
+    const run = await continueBusinessDocumentsErasure(biz, storage);
     const late = await streaming;
     const left = await storage.listObjects(`biz/${biz}/business-docs/`);
     ok("the erasure completes with the upload still streaming", run.done === true);
