@@ -11,6 +11,7 @@
 import { PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { runWithTenantContext } from "../lib/tenant/context";
+import { withTenantTransaction } from "../lib/tenant/transaction";
 import { bindMetaPage, createKeyedConnection, setPaused } from "../lib/intake/acquisition/connection.service";
 import { runIntakeSweep } from "../lib/intake/intake-sweeper";
 import { POST as webPOST } from "../app/api/intake/acquisition/web/[publicId]/route";
@@ -110,9 +111,12 @@ async function main() {
     !n3.find((r) => r.entityType === "intake_failed")?.resolvedAt && !n3.find((r) => r.entityType === "intake_check_connection")?.resolvedAt);
 
   console.log("\n-- isolation --");
-  const cross = await runWithTenantContext({ businessId: off.B.id }, () => o.notification.count({ where: { businessId: on.B.id } }));
-  void cross;
   ok("notifications belong to their business only", (await o.notification.count({ where: { businessId: off.B.id } })) === 0 && n3.every((r) => r.businessId === on.B.id));
+  // Through the NOBYPASSRLS runtime: from the other business's tenant, these rows do not exist; from their own, they do.
+  const peek = (tenant: number) => runWithTenantContext({ businessId: tenant }, () =>
+    withTenantTransaction((tx) => tx.notification.count({ where: { businessId: on.B.id, domain: "leads" } })));
+  const [foreign, own] = [await peek(off.B.id), await peek(on.B.id)];
+  ok("RLS: another business's tenant reads none of these notifications (runtime role)", foreign === 0 && own === n3.length, JSON.stringify({ foreign, own }));
 
   console.log(`\nL1.5-b intake notifications battery: ${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n - " + failures.join("\n - ")); process.exitCode = 1; }

@@ -84,6 +84,16 @@ test("each situation is its own fact (dedupe key), inside the resolution scope",
   for (const i of all) assert.ok((INTAKE_NOTIFICATION_SCOPE.entityTypes as readonly string[]).includes(i.entityRef.type), i.entityRef.type);
 });
 
+test("a paused source outside the plan is never offered \"resume\" (same as the home screen)", () => {
+  const b = bl([cb("web.form", web.publicId, { held: 6, heldByReason: { connection_paused: 6 }, oldestHeldAt: new Date(MIDDAY.getTime() - DAY) })]);
+  const out = intakeNotificationItems(BIZ, [web], b, null, MIDDAY, { "web.form": false }).find((i) => i.itemId === "leads:intake_paused:1")!;
+  assert.equal(out.primaryAction?.label, "לפרטים");
+  const inPlan = intakeNotificationItems(BIZ, [web], b, null, MIDDAY, { "web.form": true }).find((i) => i.itemId === "leads:intake_paused:1")!;
+  assert.equal(inPlan.primaryAction?.label, "להפעלה");
+  const mod = read("lib/notifications/intake-notifications.ts");
+  assert.match(mod, /Promise\.all\(\[listConnections\(\), enabledSources\(businessId\)\]\)/, "the sync reads the plan's sources");
+});
+
 test("sync: gated, resolves only after a complete read, never throws, runs from the sweep", () => {
   const mod = read("lib/notifications/intake-notifications.ts");
   const sync = mod.slice(mod.indexOf("export async function syncIntakeNotifications("));

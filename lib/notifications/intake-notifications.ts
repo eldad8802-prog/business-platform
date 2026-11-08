@@ -22,6 +22,7 @@ import { translateIntakeAttention, type IntakeConnectionRow } from "@/lib/busine
 import type { BusinessStatusItemBuild } from "@/lib/business-status/types";
 import { cappedCount, type BusinessBacklog, type BusinessFlow } from "@/lib/intake/intake-capacity";
 import { listConnections } from "@/lib/intake/acquisition/connection.service";
+import { enabledSources } from "@/lib/intake/acquisition/owner-api";
 import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { declareExhaustive } from "./exhaustive-facts";
@@ -54,12 +55,13 @@ export function intakeNotificationItems(
   connections: IntakeConnectionRow[],
   backlog: BusinessBacklog,
   flow: BusinessFlow | null,
-  now: Date
+  now: Date,
+  sources?: Record<string, boolean>
 ): BusinessStatusItemBuild[] {
   // The policy is unchanged (owner, 2026-11-08): every intake fact rides an EXISTING rule. "Not taken in" is told as
   // ACTION_REQUIRED HIGH here (the home screen keeps FAILURE_EVENT); a recovery is emitted but stays SILENT until a
   // rule for it is approved after an impact check.
-  const items = translateIntakeAttention({ connections, backlog }, now).map((i) =>
+  const items = translateIntakeAttention({ connections, backlog, sources }, now).map((i) =>
     i.semanticCategory === "FAILURE_EVENT" ? { ...i, semanticCategory: "ACTION_REQUIRED" as const } : i
   );
   const base = (reason: string, category: BusinessStatusItemBuild["semanticCategory"], severity: BusinessStatusItemBuild["severity"], title: string, summary: string) => ({
@@ -103,8 +105,9 @@ export async function syncIntakeNotifications(
   try {
     const access = await resolveFeatureAccess(businessId, PLATFORM_FEATURE_KEYS.INTAKE_STATUS_VISIBILITY);
     if (!access.allowed) return { ok: true, skipped: "feature_off", written: [], resolved: 0 };
-    const connections = await listConnections();
-    const items = intakeNotificationItems(businessId, connections, backlog, flow, now).map(finalizeBusinessStatusItem);
+    // The plan's sources, as the home screen reads them: a notification never offers to resume a source the plan excludes.
+    const [connections, sources] = await Promise.all([listConnections(), enabledSources(businessId)]);
+    const items = intakeNotificationItems(businessId, connections, backlog, flow, now, sources).map(finalizeBusinessStatusItem);
     const written = await persistSnapshotNotifications(businessId, items, now);
     // An incomplete read (capped) is never evidence that a fact went away: resolve only on a complete one.
     const resolved = backlog.capped
