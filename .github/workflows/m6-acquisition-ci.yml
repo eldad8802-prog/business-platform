@@ -68,6 +68,8 @@ jobs:
       - run: npx tsx lib/intake/sweep-auth.test.ts
       - run: npx tsx lib/intake/l15b-fair-queue.test.ts
       - run: npx tsx lib/intake/l15b-capacity.test.ts
+      - run: npx tsx lib/intake/l15b-expired.test.ts
+      - run: npx tsx lib/intake/l15b-refusal.test.ts
       - run: npx tsx lib/business-status/intake-attention.test.ts
       - run: npx tsx lib/notifications/intake-notifications.verify.test.ts
       - run: npx tsx lib/notifications/notification-policy.verify.test.ts
@@ -209,6 +211,18 @@ jobs:
           DATABASE_URL: ${{ env.RUNTIME_URL }}
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m6/intake-notifications-battery.ts
+
+      - name: 4g. L1.5-b expired receipts — archived, never dead letters — health, owner backlog, retention keeps the payload, real processor + sweep stay healthy, RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+        run: npx tsx .m6/expired-battery.ts
+
+      - name: 4i. L1.5-b refusal classification — seven sources × every state (no grant / plan:excluded / blocked / emergency / erased), two routes end to end unchanged, nothing recorded, RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+        run: npx tsx .m6/refusal-battery.ts
 
       - name: 4h. L1.5-b edge — database outage → all seven intake sources answer 503 (never a silent 2xx); 503 then retry → recorded once
         env:

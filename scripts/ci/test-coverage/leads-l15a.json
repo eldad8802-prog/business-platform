@@ -40,6 +40,16 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-b PR-4 owner notifications about lead intake: in-app only or silent (no leads rule grants push), info / warning / action told apart, one dedupe fact per situation, resolution only after a complete read, gated by intake_status_visibility, never throws, no enquiry content"
+    },
+    "lib/intake/l15b-expired.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-b A1 honesty + retention: an expired held receipt is archived, never a dead letter — never reported to the operator as a failure, never shown to the owner as could-not-be-taken-in, never purged by the dead-letter retention (payload deletion needs an approved retention policy); every dead-letter predicate in the store excludes it"
+    },
+    "lib/intake/l15b-refusal.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-b B1 intake authorization: why a source is refused is told apart (emergency / plan_excluded / blocked / not_entitled) from the business's own override under its RLS, fail-closed — only the exact structured marker plan:excluded counts; every refusal still records nothing and every route answer is unchanged"
     }
   }
 }

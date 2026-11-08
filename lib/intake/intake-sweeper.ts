@@ -129,7 +129,7 @@ export const CAPACITY_PHASE_MARGIN_MS = 3_000;
 /** A drain that used its whole budget AND moved something forward may have more due work: worth another round (pure). */
 export function wantsReleaseRound(tally: Record<IntakeProcessResult, number>, limit: number): boolean {
   const listed = Object.values(tally).reduce((a, b) => a + b, 0);
-  return listed >= limit && tally.processed + tally.ignored + tally.failed > 0;
+  return listed >= limit && tally.processed + tally.ignored + tally.failed + tally.expired > 0;
 }
 
 /** Union of every registered source's tenants (deduped, stable order). */
