@@ -1,0 +1,10 @@
+{
+  "note": "Gmail scan refused-by-type breakdown (2026-11-08 B1): the scan counts the attachments the Documents allowlist refuses under six fixed groups (PDF-named but mis-declared, Office, ZIP, calendar invite, other image formats, other) and shows them on the email screen and in the sync log, without changing what the scan keeps, scores, shows or imports.",
+  "tests": {
+    "lib/services/email-import/rejected-types.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): grouping table incl. misleading names, the groups partition unsupportedType over 9,216 part shapes, the kept set is still the allowlist alone (a PDF-named octet-stream file is counted, not offered), untrusted counts normalised to six fixed keys, the sync log/response carry only those numbers, scan query/limits/scoring/import untouched; passed locally (9/9), 8 mutations killed"
+    }
+  }
+}

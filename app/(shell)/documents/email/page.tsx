@@ -15,6 +15,11 @@ import {
   summarizeGmailScan,
   type GmailScanDiagnostics,
 } from "@/lib/services/email-import/scan-diagnostics";
+import {
+  parseRejectedTypeCounts,
+  REJECTED_TYPE_GROUPS,
+  type RejectedTypeCounts,
+} from "@/lib/services/email-import/rejected-types";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
 import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
@@ -154,6 +159,7 @@ export default function EmailDocumentsPage() {
   // (which clears `error`) cannot wipe it. Cleared only by a new connect attempt.
   const [connectError, setConnectError] = useState<{ message: string; code: string } | null>(null);
   const [scanDiag, setScanDiag] = useState<GmailScanDiagnostics | null>(null);
+  const [rejectedByType, setRejectedByType] = useState<RejectedTypeCounts | null>(null);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -286,6 +292,7 @@ export default function EmailDocumentsPage() {
         setAttachments([]);
         setStatusByKey({});
         setScanDiag(null);
+        setRejectedByType(null);
       }
       setNotice(t("documents.email.disconnectedNotice"));
     } catch (err) {
@@ -306,6 +313,7 @@ export default function EmailDocumentsPage() {
       setLoading(true);
       setError("");
       setScanDiag(null);
+      setRejectedByType(null);
       const params = new URLSearchParams({ maxMessages: String(maxMessages) });
       if (connectionId != null) params.set("connectionId", String(connectionId));
       const response = await fetch(`/api/integrations/gmail/sync?${params.toString()}`, {
@@ -336,6 +344,8 @@ export default function EmailDocumentsPage() {
           attachments: list,
         })
       );
+      // Absent on older servers → null → the breakdown line is simply not shown.
+      setRejectedByType(parseRejectedTypeCounts(data.rejectedByType));
       const scored = scoreAttachments(list).filter((item) => item.bucket !== "hidden");
       const nextStatus: Record<string, EmailAttachmentUiStatus> = {};
       for (const attachment of scored) {
@@ -618,6 +628,20 @@ export default function EmailDocumentsPage() {
                 recommended: formatNumber(scanDiag.recommended, fmt),
               })}
             </div>
+            {scanDiag.unsupportedType > 0 && rejectedByType ? (
+              <div className="dz-email-scan-rejected">
+                {t("documents.email.scanRejectedTypes", {
+                  groups: REJECTED_TYPE_GROUPS.filter((group) => rejectedByType[group] > 0)
+                    .map((group) =>
+                      t("documents.email.rejectedGroup", {
+                        group: t(`documents.email.rejected_${group}`),
+                        count: formatNumber(rejectedByType[group], fmt),
+                      })
+                    )
+                    .join(" · "),
+                })}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
