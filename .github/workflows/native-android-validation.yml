@@ -32,13 +32,18 @@ jobs:
       fail-fast: false
       matrix:
         api: ['34', '36']
-        target: ['google_apis', 'google_apis_playstore']
+        target: ['google_apis_playstore']
+        # new = the #1019 native shell; old = main's shell (today's Play binary:
+        # no <queries>, no DocumentUploadChromeClient). Same probe page for both,
+        # carrying both the old and the new web inputs.
+        shell: ['new', 'old']
 
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Enable KVM (hardware acceleration for the emulator)
         run: |
@@ -69,6 +74,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Use main's native shell (old-app compatibility cell)
+        if: matrix.shell == 'old'
+        run: |
+          git checkout origin/main -- android/app/src/main
+          git diff --stat HEAD -- android/app/src/main
+
       - name: Bundle the probe page and sync (no server.url)
         run: |
           cp scripts/native/file-chooser-probe.html capacitor/www/index.html
@@ -93,7 +104,7 @@ jobs:
       # Side-by-side device probe (il.co.promaxgroup.dubiz.probe, bundled page
       # only, no network origin). Uploaded once, from one matrix cell.
       - name: Upload probe APK
-        if: matrix.api == '36' && matrix.target == 'google_apis_playstore'
+        if: matrix.api == '36' && matrix.shell == 'new'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dubiz-file-chooser-probe-apk
@@ -104,7 +115,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: file-chooser-probe-api${{ matrix.api }}-${{ matrix.target }}
+          name: file-chooser-probe-api${{ matrix.api }}-${{ matrix.shell }}-shell
           path: |
             native-evidence/**
           if-no-files-found: warn

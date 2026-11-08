@@ -54,6 +54,9 @@ adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null; log "camera per
 printf '%%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%%%EOF\n' > /tmp/probe.pdf
 adb push /tmp/probe.pdf /sdcard/Download/probe.pdf >/dev/null 2>&1
 adb exec-out screencap -p > /tmp/probe.png 2>/dev/null && adb push /tmp/probe.png /sdcard/Download/probe.png >/dev/null 2>&1
+if command -v convert >/dev/null 2>&1; then convert -size 64x64 xc:teal /tmp/probe.jpg
+else echo '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==' | base64 -d > /tmp/probe.jpg; fi
+adb push /tmp/probe.jpg /sdcard/Download/probe.jpg >/dev/null 2>&1
 adb shell content call --method scan_volume --uri content://media --arg external_primary >/dev/null 2>&1 || true
 sleep 3
 
@@ -207,6 +210,17 @@ ensure_app; adb logcat -c; tap_ud; sleep 5
 log "top     : $(top)"; ui S8 >/dev/null
 tap_text S8 "probe.pdf" && log "picked  : probe.pdf"; sleep 4
 scenario_end S8
+
+# S9 — Documents upload (UD): pick a JPEG.
+log ""; log "== S9 upload picks a JPEG (UD) =="
+ensure_app; adb logcat -c; tap_ud; sleep 5
+log "top     : $(top)"; ui S9 >/dev/null; shot "S9-1-picker"
+if ! tap_text S9 "probe.jpg"; then
+  tap_text S9 "Show roots" || true; sleep 2; ui S9-roots >/dev/null
+  tap_text S9-roots "Downloads" && { sleep 3; ui S9-dl >/dev/null; tap_text S9-dl "probe.jpg"; }
+fi && log "picked  : probe.jpg" || log "picked  : (probe.jpg not reachable)"
+sleep 4
+scenario_end S9
 
 adb logcat -d > "$OUT/logcat-final.txt" 2>&1
 grep -qE "FATAL EXCEPTION|ANR in $PKG" "$OUT/logcat-final.txt" && log "!! crash/ANR seen" || log "no crash/ANR in final logcat window"
