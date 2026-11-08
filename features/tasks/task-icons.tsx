@@ -35,6 +35,7 @@ const KIND: Record<string, { icon: string; tone: string; label: MessageKey }> = 
   documents_queue: { icon: "doc", tone: s.domDoc, label: "tasks.icons.documentsQueue" },
   stock: { icon: "box", tone: s.domStock, label: "tasks.icons.stock" },
   quote_validity: { icon: "doc", tone: s.domDoc, label: "tasks.icons.quoteValidity" },
+  quote_followup: { icon: "doc", tone: s.domDoc, label: "tasks.icons.quoteFollowup" },
 };
 
 export function DomainIcon({ kind }: { kind: string }) {

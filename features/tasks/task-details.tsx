@@ -56,6 +56,7 @@ const SOURCE_HINT: Record<string, MessageKey> = {
   documents_queue: "tasks.details.sourceHint.documentsQueue",
   stock: "tasks.details.sourceHint.stock",
   quote_validity: "tasks.details.sourceHint.quoteValidity",
+  quote_followup: "tasks.details.sourceHint.quoteFollowup",
 };
 
 function sourceHint(kind: string, t: Translator): string {

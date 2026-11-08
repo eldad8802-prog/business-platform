@@ -102,3 +102,69 @@ export async function listSupplierOptions(): Promise<PickOption[]> {
   const data = await getJson<{ suppliers?: Array<{ id: number; name: string }> }>(`/api/inventory/suppliers?status=active&limit=200`);
   return (data.suppliers ?? []).map((s) => ({ id: s.id, name: s.name }));
 }
+
+// ---- ר1 quote share ------------------------------------------------------------------------------
+
+export type ShareEventKindWire = "DOWNLOADED" | "SHARE_SHEET_OPENED" | "MARKED_SENT" | "RESPONSE_ACCEPTED" | "RESPONSE_DECLINED" | "NOTE" | "CORRECTION";
+
+export type ShareableQuote = { id: number; number: string | null; customerName: string | null; total: string; currency: string; validUntil: string | null; convertedToInvoice: boolean; lastEvent: ShareEventKindWire | null };
+
+export type QuoteShareViewWire = {
+  quote: { id: number; number: string | null; customerName: string | null; total: string; currency: string; validUntil: string | null; convertedToInvoice: boolean; serviceDesk: boolean };
+  currentContentHash: string;
+  copies: { id: number; createdAt: string; contentCheckedAt: string; quoteNumber: string; total: string; currency: string; changedSince: boolean }[];
+  events: { id: number; kind: ShareEventKindWire; copyId: number | null; channel: string | null; note: string | null; correctsEventId: number | null; createdAt: string; corrected: boolean; olderVersion: boolean }[];
+  state: { response: "ACCEPTED" | "DECLINED" | null; sentAt: string | null; staleResponses: number };
+};
+
+/** A refusal from the server, with its Hebrew message when it sent one. */
+export class ShareRequestError extends DocsApiError {
+  constructor(status: number | null, public readonly code: string, message: string) {
+    super(status, message);
+    this.name = "ShareRequestError";
+  }
+}
+
+async function postJson<T>(url: string, body: unknown, timeoutMs = 60000): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { method: "POST", headers: { ...buildClientAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store", signal: controller.signal });
+    const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string; problems?: { message: string }[] } & T;
+    if (!res.ok) throw new ShareRequestError(res.status, data.error ?? "ERROR", data.message ?? data.problems?.[0]?.message ?? "הפעולה נכשלה. נסו שוב.");
+    return data as T;
+  } catch (e) {
+    if (e instanceof ShareRequestError) throw e;
+    throw new ShareRequestError(null, "NETWORK", "אין חיבור. נסו שוב.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function listShareableQuotes(): Promise<ShareableQuote[]> {
+  return (await getJson<{ quotes: ShareableQuote[] }>("/api/business-documents/quotes")).quotes ?? [];
+}
+
+export async function getQuoteShare(quoteId: number): Promise<QuoteShareViewWire> {
+  return getJson<QuoteShareViewWire>(`/api/business-documents/quotes/${quoteId}/share`);
+}
+
+/** A fresh server-issued key for one operation. A retry of the SAME action must reuse the key it got. */
+export async function issueKey(operation: "QUOTE_SHARE_COPY" | "QUOTE_SHARE_EVENT" | "LETTER_SAVE"): Promise<string> {
+  return (await postJson<{ idempotencyKey: string }>("/api/business-documents/requests", { operation }, 15000)).idempotencyKey;
+}
+
+export async function prepareShareCopy(quoteId: number, idempotencyKey: string): Promise<{ id: number }> {
+  return postJson<{ id: number }>(`/api/business-documents/quotes/${quoteId}/share/copies`, { idempotencyKey });
+}
+
+export async function recordShareEvent(quoteId: number, idempotencyKey: string, event: { kind: ShareEventKindWire; copyId?: number; channel?: string; note?: string; correctsEventId?: number }): Promise<{ id: number }> {
+  return postJson<{ id: number }>(`/api/business-documents/quotes/${quoteId}/share/events`, { idempotencyKey, ...event }, 15000);
+}
+
+/** The stored copy's bytes (private route; the browser never gets a storage URL). */
+export async function fetchCopyPdf(copyId: number): Promise<Blob> {
+  const res = await fetch(`/api/business-documents/quote-copies/${copyId}/pdf?download=1`, { headers: buildClientAuthHeaders(), cache: "no-store" });
+  if (!res.ok) throw new ShareRequestError(res.status, "FILE", "לא ניתן להוריד את הקובץ השמור.");
+  return res.blob();
+}

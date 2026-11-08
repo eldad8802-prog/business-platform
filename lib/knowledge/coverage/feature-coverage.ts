@@ -243,9 +243,9 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
   },
   {
     key: "business-documents", name: "Business documents (letters, quote follow-up, customer timeline)", coverage: "DORMANT",
-    reason: "ר1–ר3 (owner-approved 2026-11-05), behind business_documents (off by default). Letters are rendered on demand and stored nowhere; the customer timeline reads the existing billing list; the quote-validity reminder is a read-time Daily Tasks source. No table of its own yet (schema proposal awaiting owner approval), so nothing to learn from.",
+    reason: "ר1–ר3 (owner-approved 2026-11-05/06), behind business_documents (off by default for every business). Own tables since migration 20261114090000: stored quote share copies, the owner's append-only manual record (download / share sheet / marked sent / responses / corrections), saved letters, their stored files and idempotency keys. Dormant: nothing to learn from while the flag is off; the plan below starts after a pilot.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
-    models: [],
+    models: ["BusinessDocumentFile", "BusinessDocumentRequest", "QuoteShareCopy", "QuoteShareEvent", "BusinessLetter", "BusinessDocumentErasure"],
     sensors: [], legacyEvents: [], routes: ["api/business-documents", "page/business-documents"],
     target: { coverage: "LEARNS", plan: "After the approved schema: time from quote sent (marked by the owner) to response, and response rate — from the append-only share records." },
     outcome: { observableAction: true, observableOutcome: true, ownerDecisionRelevant: true, recommendationPotential: "LOW" },

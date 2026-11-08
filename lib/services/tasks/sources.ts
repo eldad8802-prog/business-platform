@@ -27,6 +27,7 @@ import { evaluateLeadAttention } from "@/lib/services/crm/lead-attention";
 import { OPEN_LEAD_STATUSES, endOfLeadDayUtc, type LeadStatusValue } from "@/lib/services/crm/lead-core";
 import { businessDocumentsEnabled } from "@/lib/services/business-documents/business-documents-access";
 import { selectQuoteValidityItems, windowEndInstant } from "@/lib/services/business-documents/quote-followup/quote-validity.core";
+import { quotesClosedByResponse, selectFollowUps } from "@/lib/services/business-documents/quote-share/quote-share-reminders";
 import { getBriefing } from "@/lib/services/obligations/obligation.service";
 import { obligationServiceDeps } from "@/lib/services/obligations/obligations.deps";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -186,7 +187,9 @@ export const quoteValidity: Adapter = async ({ businessId, today, t = HEBREW_TEX
     const owned = rows.length
       ? await tx.serviceQuote.findMany({ where: { businessId, billingDocumentId: { in: rows.map((r) => r.id) } }, select: { billingDocumentId: true } })
       : [];
-    return { rows, serviceOwned: new Set(owned.map((o) => o.billingDocumentId)) };
+    // The owner's own record: an in-force response on the current version closes the reminder (never a note or a "sent").
+    const closed = await quotesClosedByResponse(tx, businessId, rows.map((r) => r.id));
+    return { rows: rows.filter((r) => !closed.has(r.id)), serviceOwned: new Set(owned.map((o) => o.billingDocumentId)) };
   });
   const selected = selectQuoteValidityItems(rows, serviceOwned, today);
   const items: SourceItem[] = selected.slice(0, QUOTE_VALIDITY_CAP).map((q) => ({
@@ -206,6 +209,31 @@ export const quoteValidity: Adapter = async ({ businessId, today, t = HEBREW_TEX
     entity: { kind: "billing_document", id: q.id },
   }));
   return { items, capped: selected.length > QUOTE_VALIDITY_CAP || rows.length >= QUOTE_VALIDITY_CAP * 2 };
+};
+
+// ── S09 Quote follow-up (ר1) ──────────────────────────────────────────────────────────────────────
+
+const QUOTE_FOLLOWUP_CAP = 30;
+export const quoteFollowup: Adapter = async ({ businessId, today, t = HEBREW_TEXT }) => {
+  if (!(await businessDocumentsEnabled(businessId))) return { items: [], capped: false };
+  const { items: due, capped } = await tenantTx(businessId, (tx) => selectFollowUps(tx, businessId, today, QUOTE_FOLLOWUP_CAP));
+  const items: SourceItem[] = due.map((q) => ({
+    sourceKind: "quote_followup",
+    dedupeKey: `quote:${q.quoteId}:followup`,
+    // A newer "sent" is a new cycle: the count restarts from it.
+    cycleKey: `s${q.sentEventId}`,
+    evidenceVersion: `s${q.sentEventId}`,
+    placement: "BY_DATE",
+    dueOn: q.dueOn,
+    severity: "NORMAL",
+    title: t("system.tasks.quoteFollowup.title", { number: q.number ?? "" }).replace(/s+/g, " ").trim(),
+    fact: [q.customerName, t("system.tasks.quoteFollowup.sent", { date: shortDate(q.sentDay) })].filter(Boolean).join(" · "),
+    factAt: null,
+    action: { label: t("system.tasks.quoteFollowup.action"), href: `/business-documents/quotes/${q.quoteId}` },
+    snooze: "STATE",
+    entity: { kind: "billing_document", id: q.quoteId },
+  }));
+  return { items, capped };
 };
 
 // ── S13 / S14 Leads ──────────────────────────────────────────────────────────────────────────────
@@ -402,6 +430,7 @@ export const ADAPTERS: Readonly<Record<SourceKind, Adapter>> = {
   documents_queue: documentsQueue,
   stock,
   quote_validity: quoteValidity,
+  quote_followup: quoteFollowup,
 };
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {

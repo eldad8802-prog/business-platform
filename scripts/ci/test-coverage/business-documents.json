@@ -1,5 +1,5 @@
 {
-  "note": "Business documents ר1–ר3 (owner-approved 2026-11-05). Read/record-only additions outside the billing mechanism; every job re-runs the billing A0 characterization. The PG battery (.business-documents/battery.mts) is not a *.test.* file and runs in business-documents-ci.yml.",
+  "note": "Business documents ר1–ר3 (owner-approved 2026-11-05). Read/record-only additions outside the billing mechanism; every job re-runs the billing A0 characterization. The PG battery (.business-documents/battery.mts) is not a *.test.* file and runs in business-documents-ci.yml. ר1 records + services: .business-documents/records.battery.mts and .business-documents/service.battery.mts run in the records job (real migration, Production topology); .business-documents/r2.battery.mts runs only on workflow_dispatch against a dedicated R2 test bucket.",
   "tests": {
     "features/business-documents/customer-documents-model.test.ts": {
       "class": "PRODUCT_REQUIRED",
@@ -18,6 +18,16 @@
       "lab": "workflow",
       "workflow": "business-documents-ci.yml",
       "reason": "storage boundary of the private business-docs domain: create-once writes (exactly one of 25 concurrent writers creates; never a partial or mixed body), a plain overwrite refused in that domain while every existing domain keeps its behaviour, private visibility only, prefix listing confined to one business and one domain (bucket-wide, non-positive business, unknown domain and traversal prefixes refused); pure local adapter (no DB/network); run on pull_request by business-documents-ci.yml"
+    },
+    "lib/services/business-documents/quote-share/quote-share-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): ר1 — the owner's record (a note is never a response; corrected events drop out; a response on an older quote version decides nothing; S08 closes only on an in-force response; S09 due 3 Israel days after an in-force 'sent' with no response), quote content / render-input fingerprints (date and actor excluded, every rendered value included), event input validation, request-key shape and canonical request hashing; run on pull_request by business-documents-ci.yml"
+    },
+    "lib/tenant/tenant-tx-options.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "business-documents-ci.yml",
+      "reason": "tenant-transaction substrate: the optional isolationLevel added for business documents leaves every existing caller of tenantTx / withTenantTransaction exactly as before (Prisma receives the same options; the tenant GUC is still the first statement; both still refuse without a trusted tenant before any transaction); pure (Prisma $transaction recorded, no DB); the DB-level proof (READ COMMITTED by default) is in .business-documents/service.battery.mts; run on pull_request by business-documents-ci.yml"
     }
   }
 }
