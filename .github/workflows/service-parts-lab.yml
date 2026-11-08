@@ -1,12 +1,12 @@
 # Service Desk 1.2c / M2 / migration 20261115090000_service_parts — proof on PostgreSQL BEFORE it reaches Production
-# (ephemeral PG17). Migration-first PR-1: this PR ships the migration and its proof only (no schema.prisma models, no
-# application code).
+# (ephemeral PG17). PR-1 shipped the migration and its proof; PR-2 adds the schema.prisma models and the account-erasure
+# wiring (the purge calls service_parts_erase_business()) — no other application code.
 #
 # .sdp/lab.sh builds the 1.2b lab (1.2b applied by `migrate deploy`, as in Production since 2026-11-06), adds the
 # Production inventory RLS (wave 3, as-is) and leaves this migration as the only pending one.
 #
 #   0. Evidence files are SELECT-only, never touch the read-only boundary, pass the output guard; the proof pins
-#      migration.sql's sha256; the migration names only its own objects and the tables it builds on; no schema models.
+#      migration.sql's sha256; the migration names only its own objects and the tables it builds on.
 #   1. Baseline (pending): PREFLIGHT passes whole; the proof refuses; checks 1, 3, 4 and 15 are live.
 #   2. `prisma migrate deploy` applies it: proof 15/15; the preflight then fails exactly its "not there yet" checks.
 #   3. Faults: each injected defect is caught by the proof check meant for it.
@@ -19,7 +19,7 @@
 #      live, M0 reproduced in SQL — all pass, none pending.
 #   7. Regressions with M2 applied: the 1.2b battery (with its 1.2a regression) on the M2 database; the 1.2a foundation
 #      battery on the M2 database (only its structural 1.6 / 1.7 fail — exactly as on a 1.2b-only lab); the real
-#      account-erasure purge with M2 applied.
+#      account-erasure purge with M2 applied, and the M2 erasure itself through the real adapter (.sdp/erasure-battery.ts).
 #
 # The case-row lock rule (part guards take FOR UPDATE on the case, nothing takes FOR SHARE) is NOT a Production
 # evidence check: its SQL needs the words the evidence guard forbids. It is proven here instead — battery 1.6
@@ -40,6 +40,11 @@ on:
       - ".sdp/**"
       - ".github/workflows/service-parts-lab.yml"
       - "lib/services/service-desk/parts.*"
+      - ".sdf/**"
+      - ".sdx/**"
+      - "prisma/schema.prisma"
+      - "lib/services/account/account-deletion.prisma-store.ts"
+      - "lib/services/account/account-erasure-manifest.ts"
   workflow_dispatch:
 
 permissions:
@@ -85,7 +90,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: 0. Evidence files are SELECT-only; checksum pinned; the migration names only its own objects; no schema models
+      - name: 0. Evidence files are SELECT-only; checksum pinned; the migration names only its own objects
         run: |
           set -euo pipefail
           FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
@@ -112,8 +117,7 @@ jobs:
               echo "$n names a service parts object"; exit 1
             fi
           done
-          if grep -nE 'model ServicePart\b|model ServicePartEvent\b' prisma/schema.prisma; then echo "schema.prisma models M2 — PR-2's job, not PR-1's"; exit 1; fi
-          echo "the migration names only its own objects and the tables it builds on; no other migration names its objects; no schema models"
+          echo "the migration names only its own objects and the tables it builds on; no other migration names its objects"
 
       - name: 1. Baseline (pending) — PREFLIGHT passes whole; the proof refuses; checks 1, 3, 4 and 15 are live
         run: |
@@ -225,7 +229,7 @@ jobs:
             npx tsx .sdp/locks.ts | tee /tmp/locks.out
           grep -qE '^[0-9]+ passed, 0 failed, [0-9]+ info, 0 pending' /tmp/locks.out || { echo "locks failed or left checks pending"; exit 1; }
 
-      - name: 7. Regressions with M2 applied — 1.2b battery, 1.2a foundation battery, the real erasure purge
+      - name: 7. Regressions with M2 applied — 1.2b battery, 1.2a foundation battery, the real erasure purge, the M2 erasure
         run: |
           set -euo pipefail
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdp_post" \
@@ -249,6 +253,11 @@ jobs:
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdp_erase" \
           DATABASE_URL="$R" DIRECT_URL="$R" AUTH_DATABASE_URL="$R" AUTH_TOKEN_SECRET="sdp-ci-synthetic-auth-secret-0123456789abcdef" \
             npx tsx .sdf/erasure-battery.ts
+          # The M2 erasure through the real adapter, on the same database (its own businesses; the battery above restores
+          # every grant and name it touches).
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdp_erase" \
+          DATABASE_URL="$R" DIRECT_URL="$R" AUTH_DATABASE_URL="$R" AUTH_TOKEN_SECRET="sdp-ci-synthetic-auth-secret-0123456789abcdef" \
+            npx tsx .sdp/erasure-battery.ts
 
       - name: 8. Atomicity — the migration failing on its last statement leaves nothing of it behind
         run: |

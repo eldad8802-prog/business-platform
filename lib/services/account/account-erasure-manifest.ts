@@ -187,6 +187,8 @@ export const ANONYMIZE_MODELS = [
   // DB_FUNCTION_ERASURES below; the tables' guards refuse that change from the runtime itself.
   // Service Desk 1.2b (migration 20261113090000): erased in place by service_external_erase_business() — see
   // DB_FUNCTION_ERASURES below; same reason.
+  // Service Desk spare parts M2 (migration 20261115090000): erased in place by service_parts_erase_business() — see
+  // DB_FUNCTION_ERASURES below; same reason.
 
   // ── the conversation graph ────────────────────────────────────────────────
   //
@@ -400,6 +402,31 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
         cleared: ["actorUserId", "requestDigest", "digestKeyId", "reason"],
         kept: {
           payload: "a closed JSON object of short tokens and numbers (no free text by DB CHECK ServiceExternalWorkEvent_payload_closed)",
+          idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9:_#-]{8,200}$), not the person",
+        },
+      },
+    ],
+  },
+  // Service Desk spare parts M2. The account-deletion adapter calls it in the purge transaction, next to
+  // service_external_erase_business(). M2-3: only names typed by hand are personal; a name or sku copied from the
+  // business's own inventory item stays, with states, quantities, costs, prices, links and times.
+  {
+    fn: "service_parts_erase_business",
+    migration: "20261115090000_service_parts",
+    models: [
+      {
+        model: "ServicePart",
+        cleared: ["reason", "note", "createdByUserId"],
+        kept: {
+          nameSnapshot: "replaced by a fixed text when typed by hand (no inventory item); otherwise the inventory item's own name, not the person (M2-3)",
+          skuSnapshot: "cleared when typed by hand (no inventory item); otherwise the inventory item's own sku, not the person (M2-3)",
+        },
+      },
+      {
+        model: "ServicePartEvent",
+        cleared: ["actorUserId", "requestDigest", "digestKeyId", "reason"],
+        kept: {
+          payload: "a closed JSON object of short tokens and numbers (no free text by DB CHECK ServicePartEvent_payload_closed)",
           idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9:_#-]{8,200}$), not the person",
         },
       },
