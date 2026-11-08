@@ -1,7 +1,9 @@
 /**
  * Appointments milestone B — the demo / end-to-end fixtures, on the Production-shaped lab (.appt/lab.sh --with-appt).
- * Two synthetic businesses: A with `appointments` ON (a per-business override, the way a pilot is opened), B with it
- * OFF. A gets two staff members, weekly hours, three services, customers (one with an open lead) and this week's
+ * Three synthetic businesses: A with `appointments` ON by a per-business override (the pilot, as business 9 has it),
+ * B CLOSED by a platform admin (override DISABLED — still honoured after the calendar opened for every business,
+ * migration 20261121090000), and C with NO override at all (every other business: it follows the catalog default, ON
+ * once the opening is released; the open-all battery and the e2e prove it). A gets two staff members, weekly hours, three services, customers (one with an open lead) and this week's
  * appointments — all written through the REAL services AS app_runtime_prod (DATABASE_URL); only the business, users,
  * catalog, customers, lead and the flag override are owner fixtures. Writes the session tokens and ids to $SEED_OUT.
  *
@@ -27,7 +29,10 @@ async function main() {
   const bizB = (await owner.business.create({ data: { name: `${tag}-B` } })).id;
   const userA = (await owner.user.create({ data: { email: `${tag}-a@lab.test`, password: "x", businessId: bizA } })).id;
   const userB = (await owner.user.create({ data: { email: `${tag}-b@lab.test`, password: "x", businessId: bizB } })).id;
+  const bizC = (await owner.business.create({ data: { name: `${tag}-C` } })).id;
+  const userC = (await owner.user.create({ data: { email: `${tag}-c@lab.test`, password: "x", businessId: bizC } })).id;
   await owner.businessFeatureAccess.create({ data: { businessId: bizA, featureKey: "appointments", state: "ENABLED", reason: "lab demo" } });
+  await owner.businessFeatureAccess.create({ data: { businessId: bizB, featureKey: "appointments", state: "DISABLED", reason: "lab: closed by a platform admin" } });
 
   const svc = async (name: string, durationMinutes: number) =>
     (await owner.businessService.create({ data: { businessId: bizA, name, type: "SERVICE", durationMinutes } })).id;
@@ -114,11 +119,11 @@ async function main() {
 
   const out = {
     closedDay, partDay,
-    tokenA: signAuthToken(userA, 0), tokenB: signAuthToken(userB, 0), bizA, bizB, today,
+    tokenA: signAuthToken(userA, 0), tokenB: signAuthToken(userB, 0), tokenC: signAuthToken(userC, 0), bizA, bizB, bizC, today,
     staff: { shira, avi, dana }, services: { haircut, color, consult }, customers: { noa, yossi, maya, ron, daniel }, ids,
   };
   writeFileSync(process.env.SEED_OUT!, JSON.stringify(out, null, 2));
-  console.log(`seeded: business ${bizA} (appointments ON) and ${bizB} (OFF); today ${today}`);
+  console.log(`seeded: business ${bizA} (appointments ON, override), ${bizB} (closed, override DISABLED), ${bizC} (no override); today ${today}`);
 }
 
 main()

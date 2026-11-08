@@ -40,6 +40,11 @@ on:
       - ".appt/ui-*"
       - ".bkg/lab.sh"
       - ".appt/b-followups-battery.ts"
+      - ".appt/open-all-*"
+      - "prisma/migrations/20261121090000_appointments_open_all/**"
+      - "ops/evidence/appointments-open-all-*.sql"
+      - "lib/services/feature-access/**"
+      - "app/api/business/capabilities/**"
       - ".github/workflows/appointments-calendar-ci.yml"
   workflow_dispatch:
 
@@ -75,7 +80,7 @@ jobs:
           npx tsx lib/navigation/app-title-metadata.test.ts
           npx tsx components/customers/appointment-status-labels.test.ts
       - name: Lint the calendar and what it touches
-        run: npx eslint features/calendar "app/(shell)/calendar" "app/(shell)/secretary" components/customers features/tools lib/navigation .appt/ui-seed.ts .appt/ui-e2e.mts features/public-booking app/book .bkg/public-ui-e2e.mts
+        run: npx eslint features/calendar "app/(shell)/calendar" "app/(shell)/secretary" components/customers features/tools lib/navigation .appt/ui-seed.ts .appt/ui-e2e.mts .appt/open-all-battery.ts features/public-booking app/book .bkg/public-ui-e2e.mts
 
   e2e:
     name: calendar — the real app in a browser, desktop + phone (PG17 lab, appointments ON for one business)
@@ -113,6 +118,7 @@ jobs:
       RATE_LIMIT_BACKEND: memory
       OUT: /tmp/appt-ui
       SEED_OUT: /tmp/appt-ui-seed.json
+      OPEN_OUT: /tmp/appt-ui-open.json
       E2E_BASE: http://localhost:3700
       # The lab database (built in a step below); synthetic, the same values .appt/lab.sh uses.
       OWNER_URL: postgresql://lab_owner:appt_ci_synthetic_role_pw@localhost:5432/appt_ui?options=-c%20TimeZone%3DAsia%2FJerusalem
@@ -140,6 +146,15 @@ jobs:
 
       - name: Seed — through the real services AS the runtime role
         run: npx tsx .appt/ui-seed.ts
+
+      # Open for every business (owner decision 2026-11-08): the data migration released exactly as Production will run
+      # it — read-only preflight, `prisma migrate deploy` applying only 20261121090000, read-only proof (no override
+      # added or changed). Everything after this step runs on the released state, as Production will be.
+      - name: Release — appointments open for every business (preflight → migrate deploy → proof)
+        run: bash .appt/open-all-lab.sh appt_ui
+
+      - name: Open-all battery — existing + new business ON by default, overlap, isolation, DISABLED kept, external booking closed, the stops (runtime role, real routes)
+        run: npx tsx .appt/open-all-battery.ts
 
       # The follow-up API additions AS the runtime role: PATCH a catalog service, leads by customer, customer names on
       # the calendar — permissions, isolation between businesses, validation, regression, and a 400-appointment read.
