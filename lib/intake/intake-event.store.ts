@@ -37,6 +37,7 @@ import {
   type IntakeStage,
 } from "@/lib/intake/core/contract";
 import { isValidReceiptKey } from "@/lib/intake/core/event-identity";
+import { NOT_EXPIRED_WHERE, notExpiredSql } from "@/lib/intake/core/expired";
 import {
   oldest,
   RECOVERY_LAG_MS,
@@ -445,7 +446,8 @@ export async function intakeHealthCounts(businessId: number, now: Date = new Dat
     // a lock, never run long (both local to this transaction).
     await tx.$executeRaw`SELECT set_config('lock_timeout', ${String(HEALTH_LOCK_TIMEOUT_MS)}, true)`;
     await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(SIBLING_STATEMENT_TIMEOUT_MS)}, true)`;
-    const deadLetter = { businessId, status: "FAILED" as const, nextAttemptAt: null };
+    // L1.5-b · A1 — an expired receipt is archived, not a dead letter: never reported, never counted as open.
+    const deadLetter = { businessId, status: "FAILED" as const, nextAttemptAt: null, ...NOT_EXPIRED_WHERE };
     // L1.5-b · PR-5 — both stamps are bounded (HEALTH_STAMP_BATCH per run, oldest first): an unbounded stamp over a
     // large backlog outgrew the transaction timeout, rolled back, and failed again on every run. Each receipt is still
     // reported exactly once; a big backlog is reported over a few runs (the run stays red until it is all reported).
@@ -455,6 +457,7 @@ export async function intakeHealthCounts(businessId: number, now: Date = new Dat
        WHERE "id" IN (
                SELECT d."id" FROM "IntakeEvent" d
                 WHERE d."businessId" = ${businessId}::int AND d."status" = 'FAILED' AND d."nextAttemptAt" IS NULL
+                  AND ${notExpiredSql("d")}
                   AND (d."metadata" -> 'deadLetterReportedAt') IS NULL
                 ORDER BY d."id"
                 LIMIT ${HEALTH_STAMP_BATCH}::int
@@ -516,6 +519,9 @@ export async function purgeExpiredFailedPayloads(
         nextAttemptAt: null,
         lastAttemptAt: { lt: cutoff },
         payloadPurgedAt: null,
+        // L1.5-b · A1 — an EXPIRED receipt keeps its payload: the dead-letter retention never deletes it. Deleting an
+        // expired payload is a separate, explicitly approved retention / privacy decision (no such mechanism exists).
+        ...NOT_EXPIRED_WHERE,
       },
       data: { payload: Prisma.DbNull, payloadPurgedAt: now },
     });
@@ -762,6 +768,7 @@ export async function intakeBacklog(
          WHERE e."businessId" = ${businessId}::int
            AND e."status" IN ('RECEIVED', 'PERSISTED', 'FAILED')
            AND (e."status" <> 'FAILED' OR e."nextAttemptAt" IS NOT NULL OR e."payloadPurgedAt" IS NULL)
+           AND (e."status" <> 'FAILED' OR e."nextAttemptAt" IS NOT NULL OR ${notExpiredSql("e")})
          LIMIT ${cap + 1}::int
       ), c AS (
         SELECT "sourceKey", "providerAccountRef", "receivedAt",
