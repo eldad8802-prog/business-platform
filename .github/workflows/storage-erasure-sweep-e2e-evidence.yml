@@ -97,6 +97,8 @@ jobs:
         run: |
           set -euo pipefail
           bash .business-documents/lab.sh e2e --with-bd
+          # document_supplier_link_erase_business(): recorded, not run, in this lab chain; taken verbatim from its migration.
+          bash .sdf/erasure-prereq.sh e2e
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/e2e"
           STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/e2e-store" BILLING_PDF_STORAGE_ROOT="$RUNNER_TEMP/e2e-store/legacy" \
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/e2e" \
