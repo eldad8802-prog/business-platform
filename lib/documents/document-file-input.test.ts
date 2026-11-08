@@ -3,7 +3,7 @@
  * Run: npx tsx lib/documents/document-file-input.test.ts
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   DOCUMENT_CAMERA_ACCEPT,
@@ -22,12 +22,38 @@ function main() {
   assert.equal(DOCUMENT_CAMERA_CAPTURE, "environment", "camera uses the rear camera");
 
   const uploadTypes = DOCUMENT_UPLOAD_ACCEPT.split(",");
+  const EXT_MIME: Record<string, string> = { ".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png" };
   for (const t of uploadTypes) {
     assert.equal(t, t.trim(), `no whitespace around accept entry "${t}"`);
-    assert.ok(isAllowedDocumentMime(t), `upload accept entry ${t} is accepted by the server`);
+    const mime = t.startsWith(".") ? EXT_MIME[t] : t;
+    assert.ok(mime, `extension ${t} maps to a known type`);
+    assert.ok(isAllowedDocumentMime(mime), `upload accept entry ${t} (${mime}) is accepted by the server`);
   }
   assert.equal(uploadTypes[0], "application/pdf", "PDF first → WebView GET_CONTENT type is not an image");
   assert.ok(uploadTypes.includes("image/jpeg") && uploadTypes.includes("image/png"), "images stay selectable");
+
+  // The upload string is the Android shell's signature for this one input: no
+  // other screen may carry it, and Settings' documents import must not.
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(tsx|ts)$/.test(name) && !/\.test\.ts$/.test(name)) files.push(full);
+    }
+  };
+  walk(join(process.cwd(), "app"));
+  walk(join(process.cwd(), "components"));
+  const users = files
+    .filter((f) => readFileSync(f, "utf8").includes("DOCUMENT_UPLOAD_ACCEPT"))
+    .map((f) => f.slice(process.cwd().length + 1).replace(/\\/g, "/"))
+    .sort();
+  assert.deepEqual(users, ["app/(shell)/documents/page.tsx", "app/(shell)/documents/upload/page.tsx"], "only the two Documents screens use the upload signature");
+  for (const f of files) {
+    assert.ok(!readFileSync(f, "utf8").includes(DOCUMENT_UPLOAD_ACCEPT), `${f}: hard-coded copy of the upload signature`);
+  }
+  const importSrc = readFileSync(join(process.cwd(), "components/settings/import-export/DocumentsImportScreen.tsx"), "utf8");
+  assert.ok(importSrc.includes('accept="application/pdf,image/jpeg,image/png"'), "Settings import keeps its own (non-signature) accept");
 
   // Every Documents screen with an upload + camera pair uses the shared
   // constants — a hard-coded accept list is how the camera regressed.
