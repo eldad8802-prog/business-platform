@@ -13,8 +13,13 @@
  *       the booking settings (the dead-end warning), the text limits, the Secretary (a date link opens that date),
  *       the customer card, "+", and the phone / small phone / tablet (a real time grid, sheets, back closes a sheet,
  *       nothing covered, no sideways scroll).
- *   OFF (business B, no override): every screen says the calendar is not active, the API answers 404, the
- *       navigation, the Secretary and the customer card show nothing of it, and B cannot read A.
+ *   CLOSED (business B, override DISABLED — a platform admin closed it; still honoured after the calendar opened for
+ *       every business, migration 20261115100000): every screen says the calendar is not active, the API answers
+ *       404, the navigation, the Secretary and the customer card show nothing of it, and B cannot read A.
+ *   OPEN FOR EVERYONE (business C, existing, no override; business D, signed up after the release through the real
+ *       signup — $OPEN_OUT from .appt/open-all-battery.ts): on the phone (the width the Android app shows) "+" offers
+ *       קביעת תור, ניהול העסק lists יומן ותורים, the Secretary has its תורים היום card, the calendar opens; on the
+ *       desktop the sidebar lists it; external booking stays OFF.
  *
  * Every step leaves a screenshot in $OUT; the result table goes to $OUT/report.md. Exit 1 on any failed check.
  * env: E2E_BASE, SEED_OUT, OUT. Synthetic only — ZERO secrets, ZERO network beyond localhost.
@@ -655,8 +660,8 @@ async function main() {
     await sc.close();
   }
 
-  // ── Business B, appointments OFF ──────────────────────────────────────────────────────────────
-  console.log("desktop · appointments OFF (business B)");
+  // ── Business B, appointments closed by a platform admin (override DISABLED) ───────────────────────
+  console.log("desktop · appointments closed for business B (override DISABLED)");
   const oc = await ctx(browser, seed.tokenB, DESKTOP);
   const o = await oc.newPage();
   current = o;
@@ -681,6 +686,59 @@ async function main() {
   });
   await check("O5 OFF: business B cannot read business A's appointment", async () => (await api(seed.tokenB, `/api/appointments/${seed.ids.todayNoa}`)).status === 404);
   await oc.close();
+
+  // ── Open for every business: no override at all (C existing, D signed up after the release) ─────────
+  const opened = process.env.OPEN_OUT ? JSON.parse(readFileSync(process.env.OPEN_OUT, "utf8")) as { tokenD: string } : null;
+  for (const [who, token] of [["C", seed.tokenC as string], ...(opened ? [["D", opened.tokenD] as const] : [])] as const) {
+    console.log(`phone · open for every business (business ${who}, no override)`);
+    const nc = await ctx(browser, token, PHONE);
+    const np = await nc.newPage();
+    current = np;
+    const lower = who.toLowerCase();
+    await check(`N1 ${who}: capabilities — appointments ON by default, external booking OFF`, async () => {
+      const f = (await api(token, "/api/business/capabilities")).body?.features ?? {};
+      if (f.appointments?.allowed !== true || f.appointments?.reasonCode !== "CATALOG_DEFAULT" || f.public_booking?.allowed !== false) throw new Error(JSON.stringify({ a: f.appointments, p: f.public_booking }));
+    });
+    await check(`N2 ${who}: the phone's "+" offers קביעת תור`, async () => {
+      await np.goto("/secretary");
+      await np.getByRole("button", { name: "פעולה חדשה" }).first().click();
+      await np.getByText("קביעת תור", { exact: true }).last().waitFor({ timeout: 15_000 });
+      await shot(np, `n01-${lower}-phone-plus`);
+      await np.keyboard.press("Escape");
+    });
+    await check(`N3 ${who}: the Secretary shows its תורים היום card`, async () => {
+      await np.goto("/secretary");
+      await seen(np, "תורים היום");
+      await shot(np, `n02-${lower}-phone-secretary`);
+    });
+    await check(`N4 ${who}: ניהול העסק lists יומן ותורים and it leads to the calendar`, async () => {
+      await np.goto("/tools/operations");
+      const link = np.getByRole("link", { name: /יומן ותורים/ }).first();
+      await link.waitFor({ timeout: 20_000 });
+      await shot(np, `n03-${lower}-phone-tools`);
+      await link.click();
+      await np.waitForURL(/\/calendar/, { timeout: 20_000 });
+    });
+    await check(`N5 ${who}: the calendar opens (not the "not active" screen), fits the phone`, async () => {
+      await np.goto("/calendar");
+      await np.getByRole("tab", { name: "יום", exact: true }).waitFor({ timeout: 25_000 });
+      await np.locator("main").getByRole("button", { name: "קביעת תור" }).first().waitFor({ timeout: 10_000 });
+      if (await np.getByText("היומן עדיין לא פעיל לעסק שלך").count()) throw new Error("the calendar says it is not active");
+      await noSideScroll(np, PHONE.width);
+      await shot(np, `n04-${lower}-phone-calendar`);
+    });
+    await nc.close();
+  }
+  console.log("desktop · open for every business (business C)");
+  const dcC = await ctx(browser, seed.tokenC, DESKTOP);
+  const dpC = await dcC.newPage();
+  current = dpC;
+  await check("N6 C: the desktop sidebar lists יומן ותורים", async () => {
+    await dpC.goto("/secretary");
+    await dpC.getByRole("link", { name: "יומן ותורים" }).first().waitFor({ timeout: 20_000 });
+    await shot(dpC, "n05-c-desktop-sidebar");
+  });
+  await dcC.close();
 
   await browser.close();
   const failed = rows.filter((r) => !r.ok);

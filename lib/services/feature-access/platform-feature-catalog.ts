@@ -291,15 +291,18 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       defaultEnabled: false,
       mutable: true,
     },
-    // Appointments, milestone A (migration 20261029090000). OFF by default, like every new feature: with no policy row
-    // the resolver falls back to this default, so a deploy that reaches Production before the migration cannot switch
-    // the calendar on. It gates the new owner routes only; the appointment paths that predate it are not gated.
+    // Appointments, milestone A (migration 20261029090000) — OPEN FOR EVERY BUSINESS since the owner decision of
+    // 2026-11-08 (migration 20261115100000_appointments_open_all switched the definition and the policy ON first; this
+    // default is what then opens it for every existing and new business — the resolver falls back to it when a business
+    // has no override). A platform admin can still close it per business (override DISABLED, MFA, audited), and the
+    // policy's emergency switch closes it for all. External booking (public_booking) stays a separate, closed feature.
+    // It gates the new owner routes only; the appointment paths that predate it are not gated.
     {
       key: PLATFORM_FEATURE_KEYS.APPOINTMENTS,
       displayName: "יומן ותורים",
       category: "scheduling",
-      description: "יומן, תורים, עובדים וזמינות לבעל העסק — כבוי כברירת מחדל",
-      defaultEnabled: false,
+      description: "יומן, תורים, עובדים וזמינות לבעל העסק — פתוח לכל העסקים",
+      defaultEnabled: true,
       mutable: true,
     },
     // External booking (Milestone C). Seeded OFF with the foundation. Read by every public booking door (with
