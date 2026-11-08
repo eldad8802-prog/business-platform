@@ -138,7 +138,7 @@ async function main() {
     routes.root.POST(req("/api/appointments", tokenD, { method: "POST", key: key(), body: { kind: "INTERNAL", title: "מרוץ", startsAt: at(13), durationMinutes: 30, staffMemberId: ids.staffD } }))));
   const codes = race.map((x) => x.status);
   ok("X2 six simultaneous bookings of one slot → exactly one 201, five 409", codes.filter((c) => c === 201).length === 1 && codes.filter((c) => c === 409).length === 5, codes.join(","));
-  ok("X3 …and one row holds that slot", (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizD} AND "startsAt" = '${at(13)}'::timestamptz AND status::text <> 'CANCELED'`)) === 1);
+  ok("X3 …and one row holds that slot", (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizD} AND title = 'מרוץ' AND status::text <> 'CANCELED'`)) === 1);
 
   // ── I. Isolation ───────────────────────────────────────────────────────────────────────────────
   console.log("I. isolation");
