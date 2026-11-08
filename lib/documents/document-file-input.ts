@@ -11,6 +11,9 @@
  * (BridgeWebChromeClient.onShowFileChooser) only opens the camera when the
  * accept list contains the exact token "image/*"; with "image/jpeg,image/png"
  * it ignored `capture` and opened ACTION_GET_CONTENT image/jpeg — the gallery.
+ * Necessary but not sufficient: on Android 11+ the shell also needs a manifest
+ * <queries> entry for IMAGE_CAPTURE, or resolveActivity() returns null and it
+ * falls back to the photo picker (emulator probe, runs 42527941980/42529183894).
  * Camera apps return JPEG, and the server still validates type and bytes.
  *
  * No spaces after commas: WebView splits `accept` on "," without trimming.
