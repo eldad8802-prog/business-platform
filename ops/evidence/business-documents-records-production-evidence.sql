@@ -14,7 +14,7 @@
 --   * nineteen triggers on the six tables, all enabled; no trigger on a billing table calls any of these functions;
 --   * no row in the six tables (nothing writes them before the application release);
 --   * the business_documents flag: defaultEnabled false, globalEnabled false, no business override;
---   * the billing catalog fingerprint equals check 13 of the preflight run (nothing of billing moved).
+--   * the billing catalog fingerprint equals check 15 of the preflight run (nothing of billing moved).
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -36,7 +36,7 @@
 \echo '13 rows in the six tables (want 0 until the application release)'
 \echo '14 flag business_documents: definition off, policy off, no business override'
 \echo '15 the ledger checksum is the reviewed migration.sql (sha256 pinned below)'
-\echo '16 billing catalog fingerprint (INFO: must equal check 13 of the preflight run)'
+\echo '16 billing catalog fingerprint (INFO: must equal check 15 of the preflight run)'
 
 WITH t AS (
   SELECT c.oid, c.relname, c.relacl, c.relowner FROM pg_class c
