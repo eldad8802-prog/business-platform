@@ -324,7 +324,18 @@ async function main() {
   await check("there is ONE part walk, shared by discovery and import", () => {
     assert.equal(discoveryCode.includes("collectAttachmentParts("), true);
     assert.equal(/function collectAttachments\b/.test(discoveryCode), false);
-    assert.equal(metaCode.includes("findAttachmentPart("), true);
+    // Import resolves through the shared module: findAttachmentPart directly, or
+    // resolveAttachmentInMessage (2026-11-08), which lives in the same module and
+    // must itself go through findAttachmentPart + collectAttachmentParts.
+    assert.equal(
+      metaCode.includes("findAttachmentPart(") || metaCode.includes("resolveAttachmentInMessage("),
+      true
+    );
+    assert.equal(/function (collect|find)\w*Part/.test(metaCode), false, "no private part walk in the metadata service");
+    const partsCode = stripComments(readSource("lib/services/integrations/gmail/gmail-message-parts.ts"));
+    const resolveBody = partsCode.slice(partsCode.indexOf("export function resolveAttachmentInMessage("));
+    assert.equal(resolveBody.includes("findAttachmentPart("), true);
+    assert.equal(resolveBody.includes("collectAttachmentParts("), true);
   });
 
   /* ============ 3. one document per file, across every door ============= */

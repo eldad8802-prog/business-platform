@@ -35,8 +35,8 @@ function legacyLoop(
   fromEmail: string | null,
   subject: string | null,
   sentAt: string | null
-): GmailAttachmentMetadata[] {
-  const attachments: GmailAttachmentMetadata[] = [];
+): Omit<GmailAttachmentMetadata, "partId">[] {
+  const attachments: Omit<GmailAttachmentMetadata, "partId">[] = [];
   for (const p of parts) {
     const attachmentId = p.body?.attachmentId;
     if (!attachmentId) continue;
@@ -74,6 +74,7 @@ let n = 0;
 for (const mimeType of MIMES) for (const filename of NAMES) for (const size of SIZES) for (const attachmentId of IDS) {
   n += 1;
   const leaf: GmailMessagePart = {
+    partId: n % 5 ? "1" : undefined,
     mimeType: mimeType as string,
     filename: filename as string,
     body: { attachmentId: attachmentId ? `${attachmentId}-${n}` : (attachmentId as string), size: size as number },
@@ -84,14 +85,19 @@ for (const mimeType of MIMES) for (const filename of NAMES) for (const size of S
     parts: [
       { mimeType: "text/plain", filename: "", body: { size: 10 } },
       leaf,
-      { mimeType: "multipart/related", parts: [{ mimeType: "application/pdf", filename: "nested.pdf", body: { attachmentId: `nested-${n}`, size: 50_000 } }] },
+      { mimeType: "multipart/related", parts: [{ partId: "2.0", mimeType: "application/pdf", filename: "nested.pdf", body: { attachmentId: `nested-${n}`, size: 50_000 } }] },
     ],
   } as unknown as GmailMessagePart;
   const parts = collectAttachmentParts(payload);
   const meta = { messageId: `m-${n}`, fromEmail: n % 2 ? "a@b.example" : null, subject: n % 3 ? "Invoice" : null, sentAt: null };
   const legacy = legacyLoop(parts, meta.messageId, meta.fromEmail, meta.subject, meta.sentAt);
   const now = classifyAttachmentParts(parts, meta);
-  assert.deepEqual(now.attachments, legacy, `fixture ${n}: kept set differs`);
+  // partId is an added field (2026-11-08 import fix); everything else is the legacy result.
+  assert.deepEqual(now.attachments.map((a) => { const rest: Partial<GmailAttachmentMetadata> = { ...a }; delete rest.partId; return rest; }), legacy, `fixture ${n}: kept set differs`);
+  for (const a of now.attachments) {
+    const src = parts.find((p) => p.body?.attachmentId === a.attachmentId);
+    assert.equal(a.partId, src?.partId ?? null, `fixture ${n}: partId carried from its own part`);
+  }
   const withId = parts.filter((p) => p.body?.attachmentId).length;
   assert.equal(now.attachmentParts, withId, `fixture ${n}: attachmentParts`);
   assert.equal(now.attachments.length, now.attachmentParts - now.unsupportedType, `fixture ${n}: kept = parts - unsupported`);

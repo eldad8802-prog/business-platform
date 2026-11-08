@@ -104,6 +104,25 @@ function emptyMessage(
   }
 }
 
+// A failed import names the file and the reason in plain Hebrew. The server's
+// message is already a translated sentence (file too large, unsupported type,
+// content check); the "not found in the message" code gets its own guidance,
+// and a network/unknown failure a generic retry line.
+function importFailureMessage(
+  t: Translator,
+  attachment: ScoredAttachment,
+  data: { error?: unknown; code?: unknown } | null
+): string {
+  const file = attachment.filename || t("documents.email.untitled");
+  const reason =
+    data?.code === "ATTACHMENT_NOT_IN_MESSAGE"
+      ? t("documents.email.errImportNotFound")
+      : typeof data?.error === "string" && data.error
+        ? data.error
+        : t("documents.email.errImportGeneric");
+  return t("documents.email.errImportFile", { file, reason });
+}
+
 function attachmentStatusLabel(t: Translator, status: EmailAttachmentUiStatus): string {
   return status === "imported"
     ? t("documents.email.statusImported")
@@ -349,6 +368,7 @@ export default function EmailDocumentsPage() {
           fromEmail: attachment.fromEmail,
           subject: attachment.subject,
           sentAt: attachment.sentAt,
+          partId: attachment.partId ?? null,
           ...(selectedConnectionId != null ? { connectionId: selectedConnectionId } : {}),
         }),
       });
@@ -366,9 +386,13 @@ export default function EmailDocumentsPage() {
             ? "duplicate"
             : "imported";
       setStatusByKey((current) => ({ ...current, [attachment.key]: status }));
+      if (status === "failed") {
+        setError(importFailureMessage(t, attachment, data));
+      }
       return status === "imported";
     } catch {
       setStatusByKey((current) => ({ ...current, [attachment.key]: "failed" }));
+      setError(importFailureMessage(t, attachment, null));
       return false;
     }
   }

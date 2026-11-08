@@ -14,6 +14,8 @@ export type GmailDiscoveryAttachment = {
   fromEmail: string | null;
   subject: string | null;
   sentAt: string | null;
+  /** Passed back to import; not used by scoring. Absent from older servers. */
+  partId?: string | null;
 };
 
 export type EmailAttachmentBucket = "recommended" | "possible" | "hidden";
