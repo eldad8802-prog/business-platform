@@ -38,6 +38,8 @@ export type GmailAttachmentMetadata = {
   fromEmail: string | null;
   subject: string | null;
   sentAt: string | null; // ISO string
+  /** The part's position in the message tree; lets import re-find it. */
+  partId: string | null;
 };
 
 type GmailMessageListResponse = {
@@ -145,6 +147,7 @@ export function classifyAttachmentParts(
       fromEmail: meta.fromEmail,
       subject: meta.subject,
       sentAt: meta.sentAt,
+      partId: p.partId ? String(p.partId) : null,
     });
   }
 
