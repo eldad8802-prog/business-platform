@@ -8608,4 +8608,109 @@ model BusinessDocumentErasure {
   state       BusinessDocumentErasureState @default(PURGING_OBJECTS)
   startedAt   DateTime                     @default(now()) @db.Timestamptz(3)
   completedAt DateTime?                    @db.Timestamptz(3)
+
+// ─── Service Desk — work at an external supplier 1.2b ───────────────────────────────────────────────────────
+// Tables, checks, triggers, RLS and grants are built by migration 20261113090000_service_external_work (PR-1).
+// References to existing models are scalar on purpose (composite tenant FKs live in the migration); no existing model
+// gains a field. CHECKs, the two partial unique indexes (one open work per case / per device) and the triggers are
+// not expressible here.
+
+enum ServiceExternalWorkState {
+  AT_SUPPLIER
+  RETURNED
+}
+
+// Declaration order IS the forward order (the migration's guard compares them).
+enum ServiceExternalProgress {
+  SENT
+  RECEIVED_BY_SUPPLIER
+  AWAITING_DIAGNOSIS
+  ESTIMATE_RECEIVED
+  IN_REPAIR_AT_SUPPLIER
+  REPAIR_DONE
+  READY_FOR_PICKUP
+}
+
+enum ServiceExternalReturnResult {
+  REPAIRED
+  NOT_REPAIRED
+  REPLACED_BY_SUPPLIER
+  RETURNED_UNWORKED
+}
+
+enum ServiceExternalWorkEventKind {
+  SENT
+  PROGRESS
+  EXPECTED_BACK_CHANGED
+  COST_ESTIMATED
+  COST_APPROVED
+  COST_FINAL
+  COST_FINAL_CORRECTED
+  RETURNED
+}
+
+model ServiceExternalWork {
+  id                      Int                          @id @default(autoincrement())
+  businessId              Int
+  caseId                  Int
+  round                   Int
+  supplierId              Int
+  deviceId                Int? // copied from the case by the insert trigger; fixed for the life of the row
+  state                   ServiceExternalWorkState     @default(AT_SUPPLIER)
+  progressStage           ServiceExternalProgress      @default(SENT)
+  lastEventKind           ServiceExternalWorkEventKind @default(SENT)
+  version                 Int                          @default(1)
+  sentAt                  DateTime                     @default(now())
+  sentByUserId            Int?
+  sendReason              String?
+  requestedWork           String?
+  conditionAtSend         String?
+  operationalNote         String?
+  supplierReference       String?
+  expectedBackOn          DateTime?                    @db.Date
+  estimatedCostAgorot     Int?
+  approvedCostAgorot      Int?
+  finalCostAgorot         Int?
+  currency                String                       @default("ILS")
+  returnedAt              DateTime?
+  returnedByUserId        Int?
+  returnResult            ServiceExternalReturnResult?
+  workPerformed           String?
+  unresolvedIssue         String?
+  followUpRequired        Boolean                      @default(false)
+  receivedByStaffMemberId Int?
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @default(now()) @updatedAt
+  erasedAt                DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, round])
+  @@index([businessId, supplierId])
+  @@index([businessId, state])
+}
+
+model ServiceExternalWorkEvent {
+  id                   Int                          @id @default(autoincrement())
+  businessId           Int
+  workId               Int
+  caseId               Int
+  seq                  Int
+  kind                 ServiceExternalWorkEventKind
+  progressStage        ServiceExternalProgress
+  amountAgorot         Int?
+  previousAmountAgorot Int?
+  expectedBackOn       DateTime?                    @db.Date
+  reason               String? // COST_FINAL_CORRECTED only (CHECK); cleared by service_external_erase_business()
+  actor                ServiceActor
+  actorUserId          Int?
+  occurredAt           DateTime                     @default(now())
+  payload              Json                         @default("{}")
+  idempotencyKey       String
+  requestDigest        String?
+  digestKeyId          String?
+  erasedAt             DateTime?
+
+  @@unique([businessId, workId, seq])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, occurredAt])
 }
