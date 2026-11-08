@@ -1,0 +1,105 @@
+# EVIDENCE ONLY — branch evidence/storage-erasure-sweep-e2e (main + #1013 + #1014 + #1017), never merged.
+#
+# The shared account storage erasure sweep route (#1017) driving BOTH modules of ACCOUNT_STORAGE_ERASURES —
+# business documents (#1007, on main) and Service Desk (#1014) — end to end, on a clean runner with a freshly generated
+# Prisma client, on a database where every migration is really applied (.business-documents/lab.sh --with-bd), as the
+# runtime role, with real local storage. Plus, on the same tree: the route's pure test, the cron authority registry
+# test, billing A0 golden, the billing protected-paths report, m1 payment suites and the owner gate.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network beyond package installs.
+
+name: storage erasure sweep — E2E evidence (both modules, fresh client, PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".sweep-e2e/**"
+      - ".github/workflows/storage-erasure-sweep-e2e-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: sweep route E2E — business documents + Service Desk (PG17, runtime role, real migrations)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: e2e_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: e2e_ci_synthetic_super_pw
+      LAB_PASSWORD: e2e_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: e2e_ci_auth_secret_synthetic_0123456789
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Fresh Prisma client — both modules' delegates exist
+        run: |
+          set -euo pipefail
+          npx prisma generate >/dev/null
+          node -e 'const {PrismaClient}=require("@prisma/client");const p=new PrismaClient();for(const k of ["businessDocumentErasure","serviceStorageErasure"]){if(typeof p[k]!=="object"){console.error("missing delegate "+k);process.exit(1)}}console.log("client OK")'
+
+      - name: Pure — route, cron authority registry, owner gate, billing A0, protected-paths report
+        run: |
+          set -euo pipefail
+          npx tsx app/api/account/storage-erasure-sweep/route.test.ts
+          npx tsx lib/services/billing/settlement/settlement-recovery-auth.test.ts
+          npx tsx lib/services/feature-access/owner-gated-features.test.ts
+          npx tsx .billing-a0/golden.test.ts
+          node scripts/ci/billing-protected-paths-guard.mjs --self-test
+          # Reporting only: the one protected file this tree changes must be the cron registry test, nothing else.
+          set +e
+          node scripts/ci/billing-protected-paths-guard.mjs --base origin/main | tee /tmp/g.out
+          set -e
+          test "$(grep -c '^FAIL: G' /tmp/g.out)" = "1" && grep -q '^FAIL: G1 M lib/services/billing/settlement/settlement-recovery-auth.test.ts$' /tmp/g.out \
+            || { echo "the protected-paths report is not exactly the cron registry test"; exit 1; }
+          echo "protected-paths: exactly the approved file (settlement-recovery-auth.test.ts)"
+
+      - name: m1 — every payments test file
+        run: |
+          set -uo pipefail
+          total=0; failed=0
+          for f in $(ls lib/services/payments/*.test.ts lib/services/payments/providers/*/*.test.ts | sort); do
+            total=$((total+1)); npx tsx "$f" > out.log 2>&1 || { failed=$((failed+1)); echo "::error::FAIL $f"; tail -30 out.log; }
+          done
+          echo "payments test files: $total run, $failed failed"; [ "$failed" -eq 0 ]
+
+      - name: E2E — the route over both modules, every migration applied, the runtime role
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh e2e --with-bd
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/e2e"
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/e2e-store" BILLING_PDF_STORAGE_ROOT="$RUNNER_TEMP/e2e-store/legacy" \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/e2e" \
+          DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$R" \
+            npx tsx .sweep-e2e/full.ts | tee /tmp/e2e.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/e2e.out || { echo "E2E not green"; exit 1; }
