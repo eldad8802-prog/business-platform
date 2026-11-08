@@ -64,6 +64,8 @@ function formatSentAt(raw: string | null, locale: Locale = DEFAULT_LOCALE): stri
   return date.toLocaleDateString(intlTag(locale), { day: "numeric", month: "numeric" });
 }
 
+// Only called for rows that are no longer pending — a pending row shows its
+// import button instead (every visible bucket is importable, as before 06-22).
 function attachmentStatusLabel(t: Translator, status: EmailAttachmentUiStatus): string {
   return status === "imported"
     ? t("documents.email.statusImported")
@@ -73,7 +75,7 @@ function attachmentStatusLabel(t: Translator, status: EmailAttachmentUiStatus): 
         ? t("documents.email.statusImporting")
         : status === "failed"
           ? t("documents.email.statusFailed")
-          : t("documents.email.statusNotDocument");
+          : "";
 }
 
 export default function EmailDocumentsPage() {
@@ -88,6 +90,7 @@ export default function EmailDocumentsPage() {
   const [selectedConnectionId, setSelectedConnectionId] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<GmailDiscoveryAttachment[]>([]);
   const [statusByKey, setStatusByKey] = useState<Record<string, EmailAttachmentUiStatus>>({});
+  const [selectedKeys, setSelectedKeys] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
@@ -170,6 +173,35 @@ export default function EmailDocumentsPage() {
       ),
     [statusByKey, visible]
   );
+  // Owner's own pick across BOTH visible buckets ("recommended" and "possible").
+  const selectedImportable = useMemo(
+    () =>
+      visible.filter(
+        (attachment) =>
+          selectedKeys[attachment.key] &&
+          (statusByKey[attachment.key] || "pending") === "pending"
+      ),
+    [selectedKeys, statusByKey, visible]
+  );
+  const recommendedCount = visible.filter((a) => a.bucket === "recommended").length;
+  const possibleCount = visible.length - recommendedCount;
+  const selectableKeys = visible
+    .filter((a) => (statusByKey[a.key] || "pending") === "pending")
+    .map((a) => a.key);
+  const allSelected =
+    selectableKeys.length > 0 && selectableKeys.every((key) => selectedKeys[key]);
+
+  function toggleOne(key: string, value: boolean) {
+    setSelectedKeys((current) => ({ ...current, [key]: value }));
+  }
+
+  function toggleAll() {
+    setSelectedKeys((current) => {
+      const next = { ...current };
+      for (const key of selectableKeys) next[key] = !allSelected;
+      return next;
+    });
+  }
 
   async function startConnect() {
     if (!authHeader) return;
@@ -218,6 +250,7 @@ export default function EmailDocumentsPage() {
         setEmailAddress("");
         setAttachments([]);
         setStatusByKey({});
+        setSelectedKeys({});
       }
       setNotice(t("documents.email.disconnectedNotice"));
     } catch (err) {
@@ -259,10 +292,14 @@ export default function EmailDocumentsPage() {
       setAttachments(list);
       const scored = scoreAttachments(list).filter((item) => item.bucket !== "hidden");
       const nextStatus: Record<string, EmailAttachmentUiStatus> = {};
+      // Pre-select recommended attachments; "possible" ones start unticked.
+      const nextSelected: Record<string, boolean> = {};
       for (const attachment of scored) {
         nextStatus[attachment.key] = "pending";
+        if (attachment.bucket === "recommended") nextSelected[attachment.key] = true;
       }
       setStatusByKey(nextStatus);
+      setSelectedKeys(nextSelected);
     } catch (err) {
       setError(errorMessage(err, t("documents.email.errScan")));
     } finally {
@@ -313,11 +350,11 @@ export default function EmailDocumentsPage() {
     }
   }
 
-  async function importSelected() {
-    if (!importable.length) return;
+  async function importList(list: ScoredAttachment[]) {
+    if (!list.length) return;
     setImporting(true);
     try {
-      for (const attachment of importable) {
+      for (const attachment of list) {
         await importOne(attachment);
       }
     } finally {
@@ -492,19 +529,84 @@ export default function EmailDocumentsPage() {
 
         <div style={{ ...subStyle, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
           <span>{t("documents.email.detectedSub")}</span>
-          <button
-            type="button"
-            className="dz-email-import"
-            disabled={importing || importable.length === 0}
-            onClick={() => void importSelected()}
-          >
-            {importing
-              ? t("documents.email.importing")
-              : t("documents.email.importAll", { count: formatNumber(importable.length, fmt) })}
-          </button>
+          <span style={{ display: "inline-flex", gap: 8 }}>
+            <button
+              type="button"
+              className="dz-email-import"
+              disabled={importing || selectedImportable.length === 0}
+              onClick={() => void importList(selectedImportable)}
+            >
+              {importing
+                ? t("documents.email.importing")
+                : t("documents.email.importSelected", { count: formatNumber(selectedImportable.length, fmt) })}
+            </button>
+            <button
+              type="button"
+              className="dz-email-import"
+              disabled={importing || importable.length === 0}
+              onClick={() => void importList(importable)}
+            >
+              {importing
+                ? t("documents.email.importing")
+                : t("documents.email.importAll", { count: formatNumber(importable.length, fmt) })}
+            </button>
+          </span>
         </div>
 
         {loading ? <div style={emptyStyle}>{t("documents.email.scanning")}</div> : null}
+
+        {!loading && visible.length > 0 ? (
+          <div style={selectionBarStyle}>
+            <span>
+              {t("documents.email.bucketCounts", {
+                recommended: formatNumber(recommendedCount, fmt),
+                possible: formatNumber(possibleCount, fmt),
+              })}
+            </span>
+            <button
+              type="button"
+              disabled={importing || selectableKeys.length === 0}
+              onClick={toggleAll}
+              style={selectAllButtonStyle}
+            >
+              {allSelected ? t("documents.email.clearSelection") : t("documents.email.selectAll")}
+            </button>
+          </div>
+        ) : null}
+
+        {/* Mobile bulk actions, in the page flow above the list (as before 06-22) —
+            a fixed bottom bar sits under the shell's mobile nav. Hidden on desktop,
+            where the header buttons above serve. */}
+        {connected && !loading && visible.length > 0 ? (
+          <div className="dz-email-bottom" style={bottomBarRowStyle}>
+            <button
+              type="button"
+              disabled={importing || selectedImportable.length === 0}
+              onClick={() => void importList(selectedImportable)}
+              style={{
+                ...importButtonStyle,
+                opacity: importing || selectedImportable.length === 0 ? 0.65 : 1,
+                cursor: importing || selectedImportable.length === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              {importing
+                ? t("documents.email.importing")
+                : t("documents.email.importSelected", { count: formatNumber(selectedImportable.length, fmt) })}
+            </button>
+            <button
+              type="button"
+              disabled={importing || importable.length === 0}
+              onClick={() => void importList(importable)}
+              style={{
+                ...importAllButtonStyle,
+                opacity: importing || importable.length === 0 ? 0.65 : 1,
+                cursor: importing || importable.length === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              {t("documents.email.importAll", { count: formatNumber(importable.length, fmt) })}
+            </button>
+          </div>
+        ) : null}
 
         </>) : null}
         {error ? <div style={errorStyle}>{error}</div> : null}
@@ -522,9 +624,19 @@ export default function EmailDocumentsPage() {
         {connected ? <section className="dz-email-rows" style={rowsStyle}>
           {visible.map((attachment) => {
             const status = statusByKey[attachment.key] || "pending";
-            const canImport = attachment.bucket === "recommended" && status === "pending";
+            const canImport = status === "pending";
             return (
               <article key={attachment.key} style={rowStyle}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(selectedKeys[attachment.key])}
+                  disabled={importing || !canImport}
+                  onChange={(e) => toggleOne(attachment.key, e.target.checked)}
+                  aria-label={t("documents.email.selectAria", {
+                    name: attachment.filename || t("documents.email.untitled"),
+                  })}
+                  style={checkboxStyle}
+                />
                 <span style={thumbStyle} aria-hidden>
                   {attachment.mimeType.includes("pdf") ? "📄" : "📎"}
                 </span>
@@ -551,6 +663,11 @@ export default function EmailDocumentsPage() {
                       {attachmentStatusLabel(t, status)}
                     </span>
                   )}
+                  {attachment.bucket === "possible" ? (
+                    <span style={pillStyleFor("pending", attachment.bucket)}>
+                      {t("documents.email.bucketPossible")}
+                    </span>
+                  ) : null}
                 </span>
               </article>
             );
@@ -561,6 +678,7 @@ export default function EmailDocumentsPage() {
             <table>
               <thead>
                 <tr>
+                  <th aria-label={t("documents.email.colSelect")} />
                   <th>{t("documents.email.colFile")}</th>
                   <th>{t("documents.email.colFrom")}</th>
                   <th>{t("documents.review.fields.date")}</th>
@@ -570,9 +688,21 @@ export default function EmailDocumentsPage() {
               <tbody>
                 {visible.map((attachment) => {
                   const status = statusByKey[attachment.key] || "pending";
-                  const canImport = attachment.bucket === "recommended" && status === "pending";
+                  const canImport = status === "pending";
                   return (
                     <tr key={attachment.key}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedKeys[attachment.key])}
+                          disabled={importing || !canImport}
+                          onChange={(e) => toggleOne(attachment.key, e.target.checked)}
+                          aria-label={t("documents.email.selectAria", {
+                            name: attachment.filename || t("documents.email.untitled"),
+                          })}
+                          style={checkboxStyle}
+                        />
+                      </td>
                       <td>{attachment.filename || t("documents.email.untitled")}</td>
                       <td>{attachment.fromEmail || t("documents.common.notSpecified")}</td>
                       <td>{attachment.sentAt ? formatSentAt(attachment.sentAt, locale) : "—"}</td>
@@ -591,6 +721,11 @@ export default function EmailDocumentsPage() {
                             {attachmentStatusLabel(t, status)}
                           </span>
                         )}
+                        {attachment.bucket === "possible" ? (
+                          <span style={{ ...pillStyleFor("pending", attachment.bucket), marginInlineStart: 8 }}>
+                            {t("documents.email.bucketPossible")}
+                          </span>
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -602,23 +737,6 @@ export default function EmailDocumentsPage() {
         </div>
         </div>
       </PageContainer>
-
-      {connected ? <div className="dz-email-bottom" style={bottomBarStyle}>
-        <button
-          type="button"
-          disabled={importing || importable.length === 0}
-          onClick={() => void importSelected()}
-          style={{
-            ...importButtonStyle,
-            opacity: importing || importable.length === 0 ? 0.65 : 1,
-            cursor: importing || importable.length === 0 ? "not-allowed" : "pointer",
-          }}
-        >
-          {importing
-            ? t("documents.email.importing")
-            : t("documents.email.importAll", { count: formatNumber(importable.length, fmt) })}
-        </button>
-      </div> : null}
     </div>
   );
 }
@@ -956,24 +1074,50 @@ function pillStyleFor(status: EmailAttachmentUiStatus, bucket: ScoredAttachment[
   };
 }
 
-const bottomBarStyle = {
-  position: "fixed",
-  left: 0,
-  right: 0,
-  bottom: 0,
-  background: TOKEN.surface.card,
-  borderTop: `1px solid ${TOKEN.border.DEFAULT}`,
-  padding: "12px 14px 22px",
-  boxShadow: TOKEN.shadow.floating,
+const bottomBarRowStyle = {
+  display: "flex",
+  gap: 8,
+  paddingTop: 10,
 } as const;
 
 const importButtonStyle = {
   ...primaryActionStyle({ height: 52 }),
-  width: "min(492px, 100%)",
+  flex: 1,
   minHeight: 52,
-  margin: "0 auto",
-  display: "block",
   fontSize: TOKEN.font.body,
+} as const;
+
+const importAllButtonStyle = {
+  ...chipActionStyle(false),
+  minHeight: 52,
+  padding: "0 14px",
+  fontSize: TOKEN.font.meta,
+  whiteSpace: "nowrap",
+} as const;
+
+const selectionBarStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  paddingTop: 10,
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+} as const;
+
+const selectAllButtonStyle = {
+  ...chipActionStyle(false),
+  minHeight: 34,
+  padding: "0 12px",
+  fontSize: TOKEN.font.meta,
+} as const;
+
+const checkboxStyle = {
+  width: 20,
+  height: 20,
+  flexShrink: 0,
+  cursor: "pointer",
 } as const;
 
 const emptyStyle = {
