@@ -47,6 +47,8 @@ export const GMAIL_SCAN_SESSION_CAP = 500;
 export const GMAIL_SCAN_CONCURRENCY = 4;
 export const GMAIL_RETRY_MAX_WAIT_MS = 5_000;
 export const GMAIL_PAGE_RETRY_BUDGET = 4;
+/** Incomplete attempts at one page (the first try included) before the scan stops unfinished. */
+export const GMAIL_SCAN_MAX_PAGE_ATTEMPTS = 3;
 const RETRY_DEFAULT_WAIT_MS = 1_000;
 const RETRY_JITTER_MS = 250;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -112,12 +114,20 @@ export type GmailScanPagePlan = {
   advanceTo: string | null;
   /** Issue a cursor for the SAME page (the one just attempted). */
   retrySamePage: boolean;
+  /**
+   * The same page stayed incomplete GMAIL_SCAN_MAX_PAGE_ATTEMPTS times: the scan
+   * STOPS here, unfinished — no retry cursor, no next cursor, nothing skipped.
+   */
+  stoppedUnfinished: boolean;
 };
 
 /**
  * What the scan may do after one page. Pure.
  *
- * Incomplete page → never advance: retry the same page, count nothing.
+ * Incomplete page → never advance: retry the same page, count nothing —
+ *                   at most GMAIL_SCAN_MAX_PAGE_ATTEMPTS times in all; then
+ *                   stop unfinished (a message that never reads cannot hold
+ *                   the scan in an endless retry, and is never skipped).
  * Complete page   → advance to Gmail's next token, unless Gmail has no more
  *                   or the session cap is reached; in the second case
  *                   `hasMore` stays true so nobody reads "all found".
@@ -127,9 +137,19 @@ export function planAfterPage(input: {
   listedMessages: number;
   nextPageToken: string | null;
   scannedBefore: number;
+  /** Earlier incomplete attempts at this same page (from the cursor; 0 otherwise). */
+  attempt: number;
 }): GmailScanPagePlan {
   if (!input.complete) {
-    return { scannedTotal: input.scannedBefore, capReached: false, hasMore: true, advanceTo: null, retrySamePage: true };
+    const exhausted = input.attempt + 1 >= GMAIL_SCAN_MAX_PAGE_ATTEMPTS;
+    return {
+      scannedTotal: input.scannedBefore,
+      capReached: false,
+      hasMore: true,
+      advanceTo: null,
+      retrySamePage: !exhausted,
+      stoppedUnfinished: exhausted,
+    };
   }
   const scannedTotal = input.scannedBefore + input.listedMessages;
   const hasMore = input.nextPageToken !== null;
@@ -141,6 +161,7 @@ export function planAfterPage(input: {
     hasMore,
     advanceTo: hasMore && !capReached ? input.nextPageToken : null,
     retrySamePage: false,
+    stoppedUnfinished: false,
   };
 }
 

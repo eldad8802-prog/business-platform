@@ -35,9 +35,15 @@ export const runtime = "nodejs";
 // server, bound to the business, user, Gmail account and window, and good for
 // 30 minutes. A page that could not be read in full never advances — the
 // response then carries `retryCursor` for the SAME page instead of
-// `nextCursor`.
+// `nextCursor`, with `success: false` and `status: "incomplete"`. After
+// GMAIL_SCAN_MAX_PAGE_ATTEMPTS incomplete attempts at one page the scan stops
+// (`status: "stopped_unfinished"`, no cursor at all): nothing is skipped, and
+// nothing retries without the owner asking again. The route itself never
+// loops; one request is one page.
 
 const RESTART = "תוצאות הסריקה הקודמות אינן תקפות עוד. התחל סריקה מחדש.";
+const STOPPED =
+  "לא ניתן היה לקרוא חלק מההודעות בעמוד זה גם אחרי כמה ניסיונות. הסריקה נעצרה ולא הושלמה — ייתכנו מסמכים נוספים שלא נסרקו.";
 
 function cursorRefused(reason: string) {
   console.warn("GMAIL_SCAN_CURSOR_REFUSED:", reason);
@@ -74,6 +80,7 @@ export async function GET(req: NextRequest) {
     const cursorRaw = req.nextUrl.searchParams.get("cursor");
     let pageToken: string | null = null;
     let scannedBefore = 0;
+    let attempt = 0;
     let expectConnectionId: number | undefined;
     if (cursorRaw != null) {
       const verified = verifyGmailScanCursor(cursorRaw, {
@@ -86,6 +93,7 @@ export async function GET(req: NextRequest) {
       if (verified.facts.scanned >= GMAIL_SCAN_SESSION_CAP) return cursorRefused("cap_reached");
       pageToken = verified.facts.pageToken;
       scannedBefore = verified.facts.scanned;
+      attempt = verified.facts.attempt;
       expectConnectionId = verified.facts.connectionId;
     }
 
@@ -105,7 +113,7 @@ export async function GET(req: NextRequest) {
       expectConnectionId,
     }));
 
-    const cursorFor = (token: string | null, scanned: number) =>
+    const cursorFor = (token: string | null, scanned: number, nextAttempt: number) =>
       issueGmailScanCursor({
         businessId: user.businessId,
         userId: user.id,
@@ -113,6 +121,7 @@ export async function GET(req: NextRequest) {
         window,
         pageToken: token,
         scanned,
+        attempt: nextAttempt,
       });
 
     let page;
@@ -129,29 +138,40 @@ export async function GET(req: NextRequest) {
       if (error.kind === "unauthorized") {
         return NextResponse.json({ error: t("api.gmail.reconnectRequired"), needsReconnect: true }, { status: 409 });
       }
-      // Nothing on this page was read: the same page, again, when the owner chooses.
+      // Nothing on this page was read: the same page, again, when the owner
+      // chooses — counted against the same attempt limit as a partial page.
+      const failedPlan = planAfterPage({ complete: false, listedMessages: 0, nextPageToken: null, scannedBefore, attempt });
       return NextResponse.json(
         {
-          error: error.kind === "throttled"
-            ? "Gmail ביקש להאט. נסה להמשיך בעוד רגע."
-            : "לא ניתן היה לקרוא את Gmail כרגע. נסה להמשיך בעוד רגע.",
+          success: false,
+          status: failedPlan.stoppedUnfinished ? "stopped_unfinished" : "incomplete",
+          error: failedPlan.stoppedUnfinished
+            ? STOPPED
+            : error.kind === "throttled"
+              ? "Gmail ביקש להאט. נסה להמשיך בעוד רגע."
+              : "לא ניתן היה לקרוא את Gmail כרגע. נסה להמשיך בעוד רגע.",
           code: error.kind === "throttled" ? "gmail_throttled" : "gmail_unavailable",
           pageComplete: false,
-          retryCursor: cursorFor(pageToken, scannedBefore),
+          scannedTotal: scannedBefore,
+          hasMore: true,
+          nextCursor: null,
+          retryCursor: failedPlan.retrySamePage ? cursorFor(pageToken, scannedBefore, attempt + 1) : null,
         },
         { status: error.kind === "throttled" ? 503 : 502 }
       );
     }
 
-    // An incomplete page never advances (planAfterPage).
+    // An incomplete page never advances, and is retried a bounded number of times (planAfterPage).
     const plan = planAfterPage({
       complete: page.complete,
       listedMessages: page.listedMessages,
       nextPageToken: page.nextPageToken,
       scannedBefore,
+      attempt,
     });
-    const nextCursor = plan.advanceTo !== null ? cursorFor(plan.advanceTo, plan.scannedTotal) : null;
-    const retryCursor = plan.retrySamePage ? cursorFor(pageToken, scannedBefore) : null;
+    const nextCursor = plan.advanceTo !== null ? cursorFor(plan.advanceTo, plan.scannedTotal, 0) : null;
+    const retryCursor = plan.retrySamePage ? cursorFor(pageToken, scannedBefore, attempt + 1) : null;
+    const status = page.complete ? "complete" : plan.stoppedUnfinished ? "stopped_unfinished" : "incomplete";
     const rejectedByType = parseRejectedTypeCounts(page.rejectedByType);
 
     // Numbers and fixed codes only — no address, filename, subject, id or token.
@@ -160,6 +180,7 @@ export async function GET(req: NextRequest) {
       JSON.stringify({
         window,
         scannedBefore,
+        attempt,
         listed: page.listedMessages,
         read: page.readMessages,
         gone: page.goneMessages,
@@ -171,13 +192,17 @@ export async function GET(req: NextRequest) {
         unsupportedType: page.unsupportedType,
         found: page.attachments.length,
         complete: page.complete,
+        stoppedUnfinished: plan.stoppedUnfinished,
         capReached: plan.capReached,
         hasMore: plan.hasMore,
       })
     );
 
+    // `success` is true ONLY for a page read in full; a partial page is never a success.
     return NextResponse.json({
-      success: true,
+      success: page.complete,
+      status,
+      ...(plan.stoppedUnfinished ? { error: STOPPED } : {}),
       window,
       pageComplete: page.complete,
       scannedMessages: page.listedMessages,

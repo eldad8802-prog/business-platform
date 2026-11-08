@@ -56,6 +56,8 @@ export const GMAIL_SCAN_CURSOR_TTL_SECONDS = 30 * 60;
 const MAX_FUTURE_SKEW_SECONDS = 60;
 const MAX_CURSOR_LENGTH = 4096;
 const MAX_PAGE_TOKEN_LENGTH = 1024;
+/** Sanity bound on the attempt counter (the page service stops far earlier). */
+const MAX_ATTEMPT_FIELD = 10;
 
 export class GmailScanCursorConfigError extends Error {
   constructor(message: string) {
@@ -73,6 +75,8 @@ export type GmailScanCursorFacts = {
   pageToken: string | null;
   /** Messages the scan already covered before this page. */
   scanned: number;
+  /** Earlier incomplete attempts at THIS page (0 for a page not tried yet). */
+  attempt: number;
 };
 
 type Payload = {
@@ -82,6 +86,7 @@ type Payload = {
   w: number;
   t: string | null;
   n: number;
+  a: number;
   iat: number;
 };
 
@@ -123,6 +128,9 @@ export function issueGmailScanCursor(facts: GmailScanCursorFacts, nowMs: number 
   if (!Number.isInteger(facts.scanned) || facts.scanned < 0) {
     throw new GmailScanCursorConfigError("scanned must be a whole non-negative number");
   }
+  if (!Number.isInteger(facts.attempt) || facts.attempt < 0 || facts.attempt > MAX_ATTEMPT_FIELD) {
+    throw new GmailScanCursorConfigError("attempt out of range");
+  }
   if (facts.pageToken !== null && (facts.pageToken.length === 0 || facts.pageToken.length > MAX_PAGE_TOKEN_LENGTH)) {
     throw new GmailScanCursorConfigError("page token out of range");
   }
@@ -134,6 +142,7 @@ export function issueGmailScanCursor(facts: GmailScanCursorFacts, nowMs: number 
     w: facts.window,
     t: facts.pageToken,
     n: facts.scanned,
+    a: facts.attempt,
     iat: Math.floor(nowMs / 1000),
   };
   const iv = randomBytes(12);
@@ -204,6 +213,9 @@ export function verifyGmailScanCursor(
     !(payload.t === null || (typeof payload.t === "string" && payload.t.length > 0 && payload.t.length <= MAX_PAGE_TOKEN_LENGTH)) ||
     !Number.isInteger(payload.n) ||
     payload.n < 0 ||
+    !Number.isInteger(payload.a) ||
+    payload.a < 0 ||
+    payload.a > MAX_ATTEMPT_FIELD ||
     !Number.isInteger(payload.iat)
   ) {
     return { ok: false, reason: "invalid_payload" };
@@ -231,6 +243,7 @@ export function verifyGmailScanCursor(
       window: payload.w,
       pageToken: payload.t,
       scanned: payload.n,
+      attempt: payload.a,
     },
   };
 }

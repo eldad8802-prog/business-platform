@@ -56,6 +56,7 @@ import {
   GMAIL_PAGE_RETRY_BUDGET,
   GMAIL_RETRY_MAX_WAIT_MS,
   GMAIL_SCAN_CONCURRENCY,
+  GMAIL_SCAN_MAX_PAGE_ATTEMPTS,
   GMAIL_SCAN_PAGE_SIZE,
   GMAIL_SCAN_SESSION_CAP,
   GmailScanListError,
@@ -64,6 +65,7 @@ import {
   scanGmailPage,
   type GmailScanDeps,
 } from "@/lib/services/integrations/gmail/gmail-scan-page.service";
+import { fetchGmailAttachmentDescriptor } from "@/lib/services/integrations/gmail/gmail-attachment-metadata.service";
 import { BUCKETS } from "@/lib/security/rate-limiter/buckets";
 import { checkRateLimit, configureRateLimiterForTests } from "@/lib/security/rate-limiter";
 import { resetMemoryBackendForTests } from "@/lib/security/rate-limiter/memory-backend";
@@ -242,7 +244,7 @@ async function main() {
   });
 
   // ================================================================ B. cursor
-  const facts: GmailScanCursorFacts = { businessId: 9, userId: 4, connectionId: 12, window: 90, pageToken: "GMAIL-PAGE-TOKEN-0123456789", scanned: 75 };
+  const facts: GmailScanCursorFacts = { businessId: 9, userId: 4, connectionId: 12, window: 90, pageToken: "GMAIL-PAGE-TOKEN-0123456789", scanned: 75, attempt: 0 };
   const expect = { businessId: 9, userId: 4, window: 90 as const };
   const T0 = Date.UTC(2026, 10, 9, 10, 0, 0);
 
@@ -530,22 +532,22 @@ async function main() {
 
   // ================================================================ D. advancing
   await check("D1 an incomplete page never advances and counts nothing", () => {
-    const p = planAfterPage({ complete: false, listedMessages: 25, nextPageToken: "N", scannedBefore: 50 });
-    assert.deepEqual(p, { scannedTotal: 50, capReached: false, hasMore: true, advanceTo: null, retrySamePage: true });
+    const p = planAfterPage({ complete: false, listedMessages: 25, nextPageToken: "N", scannedBefore: 50, attempt: 0 });
+    assert.deepEqual(p, { scannedTotal: 50, capReached: false, hasMore: true, advanceTo: null, retrySamePage: true, stoppedUnfinished: false });
   });
 
   await check("D2 complete pages advance; the end of the window is reported as the end", () => {
-    assert.deepEqual(planAfterPage({ complete: true, listedMessages: 25, nextPageToken: "N", scannedBefore: 0 }),
-      { scannedTotal: 25, capReached: false, hasMore: true, advanceTo: "N", retrySamePage: false });
-    assert.deepEqual(planAfterPage({ complete: true, listedMessages: 7, nextPageToken: null, scannedBefore: 25 }),
-      { scannedTotal: 32, capReached: false, hasMore: false, advanceTo: null, retrySamePage: false });
+    assert.deepEqual(planAfterPage({ complete: true, listedMessages: 25, nextPageToken: "N", scannedBefore: 0, attempt: 0 }),
+      { scannedTotal: 25, capReached: false, hasMore: true, advanceTo: "N", retrySamePage: false, stoppedUnfinished: false });
+    assert.deepEqual(planAfterPage({ complete: true, listedMessages: 7, nextPageToken: null, scannedBefore: 25, attempt: 0 }),
+      { scannedTotal: 32, capReached: false, hasMore: false, advanceTo: null, retrySamePage: false, stoppedUnfinished: false });
   });
 
   await check("D3 the 500 cap stops the scan but never claims everything was found", () => {
-    const p = planAfterPage({ complete: true, listedMessages: 25, nextPageToken: "N", scannedBefore: GMAIL_SCAN_SESSION_CAP - 25 });
-    assert.deepEqual(p, { scannedTotal: 500, capReached: true, hasMore: true, advanceTo: null, retrySamePage: false });
+    const p = planAfterPage({ complete: true, listedMessages: 25, nextPageToken: "N", scannedBefore: GMAIL_SCAN_SESSION_CAP - 25, attempt: 0 });
+    assert.deepEqual(p, { scannedTotal: 500, capReached: true, hasMore: true, advanceTo: null, retrySamePage: false, stoppedUnfinished: false });
     // Exactly 500 with nothing left: a finished scan, not a capped one.
-    const done = planAfterPage({ complete: true, listedMessages: 25, nextPageToken: null, scannedBefore: 475 });
+    const done = planAfterPage({ complete: true, listedMessages: 25, nextPageToken: null, scannedBefore: 475, attempt: 0 });
     assert.equal(done.capReached, false);
     assert.equal(done.hasMore, false);
     // Walk a whole session: at most 20 pages, never a cursor past 500.
@@ -553,7 +555,7 @@ async function main() {
     let pages = 0;
     let token: string | null = "start";
     while (token !== null) {
-      const plan = planAfterPage({ complete: true, listedMessages: Math.min(GMAIL_SCAN_PAGE_SIZE, GMAIL_SCAN_SESSION_CAP - scanned), nextPageToken: "more", scannedBefore: scanned });
+      const plan = planAfterPage({ complete: true, listedMessages: Math.min(GMAIL_SCAN_PAGE_SIZE, GMAIL_SCAN_SESSION_CAP - scanned), nextPageToken: "more", scannedBefore: scanned, attempt: 0 });
       scanned = plan.scannedTotal;
       token = plan.advanceTo;
       pages += 1;
@@ -561,6 +563,99 @@ async function main() {
     }
     assert.equal(scanned, 500);
     assert.equal(pages, 20);
+  });
+
+  await check("D4 a message that keeps failing: same page retried at most 3 times in all, then the scan STOPS unfinished", async () => {
+    assert.equal(GMAIL_SCAN_MAX_PAGE_ATTEMPTS, 3);
+    // Drive the real engine + plan + cursor the way the route does, with one message that never reads.
+    const g = fakeGmail({ ids: ids(25), nextPageToken: "NEXT", message: (id) => (id === "msg-7" ? { status: 500 } : { status: 200 }) });
+    let cursor: string | null = issueGmailScanCursor({ ...facts, pageToken: "PAGE-3", scanned: 50, attempt: 0 }, T0);
+    let requests = 0;
+    let last: ReturnType<typeof planAfterPage> | null = null;
+    while (cursor !== null) {
+      requests += 1;
+      assert.ok(requests <= 10, "never an endless loop");
+      const v = verifyGmailScanCursor(cursor, expect, T0);
+      assert.ok(v.ok);
+      if (!v.ok) break;
+      assert.equal(v.facts.pageToken, "PAGE-3", "never moves past the failing page");
+      assert.equal(v.facts.scanned, 50, "nothing counted");
+      const r = await page(g.deps, { pageToken: v.facts.pageToken });
+      assert.equal(r.complete, false);
+      last = planAfterPage({ complete: r.complete, listedMessages: r.listedMessages, nextPageToken: r.nextPageToken, scannedBefore: v.facts.scanned, attempt: v.facts.attempt });
+      assert.equal(last.advanceTo, null, "no next cursor while a message is unread");
+      cursor = last.retrySamePage ? issueGmailScanCursor({ ...v.facts, attempt: v.facts.attempt + 1 }, T0) : null;
+    }
+    assert.equal(requests, 3);
+    assert.ok(last && last.stoppedUnfinished && !last.retrySamePage && last.hasMore && last.scannedTotal === 50);
+    assert.equal(g.attempts.get("msg-7"), 3, "the failing message was tried once per attempt — no hidden retries on a 500");
+    // Bounded Gmail cost for the whole episode: 3 × (1 list + 25 reads).
+    assert.equal(g.calls.length, 3 * 26);
+    // Same rule when the LIST itself keeps failing.
+    assert.equal(planAfterPage({ complete: false, listedMessages: 0, nextPageToken: null, scannedBefore: 0, attempt: 2 }).stoppedUnfinished, true);
+    assert.equal(planAfterPage({ complete: false, listedMessages: 0, nextPageToken: null, scannedBefore: 0, attempt: 1 }).retrySamePage, true);
+    // A complete page after earlier failures resets the counter (next cursor attempt 0, see F6).
+    assert.equal(planAfterPage({ complete: true, listedMessages: 25, nextPageToken: "N", scannedBefore: 0, attempt: 2 }).advanceTo, "N");
+  });
+
+  await check("D5 cursor attempt field: carried sealed, bounded, cannot be forged downward", () => {
+    const c = issueGmailScanCursor({ ...facts, attempt: 2 }, T0);
+    const v = verifyGmailScanCursor(c, expect, T0);
+    assert.ok(v.ok && v.facts.attempt === 2);
+    assert.throws(() => issueGmailScanCursor({ ...facts, attempt: -1 }, T0), GmailScanCursorConfigError);
+    assert.throws(() => issueGmailScanCursor({ ...facts, attempt: 11 }, T0), GmailScanCursorConfigError);
+    assert.throws(() => issueGmailScanCursor({ ...facts, attempt: 1.5 }, T0), GmailScanCursorConfigError);
+    // Resetting the counter means editing the sealed payload → bad signature (B2 covers every byte).
+  });
+
+  await check("D6 import lookup (Gmail mocked): root with a changed id imports; regular + nested parts unaffected", async () => {
+    const realFetch = globalThis.fetch;
+    let served: GmailMessagePart = single("S2");
+    globalThis.fetch = (async () => Response.json({ id: "m", payload: served })) as typeof fetch;
+    try {
+      // What the current screen got from discovery for a single-file message (id S1), sent back as-is.
+      const picked = classifyGmailMessage("m", { id: "m", payload: single("S1") }).attachments[0];
+      const root = await fetchGmailAttachmentDescriptor({ accessToken: "t", messageId: "m", attachmentId: picked.attachmentId, partId: picked.partId, filename: picked.filename, sizeBytes: picked.sizeBytes });
+      assert.ok(root.ok);
+      if (root.ok) {
+        assert.equal(root.descriptor.matchedBy, "root_part");
+        assert.equal(root.descriptor.attachmentId, "S2", "download uses THIS fetch's id");
+        assert.equal(root.descriptor.mimeType, "application/pdf", "type from Gmail");
+      }
+      // Regular and nested parts in a multipart message whose ids all changed.
+      served = SECOND;
+      for (const d of classifyGmailMessage("m-1", { id: "m-1", payload: FIRST }).attachments) {
+        const r = await fetchGmailAttachmentDescriptor({ accessToken: "t", messageId: "m-1", attachmentId: d.attachmentId, partId: d.partId, filename: d.filename, sizeBytes: d.sizeBytes });
+        assert.ok(r.ok && r.descriptor.matchedBy === "part_id" && r.descriptor.filename === d.filename, String(d.partId));
+      }
+      // An old client that never sends partId: exactly #1009's refusal.
+      served = single("S2");
+      assert.deepEqual(
+        await fetchGmailAttachmentDescriptor({ accessToken: "t", messageId: "m", attachmentId: "S1", filename: "scan-0001.pdf", sizeBytes: 333_000 }),
+        { ok: false, reason: "ATTACHMENT_NOT_IN_MESSAGE", detail: "no_part_id" }
+      );
+      // "root" sent for a multipart message (e.g. a forged request) never picks a nested file.
+      served = SECOND;
+      assert.deepEqual(
+        await fetchGmailAttachmentDescriptor({ accessToken: "t", messageId: "m-1", attachmentId: "x", partId: "root", filename: "invoice.pdf", sizeBytes: 200_000 }),
+        { ok: false, reason: "ATTACHMENT_NOT_IN_MESSAGE", detail: "part_not_found" }
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  await check("D7 old clients / rollback: no new dependency on the client side", () => {
+    // The screen sends partId back verbatim and the import route accepts any string there.
+    const pageSrc = read("app/(shell)/documents/email/page.tsx");
+    assert.match(pageSrc, /partId: attachment\.partId \?\? null,/);
+    const imp = read("app/api/integrations/gmail/import/route.ts");
+    assert.match(imp, /partId: safeNullableString\(\(json as \{ partId\?: unknown \}\)\.partId\),/);
+    // The modules the browser bundle gains are pure (no imports at all).
+    assert.equal(/^\s*import\s/m.test(read("lib/services/email-import/attachment-key.ts")), false);
+    assert.equal(/^\s*import\s/m.test(read("lib/services/email-import/scan-window.ts")), false);
+    // The screen never calls the new route.
+    assert.equal(pageSrc.includes("/api/integrations/gmail/scan"), false);
   });
 
   // ================================================================ E. rate limit
@@ -669,8 +764,8 @@ async function main() {
     assert.match(route, /expectConnectionId,/);
     assert.match(route, /businessId: user\.businessId,\n\s+userId: user\.id,\n\s+window,\n\s+connectionId,/);
     // An incomplete page: retry cursor for the same page token and count.
-    assert.match(route, /const retryCursor = plan\.retrySamePage \? cursorFor\(pageToken, scannedBefore\) : null;/);
-    assert.match(route, /const nextCursor = plan\.advanceTo !== null \? cursorFor\(plan\.advanceTo, plan\.scannedTotal\) : null;/);
+    assert.ok(route.includes("const retryCursor = plan.retrySamePage ? cursorFor(pageToken, scannedBefore, attempt + 1) : null;"));
+    assert.ok(route.includes("const nextCursor = plan.advanceTo !== null ? cursorFor(plan.advanceTo, plan.scannedTotal, 0) : null;"));
     // Gmail's token never leaves in the clear.
     assert.equal(/nextPageToken:|pageToken: page|"pageToken"/.test(route.slice(route.indexOf("return NextResponse.json({\n      success"))), false);
   });
@@ -708,6 +803,19 @@ async function main() {
     }
     const vercel = fs.existsSync("vercel.json") ? read("vercel.json") : "";
     assert.equal(vercel.includes("gmail"), false, "no Gmail cron");
+  });
+
+  await check("F6 a partial page is never a success; retries are counted; a complete page resets the count", () => {
+    const route = read("app/api/integrations/gmail/scan/route.ts");
+    assert.match(route, /success: page\.complete,\n\s+status,/);
+    assert.match(route, /const status = page\.complete \? "complete" : plan\.stoppedUnfinished \? "stopped_unfinished" : "incomplete";/);
+    assert.equal(/success: true/.test(route), false, "no unconditional success anywhere");
+    assert.match(route, /cursorFor\(plan\.advanceTo, plan\.scannedTotal, 0\)/);
+    assert.match(route, /plan\.retrySamePage \? cursorFor\(pageToken, scannedBefore, attempt \+ 1\) : null/);
+    // A failed list counts against the same limit and also ends without a cursor.
+    assert.match(route, /const failedPlan = planAfterPage\(\{ complete: false, listedMessages: 0, nextPageToken: null, scannedBefore, attempt \}\);/);
+    assert.match(route, /retryCursor: failedPlan\.retrySamePage \? cursorFor\(pageToken, scannedBefore, attempt \+ 1\) : null,/);
+    assert.match(route, /success: false,\n\s+status: failedPlan\.stoppedUnfinished \? "stopped_unfinished" : "incomplete",/);
   });
 
   console.log(`GMAIL SCAN B3-A VERIFY PASS — ${passed} checks green.`);
