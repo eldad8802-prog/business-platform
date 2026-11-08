@@ -7,7 +7,7 @@
 #
 #   0. Evidence files are SELECT-only, never touch the read-only boundary, pass the output guard; the proof pins
 #      migration.sql's sha256; the migration names only its own objects and the tables it builds on; no schema models.
-#   1. Baseline (pending): PREFLIGHT passes whole; the proof refuses; checks 1, 3 and 4 are live.
+#   1. Baseline (pending): PREFLIGHT passes whole; the proof refuses; checks 1, 3, 4 and 15 are live.
 #   2. `prisma migrate deploy` applies it: proof 15/15; the preflight then fails exactly its "not there yet" checks.
 #   3. Faults: each injected defect is caught by the proof check meant for it.
 #   4. Rollback: refused while rows exist (step 5's database); on an empty database it reverts whole (preflight whole
@@ -115,7 +115,7 @@ jobs:
           if grep -nE 'model ServicePart\b|model ServicePartEvent\b' prisma/schema.prisma; then echo "schema.prisma models M2 — PR-2's job, not PR-1's"; exit 1; fi
           echo "the migration names only its own objects and the tables it builds on; no other migration names its objects; no schema models"
 
-      - name: 1. Baseline (pending) — PREFLIGHT passes whole; the proof refuses; checks 1, 3 and 4 are live
+      - name: 1. Baseline (pending) — PREFLIGHT passes whole; the proof refuses; checks 1, 3, 4 and 15 are live
         run: |
           set -euo pipefail
           bash .sdp/lab.sh sdp_pre
@@ -123,7 +123,7 @@ jobs:
           lab -f "$PREFLIGHT" | tee /tmp/pre.out
           fails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test -z "$fails" || { echo "baseline: expected no preflight failure, got: $fails"; exit 1; }
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "12" || { echo "expected 12 PASS"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "13" || { echo "expected 13 PASS"; exit 1; }
           if lab -f "$EVIDENCE" >/dev/null 2>&1; then echo "the proof passed before the migration"; exit 1; fi
           lab -q -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES ('lab-later', 'x', now(), '20261199000000_lab_later', 1)"
           c3=$(lab -f "$PREFLIGHT" | grep -E '^ +3 \|' | tr -d ' ')
@@ -135,7 +135,11 @@ jobs:
           lab -q -c "UPDATE \"_prisma_migrations\" SET finished_at = now() WHERE migration_name = '20261113090000_service_external_work'"
           test "$c4" = "4|FAIL|0" || { echo "check 4 did not refuse an unfinished 1.2b: $c4"; exit 1; }
           test "$c1" = "1|FAIL|1" || { echo "check 1 did not see the unfinished row: $c1"; exit 1; }
-          echo "baseline whole; checks 1, 3 and 4 are live"
+          lab -q -c "UPDATE \"_prisma_migrations\" SET finished_at = NULL WHERE migration_name = '20261114090000_business_documents_records'"
+          c15=$(lab -f "$PREFLIGHT" | grep -E '^ +15 \|' | tr -d ' ')
+          lab -q -c "UPDATE \"_prisma_migrations\" SET finished_at = now() WHERE migration_name = '20261114090000_business_documents_records'"
+          test "$c15" = "15|FAIL|0" || { echo "check 15 did not refuse a pending business documents migration (#980): $c15"; exit 1; }
+          echo "baseline whole; checks 1, 3, 4 and 15 are live"
 
       - name: 2. prisma migrate deploy applies it — proof 15/15; preflight fails exactly its "not there yet" checks
         run: |

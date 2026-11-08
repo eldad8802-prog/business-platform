@@ -15,7 +15,10 @@
 --   * the two foundation functions it reuses exist (service_user_same_business, service_journal_truncate_guard);
 --   * the owner of Business (the migration role) carries BYPASSRLS or is a superuser;
 --   * the number of finished migrations, and whether the M0 reason value exists (both informational: M2 compares the
---     movement reason as text and applies with or without M0; parts are issued only after M0).
+--     movement reason as text and applies with or without M0; parts are issued only after M0);
+--   * the business documents migration 20261114090000 (#980) is recorded and finished — it sorts BEFORE this one, so
+--     while it is pending the release gate's PREFIX INVARIANT refuses expected=[this migration] anyway; check 15 makes
+--     that visible before anyone asks for the release (as 1.2b's check 13 did for #953). M2 does not use its objects.
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -36,6 +39,7 @@
 \echo '12 the owner of Business carries BYPASSRLS or is a superuser'
 \echo '13 finished migrations in the ledger (informational)'
 \echo '14 the M0 reason value SERVICE_PART exists on InventoryMovementReason (informational; 0 = M0 not released)'
+\echo '15 the business documents migration 20261114090000_business_documents_records (#980) is recorded and finished'
 
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want
@@ -63,6 +67,8 @@ WITH c AS (
   UNION ALL SELECT 13, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL), NULL
   UNION ALL SELECT 14, (SELECT count(*) FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
                          WHERE t.typname = 'InventoryMovementReason' AND e.enumlabel = 'SERVICE_PART'), NULL
+  UNION ALL SELECT 15, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261114090000_business_documents_records'
+                          AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 1
 )
 SELECT n,
        CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,
