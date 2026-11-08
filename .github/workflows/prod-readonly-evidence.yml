@@ -163,6 +163,8 @@ on:
           - 'ops/evidence/gmail-import-history.sql'
           - 'ops/evidence/appointments-open-all-preflight.sql'
           - 'ops/evidence/appointments-open-all-production-evidence.sql'
+          - 'ops/evidence/service-desk-ui-foundation-preflight.sql'
+          - 'ops/evidence/service-desk-ui-foundation-production-evidence.sql'
 
 permissions:
   contents: read
