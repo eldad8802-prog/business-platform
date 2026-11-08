@@ -77,6 +77,8 @@ export type CapacityReport = {
   /** Businesses whose scan hit its cap (their counts are lower bounds) / whose capacity read failed (metrics only). */
   cappedBusinesses: number;
   unreadBusinesses: number;
+  /** Businesses not read in this run because half the run's budget was spent (processing first). */
+  skippedBusinesses: number;
   /** INTAKE_CAPACITY_ALERTS_ENABLED only: tier crossings first seen in this run (each reported once). */
   tierCrossingsNew: number;
   /** INTAKE_CAPACITY_ALERTS_ENABLED only: held ≥ HELD_GLOBAL_ALERT platform-wide, raised in the first run of the UTC day. */
@@ -85,7 +87,7 @@ export type CapacityReport = {
 
 export const emptyCapacity = (): CapacityReport => ({
   held: 0, due: 0, retrying: 0, deadLetters: 0, businessesAt500: 0, businessesAt1000: 0, businessesAt2000: 0, maxHeldPerBusiness: 0,
-  oldestHeldHours: 0, receivedLastHour: 0, processedLastHour: 0, recoveredLastHour: 0, cappedBusinesses: 0, unreadBusinesses: 0,
+  oldestHeldHours: 0, receivedLastHour: 0, processedLastHour: 0, recoveredLastHour: 0, cappedBusinesses: 0, unreadBusinesses: 0, skippedBusinesses: 0,
   tierCrossingsNew: 0, globalAlert: false,
 });
 
@@ -118,6 +120,8 @@ export function rotateTenants<T>(items: readonly T[], now: Date): T[] {
   const k = Math.floor(now.getTime() / SWEEP_ROTATION_PERIOD_MS) % items.length;
   return [...items.slice(k), ...items.slice(0, k)];
 }
+
+const totalOf = (tally: Record<IntakeProcessResult, number>) => Object.values(tally).reduce((a, b) => a + b, 0);
 
 /** A drain that used its whole budget AND moved something forward may have more due work: worth another round (pure). */
 export function wantsReleaseRound(tally: Record<IntakeProcessResult, number>, limit: number): boolean {
@@ -217,10 +221,18 @@ export async function runIntakeSweep(
           console.warn("[intake-sweep] business attention", { businessId, ...h });
         }
         // L1.5-b · PR-2 — capacity (metrics only): one bounded read per business per run; a failure here is counted,
-        // never a business error, and never changes what was processed above.
-        await readCapacity(report.capacity, businessId, now, alerts).catch(() => {
-          report.capacity.unreadBusinesses += 1;
-        });
+        // never a business error, and never changes what was processed above. Processing comes first: a business with
+        // nothing open is not read (its counts are zero), and once half the run's budget is spent the reads stop for
+        // this run (counted in skippedBusinesses) so release rounds keep their time.
+        if (h.held + h.pendingStale + h.deadLettersOpen === 0 && totalOf(drained) < limit) {
+          // nothing open after this run's work → zero counts, no read
+        } else if (clock() >= deadline - SWEEP_BUDGET_MS / 2) {
+          report.capacity.skippedBusinesses += 1;
+        } else {
+          await readCapacity(report.capacity, businessId, now, alerts).catch(() => {
+            report.capacity.unreadBusinesses += 1;
+          });
+        }
         return drained;
       }));
       for (const key of Object.keys(tally) as IntakeProcessResult[]) {

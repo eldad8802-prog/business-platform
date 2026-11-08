@@ -116,6 +116,10 @@ test("the sweep reads capacity after its work, best effort, and alerts only when
   const job = sweeper.slice(sweeper.indexOf("const h = await intakeHealthCounts(businessId, now);"), sweeper.indexOf("return drained;"));
   assert.match(job, /await readCapacity\(report\.capacity, businessId, now, alerts\)\.catch\(\(\) => \{\s*report\.capacity\.unreadBusinesses \+= 1;\s*\}\);/);
   assert.match(sweeper, /const alerts = capacityAlertsEnabled\(\);/);
+  // Processing first: no read for a business with nothing open; reads stop once half the budget is spent.
+  assert.ok(job.includes("if (h.held + h.pendingStale + h.deadLettersOpen === 0 && totalOf(drained) < limit) {"));
+  assert.match(job, /\} else if \(clock\(\) >= deadline - SWEEP_BUDGET_MS \/ 2\) \{\s*report\.capacity\.skippedBusinesses \+= 1;/);
+  assert.match(read("lib/intake/intake-event.store.ts"), /export const FLOW_SCAN_CAP = 5000;[\s\S]*const cap = opts\.scanCap \?\? FLOW_SCAN_CAP;/);
   assert.match(sweeper, /if \(alerts\) for \(const t of HELD_TIERS\) if \(t <= tier && \(await claimHeldTierCrossing\(businessId, t, now\)\)\) c\.tierCrossingsNew \+= 1;/);
   assert.match(sweeper, /report\.capacity\.globalAlert = alerts && report\.capacity\.held >= HELD_GLOBAL_ALERT && firstRunOfUtcDay\(now\);/);
   assert.doesNotMatch(sweeper.slice(sweeper.indexOf("async function readCapacity(")), /\bpayload\b|phone|email|externalEventId/);

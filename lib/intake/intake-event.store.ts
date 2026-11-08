@@ -735,6 +735,8 @@ export const BACKLOG_SCAN_CAP = 25_000;
 const CAPACITY_STATEMENT_TIMEOUT_MS = 3000;
 /** Flow window for "processed / recovered in the last hour": receipts that arrived within this many days. */
 export const FLOW_LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
+/** Rows one flow count scans at most (monitoring: a lower bound beyond it, flagged `capped`). */
+export const FLOW_SCAN_CAP = 5000;
 
 type BacklogRow = { sourceKey: string; providerAccountRef: string | null; cls: string; reason: string | null; n: number; oldest: Date | null };
 
@@ -812,7 +814,7 @@ export async function intakeFlow(
   now: Date = new Date(),
   opts: { scanCap?: number } = {}
 ): Promise<BusinessFlow> {
-  const cap = opts.scanCap ?? BACKLOG_SCAN_CAP;
+  const cap = opts.scanCap ?? FLOW_SCAN_CAP;
   const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const lookback = new Date(now.getTime() - FLOW_LOOKBACK_MS);
