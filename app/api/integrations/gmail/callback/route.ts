@@ -67,11 +67,29 @@ function redirectToEmail(
   return res;
 }
 
+// Diagnostics: every callback outcome leaves one line with its code only —
+// several failure paths were otherwise silent in the logs.
 function redirectSuccess(req: NextRequest): NextResponse {
+  console.info("GMAIL_CALLBACK_RESULT:", "connected");
   return redirectToEmail(req, "connected=1");
 }
 
-function redirectError(req: NextRequest, code: CallbackErrorCode): NextResponse {
+// Log-only refinement of a code (the redirect carries the code alone). A fixed
+// vocabulary — never a value taken from the request.
+type CallbackDetail =
+  | "google_error"
+  | "missing_code_or_state"
+  | "state_cookie_missing"
+  | "state_mismatch"
+  | "verifier_missing"
+  | "state_signature_rejected";
+
+function redirectError(
+  req: NextRequest,
+  code: CallbackErrorCode,
+  detail?: CallbackDetail
+): NextResponse {
+  console.info("GMAIL_CALLBACK_RESULT:", code, detail ?? "");
   return redirectToEmail(req, `error=${code}`);
 }
 
@@ -88,12 +106,13 @@ export async function GET(req: NextRequest) {
         req,
         errorParam === "access_denied"
           ? "google_access_denied"
-          : "gmail_callback_failed"
+          : "gmail_callback_failed",
+        "google_error"
       );
     }
 
     if (!code || !state) {
-      return redirectError(req, "gmail_callback_failed");
+      return redirectError(req, "gmail_callback_failed", "missing_code_or_state");
     }
 
     const cookieState = req.cookies.get(COOKIE_STATE)?.value || "";
@@ -108,17 +127,21 @@ export async function GET(req: NextRequest) {
     //  3. the tenant identity comes ONLY from the verified envelope. The
     //     legacy standalone businessId cookie is never read as authority.
     if (!cookieState || !statesMatch(cookieState, state)) {
-      return redirectError(req, "gmail_state_invalid");
+      return redirectError(
+        req,
+        "gmail_state_invalid",
+        cookieState ? "state_mismatch" : "state_cookie_missing"
+      );
     }
 
     if (!codeVerifier) {
-      return redirectError(req, "gmail_state_invalid");
+      return redirectError(req, "gmail_state_invalid", "verifier_missing");
     }
 
     const verifiedState = verifySignedGmailState(state);
     if (!verifiedState.ok) {
       console.warn("GMAIL_CALLBACK_STATE_REJECTED:", verifiedState.reason);
-      return redirectError(req, "gmail_state_invalid");
+      return redirectError(req, "gmail_state_invalid", "state_signature_rejected");
     }
     const businessId = verifiedState.state.businessId;
 
