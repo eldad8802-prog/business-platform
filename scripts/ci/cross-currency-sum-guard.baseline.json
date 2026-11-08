@@ -487,7 +487,7 @@
       "column": "amount",
       "match": "return lines.reduce((sum, l) => sum + (toAgorot(l.amount) ?? 0), 0);",
       "risk": "SAFE",
-      "reason": "payment lines of ONE receipt being typed: paymentsPayload sends every line as ILS (the form has no currency field), and the billing service refuses a receipt whose lines or allocations differ in currency (billing-receipt-allocation.rules.ts assertSameCurrency). Display/validation only; the server recomputes the total.",
+      "reason": "payment lines of ONE receipt being typed on the screen; display/validation only (the server recomputes the total). Single-currency by construction ON THE SCREEN: the form has no currency input and paymentsPayload hard-codes currency \"ILS\" on every line (receipt-model.ts paymentsPayload; receipt-model.test.ts pins it for every method). NOTE: the billing service itself does NOT refuse mixed-currency payment lines (replaceReceiptPaymentLines sums them; only allocations are checked, assertSameCurrency) — a pre-existing billing gap, documented, not changed here.",
       "lineAtBaseline": 110
     }
   ]

@@ -79,6 +79,7 @@ console.log("payloads");
   const line = body.payments[0];
   ok("payment line: method fields only, trimmed, decimal string", line.amount === "1000.50" && line.bankName === "לאומי" && !("checkNumber" in line) && line.lineIndex === 1 && line.currency === "ILS", JSON.stringify(line));
 }
+ok("every method sends ILS only (no currency input on the screen)", METHODS.every((m) => paymentsPayload([{ ...emptyLine(today), method: m, amount: "1" }]).payments[0].currency === "ILS"));
 ok("optional reference is sent when typed", paymentsPayload([{ ...emptyLine(today), amount: "5", reference: "קופה 2" }]).payments[0].reference === "קופה 2");
 ok("no allocations → null (receipt owed against nothing)", allocationsPayload({ 1: "", 2: "" }) === null);
 {
