@@ -90,6 +90,16 @@ jobs:
           disable-animations: true
           script: bash scripts/native/android-file-chooser-probe.sh
 
+      # Side-by-side device probe (il.co.promaxgroup.dubiz.probe, bundled page
+      # only, no network origin). Uploaded once, from one matrix cell.
+      - name: Upload probe APK
+        if: matrix.api == '36' && matrix.target == 'google_apis_playstore'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dubiz-file-chooser-probe-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
       - name: Upload probe evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
