@@ -46,6 +46,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Customer documents timeline model
         run: npx tsx features/business-documents/customer-documents-model.test.ts
+      - name: Receipt screen model
+        run: npx tsx features/business-documents/receipt-model.test.ts
       - name: Letter contracts, HTML and form model
         run: npx tsx lib/services/business-documents/letter/letter-core.test.ts
       - name: Quote validity (S08) core
@@ -146,6 +148,8 @@ jobs:
         run: npx tsx .business-documents/battery.mts
       - name: Existing billing unchanged (A0 issuance battery)
         run: npx tsx .billing-a0/battery.mts
+      - name: Receipt screen chain on the real billing services
+        run: npx tsx .business-documents/receipt-flow.battery.mts
 
   rls:
     name: Business documents under FORCE RLS (PG17, NOBYPASSRLS runtime)

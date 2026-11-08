@@ -190,3 +190,69 @@ export async function fetchSavedLetterPdf(letterId: number): Promise<Blob> {
   if (!res.ok) throw new ShareRequestError(res.status, "FILE", "לא ניתן להוריד את המכתב השמור.");
   return res.blob();
 }
+
+// ---- receipt (existing billing routes only; nothing in billing changes) --------------------------
+
+/** A refusal from a billing route: its HTTP status and the service's own (English) message. */
+export class BillingRequestError extends DocsApiError {
+  constructor(status: number | null, public readonly serverMessage: string) {
+    super(status, serverMessage);
+    this.name = "BillingRequestError";
+  }
+}
+
+async function billingPost<T>(url: string, body: unknown, timeoutMs = 60000): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { method: "POST", headers: { ...buildClientAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store", signal: controller.signal });
+    const data = (await res.json().catch(() => ({}))) as { error?: string } & T;
+    if (!res.ok) throw new BillingRequestError(res.status, data.error ?? `HTTP ${res.status}`);
+    return data as T;
+  } catch (e) {
+    if (e instanceof BillingRequestError) throw e;
+    throw new BillingRequestError(null, e instanceof Error ? e.message : String(e));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export type ReceiptDocWire = { id: number; status: string; documentNumberFormatted: string | null; totalAmount: string | number };
+
+/** The customer's ISSUED tax invoices with their remaining balance, from the existing list and settlement-state routes. */
+export async function listOpenInvoices(customerId: number): Promise<{ id: number; number: string | null; issuedAt: string | null; total: string | number; remaining: string }[]> {
+  const qs = new URLSearchParams({ customerId: String(customerId), documentType: "TAX_INVOICE", status: "ISSUED", limit: "100" });
+  const { documents } = await getJson<{ documents: BillingListRow[] }>(`/api/billing/documents?${qs.toString()}`);
+  const out: { id: number; number: string | null; issuedAt: string | null; total: string | number; remaining: string }[] = [];
+  for (const d of documents ?? []) {
+    const { settlementState } = await getJson<{ settlementState: { remainingAmount: string } }>(`/api/billing/documents/${d.id}/settlement-state`);
+    out.push({ id: d.id, number: d.documentNumberFormatted, issuedAt: d.issuedAt, total: d.totalAmount, remaining: settlementState.remainingAmount });
+  }
+  return out;
+}
+
+export async function createReceiptDraftRequest(customerId: number): Promise<ReceiptDocWire> {
+  return (await billingPost<{ document: ReceiptDocWire }>("/api/billing/documents", { documentType: "RECEIPT", customerId })).document;
+}
+
+export async function setReceiptPaymentsRequest(receiptId: number, body: unknown): Promise<void> {
+  await billingPost(`/api/billing/documents/${receiptId}/payments`, body);
+}
+
+export async function setReceiptAllocationsRequest(receiptId: number, body: unknown): Promise<void> {
+  await billingPost(`/api/billing/documents/${receiptId}/allocations`, body);
+}
+
+export async function issueReceiptRequest(receiptId: number): Promise<ReceiptDocWire> {
+  return (await billingPost<{ document: ReceiptDocWire }>(`/api/billing/documents/${receiptId}/issue`, {})).document;
+}
+
+export async function getBillingDocument(id: number): Promise<ReceiptDocWire> {
+  return (await getJson<{ document: ReceiptDocWire }>(`/api/billing/documents/${id}`)).document;
+}
+
+export async function fetchBillingPdf(id: number): Promise<Blob> {
+  const res = await fetch(`/api/billing/documents/${id}/pdf`, { headers: buildClientAuthHeaders(), cache: "no-store" });
+  if (!res.ok) throw new DocsApiError(res.status, `HTTP ${res.status}`);
+  return res.blob();
+}
