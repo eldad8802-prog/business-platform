@@ -96,9 +96,27 @@ jobs:
       - name: E2E — the route over both modules, every migration applied, the runtime role
         run: |
           set -euo pipefail
-          bash .business-documents/lab.sh e2e --with-bd
-          # document_supplier_link_erase_business(): recorded, not run, in this lab chain; taken verbatim from its migration.
+          # Every migration really applied: the Service Desk chain (1.2a, 1.2b, M2, 1.3-0 by migrate deploy) …
+          bash .sd3/lab.sh e2e --with-sd3 >/dev/null
+          # … document_supplier_link_erase_business() (recorded, not run, in this chain; verbatim from its migration) …
           bash .sdf/erasure-prereq.sh e2e
+          # … and 20261114090000_business_documents_records by migrate deploy: the chain built its tables with db push and
+          # only recorded it, so (exactly as .business-documents/lab.sh does) remove those and let the migration build them.
+          O="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/e2e"
+          psql -X -v ON_ERROR_STOP=1 -q "$O" <<'SQL'
+          DROP TABLE IF EXISTS "QuoteShareEvent", "QuoteShareCopy", "BusinessLetter", "BusinessDocumentRequest",
+            "BusinessDocumentErasure", "BusinessDocumentFile" CASCADE;
+          DROP TYPE IF EXISTS "BusinessDocumentFilePurpose", "BusinessDocumentFileState", "BusinessDocumentOperation",
+            "BusinessDocumentRequestState", "QuoteShareEventKind", "QuoteShareChannel", "BusinessLetterRecipientKind",
+            "BusinessDocumentErasureState";
+          DELETE FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'business_documents';
+          DELETE FROM "PlatformFeatureDefinition" WHERE "key" = 'business_documents';
+          DELETE FROM "_prisma_migrations" WHERE migration_name = '20261114090000_business_documents_records';
+          SQL
+          DATABASE_URL="$O" DIRECT_URL="$O" npx prisma migrate deploy | tee /tmp/deploy.log
+          grep -q 'Applying migration `20261114090000_business_documents_records`' /tmp/deploy.log
+          test "$(psql -X -At "$O" -c "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL")" = "0"
+          echo "every migration applied: $(psql -X -At "$O" -c "SELECT count(*) FROM _prisma_migrations")"
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/e2e"
           STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/e2e-store" BILLING_PDF_STORAGE_ROOT="$RUNNER_TEMP/e2e-store/legacy" \
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/e2e" \
