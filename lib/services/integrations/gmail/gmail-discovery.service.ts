@@ -93,6 +93,64 @@ async function gmailFetchJson<T>(url: string, accessToken: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * One message's attachment parts → the attachments discovery offers, plus
+ * counts of what it saw. Pure: the keep/drop decision is exactly the one the
+ * scan always made; the counters only measure it (diagnostics, 2026-11-08).
+ *
+ * attachmentParts = parts carrying an attachment id;
+ * unsupportedType = of those, refused by the Documents type allowlist;
+ * attachments.length === attachmentParts - unsupportedType.
+ */
+export function classifyAttachmentParts(
+  parts: GmailMessagePart[],
+  meta: {
+    messageId: string;
+    fromEmail: string | null;
+    subject: string | null;
+    sentAt: string | null;
+  }
+): {
+  attachments: GmailAttachmentMetadata[];
+  attachmentParts: number;
+  unsupportedType: number;
+} {
+  const attachments: GmailAttachmentMetadata[] = [];
+  let attachmentParts = 0;
+  let unsupportedType = 0;
+
+  for (const p of parts) {
+    const attachmentId = p.body?.attachmentId;
+    if (!attachmentId) continue;
+    attachmentParts += 1;
+
+    const mimeType = String(p.mimeType || "application/octet-stream");
+    const filename = p.filename ? String(p.filename) : null;
+    const sizeBytes = typeof p.body?.size === "number" ? p.body.size : null;
+
+    // The canonical Documents allowlist, so discovery never advertises a
+    // file the import endpoint would refuse. It used to be "PDF or any
+    // image", which is wider than what Dubiz accepts.
+    if (!isAllowedDocumentMime(mimeType)) {
+      unsupportedType += 1;
+      continue;
+    }
+
+    attachments.push({
+      messageId: meta.messageId,
+      attachmentId,
+      filename,
+      mimeType,
+      sizeBytes,
+      fromEmail: meta.fromEmail,
+      subject: meta.subject,
+      sentAt: meta.sentAt,
+    });
+  }
+
+  return { attachments, attachmentParts, unsupportedType };
+}
+
 export async function discoverGmailAttachments(params: {
   businessId: number;
   connectionId?: number;
@@ -101,6 +159,8 @@ export async function discoverGmailAttachments(params: {
 }): Promise<{
   scannedMessages: number;
   foundAttachments: number;
+  attachmentParts: number;
+  unsupportedType: number;
   attachments: GmailAttachmentMetadata[];
 }> {
   const connection = await dbStep((db) => db.emailConnection.findFirst({
@@ -180,6 +240,8 @@ export async function discoverGmailAttachments(params: {
   const messageIds = (list.messages || []).map((m) => m.id).filter(Boolean);
 
   const attachments: GmailAttachmentMetadata[] = [];
+  let attachmentParts = 0;
+  let unsupportedType = 0;
 
   for (const messageId of messageIds) {
     const msgUrl = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}`);
@@ -194,36 +256,17 @@ export async function discoverGmailAttachments(params: {
     const sentAt = parseSentAtIso({ dateHeader, internalDate: msg.internalDate });
 
     const parts = collectAttachmentParts(msg.payload);
-
-    for (const p of parts) {
-      const attachmentId = p.body?.attachmentId;
-      if (!attachmentId) continue;
-
-      const mimeType = String(p.mimeType || "application/octet-stream");
-      const filename = p.filename ? String(p.filename) : null;
-      const sizeBytes = typeof p.body?.size === "number" ? p.body.size : null;
-
-      // The canonical Documents allowlist, so discovery never advertises a
-      // file the import endpoint would refuse. It used to be "PDF or any
-      // image", which is wider than what Dubiz accepts.
-      if (!isAllowedDocumentMime(mimeType)) continue;
-
-      attachments.push({
-        messageId,
-        attachmentId,
-        filename,
-        mimeType,
-        sizeBytes,
-        fromEmail,
-        subject,
-        sentAt,
-      });
-    }
+    const classified = classifyAttachmentParts(parts, { messageId, fromEmail, subject, sentAt });
+    attachments.push(...classified.attachments);
+    attachmentParts += classified.attachmentParts;
+    unsupportedType += classified.unsupportedType;
   }
 
   return {
     scannedMessages: messageIds.length,
     foundAttachments: attachments.length,
+    attachmentParts,
+    unsupportedType,
     attachments,
   };
 }
