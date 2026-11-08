@@ -16,7 +16,8 @@
 #   3. Role battery (.sdf/battery.ts) as the real roles: isolation, cross-business references, numbering under
 #      concurrency, the core's state rules, quote versions, the journal, handover, intake, erasure, atomicity.
 #   3b. Account erasure through the real adapter (.sdf/erasure-battery.ts): refusal, whole rollback, the declared
-#       columns, the other business untouched, no DELETE, regression of the other erasures.
+#       columns, the other business untouched, no DELETE, regression of the other erasures — on the foundation lab
+#       with 1.2b (20261113090000) deployed on top, because the purge also calls its erasure function.
 #   4. Faults: each injected defect is caught by the proof check meant for it.
 #   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
 #   6. Rollback: refused while rows exist; on an empty database it reverts whole (preflight whole again).
@@ -32,6 +33,9 @@ on:
       - "prisma/migrations/20261112090000_service_desk_foundation/**"
       - "ops/evidence/service-desk-foundation-*.sql"
       - ".sdf/**"
+      - ".sdx/lab.sh"
+      - ".sdx/prereq.sql"
+      - "prisma/migrations/20261113090000_service_external_work/**"
       - ".github/workflows/service-desk-foundation-lab.yml"
       - ".github/workflows/prod-readonly-evidence.yml"
       - "prisma/schema.prisma"
@@ -112,6 +116,8 @@ jobs:
             # Owner-approved Service Desk migrations that BUILD ON the foundation (FKs to its tables, its case-row lock,
             # triggers on ServiceCase / ServiceHandover, its shared guard functions) — named one by one, never a pattern.
             [[ "$n" != "20261113090000_service_external_work" ]] || continue
+            [[ "$n" != "20261115090000_service_parts" ]] || continue
+            [[ "$n" != "20261120090000_service_desk_ui_foundation" ]] || continue
             if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"Service(CaseNumberSequence|Device|Case|CaseIntake|Quote|CaseEvent|Handover)"|service_(erase_business|case_guard|case_opening_guard|quote_guard|event_|handover_guard|intake_guard|device_guard|user_same_business|journal_truncate)'; then
               echo "$n names a service desk object"; exit 1
             fi
@@ -154,9 +160,12 @@ jobs:
             npx tsx .sdf/battery.ts
 
       - name: 3b. Account erasure through the REAL adapter (purgeOperationalData) as the runtime login
+        # The purge also calls service_external_erase_business() (1.2b, migration 20261113090000, applied in
+        # Production), so the erasure is proven where Production is: the foundation lab with 1.2b deployed on top
+        # (.sdx/lab.sh runs .sdf/lab.sh --with-sdf first, then `migrate deploy` of 1.2b).
         run: |
           set -euo pipefail
-          bash .sdf/lab.sh sdf_erase --with-sdf >/dev/null
+          bash .sdx/lab.sh sdf_erase --with-sdx >/dev/null
           bash .sdf/erasure-prereq.sh sdf_erase
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdf_erase"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdf_erase" \

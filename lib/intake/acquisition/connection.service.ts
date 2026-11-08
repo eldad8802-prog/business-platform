@@ -18,6 +18,7 @@ import { newPublicId, newSharedKey, newSigningSecret } from "./keys";
 import { credentialAad, decryptCredential, encryptCredential } from "./credential-crypto";
 import type { ConnectionSourceKey } from "./gate";
 import { logIntake } from "@/lib/intake/core/observability";
+import { errorCodeOf, rearmPausedReceipts } from "@/lib/intake/intake-event.store";
 
 export const MAX_CONNECTIONS_PER_SOURCE = 20;
 /** Sources that authenticate with a shared key whose sha256 is stored (keyHash). */
@@ -134,7 +135,7 @@ export async function rotateKey(id: number): Promise<{ connection: ConnectionVie
 }
 
 export async function setPaused(id: number, paused: boolean, now = new Date()): Promise<ConnectionView | null> {
-  return withTenantTransaction(async (tx) => {
+  const changed = await withTenantTransaction(async (tx) => {
     const row = await tx.acquisitionConnection.findFirst({
       where: { id, status: { not: "REVOKED" } },
       select: { id: true, sourceKey: true, publicId: true, externalResourceId: true },
@@ -145,26 +146,24 @@ export async function setPaused(id: number, paused: boolean, now = new Date()): 
       data: { status: paused ? "PAUSED" : "ACTIVE", ...(paused ? {} : { lastErrorCode: null }) },
       select: VIEW,
     });
-    if (!paused) {
-      // Leads L1.5-a · decision 3 — resumed: what this connection held while paused is due NOW (same transaction). The
-      // processor still re-checks the connection, the source gate and the business before every attempt, and the
-      // receipt key keeps each one a single Lead / order / call however often it is looked at.
-      const ref = RESOURCE_REF_SOURCES.has(row.sourceKey as ConnectionSourceKey) ? row.externalResourceId : row.publicId;
-      if (ref) {
-        await tx.intakeEvent.updateMany({
-          where: {
-            sourceKey: row.sourceKey,
-            providerAccountRef: ref,
-            lastErrorCode: "held:connection_paused",
-            status: { in: ["RECEIVED", "PERSISTED", "FAILED"] },
-            payloadPurgedAt: null,
-          },
-          data: { nextAttemptAt: now },
-        });
-      }
-    }
-    return view;
+    return { row, view };
   });
+  if (!changed) return null;
+  if (!paused) {
+    // Leads L1.5-a · decision 3 / L1.5-b · PR-5 — resumed: what this connection held while paused becomes due NOW, in
+    // bounded batches AFTER the resume committed (no transaction grows with the backlog). Best effort: whatever is not
+    // re-armed here still comes due at its next hold recheck, where the processor finds the connection ACTIVE. The
+    // processor still re-checks the connection, the source gate and the business before every attempt, and the receipt
+    // key keeps each one a single Lead / order / call however often it is looked at.
+    const { row } = changed;
+    const ref = RESOURCE_REF_SOURCES.has(row.sourceKey as ConnectionSourceKey) ? row.externalResourceId : row.publicId;
+    if (ref) {
+      await rearmPausedReceipts(row.sourceKey, ref, now).catch((error: unknown) => {
+        logIntake("rearm_failed", { sourceKey: row.sourceKey, code: errorCodeOf(error) });
+      });
+    }
+  }
+  return changed.view;
 }
 
 export async function setAllowedOrigins(id: number, raw: unknown): Promise<ConnectionView | null> {

@@ -114,8 +114,16 @@ test("a tier crossing is claimed once: newest `tier` stamped, re-reported only a
 test("the sweep reads capacity after its work, best effort, and alerts only when switched on", () => {
   const sweeper = read("lib/intake/intake-sweeper.ts");
   const job = sweeper.slice(sweeper.indexOf("const h = await intakeHealthCounts(businessId, now);"), sweeper.indexOf("return drained;"));
-  assert.match(job, /await readCapacity\(report\.capacity, businessId, now, alerts\)\.catch\(\(\) => \{\s*report\.capacity\.unreadBusinesses \+= 1;\s*\}\);/);
+  // Processing first, by design: the business's job only QUEUES it (something open), never reads capacity itself.
+  assert.ok(job.includes("if (h.held + h.pendingStale + h.deadLettersOpen > 0 || totalOf(drained) >= limit) capacityQueue.push(businessId);"));
+  assert.doesNotMatch(job, /readCapacity\(/);
   assert.match(sweeper, /const alerts = capacityAlertsEnabled\(\);/);
+  // The capacity phase runs LAST (after the release rounds), only with CAPACITY_PHASE_MARGIN_MS of budget left.
+  const tail = sweeper.slice(sweeper.indexOf("let round = 0;"));
+  assert.ok(tail.indexOf("for (const businessId of capacityQueue)") > tail.indexOf("pending = again;"), "after the release rounds");
+  assert.match(tail, /if \(clock\(\) \+ CAPACITY_PHASE_MARGIN_MS > deadline\) \{\s*report\.capacity\.skippedBusinesses \+= 1;\s*continue;/);
+  assert.match(tail, /await runTenantJob\(\{ businessId \}, \(\) => readCapacity\(report\.capacity, businessId, now, alerts\)\)\.catch\(\(\) => \{\s*report\.capacity\.unreadBusinesses \+= 1;\s*\}\);/);
+  assert.match(read("lib/intake/intake-event.store.ts"), /export const FLOW_SCAN_CAP = 5000;[\s\S]*const cap = opts\.scanCap \?\? FLOW_SCAN_CAP;/);
   assert.match(sweeper, /if \(alerts\) for \(const t of HELD_TIERS\) if \(t <= tier && \(await claimHeldTierCrossing\(businessId, t, now\)\)\) c\.tierCrossingsNew \+= 1;/);
   assert.match(sweeper, /report\.capacity\.globalAlert = alerts && report\.capacity\.held >= HELD_GLOBAL_ALERT && firstRunOfUtcDay\(now\);/);
   assert.doesNotMatch(sweeper.slice(sweeper.indexOf("async function readCapacity(")), /\bpayload\b|phone|email|externalEventId/);

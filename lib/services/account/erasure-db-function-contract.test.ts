@@ -149,8 +149,9 @@ refused("declared twice",
 // ── 6. the SQL that ships ─────────────────────────────────────────────────────────────────────────────
 console.log("— 6. the real migrations' erasure functions");
 const MIG = path.join(process.cwd(), "prisma", "migrations");
-for (const [dir, fn, tables] of [
-  ["20261112090000_service_desk_foundation", "service_erase_business", ["ServiceCase", "ServiceDevice", "ServiceCaseIntake", "ServiceHandover", "ServiceCaseEvent", "ServiceQuote"]],
+for (const [dir, fn, tables, [sampleTable, sampleColumn]] of [
+  ["20261112090000_service_desk_foundation", "service_erase_business", ["ServiceCase", "ServiceDevice", "ServiceCaseIntake", "ServiceHandover", "ServiceCaseEvent", "ServiceQuote"], ["ServiceCase", "problemDescription"]],
+  ["20261113090000_service_external_work", "service_external_erase_business", ["ServiceExternalWork", "ServiceExternalWorkEvent"], ["ServiceExternalWorkEvent", "reason"]],
 ] as const) {
   const file = path.join(MIG, dir, "migration.sql");
   if (!fs.existsSync(file)) { check(`${fn}: migration present`, false, file); continue; }
@@ -160,8 +161,8 @@ for (const [dir, fn, tables] of [
   check(`${fn}: business from the tenant context; refuses without one and unless deleting`,
     p.tenantVar === "v_business" && p.refusesWithoutContext && p.refusesUnlessDeleting);
   check(`${fn}: every write is a tenant-scoped UPDATE`, p.unscopedWrites.length === 0, p.unscopedWrites.join(" | "));
-  check(`${fn}: updates exactly its six tables`, JSON.stringify([...p.updates.keys()].sort()) === JSON.stringify([...tables].sort()), [...p.updates.keys()].join(","));
-  check(`${fn}: ServiceCase.problemDescription is cleared to NULL`, p.updates.get("ServiceCase")?.get("problemDescription") === "NULL");
+  check(`${fn}: updates exactly its ${tables.length} tables`, JSON.stringify([...p.updates.keys()].sort()) === JSON.stringify([...tables].sort()), [...p.updates.keys()].join(","));
+  check(`${fn}: ${sampleTable}.${sampleColumn} is cleared to NULL`, p.updates.get(sampleTable)?.get(sampleColumn) === "NULL");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

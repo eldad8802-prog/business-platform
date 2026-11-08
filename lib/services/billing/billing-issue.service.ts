@@ -42,7 +42,10 @@ import {
 } from "@/lib/services/billing/receipt/billing-receipt-issuance-integrity";
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
 import { ensureBillingInvoicePostedEvent } from "@/lib/services/financial-events/financial-event.service";
-import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
+import {
+  assertBillingIdentityReadyForTaxInvoice,
+  assertDocumentTypeAllowedForBusinessKind,
+} from "@/lib/billing/business-identity";
 import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 import {
   parseBillingPdfTemplateStyle,
@@ -730,6 +733,14 @@ export async function issueBillingDocumentTx(
   }
 
   assertBillingIdentityReadyForTaxInvoice(business.profile);
+  // An exempt dealer issues no tax invoice. Refused here — before the number
+  // sequence is touched and before any write — so a refusal allocates no
+  // document number and leaves the draft exactly as it was. Every issuance
+  // path (the owner's route, payment settlement) goes through this function.
+  assertDocumentTypeAllowedForBusinessKind(
+    business.profile?.billingBusinessKind,
+    doc.documentType
+  );
 
   let customerData:
     | {

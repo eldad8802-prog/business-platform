@@ -44,6 +44,7 @@ on:
       - "prisma/migrations/20261027090000_accountant_month_close/**"
       - "prisma/migrations/20261103090000_document_supplier_link/**"
       - "prisma/migrations/20261112090000_service_desk_foundation/**"
+      - "prisma/migrations/20261113090000_service_external_work/**"
       - ".m5/**"
       - ".m4/**"
       - ".github/workflows/m5-crm-lifecycle-ci.yml"
@@ -269,10 +270,11 @@ jobs:
           ' > /tmp/dsl-erase.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/dsl-erase.sql
 
-      - name: 1h. Service Desk account-erasure entry point (from the real migration)
+      - name: 1h. Service Desk account-erasure entry points (from the real migrations)
         # Account erasure also calls service_erase_business() — the SECURITY DEFINER function of migration
-        # 20261112090000 (Service Desk 1.2a). Created from the migration's own text exactly like 1g, EXECUTE to the
-        # runtime only. Test infrastructure only: no erasure logic changes.
+        # 20261112090000 (Service Desk 1.2a) — and service_external_erase_business() of 20261113090000 (1.2b).
+        # Created from the migrations' own text exactly like 1g, EXECUTE to the runtime only. Test infrastructure
+        # only: no erasure logic changes.
         env:
           PGPASSWORD: m5_ci_synthetic_owner_pw
         run: |
@@ -284,6 +286,13 @@ jobs:
             console.log(m[0]);
             console.log("REVOKE ALL ON FUNCTION public.service_erase_business() FROM PUBLIC;");
             console.log("GRANT EXECUTE ON FUNCTION public.service_erase_business() TO app_runtime;");
+            // Service Desk 1.2b (20261113090000): the same for service_external_erase_business().
+            const x = require("fs").readFileSync("prisma/migrations/20261113090000_service_external_work/migration.sql", "utf8");
+            const e = x.match(/CREATE OR REPLACE FUNCTION public\.service_external_erase_business\(\)[\s\S]*?\$fn\$;/);
+            if (!e) { console.error("service_external_erase_business() not found in the migration"); process.exit(1); }
+            console.log(e[0]);
+            console.log("REVOKE ALL ON FUNCTION public.service_external_erase_business() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.service_external_erase_business() TO app_runtime;");
           ' > /tmp/sd-erase.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/sd-erase.sql
 

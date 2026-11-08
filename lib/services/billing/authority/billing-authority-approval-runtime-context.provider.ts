@@ -116,14 +116,17 @@ export async function resolveApprovalRuntimeContext(
   input: {
     businessId: number;
     environment: BillingAuthorityEnvironment;
+    /** Which operation the context is for — each is enabled separately in the pilot. */
+    operation: "approval" | "decision";
     forceRefresh?: boolean;
   },
   deps: RuntimeContextProviderDeps = defaultRuntimeContextProviderDeps
 ): Promise<RuntimeContextResult> {
-  // 0. Production pilot (admitted business AND SUBMISSIONS stage). Approval and
-  //    Decision both resolve their context here, before the reserve and before
-  //    any token decrypt or refresh. Code = allowlist vs OAUTH_ONLY stage.
-  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment);
+  // 0. Production pilot (admitted business AND this operation enabled). Approval
+  //    and Decision both resolve their context here, before the reserve and
+  //    before any token decrypt or refresh. Code = allowlist / OAUTH_ONLY stage /
+  //    operation not enabled.
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(input.businessId, input.environment, input.operation);
   if (pilotRefusal) {
     return {
       ok: false,
