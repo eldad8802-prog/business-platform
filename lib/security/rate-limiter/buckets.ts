@@ -126,6 +126,21 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "ip", limit: 120, windowSeconds: 60 * 60 },
     ],
   },
+  // Extended Gmail scan (B3-a): one admitted request = one page = at most 1 list + 25 message reads + 4
+  // retries on Gmail (≤150 Gmail quota units). Per user AND per business only — no global or IP rule, so one
+  // business's scanning never spends another's allowance. A whole scan is at most 20 pages (500 messages),
+  // so a user finishes one inside a minute and a business can run 20 an hour. Fail-LOCAL: a Redis outage
+  // keeps these same limits on each instance instead of blocking scans (closed) or lifting the cap on
+  // Gmail (open).
+  GMAIL_SCAN: {
+    failMode: "local",
+    rules: [
+      { scope: "user", limit: 20, windowSeconds: 60 },
+      { scope: "user", limit: 200, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 40, windowSeconds: 60 },
+      { scope: "business", limit: 400, windowSeconds: 60 * 60 },
+    ],
+  },
   // Regular Documents read API (inbox / list). Keyed by user.
   DOCUMENTS_API: {
     failMode: "open",

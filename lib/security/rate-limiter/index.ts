@@ -19,6 +19,7 @@ import type {
   RateLimitBackend,
   RateLimitDecision,
   RateLimitScope,
+  RuleResult,
   WindowRule,
 } from "./types";
 
@@ -79,7 +80,8 @@ export async function checkRateLimit(
 ): Promise<RateLimitDecision> {
   const bucket = input.bucket;
   const config = BUCKETS[bucket];
-  const backend = getBackend();
+  // rawBackend() is getBackend() unless a test substituted one (configureRateLimiterForTests).
+  const backend = rawBackend();
 
   let degraded = false;
   let tightestRemaining = Number.POSITIVE_INFINITY;
@@ -96,7 +98,7 @@ export async function checkRateLimit(
       continue;
     }
 
-    let result;
+    let result: RuleResult;
     try {
       result = await backend.evaluate(
         prefixForRule(bucket, rule),
@@ -125,15 +127,25 @@ export async function checkRateLimit(
             degraded: true,
           };
         }
-        // failMode === "open": log and allow this rule through (degraded).
-        console.error(
-          `[rate-limit] backend_unavailable bucket=${bucket} scope=${rule.scope} failMode=open -> allow (degraded)`,
-          error.message
-        );
-        continue;
+        if (config.failMode === "local") {
+          // The same rule on this instance's ledger: bounded, never unlimited.
+          console.error(
+            `[rate-limit] backend_unavailable bucket=${bucket} scope=${rule.scope} failMode=local -> local ledger`,
+            error.message
+          );
+          result = localFallback.evaluate(prefixForRule(bucket, rule), identifier, rule.limit, rule.windowSeconds);
+        } else {
+          // failMode === "open": log and allow this rule through (degraded).
+          console.error(
+            `[rate-limit] backend_unavailable bucket=${bucket} scope=${rule.scope} failMode=open -> allow (degraded)`,
+            error.message
+          );
+          continue;
+        }
+      } else {
+        // Config errors and anything unexpected propagate (fail hard).
+        throw error;
       }
-      // Config errors and anything unexpected propagate (fail hard).
-      throw error;
     }
 
     if (!result.success) {

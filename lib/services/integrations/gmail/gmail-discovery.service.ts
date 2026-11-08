@@ -28,7 +28,8 @@ import {
   REJECTED_TYPE_GROUPS,
   type RejectedTypeCounts,
 } from "@/lib/services/email-import/rejected-types";
-import { GmailReauthRequiredError } from "./gmail-errors";
+import { GMAIL_ROOT_PART_ID } from "@/lib/services/email-import/attachment-key";
+import { GmailReauthRequiredError, GmailScanConnectionMismatchError } from "./gmail-errors";
 import {
   collectAttachmentParts,
   type GmailMessagePart,
@@ -111,6 +112,10 @@ async function gmailFetchJson<T>(url: string, accessToken: string): Promise<T> {
  * attachments.length === attachmentParts - unsupportedType;
  * rejectedByType = the unsupported ones by declared-type group (sums to
  * unsupportedType; counting only, 2026-11-08 B1).
+ *
+ * `root` is the message's top-level payload. When that payload is itself the
+ * attachment its partId is "" — no path — so it is reported as
+ * GMAIL_ROOT_PART_ID instead of null, which import can resolve (B3-a).
  */
 export function classifyAttachmentParts(
   parts: GmailMessagePart[],
@@ -119,7 +124,8 @@ export function classifyAttachmentParts(
     fromEmail: string | null;
     subject: string | null;
     sentAt: string | null;
-  }
+  },
+  root?: GmailMessagePart
 ): {
   attachments: GmailAttachmentMetadata[];
   attachmentParts: number;
@@ -158,26 +164,36 @@ export function classifyAttachmentParts(
       fromEmail: meta.fromEmail,
       subject: meta.subject,
       sentAt: meta.sentAt,
-      partId: p.partId ? String(p.partId) : null,
+      partId: root !== undefined && p === root ? GMAIL_ROOT_PART_ID : p.partId ? String(p.partId) : null,
     });
   }
 
   return { attachments, attachmentParts, unsupportedType, rejectedByType };
 }
 
-export async function discoverGmailAttachments(params: {
+/** One fetched message → its classified attachments (headers read once, root passed). */
+export function classifyGmailMessage(messageId: string, msg: GmailMessageResponse) {
+  const topHeaders = msg.payload?.headers || [];
+  const fromEmail = extractEmailAddress(headerValue(topHeaders, "From"));
+  const subject = headerValue(topHeaders, "Subject");
+  const dateHeader = headerValue(topHeaders, "Date");
+  const sentAt = parseSentAtIso({ dateHeader, internalDate: msg.internalDate });
+
+  const parts = collectAttachmentParts(msg.payload);
+  return classifyAttachmentParts(parts, { messageId, fromEmail, subject, sentAt }, msg.payload);
+}
+
+/**
+ * The tenant's connected Gmail account and a usable access token for it,
+ * refreshing (and persisting) the token when it is about to expire. The DB
+ * steps run on the tenant transaction; the Google call never runs inside one.
+ */
+export async function loadGmailAccess(params: {
   businessId: number;
   connectionId?: number;
-  maxMessages?: number;
-  query?: string;
-}): Promise<{
-  scannedMessages: number;
-  foundAttachments: number;
-  attachmentParts: number;
-  unsupportedType: number;
-  rejectedByType: RejectedTypeCounts;
-  attachments: GmailAttachmentMetadata[];
-}> {
+  /** A scan cursor's account: any other resolved account is refused before Google is called. */
+  expectConnectionId?: number;
+}): Promise<{ connectionId: number; accessToken: string }> {
   const connection = await dbStep((db) => db.emailConnection.findFirst({
     where: {
       businessId: params.businessId,
@@ -190,6 +206,9 @@ export async function discoverGmailAttachments(params: {
 
   if (!connection || !connection.token) {
     throw new GmailReauthRequiredError("no_connection");
+  }
+  if (params.expectConnectionId !== undefined && connection.id !== params.expectConnectionId) {
+    throw new GmailScanConnectionMismatchError();
   }
   const tokenRow = connection.token;
 
@@ -244,6 +263,27 @@ export async function discoverGmailAttachments(params: {
     effectiveAccessToken = refreshed.access_token;
   }
 
+  return { connectionId: connection.id, accessToken: effectiveAccessToken };
+}
+
+export async function discoverGmailAttachments(params: {
+  businessId: number;
+  connectionId?: number;
+  maxMessages?: number;
+  query?: string;
+}): Promise<{
+  scannedMessages: number;
+  foundAttachments: number;
+  attachmentParts: number;
+  unsupportedType: number;
+  rejectedByType: RejectedTypeCounts;
+  attachments: GmailAttachmentMetadata[];
+}> {
+  const { accessToken: effectiveAccessToken } = await loadGmailAccess({
+    businessId: params.businessId,
+    connectionId: params.connectionId,
+  });
+
   const maxMessages = Math.min(Math.max(params.maxMessages ?? 30, 1), 100);
   const q = params.query || "has:attachment newer_than:30d";
 
@@ -265,14 +305,7 @@ export async function discoverGmailAttachments(params: {
 
     const msg = await gmailFetchJson<GmailMessageResponse>(msgUrl.toString(), effectiveAccessToken);
 
-    const topHeaders = msg.payload?.headers || [];
-    const fromEmail = extractEmailAddress(headerValue(topHeaders, "From"));
-    const subject = headerValue(topHeaders, "Subject");
-    const dateHeader = headerValue(topHeaders, "Date");
-    const sentAt = parseSentAtIso({ dateHeader, internalDate: msg.internalDate });
-
-    const parts = collectAttachmentParts(msg.payload);
-    const classified = classifyAttachmentParts(parts, { messageId, fromEmail, subject, sentAt });
+    const classified = classifyGmailMessage(messageId, msg);
     attachments.push(...classified.attachments);
     attachmentParts += classified.attachmentParts;
     unsupportedType += classified.unsupportedType;

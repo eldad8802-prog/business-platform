@@ -25,3 +25,15 @@ export class GmailReauthRequiredError extends Error {
     this.reason = reason;
   }
 }
+
+/**
+ * A scan continuation (signed cursor) that belongs to a different Gmail
+ * account than the one this request resolves to. Thrown BEFORE the token is
+ * decrypted or refreshed, so a mismatched cursor never reaches Google (B3-a).
+ */
+export class GmailScanConnectionMismatchError extends Error {
+  constructor() {
+    super("Gmail scan cursor belongs to a different connection");
+    this.name = "GmailScanConnectionMismatchError";
+  }
+}
