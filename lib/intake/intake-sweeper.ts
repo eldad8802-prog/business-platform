@@ -77,7 +77,7 @@ export type CapacityReport = {
   /** Businesses whose scan hit its cap (their counts are lower bounds) / whose capacity read failed (metrics only). */
   cappedBusinesses: number;
   unreadBusinesses: number;
-  /** Businesses not read in this run because half the run's budget was spent (processing first). */
+  /** Businesses with something open that this run's capacity phase had no time left for (processing first). */
   skippedBusinesses: number;
   /** INTAKE_CAPACITY_ALERTS_ENABLED only: tier crossings first seen in this run (each reported once). */
   tierCrossingsNew: number;
@@ -122,6 +122,8 @@ export function rotateTenants<T>(items: readonly T[], now: Date): T[] {
 }
 
 const totalOf = (tally: Record<IntakeProcessResult, number>) => Object.values(tally).reduce((a, b) => a + b, 0);
+/** The capacity phase starts a read only with at least this much of the budget left. */
+export const CAPACITY_PHASE_MARGIN_MS = 3_000;
 
 /** A drain that used its whole budget AND moved something forward may have more due work: worth another round (pure). */
 export function wantsReleaseRound(tally: Record<IntakeProcessResult, number>, limit: number): boolean {
@@ -156,6 +158,7 @@ export async function runIntakeSweep(
   const deadline = options.deadline ?? clock() + SWEEP_BUDGET_MS;
   const limit = options.perBusinessLimit ?? 50;
   const releaseCandidates: number[] = [];
+  const capacityQueue: number[] = [];
   const registry = options.registry ?? intakeRegistry;
   const report: IntakeSweepReport = {
     businesses: 0,
@@ -220,19 +223,9 @@ export async function runIntakeSweep(
           // Server log only (never the response): which business, counts — no event id, no content.
           console.warn("[intake-sweep] business attention", { businessId, ...h });
         }
-        // L1.5-b · PR-2 — capacity (metrics only): one bounded read per business per run; a failure here is counted,
-        // never a business error, and never changes what was processed above. Processing comes first: a business with
-        // nothing open is not read (its counts are zero), and once half the run's budget is spent the reads stop for
-        // this run (counted in skippedBusinesses) so release rounds keep their time.
-        if (h.held + h.pendingStale + h.deadLettersOpen === 0 && totalOf(drained) < limit) {
-          // nothing open after this run's work → zero counts, no read
-        } else if (clock() >= deadline - SWEEP_BUDGET_MS / 2) {
-          report.capacity.skippedBusinesses += 1;
-        } else {
-          await readCapacity(report.capacity, businessId, now, alerts).catch(() => {
-            report.capacity.unreadBusinesses += 1;
-          });
-        }
+        // L1.5-b · PR-2 — capacity is read in the run's LAST phase (below), never here: a business with something open
+        // is queued for it; one with nothing open after this run's work has zero counts and is not read at all.
+        if (h.held + h.pendingStale + h.deadLettersOpen > 0 || totalOf(drained) >= limit) capacityQueue.push(businessId);
         return drained;
       }));
       for (const key of Object.keys(tally) as IntakeProcessResult[]) {
@@ -280,6 +273,19 @@ export async function runIntakeSweep(
       }
     }
     pending = again;
+  }
+  // L1.5-b · PR-2 — capacity (metrics only), LAST: only the time left after processing and release, keeping
+  // CAPACITY_PHASE_MARGIN_MS of the budget free. One bounded read per queued business, best effort (a failure is
+  // counted, never a business error); businesses the time did not reach are counted as skipped and come earlier in a
+  // later run (the queue follows the run's rotation). Monitoring never takes processing time.
+  for (const businessId of capacityQueue) {
+    if (clock() + CAPACITY_PHASE_MARGIN_MS > deadline) {
+      report.capacity.skippedBusinesses += 1;
+      continue;
+    }
+    await runTenantJob({ businessId }, () => readCapacity(report.capacity, businessId, now, alerts)).catch(() => {
+      report.capacity.unreadBusinesses += 1;
+    });
   }
   report.capacity.globalAlert = alerts && report.capacity.held >= HELD_GLOBAL_ALERT && firstRunOfUtcDay(now);
   return report;
