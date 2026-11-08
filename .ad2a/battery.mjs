@@ -386,6 +386,19 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_erase_business() TO ${RT_ROLE}`);
   }
+  // Service Desk 1.2b — migration 20261113090000_service_external_work. The same, for its one erasure entry point,
+  // service_external_erase_business(): mirrored from the migration's own text, EXECUTE to the runtime alone.
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261113090000_service_external_work/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_external_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_external_erase_business() not found in migration 20261113090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_external_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_external_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //
