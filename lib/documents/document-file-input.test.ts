@@ -52,6 +52,19 @@ function main() {
   for (const f of files) {
     assert.ok(!readFileSync(f, "utf8").includes(DOCUMENT_UPLOAD_ACCEPT), `${f}: hard-coded copy of the upload signature`);
   }
+  // The Android shell keys ACTION_OPEN_DOCUMENT on the same list.
+  const javaSrc = readFileSync(
+    join(process.cwd(), "android/app/src/main/java/il/co/promaxgroup/dubiz/DocumentUploadChromeClient.java"),
+    "utf8"
+  );
+  const javaList = javaSrc.match(/DOCUMENT_UPLOAD_ACCEPT = Arrays\.asList\(([^)]*)\)/);
+  assert.ok(javaList, "DocumentUploadChromeClient declares DOCUMENT_UPLOAD_ACCEPT");
+  assert.deepEqual(
+    [...javaList[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]),
+    uploadTypes,
+    "native signature equals DOCUMENT_UPLOAD_ACCEPT"
+  );
+
   const importSrc = readFileSync(join(process.cwd(), "components/settings/import-export/DocumentsImportScreen.tsx"), "utf8");
   assert.ok(importSrc.includes('accept="application/pdf,image/jpeg,image/png"'), "Settings import keeps its own (non-signature) accept");
 
