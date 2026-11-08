@@ -24,6 +24,7 @@ on:
       - "features/tasks/**"
       - "lib/i18n/messages/areas/**"
       - ".business-documents/**"
+      - "lib/services/account/**"
       - "scripts/ci/test-coverage/business-documents.json"
       - ".github/workflows/business-documents-ci.yml"
   workflow_dispatch:
@@ -264,6 +265,12 @@ jobs:
           bash .business-documents/lab.sh bd_service --with-bd
           mkdir -p "$RUNNER_TEMP/bd-store"
           STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/bd-store" BILLING_PDF_STORAGE_ROOT="$RUNNER_TEMP/bd-store/legacy"           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_service"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_service?connection_limit=20"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_service"             npx tsx .business-documents/service.battery.mts
+      - name: "Account deletion battery — the real deletion with business documents (durable job in the purge, objects after commit, storage outage + sweep, purge failure, uploads in flight, concurrency, isolation)"
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh bd_account --with-bd
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/bd-account" BILLING_PDF_STORAGE_ROOT="$RUNNER_TEMP/bd-account/legacy"           SUPER_URL="postgresql://lab_super:bd_ci_synthetic_super_pw@localhost:5432/bd_account"           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_account"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_account?connection_limit=20"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_account"           AUTH_DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_account"             npx tsx .business-documents/account-erasure.battery.mts | tee /tmp/account-erasure.out
+          grep -qxE '[0-9]+ passed, 0 failed' /tmp/account-erasure.out
       - name: Saved letters battery — save, replay, conflict, isolation, customer deleted (snapshot kept), hide, purge (explicit age), erasure runner
         run: |
           set -euo pipefail
@@ -278,7 +285,29 @@ jobs:
     # deployment branches restricted): never repository secrets, never the Production bucket.
     environment: business-docs-r2-test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+    # A lab database (synthetic, in the runner) so scenario 7 — account erasure while an upload is streaming — runs
+    # against the real bucket too. Nothing here can reach a Production database or the Production bucket.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: bd_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: bd_ci_synthetic_super_pw
+      LAB_PASSWORD: bd_ci_synthetic_role_pw
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -286,10 +315,16 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
-      - name: R2 battery — create-once, upload vs marker (both orders), abandoned upload, retries, listing
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab database (the real migration, Production role topology)
+        run: bash .business-documents/lab.sh bd_r2 --with-bd
+      - name: R2 battery — create-once, upload vs marker (both orders), abandoned upload, retries, listing, erasure during upload
         env:
           R2_TEST_ACCOUNT_ID: ${{ secrets.R2_TEST_ACCOUNT_ID }}
           R2_TEST_ACCESS_KEY_ID: ${{ secrets.R2_TEST_ACCESS_KEY_ID }}
           R2_TEST_SECRET_ACCESS_KEY: ${{ secrets.R2_TEST_SECRET_ACCESS_KEY }}
           R2_TEST_BUCKET: ${{ secrets.R2_TEST_BUCKET }}
+          OWNER_URL: postgresql://lab_owner:bd_ci_synthetic_role_pw@localhost:5432/bd_r2
+          DATABASE_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/bd_r2
+          DIRECT_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/bd_r2
         run: npx tsx .business-documents/r2.battery.mts

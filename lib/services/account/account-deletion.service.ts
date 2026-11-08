@@ -17,6 +17,9 @@
  *   2. PURGE        anonymize + delete operational PII, under an explicit tenant
  *                   context so the FORCE-RLS'd tables are actually reachable.
  *   3. FINALIZE     mark PURGED and append the erasure evidence, atomically.
+ *   4. OBJECTS      delete the stored objects whose durable jobs stage 2 wrote — only
+ *                   after the database stages committed. Never fails the deletion: what
+ *                   it cannot finish stays an open job that the storage-erasure sweep resumes.
  *
  * The previous order did the destructive work FIRST and marked the business LAST,
  * which left the entire erasure window fully authenticated and open to provider and
@@ -72,6 +75,12 @@ export interface AccountDeletionStore {
    * reports success without durable evidence is worse than one that fails.
    */
   finalizeAndAudit(businessId: number, actorUserId: number, now: Date): Promise<void>;
+  /**
+   * STAGE 4 — delete the stored objects of every durable job stage 2 wrote, AFTER the
+   * database stages committed. Must not throw; `complete: false` means a job stays open
+   * for the sweep (lib/services/account/account-storage-erasure.ts).
+   */
+  eraseStoredObjects(businessId: number): Promise<{ complete: boolean }>;
 }
 
 export type DeletionResult = { status: "deleted" | "already_deleted" };
@@ -126,6 +135,15 @@ export async function deleteOwnBusinessAccount(
   // attempt failed mid-purge; both stages are safe to repeat.
   await store.purgeOperationalData(businessId);
   await store.finalizeAndAudit(businessId, actorUserId, now);
+
+  // STAGE 4. The account is deleted once stage 3 committed; the objects follow. A failure
+  // here is contained: the jobs are durable and the sweep finishes them.
+  try {
+    await store.eraseStoredObjects(businessId);
+  } catch {
+    // eraseStoredObjects does not throw by contract; this keeps a broken adapter from
+    // turning a completed deletion into a reported failure.
+  }
 
   return { status: "deleted" };
 }

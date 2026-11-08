@@ -29,7 +29,8 @@ const A = att("A", "invoice-100.pdf", "application/pdf", 200_000, "Your invoice"
 const C = att("C", "INV-1234.pdf", "application/pdf", 40_000, "Monthly statement"); // 35 possible
 const E = att("E", "logo.png", "image/png", 5_000, "Newsletter");                   // -25 hidden
 const T = att("T", "tiny.pdf", "application/pdf", 15_000, "Doc");                   // 15 hidden
-const IMPORT_KEYS = ["messageId", "attachmentId", "filename", "mimeType", "sizeBytes", "fromEmail", "subject", "sentAt"].sort();
+// partId added deliberately by the import attachment-resolution fix (2026-11-08).
+const IMPORT_KEYS = ["messageId", "attachmentId", "filename", "mimeType", "sizeBytes", "fromEmail", "subject", "sentAt", "partId"].sort();
 
 async function open(browser, viewport, { query = "", sync, connected = true }) {
   const context = await browser.newContext({ viewport, locale: "he-IL" });

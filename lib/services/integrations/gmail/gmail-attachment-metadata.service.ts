@@ -26,7 +26,11 @@
  * the bytes over the mailbox would hide a real inconsistency.
  */
 
-import { findAttachmentPart, type GmailMessageResponse } from "./gmail-message-parts";
+import {
+  resolveAttachmentInMessage,
+  type AttachmentResolution,
+  type GmailMessageResponse,
+} from "./gmail-message-parts";
 
 export type GmailAttachmentDescriptor = {
   /** Gmail's declared media type for this part. Never a client value. */
@@ -35,12 +39,20 @@ export type GmailAttachmentDescriptor = {
   filename: string | null;
   /** Gmail's declared size, when present. */
   sizeBytes: number | null;
+  /** The attachment id from this fetch — what the download must use. */
+  attachmentId: string;
+  /** How the part was found (diagnostics). */
+  matchedBy: "attachment_id" | "part_id";
 };
 
 export type GmailAttachmentLookup =
   | { ok: true; descriptor: GmailAttachmentDescriptor }
-  /** The message exists but carries no such attachment, or carries it twice. */
-  | { ok: false; reason: "ATTACHMENT_NOT_IN_MESSAGE" };
+  /** The message exists but the picked attachment cannot be identified in it. */
+  | {
+      ok: false;
+      reason: "ATTACHMENT_NOT_IN_MESSAGE";
+      detail: Extract<AttachmentResolution, { ok: false }>["reason"];
+    };
 
 async function gmailFetchJson<T>(url: string, accessToken: string): Promise<T> {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -60,11 +72,20 @@ async function gmailFetchJson<T>(url: string, accessToken: string): Promise<T> {
  * An attachment id that belongs to a different message simply will not be found
  * in this message's tree, which is the same refusal as one that never existed —
  * the client cannot use an id from elsewhere to smuggle in another type.
+ *
+ * When the id is not found, `partId` + the reported filename and size may
+ * identify the part instead (resolveAttachmentInMessage). Either way the type,
+ * filename and download id all come from THIS server-side fetch; the client's
+ * values only select a part inside the tenant's own message and must agree with
+ * it.
  */
 export async function fetchGmailAttachmentDescriptor(params: {
   accessToken: string;
   messageId: string;
   attachmentId: string;
+  partId?: string | null;
+  filename?: string | null;
+  sizeBytes?: number | null;
 }): Promise<GmailAttachmentLookup> {
   const url = new URL(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(
@@ -78,12 +99,22 @@ export async function fetchGmailAttachmentDescriptor(params: {
     params.accessToken
   );
 
-  const part = findAttachmentPart(message.payload, params.attachmentId);
-  if (!part) return { ok: false, reason: "ATTACHMENT_NOT_IN_MESSAGE" };
+  const resolved = resolveAttachmentInMessage(message.payload, {
+    attachmentId: params.attachmentId,
+    partId: params.partId,
+    filename: params.filename,
+    sizeBytes: params.sizeBytes,
+  });
+  if (!resolved.ok) {
+    return { ok: false, reason: "ATTACHMENT_NOT_IN_MESSAGE", detail: resolved.reason };
+  }
+  const part = resolved.part;
 
   return {
     ok: true,
     descriptor: {
+      attachmentId: resolved.attachmentId,
+      matchedBy: resolved.matchedBy,
       // No fallback to a default type. An absent mimeType means Gmail did not
       // say, and inventing one here would recreate the very defect this module
       // exists to remove — it simply fails the allowlist instead.

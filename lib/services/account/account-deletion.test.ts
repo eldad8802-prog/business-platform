@@ -39,6 +39,7 @@ const NOW = new Date("2026-08-23T12:00:00Z");
 type StoreState = {
   business: { id: number; state: "ACTIVE" | "DELETION_REQUESTED" | "PURGED" } | null;
   activeUserIds: number[];
+  objectsThrow?: boolean;
 };
 function makeStore(state: StoreState) {
   const calls: string[] = [];
@@ -62,6 +63,11 @@ function makeStore(state: StoreState) {
     async finalizeAndAudit() {
       calls.push("finalizeAndAudit");
       if (state.business) state.business.state = "PURGED";
+    },
+    async eraseStoredObjects() {
+      calls.push("eraseStoredObjects");
+      if (state.objectsThrow) throw new Error("storage down");
+      return { complete: true };
     },
   };
   return { store, calls, state };
@@ -188,6 +194,26 @@ function makeStore(state: StoreState) {
       "quarantine commits BEFORE anything destructive (the whole point of AD-2A)",
       q >= 0 && q < purge && purge < fin
     );
+  }
+
+  // ---- stored objects only after every database stage committed ----
+  {
+    const { store, calls } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [3] });
+    await deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW });
+    ok(
+      "objects are erased AFTER finalize (never before the database stages committed)",
+      calls.indexOf("eraseStoredObjects") > calls.indexOf("finalizeAndAudit") && calls.indexOf("finalizeAndAudit") >= 0
+    );
+  }
+  {
+    const { store, calls } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [3], objectsThrow: true });
+    const r = await deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW }).catch(() => null);
+    ok("an object-stage failure does not fail a completed deletion (the job stays open)", r?.status === "deleted" && calls.includes("eraseStoredObjects"));
+  }
+  {
+    const { store, calls } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [3, 9] });
+    await deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW }).catch(() => null);
+    ok("a refused deletion never reaches the object stage", !calls.includes("eraseStoredObjects"));
   }
 
   if (failed > 0) {

@@ -15,6 +15,11 @@ import {
   summarizeGmailScan,
   type GmailScanDiagnostics,
 } from "@/lib/services/email-import/scan-diagnostics";
+import {
+  parseRejectedTypeCounts,
+  REJECTED_TYPE_GROUPS,
+  type RejectedTypeCounts,
+} from "@/lib/services/email-import/rejected-types";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
 import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
@@ -104,6 +109,25 @@ function emptyMessage(
   }
 }
 
+// A failed import names the file and the reason in plain Hebrew. The server's
+// message is already a translated sentence (file too large, unsupported type,
+// content check); the "not found in the message" code gets its own guidance,
+// and a network/unknown failure a generic retry line.
+function importFailureMessage(
+  t: Translator,
+  attachment: ScoredAttachment,
+  data: { error?: unknown; code?: unknown } | null
+): string {
+  const file = attachment.filename || t("documents.email.untitled");
+  const reason =
+    data?.code === "ATTACHMENT_NOT_IN_MESSAGE"
+      ? t("documents.email.errImportNotFound")
+      : typeof data?.error === "string" && data.error
+        ? data.error
+        : t("documents.email.errImportGeneric");
+  return t("documents.email.errImportFile", { file, reason });
+}
+
 function attachmentStatusLabel(t: Translator, status: EmailAttachmentUiStatus): string {
   return status === "imported"
     ? t("documents.email.statusImported")
@@ -135,6 +159,7 @@ export default function EmailDocumentsPage() {
   // (which clears `error`) cannot wipe it. Cleared only by a new connect attempt.
   const [connectError, setConnectError] = useState<{ message: string; code: string } | null>(null);
   const [scanDiag, setScanDiag] = useState<GmailScanDiagnostics | null>(null);
+  const [rejectedByType, setRejectedByType] = useState<RejectedTypeCounts | null>(null);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -267,6 +292,7 @@ export default function EmailDocumentsPage() {
         setAttachments([]);
         setStatusByKey({});
         setScanDiag(null);
+        setRejectedByType(null);
       }
       setNotice(t("documents.email.disconnectedNotice"));
     } catch (err) {
@@ -287,6 +313,7 @@ export default function EmailDocumentsPage() {
       setLoading(true);
       setError("");
       setScanDiag(null);
+      setRejectedByType(null);
       const params = new URLSearchParams({ maxMessages: String(maxMessages) });
       if (connectionId != null) params.set("connectionId", String(connectionId));
       const response = await fetch(`/api/integrations/gmail/sync?${params.toString()}`, {
@@ -317,6 +344,8 @@ export default function EmailDocumentsPage() {
           attachments: list,
         })
       );
+      // Absent on older servers → null → the breakdown line is simply not shown.
+      setRejectedByType(parseRejectedTypeCounts(data.rejectedByType));
       const scored = scoreAttachments(list).filter((item) => item.bucket !== "hidden");
       const nextStatus: Record<string, EmailAttachmentUiStatus> = {};
       for (const attachment of scored) {
@@ -349,6 +378,7 @@ export default function EmailDocumentsPage() {
           fromEmail: attachment.fromEmail,
           subject: attachment.subject,
           sentAt: attachment.sentAt,
+          partId: attachment.partId ?? null,
           ...(selectedConnectionId != null ? { connectionId: selectedConnectionId } : {}),
         }),
       });
@@ -366,9 +396,13 @@ export default function EmailDocumentsPage() {
             ? "duplicate"
             : "imported";
       setStatusByKey((current) => ({ ...current, [attachment.key]: status }));
+      if (status === "failed") {
+        setError(importFailureMessage(t, attachment, data));
+      }
       return status === "imported";
     } catch {
       setStatusByKey((current) => ({ ...current, [attachment.key]: "failed" }));
+      setError(importFailureMessage(t, attachment, null));
       return false;
     }
   }
@@ -594,6 +628,20 @@ export default function EmailDocumentsPage() {
                 recommended: formatNumber(scanDiag.recommended, fmt),
               })}
             </div>
+            {scanDiag.unsupportedType > 0 && rejectedByType ? (
+              <div className="dz-email-scan-rejected">
+                {t("documents.email.scanRejectedTypes", {
+                  groups: REJECTED_TYPE_GROUPS.filter((group) => rejectedByType[group] > 0)
+                    .map((group) =>
+                      t("documents.email.rejectedGroup", {
+                        group: t(`documents.email.rejected_${group}`),
+                        count: formatNumber(rejectedByType[group], fmt),
+                      })
+                    )
+                    .join(" · "),
+                })}
+              </div>
+            ) : null}
           </div>
         ) : null}
 

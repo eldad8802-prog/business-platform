@@ -22,6 +22,12 @@ import {
 } from "./token-crypto.placeholder";
 import { refreshGoogleAccessToken } from "./oauth-refresh.service";
 import { isAllowedDocumentMime } from "@/lib/services/documents/document-ingestion.service";
+import {
+  emptyRejectedTypeCounts,
+  rejectedTypeGroup,
+  REJECTED_TYPE_GROUPS,
+  type RejectedTypeCounts,
+} from "@/lib/services/email-import/rejected-types";
 import { GmailReauthRequiredError } from "./gmail-errors";
 import {
   collectAttachmentParts,
@@ -38,6 +44,8 @@ export type GmailAttachmentMetadata = {
   fromEmail: string | null;
   subject: string | null;
   sentAt: string | null; // ISO string
+  /** The part's position in the message tree; lets import re-find it. */
+  partId: string | null;
 };
 
 type GmailMessageListResponse = {
@@ -100,7 +108,9 @@ async function gmailFetchJson<T>(url: string, accessToken: string): Promise<T> {
  *
  * attachmentParts = parts carrying an attachment id;
  * unsupportedType = of those, refused by the Documents type allowlist;
- * attachments.length === attachmentParts - unsupportedType.
+ * attachments.length === attachmentParts - unsupportedType;
+ * rejectedByType = the unsupported ones by declared-type group (sums to
+ * unsupportedType; counting only, 2026-11-08 B1).
  */
 export function classifyAttachmentParts(
   parts: GmailMessagePart[],
@@ -114,10 +124,12 @@ export function classifyAttachmentParts(
   attachments: GmailAttachmentMetadata[];
   attachmentParts: number;
   unsupportedType: number;
+  rejectedByType: RejectedTypeCounts;
 } {
   const attachments: GmailAttachmentMetadata[] = [];
   let attachmentParts = 0;
   let unsupportedType = 0;
+  const rejectedByType = emptyRejectedTypeCounts();
 
   for (const p of parts) {
     const attachmentId = p.body?.attachmentId;
@@ -133,6 +145,7 @@ export function classifyAttachmentParts(
     // image", which is wider than what Dubiz accepts.
     if (!isAllowedDocumentMime(mimeType)) {
       unsupportedType += 1;
+      rejectedByType[rejectedTypeGroup(p.mimeType, filename)] += 1;
       continue;
     }
 
@@ -145,10 +158,11 @@ export function classifyAttachmentParts(
       fromEmail: meta.fromEmail,
       subject: meta.subject,
       sentAt: meta.sentAt,
+      partId: p.partId ? String(p.partId) : null,
     });
   }
 
-  return { attachments, attachmentParts, unsupportedType };
+  return { attachments, attachmentParts, unsupportedType, rejectedByType };
 }
 
 export async function discoverGmailAttachments(params: {
@@ -161,6 +175,7 @@ export async function discoverGmailAttachments(params: {
   foundAttachments: number;
   attachmentParts: number;
   unsupportedType: number;
+  rejectedByType: RejectedTypeCounts;
   attachments: GmailAttachmentMetadata[];
 }> {
   const connection = await dbStep((db) => db.emailConnection.findFirst({
@@ -242,6 +257,7 @@ export async function discoverGmailAttachments(params: {
   const attachments: GmailAttachmentMetadata[] = [];
   let attachmentParts = 0;
   let unsupportedType = 0;
+  const rejectedByType = emptyRejectedTypeCounts();
 
   for (const messageId of messageIds) {
     const msgUrl = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}`);
@@ -260,6 +276,9 @@ export async function discoverGmailAttachments(params: {
     attachments.push(...classified.attachments);
     attachmentParts += classified.attachmentParts;
     unsupportedType += classified.unsupportedType;
+    for (const group of REJECTED_TYPE_GROUPS) {
+      rejectedByType[group] += classified.rejectedByType[group];
+    }
   }
 
   return {
@@ -267,6 +286,7 @@ export async function discoverGmailAttachments(params: {
     foundAttachments: attachments.length,
     attachmentParts,
     unsupportedType,
+    rejectedByType,
     attachments,
   };
 }

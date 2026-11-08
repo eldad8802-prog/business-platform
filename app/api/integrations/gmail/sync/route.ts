@@ -6,6 +6,7 @@ import { discoverGmailAttachments } from "@/lib/services/integrations/gmail/gmai
 import { GmailReauthRequiredError } from "@/lib/services/integrations/gmail/gmail-errors";
 import { isGmailConnectionOwnedByBusiness } from "@/lib/services/integrations/gmail/gmail-connection.service";
 import { summarizeGmailScan } from "@/lib/services/email-import/scan-diagnostics";
+import { parseRejectedTypeCounts } from "@/lib/services/email-import/rejected-types";
 
 export const runtime = "nodejs";
 
@@ -46,10 +47,13 @@ export async function GET(req: NextRequest) {
       maxMessages,
     }));
 
-    // Diagnostics: numbers only — no address, filename, subject or token.
+    // Diagnostics: numbers only — no address, filename, subject or token. The
+    // second object is the refused-by-type breakdown under fixed group keys.
+    const rejectedByType = parseRejectedTypeCounts(summary.rejectedByType);
     console.info(
       "GMAIL_SYNC_RESULT:",
-      JSON.stringify(summarizeGmailScan(summary))
+      JSON.stringify(summarizeGmailScan(summary)),
+      JSON.stringify(rejectedByType)
     );
 
     return NextResponse.json({
@@ -58,6 +62,7 @@ export async function GET(req: NextRequest) {
       foundAttachments: summary.foundAttachments,
       attachmentParts: summary.attachmentParts,
       unsupportedType: summary.unsupportedType,
+      rejectedByType,
       attachments: summary.attachments,
     });
   } catch (error) {

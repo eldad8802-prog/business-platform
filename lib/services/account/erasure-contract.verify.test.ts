@@ -57,13 +57,14 @@ import {
   POINTER_NAME_PATTERN,
 } from "../../../scripts/ci/erasure/erasure-object-surfaces";
 import { ACCEPTED_DEBT, debtKey } from "../../../scripts/ci/erasure/erasure-contract-debt";
-import { checkDbFunctionErasures } from "./erasure-db-function-contract";
+import { checkDbFunctionErasures, purgeScope } from "./erasure-db-function-contract";
 import {
   delegateName,
   isSystemDerived,
   parseAdapter,
   parsePrismaSchema,
   scanCodebaseWrites,
+  transactionScope,
 } from "./erasure-contract";
 
 const ROOT = path.resolve(__dirname, "../../..");
@@ -747,8 +748,11 @@ function main(): number {
       if (surface.state === "RETAINED" && !surface.basis) {
         report("C21-OBJECT-SURFACE-INVALID", key, "RETAINED without a basis");
       }
-      if (surface.state === "ERASED" && !surface.erasedBy) {
+      if (surface.state === "ERASED" && !surface.erasedBy && !surface.erasedAfterCommit) {
         report("C21-OBJECT-SURFACE-INVALID", key, "ERASED without naming the function that deletes the object");
+      }
+      if (surface.erasedBy && surface.erasedAfterCommit) {
+        report("C21-OBJECT-SURFACE-INVALID", key, "ERASED both before the row write and after commit — pick one");
       }
       if ((surface.state === "OPEN" || surface.state === "OPEN_INERT") && !surface.target) {
         report("C21-OBJECT-SURFACE-INVALID", key, `${surface.state} without a target increment`);
@@ -835,6 +839,43 @@ function main(): number {
               ...eraser
             )} — the key is destroyed before the object`
           );
+        }
+      }
+
+      // The durable-job form. The key must survive the purge transaction (no adapter write on its rows), the job
+      // must be written IN that transaction (so it rolls back with it), and the objects must be deleted by a call
+      // OUTSIDE every transaction that comes AFTER it — never ahead of the commit.
+      const purge = purgeScope(adapter);
+      for (const s of OBJECT_SURFACES) {
+        if (s.state !== "ERASED" || !s.erasedAfterCommit) continue;
+        const key = surfaceKey(s);
+        const { jobFn, objectFn, keyDelegate } = s.erasedAfterCommit;
+        const job = adapter.dbFunctionCalls.filter((c) => c.fn === jobFn && c.scope >= 0 && c.scope === purge);
+        if (job.length === 0) {
+          report("C22-OBJECT-ERASURE-NOT-IMPLEMENTED", key, `${key} is declared ERASED after commit, but the adapter does not call ${jobFn}() in the purge transaction`);
+          continue;
+        }
+        const objectCalls: { line: number; scope: number }[] = [];
+        const walk = (n: ts.Node) => {
+          if (ts.isCallExpression(n)
+              && ((ts.isIdentifier(n.expression) && n.expression.text === objectFn)
+                || (ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === objectFn))) {
+            objectCalls.push({ line: src.getLineAndCharacterOfPosition(n.getStart(src)).line + 1, scope: transactionScope(n, src) });
+          }
+          ts.forEachChild(n, walk);
+        };
+        walk(src);
+        const jobLine = Math.min(...job.map((c) => c.line));
+        if (objectCalls.length === 0) {
+          report("C22-OBJECT-ERASURE-NOT-IMPLEMENTED", key, `${key} is declared ERASED after commit, but the adapter never calls ${objectFn}()`);
+        } else if (objectCalls.some((c) => c.scope >= 0 || c.line < jobLine)) {
+          report("C22-OBJECT-ERASURE-NOT-IMPLEMENTED", key,
+            `${objectFn}() is called inside a transaction or before ${jobFn}() (line ${jobLine}) — objects would be deleted ahead of the commit`);
+        }
+        const keyWrites = adapter.writes.filter((w) => w.delegate === keyDelegate).length
+          + adapter.deletes.filter((d) => d.delegate === keyDelegate).length;
+        if (keyWrites > 0) {
+          report("C22-OBJECT-ERASURE-NOT-IMPLEMENTED", key, `the adapter writes ${keyDelegate} — the durable job's keys must outlive the purge transaction`);
         }
       }
     }
