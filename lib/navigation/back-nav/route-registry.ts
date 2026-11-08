@@ -139,6 +139,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/billing/[id]", parent: "/billing", parentLabelKey: "toInvoiceList" },
   // Business documents (business_documents): additions next to the invoices, never inside them.
   { pattern: "/business-documents", parent: "/billing", parentLabelKey: "toInvoiceList" },
+  { pattern: "/business-documents/letters", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   { pattern: "/business-documents/letters/new", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   { pattern: "/business-documents/quotes/[id]", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   { pattern: "/payables/[id]", parent: "/payables", parentLabelKey: "toAllPayables" },
