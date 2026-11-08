@@ -12,7 +12,10 @@
  *   E4  the answer AND the status check are lost → error → retry asks first → shows the issued one, exactly one
  *   E5  offline at the moment of issuing → error → back online → retry → exactly one
  *   E6  double click on "הפקת הקבלה" → exactly one
+ *   R1  answer + status check lost → page REFRESHED → the issued one is found, exactly one (desktop)
+ *   R2  server error → page CLOSED and REOPENED → the same draft is continued, exactly one, no second draft (desktop)
  *   P1  phone 390px: bank transfer, RTL, no side scroll, issued, exactly one
+ *   R3  as R1, on the phone
  *   N1  back control → "מסמכים נוספים";  N2 business without the feature → the "not open" notice
  *   F1  the PDF of an issued receipt downloads through the existing route
  *
@@ -93,7 +96,7 @@ async function main() {
 
   console.log("desktop · business_documents ON");
   const dc = await ctx(browser, seed.tokenA, DESKTOP);
-  const p = await dc.newPage();
+  let p = await dc.newPage();
   current = p;
 
   await check("E1 consolidated receipt — one payment over two invoices, issued once; remaining 0 and 360.00", async () => {
@@ -113,6 +116,13 @@ async function main() {
     const allocs = await owner.billingPaymentAllocation.findMany({ where: { invoiceDocumentId: { in: seed.invoices } }, select: { invoiceDocumentId: true, allocatedAmount: true } });
     const by = new Map(allocs.map((a) => [a.invoiceDocumentId, Number(a.allocatedAmount)]));
     if (by.get(seed.invoices[0]) !== 1180 || by.get(seed.invoices[1]) !== 820) throw new Error(`allocations ${JSON.stringify([...by])}`);
+  });
+
+  await check("F0 the existing billing PDF route answers for the issued receipt (status + body, for diagnosis)", async () => {
+    const last = await owner.billingDocument.findFirst({ where: { businessId: seed.bizA, documentType: "RECEIPT", status: "ISSUED" }, orderBy: { id: "desc" }, select: { id: true } });
+    const r = await fetch(`${BASE}/api/billing/documents/${last!.id}/pdf`, { headers: { authorization: `Bearer ${seed.tokenA}` } });
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (r.status !== 200 || buf.subarray(0, 5).toString() !== "%PDF-") throw new Error(`status ${r.status}: ${buf.subarray(0, 300).toString()}`);
   });
 
   await check("F1 the PDF of the issued receipt downloads (existing billing PDF route)", async () => {
@@ -229,6 +239,56 @@ async function main() {
     if ((await allReceipts()) !== all0) throw new Error("a draft was created");
   });
 
+await check("R1 desktop: answer AND status check lost → page REFRESHED → the screen finds the issued receipt, exactly one", async () => {
+    const before = await issuedReceipts();
+    await open(p);
+    await fill(p, seed.customer2, "90");
+    await p.route(ISSUE, async (route) => {
+      await route.fetch();
+      await route.abort("connectionreset");
+    });
+    let dropCheck = true;
+    await p.route(DOC, (route) => (route.request().method() === "GET" && dropCheck ? ((dropCheck = false), route.abort("connectionreset")) : route.continue()));
+    await review(p);
+    await issue(p);
+    await p.getByText("לא ברור אם הקבלה הופקה").first().waitFor({ timeout: 30_000 });
+    await p.unroute(ISSUE);
+    await p.unroute(DOC);
+    await p.reload();
+    await p.getByText("הקבלה מהניסיון הקודם כבר הופקה").waitFor({ timeout: 30_000 });
+    await shot(p, "r1-after-refresh");
+    const after = await issuedReceipts();
+    if (after !== before + 1) throw new Error(`issued ${before} → ${after}`);
+  });
+
+  await check("R2 desktop: server error → page CLOSED and REOPENED → the draft is continued, exactly one, no second draft", async () => {
+    const issued0 = await issuedReceipts();
+    const all0 = await allReceipts();
+    await open(p);
+    await fill(p, seed.customer2, "95");
+    await p.route(PAYMENTS, (route) => route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"Internal Server Error"}' }));
+    await review(p);
+    await issue(p);
+    await failed(p);
+    await p.unroute(PAYMENTS);
+    await p.close();
+    const p2 = await dc.newPage();
+    current = p2;
+    await p2.goto("/business-documents/receipts/new");
+    await p2.getByText("יש טיוטת קבלה מניסיון קודם").waitFor({ timeout: 30_000 });
+    if ((await p2.locator("#rc-customer").inputValue()) !== String(seed.customer2)) throw new Error("customer not restored");
+    await p2.locator("#rc-0-amount").fill("95");
+    await review(p2);
+    await issue(p2);
+    await done(p2);
+    await shot(p2, "r2-after-reopen");
+    const issued1 = await issuedReceipts();
+    const all1 = await allReceipts();
+    if (issued1 !== issued0 + 1) throw new Error(`issued ${issued0} → ${issued1}`);
+    if (all1 !== all0 + 1) throw new Error(`receipt documents ${all0} → ${all1} (the reopened page made a new draft)`);
+    p = p2;
+  });
+
   await check("N1 the back control leads to מסמכים נוספים", async () => {
     await p.goto("/business-documents");
     await p.getByRole("link", { name: /קבלה חדשה/ }).click();
@@ -264,6 +324,28 @@ async function main() {
     const pay = await owner.billingReceiptPayment.findMany({ where: { billingDocumentId: last!.id } });
     if (pay.length !== 1 || pay[0].method !== "BANK_TRANSFER" || pay[0].bankAccountNumber !== "778899" || pay[0].currency !== "ILS") throw new Error(JSON.stringify(pay));
   });
+await check("R3 phone: answer AND status check lost → page REFRESHED → the issued receipt is shown, exactly one", async () => {
+    const before = await issuedReceipts();
+    await open(pp);
+    await fill(pp, seed.customer2, "33");
+    await pp.route(ISSUE, async (route) => {
+      await route.fetch();
+      await route.abort("connectionreset");
+    });
+    let dropCheck = true;
+    await pp.route(DOC, (route) => (route.request().method() === "GET" && dropCheck ? ((dropCheck = false), route.abort("connectionreset")) : route.continue()));
+    await review(pp);
+    await issue(pp);
+    await pp.getByText("לא ברור אם הקבלה הופקה").first().waitFor({ timeout: 30_000 });
+    await pp.unroute(ISSUE);
+    await pp.unroute(DOC);
+    await pp.reload();
+    await pp.getByText("הקבלה מהניסיון הקודם כבר הופקה").waitFor({ timeout: 30_000 });
+    await shot(pp, "r3-phone-after-refresh");
+    const after = await issuedReceipts();
+    if (after !== before + 1) throw new Error(`issued ${before} → ${after}`);
+  });
+
   await pc.close();
 
   console.log("desktop · business without the feature");
@@ -279,10 +361,10 @@ async function main() {
 
   await browser.close();
 
-  // The final ledger: every ISSUED receipt of business A, one per successful scenario (E1–E6, P1 = 7).
-  await check("L1 the database holds exactly 7 issued receipts for business A — one per scenario, none twice", async () => {
+  // The final ledger: every ISSUED receipt of business A, one per successful scenario (E1–E6, R1, R2, P1, R3 = 10).
+  await check("L1 the database holds exactly 10 issued receipts for business A — one per scenario, none twice", async () => {
     const n = await issuedReceipts();
-    if (n !== 7) throw new Error(`issued receipts: ${n}`);
+    if (n !== 10) throw new Error(`issued receipts: ${n}`);
   });
 
   const bad = rows.filter((r) => !r.ok);

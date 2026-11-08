@@ -350,6 +350,9 @@ jobs:
           curl -sf -o /dev/null http://localhost:3710/login
       - name: End to end — issue, error, disconnect + retry (one receipt only), double click, phone, back, flag off
         run: npx tsx .business-documents/receipt-ui-e2e.mts
+      - name: Server log (on failure)
+        if: failure()
+        run: tail -n 120 "$OUT/server.log" || true
       - name: Result table
         if: always()
         run: '[ -f "$OUT/report.md" ] && cat "$OUT/report.md" >> "$GITHUB_STEP_SUMMARY" || true'

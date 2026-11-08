@@ -12,6 +12,7 @@ import {
   isConsolidated,
   METHOD_FIELDS,
   METHODS,
+  parsePendingAttempt,
   paymentsPayload,
   receiptProblems,
   toAgorot,
@@ -95,6 +96,11 @@ console.log("auto allocation and consolidated receipt");
   ok("never above the remaining", autoAllocate(50000, invoices)[1] === "60.00" && autoAllocate(50000, invoices)[2] === "40.00");
   ok("two invoices = consolidated", isConsolidated(a) && !isConsolidated({ 1: "60.00", 2: "" }));
 }
+
+console.log("the attempt kept across a refresh");
+ok("a valid attempt", JSON.stringify(parsePendingAttempt(JSON.stringify({ id: 12, customerId: "7", allocated: true }))) === JSON.stringify({ id: 12, customerId: "7", allocated: true }));
+ok("missing / malformed / tampered → null", [null, "", "{", JSON.stringify({ id: -1, customerId: "7" }), JSON.stringify({ id: 1.5, customerId: "7" }), JSON.stringify({ id: 3, customerId: "x" }), JSON.stringify({ customerId: "7" })].every((r) => parsePendingAttempt(r) === null));
+ok("allocated defaults to false", parsePendingAttempt(JSON.stringify({ id: 3, customerId: "7" }))?.allocated === false);
 
 console.log("server refusals in Hebrew");
 ok("network", billingErrorText(null, "x") === "אין חיבור. נסו שוב.");

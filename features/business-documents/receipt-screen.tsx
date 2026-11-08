@@ -43,7 +43,10 @@ import {
   paymentsPayload,
   receiptProblems,
   type LineField,
+  PENDING_KEY,
+  parsePendingAttempt,
   type OpenInvoice,
+  type PendingAttempt,
   type PaymentLineForm,
   type ReceiptForm,
   type ReceiptMethod,
@@ -55,6 +58,16 @@ type Step = "edit" | "confirm" | "issuing" | "done";
 
 /** The connection dropped after the issue request left, and the document's status could not be read either. */
 class UnknownOutcome extends Error {}
+
+/** Where the attempt in progress is kept on this device, so a refresh or a reopened page asks before issuing. */
+function storePending(attempt: PendingAttempt | null) {
+  try {
+    if (attempt) window.localStorage.setItem(PENDING_KEY, JSON.stringify(attempt));
+    else window.localStorage.removeItem(PENDING_KEY);
+  } catch {
+    /* storage blocked — the in-page retry still holds */
+  }
+}
 
 export function ReceiptScreen() {
   const on = useFeatureState("business_documents");
@@ -68,12 +81,48 @@ export function ReceiptScreen() {
   const [step, setStep] = useState<Step>("edit");
   const [issued, setIssued] = useState<ReceiptDocWire | null>(null);
   /** The billing draft of the current attempt: a retry reuses it (payment lines and allocations are replaced). */
-  const draft = useRef<{ id: number; customerId: string; allocated: boolean } | null>(null);
+  const draft = useRef<PendingAttempt | null>(null);
   const inFlight = useRef(false);
+  /** What a previous attempt (before a refresh / a reopened page) turned out to be. */
+  const [resumed, setResumed] = useState<null | "issued" | "draft" | "unknown">(null);
+
+  /** The attempt survives a refresh or a reopened page: kept on this device until it ends (issued or dropped). */
+  const remember = (attempt: PendingAttempt | null) => {
+    draft.current = attempt;
+    storePending(attempt);
+  };
 
   useEffect(() => {
     if (on !== true) return;
     listCustomerOptions().then(setCustomers).catch(() => setCustomers([]));
+    let pending: PendingAttempt | null = null;
+    try {
+      pending = parsePendingAttempt(window.localStorage.getItem(PENDING_KEY));
+    } catch {
+      pending = null;
+    }
+    if (!pending) return;
+    const attempt = pending;
+    // Ask the document what the previous attempt became, before anything can issue again.
+    draft.current = attempt;
+    getBillingDocument(attempt.id).then(
+      (doc) => {
+        if (doc.status === "ISSUED") {
+          draft.current = null;
+          storePending(null);
+          setIssued(doc);
+          setResumed("issued");
+          setStep("done");
+        } else if (doc.status === "DRAFT") {
+          setForm((f) => ({ ...f, customerId: attempt.customerId }));
+          setResumed("draft");
+        } else {
+          draft.current = null;
+          storePending(null);
+        }
+      },
+      () => setResumed("unknown")
+    );
   }, [on]);
 
   useEffect(() => {
@@ -139,22 +188,22 @@ export function ReceiptScreen() {
           throw new UnknownOutcome();
         });
         if (previous.status === "ISSUED") {
-          draft.current = null;
+          remember(null);
           setIssued(previous);
           setStep("done");
           return;
         }
       }
-      if (draft.current && (draft.current.customerId !== form.customerId || (draft.current.allocated && !allocations))) draft.current = null;
+      if (draft.current && (draft.current.customerId !== form.customerId || (draft.current.allocated && !allocations))) remember(null);
       if (!draft.current) {
         const created = await createReceiptDraftRequest(Number(form.customerId));
-        draft.current = { id: created.id, customerId: form.customerId, allocated: false };
+        remember({ id: created.id, customerId: form.customerId, allocated: false });
       }
       const id = draft.current.id;
       await setReceiptPaymentsRequest(id, paymentsPayload(form.lines));
       if (allocations) {
         await setReceiptAllocationsRequest(id, allocations);
-        draft.current.allocated = true;
+        remember({ ...draft.current, allocated: true });
       }
       let doc: ReceiptDocWire;
       try {
@@ -169,7 +218,8 @@ export function ReceiptScreen() {
           doc = current;
         } else throw e;
       }
-      draft.current = null;
+      remember(null);
+      setResumed(null);
       setIssued(doc);
       setStep("done");
     } catch (e) {
@@ -201,7 +251,8 @@ export function ReceiptScreen() {
   };
 
   const restart = () => {
-    draft.current = null;
+    remember(null);
+    setResumed(null);
     setIssued(null);
     setForm({ customerId: "", lines: [emptyLine(today)], allocations: {} });
     setProblems({});
@@ -233,6 +284,7 @@ export function ReceiptScreen() {
         ) : step === "done" && issued ? (
           <section className={s.section}>
             <h2 className={s.sectionTitle}>הקבלה הופקה</h2>
+            {resumed === "issued" ? <p className={s.note} role="status">הקבלה מהניסיון הקודם כבר הופקה, ולא הופקה קבלה נוספת.</p> : null}
             <p className={s.note} role="status">קבלה מס׳ {issued.documentNumberFormatted ?? "—"} על סך {formatAgorot(decimalToAgorot(issued.totalAmount))} ₪.</p>
             {message ? <p className={s.error} role="alert">{message}</p> : null}
             <div className={s.actions}>
@@ -244,6 +296,8 @@ export function ReceiptScreen() {
         ) : (
           <form className={s.section} onSubmit={(e) => { e.preventDefault(); review(); }} noValidate>
             <p className={s.note}>הקבלה מופקת במנגנון החשבוניות הקיים, עם המספור שלו. אחרי ההפקה אי אפשר לערוך אותה.</p>
+            {resumed === "draft" ? <p className={s.note} role="status">יש טיוטת קבלה מניסיון קודם שלא הופקה. הפקה עכשיו תמשיך אותה, ולא תיצור קבלה נוספת.</p> : null}
+            {resumed === "unknown" ? <p className={s.note} role="status">לא הצלחנו לבדוק את הניסיון הקודם. לפני הפקה נבדוק שוב אם הוא כבר הופק.</p> : null}
 
             <div className={s.field}>
               <label className={s.label} htmlFor="rc-customer">לקוח</label>

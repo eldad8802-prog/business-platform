@@ -209,3 +209,21 @@ export function billingErrorText(status: number | null, message: string): string
   for (const [re, text] of SERVER_TEXT) if (re.test(message)) return text;
   return "הפעולה נכשלה. נסו שוב.";
 }
+
+/** The receipt attempt in progress, kept on the device so a refresh or a reopened page can ask before issuing again. */
+export type PendingAttempt = { id: number; customerId: string; allocated: boolean };
+
+export const PENDING_KEY = "dubiz.businessDocuments.receiptAttempt.v1";
+
+/** Whatever is stored → a valid attempt, or null (missing, malformed or tampered values are ignored). */
+export function parsePendingAttempt(raw: string | null): PendingAttempt | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<PendingAttempt>;
+    if (!Number.isInteger(v.id) || (v.id as number) <= 0) return null;
+    if (typeof v.customerId !== "string" || !/^\d+$/.test(v.customerId)) return null;
+    return { id: v.id as number, customerId: v.customerId, allocated: v.allocated === true };
+  } catch {
+    return null;
+  }
+}
