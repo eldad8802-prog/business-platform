@@ -55,6 +55,7 @@ type ImportRequestBody = {
   fromEmail: string | null;
   subject: string | null;
   sentAt: string | null;
+  partId: string | null;
 };
 
 function safeString(v: unknown): string {
@@ -131,6 +132,7 @@ async function handleAuthedImport(
       fromEmail: safeNullableString(json.fromEmail),
       subject: safeNullableString(json.subject),
       sentAt: safeNullableString(json.sentAt),
+      partId: safeNullableString((json as { partId?: unknown }).partId),
     };
 
     if (!body.messageId || !body.attachmentId) {
@@ -187,14 +189,28 @@ async function handleAuthedImport(
     // Ask GMAIL what this attachment is. Same authorised token, same message
     // structure that produced the attachment id, so the type and the id come
     // from one server-side source instead of arriving separately via a browser.
+    //
+    // The attachment id discovery saw may not come back identical on this second
+    // fetch; partId + the reported filename and size then identify the part
+    // (resolveAttachmentInMessage). The client's values only SELECT a part in
+    // this tenant's own message and must agree with it; type, filename and the
+    // download id all come from this fetch.
     const lookup = await fetchGmailAttachmentDescriptor({
       accessToken,
       messageId: body.messageId,
       attachmentId: body.attachmentId,
+      partId: body.partId,
+      filename: body.filename,
+      sizeBytes: body.sizeBytes,
     });
+    // Diagnostics: how the part was found, or why not — fixed codes only.
+    console.info(
+      "GMAIL_IMPORT_LOOKUP:",
+      lookup.ok ? lookup.descriptor.matchedBy : `not_found ${lookup.detail}`
+    );
     if (!lookup.ok) {
-      // The id is not in this message — it never existed, or it belongs to a
-      // different one. Either way it cannot be resolved to a type.
+      // The part cannot be identified in this message — it never existed, it
+      // belongs to a different one, or it no longer matches what was picked.
       return NextResponse.json(
         { error: t("api.gmail.attachmentNotInMessage"), code: "ATTACHMENT_NOT_IN_MESSAGE" },
         { status: 404 }
@@ -223,7 +239,7 @@ async function handleAuthedImport(
     const { bytes, sizeBytes } = await fetchGmailAttachmentBytes({
       accessToken,
       messageId: body.messageId,
-      attachmentId: body.attachmentId,
+      attachmentId: lookup.descriptor.attachmentId,
     });
 
     const effectiveSize = bytes.length || sizeBytes || 0;

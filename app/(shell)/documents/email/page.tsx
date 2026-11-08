@@ -10,6 +10,11 @@ import {
   type GmailDiscoveryAttachment,
   type ScoredAttachment,
 } from "@/lib/services/email-import/scoring";
+import {
+  gmailScanOutcome,
+  summarizeGmailScan,
+  type GmailScanDiagnostics,
+} from "@/lib/services/email-import/scan-diagnostics";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
 import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
@@ -39,6 +44,15 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+// The callback's whitelisted codes; anything else in the URL is shown as "unknown".
+const KNOWN_CALLBACK_CODES = new Set([
+  "google_access_denied",
+  "gmail_state_invalid",
+  "gmail_token_exchange_failed",
+  "gmail_callback_failed",
+  "max_accounts",
+]);
+
 // Friendly Hebrew copy for the whitelisted error codes the Gmail OAuth callback
 // (app/api/integrations/gmail/callback) redirects back with on failure.
 function gmailCallbackErrorMessage(t: Translator, code: string): string {
@@ -62,6 +76,51 @@ function formatSentAt(raw: string | null, locale: Locale = DEFAULT_LOCALE): stri
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString(intlTag(locale), { day: "numeric", month: "numeric" });
+}
+
+// Why the list is empty: no messages, messages without attachments, or
+// attachments that were all filtered out. Before any scan: the generic copy.
+function emptyMessage(
+  t: Translator,
+  diag: GmailScanDiagnostics | null,
+  fmt: Parameters<typeof formatNumber>[1]
+): string {
+  if (!diag) return t("documents.email.noFiles");
+  switch (gmailScanOutcome(diag)) {
+    case "no_messages":
+      return t("documents.email.scanNoMessages");
+    case "no_attachments":
+      return t("documents.email.scanNoAttachments", {
+        messages: formatNumber(diag.scannedMessages, fmt),
+      });
+    case "all_filtered":
+      return t("documents.email.scanAllFiltered", {
+        parts: formatNumber(diag.attachmentParts, fmt),
+        unsupported: formatNumber(diag.unsupportedType, fmt),
+        hidden: formatNumber(diag.hidden, fmt),
+      });
+    default:
+      return t("documents.email.noFiles");
+  }
+}
+
+// A failed import names the file and the reason in plain Hebrew. The server's
+// message is already a translated sentence (file too large, unsupported type,
+// content check); the "not found in the message" code gets its own guidance,
+// and a network/unknown failure a generic retry line.
+function importFailureMessage(
+  t: Translator,
+  attachment: ScoredAttachment,
+  data: { error?: unknown; code?: unknown } | null
+): string {
+  const file = attachment.filename || t("documents.email.untitled");
+  const reason =
+    data?.code === "ATTACHMENT_NOT_IN_MESSAGE"
+      ? t("documents.email.errImportNotFound")
+      : typeof data?.error === "string" && data.error
+        ? data.error
+        : t("documents.email.errImportGeneric");
+  return t("documents.email.errImportFile", { file, reason });
 }
 
 function attachmentStatusLabel(t: Translator, status: EmailAttachmentUiStatus): string {
@@ -91,6 +150,10 @@ export default function EmailDocumentsPage() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
+  // The OAuth callback's failure, kept apart from `error` so the automatic scan
+  // (which clears `error`) cannot wipe it. Cleared only by a new connect attempt.
+  const [connectError, setConnectError] = useState<{ message: string; code: string } | null>(null);
+  const [scanDiag, setScanDiag] = useState<GmailScanDiagnostics | null>(null);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -122,7 +185,10 @@ export default function EmailDocumentsPage() {
       if (connectedFlag === "1") {
         setNotice(t("documents.email.connectedNotice"));
       } else if (errorFlag) {
-        setError(gmailCallbackErrorMessage(t, errorFlag));
+        setConnectError({
+          message: gmailCallbackErrorMessage(t, errorFlag),
+          code: KNOWN_CALLBACK_CODES.has(errorFlag) ? errorFlag : "unknown",
+        });
       }
       window.history.replaceState({}, "", "/documents/email");
     });
@@ -175,6 +241,7 @@ export default function EmailDocumentsPage() {
     if (!authHeader) return;
     try {
       setError("");
+      setConnectError(null);
       const response = await fetch("/api/integrations/gmail/connect", {
         headers: {
           accept: "application/json",
@@ -218,6 +285,7 @@ export default function EmailDocumentsPage() {
         setEmailAddress("");
         setAttachments([]);
         setStatusByKey({});
+        setScanDiag(null);
       }
       setNotice(t("documents.email.disconnectedNotice"));
     } catch (err) {
@@ -237,6 +305,7 @@ export default function EmailDocumentsPage() {
     try {
       setLoading(true);
       setError("");
+      setScanDiag(null);
       const params = new URLSearchParams({ maxMessages: String(maxMessages) });
       if (connectionId != null) params.set("connectionId", String(connectionId));
       const response = await fetch(`/api/integrations/gmail/sync?${params.toString()}`, {
@@ -257,6 +326,16 @@ export default function EmailDocumentsPage() {
         ? data.attachments
         : [];
       setAttachments(list);
+      // Older servers (skew-pinned clients) lack the two counters: fall back to
+      // what the list itself proves.
+      setScanDiag(
+        summarizeGmailScan({
+          scannedMessages: typeof data.scannedMessages === "number" ? data.scannedMessages : 0,
+          attachmentParts: typeof data.attachmentParts === "number" ? data.attachmentParts : list.length,
+          unsupportedType: typeof data.unsupportedType === "number" ? data.unsupportedType : 0,
+          attachments: list,
+        })
+      );
       const scored = scoreAttachments(list).filter((item) => item.bucket !== "hidden");
       const nextStatus: Record<string, EmailAttachmentUiStatus> = {};
       for (const attachment of scored) {
@@ -289,6 +368,7 @@ export default function EmailDocumentsPage() {
           fromEmail: attachment.fromEmail,
           subject: attachment.subject,
           sentAt: attachment.sentAt,
+          partId: attachment.partId ?? null,
           ...(selectedConnectionId != null ? { connectionId: selectedConnectionId } : {}),
         }),
       });
@@ -306,9 +386,13 @@ export default function EmailDocumentsPage() {
             ? "duplicate"
             : "imported";
       setStatusByKey((current) => ({ ...current, [attachment.key]: status }));
+      if (status === "failed") {
+        setError(importFailureMessage(t, attachment, data));
+      }
       return status === "imported";
     } catch {
       setStatusByKey((current) => ({ ...current, [attachment.key]: "failed" }));
+      setError(importFailureMessage(t, attachment, null));
       return false;
     }
   }
@@ -478,6 +562,18 @@ export default function EmailDocumentsPage() {
         ) : null}
         </div>
         <div className="dz-email-main">
+        {connectError ? (
+          <section role="alert" className="dz-email-connect-error" style={errorStyle}>
+            <div style={{ fontWeight: TOKEN.weight.bold }}>{t("documents.email.connectFailedTitle")}</div>
+            <div>{connectError.message}</div>
+            {connected ? (
+              <div>{t("documents.email.connectFailedOld", { email: emailAddress || "Gmail" })}</div>
+            ) : null}
+            <div style={{ fontSize: TOKEN.font.meta }}>
+              {t("documents.email.connectFailedCode", { code: connectError.code })}
+            </div>
+          </section>
+        ) : null}
         {!connected ? (
           <section className="dz-email-explain" style={accountsCardStyle}>
             <DocumentsIllustration name="upload" width={150} style={{ margin: "0 auto 6px" }} />
@@ -506,13 +602,32 @@ export default function EmailDocumentsPage() {
 
         {loading ? <div style={emptyStyle}>{t("documents.email.scanning")}</div> : null}
 
+        {!loading && scanDiag ? (
+          <div className="dz-email-scan-diag" style={diagStyle}>
+            <div>
+              {t("documents.email.scanSummary", {
+                messages: formatNumber(scanDiag.scannedMessages, fmt),
+                parts: formatNumber(scanDiag.attachmentParts, fmt),
+              })}
+            </div>
+            <div>
+              {t("documents.email.scanBreakdown", {
+                unsupported: formatNumber(scanDiag.unsupportedType, fmt),
+                hidden: formatNumber(scanDiag.hidden, fmt),
+                possible: formatNumber(scanDiag.possible, fmt),
+                recommended: formatNumber(scanDiag.recommended, fmt),
+              })}
+            </div>
+          </div>
+        ) : null}
+
         </>) : null}
         {error ? <div style={errorStyle}>{error}</div> : null}
 
         {connected && !loading && visible.length === 0 ? (
           <section style={emptyStyle}>
             <DocumentsIllustration name="search" width={150} style={{ margin: "0 auto 6px" }} />
-            {t("documents.email.noFiles")}
+            {emptyMessage(t, scanDiag, fmt)}
             <button type="button" onClick={() => void runScan(30)} style={scanButtonStyle}>
               {t("documents.email.scanAgain")}
             </button>
@@ -994,6 +1109,18 @@ const errorStyle = {
   border: `1px solid ${TOKEN.semantic.urgent.border}`,
   background: TOKEN.semantic.urgent.bgSoft,
   color: TOKEN.semantic.urgent.ink,
+} as const;
+
+const diagStyle = {
+  marginTop: 10,
+  padding: "10px 12px",
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.inset,
+  color: TOKEN.ink.secondary,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+  lineHeight: 1.6,
 } as const;
 
 const noticeStyle = {

@@ -1,0 +1,10 @@
+{
+  "note": "Gmail import attachment resolution (2026-11-08): import re-finds the picked attachment in a fresh fetch of its message — by attachment id as before, else by partId verified against the reported filename and size — and downloads with the id from that fetch. Type from Gmail, allowlist, HEIC, byte signature, dedup and ownership checks unchanged.",
+  "tests": {
+    "lib/services/integrations/gmail/gmail-attachment-resolve.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB; Gmail mocked via fetch): resolution by id unchanged, partId never alone (name/size must agree), ambiguity refused, multiple attachments, nested MIME, duplicate files, mismatched ids, Gmail/download failure throws, route downloads with the resolved id, step order and every security check still present, log carries fixed codes only"
+    }
+  }
+}

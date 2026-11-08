@@ -83,3 +83,67 @@ export function findAttachmentPart(
   if (matches.length !== 1) return null;
   return matches[0];
 }
+
+/** What the owner picked, as discovery reported it. */
+export type AttachmentReference = {
+  attachmentId: string;
+  partId?: string | null;
+  filename?: string | null;
+  sizeBytes?: number | null;
+};
+
+export type AttachmentResolution =
+  | {
+      ok: true;
+      part: GmailMessagePart;
+      /** The id from THIS fetch of the message — the one to download with. */
+      attachmentId: string;
+      matchedBy: "attachment_id" | "part_id";
+    }
+  | {
+      ok: false;
+      reason: "no_part_id" | "part_not_found" | "part_unverifiable" | "part_mismatch";
+    };
+
+/**
+ * Find the attachment the owner picked inside a fresh fetch of its message.
+ *
+ * 1. By attachment id, exactly as before (findAttachmentPart, unchanged).
+ * 2. Only if that finds nothing, by the part's `partId` — its position in the
+ *    message tree — and never by position alone: the part must ALSO carry the
+ *    filename and the byte size discovery reported. A missing, repeated or
+ *    non-attachment partId, or any disagreement, is refused rather than guessed.
+ *
+ * The second step exists because the attachment id discovery saw is not
+ * guaranteed to come back identical when import fetches the message again.
+ */
+export function resolveAttachmentInMessage(
+  payload: GmailMessagePart | undefined,
+  ref: AttachmentReference
+): AttachmentResolution {
+  const byId = findAttachmentPart(payload, ref.attachmentId);
+  if (byId?.body?.attachmentId) {
+    return { ok: true, part: byId, attachmentId: byId.body.attachmentId, matchedBy: "attachment_id" };
+  }
+
+  const partId = ref.partId ?? "";
+  if (!partId) return { ok: false, reason: "no_part_id" };
+
+  const matches = collectAttachmentParts(payload).filter((p) => p.partId === partId);
+  if (matches.length !== 1) return { ok: false, reason: "part_not_found" };
+  const part = matches[0];
+
+  const expectedName = ref.filename ?? "";
+  const hasName = expectedName.length > 0;
+  const hasSize = typeof ref.sizeBytes === "number";
+  if (!hasName && !hasSize) return { ok: false, reason: "part_unverifiable" };
+  if (hasName && String(part.filename || "") !== expectedName) {
+    return { ok: false, reason: "part_mismatch" };
+  }
+  if (hasSize && part.body?.size !== ref.sizeBytes) {
+    return { ok: false, reason: "part_mismatch" };
+  }
+
+  // collectAttachmentParts only returns parts that carry an attachment id.
+  return { ok: true, part, attachmentId: String(part.body?.attachmentId), matchedBy: "part_id" };
+}
