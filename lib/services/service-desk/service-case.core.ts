@@ -869,7 +869,9 @@ function dayNumber(iso: string): number | null {
 
 /**
  * A repeat repair opens a NEW case linked to the parent (a closed case is never reopened). It is within the repair
- * warranty only when the parent was REPAIRED and handed back no more than `repairWarrantyDays` days earlier.
+ * warranty only when the parent was REPAIRED and handed back no more than `repairWarrantyDays` days earlier. With no
+ * commercial warranty set (null) it is never within one, and the decision says so (commercialWarrantySet: false) — it
+ * does not say the customer has no warranty: statutory rights are outside this decision.
  */
 export function evaluateRepeatCase(input: RepeatCaseInput): RepeatCaseDecision {
   const violations: ServiceCaseViolation[] = [];
@@ -881,7 +883,8 @@ export function evaluateRepeatCase(input: RepeatCaseInput): RepeatCaseDecision {
   const opened = dayNumber(input.openedOn);
   if (delivered === null) violations.push(violation("INVALID_INPUT", "parent.deliveredOn"));
   if (opened === null) violations.push(violation("INVALID_INPUT", "openedOn"));
-  if (!isNonNegativeInt(input.repairWarrantyDays)) violations.push(violation("INVALID_INPUT", "repairWarrantyDays"));
+  const days = input.repairWarrantyDays;
+  if (days !== null && !isNonNegativeInt(days)) violations.push(violation("INVALID_INPUT", "repairWarrantyDays"));
   if (delivered !== null && opened !== null && opened < delivered) {
     violations.push(violation("INVALID_INPUT", "openedOn precedes the parent's delivery"));
   }
@@ -891,6 +894,7 @@ export function evaluateRepeatCase(input: RepeatCaseInput): RepeatCaseDecision {
   return {
     ok: true,
     daysSinceDelivery,
-    withinRepairWarranty: parent.outcome === "REPAIRED" && daysSinceDelivery <= input.repairWarrantyDays,
+    commercialWarrantySet: days !== null,
+    withinRepairWarranty: days !== null && parent.outcome === "REPAIRED" && daysSinceDelivery <= days,
   };
 }

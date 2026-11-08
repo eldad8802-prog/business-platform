@@ -493,6 +493,14 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // quantities, costs, prices, links and times stay as the business's history. It refuses unless the business
           // in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.service_parts_erase_business() AS n`;
+          // Service Desk UI foundation 1.3-0 (migration 20261120090000). The acting users of terms versions, intake
+          // terms snapshots, warranty offers, intake photos, share events and phone reminders, a warranty change reason and
+          // a reminder note, are blanked in place by this SECURITY DEFINER function (the tables' guards refuse that change
+          // from the runtime itself), and it opens the durable object-erasure job (ServiceStorageErasure) in THIS
+          // transaction: a failed purge rolls the job back too and no object is touched. The objects under
+          // biz/{id}/service/ are deleted only after every database stage committed (eraseStoredObjects, then the sweep).
+          // It refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_desk_ui_erase_business() AS n`;
           // Business documents (migration 20261114090000). Quote share copies and their events, saved letters and
           // idempotency keys are deleted, and every stored file is marked DELETING with its object key kept, by this
           // SECURITY DEFINER function — it also writes the durable erasure job, in THIS transaction, so a failed purge

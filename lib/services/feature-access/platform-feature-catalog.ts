@@ -34,6 +34,7 @@ export const PLATFORM_FEATURE_KEYS = {
   DOCUMENT_SUPPLIER_LINKING: "document_supplier_linking",
   BUSINESS_DOCUMENTS: "business_documents",
   INTAKE_STATUS_VISIBILITY: "intake_status_visibility",
+  SERVICE_DESK: "service_desk",
 } as const;
 
 export type PlatformFeatureKey =
@@ -52,7 +53,8 @@ export type PlatformFeatureCategory =
   | "reports"
   | "intelligence"
   | "tasks"
-  | "scheduling";
+  | "scheduling"
+  | "service";
 
 export type PlatformFeatureCatalogEntry = {
   key: PlatformFeatureKey;
@@ -334,6 +336,16 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "מסמכים נוספים",
       category: "documents",
       description: "מעקב הצעות מחיר, מכתבים וציר מסמכים לכל לקוח — לקריאה ולתיעוד בלבד, ללא שינוי בחשבוניות — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    {
+      // Seeded OFF by migration 20261120090000 (same name, category and text). Nothing reads it yet: the module's
+      // screens are 1.3a+; account erasure must be complete (the object sweep scheduled) before any business gets it.
+      key: PLATFORM_FEATURE_KEYS.SERVICE_DESK,
+      displayName: "תיקונים ושירות",
+      category: "service",
+      description: "קריאות שירות ותיקונים: קבלת מכשיר, טיפול, ספק חיצוני, הצעת מחיר ומסירה — כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },

@@ -45,6 +45,8 @@ on:
       - "prisma/schema.prisma"
       - "lib/services/account/account-deletion.prisma-store.ts"
       - "lib/services/account/account-erasure-manifest.ts"
+      - ".sd3/lab.sh"
+      - "prisma/migrations/20261120090000_service_desk_ui_foundation/**"
   workflow_dispatch:
 
 permissions:
@@ -247,7 +249,9 @@ jobs:
           got=$(grep -oE '^ +\[FAIL\] [0-9]+\.[0-9]+' /tmp/sdf.out | awk '{print $2}' | tr '\n' ' ')
           test "$got" = "1.6 1.7 " || { echo "1.2a on the M2 database: expected only the structural 1.6 1.7, got: $got"; exit 1; }
           grep -qE '^117 passed, 2 failed' /tmp/sdf.out || { echo "the 1.2a pass count changed"; exit 1; }
-          bash .sdp/lab.sh sdp_erase --with-m2 >/dev/null
+          # The purge also calls service_desk_ui_erase_business() (1.3-0, 20261120090000, applied in Production): the
+          # erasure lab is the M2 lab with 1.3-0 deployed on top (.sd3/lab.sh --with-sd3), as Production is.
+          bash .sd3/lab.sh sdp_erase --with-sd3 >/dev/null
           bash .sdf/erasure-prereq.sh sdp_erase
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdp_erase"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdp_erase" \

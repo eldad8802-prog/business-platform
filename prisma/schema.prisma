@@ -8664,6 +8664,212 @@ model ServicePartEvent {
   @@index([businessId, occurredAt])
 }
 
+// ─── Service Desk — UI foundation 1.3-0 (data & storage) ────────────────────────────────────────────────────────
+// Tables, checks, triggers, RLS and grants are built by migration 20261120090000_service_desk_ui_foundation (PR-1).
+// References to existing models are scalar on purpose (composite tenant FKs live in the migration); no existing model
+// gains a field. CHECKs (sha256 bound to the body, key patterns, all-or-none template, state rules), the three partial
+// unique indexes of warranty offers and the triggers are not expressible here. Nothing writes these tables yet: the
+// command layer and the screens are 1.3a+, behind the service_desk flag (OFF).
+
+enum ServiceTextKind {
+  TERMS
+  STATUTORY_NOTICE
+}
+
+enum ServiceTextLegalStatus {
+  DRAFT
+  LEGALLY_APPROVED
+}
+
+enum ServiceDurationUnit {
+  DAYS
+  MONTHS
+}
+
+enum ServiceWarrantyOfferState {
+  DRAFT
+  PRESENTED
+  LOCKED
+  SUPERSEDED
+}
+
+enum ServiceWarrantyOfferSource {
+  INTAKE
+  QUOTE
+  HANDOVER
+}
+
+enum ServiceReaffirmMethod {
+  PHONE
+  IN_PERSON
+}
+
+enum ServiceShareObjectKind {
+  QUOTE_PDF
+  INTAKE_SLIP
+}
+
+enum ServiceShareChannel {
+  DOWNLOAD
+  SHARE_SHEET
+  WHATSAPP_MANUAL
+}
+
+enum ServicePhoneReminderOutcome {
+  REACHED
+  LEFT_MESSAGE
+  NO_ANSWER
+}
+
+enum ServiceStorageErasureState {
+  PENDING_OBJECTS
+  DONE
+}
+
+model ServiceTextVersion {
+  id                      Int                    @id @default(autoincrement())
+  businessId              Int
+  kind                    ServiceTextKind
+  version                 Int
+  body                    String
+  bodySha256              String                 @db.Char(64)
+  legalStatus             ServiceTextLegalStatus @default(DRAFT)
+  legallyApprovedAt       DateTime?
+  legallyApprovedByUserId Int?
+  createdByUserId         Int?
+  createdAt               DateTime               @default(now())
+  erasedAt                DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, kind, version])
+}
+
+model ServiceSettings {
+  businessId                     Int                  @id
+  defaultStaffMemberId           Int?
+  warrantyTemplateValue          Int?
+  warrantyTemplateUnit           ServiceDurationUnit?
+  warrantyTemplateScope          String?
+  warrantyTemplateExclusions     String?
+  activeTermsVersionId           Int?
+  activeStatutoryNoticeVersionId Int?
+  version                        Int                  @default(1)
+  createdAt                      DateTime             @default(now())
+  updatedAt                      DateTime             @updatedAt
+}
+
+model ServiceIntakeTermsSnapshot {
+  id                       Int       @id @default(autoincrement())
+  businessId               Int
+  caseId                   Int
+  termsVersionId           Int
+  termsSha256              String    @db.Char(64)
+  statutoryNoticeVersionId Int
+  statutorySha256          String    @db.Char(64)
+  presentedAt              DateTime  @default(now())
+  presentedByUserId        Int?
+  erasedAt                 DateTime?
+
+  @@unique([businessId, caseId])
+}
+
+model ServiceWarrantyOffer {
+  id                       Int                        @id @default(autoincrement())
+  businessId               Int
+  caseId                   Int
+  seq                      Int
+  state                    ServiceWarrantyOfferState  @default(DRAFT)
+  source                   ServiceWarrantyOfferSource
+  quoteVersion             Int?
+  durationValue            Int
+  durationUnit             ServiceDurationUnit
+  scopeText                String
+  exclusionsText           String?
+  statutoryNoticeVersionId Int
+  contentSha256            String                     @db.Char(64)
+  supersedesOfferId        Int?
+  changeReason             String? // cleared by service_desk_ui_erase_business()
+  customerAdverse          Boolean                    @default(false)
+  customerReaffirmedAt     DateTime?
+  customerReaffirmMethod   ServiceReaffirmMethod?
+  presentedAt              DateTime?
+  presentedByUserId        Int?
+  lockedAt                 DateTime?
+  startsOn                 DateTime?                  @db.Date
+  endsOn                   DateTime?                  @db.Date
+  createdByUserId          Int?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  erasedAt                 DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, seq])
+}
+
+model ServiceIntakePhoto {
+  id              Int       @id @default(autoincrement())
+  businessId      Int
+  caseId          Int
+  storageKey      String // biz/{businessId}/service/cases/{caseId}/intake/photos/{sha256}.{jpg|png|webp} (CHECK)
+  sha256          String    @db.Char(64)
+  mimeType        String
+  byteSize        Int
+  createdByUserId Int?
+  createdAt       DateTime  @default(now())
+  erasedAt        DateTime?
+
+  @@unique([businessId, storageKey])
+  @@index([businessId, caseId])
+}
+
+model ServiceShareEvent {
+  id             Int                    @id @default(autoincrement())
+  businessId     Int
+  caseId         Int
+  objectKind     ServiceShareObjectKind
+  quoteVersion   Int?
+  objectKey      String // the stored copy's key under biz/{businessId}/service/ (CHECK + guard)
+  objectSha256   String                 @db.Char(64)
+  channel        ServiceShareChannel
+  actorUserId    Int?
+  occurredAt     DateTime               @default(now())
+  idempotencyKey String
+  erasedAt       DateTime?
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, caseId])
+}
+
+model ServicePhoneReminder {
+  id             Int                         @id @default(autoincrement())
+  businessId     Int
+  caseId         Int
+  calledAt       DateTime
+  actorUserId    Int?
+  outcome        ServicePhoneReminderOutcome
+  note           String? // cleared by service_desk_ui_erase_business()
+  idempotencyKey String
+  createdAt      DateTime                    @default(now())
+  erasedAt       DateTime?
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, caseId])
+}
+
+/// The durable object-erasure job of an account deletion. Written only by service_desk_ui_erase_business() (in the
+/// purge transaction) and service_storage_erasure_record_pass() (after commit) — the runtime holds SELECT only.
+model ServiceStorageErasure {
+  businessId        Int                        @id
+  state             ServiceStorageErasureState @default(PENDING_OBJECTS)
+  startedAt         DateTime                   @default(now())
+  attempts          Int                        @default(0)
+  objectsDeleted    BigInt                     @default(0)
+  lastPassAt        DateTime?
+  lastPassRemaining Int?
+  lastError         String? // a fixed error code only (service-storage-erasure.ts), never a key, path or message
+  completedAt       DateTime?
+}
+
 // ── Business documents — ר1 quote share records + saved letters (migration 20261114090000) ─────────────────
 // Plain scalar columns (no Prisma relations): the foreign keys, guards, RLS and privileges live in the migration.
 // Nothing here references or changes a billing model; quoteDocumentId points at a BillingDocument QUOTE and is
