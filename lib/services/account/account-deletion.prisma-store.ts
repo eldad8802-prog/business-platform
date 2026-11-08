@@ -40,6 +40,7 @@ import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 // S8: the object deleter the CRM product already uses. One implementation, not two.
 import { deleteAttachmentObject } from "@/lib/services/crm/crm-attachment-storage";
+import { runAccountStorageErasure } from "@/lib/services/account/account-storage-erasure";
 import { runTenantJob } from "@/lib/tenant/job";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { ADVISORY_NAMESPACE, lifecycleOf } from "@/lib/tenant/business-lifecycle";
@@ -485,6 +486,13 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // guards refuse that change from the runtime itself. Supplier, amounts, dates, stages and results stay as
           // the business's history. It refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.service_external_erase_business() AS n`;
+          // Business documents (migration 20261114090000). Quote share copies and their events, saved letters and
+          // idempotency keys are deleted, and every stored file is marked DELETING with its object key kept, by this
+          // SECURITY DEFINER function — it also writes the durable erasure job, in THIS transaction, so a failed purge
+          // rolls the job back with everything else and no key is ever lost. The objects themselves are deleted only
+          // after every database stage committed (eraseStoredObjects, then the sweep). It refuses unless the business
+          // in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.business_documents_erase() AS n`;
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //
@@ -814,5 +822,16 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
         data: { deletedAt: now, archivedAt: now, archivedByUserId: actorUserId },
       });
     });
+  },
+
+  /**
+   * STAGE 4 — the stored objects, only now that every database stage committed. See
+   * account-storage-erasure.ts: each module's durable job was written in the purge
+   * transaction; this runs it once and never throws. What it cannot finish stays an
+   * open job for the sweep.
+   */
+  async eraseStoredObjects(businessId) {
+    const outcomes = await runAccountStorageErasure(businessId);
+    return { complete: outcomes.every((o) => o.done) };
   },
 };

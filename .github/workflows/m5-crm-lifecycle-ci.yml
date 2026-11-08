@@ -296,6 +296,24 @@ jobs:
           ' > /tmp/sd-erase.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/sd-erase.sql
 
+      - name: 1i. Business documents account-erasure entry point (from the real migration)
+        # Account erasure also calls business_documents_erase() — the SECURITY DEFINER function of migration
+        # 20261114090000 (business documents). Created from the migration's own text exactly like 1g / 1h, EXECUTE to
+        # the runtime only; its tables come from db push. Test infrastructure only: no erasure logic changes.
+        env:
+          PGPASSWORD: m5_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          node -e '
+            const s = require("fs").readFileSync("prisma/migrations/20261114090000_business_documents_records/migration.sql", "utf8");
+            const m = s.match(/CREATE OR REPLACE FUNCTION public\.business_documents_erase\(\)[\s\S]*?\$fn\$;/);
+            if (!m) { console.error("business_documents_erase() not found in the migration"); process.exit(1); }
+            console.log(m[0]);
+            console.log("REVOKE ALL ON FUNCTION public.business_documents_erase() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.business_documents_erase() TO app_runtime;");
+          ' > /tmp/bd-erase.sql
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/bd-erase.sql
+
       - name: 2. Apply the REAL M5 migration (owner)
         if: steps.base.outputs.mode == 'migration'
         env:

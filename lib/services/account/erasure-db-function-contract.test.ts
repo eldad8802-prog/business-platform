@@ -146,6 +146,31 @@ refused("declared twice",
   checkDbFunctionErasures({ declarations: [DECL, DECL], adapter: parseAdapterSource(ADAPTER(CALL)), models: MODELS, readMigration: () => SAFE_FN() }) as ReturnType<typeof run>,
   "C25-DBFN-DECLARED-TWICE");
 
+// ── 5b. rows deleted instead of cleared ───────────────────────────────────────────────────────────────
+console.log("— 5b. a model whose rows the function deletes");
+{
+  const DEL_DECL: DbFunctionErasure = { ...DECL, models: [{ model: "Gadget", deleted: true, cleared: [], kept: {} }] };
+  const del = (where: string, extra = "") => SAFE_FN({ update: `DELETE FROM public."Gadget" WHERE ${where};${extra}` });
+  const job = `\n  INSERT INTO public."GadgetErasure" ("businessId", "state") VALUES (v_business, 'RUNNING') ON CONFLICT ("businessId") DO NOTHING;`;
+  const okRun = run({ decl: DEL_DECL, sql: del(`"businessId" = v_business`, job) });
+  check("a scoped DELETE (+ the job's own scoped INSERT) erases the model", okRun.findings.length === 0 && okRun.erased.has("Gadget"), codes(okRun).join(","));
+  check("a scoped DELETE with an AND tail is accepted", run({ decl: DEL_DECL, sql: del(`"businessId" = v_business AND "erasedAt" IS NULL`) }).findings.length === 0);
+  refused("a DELETE with no business filter", run({ decl: DEL_DECL, sql: del(`"erasedAt" IS NULL`) }), "C25-DBFN-UNSAFE");
+  refused("a DELETE widened by OR", run({ decl: DEL_DECL, sql: del(`"businessId" = v_business OR true`) }), "C25-DBFN-UNSAFE");
+  refused("a DELETE on a constant business", run({ decl: DEL_DECL, sql: del(`"businessId" = 9`) }), "C25-DBFN-UNSAFE");
+  refused("declared deleted, but the function only UPDATEs", run({ decl: DEL_DECL }), "C26-DBFN-ROWS-NOT-DELETED");
+  refused("declared deleted, but the function deletes ANOTHER table",
+    run({ decl: DEL_DECL, sql: SAFE_FN({ update: `DELETE FROM public."Gizmo" WHERE "businessId" = v_business;` }) }), "C26-DBFN-ROWS-NOT-DELETED");
+  refused("declared deleted AND with cleared columns",
+    run({ decl: { ...DECL, models: [{ model: "Gadget", deleted: true, cleared: ["note"], kept: {} }] }, sql: del(`"businessId" = v_business`) }), "C27-DBFN-DELETED-AND-CLEARED");
+  const ins = (stmt: string) => del(`"businessId" = v_business`, `\n  ${stmt};`);
+  refused("an INSERT … SELECT is not the job record", run({ decl: DEL_DECL, sql: ins(`INSERT INTO public."GadgetErasure" ("businessId") SELECT "id" FROM public."Business"`) }), "C25-DBFN-UNSAFE");
+  refused("an INSERT for a constant business", run({ decl: DEL_DECL, sql: ins(`INSERT INTO public."GadgetErasure" ("businessId", "state") VALUES (9, 'RUNNING')`) }), "C25-DBFN-UNSAFE");
+  refused("an INSERT whose first column is not the business", run({ decl: DEL_DECL, sql: ins(`INSERT INTO public."GadgetErasure" ("state", "businessId") VALUES ('RUNNING', v_business)`) }), "C25-DBFN-UNSAFE");
+  refused("an upsert that updates", run({ decl: DEL_DECL, sql: ins(`INSERT INTO public."GadgetErasure" ("businessId", "state") VALUES (v_business, 'RUNNING') ON CONFLICT ("businessId") DO UPDATE SET "state" = 'RUNNING'`) }), "C25-DBFN-UNSAFE");
+  refused("several rows", run({ decl: DEL_DECL, sql: ins(`INSERT INTO public."GadgetErasure" ("businessId", "state") VALUES (v_business, 'A'), (v_business, 'B')`) }), "C25-DBFN-UNSAFE");
+}
+
 // ── 6. the SQL that ships ─────────────────────────────────────────────────────────────────────────────
 console.log("— 6. the real migrations' erasure functions");
 const MIG = path.join(process.cwd(), "prisma", "migrations");
@@ -163,6 +188,23 @@ for (const [dir, fn, tables, [sampleTable, sampleColumn]] of [
   check(`${fn}: every write is a tenant-scoped UPDATE`, p.unscopedWrites.length === 0, p.unscopedWrites.join(" | "));
   check(`${fn}: updates exactly its ${tables.length} tables`, JSON.stringify([...p.updates.keys()].sort()) === JSON.stringify([...tables].sort()), [...p.updates.keys()].join(","));
   check(`${fn}: ${sampleTable}.${sampleColumn} is cleared to NULL`, p.updates.get(sampleTable)?.get(sampleColumn) === "NULL");
+}
+{
+  const fn = "business_documents_erase";
+  const file = path.join(MIG, "20261114090000_business_documents_records", "migration.sql");
+  if (!fs.existsSync(file)) check(`${fn}: migration present`, false, file);
+  else {
+    const p = parseDbFunction(fs.readFileSync(file, "utf8"), fn);
+    check(`${fn}: defined, SECURITY DEFINER, search_path … pg_temp last, revoked / granted`,
+      p.defined && p.securityDefiner && p.searchPathPgTempLast && p.revokedFromPublic && p.grantedToRuntime);
+    check(`${fn}: business from the tenant context; refuses without one and unless deleting`,
+      p.tenantVar === "v_business" && p.refusesWithoutContext && p.refusesUnlessDeleting);
+    check(`${fn}: every write is scoped to the business`, p.unscopedWrites.length === 0, p.unscopedWrites.join(" | "));
+    check(`${fn}: deletes exactly the four record tables`,
+      JSON.stringify([...p.deletes].sort()) === JSON.stringify(["BusinessDocumentRequest", "BusinessLetter", "QuoteShareCopy", "QuoteShareEvent"]), [...p.deletes].join(","));
+    check(`${fn}: writes its job record and marks the files (keys kept: no file DELETE)`,
+      p.inserts.has("BusinessDocumentErasure") && p.updates.get("BusinessDocumentFile")?.get("state") === "'DELETING'" && !p.deletes.has("BusinessDocumentFile"));
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

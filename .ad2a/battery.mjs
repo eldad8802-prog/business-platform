@@ -399,6 +399,20 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_external_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_external_erase_business() TO ${RT_ROLE}`);
   }
+  // Business documents — migration 20261114090000_business_documents_records. Account erasure deletes its records and
+  // opens its durable object-erasure job ONLY through business_documents_erase() (SECURITY DEFINER, EXECUTE to the
+  // runtime alone): mirrored from the migration's own text, as above. Test infrastructure only.
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261114090000_business_documents_records/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.business_documents_erase\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("business_documents_erase() not found in migration 20261114090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.business_documents_erase() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.business_documents_erase() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //
