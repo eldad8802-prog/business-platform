@@ -15,7 +15,11 @@
 --   * the three composite keys it references exist (ServiceCase, ServiceQuote by version, StaffMember);
 --   * the two foundation functions it reuses exist; Business carries the two deletion columns its guards read;
 --   * the owner of Business (the migration role) carries BYPASSRLS or is a superuser;
---   * the number of finished migrations (informational).
+--   * the number of finished migrations (informational);
+--   * the appointments data migration 20261115100000_appointments_open_all (#1001), which sorts between M2 and this
+--     migration, is APPLIED in the ledger: one finished, not rolled-back row and no failed or unfinished row for that
+--     name (check 17). Its directory on main proves nothing; only the ledger row does. While it is pending the gate's
+--     PREFIX INVARIANT refuses expected=[this migration]; check 17 makes that visible first, like checks 5 and 6.
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -38,6 +42,7 @@
 \echo '14 Business carries deletionRequestedAt and deletedAt (of 2)'
 \echo '15 the owner of Business carries BYPASSRLS or is a superuser'
 \echo '16 finished migrations in the ledger (informational)'
+\echo '17 the appointments migration 20261115100000_appointments_open_all (#1001) is applied: finished, not rolled back, no failed row'
 
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want
@@ -73,6 +78,12 @@ WITH c AS (
   UNION ALL SELECT 15, (SELECT count(*) FROM pg_class k JOIN pg_roles r ON r.oid = k.relowner
                          WHERE k.relname = 'Business' AND k.relnamespace = 'public'::regnamespace AND (r.rolbypassrls OR r.rolsuper)), 1
   UNION ALL SELECT 16, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL), NULL
+  UNION ALL SELECT 17, (SELECT CASE WHEN
+        (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261115100000_appointments_open_all'
+            AND finished_at IS NOT NULL AND rolled_back_at IS NULL) = 1
+    AND (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261115100000_appointments_open_all'
+            AND (finished_at IS NULL OR rolled_back_at IS NOT NULL)) = 0
+    THEN 1 ELSE 0 END), 1
 )
 SELECT n,
        CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,
