@@ -45,6 +45,8 @@ export function tenantTx<T>(
      * contextualised. Passing it through means adding the GUC costs them nothing.
      */
     timeoutMs?: number;
+    /** Optional isolation level — see `withTenantTransaction`. Absent = unchanged behaviour. */
+    isolationLevel?: Prisma.TransactionIsolationLevel;
     /** Observability only — see `withTenantTransaction`. */
     onPhase?: (phase: TenantTxPhase) => void;
   }

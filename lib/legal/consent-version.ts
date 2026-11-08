@@ -8,6 +8,6 @@
  * as accepting a text they never saw.
  */
 export const TERMS_LAST_UPDATED = "2026-06-04";
-export const PRIVACY_LAST_UPDATED = "2026-09-06";
+export const PRIVACY_LAST_UPDATED = "2026-11-08";
 
 export const CURRENT_TERMS_VERSION = `terms:${TERMS_LAST_UPDATED}+privacy:${PRIVACY_LAST_UPDATED}`;
