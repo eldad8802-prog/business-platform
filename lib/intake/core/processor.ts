@@ -31,10 +31,12 @@ import {
   replacePayload,
   claimEvent,
   deferHeldSiblings,
+  deferHeldSiblingsWithClock,
   errorCodeOf,
   listDueEventIds,
   markDeadLetter,
   markDeferred,
+  markDeferredWithClock,
   markFailed,
   markIgnored,
   markPersisted,
@@ -66,6 +68,7 @@ import { decideRoute } from "@/lib/intake/routing/rules";
 import { CORE_DESTINATION_HANDLERS } from "@/lib/intake/routing/core-destinations";
 import { logIntake } from "./observability";
 import { isExpiredCode } from "./expired";
+import { expiredCodeFor, holdClockApplies, keepHoldClock } from "./hold-clock";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 
 type SettledOutcome = "processed" | "ignored" | "dead_letter" | "expired";
@@ -243,6 +246,21 @@ export async function processIntakeEvent(
     // M6 — a notification-only source completes its receipt first (normalize stays pure).
     if (adapter.hydrate) {
       const h = await adapter.hydrate(ctx, event);
+      if (h.kind === "deferred" && holdClockApplies(h.code)) {
+        // L1.5-b · A2 (only with INTAKE_HOLD_CLOCK_ENABLED) — the look advances the receipt's hold clock; past its
+        // expiry (counted 14 days, warned ≥ 48 h before) it is settled through the terminal path below (A1:
+        // "expired", payload kept). Otherwise it waits exactly as below, and so do its siblings, clocks advanced.
+        const look = await markDeferredWithClock(businessId, event, h.until, h.code, now);
+        if (look.expire) throw new IntakeTerminalError(expiredCodeFor(h.code));
+        const siblings = await deferHeldSiblingsWithClock(businessId, event, h.until, h.code, now).catch((error: unknown) => {
+          logIntake("hold_siblings_failed", { ...base, code: errorCodeOf(error) });
+          return { count: 0, warned: 0 };
+        });
+        const warned = (look.warned ? 1 : 0) + siblings.warned;
+        if (warned > 0) logIntake("hold_expiry_warned", { ...base, code: h.code, count: warned });
+        logIntake("deferred", { ...base, stage: "hydrate", code: h.code, ...(siblings.count > 0 ? { count: siblings.count } : {}) });
+        return "deferred";
+      }
       if (h.kind === "deferred") {
         await markDeferred(businessId, event, h.until, h.code);
         // L1.5-b · PR-1 — a hold is per connection: this look settles the connection's other due held receipts too.
@@ -261,9 +279,11 @@ export async function processIntakeEvent(
         return "ignored";
       }
       if (h.kind === "hydrated") {
-        await replacePayload(businessId, event.id, h.payload, h.metadata);
+        // L1.5-b · A2 — a running hold clock survives the new metadata (no reset if the receipt is held again later).
+        const metadata = keepHoldClock(event.metadata, h.metadata);
+        await replacePayload(businessId, event.id, h.payload, metadata);
         event.payload = h.payload as Prisma.JsonValue;
-        if (h.metadata !== undefined) event.metadata = h.metadata as Prisma.JsonValue;
+        if (metadata !== undefined) event.metadata = metadata as Prisma.JsonValue;
       }
     }
 
