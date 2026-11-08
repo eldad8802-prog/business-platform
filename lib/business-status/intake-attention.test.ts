@@ -103,6 +103,21 @@ test("wording: never 'ליד', the right noun, capped counts, no internal identi
   assert.equal(over[0].title, "יש 2,500+ פניות שממתינות לחידוש החיבור", "the read's extra row never shows: at most the cap, then +");
 });
 
+test("never an action the business cannot take: outside the plan / a Meta Page → details, not resume", () => {
+  const held = (ref: string, sourceKey: string) => cb(sourceKey, ref, { held: 4, heldByReason: { connection_paused: 4 }, oldestHeldAt: new Date(NOW.getTime() - DAY) });
+  const notInPlan = translateIntakeAttention({ connections: [web], backlog: backlog([held(web.publicId, "web.form")]), sources: { "web.form": false } }, NOW)[0];
+  assert.equal(notInPlan.primaryAction.label, "לפרטים");
+  assert.match(notInPlan.summary!, /המקור לא כלול כרגע בחבילה שלכם, ולכן הפעלה מחדש לא תקלוט אותן\./);
+  const metaPaused = conn(7, "meta.lead_ads", "PAUSED", { externalResourceId: "PAGE7" });
+  const m = translateIntakeAttention({ connections: [metaPaused], backlog: backlog([held("PAGE7", "meta.lead_ads")]), sources: { "meta.lead_ads": true } }, NOW)[0];
+  assert.equal(m.primaryAction.label, "לפרטים", "the connections screen has no resume for a Meta Page");
+  assert.match(m.summary!, /הן ייקלטו כשהחיבור יחזור לפעול\./);
+  const inPlan = translateIntakeAttention({ connections: [web], backlog: backlog([held(web.publicId, "web.form")]), sources: { "web.form": true } }, NOW)[0];
+  assert.equal(inPlan.primaryAction.label, "להפעלה");
+  const mod = read("lib/business-status/intake-attention.ts");
+  assert.match(mod, /enabledSources\(businessId\),/, "the loader reads the plan");
+});
+
 test("a revoked connection only reports what failed", () => {
   const r = items.filter((i) => i.itemId.endsWith(":5"));
   assert.deepEqual(r.map((i) => i.itemId), ["leads:intake_failed:5"]);

@@ -24,6 +24,7 @@ import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feat
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { intakeBacklog } from "@/lib/intake/intake-event.store";
 import { listConnections } from "@/lib/intake/acquisition/connection.service";
+import { enabledSources } from "@/lib/intake/acquisition/owner-api";
 import { cappedCount, type BusinessBacklog, type ConnectionBacklog } from "@/lib/intake/intake-capacity";
 import type { BusinessStatusItemBuild, SemanticCategory, Severity } from "./types";
 
@@ -59,7 +60,15 @@ export type IntakeConnectionRow = {
   label: string | null;
 };
 
-export type IntakeAttentionRaw = { connections: IntakeConnectionRow[]; backlog: BusinessBacklog };
+/**
+ * `sources`: which sources the business's plan includes (absent = all). An item never offers an action the business
+ * cannot take: a paused connection of a source outside the plan, or a Meta Page (no resume on the screen), points to
+ * the details instead of "resume".
+ */
+export type IntakeAttentionRaw = { connections: IntakeConnectionRow[]; backlog: BusinessBacklog; sources?: Record<string, boolean> };
+
+/** Sources whose connection cannot be resumed from the connections screen. */
+const NO_RESUME_SOURCES = new Set(["meta.lead_ads"]);
 
 /** Exact, or at most the read's cap followed by "+" when the read hit it. */
 const fmt = (count: number, backlog: Pick<BusinessBacklog, "capped" | "scanCap">) => {
@@ -135,10 +144,16 @@ export function translateIntakeAttention(raw: IntakeAttentionRaw, now: Date): Bu
     if (live && paused > 0) {
       const days = b.oldestHeldAt ? Math.floor((now.getTime() - b.oldestHeldAt.getTime()) / DAY) : 0;
       const atRisk = days >= AT_RISK_AFTER_DAYS;
+      const inPlan = raw.sources?.[c.sourceKey] ?? true;
+      const canResume = inPlan && !NO_RESUME_SOURCES.has(c.sourceKey);
+      const waited = days >= 1 ? ` הוותיקה ביותר ממתינה כבר ${days} ${plural(days, "יום", "ימים")}.` : "";
+      const next = !inPlan
+        ? " המקור לא כלול כרגע בחבילה שלכם, ולכן הפעלה מחדש לא תקלוט אותן."
+        : canResume ? " הן ייקלטו כשתפעילו את החיבור מחדש." : " הן ייקלטו כשהחיבור יחזור לפעול.";
       out.push(item(c, "intake_paused", "ACTION_REQUIRED", atRisk ? "HIGH" : "MEDIUM",
         `יש ${fmt(paused, raw.backlog)} ${plural(paused, `${w.one} שממתינה`, `${w.many} שממתינות`)} לחידוש החיבור`,
-        `${name} מושהה.${days >= 1 ? ` הוותיקה ביותר ממתינה כבר ${days} ${plural(days, "יום", "ימים")}.` : ""} הן ייקלטו כשתפעילו את החיבור מחדש.`,
-        b.oldestHeldAt, "להפעלה"));
+        `${name} מושהה.${waited}${next}`,
+        b.oldestHeldAt, canResume ? "להפעלה" : "לפרטים"));
     }
     const notIncluded = b.heldByReason.source_disabled ?? 0;
     if (live && notIncluded > 0) {
@@ -185,11 +200,12 @@ export async function loadIntakeAttention(businessId: number, now: Date = new Da
     if (hit && now.getTime() - hit.at < CACHE_TTL_MS && now.getTime() >= hit.at) return hit.items;
     const access = await runWithTenantContext({ businessId }, () => resolveFeatureAccess(businessId, PLATFORM_FEATURE_KEYS.INTAKE_STATUS_VISIBILITY));
     if (!access.allowed) return [];
-    const [connections, backlog] = await Promise.all([
+    const [connections, backlog, sources] = await Promise.all([
       listConnections(),
       intakeBacklog(businessId, now, { scanCap: OWNER_SCAN_CAP }),
+      enabledSources(businessId),
     ]);
-    const items = translateIntakeAttention({ connections, backlog }, now);
+    const items = translateIntakeAttention({ connections, backlog, sources }, now);
     cache.set(businessId, { at: now.getTime(), items });
     return items;
   } catch {
