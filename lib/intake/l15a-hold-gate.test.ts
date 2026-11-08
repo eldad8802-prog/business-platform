@@ -53,7 +53,8 @@ test("structural: the gate decides quarantine first, and only EMERGENCY_DISABLED
 
 test("structural: ingest refuses (records nothing) unless the refusal is holdable", () => {
   const ingest = read("lib/intake/acquisition/ingest.ts");
-  assert.match(ingest, /if \(!gate\.ok && !gate\.holdable\) \{\s*logIntake\("refused"/);
+  // L1.5-b · B1 — the refusal's log code is computed first (it names why); still nothing but a log before the return.
+  assert.match(ingest, /if \(!gate\.ok && !gate\.holdable\) \{\s*(?:\/\/[^\n]*\n\s*)*(?:const code = [^\n]*\n\s*)?logIntake\("refused", [^\n]*\);\s*return \{ status: "refused"/);
   // A holdable refusal falls through to the durable receipt write.
   assert.ok(ingest.indexOf("if (!gate.ok && !gate.holdable)") < ingest.indexOf("const accepted = await acceptIntake("));
 });
