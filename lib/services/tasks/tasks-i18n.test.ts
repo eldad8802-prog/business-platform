@@ -11,6 +11,7 @@
  * Run: npx tsx lib/services/tasks/tasks-i18n.test.ts
  */
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { getMessages } from "@/lib/i18n/messages";
 import { createTranslator } from "@/lib/i18n/translate";
@@ -225,6 +226,19 @@ console.log("adapter templates (sources.ts) say what the old literals said");
     [he("system.tasks.links.document", { id: 42 }), "מסמך 42"],
   ];
   for (const [actual, legacy] of cases) ok(`he: ${legacy}`, actual === legacy, actual);
+}
+
+console.log("adapter titles (sources.ts) collapse whitespace and keep every letter");
+{
+  // S08/S09 once used /s+/g (a missing backslash): every run of a Latin "s" in a title became a space. Today's titles
+  // are Hebrew/English templates around a numeric quote number, so nothing showed; this pins the intent.
+  const src = readFileSync(new URL("./sources.ts", import.meta.url), "utf8");
+  const titleRegexes = [...src.matchAll(/title: t\("system\.tasks\.[^"]+"[^\n]*?\.replace\(\/([^/]+)\/g, " "\)/g)].map((m) => m[1]);
+  ok("every cleaned adapter title uses a whitespace pattern", titleRegexes.length >= 3 && titleRegexes.every((r) => r === "\\s+"), titleRegexes.join(", "));
+  for (const r of titleRegexes) {
+    const out = "Quotes  Q-12s\tfollow up".replace(new RegExp(r, "g"), " ");
+    ok(`/${r}/g keeps letters and collapses spaces`, out === "Quotes Q-12s follow up", out);
+  }
 }
 
 console.log(`\n${checks - failed}/${checks} passed`);
