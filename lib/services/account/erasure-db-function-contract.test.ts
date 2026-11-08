@@ -152,6 +152,7 @@ const MIG = path.join(process.cwd(), "prisma", "migrations");
 for (const [dir, fn, tables, [sampleTable, sampleColumn]] of [
   ["20261112090000_service_desk_foundation", "service_erase_business", ["ServiceCase", "ServiceDevice", "ServiceCaseIntake", "ServiceHandover", "ServiceCaseEvent", "ServiceQuote"], ["ServiceCase", "problemDescription"]],
   ["20261113090000_service_external_work", "service_external_erase_business", ["ServiceExternalWork", "ServiceExternalWorkEvent"], ["ServiceExternalWorkEvent", "reason"]],
+  ["20261115090000_service_parts", "service_parts_erase_business", ["ServicePart", "ServicePartEvent"], ["ServicePartEvent", "reason"]],
 ] as const) {
   const file = path.join(MIG, dir, "migration.sql");
   if (!fs.existsSync(file)) { check(`${fn}: migration present`, false, file); continue; }

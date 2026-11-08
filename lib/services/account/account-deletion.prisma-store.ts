@@ -485,6 +485,13 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // guards refuse that change from the runtime itself. Supplier, amounts, dates, stages and results stay as
           // the business's history. It refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.service_external_erase_business() AS n`;
+          // Service Desk spare parts M2 (migration 20261115090000). The hand-typed name and sku of a part line with no
+          // inventory item (NON_STOCK and supplier parts), its reason, note and creating user, and in its journal the
+          // acting users, request digests and reasons, are blanked in place by this SECURITY DEFINER function: the
+          // tables' guards refuse that change from the runtime itself. Item names copied from the inventory, states,
+          // quantities, costs, prices, links and times stay as the business's history. It refuses unless the business
+          // in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_parts_erase_business() AS n`;
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //

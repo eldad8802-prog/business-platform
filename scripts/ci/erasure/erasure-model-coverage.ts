@@ -148,6 +148,11 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   // service_external_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
   ServiceExternalWork: { disposition: "ERASURE_MANAGED" },
   ServiceExternalWorkEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk spare parts M2 (migration 20261115090000). The line carries hand-typed names, a reason and a note,
+  // the journal a reason — erased in place by service_parts_erase_business(), declared in DB_FUNCTION_ERASURES and
+  // proven by the contract (C24–C27).
+  ServicePart: { disposition: "ERASURE_MANAGED" },
+  ServicePartEvent: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
   Customer: { disposition: "ERASURE_MANAGED" },
