@@ -185,6 +185,8 @@ export const ANONYMIZE_MODELS = [
   // so neither model needs a field entry here.
   // Service Desk (migration 20261112090000): erased in place by service_erase_business() — see
   // DB_FUNCTION_ERASURES below; the tables' guards refuse that change from the runtime itself.
+  // Service Desk 1.2b (migration 20261113090000): erased in place by service_external_erase_business() — see
+  // DB_FUNCTION_ERASURES below; same reason.
 
   // ── the conversation graph ────────────────────────────────────────────────
   //
@@ -373,6 +375,31 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
         model: "ServiceHandover",
         cleared: ["receivedByName", "signatureKey", "debtOverrideReason", "loanerOverrideReason"],
         kept: {},
+      },
+    ],
+  },
+  // Service Desk 1.2b — work at an external supplier. The account-deletion adapter calls it in the purge
+  // transaction, next to service_erase_business(). Supplier, amounts, dates, stages, results and times stay as the
+  // business's history; the supplier reference is cleared although its CHECK makes it an RMA-like token (correction 3).
+  {
+    fn: "service_external_erase_business",
+    migration: "20261113090000_service_external_work",
+    models: [
+      {
+        model: "ServiceExternalWork",
+        cleared: ["sendReason", "requestedWork", "conditionAtSend", "operationalNote", "supplierReference",
+          "workPerformed", "unresolvedIssue", "sentByUserId", "returnedByUserId"],
+        kept: {
+          currency: "the currency code — 'ILS' by CHECK, not the person",
+        },
+      },
+      {
+        model: "ServiceExternalWorkEvent",
+        cleared: ["actorUserId", "requestDigest", "digestKeyId", "reason"],
+        kept: {
+          payload: "a closed JSON object of short tokens and numbers (no free text by DB CHECK ServiceExternalWorkEvent_payload_closed)",
+          idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9:_#-]{8,200}$), not the person",
+        },
       },
     ],
   },

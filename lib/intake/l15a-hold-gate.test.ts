@@ -94,6 +94,7 @@ test("held receipts are a visible count, not a red run by themselves", () => {
     revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
     backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, held: 7, businessesNeedingAttention: 0 },
     capacity: emptyCapacity(),
+    budget: { businessesNotReached: 0, releaseRounds: 0, releaseBusinesses: 0 },
   };
   assert.deepEqual(sweepHealth(r), { ok: true, job: [], events: [] });
   const store = read("lib/intake/intake-event.store.ts");

@@ -152,9 +152,9 @@ function parsing(): void {
     isAuthorityProductionPilotEnabled({ [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: "42" }));
 
   const env = { [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: "42", [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: SUBMISSIONS };
-  ok("SANDBOX is never gated", isAuthorityPilotScopeAllowed({ kind: "business", businessId: OTHER }, SANDBOX, {}));
-  ok("PRODUCTION admits the listed business", isAuthorityPilotScopeAllowed({ kind: "business", businessId: PILOT }, PRODUCTION, env));
-  ok("PRODUCTION refuses an unlisted business", !isAuthorityPilotScopeAllowed({ kind: "business", businessId: OTHER }, PRODUCTION, env));
+  ok("SANDBOX is never gated", isAuthorityPilotScopeAllowed({ kind: "business", businessId: OTHER, operation: "approval" }, SANDBOX, {}));
+  ok("PRODUCTION admits the listed business", isAuthorityPilotScopeAllowed({ kind: "business", businessId: PILOT, operation: "approval" }, PRODUCTION, env));
+  ok("PRODUCTION refuses an unlisted business", !isAuthorityPilotScopeAllowed({ kind: "business", businessId: OTHER, operation: "approval" }, PRODUCTION, env));
   ok("PRODUCTION platform probe only while the pilot is enabled",
     isAuthorityPilotScopeAllowed({ kind: "platform-diagnostic" }, PRODUCTION, env) &&
     !isAuthorityPilotScopeAllowed({ kind: "platform-diagnostic" }, PRODUCTION, {}));
@@ -214,35 +214,85 @@ function parsing(): void {
   // Refusal codes: allowlist vs stage; both are pilot refusal codes.
   const listed = { [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: "42" };
   ok("refusal: non-admitted business → NOT_ENABLED in any stage",
-    resolveAuthorityProductionOperationRefusal(OTHER, PRODUCTION, listed) === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED &&
-    resolveAuthorityProductionOperationRefusal(OTHER, PRODUCTION, { ...listed, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: SUBMISSIONS }) === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED);
+    resolveAuthorityProductionOperationRefusal(OTHER, PRODUCTION, "approval", listed) === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED &&
+    resolveAuthorityProductionOperationRefusal(OTHER, PRODUCTION, "approval", { ...listed, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: SUBMISSIONS }) === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED);
   ok("refusal: admitted business in OAUTH_ONLY → STAGE_OAUTH_ONLY",
-    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, listed) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY &&
-    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, { ...listed, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: "oauth" }) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY);
+    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, "approval", listed) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY &&
+    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, "approval", { ...listed, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: "oauth" }) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY);
   ok("refusal: admitted business in SUBMISSIONS → none",
-    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, { ...listed, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: SUBMISSIONS }) === null);
-  ok("refusal: SANDBOX → none", resolveAuthorityProductionOperationRefusal(OTHER, SANDBOX, {}) === null);
+    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, "approval", { ...listed, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: SUBMISSIONS }) === null);
+  ok("refusal: SANDBOX → none", resolveAuthorityProductionOperationRefusal(OTHER, SANDBOX, "approval", {}) === null);
   ok("refusal: probe → NOT_ENABLED when lists empty, STAGE when listed in OAUTH_ONLY",
     resolveAuthorityPilotScopeRefusal({ kind: "platform-diagnostic" }, PRODUCTION, {}) === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED &&
     resolveAuthorityPilotScopeRefusal({ kind: "platform-diagnostic" }, PRODUCTION, listed) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY);
-  ok("refusal codes: both recognised as pilot refusals, nothing else",
+  ok("refusal codes: all three recognised as pilot refusals, nothing else",
     isAuthorityProductionPilotRefusalCode(AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED) &&
     isAuthorityProductionPilotRefusalCode(AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY) &&
+    isAuthorityProductionPilotRefusalCode("AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED") &&
     !isAuthorityProductionPilotRefusalCode("SUBMISSION_NOT_PROVABLY_UNSENT") &&
-    AUTHORITY_PRODUCTION_PILOT_REFUSAL_CODES.length === 2);
+    AUTHORITY_PRODUCTION_PILOT_REFUSAL_CODES.length === 3);
 
   const oauthOnly = { [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: "42" };
   ok("OAUTH_ONLY: business operations refused for the pilot business",
-    !isAuthorityProductionOperationAllowedForBusiness(PILOT, PRODUCTION, oauthOnly) &&
-    !isAuthorityPilotScopeAllowed({ kind: "business", businessId: PILOT }, PRODUCTION, oauthOnly));
+    !isAuthorityProductionOperationAllowedForBusiness(PILOT, PRODUCTION, "approval", oauthOnly) &&
+    !isAuthorityPilotScopeAllowed({ kind: "business", businessId: PILOT, operation: "approval" }, PRODUCTION, oauthOnly));
   ok("OAUTH_ONLY: the OAuth code-exchange scope is still admitted",
     isAuthorityPilotScopeAllowed({ kind: "business-oauth", businessId: PILOT }, PRODUCTION, oauthOnly) &&
     !isAuthorityPilotScopeAllowed({ kind: "business-oauth", businessId: OTHER }, PRODUCTION, oauthOnly));
   ok("OAUTH_ONLY: platform probe refused", !isAuthorityPilotScopeAllowed({ kind: "platform-diagnostic" }, PRODUCTION, oauthOnly));
-  ok("OAUTH_ONLY: SANDBOX operations unaffected", isAuthorityProductionOperationAllowedForBusiness(OTHER, SANDBOX, {}));
+  ok("OAUTH_ONLY: SANDBOX operations unaffected", isAuthorityProductionOperationAllowedForBusiness(OTHER, SANDBOX, "approval", {}));
   ok("SUBMISSIONS: operations allowed for the pilot business only",
-    isAuthorityProductionOperationAllowedForBusiness(PILOT, PRODUCTION, env) &&
-    !isAuthorityProductionOperationAllowedForBusiness(OTHER, PRODUCTION, env));
+    isAuthorityProductionOperationAllowedForBusiness(PILOT, PRODUCTION, "approval", env) &&
+    !isAuthorityProductionOperationAllowedForBusiness(OTHER, PRODUCTION, "approval", env));
+
+  // ── Per-operation switch (SELECTED) ──────────────────────────────────────
+  const ops = (raw: string | undefined) => [...parseAuthorityProductionPilotOperations(raw).operations].sort().join(",");
+  ok("ops: \"oauth,refresh,approval\" → SELECTED {approval, refresh}, explicit",
+    cls("oauth,refresh,approval").stage === "SELECTED" && cls("oauth,refresh,approval").valueStatus === "explicit" &&
+    ops("oauth,refresh,approval") === "approval,refresh");
+  ok("ops: order is free and \"oauth\" may come anywhere",
+    ops("approval,oauth,refresh") === "approval,refresh" && ops("refresh,oauth") === "refresh");
+  for (const single of ["refresh", "validation", "approval", "decision", "probe"]) {
+    ok(`ops: "oauth,${single}" → SELECTED {${single}} only`, cls(`oauth,${single}`).stage === "SELECTED" && ops(`oauth,${single}`) === single);
+  }
+  ok("ops: all five tokens listed → SUBMISSIONS (same set as \"oauth,submissions\")",
+    cls("oauth,refresh,validation,approval,decision,probe").stage === "SUBMISSIONS" &&
+    ops("oauth,refresh,validation,approval,decision,probe") === ops("oauth,submissions"));
+  ok("ops: \"oauth\" and unset enable nothing", ops("oauth") === "" && ops(undefined) === "" && ops("") === "");
+  for (const bad of ["oauth,refresh,refresh", "oauth,oauth", "oauth,submissions,refresh", "submissions,oauth,approval", "refresh,approval",
+                     "oauth, refresh", "oauth,refresh ", "oauth,Refresh", "oauth,", ",oauth", "oauth,,refresh", "oauth,unknown", "oauth;refresh"]) {
+    ok(`ops: "${bad}" → OAUTH_ONLY, invalid, nothing enabled`,
+      cls(bad).stage === "OAUTH_ONLY" && cls(bad).valueStatus === "invalid" && ops(bad) === "");
+  }
+
+  const selected = { [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: "42", [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: "oauth,refresh,approval" };
+  const NOT_THIS_OP = "AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED";
+  ok("SELECTED refresh+approval: refresh and approval allowed for the pilot business",
+    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, "refresh", selected) === null &&
+    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, "approval", selected) === null);
+  ok("SELECTED refresh+approval: validation and decision refused with OPERATION_NOT_ENABLED",
+    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, "validation", selected) === NOT_THIS_OP &&
+    resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, "decision", selected) === NOT_THIS_OP);
+  ok("SELECTED refresh+approval: platform probe refused with OPERATION_NOT_ENABLED",
+    resolveAuthorityPilotScopeRefusal({ kind: "platform-diagnostic" }, PRODUCTION, selected) === NOT_THIS_OP);
+  ok("SELECTED refresh+approval: OAuth code exchange still admitted for the pilot business only",
+    isAuthorityPilotScopeAllowed({ kind: "business-oauth", businessId: PILOT }, PRODUCTION, selected) &&
+    !isAuthorityPilotScopeAllowed({ kind: "business-oauth", businessId: OTHER }, PRODUCTION, selected));
+  ok("SELECTED: a non-admitted business is refused NOT_ENABLED for EVERY operation (allowlist first)",
+    (["refresh", "validation", "approval", "decision"] as const).every((op) =>
+      resolveAuthorityProductionOperationRefusal(OTHER, PRODUCTION, op, selected) === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED));
+  ok("SELECTED: SANDBOX is never gated", resolveAuthorityProductionOperationRefusal(OTHER, SANDBOX, "decision", selected) === null);
+  ok("compat: \"oauth\" refuses all five with the SAME code as before (STAGE_OAUTH_ONLY)",
+    (["refresh", "validation", "approval", "decision"] as const).every((op) =>
+      resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, op, { ...selected, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: "oauth" }) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY) &&
+    resolveAuthorityPilotScopeRefusal({ kind: "platform-diagnostic" }, PRODUCTION, { ...selected, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: "oauth" }) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY);
+  ok("compat: an invalid value refuses all five with STAGE_OAUTH_ONLY (never OPERATION_NOT_ENABLED)",
+    (["refresh", "approval"] as const).every((op) =>
+      resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, op, { ...selected, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: "oauth,refresh,refresh" }) === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY));
+  ok("compat: \"oauth,submissions\" allows all five, as before",
+    (["refresh", "validation", "approval", "decision"] as const).every((op) =>
+      resolveAuthorityProductionOperationRefusal(PILOT, PRODUCTION, op, { ...selected, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: SUBMISSIONS }) === null) &&
+    resolveAuthorityPilotScopeRefusal({ kind: "platform-diagnostic" }, PRODUCTION, { ...selected, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: SUBMISSIONS }) === null);
 }
 
 // ── 2. egress transport: refused before any I/O ─────────────────────────────
@@ -296,12 +346,12 @@ async function egressLayer(): Promise<void> {
 
   // OAUTH_ONLY (operations switch unset): only the code-exchange scope passes.
   ok("egress OAUTH_ONLY: pilot business operation refused before any I/O",
-    refused(await run(oauthOnly, { kind: "business", businessId: PILOT })));
+    refused(await run(oauthOnly, { kind: "business", businessId: PILOT, operation: "approval" })));
   ok("egress OAUTH_ONLY: platform probe refused before any I/O",
     refused(await run(oauthOnly, { kind: "platform-diagnostic" })));
   for (const bad of ["oauth", "OAUTH,SUBMISSIONS", " oauth,submissions"]) {
     ok(`egress operations "${bad}": pilot business operation still refused`,
-      refused(await run({ ...oauthOnly, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: bad }, { kind: "business", businessId: PILOT })));
+      refused(await run({ ...oauthOnly, [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: bad }, { kind: "business", businessId: PILOT, operation: "approval" })));
   }
   const exchange = await run(oauthOnly, { kind: "business-oauth", businessId: PILOT });
   ok("egress OAUTH_ONLY: OAuth code exchange for the pilot business reaches the transport",
@@ -311,10 +361,10 @@ async function egressLayer(): Promise<void> {
 
   // Same code, but the detail says why (no ids, no env values).
   const why = (r: { err: unknown }) => (isAuthorityEgressError(r.err) ? r.err.pilotRefusal : undefined);
-  const stageRefused = await run(oauthOnly, { kind: "business", businessId: PILOT });
+  const stageRefused = await run(oauthOnly, { kind: "business", businessId: PILOT, operation: "approval" });
   ok("egress detail: OAUTH_ONLY refusal says 'stage'",
     why(stageRefused) === "stage" && /stage/.test(String((stageRefused.err as Error).message)), stageRefused.err);
-  const listRefused = await run(oauthOnly, { kind: "business", businessId: OTHER });
+  const listRefused = await run(oauthOnly, { kind: "business", businessId: OTHER, operation: "approval" });
   ok("egress detail: non-admitted business says 'allowlist'",
     why(listRefused) === "allowlist" && /allowlist/.test(String((listRefused.err as Error).message)), listRefused.err);
   ok("egress detail: unscoped says 'unscoped'", why(await run(oauthOnly, null)) === "unscoped");
@@ -338,15 +388,32 @@ async function egressLayer(): Promise<void> {
   }
   ok("egress PRODUCTION: unscoped fetch refused (gate closed)", refused(await run(closed, null)));
   ok("egress PRODUCTION: unscoped fetch refused even with the pilot open", refused(await run(open, null)));
-  ok("egress PRODUCTION: pilot business refused while the gate is closed", refused(await run(closed, { kind: "business", businessId: PILOT })));
-  ok("egress PRODUCTION: other business refused while the pilot is open", refused(await run(open, { kind: "business", businessId: OTHER })));
+  ok("egress PRODUCTION: pilot business refused while the gate is closed", refused(await run(closed, { kind: "business", businessId: PILOT, operation: "approval" })));
+  ok("egress PRODUCTION: other business refused while the pilot is open", refused(await run(open, { kind: "business", businessId: OTHER, operation: "approval" })));
   ok("egress PRODUCTION: platform probe refused while the gate is closed", refused(await run(closed, { kind: "platform-diagnostic" })));
-  const admitted = await run(open, { kind: "business", businessId: PILOT });
+  const admitted = await run(open, { kind: "business", businessId: PILOT, operation: "approval" });
   ok("egress PRODUCTION: pilot business reaches the transport", admitted.err === null && admitted.sent === 1, admitted.err);
   const probe = await run(open, { kind: "platform-diagnostic" });
   ok("egress PRODUCTION: platform probe reaches the transport while the pilot is open", probe.err === null && probe.sent === 1, probe.err);
-  const malformed = await run({ ...open, [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: "42,x" }, { kind: "business", businessId: PILOT });
+  const malformed = await run({ ...open, [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: "42,x" }, { kind: "business", businessId: PILOT, operation: "approval" });
   ok("egress PRODUCTION: malformed allowlist refuses the listed business too", refused(malformed));
+
+  // SELECTED "oauth,refresh,approval": the transport enforces the same set per operation.
+  const sel = { ...prodEnv, [AUTHORITY_PRODUCTION_PILOT_ENV_VAR]: String(PILOT), [AUTHORITY_PRODUCTION_PILOT_OPERATIONS_ENV_VAR]: "oauth,refresh,approval" };
+  for (const op of ["refresh", "approval"] as const) {
+    const r = await run(sel, { kind: "business", businessId: PILOT, operation: op });
+    ok(`egress SELECTED: pilot ${op} reaches the transport`, r.err === null && r.sent === 1, r.err);
+  }
+  for (const op of ["validation", "decision"] as const) {
+    const r = await run(sel, { kind: "business", businessId: PILOT, operation: op });
+    ok(`egress SELECTED: pilot ${op} refused before any I/O ('stage', operation not enabled)`,
+      refused(r) && why(r) === "stage" && /does not enable this operation/.test(String((r.err as Error).message)), r.err);
+  }
+  ok("egress SELECTED: platform probe refused before any I/O", refused(await run(sel, { kind: "platform-diagnostic" })));
+  ok("egress SELECTED: another business refused for an enabled operation ('allowlist')",
+    why(await run(sel, { kind: "business", businessId: OTHER, operation: "approval" })) === "allowlist");
+  const selExchange = await run(sel, { kind: "business-oauth", businessId: PILOT });
+  ok("egress SELECTED: OAuth code exchange still reaches the transport", selExchange.err === null && selExchange.sent === 1, selExchange.err);
 
   const sandboxEnv = Object.fromEntries(Object.entries(prodEnv).map(([k, v]) =>
     [k.replace(/_PRODUCTION$/, "_SANDBOX"), k === "BILLING_AUTHORITY_RUNTIME_ENVIRONMENT" ? SANDBOX : v]));
@@ -434,10 +501,10 @@ async function services(): Promise<void> {
     resolveToken: (async () => { touched.push("token"); return { ok: true, accessToken: "t", connectionId: 1 }; }) as never,
     tokenDeps: {} as never,
   };
-  const ctx = await resolveApprovalRuntimeContext({ businessId: OTHER, environment: PRODUCTION }, ctxDeps);
+  const ctx = await resolveApprovalRuntimeContext({ businessId: OTHER, environment: PRODUCTION, operation: "approval" }, ctxDeps);
   ok("runtime context: non-pilot business refused before config/app/token",
     !ctx.ok && ctx.code === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED && touched.length === 0, { ctx, touched });
-  await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION }, ctxDeps);
+  await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION, operation: "approval" }, ctxDeps);
   ok("runtime context: pilot business proceeds to config/app/token", touched.join() === "config,app,token", touched);
 
   // Approval execution — refused before the reserve; nothing recorded or sent.
@@ -449,7 +516,7 @@ async function services(): Promise<void> {
       issuedSnapshot: {}, submission: { id: 9, status: "READY", errorCode: null, lastAttemptAt: null, authorityPayloadHash: null },
     } as never; },
     resolveEnvironment: () => PRODUCTION,
-    resolveRuntimeContext: (input) => resolveApprovalRuntimeContext(input, ctxDeps),
+    resolveRuntimeContext: (input) => resolveApprovalRuntimeContext({ ...input, operation: "approval" }, ctxDeps),
     buildPayload: never("buildPayload"),
     requestApproval: never("requestApproval"),
     hashPayload: () => "p",
@@ -476,7 +543,7 @@ async function services(): Promise<void> {
     } as never; },
     loadOperatorName: async () => "op",
     resolveEnvironment: () => PRODUCTION,
-    resolveRuntimeContext: (input) => resolveApprovalRuntimeContext(input, ctxDeps),
+    resolveRuntimeContext: (input) => resolveApprovalRuntimeContext({ ...input, operation: "decision" }, ctxDeps),
     requestDecision: never("requestDecision"),
     runInTransaction: never("runInTransaction"),
     recordDecision: never("recordDecision"),
@@ -510,7 +577,7 @@ async function services(): Promise<void> {
     ...approvalDeps,
     loadDocumentWithSubmission: async () => { writes.push("loadDocument"); throw new Error("loadDocument must not run"); },
   };
-  const ooCtx = await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION }, ctxDeps);
+  const ooCtx = await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION, operation: "approval" }, ctxDeps);
   ok("OAUTH_ONLY runtime context: pilot business refused before config/app/token",
     !ooCtx.ok && ooCtx.code === AUTHORITY_PRODUCTION_PILOT_STAGE_OAUTH_ONLY && touched.length === 0, { ooCtx, touched });
   const ooApproval = await executeAuthorityApproval({ businessId: PILOT, billingDocumentId: 1, actorUserId: PILOT_USER }, pilotApprovalDeps);
@@ -564,17 +631,37 @@ async function services(): Promise<void> {
   // The exact enabling value restores the #915 behaviour for the pilot business.
   setOperations(SUBMISSIONS);
   touched.length = 0;
-  await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION }, ctxDeps);
+  await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION, operation: "approval" }, ctxDeps);
   ok("SUBMISSIONS: pilot business proceeds to config/app/token again", touched.join() === "config,app,token", touched);
+
+  // SELECTED "oauth,refresh,approval": the shared runtime context answers per operation.
+  setOperations("oauth,refresh,approval");
+  touched.length = 0;
+  const selApproval = await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION, operation: "approval" }, ctxDeps);
+  ok("SELECTED: Approval context proceeds to config/app/token", selApproval.ok && touched.join() === "config,app,token", touched);
+  touched.length = 0;
+  const selDecision = await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION, operation: "decision" }, ctxDeps);
+  ok("SELECTED: Decision context refused OPERATION_NOT_ENABLED before config/app/token",
+    !selDecision.ok && selDecision.code === "AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED" && touched.length === 0, selDecision);
+  const selValidateFetch = countingFetch();
+  const selValidation = await validateAuthorityConnection({ businessId: PILOT, environment: PRODUCTION, fetchImpl: selValidateFetch.fn });
+  ok("SELECTED: validation refused before the connection is read, nothing sent",
+    !selValidation.ok && selValidation.errorCode === "AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED" && selValidateFetch.calls.length === 0, selValidation);
+  setOperations("oauth,approval");
+  const noRefreshFetch = countingFetch();
+  const noRefresh = await refreshAuthorityConnectionToken({ businessId: PILOT, environment: PRODUCTION, fetchImpl: noRefreshFetch.fn });
+  ok("SELECTED approval-only: refresh refused before the connection is read, nothing sent (Approval then fails closed on an expired token)",
+    !noRefresh.ok && noRefresh.errorCode === "AUTHORITY_PRODUCTION_PILOT_OPERATION_NOT_ENABLED" && noRefreshFetch.calls.length === 0, noRefresh);
+  setOperations(SUBMISSIONS);
   setOperations(" oauth,submissions");
   touched.length = 0;
-  const near = await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION }, ctxDeps);
+  const near = await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION, operation: "approval" }, ctxDeps);
   ok("near-miss value \" oauth,submissions\" stays OAUTH_ONLY", !near.ok && touched.length === 0, near);
   setOperations(SUBMISSIONS);
 
   // Gate closed (unset): even the pilot business is refused everywhere.
   setPilot(undefined);
-  const closedCtx = await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION }, ctxDeps);
+  const closedCtx = await resolveApprovalRuntimeContext({ businessId: PILOT, environment: PRODUCTION, operation: "approval" }, ctxDeps);
   ok("gate unset: pilot business refused in the runtime context", !closedCtx.ok && closedCtx.code === AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED);
   r = await resolveAuthorityOAuthStart({ ...base, user: owner(PILOT), environment: "PRODUCTION" }, { startOAuth });
   ok("gate unset: pilot business cannot start PRODUCTION OAuth", !r.ok && r.reason === AUTHORITY_START_REASONS.PRODUCTION_PILOT_NOT_ENABLED);

@@ -33,6 +33,7 @@ const clean = (): IntakeSweepReport => ({
   commerce: { receipts: 0, webhooksReactivated: 0, failures: 0 },
   revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
   capacity: emptyCapacity(),
+  budget: { businessesNotReached: 0, releaseRounds: 0, releaseBusinesses: 0 },
   backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, held: 0, businessesNeedingAttention: 0 },
 });
 const withR = (patch: (r: IntakeSweepReport) => void) => { const r = clean(); patch(r); return sweepHealth(r); };
@@ -85,7 +86,9 @@ test("structural: the route answers by this verdict; the store reports each dead
   // L1.5-a — stale receipts are stamped once, by the same predicate the count uses.
   assert.match(fn, /jsonb_build_object\('staleReportedAt'/);
   assert.match(fn, /\("metadata" -> 'staleReportedAt'\) IS NULL/);
-  assert.match(fn, /"status" IN \('RECEIVED', 'PERSISTED'\) OR \("status" = 'FAILED' AND "nextAttemptAt" IS NOT NULL\)/);
+  assert.match(fn, /(p\.)?"status" IN \('RECEIVED', 'PERSISTED'\) OR \((p\.)?"status" = 'FAILED' AND (p\.)?"nextAttemptAt" IS NOT NULL\)/);
+  // L1.5-b · PR-5 — both stamps are bounded per run (a big backlog is reported over a few runs, each once).
+  assert.equal(fn.split("LIMIT ${HEALTH_STAMP_BATCH}::int").length - 1, 2);
   const sweeper = read("lib/intake/intake-sweeper.ts");
   assert.match(sweeper, /console\.warn\("\[intake-sweep\] business attention", \{ businessId, \.\.\.h \}\)/);
   assert.doesNotMatch(sweeper.slice(sweeper.indexOf("export async function runIntakeSweep(")), /\bpayload\b|phone|email|externalEventId/);

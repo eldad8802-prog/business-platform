@@ -120,7 +120,7 @@ export const defaultDecisionExecutionDeps: DecisionExecutionDeps = {
     return u?.name ?? null;
   },
   resolveEnvironment: () => resolveRuntimeAuthorityEnvironment(),
-  resolveRuntimeContext: (input) => resolveApprovalRuntimeContext(input),
+  resolveRuntimeContext: (input) => resolveApprovalRuntimeContext({ ...input, operation: "decision" }),
   requestDecision: (input) => requestInvoiceDecision(input),
   runInTransaction: <T>(
     businessId: number,
@@ -182,7 +182,7 @@ export async function executeAuthorityDecision(
 
   // ---- production pilot (business + SUBMISSIONS stage): before any load, token work or send ----
   // Code = allowlist vs OAUTH_ONLY stage; both are refused before anything is sent.
-  const pilotRefusal = resolveAuthorityProductionOperationRefusal(businessId, environment);
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(businessId, environment, "decision");
   if (pilotRefusal) {
     return { outcome: "preflight_failed", billingDocumentId, errorCode: pilotRefusal };
   }

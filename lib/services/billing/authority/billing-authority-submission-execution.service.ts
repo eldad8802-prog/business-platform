@@ -196,7 +196,7 @@ export const defaultSubmissionExecutionDeps: SubmissionExecutionDeps = {
     return { ...rest, submission: authoritySubmission };
   },
   resolveEnvironment: () => resolveRuntimeAuthorityEnvironment(),
-  resolveRuntimeContext: (input) => resolveApprovalRuntimeContext(input),
+  resolveRuntimeContext: (input) => resolveApprovalRuntimeContext({ ...input, operation: "approval" }),
   buildPayload: buildInvoiceApprovalPayload,
   requestApproval: (input) => requestInvoiceApproval(input),
   hashPayload: hashApprovalPayload,
@@ -367,7 +367,7 @@ export async function executeAuthorityApproval(
 
   // ---- production pilot (business + SUBMISSIONS stage): before any load, reserve, token work or send ----
   // Code = allowlist vs OAUTH_ONLY stage; both: nothing loaded, reserved or sent.
-  const pilotRefusal = resolveAuthorityProductionOperationRefusal(businessId, environment);
+  const pilotRefusal = resolveAuthorityProductionOperationRefusal(businessId, environment, "approval");
   if (pilotRefusal) {
     return { outcome: "preflight_failed", billingDocumentId, errorCode: pilotRefusal, safeToRetry: false };
   }
