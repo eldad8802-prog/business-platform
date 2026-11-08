@@ -116,6 +116,72 @@ for i in "${!VARIANTS[@]}"; do
   grep -E "FileChooser|Capacitor" "$OUT/logcat-$v.txt" | tail -5 >> "$R"
 done
 
+# ── Camera (C2 = the shipped camera input) — cancel and permission paths ────
+C2_ROW=1
+tap_c2() { adb shell input tap $(( W / 2 )) $(( (2 * C2_ROW + 1) * H / (2 * N) )); }
+tap_first() { # dump-name, texts... -> taps the first one present
+  local d=$1; shift
+  for t in "$@"; do tap_text "$d" "$t" && { echo "$t"; return 0; }; done
+  echo "(none of: $*)"; return 1
+}
+reset_camera_perm() { # revoking kills the app process; relaunch afterwards
+  adb shell pm revoke "$PKG" android.permission.CAMERA 2>/dev/null
+  adb shell pm clear-permission-flags "$PKG" android.permission.CAMERA user-set user-fixed 2>/dev/null
+  sleep 2; adb shell am start -n "$PKG/$ACT" >/dev/null 2>&1; sleep 10
+}
+scenario_end() { # name
+  if ! focused_app; then adb shell input keyevent KEYCODE_BACK; sleep 3; fi
+  if ! focused_app; then adb shell input keyevent KEYCODE_BACK; sleep 3; fi
+  shot "$1-9-end"
+  adb logcat -d > "$OUT/logcat-$1.txt" 2>&1
+  log "page    : $(grep -oE 'PROBE (change|cancel) [^"]*' "$OUT/logcat-$1.txt" | sort -u | tr '\n' ' ')"
+  log "native  : $(grep -E 'FileChooser' "$OUT/logcat-$1.txt" | sed -E 's/.*FileChooser: //' | sort -u | tr '\n' ' ')"
+  log "crash   : $(grep -qE "FATAL EXCEPTION|ANR in $PKG" "$OUT/logcat-$1.txt" && echo YES || echo none)"
+  log "app-focused-after=$(focused_app && echo yes || echo no)"
+}
+
+# S1 — camera opens, user backs out without taking a photo.
+log ""; log "== S1 camera-cancel (permission granted) =="
+ensure_app; adb logcat -c; tap_c2; sleep 5
+log "top     : $(top)"; shot "S1-1-camera"
+adb shell input keyevent KEYCODE_BACK; sleep 3
+scenario_end S1
+
+# S2 — permission not yet granted: system dialog, user denies.
+log ""; log "== S2 permission-deny (dialog) =="
+reset_camera_perm; adb logcat -c; tap_c2; sleep 4
+log "top     : $(top)"; shot "S2-1-dialog"; ui S2-dialog >/dev/null
+log "tapped  : $(tap_first S2-dialog "Don’t allow" "Don't allow" "Deny")"; sleep 4
+log "top-after: $(top)"
+scenario_end S2
+
+# S3 — permission not yet granted: user allows, camera opens, photo returned.
+log ""; log "== S3 permission-allow (dialog) then capture =="
+reset_camera_perm; adb logcat -c; tap_c2; sleep 4
+shot "S3-1-dialog"; ui S3-dialog >/dev/null
+log "tapped  : $(tap_first S3-dialog "While using the app" "Only this time" "Allow")"; sleep 5
+log "top     : $(top)"; shot "S3-2-camera"
+adb shell input keyevent KEYCODE_CAMERA; sleep 4; ui S3-cam >/dev/null
+for t in "Shutter" "Take photo" "Done" "OK"; do tap_text S3-cam "$t" && { sleep 3; ui S3-cam >/dev/null; }; done
+sleep 3
+scenario_end S3
+
+# S4 — permission permanently denied ("don't ask again"): no dialog at all.
+log ""; log "== S4 permission-permanently-denied =="
+adb shell pm revoke "$PKG" android.permission.CAMERA 2>/dev/null
+adb shell pm set-permission-flags "$PKG" android.permission.CAMERA user-set user-fixed 2>/dev/null
+sleep 2; adb shell am start -n "$PKG/$ACT" >/dev/null 2>&1; sleep 10
+adb logcat -c; tap_c2; sleep 5
+log "top     : $(top)"; shot "S4-1-after-tap"; log "ui      : $(ui S4 | cut -c1-300)"
+scenario_end S4
+
+# S5 — after a denial the upload input still works (no stuck chooser).
+log ""; log "== S5 upload still works after camera denial =="
+ensure_app; adb logcat -c
+adb shell input tap $(( W / 2 )) $(( (2 * 2 + 1) * H / (2 * N) )); sleep 5
+log "top     : $(top)"; ui S5 >/dev/null; tap_text S5 "probe.pdf" && log "picked  : probe.pdf"; sleep 4
+scenario_end S5
+
 adb logcat -d > "$OUT/logcat-final.txt" 2>&1
 grep -qE "FATAL EXCEPTION|ANR in $PKG" "$OUT/logcat-final.txt" && log "!! crash/ANR seen" || log "no crash/ANR in final logcat window"
 log ""; log "=== probe finished ==="
