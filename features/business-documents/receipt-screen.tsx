@@ -125,6 +125,17 @@ export function ReceiptScreen() {
     try {
       // A draft that already holds allocations cannot be cleared through the existing route (it takes a non-empty
       // list), and a draft belongs to one customer: either case starts a new draft.
+      if (draft.current) {
+        // A previous attempt may have issued the receipt and lost only the answer (and the check after it): ask the
+        // document first, so a retry finishes that receipt instead of issuing a second one.
+        const previous = await getBillingDocument(draft.current.id);
+        if (previous.status === "ISSUED") {
+          draft.current = null;
+          setIssued(previous);
+          setStep("done");
+          return;
+        }
+      }
       if (draft.current && (draft.current.customerId !== form.customerId || (draft.current.allocated && !allocations))) draft.current = null;
       if (!draft.current) {
         const created = await createReceiptDraftRequest(Number(form.customerId));
