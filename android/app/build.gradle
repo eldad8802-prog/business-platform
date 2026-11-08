@@ -63,6 +63,10 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // DIAG ONLY: installs next to the Play app for a device probe.
+            applicationIdSuffix ".probe"
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

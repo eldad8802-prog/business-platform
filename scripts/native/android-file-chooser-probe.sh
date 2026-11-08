@@ -13,7 +13,8 @@ set -f  # no globbing: "*/*" MIME specs below must stay literal
 
 OUT="native-evidence"
 APK="android/app/build/outputs/apk/debug/app-debug.apk"
-PKG="il.co.promaxgroup.dubiz"
+PKG="il.co.promaxgroup.dubiz.probe"
+ACT="il.co.promaxgroup.dubiz.MainActivity"
 VARIANTS=(C1 C2 U1 U2 U3 U4 U5 U6)
 N=${#VARIANTS[@]}
 mkdir -p "$OUT/shots" "$OUT/ui"
@@ -39,7 +40,7 @@ top() { adb shell dumpsys activity activities 2>/dev/null | grep -m1 -E "topResu
 focused_app() { adb shell dumpsys window 2>/dev/null | grep -m1 mCurrentFocus | grep -q "$PKG"; }
 ensure_app() {
   focused_app && return
-  adb shell am start -n "$PKG/.MainActivity" >/dev/null 2>&1; sleep 8
+  adb shell am start -n "$PKG/$ACT" >/dev/null 2>&1; sleep 8
 }
 
 log "== device =="
@@ -67,7 +68,7 @@ done
 log "-- IMAGE_CAPTURE:"
 adb shell cmd package query-activities --brief -a android.media.action.IMAGE_CAPTURE 2>&1 | tr -d '\r' | grep -v '^$' | sed 's/^/     /' | tee -a "$R" >/dev/null
 
-adb shell am start -W -n "$PKG/.MainActivity" >/dev/null 2>&1; sleep 10
+adb shell am start -W -n "$PKG/$ACT" >/dev/null 2>&1; sleep 10
 SIZE=$(adb shell wm size | tr -d '\r' | grep -oE '[0-9]+x[0-9]+' | tail -1)
 W=${SIZE%x*}; H=${SIZE#*x}
 log ""; log "screen=${W}x${H}"; shot "00-probe-page"
@@ -80,7 +81,7 @@ for i in "${!VARIANTS[@]}"; do
   sleep 5
   log ""; log "== $v =="
   adb logcat -d > "$OUT/logcat-$v-open.txt" 2>&1
-  log "started : $(grep -E 'START u0' "$OUT/logcat-$v-open.txt" | grep -v "$PKG/.MainActivity" | sed -E 's/.*START u0 //' | tr '\n' ' ' | cut -c1-600)"
+  log "started : $(grep -E 'START u0' "$OUT/logcat-$v-open.txt" | grep -v "$PKG/$ACT" | sed -E 's/.*START u0 //' | tr '\n' ' ' | cut -c1-600)"
   log "top     : $(top)"
   shot "$v-1-opened"
   log "ui      : $(ui "$v-opened" | cut -c1-700)"
@@ -91,7 +92,7 @@ for i in "${!VARIANTS[@]}"; do
       # Emulator camera: shutter, then accept the photo if it asks.
       adb shell input keyevent KEYCODE_CAMERA; sleep 4; shot "$v-2-after-shutter"
       ui "$v-shutter" >/dev/null
-      for t in "Done" "OK" "Shutter" "Take photo"; do tap_text "$v-shutter" "$t" && { sleep 3; ui "$v-shutter" >/dev/null; }; done
+      for t in "Shutter" "Take photo" "Done" "OK"; do tap_text "$v-shutter" "$t" && { sleep 3; ui "$v-shutter" >/dev/null; }; done
       sleep 3 ;;
     U*)
       # Reach a real PDF in Downloads through whatever picker opened.
