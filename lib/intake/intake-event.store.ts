@@ -395,6 +395,14 @@ export async function rearmBlockedEvents(
   });
 }
 
+/** L1.5-b · PR-5 — most receipts one health read stamps as reported (per kind), so it stays inside its transaction. */
+export const HEALTH_STAMP_BATCH = 2000;
+/**
+ * Most a health read or the retention purge waits for a row lock. Two sweeps racing over the same business stamp
+ * with SKIP LOCKED (a row the other run holds is stamped next run), so they never deadlock or queue behind each other.
+ */
+export const HEALTH_LOCK_TIMEOUT_MS = 1000;
+
 /** A receipt still unfinished this long after arrival is a stuck backlog the operator should see. */
 export const STALE_PENDING_AFTER_MS = 24 * 60 * 60 * 1000;
 
@@ -425,11 +433,24 @@ export type IntakeHealthCounts = {
  */
 export async function intakeHealthCounts(businessId: number, now: Date = new Date()): Promise<IntakeHealthCounts> {
   return withTenantTransaction(async (tx) => {
+    // L1.5-b · PR-5 — two sweeps may read the same business at once (QStash + the GitHub schedule): never wait long on
+    // a lock, never run long (both local to this transaction).
+    await tx.$executeRaw`SELECT set_config('lock_timeout', ${String(HEALTH_LOCK_TIMEOUT_MS)}, true)`;
+    await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(SIBLING_STATEMENT_TIMEOUT_MS)}, true)`;
     const deadLetter = { businessId, status: "FAILED" as const, nextAttemptAt: null };
+    // L1.5-b · PR-5 — both stamps are bounded (HEALTH_STAMP_BATCH per run, oldest first): an unbounded stamp over a
+    // large backlog outgrew the transaction timeout, rolled back, and failed again on every run. Each receipt is still
+    // reported exactly once; a big backlog is reported over a few runs (the run stays red until it is all reported).
     const deadLettersNew = await tx.$executeRaw`
       UPDATE "IntakeEvent"
          SET "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object('deadLetterReportedAt', ${now.toISOString()}::text)
-       WHERE "businessId" = ${businessId} AND "status" = 'FAILED' AND "nextAttemptAt" IS NULL
+       WHERE "id" IN (
+               SELECT d."id" FROM "IntakeEvent" d
+                WHERE d."businessId" = ${businessId}::int AND d."status" = 'FAILED' AND d."nextAttemptAt" IS NULL
+                  AND (d."metadata" -> 'deadLetterReportedAt') IS NULL
+                ORDER BY d."id"
+                LIMIT ${HEALTH_STAMP_BATCH}::int
+                  FOR UPDATE SKIP LOCKED)
          AND ("metadata" -> 'deadLetterReportedAt') IS NULL`;
     const deadLettersOpen = await tx.intakeEvent.count({ where: { ...deadLetter, payloadPurgedAt: null } });
     const staleBefore = new Date(now.getTime() - STALE_PENDING_AFTER_MS);
@@ -437,8 +458,14 @@ export async function intakeHealthCounts(businessId: number, now: Date = new Dat
     const pendingStaleNew = await tx.$executeRaw`
       UPDATE "IntakeEvent"
          SET "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object('staleReportedAt', ${now.toISOString()}::text)
-       WHERE "businessId" = ${businessId} AND "receivedAt" < ${staleBefore}
-         AND ("status" IN ('RECEIVED', 'PERSISTED') OR ("status" = 'FAILED' AND "nextAttemptAt" IS NOT NULL))
+       WHERE "id" IN (
+               SELECT p."id" FROM "IntakeEvent" p
+                WHERE p."businessId" = ${businessId}::int AND p."receivedAt" < ${utc(staleBefore)}
+                  AND (p."status" IN ('RECEIVED', 'PERSISTED') OR (p."status" = 'FAILED' AND p."nextAttemptAt" IS NOT NULL))
+                  AND (p."metadata" -> 'staleReportedAt') IS NULL
+                ORDER BY p."receivedAt", p."id"
+                LIMIT ${HEALTH_STAMP_BATCH}::int
+                  FOR UPDATE SKIP LOCKED)
          AND ("metadata" -> 'staleReportedAt') IS NULL`;
     const pendingStale = await tx.intakeEvent.count({
       where: {
@@ -472,8 +499,9 @@ export async function purgeExpiredFailedPayloads(
   now: Date = new Date()
 ): Promise<number> {
   const cutoff = new Date(now.getTime() - FAILED_PAYLOAD_RETENTION_MS);
-  const res = await withTenantTransaction((tx) =>
-    tx.intakeEvent.updateMany({
+  const res = await withTenantTransaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('lock_timeout', ${String(HEALTH_LOCK_TIMEOUT_MS)}, true)`;
+    return tx.intakeEvent.updateMany({
       where: {
         businessId,
         status: "FAILED",
@@ -482,8 +510,8 @@ export async function purgeExpiredFailedPayloads(
         payloadPurgedAt: null,
       },
       data: { payload: Prisma.DbNull, payloadPurgedAt: now },
-    })
-  );
+    });
+  });
   return res.count;
 }
 
@@ -636,4 +664,59 @@ export function errorCodeOf(error: unknown): string {
 
 function boundedCode(code: string): string {
   return code.replace(/[^A-Za-z0-9:_.\-]/g, "_").slice(0, 64);
+}
+
+/** L1.5-b · PR-5 — receipts one resume batch re-arms; each batch is its own short transaction. */
+export const REARM_BATCH = 1000;
+/** Wall-clock budget for re-arming after a resume; whatever is left is released by the hold recheck (≤ 10 min). */
+export const REARM_BUDGET_MS = 8000;
+
+/**
+ * L1.5-b · PR-5 — a resumed connection's paused receipts become due NOW, in bounded batches AFTER the resume has
+ * committed (no single transaction grows with the backlog). This only ACCELERATES release: a receipt not re-armed
+ * here (budget spent, a batch failed, the process stopped) still comes due at its next hold recheck, and the
+ * processor then finds the connection ACTIVE and processes it. Only `held:connection_paused` receipts of THIS
+ * connection whose payload is kept and that are waiting for a later look; a receipt a worker holds under its lease
+ * is never re-armed (that would let a second worker claim it), and a row being updated right now is skipped.
+ * Returns how many were re-armed.
+ */
+export async function rearmPausedReceipts(
+  sourceKey: string,
+  providerAccountRef: string,
+  now: Date = new Date(),
+  opts: { batch?: number; budgetMs?: number; clock?: () => number } = {}
+): Promise<number> {
+  const batch = opts.batch ?? REARM_BATCH;
+  const clock = opts.clock ?? Date.now;
+  const stopAt = clock() + (opts.budgetMs ?? REARM_BUDGET_MS);
+  let total = 0;
+  while (clock() < stopAt) {
+    const n = await withTenantTransaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(SIBLING_STATEMENT_TIMEOUT_MS)}, true)`;
+      return tx.$executeRaw`
+        WITH picked AS MATERIALIZED (
+          SELECT s."id" FROM "IntakeEvent" s
+           WHERE s."sourceKey" = ${sourceKey}::text
+             AND s."providerAccountRef" = ${providerAccountRef}::text
+             AND s."lastErrorCode" = 'held:connection_paused'
+             AND s."status" IN ('RECEIVED', 'PERSISTED', 'FAILED')
+             AND s."payloadPurgedAt" IS NULL
+             -- waiting for a later look (already-due rows need nothing) …
+             AND s."nextAttemptAt" > ${utc(now)}
+             -- … but never a row a worker holds right now: claimEvent leases exactly lastAttemptAt + INTAKE_LEASE_MS,
+             -- while a hold waits HOLD_RECHECK_MS (longer) from its look. Re-arming a lease would let a second worker in.
+             AND (s."lastAttemptAt" IS NULL OR s."nextAttemptAt" > s."lastAttemptAt" + make_interval(secs => ${INTAKE_LEASE_MS / 1000}::int))
+           -- no ORDER BY: which receipts are re-armed first does not matter (all become due); no sort over the backlog
+           LIMIT ${batch}::int
+             FOR UPDATE SKIP LOCKED
+        )
+        UPDATE "IntakeEvent" e
+           SET "nextAttemptAt" = ${utc(now)}, "updatedAt" = ${utc(now)}
+          FROM picked
+         WHERE e."id" = picked."id"`;
+    });
+    total += n;
+    if (n < batch) break;
+  }
+  return total;
 }

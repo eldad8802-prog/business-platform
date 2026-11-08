@@ -93,13 +93,24 @@ test("before every attempt: revoked → paused → the source gate → provider 
   assert.ok(svc.includes('return rows.every((r) => r.status === "PAUSED") ? "paused" : "live";'));
 });
 
-test("resuming re-arms that connection's paused receipts in the same transaction (and only those)", () => {
+test("resuming re-arms that connection's paused receipts (and only those) — L1.5-b PR-5: batched, after the commit", () => {
   const svc = read("lib/intake/acquisition/connection.service.ts");
   const fn = svc.slice(svc.indexOf("export async function setPaused("), svc.indexOf("export async function setAllowedOrigins("));
-  for (const pin of ["if (!paused) {", 'lastErrorCode: "held:connection_paused"', "providerAccountRef: ref", "payloadPurgedAt: null", "data: { nextAttemptAt: now }"]) {
-    assert.ok(fn.includes(pin), pin);
-  }
-  assert.ok(fn.indexOf("tx.acquisitionConnection.update(") < fn.indexOf("tx.intakeEvent.updateMany("), "the status changes first, in the same transaction");
+  // The resume transaction only flips the status; no receipt is touched inside it (it cannot grow with the backlog).
+  assert.ok(!fn.includes("tx.intakeEvent"), "no receipt update inside the resume transaction");
+  assert.ok(fn.indexOf("tx.acquisitionConnection.update(") < fn.indexOf("rearmPausedReceipts(row.sourceKey, ref, now)"), "re-armed after the status change");
+  assert.match(fn, /if \(!paused\) \{[\s\S]*rearmPausedReceipts\(row\.sourceKey, ref, now\)\.catch\(/, "best effort: a failed re-arm never fails the resume");
+  const store = read("lib/intake/intake-event.store.ts");
+  const rearm = store.slice(store.indexOf("export async function rearmPausedReceipts("));
+  for (const pin of [
+    `s."sourceKey" = \${sourceKey}::text`,
+    `s."providerAccountRef" = \${providerAccountRef}::text`,
+    `s."lastErrorCode" = 'held:connection_paused'`,
+    `s."payloadPurgedAt" IS NULL`,
+    `LIMIT \${batch}::int`,
+    "FOR UPDATE SKIP LOCKED",
+    `make_interval(secs => \${INTAKE_LEASE_MS / 1000}::int)`,
+  ]) assert.ok(rearm.includes(pin), pin);
 });
 
 console.log(`\nALL L1.5-a PAUSED-HOLD TESTS PASSED — ${checks} checks\n`);

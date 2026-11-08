@@ -46,7 +46,37 @@ export type IntakeSweepReport = {
   backlog: { deadLettersNew: number; deadLettersOpen: number; pendingStale: number; pendingStaleNew: number; held: number; businessesNeedingAttention: number };
   /** S1-A — Rivhit documents handed to intake, documents Rivhit returned unreadable, failed connections, Rivhit calls. */
   revenueSources: { receipts: number; unreadable: number; failures: number; calls: number };
+  /**
+   * L1.5-b · PR-5 — the run's own budget: businesses the run had no time left for (they lead the next run, which
+   * starts further along the rotation), and the extra release rounds spent on businesses that still had due work.
+   */
+  budget: { businessesNotReached: number; releaseRounds: number; releaseBusinesses: number };
 };
+
+/**
+ * L1.5-b · PR-5 — how long one run may work: the route's maxDuration (60 s) minus a margin for the response and a
+ * business already in progress. A run never starts a business after this.
+ */
+export const SWEEP_BUDGET_MS = 40_000;
+/** Extra drain rounds one business may get in one run, after every business had its first (release, not new work). */
+export const MAX_RELEASE_ROUNDS = 9;
+/** A release round starts only with at least this much budget left, so one round never runs far past the budget. */
+export const RELEASE_ROUND_MIN_MS = 5_000;
+/** The schedule's period: each run starts one business further along, so none is always last. */
+export const SWEEP_ROTATION_PERIOD_MS = 10 * 60 * 1000;
+
+/** The tenants in run order: rotated by the run's slot, so a business left out for lack of time leads soon (pure). */
+export function rotateTenants<T>(items: readonly T[], now: Date): T[] {
+  if (items.length === 0) return [];
+  const k = Math.floor(now.getTime() / SWEEP_ROTATION_PERIOD_MS) % items.length;
+  return [...items.slice(k), ...items.slice(0, k)];
+}
+
+/** A drain that used its whole budget AND moved something forward may have more due work: worth another round (pure). */
+export function wantsReleaseRound(tally: Record<IntakeProcessResult, number>, limit: number): boolean {
+  const listed = Object.values(tally).reduce((a, b) => a + b, 0);
+  return listed >= limit && tally.processed + tally.ignored + tally.failed > 0;
+}
 
 /** Union of every registered source's tenants (deduped, stable order). */
 async function tenantsOf(registry: IntakeRegistry): Promise<number[]> {
@@ -59,9 +89,22 @@ async function tenantsOf(registry: IntakeRegistry): Promise<number[]> {
 }
 
 export async function runIntakeSweep(
-  options: { now?: Date; perBusinessLimit?: number; registry?: IntakeRegistry; reconcileCommerce?: boolean; syncRevenueSources?: boolean } = {}
+  options: {
+    now?: Date;
+    perBusinessLimit?: number;
+    registry?: IntakeRegistry;
+    reconcileCommerce?: boolean;
+    syncRevenueSources?: boolean;
+    /** Wall clock (ms) after which no business is started; default: SWEEP_BUDGET_MS from the start. */
+    deadline?: number;
+    clock?: () => number;
+  } = {}
 ): Promise<IntakeSweepReport> {
   const now = options.now ?? new Date();
+  const clock = options.clock ?? Date.now;
+  const deadline = options.deadline ?? clock() + SWEEP_BUDGET_MS;
+  const limit = options.perBusinessLimit ?? 50;
+  const releaseCandidates: number[] = [];
   const registry = options.registry ?? intakeRegistry;
   const report: IntakeSweepReport = {
     businesses: 0,
@@ -72,11 +115,18 @@ export async function runIntakeSweep(
     commerce: { receipts: 0, webhooksReactivated: 0, failures: 0 },
     revenueSources: { receipts: 0, unreadable: 0, failures: 0, calls: 0 },
     backlog: { deadLettersNew: 0, deadLettersOpen: 0, pendingStale: 0, pendingStaleNew: 0, held: 0, businessesNeedingAttention: 0 },
+    budget: { businessesNotReached: 0, releaseRounds: 0, releaseBusinesses: 0 },
   };
 
   // Listing tenants only reads; a dropped pooled connection here is retried once (lib/db/transient-retry.ts).
   const businessIds = await withConnectionRetry(() => tenantsOf(registry), { label: "intake-sweep.tenants" });
-  for (const businessId of businessIds) {
+  for (const businessId of rotateTenants(businessIds, now)) {
+    // L1.5-b · PR-5 — never start a business past the budget: the route would be cut off mid-business. The ones left
+    // lead a later run (rotation); their receipts stay due, nothing is lost.
+    if (clock() >= deadline) {
+      report.budget.businessesNotReached += 1;
+      continue;
+    }
     report.businesses += 1;
     // Set once this business reached the health read, which marks new dead letters as reported: a drop at or after it
     // is NOT retried, so a dead letter can never be marked reported by an attempt whose result was lost.
@@ -100,10 +150,7 @@ export async function runIntakeSweep(
           report.revenueSources.failures += r.failures;
           report.revenueSources.calls += r.calls;
         }
-        const drained = await drainIntake(registry, businessId, {
-          now,
-          limit: options.perBusinessLimit ?? 50,
-        });
+        const drained = await drainIntake(registry, businessId, { now, limit });
         report.payloadsPurged += await purgeExpiredFailedPayloads(businessId, now);
         // Leads L1 · G-07 — the business-event health, AFTER this run's own work (counts only).
         healthStarted = true;
@@ -125,6 +172,7 @@ export async function runIntakeSweep(
       for (const key of Object.keys(tally) as IntakeProcessResult[]) {
         report.events[key] += tally[key];
       }
+      if (wantsReleaseRound(tally, limit)) releaseCandidates.push(businessId);
     } catch (error) {
       if (error instanceof BusinessQuarantinedError) {
         report.quarantinedSkipped += 1;
@@ -135,6 +183,37 @@ export async function runIntakeSweep(
         error: error instanceof Error ? error.name : "unknown",
       });
     }
+  }
+
+  // L1.5-b · PR-5 — release rounds: the time left after every business had its turn goes to businesses whose drain
+  // was full and moved work forward (a resumed backlog, a burst), one round each in turn — fair across businesses,
+  // at most MAX_RELEASE_ROUNDS each, never past the budget. Drain only: no store polling, no health read (both were
+  // done above); the same `now`, so a receipt finished or deferred above is not listed again.
+  let round = 0;
+  let pending = releaseCandidates;
+  while (pending.length > 0 && round < MAX_RELEASE_ROUNDS && clock() + RELEASE_ROUND_MIN_MS <= deadline) {
+    round += 1;
+    const again: number[] = [];
+    for (const businessId of pending) {
+      if (clock() + RELEASE_ROUND_MIN_MS > deadline) break;
+      try {
+        const tally = await sweepBusiness(businessId, () => true, () =>
+          runTenantJob({ businessId }, () => drainIntake(registry, businessId, { now, limit }))
+        );
+        report.budget.releaseRounds += 1;
+        if (round === 1) report.budget.releaseBusinesses += 1;
+        for (const key of Object.keys(tally) as IntakeProcessResult[]) report.events[key] += tally[key];
+        if (wantsReleaseRound(tally, limit)) again.push(businessId);
+      } catch (error) {
+        if (error instanceof BusinessQuarantinedError) continue;
+        report.businessErrors += 1;
+        console.warn("[intake-sweep] business failed", {
+          error: error instanceof Error ? error.name : "unknown",
+          phase: "release",
+        });
+      }
+    }
+    pending = again;
   }
   return report;
 }
