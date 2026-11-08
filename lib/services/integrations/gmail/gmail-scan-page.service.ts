@@ -73,10 +73,13 @@ const defaultDeps: GmailScanDeps = {
 /** The list call itself failed: nothing on this page was read. */
 export class GmailScanListError extends Error {
   readonly kind: "unauthorized" | "throttled" | "failed";
-  constructor(kind: "unauthorized" | "throttled" | "failed") {
+  /** List calls attempted before giving up (for settling the quota budget). */
+  readonly listCalls: number;
+  constructor(kind: "unauthorized" | "throttled" | "failed", listCalls = 1) {
     super(`Gmail scan list failed: ${kind}`);
     this.name = "GmailScanListError";
     this.kind = kind;
+    this.listCalls = listCalls;
   }
 }
 
@@ -91,6 +94,9 @@ export type GmailScanPageResult = {
   skippedMessages: number;
   retries: number;
   throttled: boolean;
+  /** Gmail calls attempted (retries included) — what the quota budget is settled on. */
+  listCalls: number;
+  getCalls: number;
   /** Gmail's token for the page after this one; null when Gmail has no more. */
   nextPageToken: string | null;
   attachments: GmailAttachmentMetadata[];
@@ -193,11 +199,14 @@ export async function scanGmailPage(
   deps: GmailScanDeps = defaultDeps
 ): Promise<GmailScanPageResult> {
   const startedAt = deps.now();
-  const state = { retries: 0, throttled: false };
+  const state = { retries: 0, throttled: false, listCalls: 0, getCalls: 0 };
   const pageSize = Math.min(Math.max(Math.floor(params.pageSize), 1), GMAIL_SCAN_PAGE_SIZE);
 
-  async function request(url: string): Promise<RequestOutcome> {
+  async function request(url: string, kind: "list" | "get"): Promise<RequestOutcome> {
     for (let attempt = 0; ; attempt += 1) {
+      // Every attempted call is counted (a failed one may still be metered by Gmail).
+      if (kind === "list") state.listCalls += 1;
+      else state.getCalls += 1;
       let res: Response;
       try {
         res = await deps.fetch(url, {
@@ -235,9 +244,9 @@ export async function scanGmailPage(
   listUrl.searchParams.set("maxResults", String(pageSize));
   if (params.pageToken) listUrl.searchParams.set("pageToken", params.pageToken);
 
-  const list = await request(listUrl.toString());
+  const list = await request(listUrl.toString(), "list");
   if (!list.ok) {
-    throw new GmailScanListError(list.status === 401 ? "unauthorized" : list.throttle ? "throttled" : "failed");
+    throw new GmailScanListError(list.status === 401 ? "unauthorized" : list.throttle ? "throttled" : "failed", state.listCalls);
   }
   const listJson = (list.json ?? {}) as { messages?: unknown; nextPageToken?: unknown };
   const rawMessages = Array.isArray(listJson.messages) ? listJson.messages : [];
@@ -264,7 +273,7 @@ export async function scanGmailPage(
       nextIndex += 1;
       const url = new URL(`${GMAIL_MESSAGES_URL}/${encodeURIComponent(ids[i])}`);
       url.searchParams.set("format", "full");
-      outcomes[i] = await request(url.toString());
+      outcomes[i] = await request(url.toString(), "get");
     }
   }
   await Promise.all(Array.from({ length: Math.min(GMAIL_SCAN_CONCURRENCY, ids.length) }, () => worker()));
@@ -314,6 +323,8 @@ export async function scanGmailPage(
     skippedMessages,
     retries: state.retries,
     throttled: state.throttled,
+    listCalls: state.listCalls,
+    getCalls: state.getCalls,
     nextPageToken,
     attachments,
     attachmentParts,

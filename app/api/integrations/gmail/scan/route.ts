@@ -21,6 +21,11 @@ import {
   planAfterPage,
   scanGmailPage,
 } from "@/lib/services/integrations/gmail/gmail-scan-page.service";
+import {
+  gmailUnitsSpent,
+  reserveGmailScanBudget,
+  settleGmailScanBudget,
+} from "@/lib/services/integrations/gmail/gmail-quota-budget";
 import { parseGmailScanWindow } from "@/lib/services/email-import/scan-window";
 import { parseRejectedTypeCounts } from "@/lib/services/email-import/rejected-types";
 
@@ -45,6 +50,20 @@ const RESTART = "תוצאות הסריקה הקודמות אינן תקפות ע
 const STOPPED =
   "לא ניתן היה לקרוא חלק מההודעות בעמוד זה גם אחרי כמה ניסיונות. הסריקה נעצרה ולא הושלמה — ייתכנו מסמכים נוספים שלא נסרקו.";
 
+const UNAVAILABLE =
+  "סריקת Gmail המורחבת אינה זמינה זמנית. נסה שוב בעוד כמה דקות. ייבוא מסמכים שכבר נמצאו ממשיך לעבוד כרגיל.";
+const BUDGET_EXHAUSTED =
+  "הגענו למכסת הסריקה הזמנית מול Gmail. נסה להמשיך בעוד כדקה. ייבוא מסמכים שכבר נמצאו ממשיך לעבוד כרגיל.";
+
+/** The limiter or the quota store is unreachable: fail closed, B3 scan only. */
+function scanUnavailable(reason: "limiter_unavailable" | "budget_unavailable", retryCursor: string | null = null) {
+  console.warn("GMAIL_SCAN_UNAVAILABLE:", reason);
+  return NextResponse.json(
+    { success: false, status: "unavailable", error: UNAVAILABLE, code: "scan_unavailable", retryCursor },
+    { status: 503, headers: { "Retry-After": "60" } }
+  );
+}
+
 function cursorRefused(reason: string) {
   console.warn("GMAIL_SCAN_CURSOR_REFUSED:", reason);
   return NextResponse.json({ error: RESTART, code: "scan_cursor_invalid", reason }, { status: 400 });
@@ -58,8 +77,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: t("api.common.unauthenticated") }, { status: 401 });
     }
 
+    // Fail-closed bucket: with the limiter down, no extended scan page starts.
     const decision = await checkRateLimit({ bucket: "GMAIL_SCAN", user: user.id, business: user.businessId });
-    if (!decision.allowed) return buildRateLimitResponse(decision);
+    if (!decision.allowed) {
+      if (decision.outcome === "backend_unavailable") return scanUnavailable("limiter_unavailable");
+      return buildRateLimitResponse(decision);
+    }
 
     const window = parseGmailScanWindow(req.nextUrl.searchParams.get("window"));
     if (window === "invalid") {
@@ -124,16 +147,40 @@ export async function GET(req: NextRequest) {
         attempt: nextAttempt,
       });
 
+    // Gmail quota units: reserve the page's WORST case against the mailbox,
+    // business and global budgets before any Gmail call (gmail-quota-budget.ts).
+    // A refused or unavailable budget is not an attempt at the page: the same
+    // cursor facts come back, so nothing is skipped and nothing is counted.
+    const pageSize = Math.min(GMAIL_SCAN_PAGE_SIZE, GMAIL_SCAN_SESSION_CAP - scannedBefore);
+    const budget = await reserveGmailScanBudget({ connectionId: access.connectionId, businessId: user.businessId }, pageSize);
+    if (!budget.ok) {
+      const sameCursor = cursorFor(pageToken, scannedBefore, attempt);
+      if (budget.reason === "unavailable") return scanUnavailable("budget_unavailable", sameCursor);
+      console.warn("GMAIL_SCAN_BUDGET_EXHAUSTED:", budget.scope);
+      return NextResponse.json(
+        {
+          success: false,
+          status: "budget_exhausted",
+          error: BUDGET_EXHAUSTED,
+          code: "scan_budget_exhausted",
+          scope: budget.scope,
+          retryCursor: sameCursor,
+        },
+        { status: 429, headers: { "Retry-After": "60" } }
+      );
+    }
+
     let page;
     try {
       page = await scanGmailPage({
         accessToken: access.accessToken,
         window,
         pageToken,
-        pageSize: Math.min(GMAIL_SCAN_PAGE_SIZE, GMAIL_SCAN_SESSION_CAP - scannedBefore),
+        pageSize,
       });
     } catch (error) {
       if (!(error instanceof GmailScanListError)) throw error;
+      await settleGmailScanBudget(budget, gmailUnitsSpent({ listCalls: error.listCalls, getCalls: 0 }));
       console.warn("GMAIL_SCAN_LIST_FAILED:", error.kind);
       if (error.kind === "unauthorized") {
         return NextResponse.json({ error: t("api.gmail.reconnectRequired"), needsReconnect: true }, { status: 409 });
@@ -160,6 +207,10 @@ export async function GET(req: NextRequest) {
         { status: error.kind === "throttled" ? 503 : 502 }
       );
     }
+
+    // Give back what the page did not spend (never more than was reserved).
+    const unitsSpent = gmailUnitsSpent(page);
+    await settleGmailScanBudget(budget, unitsSpent);
 
     // An incomplete page never advances, and is retried a bounded number of times (planAfterPage).
     const plan = planAfterPage({
@@ -188,6 +239,8 @@ export async function GET(req: NextRequest) {
         skipped: page.skippedMessages,
         retries: page.retries,
         throttled: page.throttled,
+        unitsReserved: budget.reserved,
+        unitsSpent,
         attachmentParts: page.attachmentParts,
         unsupportedType: page.unsupportedType,
         found: page.attachments.length,

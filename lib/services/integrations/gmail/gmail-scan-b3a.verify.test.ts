@@ -66,10 +66,26 @@ import {
   type GmailScanDeps,
 } from "@/lib/services/integrations/gmail/gmail-scan-page.service";
 import { fetchGmailAttachmentDescriptor } from "@/lib/services/integrations/gmail/gmail-attachment-metadata.service";
+import {
+  GMAIL_SCAN_BUDGETS,
+  GMAIL_UNITS_GET_FULL,
+  GMAIL_UNITS_LIST,
+  REFUND_LUA,
+  RESERVE_LUA,
+  budgetLines,
+  configureGmailBudgetStoreForTests,
+  gmailPageWorstCaseUnits,
+  gmailUnitsSpent,
+  memoryBudgetStore,
+  redisBudgetStore,
+  reserveGmailScanBudget,
+  settleGmailScanBudget,
+  type EvalClient,
+  type GmailBudgetStore,
+} from "@/lib/services/integrations/gmail/gmail-quota-budget";
 import { BUCKETS } from "@/lib/security/rate-limiter/buckets";
 import { checkRateLimit, configureRateLimiterForTests } from "@/lib/security/rate-limiter";
 import { resetMemoryBackendForTests } from "@/lib/security/rate-limiter/memory-backend";
-import { resetLocalFallbackForTests } from "@/lib/security/rate-limiter/local-fallback";
 import { RateLimiterBackendError } from "@/lib/security/rate-limiter/errors";
 import type { RateLimitBackend } from "@/lib/security/rate-limiter/types";
 
@@ -658,28 +674,32 @@ async function main() {
     assert.equal(pageSrc.includes("/api/integrations/gmail/scan"), false);
   });
 
-  // ================================================================ E. rate limit
-  await check("E1 GMAIL_SCAN: per user and business only, fail-local, 20/min per user", async () => {
+  // ================================================================ E. rate limit (page ceilings)
+  await check("E1 GMAIL_SCAN: fail-closed; 3/min + 60/h per user, 6/min + 120/h per business", async () => {
     const b = BUCKETS.GMAIL_SCAN;
-    assert.equal(b.failMode, "local");
-    assert.deepEqual([...new Set(b.rules.map((r) => r.scope))].sort(), ["business", "user"]);
+    assert.equal(b.failMode, "closed");
+    assert.deepEqual(b.rules, [
+      { scope: "user", limit: 3, windowSeconds: 60 },
+      { scope: "user", limit: 60, windowSeconds: 3600 },
+      { scope: "business", limit: 6, windowSeconds: 60 },
+      { scope: "business", limit: 120, windowSeconds: 3600 },
+    ]);
     resetMemoryBackendForTests();
-    for (let i = 0; i < 20; i += 1) assert.equal((await checkRateLimit({ bucket: "GMAIL_SCAN", user: 1, business: 9 })).allowed, true);
+    for (let i = 0; i < 3; i += 1) assert.equal((await checkRateLimit({ bucket: "GMAIL_SCAN", user: 1, business: 9 })).allowed, true);
     const denied = await checkRateLimit({ bucket: "GMAIL_SCAN", user: 1, business: 9 });
     assert.equal(denied.allowed, false);
     assert.equal(denied.scope, "user");
   });
 
-  await check("E2 one business at its limit does not touch another business", async () => {
+  await check("E2 a business cannot get past its ceiling with more users; other businesses unaffected", async () => {
     resetMemoryBackendForTests();
-    let tripped = false;
-    for (let u = 0; u < 100 && !tripped; u += 1) {
-      const d = await checkRateLimit({ bucket: "GMAIL_SCAN", user: 100 + u, business: 9 });
-      if (!d.allowed) tripped = d.scope === "business";
+    for (let u = 0; u < 6; u += 1) {
+      assert.equal((await checkRateLimit({ bucket: "GMAIL_SCAN", user: 100 + u, business: 9 })).allowed, true, `user ${u}`);
     }
-    assert.ok(tripped, "business 9 reached its own limit");
-    const other = await checkRateLimit({ bucket: "GMAIL_SCAN", user: 1, business: 38 });
-    assert.equal(other.allowed, true);
+    const seventh = await checkRateLimit({ bucket: "GMAIL_SCAN", user: 999, business: 9 });
+    assert.equal(seventh.allowed, false, "a fresh user of the same business is still refused");
+    assert.equal(seventh.scope, "business");
+    assert.equal((await checkRateLimit({ bucket: "GMAIL_SCAN", user: 1, business: 38 })).allowed, true);
   });
 
   const downBackend: RateLimitBackend = {
@@ -690,41 +710,277 @@ async function main() {
     async lockAttempts() { throw new RateLimiterBackendError("simulated outage"); },
   };
 
-  await check("E3 Redis down: GMAIL_SCAN keeps its limits locally (never unlimited, never blocked outright)", async () => {
+  await check("E3 limiter down: the extended scan is refused (no local count); other buckets keep their posture", async () => {
     const errors = console.error;
     console.error = () => {};
     try {
       configureRateLimiterForTests({ backend: downBackend });
-      resetLocalFallbackForTests();
-      const first = await checkRateLimit({ bucket: "GMAIL_SCAN", user: 7, business: 77 });
-      assert.equal(first.allowed, true, "not blocked by the outage");
-      assert.equal(first.degraded, true);
-      for (let i = 1; i < 20; i += 1) await checkRateLimit({ bucket: "GMAIL_SCAN", user: 7, business: 77 });
-      const over = await checkRateLimit({ bucket: "GMAIL_SCAN", user: 7, business: 77 });
-      assert.equal(over.allowed, false, "the 21st is still refused");
-      assert.equal(over.outcome, "rate_limited");
-      // Other buckets keep their own posture during the same outage.
+      const d = await checkRateLimit({ bucket: "GMAIL_SCAN", user: 7, business: 77 });
+      assert.equal(d.allowed, false);
+      assert.equal(d.outcome, "backend_unavailable");
       assert.equal((await checkRateLimit({ bucket: "DOCUMENTS_API", user: 7, business: 77 })).allowed, true, "open stays open");
-      const closed = await checkRateLimit({ bucket: "UPLOAD_ACCEPT", user: 7, business: 77 });
-      assert.equal(closed.allowed, false);
-      assert.equal(closed.outcome, "backend_unavailable", "closed stays closed");
+      assert.equal((await checkRateLimit({ bucket: "UPLOAD_ACCEPT", user: 7, business: 77 })).outcome, "backend_unavailable");
     } finally {
       configureRateLimiterForTests({ backend: null });
       console.error = errors;
     }
+    // The route turns that into the clear Hebrew "temporarily unavailable" answer, B3 only.
+    const route = read("app/api/integrations/gmail/scan/route.ts");
+    assert.match(route, /if \(decision\.outcome === "backend_unavailable"\) return scanUnavailable\("limiter_unavailable"\);/);
+    assert.ok(route.includes("סריקת Gmail המורחבת אינה זמינה זמנית"));
   });
 
-  await check("E4 every existing bucket keeps its fail mode; only GMAIL_SCAN is local", () => {
+  await check("E4 every existing bucket keeps its fail mode; no local fallback mode exists", () => {
     const expected: Record<string, string> = {
       UPLOAD_ACCEPT: "closed", DOCUMENT_PROCESSING: "closed", ACQUISITION_INTAKE: "open", ACQUISITION_WEB_PUBLIC: "open",
       ACCOUNTANT_LINK_PUBLIC: "closed", ACCOUNTANT_LINK_FILE: "closed", ACCOUNTANT_LINK_CODE: "closed",
       ACCOUNTANT_LINK_VERIFY: "closed", ACCOUNTANT_SEND: "closed", PUBLIC_BOOKING_SUBMIT: "closed",
       PUBLIC_BOOKING_SUBMIT_BUSINESS: "closed", PUBLIC_BOOKING_READ: "closed", PUBLIC_BOOKING_MANAGE: "closed",
-      GMAIL_SCAN: "local", DOCUMENTS_API: "open", WHATSAPP_INTAKE: "open", CRM_ATTACHMENT_UPLOAD: "closed",
+      GMAIL_SCAN: "closed", DOCUMENTS_API: "open", WHATSAPP_INTAKE: "open", CRM_ATTACHMENT_UPLOAD: "closed",
       DATA_TRANSFER_IMPORT_EXECUTE: "closed", DATA_TRANSFER_DOCUMENTS_IMPORT: "closed", LANDING_COMPOSE: "closed",
     };
     const actual = Object.fromEntries(Object.entries(BUCKETS).map(([k, v]) => [k, v.failMode]));
     assert.deepEqual(actual, expected);
+    assert.equal(read("lib/security/rate-limiter/types.ts").includes('"local"'), false);
+    assert.equal(/failMode === "local"|localFallback\.evaluate\(prefixForRule/.test(read("lib/security/rate-limiter/index.ts")), false);
+  });
+
+  // ================================================================ G. Gmail quota-unit budget
+  await check("G1 a page can never spend more than the units reserved for it (retries, failures, throttling)", async () => {
+    assert.equal(GMAIL_UNITS_LIST, 5);
+    assert.equal(GMAIL_UNITS_GET_FULL, 60);
+    assert.equal(gmailPageWorstCaseUnits(25), 5 + 29 * 60);
+    let scenarios = 0;
+    const behaviours: Array<(id: string, n: number) => { status: number; retryAfter?: string } | "throw"> = [
+      () => ({ status: 200 }),
+      () => ({ status: 429, retryAfter: "0" }),
+      () => ({ status: 503, retryAfter: "1" }),
+      () => ({ status: 500 }),
+      () => "throw",
+      (id, n) => (n === 0 ? { status: 429, retryAfter: "0" } : { status: 200 }),
+      (id) => (id.endsWith("3") ? { status: 503, retryAfter: "0" } : { status: 200 }),
+      (id) => (id.endsWith("1") ? { status: 404 } : { status: 429, retryAfter: "0" }),
+    ];
+    for (const message of behaviours) {
+      for (const listStatus of [[200], [429, 200], [503, 200]]) {
+        for (const size of [1, 7, 25]) {
+          const g = fakeGmail({ ids: ids(size), message, listStatus: [...listStatus] });
+          const r = await page(g.deps, { pageSize: size });
+          const spent = gmailUnitsSpent(r);
+          const billed = g.calls.reduce((s, c) => s + (c.url.pathname.endsWith("/messages") ? 5 : 60), 0);
+          assert.equal(spent, billed, "every call Gmail saw is counted");
+          assert.ok(spent <= gmailPageWorstCaseUnits(size), `spent ${spent} > reserved ${gmailPageWorstCaseUnits(size)}`);
+          scenarios += 1;
+        }
+      }
+    }
+    // A failed list carries its own call count for settling.
+    const lf = fakeGmail({ ids: ids(3), listStatus: [429, 429] });
+    await assert.rejects(page(lf.deps), (e: unknown) => e instanceof GmailScanListError && e.listCalls === 2);
+    assert.ok(scenarios >= 72);
+  });
+
+  const NOW = Date.UTC(2026, 10, 9, 12, 0, 30); // 30s into a minute
+  await check("G2 mailbox budget: two worst-case pages a minute per Gmail account; refunds give unused room back", async () => {
+    configureGmailBudgetStoreForTests(memoryBudgetStore());
+    try {
+      const ids1 = { connectionId: 1, businessId: 9 };
+      const a = await reserveGmailScanBudget(ids1, 25, NOW);
+      const b = await reserveGmailScanBudget(ids1, 25, NOW);
+      assert.ok(a.ok && b.ok);
+      const c = await reserveGmailScanBudget(ids1, 25, NOW);
+      assert.deepEqual(c, { ok: false, reason: "exhausted", scope: "mailbox" });
+      // Another mailbox of the same business still has its own room.
+      assert.equal((await reserveGmailScanBudget({ connectionId: 2, businessId: 9 }, 25, NOW)).ok, true);
+      // Page A really spent a typical 1 list + 25 reads: the rest comes back.
+      if (a.ok) assert.equal(await settleGmailScanBudget(a, 5 + 25 * 60), 4 * 60);
+      // 3,250 used: no third worst case, not even a 1-message page (its retry budget makes it 305).
+      assert.equal((await reserveGmailScanBudget(ids1, 25, NOW)).ok, false);
+      assert.equal((await reserveGmailScanBudget(ids1, 1, NOW)).ok, false);
+      // Page B settles too (3,010 used, 490 free): now a 1-message page fits — a refund is real room.
+      if (b.ok) assert.equal(await settleGmailScanBudget(b, 5 + 25 * 60), 4 * 60);
+      assert.equal((await reserveGmailScanBudget(ids1, 1, NOW)).ok, true);
+    } finally {
+      configureGmailBudgetStoreForTests(null);
+    }
+  });
+
+  await check("G3 business budget: more mailboxes or users cannot get one business past 7,000 units a minute", async () => {
+    configureGmailBudgetStoreForTests(memoryBudgetStore());
+    try {
+      const results: string[] = [];
+      for (const connectionId of [1, 1, 2, 2, 3, 4, 5]) {
+        const r = await reserveGmailScanBudget({ connectionId, businessId: 9 }, 25, NOW);
+        results.push(r.ok ? "ok" : r.reason === "exhausted" ? r.scope : "unavailable");
+      }
+      assert.deepEqual(results, ["ok", "ok", "ok", "ok", "business", "business", "business"]);
+      // Business 38 is untouched by business 9.
+      assert.equal((await reserveGmailScanBudget({ connectionId: 77, businessId: 38 }, 25, NOW)).ok, true);
+    } finally {
+      configureGmailBudgetStoreForTests(null);
+    }
+  });
+
+  /** A stand-in Redis: one shared map, scripts executed atomically (one JS turn), like Redis EVAL. */
+  function fakeRedis() {
+    const map = new Map<string, number>();
+    const scripts: string[] = [];
+    const client: EvalClient = {
+      async eval(script, keys, args) {
+        scripts.push(script);
+        await new Promise((r) => setTimeout(r, Math.random() * 2)); // network jitter BEFORE the atomic step
+        if (script === RESERVE_LUA) {
+          const amount = Number(args[0]);
+          const n = keys.length / 2;
+          for (let i = 0; i < n; i += 1) {
+            const cur = map.get(keys[2 * i]) ?? 0;
+            const prev = map.get(keys[2 * i + 1]) ?? 0;
+            if (prev * Number(args[2 + 3 * i]) + cur + amount > Number(args[1 + 3 * i])) return i + 1;
+          }
+          for (let i = 0; i < n; i += 1) map.set(keys[2 * i], (map.get(keys[2 * i]) ?? 0) + amount);
+          return 0;
+        }
+        if (script === REFUND_LUA) {
+          for (const k of keys) map.set(k, (map.get(k) ?? 0) - Math.min(map.get(k) ?? 0, Number(args[0])));
+          return 0;
+        }
+        throw new Error("unknown script");
+      },
+    };
+    return { client, map, scripts };
+  }
+
+  await check("G4 global budget holds across instances under a parallel burst (no overshoot)", async () => {
+    const redis = fakeRedis();
+    const instanceA = redisBudgetStore(() => redis.client);
+    const instanceB = redisBudgetStore(() => redis.client);
+    const per = gmailPageWorstCaseUnits(25);
+    const fits = Math.floor(GMAIL_SCAN_BUDGETS.global_minute.limit / per); // 343
+    // 500 pages at once from 500 different businesses, alternating between two instances.
+    const shared: GmailBudgetStore = {
+      reserve: (lines, amount) => (Math.random() < 0.5 ? instanceA : instanceB).reserve(lines, amount),
+      refund: (keys, amount) => instanceA.refund(keys, amount),
+    };
+    configureGmailBudgetStoreForTests(shared);
+    let granted = 0;
+    let globalRefusals = 0;
+    try {
+      await Promise.all(Array.from({ length: 500 }, async (_, i) => {
+        const r = await reserveGmailScanBudget({ connectionId: 10_000 + i, businessId: 10_000 + i }, 25, NOW);
+        if (r.ok) granted += 1;
+        else if (r.reason === "exhausted" && r.scope === "global_minute") globalRefusals += 1;
+      }));
+    } finally {
+      configureGmailBudgetStoreForTests(null);
+    }
+    assert.equal(granted, fits, "exactly what fits");
+    assert.equal(granted + globalRefusals, 500);
+    const globalKey = [...redis.map.keys()].find((k) => k.includes(":global_minute:all:"));
+    assert.ok(globalKey && (redis.map.get(globalKey) ?? 0) <= GMAIL_SCAN_BUDGETS.global_minute.limit);
+    assert.ok(redis.scripts.every((s) => s === RESERVE_LUA), "one atomic script per reservation");
+  });
+
+  await check("G5 the budget lines and the Lua script: check every line first, charge only if all fit", () => {
+    const lines = budgetLines({ connectionId: 3, businessId: 9 }, NOW);
+    assert.deepEqual(lines.map((l) => [l.name, l.limit]), [
+      ["mailbox", 3_500], ["business_minute", 7_000], ["business_hour", 105_000], ["global_minute", 600_000], ["global_day", 20_000_000],
+    ]);
+    for (const l of lines) {
+      assert.ok(l.curKey.startsWith("gq:{gmail-scan}:"), "one hash tag -> one slot -> one atomic script");
+      assert.ok(l.prevWeight > 0 && l.prevWeight <= 1);
+      assert.notEqual(l.curKey, l.prevKey);
+    }
+    assert.equal(lines[0].prevWeight, 0.5, "30s into the minute: half of the previous minute still counts");
+    const checkAt = RESERVE_LUA.indexOf("return i + 1");
+    const chargeAt = RESERVE_LUA.indexOf("INCRBY");
+    assert.ok(checkAt > 0 && chargeAt > checkAt, "all checks precede any charge");
+    assert.ok(REFUND_LUA.includes("math.min(v, amount)"), "refund never below zero");
+    // Planned under the stricter published table, with headroom.
+    assert.ok(GMAIL_SCAN_BUDGETS.mailbox.limit <= 6_000 * 0.6);
+    assert.ok(GMAIL_SCAN_BUDGETS.global_minute.limit <= 1_200_000 * 0.5);
+    assert.ok(GMAIL_SCAN_BUDGETS.business_minute.limit * 50 < GMAIL_SCAN_BUDGETS.global_minute.limit, "no business near the global budget");
+  });
+
+  await check("G6 sliding window: the end of last minute still counts at the start of this one", async () => {
+    configureGmailBudgetStoreForTests(memoryBudgetStore());
+    try {
+      const endOfMinute = Date.UTC(2026, 10, 9, 12, 0, 59, 900);
+      const ids1 = { connectionId: 5, businessId: 9 };
+      assert.ok((await reserveGmailScanBudget(ids1, 25, endOfMinute)).ok);
+      assert.ok((await reserveGmailScanBudget(ids1, 25, endOfMinute)).ok);
+      // 200ms later, a new fixed window — but the sliding count still sees ~3,490.
+      assert.equal((await reserveGmailScanBudget(ids1, 25, endOfMinute + 200)).ok, false);
+    } finally {
+      configureGmailBudgetStoreForTests(null);
+    }
+  });
+
+  await check("G7 store unreachable or unconfigured -> fail closed (never throws, never scans)", async () => {
+    const broken: GmailBudgetStore = {
+      async reserve() { throw new RateLimiterBackendError("down"); },
+      async refund() { throw new RateLimiterBackendError("down"); },
+    };
+    configureGmailBudgetStoreForTests(broken);
+    try {
+      assert.deepEqual(await reserveGmailScanBudget({ connectionId: 1, businessId: 9 }, 25, NOW), { ok: false, reason: "unavailable" });
+      // A failed refund is harmless (stays conservative) and does not throw.
+      assert.equal(await settleGmailScanBudget({ reserved: 1745, curKeys: ["x"] }, 100), 0);
+    } finally {
+      configureGmailBudgetStoreForTests(null);
+    }
+    // Production-like selection with no Upstash configured: closed, not a silent memory fallback.
+    const saved = { b: process.env.RATE_LIMIT_BACKEND, u: process.env.UPSTASH_REDIS_REST_URL, t: process.env.UPSTASH_REDIS_REST_TOKEN };
+    process.env.RATE_LIMIT_BACKEND = "redis";
+    delete process.env.UPSTASH_REDIS_REST_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    try {
+      assert.deepEqual(await reserveGmailScanBudget({ connectionId: 1, businessId: 9 }, 25, NOW), { ok: false, reason: "unavailable" });
+    } finally {
+      process.env.RATE_LIMIT_BACKEND = saved.b;
+      if (saved.u !== undefined) process.env.UPSTASH_REDIS_REST_URL = saved.u;
+      if (saved.t !== undefined) process.env.UPSTASH_REDIS_REST_TOKEN = saved.t;
+    }
+    // Settling never refunds more than was reserved.
+    configureGmailBudgetStoreForTests(memoryBudgetStore());
+    try {
+      assert.equal(await settleGmailScanBudget({ reserved: 1745, curKeys: ["k"] }, 99_999), 0);
+      assert.equal(await settleGmailScanBudget({ reserved: 1745, curKeys: ["k"] }, -5), 1745);
+    } finally {
+      configureGmailBudgetStoreForTests(null);
+    }
+  });
+
+  await check("G8 route: reserve after the account is known and BEFORE Gmail; settle on every path; a refusal skips nothing", () => {
+    const route = read("app/api/integrations/gmail/scan/route.ts");
+    const at = (s: string) => {
+      const i = route.indexOf(s);
+      assert.ok(i >= 0, s);
+      return i;
+    };
+    assert.ok(at("loadGmailAccess({") < at("reserveGmailScanBudget(") && at("reserveGmailScanBudget(") < at("scanGmailPage({"));
+    assert.ok(route.includes("await settleGmailScanBudget(budget, gmailUnitsSpent({ listCalls: error.listCalls, getCalls: 0 }));"));
+    assert.match(route, /const unitsSpent = gmailUnitsSpent\(page\);\n\s+await settleGmailScanBudget\(budget, unitsSpent\);/);
+    // Budget refused / unavailable: the SAME page, same count, same attempt (not an attempt).
+    assert.ok(route.includes("const sameCursor = cursorFor(pageToken, scannedBefore, attempt);"));
+    assert.ok(route.includes('if (budget.reason === "unavailable") return scanUnavailable("budget_unavailable", sameCursor);'));
+    assert.match(route, /status: "budget_exhausted",[\s\S]{0,200}retryCursor: sameCursor,/);
+    assert.ok(route.includes("הגענו למכסת הסריקה הזמנית מול Gmail"));
+    assert.ok(route.includes("ייבוא מסמכים שכבר נמצאו ממשיך לעבוד כרגיל"));
+  });
+
+  await check("G9 import, /sync and connect never touch the scan budget or the GMAIL_SCAN bucket", () => {
+    for (const p of [
+      "app/api/integrations/gmail/import/route.ts",
+      "app/api/integrations/gmail/sync/route.ts",
+      "app/api/integrations/gmail/connect/route.ts",
+      "app/api/integrations/gmail/callback/route.ts",
+      "lib/services/integrations/gmail/gmail-discovery.service.ts",
+      "lib/services/integrations/gmail/gmail-attachment-metadata.service.ts",
+      "lib/services/integrations/gmail/gmail-attachment-fetch.service.ts",
+    ]) {
+      const src = read(p);
+      assert.equal(/gmail-quota-budget|GMAIL_SCAN\b|checkRateLimit/.test(src), false, p);
+    }
   });
 
   // ================================================================ F. old paths + route
@@ -782,7 +1038,7 @@ async function main() {
   await check("F4 logs: numbers and fixed codes only", () => {
     const route = read("app/api/integrations/gmail/scan/route.ts");
     const calls = route.match(/console\.(info|warn|error|log)\([\s\S]*?\);/g) ?? [];
-    assert.equal(calls.length, 5);
+    assert.equal(calls.length, 7);
     const info = calls.find((c) => c.includes("GMAIL_SCAN_PAGE:"));
     assert.ok(info);
     const keys = [...info!.matchAll(/^\s+(\w+)(?::|,)/gm)].map((m) => m[1]);
@@ -790,7 +1046,7 @@ async function main() {
       assert.equal(/email|from|subject|file|name|token|cursor|id$/i.test(k), false, `log key ${k}`);
     }
     for (const c of calls.filter((c) => c !== info)) {
-      assert.match(c, /console\.\w+\("GMAIL_SCAN_[A-Z_]+:", (reason|error\.kind|error\.reason|error instanceof Error \? error\.name : "unknown")\);/, c);
+      assert.match(c, /console\.\w+\("GMAIL_SCAN_[A-Z_]+:", (reason|budget\.scope|error\.kind|error\.reason|error instanceof Error \? error\.name : "unknown")\);/, c);
     }
     const engine = read("lib/services/integrations/gmail/gmail-scan-page.service.ts");
     assert.equal(/console\./.test(engine), false, "the engine logs nothing (no body, no id)");

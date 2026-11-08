@@ -19,7 +19,6 @@ import type {
   RateLimitBackend,
   RateLimitDecision,
   RateLimitScope,
-  RuleResult,
   WindowRule,
 } from "./types";
 
@@ -98,7 +97,7 @@ export async function checkRateLimit(
       continue;
     }
 
-    let result: RuleResult;
+    let result;
     try {
       result = await backend.evaluate(
         prefixForRule(bucket, rule),
@@ -127,25 +126,15 @@ export async function checkRateLimit(
             degraded: true,
           };
         }
-        if (config.failMode === "local") {
-          // The same rule on this instance's ledger: bounded, never unlimited.
-          console.error(
-            `[rate-limit] backend_unavailable bucket=${bucket} scope=${rule.scope} failMode=local -> local ledger`,
-            error.message
-          );
-          result = localFallback.evaluate(prefixForRule(bucket, rule), identifier, rule.limit, rule.windowSeconds);
-        } else {
-          // failMode === "open": log and allow this rule through (degraded).
-          console.error(
-            `[rate-limit] backend_unavailable bucket=${bucket} scope=${rule.scope} failMode=open -> allow (degraded)`,
-            error.message
-          );
-          continue;
-        }
-      } else {
-        // Config errors and anything unexpected propagate (fail hard).
-        throw error;
+        // failMode === "open": log and allow this rule through (degraded).
+        console.error(
+          `[rate-limit] backend_unavailable bucket=${bucket} scope=${rule.scope} failMode=open -> allow (degraded)`,
+          error.message
+        );
+        continue;
       }
+      // Config errors and anything unexpected propagate (fail hard).
+      throw error;
     }
 
     if (!result.success) {

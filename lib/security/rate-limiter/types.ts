@@ -16,13 +16,8 @@ export type WindowRule = {
  * network / timeout). It does NOT affect normal over-limit decisions.
  * - "closed": deny the request (controlled 503). Used for writes (upload/processing).
  * - "open": allow the request but mark it degraded + log. Used for reads.
- * - "local": keep enforcing the SAME rules on this instance's memory
- *   (./local-fallback) while the backend is down — never unlimited, never
- *   stricter than normal; bounded at N× the limit over N warm instances. Used
- *   where blocking would break a feature but allowing everything would put
- *   unbounded load on a third party (GMAIL_SCAN).
  */
-export type FailMode = "closed" | "open" | "local";
+export type FailMode = "closed" | "open";
 
 export type BucketName =
   | "UPLOAD_ACCEPT"
