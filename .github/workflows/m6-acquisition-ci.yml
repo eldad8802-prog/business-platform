@@ -210,6 +210,12 @@ jobs:
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m6/intake-notifications-battery.ts
 
+      - name: 4h. L1.5-b edge — database outage → all seven intake sources answer 503 (never a silent 2xx); 503 then retry → recorded once
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+        run: npx tsx .m6/edge-battery.ts
+
       - name: 5. Website LIVE-PROOF rehearsal — the Production evidence, proven on the real path (clean database)
         env:
           LIVE_OWNER: postgresql://m6_owner:m6_ci_synthetic_owner_pw@localhost:5432/dubiz_live
