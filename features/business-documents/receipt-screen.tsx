@@ -15,6 +15,7 @@ import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
 import {
   BillingRequestError,
+  DocsApiError,
   createReceiptDraftRequest,
   fetchBillingPdf,
   getBillingDocument,
@@ -247,8 +248,14 @@ export function ReceiptScreen() {
       a.download = `receipt-${issued.documentNumberFormatted ?? issued.id}.pdf`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    } catch {
-      setMessage("לא הצלחנו להוריד את הקובץ. אפשר לפתוח את הקבלה במסך החשבוניות.");
+    } catch (e) {
+      // The existing billing PDF path refuses a receipt without goods lines (400) — a known limitation of the existing
+      // mechanism, not of this screen. The receipt itself is issued and kept.
+      setMessage(
+        e instanceof DocsApiError && e.status === 400
+          ? "לא הצלחנו להוריד את הקובץ: מנגנון החשבוניות הקיים לא מפיק כרגע PDF לקבלה כזו. הקבלה עצמה הופקה ונשמרה."
+          : "לא הצלחנו להוריד את הקובץ. נסו שוב."
+      );
     }
   };
 
