@@ -117,6 +117,7 @@ jobs:
             # triggers on ServiceCase / ServiceHandover, its shared guard functions) — named one by one, never a pattern.
             [[ "$n" != "20261113090000_service_external_work" ]] || continue
             [[ "$n" != "20261115090000_service_parts" ]] || continue
+            [[ "$n" != "20261120090000_service_desk_ui_foundation" ]] || continue
             if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"Service(CaseNumberSequence|Device|Case|CaseIntake|Quote|CaseEvent|Handover)"|service_(erase_business|case_guard|case_opening_guard|quote_guard|event_|handover_guard|intake_guard|device_guard|user_same_business|journal_truncate)'; then
               echo "$n names a service desk object"; exit 1
             fi
