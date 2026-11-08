@@ -17,9 +17,10 @@
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { INTAKE_MAX_ATTEMPTS } from "@/lib/intake/intake-event.store";
 import { deriveEventIdentity, type EventIdentityInput } from "./event-identity";
+import { isExpiredCode } from "./expired";
 
 /** One word for "where is this event", derived from the lifecycle columns. */
-export type IntakeState = "received" | "processing" | "retrying" | "dead_letter" | "processed" | "ignored";
+export type IntakeState = "received" | "processing" | "retrying" | "dead_letter" | "expired" | "processed" | "ignored";
 
 export type IntakeTrace = {
   receiptId: number;
@@ -64,7 +65,7 @@ export type IntakeTrace = {
 };
 
 export function deriveIntakeState(
-  e: { status: string; nextAttemptAt: Date | null; lastAttemptAt: Date | null },
+  e: { status: string; nextAttemptAt: Date | null; lastAttemptAt: Date | null; lastErrorCode?: string | null },
   now: Date
 ): IntakeState {
   switch (e.status) {
@@ -73,7 +74,9 @@ export function deriveIntakeState(
     case "IGNORED":
       return "ignored";
     case "FAILED":
-      return e.nextAttemptAt === null ? "dead_letter" : "retrying";
+      // L1.5-b · A1 — an expired receipt is archived, not a dead letter.
+      if (e.nextAttemptAt === null) return isExpiredCode(e.lastErrorCode) ? "expired" : "dead_letter";
+      return "retrying";
     default: {
       // RECEIVED / PERSISTED: a live lease means a worker holds it now.
       const leased = e.lastAttemptAt !== null && e.nextAttemptAt !== null && e.nextAttemptAt > now;

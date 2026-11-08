@@ -65,9 +65,10 @@ import { preResolveIdentity } from "@/lib/intake/identity/pre-resolve";
 import { decideRoute } from "@/lib/intake/routing/rules";
 import { CORE_DESTINATION_HANDLERS } from "@/lib/intake/routing/core-destinations";
 import { logIntake } from "./observability";
+import { isExpiredCode } from "./expired";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 
-type SettledOutcome = "processed" | "ignored" | "dead_letter";
+type SettledOutcome = "processed" | "ignored" | "dead_letter" | "expired";
 
 /**
  * The learning signal for a terminal outcome: facts about the RECEIPT only
@@ -101,7 +102,8 @@ async function emitSettled(
   });
 }
 
-export type IntakeProcessResult = "not_claimed" | "processed" | "ignored" | "deferred" | "failed";
+/** `expired` (L1.5-b · A1) — a held receipt settled at its expiry: archived, never a failure. */
+export type IntakeProcessResult = "not_claimed" | "processed" | "ignored" | "deferred" | "failed" | "expired";
 
 // ─── accept (the durability boundary) ──────────────────────────────────────
 
@@ -358,6 +360,13 @@ export async function processIntakeEvent(
   } catch (error) {
     if (error instanceof IntakeTerminalError) {
       await markDeadLetter(businessId, event.id, error.code);
+      // L1.5-b · A1 — an expiry settles the receipt (same terminal columns, payload kept) but is NOT a failure: it is
+      // logged, sensed and tallied as "expired", so it never turns the sweep red as a failed receipt.
+      if (isExpiredCode(error.code)) {
+        logIntake("expired", { ...base, code: error.code });
+        await emitSettled(event, "expired", null, now);
+        return "expired";
+      }
       logIntake("dead_letter", { ...base, code: error.code });
       await emitSettled(event, "dead_letter", null, now);
       return "failed";
@@ -372,7 +381,7 @@ export async function processIntakeEvent(
 // ─── drain ─────────────────────────────────────────────────────────────────
 
 export function emptyTally(): Record<IntakeProcessResult, number> {
-  return { not_claimed: 0, processed: 0, ignored: 0, deferred: 0, failed: 0 };
+  return { not_claimed: 0, processed: 0, ignored: 0, deferred: 0, failed: 0, expired: 0 };
 }
 
 /**
