@@ -54,7 +54,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
-    <!-- DIAG ONLY: Android 11+ package visibility for Capacitor resolveActivity(IMAGE_CAPTURE). -->
+    <!--
+      Package visibility (Android 11+): without this, Capacitor's file chooser
+      cannot resolve the camera app (resolveActivity(IMAGE_CAPTURE) == null)
+      and "צילום מסמך" falls back to the photo picker. Visibility only — no new
+      permission. Proven on API 34/36 emulators (runs 42529183894, 42530068048).
+    -->
     <queries>
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
