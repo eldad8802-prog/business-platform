@@ -15,7 +15,7 @@ export default function CorporatePrivacyPage() {
         <h1 className="text-3xl font-extrabold leading-tight text-[var(--mkt-ink)] sm:text-4xl">
           מדיניות פרטיות
         </h1>
-        <p className="mt-3 text-sm text-[var(--dz-text-muted)]">עודכן לאחרונה: 6 בספטמבר 2026</p>
+        <p className="mt-3 text-sm text-[var(--dz-text-muted)]">עודכן לאחרונה: 8 בנובמבר 2026</p>
       </header>
 
       <div className="mt-10 max-w-3xl space-y-9 text-sm leading-7 text-[var(--dz-text-muted)] sm:text-base">
@@ -194,6 +194,13 @@ export default function CorporatePrivacyPage() {
           <ul className="mt-3 list-disc space-y-2 pe-5">
             <li>
               <span className="font-semibold text-[var(--mkt-ink)]">
+                התחברות עם Google
+              </span>{" "}
+              — כאשר אתה בוחר להירשם או להתחבר באמצעות חשבון Google. פירוט בסעיף
+              הייעודי להלן.
+            </li>
+            <li>
+              <span className="font-semibold text-[var(--mkt-ink)]">
                 Gmail ו-Google
               </span>{" "}
               — כאשר אתה מחבר את תיבת הדואר שלך לייבוא מסמכים. פירוט מלא בסעיף
@@ -271,6 +278,70 @@ export default function CorporatePrivacyPage() {
             איננו מתחייבים כי מידע כזה עובר סינון או הסרה אוטומטית של פרטים מזהים
             לפני ההעברה, ואיננו קובעים בשם ספק חיצוני מהי מדיניות השמירה או האימון
             שלו. אם וכאשר תכונה כזו תופעל עבורך, נעדכן מדיניות זו בהתאם.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">
+            הרשמה והתחברות באמצעות Google
+          </h2>
+          <p className="mt-3">
+            ניתן להירשם לשירות ולהתחבר אליו באמצעות חשבון Google, במקום אימייל
+            וסיסמה. האפשרות וולונטרית, ואפשר להמשיך להשתמש באימייל וסיסמה.
+          </p>
+
+          <h3 className="mt-6 text-base font-semibold text-[var(--mkt-ink)]">
+            איזה מידע אנו מקבלים מ-Google
+          </h3>
+          <p className="mt-3">
+            אנו מבקשים מ-Google את ההרשאות הבסיסיות לזיהוי בלבד (openid, email,
+            profile), ומקבלים:
+          </p>
+          <ul className="mt-3 list-disc space-y-2 pe-5">
+            <li>מזהה החשבון הקבוע ש-Google מקצה לחשבונך;</li>
+            <li>כתובת האימייל של החשבון, ואישור של Google שהכתובת מאומתת;</li>
+            <li>השם שבחשבון, לצורך מילוי מוקדם של טופס ההרשמה בלבד.</li>
+          </ul>
+          <p className="mt-3">
+            איננו מקבלים את סיסמת חשבון Google שלך, איננו מקבלים אסימוני גישה
+            לשירותי Google אחרים, ואין לנו גישה ל-Gmail, ל-Drive, ליומן או לאנשי
+            הקשר שלך במסגרת ההתחברות. חיבור Gmail לייבוא מסמכים הוא פעולה נפרדת,
+            המתוארת בסעיף הבא.
+          </p>
+
+          <h3 className="mt-6 text-base font-semibold text-[var(--mkt-ink)]">
+            כיצד אנו משתמשים במידע
+          </h3>
+          <ul className="mt-3 list-disc space-y-2 pe-5">
+            <li>
+              מזהה החשבון משמש לזיהוי שלך בכניסות הבאות. ההתאמה נעשית לפי המזהה בלבד
+              ולא לפי כתובת האימייל.
+            </li>
+            <li>
+              כאשר כתובת האימייל כבר שייכת לחשבון קיים בשירות, החשבון אינו מחובר
+              ל-Google באופן אוטומטי: יש להוכיח בעלות עליו באמצעות הסיסמה שלו או
+              באמצעות קישור חד־פעמי שנשלח לכתובת האימייל.
+            </li>
+            <li>
+              בהרשמה חדשה, החשבון והעסק נוצרים רק לאחר שהשלמת את טופס ההרשמה ואישרת
+              את תנאי השימוש ומדיניות זו.
+            </li>
+          </ul>
+          <p className="mt-3">
+            אנו שומרים את מזהה החשבון, את כתובת האימייל במועד החיבור ואת מועדי
+            החיבור והשימוש האחרון. מידע זה משמש לאבטחת החשבון בלבד. איננו משתמשים
+            בו לפרסום, איננו מוכרים אותו ואיננו מעבירים אותו לצדדים שלישיים.
+          </p>
+
+          <h3 className="mt-6 text-base font-semibold text-[var(--mkt-ink)]">
+            ניתוק
+          </h3>
+          <p className="mt-3">
+            ניתן לנתק את חשבון Google בכל עת במסך ההגדרות ← אבטחה. הניתוק מוחק אצלנו
+            את הקישור לחשבון Google, ואת סיסמת החשבון בשירות ניתן להגדיר או לאפס
+            באמצעות &quot;שכחתי סיסמה&quot;. ניתן גם להסיר את הגישה של Dubiz מתוך
+            הגדרות האבטחה של חשבון Google. מחיקת החשבון בשירות מוחקת גם את הקישור,
+            כמפורט בסעיף מחיקת מידע.
           </p>
         </section>
 
