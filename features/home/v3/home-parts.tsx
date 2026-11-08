@@ -133,6 +133,7 @@ const KIND_ICON: Record<WaitingKind, IconComponent> = {
   collection: IconCard,
   stock: IconBox,
   lead: IconFileLines,
+  intake: IconUserPlus,
 };
 
 /** The desktop row's category tag — the same words as the filter chips. */
@@ -141,6 +142,7 @@ export const KIND_TAG: Record<WaitingKind, { labelKey: MessageKey; color: string
   stock: { labelKey: "home.parts.kind.stock", color: "#8A4F16", background: "#F6E0C2" },
   collection: { labelKey: "home.parts.kind.collection", color: "#1D5552", background: "#D3ECE8" },
   lead: { labelKey: "home.parts.kind.lead", color: "#5B4FA8", background: "#ECE9F7" },
+  intake: { labelKey: "home.parts.kind.intake", color: "#5B4FA8", background: "#ECE9F7" },
 };
 
 /** Vertical card — mobile (3 in a row) and tablet (3 in a row). */
