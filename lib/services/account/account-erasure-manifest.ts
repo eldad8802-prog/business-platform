@@ -333,6 +333,8 @@ export type DbFunctionErasure = {
   migration: string;
   models: readonly {
     model: string;
+    /** The function DELETES the business's rows of this model (then `cleared` and `kept` are empty). */
+    deleted?: true;
     cleared: readonly string[];
     kept: Readonly<Record<string, string>>;
   }[];
@@ -401,6 +403,21 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
           idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9:_#-]{8,200}$), not the person",
         },
       },
+    ],
+  },
+  // Business documents (migration 20261114090000). The account-deletion adapter calls it in the purge transaction,
+  // next to the Service Desk functions. Unlike those it DELETES the records — nothing of a quote share copy, a share
+  // event or a saved letter is history the business keeps — and it writes the durable erasure job and marks every
+  // stored file DELETING (keys kept) in the same transaction. The stored PDFs go after commit (OBJECT_SURFACES).
+  // BusinessDocumentRequest (idempotency keys, no text) is deleted too; it is NON_PERSONAL_OPERATIONAL, so not
+  // declared here.
+  {
+    fn: "business_documents_erase",
+    migration: "20261114090000_business_documents_records",
+    models: [
+      { model: "QuoteShareCopy", deleted: true, cleared: [], kept: {} },
+      { model: "QuoteShareEvent", deleted: true, cleared: [], kept: {} },
+      { model: "BusinessLetter", deleted: true, cleared: [], kept: {} },
     ],
   },
 ];

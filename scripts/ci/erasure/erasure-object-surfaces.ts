@@ -35,7 +35,10 @@
  * What the erasure does with the OBJECT (not with the column).
  *
  *   ERASED     the object is deleted by the erasure, BEFORE the row/pointer goes.
- *              Requires `erasedBy`, and the verifier checks the adapter really calls it.
+ *              Requires `erasedBy` (object first, then the row, in the adapter) or
+ *              `erasedAfterCommit` (a durable job in the purge transaction keeps the key,
+ *              the object goes after commit, the row last), and the verifier checks the
+ *              adapter really does it.
  *   OPEN       the object survives an account deletion. This is debt, and it is a
  *              finding every run.
  *   OPEN_INERT the same, except nothing in the product can create such an object yet.
@@ -70,6 +73,14 @@ export type ObjectSurface = {
    * in the wrong order — a classification flip alone cannot resolve an object surface.
    */
   erasedBy?: { fn: string; beforeDelegate: string };
+  /**
+   * The other way to be ERASED (exactly one of the two): a DURABLE JOB. `jobFn` is the SECURITY DEFINER function
+   * the adapter calls IN the purge transaction — it records the job and keeps the keys; `objectFn` is what the
+   * adapter calls OUTSIDE every transaction, after it, to delete the objects; `keyDelegate` (the rows holding the
+   * keys) must receive NO write or delete from the adapter — only the module removes them, once the objects are
+   * gone. The verifier checks all three against the adapter source.
+   */
+  erasedAfterCommit?: { jobFn: string; objectFn: string; keyDelegate: string };
   /** Required for OPEN / OPEN_INERT: the increment that is expected to close it. */
   target?: string;
 };
@@ -261,17 +272,19 @@ export const OBJECT_SURFACES: readonly ObjectSurface[] = [
     target: "SD-1.3",
   },
   // Business documents (migration 20261114090000). Private objects under biz/{id}/business-docs/ (CHECK-limited),
-  // written only by create-once puts. Nothing in this migration's PR writes the column; the service PR does, behind
-  // the business_documents flag (OFF). Deleting the bytes on account erasure (fence every key, then
-  // business_documents_erasure_complete()) is built but not wired into account deletion — not approved yet.
+  // written only by create-once puts. Erased AFTER COMMIT: business_documents_erase() in the purge transaction writes
+  // the durable job and keeps every key (files DELETING); the account-deletion adapter's post-commit stage
+  // (runAccountStorageErasure, resumed by the sweep) fences each key — delete + create-once marker — and only then
+  // business_documents_erasure_complete() removes the rows.
   {
     model: "BusinessDocumentFile",
     field: "objectKey",
     kind: "STORAGE_KEY",
-    state: "OPEN",
+    domain: "business-docs",
+    state: "ERASED",
     reason:
-      "the stored PDF of a quote share copy or a saved letter (written only while business_documents is on — OFF for every business). The object deletion of account erasure is implemented but not connected to account deletion (owner approval pending)",
-    target: "BD-ERASURE",
+      "the stored PDF of a quote share copy or a saved letter. The key row outlives the purge transaction as the durable job; the object is deleted (and its key fenced against a late upload) only after that transaction committed, and the row goes last",
+    erasedAfterCommit: { jobFn: "business_documents_erase", objectFn: "runAccountStorageErasure", keyDelegate: "businessDocumentFile" },
   },
 ];
 

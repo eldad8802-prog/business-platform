@@ -143,6 +143,13 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceDevice: { disposition: "ERASURE_MANAGED" },
   ServiceCaseIntake: { disposition: "ERASURE_MANAGED" },
   ServiceHandover: { disposition: "ERASURE_MANAGED" },
+  // Business documents (migration 20261114090000). Customer and recipient names, the owner's notes, letter bodies:
+  // their rows are DELETED by business_documents_erase(), which the adapter calls in the purge transaction —
+  // declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C26, rows deleted). The stored PDFs are the
+  // object surface BusinessDocumentFile.objectKey (deleted after commit, erasure-object-surfaces.ts).
+  QuoteShareCopy: { disposition: "ERASURE_MANAGED" },
+  QuoteShareEvent: { disposition: "ERASURE_MANAGED" },
+  BusinessLetter: { disposition: "ERASURE_MANAGED" },
   // Service Desk 1.2b (migration 20261113090000). Both carry personal text — the work its six free texts and the
   // supplier reference, the journal the correction reason — and are erased in place by
   // service_external_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
@@ -321,12 +328,6 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   // are the forward-looking obligations that replaced BusinessObligation and
   // inherit its classification.
   Payee: unmanaged("displayName, legalName, taxId and note"),
-  // Business documents (migration 20261114090000). business_documents_erase() exists and deletes these rows, but
-  // connecting it to account deletion is NOT approved yet (owner, 2026-11-06) — so today the erasure does not
-  // touch them, and they are declared as the debt they are until that integration is approved.
-  QuoteShareCopy: unmanaged("customerNameSnapshot and quoteNumberSnapshot of a shared quote copy, plus the stored PDF it points at", "BD-ERASURE"),
-  QuoteShareEvent: unmanaged("the owner's free-text note on a quote response, and the acting user", "BD-ERASURE"),
-  BusinessLetter: unmanaged("recipient name and address, subject, body, reference, signer name and title, the issuer snapshot, and the stored PDF", "BD-ERASURE"),
   Commitment: unmanaged("payeeNameSnapshot, title and note"),
   Installment: unmanaged("note, plus the legacy settlement provenance"),
   // Payables, Phase 2. A rejected match is a decision record, but `reason` is

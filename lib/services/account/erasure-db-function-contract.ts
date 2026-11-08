@@ -20,8 +20,11 @@
  *   migration  defines the function SECURITY DEFINER with `search_path … pg_temp` last,
  *              revoked from PUBLIC and granted to app_runtime; it takes the business from
  *              the tenant context only, refuses without one and unless that business is being
- *              deleted, and every write it makes is an UPDATE whose WHERE begins with
- *              "businessId" = <that business> and has no top-level OR;
+ *              deleted, and every write it makes is an UPDATE or a DELETE whose WHERE begins
+ *              with "businessId" = <that business> and has no top-level OR (or a single-row
+ *              INSERT of the erasure's own job record for that business);
+ *   rows       a model declared `deleted` has its rows removed by such a DELETE of its table
+ *              (no column-by-column accounting: nothing of the row is left);
  *   columns    every declared column is a real scalar of the model and is set to NULL / '' /
  *              '{}' by such an UPDATE of the model's table; every non-@id String / Json column
  *              of the model is either cleared or listed as kept, with a reason.
@@ -48,7 +51,11 @@ export type ParsedDbFunction = {
   refusesUnlessDeleting: boolean;
   /** UPDATEs scoped to the tenant business: table → column → assigned expression. */
   updates: Map<string, Map<string, string>>;
-  /** Writes that are not a tenant-scoped UPDATE (DELETE, INSERT, an unscoped UPDATE …). */
+  /** Tables whose rows a tenant-scoped DELETE removes (same scoping rule as an UPDATE). */
+  deletes: Set<string>;
+  /** Tables given one row for the tenant business (the erasure's own job record). */
+  inserts: Set<string>;
+  /** Writes that are none of the above (an unscoped UPDATE / DELETE, INSERT … SELECT, TRUNCATE, dynamic SQL …). */
   unscopedWrites: string[];
 };
 
@@ -155,7 +162,7 @@ export function parseDbFunction(migrationSql: string, fn: string): ParsedDbFunct
   const empty: ParsedDbFunction = {
     defined: false, securityDefiner: false, searchPathPgTempLast: false, revokedFromPublic: false,
     grantedToRuntime: false, tenantVar: null, refusesWithoutContext: false, refusesUnlessDeleting: false,
-    updates: new Map(), unscopedWrites: [],
+    updates: new Map(), deletes: new Set(), inserts: new Set(), unscopedWrites: [],
   };
   const head = new RegExp(String.raw`CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.${esc(fn)}\s*\(\s*\)([\s\S]*?)\bAS\s+(\$[A-Za-z_]*\$)`, "i").exec(sql);
   if (!head) return empty;
@@ -167,7 +174,7 @@ export function parseDbFunction(migrationSql: string, fn: string): ParsedDbFunct
   const body = sql.slice(bodyStart, bodyEnd);
   const sig = String.raw`public\.${esc(fn)}\s*\(\s*\)`;
 
-  const r: ParsedDbFunction = { ...empty, defined: true, updates: new Map(), unscopedWrites: [] };
+  const r: ParsedDbFunction = { ...empty, defined: true, updates: new Map(), deletes: new Set(), inserts: new Set(), unscopedWrites: [] };
   r.securityDefiner = /\bSECURITY\s+DEFINER\b/i.test(header);
   const sp = /\bSET\s+search_path\s*(?:=|TO)\s*([^\n]+)/i.exec(header);
   r.searchPathPgTempLast = !!sp && /(^|,)\s*pg_temp\s*$/i.test(sp[1].trim());
@@ -191,15 +198,31 @@ export function parseDbFunction(migrationSql: string, fn: string): ParsedDbFunct
     const write = /\b(UPDATE|DELETE\s+FROM|INSERT\s+INTO|TRUNCATE|MERGE\s+INTO|EXECUTE)\b/i.exec(topLevelLiteralsBlanked(whole));
     if (!write) continue;
     const st = whole.slice(write.index);
-    const up = /^UPDATE\s+(?:public\s*\.\s*)?"([^"]+)"\s+SET\s+([\s\S]+?)\s+WHERE\s+([\s\S]+)$/i.exec(st);
-    const scoped = up && r.tenantVar && (() => {
-      const where = up[3].trim();
+    const scopedWhere = (whereText: string) => {
+      if (!r.tenantVar) return false;
+      const where = whereText.trim();
       const lead = new RegExp(String.raw`^"businessId"\s*=\s*${esc(r.tenantVar)}\b`, "i").exec(where);
       if (!lead) return false;
       const rest = where.slice(lead[0].length);
       if (rest.trim() !== "" && !/^\s*AND\b/i.test(rest)) return false;
       return !/\bOR\b/i.test(topLevel(where));
-    })();
+    };
+    // A row DELETE under the same scoping rule as an UPDATE: WHERE begins with the tenant business, no top-level OR.
+    const del = /^DELETE\s+FROM\s+(?:public\s*\.\s*)?"([^"]+)"\s+WHERE\s+([\s\S]+)$/i.exec(st);
+    if (del) {
+      if (scopedWhere(del[2])) r.deletes.add(del[1]);
+      else r.unscopedWrites.push(st.replace(/\s+/g, " ").slice(0, 120));
+      continue;
+    }
+    // A single-row INSERT whose first column is "businessId" and first value the tenant business (a job record of the
+    // erasure itself); anything else — a SELECT source, several rows, an upsert that updates — stays unscoped.
+    const ins = /^INSERT\s+INTO\s+(?:public\s*\.\s*)?"([^"]+)"\s*\(\s*"businessId"\s*(?:,[^()]*)?\)\s*VALUES\s*\(\s*([a-z_][a-z0-9_]*)\s*(?:,[^()]*)?\)\s*(?:ON\s+CONFLICT\s*(?:\([^()]*\))?\s*DO\s+NOTHING\s*)?$/i.exec(st);
+    if (ins && r.tenantVar && ins[2].toLowerCase() === r.tenantVar.toLowerCase()) {
+      r.inserts.add(ins[1]);
+      continue;
+    }
+    const up = /^UPDATE\s+(?:public\s*\.\s*)?"([^"]+)"\s+SET\s+([\s\S]+?)\s+WHERE\s+([\s\S]+)$/i.exec(st);
+    const scoped = up && scopedWhere(up[3]);
     if (!up || !scoped) { r.unscopedWrites.push(st.replace(/\s+/g, " ").slice(0, 120)); continue; }
     const set = r.updates.get(up[1]) ?? new Map<string, string>();
     for (const assignment of topLevelCommas(up[2])) {
@@ -275,6 +298,14 @@ export function checkDbFunctionErasures(input: {
       const model = input.models.get(m.model);
       if (!model) { f("C26-DBFN-NO-SUCH-COLUMN", `${decl.fn}:${m.model}`, `${m.model} is not a model in the schema`); continue; }
       const table = model.dbName ?? model.name;
+      if (m.deleted) {
+        // The rows themselves go: nothing to account for column by column, but the DELETE must be really there.
+        if (!p?.deletes.has(table)) f("C26-DBFN-ROWS-NOT-DELETED", `${decl.fn}:${m.model}`, `${decl.fn}() does not delete the ${m.model} rows of the business`);
+        if (m.cleared.length > 0 || Object.keys(m.kept).length > 0) {
+          f("C27-DBFN-DELETED-AND-CLEARED", `${decl.fn}:${m.model}`, `${m.model} is declared deleted and also lists cleared / kept columns`);
+        }
+        continue;
+      }
       const columnOf = (field: string) => model.fields.find((x) => x.name === field && x.isScalar);
       const set = p?.updates.get(table);
       for (const field of m.cleared) {
