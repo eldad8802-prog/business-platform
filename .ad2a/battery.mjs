@@ -425,6 +425,19 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_parts_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_parts_erase_business() TO ${RT_ROLE}`);
   }
+  // Service Desk UI foundation 1.3-0 — migration 20261120090000_service_desk_ui_foundation. The same, for
+  // service_desk_ui_erase_business() (it scrubs the 1.3-0 rows and opens the object-erasure job; tables from db push).
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261120090000_service_desk_ui_foundation/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_desk_ui_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_desk_ui_erase_business() not found in migration 20261120090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_desk_ui_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_desk_ui_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //

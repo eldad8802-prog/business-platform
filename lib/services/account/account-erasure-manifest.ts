@@ -189,6 +189,8 @@ export const ANONYMIZE_MODELS = [
   // DB_FUNCTION_ERASURES below; same reason.
   // Service Desk spare parts M2 (migration 20261115090000): erased in place by service_parts_erase_business() — see
   // DB_FUNCTION_ERASURES below; same reason.
+  // Service Desk UI foundation 1.3-0 (migration 20261120090000): erased in place by service_desk_ui_erase_business() —
+  // see DB_FUNCTION_ERASURES below; same reason. Its objects go after commit (account-storage-erasure.ts).
 
   // ── the conversation graph ────────────────────────────────────────────────
   //
@@ -371,7 +373,7 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
         model: "ServiceCaseIntake",
         cleared: ["deviceSnapshot", "conditionNote", "accessoriesNote", "signatureKey"],
         kept: {
-          slipPdfKey: "a private object key under biz/{id}/service/ (CHECK); the bytes are an object surface (OPEN_INERT, SD-1.3), and a key column is not the object",
+          slipPdfKey: "a private object key under biz/{id}/service/ (CHECK); the bytes are an object surface, erased after commit with the biz/{id}/service/ prefix (OBJECT_SURFACES), and a key column is not the object",
           termsVersion: "the version token of the intake terms text the customer signed",
         },
       },
@@ -428,6 +430,67 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
         kept: {
           payload: "a closed JSON object of short tokens and numbers (no free text by DB CHECK ServicePartEvent_payload_closed)",
           idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9:_#-]{8,200}$), not the person",
+        },
+      },
+    ],
+  },
+  // Service Desk UI foundation 1.3-0. The account-deletion adapter calls it in the purge transaction, after
+  // service_parts_erase_business(). Who acted (users), a warranty change reason and a phone-reminder note are personal;
+  // the business's own texts, hashes, keys, times and states stay as the case's history. The function also opens the
+  // durable object-erasure job (ServiceStorageErasure, one row per business, the tenant's own id) — the objects under
+  // biz/{id}/service/ go after commit (OBJECT_SURFACES, service-storage-erasure.ts).
+  {
+    fn: "service_desk_ui_erase_business",
+    migration: "20261120090000_service_desk_ui_foundation",
+    models: [
+      {
+        model: "ServiceTextVersion",
+        cleared: ["createdByUserId", "legallyApprovedByUserId"],
+        kept: {
+          body: "the business's own service terms / statutory-rights text shown to customers (ו4: versioned, legally approved) — not about a person; the consumer-law record of what was presented",
+          bodySha256: "the sha256 of that text (CHECK-bound to the body), not the person",
+        },
+      },
+      {
+        model: "ServiceIntakeTermsSnapshot",
+        cleared: ["presentedByUserId"],
+        kept: {
+          termsSha256: "the hash of the terms version presented at intake, not the person",
+          statutorySha256: "the hash of the statutory notice presented at intake, not the person",
+        },
+      },
+      {
+        model: "ServiceWarrantyOffer",
+        cleared: ["changeReason", "presentedByUserId", "createdByUserId"],
+        kept: {
+          scopeText: "the commercial warranty scope offered for the repair — kept by the applied function as the case's consumer record; per-case owner free text, so scrubbing it is an OPEN owner decision (privacy mapping, 1.3-0 PR-2)",
+          exclusionsText: "the commercial warranty exclusions offered for the repair — kept by the applied function, same open owner decision as scopeText",
+          contentSha256: "the hash of the offer's content, not the person",
+        },
+      },
+      {
+        model: "ServiceIntakePhoto",
+        cleared: ["createdByUserId"],
+        kept: {
+          storageKey: "biz/{id}/service/cases/{caseId}/intake/photos/{sha256}.{ext} by CHECK — ids and a hash; the object itself is deleted after commit (OBJECT_SURFACES)",
+          sha256: "the photo's content hash, not the person",
+          mimeType: "image/jpeg | image/png | image/webp by CHECK",
+        },
+      },
+      {
+        model: "ServiceShareEvent",
+        cleared: ["actorUserId"],
+        kept: {
+          objectKey: "the stored copy's key under biz/{id}/service/ (CHECK + guard); the object is deleted after commit (OBJECT_SURFACES)",
+          objectSha256: "the stored copy's hash, not the person",
+          idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9._:-]{16,128}$), not the person",
+        },
+      },
+      {
+        model: "ServicePhoneReminder",
+        cleared: ["actorUserId", "note"],
+        kept: {
+          idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9._:-]{16,128}$), not the person",
         },
       },
     ],
