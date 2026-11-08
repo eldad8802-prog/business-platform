@@ -102,6 +102,9 @@ jobs:
           for d in prisma/migrations/*/; do
             n=$(basename "$d")
             [[ "$n" != "20261113090000_service_external_work" ]] || continue
+            # Owner-approved Service Desk migrations that BUILD ON 1.2b (FK to the work table, a guard trigger on it) —
+            # named one by one, never a pattern.
+            [[ "$n" != "20261115090000_service_parts" ]] || continue
             if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"ServiceExternalWork(Event)?"|service_external_|service_handover_no_open_external|service_case_external_work_closed'; then
               echo "$n names a service external work object"; exit 1
             fi
