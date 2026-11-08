@@ -1,8 +1,9 @@
 # Business Intake · L1.5 — held receipts, release, visibility, notifications: operations
 
 How held intake receipts behave, how they are released, what the owner and the operator see, which switches exist (all
-OFF), how to turn things on in order, and how to roll back. It covers the L1.5-b PRs: PR-1 #978 (merged), PR-5 #986,
-PR-2 #987, PR-3 #988, PR-4 #989, PR-6 #990, and PR-8. Plan: https://claude.ai/artifact/Wu9SowDMz3ZS53GudgZiqe.
+OFF), how to turn things on in order, and how to roll back. It covers the L1.5-b PRs: PR-1 #978, PR-5 #986, PR-2 #987,
+PR-3 #988 and PR-4 #989 (all merged, switches off), PR-6 #990 (open) and PR-8 #991. Plan:
+https://claude.ai/artifact/Wu9SowDMz3ZS53GudgZiqe.
 
 ## 1. Receipt states
 
@@ -55,11 +56,11 @@ source gate (the emergency switch, entitlement, business) → provider.
   - could not be taken in;
   - still processing (after 30 minutes).
 - **Connections screen:** a per-connection note with the waiting and failed counts.
-- **Notifications (in-app only, no push):**
-  - paused, not in plan, connection to check, 1,000 or more waiting: `ACTION_REQUIRED`, 24 h cooldown;
-  - not taken in: `FAILURE_EVENT` HIGH, 24 h;
-  - recovered: `WARNING` INFO, 24 h;
-  - a Dubiz hold and "still processing" are silent.
+- **Notifications (in-app only, no push), through the EXISTING policy — no new rule (owner, 2026-11-08):**
+  - paused, not in plan, connection to check, not taken in, 1,000 or more waiting: the two existing leads rules
+    (`ACTION_REQUIRED` HIGH / MEDIUM), 24 h cooldown, one row per situation;
+  - "recovered", a Dubiz hold and "still processing" are silent (a rule for "recovered" waits for an impact check);
+  - a paused source outside the plan (or Meta) is never offered "resume".
 
 ## 5. Switches (ALL OFF)
 
@@ -71,8 +72,8 @@ source gate (the emergency switch, entitlement, business) → provider.
 
 ## 6. Activation order (each step needs an explicit owner go)
 
-1. Merge PR-5 (#986), then PR-2 (#987). Run a read-only Production check.
-2. Merge PR-3 (#988) and PR-4 (#989), with the feature still off.
+1. Merge PR-5 (#986), then PR-2 (#987). Run a read-only Production check. **Done** (9/9 after each).
+2. Merge PR-3 (#988) and PR-4 (#989), with the feature still off. **Done** (9/9 after each).
 3. Release migration: the `intake_status_visibility` definition and policy rows, both off. Then override business 9 only, and check the screens signed in.
 4. `INTAKE_CAPACITY_ALERTS_ENABLED=true` once the operator wants the alerts.
 5. Merge PR-6 (#990), off. Turn expiry on only after the policy decisions; a day-12 warning should exist first.
@@ -87,17 +88,21 @@ source gate (the emergency switch, entitlement, business) → provider.
 | owner visibility and notifications | remove the business override (immediate). Open notifications stay as rows and resolve on the next complete read once the facts are gone |
 | expiry | unset the env, redeploy. Already-expired receipts keep their payload, so a controlled restore stays possible |
 
-## 8. Pilot readiness per source (code review, 2026-11-07)
+## 8. Pilot readiness per source (code review 2026-11-07; DB-outage column re-proven 2026-11-08)
 
-| Source | Provider retry (per code) | Recovery from provider | DB down | Not entitled | Pilot |
-|---|---|---|---|---|---|
-| Website forms | none (browser / site) | none | 503; the visitor sees an error | 404, nothing recorded | **GO-able**: repeat of the proven business-9 pilot |
-| Google Ads | retries 5xx (documented, unverified) | none (Ads CSV is manual) | 503 | 200, nothing recorded (lost) | **GO-able** |
-| Meta Lead Ads | ~36 h | fetch by leadgen id (~90 days), no backfill | 503 | 200, nothing recorded | **NO-GO**: verify token / app secret not set in Prod, App Review, Business verification |
-| WooCommerce | "never retries" | **reconciler** polls modified orders, re-activates webhooks | 503 | 200 | GO-able with a real HTTPS store |
-| Wix | 12× over ~47 h | **reconciler** order search | 503 | 200 | **NO-GO**: no Dubiz Wix app yet |
-| CloudTalk | 50× over ~11.5 h | call history per call id | 503 | 200 | GO-able with a real account |
-| Voicenter | unknown | none | 503 | 200 `{Err:0}` | **NO-GO**: awaits written confirmation from Voicenter (auth / IPs, retry, id stability). The key in the URL may reach access logs |
+"DB down" is proven in the lab for all seven by `.m6/edge-battery.ts` (a valid delivery, database unreachable → 503,
+nothing recorded; the retry once the database is back is recorded once, a repeat is a duplicate). Retry counts come from
+the providers' documentation and our code — none has been observed against the real provider yet.
+
+| Source | Provider retry (per docs / code) | Recovery / reconciliation | DB down | Not entitled (intended) | Not yet verified with the real provider | Pilot |
+|---|---|---|---|---|---|---|
+| Website forms | none (browser / site) | none | 503; the visitor sees an error | 404, nothing recorded | nothing provider-side (proven on business 9) | **GO-able**: repeat of the proven business-9 pilot |
+| Google Ads | retries 5xx (documented) | none (Ads CSV is manual) | 503 | 200, nothing recorded (lost) | that Google actually retries a 503, and how often | **GO-able** |
+| Meta Lead Ads | ~36 h | fetch by leadgen id (~90 days), no backfill | 503 | 200, nothing recorded | the whole delivery path (no live app) | **NO-GO**: verify token / app secret not set in Prod, App Review, Business verification |
+| WooCommerce | "never retries" | **reconciler** polls modified orders, re-activates webhooks | 503 | 200 | the reconciler against a real store | GO-able with a real HTTPS store |
+| Wix | 12× over ~47 h | **reconciler** order search | 503 | 200 | everything (no Dubiz Wix app yet) | **NO-GO**: no Dubiz Wix app yet |
+| CloudTalk | 50× over ~11.5 h | call history per call id | 503 | 200 | retry schedule and call-history recovery | GO-able with a real account |
+| Voicenter | unknown | none | 503 | 200 `{Err:0}` | retry, auth / IPs, id stability | **NO-GO**: awaits written confirmation from Voicenter (auth / IPs, retry, id stability). The key in the URL may reach access logs |
 
 GO conditions for any pilot:
 - business 9 only;
