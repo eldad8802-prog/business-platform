@@ -134,7 +134,10 @@ export function budgetLines(ids: { connectionId: number; businessId: number }, n
 /**
  * Atomic all-or-nothing reserve. KEYS = [cur1, prev1, cur2, prev2, …];
  * ARGV = [amount, limit1, weight1, ttl1, limit2, weight2, ttl2, …].
- * Checks EVERY line first; only if all have room are all charged.
+ * Checks EVERY line first; only if all have room are all charged. Redis does
+ * not roll back a script that errors half-way, so everything that could fail
+ * (a missing or non-integer counter) is validated in the check phase, before
+ * the first write; such a counter answers -1 (treated as unavailable: closed).
  */
 export const RESERVE_LUA = [
   "local amount = tonumber(ARGV[1])",
@@ -142,6 +145,7 @@ export const RESERVE_LUA = [
   "for i = 0, n - 1 do",
   "  local cur = tonumber(redis.call('GET', KEYS[2 * i + 1]) or '0')",
   "  local prev = tonumber(redis.call('GET', KEYS[2 * i + 2]) or '0')",
+  "  if cur == nil or prev == nil or cur ~= math.floor(cur) or prev ~= math.floor(prev) then return -1 end",
   "  local limit = tonumber(ARGV[2 + 3 * i])",
   "  local weight = tonumber(ARGV[3 + 3 * i])",
   "  if prev * weight + cur + amount > limit then return i + 1 end",
@@ -158,8 +162,10 @@ export const REFUND_LUA = [
   "local amount = tonumber(ARGV[1])",
   "for i = 1, #KEYS do",
   "  local v = tonumber(redis.call('GET', KEYS[i]) or '0')",
-  "  local d = math.min(v, amount)",
-  "  if d > 0 then redis.call('DECRBY', KEYS[i], d) end",
+  "  if v ~= nil and v == math.floor(v) then",
+  "    local d = math.min(v, amount)",
+  "    if d > 0 then redis.call('DECRBY', KEYS[i], d) end",
+  "  end",
   "end",
   "return 0",
 ].join("\n");

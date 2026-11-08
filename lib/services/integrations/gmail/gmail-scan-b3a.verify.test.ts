@@ -894,6 +894,9 @@ async function main() {
     const checkAt = RESERVE_LUA.indexOf("return i + 1");
     const chargeAt = RESERVE_LUA.indexOf("INCRBY");
     assert.ok(checkAt > 0 && chargeAt > checkAt, "all checks precede any charge");
+    // Redis does not roll back a half-run script: a non-integer counter must stop it before any write.
+    const guardAt = RESERVE_LUA.indexOf("cur ~= math.floor(cur) or prev ~= math.floor(prev) then return -1");
+    assert.ok(guardAt > 0 && guardAt < chargeAt, "counters validated before the first INCRBY");
     assert.ok(REFUND_LUA.includes("math.min(v, amount)"), "refund never below zero");
     // Planned under the stricter published table, with headroom.
     assert.ok(GMAIL_SCAN_BUDGETS.mailbox.limit <= 6_000 * 0.6);
