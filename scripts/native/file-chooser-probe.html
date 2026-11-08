@@ -29,7 +29,8 @@
       var VARIANTS = [
         ["C1", "image/jpeg,image/png", true],              // camera BEFORE #1019
         ["C2", "image/*", true],                           // camera AFTER #1019
-        ["U1", "application/pdf,image/jpeg,image/png", false], // upload today
+        ["UD", "application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png", false], // proposed Documents upload signature → OPEN_DOCUMENT
+        ["U1", "application/pdf,image/jpeg,image/png", false], // old signature = Settings DocumentsImportScreen (must stay Capacitor default)
         ["U2", "image/jpeg,image/png,application/pdf", false], // order swapped
         ["U3", ".pdf,.jpg,.jpeg,.png", false],             // extensions
         ["U4", "", false],                                 // no accept
@@ -47,7 +48,12 @@
           var f = input.files && input.files[0];
           var msg = f ? "PROBE change " + v[0] + " name=" + f.name + " type=" + f.type + " size=" + f.size
                       : "PROBE change " + v[0] + " empty";
-          console.log(msg); btn.querySelector("small").textContent = msg; input.value = "";
+          if (!f) { console.log(msg); return; }
+          f.slice(0, 5).arrayBuffer().then(function (buf) {
+            var hex = Array.prototype.map.call(new Uint8Array(buf), function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+            msg += " magic=" + hex;
+            console.log(msg); btn.querySelector("small").textContent = msg; input.value = "";
+          }, function (e) { console.log(msg + " read-error=" + e); });
         });
         input.addEventListener("cancel", function () {
           console.log("PROBE cancel " + v[0]); btn.querySelector("small").textContent = "PROBE cancel " + v[0];

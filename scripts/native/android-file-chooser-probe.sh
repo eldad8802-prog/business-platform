@@ -15,7 +15,7 @@ OUT="native-evidence"
 APK="android/app/build/outputs/apk/debug/app-debug.apk"
 PKG="il.co.promaxgroup.dubiz.probe"
 ACT="il.co.promaxgroup.dubiz.MainActivity"
-VARIANTS=(C1 C2 U1 U2 U3 U4 U5 U6)
+VARIANTS=(C1 C2 UD U1 U2 U3 U4 U5 U6)
 N=${#VARIANTS[@]}
 mkdir -p "$OUT/shots" "$OUT/ui"
 R="$OUT/report.txt"
@@ -181,6 +181,32 @@ ensure_app; adb logcat -c
 adb shell input tap $(( W / 2 )) $(( (2 * 2 + 1) * H / (2 * N) )); sleep 5
 log "top     : $(top)"; ui S5 >/dev/null; tap_text S5 "probe.pdf" && log "picked  : probe.pdf"; sleep 4
 scenario_end S5
+
+UD_ROW=2
+tap_ud() { adb shell input tap $(( W / 2 )) $(( (2 * UD_ROW + 1) * H / (2 * N) )); }
+
+# S6 — Documents upload (UD): pick an image instead of a PDF.
+log ""; log "== S6 upload picks an image (UD) =="
+ensure_app; adb logcat -c; tap_ud; sleep 5
+adb logcat -d > "$OUT/logcat-S6-open.txt" 2>&1
+log "started : $(grep -E 'START u0' "$OUT/logcat-S6-open.txt" | grep -v "$PKG/$ACT" | sed -E 's/.*START u0 //' | grep -oE 'act=[^ ]+|typ=[^ ]+|cmp=[^ ]+' | tr '\n' ' ')"
+log "top     : $(top)"; ui S6 >/dev/null; shot "S6-1-picker"
+tap_text S6 "probe.png" && log "picked  : probe.png" || log "picked  : (probe.png not visible)"; sleep 4
+scenario_end S6
+
+# S7 — Documents upload (UD): open the picker and cancel.
+log ""; log "== S7 upload cancel (UD) =="
+ensure_app; adb logcat -c; tap_ud; sleep 5
+log "top     : $(top)"; shot "S7-1-picker"
+adb shell input keyevent KEYCODE_BACK; sleep 3
+scenario_end S7
+
+# S8 — the picker can be opened again right after a cancel (no stuck callback).
+log ""; log "== S8 upload reopen after cancel (UD) =="
+ensure_app; adb logcat -c; tap_ud; sleep 5
+log "top     : $(top)"; ui S8 >/dev/null
+tap_text S8 "probe.pdf" && log "picked  : probe.pdf"; sleep 4
+scenario_end S8
 
 adb logcat -d > "$OUT/logcat-final.txt" 2>&1
 grep -qE "FATAL EXCEPTION|ANR in $PKG" "$OUT/logcat-final.txt" && log "!! crash/ANR seen" || log "no crash/ANR in final logcat window"
