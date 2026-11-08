@@ -211,7 +211,7 @@ jobs:
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m6/intake-notifications-battery.ts
 
-      - name: 4g. L1.5-b expired receipts — archived, never dead letters: health, owner backlog, retention keeps the payload, real processor + sweep stay healthy, RLS
+      - name: 4g. L1.5-b expired receipts — archived, never dead letters — health, owner backlog, retention keeps the payload, real processor + sweep stay healthy, RLS
         env:
           DATABASE_URL: ${{ env.RUNTIME_URL }}
           DIRECT_URL: ${{ env.RUNTIME_URL }}
