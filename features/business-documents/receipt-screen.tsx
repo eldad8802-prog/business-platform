@@ -195,15 +195,17 @@ export function ReceiptScreen() {
         }
       }
       if (draft.current && (draft.current.customerId !== form.customerId || (draft.current.allocated && !allocations))) remember(null);
-      if (!draft.current) {
+      let attempt = draft.current;
+      if (!attempt) {
         const created = await createReceiptDraftRequest(Number(form.customerId));
-        remember({ id: created.id, customerId: form.customerId, allocated: false });
+        attempt = { id: created.id, customerId: form.customerId, allocated: false };
+        remember(attempt);
       }
-      const id = draft.current.id;
+      const id = attempt.id;
       await setReceiptPaymentsRequest(id, paymentsPayload(form.lines));
       if (allocations) {
         await setReceiptAllocationsRequest(id, allocations);
-        remember({ ...draft.current, allocated: true });
+        remember({ ...attempt, allocated: true });
       }
       let doc: ReceiptDocWire;
       try {
