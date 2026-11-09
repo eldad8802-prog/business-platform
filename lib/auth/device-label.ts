@@ -89,6 +89,27 @@ const PLATFORM_HE: Record<NonNullable<Platform>, string> = {
 };
 
 /**
+ * A coarse platform class for SECURITY TELEMETRY — never shown to anyone.
+ *
+ * The question it answers is "did refresh fail on phones in the app, or on
+ * laptops", which a log line cannot answer from a userId. Same closed-set rule
+ * as the label: one of five constants, nothing from the header, so a hostile
+ * User-Agent cannot write into the log either. `; wv)` is how an Android System
+ * WebView — the Capacitor shell — marks itself.
+ */
+export type PlatformClass = "android_webview" | "android" | "ios" | "desktop" | "unknown";
+
+export function platformClass(rawUserAgent: string | null | undefined): PlatformClass {
+  const ua = normalizeUserAgent(rawUserAgent);
+  if (ua === null) return "unknown";
+  const platform = readPlatform(ua);
+  if (platform === "Android") return /;\s*wv\)/.test(ua) ? "android_webview" : "android";
+  if (platform === "iPhone" || platform === "iPad") return "ios";
+  if (platform === "Windows" || platform === "Mac" || platform === "Linux") return "desktop";
+  return "unknown";
+}
+
+/**
  * The label the owner reads. One of a closed set, assembled from the constants
  * above and nothing from the header itself.
  */

@@ -161,6 +161,12 @@ jobs:
           npx tsx lib/auth/refresh-cookie.test.ts
           npx tsx lib/auth/refresh-client.test.ts
 
+      # One line per refresh decision — outcome, reason, platform class — so a
+      # sign-in screen on a phone can be traced; and proof that no line carries a
+      # credential or a User-Agent and that the response body is unchanged.
+      - name: Persistent login — refresh telemetry, closed vocabulary
+        run: npx tsx lib/auth/refresh-telemetry.test.ts
+
       # The device label is built from a header the caller controls, so the thing
       # under test is not "does it recognise Chrome". It is whether a hostile
       # User-Agent can ever put text of its choosing on the owner's screen.
