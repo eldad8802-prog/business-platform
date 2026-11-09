@@ -20,6 +20,7 @@
  */
 
 import { Capacitor } from "@capacitor/core";
+import { placeAndroidStatusBarBelow } from "@/lib/native/android-status-bar";
 
 export function isNative(): boolean {
   return Capacitor.isNativePlatform();
@@ -61,13 +62,20 @@ export async function initNativeShell(): Promise<void> {
 
   try {
     const { StatusBar, Style } = await import("@capacitor/status-bar");
-    // Android: Capacitor now pads the WebView below the status bar (see
-    // lib/native/android-viewport-fit.ts), so the strip behind the icons is the
-    // window background — light in light mode, dark grey in dark mode until the
-    // theme sets a cream windowBackground. Default makes the icons follow the
-    // system theme so they stay readable on that strip. iOS keeps Light: its
-    // strip is the cream WebView background in both modes.
-    await StatusBar.setStyle({ style: Capacitor.getPlatform() === "android" ? Style.Default : Style.Light });
+    if (Capacitor.getPlatform() === "android") {
+      // The WebView sits below the status bar on every Android version: Android
+      // 14 and older through the plugin's overlay switch (lib/native/android-status-bar.ts),
+      // Android 15+ through SystemBars' padding (lib/native/android-viewport-fit.ts).
+      // Where the plugin painted the bar cream (14 and older) the icons are dark;
+      // on 15+ the strip is the window background — light in light mode, dark grey
+      // in dark mode until the theme sets a cream windowBackground — so Default
+      // makes the icons follow the system theme and stay readable on it.
+      const creamBar = await placeAndroidStatusBarBelow(StatusBar);
+      await StatusBar.setStyle({ style: creamBar ? Style.Light : Style.Default });
+    } else {
+      // iOS: the strip is the cream WebView background in both modes.
+      await StatusBar.setStyle({ style: Style.Light });
+    }
   } catch (err) {
     console.error("[native-shell] status bar failed:", err);
   }
