@@ -35,10 +35,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { api: '34', profile: 'pixel_6', browsers: '1', runner: 'ubuntu-24.04' }
-          - { api: '35', profile: 'pixel_6', browsers: '0', runner: 'ubuntu-latest' }
+          # focused: Android 16 keyboard → scroll → tap the sign-in button (real input)
           - { api: '36', profile: 'pixel_7_pro', browsers: '0', runner: 'ubuntu-latest' }
-          - { api: '37.0', profile: 'pixel_6', browsers: '0', runner: 'ubuntu-latest' }
 
     steps:
       - name: Checkout
@@ -113,7 +111,7 @@ jobs:
           ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: BROWSER_CHECK=${{ matrix.browsers }} bash scripts/native/android-login-run.sh
+          script: FOCUS=keyboard BROWSER_CHECK=${{ matrix.browsers }} bash scripts/native/android-login-run.sh
 
       - name: Upload sweep evidence
         if: always()

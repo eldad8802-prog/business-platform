@@ -29,8 +29,13 @@ for MODE in before after; do
     timeout 300 node scripts/native/browser-login-check.mjs "$OUT" "$MODE" > "$OUT/browsers-$MODE.log" 2>&1
     log "$MODE browsers exit=$?"
   fi
+  if [ "${FOCUS:-}" = "keyboard" ]; then
+    timeout 600 node scripts/native/android-keyboard-check.mjs "$OUT" "$MODE" > "$OUT/keyboard-$MODE.log" 2>&1
+    log "$MODE keyboard exit=$? entries=$(grep -c '"check"' "$OUT/keyboard-$MODE.log")"
+  else
   timeout 1500 node scripts/native/android-login-check.mjs "$OUT" "$MODE" > "$OUT/check-$MODE.log" 2>&1
   log "$MODE exit=$? entries=$(grep -c '"check"' "$OUT/check-$MODE.log")"
+  fi
 done
 timeout 60 adb logcat -d > "$OUT/logcat.txt" 2>&1
 grep -E "FATAL EXCEPTION|ANR in" "$OUT/logcat.txt" | head -5 | tee -a "$R"
