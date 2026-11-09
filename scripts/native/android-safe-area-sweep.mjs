@@ -16,6 +16,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const [mode, routesFile, outDir, , shotsArg = "all"] = process.argv.slice(2);
+process.on("unhandledRejection", (e) => console.log(`[${mode}] unhandledRejection ${String(e).slice(0, 120)}`));
+const EXTRAS = process.env.SWEEP_EXTRAS === "1";
 const BASE = "http://localhost:3000";
 const PKG = "il.co.promaxgroup.dubiz";
 const SAMPLE = { id: "1", publicId: "demo", slug: "demo", token: "demo", businessId: "9", customerId: "1", supplierId: "1" };
@@ -105,9 +107,11 @@ for (const route of routes) {
     }
   }
   results.push(rec);
+  writeFileSync(join(outDir, `sweep-${mode}.json`), JSON.stringify(results, null, 1));
   console.log(`[${mode}] ${i}/${routes.length} ${route} top=${rec.insetTop} underTop=${rec.underTopCount} underBottom=${rec.underBottomCount} h=${rec.hScroll} ${rec.crashed ? "CRASH" : ""}${rec.error ? "ERR" : ""}`);
 }
 
+if (EXTRAS) {
 // Keyboard: on the first screen that renders a text field, focus it and check the
 // field and the confirm button stay inside the visible viewport.
 for (const route of ["/forgot-password", "/register", "/login", "/contact"]) {
@@ -187,5 +191,6 @@ if (mode === "after") {
   }
 }
 
+} // EXTRAS
 writeFileSync(join(outDir, `sweep-${mode}.json`), JSON.stringify(results, null, 1));
 await device.close();
