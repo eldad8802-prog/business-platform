@@ -175,6 +175,8 @@ BEGIN
     -- Append-only for the runtime: read and add.
     GRANT SELECT, INSERT ON "PurchaseOrderSheet" TO app_runtime;
     GRANT USAGE, SELECT ON SEQUENCE "PurchaseOrderSheet_id_seq" TO app_runtime;
+    -- The redefined erase function keeps its grant (CREATE OR REPLACE preserves it); stated again explicitly.
+    GRANT EXECUTE ON FUNCTION public.business_documents_erase() TO app_runtime;
   END IF;
 END
 $do$;
