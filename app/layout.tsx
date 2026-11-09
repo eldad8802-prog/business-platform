@@ -72,7 +72,7 @@ export default async function RootLayout({
     >
       <head>
         {/*
-          Android shell only: marks the app (app-only CSS from the first frame) and opens it on
+          Android shell only: marks the app (the sign-in form's compact layout) and opens it on
           /login instead of the marketing page (see lib/native/android-shell-entry.ts). In <head>
           so it runs before anything is painted.
         */}

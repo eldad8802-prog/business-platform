@@ -98,19 +98,21 @@ function main() {
   // /login never sends anyone to a marketing route (no loop): it only goes to /app or /register.
   const login = read("app/login/login-form.tsx");
   assert.doesNotMatch(login, /location\.(replace|assign|href)\s*[=(]\s*[`"'](\$\{window\.location\.origin\})?\/(home)?[`"']/);
-  // App-only CSS contract and the compact sign-in screen (owner-approved elements).
-  const css = read("app/globals.css");
-  assert.match(css, /html\[data-shell="android"\] \[data-shell-hide="android"\] \{\s*display: none !important;/);
-  assert.match(css, /html:not\(\[data-shell="android"\]\) \[data-shell-only="android"\] \{\s*display: none !important;/);
-  assert.match(login, /<div style=\{badgeStyle\} data-shell-hide="android">/, "badge hidden in the app");
-  assert.match(login, /<p style=\{subtitleStyle\} data-shell-hide="android">/, "long subtitle hidden in the app");
-  assert.match(login, /<span data-shell-only="android">\{t\("account\.auth\.login\.appTitle"\)\}<\/span>/, "app title");
+  // The compact sign-in screen (owner-approved elements) is decided in the form from the app marker,
+  // so a browser renders exactly the same DOM as before (no attributes, no CSS, no extra nodes).
+  assert.match(login, /\{inAndroidApp \? null : \(\s*<div style=\{badgeStyle\}>/, "badge left out in the app");
+  assert.match(login, /\{inAndroidApp \? null : <p style=\{subtitleStyle\}>/, "long subtitle left out in the app");
+  assert.match(login, /<h1 style=\{titleStyle\}>\{t\(inAndroidApp \? "account\.auth\.login\.appTitle" : "account\.auth\.login\.title"\)\}<\/h1>/, "app title");
+  assert.match(login, /\{inAndroidApp \? null : \(\s*<div style=\{dividerStyle\}>/, "divider left out in the app");
+  assert.doesNotMatch(login, /data-shell-(hide|only|mute)/, "no app-only attributes in the browser DOM");
   // Field help is muted, not removed: the error that replaces it in place must not shift the
   // links below it mid-tap (the emulator caught taps on "register" / "forgot" missing that way).
-  assert.match(login, /id="login-email-msg" style=\{helperTextStyle\} data-shell-mute="android"/, "email helper muted");
-  assert.match(login, /id="login-password-msg" style=\{helperTextStyle\} data-shell-mute="android"/, "password helper muted");
-  assert.match(css, /html\[data-shell="android"\] \[data-shell-mute="android"\] \{\s*visibility: hidden;/);
-  assert.match(login, /<div style=\{dividerStyle\} data-shell-hide="android">/, "divider hidden");
+  // In a browser the style object is the same helperTextStyle as before.
+  assert.match(login, /const fieldHelpStyle: React\.CSSProperties = inAndroidApp \? \{ \.\.\.helperTextStyle, visibility: "hidden" \} : helperTextStyle;/);
+  assert.match(login, /id="login-email-msg" style=\{fieldHelpStyle\}/, "email helper muted");
+  assert.match(login, /id="login-password-msg" style=\{fieldHelpStyle\}/, "password helper muted");
+  // The public stylesheet is untouched.
+  assert.doesNotMatch(read("app/globals.css"), /data-shell/);
   // Errors stay visible in the app (only the idle helper text is hidden).
   assert.match(login, /<p id="login-email-msg" role="alert" style=\{fieldErrorStyle\}>/);
   assert.match(login, /<p id="login-password-msg" role="alert" style=\{fieldErrorStyle\}>/);
@@ -123,7 +125,6 @@ function main() {
   );
   // Forgot password and register stay in the app.
   assert.match(login, /data-testid="forgot-password-link"/);
-  assert.doesNotMatch(login, /forgot-password-link"[^>]*data-shell-hide/);
   assert.match(read("lib/i18n/messages/areas/account.ts"), /appTitle: "כניסה לדוביז"/);
 
   // Detection premise: the installed Capacitor still exposes the SystemBars Android interface.
