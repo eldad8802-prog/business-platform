@@ -17,7 +17,9 @@ export type ServiceDeskErrorCode =
   | "REFUSED"
   | "ACTION_NOT_IN_SCOPE"
   | "SERVER_CHECK_FAILED"
-  | "BUSINESS_DELETING";
+  | "BUSINESS_DELETING"
+  /** A write that would leave no audit event (technician, intake data, settings) — closed until the P4 journal exists. */
+  | "NOT_AVAILABLE_UNTIL_AUDIT";
 
 const STATUS: Record<ServiceDeskErrorCode, number> = {
   NOT_FOUND: 404,
@@ -33,6 +35,7 @@ const STATUS: Record<ServiceDeskErrorCode, number> = {
   ACTION_NOT_IN_SCOPE: 422,
   SERVER_CHECK_FAILED: 422,
   BUSINESS_DELETING: 409,
+  NOT_AVAILABLE_UNTIL_AUDIT: 422,
 };
 
 export type ServiceDeskErrorDetails = Record<string, string | number | boolean | null | readonly string[]>;

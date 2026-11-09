@@ -262,6 +262,61 @@ async function main() {
   await setOverride(A.b, null); await setOverride(B.b, null); await setPolicy(false, false);
   ok("F8 the lab's flag rows are restored (global OFF, no override)", (await resolveServiceDeskMode(A.b)) === "NONE");
 
+  console.log("H — the real routes with a real session (option B: un-audited writes closed until P4)");
+  const { signAuthToken } = await import("../lib/auth-token");
+  const tokenA = signAuthToken(A.u);
+  const routes = {
+    technician: await import("../app/api/service-desk/cases/[id]/technician/route"),
+    intake: await import("../app/api/service-desk/cases/[id]/intake/route"),
+    settings: await import("../app/api/service-desk/settings/route"),
+    actions: await import("../app/api/service-desk/cases/[id]/actions/route"),
+    case: await import("../app/api/service-desk/cases/[id]/route"),
+  };
+  const http = (method: string, body: unknown, token: string | null, extra: Record<string, string> = {}) =>
+    new Request("https://lab.test/api/service-desk/x", { method, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", ...extra }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const params = (caseId: number) => ({ params: Promise.resolve({ id: String(caseId) }) });
+  const hCase = await open(A, "IN_SHOP", { deviceId: A.device });
+  const snap = async () => JSON.stringify({
+    c: (await q(`SELECT "staffMemberId" s, version v, "updatedAt" u FROM "ServiceCase" WHERE id = $1`, hCase.case.id))[0],
+    i: await n(`SELECT count(*)::int AS n FROM "ServiceCaseIntake" WHERE "caseId" = $1`, hCase.case.id),
+    st: (await q(`SELECT version v, "defaultStaffMemberId" d, "updatedAt" u FROM "ServiceSettings" WHERE "businessId" = $1`, A.b))[0] ?? null,
+    e: await n(`SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "businessId" = $1`, A.b),
+  });
+  const closedCalls = async (token: string | null) => [
+    await routes.technician.PUT(http("PUT", { staffMemberId: A.staff, from: null }, token)),
+    await routes.intake.PUT(http("PUT", { conditionNote: "x", accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedUpdatedAt: null }, token)),
+    await routes.settings.PUT(http("PUT", { expectedVersion: 1, defaultStaffMemberId: null, warrantyTemplate: null }, token)),
+  ];
+  await setPolicy(false); await setOverride(A.b, "ENABLED"); // FULL for A (lab only)
+  const beforeH = await snap();
+  const full = await closedCalls(tokenA);
+  const fullBodies = await Promise.all(full.map((r) => r.json()));
+  ok("H1 FULL: PUT technician / intake / settings → 422 NOT_AVAILABLE_UNTIL_AUDIT, never a success",
+    full.every((r) => r.status === 422) && fullBodies.every((b) => b.error === "NOT_AVAILABLE_UNTIL_AUDIT"), JSON.stringify(full.map((r) => r.status)));
+  ok("H2 … and nothing was written: case (technician, version, updatedAt), intake, settings and the journal are unchanged", (await snap()) === beforeH);
+  ok("H3 no session → 401 on the closed routes (authentication unchanged)", (await closedCalls(null)).every((r) => r.status === 401));
+  await setOverride(A.b, null);
+  ok("H4 NONE (not launched) → 404 on the closed routes (the gate unchanged)", (await closedCalls(tokenA)).every((r) => r.status === 404));
+  await setPolicy(true); await setOverride(A.b, "DISABLED");
+  ok("H5 READ_ONLY → 403 READ_ONLY on the closed routes, before the closure", (await Promise.all((await closedCalls(tokenA)).map(async (r) => r.status === 403 && (await r.json()).error === "READ_ONLY"))).every(Boolean));
+  const settingsRead = await routes.settings.GET(http("GET", undefined, tokenA));
+  ok("H6 READ_ONLY still reads (GET settings, GET case)", settingsRead.status === 200 && (await routes.case.GET(http("GET", undefined, tokenA), params(hCase.case.id))).status === 200);
+  ok("H7 still nothing written after every refusal", (await snap()) === beforeH);
+  await setPolicy(false); await setOverride(A.b, "ENABLED");
+  const hk = key();
+  const a1 = await routes.actions.POST(http("POST", { action: { type: "CANCEL" }, expectedVersion: 1 }, tokenA, { "idempotency-key": hk }), params(hCase.case.id));
+  const a2 = await routes.actions.POST(http("POST", { action: { type: "CANCEL" }, expectedVersion: 1 }, tokenA, { "idempotency-key": hk }), params(hCase.case.id));
+  const a3 = await routes.actions.POST(http("POST", { action: { type: "CHECK_IN" }, expectedVersion: 1 }, tokenA, { "idempotency-key": hk }), params(hCase.case.id));
+  const [b1, b2, b3] = [await a1.json(), await a2.json(), await a3.json()];
+  ok("H8 the journaled action route still works end to end, idempotent: replay answered, another body under the key refused",
+    a1.status === 200 && b1.case.status === "CANCELLED" && !b1.replayed && a2.status === 200 && b2.replayed === true && a3.status === 409 && b3.error === "IDEMPOTENCY_KEY_REUSED",
+    JSON.stringify([a1.status, a2.status, a3.status]));
+  const tokenB = signAuthToken(B.u);
+  await setOverride(B.b, "ENABLED");
+  const cross = await routes.case.GET(http("GET", undefined, tokenB), params(hCase.case.id));
+  ok("H9 isolation through the real route: business B's session → 404 for A's case", cross.status === 404);
+  await setOverride(A.b, null); await setOverride(B.b, null); await setPolicy(false, false);
+
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) console.log("FAILED:\n  " + failures.join("\n  "));
 }

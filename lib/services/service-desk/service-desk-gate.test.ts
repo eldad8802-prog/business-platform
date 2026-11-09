@@ -111,6 +111,16 @@ async function main() {
   }
   ok("R2 every handler goes through serviceDeskRoute; no route reads the user, the flag or a business id itself", allGuarded);
   ok("R3 GET handlers are reads, every other method is a write", kindsRight);
+  // Option B (owner, 2026-11-09): the three writes that would leave no audit event are closed until P4.
+  const closed = ["cases/[id]/technician/route.ts", "cases/[id]/intake/route.ts", "settings/route.ts"].map((r) => fs.readFileSync(path.join(root, r), "utf8"));
+  ok("R5 PUT technician / intake / settings: through the edge as writes, then NOT_AVAILABLE_UNTIL_AUDIT — no body read, no write function called",
+    closed.every((src) => {
+      const put = /export async function PUT\([\s\S]*?\n}\n/.exec(src)?.[0] ?? "";
+      return /serviceDeskRoute\(req, "write", async \(\) => \{\s*throw new ServiceDeskError\("NOT_AVAILABLE_UNTIL_AUDIT"\);\s*\}\);/.test(put)
+        && !/jsonBody|assignTechnician|recordIntake|updateSettings/.test(put);
+    }) && closed.every((src) => !/assignTechnician|recordIntake|updateSettings/.test(src)));
+  const blocked = await serviceDeskRoute(req("PUT"), "write", async () => { throw new (await import("@/lib/services/service-desk/service-desk-errors")).ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT"); }, { user: user(9), mode: async () => "FULL" });
+  ok("R6 the refusal is 422 NOT_AVAILABLE_UNTIL_AUDIT, never a success", blocked.status === 422 && (await blocked.json()).error === "NOT_AVAILABLE_UNTIL_AUDIT");
   const saved = { db: process.env.DATABASE_URL, direct: process.env.DIRECT_URL };
   delete process.env.DATABASE_URL;
   delete process.env.DIRECT_URL;

@@ -69,8 +69,12 @@ jobs:
         run: |
           set -euo pipefail
           bash .sd3/lab.sh sd3a --with-sd3 >/dev/null
+          # The auth plane (session lookup only) reads User through the lab owner: this lab chain records the auth-plane
+          # privilege migrations without running them, so app_auth holds no grants here. Every Service Desk query still
+          # runs as app_runtime_prod (DATABASE_URL) — authentication is not what this lab tests; the edge after it is.
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sd3a"
-          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sd3a" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$R" \
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sd3a"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sd3a" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
           STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/sd3a-store" \
           TASK_REQUEST_HMAC_KEY=sd3a-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sd3a-ci \
           AUTH_TOKEN_SECRET=sd3a-ci-synthetic-auth-secret-0123456789abcdef \
