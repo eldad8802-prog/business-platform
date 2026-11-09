@@ -9,6 +9,7 @@ import { runInNewContext } from "node:vm";
 import {
   ANDROID_SHELL_ENTRY_SCRIPT,
   ANDROID_SHELL_MARKETING_PATHS,
+  ANDROID_SHELL_ROOT_PATHS,
   leaveMarketingInAndroidShell,
 } from "@/lib/native/android-shell-entry";
 
@@ -74,6 +75,7 @@ function main() {
     assert.deepEqual(replaced, []);
   }
   assert.deepEqual([...ANDROID_SHELL_MARKETING_PATHS], ["/", "/home"]);
+  assert.deepEqual([...ANDROID_SHELL_ROOT_PATHS], ["/login", "/app"]);
 
   const root = process.cwd();
   const read = (f: string) => readFileSync(join(root, f), "utf8");
@@ -84,6 +86,13 @@ function main() {
   assert.match(layout, /viewportFit:\s*"cover"/, "issue 2 viewport contract unchanged");
   // The server still sends `/` to the marketing page — the public site is unchanged.
   assert.match(read("next.config.ts"), /source: "\/",\s*has: \[\{ type: "host", value: "promaxgroup\.co\.il" \}\],\s*destination: "\/home"/);
+  // Android back on a root screen minimizes before any history.back(): the launch URL stays in the
+  // WebView's history after the entry redirect, so going back would bounce straight back.
+  const shell = read("lib/native/native-shell.ts");
+  assert.match(
+    shell,
+    /if \(ANDROID_SHELL_ROOT_PATHS\.includes\(window\.location\.pathname\)\) \{\s*void App\.minimizeApp\(\);\s*\} else if \(canGoBack \|\| window\.history\.length > 1\) \{/
+  );
   // In-app navigation backstop is mounted.
   assert.match(read("components/native/NativeShellInit.tsx"), /leaveMarketingInAndroidShell\(pathname\)/);
   // /login never sends anyone to a marketing route (no loop): it only goes to /app or /register.
@@ -96,8 +105,11 @@ function main() {
   assert.match(login, /<div style=\{badgeStyle\} data-shell-hide="android">/, "badge hidden in the app");
   assert.match(login, /<p style=\{subtitleStyle\} data-shell-hide="android">/, "long subtitle hidden in the app");
   assert.match(login, /<span data-shell-only="android">\{t\("account\.auth\.login\.appTitle"\)\}<\/span>/, "app title");
-  assert.match(login, /id="login-email-msg" style=\{helperTextStyle\} data-shell-hide="android"/, "email helper hidden");
-  assert.match(login, /id="login-password-msg" style=\{helperTextStyle\} data-shell-hide="android"/, "password helper hidden");
+  // Field help is muted, not removed: the error that replaces it in place must not shift the
+  // links below it mid-tap (the emulator caught taps on "register" / "forgot" missing that way).
+  assert.match(login, /id="login-email-msg" style=\{helperTextStyle\} data-shell-mute="android"/, "email helper muted");
+  assert.match(login, /id="login-password-msg" style=\{helperTextStyle\} data-shell-mute="android"/, "password helper muted");
+  assert.match(css, /html\[data-shell="android"\] \[data-shell-mute="android"\] \{\s*visibility: hidden;/);
   assert.match(login, /<div style=\{dividerStyle\} data-shell-hide="android">/, "divider hidden");
   // Errors stay visible in the app (only the idle helper text is hidden).
   assert.match(login, /<p id="login-email-msg" role="alert" style=\{fieldErrorStyle\}>/);

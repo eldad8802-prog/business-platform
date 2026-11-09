@@ -558,7 +558,7 @@ export default function LoginForm({
             {touched.email && errors.email ? (
               <p id="login-email-msg" role="alert" style={fieldErrorStyle}>{errors.email}</p>
             ) : (
-              <p id="login-email-msg" style={helperTextStyle} data-shell-hide="android">
+              <p id="login-email-msg" style={helperTextStyle} data-shell-mute="android">
                 {t("account.auth.login.emailHelp")}
               </p>
             )}
@@ -612,7 +612,7 @@ export default function LoginForm({
             {touched.password && errors.password ? (
               <p id="login-password-msg" role="alert" style={fieldErrorStyle}>{errors.password}</p>
             ) : (
-              <p id="login-password-msg" style={helperTextStyle} data-shell-hide="android">{t("account.auth.login.passwordHelp")}</p>
+              <p id="login-password-msg" style={helperTextStyle} data-shell-mute="android">{t("account.auth.login.passwordHelp")}</p>
             )}
             {passwordResetEnabled ? (
               <p style={{ ...helperTextStyle, marginTop: 6 }}>
