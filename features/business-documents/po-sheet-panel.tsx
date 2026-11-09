@@ -29,6 +29,8 @@ export function PurchaseOrderSheetPanel({ supplierOrderId }: { supplierOrderId: 
   const [message, setMessage] = useState<{ tone: "ok" | "danger"; text: string } | null>(null);
   /** The server-issued key of the save in progress: a retry reuses it until the save succeeds. */
   const pendingKey = useRef<string | null>(null);
+  /** One save at a time: a double click lands before the re-render that disables the button. */
+  const inFlight = useRef(false);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/business-documents/supplier-orders/${supplierOrderId}/sheets`, { headers: buildClientAuthHeaders(), cache: "no-store" });
@@ -47,7 +49,8 @@ export function PurchaseOrderSheetPanel({ supplierOrderId }: { supplierOrderId: 
   }, [on, load]);
 
   const save = async () => {
-    if (busy) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setMessage(null);
     try {
@@ -69,6 +72,7 @@ export function PurchaseOrderSheetPanel({ supplierOrderId }: { supplierOrderId: 
     } catch (e) {
       setMessage({ tone: "danger", text: e instanceof Error && e.message && !["key", "save"].includes(e.message) ? e.message : "שמירת העותק נכשלה. אפשר לנסות שוב — לא יישמר עותק כפול." });
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };

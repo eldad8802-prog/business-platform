@@ -1,0 +1,167 @@
+# Business documents — the purchase-order sheet ("שמירת עותק" of the supplier order document; owner-approved
+# 2026-11-09). Runs on pull requests to ANY base, so the stacked PR-2 is tested before PR-1 merges.
+#
+# Synthetic data only; ZERO secrets; NO environment; ZERO Neon; ZERO network beyond localhost. Nothing here touches
+# R2 (the real-R2 check is a separate, owner-gated job in business-documents-ci.yml).
+
+name: business documents — purchase-order sheet
+
+on:
+  pull_request:
+    paths:
+      - "prisma/migrations/20261121090000_business_documents_po_sheets/**"
+      - "prisma/schema.prisma"
+      - "lib/services/business-documents/**"
+      - "lib/services/inventory/supplier-purchase-document.service.ts"
+      - "app/api/business-documents/**"
+      - "app/(shell)/inventory/supplier-purchases/[[]id[]]/send/**"
+      - "features/business-documents/po-sheet-panel.tsx"
+      - ".business-documents/lab.sh"
+      - ".business-documents/po-sheet*"
+      - ".github/workflows/business-documents-po-sheet-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bd-po-sheet-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  document-unchanged:
+    name: Supplier order document unchanged by the builder extraction (pure)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: The browser download hands pdfmake exactly the original definition
+        run: npx tsx lib/services/business-documents/po-sheet/supplier-document-unchanged.test.ts
+
+  service:
+    name: Purchase-order sheet service on the real migrations, as the runtime role (PG17)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: po_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: po_ci_synthetic_super_pw
+      LAB_PASSWORD: po_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: po_ci_auth_secret_synthetic
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Service battery — saving, header language, retry = one copy, conflict, concurrency, isolation, frozen snapshot, stored-file download, inventory untouched, storage failure
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh po_svc --with-po
+          mkdir -p "$RUNNER_TEMP/po-store"
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/po-store" \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/po_svc" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/po_svc?connection_limit=10" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/po_svc" \
+            npx tsx .business-documents/po-sheet.battery.mts | tee /tmp/po-svc.out
+          grep -qxE '[0-9]+ passed, 0 failed' /tmp/po-svc.out
+
+  ui:
+    name: Purchase-order sheet in a browser — desktop + phone, Hebrew + English, flag ON + OFF (PG17 lab)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: po_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: po_ci_synthetic_super_pw
+      LAB_PASSWORD: po_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: po-ui-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: po-ui-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      CRON_SECRET: po_ui_ci_cron_secret_synthetic_at_least_32
+      AUTH_PLANE_ENABLED: "true"
+      RATE_LIMIT_BACKEND: memory
+      DUBIZ_I18N_ENABLED: "true"
+      # `next dev`: saving writes the PDF to storage, lib/storage refuses local storage in production mode, and R2
+      # cannot point at a lab server. Every route, guard and query is the same code.
+      STORAGE_PROVIDER: local
+      LOCAL_STORAGE_ROOT: /tmp/po-ui-store
+      NEXT_TELEMETRY_DISABLED: "1"
+      OUT: /tmp/bd-po-ui
+      SEED_OUT: /tmp/bd-po-ui-seed.json
+      E2E_BASE: http://localhost:3720
+      OWNER_URL: postgresql://lab_owner:po_ci_synthetic_role_pw@localhost:5432/po_ui
+      DATABASE_URL: postgresql://app_runtime_prod:po_ci_synthetic_role_pw@localhost:5432/po_ui?connection_limit=20
+      DIRECT_URL: postgresql://app_runtime_prod:po_ci_synthetic_role_pw@localhost:5432/po_ui
+      AUTH_DATABASE_URL: postgresql://lab_owner:po_ci_synthetic_role_pw@localhost:5432/po_ui
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab — both business-documents migrations by migrate deploy, Production role topology
+        run: bash .business-documents/lab.sh po_ui --with-po
+      - name: Seed — business A (feature ON) and B (default OFF), a supplier order awaiting receipt each
+        run: npx tsx .business-documents/po-sheet-ui-seed.mts
+      - run: npx playwright install --with-deps chromium
+      - name: Start the app (next dev — see the note on storage above)
+        shell: bash
+        run: |
+          mkdir -p "$OUT" "$LOCAL_STORAGE_ROOT"
+          (nohup npx next dev -p 3720 > "$OUT/server.log" 2>&1 &)
+          for i in $(seq 1 150); do curl -sf -o /dev/null http://localhost:3720/login && break; sleep 2; done
+          curl -sf -o /dev/null http://localhost:3720/login
+      - name: End to end — save, list, download (= stored), double click, error + retry, lost answer + retry, edit after save, existing sharing, English, phone, flag off
+        run: npx tsx .business-documents/po-sheet-ui-e2e.mts
+      - name: Server log (on failure)
+        if: failure()
+        run: grep -vE "auth_sidless_token_accepted" "$OUT/server.log" | tail -n 120 || true
+      - name: Result table
+        if: always()
+        run: '[ -f "$OUT/report.md" ] && cat "$OUT/report.md" >> "$GITHUB_STEP_SUMMARY" || true'
+      - name: Screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: po-sheet-e2e
+          path: /tmp/bd-po-ui
+          retention-days: 14
