@@ -1,0 +1,10 @@
+{
+  "note": "account deletion — the shared post-commit object stage sweep route GET|POST /api/account/storage-erasure-sweep (business documents + Service Desk modules of ACCOUNT_STORAGE_ERASURES). CRON_SECRET through decideCronAuth; inert until ACCOUNT_STORAGE_ERASURE_SWEEP_ENABLED is exactly \"true\"; NOT scheduled in vercel.json (owner decision). No migration.",
+  "tests": {
+    "app/api/account/storage-erasure-sweep/route.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): 503 when CRON_SECRET is not configured, 401 without or with a wrong secret, the sweep never runs unless the switch is exactly \"true\" (default off); on: one pass with the 45 s budget under maxDuration, counts only (no business id, key or message), a module error or a thrown pass → 500 with a fixed code and a class-only log line; overlapping calls and a retry after a failure keep no state; the real handler is inert without a database; static: authority only through decideCronAuth, no CRON_SECRET read, no caller-supplied business, registered in the cron authority registry and not scheduled in vercel.json"
+    }
+  }
+}

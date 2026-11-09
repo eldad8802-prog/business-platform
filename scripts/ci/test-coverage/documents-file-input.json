@@ -1,0 +1,10 @@
+{
+  "note": "Documents camera/upload file inputs (fix 1, #1019): the camera input carries accept=\"image/*\" + capture (Capacitor only attempts the camera for the literal image/* token), the upload input carries a unique accept signature that the Android shell's DocumentUploadChromeClient keys ACTION_OPEN_DOCUMENT on.",
+  "tests": {
+    "lib/documents/document-file-input.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "file-picker attribute contract only; the server still validates every upload's type and bytes",
+      "reason": "pure static contract: camera accept contains image/*, every upload type is server-accepted, only the two Documents screens use the upload signature (Settings import keeps its own), no hard-coded copies, and the Java signature in DocumentUploadChromeClient equals the web constant; negative checks fail as expected"
+    }
+  }
+}

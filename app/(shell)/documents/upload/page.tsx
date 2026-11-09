@@ -10,6 +10,11 @@ import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { intlTag } from "@/lib/i18n/config";
 import { formatNumber } from "@/lib/i18n/format";
+import {
+  DOCUMENT_CAMERA_ACCEPT,
+  DOCUMENT_CAMERA_CAPTURE,
+  DOCUMENT_UPLOAD_ACCEPT,
+} from "@/lib/documents/document-file-input";
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -154,15 +159,15 @@ export default function DocumentsUploadPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="application/pdf,image/jpeg,image/png"
+          accept={DOCUMENT_UPLOAD_ACCEPT}
           hidden
           onChange={(event) => void upload(event.target.files?.item(0))}
         />
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/jpeg,image/png"
-          capture="environment"
+          accept={DOCUMENT_CAMERA_ACCEPT}
+          capture={DOCUMENT_CAMERA_CAPTURE}
           hidden
           onChange={(event) => void upload(event.target.files?.item(0))}
         />

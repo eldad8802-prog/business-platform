@@ -5,6 +5,8 @@
 // upload screen and the new `/documents/email` screen without pulling in
 // any UI dependencies. No backend, no schema, no API contract changes.
 
+import { gmailAttachmentKey } from "./attachment-key";
+
 export type GmailDiscoveryAttachment = {
   messageId: string;
   attachmentId: string;
@@ -48,8 +50,10 @@ function normalizeText(v: string | null | undefined): string {
     .trim();
 }
 
+// messageId + partId, stable across scans (attachment-key.ts). It used to be
+// messageId + attachmentId, which Gmail does not keep stable.
 export function attachmentKey(a: GmailDiscoveryAttachment): string {
-  return `${a.messageId}:${a.attachmentId}`;
+  return gmailAttachmentKey(a);
 }
 
 export function scoreAttachment(a: GmailDiscoveryAttachment): {

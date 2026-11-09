@@ -29,7 +29,11 @@ bash "$ROOT/.bkg/lab.sh" "$DB" --with-bkg >/dev/null
 # the migration's checks, triggers, functions, policies and grants: remove them so the migration builds them the
 # way Production has them. The same holds for the 1.2b tables (work at an external supplier, migration
 # 20261113090000, which sorts after this one and is not this lab's): they use "ServiceActor", so they go first.
+# And for the spare-parts tables (M2, migration 20261115090000, not this lab's either): they use "ServiceActor" too.
 psql_owner <<'SQL'
+DROP TABLE IF EXISTS "ServicePartEvent", "ServicePart" CASCADE;
+DROP TYPE IF EXISTS "ServicePartEventKind", "ServicePartWriteOffReason", "ServicePartCostSource", "ServicePartSource",
+  "ServicePartState";
 DROP TABLE IF EXISTS "ServiceExternalWorkEvent", "ServiceExternalWork" CASCADE;
 DROP TYPE IF EXISTS "ServiceExternalWorkEventKind", "ServiceExternalReturnResult", "ServiceExternalProgress",
   "ServiceExternalWorkState";

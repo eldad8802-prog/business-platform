@@ -8540,6 +8540,130 @@ model ServiceExternalWorkEvent {
   @@index([businessId, occurredAt])
 }
 
+// ─── Service Desk — spare parts M2 ──────────────────────────────────────────────────────────────────────────────
+// Tables, checks, triggers, RLS and grants are built by migration 20261115090000_service_parts (PR-1).
+// References to existing models are scalar on purpose (composite tenant FKs live in the migration); no existing model
+// gains a field. CHECKs, the four partial indexes (open lines per case, reserved per item, at the supplier, on order)
+// and the triggers are not expressible here.
+
+enum ServicePartState {
+  NEEDED
+  ON_ORDER
+  RESERVED
+  ISSUED
+  INSTALLED
+  RETURNED
+  WRITTEN_OFF
+  CANCELLED
+}
+
+enum ServicePartSource {
+  STOCK
+  SUPPLIER
+  NON_STOCK
+}
+
+enum ServicePartCostSource {
+  LAST_PURCHASE
+  ITEM_COST
+  MANUAL
+  NONE
+}
+
+enum ServicePartWriteOffReason {
+  DAMAGED
+  LOST
+  KEPT_BY_SUPPLIER
+}
+
+enum ServicePartEventKind {
+  ADDED
+  SPLIT
+  RESERVED
+  RELEASED
+  ORDER_LINKED
+  ORDER_UPDATED
+  ISSUED
+  INSTALLED
+  RETURNED
+  WRITTEN_OFF
+  CANCELLED
+  PRICE_SET
+  QUOTED
+  COST_CORRECTED
+  SENT_WITH_EXTERNAL
+  BACK_FROM_EXTERNAL
+  SUPPLIER_PART_RECORDED
+}
+
+model ServicePart {
+  id                      Int                        @id @default(autoincrement())
+  businessId              Int
+  caseId                  Int
+  deviceId                Int? // copied from the case by the insert trigger; fixed for the life of the row
+  source                  ServicePartSource
+  state                   ServicePartState           @default(NEEDED)
+  inventoryItemId         Int?
+  nameSnapshot            String // a hand-typed name (no inventory item) is replaced by service_parts_erase_business()
+  skuSnapshot             String? // cleared by service_parts_erase_business() when there is no inventory item
+  unitType                InventoryUnitType?
+  quantity                Float
+  issueMovementId         Int?                       @unique
+  returnMovementId        Int?                       @unique
+  splitFromPartId         Int?
+  unitCostAgorot          Int?
+  costSource              ServicePartCostSource?
+  customerUnitPriceAgorot Int?
+  quotedInVersion         Int?
+  costIncludedInExternal  Boolean                    @default(false)
+  externalWorkId          Int?
+  purchaseOrderId         Int?
+  purchaseOrderLineId     Int?
+  expectedOn              DateTime?                  @db.Date
+  writeOffReason          ServicePartWriteOffReason?
+  reason                  String?
+  note                    String?
+  version                 Int                        @default(1)
+  lastEventKind           ServicePartEventKind       @default(ADDED)
+  createdByUserId         Int?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @default(now()) @updatedAt
+  closedAt                DateTime?
+  erasedAt                DateTime?
+
+  @@unique([businessId, id])
+  @@index([businessId, caseId])
+  @@index([businessId, splitFromPartId])
+}
+
+model ServicePartEvent {
+  id                   Int                  @id @default(autoincrement())
+  businessId           Int
+  partId               Int
+  caseId               Int
+  seq                  Int
+  kind                 ServicePartEventKind
+  stateBefore          ServicePartState?
+  stateAfter           ServicePartState
+  quantity             Float
+  movementId           Int?
+  amountAgorot         Int?
+  previousAmountAgorot Int?
+  reason               String? // COST_CORRECTED / CANCELLED / WRITTEN_OFF only (CHECK); cleared by service_parts_erase_business()
+  actor                ServiceActor
+  actorUserId          Int?
+  occurredAt           DateTime             @default(now())
+  payload              Json                 @default("{}")
+  idempotencyKey       String
+  requestDigest        String?
+  digestKeyId          String?
+  erasedAt             DateTime?
+
+  @@unique([businessId, partId, seq])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, occurredAt])
+}
+
 // ── Business documents — ר1 quote share records + saved letters (migration 20261114090000) ─────────────────
 // Plain scalar columns (no Prisma relations): the foreign keys, guards, RLS and privileges live in the migration.
 // Nothing here references or changes a billing model; quoteDocumentId points at a BillingDocument QUOTE and is

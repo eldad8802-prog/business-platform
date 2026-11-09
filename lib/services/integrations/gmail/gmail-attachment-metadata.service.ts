@@ -42,7 +42,7 @@ export type GmailAttachmentDescriptor = {
   /** The attachment id from this fetch — what the download must use. */
   attachmentId: string;
   /** How the part was found (diagnostics). */
-  matchedBy: "attachment_id" | "part_id";
+  matchedBy: "attachment_id" | "part_id" | "root_part";
 };
 
 export type GmailAttachmentLookup =

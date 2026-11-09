@@ -20,6 +20,11 @@ import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import { hubCss, hubShellStyle } from "@/components/documents/home/hub-styles";
 import DocumentsDesktopTable from "@/components/documents/home/DocumentsDesktopTable";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
+import {
+  DOCUMENT_CAMERA_ACCEPT,
+  DOCUMENT_CAMERA_CAPTURE,
+  DOCUMENT_UPLOAD_ACCEPT,
+} from "@/lib/documents/document-file-input";
 
 type LoadState =
   | { status: "loading" }
@@ -214,15 +219,15 @@ export default function DocumentsHome() {
         <input
           ref={uploadInputRef}
           type="file"
-          accept="application/pdf,image/jpeg,image/png"
+          accept={DOCUMENT_UPLOAD_ACCEPT}
           style={{ display: "none" }}
           onChange={(e) => void uploadDocument(e.target.files?.[0])}
         />
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/jpeg,image/png"
-          capture="environment"
+          accept={DOCUMENT_CAMERA_ACCEPT}
+          capture={DOCUMENT_CAMERA_CAPTURE}
           style={{ display: "none" }}
           onChange={(e) => void uploadDocument(e.target.files?.[0])}
         />

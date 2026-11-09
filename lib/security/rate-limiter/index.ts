@@ -79,7 +79,8 @@ export async function checkRateLimit(
 ): Promise<RateLimitDecision> {
   const bucket = input.bucket;
   const config = BUCKETS[bucket];
-  const backend = getBackend();
+  // rawBackend() is getBackend() unless a test substituted one (configureRateLimiterForTests).
+  const backend = rawBackend();
 
   let degraded = false;
   let tightestRemaining = Number.POSITIVE_INFINITY;

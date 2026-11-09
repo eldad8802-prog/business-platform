@@ -34,6 +34,7 @@ on:
       - "prisma/schema.prisma"
       - "package-lock.json"
       - ".billing-a0/**"
+      - ".billing-receipt-pdf/**"
       - "scripts/ci/billing-protected-paths-guard.mjs"
       - "scripts/ci/test-coverage/billing-a0.json"
       - ".github/workflows/billing-a0-characterization-ci.yml"
@@ -117,6 +118,9 @@ jobs:
       - name: Rendered-PDF characterization
         run: npx tsx .billing-a0/pdf-render.test.ts
 
+      - name: Receipt exception — the snapshot validator across all five types (only a RECEIPT may have no goods lines)
+        run: npx tsx .billing-receipt-pdf/assert-snapshot.test.ts
+
       - name: Negative proof (a changed printed label must be caught)
         run: |
           F="lib/services/billing/pdf/billing-pdf-html-template.ts"
@@ -179,3 +183,45 @@ jobs:
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
+
+  receipt-pdf:
+    name: Receipt PDF through the real PDF service (ephemeral PG17)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: a0_owner
+          POSTGRES_PASSWORD: a0_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_rcpt_pdf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U a0_owner -d dubiz_rcpt_pdf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://a0_owner:a0_ci_synthetic_owner_pw@localhost:5432/dubiz_rcpt_pdf
+      DIRECT_URL: postgresql://a0_owner:a0_ci_synthetic_owner_pw@localhost:5432/dubiz_rcpt_pdf
+      AUTH_TOKEN_SECRET: a0_ci_auth_secret_synthetic
+      STORAGE_PROVIDER: local
+      LOCAL_STORAGE_ROOT: /tmp/a0-receipt-pdf
+      BILLING_PDF_STORAGE_ROOT: /tmp/a0-receipt-pdf/billing
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Install the Playwright Chromium (html renderer)
+        run: npx playwright install --with-deps chromium
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+      - name: Settlement receipt + screen receipt + invoice control, both renderers
+        run: npx tsx .billing-receipt-pdf/battery.mts

@@ -904,7 +904,10 @@ export function assertSnapshotV1(
   if (!s.customer || typeof s.customer.name !== "string") {
     throw new Error("Invalid issued snapshot: customer.name missing");
   }
-  if (!Array.isArray(s.lines) || s.lines.length === 0) {
+  // A pure RECEIPT has no goods lines by design (its total is the money received) and both renderers already print
+  // it; the array itself is still required, and every other type still needs at least one line. Owner-approved,
+  // single exception to the billing freeze (2026-11-09).
+  if (!Array.isArray(s.lines) || (s.lines.length === 0 && s.document.type !== "RECEIPT")) {
     throw new Error("Invalid issued snapshot: lines must be a non-empty array");
   }
   if (

@@ -11,7 +11,8 @@
 #   3. Role battery (.sdx/battery.ts) as the real roles: isolation, send rules, one open work per device under
 #      concurrency (READ COMMITTED and REPEATABLE READ), changes, correction, no silent change, return, handover,
 #      supplier reference, append-only journal, atomicity, account erasure, 1.2a regression on the same database.
-#   3b. 1.2a regression: the foundation battery on its own lab, and the real account-erasure purge with 1.2b applied.
+#   3b. 1.2a regression: the foundation battery on its own lab, and the real account-erasure purge with 1.2b (and M2,
+#       whose erasure the purge also calls) applied.
 #   3c. Account erasure of 1.2b through the real adapter (.sdx/erasure-battery.ts): refusal, whole rollback, the
 #       declared columns of works and journal, the other business untouched, no DELETE, regression of the purge.
 #   4. Faults: each injected defect is caught by the proof check meant for it.
@@ -34,6 +35,8 @@ on:
       - "prisma/schema.prisma"
       - "lib/services/account/account-deletion.prisma-store.ts"
       - "lib/services/account/account-erasure-manifest.ts"
+      - ".sdp/lab.sh"
+      - "prisma/migrations/20261115090000_service_parts/**"
   workflow_dispatch:
 
 permissions:
@@ -151,14 +154,16 @@ jobs:
           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdx_post" \
             npx tsx .sdx/battery.ts
 
-      - name: 3b. 1.2a regression — the foundation battery on its own lab; the real erasure purge with 1.2b applied
+      - name: 3b. 1.2a regression — the foundation battery on its own lab; the real erasure purge with 1.2b and M2 applied
         run: |
           set -euo pipefail
           bash .sdf/lab.sh sdf_reg --with-sdf >/dev/null
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdf_reg" \
           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdf_reg" \
             npx tsx .sdf/battery.ts
-          bash .sdx/lab.sh sdx_erase --with-sdx >/dev/null
+          # The purge also calls service_parts_erase_business() (M2, migration 20261115090000, applied in Production):
+          # the erasure lab is the 1.2b lab with M2 deployed on top (.sdp/lab.sh --with-m2), as Production is.
+          bash .sdp/lab.sh sdx_erase --with-m2 >/dev/null
           bash .sdf/erasure-prereq.sh sdx_erase
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdx_erase"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdx_erase" \
