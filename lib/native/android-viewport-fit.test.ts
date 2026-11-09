@@ -68,13 +68,15 @@ function main() {
       }
     }
     const html = {};
+    const metasInDoc: typeof meta[] = [meta];
     const listeners: Record<string, () => void> = {};
     const timers: { fn: () => void; ms: number }[] = [];
     const ctx = {
       window: { CapacitorSystemBarsAndroidInterface: {} },
       document: {
         documentElement: html,
-        querySelectorAll: () => [meta],
+        readyState: "loading",
+        querySelectorAll: () => metasInDoc,
         addEventListener: (ev: string, fn: () => void) => { listeners[ev] = fn; },
       },
       MutationObserver: FakeObserver,
@@ -85,9 +87,15 @@ function main() {
     assert.ok(onMutation && observed, "Android shell watches the document");
     // the whole document — a replaced <head> must not escape the observer
     assert.equal((observed as { target: unknown }).target, html);
-    meta.content = NEXT; // React re-renders the viewport meta
+    meta.content = NEXT; // in-place content change
     (onMutation as unknown as () => void)();
     assert.equal(meta.content, "width=device-width, initial-scale=1", "restored cover is stripped again");
+    // What React 19 actually does on hydration: it appends a NEW meta with the
+    // original content (cover), which becomes the last one Capacitor reads.
+    const appended = { ...meta, content: NEXT };
+    metasInDoc.push(appended);
+    (onMutation as unknown as () => void)();
+    assert.equal(appended.content, "width=device-width, initial-scale=1", "an appended cover meta is stripped too");
     (onMutation as unknown as () => void)(); // no cover → no write, no loop
     assert.equal(meta.content, "width=device-width, initial-scale=1");
 
@@ -98,6 +106,26 @@ function main() {
     assert.equal(timers[0].ms, 15000);
     timers[0].fn();
     assert.equal(disconnected, true, "observer disconnects after the load window");
+
+    // Run late (document already parsed): the 15 s window starts immediately.
+    {
+      let lateDisconnect = false;
+      const lateTimers: { fn: () => void; ms: number }[] = [];
+      runInNewContext(ANDROID_SHELL_VIEWPORT_SCRIPT, {
+        window: { CapacitorSystemBarsAndroidInterface: {} },
+        document: { documentElement: {}, readyState: "complete", querySelectorAll: () => [], addEventListener() {} },
+        MutationObserver: class {
+          observe() {}
+          disconnect() {
+            lateDisconnect = true;
+          }
+        },
+        setTimeout: (fn: () => void, ms: number) => { lateTimers.push({ fn, ms }); },
+      });
+      assert.equal(lateTimers.length, 1, "late run still schedules the disconnect");
+      lateTimers[0].fn();
+      assert.equal(lateDisconnect, true);
+    }
 
     // Outside the Android shell nothing is observed.
     let created = false;
@@ -150,6 +178,57 @@ function main() {
         { querySelectorAll: () => [m3] }
       )
     );
+
+    // Error-fallback document: React appends a fresh cover meta AFTER the backstop
+    // ran → the backstop's own watch strips it and re-asks Capacitor; it stops after 15 s.
+    {
+      let rereads = 0;
+      const win = { CapacitorSystemBarsAndroidInterface: { onDOMReady: () => { rereads++; } } };
+      const docMetas = [mk(NEXT)];
+      let cb: (() => void) | null = null;
+      let disconnected = false;
+      let watchedTarget: unknown = null;
+      const scheduled: { fn: () => void; ms: number }[] = [];
+      class Obs {
+        constructor(fn: () => void) {
+          cb = fn;
+        }
+        observe(target: unknown) {
+          watchedTarget = target;
+        }
+        disconnect() {
+          disconnected = true;
+        }
+      }
+      const html = {};
+      const doc = { documentElement: html, querySelectorAll: () => docMetas };
+      assert.equal(ensureAndroidShellViewport(win, doc, Obs, (fn, ms) => scheduled.push({ fn, ms })), true);
+      assert.equal(rereads, 1);
+      assert.equal(watchedTarget, html, "backstop watches the whole document");
+      docMetas.push(mk(NEXT)); // React appends the original (cover) meta
+      (cb as unknown as () => void)();
+      assert.equal(docMetas[1].content, "width=device-width, initial-scale=1", "appended cover stripped by the backstop watch");
+      assert.equal(rereads, 2, "Capacitor re-asked after the late strip");
+      (cb as unknown as () => void)(); // nothing to strip → no extra read
+      assert.equal(rereads, 2);
+      assert.equal(scheduled.length, 1);
+      assert.equal(scheduled[0].ms, 15000);
+      scheduled[0].fn();
+      assert.equal(disconnected, true, "backstop watch stops after 15 s");
+
+      // Normal page (nothing to strip): no watch is opened at all.
+      let opened = false;
+      class Obs2 {
+        constructor() {
+          opened = true;
+        }
+        observe() {}
+        disconnect() {}
+      }
+      const clean = [mk("width=device-width, initial-scale=1")];
+      assert.equal(ensureAndroidShellViewport(win, { documentElement: html, querySelectorAll: () => clean }, Obs2, () => {}), false);
+      assert.equal(opened, false, "no watch on normal pages");
+    }
 
     // NativeShellInit runs the backstop.
     const init = readFileSync(join(process.cwd(), "components/native/NativeShellInit.tsx"), "utf8");

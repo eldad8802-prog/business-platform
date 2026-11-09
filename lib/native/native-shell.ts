@@ -61,7 +61,13 @@ export async function initNativeShell(): Promise<void> {
 
   try {
     const { StatusBar, Style } = await import("@capacitor/status-bar");
-    await StatusBar.setStyle({ style: Style.Light });
+    // Android: Capacitor now pads the WebView below the status bar (see
+    // lib/native/android-viewport-fit.ts), so the strip behind the icons is the
+    // window background — light in light mode, dark grey in dark mode until the
+    // theme sets a cream windowBackground. Default makes the icons follow the
+    // system theme so they stay readable on that strip. iOS keeps Light: its
+    // strip is the cream WebView background in both modes.
+    await StatusBar.setStyle({ style: Capacitor.getPlatform() === "android" ? Style.Default : Style.Light });
   } catch (err) {
     console.error("[native-shell] status bar failed:", err);
   }
