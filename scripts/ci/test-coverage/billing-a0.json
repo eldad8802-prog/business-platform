@@ -8,6 +8,10 @@
     ".billing-a0/pdf-render.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "renders each existing type through both existing PDF renderers (HTML/Chromium, pdfmake) and compares page count + whitespace-free extracted text to the baseline; CreationDate / ModDate / Producer / Creator / ID excluded; synthetic data, no DB, no network; run on pull_request by billing-a0-characterization-ci.yml"
+    },
+    ".billing-receipt-pdf/assert-snapshot.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: the single owner-approved exception to the billing freeze (2026-11-09) — assertSnapshotV1 accepts an empty goods-line array for a pure RECEIPT only; every A0 fixture still passes, every other type with no lines is still refused, a missing/non-array lines is refused for every type, every other check still refuses a RECEIPT; run on pull_request by billing-a0-characterization-ci.yml (the PG battery .billing-receipt-pdf/battery.mts runs the real PDF service in the same workflow)"
     }
   }
 }
