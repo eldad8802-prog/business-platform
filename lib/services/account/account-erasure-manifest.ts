@@ -503,11 +503,13 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
   // declared here.
   {
     fn: "business_documents_erase",
-    migration: "20261114090000_business_documents_records",
+    // Redefined (same name, contract and grants) by the purchase-order sheet migration, which adds that table.
+    migration: "20261121090000_business_documents_po_sheets",
     models: [
       { model: "QuoteShareCopy", deleted: true, cleared: [], kept: {} },
       { model: "QuoteShareEvent", deleted: true, cleared: [], kept: {} },
       { model: "BusinessLetter", deleted: true, cleared: [], kept: {} },
+      { model: "PurchaseOrderSheet", deleted: true, cleared: [], kept: {} },
     ],
   },
 ];
