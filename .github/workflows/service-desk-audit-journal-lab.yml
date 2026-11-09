@@ -7,6 +7,8 @@
 #      duplicates, account deletion of the new journal.
 #   4. Regression on a fresh lab with P4 applied: the 1.3-0 battery (.sd3/battery.ts) and the 1.3a service battery
 #      (.sd3a/battery.ts) stay green.
+#   5. P4 PR-2: the journaled record commands (technician, intake, QA, settings) and account deletion on the P4 lab, the
+#      refusal on a 1.3-0-only lab (.sd3p4/records-battery.ts), and the 1.3a battery with the journal absent.
 #
 # Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
 
@@ -21,6 +23,11 @@ on:
       - ".sd3p4/**"
       - ".sd3/**"
       - ".sd3a/**"
+      - ".sdf/**"
+      - "lib/services/service-desk/**"
+      - "app/api/service-desk/**"
+      - "lib/services/account/**"
+      - "prisma/schema.prisma"
       - ".github/workflows/service-desk-audit-journal-lab.yml"
   workflow_dispatch:
 
@@ -96,3 +103,33 @@ jobs:
           AUTH_TOKEN_SECRET=p4-ci-synthetic-auth-secret-0123456789abcdef \
             npx tsx .sd3a/battery.ts | tee /tmp/reg13a.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/reg13a.out || { echo "the 1.3a battery regressed"; exit 1; }
+
+      - name: 5. P4 PR-2 — the journaled record commands and account deletion (records battery)
+        run: |
+          set -euo pipefail
+          # The P4 lab (1.3-0 + 20261122090000 by migrate deploy) with the purge's prerequisites, and a 1.3-0-only lab
+          # without the journal: there technician / intake / QA / settings must refuse NOT_AVAILABLE_UNTIL_AUDIT, no write.
+          bash .sd3p4/lab.sh p4rec
+          bash .sd3p4/lab.sh p4rec --deploy-only
+          bash .sdf/erasure-prereq.sh p4rec
+          bash .sd3/lab.sh p4abs --with-sd3 >/dev/null
+          O="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p4rec"
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/p4rec"
+          OWNER_URL="$O" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$O" AUTH_PLANE_ENABLED=true \
+          ABSENT_OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p4abs" \
+          ABSENT_RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/p4abs" \
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/p4rec-store" \
+          TASK_REQUEST_HMAC_KEY=p4r-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=p4r-ci \
+          AUTH_TOKEN_SECRET=p4r-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sd3p4/records-battery.ts | tee /tmp/p4rec.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/p4rec.out || { echo "the records battery is not green"; exit 1; }
+          # The 1.3a battery on the journal-less lab: every journaled command refused with no write (P4 lab: step 4).
+          bash .sd3/lab.sh p4abs2 --with-sd3 >/dev/null
+          A2="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p4abs2"
+          R2="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/p4abs2"
+          OWNER_URL="$A2" DATABASE_URL="$R2?connection_limit=20" DIRECT_URL="$R2" AUTH_DATABASE_URL="$A2" AUTH_PLANE_ENABLED=true \
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/p4abs-store" \
+          TASK_REQUEST_HMAC_KEY=p4r-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=p4r-ci \
+          AUTH_TOKEN_SECRET=p4r-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sd3a/battery.ts | tee /tmp/abs13a.out
+          grep -q '^audit journal (P4) absent$' /tmp/abs13a.out && grep -qE '^[0-9]+ passed, 0 failed$' /tmp/abs13a.out || { echo "the 1.3a battery (journal absent) is not green"; exit 1; }

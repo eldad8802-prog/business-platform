@@ -22,4 +22,12 @@ BDFN="$(sed -n '/^CREATE OR REPLACE FUNCTION public\.business_documents_erase()/
 { echo "$FN"; echo "GRANT EXECUTE ON FUNCTION public.document_supplier_link_erase_business() TO app_runtime;"
   echo "$BDFN"; echo "GRANT EXECUTE ON FUNCTION public.business_documents_erase() TO app_runtime;"; } \
   | PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL"
+# P4 (migration 20261122090000): the purge also calls service_settings_journal_erase_business(), which reads the settings
+# journal. Where the lab does not carry P4, the migration is applied VERBATIM (its table, triggers, policies, grants and
+# function — never a copy), on top of 1.3-0. A lab that already has the journal is left as it is.
+P4="$ROOT/prisma/migrations/20261122090000_service_desk_audit_journal/migration.sql"
+if [ -f "$P4" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.\"ServiceSettingsEvent\"') IS NULL")" = "t" ]; then
+  PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$P4"
+  echo "ERASURE PREREQ: P4 audit journal applied verbatim from 20261122090000"
+fi
 echo "ERASURE PREREQ READY: $DB (document_supplier_link_erase_business from 20261103090000, business_documents_erase from 20261114090000, verbatim)"

@@ -1,13 +1,16 @@
-import { serviceDeskRoute } from "@/lib/services/service-desk/service-desk-http";
-import { ServiceDeskError } from "@/lib/services/service-desk/service-desk-errors";
+import { idempotencyKeyOf, json, jsonBody, positiveId, serviceDeskRoute } from "@/lib/services/service-desk/service-desk-http";
+import { assignTechnician } from "@/lib/services/service-desk/service-case.service";
 
 /**
- * PUT { staffMemberId, from } — assign a technician — CLOSED until the P4 audit journal exists (owner decision 2026-11-09, option B): this write would leave no
- * audit event. The edge still authenticates and applies the access gate first (401 / 404 / 403 READ_ONLY); then the
- * request is refused before its body is read or anything is written. No fake success.
+ * PUT { staffMemberId: number | null, expectedVersion } + Idempotency-Key — assign an existing technician of the business,
+ * or none (the owner handles it). Journaled (P4): the change and its audit event in one transaction. Without the P4 journal
+ * in the database the service answers NOT_AVAILABLE_UNTIL_AUDIT and writes nothing.
  */
-export async function PUT(req: Request) {
-  return serviceDeskRoute(req, "write", async () => {
-    throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT");
+export async function PUT(req: Request, context: { params: Promise<{ id: string }> }) {
+  return serviceDeskRoute(req, "write", async ({ principal }) => {
+    const id = positiveId((await context.params).id);
+    const key = idempotencyKeyOf(req);
+    const b = await jsonBody(req);
+    return json(await assignTechnician(principal, id, { staffMemberId: b.staffMemberId, expectedVersion: b.expectedVersion }, { idempotencyKey: key }));
   });
 }
