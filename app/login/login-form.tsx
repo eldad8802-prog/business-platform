@@ -503,14 +503,17 @@ export default function LoginForm({
             <DubizLogo height={38} priority />
           </div>
 
-          <div style={badgeStyle}>
+          <div style={badgeStyle} data-shell-hide="android">
             <span>🔐</span>
             <span>{t("account.auth.login.badge")}</span>
           </div>
 
-          <h1 style={titleStyle}>{t("account.auth.login.title")}</h1>
+          <h1 style={titleStyle}>
+            <span data-shell-hide="android">{t("account.auth.login.title")}</span>
+            <span data-shell-only="android">{t("account.auth.login.appTitle")}</span>
+          </h1>
 
-          <p style={subtitleStyle}>{t("account.auth.login.subtitle")}</p>
+          <p style={subtitleStyle} data-shell-hide="android">{t("account.auth.login.subtitle")}</p>
         </div>
 
         <form style={bodyStyle} onSubmit={handleLogin} noValidate>
@@ -555,7 +558,7 @@ export default function LoginForm({
             {touched.email && errors.email ? (
               <p id="login-email-msg" role="alert" style={fieldErrorStyle}>{errors.email}</p>
             ) : (
-              <p id="login-email-msg" style={helperTextStyle}>
+              <p id="login-email-msg" style={helperTextStyle} data-shell-hide="android">
                 {t("account.auth.login.emailHelp")}
               </p>
             )}
@@ -609,7 +612,7 @@ export default function LoginForm({
             {touched.password && errors.password ? (
               <p id="login-password-msg" role="alert" style={fieldErrorStyle}>{errors.password}</p>
             ) : (
-              <p id="login-password-msg" style={helperTextStyle}>{t("account.auth.login.passwordHelp")}</p>
+              <p id="login-password-msg" style={helperTextStyle} data-shell-hide="android">{t("account.auth.login.passwordHelp")}</p>
             )}
             {passwordResetEnabled ? (
               <p style={{ ...helperTextStyle, marginTop: 6 }}>
@@ -650,7 +653,7 @@ export default function LoginForm({
             {loading ? t("account.auth.login.submitting") : t("account.auth.login.submit")}
           </PrimaryCta>
 
-          <div style={dividerStyle}>
+          <div style={dividerStyle} data-shell-hide="android">
             <div style={lineStyle} />
             <span>{t("account.auth.login.divider")}</span>
             <div style={lineStyle} />

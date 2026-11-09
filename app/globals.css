@@ -289,3 +289,13 @@ select {
  * source was correct; only the artifact was stale. Touching this file changes
  * its content hash and forces the compile.
  */
+
+/* Android app only (lib/native/android-shell-entry.ts sets <html data-shell="android"> before the
+   first paint): [data-shell-hide="android"] is left out of the app, [data-shell-only="android"]
+   appears only there. Neither changes anything in a browser or on iPhone. */
+html[data-shell="android"] [data-shell-hide="android"] {
+  display: none !important;
+}
+html:not([data-shell="android"]) [data-shell-only="android"] {
+  display: none !important;
+}

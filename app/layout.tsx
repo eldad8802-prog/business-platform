@@ -7,6 +7,7 @@ import { NavTrailInit } from "@/components/navigation/nav-trail-init";
 import { I18nProvider } from "@/components/i18n/I18nProvider";
 import { localeDirection } from "@/lib/i18n/config";
 import { getRequestLocale } from "@/lib/i18n/server";
+import { ANDROID_SHELL_ENTRY_SCRIPT } from "@/lib/native/android-shell-entry";
 import { ANDROID_SHELL_VIEWPORT_SCRIPT } from "@/lib/native/android-viewport-fit";
 
 // Heebo is the official Dubiz typeface (Design System v1). It is Hebrew-first
@@ -66,7 +67,17 @@ export default async function RootLayout({
       lang={locale}
       dir={localeDirection(locale)}
       className={`${heebo.variable} ${rubik.variable} h-full antialiased`}
+      // The Android shell entry script below sets data-shell on <html> before React hydrates.
+      suppressHydrationWarning
     >
+      <head>
+        {/*
+          Android shell only: marks the app (app-only CSS from the first frame) and opens it on
+          /login instead of the marketing page (see lib/native/android-shell-entry.ts). In <head>
+          so it runs before anything is painted.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: ANDROID_SHELL_ENTRY_SCRIPT }} />
+      </head>
       <body className="min-h-screen w-full overflow-x-hidden flex flex-col">
         {/* No dictionary is serialized into the page: Hebrew is bundled in I18nProvider, and English is
             its own cached client chunk that I18nProvider loads only for an English page (see
