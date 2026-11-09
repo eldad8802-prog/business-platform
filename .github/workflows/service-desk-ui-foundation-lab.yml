@@ -1,8 +1,9 @@
 name: service desk UI foundation — 1.3-0 migration lab (ephemeral PG17)
 
-# Service Desk 1.3-0 / PR-1: migration 20261120090000_service_desk_ui_foundation, proven on a throwaway PostgreSQL
-# 17 with synthetic data only. The lab is the Production topology the migration is released onto: 1.2a, 1.2b and M2
-# applied (.sdp/lab.sh --with-m2), every migration before 1.3-0 in the ledger, then `prisma migrate deploy`.
+# Service Desk 1.3-0: migration 20261120090000_service_desk_ui_foundation (PR-1) and its PR-2 code (Prisma models,
+# account-erasure wiring, the post-commit object stage), proven on a throwaway PostgreSQL 17 with synthetic data only.
+# The lab is the Production topology the migration is released onto: 1.2a, 1.2b and M2 applied (.sdp/lab.sh --with-m2),
+# every migration before 1.3-0 in the ledger, then `prisma migrate deploy`.
 # Nothing here connects to Production or Preview, and nothing applies anything there.
 
 on:
@@ -13,6 +14,14 @@ on:
       - "ops/evidence/service-desk-ui-foundation-*.sql"
       - ".sd3/**"
       - ".github/workflows/service-desk-ui-foundation-lab.yml"
+      - "prisma/schema.prisma"
+      - ".sdf/lab.sh"
+      - ".sdx/lab.sh"
+      - ".sdp/lab.sh"
+      - "lib/services/account/**"
+      - "lib/services/service-desk/erasure/**"
+      - "lib/services/service-desk/storage/**"
+      - "lib/storage/**"
   workflow_dispatch:
 
 permissions:
@@ -89,8 +98,10 @@ jobs:
               echo "$n names a 1.3-0 object"; exit 1
             fi
           done
-          if grep -nE "model ($new)\b" prisma/schema.prisma; then echo "schema.prisma models 1.3-0 — PR-2's job, not PR-1's"; exit 1; fi
-          echo "the migration names only its own objects and the tables it builds on; no other migration names its objects; no schema models"
+          # PR-2 models the eight tables in schema.prisma (all of them, nothing else of 1.3-0).
+          got=$(grep -oE "^model ($new) " prisma/schema.prisma | sort -u | wc -l)
+          test "$got" -eq 8 || { echo "schema.prisma must model exactly the eight 1.3-0 tables, found $got"; exit 1; }
+          echo "the migration names only its own objects and the tables it builds on; no other migration names its objects; schema.prisma models its eight tables"
 
       - name: 1. Baseline (pending) — PREFLIGHT passes whole; the proof refuses; checks 1, 3, 4, 5, 6 and 17 are live
         run: |
@@ -246,6 +257,10 @@ jobs:
           npx tsx .sdf/erasure-battery.ts
           npx tsx .sd3/purge-battery.ts | tee /tmp/purge.out
           grep -qxE '6 passed, 0 failed' /tmp/purge.out || { echo "the purge battery is not 6/6"; exit 1; }
+          # PR-2 — the object stage after commit (delete, verify, record; the hour; failures, retries, concurrency,
+          # isolation, refused uploads), real local storage in a temp directory, same database, its own businesses.
+          npx tsx .sd3/storage-erasure-battery.ts | tee /tmp/storage-erasure.out
+          grep -qxE '21 passed, 0 failed' /tmp/storage-erasure.out || { echo "the storage-erasure battery is not 21/21"; exit 1; }
 
       - name: 7. Atomicity — the migration failing on its last statement leaves nothing of it behind
         run: |

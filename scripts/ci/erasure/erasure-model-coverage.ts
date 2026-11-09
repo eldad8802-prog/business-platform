@@ -160,6 +160,15 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   // proven by the contract (C24–C27).
   ServicePart: { disposition: "ERASURE_MANAGED" },
   ServicePartEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk UI foundation 1.3-0 (migration 20261120090000). Who acted, a warranty change reason and a reminder
+  // note are erased in place by service_desk_ui_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the
+  // contract (C24–C27); their stored objects go after commit (OBJECT_SURFACES).
+  ServiceTextVersion: { disposition: "ERASURE_MANAGED" },
+  ServiceIntakeTermsSnapshot: { disposition: "ERASURE_MANAGED" },
+  ServiceWarrantyOffer: { disposition: "ERASURE_MANAGED" },
+  ServiceIntakePhoto: { disposition: "ERASURE_MANAGED" },
+  ServiceShareEvent: { disposition: "ERASURE_MANAGED" },
+  ServicePhoneReminder: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
   Customer: { disposition: "ERASURE_MANAGED" },
@@ -440,6 +449,14 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // Business documents (migration 20261114090000): technical records with no text.
   BusinessDocumentFile: operational("one stored object of the private business-docs domain: an object key (CHECK-limited to the business's prefix), a digest, a size, a state, a lease token and times — no text"),
   BusinessDocumentRequest: operational("a server-issued idempotency key: an operation token, a random uuid, a request digest, a state, lease and result ids, the issuing user id and times — no text"),
+  // Service Desk 1.3-0: the durable object-erasure job of an account deletion — a state, counts and times. Its one
+  // text column, lastError, is written only by service_storage_erasure_record_pass() with a FIXED code from
+  // SERVICE_ERASURE_ERROR_CODES (never a message, key or path); the runtime holds SELECT only, so no Prisma writer.
+  ServiceStorageErasure: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "the durable object-erasure job of an account deletion: a state, attempt and object counts, times and a fixed error code",
+    evidence: { textualSurface: ["lastError"], writeSites: [] },
+  },
   BusinessDocumentErasure: operational("the durable job record of an account erasure of the business-documents tables: a state and two times"),
   ServiceCaseEvent: operational("append-only service case journal: event type, action, statuses, ids, times and a closed payload of short tokens and numbers (no text by DB CHECK); the acting user and the request digest are erased with the account by service_erase_business()"),
   ServiceQuote: operational("one sent quote version: ids, an integer total, ILS, content hashes and the private PDF object key (CHECK-limited to the business's service prefix), state and times — no text; the sending and deciding users are erased with the account by service_erase_business()"),
@@ -653,6 +670,13 @@ const decide = (question: string, target = "E2"): ModelCoverage => ({
 });
 
 const DECIDE: Record<string, ModelCoverage> = {
+  // Service Desk 1.3-0 — not decided by default (owner, 1.3-0 PR-2 ש-3: no automatic retention). No writer exists yet.
+  ServiceSettings: decide(
+    "the business's warranty template scope / exclusions are owner free text and defaultStaffMemberId names a staff " +
+      "member; service_desk_ui_erase_business() does not touch the row and the table guard refuses runtime writes once " +
+      "the business is being deleted — keep (with a basis), or scrub through a NEW database function (a migration)?",
+    "SD-1.3a"
+  ),
   Business: decide(
     "Business.name survives. For a sole trader it IS the owner's name — but retained invoices " +
       "name the same business by legal necessity, so anonymising it may be incoherent. Product decision."

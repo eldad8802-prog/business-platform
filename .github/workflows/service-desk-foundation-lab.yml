@@ -39,6 +39,8 @@ on:
       - "prisma/migrations/20261113090000_service_external_work/**"
       - ".sdp/lab.sh"
       - "prisma/migrations/20261115090000_service_parts/**"
+      - ".sd3/lab.sh"
+      - "prisma/migrations/20261120090000_service_desk_ui_foundation/**"
       - ".github/workflows/service-desk-foundation-lab.yml"
       - ".github/workflows/prod-readonly-evidence.yml"
       - "prisma/schema.prisma"
@@ -163,13 +165,13 @@ jobs:
             npx tsx .sdf/battery.ts
 
       - name: 3b. Account erasure through the REAL adapter (purgeOperationalData) as the runtime login
-        # The purge also calls service_external_erase_business() (1.2b, migration 20261113090000) and
-        # service_parts_erase_business() (M2, migration 20261115090000), both applied in Production, so the erasure is
-        # proven where Production is: the foundation lab with 1.2b and M2 deployed on top (.sdp/lab.sh runs
-        # .sdx/lab.sh --with-sdx — itself .sdf/lab.sh --with-sdf, then 1.2b — and then `migrate deploy` of M2).
+        # The purge also calls service_external_erase_business() (1.2b, 20261113090000), service_parts_erase_business()
+        # (M2, 20261115090000) and service_desk_ui_erase_business() (1.3-0, 20261120090000), all applied in Production,
+        # so the erasure is proven where Production is: the foundation lab with 1.2b, M2 and 1.3-0 deployed on top
+        # (.sd3/lab.sh runs .sdp/lab.sh --with-m2 — the chain .sdf → .sdx → .sdp — then `migrate deploy` of 1.3-0).
         run: |
           set -euo pipefail
-          bash .sdp/lab.sh sdf_erase --with-m2 >/dev/null
+          bash .sd3/lab.sh sdf_erase --with-sd3 >/dev/null
           bash .sdf/erasure-prereq.sh sdf_erase
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdf_erase"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdf_erase" \

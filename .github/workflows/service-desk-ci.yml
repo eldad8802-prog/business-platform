@@ -7,6 +7,8 @@ on:
   pull_request:
     paths:
       - "lib/services/service-desk/**"
+      - "lib/storage/**"
+      - "lib/services/feature-access/platform-feature-catalog.ts"
       - "scripts/ci/test-coverage/service-desk-core.json"
       - ".github/workflows/service-desk-ci.yml"
   workflow_dispatch:
@@ -29,5 +31,7 @@ jobs:
       - run: npx tsx lib/services/service-desk/service-case-core.test.ts
       - run: npx tsx lib/services/service-desk/external-work-core.test.ts
       - run: npx tsx lib/services/service-desk/parts-core.test.ts
+      - run: npx tsx lib/services/service-desk/storage/service-storage-keys.test.ts
+      - run: npx tsx lib/services/service-desk/service-desk-access.test.ts
       - run: npx eslint lib/services/service-desk
       - run: node scripts/ci/security-test-coverage.mjs

@@ -445,10 +445,21 @@ export type ServiceTransitionDecision =
 export interface RepeatCaseInput {
   parent: { status: ServiceCaseStatus; outcome: ServiceOutcome | null; deliveredOn: string | null };
   openedOn: string;
-  /** From the business's settings; the core has no default (owner decision ש6 is open). */
-  repairWarrantyDays: number;
+  /**
+   * The business's COMMERCIAL repair warranty in days, from its settings — or null when the business set none. The
+   * core has no default (owner decision ש6). null never means "no warranty": the customer's rights under the law apply
+   * whatever this says, and no wording may present a repeat as carrying no warranty at all (1.3 plan, warranty spec).
+   */
+  repairWarrantyDays: number | null;
 }
 
 export type RepeatCaseDecision =
-  | { ok: true; withinRepairWarranty: boolean; daysSinceDelivery: number }
+  | {
+      ok: true;
+      /** Within the business's commercial repair warranty. Always false when none is set — statutory rights unaffected. */
+      withinRepairWarranty: boolean;
+      /** false: the business set no commercial repair warranty (repairWarrantyDays null) — not "the customer has none". */
+      commercialWarrantySet: boolean;
+      daysSinceDelivery: number;
+    }
   | { ok: false; violations: readonly ServiceCaseViolation[] };

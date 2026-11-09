@@ -350,6 +350,18 @@ console.log("  4.2 repeat repair");
   const backwards = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-05" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
   check("a repeat opened before the delivery is refused", !backwards.ok);
   check("the closed parent itself never reopens", !ev(ctx({ status: "CLOSED", outcome: "REPAIRED" }), { type: "START_DIAGNOSIS" }, OWNER).ok);
+  check("a set warranty is reported as set", r.ok && r.commercialWarrantySet === true);
+  const none = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", repairWarrantyDays: null });
+  check("no commercial warranty set (null) → a valid repeat, never within a commercial warranty", none.ok && !none.withinRepairWarranty && none.daysSinceDelivery === 2);
+  check("… and the decision says none was SET — not that the customer has no warranty", none.ok && none.commercialWarrantySet === false);
+  const zero = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-03" }, openedOn: "2026-11-03", repairWarrantyDays: 0 });
+  check("0 days is a set warranty (same-day repeat is within it), distinct from null", zero.ok && zero.commercialWarrantySet && zero.withinRepairWarranty);
+  const negative = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", repairWarrantyDays: -1 });
+  check("a negative warranty is refused", !negative.ok);
+  const fractional = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", repairWarrantyDays: 1.5 });
+  check("a fractional warranty is refused", !fractional.ok);
+  const missing = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", repairWarrantyDays: undefined as unknown as null });
+  check("undefined is not null — an absent value is refused, never read as \"none set\"", !missing.ok);
 }
 
 console.log("  4.3 not repairable");
