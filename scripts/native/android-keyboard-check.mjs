@@ -18,6 +18,10 @@ const adb = (...a) => { try { return execFileSync("adb", a, { timeout: 30000, ma
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const [device] = await android.devices();
+adb("shell", "am", "force-stop", PKG);
+await sleep(1500);
+adb("shell", "am", "start", "-n", `${PKG}/.MainActivity`);
+await sleep(10000);
 const wv = await device.webView({ pkg: PKG }, { timeout: 60000 });
 const page = await wv.page();
 let loginCalls = 0;
