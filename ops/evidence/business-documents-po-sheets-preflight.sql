@@ -11,7 +11,7 @@
 --     recorded and finished — none missing, none only started, none rolled back — and the ledger holds no row for
 --     any name outside that list (no unknown or extra migration);
 --   * none of its objects exists yet: the PurchaseOrderSheet table, the PURCHASE_ORDER_SHEET enum value on either
---     type, the link guard function; the erase function does not yet mention the new table;
+--     type, the link guard function; neither the erase function nor the file guard mentions the new table yet;
 --   * what it builds on exists: the six business documents tables, the four guard functions its triggers reuse, the
 --     erase function (SECURITY DEFINER, executable by app_runtime), the (businessId, id) key of BusinessDocumentFile,
 --     the id and businessId columns of SupplierPurchaseDraft, app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;
@@ -19,8 +19,9 @@
 --   * INFO, to be compared with the evidence run after (none of it may move): the business override count of the
 --     flag, the billing catalog fingerprint, an inventory fingerprint (SupplierPurchaseDraft and PurchaseOrder).
 --
--- The expected list is the repository at main f7e3b849 (#1032): every migration directory sorting before
--- 20261121090000_business_documents_po_sheets. A migration that lands on main later makes check 6 or 3 FAIL.
+-- The expected list is every migration directory sorting before 20261121090000_business_documents_po_sheets in the
+-- repository (main f7e3b849, unchanged through 42230dc8). A migration APPLIED later makes check 6 or 3 FAIL; one only
+-- merged stays pending and is left to release-migrate (approved prefix only).
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -49,6 +50,7 @@
 \echo '20 billing catalog fingerprint (INFO: must equal check 19 of the evidence run)'
 \echo '21 inventory fingerprint, SupplierPurchaseDraft + PurchaseOrder (INFO: must equal check 20 of the evidence run)'
 \echo '22 finished migrations in the ledger (informational)'
+\echo '23 business_documents_file_guard exists and does not yet mention PurchaseOrderSheet'
 
 WITH expected(name) AS (
   VALUES
@@ -330,6 +332,8 @@ WITH expected(name) AS (
                      FROM pg_attribute WHERE attrelid IN ('public."SupplierPurchaseDraft"'::regclass, 'public."PurchaseOrder"'::regclass) AND attnum > 0 AND attacl IS NOT NULL), '')
     )::bigint), NULL
   UNION ALL SELECT 22, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL), NULL
+  UNION ALL SELECT 23, (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'business_documents_file_guard'
+      AND prosrc NOT LIKE '%PurchaseOrderSheet%'), 1
 )
 SELECT n,
        CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,

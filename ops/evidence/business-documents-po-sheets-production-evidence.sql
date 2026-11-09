@@ -11,7 +11,8 @@
 --   * PURCHASE_ORDER_SHEET on both enum types;
 --   * the link guard is an invoker, pg_temp last, not executable by PUBLIC;
 --   * business_documents_erase now covers the table, is still SECURITY DEFINER, pg_temp last, executable by
---     app_runtime and not by PUBLIC;
+--     app_runtime and not by PUBLIC; business_documents_file_guard counts a saved sheet's file as referenced and keeps
+--     the quote-share and letter conditions, invoker, pg_temp last, not executable by PUBLIC;
 --   * five triggers on the table, all enabled; three foreign keys (Business, BusinessDocumentFile, User) and none to
 --     SupplierPurchaseDraft; no trigger on a billing or inventory table calls the link guard;
 --   * no row in the table (nothing writes it before the application release);
@@ -43,6 +44,7 @@
 \echo '18 business overrides of business_documents (INFO: must equal check 19 of the preflight run)'
 \echo '19 billing catalog fingerprint (INFO: must equal check 20 of the preflight run)'
 \echo '20 inventory fingerprint, SupplierPurchaseDraft + PurchaseOrder (INFO: must equal check 21 of the preflight run)'
+\echo '21 business_documents_file_guard counts sheets, quote copies and letters: invoker, pg_temp last, PUBLIC no'
 
 WITH t AS (
   SELECT k.oid, k.relname, k.relacl, k.relowner, k.relrowsecurity, k.relforcerowsecurity FROM pg_class k
@@ -52,7 +54,7 @@ WITH t AS (
                    AND finished_at IS NOT NULL AND rolled_back_at IS NULL) AS observed, 1 AS want
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL), 0
   UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261121090000_business_documents_po_sheets'
-                         AND checksum = 'd15f7d30f101993a982f11519273f70e59765fc0b8624fa62a49c3c23879de24'), 1
+                         AND checksum = 'f0bfb8ed135fec62ecefb8a1ab5e0e168bab5641ea435892b231351752504e6f'), 1
   UNION ALL SELECT 4, (SELECT count(*) FROM t WHERE t.relname = 'PurchaseOrderSheet' AND t.relrowsecurity AND t.relforcerowsecurity), 1
   UNION ALL SELECT 5, (SELECT count(*) FROM pg_policy p JOIN t ON t.oid = p.polrelid
       WHERE (p.polname = 'purchase_order_sheet_tenant_select' AND p.polcmd = 'r')
@@ -117,6 +119,10 @@ WITH t AS (
       || coalesce((SELECT string_agg(attrelid::regclass::text || '.' || attname || coalesce(attacl::text, ''), ',' ORDER BY attrelid, attnum)
                      FROM pg_attribute WHERE attrelid IN ('public."SupplierPurchaseDraft"'::regclass, 'public."PurchaseOrder"'::regclass) AND attnum > 0 AND attacl IS NOT NULL), '')
     )::bigint), NULL
+  UNION ALL SELECT 21, (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname = 'business_documents_file_guard'
+      AND NOT p.prosecdef AND NOT has_function_privilege('public', p.oid, 'EXECUTE')
+      AND array_to_string(p.proconfig, ',') LIKE '%search_path=pg_catalog, public, pg_temp'
+      AND p.prosrc LIKE '%public."PurchaseOrderSheet" s%' AND p.prosrc LIKE '%public."QuoteShareCopy" c%' AND p.prosrc LIKE '%public."BusinessLetter" l%'), 1
 )
 SELECT n,
        CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,

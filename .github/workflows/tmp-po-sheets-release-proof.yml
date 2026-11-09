@@ -1,0 +1,104 @@
+# TEMPORARY — lab proof of the two read-only release files for 20261121090000_business_documents_po_sheets.
+# Removed from this PR once the run is recorded. Synthetic PG17 lab; ZERO secrets; NO environment; nothing remote.
+name: tmp — purchase-order sheet release files, lab proof
+
+on:
+  pull_request:
+    paths:
+      - "ops/evidence/business-documents-po-sheets-*.sql"
+      - ".github/workflows/tmp-po-sheets-release-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    name: Preflight before, real migrate deploy, evidence after, preflight refuses after (PG17, Production topology)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: rp_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: rp_ci_synthetic_super_pw
+      LAB_PASSWORD: rp_ci_synthetic_role_pw
+      OWNER_URL: postgresql://lab_owner:rp_ci_synthetic_role_pw@localhost:5432/rp
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Tree = main + the #1030 migration (and its lab script), exactly what main holds after #1030 merges
+        run: |
+          set -euo pipefail
+          git fetch -q origin feat/business-documents-po-sheet-migration
+          git checkout FETCH_HEAD -- prisma/migrations/20261121090000_business_documents_po_sheets .business-documents/lab.sh
+          sha256sum prisma/migrations/20261121090000_business_documents_po_sheets/migration.sql
+          ls prisma/migrations | grep -v migration_lock | sort | awk '$0 < "20261121090000_business_documents_po_sheets"' | wc -l
+      - name: Static guard of prod-readonly-evidence.yml, on both files
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          BOUNDARY='(default_)?transaction_read_only|read[[:space:]]+write|session[[:space:]]+characteristics|reset[[:space:]]+all|session[[:space:]]+authorization'
+          for f in ops/evidence/business-documents-po-sheets-preflight.sql ops/evidence/business-documents-po-sheets-production-evidence.sql; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "forbidden keyword"; exit 1; fi
+            if grep -inE "$BOUNDARY" "$f"; then echo "boundary touched"; exit 1; fi
+            echo "guard clean: $f"
+          done
+      - name: Proof
+        run: |
+          set -euo pipefail
+          PO=20261121090000_business_documents_po_sheets
+          run() { PGOPTIONS="-c default_transaction_read_only=on" psql -X -v ON_ERROR_STOP=1 -At -F'|' "$OWNER_URL" -f "$1" | tee "$2"; }
+          fails() { grep -E '^[0-9]+\|FAIL\|' "$1" | cut -d'|' -f1 | tr '\n' ' ' | sed 's/ $//'; }
+          info() { grep -E "^$2\|INFO\|" "$1" | cut -d'|' -f3; }
+
+          echo "== lab: production topology; every migration before ours recorded; ours attempted and rolled back whole"
+          bash .business-documents/lab.sh rp --broken-po
+          # Lab only: the failed attempt leaves an unfinished ledger row; Production has none (it was never attempted).
+          psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -c "DELETE FROM \"_prisma_migrations\" WHERE migration_name = '$PO' AND finished_at IS NULL"
+
+          echo "== 1. preflight on the pending database"
+          run ops/evidence/business-documents-po-sheets-preflight.sql /tmp/pre.out
+          [ -z "$(fails /tmp/pre.out)" ] || { echo "PREFLIGHT FAILED: $(fails /tmp/pre.out)"; exit 1; }
+          echo "PREFLIGHT: $(grep -c '|PASS|' /tmp/pre.out) PASS, $(grep -c '|INFO|' /tmp/pre.out) INFO, 0 FAIL"
+
+          echo "== 2. prisma migrate deploy — the release-migrate mechanism — on the full tree"
+          TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma"; cp -r prisma/migrations "$TMP/prisma/"; cp prisma/schema.prisma "$TMP/prisma/"
+          DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" npx prisma migrate deploy --schema "$TMP/prisma/schema.prisma" | tee /tmp/deploy.log
+          [ "$(grep -c 'Applying migration' /tmp/deploy.log)" = 1 ] && grep -q "Applying migration \`$PO\`" /tmp/deploy.log \
+            || { echo "deploy did not apply exactly $PO"; exit 1; }
+
+          echo "== 3. evidence after"
+          run ops/evidence/business-documents-po-sheets-production-evidence.sql /tmp/ev.out
+          [ -z "$(fails /tmp/ev.out)" ] || { echo "EVIDENCE FAILED: $(fails /tmp/ev.out)"; exit 1; }
+          echo "EVIDENCE: $(grep -c '|PASS|' /tmp/ev.out) PASS, $(grep -c '|INFO|' /tmp/ev.out) INFO, 0 FAIL"
+          for p in "19 18" "20 19" "21 20"; do set -- $p
+            [ "$(info /tmp/pre.out $1)" = "$(info /tmp/ev.out $2)" ] || { echo "INFO moved: preflight $1 vs evidence $2"; exit 1; }
+            echo "INFO preflight $1 = evidence $2 = $(info /tmp/ev.out $2)"
+          done
+
+          echo "== 4. the preflight refuses after the release"
+          run ops/evidence/business-documents-po-sheets-preflight.sql /tmp/pre2.out
+          echo "preflight after: FAIL at $(fails /tmp/pre2.out)"
+          [ "$(fails /tmp/pre2.out)" = "2 8 9 10 11 23" ] || { echo "unexpected refusal set"; exit 1; }
+          echo "ALL PROOFS PASSED"
