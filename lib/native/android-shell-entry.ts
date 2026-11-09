@@ -21,6 +21,13 @@ export const ANDROID_SHELL_ENTRY_SCRIPT = `(function(){try{if(typeof window.Capa
 /** The marketing routes the Android app never shows (`/` is rewritten to /home on the apex host). */
 export const ANDROID_SHELL_MARKETING_PATHS: readonly string[] = ["/", "/home"];
 
+/**
+ * The app's root screens: sign-in and the business home. Android back there minimizes the app.
+ * The entry redirect leaves the launch URL (`/`) in the WebView's history, so history.back()
+ * from either would land on `/` and bounce straight back — back would seem to do nothing.
+ */
+export const ANDROID_SHELL_ROOT_PATHS: readonly string[] = ["/login", "/app"];
+
 type EntryWindow = {
   CapacitorSystemBarsAndroidInterface?: unknown;
   location: { replace(url: string): void };

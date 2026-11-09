@@ -20,6 +20,7 @@
  */
 
 import { Capacitor } from "@capacitor/core";
+import { ANDROID_SHELL_ROOT_PATHS } from "@/lib/native/android-shell-entry";
 
 export function isNative(): boolean {
   return Capacitor.isNativePlatform();
@@ -79,7 +80,10 @@ export async function initNativeShell(): Promise<void> {
   try {
     const { App } = await import("@capacitor/app");
     App.addListener("backButton", ({ canGoBack }) => {
-      if (canGoBack || window.history.length > 1) {
+      // Root screens (sign-in, business home) minimize — never back to the launch URL.
+      if (ANDROID_SHELL_ROOT_PATHS.includes(window.location.pathname)) {
+        void App.minimizeApp();
+      } else if (canGoBack || window.history.length > 1) {
         window.history.back();
       } else {
         void App.minimizeApp();
