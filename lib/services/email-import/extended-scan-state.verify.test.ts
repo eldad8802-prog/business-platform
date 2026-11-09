@@ -322,7 +322,7 @@ check("N2 dates, type labels and the human part of the scoring reason", () => {
 check("N3 every new label exists in Hebrew and English", () => {
   const he = (documentsHe as unknown as { email: Record<string, string> }).email;
   const en = (documentsEn as unknown as { email: Record<string, string> }).email;
-  const keys = ["scanButton", "period30", "period90", "period365", "periodName30", "periodName90", "periodName365", "loadMore", "stateComplete", "stateHasMore", "stateCap", "stateIncomplete", "stateStopped", "stateBudget", "stateBudgetWait", "stateUnavailable", "stateExpired", "stateError", "basicScan", "groupRecommended", "groupPossible", "groupLow", "groupReadOnly", "confirmImportTitle", "stopImport", "importAllRecommended", "staleResults", "confirmClearTitle", "busyImporting"];
+  const keys = ["scanButton", "period30", "period90", "period365", "periodName30", "periodName90", "periodName365", "loadMore", "stateComplete", "stateHasMore", "stateCap", "stateIncomplete", "stateStopped", "stateBudget", "stateBudgetWait", "stateUnavailable", "stateExpired", "stateError", "basicScan", "groupRecommended", "groupPossible", "groupLow", "groupPossibleNote", "groupLowNote", "importAnyway", "importForReview", "confirmPossible", "confirmLowScore", "confirmImportTitle", "stopImport", "importAllRecommended", "staleResults", "confirmClearTitle", "busyImporting"];
   for (const k of keys) {
     assert.ok(he[k], `he ${k}`);
     assert.ok(en[k], `en ${k}`);
@@ -361,11 +361,9 @@ check("W2 bulk import: recommended only, behind a confirmation, stoppable", () =
   assert.equal((src.match(/\bimportAllRecommended\(\)/g) ?? []).length, 2, "declared once, called once");
   assert.equal((src.match(/void importAllRecommended\(\)/g) ?? []).length, 1, "called only from the confirmation");
   assert.match(src, /if \(stopImportRef\.current\) break;/);
-  // Possibly-relevant and low-score rows are read-only.
-  assert.match(src, /renderCards\(possible, true\)/);
-  assert.match(src, /renderCards\(lowScore, true\)/);
-  assert.match(src, /renderTable\(possible, true,/);
-  assert.match(src, /renderTable\(lowScore, true,/);
+  // B4 (2026-11-09): possibly-relevant and low-score rows import one at a time, only from their
+  // own confirmation (pinned in gmail-b4-manual-import.verify.test.ts); never in bulk (above).
+  assert.match(src, /const confirmFirst = attachment\.bucket !== "recommended";/);
 });
 
 check("W3 during an import nothing that changes the list can start", () => {

@@ -6,7 +6,7 @@
  * opening and choosing a period never scan; the scan uses the chosen period + account; "טען עוד"
  * appends without duplicates; import statuses survive; nothing that changes the list during an
  * import; partial / stopped / quota / expired are never shown as success and never wipe results;
- * low-score files are shown read-only; Hebrew + English names; the phone's import bar is never
+ * low-score files are shown with a confirm-first import only (B4); Hebrew + English names; the phone's import bar is never
  * under the shell navigation and the last card is reachable; import requests are unchanged; the
  * legacy /sync is used only by an explicit basic scan.
  *
@@ -210,7 +210,8 @@ try {
       await second.context.close();
     }
 
-    // 10. Low score shown read-only; possible read-only.
+    // 10. Low score and possible: shown with the reason; since B4 (2026-11-09) only a confirm-first
+    // "קלוט בכל זאת" button (no direct import button).
     {
       const { context, page } = await open(browser, vp, { script: [{ json: pageBody(PAGE1) }] });
       await vis(page, ".dz-email-scan-button").click();
@@ -218,8 +219,8 @@ try {
       await vis(page, ".dz-email-low-toggle").click();
       const low = row(page, vp, keyOf(PAGE1[4]));
       const poss = row(page, vp, keyOf(PAGE1[3]));
-      check(`${label}: 10. low-score files visible after opening, with a reason, no import button`, (await low.count()) === 1 && (await low.locator("button").count()) === 0 && (await low.innerText()).includes("סיבה:"));
-      check(`${label}: possibly-relevant files visible, no import button`, (await poss.count()) === 1 && (await poss.locator("button").count()) === 0);
+      check(`${label}: 10. low-score files visible after opening, with a reason, only the confirm-first button`, (await low.count()) === 1 && (await low.locator(".dz-email-card-import-anyway").count()) === 1 && (await low.locator(".dz-email-card-import").count()) === 0 && (await low.innerText()).includes("סיבה:"));
+      check(`${label}: possibly-relevant files visible, only the confirm-first button`, (await poss.count()) === 1 && (await poss.locator(".dz-email-card-import-anyway").count()) === 1 && (await poss.locator(".dz-email-card-import").count()) === 0);
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `b3b-${label}-2-groups.png`), fullPage: !isDesktop(vp) });
       await context.close();
     }

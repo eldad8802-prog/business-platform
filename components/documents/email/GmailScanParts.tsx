@@ -1,8 +1,9 @@
 "use client";
 
 // Building blocks of the extended Gmail scan on /documents/email (B3-b, 2026-11-09):
-// the period picker, one attachment card (phone-first) and a group header. Presentation only —
-// no fetching, no scoring, no import logic; the page owns all of that.
+// the period picker, one attachment card (phone-first) and a group header; B4 adds the in-place
+// confirmation for importing a possibly-relevant or low-score file. Presentation only — no
+// fetching, no scoring, no import logic; the page owns all of that.
 
 import type { ReactNode } from "react";
 import { TOKEN, chipActionStyle, glassActionStyle } from "@/lib/design/documents-theme";
@@ -94,42 +95,92 @@ export function GroupHeader({ title, count, note }: { title: string; count: stri
   );
 }
 
+/**
+ * B4 (2026-11-09): a possibly-relevant or low-score file is imported only one at a time, after
+ * the owner confirms in place. The warning depends on the group. Confirming runs the SAME import
+ * as any other file — nothing here (or anywhere on the screen) relaxes a server check.
+ */
+export function confirmImportText(t: Translator, bucket: ScoredAttachment["bucket"]): string {
+  return bucket === "hidden" ? t("documents.email.confirmLowScore") : t("documents.email.confirmPossible");
+}
+
+export function ConfirmImportPanel({
+  t,
+  bucket,
+  disabled,
+  onConfirm,
+  onCancel,
+}: {
+  t: Translator;
+  bucket: ScoredAttachment["bucket"];
+  disabled: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div role="alertdialog" aria-label={confirmImportText(t, bucket)} className="dz-email-confirm-one" style={confirmPanelStyle}>
+      <div style={confirmPanelTextStyle}>{confirmImportText(t, bucket)}</div>
+      <div style={confirmPanelButtonsStyle}>
+        <button type="button" className="dz-email-confirm-one-yes" disabled={disabled} onClick={onConfirm} style={confirmYesButtonStyle(disabled)}>
+          {t("documents.email.importForReview")}
+        </button>
+        <button type="button" className="dz-email-confirm-one-no" onClick={onCancel} style={confirmNoButtonStyle}>
+          {t("documents.email.confirmImportNo")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AttachmentCard({
   t,
   locale,
   attachment,
   status,
-  readOnly,
   importDisabled,
+  confirming,
   onImport,
+  onAskConfirm,
+  onCancelConfirm,
   statusLabel,
 }: {
   t: Translator;
   locale: Locale;
   attachment: ScoredAttachment;
   status: EmailAttachmentUiStatus;
-  /** Possibly-relevant / low-score: shown for review, no new import in B3-b. */
-  readOnly: boolean;
   importDisabled: boolean;
+  /** This (possibly-relevant / low-score) card shows its confirmation now. */
+  confirming: boolean;
+  /** Runs the import: directly for a recommended file, from the confirmation for the others. */
   onImport: () => void;
+  onAskConfirm: () => void;
+  onCancelConfirm: () => void;
   statusLabel: string;
 }) {
   const name = attachment.filename || t("documents.email.untitled");
-  const reason = readOnly ? scoreReasonText(attachment.reason) : "";
+  const needsConfirm = attachment.bucket !== "recommended";
+  const reason = needsConfirm ? scoreReasonText(attachment.reason) : "";
   const date = displayDate(t, attachment.sentAt, locale);
-  const canImport = !readOnly && status === "pending";
+  const pending = status === "pending";
   let action: ReactNode = null;
-  if (canImport) {
+  if (pending && !needsConfirm) {
     action = (
       <button type="button" className="dz-email-card-import" disabled={importDisabled} onClick={onImport} style={importButtonStyle(importDisabled)}>
         {t("documents.email.import")}
       </button>
     );
-  } else if (status !== "pending") {
+  } else if (pending && !confirming) {
+    action = (
+      <button type="button" className="dz-email-card-import-anyway" disabled={importDisabled} onClick={onAskConfirm} style={importButtonStyle(importDisabled)}>
+        {t("documents.email.importAnyway")}
+      </button>
+    );
+  } else if (!pending) {
     action = <span style={statusChipStyle(status)}>{statusLabel}</span>;
   }
   return (
-    <article className="dz-email-card" data-key={attachment.key} data-bucket={attachment.bucket} style={cardStyle}>
+    <article className="dz-email-card" data-key={attachment.key} data-bucket={attachment.bucket} style={cardOuterStyle}>
+      <div style={cardStyle}>
       <div style={cardBodyStyle}>
         <div style={titleRowStyle}>
           <span style={typeBadgeStyle}>{fileTypeLabel(t, attachment.mimeType)}</span>
@@ -153,6 +204,10 @@ export function AttachmentCard({
         {reason ? <div style={reasonStyle}>{t("documents.email.reasonLine", { reason })}</div> : null}
       </div>
       {action ? <div style={actionColStyle}>{action}</div> : null}
+      </div>
+      {confirming && pending && needsConfirm ? (
+        <ConfirmImportPanel t={t} bucket={attachment.bucket} disabled={importDisabled} onConfirm={onImport} onCancel={onCancelConfirm} />
+      ) : null}
     </article>
   );
 }
@@ -169,15 +224,35 @@ const groupTitleStyle = {
 const groupCountStyle = { color: TOKEN.ink.muted, fontWeight: TOKEN.weight.semibold } as const;
 const groupNoteStyle = { margin: "4px 0 0", color: TOKEN.ink.muted, fontSize: TOKEN.font.meta } as const;
 
-const cardStyle = {
+const cardOuterStyle = {
   border: `1px solid ${TOKEN.border.DEFAULT}`,
   borderRadius: TOKEN.radius.card,
   background: TOKEN.surface.card,
   padding: "12px 14px",
   display: "flex",
+  flexDirection: "column",
+  gap: 10,
+} as const;
+const cardStyle = {
+  display: "flex",
   alignItems: "flex-start",
   gap: 12,
 } as const;
+const confirmPanelStyle = {
+  border: `1px solid ${TOKEN.semantic.attention.border}`,
+  background: TOKEN.semantic.attention.bgSoft,
+  borderRadius: TOKEN.radius.card,
+  padding: 10,
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+} as const;
+const confirmPanelTextStyle = { color: TOKEN.ink.primary, fontSize: TOKEN.font.meta, fontWeight: TOKEN.weight.semibold, lineHeight: 1.5 } as const;
+const confirmPanelButtonsStyle = { display: "flex", gap: 8 } as const;
+function confirmYesButtonStyle(disabled: boolean) {
+  return { ...glassActionStyle({ height: 44, disabled }), flex: 1, minHeight: 44, fontSize: TOKEN.font.meta } as const;
+}
+const confirmNoButtonStyle = { ...glassActionStyle({ height: 44 }), flex: 1, minHeight: 44, fontSize: TOKEN.font.meta } as const;
 const cardBodyStyle = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 } as const;
 const titleRowStyle = { display: "flex", alignItems: "flex-start", gap: 8 } as const;
 const typeBadgeStyle = {
