@@ -13,10 +13,12 @@ export PUBLIC_SIGNUP_ENABLED=true AUTH_PASSWORD_RESET_ENABLED=true AUTH_PLANE_EN
   TRANSACTIONAL_EMAIL_ENABLED=true RESEND_API_KEY=re_diagnostic_not_a_key \
   TRANSACTIONAL_EMAIL_FROM="Dubiz <no-reply@example.com>" APP_BASE_URL=http://localhost:3000
 for MODE in before after; do
-  for p in $(lsof -ti tcp:3000 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+  # only the LISTENING server: adb holds a connection to :3000 (adb reverse) and must survive
+  for p in $(lsof -ti tcp:3000 -sTCP:LISTEN 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
   pkill -9 -f "next-server" 2>/dev/null; pkill -9 -f "next start" 2>/dev/null
-  for i in $(seq 1 30); do lsof -ti tcp:3000 >/dev/null 2>&1 || break; sleep 1; done
-  lsof -ti tcp:3000 >/dev/null 2>&1 && { log "!! port 3000 still busy before $MODE — aborting"; exit 0; }
+  for i in $(seq 1 30); do lsof -ti tcp:3000 -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 1; done
+  lsof -ti tcp:3000 -sTCP:LISTEN >/dev/null 2>&1 && { log "!! port 3000 still busy before $MODE — aborting"; exit 0; }
+  timeout 30 adb start-server >/dev/null 2>&1; A reverse tcp:3000 tcp:3000
   rm -rf .next && cp -r ".next-$MODE" .next
   (npx next start -p 3000 > "$OUT/server-$MODE.log" 2>&1 &)
   for i in $(seq 1 60); do curl -s -m 5 -o /dev/null http://localhost:3000/login && break; sleep 2; done
