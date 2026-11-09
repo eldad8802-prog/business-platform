@@ -1,0 +1,10 @@
+{
+  "note": "Gmail B4 (2026-11-09): possibly-relevant and low-score files can be imported one at a time after an in-place confirmation worded per group (owner's text), through the unchanged import route and request; bulk import stays recommended-only; a repeated tap never sends a second request. No server, schema, scoring, OAuth or quota change. Browser checks: scripts/qa/documents/gmail-b4-manual-import-qa.mjs.",
+  "tests": {
+    "lib/services/email-import/gmail-b4-manual-import.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): 'קלוט בכל זאת' only opens the confirmation and only 'קלוט לבדיקה' imports, cancel imports nothing; owner wording per group; bulk import recommended-only; a single import call site with the unchanged request (no score/group/override field); double-tap guard; the import route keeps session-business, account ownership, Gmail type, allowlist, HEIC, size, byte signature, duplicate and needs_review checks and has no score/override logic; unsupported types never reach the screen"
+    }
+  }
+}

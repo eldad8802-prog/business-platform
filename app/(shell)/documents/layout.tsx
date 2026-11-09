@@ -53,6 +53,16 @@ export default function DocumentsLayout({
         .dz-search-inspector { display: none; }
         .dz-email-table { display: none; }
         .dz-email-import { display: none; }
+        /* Gmail extended scan (B3-b): the import bar sits ABOVE the shell's phone navigation
+           (components/navigation/bottom-bar.tsx: 84px + safe area, below 768px), and the page
+           keeps room under the last card for both. */
+        .dz-email-import-row { display: none; }
+        .dz-email-bottom { bottom: 0; z-index: 90; }
+        .dz-email-page { padding-bottom: 130px; }
+        @media (max-width: 767px) {
+          .dz-email-bottom { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+          .dz-email-page { padding-bottom: calc(84px + 150px + env(safe-area-inset-bottom, 0px)); }
+        }
         .dz-uniform-bottom { display: none !important; }
         .dz-upload-side { display: none; }
         @media (min-width: 1200px) {
@@ -145,6 +155,12 @@ export default function DocumentsLayout({
           }
           .dz-email-import:disabled { opacity: 0.65; cursor: not-allowed; }
           .dz-email-bottom { display: none !important; }
+          .dz-email-page { padding-bottom: 40px; }
+          .dz-email-import-row { display: block; margin-top: 16px; }
+          .dz-email-import-row .dz-email-import-controls { width: auto !important; margin: 0 !important; max-width: 420px; }
+          .dz-email-table td:nth-child(2) { min-width: 220px; }
+          .dz-email-table td:nth-child(3), .dz-email-table th:nth-child(3),
+          .dz-email-table td:nth-child(4) { white-space: nowrap; width: 1%; }
           .dz-report { max-width: none !important; margin-inline: auto; padding-inline: 32px !important; }
           .dz-report-layout {
             display: grid;

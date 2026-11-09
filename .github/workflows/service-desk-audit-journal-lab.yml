@@ -1,0 +1,98 @@
+# Service Desk P4 — migration 20261122090000_service_desk_audit_journal (the audit journal), in Production's role topology
+# (ephemeral PG17). NOT applied anywhere by this workflow except its own throwaway databases.
+#
+#   1. The 1.3-0 lab (.sd3/lab.sh --with-sd3); the read-only PREFLIGHT must pass there (every check PASS / INFO).
+#   2. `prisma migrate deploy` applies exactly 20261122090000 (.sd3p4/lab.sh --deploy-only); the read-only EVIDENCE passes.
+#   3. The P4 battery: status-preserving events proven against the existing guards, append-only, RLS, privileges,
+#      duplicates, account deletion of the new journal.
+#   4. Regression on a fresh lab with P4 applied: the 1.3-0 battery (.sd3/battery.ts) and the 1.3a service battery
+#      (.sd3a/battery.ts) stay green.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: service desk audit journal (P4) — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261122090000_service_desk_audit_journal/**"
+      - "ops/evidence/service-desk-audit-journal-*.sql"
+      - ".sd3p4/**"
+      - ".sd3/**"
+      - ".sd3a/**"
+      - ".github/workflows/service-desk-audit-journal-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk audit journal (PG17, 1.3-0 applied, then 20261122090000 via migrate deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: p4_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: p4_ci_synthetic_super_pw
+      LAB_PASSWORD: p4_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1–3. preflight → migrate deploy → evidence → battery
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh p4
+          O="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p4"
+          psql -X -v ON_ERROR_STOP=1 -At -F '|' "$O" -f ops/evidence/service-desk-audit-journal-preflight.sql | tee /tmp/pre.out
+          ! grep -q '|FAIL|' /tmp/pre.out || { echo "the preflight has a FAIL"; exit 1; }
+          test "$(grep -cE '^[0-9]+\|(PASS|INFO)\|' /tmp/pre.out)" = "15"
+          bash .sd3p4/lab.sh p4 --deploy-only
+          psql -X -v ON_ERROR_STOP=1 -At -F '|' "$O" -f ops/evidence/service-desk-audit-journal-production-evidence.sql | tee /tmp/ev.out
+          ! grep -q '|FAIL|' /tmp/ev.out || { echo "the evidence has a FAIL"; exit 1; }
+          test "$(grep -cE '^[0-9]+\|(PASS|INFO)\|' /tmp/ev.out)" = "15"
+          OWNER_URL="$O" RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/p4" npx tsx .sd3p4/battery.ts | tee /tmp/p4.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/p4.out || { echo "the P4 battery is not green"; exit 1; }
+
+      - name: 4. Regression — the 1.3-0 and 1.3a batteries with P4 applied
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh p4reg
+          bash .sd3p4/lab.sh p4reg --deploy-only
+          O="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p4reg"
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/p4reg"
+          OWNER_URL="$O" RUNTIME_URL="$R" npx tsx .sd3/battery.ts | tee /tmp/reg13.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/reg13.out || { echo "the 1.3-0 battery regressed"; exit 1; }
+          OWNER_URL="$O" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$O" AUTH_PLANE_ENABLED=true \
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/p4-store" \
+          TASK_REQUEST_HMAC_KEY=p4-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=p4-ci \
+          AUTH_TOKEN_SECRET=p4-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sd3a/battery.ts | tee /tmp/reg13a.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/reg13a.out || { echo "the 1.3a battery regressed"; exit 1; }

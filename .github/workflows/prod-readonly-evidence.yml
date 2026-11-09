@@ -167,6 +167,8 @@ on:
           - 'ops/evidence/service-desk-ui-foundation-production-evidence.sql'
           - 'ops/evidence/business-documents-po-sheets-preflight.sql'
           - 'ops/evidence/business-documents-po-sheets-production-evidence.sql'
+          - 'ops/evidence/service-desk-audit-journal-preflight.sql'
+          - 'ops/evidence/service-desk-audit-journal-production-evidence.sql'
 
 permissions:
   contents: read
