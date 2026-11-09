@@ -266,10 +266,24 @@ export type CredentialRevokeOutcome =
  */
 export async function revokeSessionByCredential(
   db: PrismaClient,
-  input: { credential: string | null | undefined; now: Date }
+  input: {
+    credential: string | null | undefined;
+    now: Date;
+    /**
+     * The session the caller MEANS to end. A sign-out completed later — after
+     * the device was cleared locally — must not end whatever session the cookie
+     * belongs to by then: if the person signed in again meanwhile, the cookie
+     * is the NEW session's, and ending it would sign them out of the session
+     * they just started. When given and different, nothing is proven.
+     */
+    expectedSessionId?: string | null;
+  }
 ): Promise<CredentialRevokeOutcome> {
   const parsed = parseCredential(input.credential);
   if (!parsed) return { kind: "unproven" };
+  if (input.expectedSessionId != null && input.expectedSessionId !== parsed.sessionId) {
+    return { kind: "unproven" };
+  }
   const presentedHash = sha256(parsed.secret);
 
   const session = await db.authSession.findUnique({

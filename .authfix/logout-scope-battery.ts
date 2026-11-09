@@ -482,6 +482,41 @@ async function main() {
       (await row(s1.sessionId))?.revokedAt !== null);
   }
 
+  // ── 13. a LATER cookie logout ends only the session it was meant for ─────
+  //
+  // "Clear this device anyway" stores the session id and finishes the logout
+  // later by cookie. If the person signed in again meanwhile, the cookie is the
+  // NEW session's — and ending it would sign them out of the session they just
+  // started. The id pin is what stops that.
+  const cookieLogoutWithBody = (credential: string | null, body: string) =>
+    revokeByCookie.handleRefreshRevoke(
+      new Request("https://lab.invalid/api/auth/refresh/revoke", {
+        method: "POST",
+        headers: { ...cookieHeaders(credential), "content-type": "application/json" },
+        body,
+      })
+    );
+  {
+    const a = await mkUser();
+    const old = await issue(a.id, a.tokenVersion, ANDROID_WEBVIEW);
+    const fresh = await issue(a.id, a.tokenVersion, ANDROID_WEBVIEW); // signed in again: the jar now holds this
+    const res = await cookieLogoutWithBody(fresh.credential, JSON.stringify({ expectedSessionId: old.sessionId }));
+    ok("PIN MISMATCH: the new session's cookie with the OLD id → revoked=false",
+      res.status === 200 && ((await res.json()) as { revoked?: boolean }).revoked === false);
+    ok("...the NEW session is untouched (the person stays signed in)", (await row(fresh.sessionId))?.revokedAt === null);
+    const matched = await cookieLogoutWithBody(old.credential, JSON.stringify({ expectedSessionId: old.sessionId }));
+    ok("PIN MATCH: the old cookie with its own id → revoked=true", ((await matched.json()) as { revoked?: boolean }).revoked === true);
+    ok("...and exactly that session ended",
+      (await row(old.sessionId))?.revokedReason === "logout" && (await row(fresh.sessionId))?.revokedAt === null);
+  }
+  for (const bad of ['{"expectedSessionId":"not-a-uuid"}', '{"expectedSessionId":7}', "[]", "garbage"]) {
+    const a = await mkUser();
+    const s1 = await issue(a.id, a.tokenVersion, CHROME_WIN);
+    const res = await cookieLogoutWithBody(s1.credential, bad);
+    ok(`PIN BAD BODY ${bad}: 400`, res.status === 400, `${res.status}`);
+    ok("...no cookie change, session untouched", res.headers.get("set-cookie") === null && (await row(s1.sessionId))?.revokedAt === null);
+  }
+
   await auth.$disconnect();
   await owner.$disconnect();
   console.log(`\n[logout-scope-battery] PASS=${pass} FAIL=${fail}`);

@@ -71,7 +71,29 @@ export async function handleRefreshRevoke(
       );
     }
 
-    const outcome = await run(authDb(), { credential: readRefreshCookie(req), now });
+    // Optional body { expectedSessionId }: end the cookie's session only if it
+    // is the one the caller means (see revokeSessionByCredential). No body is
+    // the plain form. A body that is present but unreadable changes nothing.
+    let expectedSessionId: string | null = null;
+    const raw = await req.text().catch(() => "");
+    if (raw.trim() !== "") {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+      const v = parsed && typeof parsed === "object" ? (parsed as { expectedSessionId?: unknown }).expectedSessionId : undefined;
+      if (v !== undefined && (typeof v !== "string" || !/^[0-9a-f-]{36}$/i.test(v))) {
+        return NextResponse.json({ error: "Invalid request" }, { status: 400, headers: NO_STORE });
+      }
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return NextResponse.json({ error: "Invalid request" }, { status: 400, headers: NO_STORE });
+      }
+      expectedSessionId = typeof v === "string" ? v : null;
+    }
+
+    const outcome = await run(authDb(), { credential: readRefreshCookie(req), now, expectedSessionId });
     const revoked = outcome.kind === "revoked";
     console.log(
       JSON.stringify({
