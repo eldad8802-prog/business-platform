@@ -1,25 +1,21 @@
 name: native-android-validation
 
-# W7 Native Validation — Android (Adaptive+Native Spec v1 §13, §31).
-#
-# Manual, on-demand runtime proof for the Capacitor Android shell. This is the
-# gate that lets Native be marked CLOSED: it BUILDS the real APK and RUNS it on
-# an emulator, capturing screenshots of the running app (not a web browser at a
-# phone width). Until this workflow has a green run with attached artifacts,
-# Native stays OPEN by the owner's instruction.
-#
-# Why manual: it boots an emulator (~10 min, KVM runner) — it is a release gate,
-# not a per-PR check.
+# DIAGNOSTIC BRANCH ONLY (diag/android-safe-area) — issue 2, status-bar overlap.
+# Builds the app twice on the runner (without / with the fix), serves it on
+# localhost:3000 to a debug APK whose server.url is that address (adb reverse,
+# cleartext allowed in this throwaway build only), and sweeps every route in the
+# real Capacitor WebView. No secret, no database, no Production/Preview contact.
+# The dispatch inputs are kept only so the main-branch dispatch form accepts it.
 on:
   workflow_dispatch:
     inputs:
       server_url:
-        description: 'CAP_SERVER_URL for the WebView (production or a preview URL)'
+        description: 'ignored on the diagnostic branch'
         required: true
         default: 'https://promaxgroup.co.il'
         type: string
       api_level:
-        description: 'Android API level to validate (36 = the Play target)'
+        description: 'ignored on the diagnostic branch (matrix below)'
         required: true
         default: '36'
         type: choice
@@ -29,16 +25,24 @@ permissions:
   contents: read
 
 jobs:
-  android-runtime-proof:
-    # KVM-enabled runner — required for a usable emulator.
+  safe-area-sweep:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { api: '34', profile: 'pixel_4', shots: 'some' }
+          - { api: '36', profile: 'pixel_7_pro', shots: 'some' }
+          - { api: '36.1', profile: 'pixel_6', shots: 'all' }
+          - { api: '37.0', profile: 'pixel_6', shots: 'all' }
 
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Enable KVM (hardware acceleration for the emulator)
         run: |
@@ -61,40 +65,54 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: 'platform-tools'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npx prisma generate
 
-      # The native shell loads the app remotely (Spec v1 §15 — remote WebView,
-      # conditionally approved). No Next build is needed for the APK itself.
-      - name: Capacitor sync (with the target server URL)
+      # before = the fix commit's tree with main's root layout (no script)
+      - name: Build the app without the fix (.next-before)
+        run: |
+          git show origin/main:app/layout.tsx > app/layout.tsx
+          npx next build > build-before.log 2>&1 || { tail -40 build-before.log; exit 1; }
+          mv .next .next-before
+          git checkout -- app/layout.tsx
+
+      - name: Build the app with the fix (.next-after)
+        run: |
+          npx next build > build-after.log 2>&1 || { tail -40 build-after.log; exit 1; }
+          mv .next .next-after
+
+      - name: Debug APK pointing at the runner (throwaway — cleartext localhost only)
         env:
-          CAP_SERVER_URL: ${{ inputs.server_url }}
-        run: npx cap sync android
+          CAP_SERVER_URL: http://localhost:3000
+        run: |
+          sed -i 's|<application|<application android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
+          npx cap sync android
+          cd android && ./gradlew --no-daemon assembleDebug
 
-      - name: Assemble debug APK
-        working-directory: android
-        run: ./gradlew --no-daemon assembleDebug
-
-      - name: Run the native validation battery on an emulator
+      - name: Sweep every route on the emulator (before / after)
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         env:
-          CAP_SERVER_URL: ${{ inputs.server_url }}
+          SWEEP_SHOTS: ${{ matrix.shots }}
         with:
-          api-level: ${{ inputs.api_level }}
-          target: google_apis
+          api-level: ${{ matrix.api }}
+          target: google_apis_playstore
           arch: x86_64
-          profile: pixel_6
+          profile: ${{ matrix.profile }}
           ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: bash scripts/native/android-validate.sh
+          script: bash scripts/native/android-safe-area-run.sh
 
-      - name: Upload runtime evidence (screenshots + logs + report)
+      - name: Upload sweep evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: android-runtime-evidence-api${{ inputs.api_level }}
+          name: safe-area-sweep-api${{ matrix.api }}-${{ matrix.profile }}
           path: |
             native-evidence/**
           if-no-files-found: warn
