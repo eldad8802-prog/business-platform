@@ -141,6 +141,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/business-documents", parent: "/billing", parentLabelKey: "toInvoiceList" },
   { pattern: "/business-documents/letters", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   { pattern: "/business-documents/letters/new", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
+  { pattern: "/business-documents/receipts/new", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   { pattern: "/business-documents/quotes/[id]", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   { pattern: "/payables/[id]", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/bank", parent: "/payables", parentLabelKey: "toAllPayables" },

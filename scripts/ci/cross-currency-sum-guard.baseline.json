@@ -480,6 +480,15 @@
       "risk": "SAFE",
       "reason": "SAFE by construction: the non-register (otherSources) figures are added into other(row.currency, kind) — the CurrencyView of THAT row`s currency, keyed by source kind; nothing adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts sections 8 and S.",
       "lineAtBaseline": 453
+    },
+    {
+      "file": "features/business-documents/receipt-model.ts",
+      "rule": "JS_FOLD",
+      "column": "amount",
+      "match": "return lines.reduce((sum, l) => sum + (toAgorot(l.amount) ?? 0), 0);",
+      "risk": "SAFE",
+      "reason": "payment lines of ONE receipt being typed on the screen; display/validation only (the server recomputes the total). Single-currency by construction ON THE SCREEN: the form has no currency input and paymentsPayload hard-codes currency \"ILS\" on every line (receipt-model.ts paymentsPayload; receipt-model.test.ts pins it for every method). NOTE: the billing service itself does NOT refuse mixed-currency payment lines (replaceReceiptPaymentLines sums them; only allocations are checked, assertSameCurrency) — a pre-existing billing gap, documented, not changed here.",
+      "lineAtBaseline": 110
     }
   ]
 }

@@ -28,6 +28,10 @@
       "lab": "workflow",
       "workflow": "business-documents-ci.yml",
       "reason": "tenant-transaction substrate: the optional isolationLevel added for business documents leaves every existing caller of tenantTx / withTenantTransaction exactly as before (Prisma receives the same options; the tenant GUC is still the first statement; both still refuse without a trusted tenant before any transaction); pure (Prisma $transaction recorded, no DB); the DB-level proof (READ COMMITTED by default) is in .business-documents/service.battery.mts; run on pull_request by business-documents-ci.yml"
+    },
+    "features/business-documents/receipt-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): receipt screen model — amounts in whole agorot, payment methods and required fields mirror the existing billing validation (debit methods not offered), allocation rules (same total, within remaining, each invoice once), payloads for the existing billing routes, ILS only, the attempt kept across a refresh parsed safely; run on pull_request by business-documents-ci.yml (the real-app e2e .business-documents/receipt-ui-e2e.mts and the services battery receipt-flow.battery.mts run in the same workflow)"
     }
   }
 }

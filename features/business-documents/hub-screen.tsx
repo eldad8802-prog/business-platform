@@ -2,7 +2,8 @@
 
 /**
  * "מסמכים נוספים" — the entry to the additions approved for business documents.
- * Letters, and the follow-up of regular quotes (a stored share copy + the owner's manual record); the existing
+ * Letters, a receipt screen over the existing billing routes, and the follow-up of regular quotes (a stored share
+ * copy + the owner's manual record); the existing
  * invoices, receipts, credit notes and quotes themselves stay in the invoices screen. Behind business_documents
  * (off by default).
  */
@@ -62,6 +63,14 @@ export function BusinessDocumentsHub() {
                   <span className={s.rowText}>
                     <span className={s.rowTitle}>מכתבים שמורים</span>
                     <span className={s.rowSub}>המכתבים ששמרת והקבצים שלהם</span>
+                  </span>
+                </Link>
+              </li>
+              <li>
+                <Link className={s.row} href="/business-documents/receipts/new">
+                  <span className={s.rowText}>
+                    <span className={s.rowTitle}>קבלה חדשה</span>
+                    <span className={s.rowSub}>קבלה על תשלום, גם על כמה חשבוניות (קבלה מרכזת) — במנגנון החשבוניות הקיים</span>
                   </span>
                 </Link>
               </li>
