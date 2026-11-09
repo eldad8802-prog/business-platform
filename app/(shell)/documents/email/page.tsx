@@ -2,7 +2,7 @@
 import { PageContainer } from "@/components/ui/page-container";
 import DocumentsIllustration from "@/components/documents/DocumentsIllustration";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   scoreAttachments,
@@ -34,6 +34,7 @@ import {
 } from "@/lib/services/email-import/extended-scan-state";
 import {
   AttachmentCard,
+  ConfirmImportPanel,
   GroupHeader,
   PeriodPicker,
   displayDate,
@@ -206,6 +207,10 @@ export default function EmailDocumentsPage() {
   const stopImportRef = useRef(false);
   const [confirmImport, setConfirmImport] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  // B4: the one possibly-relevant / low-score file whose import confirmation is open (by stable key).
+  const [confirmKey, setConfirmKey] = useState<string | null>(null);
+  // Files with an import request in flight — a repeated tap never sends a second request.
+  const inFlightRef = useRef<Set<string>>(new Set());
   const [lowOpen, setLowOpen] = useState(false);
   const [waitSeconds, setWaitSeconds] = useState(0);
   const [error, setError] = useState("");
@@ -391,6 +396,7 @@ export default function EmailDocumentsPage() {
       setScan(base);
       setRejectedByType(null);
       setLowOpen(false);
+      setConfirmKey(null);
       setBulkProgress(null);
     }
     setConfirmClear(false);
@@ -484,6 +490,9 @@ export default function EmailDocumentsPage() {
 
   async function importOne(attachment: ScoredAttachment) {
     if (!authHeader) return false;
+    // One request per file at a time: a second tap before the status re-renders sends nothing.
+    if (inFlightRef.current.has(attachment.key)) return false;
+    inFlightRef.current.add(attachment.key);
     setStatusByKey((current) => ({ ...current, [attachment.key]: "importing" }));
     // The account the RESULTS came from — not whatever the picker shows now.
     const importConnectionId = scan.connectionId ?? selectedConnectionId;
@@ -529,6 +538,8 @@ export default function EmailDocumentsPage() {
       setStatusByKey((current) => ({ ...current, [attachment.key]: "failed" }));
       setError(importFailureMessage(t, attachment, null));
       return false;
+    } finally {
+      inFlightRef.current.delete(attachment.key);
     }
   }
 
@@ -589,10 +600,18 @@ export default function EmailDocumentsPage() {
   const hasResults = scan.items.length > 0;
   const scanned = scan.window !== null;
 
-  const renderCards = (list: ScoredAttachment[], readOnly: boolean) => (
+  // B4: a possibly-relevant / low-score file is imported only from its own confirmation, one at a
+  // time; the import itself is the unchanged importOne → /api/integrations/gmail/import.
+  const importConfirmed = (attachment: ScoredAttachment) => {
+    setConfirmKey(null);
+    void importOne(attachment);
+  };
+
+  const renderCards = (list: ScoredAttachment[]) => (
     <div className="dz-email-rows" style={rowsStyle}>
       {list.map((attachment) => {
         const status = statusByKey[attachment.key] || "pending";
+        const confirmFirst = attachment.bucket !== "recommended";
         return (
           <AttachmentCard
             key={attachment.key}
@@ -600,9 +619,11 @@ export default function EmailDocumentsPage() {
             locale={locale}
             attachment={attachment}
             status={status}
-            readOnly={readOnly}
             importDisabled={importing || status !== "pending"}
-            onImport={() => void importOne(attachment)}
+            confirming={confirmKey === attachment.key}
+            onImport={() => (confirmFirst ? importConfirmed(attachment) : void importOne(attachment))}
+            onAskConfirm={() => setConfirmKey(attachment.key)}
+            onCancelConfirm={() => setConfirmKey(null)}
             statusLabel={attachmentStatusLabel(t, status)}
           />
         );
@@ -610,7 +631,7 @@ export default function EmailDocumentsPage() {
     </div>
   );
 
-  const renderTable = (list: ScoredAttachment[], readOnly: boolean, label: string) => (
+  const renderTable = (list: ScoredAttachment[], label: string) => (
     <div className="dz-email-table" aria-label={label}>
       <table>
         <thead>
@@ -624,10 +645,13 @@ export default function EmailDocumentsPage() {
         <tbody>
           {list.map((attachment) => {
             const status = statusByKey[attachment.key] || "pending";
-            const canImport = !readOnly && status === "pending";
-            const reason = readOnly ? scoreReasonText(attachment.reason) : "";
+            const confirmFirst = attachment.bucket !== "recommended";
+            const pending = status === "pending";
+            const reason = confirmFirst ? scoreReasonText(attachment.reason) : "";
+            const confirming = confirmFirst && pending && confirmKey === attachment.key;
             return (
-              <tr key={attachment.key} data-key={attachment.key}>
+              <Fragment key={attachment.key}>
+              <tr data-key={attachment.key}>
                 <td>
                   <span dir="auto" style={tableFileStyle}>{attachment.filename || t("documents.email.untitled")}</span>
                   {reason ? <span style={tableReasonStyle}>{t("documents.email.reasonLine", { reason })}</span> : null}
@@ -640,7 +664,7 @@ export default function EmailDocumentsPage() {
                 </td>
                 <td>{displayDate(t, attachment.sentAt, locale) || "—"}</td>
                 <td>
-                  {canImport ? (
+                  {pending && !confirmFirst ? (
                     <button
                       type="button"
                       disabled={importing}
@@ -649,11 +673,35 @@ export default function EmailDocumentsPage() {
                     >
                       {t("documents.email.import")}
                     </button>
-                  ) : status !== "pending" ? (
+                  ) : pending && !confirming ? (
+                    <button
+                      type="button"
+                      className="dz-email-card-import-anyway"
+                      disabled={importing}
+                      onClick={() => setConfirmKey(attachment.key)}
+                      style={smallButtonStyle}
+                    >
+                      {t("documents.email.importAnyway")}
+                    </button>
+                  ) : !pending ? (
                     <span style={pillStyleFor(status)}>{attachmentStatusLabel(t, status)}</span>
                   ) : null}
                 </td>
               </tr>
+              {confirming ? (
+                <tr data-confirm-for={attachment.key}>
+                  <td colSpan={4}>
+                    <ConfirmImportPanel
+                      t={t}
+                      bucket={attachment.bucket}
+                      disabled={importing}
+                      onConfirm={() => importConfirmed(attachment)}
+                      onCancel={() => setConfirmKey(null)}
+                    />
+                  </td>
+                </tr>
+              ) : null}
+              </Fragment>
             );
           })}
         </tbody>
@@ -1027,8 +1075,8 @@ export default function EmailDocumentsPage() {
             {recommended.length > 0 ? (
               <section className="dz-email-group" data-group="recommended">
                 <GroupHeader title={t("documents.email.groupRecommended")} count={formatNumber(recommended.length, fmt)} />
-                {renderCards(recommended, false)}
-                {renderTable(recommended, false, t("documents.email.groupRecommended"))}
+                {renderCards(recommended)}
+                {renderTable(recommended, t("documents.email.groupRecommended"))}
               </section>
             ) : null}
 
@@ -1037,10 +1085,10 @@ export default function EmailDocumentsPage() {
                 <GroupHeader
                   title={t("documents.email.groupPossible")}
                   count={formatNumber(possible.length, fmt)}
-                  note={t("documents.email.groupReadOnly")}
+                  note={t("documents.email.groupPossibleNote")}
                 />
-                {renderCards(possible, true)}
-                {renderTable(possible, true, t("documents.email.groupPossible"))}
+                {renderCards(possible)}
+                {renderTable(possible, t("documents.email.groupPossible"))}
               </section>
             ) : null}
 
@@ -1061,9 +1109,9 @@ export default function EmailDocumentsPage() {
                 </button>
                 {lowOpen ? (
                   <div id="dz-email-low-list">
-                    <p style={groupNoteInlineStyle}>{t("documents.email.groupReadOnly")}</p>
-                    {renderCards(lowScore, true)}
-                    {renderTable(lowScore, true, t("documents.email.groupLow"))}
+                    <p style={groupNoteInlineStyle}>{t("documents.email.groupLowNote")}</p>
+                    {renderCards(lowScore)}
+                    {renderTable(lowScore, t("documents.email.groupLow"))}
                   </div>
                 ) : null}
               </section>

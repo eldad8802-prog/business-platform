@@ -9,7 +9,7 @@
  * Proves: a failed OAuth callback stays visible (and no scan starts by itself);
  * the scan counts are shown under "פרטי הסריקה"; the empty state names its reason;
  * low-score files are kept out of the list until opened; possibly-relevant files
- * are read-only; the bulk import takes only recommended files after a confirmation;
+ * import only after a confirmation (B4); the bulk import takes only recommended files after a confirmation;
  * the import request keys are exactly as before; an older /sync answer (basic scan)
  * without the counters falls back to what the list proves.
  *
@@ -149,7 +149,7 @@ async function suite(browser, label, viewport) {
     const t = await text(page);
     check(`${label}: summary + breakdown`, t.includes("נסרקו 4 הודעות · נמצאו 4 קבצים מצורפים") && t.includes("סוג קובץ לא נתמך: 1 · ניקוד נמוך (מתחת ל-20): 1 · אולי (20–44): 1 · מומלץ (45+): 1"));
     const possibleRow = page.locator(`${viewport.width >= 1200 ? "tr" : ".dz-email-card"}[data-key="m-C:part:1"] >> visible=true`);
-    check(`${label}: low-score hidden until opened; possible shown read-only`, !t.includes("logo.png") && t.includes("INV-1234.pdf") && (await possibleRow.locator("button").count()) === 0);
+    check(`${label}: low-score hidden until opened; possible offers only the confirm-first import (B4)`, !t.includes("logo.png") && t.includes("INV-1234.pdf") && (await possibleRow.locator(".dz-email-card-import-anyway").count()) === 1 && (await possibleRow.locator(".dz-email-card-import").count()) === 0);
     await page.locator(".dz-email-import-all >> visible=true").click();
     await page.locator(".dz-email-confirm-import >> visible=true").click();
     await page.waitForFunction(() => document.body.innerText.includes("נקלט"), null, { timeout: 15_000 });
