@@ -2,18 +2,21 @@
  * Purchase-order sheet — the server rendering of the EXISTING supplier order PDF. SERVER-ONLY.
  *
  * The document definition is the inventory module's own builder (buildSupplierPurchaseOrderDocDefinition), the one the
- * browser download uses; this file only supplies what the browser takes from its environment, the way the browser
- * on the send screen computes it:
- *   - the header line = the send screen's page title in Hebrew ("<מלאי> · Dubiz", app/layout.tsx title template);
+ * browser download uses; this file only supplies what the browser takes from its environment, the way the send screen
+ * computes it in the same action:
+ *   - the header line = the send screen's page title in the user's interface language ("<inventory> · Dubiz",
+ *     app/layout.tsx title template; app/(shell)/inventory/layout.tsx meta.titles.inventory);
  *   - the date = formatSupplierDraftDisplayDate's rule (order date, else creation date) formatted he-IL, in Israel time.
  * Rendered with pdfmake's server printer and the same Hebrew font file the browser embeds (lib/pdf/hebrew-font-vfs).
  */
+import type { Locale } from "@/lib/i18n/config";
 import { getMessages } from "@/lib/i18n/messages";
 import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
 import {
   buildSupplierPurchaseOrderDocDefinition,
   SUPPLIER_ORDER_PDF_FONTS,
   type SupplierPurchaseDraftForDocument,
+  type SupplierPurchaseOrderDocumentContext,
 } from "@/lib/services/inventory/supplier-purchase-document.service";
 
 const FONT_FILE = "NotoSansHebrew-Regular.ttf";
@@ -37,9 +40,9 @@ function getPrinter(): PdfPrinterLike {
   return printer;
 }
 
-/** The send screen's page title, in Hebrew: what the browser download prints as its header. */
-export function supplierOrderHeaderTitle(): string {
-  return `${getMessages("he").meta.titles.inventory} · Dubiz`;
+/** The send screen's page title in the given interface language — what the browser download prints as its header. */
+export function supplierOrderHeaderTitle(locale: Locale): string {
+  return `${getMessages(locale).meta.titles.inventory} · Dubiz`;
 }
 
 /** formatSupplierDraftDisplayDate's rule, in Israel time (the browser formats in its own zone; the server is UTC). */
@@ -53,9 +56,8 @@ export function supplierOrderDisplayDate(draft: Pick<SupplierPurchaseDraftForDoc
   return fmt(now);
 }
 
-export async function renderSupplierOrderPdf(draft: SupplierPurchaseDraftForDocument, now: Date = new Date()): Promise<Buffer> {
-  const docDef = buildSupplierPurchaseOrderDocDefinition(draft, { headerTitle: supplierOrderHeaderTitle(), displayDate: supplierOrderDisplayDate(draft, now) });
-  const doc = await getPrinter().createPdfKitDocument(docDef);
+export async function renderSupplierOrderPdf(draft: SupplierPurchaseDraftForDocument, context: Required<SupplierPurchaseOrderDocumentContext>): Promise<Buffer> {
+  const doc = await getPrinter().createPdfKitDocument(buildSupplierPurchaseOrderDocDefinition(draft, context));
   return await new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));

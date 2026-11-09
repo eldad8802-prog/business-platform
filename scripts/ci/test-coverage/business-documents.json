@@ -28,6 +28,10 @@
       "lab": "workflow",
       "workflow": "business-documents-ci.yml",
       "reason": "tenant-transaction substrate: the optional isolationLevel added for business documents leaves every existing caller of tenantTx / withTenantTransaction exactly as before (Prisma receives the same options; the tenant GUC is still the first statement; both still refuse without a trusted tenant before any transaction); pure (Prisma $transaction recorded, no DB); the DB-level proof (READ COMMITTED by default) is in .business-documents/service.battery.mts; run on pull_request by business-documents-ci.yml"
+    },
+    "lib/services/business-documents/po-sheet/supplier-document-unchanged.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: the supplier order PDF is unchanged by the extraction of its builder (purchase-order sheet, owner-approved 2026-11-09) — the exact pdfmake definition handed to createPdf, functions included, equals hashes recorded from the original function for three fixtures, through the browser download and the extracted builder; run on pull_request by business-documents-ci.yml (the PG batteries .business-documents/po-sheet*.battery.mts run in the same workflow)"
     }
   }
 }

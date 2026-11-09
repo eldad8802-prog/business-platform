@@ -14,6 +14,7 @@ import { getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
 import { getSupplier } from "@/lib/api/suppliers";
 import { qtyWithUnit } from "@/lib/inventory/unit-words";
 import { draftStatus, formatOrderDate } from "@/lib/inventory/purchase-order-view";
+import { PurchaseOrderSheetPanel } from "@/features/business-documents/po-sheet-panel";
 import {
   I2,
   InvButton,
@@ -253,6 +254,8 @@ export default function SupplierPurchaseSendPage() {
           ) : draft.status === "REJECTED" ? (
             <InvNote>ההזמנה בוטלה. המלאי לא השתנה.</InvNote>
           ) : null}
+          {/* Saved copies of this document (business_documents; renders nothing while the feature is off). */}
+          <PurchaseOrderSheetPanel supplierOrderId={draft.id} />
         </>
       )}
     </InvPage>
