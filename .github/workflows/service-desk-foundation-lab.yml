@@ -17,7 +17,8 @@
 #      concurrency, the core's state rules, quote versions, the journal, handover, intake, erasure, atomicity.
 #   3b. Account erasure through the real adapter (.sdf/erasure-battery.ts): refusal, whole rollback, the declared
 #       columns, the other business untouched, no DELETE, regression of the other erasures — on the foundation lab
-#       with 1.2b (20261113090000) deployed on top, because the purge also calls its erasure function.
+#       with 1.2b (20261113090000) and M2 (20261115090000) deployed on top, because the purge also calls their erasure
+#       functions.
 #   4. Faults: each injected defect is caught by the proof check meant for it.
 #   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
 #   6. Rollback: refused while rows exist; on an empty database it reverts whole (preflight whole again).
@@ -36,6 +37,8 @@ on:
       - ".sdx/lab.sh"
       - ".sdx/prereq.sql"
       - "prisma/migrations/20261113090000_service_external_work/**"
+      - ".sdp/lab.sh"
+      - "prisma/migrations/20261115090000_service_parts/**"
       - ".github/workflows/service-desk-foundation-lab.yml"
       - ".github/workflows/prod-readonly-evidence.yml"
       - "prisma/schema.prisma"
@@ -160,12 +163,13 @@ jobs:
             npx tsx .sdf/battery.ts
 
       - name: 3b. Account erasure through the REAL adapter (purgeOperationalData) as the runtime login
-        # The purge also calls service_external_erase_business() (1.2b, migration 20261113090000, applied in
-        # Production), so the erasure is proven where Production is: the foundation lab with 1.2b deployed on top
-        # (.sdx/lab.sh runs .sdf/lab.sh --with-sdf first, then `migrate deploy` of 1.2b).
+        # The purge also calls service_external_erase_business() (1.2b, migration 20261113090000) and
+        # service_parts_erase_business() (M2, migration 20261115090000), both applied in Production, so the erasure is
+        # proven where Production is: the foundation lab with 1.2b and M2 deployed on top (.sdp/lab.sh runs
+        # .sdx/lab.sh --with-sdx — itself .sdf/lab.sh --with-sdf, then 1.2b — and then `migrate deploy` of M2).
         run: |
           set -euo pipefail
-          bash .sdx/lab.sh sdf_erase --with-sdx >/dev/null
+          bash .sdp/lab.sh sdf_erase --with-m2 >/dev/null
           bash .sdf/erasure-prereq.sh sdf_erase
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdf_erase"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdf_erase" \
