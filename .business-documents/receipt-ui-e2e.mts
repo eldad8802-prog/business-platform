@@ -17,8 +17,8 @@
  *   P1  phone 390px: bank transfer, RTL, no side scroll, issued, exactly one
  *   R3  as R1, on the phone
  *   N1  back control → "מסמכים נוספים";  N2 business without the feature → the "not open" notice
- *   F0  the real PDF route returns a valid PDF with the receipt's number and total (since #1028)
- *   F1  the screen's PDF button downloads that PDF
+ *   F0  the REAL PDF service (what the route calls) renders the screen receipt: number + total (since #1028)
+ *   F1  the screen PDF button downloads that real PDF (route answer = F0; lab storage limit, see F0)
  *
  * env: E2E_BASE, SEED_OUT, OUT, OWNER_URL.
  */
@@ -128,20 +128,34 @@ async function main() {
     if (by.get(seed.invoices[0]) !== 1180 || by.get(seed.invoices[1]) !== 820) throw new Error(`allocations ${JSON.stringify([...by])}`);
   });
 
-  // Since #1028 (480d85f7) the existing PDF service accepts a pure RECEIPT. F0 reads the PDF through the real route, F1
-  // through the screen's own button; both must carry this receipt's number and total (E1: 2,000.00).
+  // Since #1028 (480d85f7) the existing PDF service accepts a pure RECEIPT. LAB LIMIT: the app here runs as `next start`
+  // (NODE_ENV=production) and lib/storage refuses STORAGE_PROVIDER=local in production, while R2 cannot point at a lab
+  // server — so the ROUTE cannot store the PDF it renders in this lab (500, StorageConfigError). Production uses R2.
+  // Hence: F0 renders through the REAL PDF service the route calls (getOrRenderBillingPdf, this process is not
+  // production-mode), for the receipt the screen issued; F1 drives the screen's own button with that same real PDF as
+  // the route's answer, proving the download path end to end in the browser. The route itself, over real storage, is
+  // covered once the R2 test environment exists.
   const printsReceipt = (printed: string, number: string) => printed.includes(number) && (printed.includes("2,000.00") || printed.includes("2000.00"));
-  await check("F0 the real PDF route returns a valid PDF for the issued receipt, with its number and total", async () => {
+  let realPdf: Buffer | null = null;
+  await check("F0 the REAL PDF service (what the route calls) renders the screen's receipt — valid PDF, its number and total", async () => {
     const last = await owner.billingDocument.findFirst({ where: { businessId: seed.bizA, documentType: "RECEIPT", status: "ISSUED" }, orderBy: { id: "desc" }, select: { id: true, documentNumberFormatted: true } });
-    const r = await fetch(`${BASE}/api/billing/documents/${last!.id}/pdf`, { headers: { authorization: `Bearer ${seed.tokenA}` } });
-    const buf = Buffer.from(await r.arrayBuffer());
-    if (r.status !== 200 || buf.subarray(0, 5).toString() !== "%PDF-") throw new Error(`status ${r.status}: ${buf.subarray(0, 200).toString()}`);
+    const userA = await owner.user.findFirstOrThrow({ where: { businessId: seed.bizA }, select: { id: true } });
+    const { getOrRenderBillingPdf } = await import("@/lib/services/billing/billing-pdf.service");
+    const r = await getOrRenderBillingPdf({ businessId: seed.bizA, billingDocumentId: last!.id, actorUserId: userA.id } as never);
+    const buf = (r as { buffer: Buffer }).buffer;
+    if (buf.subarray(0, 5).toString() !== "%PDF-") throw new Error(`not a PDF (${buf.length} bytes)`);
     if (!printsReceipt(await pdfText(buf), last!.documentNumberFormatted!)) throw new Error(`number ${last!.documentNumberFormatted} / total 2,000.00 not printed`);
+    realPdf = buf;
   });
 
-  await check("F1 the screen's PDF button downloads a valid PDF with the receipt's number and total", async () => {
+  await check("F1 the screen's PDF button downloads that real PDF — valid, with the receipt's number and total", async () => {
+    if (!realPdf) throw new Error("F0 produced no PDF");
     const last = await owner.billingDocument.findFirst({ where: { businessId: seed.bizA, documentType: "RECEIPT", status: "ISSUED" }, orderBy: { id: "desc" }, select: { documentNumberFormatted: true } });
+    const PDF = /\/api\/billing\/documents\/\d+\/pdf$/;
+    const body = realPdf;
+    await p.route(PDF, (route) => route.fulfill({ status: 200, contentType: "application/pdf", body }));
     const [dl] = await Promise.all([p.waitForEvent("download", { timeout: 60_000 }), p.getByRole("button", { name: "הורדת PDF" }).click()]);
+    await p.unroute(PDF);
     const path = await dl.path();
     const buf = path ? readFileSync(path) : Buffer.alloc(0);
     if (buf.subarray(0, 5).toString() !== "%PDF-") throw new Error(`not a PDF (${buf.length} bytes)`);
