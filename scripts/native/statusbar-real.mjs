@@ -42,10 +42,20 @@ async function bars() {
   return { status: frame(["statusBars", "ITYPE_STATUS_BAR"]), nav: frame(["navigationBars", "ITYPE_NAVIGATION_BAR"]) };
 }
 
+// The WebView's frame from the UI hierarchy through adb's own uiautomator (Playwright's
+// device.info() needs its driver APK, which this emulator does not have — run 42677048086).
 async function webViewFrame() {
-  const info = await withTimeout(device.info({ clazz: "android.webkit.WebView" }), 20000, "uiautomator WebView");
-  const b = info.bounds;
-  return { x1: b.x, y1: b.y, x2: b.x + b.width, y2: b.y + b.height };
+  let last = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    last = (await withTimeout(device.shell("uiautomator dump /sdcard/dz-ui.xml >/dev/null 2>&1; cat /sdcard/dz-ui.xml"), 30000, "uiautomator dump")).toString();
+    const m = last.match(/<node[^>]*class="android\.webkit\.WebView"[^>]*bounds="\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]"/);
+    if (m) {
+      const [x1, y1, x2, y2] = m.slice(1).map(Number);
+      return { x1, y1, x2, y2 };
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(`no WebView in the UI hierarchy: ${last.slice(0, 120)}`);
 }
 
 const inPage = () => {
@@ -153,7 +163,12 @@ await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
 await page.evaluate(() => localStorage.setItem("token", "diag-token"));
 const go = async (route) => {
   await page.evaluate(() => { if (!localStorage.getItem("token")) localStorage.setItem("token", "diag-token"); }).catch(() => {});
-  await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 45000 });
+  try {
+    await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 45000 });
+  } catch (e) {
+    // a client-side redirect aborts the navigation Playwright waits on; the page that loads is still measured
+    if (!/ERR_ABORTED|frame was detached/.test(String(e))) throw e;
+  }
   await page.waitForTimeout(2500);
 };
 
