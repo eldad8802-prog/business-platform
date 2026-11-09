@@ -180,48 +180,86 @@ if (scenario === "routes" || scenario === "landscape") {
   }
 }
 
+// Real taps through adb at the element's on-screen position (Playwright's click timed out on the
+// emulator in run 42679890084): screen px = WebView frame + CSS rect centre × devicePixelRatio.
+async function tap(findInPage, arg) {
+  const t = await page.evaluate(findInPage, arg);
+  if (!t) return null;
+  const wv = await webViewFrame();
+  const x = Math.round(wv.x1 + t.cx * t.dpr);
+  const y = Math.round(wv.y1 + t.cy * t.dpr);
+  await device.shell(`input tap ${x} ${y}`);
+  return { ...t, x, y };
+}
+
 if (scenario === "keyboard") {
   for (const route of ["/forgot-password", "/login"]) {
     try {
       await go(route);
-      const field = page.locator('input:not([type=hidden]):not([type=checkbox]):not([type=radio])').first();
       const before = await page.evaluate(() => innerHeight);
-      await withTimeout(field.click(), 20000, "focus");
-      await page.waitForTimeout(2500);
+      const t = await tap(() => {
+        const el = [...document.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea')].find((e) => e.getBoundingClientRect().height > 0);
+        if (!el) return null;
+        el.scrollIntoView({ block: "center" });
+        const r = el.getBoundingClientRect();
+        return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, dpr: devicePixelRatio };
+      });
+      if (!t) { console.log(`[${mode}/keyboard] ${route} no field`); continue; }
+      await page.waitForTimeout(3000);
+      const ime = (await device.shell("dumpsys input_method")).toString();
+      const imeShown = /mInputShown=true|mImeWindowVis=[1-9]/.test(ime);
       const kb = await page.evaluate(() => {
-        const f = document.activeElement.getBoundingClientRect();
+        const a = document.activeElement;
+        const f = a && a !== document.body ? a.getBoundingClientRect() : null;
         const btn = document.querySelector('button[type="submit"]');
         btn?.scrollIntoView({ block: "nearest" });
         const b = btn?.getBoundingClientRect();
-        return { innerHeightWithKeyboard: innerHeight, fieldVisible: f.top >= 0 && f.bottom <= innerHeight, submitReachable: !!b && b.top >= 0 && b.bottom <= innerHeight };
+        return { innerHeightWithKeyboard: innerHeight, focused: !!f, fieldVisible: !!f && f.top >= 0 && f.bottom <= innerHeight, submitReachable: !!b && b.top >= 0 && b.bottom <= innerHeight };
       });
-      const rec = await measure(`${route}-keyboard`, { innerHeightBefore: before, ...kb, keyboardOpened: kb.innerHeightWithKeyboard < before });
-      if (!kb.fieldVisible || !kb.submitReachable || !rec.keyboardOpened) console.log(`[${mode}/keyboard] ${route} KEYBOARD-FAIL ${JSON.stringify(kb)} before=${before}`);
-      await page.keyboard.press("Escape").catch(() => {});
+      const rec = await measure(`${route}-keyboard`, { innerHeightBefore: before, imeShown, ...kb, keyboardResizedViewport: kb.innerHeightWithKeyboard < before });
+      const ok = imeShown && kb.fieldVisible && kb.submitReachable;
+      console.log(`[${mode}/keyboard] ${route} ${ok ? "KEYBOARD-OK" : "KEYBOARD-FAIL"} ime=${imeShown} h=${before}->${kb.innerHeightWithKeyboard} ${JSON.stringify(kb)} bars=${rec.ok ? "ok" : rec.fails.join("; ")}`);
+      await device.shell("input keyevent 4");
       break;
     } catch (e) { console.log(`[${mode}/keyboard] ${route} ERROR ${String(e).slice(0, 140)}`); }
   }
 }
 
 if (scenario === "sheet") {
-  // The bottom navigation's centre "+" opens the quick-create sheet; navigation between tabs is a client transition.
+  // The bottom navigation's centre button opens the quick-create sheet; a tab tap is a client transition.
+  const bottomNavItem = (which) => {
+    const navs = [...document.querySelectorAll("nav, [role=navigation], [role=tablist]")].filter((n) => {
+      const s = getComputedStyle(n);
+      const r = n.getBoundingClientRect();
+      return (s.position === "fixed" || s.position === "sticky") && r.bottom > innerHeight - 4 && r.height > 20;
+    });
+    const items = navs.flatMap((n) => [...n.querySelectorAll("a, button")]).filter((e) => e.getBoundingClientRect().width > 10);
+    const mid = (e) => { const r = e.getBoundingClientRect(); return Math.abs(r.left + r.width / 2 - innerWidth / 2); };
+    const el = which === "centre" ? items.sort((a, b) => mid(a) - mid(b))[0] : items.find((e) => (e.getAttribute("href") || "").includes(which));
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, dpr: devicePixelRatio, label: (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 30) };
+  };
   try {
     await go("/home");
-    const plus = page.locator('nav button, nav a').filter({ hasText: /^\s*\+?\s*$/ }).first();
-    const opener = (await plus.count()) ? plus : page.locator('[aria-label*="חדש"], [aria-label*="הוספ"], [aria-label*="Create"], [aria-label*="New"]').first();
-    await withTimeout(opener.click(), 20000, "open sheet");
-    await page.waitForTimeout(1500);
-    await measure("home-sheet-open");
-    await page.keyboard.press("Escape").catch(() => {});
-    await page.goBack().catch(() => {});
+    const t = await tap(bottomNavItem, "centre");
+    if (!t) console.log(`[${mode}/sheet] no bottom navigation centre button`);
+    else {
+      await page.waitForTimeout(2000);
+      const rec = await measure("home-sheet-open", { tapped: t.label });
+      console.log(`[${mode}/sheet] tapped "${t.label}" dialog=${rec.dialog ? "found" : "none"}`);
+      await device.shell("input keyevent 4");
+      await page.waitForTimeout(1500);
+    }
   } catch (e) { console.log(`[${mode}/sheet] ERROR ${String(e).slice(0, 140)}`); }
   try {
     await go("/home");
-    const tab = page.locator('nav a[href="/documents"], nav a[href*="documents"]').first();
-    if (await tab.count()) {
-      await tab.click();
-      await page.waitForTimeout(2500);
-      await measure("nav-home-to-documents (client transition)");
+    const t = await tap(bottomNavItem, "documents");
+    if (!t) console.log(`[${mode}/sheet] no documents tab`);
+    else {
+      await page.waitForTimeout(3000);
+      const rec = await measure("nav-home-to-documents (client transition)", { tapped: t.label });
+      console.log(`[${mode}/sheet] nav landed on ${rec.path}`);
     }
   } catch (e) { console.log(`[${mode}/sheet] nav ERROR ${String(e).slice(0, 140)}`); }
 }

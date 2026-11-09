@@ -33,7 +33,7 @@ stop_server() { pkill -f "next start -p 3000" || true; pkill -f "next-server" ||
 launch() { A shell am force-stop "$PKG"; sleep 2; A shell am start -n "$PKG/.MainActivity" > /dev/null 2>&1; sleep 12; }
 real() { # mode scenario
   timeout 600 node scripts/native/statusbar-real.mjs "$1" "$OUT" "$2" > "$OUT/real-$1-$2.log" 2>&1
-  log "$1/$2 exit=$? pass=$(grep -c ' PASS' "$OUT/real-$1-$2.log") fail=$(grep -c -E ' FAIL|KEYBOARD-FAIL' "$OUT/real-$1-$2.log") error=$(grep -c ' ERROR' "$OUT/real-$1-$2.log")"
+  log "$1/$2 exit=$? pass=$(grep -c -E ' PASS|KEYBOARD-OK' "$OUT/real-$1-$2.log") fail=$(grep -c -E ' FAIL|KEYBOARD-FAIL' "$OUT/real-$1-$2.log") error=$(grep -c ' ERROR' "$OUT/real-$1-$2.log")"
 }
 launch_frames() { # mode — cold start, screencap as fast as adb allows for ~12 s
   A shell am force-stop "$PKG"; sleep 2
