@@ -52,6 +52,7 @@ on:
       - "app/(shell)/setup/**"
       - "app/register/**"
       - ".authfix/**"
+      - "scripts/qa/auth/**"
       - ".github/workflows/auth-plane-write-ci.yml"
   workflow_dispatch:
 
@@ -166,6 +167,42 @@ jobs:
       # credential or a User-Agent and that the response body is unchanged.
       - name: Persistent login — refresh telemetry, closed vocabulary
         run: npx tsx lib/auth/refresh-telemetry.test.ts
+
+      # Several tabs, one cookie jar: without a lock, overlapping refreshes leave
+      # the jar holding a secret that dies with its grace (the control proves it
+      # happens); under Web Locks and under the localStorage lease, seeded
+      # interleavings make exactly one rotation and leave the jar current. Lost
+      # responses are recovered inside the 120 s grace, never by widening it, and
+      # nothing on the client ever revokes.
+      - name: Persistent login — cross-tab lock, lost responses, retry schedule
+        run: npx tsx lib/auth/refresh-client.concurrency.test.ts
+
+      # The three properties the model above cannot prove, because the browser
+      # decides them: the real Web Locks API, the real cookie jar's ordering under
+      # HttpOnly Set-Cookie, and a keepalive response landing after navigation.
+      - name: Install Chromium for the multi-tab refresh proof
+        run: npx playwright install --with-deps chromium
+      - name: Persistent login — multi-tab refresh in a real browser
+        run: node scripts/qa/auth/refresh-multitab.browser.mjs
+
+      # Each of these is a one-line regression that would quietly bring back
+      # concurrent rotations. The suite must go red for each, for the right reason.
+      - name: negative proof — refresh lock bypassed / adopt check removed / no heartbeat
+        run: |
+          F=lib/auth/refresh-client.ts
+          mutate () {
+            cp "$F" "$F.bak"
+            node -e "const fs=require('fs');const f=process.argv[1];const s=fs.readFileSync(f,'utf8');const m=s.replace(process.argv[2],process.argv[3]);if (m === s) process.exit(9);fs.writeFileSync(f,m)" "$F" "$1" "$2" \
+              || { mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED: $3"; exit 1; }
+            if ! node scripts/ci/expect-red.mjs --id "auth-plane-write-ci.yml:refresh-$3" --expect "$4" -- npx tsx lib/auth/refresh-client.concurrency.test.ts; then
+              mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: $3"; exit 1
+            fi
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS: $3"
+          }
+          mutate 'return locks.request(REFRESH_LOCK_NAME, { mode: "exclusive" }, fn);' 'return fn();' lock-bypassed 'FAIL  - WEB LOCKS, 2 tabs'
+          mutate 'if (replacedSince(startToken)) return "refreshed";' '' adopt-removed 'FAIL  - LEASE FALLBACK, 2 tabs'
+          mutate '}, LEASE_HEARTBEAT_MS);' '}, 10 * 60_000);' no-heartbeat 'FAIL  - ...the waiter sent ZERO requests while the holder was still retrying'
+          git diff --exit-code
 
       # The device label is built from a header the caller controls, so the thing
       # under test is not "does it recognise Chrome". It is whether a hostile
