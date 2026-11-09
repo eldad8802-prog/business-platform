@@ -17,14 +17,15 @@
  *   P1  phone 390px: bank transfer, RTL, no side scroll, issued, exactly one
  *   R3  as R1, on the phone
  *   N1  back control → "מסמכים נוספים";  N2 business without the feature → the "not open" notice
- *   F0  KNOWN existing defect pinned: the billing PDF route refuses a pure RECEIPT (empty goods lines)
- *   F1  the screen reports that honestly
+ *   F0  the real PDF route returns a valid PDF with the receipt's number and total (since #1028)
+ *   F1  the screen's PDF button downloads that PDF
  *
  * env: E2E_BASE, SEED_OUT, OUT, OWNER_URL.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PrismaClient } from "@prisma/client";
+import { PDFParse } from "pdf-parse";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
 const BASE = process.env.E2E_BASE ?? "http://localhost:3710";
@@ -66,6 +67,14 @@ async function ctx(browser: Browser, token: string, size: Size): Promise<Browser
   return c;
 }
 
+async function pdfText(buf: Buffer): Promise<string> {
+  const parser = new PDFParse({ data: new Uint8Array(buf) });
+  try {
+    return (await parser.getText()).text.replace(/\s+/g, "");
+  } finally {
+    await parser.destroy();
+  }
+}
 const shot = (page: Page, name: string) => page.screenshot({ path: join(OUT, `${name}.png`), fullPage: true });
 const issuedReceipts = () => owner.billingDocument.count({ where: { businessId: seed.bizA, documentType: "RECEIPT", status: "ISSUED" } });
 const allReceipts = () => owner.billingDocument.count({ where: { businessId: seed.bizA, documentType: "RECEIPT" } });
@@ -119,22 +128,25 @@ async function main() {
     if (by.get(seed.invoices[0]) !== 1180 || by.get(seed.invoices[1]) !== 820) throw new Error(`allocations ${JSON.stringify([...by])}`);
   });
 
-  // KNOWN, PRE-EXISTING (billing, frozen — not changed here): the existing fiscal PDF path refuses every pure RECEIPT,
-  // because assertSnapshotV1 (lib/services/billing/pdf/billing-pdf-template.ts:907, called from billing-pdf.service.ts:212)
-  // requires a non-empty goods-line array and a RECEIPT has none by design. F0 pins that exact behaviour, so a future
-  // fix in billing flips it visibly; F1 proves the new screen degrades honestly instead of hanging or crashing.
-  await check("F0 KNOWN existing defect pinned: the billing PDF route refuses a pure RECEIPT (400, empty goods lines)", async () => {
-    const last = await owner.billingDocument.findFirst({ where: { businessId: seed.bizA, documentType: "RECEIPT", status: "ISSUED" }, orderBy: { id: "desc" }, select: { id: true } });
+  // Since #1028 (480d85f7) the existing PDF service accepts a pure RECEIPT. F0 reads the PDF through the real route, F1
+  // through the screen's own button; both must carry this receipt's number and total (E1: 2,000.00).
+  const printsReceipt = (printed: string, number: string) => printed.includes(number) && (printed.includes("2,000.00") || printed.includes("2000.00"));
+  await check("F0 the real PDF route returns a valid PDF for the issued receipt, with its number and total", async () => {
+    const last = await owner.billingDocument.findFirst({ where: { businessId: seed.bizA, documentType: "RECEIPT", status: "ISSUED" }, orderBy: { id: "desc" }, select: { id: true, documentNumberFormatted: true } });
     const r = await fetch(`${BASE}/api/billing/documents/${last!.id}/pdf`, { headers: { authorization: `Bearer ${seed.tokenA}` } });
-    const body = await r.text();
-    if (r.status !== 400 || !body.includes("lines must be a non-empty array")) throw new Error(`behaviour changed — status ${r.status}: ${body.slice(0, 200)}`);
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (r.status !== 200 || buf.subarray(0, 5).toString() !== "%PDF-") throw new Error(`status ${r.status}: ${buf.subarray(0, 200).toString()}`);
+    if (!printsReceipt(await pdfText(buf), last!.documentNumberFormatted!)) throw new Error(`number ${last!.documentNumberFormatted} / total 2,000.00 not printed`);
   });
 
-  await check("F1 the screen reports the failed PDF honestly (message shown, receipt stays shown)", async () => {
-    await p.getByRole("button", { name: "הורדת PDF" }).click();
-    await p.getByText("לא הצלחנו להוריד את הקובץ").first().waitFor({ timeout: 60_000 });
-    await p.getByRole("heading", { name: "הקבלה הופקה" }).waitFor();
-    await shot(p, "f1-pdf-refused-by-existing-route");
+  await check("F1 the screen's PDF button downloads a valid PDF with the receipt's number and total", async () => {
+    const last = await owner.billingDocument.findFirst({ where: { businessId: seed.bizA, documentType: "RECEIPT", status: "ISSUED" }, orderBy: { id: "desc" }, select: { documentNumberFormatted: true } });
+    const [dl] = await Promise.all([p.waitForEvent("download", { timeout: 60_000 }), p.getByRole("button", { name: "הורדת PDF" }).click()]);
+    const path = await dl.path();
+    const buf = path ? readFileSync(path) : Buffer.alloc(0);
+    if (buf.subarray(0, 5).toString() !== "%PDF-") throw new Error(`not a PDF (${buf.length} bytes)`);
+    if (!printsReceipt(await pdfText(buf), last!.documentNumberFormatted!)) throw new Error(`number ${last!.documentNumberFormatted} / total not printed`);
+    await shot(p, "f1-pdf-downloaded");
   });
 
   await check("E2 server error on the payment lines → error, nothing issued → retry → exactly one, on the same draft", async () => {
