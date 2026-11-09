@@ -213,6 +213,7 @@ async function main() {
     const before = await copiesOf(seed.orderA);
     await saveButton(pp).click();
     await pp.getByText("העותק נשמר.").waitFor({ timeout: 60_000 });
+    await listed(pp, before + 1); // the new copy is listed (newest first) before it is downloaded
     made++;
     const width = await pp.evaluate(() => document.documentElement.scrollWidth);
     if (width > PHONE.width) throw new Error(`page is ${width}px wide`);
