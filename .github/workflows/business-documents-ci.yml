@@ -355,3 +355,100 @@ jobs:
           DATABASE_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/bd_r2
           DIRECT_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/bd_r2
         run: npx tsx .business-documents/r2.battery.mts
+      - name: Lab database for the purchase-order sheet (both business-documents migrations, Production role topology)
+        run: bash .business-documents/lab.sh bd_r2_po --with-po
+      - name: Purchase-order sheet against REAL R2 — save, listed, download = stored, double click, retry, account deletion (records + objects)
+        env:
+          R2_TEST_ACCOUNT_ID: ${{ secrets.R2_TEST_ACCOUNT_ID }}
+          R2_TEST_ACCESS_KEY_ID: ${{ secrets.R2_TEST_ACCESS_KEY_ID }}
+          R2_TEST_SECRET_ACCESS_KEY: ${{ secrets.R2_TEST_SECRET_ACCESS_KEY }}
+          R2_TEST_BUCKET: ${{ secrets.R2_TEST_BUCKET }}
+          OWNER_URL: postgresql://lab_owner:bd_ci_synthetic_role_pw@localhost:5432/bd_r2_po
+          SUPER_URL: postgresql://lab_super:bd_ci_synthetic_super_pw@localhost:5432/bd_r2_po
+          DATABASE_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/bd_r2_po?connection_limit=10
+          DIRECT_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/bd_r2_po
+          AUTH_DATABASE_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/bd_r2_po
+        run: |
+          set -euo pipefail
+          npx tsx .business-documents/po-sheet-r2.battery.mts | tee /tmp/po-r2.out
+          grep -qxE '[0-9]+ passed, 0 failed' /tmp/po-r2.out
+
+  r2-prod:
+    name: Purchase-order sheet — the app in PRODUCTION MODE (next build + next start) against REAL R2 (dedicated test bucket; manual dispatch only)
+    if: github.event_name == 'workflow_dispatch'
+    environment: business-docs-r2-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: bd_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: bd_ci_synthetic_super_pw
+      LAB_PASSWORD: bd_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: po-r2-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: po-r2-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      CRON_SECRET: po_r2_ci_cron_secret_synthetic_at_least_32
+      AUTH_PLANE_ENABLED: "true"
+      RATE_LIMIT_BACKEND: memory
+      DUBIZ_I18N_ENABLED: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      OUT: /tmp/po-r2-prod
+      E2E_BASE: http://localhost:3740
+      OWNER_URL: postgresql://lab_owner:bd_ci_synthetic_role_pw@localhost:5432/po_r2_prod
+      SUPER_URL: postgresql://lab_super:bd_ci_synthetic_super_pw@localhost:5432/po_r2_prod
+      DATABASE_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/po_r2_prod?connection_limit=20
+      DIRECT_URL: postgresql://app_runtime_prod:bd_ci_synthetic_role_pw@localhost:5432/po_r2_prod
+      AUTH_DATABASE_URL: postgresql://lab_owner:bd_ci_synthetic_role_pw@localhost:5432/po_r2_prod
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      # Build FIRST, before any apt install (see appointments-calendar-ci.yml). The build needs no database and no secret.
+      - name: Build the app (production)
+        run: mkdir -p "$OUT" && { npm run build > "$OUT/build.log" 2>&1 || { tail -n 80 "$OUT/build.log"; exit 1; }; }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab database (both business-documents migrations, Production role topology)
+        run: bash .business-documents/lab.sh po_r2_prod --with-po
+      - name: Start the app (next start — production mode; storage = the test bucket)
+        env:
+          STORAGE_PROVIDER: r2
+          R2_ACCOUNT_ID: ${{ secrets.R2_TEST_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_TEST_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_TEST_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_TEST_BUCKET }}
+        run: |
+          case "$R2_BUCKET_NAME" in *test*|*Test*|*TEST*) ;; *) echo "refused: not a dedicated test bucket"; exit 1;; esac
+          (nohup npx next start -p 3740 > "$OUT/server.log" 2>&1 &)
+          for i in $(seq 1 90); do curl -sf -o /dev/null http://localhost:3740/login && break; sleep 2; done
+          curl -sf -o /dev/null http://localhost:3740/login
+      - name: End to end in production mode — save, listed, download = stored, double click, retry, flag off, account deletion (records + objects)
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_TEST_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_TEST_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_TEST_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_TEST_BUCKET }}
+        run: |
+          set -euo pipefail
+          npx tsx .business-documents/po-sheet-r2-prod.e2e.mts | tee "$OUT/e2e.out"
+          grep -qxE '[0-9]+ passed, 0 failed' "$OUT/e2e.out"
+      - name: Server log (on failure)
+        if: failure()
+        run: grep -vE "auth_sidless_token_accepted" "$OUT/server.log" | tail -n 120 || true
