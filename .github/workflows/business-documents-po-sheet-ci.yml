@@ -14,7 +14,7 @@ on:
       - "lib/services/business-documents/**"
       - "lib/services/inventory/supplier-purchase-document.service.ts"
       - "app/api/business-documents/**"
-      - "app/(shell)/inventory/supplier-purchases/[[]id[]]/send/**"
+      - "app/(shell)/inventory/supplier-purchases/**"
       - "features/business-documents/po-sheet-panel.tsx"
       - ".business-documents/lab.sh"
       - ".business-documents/po-sheet*"

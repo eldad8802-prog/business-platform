@@ -12,7 +12,7 @@ on:
     paths:
       - "features/business-documents/**"
       - "lib/services/inventory/supplier-purchase-document.service.ts"
-      - "app/(shell)/inventory/supplier-purchases/[[]id[]]/send/**"
+      - "app/(shell)/inventory/supplier-purchases/**"
       - "lib/services/business-documents/**"
       - "app/api/business-documents/**"
       - "app/(shell)/business-documents/**"
