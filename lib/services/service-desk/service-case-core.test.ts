@@ -252,7 +252,16 @@ check("the sweep exercised all 20 actions", sweepActions.size === Object.keys(AC
 // ── 3. Business validations ────────────────────────────────────────────────────────────────────────────────
 console.log("— 3. validations");
 refusedWith("missing data: schedule without an appointment", ev(ctx(), { type: "SCHEDULE", appointmentId: 0 }, OWNER), "INVALID_INPUT");
-refusedWith("missing data: diagnosis without a staff member", ev(ctx({ status: "CHECKED_IN", staffMemberId: null }), { type: "START_DIAGNOSIS" }, OWNER), "STAFF_REQUIRED");
+{
+  // Owner decision 2 (1.3a): no technician → the signed-in owner handles it; an assigned one is a server check.
+  const own = ev(ctx({ status: "CHECKED_IN", staffMemberId: null }), { type: "START_DIAGNOSIS" }, OWNER);
+  allowedTo("diagnosis with no technician assigned → the owner handles it", own, "DIAGNOSING");
+  check("  …the event says the owner handled it, and asks no staff check", own.ok && own.event.payload.handledByOwner === true && !own.serverChecks.includes("STAFF_BELONGS_TO_BUSINESS"));
+  check("  …and the journal names the acting owner", own.ok && own.event.actor.kind === "OWNER" && (own.event.actor as { userId: number }).userId === OWNER.userId);
+  const staffed = ev(ctx({ status: "CHECKED_IN", staffMemberId: 7 }), { type: "START_DIAGNOSIS" }, OWNER);
+  check("diagnosis with an assigned technician asks the service to verify them (STAFF_BELONGS_TO_BUSINESS)", staffed.ok && staffed.serverChecks.includes("STAFF_BELONGS_TO_BUSINESS") && staffed.event.payload.handledByOwner === false);
+  refusedWith("a malformed technician id is refused, never read as \"none\"", ev(ctx({ status: "CHECKED_IN", staffMemberId: 0 }), { type: "START_DIAGNOSIS" }, OWNER), "INVALID_INPUT");
+}
 {
   const d = ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: false, customerSigned: false } }), { type: "CHECK_IN" }, OWNER);
   refusedWith("missing data: IN_SHOP check-in without accessories and signature", d, "INTAKE_INCOMPLETE");
@@ -337,31 +346,38 @@ refusedWith("a ₪0 quote without a cover", ev(ctx({ status: "DIAGNOSING" }), { 
 
 console.log("  4.2 repeat repair");
 {
-  const r = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-10-01" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
-  check("within the repair warranty (33 days of 90)", r.ok && r.withinRepairWarranty && r.daysSinceDelivery === 33);
-  const late = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-01-01" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
-  check("past the repair warranty → a regular repeat, charged", late.ok && !late.withinRepairWarranty);
-  const notRepaired = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "NOT_REPAIRED", deliveredOn: "2026-10-30" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
-  check("a parent that was not repaired carries no repair warranty", notRepaired.ok && !notRepaired.withinRepairWarranty);
-  const open = evaluateRepeatCase({ parent: { status: "IN_REPAIR", outcome: null, deliveredOn: null }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
+  // Owner decision ש4 (1.3a): the parent's LOCKED warranty end date, inclusive, as Israel calendar days.
+  const rep = (deliveredOn: string | null, openedOn: string, ends: string | null, o: Partial<{ status: "CLOSED" | "DELIVERED" | "IN_REPAIR"; outcome: "REPAIRED" | "NOT_REPAIRED" | "REPLACED" | null }> = {}) =>
+    evaluateRepeatCase({ parent: { status: o.status ?? "CLOSED", outcome: o.outcome === undefined ? "REPAIRED" : o.outcome, deliveredOn }, openedOn, parentWarrantyEndsOn: ends });
+  const r = rep("2026-10-01", "2026-11-03", "2026-12-30");
+  check("within the locked warranty (opened 2026-11-03, ends 2026-12-30)", r.ok && r.withinRepairWarranty && r.daysSinceDelivery === 33 && r.warrantyEndsOn === "2026-12-30");
+  const lastDay = rep("2026-10-01", "2026-12-30", "2026-12-30");
+  check("opened ON the end date → still within (the end date is inclusive)", lastDay.ok && lastDay.withinRepairWarranty);
+  const dayAfter = rep("2026-10-01", "2026-12-31", "2026-12-30");
+  check("opened the day after the end date → past the warranty, never extended", dayAfter.ok && !dayAfter.withinRepairWarranty);
+  const leap = rep("2028-01-31", "2028-02-29", "2028-02-29");
+  check("a leap-day end date is a real date and is honoured", leap.ok && leap.withinRepairWarranty);
+  const late = rep("2026-01-01", "2026-11-03", "2026-03-31");
+  check("past the locked warranty → a regular repeat, charged", late.ok && !late.withinRepairWarranty);
+  const notRepaired = rep("2026-10-30", "2026-11-03", "2027-01-28", { outcome: "NOT_REPAIRED" });
+  check("a parent that was not repaired carries no repair warranty, even with a locked offer", notRepaired.ok && !notRepaired.withinRepairWarranty);
+  const open = rep(null, "2026-11-03", "2027-01-28", { status: "IN_REPAIR", outcome: null });
   check("a parent still in repair cannot have a repeat", !open.ok);
-  const bad = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-02-30" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
-  check("an impossible date is refused", !bad.ok);
-  const backwards = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-05" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
-  check("a repeat opened before the delivery is refused", !backwards.ok);
+  check("an impossible date is refused", !rep("2026-02-30", "2026-11-03", "2026-12-30").ok);
+  check("an impossible end date is refused", !rep("2026-10-01", "2026-11-03", "2026-02-30").ok);
+  check("an end date before the delivery is refused", !rep("2026-10-01", "2026-11-03", "2026-09-30").ok);
+  check("a repeat opened before the delivery is refused", !rep("2026-11-05", "2026-11-03", "2026-12-30").ok);
   check("the closed parent itself never reopens", !ev(ctx({ status: "CLOSED", outcome: "REPAIRED" }), { type: "START_DIAGNOSIS" }, OWNER).ok);
-  check("a set warranty is reported as set", r.ok && r.commercialWarrantySet === true);
-  const none = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", repairWarrantyDays: null });
-  check("no commercial warranty set (null) → a valid repeat, never within a commercial warranty", none.ok && !none.withinRepairWarranty && none.daysSinceDelivery === 2);
-  check("… and the decision says none was SET — not that the customer has no warranty", none.ok && none.commercialWarrantySet === false);
-  const zero = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-03" }, openedOn: "2026-11-03", repairWarrantyDays: 0 });
-  check("0 days is a set warranty (same-day repeat is within it), distinct from null", zero.ok && zero.commercialWarrantySet && zero.withinRepairWarranty);
-  const negative = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", repairWarrantyDays: -1 });
-  check("a negative warranty is refused", !negative.ok);
-  const fractional = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", repairWarrantyDays: 1.5 });
-  check("a fractional warranty is refused", !fractional.ok);
-  const missing = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", repairWarrantyDays: undefined as unknown as null });
-  check("undefined is not null — an absent value is refused, never read as \"none set\"", !missing.ok);
+  check("a locked warranty is reported as set", r.ok && r.commercialWarrantySet === true);
+  const none = rep("2026-11-01", "2026-11-03", null);
+  check("no locked offer (null) → a valid repeat, never within a commercial warranty, no period guessed", none.ok && !none.withinRepairWarranty && none.daysSinceDelivery === 2 && none.warrantyEndsOn === null);
+  check("… and the decision says none was RECORDED — not that the customer has no warranty", none.ok && none.commercialWarrantySet === false);
+  const sameDay = rep("2026-11-03", "2026-11-03", "2026-11-03");
+  check("delivered, ending and reopened the same day → within", sameDay.ok && sameDay.withinRepairWarranty);
+  const missing = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", parentWarrantyEndsOn: undefined as unknown as null });
+  check("undefined is not null — an absent value is refused, never read as \"none recorded\"", !missing.ok);
+  const numeric = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", parentWarrantyEndsOn: 90 as unknown as string });
+  check("a number of days is not an end date — refused", !numeric.ok);
 }
 
 console.log("  4.3 not repairable");
@@ -634,7 +650,13 @@ console.log("  4.11 field visit not finished on the first visit (contract compat
 {
   const f = (o: Partial<ServiceCaseContext>) => ctx({ kind: "FIELD", intake: null, siteId: 4, ...o });
   refusedWith("an on-site visit needs the site", ev(f({ siteId: null }), { type: "SCHEDULE", appointmentId: 11 }, OWNER), "SITE_REQUIRED");
-  refusedWith("an on-site visit needs a technician", ev(f({ staffMemberId: null }), { type: "SCHEDULE", appointmentId: 11 }, OWNER), "STAFF_REQUIRED");
+  {
+    // Owner decision 3 (1.3a): the owner may schedule and make the visit with no technician assigned.
+    const own = ev(f({ staffMemberId: null }), { type: "SCHEDULE", appointmentId: 11 }, OWNER);
+    allowedTo("an on-site visit with no technician → the owner makes it", own, "SCHEDULED");
+    check("  …marked as handled by the owner", own.ok && own.event.payload.handledByOwner === true);
+    allowedTo("on-site check-in with no technician → the owner", ev(f({ status: "SCHEDULED", staffMemberId: null }), { type: "CHECK_IN" }, OWNER), "CHECKED_IN");
+  }
   allowedTo("technician on site → CHECKED_IN without a shop intake", ev(f({ status: "SCHEDULED" }), { type: "CHECK_IN" }, OWNER), "CHECKED_IN");
   const wait = ev(f({ status: "IN_REPAIR", currentQuote: approvedQuote() }), { type: "SET_HOLD", reason: "PARTS" }, OWNER);
   check("first visit ends waiting for a part: the case stays open in IN_REPAIR", wait.ok && wait.to === "IN_REPAIR" && wait.holdReason === "PARTS");
@@ -842,8 +864,8 @@ console.log("— 7. purity, immutability, determinism");
   check("inputs are unchanged", JSON.stringify(frozen) === before);
   check("same input → same output", a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b));
   check("two results do not share objects", a !== null && b !== null && a.ok && b.ok && a.event !== b.event && a.effects !== b.effects);
-  const r1 = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-10-01" }, openedOn: "2026-11-03", repairWarrantyDays: 30 });
-  const r2 = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-10-01" }, openedOn: "2026-11-03", repairWarrantyDays: 30 });
+  const r1 = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-10-01" }, openedOn: "2026-11-03", parentWarrantyEndsOn: "2026-10-31" });
+  const r2 = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-10-01" }, openedOn: "2026-11-03", parentWarrantyEndsOn: "2026-10-31" });
   check("repeat evaluation is deterministic (no clock)", JSON.stringify(r1) === JSON.stringify(r2) && r1.ok && !r1.withinRepairWarranty);
 
   const dir = path.join(process.cwd(), "lib/services/service-desk");

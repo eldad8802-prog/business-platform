@@ -351,9 +351,21 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     return text;
   };
   const onSite = context.kind !== "IN_SHOP";
-  const requireStaff = () => {
-    if (!isPositiveInt(context.staffMemberId)) fail("STAFF_REQUIRED", "assign a staff member first");
-    else r.serverChecks.push("STAFF_BELONGS_TO_BUSINESS");
+  /**
+   * Owner decisions 2–3 (1.3a, 2026-11-09): a technician is optional. With none assigned the signed-in owner handles
+   * the case (diagnosis, repair, an on-site visit) — the journal names the acting user on every event. An assigned
+   * technician must belong to the business (a server check). Nothing is created in the staff model.
+   */
+  const technician = () => {
+    if (context.staffMemberId === null) {
+      r.payload.handledByOwner = true;
+      return;
+    }
+    if (!isPositiveInt(context.staffMemberId)) fail("INVALID_INPUT", "staffMemberId");
+    else {
+      r.payload.handledByOwner = false;
+      r.serverChecks.push("STAFF_BELONGS_TO_BUSINESS");
+    }
   };
   const requireReplacement = (outcome: ServiceOutcome | undefined, deviceId: number | undefined) => {
     if (outcome !== "REPLACED") return;
@@ -378,7 +390,7 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       else r.payload.appointmentId = action.appointmentId;
       r.serverChecks.push("APPOINTMENT_BELONGS_TO_CASE");
       if (onSite) {
-        requireStaff();
+        technician();
         if (!isPositiveInt(context.siteId)) fail("SITE_REQUIRED", "an on-site visit needs the customer site");
         else r.serverChecks.push("SITE_BELONGS_TO_CUSTOMER");
       }
@@ -387,7 +399,7 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     case "CHECK_IN": {
       r.to = "CHECKED_IN";
       if (onSite) {
-        requireStaff();
+        technician();
       } else {
         const i = context.intake;
         const missing = !i
@@ -404,7 +416,7 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     }
     case "START_DIAGNOSIS": {
       r.to = "DIAGNOSING";
-      requireStaff();
+      technician();
       break;
     }
     case "SEND_QUOTE": {
@@ -869,9 +881,11 @@ function dayNumber(iso: string): number | null {
 
 /**
  * A repeat repair opens a NEW case linked to the parent (a closed case is never reopened). It is within the repair
- * warranty only when the parent was REPAIRED and handed back no more than `repairWarrantyDays` days earlier. With no
- * commercial warranty set (null) it is never within one, and the decision says so (commercialWarrantySet: false) — it
- * does not say the customer has no warranty: statutory rights are outside this decision.
+ * warranty only when the parent was REPAIRED and the new case opens ON OR BEFORE the end date of the parent's LOCKED
+ * commercial warranty offer (owner decision ש4, 1.3a): the exact date that was printed for the customer, compared as
+ * Israel calendar days — never a guessed number of days, never extended. With no locked offer (null) it is never
+ * within one and the decision says so (commercialWarrantySet: false) — that is "no commercial warranty was recorded",
+ * not "the customer has no warranty": statutory rights are outside this decision.
  */
 export function evaluateRepeatCase(input: RepeatCaseInput): RepeatCaseDecision {
   const violations: ServiceCaseViolation[] = [];
@@ -883,8 +897,12 @@ export function evaluateRepeatCase(input: RepeatCaseInput): RepeatCaseDecision {
   const opened = dayNumber(input.openedOn);
   if (delivered === null) violations.push(violation("INVALID_INPUT", "parent.deliveredOn"));
   if (opened === null) violations.push(violation("INVALID_INPUT", "openedOn"));
-  const days = input.repairWarrantyDays;
-  if (days !== null && !isNonNegativeInt(days)) violations.push(violation("INVALID_INPUT", "repairWarrantyDays"));
+  const endsOnRaw = input.parentWarrantyEndsOn;
+  const endsOn = endsOnRaw === null ? null : typeof endsOnRaw === "string" ? dayNumber(endsOnRaw) : null;
+  if (endsOnRaw !== null && endsOn === null) violations.push(violation("INVALID_INPUT", "parentWarrantyEndsOn"));
+  if (delivered !== null && endsOn !== null && endsOn < delivered) {
+    violations.push(violation("INVALID_INPUT", "the warranty cannot end before the parent was handed back"));
+  }
   if (delivered !== null && opened !== null && opened < delivered) {
     violations.push(violation("INVALID_INPUT", "openedOn precedes the parent's delivery"));
   }
@@ -894,7 +912,8 @@ export function evaluateRepeatCase(input: RepeatCaseInput): RepeatCaseDecision {
   return {
     ok: true,
     daysSinceDelivery,
-    commercialWarrantySet: days !== null,
-    withinRepairWarranty: days !== null && parent.outcome === "REPAIRED" && daysSinceDelivery <= days,
+    commercialWarrantySet: endsOn !== null,
+    warrantyEndsOn: endsOn === null ? null : (endsOnRaw as string),
+    withinRepairWarranty: endsOn !== null && parent.outcome === "REPAIRED" && opened <= endsOn,
   };
 }

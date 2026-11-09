@@ -444,22 +444,26 @@ export type ServiceTransitionDecision =
 /** A repeat repair is a NEW case linked to its parent; a closed case is never reopened. Dates are YYYY-MM-DD. */
 export interface RepeatCaseInput {
   parent: { status: ServiceCaseStatus; outcome: ServiceOutcome | null; deliveredOn: string | null };
+  /** The day the new case opens, as an Israel calendar day (YYYY-MM-DD). */
   openedOn: string;
   /**
-   * The business's COMMERCIAL repair warranty in days, from its settings — or null when the business set none. The
-   * core has no default (owner decision ש6). null never means "no warranty": the customer's rights under the law apply
-   * whatever this says, and no wording may present a repeat as carrying no warranty at all (1.3 plan, warranty spec).
+   * The end date (YYYY-MM-DD, inclusive) of the parent case's LOCKED commercial warranty offer of the same business
+   * (ServiceWarrantyOffer, state LOCKED) — or null when the parent has none. The core has no default and never derives a
+   * period from settings (owner decision ש4, 1.3a). null never means "no warranty": the customer's rights under the law
+   * apply whatever this says, and no wording may present a repeat as carrying no warranty at all.
    */
-  repairWarrantyDays: number | null;
+  parentWarrantyEndsOn: string | null;
 }
 
 export type RepeatCaseDecision =
   | {
       ok: true;
-      /** Within the business's commercial repair warranty. Always false when none is set — statutory rights unaffected. */
+      /** Opened on or before the locked end date, parent REPAIRED. Always false with no locked offer — statutory rights unaffected. */
       withinRepairWarranty: boolean;
-      /** false: the business set no commercial repair warranty (repairWarrantyDays null) — not "the customer has none". */
+      /** false: no locked commercial warranty was recorded for the parent — not "the customer has none". */
       commercialWarrantySet: boolean;
+      /** The locked end date the decision used, or null. */
+      warrantyEndsOn: string | null;
       daysSinceDelivery: number;
     }
   | { ok: false; violations: readonly ServiceCaseViolation[] };
