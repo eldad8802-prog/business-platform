@@ -34,6 +34,7 @@ on:
       - "prisma/schema.prisma"
       - "package-lock.json"
       - ".billing-a0/**"
+      - ".billing-receipt-pdf/**"
       - "scripts/ci/billing-protected-paths-guard.mjs"
       - "scripts/ci/test-coverage/billing-a0.json"
       - ".github/workflows/billing-a0-characterization-ci.yml"
@@ -117,6 +118,9 @@ jobs:
       - name: Rendered-PDF characterization
         run: npx tsx .billing-a0/pdf-render.test.ts
 
+      - name: Receipt exception — the snapshot validator across all five types (only a RECEIPT may have no goods lines)
+        run: npx tsx .billing-receipt-pdf/assert-snapshot.test.ts
+
       - name: Negative proof (a changed printed label must be caught)
         run: |
           F="lib/services/billing/pdf/billing-pdf-html-template.ts"
@@ -167,6 +171,16 @@ jobs:
 
       - name: Issuance battery
         run: npx tsx .billing-a0/battery.mts
+
+      - name: Install the Playwright Chromium (html renderer, for the receipt PDF battery)
+        run: npx playwright install --with-deps chromium
+
+      - name: Receipt PDF through the real PDF service — settlement receipt + screen receipt + invoice control, both renderers
+        env:
+          STORAGE_PROVIDER: local
+          LOCAL_STORAGE_ROOT: /tmp/a0-receipt-pdf
+          BILLING_PDF_STORAGE_ROOT: /tmp/a0-receipt-pdf/billing
+        run: npx tsx .billing-receipt-pdf/battery.mts
 
       - name: Negative proof (a changed document number format must be caught)
         run: |
