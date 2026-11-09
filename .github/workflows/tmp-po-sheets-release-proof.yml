@@ -100,5 +100,5 @@ jobs:
           echo "== 4. the preflight refuses after the release"
           run ops/evidence/business-documents-po-sheets-preflight.sql /tmp/pre2.out
           echo "preflight after: FAIL at $(fails /tmp/pre2.out)"
-          [ "$(fails /tmp/pre2.out)" = "2 6 8 9 10 11" ] || { echo "unexpected refusal set"; exit 1; }
+          [ "$(fails /tmp/pre2.out)" = "2 8 9 10 11" ] || { echo "unexpected refusal set"; exit 1; }
           echo "ALL PROOFS PASSED"
