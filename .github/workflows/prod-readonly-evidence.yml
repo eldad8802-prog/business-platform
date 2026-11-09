@@ -165,6 +165,8 @@ on:
           - 'ops/evidence/appointments-open-all-production-evidence.sql'
           - 'ops/evidence/service-desk-ui-foundation-preflight.sql'
           - 'ops/evidence/service-desk-ui-foundation-production-evidence.sql'
+          - 'ops/evidence/service-desk-audit-journal-preflight.sql'
+          - 'ops/evidence/service-desk-audit-journal-production-evidence.sql'
 
 permissions:
   contents: read
