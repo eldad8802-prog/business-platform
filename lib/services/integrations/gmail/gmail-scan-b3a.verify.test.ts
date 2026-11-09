@@ -301,6 +301,31 @@ async function main() {
     assert.deepEqual(verifyGmailScanCursor(mixed, expect, T0), { ok: false, reason: "bad_signature" });
   });
 
+  await check("B2b one spelling per cursor: a same-bytes variant of any segment is refused (deterministic)", () => {
+    // Segments whose length is not a multiple of 4 end in a character with unused low bits
+    // (tag 22 chars, signature 43): flipping those bits keeps the bytes. Search until each case occurs.
+    const bump = (s: string) => {
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+      const i = alphabet.indexOf(s[s.length - 1]);
+      return s.slice(0, -1) + alphabet[i ^ 1];
+    };
+    for (const seg of [3, 4]) {
+      let found = false;
+      for (let n = 0; n < 2000 && !found; n += 1) {
+        const parts = issueGmailScanCursor(facts, T0).split(".");
+        const variant = bump(parts[seg]);
+        if (Buffer.from(variant, "base64url").equals(Buffer.from(parts[seg], "base64url"))) {
+          found = true;
+          const forged = [...parts.slice(0, seg), variant, ...parts.slice(seg + 1)].join(".");
+          const r = verifyGmailScanCursor(forged, expect, T0);
+          assert.equal(r.ok, false, `segment ${seg}: a second spelling must not verify`);
+          assert.ok(!r.ok && r.reason === "malformed", `segment ${seg} → ${!r.ok && r.reason}`);
+        }
+      }
+      assert.ok(found, `segment ${seg}: no same-bytes variant found to test`);
+    }
+  });
+
   await check("B3 a cursor made with another secret, or another purpose's key, is refused", () => {
     const original = process.env.AUTH_TOKEN_SECRET;
     process.env.AUTH_TOKEN_SECRET = "a-completely-different-secret-value";
@@ -350,7 +375,7 @@ async function main() {
     const original = process.env.AUTH_TOKEN_SECRET;
     delete process.env.AUTH_TOKEN_SECRET;
     assert.throws(() => issueGmailScanCursor(facts, T0), GmailScanCursorConfigError);
-    assert.throws(() => verifyGmailScanCursor("gsc1.a.b.c.d", expect, T0), GmailScanCursorConfigError);
+    assert.throws(() => verifyGmailScanCursor("gsc1.AAAA.AAAA.AAAA.AAAA", expect, T0), GmailScanCursorConfigError);
     process.env.AUTH_TOKEN_SECRET = original;
     assert.throws(() => issueGmailScanCursor({ ...facts, window: 60 as never }, T0), GmailScanCursorConfigError);
     assert.throws(() => issueGmailScanCursor({ ...facts, businessId: 0 }, T0), GmailScanCursorConfigError);

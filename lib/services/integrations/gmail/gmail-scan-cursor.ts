@@ -177,6 +177,11 @@ export function verifyGmailScanCursor(
   if (parts.length !== 5 || parts[0] !== PREFIX || !parts.slice(1).every((p) => p.length > 0 && B64URL.test(p))) {
     return { ok: false, reason: "malformed" };
   }
+  // One spelling per cursor: a segment must be the canonical encoding of its own bytes. Otherwise
+  // the unused low bits of a final character would let the same signature be written several ways.
+  if (!parts.slice(1).every((p) => Buffer.from(p, "base64url").toString("base64url") === p)) {
+    return { ok: false, reason: "malformed" };
+  }
 
   // 1. Signature, constant time, before anything is decrypted or parsed.
   const signed = parts.slice(0, 4).join(".");
