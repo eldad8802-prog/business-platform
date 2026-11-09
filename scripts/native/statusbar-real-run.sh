@@ -61,7 +61,14 @@ for mode in before after; do
   launch; real "$mode" landscape
   A shell settings put system user_rotation 0; sleep 3
   if [ "$mode" = after ]; then
+    # Chrome's first-run screens blocked launchBrowser (run 42677048086): skip them on this throwaway emulator.
+    A shell 'echo "_ --disable-fre --no-default-browser-check --no-first-run" > /data/local/tmp/chrome-command-line'
+    A shell am set-debug-app --persistent com.android.chrome > /dev/null 2>&1
     real "$mode" chrome
+    if ! grep -q ' PASS' "$OUT/real-$mode-chrome.log"; then
+      A shell am start -a android.intent.action.VIEW -d http://localhost:3000/login com.android.chrome > /dev/null 2>&1; sleep 8
+      A exec-out screencap -p > "$OUT/shots/after-chrome-intent-login.png"
+    fi
     A shell cmd uimode night yes > /dev/null 2>&1; sleep 3
     launch; A exec-out screencap -p > "$OUT/shots/after-darkmode-launch.png"
     A shell cmd uimode night no > /dev/null 2>&1; sleep 2
