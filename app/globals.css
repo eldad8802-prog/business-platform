@@ -289,19 +289,3 @@ select {
  * source was correct; only the artifact was stale. Touching this file changes
  * its content hash and forces the compile.
  */
-
-/* Android app only (lib/native/android-shell-entry.ts sets <html data-shell="android"> before the
-   first paint): [data-shell-hide="android"] is left out of the app, [data-shell-only="android"]
-   appears only there, [data-shell-mute="android"] is invisible but keeps its space. None of them
-   changes anything in a browser or on iPhone. */
-html[data-shell="android"] [data-shell-hide="android"] {
-  display: none !important;
-}
-html:not([data-shell="android"]) [data-shell-only="android"] {
-  display: none !important;
-}
-/* [data-shell-mute="android"] keeps its space but is not shown — for text an error message replaces
-   in place (sign-in field help), so the error appearing never shifts what is below it mid-tap. */
-html[data-shell="android"] [data-shell-mute="android"] {
-  visibility: hidden;
-}

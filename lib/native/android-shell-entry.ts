@@ -5,8 +5,8 @@
  * next.config.ts rewrites `/` on the apex host to the public homepage (/home) on the server,
  * before anything knows who is signed in. This script runs first in <head>, before anything is
  * painted, and only inside the Android shell:
- *   - marks <html data-shell="android"> so app-only CSS (globals.css: [data-shell-hide] /
- *     [data-shell-only]) applies from the first frame — no layout shift;
+ *   - marks <html data-shell="android">, which the sign-in form reads to render its compact app
+ *     layout (app/login/login-form.tsx) — set before anything renders, so no layout shift;
  *   - on `/` or `/home`, hides the page and replaces it with /login. /login already validates an
  *     existing session against the server and goes straight to /app when it is valid (no form
  *     flash); otherwise it shows the form. /login never sends anyone back to `/`, so no loop, and

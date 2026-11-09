@@ -1,10 +1,10 @@
 {
-  "note": "Issue 3 (Android app sign-in entry): inside the Android Capacitor shell a <head> script marks <html data-shell=\"android\"> and replaces the marketing routes (/ and /home) with /login before anything is painted; a client backstop covers in-app navigation; app-only CSS gives /login a compact layout. Browsers and iPhone are untouched.",
+  "note": "Issue 3 (Android app sign-in entry): inside the Android Capacitor shell a <head> script marks <html data-shell=\"android\"> and replaces the marketing routes (/ and /home) with /login before anything is painted; a client backstop covers in-app navigation; /login renders a compact layout from that marker (browser DOM unchanged). Browsers and iPhone are untouched.",
   "tests": {
     "lib/native/android-shell-entry.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "notSecurityBecause": "entry routing and layout of the Android shell only; the session check, auth routes and access control are unchanged (/login keeps validating the session server-side, /app keeps gating)",
-      "reason": "pure: runs the shipped <head> script in a vm — redirect only on / and /home inside the Android shell, page hidden first, never on /login (no loop), nothing outside the shell, never throws; backstop for in-app navigation; script in <head> with suppressHydrationWarning; server rewrite unchanged; compact sign-in markup + CSS contract; installed Capacitor still exposes the SystemBars Android interface"
+      "reason": "pure: runs the shipped <head> script in a vm — redirect only on / and /home inside the Android shell, page hidden first, never on /login (no loop), nothing outside the shell, never throws; backstop for in-app navigation; script in <head> with suppressHydrationWarning; server rewrite unchanged; compact sign-in layout decided in the form (no app-only attributes or CSS), public stylesheet untouched; installed Capacitor still exposes the SystemBars Android interface"
     }
   }
 }
