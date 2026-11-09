@@ -1,25 +1,22 @@
 name: native-android-validation
 
-# W7 Native Validation — Android (Adaptive+Native Spec v1 §13, §31).
-#
-# Manual, on-demand runtime proof for the Capacitor Android shell. This is the
-# gate that lets Native be marked CLOSED: it BUILDS the real APK and RUNS it on
-# an emulator, capturing screenshots of the running app (not a web browser at a
-# phone width). Until this workflow has a green run with attached artifacts,
-# Native stays OPEN by the owner's instruction.
-#
-# Why manual: it boots an emulator (~10 min, KVM runner) — it is a release gate,
-# not a per-PR check.
+# DIAGNOSTIC BRANCH ONLY (diag/android-app-login) — issue 3: the Android app opens on sign-in.
+# Builds the app twice on the runner — BEFORE = origin/main, AFTER = this branch — with the apex
+# rewrite (/ → /home) applied to localhost exactly as promaxgroup.co.il has it, serves each on
+# localhost:3000 to a debug APK pointed at it (cleartext in this throwaway build only), and drives
+# the real Capacitor WebView through the sign-in scenarios with mocked APIs. Desktop Chromium and
+# iPhone WebKit check the public site is unchanged. No secret, no database, no Production contact.
+# The dispatch inputs are kept only so the main-branch dispatch form accepts it.
 on:
   workflow_dispatch:
     inputs:
       server_url:
-        description: 'CAP_SERVER_URL for the WebView (production or a preview URL)'
+        description: 'ignored on the diagnostic branch'
         required: true
         default: 'https://promaxgroup.co.il'
         type: string
       api_level:
-        description: 'Android API level to validate (36 = the Play target)'
+        description: 'ignored on the diagnostic branch (matrix below)'
         required: true
         default: '36'
         type: choice
@@ -29,16 +26,24 @@ permissions:
   contents: read
 
 jobs:
-  android-runtime-proof:
-    # KVM-enabled runner — required for a usable emulator.
+  safe-area-sweep:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { api: '34', profile: 'pixel_6', browsers: '1' }
+          - { api: '35', profile: 'pixel_6', browsers: '0' }
+          - { api: '36', profile: 'pixel_7_pro', browsers: '0' }
+          - { api: '37.0', profile: 'pixel_6', browsers: '0' }
 
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Enable KVM (hardware acceleration for the emulator)
         run: |
@@ -61,40 +66,58 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: 'platform-tools'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npx prisma generate
 
-      # The native shell loads the app remotely (Spec v1 §15 — remote WebView,
-      # conditionally approved). No Next build is needed for the APK itself.
-      - name: Capacitor sync (with the target server URL)
+      - name: Build AFTER (this branch) and BEFORE (origin/main app code), apex rewrite on localhost
+        run: |
+          # Production rewrites / → /home only on the promaxgroup.co.il host; the emulator reaches the
+          # app as localhost, so the diagnostic builds apply the same rewrite to localhost.
+          sed -i 's/value: "promaxgroup.co.il"/value: "localhost"/' next.config.ts
+          grep -n 'value: "localhost"' next.config.ts
+          npx next build > build-after.log 2>&1 || { tail -40 build-after.log; exit 1; }
+          mv .next .next-after
+          CHANGED=$(git diff --name-only --diff-filter=M origin/main HEAD -- app components lib)
+          echo "reverted for BEFORE: $CHANGED"
+          git checkout origin/main -- $CHANGED
+          npx next build > build-before.log 2>&1 || { tail -40 build-before.log; exit 1; }
+          mv .next .next-before
+          git checkout HEAD -- $CHANGED
+
+      - name: Browsers for the public-site check (API 34 job only)
+        if: matrix.browsers == '1'
+        run: npx playwright install --with-deps chromium webkit > pw-install.log 2>&1 || { tail -30 pw-install.log; exit 1; }
+
+      - name: Debug APK pointing at the runner (throwaway — cleartext localhost only)
         env:
-          CAP_SERVER_URL: ${{ inputs.server_url }}
-        run: npx cap sync android
+          CAP_SERVER_URL: http://localhost:3000
+        run: |
+          sed -i 's|<application|<application android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
+          npx cap sync android
+          cd android && ./gradlew --no-daemon assembleDebug
 
-      - name: Assemble debug APK
-        working-directory: android
-        run: ./gradlew --no-daemon assembleDebug
-
-      - name: Run the native validation battery on an emulator
+      - name: Measure before / after on the emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        env:
-          CAP_SERVER_URL: ${{ inputs.server_url }}
         with:
-          api-level: ${{ inputs.api_level }}
-          target: google_apis
+          api-level: ${{ matrix.api }}
+          target: google_apis_playstore
           arch: x86_64
-          profile: pixel_6
+          profile: ${{ matrix.profile }}
           ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: bash scripts/native/android-validate.sh
+          script: BROWSER_CHECK=${{ matrix.browsers }} bash scripts/native/android-login-run.sh
 
-      - name: Upload runtime evidence (screenshots + logs + report)
+      - name: Upload sweep evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: android-runtime-evidence-api${{ inputs.api_level }}
+          name: login-api${{ matrix.api }}-${{ matrix.profile }}
           path: |
             native-evidence/**
           if-no-files-found: warn
