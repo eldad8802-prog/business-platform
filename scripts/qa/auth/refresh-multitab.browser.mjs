@@ -24,6 +24,8 @@
  */
 
 import http from "node:http";
+import fs from "node:fs";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { build } from "esbuild";
@@ -56,13 +58,15 @@ const CLIENT_JS = bundle.outputFiles[0].text;
 // ── server: the engine's rules, a real Set-Cookie ──────────────────────────
 const S = { current: "s0", history: new Map(), lastUsedAt: 0, revoked: false, rotations: 0, revocations: 0, n: 0, loseNext: 0, delayMs: 150 };
 function reset() {
-  Object.assign(S, { current: "s0", history: new Map(), lastUsedAt: 0, revoked: false, rotations: 0, revocations: 0, n: 0, loseNext: 0, delayMs: 150, arrivals: 0 });
+  Object.assign(S, { current: "s0", history: new Map(), lastUsedAt: 0, revoked: false, rotations: 0, revocations: 0, n: 0, loseNext: 0, delayMs: 150, arrivals: 0, skewMs: 0 });
 }
+/** The server clock, which a scenario can move forward to stand for "the app stayed closed". */
+const serverNow = () => Date.now() + (S.skewMs ?? 0);
 function rotate() {
-  S.history.set(S.current, Date.now() + GRACE_MS);
+  S.history.set(S.current, serverNow() + GRACE_MS);
   S.n += 1;
   S.current = `s${S.n}x${Math.random().toString(36).slice(2, 8)}`;
-  S.lastUsedAt = Date.now();
+  S.lastUsedAt = serverNow();
   S.rotations += 1;
   return S.current;
 }
@@ -71,7 +75,7 @@ function decide(cookie) {
   if (cookie === S.current) return { status: 200, secret: rotate() };
   const graceUntil = S.history.get(cookie);
   if (graceUntil === undefined) return { status: 401 };
-  if (Date.now() <= graceUntil) return { status: 200, secret: rotate() };
+  if (serverNow() <= graceUntil) return { status: 200, secret: rotate() };
   if (S.lastUsedAt > graceUntil) { S.revoked = true; S.revocations += 1; }
   return { status: 401 };
 }
@@ -212,6 +216,79 @@ await multiTab(true, "LEASE FALLBACK");
   ok("...so the next refresh from the new page succeeds (not refused)", r === "refreshed", r);
   ok("...with the current secret, not a grace recovery of a stale one", S.rotations === 2 && (await jar(ctx)) === S.current);
   await ctx.close();
+}
+
+// ── closed mid-refresh: the page goes away while the request is in flight ──
+//
+// A tab or the app's WebView page closing is not a lost response: the network
+// stack finishes a keepalive request and stores its Set-Cookie with no page to
+// read the body. The next page refreshes with the CURRENT secret.
+{
+  reset();
+  S.delayMs = 700;
+  const ctx = await freshContext({ withoutLocks: false });
+  const p = await ctx.newPage();
+  await p.goto(`${ORIGIN}/`);
+  await p.evaluate(() => localStorage.setItem("token", "tok-s0"));
+  await p.evaluate(() => { void window.DubizRefresh.refreshAccessToken(); });
+  await sleep(100);
+  await p.close(); // the page that started the refresh is closed outright
+  for (let i = 0; i < 40 && S.rotations === 0; i++) await sleep(50);
+  await sleep(1000);
+  ok("CLOSED MID-REFRESH: the server rotated", S.rotations === 1, `${S.rotations}`);
+  ok("...and the response still reached the jar after the page closed", (await jar(ctx)) === S.current);
+  S.delayMs = 150;
+  const q = await ctx.newPage();
+  await q.goto(`${ORIGIN}/`);
+  const r = await q.evaluate(() => window.DubizRefresh.refreshAccessToken());
+  ok("...reopened: the refresh succeeds with the current secret", r === "refreshed" && S.rotations === 2 && (await jar(ctx)) === S.current, `${r}`);
+  await ctx.close();
+}
+
+// ── killed mid-refresh: rotated server-side, the response never arrives ────
+//
+// What a killed process looks like from the server: it rotated, the device
+// never stored the new secret. The device comes back holding the previous one.
+//
+// Closing a PAGE does not kill the network stack (see above), so a kill is
+// simulated the way the app dies: a persistent profile is shut down entirely —
+// every request with it — and reopened from disk, cookie jar and localStorage
+// as they were persisted.
+async function killedThenReopened(afterMs) {
+  reset();
+  const profile = fs.mkdtempSync(join(os.tmpdir(), "dubiz-kill-"));
+  let ctx = await chromium.launchPersistentContext(profile);
+  await ctx.addCookies([{ name: "dubiz_rt", value: "s0", domain: "127.0.0.1", path: "/api/auth/refresh", httpOnly: true, sameSite: "Strict", expires: Math.floor(Date.now() / 1000) + 86_400 }]);
+  let p = ctx.pages()[0] ?? (await ctx.newPage());
+  await p.goto(`${ORIGIN}/`);
+  await p.evaluate(() => localStorage.setItem("token", "tok-s0"));
+  S.loseNext = 99; // every response is lost while the "process" is alive
+  await p.evaluate(() => { void window.DubizRefresh.refreshAccessToken(); });
+  for (let i = 0; i < 60 && S.rotations === 0; i++) await sleep(50);
+  await ctx.close(); // killed: the process, its requests and its retry schedule
+  await sleep(300);
+  const rotatedWhileKilled = S.rotations;
+  S.loseNext = 0;
+  S.skewMs = afterMs; // the app stays closed this long
+  ctx = await chromium.launchPersistentContext(profile);
+  const jarAfterKill = await jar(ctx);
+  p = ctx.pages()[0] ?? (await ctx.newPage());
+  await p.goto(`${ORIGIN}/`);
+  const r = await p.evaluate(() => window.DubizRefresh.refreshAccessToken());
+  const out = { r, rotatedWhileKilled, staleJar: jarAfterKill === "s0", revoked: S.revoked, revocations: S.revocations, jarCurrent: (await jar(ctx)) === S.current };
+  await ctx.close();
+  fs.rmSync(profile, { recursive: true, force: true });
+  return out;
+}
+{
+  const within = await killedThenReopened(60_000);
+  ok("KILLED, reopened after 60 s: the server had rotated and the jar kept the OLD secret", within.rotatedWhileKilled >= 1 && within.staleJar);
+  ok("...recovered inside the grace — no sign-in", within.r === "refreshed" && within.jarCurrent, JSON.stringify(within));
+  ok("...nothing revoked", within.revocations === 0);
+
+  const after = await killedThenReopened(GRACE_MS + 5_000);
+  ok("KILLED, reopened after 125 s: refused (unauthenticated) — the replay window is NOT widened", after.r === "unauthenticated", JSON.stringify(after));
+  ok("...and the session is NOT revoked (no evidence of a second holder): a sign-in, not a security event", after.revocations === 0 && after.revoked === false);
 }
 
 await browser.close();
