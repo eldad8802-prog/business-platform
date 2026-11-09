@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { initNativeShell } from "@/lib/native/native-shell";
+import { ensureAndroidShellViewport } from "@/lib/native/android-viewport-fit";
 
 /**
  * Mounted once in the root layout. In a plain browser this renders nothing and
@@ -10,6 +11,8 @@ import { initNativeShell } from "@/lib/native/native-shell";
  */
 export function NativeShellInit() {
   useEffect(() => {
+    // Android shell: backstop for pages where the root layout's inline viewport script did not run.
+    ensureAndroidShellViewport();
     void initNativeShell();
   }, []);
   return null;
