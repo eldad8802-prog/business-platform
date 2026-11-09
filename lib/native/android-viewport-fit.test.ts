@@ -68,13 +68,15 @@ function main() {
       }
     }
     const html = {};
+    const metasInDoc: typeof meta[] = [meta];
     const listeners: Record<string, () => void> = {};
     const timers: { fn: () => void; ms: number }[] = [];
     const ctx = {
       window: { CapacitorSystemBarsAndroidInterface: {} },
       document: {
         documentElement: html,
-        querySelectorAll: () => [meta],
+        readyState: "loading",
+        querySelectorAll: () => metasInDoc,
         addEventListener: (ev: string, fn: () => void) => { listeners[ev] = fn; },
       },
       MutationObserver: FakeObserver,
@@ -85,9 +87,15 @@ function main() {
     assert.ok(onMutation && observed, "Android shell watches the document");
     // the whole document — a replaced <head> must not escape the observer
     assert.equal((observed as { target: unknown }).target, html);
-    meta.content = NEXT; // React re-renders the viewport meta
+    meta.content = NEXT; // in-place content change
     (onMutation as unknown as () => void)();
     assert.equal(meta.content, "width=device-width, initial-scale=1", "restored cover is stripped again");
+    // What React 19 actually does on hydration: it appends a NEW meta with the
+    // original content (cover), which becomes the last one Capacitor reads.
+    const appended = { ...meta, content: NEXT };
+    metasInDoc.push(appended);
+    (onMutation as unknown as () => void)();
+    assert.equal(appended.content, "width=device-width, initial-scale=1", "an appended cover meta is stripped too");
     (onMutation as unknown as () => void)(); // no cover → no write, no loop
     assert.equal(meta.content, "width=device-width, initial-scale=1");
 
@@ -98,6 +106,26 @@ function main() {
     assert.equal(timers[0].ms, 15000);
     timers[0].fn();
     assert.equal(disconnected, true, "observer disconnects after the load window");
+
+    // Run late (document already parsed): the 15 s window starts immediately.
+    {
+      let lateDisconnect = false;
+      const lateTimers: { fn: () => void; ms: number }[] = [];
+      runInNewContext(ANDROID_SHELL_VIEWPORT_SCRIPT, {
+        window: { CapacitorSystemBarsAndroidInterface: {} },
+        document: { documentElement: {}, readyState: "complete", querySelectorAll: () => [], addEventListener() {} },
+        MutationObserver: class {
+          observe() {}
+          disconnect() {
+            lateDisconnect = true;
+          }
+        },
+        setTimeout: (fn: () => void, ms: number) => { lateTimers.push({ fn, ms }); },
+      });
+      assert.equal(lateTimers.length, 1, "late run still schedules the disconnect");
+      lateTimers[0].fn();
+      assert.equal(lateDisconnect, true);
+    }
 
     // Outside the Android shell nothing is observed.
     let created = false;

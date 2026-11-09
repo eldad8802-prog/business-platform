@@ -45,10 +45,14 @@ const config: CapacitorConfig = {
   },
   plugins: {
     // Edge-to-edge contract (Adaptive+Native Spec v1 §12–§13): Capacitor 8's
-    // built-in SystemBars handling forwards system-bar insets to the WebView
-    // as CSS safe-area values ("css" is also the Capacitor 8 default — pinned
-    // here so a future default change can't silently break the contract).
-    // The web side consumes them ONLY via the --dz-safe-* vars in globals.css.
+    // built-in SystemBars handling ("css" is also the Capacitor 8 default —
+    // pinned here so a future default change can't silently break it).
+    // On Android the web app deliberately takes SystemBars' PADDED path: the
+    // root layout drops viewport-fit=cover inside the Android shell
+    // (lib/native/android-viewport-fit.ts), so the WebView sits below the status
+    // bar and above the navigation bar and pages see zero insets — the pages
+    // never reserved the top inset, and WebView 140+ otherwise drew every screen
+    // under the status bar (issue 2). iOS keeps cover + ios.contentInset.
     SystemBars: {
       insetsHandling: "css",
     },

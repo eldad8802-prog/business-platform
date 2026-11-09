@@ -7,8 +7,10 @@
  * viewport meta (SystemBars.java):
  *   - WebView >= 140 AND viewport-fit=cover → it passes the system-bar insets
  *     through to the page (edge-to-edge) and expects CSS to reserve them;
- *   - otherwise → it pads the WebView itself by the system bars (and by the
- *     keyboard), and the page sees zero insets.
+ *   - otherwise → the page sees zero insets and, on Android 15+ (API 35, where
+ *     edge-to-edge is enforced), Capacitor pads the WebView's container by the
+ *     system bars, the display cutout and the keyboard. Below API 35 nothing is
+ *     drawn under the bars in the first place, so no padding is needed.
  * The root layout declares viewport-fit=cover (for iPhone), but the app never
  * reserved the TOP inset — iOS is inset natively (ios.contentInset "always") and
  * older Android WebViews took the padded path. Once phones updated to WebView
@@ -20,17 +22,17 @@
  * interface the SystemBars plugin adds to the Android WebView; it exists from
  * page start and nowhere else — iPhone, iOS shell and browsers are untouched.
  *
- * It keeps the cover out afterwards too: Capacitor reads the meta
- * asynchronously after DOMContentLoaded, and Next re-renders the viewport meta
- * on hydration — on a light page that put the cover back before Capacitor
- * looked (emulator sweep, /settings/inbound-email). A MutationObserver strips
- * it again as a microtask, before Capacitor's read can run. It watches the
- * whole document, so a viewport meta re-created anywhere is caught. Capacitor
- * reads the meta once per page load, so the observer disconnects 15 s after
- * DOMContentLoaded — no cost for the rest of the visit. Documents where this
- * script cannot run at all are covered by ensureAndroidShellViewport() below.
+ * It keeps the cover out afterwards too. Capacitor reads the LAST viewport meta
+ * asynchronously after DOMContentLoaded; on hydration React no longer finds a
+ * meta with the original content (this script changed it) and appends a new
+ * one carrying viewport-fit=cover — which then is the last one. A
+ * MutationObserver (childList + attributes, whole document) strips it again as
+ * a microtask, before Capacitor's read task can run. Capacitor reads once per
+ * page load, so the observer disconnects 15 s after DOMContentLoaded (or 15 s
+ * after it starts, if the script ever runs late). Documents where this script
+ * cannot run at all are covered by ensureAndroidShellViewport() below.
  */
-export const ANDROID_SHELL_VIEWPORT_SCRIPT = `(function(){try{if(typeof window.CapacitorSystemBarsAndroidInterface==="undefined")return;var strip=function(){var m=document.querySelectorAll('meta[name="viewport"]');for(var i=0;i<m.length;i++){var c=m[i].getAttribute("content")||"";if(/viewport-fit\\s*=\\s*cover/i.test(c)){m[i].setAttribute("content",c.replace(/\\s*,?\\s*viewport-fit\\s*=\\s*cover/gi,"").replace(/^\\s*,\\s*/,""));}}};strip();if(typeof MutationObserver!=="undefined"&&document.documentElement){var o=new MutationObserver(strip);o.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:["content"]});document.addEventListener("DOMContentLoaded",function(){setTimeout(function(){o.disconnect();},15000);});}}catch(e){}})();`;
+export const ANDROID_SHELL_VIEWPORT_SCRIPT = `(function(){try{if(typeof window.CapacitorSystemBarsAndroidInterface==="undefined")return;var strip=function(){var m=document.querySelectorAll('meta[name="viewport"]');for(var i=0;i<m.length;i++){var c=m[i].getAttribute("content")||"";if(/viewport-fit\\s*=\\s*cover/i.test(c)){m[i].setAttribute("content",c.replace(/\\s*,?\\s*viewport-fit\\s*=\\s*cover/gi,"").replace(/^\\s*,\\s*/,""));}}};strip();if(typeof MutationObserver!=="undefined"&&document.documentElement){var o=new MutationObserver(strip);o.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:["content"]});var stop=function(){setTimeout(function(){o.disconnect();},15000);};if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",stop);}else{stop();}}}catch(e){}})();`;
 
 type ShellWindow = { CapacitorSystemBarsAndroidInterface?: { onDOMReady?: () => void } };
 type ViewportMeta = { getAttribute(name: string): string | null; setAttribute(name: string, value: string): void };
