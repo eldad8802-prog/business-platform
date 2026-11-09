@@ -229,7 +229,52 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
-      - name: Confirm the tree is byte-identical after both mutations
+      # Per-device logout: the laptop that signs out ends its own session and the
+      # phone stays signed in, while "every device", a sid-less token and any
+      # generation bump still end everything — and a device revocation that
+      # cannot be written is reported as a failure, never as a sign-out.
+      - name: Logout scope — per device by default, everywhere on request (PG17)
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .authfix/logout-scope-battery.ts
+
+      # Turning the default back into a global logout must be noticed: that is
+      # exactly the regression that signed phones out on every account switch.
+      - name: negative proof — a default logout that ends every device
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: |
+          F=app/api/auth/logout/route.ts
+          cp "$F" "$F.bak"
+          node -e "const fs=require('fs');const f=process.argv[1];const s=fs.readFileSync(f,'utf8');const m=s.replace('const effective: LogoutScope = scope === \"device\" && sessionId !== null ? \"device\" : \"all\";','const effective: LogoutScope = \"all\";');if (m === s) process.exit(9);fs.writeFileSync(f,m)" "$F" \
+            || { mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; }
+          if ! node scripts/ci/expect-red.mjs --id "auth-plane-write-ci.yml:logout-scope-default" --expect 'FAIL  - PHONE (Android WebView) still authenticates' -- npx tsx .authfix/logout-scope-battery.ts; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a global default logout would go unnoticed"
+            exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      # Cookie logout accepts a rotated secret only inside its grace. Dropping the
+      # time bound would be a longer replay window by another name.
+      - name: negative proof — cookie logout that accepts a secret past its grace
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: |
+          F=lib/auth/refresh-session.ts
+          cp "$F" "$F.bak"
+          node -e "const fs=require('fs');const f=process.argv[1];const s=fs.readFileSync(f,'utf8');const m=s.replace('proven = historic !== null && input.now <= historic.graceUntil;','proven = historic !== null;');if (m === s) process.exit(9);fs.writeFileSync(f,m)" "$F" \
+            || { mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; }
+          if ! node scripts/ci/expect-red.mjs --id "auth-plane-write-ci.yml:cookie-logout-grace" --expect 'FAIL  - COOKIE (rotated secret, PAST grace): revoked=false' -- npx tsx .authfix/logout-scope-battery.ts; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: cookie logout would accept an expired grace"
+            exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after every mutation
         run: git diff --exit-code
 
       # The migration's own grant delta, kept as a standing check: the new column

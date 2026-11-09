@@ -193,8 +193,8 @@ export async function issueRefreshSession(
 }
 
 /**
- * Revoke every live session for a user. Used by logout, which stays GLOBAL: it
- * also increments `User.tokenVersion`, and this makes the refresh half match.
+ * Revoke every live session for a user. Used by "sign out of every device",
+ * which also increments `User.tokenVersion`; this makes the refresh half match.
  * Rows are revoked, never deleted — retention is a separate contract.
  */
 export async function revokeAllSessionsForUser(
@@ -206,6 +206,93 @@ export async function revokeAllSessionsForUser(
     data: { revokedAt: input.now, revokedReason: input.reason ?? REVOKED_REASON.LOGOUT },
   });
   return count;
+}
+
+/**
+ * End ONE session: the device the person is signing out of.
+ *
+ * Ordinary logout is per-device. Ending every session on every device because
+ * someone left one of them is what signed people out of their phone whenever
+ * they switched accounts on a laptop; "every device" is now a separate,
+ * explicit choice (`revokeAllSessionsForUser` plus a generation bump).
+ *
+ * The session is identified by the caller — the `sid` of an access token that
+ * has already passed every gate — and ownership is inside the write predicate,
+ * so a session id that is not this user's cannot change a row.
+ *
+ * Unlike the global path, there is no generation bump to fall back on here:
+ * this write IS the logout. A failure therefore propagates, and the route must
+ * not report success for a device that is still signed in.
+ */
+export async function revokeSessionForLogout(
+  db: PrismaClient,
+  input: { userId: number; sessionId: string; now: Date }
+): Promise<"revoked" | "already_ended" | "not_found"> {
+  const { count } = await db.authSession.updateMany({
+    where: { id: input.sessionId, userId: input.userId, revokedAt: null },
+    data: { revokedAt: input.now, revokedReason: REVOKED_REASON.LOGOUT },
+  });
+  if (count === 1) return "revoked";
+  // Ended by a racing revoke, or not this user's at all. The probe is scoped by
+  // userId, so it cannot tell anyone anything about another user's rows.
+  const mine = await db.authSession.findFirst({
+    where: { id: input.sessionId, userId: input.userId },
+    select: { id: true },
+  });
+  return mine === null ? "not_found" : "already_ended";
+}
+
+export type CredentialRevokeOutcome =
+  /** Possession proven; the session is ended now, or already was. */
+  | { kind: "revoked"; sessionId: string; alreadyEnded: boolean }
+  /** Nothing proven: no credential, a malformed one, or a secret we cannot vouch for. */
+  | { kind: "unproven" };
+
+/**
+ * End the session a refresh CREDENTIAL belongs to — the logout path that needs
+ * no access token.
+ *
+ * Two situations have no usable access token but still owe the person a real
+ * server-side sign-out: the token has already expired, and a logout attempted
+ * offline that is being completed later. The refresh cookie is the one thing
+ * the device still holds that proves which session is its own.
+ *
+ * Possession is required exactly as refresh requires it: the CURRENT secret, or
+ * a rotated one still inside its grace. The selector alone authenticates
+ * nothing, so an id without its secret cannot end anyone's session — and a
+ * secret past its grace is not accepted either, because accepting it here would
+ * be a longer replay window by another name. Unproven is reported as such and
+ * changes nothing.
+ */
+export async function revokeSessionByCredential(
+  db: PrismaClient,
+  input: { credential: string | null | undefined; now: Date }
+): Promise<CredentialRevokeOutcome> {
+  const parsed = parseCredential(input.credential);
+  if (!parsed) return { kind: "unproven" };
+  const presentedHash = sha256(parsed.secret);
+
+  const session = await db.authSession.findUnique({
+    where: { id: parsed.sessionId },
+    select: { id: true, secretHash: true, revokedAt: true },
+  });
+  if (!session) return { kind: "unproven" };
+
+  let proven = hashesEqual(presentedHash, session.secretHash);
+  if (!proven) {
+    const historic = await db.authSessionSecret.findUnique({
+      where: { sessionId_secretHash: { sessionId: session.id, secretHash: presentedHash } },
+      select: { graceUntil: true },
+    });
+    proven = historic !== null && input.now <= historic.graceUntil;
+  }
+  if (!proven) return { kind: "unproven" };
+
+  if (session.revokedAt !== null) {
+    return { kind: "revoked", sessionId: session.id, alreadyEnded: true };
+  }
+  await revokeOne(db, session.id, input.now, REVOKED_REASON.LOGOUT);
+  return { kind: "revoked", sessionId: session.id, alreadyEnded: false };
 }
 
 async function revokeOne(
