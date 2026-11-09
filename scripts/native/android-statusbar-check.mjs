@@ -83,7 +83,10 @@ const measure = async (label) => {
   const wv = webviewBounds();
   const p = await pageInfo();
   const sbBottom = f.statusBar ? f.statusBar[3] : null;
-  const cutBottom = f.cutout && f.cutout[1] === 0 ? f.cutout[3] : 0; // top cutout only
+  // a cutout along the top edge (wider than tall); in landscape it moves to a side edge
+  const topCutout = f.cutout && f.cutout[1] === 0 && f.cutout[2] - f.cutout[0] > f.cutout[3] - f.cutout[1];
+  const cutBottom = topCutout ? f.cutout[3] : 0;
+  const sideCutout = f.cutout && !topCutout ? f.cutout : null;
   const topLimit = Math.max(sbBottom ?? 0, cutBottom);
   const topElScreenY = wv && p.topEl ? Math.round(wv[1] + p.topEl.top * p.dpr) : null;
   const navTop = f.navBar && f.navBar[1] > 0 ? f.navBar[1] : null; // bottom nav bar (portrait)
@@ -93,6 +96,7 @@ const measure = async (label) => {
     headerBelowStatusBar: topElScreenY != null ? topElScreenY >= topLimit : null,
     webviewTopGapPx: wv && sbBottom != null ? wv[1] - topLimit : null, // >0 with page top content also padded = double spacing
     doublePadding: wv != null && wv[1] >= topLimit && wv[1] > 0 && p.insetTop > 0, // native offset AND css inset
+    webviewClearOfSideCutout: wv && sideCutout ? (sideCutout[0] === 0 ? wv[0] >= sideCutout[2] : wv[2] <= sideCutout[0]) : null,
     webviewAboveNavBar: wv && navTop != null ? wv[3] <= navTop : null,
     // APPEARANCE_LIGHT_STATUS_BARS = the bar is light, so its icons are DARK
     statusIconsDark: statusIconsLight(),
@@ -132,7 +136,11 @@ try {
   const m = await measure("keyboard");
   const k = await page.evaluate(() => {
     const f = document.activeElement?.getBoundingClientRect();
-    const btn = document.querySelector('button[type="submit"]') || [...document.querySelectorAll("form button")].pop();
+    const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const buttons = [...document.querySelectorAll("button")].filter(visible);
+    const btn = document.querySelector('button[type="submit"]')
+      || buttons.find((b) => /שמיר|שמור|הוספ|יציר|צור|אישור/.test(b.textContent || ""))
+      || buttons.pop();
     btn?.scrollIntoView({ block: "nearest" });
     const b = btn?.getBoundingClientRect();
     return {
