@@ -114,6 +114,13 @@ function main() {
   // Errors stay visible in the app (only the idle helper text is hidden).
   assert.match(login, /<p id="login-email-msg" role="alert" style=\{fieldErrorStyle\}>/);
   assert.match(login, /<p id="login-password-msg" role="alert" style=\{fieldErrorStyle\}>/);
+  // No autofocus in the app (the keyboard would cover the screen on launch and eat the first back);
+  // read only after the boot screen, which is all the server renders.
+  assert.match(login, /autoFocus=\{!inAndroidApp\}/);
+  assert.ok(
+    login.indexOf("if (bootLoading) {") < login.indexOf('const inAndroidApp = document.documentElement.getAttribute("data-shell") === "android";'),
+    "the app marker is read after the boot screen (client-only form)"
+  );
   // Forgot password and register stay in the app.
   assert.match(login, /data-testid="forgot-password-link"/);
   assert.doesNotMatch(login, /forgot-password-link"[^>]*data-shell-hide/);
