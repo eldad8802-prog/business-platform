@@ -16,6 +16,9 @@ import { InvButton, InvNote } from "@/components/inventory/v2/kit";
 import { buildClientAuthHeaders } from "@/lib/client-session";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 
+/** A refusal the server explained in Hebrew; anything else (a lost connection, a 5xx) gets the generic message. */
+class ServerRefusal extends Error {}
+
 type SheetWire = { id: number; displayedNumber: string; externalNumber: string | null; displayDate: string; savedAt: string };
 
 const savedAtLabel = (iso: string) =>
@@ -65,12 +68,12 @@ export function PurchaseOrderSheetPanel({ supplierOrderId }: { supplierOrderId: 
         body: JSON.stringify({ idempotencyKey: pendingKey.current, locale }),
       });
       const data = (await res.json().catch(() => ({}))) as { message?: string };
-      if (!res.ok) throw new Error(data.message ?? "save");
+      if (!res.ok) throw res.status < 500 && data.message ? new ServerRefusal(data.message) : new Error("save");
       pendingKey.current = null;
       setMessage({ tone: "ok", text: "העותק נשמר." });
       setSheets(await load());
     } catch (e) {
-      setMessage({ tone: "danger", text: e instanceof Error && e.message && !["key", "save"].includes(e.message) ? e.message : "שמירת העותק נכשלה. אפשר לנסות שוב — לא יישמר עותק כפול." });
+      setMessage({ tone: "danger", text: e instanceof ServerRefusal ? e.message : "שמירת העותק נכשלה. אפשר לנסות שוב — לא יישמר עותק כפול." });
     } finally {
       inFlight.current = false;
       setBusy(false);
