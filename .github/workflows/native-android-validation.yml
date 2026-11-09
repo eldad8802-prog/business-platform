@@ -84,9 +84,10 @@ jobs:
           grep -n 'value: "localhost"' next.config.ts
           npx next build > build-after.log 2>&1 || { tail -40 build-after.log; exit 1; }
           mv .next .next-after
-          CHANGED=$(git diff --name-only --diff-filter=M origin/main HEAD -- app components lib)
+          BASE=$(git merge-base origin/main HEAD)
+          CHANGED=$(git diff --name-only --diff-filter=M "$BASE" HEAD -- app components lib)
           echo "reverted for BEFORE: $CHANGED"
-          git checkout origin/main -- $CHANGED
+          git checkout "$BASE" -- $CHANGED
           npx next build > build-before.log 2>&1 || { tail -40 build-before.log; exit 1; }
           mv .next .next-before
           git checkout HEAD -- $CHANGED
