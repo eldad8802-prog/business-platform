@@ -27,16 +27,18 @@ permissions:
 
 jobs:
   safe-area-sweep:
-    runs-on: ubuntu-latest
+    # API 34 also runs the desktop/iPhone public-site check: Playwright cannot install browsers on
+    # ubuntu-26.04 (ubuntu-latest) yet, so that job is pinned to ubuntu-24.04.
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { api: '34', profile: 'pixel_6', browsers: '1' }
-          - { api: '35', profile: 'pixel_6', browsers: '0' }
-          - { api: '36', profile: 'pixel_7_pro', browsers: '0' }
-          - { api: '37.0', profile: 'pixel_6', browsers: '0' }
+          - { api: '34', profile: 'pixel_6', browsers: '1', runner: 'ubuntu-24.04' }
+          - { api: '35', profile: 'pixel_6', browsers: '0', runner: 'ubuntu-latest' }
+          - { api: '36', profile: 'pixel_7_pro', browsers: '0', runner: 'ubuntu-latest' }
+          - { api: '37.0', profile: 'pixel_6', browsers: '0', runner: 'ubuntu-latest' }
 
     steps:
       - name: Checkout
