@@ -501,6 +501,12 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // biz/{id}/service/ are deleted only after every database stage committed (eraseStoredObjects, then the sweep).
           // It refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.service_desk_ui_erase_business() AS n`;
+          // Service Desk P4 audit journal (migration 20261122090000). The acting user and the request digest of every
+          // settings-change event of the business are blanked in place by this SECURITY DEFINER function (the journal is
+          // append-only: its guard refuses that change from the runtime itself). The events stay as the business's audit
+          // record — version, changed field names and time, never values. The case journal's P4 records are blanked by
+          // service_erase_business() above. It refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_settings_journal_erase_business() AS n`;
           // Business documents (migration 20261114090000). Quote share copies and their events, saved letters and
           // idempotency keys are deleted, and every stored file is marked DELETING with its object key kept, by this
           // SECURITY DEFINER function — it also writes the durable erasure job, in THIS transaction, so a failed purge

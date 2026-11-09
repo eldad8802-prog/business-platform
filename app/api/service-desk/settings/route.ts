@@ -1,6 +1,5 @@
-import { json, serviceDeskRoute } from "@/lib/services/service-desk/service-desk-http";
-import { ServiceDeskError } from "@/lib/services/service-desk/service-desk-errors";
-import { getSettings } from "@/lib/services/service-desk/service-case.service";
+import { idempotencyKeyOf, json, jsonBody, serviceDeskRoute } from "@/lib/services/service-desk/service-desk-http";
+import { getSettings, updateSettings } from "@/lib/services/service-desk/service-case.service";
 
 /** GET — the business's service settings. */
 export async function GET(req: Request) {
@@ -8,12 +7,13 @@ export async function GET(req: Request) {
 }
 
 /**
- * PUT { expectedVersion, defaultStaffMemberId, warrantyTemplate } — replace the settings — CLOSED until the P4 audit journal exists (owner decision 2026-11-09, option B): this write would leave no
- * audit event. The edge still authenticates and applies the access gate first (401 / 404 / 403 READ_ONLY); then the
- * request is refused before its body is read or anything is written. No fake success.
+ * PUT { expectedVersion: number | null, defaultStaffMemberId, warrantyTemplate } + Idempotency-Key — replace them. Journaled
+ * (P4) in ServiceSettingsEvent in the same transaction. Without the P4 journal the service answers NOT_AVAILABLE_UNTIL_AUDIT.
  */
 export async function PUT(req: Request) {
-  return serviceDeskRoute(req, "write", async () => {
-    throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT");
+  return serviceDeskRoute(req, "write", async ({ principal }) => {
+    const key = idempotencyKeyOf(req);
+    const b = await jsonBody(req);
+    return json(await updateSettings(principal, { expectedVersion: b.expectedVersion === undefined ? null : b.expectedVersion, defaultStaffMemberId: b.defaultStaffMemberId, warrantyTemplate: b.warrantyTemplate }, { idempotencyKey: key }));
   });
 }

@@ -30,8 +30,10 @@ bash "$ROOT/.bkg/lab.sh" "$DB" --with-bkg >/dev/null
 # way Production has them. The same holds for the 1.2b tables (work at an external supplier, migration
 # 20261113090000, which sorts after this one and is not this lab's): they use "ServiceActor", so they go first.
 # And for the spare-parts tables (M2, migration 20261115090000, not this lab's either): they use "ServiceActor" too.
-# And for the UI foundation tables (1.3-0, migration 20261120090000, not this lab's either).
+# And for the UI foundation tables (1.3-0, migration 20261120090000, not this lab's either), and P4's settings journal
+# (migration 20261122090000, which uses "ServiceActor").
 psql_owner <<'SQL'
+DROP TABLE IF EXISTS "ServiceSettingsEvent" CASCADE;
 DROP TABLE IF EXISTS "ServiceStorageErasure", "ServicePhoneReminder", "ServiceShareEvent", "ServiceIntakePhoto",
   "ServiceWarrantyOffer", "ServiceIntakeTermsSnapshot", "ServiceSettings", "ServiceTextVersion" CASCADE;
 DROP TYPE IF EXISTS "ServiceStorageErasureState", "ServicePhoneReminderOutcome", "ServiceShareChannel",

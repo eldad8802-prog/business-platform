@@ -168,6 +168,9 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceWarrantyOffer: { disposition: "ERASURE_MANAGED" },
   ServiceIntakePhoto: { disposition: "ERASURE_MANAGED" },
   ServiceShareEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk P4 audit journal (migration 20261122090000): who acted and the request digest are erased in place by
+  // service_settings_journal_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceSettingsEvent: { disposition: "ERASURE_MANAGED" },
   ServicePhoneReminder: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },

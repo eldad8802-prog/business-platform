@@ -13,8 +13,10 @@
  *   5. status / hold / outcome / version and the event, in the same transaction; the database guards re-check it.
  * A concurrent first request with the same key loses on the unique key and is answered from the winner.
  *
- * Writes that have no journal event type (the technician, the intake record, the settings) are compare-and-set under
- * the row lock and idempotent by value: repeating the same request is answered from the current state.
+ * P4: the technician, the intake data and QA results are status-preserving case records (journaled like a transition,
+ * the version bumped, the status untouched); a settings change is journaled in ServiceSettingsEvent — each in the same
+ * transaction as the change it records, with the same key / digest / replay rules. Without the P4 journal in the
+ * database they answer NOT_AVAILABLE_UNTIL_AUDIT and write nothing.
  *
  * Raw SQL with explicit casts throughout: the queries name exactly the columns and locks they need.
  */
@@ -41,6 +43,7 @@ import {
 import { OPEN_PART_STATES } from "./parts.contracts";
 import { checkCommandEnvelope, evaluateRepeatCase, evaluateTransition, openServiceCase } from "./service-case.core";
 import { ServiceDeskError, refused } from "./service-desk-errors";
+import { evaluateQa } from "./qa-templates";
 
 type Tx = Prisma.TransactionClient;
 
@@ -514,40 +517,96 @@ export async function runCaseAction(p: ServiceDeskPrincipal, caseId: unknown, bo
   });
 }
 
-// ── The technician (compare-and-set, idempotent by value) ───────────────────────────────────────────────────
+// ── P4: status-preserving records (journaled, versioned, idempotent) ────────────────────────────────────────
 
-/** Assign an existing active staff member of the business, or none (the owner handles it). `from` is what the caller saw. */
-export async function assignTechnician(p: ServiceDeskPrincipal, caseId: unknown, body: { staffMemberId?: unknown; from?: unknown }): Promise<CaseSummary> {
-  if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
-  const to = body.staffMemberId ?? null;
-  const from = body.from === undefined ? undefined : body.from;
-  if (to !== null && !isPositiveInt(to)) throw new ServiceDeskError("INVALID_INPUT", { field: "staffMemberId" });
-  if (from === undefined || (from !== null && !isPositiveInt(from))) throw new ServiceDeskError("INVALID_INPUT", { field: "from" });
-  const b = p.businessId;
-  try {
-    return await tenantTx(b, async (tx) => {
-      const { context } = await lockCase(tx, b, caseId);
-      if (context.staffMemberId === to) return summaryOf(tx, b, caseId); // the same request again: answered from the state
-      if (context.staffMemberId !== from) throw new ServiceDeskError("STALE_STATE", { field: "staffMemberId" });
-      if (["CLOSED", "CANCELLED"].includes(context.status)) throw new ServiceDeskError("REFUSED", { violations: ["TERMINAL_STATUS"] });
-      if (to !== null && !(await staffOfBusiness(tx, b, to as number))) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "STAFF_BELONGS_TO_BUSINESS" });
-      await tx.$executeRaw`UPDATE "ServiceCase" SET "staffMemberId" = ${to as number | null}::int, "updatedAt" = now() WHERE id = ${caseId}::int AND "businessId" = ${b}::int`;
-      return summaryOf(tx, b, caseId);
-    }, { timeoutMs: 15_000 });
-  } catch (e) {
-    throw e instanceof ServiceDeskError ? e : guardRefusal(e) ?? e;
-  }
+/**
+ * The audit journal of migration 20261122090000 is present: its event types and its settings table. Fail closed —
+ * without it, the three record writes answer NOT_AVAILABLE_UNTIL_AUDIT before anything is written (owner rule).
+ */
+async function auditJournalReady(tx: Tx): Promise<boolean> {
+  const r = await tx.$queryRaw<{ ok: boolean }[]>`
+    SELECT (EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'ServiceEventType' AND e.enumlabel = 'qa.recorded')
+        AND to_regclass('public."ServiceSettingsEvent"') IS NOT NULL) AS ok`;
+  return r[0]?.ok === true;
 }
 
-// ── The intake record (data only — no signature, no PDF in 1.3a) ────────────────────────────────────────────
+async function requireAuditJournal(tx: Tx) {
+  if (!(await auditJournalReady(tx))) throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT");
+}
+
+type RecordAction = "ASSIGN_TECHNICIAN" | "RECORD_INTAKE" | "RECORD_QA";
+const RECORD_EVENT: Record<RecordAction, string> = {
+  ASSIGN_TECHNICIAN: "case.technician_assigned",
+  RECORD_INTAKE: "intake.recorded",
+  RECORD_QA: "qa.recorded",
+};
+
+/** Bump the case version (status, hold, cancel request, outcome untouched) and append the record with seq = version. */
+async function appendRecord(tx: Tx, b: number, caseId: number, c: ServiceCaseContext, action: RecordAction, payload: Record<string, string | number | boolean | null>, userId: number, prepared: Prepared): Promise<number> {
+  const next = c.version + 1;
+  const n = await tx.$executeRaw`UPDATE "ServiceCase" SET version = ${next}::int, "updatedAt" = now() WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${c.version}::int`;
+  if (n !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
+  await tx.$executeRaw`
+    INSERT INTO "ServiceCaseEvent" ("businessId", "caseId", seq, "eventType", action, "fromStatus", "toStatus", "holdReasonBefore", "holdReasonAfter",
+      "cancellationRequestedBefore", "cancellationRequestedAfter", outcome, actor, "actorUserId", payload, "idempotencyKey", "requestDigest", "digestKeyId")
+    VALUES (${b}::int, ${caseId}::int, ${next}::int, ${RECORD_EVENT[action]}::"ServiceEventType", ${action}::"ServiceCaseAction",
+      ${c.status}::"ServiceCaseStatus", ${c.status}::"ServiceCaseStatus", ${c.holdReason}::"ServiceHoldReason", ${c.holdReason}::"ServiceHoldReason",
+      ${c.cancellationRequested}::boolean, ${c.cancellationRequested}::boolean, ${c.outcome}::"ServiceOutcome", 'OWNER_USER'::"ServiceActor", ${userId}::int,
+      ${JSON.stringify(payload)}::jsonb, ${prepared.key}::text, ${prepared.digest.value}::text, ${prepared.digest.keyId}::text)`;
+  return next;
+}
+
+const isTerminalStatus = (s: ServiceCaseStatus) => s === "CLOSED" || s === "CANCELLED";
+
+/** A case record command: lock the case → the journal present? → an earlier answer? → expectedVersion → work. */
+async function recordCommand(
+  p: ServiceDeskPrincipal,
+  caseId: number,
+  expectedVersion: unknown,
+  prepared: Prepared,
+  work: (tx: Tx, locked: Locked) => Promise<void>,
+): Promise<CommandResult> {
+  if (!isNonNegativeInt(expectedVersion)) throw new ServiceDeskError("INVALID_INPUT", { field: "expectedVersion" });
+  const b = p.businessId;
+  return journaled<CommandResult, Locked>(p, prepared, async (tx) => {
+    const locked = await lockCase(tx, b, caseId);
+    await requireAuditJournal(tx);
+    return locked;
+  }, async (tx, locked) => {
+    if (locked.context.version !== expectedVersion) throw new ServiceDeskError("VERSION_CONFLICT");
+    await work(tx, locked);
+    const s = await summaryOf(tx, b, caseId);
+    return { case: s, event: { seq: s.version }, replayed: false };
+  }, async (tx, prior) => {
+    if (prior.caseId !== caseId) throw new ServiceDeskError("IDEMPOTENCY_KEY_REUSED");
+    return { case: await summaryOf(tx, b, caseId), event: { seq: prior.seq }, replayed: true };
+  });
+}
+
+/** Assign an existing active staff member of the business, or none (the owner handles it). Journaled (P4). */
+export async function assignTechnician(p: ServiceDeskPrincipal, caseId: unknown, body: { staffMemberId?: unknown; expectedVersion?: unknown }, req: WriteRequest): Promise<CommandResult> {
+  if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
+  const to = body.staffMemberId ?? null;
+  if (to !== null && !isPositiveInt(to)) throw new ServiceDeskError("INVALID_INPUT", { field: "staffMemberId" });
+  const prepared = prepare(p, req, "service-desk/cases:technician", { caseId, staffMemberId: to, expectedVersion: body.expectedVersion });
+  return recordCommand(p, caseId, body.expectedVersion, prepared, async (tx, { context }) => {
+    if (isTerminalStatus(context.status)) throw new ServiceDeskError("REFUSED", { violations: ["TERMINAL_STATUS"] });
+    if (context.staffMemberId === to) throw new ServiceDeskError("REFUSED", { violations: ["NO_CHANGE"] });
+    if (to !== null && !(await staffOfBusiness(tx, p.businessId, to as number))) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "STAFF_BELONGS_TO_BUSINESS" });
+    await tx.$executeRaw`UPDATE "ServiceCase" SET "staffMemberId" = ${to as number | null}::int WHERE id = ${caseId}::int AND "businessId" = ${p.businessId}::int`;
+    await appendRecord(tx, p.businessId, caseId, context, "ASSIGN_TECHNICIAN", { fromStaffMemberId: context.staffMemberId, toStaffMemberId: to as number | null }, p.userId, prepared);
+  });
+}
 
 const NOTE_MAX = 2000;
 
+/** The intake data of an IN_SHOP case before check-in (no signature, no PDF). Journaled (P4): which fields changed, never the text. */
 export async function recordIntake(
   p: ServiceDeskPrincipal,
   caseId: unknown,
-  body: { conditionNote?: unknown; accessoriesNote?: unknown; conditionRecorded?: unknown; accessoriesRecorded?: unknown; expectedUpdatedAt?: unknown },
-): Promise<CaseCard> {
+  body: { conditionNote?: unknown; accessoriesNote?: unknown; conditionRecorded?: unknown; accessoriesRecorded?: unknown; expectedVersion?: unknown },
+  req: WriteRequest,
+): Promise<CommandResult> {
   if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
   const note = (v: unknown, field: string) => {
     if (v === undefined || v === null) return null;
@@ -558,39 +617,65 @@ export async function recordIntake(
   const accessoriesNote = note(body.accessoriesNote, "accessoriesNote");
   if (typeof body.conditionRecorded !== "boolean") throw new ServiceDeskError("INVALID_INPUT", { field: "conditionRecorded" });
   if (typeof body.accessoriesRecorded !== "boolean") throw new ServiceDeskError("INVALID_INPUT", { field: "accessoriesRecorded" });
-  if (body.expectedUpdatedAt !== null && typeof body.expectedUpdatedAt !== "string") throw new ServiceDeskError("INVALID_INPUT", { field: "expectedUpdatedAt" });
+  const cr = body.conditionRecorded, ar = body.accessoriesRecorded;
+  const prepared = prepare(p, req, "service-desk/cases:intake", { caseId, conditionNote, accessoriesNote, conditionRecorded: cr, accessoriesRecorded: ar, expectedVersion: body.expectedVersion });
   const b = p.businessId;
-  try {
-    await tenantTx(b, async (tx) => {
-      const { context } = await lockCase(tx, b, caseId);
-      if (context.kind !== "IN_SHOP") throw new ServiceDeskError("REFUSED", { violations: ["INTAKE_ONLY_IN_SHOP"] });
-      if (!["OPEN", "SCHEDULED"].includes(context.status)) throw new ServiceDeskError("REFUSED", { violations: ["INTAKE_ONLY_BEFORE_CHECK_IN"] });
-      const cur = (await tx.$queryRaw<{ cn: string | null; an: string | null; cr: boolean; ar: boolean; signed: boolean; u: string }[]>`
-        SELECT "conditionNote" AS cn, "accessoriesNote" AS an, "conditionRecorded" AS cr, "accessoriesRecorded" AS ar, "signedAt" IS NOT NULL AS signed,
-               to_char("updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS u
-          FROM "ServiceCaseIntake" WHERE "caseId" = ${caseId}::int AND "businessId" = ${b}::int`)[0];
-      const same = cur && cur.cn === conditionNote && cur.an === accessoriesNote && cur.cr === body.conditionRecorded && cur.ar === body.accessoriesRecorded;
-      if (same) return; // the same request again: answered from the state
-      if (cur?.signed) throw new ServiceDeskError("REFUSED", { violations: ["INTAKE_SIGNED"] });
-      if ((cur ? cur.u : null) !== body.expectedUpdatedAt) throw new ServiceDeskError("STALE_STATE", { field: "intake" });
-      if (!cur) {
-        await tx.$executeRaw`
-          INSERT INTO "ServiceCaseIntake" ("businessId", "caseId", "conditionNote", "accessoriesNote", "conditionRecorded", "accessoriesRecorded", "updatedAt")
-          VALUES (${b}::int, ${caseId}::int, ${conditionNote}::text, ${accessoriesNote}::text, ${body.conditionRecorded as boolean}::boolean, ${body.accessoriesRecorded as boolean}::boolean, now())`;
-      } else {
-        await tx.$executeRaw`
-          UPDATE "ServiceCaseIntake" SET "conditionNote" = ${conditionNote}::text, "accessoriesNote" = ${accessoriesNote}::text,
-                 "conditionRecorded" = ${body.conditionRecorded as boolean}::boolean, "accessoriesRecorded" = ${body.accessoriesRecorded as boolean}::boolean, "updatedAt" = now()
-           WHERE "caseId" = ${caseId}::int AND "businessId" = ${b}::int`;
-      }
-    }, { timeoutMs: 15_000 });
-  } catch (e) {
-    throw e instanceof ServiceDeskError ? e : guardRefusal(e) ?? e;
-  }
-  return getCase(b, caseId);
+  return recordCommand(p, caseId, body.expectedVersion, prepared, async (tx, { context }) => {
+    if (context.kind !== "IN_SHOP") throw new ServiceDeskError("REFUSED", { violations: ["INTAKE_ONLY_IN_SHOP"] });
+    if (!["OPEN", "SCHEDULED"].includes(context.status)) throw new ServiceDeskError("REFUSED", { violations: ["INTAKE_ONLY_BEFORE_CHECK_IN"] });
+    const cur = (await tx.$queryRaw<{ cn: string | null; an: string | null; cr: boolean; ar: boolean; signed: boolean }[]>`
+      SELECT "conditionNote" AS cn, "accessoriesNote" AS an, "conditionRecorded" AS cr, "accessoriesRecorded" AS ar, "signedAt" IS NOT NULL AS signed
+        FROM "ServiceCaseIntake" WHERE "caseId" = ${caseId}::int AND "businessId" = ${b}::int`)[0];
+    if (cur?.signed) throw new ServiceDeskError("REFUSED", { violations: ["INTAKE_SIGNED"] });
+    const changed = {
+      created: !cur,
+      conditionNoteChanged: (cur?.cn ?? null) !== conditionNote,
+      accessoriesNoteChanged: (cur?.an ?? null) !== accessoriesNote,
+      conditionRecordedChanged: (cur?.cr ?? false) !== cr,
+      accessoriesRecordedChanged: (cur?.ar ?? false) !== ar,
+    };
+    if (cur && !changed.conditionNoteChanged && !changed.accessoriesNoteChanged && !changed.conditionRecordedChanged && !changed.accessoriesRecordedChanged) {
+      throw new ServiceDeskError("REFUSED", { violations: ["NO_CHANGE"] });
+    }
+    if (!cur) {
+      await tx.$executeRaw`
+        INSERT INTO "ServiceCaseIntake" ("businessId", "caseId", "conditionNote", "accessoriesNote", "conditionRecorded", "accessoriesRecorded", "updatedAt")
+        VALUES (${b}::int, ${caseId}::int, ${conditionNote}::text, ${accessoriesNote}::text, ${cr}::boolean, ${ar}::boolean, now())`;
+    } else {
+      await tx.$executeRaw`
+        UPDATE "ServiceCaseIntake" SET "conditionNote" = ${conditionNote}::text, "accessoriesNote" = ${accessoriesNote}::text,
+               "conditionRecorded" = ${cr}::boolean, "accessoriesRecorded" = ${ar}::boolean, "updatedAt" = now()
+         WHERE "caseId" = ${caseId}::int AND "businessId" = ${b}::int`;
+    }
+    await appendRecord(tx, b, caseId, context, "RECORD_INTAKE", { ...changed, conditionRecorded: cr, accessoriesRecorded: ar }, p.userId, prepared);
+  });
 }
 
-// ── Settings (default technician, warranty template) ────────────────────────────────────────────────────────
+/**
+ * QA results against the kind's base template (P3). Stored on the case and journaled (P4). The case counts as "QA
+ * completed" (qaCompletedAt) only when every required item is PASS; otherwise it is cleared, and the case machine keeps
+ * refusing PASS_QA. Only while the case is in QA.
+ */
+export async function recordQa(p: ServiceDeskPrincipal, caseId: unknown, body: { results?: unknown; expectedVersion?: unknown }, req: WriteRequest): Promise<CommandResult & { qa?: { completed: boolean; template: string } }> {
+  if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
+  const prepared = prepare(p, req, "service-desk/cases:qa", { caseId, results: body.results ?? null, expectedVersion: body.expectedVersion });
+  const b = p.businessId;
+  let qa: { completed: boolean; template: string } | undefined;
+  const r = await recordCommand(p, caseId, body.expectedVersion, prepared, async (tx, { context }) => {
+    if (context.status !== "QA") throw new ServiceDeskError("REFUSED", { violations: ["QA_ONLY_IN_QA"] });
+    const e = evaluateQa(context.kind, body.results);
+    if (!e.ok) throw new ServiceDeskError("INVALID_INPUT", { field: e.field });
+    await tx.$executeRaw`
+      UPDATE "ServiceCase" SET "qaChecklist" = ${JSON.stringify(e.checklist)}::jsonb,
+             "qaCompletedAt" = CASE WHEN ${e.completed}::boolean THEN now() ELSE NULL END
+       WHERE id = ${caseId}::int AND "businessId" = ${b}::int`;
+    qa = { completed: e.completed, template: e.template };
+    await appendRecord(tx, b, caseId, context, "RECORD_QA", { template: e.template, completed: e.completed, ...e.counts }, p.userId, prepared);
+  });
+  return { ...r, qa };
+}
+
+// ── Settings (default technician, warranty template) — journaled in ServiceSettingsEvent (P4) ──────────────
 
 export type ServiceSettingsView = {
   version: number | null; defaultStaffMemberId: number | null;
@@ -619,15 +704,28 @@ export async function getSettings(businessId: number): Promise<ServiceSettingsVi
   return tenantTx(businessId, (tx) => readSettings(tx, businessId));
 }
 
+/** The settings journal is its own ledger: same key + same request → the stored answer (the current settings). */
+async function findPriorSettings(tx: Tx, businessId: number, p: Prepared): Promise<boolean> {
+  const rows = await tx.$queryRaw<{ d: string | null; k: string | null }[]>`
+    SELECT "requestDigest" AS d, "digestKeyId" AS k FROM "ServiceSettingsEvent" WHERE "businessId" = ${businessId}::int AND "idempotencyKey" = ${p.key}::text`;
+  const origin = rows[0];
+  if (!origin) return false;
+  if (!origin.d || !origin.k) throw new ServiceDeskError("IDEMPOTENCY_KEY_REUSED");
+  const expected = digestWithKeyId(p.keys, origin.k, p.ident);
+  if (!expected || !sameDigest(expected, origin.d)) throw new ServiceDeskError("IDEMPOTENCY_KEY_REUSED");
+  return true;
+}
+
 /**
- * Replace the default technician and the warranty template. `expectedVersion` is null for the first save. The active
- * terms / statutory notice are not set here (text versions and their legal approval are 1.3b). Idempotent by value.
+ * Replace the default technician and the warranty template. `expectedVersion` is null for the first save. The change and
+ * its ServiceSettingsEvent (the field names that changed) are ONE transaction; the database refuses an event that does
+ * not name the version just written. The active terms / statutory notice are not set here (1.3b).
  */
-export async function updateSettings(p: ServiceDeskPrincipal, body: { expectedVersion?: unknown; defaultStaffMemberId?: unknown; warrantyTemplate?: unknown }): Promise<ServiceSettingsView> {
+export async function updateSettings(p: ServiceDeskPrincipal, body: { expectedVersion?: unknown; defaultStaffMemberId?: unknown; warrantyTemplate?: unknown }, req: WriteRequest): Promise<ServiceSettingsView & { replayed: boolean }> {
   const b = p.businessId;
   const staff = body.defaultStaffMemberId ?? null;
   if (staff !== null && !isPositiveInt(staff)) throw new ServiceDeskError("INVALID_INPUT", { field: "defaultStaffMemberId" });
-  if (body.expectedVersion !== null && !isPositiveInt(body.expectedVersion)) throw new ServiceDeskError("INVALID_INPUT", { field: "expectedVersion" });
+  if (body.expectedVersion !== null && body.expectedVersion !== undefined && !isPositiveInt(body.expectedVersion)) throw new ServiceDeskError("INVALID_INPUT", { field: "expectedVersion" });
   let w: ServiceSettingsView["warrantyTemplate"] = null;
   if (body.warrantyTemplate !== null && body.warrantyTemplate !== undefined) {
     const t = body.warrantyTemplate as Record<string, unknown>;
@@ -638,27 +736,50 @@ export async function updateSettings(p: ServiceDeskPrincipal, body: { expectedVe
     if (!ok) throw new ServiceDeskError("INVALID_INPUT", { field: "warrantyTemplate" });
     w = { value: t.value as number, unit: t.unit as "DAYS" | "MONTHS", scope: (t.scope as string).trim(), exclusions: t.exclusions ? (t.exclusions as string).trim() : null };
   }
+  const expected = (body.expectedVersion ?? null) as number | null;
+  const prepared = prepare(p, req, "service-desk/settings", { expectedVersion: expected, defaultStaffMemberId: staff, warrantyTemplate: w });
+  const attempt = () => tenantTx(b, async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${0x53445354}::int, ${b}::int)`; // 'SDST' — one settings writer per business
+    await requireAuditJournal(tx);
+    if (await findPriorSettings(tx, b, prepared)) return { ...(await readSettings(tx, b)), replayed: true };
+    const verdict = checkIdempotencyKey(prepared.key, prepared.now);
+    if (!verdict.ok) throw new ServiceDeskError(verdict.code);
+    const cur = await readSettings(tx, b);
+    if (cur.version !== expected) throw new ServiceDeskError("VERSION_CONFLICT");
+    const changedFields = [
+      ...(cur.defaultStaffMemberId !== staff ? ["defaultStaffMemberId"] : []),
+      ...(JSON.stringify(cur.warrantyTemplate) !== JSON.stringify(w) ? ["warrantyTemplate"] : []),
+    ];
+    if (changedFields.length === 0) throw new ServiceDeskError("REFUSED", { violations: ["NO_CHANGE"] });
+    if (staff !== null && !(await staffOfBusiness(tx, b, staff as number))) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "STAFF_BELONGS_TO_BUSINESS" });
+    if (cur.version === null) {
+      await tx.$executeRaw`
+        INSERT INTO "ServiceSettings" ("businessId", "defaultStaffMemberId", "warrantyTemplateValue", "warrantyTemplateUnit", "warrantyTemplateScope", "warrantyTemplateExclusions", "updatedAt")
+        VALUES (${b}::int, ${staff as number | null}::int, ${w?.value ?? null}::int, ${w?.unit ?? null}::"ServiceDurationUnit", ${w?.scope ?? null}::text, ${w?.exclusions ?? null}::text, now())`;
+    } else {
+      await tx.$executeRaw`
+        UPDATE "ServiceSettings" SET "defaultStaffMemberId" = ${staff as number | null}::int, "warrantyTemplateValue" = ${w?.value ?? null}::int,
+               "warrantyTemplateUnit" = ${w?.unit ?? null}::"ServiceDurationUnit", "warrantyTemplateScope" = ${w?.scope ?? null}::text,
+               "warrantyTemplateExclusions" = ${w?.exclusions ?? null}::text, version = version + 1, "updatedAt" = now()
+         WHERE "businessId" = ${b}::int AND version = ${cur.version}::int`;
+    }
+    const after = await readSettings(tx, b);
+    await tx.$executeRaw`
+      INSERT INTO "ServiceSettingsEvent" ("businessId", "settingsVersion", "changedFields", actor, "actorUserId", "idempotencyKey", "requestDigest", "digestKeyId")
+      VALUES (${b}::int, ${after.version as number}::int, ${changedFields}::text[], 'OWNER_USER'::"ServiceActor", ${p.userId}::int,
+              ${prepared.key}::text, ${prepared.digest.value}::text, ${prepared.digest.keyId}::text)`;
+    return { ...after, replayed: false };
+  }, { timeoutMs: 15_000 });
   try {
-    return await tenantTx(b, async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${0x53445354}::int, ${b}::int)`; // 'SDST' — one settings writer per business
-      const cur = await readSettings(tx, b);
-      if (cur.defaultStaffMemberId === staff && JSON.stringify(cur.warrantyTemplate) === JSON.stringify(w) && cur.version !== null) return cur;
-      if (cur.version !== (body.expectedVersion ?? null)) throw new ServiceDeskError("VERSION_CONFLICT");
-      if (staff !== null && !(await staffOfBusiness(tx, b, staff as number))) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "STAFF_BELONGS_TO_BUSINESS" });
-      if (cur.version === null) {
-        await tx.$executeRaw`
-          INSERT INTO "ServiceSettings" ("businessId", "defaultStaffMemberId", "warrantyTemplateValue", "warrantyTemplateUnit", "warrantyTemplateScope", "warrantyTemplateExclusions", "updatedAt")
-          VALUES (${b}::int, ${staff as number | null}::int, ${w?.value ?? null}::int, ${w?.unit ?? null}::"ServiceDurationUnit", ${w?.scope ?? null}::text, ${w?.exclusions ?? null}::text, now())`;
-      } else {
-        await tx.$executeRaw`
-          UPDATE "ServiceSettings" SET "defaultStaffMemberId" = ${staff as number | null}::int, "warrantyTemplateValue" = ${w?.value ?? null}::int,
-                 "warrantyTemplateUnit" = ${w?.unit ?? null}::"ServiceDurationUnit", "warrantyTemplateScope" = ${w?.scope ?? null}::text,
-                 "warrantyTemplateExclusions" = ${w?.exclusions ?? null}::text, version = version + 1, "updatedAt" = now()
-           WHERE "businessId" = ${b}::int AND version = ${cur.version}::int`;
-      }
-      return readSettings(tx, b);
-    }, { timeoutMs: 15_000 });
+    return await attempt();
   } catch (e) {
-    throw e instanceof ServiceDeskError ? e : guardRefusal(e) ?? e;
+    if (e instanceof ServiceDeskError) throw e;
+    if (isUniqueViolation(e)) {
+      try { return await attempt(); } catch (e2) {
+        if (e2 instanceof ServiceDeskError) throw e2;
+        throw isUniqueViolation(e2) ? new ServiceDeskError("CONFLICT") : guardRefusal(e2) ?? e2;
+      }
+    }
+    throw guardRefusal(e) ?? e;
   }
 }

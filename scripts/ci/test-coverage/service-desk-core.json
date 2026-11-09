@@ -25,6 +25,10 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "pure (no DB/network): Service Desk 1.3a access — every flag state and combination (owner decision 1): BUSINESS_DISABLED + cases → READ_ONLY only while launched and with no emergency, GLOBAL_DEFAULT / EMERGENCY / no cases → NONE, a global block or the emergency always wins; the HTTP edge: 401 before anything, NONE → 404 for reads and writes, READ_ONLY → writes 403 before the handler, the session's business only, 500 with no detail; every /api/service-desk route goes through the edge, GET = read, other methods = write, 401 with no session; run by service-desk-ci.yml and security-gate (pure lab)"
+    },
+    "lib/services/service-desk/qa-templates.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk P3 base QA checklists — one template per kind (IN_SHOP / FIELD / MAINTENANCE) with token keys; QA completes only when every required item is PASS; a failed or missing required item keeps it open; optional items never block; unknown keys, other kinds’ keys and values other than PASS / FAIL refused; the stored checklist is tokens only; run on pull_request by service-desk-ci.yml"
     }
   }
 }
