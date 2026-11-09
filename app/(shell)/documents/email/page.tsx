@@ -202,7 +202,7 @@ export default function EmailDocumentsPage() {
   const [statusByKey, setStatusByKey] = useState<Record<string, EmailAttachmentUiStatus>>({});
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [importRun, setImportRun] = useState<{ done: number; total: number; stopped: boolean } | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; stopped: boolean } | null>(null);
   const stopImportRef = useRef(false);
   const [confirmImport, setConfirmImport] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -391,7 +391,7 @@ export default function EmailDocumentsPage() {
       setScan(base);
       setRejectedByType(null);
       setLowOpen(false);
-      setImportRun(null);
+      setBulkProgress(null);
     }
     setConfirmClear(false);
     setLoading(true);
@@ -539,17 +539,17 @@ export default function EmailDocumentsPage() {
     if (queue.length === 0) return;
     stopImportRef.current = false;
     setImporting(true);
-    setImportRun({ done: 0, total: queue.length, stopped: false });
+    setBulkProgress({ done: 0, total: queue.length, stopped: false });
     let done = 0;
     try {
       for (const attachment of queue) {
         if (stopImportRef.current) break;
         await importOne(attachment);
         done += 1;
-        setImportRun({ done, total: queue.length, stopped: false });
+        setBulkProgress({ done, total: queue.length, stopped: false });
       }
     } finally {
-      setImportRun({ done, total: queue.length, stopped: stopImportRef.current && done < queue.length });
+      setBulkProgress({ done, total: queue.length, stopped: stopImportRef.current && done < queue.length });
       setImporting(false);
     }
   }
@@ -680,12 +680,12 @@ export default function EmailDocumentsPage() {
             </button>
           </div>
         </div>
-      ) : importing && importRun ? (
+      ) : importing && bulkProgress ? (
         <div style={progressRowStyle}>
           <span>
             {t("documents.email.importProgress", {
-              done: formatNumber(importRun.done, fmt),
-              total: formatNumber(importRun.total, fmt),
+              done: formatNumber(bulkProgress.done, fmt),
+              total: formatNumber(bulkProgress.total, fmt),
             })}
           </span>
           <button
@@ -701,11 +701,11 @@ export default function EmailDocumentsPage() {
         </div>
       ) : (
         <>
-          {importRun?.stopped ? (
+          {bulkProgress?.stopped ? (
             <div style={progressNoteStyle}>
               {t("documents.email.importStopped", {
-                done: formatNumber(importRun.done, fmt),
-                total: formatNumber(importRun.total, fmt),
+                done: formatNumber(bulkProgress.done, fmt),
+                total: formatNumber(bulkProgress.total, fmt),
               })}
             </div>
           ) : null}
