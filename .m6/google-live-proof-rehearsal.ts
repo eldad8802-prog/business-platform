@@ -5,7 +5,8 @@
  *
  *   npx tsx .m6/google-live-proof-rehearsal.ts enable    business 9 as Production holds it today (the closed
  *                                                         website pilot: web.form connection REVOKED,
- *                                                         acquisition_web_forms DISABLED, its lead kept) plus an
+ *                                                         acquisition_web_forms STILL ENABLED — owner decision
+ *                                                         2026-11-09 — its lead kept) plus an
  *                                                         existing customer; another business Y stays OFF; then
  *                                                         acquisition_google_lead_forms ENABLED for 9 only and
  *                                                         9's owner connects Google through the real owner API
@@ -16,6 +17,11 @@
  *   npx tsx .m6/google-live-proof-rehearsal.ts collide   a lead whose phone is the EXISTING customer's — the
  *                                                         "contact was new" identity checks must fail
  *   npx tsx .m6/google-live-proof-rehearsal.ts widen     Y is enabled too — the "business 9 only" check must fail
+ *   npx tsx .m6/google-live-proof-rehearsal.ts c3-web-live-9   a LIVE web.form connection in business 9 — C3 must fail
+ *   npx tsx .m6/google-live-proof-rehearsal.ts c3-web-live-y   a LIVE web.form connection in business Y — C3 must fail
+ *   npx tsx .m6/google-live-proof-rehearsal.ts c3-web-flag-y   acquisition_web_forms ENABLED for Y — C3 must fail
+ *   npx tsx .m6/google-live-proof-rehearsal.ts c3-back         back to the tolerated state (those connections revoked,
+ *                                                              web forms DISABLED for Y) — C3 passes again
  *
  * Synthetic lab data only. Never pointed at Production.
  * env: DATABASE_URL / DIRECT_URL = runtime, OWNER_URL = owner, AUTH_TOKEN_SECRET.
@@ -38,7 +44,7 @@ const fail = (m: string): never => {
   console.error(`REHEARSAL FAIL: ${m}`);
   process.exit(1);
 };
-type State = { Y: number; publicId: string; key: string };
+type State = { Y: number; publicId: string; key: string; liveWeb?: Array<{ businessId: number; id: number }> };
 const state = (): State => {
   if (!existsSync(STATE)) fail("run `enable` first");
   return JSON.parse(readFileSync(STATE, "utf8")) as State;
@@ -68,12 +74,12 @@ async function enable() {
   const owner = await o.user.create({ data: { email: "owner-9@rehearsal.test", password: "x", businessId: nine.id, role: "USER" } });
 
   // Business 9 as Production holds it after the closed website pilot: a revoked web.form connection, the web
-  // feature closed for 9, and a customer that existed before Google (the "collide" phase types its phone).
+  // feature LEFT ENABLED for 9 (owner decision 2026-11-09 — C3 tolerates exactly that row), and a customer that
+  // existed before Google (the "collide" phase types its phone).
   await o.businessFeatureAccess.create({ data: { businessId: PILOT, featureKey: "acquisition_web_forms", state: "ENABLED" } });
   const web = await runWithTenantContext({ businessId: PILOT }, () =>
     createKeyedConnection({ businessId: PILOT, userId: null, sourceKey: "web.form", allowedOrigins: ["https://pilot-9.example"] }));
   await runWithTenantContext({ businessId: PILOT }, () => revokeConnection(web.connection.id));
-  await o.businessFeatureAccess.update({ where: { businessId_featureKey: { businessId: PILOT, featureKey: "acquisition_web_forms" } }, data: { state: "DISABLED" } });
   await o.customer.create({ data: { businessId: PILOT, name: "Existing Customer", phone: normalizeCustomerPhone(EXISTING_PHONE) } });
 
   // The platform-admin feature override, for business 9 only (in Production: the owner-run admin action).
@@ -86,7 +92,7 @@ async function enable() {
   const body = (await res.json()) as { connection?: { publicId?: string }; key?: string };
   if (res.status !== 201 || !body.connection?.publicId || !body.key) fail(`owner connect → ${res.status}`);
   writeFileSync(STATE, JSON.stringify({ Y: Y.id, publicId: body.connection!.publicId, key: body.key } satisfies State));
-  console.log("enabled: Google for business 9 only (closed website pilot kept); connected through the owner API");
+  console.log("enabled: Google for business 9 only (closed website pilot kept, its web forms still ENABLED); connected through the owner API");
 }
 
 async function test() {
@@ -122,7 +128,40 @@ async function widen() {
   console.log("widened: a second business is enabled");
 }
 
-const phases: Record<string, () => Promise<void>> = { enable, test, submit, collide, widen };
+// C3 — the web form tolerance is exactly "the feature row of business 9"; anything live still fails it.
+async function liveWeb(businessId: number) {
+  const st = state();
+  const w = await runWithTenantContext({ businessId }, () =>
+    createKeyedConnection({ businessId, userId: null, sourceKey: "web.form", allowedOrigins: [`https://c3-${businessId}.example`] }));
+  writeFileSync(STATE, JSON.stringify({ ...st, liveWeb: [...(st.liveWeb ?? []), { businessId, id: w.connection.id }] } satisfies State));
+  console.log(`c3: a live web.form connection in business ${businessId === PILOT ? "9" : "Y"}`);
+}
+async function webFlagY() {
+  const { Y } = state();
+  await o.businessFeatureAccess.upsert({
+    where: { businessId_featureKey: { businessId: Y, featureKey: "acquisition_web_forms" } },
+    create: { businessId: Y, featureKey: "acquisition_web_forms", state: "ENABLED" },
+    update: { state: "ENABLED" },
+  });
+  console.log("c3: acquisition_web_forms ENABLED for business Y");
+}
+async function c3Back() {
+  const st = state();
+  for (const c of st.liveWeb ?? []) await runWithTenantContext({ businessId: c.businessId }, () => revokeConnection(c.id));
+  await o.businessFeatureAccess.updateMany({ where: { businessId: st.Y, featureKey: "acquisition_web_forms" }, data: { state: "DISABLED" } });
+  writeFileSync(STATE, JSON.stringify({ ...st, liveWeb: [] } satisfies State));
+  const nine = await o.businessFeatureAccess.findUnique({ where: { businessId_featureKey: { businessId: PILOT, featureKey: "acquisition_web_forms" } } });
+  if (nine?.state !== "ENABLED") fail("business 9 web forms must stay ENABLED");
+  console.log("c3: back to the tolerated state (business 9 web forms ENABLED, no live web.form connection anywhere)");
+}
+
+const phases: Record<string, () => Promise<void>> = {
+  enable, test, submit, collide, widen,
+  "c3-web-live-9": () => liveWeb(PILOT),
+  "c3-web-live-y": async () => liveWeb(state().Y),
+  "c3-web-flag-y": webFlagY,
+  "c3-back": c3Back,
+};
 const run = phases[process.argv[2] ?? ""];
-if (!run) fail("phase must be enable | test | submit | collide | widen");
+if (!run) fail("phase must be enable | test | submit | collide | widen | c3-web-live-9 | c3-web-live-y | c3-web-flag-y | c3-back");
 run!().catch((e) => fail(e instanceof Error ? e.message : String(e))).finally(() => o.$disconnect());
