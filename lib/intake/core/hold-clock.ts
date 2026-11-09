@@ -14,7 +14,7 @@
  * At each look that finds the receipt still held (the probe, and the siblings one look settles in bulk):
  *
  *   - the time since the previous look is counted only when BOTH looks found a COUNTING hold (connection paused,
- *     source withdrawn, business being erased), only past `grace`, and at most HOLD_CLOCK_MAX_GAP_MS per look —
+ *     source withdrawn, business being erased), only past `grace`, and at most HOLD_CLOCK_MAX_GAP_MS (6 h) per look —
  *     a stalled sweep or a period with the clock switched off can only delay an expiry, never hasten it;
  *   - a Dubiz emergency hold (held:emergency_disabled) is never counted and never expires; the first look after it
  *     ends opens a grace of HOLD_GRACE_MS (≥ 48 h) in which nothing is counted either. The grace is a deadline, not
@@ -41,8 +41,13 @@ export const HOLD_WARN_MS = 12 * DAY;
 export const HOLD_WARN_LEAD_MS = 48 * HOUR;
 /** Nothing is counted for this long after a Dubiz emergency hold ends. */
 export const HOLD_GRACE_MS = 48 * HOUR;
-/** Most one look counts (a hold is looked at every HOLD_RECHECK_MS = 10 min): a longer gap is under-counted. */
-export const HOLD_CLOCK_MAX_GAP_MS = 1 * HOUR;
+/**
+ * Most one look counts (owner decision 2026-11-09: 6 h). A hold is looked at every HOLD_RECHECK_MS = 10 min by the
+ * QStash sweep; 6 h keeps the clock at full speed when only the backup scheduler runs (GitHub, every 3–6 h in practice),
+ * while a longer Dubiz outage is not counted against the business beyond 6 h (a longer gap is under-counted, so it can
+ * only delay an expiry, never hasten it).
+ */
+export const HOLD_CLOCK_MAX_GAP_MS = 6 * HOUR;
 
 export const HOLD_CLOCK_EMERGENCY = "held:emergency_disabled";
 /** The holds whose time counts towards expiry. Not the Dubiz emergency switch. */

@@ -225,7 +225,7 @@ jobs:
           DIRECT_URL: ${{ env.RUNTIME_URL }}
         run: npx tsx .m6/refusal-battery.ts
 
-      - name: 4j. L1.5-b hold clock (OFF by default; ON inside the battery only) — 14 counted days, no reset on a reason change, emergency never counted + 48h grace, no expiry without a 48h-old warning, siblings, racing sweeps, RLS, 3000-receipt load
+      - name: 4j. L1.5-b hold clock (OFF by default; ON inside the battery only) — 14 counted days, no reset on a reason change, emergency never counted + 48h grace, no expiry without a 48h-old warning, 6h max gap per look, siblings, racing sweeps, RLS, 3000-receipt load
         env:
           DATABASE_URL: ${{ env.RUNTIME_URL }}
           DIRECT_URL: ${{ env.RUNTIME_URL }}

@@ -112,9 +112,12 @@ async function main() {
   const a1 = await row(acc.t);
   ok("three looks 10 min apart count exactly the time between them", ms(a1.clock) === lookAt(a1.clock) - first, JSON.stringify({ ms: ms(a1.clock), span: lookAt(a1.clock) - first }));
   const before = ms(a1.clock);
-  await drain(acc, new Date(lookAt(a1.clock) + 5 * HOUR));
+  await drain(acc, new Date(lookAt(a1.clock) + 4 * HOUR));
+  const a15 = await row(acc.t);
+  ok("a 4 h gap (backup scheduler) counts in full", ms(a15.clock) - before === 4 * HOUR, String(ms(a15.clock) - before));
+  await drain(acc, new Date(lookAt(a15.clock) + 30 * HOUR));
   const a2 = await row(acc.t);
-  ok(`a 5 h gap counts at most the max gap (${HOLD_CLOCK_MAX_GAP_MS / HOUR} h)`, ms(a2.clock) - before === HOLD_CLOCK_MAX_GAP_MS, String(ms(a2.clock) - before));
+  ok(`a 30 h outage counts at most the max gap (${HOLD_CLOCK_MAX_GAP_MS / HOUR} h)`, ms(a2.clock) - ms(a15.clock) === HOLD_CLOCK_MAX_GAP_MS && HOLD_CLOCK_MAX_GAP_MS === 6 * HOUR, String(ms(a2.clock) - ms(a15.clock)));
   ok("attempts are never spent by a hold", a2.attempts === 0, String(a2.attempts));
 
   console.log("\n-- a change of reason never resets --");

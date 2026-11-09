@@ -49,7 +49,8 @@ test("the owner's numbers", () => {
   assert.ok(HOLD_WARN_LEAD_MS >= 48 * HOUR, "warning ≥ 48 h before expiry");
   assert.ok(HOLD_GRACE_MS >= 48 * HOUR, "grace ≥ 48 h after an emergency");
   assert.ok(HOLD_EXPIRY_MS - HOLD_WARN_MS >= HOLD_WARN_LEAD_MS, "counted time cannot outrun the warning lead");
-  assert.ok(HOLD_CLOCK_MAX_GAP_MS >= HOLD_RECHECK_MS && HOLD_CLOCK_MAX_GAP_MS <= 6 * HOUR, "a look counts at most a bounded gap");
+  assert.equal(HOLD_CLOCK_MAX_GAP_MS, 6 * HOUR, "a look counts at most 6 h (owner decision 2026-11-09)");
+  assert.ok(HOLD_CLOCK_MAX_GAP_MS > HOLD_RECHECK_MS);
 });
 
 test("OFF unless exactly \"true\"; ON only for holds", () => {
