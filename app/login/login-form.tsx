@@ -493,6 +493,11 @@ export default function LoginForm({
     );
   }
 
+  // Android app (marked before the first paint, lib/native/android-shell-entry.ts): no autofocus, so
+  // the keyboard does not cover the sign-in screen on launch. Read here, after the boot screen — the
+  // server only ever renders that screen, so the form is client-only and this cannot mismatch.
+  const inAndroidApp = document.documentElement.getAttribute("data-shell") === "android";
+
   return (
     <div style={pageStyle}>
       {/* The accessibility entry has a fixed place here, so the floating button stands down. */}
@@ -551,7 +556,7 @@ export default function LoginForm({
                 placeholder="name@example.com"
                 autoComplete="email"
                 spellCheck={false}
-                autoFocus
+                autoFocus={!inAndroidApp}
               />
             </div>
 
