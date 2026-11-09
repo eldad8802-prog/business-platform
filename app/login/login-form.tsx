@@ -7,7 +7,7 @@ import { PrimaryCta } from "@/components/ui/primary-cta";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
-import { completePendingRevoke, hasPendingRevoke } from "@/lib/client-session";
+import { completePendingRevoke, consumeSignOutUnconfirmed, hasPendingRevoke } from "@/lib/client-session";
 
 const LOGIN_A11Y_STYLE: React.CSSProperties = {
   position: "absolute",
@@ -77,6 +77,9 @@ export default function LoginForm({
     // The notice appears with the first verdict (always after a request), so
     // nothing is set synchronously here.
     if (hasPendingRevoke()) void attempt();
+    // A sign-out that cleared the device without the server's confirmation is
+    // said so here — never shown as a success.
+    if (consumeSignOutUnconfirmed()) queueMicrotask(() => alive && setPendingRevoke("unproven"));
     const onOnline = () => {
       if (hasPendingRevoke()) void attempt();
     };

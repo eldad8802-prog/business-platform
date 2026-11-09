@@ -35,11 +35,29 @@ export function clearClientSession(): void {
  *   already_signed_out  there was no live session to end (nothing left to do)
  *   server_failed       the server answered but did not end it (5xx, 429, …)
  *   offline             the server could not be reached
+ *   unconfirmed         the cookie route could not vouch for this device's
+ *                       session (e.g. a secret past its grace). Nothing more
+ *                       can be done from here, so the device is cleared — and
+ *                       the person is told it was NOT confirmed, never "done".
  *
  * On the last two NOTHING local is cleared: the device stays signed in, and
  * the person decides between retrying and `forgetDeviceWithPendingRevoke`.
  */
-export type SignOutOutcome = "signed_out" | "already_signed_out" | "server_failed" | "offline";
+export type SignOutOutcome = "signed_out" | "already_signed_out" | "server_failed" | "offline" | "unconfirmed";
+
+/** One-shot flag for the login screen: the last sign-out cleared the device but was not confirmed. */
+export const SIGNOUT_UNCONFIRMED_KEY = "dubiz.auth.signoutUnconfirmed";
+
+export function consumeSignOutUnconfirmed(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const v = sessionStorage.getItem(SIGNOUT_UNCONFIRMED_KEY);
+    if (v !== null) sessionStorage.removeItem(SIGNOUT_UNCONFIRMED_KEY);
+    return v !== null;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * A MARKER, never a credential: "this device was cleared locally while its
@@ -123,7 +141,7 @@ export async function signOut(): Promise<SignOutOutcome> {
     const r = await revokeByRefreshCookie(tokenSessionId(token));
     if (r === "revoked" || r === "unproven") {
       clearClientSession();
-      return r === "revoked" ? "signed_out" : "already_signed_out";
+      return r === "revoked" ? "signed_out" : "unconfirmed";
     }
     return r;
   }
@@ -253,7 +271,14 @@ export async function signOutAndRedirect(): Promise<SignOutOutcome> {
   if (typeof window === "undefined") return "offline";
 
   const outcome = await signOut();
-  if (outcome === "signed_out" || outcome === "already_signed_out") {
+  if (outcome === "unconfirmed") {
+    try {
+      sessionStorage.setItem(SIGNOUT_UNCONFIRMED_KEY, "1");
+    } catch {
+      /* the login screen just won't say it */
+    }
+  }
+  if (outcome === "signed_out" || outcome === "already_signed_out" || outcome === "unconfirmed") {
     try {
       window.location.replace(`${window.location.origin}/login`);
     } catch {

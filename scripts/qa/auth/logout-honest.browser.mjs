@@ -15,6 +15,8 @@
  */
 
 import http from "node:http";
+import fs from "node:fs";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { build } from "esbuild";
@@ -46,9 +48,9 @@ let n = 0;
 const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
 const secret = () => Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
-function newSession(expSecondsFromNow = 3600) {
+function newSession(expSecondsFromNow = 3600, user = 1) {
   const sid = uuid();
-  const s = { sid, secret: secret(), revoked: false };
+  const s = { sid, secret: secret(), revoked: false, user };
   S.sessions.set(sid, s);
   return { ...s, token: `v1.${b64url({ sub: 1, tv: 0, sid, exp: Math.floor(Date.now() / 1000) + expSecondsFromNow })}.sig`, cookie: `${sid}.${s.secret}` };
 }
@@ -91,6 +93,7 @@ const server = http.createServer(async (req, res) => {
     S.seen.push({ path: "revoke", cookie, body: raw });
     if (S.mode.revoke === "drop") return req.socket.destroy();
     if (S.mode.revoke === "500") return json(res, 500, { error: "Server error" });
+    if (S.mode.revoke === "unproven") return json(res, 200, { revoked: false }, ""); // e.g. a secret past its grace
     const expected = raw ? JSON.parse(raw).expectedSessionId ?? null : null;
     const [sid, sec] = (cookie ?? "").split(".");
     const s = S.sessions.get(sid);
@@ -99,7 +102,7 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { revoked: true }, "");
   }
   if (req.method === "POST" && url.pathname === "/__login") {
-    const s = newSession();
+    const s = newSession(3600, Number(url.searchParams.get("user") ?? 1));
     return json(res, 200, { token: s.token, sid: s.sid }, s.cookie);
   }
   res.writeHead(404);
@@ -230,6 +233,139 @@ const reset = () => { S.mode = { logout: "ok", revoke: "ok" }; S.seen = []; };
   await Promise.all([p.waitForURL(`${ORIGIN}/login`, { timeout: 5000 }).catch(() => {}), p.evaluate(() => window.DubizSession.signOutAndRedirect())]);
   ok("...navigates to /login once the server confirms", new URL(p.url()).pathname === "/login", p.url());
   await ctx.close();
+}
+
+// 8. expired token + a cookie the server cannot vouch for → cleared, but NOT reported as success
+{
+  reset(); S.mode.revoke = "unproven";
+  const { ctx, p, s } = await signedIn({ expired: true });
+  const r = await p.evaluate(() => window.DubizSession.signOut());
+  ok("UNCONFIRMED: reported as unconfirmed, never signed_out", r === "unconfirmed", r);
+  ok("...the device is cleared (nothing more it can do)", (await ls(p)).token === null);
+  ok("...the server session was not claimed ended", S.sessions.get(s.sid).revoked === false);
+  await ctx.close();
+}
+{
+  reset(); S.mode.revoke = "unproven";
+  const { ctx, p } = await signedIn({ expired: true });
+  await Promise.all([
+    p.waitForURL(`${ORIGIN}/login`, { timeout: 5000 }).catch(() => {}),
+    p.evaluate(() => window.DubizSession.signOutAndRedirect()),
+  ]);
+  const flag = await p.evaluate(() => sessionStorage.getItem("dubiz.auth.signoutUnconfirmed"));
+  ok("...signOutAndRedirect leaves a one-shot 'not confirmed' flag for the login screen", flag === "1", String(flag));
+  ok("...which is consumed exactly once", (await p.evaluate(() => window.DubizSession.consumeSignOutUnconfirmed())) === true &&
+    (await p.evaluate(() => window.DubizSession.consumeSignOutUnconfirmed())) === false);
+  await ctx.close();
+}
+
+// Persistent profile helpers: closing it is closing the app (every request dies
+// with it); reopening reads the cookie jar and localStorage back from disk.
+async function persistentSignedIn(user = 1) {
+  const dir = fs.mkdtempSync(join(os.tmpdir(), "dubiz-honest-"));
+  const ctx = await chromium.launchPersistentContext(dir);
+  const s = newSession(3600, user);
+  await ctx.addCookies([{ name: "dubiz_rt", value: s.cookie, domain: "127.0.0.1", path: "/api/auth/refresh", httpOnly: true, sameSite: "Strict", expires: Math.floor(Date.now() / 1000) + 86_400 }]);
+  const p = ctx.pages()[0] ?? (await ctx.newPage());
+  await p.goto(`${ORIGIN}/`);
+  await p.evaluate((t) => localStorage.setItem("token", t), s.token);
+  return { dir, ctx, p, s };
+}
+async function reopen(dir) {
+  const ctx = await chromium.launchPersistentContext(dir);
+  const p = ctx.pages()[0] ?? (await ctx.newPage());
+  await p.goto(`${ORIGIN}/login`);
+  return { ctx, p };
+}
+async function pendingAfterFailedSignOut(user = 1) {
+  S.mode.logout = "500"; S.mode.revoke = "drop";
+  const h = await persistentSignedIn(user);
+  await h.p.evaluate(() => window.DubizSession.signOut());
+  await h.p.evaluate(() => window.DubizSession.forgetDeviceWithPendingRevoke());
+  return h;
+}
+
+// 9. pending → the app is CLOSED and started again → finished on the next start
+{
+  reset();
+  const { dir, ctx, s } = await pendingAfterFailedSignOut();
+  await ctx.close();
+  S.mode.revoke = "ok";
+  const again = await reopen(dir);
+  const st = await ls(again.p);
+  ok("RESTART: the marker survived the restart", st.marker !== null && JSON.parse(st.marker).sid === s.sid);
+  ok("...the cookie survived too (the proof)", (await jar(again.ctx)) === s.cookie);
+  const r = await again.p.evaluate(() => window.DubizSession.completePendingRevoke());
+  ok("...finished on the next start: revoked", r === "revoked" && S.sessions.get(s.sid).revoked === true, r);
+  ok("...a second attempt finds nothing to do (idempotent)", (await again.p.evaluate(() => window.DubizSession.completePendingRevoke())) === "none");
+  await again.ctx.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// 10. pending → ALL browsing data cleared → nothing to send, nothing claimed
+{
+  reset();
+  const { dir, ctx, p, s } = await pendingAfterFailedSignOut();
+  await ctx.clearCookies();
+  await p.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+  S.mode.revoke = "ok"; S.seen = [];
+  const r = await p.evaluate(() => window.DubizSession.completePendingRevoke());
+  ok("CLEARED ALL DATA: nothing pending (none), no request sent", r === "none" && !S.seen.some((x) => x.path === "revoke"), r);
+  ok("...and nothing is claimed: the server session is untouched (idle expiry or 'all devices' ends it)", S.sessions.get(s.sid).revoked === false);
+  await ctx.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// 11. pending → only COOKIES cleared → the marker remains, but there is no proof
+{
+  reset();
+  const { dir, ctx, p, s } = await pendingAfterFailedSignOut();
+  await ctx.clearCookies();
+  S.mode.revoke = "ok"; S.seen = [];
+  const r = await p.evaluate(() => window.DubizSession.completePendingRevoke());
+  const sent = S.seen.find((x) => x.path === "revoke");
+  ok("CLEARED COOKIES: the attempt carries no cookie", sent !== undefined && sent.cookie === null);
+  ok("...reported unproven ('could not confirm'), never success", r === "unproven", r);
+  ok("...nothing revoked, marker dropped", S.sessions.get(s.sid).revoked === false && (await ls(p)).marker === null);
+  await ctx.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// 12. pending → only localStorage cleared → no marker; a later sign-in is untouched
+{
+  reset();
+  const { dir, ctx, p } = await pendingAfterFailedSignOut();
+  await p.evaluate(() => localStorage.clear());
+  S.mode.revoke = "ok"; S.seen = [];
+  const r = await p.evaluate(() => window.DubizSession.completePendingRevoke());
+  ok("CLEARED STORAGE: no marker → none, no request", r === "none" && S.seen.length === 0, r);
+  const fresh = await p.evaluate(async () => (await (await fetch("/__login?user=2", { method: "POST", credentials: "same-origin" })).json()).sid);
+  await p.evaluate(() => window.DubizSession.completePendingRevoke());
+  ok("...a later sign-in is never ended", S.sessions.get(fresh).revoked === false);
+  await ctx.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// 13. pending → sign in to a DIFFERENT account (then restart) → that account is never ended
+{
+  reset();
+  const { dir, ctx, p, s: old } = await pendingAfterFailedSignOut(1);
+  const other = await p.evaluate(async () => {
+    const j = await (await fetch("/__login?user=2", { method: "POST", credentials: "same-origin" })).json();
+    localStorage.setItem("token", j.token);
+    return j.sid;
+  });
+  ok("setup: the new session belongs to another account", S.sessions.get(other).user === 2);
+  await ctx.close();
+  S.mode.revoke = "ok";
+  const again = await reopen(dir);
+  const r = await again.p.evaluate(() => window.DubizSession.completePendingRevoke());
+  ok("NEW ACCOUNT: the pending sign-out does NOT end the other account's session", S.sessions.get(other).revoked === false, r);
+  ok("...reported unproven, marker dropped, still signed in to the new account",
+    r === "unproven" && (await ls(again.p)).marker === null && (await ls(again.p)).token !== null);
+  ok("...the old account's session is untouched by a cookie the device no longer holds", S.sessions.get(old.sid).revoked === false);
+  await again.ctx.close();
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 await browser.close();
