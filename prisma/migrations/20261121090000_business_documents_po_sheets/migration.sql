@@ -8,6 +8,8 @@
 --      linked to SupplierPurchaseDraft by a guard (same business, number = '#' || draft id), with NO foreign key, so
 --      nothing in the inventory tables changes (no constraint, no index, no behaviour);
 --   3. business_documents_erase() redefined to erase these rows too (same contract, same name, same grants).
+--   4. business_documents_file_guard() redefined so a saved copy's file counts as referenced, like a quote copy's or a
+--      letter's: the runtime cannot move it COMMITTED → DELETING (same function, same grants; one condition added).
 -- Touches no billing object, no inventory object, no other module's object.
 
 -- ── 1. Enum values ───────────────────────────────────────────────────────────────────────────────────
@@ -87,6 +89,69 @@ CREATE TRIGGER "PurchaseOrderSheet_append_only" BEFORE UPDATE OR DELETE ON "Purc
   FOR EACH ROW EXECUTE FUNCTION public.business_documents_append_only_guard('createdByUserId');
 CREATE TRIGGER "PurchaseOrderSheet_no_truncate" BEFORE TRUNCATE ON "PurchaseOrderSheet"
   FOR EACH STATEMENT EXECUTE FUNCTION public.business_documents_truncate_guard();
+
+-- ── 2b. The file state machine — a saved copy's file is referenced too ────────────────────────────────
+-- Identical to 20261114090000 except the PurchaseOrderSheet condition: only the owner (the erasure function) may move
+-- a file a saved copy points at to DELETING; the append-only sheet can never be left pointing at a fenced file.
+
+CREATE OR REPLACE FUNCTION public.business_documents_file_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $fn$
+DECLARE
+  is_owner boolean := current_user = (SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = TG_RELID);
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF (is_owner AND OLD."state" = 'FENCED') OR pg_trigger_depth() > 1 THEN
+      RETURN OLD;
+    END IF;
+    RAISE EXCEPTION USING ERRCODE = 'DZD21', MESSAGE = 'BUSINESS_DOCUMENTS_FILE_DELETE_REFUSED';
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF NEW."state" <> 'PENDING' THEN
+      RAISE EXCEPTION USING ERRCODE = 'DZD21', MESSAGE = 'BUSINESS_DOCUMENTS_FILE_MUST_START_PENDING';
+    END IF;
+  END IF;
+  IF TG_OP = 'INSERT' OR (NEW."state" = 'COMMITTED' AND OLD."state" <> 'COMMITTED') THEN
+    PERFORM pg_advisory_xact_lock_shared(hashtext('business_documents_erasure'), NEW."businessId");
+    IF EXISTS (SELECT 1 FROM public."BusinessDocumentErasure" e WHERE e."businessId" = NEW."businessId")
+       OR EXISTS (SELECT 1 FROM public."Business" b WHERE b."id" = NEW."businessId"
+                    AND (b."deletionRequestedAt" IS NOT NULL OR b."deletedAt" IS NOT NULL)) THEN
+      RAISE EXCEPTION USING ERRCODE = 'DZD20', MESSAGE = 'BUSINESS_DOCUMENTS_BUSINESS_BEING_ERASED';
+    END IF;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    RETURN NEW;
+  END IF;
+  IF NEW."objectKey" IS DISTINCT FROM OLD."objectKey" OR NEW."businessId" IS DISTINCT FROM OLD."businessId"
+     OR NEW."purpose" IS DISTINCT FROM OLD."purpose" OR NEW."id" IS DISTINCT FROM OLD."id" THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZD22', MESSAGE = 'BUSINESS_DOCUMENTS_FILE_IDENTITY_IMMUTABLE';
+  END IF;
+  IF NEW."state" = OLD."state" THEN
+    IF OLD."state" IN ('PENDING') THEN
+      RETURN NEW;  -- lease refresh
+    END IF;
+    IF (to_jsonb(NEW) - 'leaseOwner' - 'leaseUntil') = (to_jsonb(OLD) - 'leaseOwner' - 'leaseUntil') THEN
+      RETURN NEW;
+    END IF;
+    RAISE EXCEPTION USING ERRCODE = 'DZD24', MESSAGE = format('BUSINESS_DOCUMENTS_FILE_FROZEN in state %s', OLD."state");
+  END IF;
+  IF (OLD."state", NEW."state") IN (('PENDING', 'COMMITTED'), ('PENDING', 'DELETING'), ('DELETING', 'FENCED')) THEN
+    RETURN NEW;
+  END IF;
+  IF (OLD."state", NEW."state") = ('COMMITTED', 'DELETING') THEN
+    -- READ COMMITTED: this statement sees every reference committed while the UPDATE waited for the row lock.
+    -- The erasure / purge functions (the owner) mark referenced files too; nothing else may.
+    IF NOT is_owner AND (
+         EXISTS (SELECT 1 FROM public."QuoteShareCopy" c WHERE c."businessId" = NEW."businessId" AND c."fileId" = NEW."id")
+      OR EXISTS (SELECT 1 FROM public."BusinessLetter" l WHERE l."businessId" = NEW."businessId" AND l."fileId" = NEW."id")
+      OR EXISTS (SELECT 1 FROM public."PurchaseOrderSheet" s WHERE s."businessId" = NEW."businessId" AND s."fileId" = NEW."id")) THEN
+      RAISE EXCEPTION USING ERRCODE = 'DZD23', MESSAGE = 'BUSINESS_DOCUMENTS_FILE_STILL_REFERENCED';
+    END IF;
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION USING ERRCODE = 'DZD24', MESSAGE = format('BUSINESS_DOCUMENTS_FILE_TRANSITION_REFUSED %s -> %s', OLD."state", NEW."state");
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.business_documents_file_guard() FROM PUBLIC;
 
 -- ── 3. Account erasure — the same function, now covering the sheets ──────────────────────────────────
 

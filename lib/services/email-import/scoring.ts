@@ -14,6 +14,8 @@ export type GmailDiscoveryAttachment = {
   mimeType: string;
   sizeBytes: number | null;
   fromEmail: string | null;
+  /** Sender display name for the screen only; absent from older servers. */
+  fromName?: string | null;
   subject: string | null;
   sentAt: string | null;
   /** Passed back to import; not used by scoring. Absent from older servers. */

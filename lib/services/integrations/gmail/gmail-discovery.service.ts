@@ -43,6 +43,8 @@ export type GmailAttachmentMetadata = {
   mimeType: string;
   sizeBytes: number | null;
   fromEmail: string | null;
+  /** The sender's display name from the From header ("Vercel Inc."), when it has one. Display only. */
+  fromName: string | null;
   subject: string | null;
   sentAt: string | null; // ISO string
   /** The part's position in the message tree; lets import re-find it. */
@@ -67,6 +69,23 @@ function headerValue(
 ): string | null {
   const h = headers?.find((x) => x.name.toLowerCase() === name.toLowerCase());
   return h?.value ?? null;
+}
+
+/**
+ * The display-name part of a From header, or null: `"Vercel Inc." <billing@vercel.com>` → `Vercel Inc.`.
+ * Null for a bare address, a name that is only the address again, or an encoded word Gmail left
+ * undecoded (`=?utf-8?…`) — the screen then shows the address alone. Display text only; never
+ * stored, logged or used to decide anything (B3-b, 2026-11-09).
+ */
+export function extractDisplayName(fromHeader: string | null): string | null {
+  if (!fromHeader) return null;
+  const lt = fromHeader.indexOf("<");
+  if (lt <= 0) return null;
+  let name = fromHeader.slice(0, lt).trim();
+  if (name.length >= 2 && name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1);
+  name = name.replace(/\\(.)/g, "$1").replace(/\s+/g, " ").trim();
+  if (!name || name.includes("=?") || name.includes("@")) return null;
+  return name.length > 80 ? `${name.slice(0, 79)}…` : name;
 }
 
 function extractEmailAddress(fromHeader: string | null): string | null {
@@ -122,6 +141,7 @@ export function classifyAttachmentParts(
   meta: {
     messageId: string;
     fromEmail: string | null;
+    fromName?: string | null;
     subject: string | null;
     sentAt: string | null;
   },
@@ -162,6 +182,7 @@ export function classifyAttachmentParts(
       mimeType,
       sizeBytes,
       fromEmail: meta.fromEmail,
+      fromName: meta.fromName ?? null,
       subject: meta.subject,
       sentAt: meta.sentAt,
       partId: root !== undefined && p === root ? GMAIL_ROOT_PART_ID : p.partId ? String(p.partId) : null,
@@ -174,13 +195,15 @@ export function classifyAttachmentParts(
 /** One fetched message → its classified attachments (headers read once, root passed). */
 export function classifyGmailMessage(messageId: string, msg: GmailMessageResponse) {
   const topHeaders = msg.payload?.headers || [];
-  const fromEmail = extractEmailAddress(headerValue(topHeaders, "From"));
+  const fromHeader = headerValue(topHeaders, "From");
+  const fromEmail = extractEmailAddress(fromHeader);
+  const fromName = extractDisplayName(fromHeader);
   const subject = headerValue(topHeaders, "Subject");
   const dateHeader = headerValue(topHeaders, "Date");
   const sentAt = parseSentAtIso({ dateHeader, internalDate: msg.internalDate });
 
   const parts = collectAttachmentParts(msg.payload);
-  return classifyAttachmentParts(parts, { messageId, fromEmail, subject, sentAt }, msg.payload);
+  return classifyAttachmentParts(parts, { messageId, fromEmail, fromName, subject, sentAt }, msg.payload);
 }
 
 /**

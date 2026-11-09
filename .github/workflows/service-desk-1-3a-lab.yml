@@ -1,0 +1,82 @@
+# Service Desk 1.3a — the data service, its access gate and its routes' rules, AS the real runtime role, on the 1.3-0
+# lab (.sd3/lab.sh --with-sd3: 1.2a + 1.2b + M2 + 1.3-0 applied by migrate deploy), ephemeral PG17, real local storage.
+#
+# Access modes from the real flag rows, opening, transitions through the core and the guards, technician, intake,
+# settings, isolation between businesses, idempotency, races (one version, one key, 20 parallel openings), repeat
+# warranty from a LOCKED offer. No migration is written; the module stays OFF everywhere but this throwaway database.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: service desk 1.3a — data service lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/service-desk/**"
+      - "app/api/service-desk/**"
+      - "lib/services/feature-access/**"
+      - "lib/tenant/**"
+      - ".sd3a/**"
+      - ".sd3/lab.sh"
+      - "prisma/schema.prisma"
+      - ".github/workflows/service-desk-1-3a-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk 1.3a (PG17, runtime role, 1.3-0 applied)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sd3a_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sd3a_ci_synthetic_super_pw
+      LAB_PASSWORD: sd3a_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: The data service as the runtime role
+        run: |
+          set -euo pipefail
+          bash .sd3/lab.sh sd3a --with-sd3 >/dev/null
+          # The auth plane (session lookup only) reads User through the lab owner: this lab chain records the auth-plane
+          # privilege migrations without running them, so app_auth holds no grants here. Every Service Desk query still
+          # runs as app_runtime_prod (DATABASE_URL) — authentication is not what this lab tests; the edge after it is.
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sd3a"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sd3a"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sd3a" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/sd3a-store" \
+          TASK_REQUEST_HMAC_KEY=sd3a-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sd3a-ci \
+          AUTH_TOKEN_SECRET=sd3a-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sd3a/battery.ts | tee /tmp/sd3a.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sd3a.out || { echo "the 1.3a battery is not green"; exit 1; }

@@ -20,8 +20,12 @@
 --   → a learning signal whose payload carries no personal field, attribution kept, payloads purged.
 --
 -- Production state this tolerates (expected, not a failure): the closed website pilot of
--- business 9 (its web.form connection REVOKED, acquisition_web_forms DISABLED for business 9,
--- its test lead kept).
+-- business 9 (its web.form connection REVOKED, its test leads kept). Owner decision 2026-11-09:
+-- acquisition_web_forms STAYS ENABLED for business 9 after that pilot. C3 tolerates exactly that
+-- one feature row (web forms, business 9) and nothing more: a web form feature with no live
+-- web.form connection receives nothing, while any live (non-REVOKED) web.form connection, in
+-- business 9 or any other business, and the web form feature ENABLED for any other business,
+-- still fail C3.
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: counts only — no name, phone, email, answer, campaign or payload is printed.
@@ -31,7 +35,7 @@
 \echo '== M6 Google lead form live proof (business 9) — legend (n → check) =='
 \echo ' 1 C1 exactly one ACTIVE Google connection exists, and it belongs to business 9 (observed = active Google connections)'
 \echo ' 2 C2 exactly one business has acquisition_google_lead_forms ENABLED, and it is business 9 (observed = enabled businesses)'
-\echo ' 3 C3 nothing else is live: no other lead / commerce / telephony connection, no such feature ENABLED, Google not open globally (observed = such rows)'
+\echo ' 3 C3 nothing else is live: no other lead / commerce / telephony connection, no such feature ENABLED (only web forms for business 9 tolerated), Google not open globally (observed = such rows)'
 \echo ' 4 R1 genuine Google receipts exist — routed to a Lead, not a test submission (observed = genuine receipts)'
 \echo ' 5 R2 every Google receipt belongs to business 9 (observed = receipts elsewhere)'
 \echo ' 6 R3 no Google receipt is failed, dead-lettered or still pending (observed = such receipts)'
@@ -64,7 +68,9 @@ other_rows AS (
              AND c."status" <> 'REVOKED')
        + (SELECT count(*) FROM "BusinessFeatureAccess"
            WHERE "featureKey" IN ('acquisition_web_forms', 'acquisition_meta_lead_ads', 'commerce_woocommerce', 'commerce_wix', 'telephony_cloudtalk', 'telephony_voicenter')
-             AND "state"::text = 'ENABLED')
+             AND "state"::text = 'ENABLED'
+             -- owner decision 2026-11-09: web forms stay ENABLED for business 9 only (connections above still count)
+             AND NOT ("featureKey" = 'acquisition_web_forms' AND "businessId" = 9))
        + (SELECT count(*) FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'acquisition_google_lead_forms' AND "globalEnabled") AS n),
 rcpt AS (SELECT e."id", e."businessId", e."status"::text AS status, e."lastErrorCode", e."customerId", e."payload"
            FROM "IntakeEvent" e WHERE e."sourceKey" = 'google.lead_form'),

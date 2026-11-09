@@ -104,6 +104,14 @@ async function main() {
   const usedFile = (await own.$queryRawUnsafe(`SELECT "fileId" FROM "PurchaseOrderSheet" WHERE id = $1`, s1.id) as { fileId: number }[])[0].fileId;
   await refused("one file cannot back two sheets → unique", () => sheet(A, dA, usedFile), /PurchaseOrderSheet_businessId_fileId_key|unique/i);
 
+  console.log("--- a saved copy's file stays (only the erasure may mark it) ---");
+  await refused("the runtime cannot mark a saved copy's COMMITTED file DELETING", () => inCtx(R1, A, (tx) => tx.$executeRawUnsafe(`UPDATE "BusinessDocumentFile" SET "state" = 'DELETING' WHERE id = $1`, usedFile)), /STILL_REFERENCED/);
+  ok("…and the file is still COMMITTED", (await n(`SELECT count(*) AS n FROM "BusinessDocumentFile" WHERE id = $1 AND state = 'COMMITTED'`, usedFile)) === 1);
+  const loose = await committedFile(A);
+  ok("an unreferenced purchase-order-sheet file can still be marked DELETING (the guard is not broader)", (await inCtx(R1, A, (tx) => tx.$executeRawUnsafe(`UPDATE "BusinessDocumentFile" SET "state" = 'DELETING' WHERE id = $1`, loose))) === 1);
+  const guard = await one<{ src: string; cfg: string; acl: string }>(own, `SELECT p.prosrc AS src, array_to_string(p.proconfig, ',') AS cfg, coalesce(p.proacl::text, '') AS acl FROM pg_proc p WHERE p.proname = 'business_documents_file_guard'`);
+  ok("business_documents_file_guard: counts sheets, keeps quote copies and letters, pinned search_path, no PUBLIC", ["PurchaseOrderSheet", "QuoteShareCopy", "BusinessLetter"].every((t) => guard.src.includes(`FROM public."${t}"`)) && /search_path=pg_catalog, public, pg_temp$/.test(guard.cfg) && !/(^|[{,])=X/.test(guard.acl));
+
   console.log("--- the stored file must be ready ---");
   const pending = await inCtx(R1, A, (tx) => one<{ id: number }>(tx, `INSERT INTO "BusinessDocumentFile" ("businessId", "purpose", "objectKey") VALUES ($1, 'PURCHASE_ORDER_SHEET', $2) RETURNING id`, A, `biz/${A}/business-docs/${randomUUID()}.pdf`));
   await refused("a PENDING file → not available", () => sheet(A, dA, pending.id), /FILE_NOT_AVAILABLE/);

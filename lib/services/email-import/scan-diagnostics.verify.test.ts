@@ -92,8 +92,9 @@ for (const mimeType of MIMES) for (const filename of NAMES) for (const size of S
   const meta = { messageId: `m-${n}`, fromEmail: n % 2 ? "a@b.example" : null, subject: n % 3 ? "Invoice" : null, sentAt: null };
   const legacy = legacyLoop(parts, meta.messageId, meta.fromEmail, meta.subject, meta.sentAt);
   const now = classifyAttachmentParts(parts, meta);
-  // partId is an added field (2026-11-08 import fix); everything else is the legacy result.
-  assert.deepEqual(now.attachments.map((a) => { const rest: Partial<GmailAttachmentMetadata> = { ...a }; delete rest.partId; return rest; }), legacy, `fixture ${n}: kept set differs`);
+  // partId (2026-11-08 import fix) and fromName (2026-11-09 B3-b, display only) are added
+  // fields; everything else is the legacy result.
+  assert.deepEqual(now.attachments.map((a) => { const rest: Partial<GmailAttachmentMetadata> = { ...a }; delete rest.partId; delete rest.fromName; return rest; }), legacy, `fixture ${n}: kept set differs`);
   for (const a of now.attachments) {
     const src = parts.find((p) => p.body?.attachmentId === a.attachmentId);
     assert.equal(a.partId, src?.partId ?? null, `fixture ${n}: partId carried from its own part`);

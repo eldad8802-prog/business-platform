@@ -695,8 +695,13 @@ async function main() {
     // The modules the browser bundle gains are pure (no imports at all).
     assert.equal(/^\s*import\s/m.test(read("lib/services/email-import/attachment-key.ts")), false);
     assert.equal(/^\s*import\s/m.test(read("lib/services/email-import/scan-window.ts")), false);
-    // The screen never calls the new route.
-    assert.equal(pageSrc.includes("/api/integrations/gmail/scan"), false);
+    // B3-a shipped with no screen calling the new route; B3-b (2026-11-09) wires it — but only from
+    // a user's tap: no effect on the page ever requests a scan (owner decision: manual scan only).
+    const effects = pageSrc.match(/useEffect\(\(\) => \{[\s\S]*?\n {2}\}, \[[^\]]*\]\);/g) ?? [];
+    assert.ok(effects.length >= 3, "the page's effects were found");
+    for (const e of effects) {
+      assert.equal(/requestScanPage|runBasicScan|onScanPress|\/api\/integrations\/gmail\/(scan|sync)/.test(e), false, "no automatic scan");
+    }
   });
 
   // ================================================================ E. rate limit (page ceilings)
