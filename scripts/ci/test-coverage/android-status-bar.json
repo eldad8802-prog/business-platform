@@ -1,0 +1,10 @@
+{
+  "note": "Issue 2, part 2 (Android 14 and older still under the status bar after the viewport switch): @capacitor/status-bar loads with overlaysWebView=true and SystemBars pads only on Android 15+, so inside the Android shell the root layout turns the overlay off through the bridge Capacitor injects at document start and paints the bar the DS cream; initNativeShell backs it up once per document.",
+  "tests": {
+    "lib/native/android-status-bar.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "status-bar layout of the Android shell only; no data, auth or permission path",
+      "reason": "pure: runs the shipped inline script in a vm — overlay off then cream bar only when the SystemBars Android interface and the bridge exist, once per document, rejections and throws swallowed; the backstop waits for the inline calls before reading the bar, calls the setters itself only when the inline script never ran, never throws; layout and initNativeShell wiring; the installed plugins still default to overlay on, black bar, padding only on Android 15+"
+    }
+  }
+}

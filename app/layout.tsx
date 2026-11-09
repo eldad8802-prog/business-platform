@@ -8,6 +8,7 @@ import { I18nProvider } from "@/components/i18n/I18nProvider";
 import { localeDirection } from "@/lib/i18n/config";
 import { getRequestLocale } from "@/lib/i18n/server";
 import { ANDROID_SHELL_VIEWPORT_SCRIPT } from "@/lib/native/android-viewport-fit";
+import { ANDROID_SHELL_STATUS_BAR_SCRIPT } from "@/lib/native/android-status-bar";
 
 // Heebo is the official Dubiz typeface (Design System v1). It is Hebrew-first
 // (full Hebrew + Latin coverage by Oded Ezer), unlike Geist which has no Hebrew
@@ -87,11 +88,13 @@ export default async function RootLayout({
         */}
         <div id="dz-overlay-root" />
         {/*
-          Android shell only: keeps every screen out from under the system bars by letting
-          Capacitor pad the WebView (see lib/native/android-viewport-fit.ts). Inline and
-          parser-executed so it runs before DOMContentLoaded, when Capacitor reads the viewport.
+          Android shell only: keeps every screen out from under the system bars — on Android
+          15+ by letting Capacitor pad the WebView (lib/native/android-viewport-fit.ts), on
+          Android 14 and older by turning the status-bar overlay off (lib/native/android-status-bar.ts).
+          Inline and parser-executed so it runs before DOMContentLoaded, when Capacitor reads
+          the viewport, and before the first paint.
         */}
-        <script dangerouslySetInnerHTML={{ __html: ANDROID_SHELL_VIEWPORT_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: ANDROID_SHELL_VIEWPORT_SCRIPT + ANDROID_SHELL_STATUS_BAR_SCRIPT }} />
       </body>
     </html>
   );
