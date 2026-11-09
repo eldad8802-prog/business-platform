@@ -1,0 +1,16 @@
+{
+  "note": "Gmail scan B3-a foundation (2026-11-09): stable messageId+partId key incl. the top-level (root) attachment, import resolver root step, closed 30/90/365 window, sealed+signed scan cursor (AES-256-GCM + HMAC-SHA256, HKDF-separated keys), page engine (25/page, 4 in flight, one retry on 429/503 only, incomplete pages never advance, 500 cap), GMAIL_SCAN page ceilings (fail-closed) plus a Gmail quota-unit budget reserved atomically per mailbox, business and globally (minute + day) before any Gmail call. The legacy /sync scan and the import route are unchanged.",
+  "tests": {
+    "lib/services/integrations/gmail/gmail-scan-b3a.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB; Gmail mocked via injected fetch; memory rate-limit backend + simulated Redis outage + a stand-in shared store): root attachments resolve only by name AND size and never reach another part; rescans with changed ids keep keys; cursor forged/edited/expired/future/other business-user-account-window refused, Gmail token unreadable, keys separated from other uses of AUTH_TOKEN_SECRET; retry only 429/503 once with capped Retry-After; incomplete pages never advance; cap never reads as complete; page ceilings per user and business, unit budget never overshot by retries, parallel requests or several instances, store or limiter down fails closed for the new scan only; legacy scan, /sync and import untouched; route order, no free-text query, number-only logs"
+    },
+    "lib/services/integrations/gmail/gmail-quota-budget.redis-battery.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "gmail-scan-budget-ci.yml",
+      "reason": "the production Lua budget scripts on a REAL Redis 7.4 through the Upstash REST emulator (synthetic token, localhost only, no secrets/Gmail/DB): all-or-nothing across five budget lines incl. a later line full and corrupted counters, parallel burst through two clients grants exactly what fits with every line equal, refunds never below zero, sliding window, Redis paused and stopped mid-burst fail closed with no half-charged reservation; run on pull_request by gmail-scan-budget-ci.yml"
+    }
+  }
+}
