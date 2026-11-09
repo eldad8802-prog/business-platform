@@ -18,6 +18,7 @@ on:
       - "components/customers/CustomerCard.tsx"
       - "lib/services/tasks/**"
       - "prisma/migrations/20261114090000_business_documents_records/**"
+      - "prisma/migrations/20261121090000_business_documents_po_sheets/**"
       - "scripts/ci/erasure/**"
       - "lib/storage/**"
       - "lib/tenant/**"
@@ -254,6 +255,21 @@ jobs:
           left="$(psql -X -At "$OWNER" -c "SELECT (SELECT count(*) FROM pg_class WHERE relname IN ('BusinessDocumentFile','BusinessDocumentRequest','QuoteShareCopy','QuoteShareEvent','BusinessLetter','BusinessDocumentErasure')) + (SELECT count(*) FROM pg_proc WHERE proname LIKE 'business_documents%' OR proname LIKE 'business_letter%') + (SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE key = 'business_documents')")"
           echo "objects left by the failed migration: $left"
           [ "$left" = "0" ]
+      - name: Atomicity — the purchase-order-sheet migration failing on its last statement leaves nothing of it
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh bd_broken_po --broken-po
+          OWNER="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_broken_po"
+          left="$(psql -X -At "$OWNER" -c "SELECT (SELECT count(*) FROM pg_class WHERE relname = 'PurchaseOrderSheet') + (SELECT count(*) FROM pg_proc WHERE proname = 'business_documents_po_sheet_link_guard') + (SELECT count(*) FROM pg_enum WHERE enumlabel = 'PURCHASE_ORDER_SHEET') + (SELECT position('PurchaseOrderSheet' in prosrc) FROM pg_proc WHERE proname = 'business_documents_erase')")"
+          kept="$(psql -X -At "$OWNER" -c "SELECT count(*) FROM pg_class WHERE relname = 'QuoteShareCopy'")"
+          echo "objects left by the failed purchase-order-sheet migration: $left (records migration kept: $kept)"
+          [ "$left" = "0" ] && [ "$kept" = "1" ]
+      - name: Purchase-order sheet records battery — privileges, isolation, the draft link (same business, own number), append-only, frozen snapshot, not while erasing, erasure
+        run: |
+          set -euo pipefail
+          bash .business-documents/lab.sh bd_po --with-po
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bd_po"           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_po?connection_limit=10"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bd_po"             npx tsx .business-documents/po-sheet-records.battery.mts | tee /tmp/po-records.out
+          grep -qxE '[0-9]+ passed, 0 failed' /tmp/po-records.out
       - name: Records battery — privileges, isolation, quote link, events, append-only and every bypass, record vs delete (both orders, 200 pairs), letters, purge, erasure
         run: |
           set -euo pipefail
