@@ -30,6 +30,11 @@ serve() { # dist-dir name
   return 1
 }
 stop_server() { pkill -f "next start -p 3000" || true; pkill -f "next-server" || true; sleep 3; }
+rotate() { # 0 portrait, 1 landscape — both the settings key and wm (API 34 ignored the key alone, run 42679890084)
+  A shell settings put system accelerometer_rotation 0; A shell settings put system user_rotation "$1"
+  A shell wm user-rotation lock "$1" > /dev/null 2>&1; sleep 4
+  log "rotation requested=$1 actual=$(A shell dumpsys window displays | grep -oE 'mCurrentRotation=[^ ]+|cur=[0-9]+x[0-9]+' | head -2 | xargs)"
+}
 launch() { A shell am force-stop "$PKG"; sleep 2; A shell am start -n "$PKG/.MainActivity" > /dev/null 2>&1; sleep 12; }
 real() { # mode scenario
   timeout 600 node scripts/native/statusbar-real.mjs "$1" "$OUT" "$2" > "$OUT/real-$1-$2.log" 2>&1
@@ -57,9 +62,9 @@ for mode in before after; do
   launch; real "$mode" routes
   launch; real "$mode" keyboard
   launch; real "$mode" sheet
-  A shell settings put system user_rotation 1; sleep 4
+  rotate 1
   launch; real "$mode" landscape
-  A shell settings put system user_rotation 0; sleep 3
+  rotate 0
   if [ "$mode" = after ]; then
     # Chrome's first-run screens blocked launchBrowser (run 42677048086): skip them on this throwaway emulator.
     A shell 'echo "_ --disable-fre --no-default-browser-check --no-first-run" > /data/local/tmp/chrome-command-line'
