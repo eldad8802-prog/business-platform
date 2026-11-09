@@ -19,5 +19,11 @@
  * overlay and sheet. `CapacitorSystemBarsAndroidInterface` is the JavaScript
  * interface the SystemBars plugin adds to the Android WebView; it exists from
  * page start and nowhere else — iPhone, iOS shell and browsers are untouched.
+ *
+ * It keeps the cover out afterwards too: Capacitor reads the meta
+ * asynchronously after DOMContentLoaded, and Next re-renders the viewport meta
+ * on hydration — on a light page that put the cover back before Capacitor
+ * looked (emulator sweep, /settings/inbound-email). A MutationObserver strips
+ * it again as a microtask, before Capacitor's read can run.
  */
-export const ANDROID_SHELL_VIEWPORT_SCRIPT = `(function(){try{if(typeof window.CapacitorSystemBarsAndroidInterface==="undefined")return;var m=document.querySelectorAll('meta[name="viewport"]');for(var i=0;i<m.length;i++){var c=m[i].getAttribute("content")||"";if(/viewport-fit\\s*=\\s*cover/i.test(c)){m[i].setAttribute("content",c.replace(/\\s*,?\\s*viewport-fit\\s*=\\s*cover/gi,"").replace(/^\\s*,\\s*/,""));}}}catch(e){}})();`;
+export const ANDROID_SHELL_VIEWPORT_SCRIPT = `(function(){try{if(typeof window.CapacitorSystemBarsAndroidInterface==="undefined")return;var strip=function(){var m=document.querySelectorAll('meta[name="viewport"]');for(var i=0;i<m.length;i++){var c=m[i].getAttribute("content")||"";if(/viewport-fit\\s*=\\s*cover/i.test(c)){m[i].setAttribute("content",c.replace(/\\s*,?\\s*viewport-fit\\s*=\\s*cover/gi,"").replace(/^\\s*,\\s*/,""));}}};strip();if(typeof MutationObserver!=="undefined"&&document.head){new MutationObserver(strip).observe(document.head,{subtree:true,childList:true,attributes:true,attributeFilter:["content"]});}}catch(e){}})();`;
