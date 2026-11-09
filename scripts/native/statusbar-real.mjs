@@ -161,8 +161,9 @@ if (scenario === "chrome") {
 await connect();
 await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
 await page.evaluate(() => localStorage.setItem("token", "diag-token"));
-const go = async (route) => {
-  await page.evaluate(() => { if (!localStorage.getItem("token")) localStorage.setItem("token", "diag-token"); }).catch(() => {});
+const go = async (route, { signedIn = true } = {}) => {
+  // signed out for the sign-in forms: with the token they redirect away (run 42683520350 found no field)
+  await page.evaluate((s) => { if (!s) localStorage.removeItem("token"); else if (!localStorage.getItem("token")) localStorage.setItem("token", "diag-token"); }, signedIn).catch(() => {});
   try {
     await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 45000 });
   } catch (e) {
@@ -195,7 +196,7 @@ async function tap(findInPage, arg) {
 if (scenario === "keyboard") {
   for (const route of ["/forgot-password", "/login"]) {
     try {
-      await go(route);
+      await go(route, { signedIn: false });
       const before = await page.evaluate(() => innerHeight);
       const t = await tap(() => {
         const el = [...document.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea')].find((e) => e.getBoundingClientRect().height > 0);
@@ -241,7 +242,7 @@ if (scenario === "sheet") {
     return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, dpr: devicePixelRatio, label: (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 30) };
   };
   try {
-    await go("/home");
+    await go("/payables"); // /home renders only its loading state with empty API answers; /payables has the bottom navigation
     const t = await tap(bottomNavItem, "centre");
     if (!t) console.log(`[${mode}/sheet] no bottom navigation centre button`);
     else {
@@ -253,7 +254,7 @@ if (scenario === "sheet") {
     }
   } catch (e) { console.log(`[${mode}/sheet] ERROR ${String(e).slice(0, 140)}`); }
   try {
-    await go("/home");
+    await go("/payables"); // /home renders only its loading state with empty API answers; /payables has the bottom navigation
     const t = await tap(bottomNavItem, "documents");
     if (!t) console.log(`[${mode}/sheet] no documents tab`);
     else {

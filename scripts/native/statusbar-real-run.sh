@@ -82,7 +82,7 @@ for mode in before after; do
 done
 
 timeout 60 adb logcat -d > "$OUT/logcat.txt" 2>&1
-grep -qE "FATAL EXCEPTION|ANR in $PKG" "$OUT/logcat.txt" && log "!! crash/ANR in logcat" || log "no crash/ANR in logcat"
+grep -qE "Process: $PKG|ANR in $PKG" "$OUT/logcat.txt" && log "!! crash/ANR in logcat" || log "no crash/ANR in logcat"
 grep -E "StatusBar|SystemBars|Capacitor/Console" "$OUT/logcat.txt" | grep -iE "error|reject|not implemented" | head -20 > "$OUT/logcat-statusbar-errors.txt"
 log "statusbar-related errors in logcat: $(wc -l < "$OUT/logcat-statusbar-errors.txt")"
 exit 0
