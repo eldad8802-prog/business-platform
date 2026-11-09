@@ -50,6 +50,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "L1.5-b B1 intake authorization: why a source is refused is told apart (emergency / plan_excluded / blocked / not_entitled) from the business's own override under its RLS, fail-closed — only the exact structured marker plan:excluded counts; every refusal still records nothing and every route answer is unchanged"
+    },
+    "lib/intake/l15b-hold-clock.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "L1.5-b A2 held-receipt expiry (OFF unless INTAKE_HOLD_CLOCK_ENABLED=true): 14 counted days, cumulative, never reset by a reason change or backdated from arrival; the emergency hold never counts or expires and opens a 48h grace; no expiry before a warning written 48h earlier; expiry goes through the A1 terminal path (payload kept, never a failure); one SQL look for probe and siblings under the business's RLS"
     }
   }
 }
