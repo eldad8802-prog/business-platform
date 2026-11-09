@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
-import { ANDROID_SHELL_VIEWPORT_SCRIPT } from "@/lib/native/android-viewport-fit";
+import { ANDROID_SHELL_VIEWPORT_SCRIPT, ensureAndroidShellViewport } from "@/lib/native/android-viewport-fit";
 
 type FakeMeta = { content: string; getAttribute(n: string): string; setAttribute(n: string, v: string): void };
 
@@ -55,6 +55,7 @@ function main() {
     };
     let onMutation: (() => void) | null = null;
     let observed: unknown = null;
+    let disconnected = false;
     class FakeObserver {
       constructor(cb: () => void) {
         onMutation = cb;
@@ -62,28 +63,47 @@ function main() {
       observe(target: unknown, opts: unknown) {
         observed = { target, opts };
       }
+      disconnect() {
+        disconnected = true;
+      }
     }
-    const head = {};
+    const html = {};
+    const listeners: Record<string, () => void> = {};
+    const timers: { fn: () => void; ms: number }[] = [];
     const ctx = {
       window: { CapacitorSystemBarsAndroidInterface: {} },
-      document: { head, querySelectorAll: () => [meta] },
+      document: {
+        documentElement: html,
+        querySelectorAll: () => [meta],
+        addEventListener: (ev: string, fn: () => void) => { listeners[ev] = fn; },
+      },
       MutationObserver: FakeObserver,
+      setTimeout: (fn: () => void, ms: number) => { timers.push({ fn, ms }); },
     };
     runInNewContext(ANDROID_SHELL_VIEWPORT_SCRIPT, ctx);
     assert.equal(meta.content, "width=device-width, initial-scale=1");
-    assert.ok(onMutation && observed, "Android shell watches the head");
-    assert.equal((observed as { target: unknown }).target, head);
+    assert.ok(onMutation && observed, "Android shell watches the document");
+    // the whole document — a replaced <head> must not escape the observer
+    assert.equal((observed as { target: unknown }).target, html);
     meta.content = NEXT; // React re-renders the viewport meta
     (onMutation as unknown as () => void)();
     assert.equal(meta.content, "width=device-width, initial-scale=1", "restored cover is stripped again");
     (onMutation as unknown as () => void)(); // no cover → no write, no loop
     assert.equal(meta.content, "width=device-width, initial-scale=1");
 
+    // Capacitor reads once per load: the observer stops 15 s after DOMContentLoaded.
+    assert.equal(disconnected, false);
+    listeners.DOMContentLoaded();
+    assert.equal(timers.length, 1);
+    assert.equal(timers[0].ms, 15000);
+    timers[0].fn();
+    assert.equal(disconnected, true, "observer disconnects after the load window");
+
     // Outside the Android shell nothing is observed.
     let created = false;
     runInNewContext(ANDROID_SHELL_VIEWPORT_SCRIPT, {
       window: {},
-      document: { head, querySelectorAll: () => [meta] },
+      document: { documentElement: {}, querySelectorAll: () => [meta], addEventListener() {} },
       MutationObserver: class {
         constructor() {
           created = true;
@@ -92,6 +112,55 @@ function main() {
       },
     });
     assert.equal(created, false, "no observer outside the Android shell");
+  }
+
+  // Client backstop (error-fallback documents, where the inline script never runs).
+  {
+    const mk = (content: string) => ({
+      content,
+      getAttribute() {
+        return this.content;
+      },
+      setAttribute(_n: string, v: string) {
+        this.content = v;
+      },
+    });
+    let reads = 0;
+    const shellWin = { CapacitorSystemBarsAndroidInterface: { onDOMReady: () => { reads++; } } };
+
+    const m1 = mk(NEXT);
+    assert.equal(ensureAndroidShellViewport(shellWin, { querySelectorAll: () => [m1] }), true);
+    assert.equal(m1.content, "width=device-width, initial-scale=1");
+    assert.equal(reads, 1, "Capacitor is asked to read the viewport again");
+
+    // Normal page: the script already stripped it → no change, no extra read.
+    assert.equal(ensureAndroidShellViewport(shellWin, { querySelectorAll: () => [m1] }), false);
+    assert.equal(reads, 1);
+
+    // Browser / iOS: no interface → untouched, nothing called.
+    const m2 = mk(NEXT);
+    assert.equal(ensureAndroidShellViewport({}, { querySelectorAll: () => [m2] }), false);
+    assert.equal(m2.content, NEXT);
+
+    // A throwing onDOMReady never breaks the page.
+    const m3 = mk(NEXT);
+    assert.doesNotThrow(() =>
+      ensureAndroidShellViewport(
+        { CapacitorSystemBarsAndroidInterface: { onDOMReady: () => { throw new Error("x"); } } },
+        { querySelectorAll: () => [m3] }
+      )
+    );
+
+    // NativeShellInit runs the backstop.
+    const init = readFileSync(join(process.cwd(), "components/native/NativeShellInit.tsx"), "utf8");
+    assert.match(init, /ensureAndroidShellViewport\(\)/, "NativeShellInit calls the backstop");
+
+    // SystemBars still exposes onDOMReady to JavaScript.
+    const sb = readFileSync(
+      join(process.cwd(), "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/SystemBars.java"),
+      "utf8"
+    );
+    assert.ok(/@JavascriptInterface\s+public void onDOMReady\(\)/.test(sb), "SystemBars.onDOMReady is a JavascriptInterface");
   }
 
   // A throwing DOM never breaks the page.
