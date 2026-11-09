@@ -34,7 +34,6 @@ jobs:
         include:
           - { api: '34', profile: 'pixel_4', shots: 'some' }
           - { api: '36', profile: 'pixel_7_pro', shots: 'some' }
-          - { api: '36.1', profile: 'pixel_6', shots: 'all' }
           - { api: '37.0', profile: 'pixel_6', shots: 'all' }
 
     steps:

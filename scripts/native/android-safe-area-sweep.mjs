@@ -33,6 +33,13 @@ await page.route("**/api/**", (r) => r.fulfill({ status: 200, contentType: "appl
 
 await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
 await page.evaluate(() => localStorage.setItem("token", "diag-token"));
+// Some screens clear the session; restore it before every route so later
+// screens are not measured as a redirect (run 42543742763, API 34).
+const ensureToken = async () => {
+  try {
+    await page.evaluate(() => { if (!localStorage.getItem("token")) localStorage.setItem("token", "diag-token"); });
+  } catch {}
+};
 
 const measure = () => {
   const root = getComputedStyle(document.documentElement);
@@ -70,6 +77,7 @@ for (const route of routes) {
   i++;
   const rec = { route };
   try {
+    await ensureToken();
     await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 45000 });
     await page.waitForTimeout(2500);
     Object.assign(rec, await page.evaluate(measure));
@@ -85,22 +93,83 @@ for (const route of routes) {
   console.log(`[${mode}] ${i}/${routes.length} ${route} top=${rec.insetTop} underTop=${rec.underTopCount} underBottom=${rec.underBottomCount} h=${rec.hScroll} ${rec.crashed ? "CRASH" : ""}${rec.error ? "ERR" : ""}`);
 }
 
-// Keyboard: focus the first text field on /login and check the submit stays reachable.
-try {
-  await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(2000);
-  await page.locator("input").first().click();
-  await page.waitForTimeout(2500);
-  const kb = await page.evaluate(() => {
-    const btn = document.querySelector('button[type="submit"]') || [...document.querySelectorAll("button")].pop();
-    const r = btn?.getBoundingClientRect();
-    return { innerHeight: window.innerHeight, submitTop: r?.top ?? null, submitBottom: r?.bottom ?? null };
-  });
-  writeFileSync(join(outDir, "shots", `${mode}-zz-keyboard-login.png`), await device.screenshot());
-  results.push({ route: "(keyboard /login)", ...kb });
-  console.log(`[${mode}] keyboard ${JSON.stringify(kb)}`);
-} catch (e) {
-  results.push({ route: "(keyboard /login)", error: String(e).slice(0, 160) });
+// Keyboard: on the first screen that renders a text field, focus it and check the
+// field and the confirm button stay inside the visible viewport.
+for (const route of ["/forgot-password", "/register", "/login", "/contact"]) {
+  try {
+    await ensureToken();
+    await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    const field = page.locator('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea').first();
+    if (!(await field.count()) || !(await field.isVisible())) continue;
+    const h0 = await page.evaluate(() => window.innerHeight);
+    await field.click();
+    await page.waitForTimeout(2500);
+    const kb = await page.evaluate(() => {
+      const f = document.activeElement?.getBoundingClientRect();
+      const btn = document.querySelector('button[type="submit"]') || [...document.querySelectorAll("form button, main button")].pop();
+      const b = btn?.getBoundingClientRect();
+      if (btn) btn.scrollIntoView({ block: "nearest" });
+      const b2 = btn?.getBoundingClientRect();
+      return {
+        innerHeightWithKeyboard: window.innerHeight,
+        fieldVisible: !!f && f.top >= 0 && f.bottom <= window.innerHeight,
+        submitVisibleAsIs: !!b && b.top >= 0 && b.bottom <= window.innerHeight,
+        submitReachableByScroll: !!b2 && b2.top >= 0 && b2.bottom <= window.innerHeight,
+      };
+    });
+    writeFileSync(join(outDir, "shots", `${mode}-zz-keyboard${route.replace(/\//g, "_")}.png`), await device.screenshot());
+    results.push({ route: `(keyboard ${route})`, innerHeightBefore: h0, ...kb });
+    console.log(`[${mode}] keyboard ${route} h0=${h0} ${JSON.stringify(kb)}`);
+    break;
+  } catch (e) {
+    results.push({ route: `(keyboard ${route})`, error: String(e).slice(0, 160) });
+  }
+}
+
+// Load stability: sample the viewport during the first 3 s of a cold load. A
+// jump in innerHeight / the inset means the layout moved after first paint.
+for (const route of ["/home", "/payables", "/documents", "/forgot-password"]) {
+  try {
+    await ensureToken();
+    await page.goto(`${BASE}${route}`, { waitUntil: "commit" });
+    const samples = [];
+    const t0 = Date.now();
+    while (Date.now() - t0 < 3000) {
+      try {
+        samples.push(await page.evaluate(() => ({
+          h: window.innerHeight,
+          top: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--safe-area-inset-top")) || 0,
+          ready: document.readyState,
+        })));
+      } catch {}
+      await page.waitForTimeout(80);
+    }
+    const heights = [...new Set(samples.map((s) => s.h))];
+    const tops = [...new Set(samples.map((s) => s.top))];
+    results.push({ route: `(stability ${route})`, samples: samples.length, heights, tops, stable: heights.length === 1 && tops.length === 1 });
+    console.log(`[${mode}] stability ${route} samples=${samples.length} heights=${heights} tops=${tops}`);
+  } catch (e) {
+    results.push({ route: `(stability ${route})`, error: String(e).slice(0, 160) });
+  }
+}
+
+// A plain Android browser (Chrome on the same device) must keep viewport-fit=cover:
+// the switch is for the app shell only.
+if (mode === "after") {
+  try {
+    const browser = await device.launchBrowser();
+    const bpage = await browser.newPage();
+    await bpage.goto(`${BASE}/forgot-password`, { waitUntil: "domcontentloaded" });
+    await bpage.waitForTimeout(2500);
+    const vp = await bpage.evaluate(() => [...document.querySelectorAll('meta[name="viewport"]')].map((m) => m.content));
+    const hasInterface = await bpage.evaluate(() => typeof window.CapacitorSystemBarsAndroidInterface !== "undefined");
+    results.push({ route: "(chrome browser /forgot-password)", viewport: vp, hasInterface, keepsCover: vp.every((c) => /viewport-fit=cover/.test(c)) });
+    console.log(`[${mode}] chrome browser viewport=${JSON.stringify(vp)} interface=${hasInterface}`);
+    await browser.close();
+  } catch (e) {
+    results.push({ route: "(chrome browser /forgot-password)", error: String(e).slice(0, 200) });
+  }
 }
 
 writeFileSync(join(outDir, `sweep-${mode}.json`), JSON.stringify(results, null, 1));
