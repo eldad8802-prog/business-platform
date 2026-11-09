@@ -27,9 +27,18 @@ mkdirSync(join(outDir, "shots"), { recursive: true });
 const [device] = await android.devices();
 if (!device) throw new Error("no adb device");
 console.log(`device ${device.model()} serial=${device.serial()}`);
-const webview = await device.webView({ pkg: PKG }, { timeout: 60000 });
-const page = await webview.page();
-await page.route("**/api/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+// Hard ceiling for every step: a stuck CDP call must not stall the whole sweep
+// (run 42547728818 hung on one route with no timeout).
+const withTimeout = (p, ms, what) =>
+  Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout ${ms}ms: ${what}`)), ms))]);
+let page;
+const connect = async () => {
+  const webview = await device.webView({ pkg: PKG }, { timeout: 60000 });
+  page = await webview.page();
+  page.on("dialog", (d) => d.dismiss().catch(() => {}));
+  await page.route("**/api/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+};
+await connect();
 
 await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
 await page.evaluate(() => localStorage.setItem("token", "diag-token"));
@@ -77,10 +86,12 @@ for (const route of routes) {
   i++;
   const rec = { route };
   try {
-    await ensureToken();
-    await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.waitForTimeout(2500);
-    Object.assign(rec, await page.evaluate(measure));
+    await withTimeout((async () => {
+      await ensureToken();
+      await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.waitForTimeout(2500);
+      Object.assign(rec, await page.evaluate(measure));
+    })(), 60000, route);
     if (shotsArg === "all" || i % 10 === 1 || /^\/(home|payables|login)$/.test(route)) {
       const name = `${mode}-${String(i).padStart(3, "0")}-${route.replace(/[^\w]+/g, "_") || "root"}.png`;
       writeFileSync(join(outDir, "shots", name), await device.screenshot());
@@ -88,6 +99,10 @@ for (const route of routes) {
     }
   } catch (e) {
     rec.error = String(e).slice(0, 160);
+    if (/timeout 60000ms/.test(rec.error)) {
+      // reconnect to a fresh page of the same WebView before the next route
+      try { await withTimeout(connect(), 90000, "reconnect"); rec.reconnected = true; } catch (e2) { rec.reconnectError = String(e2).slice(0, 120); }
+    }
   }
   results.push(rec);
   console.log(`[${mode}] ${i}/${routes.length} ${route} top=${rec.insetTop} underTop=${rec.underTopCount} underBottom=${rec.underBottomCount} h=${rec.hScroll} ${rec.crashed ? "CRASH" : ""}${rec.error ? "ERR" : ""}`);
@@ -103,7 +118,7 @@ for (const route of ["/forgot-password", "/register", "/login", "/contact"]) {
     const field = page.locator('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea').first();
     if (!(await field.count()) || !(await field.isVisible())) continue;
     const h0 = await page.evaluate(() => window.innerHeight);
-    await field.click();
+    await withTimeout(field.click(), 20000, "keyboard click");
     await page.waitForTimeout(2500);
     const kb = await page.evaluate(() => {
       const f = document.activeElement?.getBoundingClientRect();
@@ -132,16 +147,16 @@ for (const route of ["/forgot-password", "/register", "/login", "/contact"]) {
 for (const route of ["/home", "/payables", "/documents", "/forgot-password"]) {
   try {
     await ensureToken();
-    await page.goto(`${BASE}${route}`, { waitUntil: "commit" });
+    await withTimeout(page.goto(`${BASE}${route}`, { waitUntil: "commit" }), 30000, "stability goto");
     const samples = [];
     const t0 = Date.now();
     while (Date.now() - t0 < 3000) {
       try {
-        samples.push(await page.evaluate(() => ({
+        samples.push(await withTimeout(page.evaluate(() => ({
           h: window.innerHeight,
           top: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--safe-area-inset-top")) || 0,
           ready: document.readyState,
-        })));
+        })), 5000, "sample"));
       } catch {}
       await page.waitForTimeout(80);
     }
@@ -158,9 +173,9 @@ for (const route of ["/home", "/payables", "/documents", "/forgot-password"]) {
 // the switch is for the app shell only.
 if (mode === "after") {
   try {
-    const browser = await device.launchBrowser();
+    const browser = await withTimeout(device.launchBrowser(), 60000, "launchBrowser");
     const bpage = await browser.newPage();
-    await bpage.goto(`${BASE}/forgot-password`, { waitUntil: "domcontentloaded" });
+    await withTimeout(bpage.goto(`${BASE}/forgot-password`, { waitUntil: "domcontentloaded" }), 60000, "chrome goto");
     await bpage.waitForTimeout(2500);
     const vp = await bpage.evaluate(() => [...document.querySelectorAll('meta[name="viewport"]')].map((m) => m.content));
     const hasInterface = await bpage.evaluate(() => typeof window.CapacitorSystemBarsAndroidInterface !== "undefined");
