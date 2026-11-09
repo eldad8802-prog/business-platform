@@ -179,6 +179,57 @@ function main() {
       )
     );
 
+    // Error-fallback document: React appends a fresh cover meta AFTER the backstop
+    // ran → the backstop's own watch strips it and re-asks Capacitor; it stops after 15 s.
+    {
+      let rereads = 0;
+      const win = { CapacitorSystemBarsAndroidInterface: { onDOMReady: () => { rereads++; } } };
+      const docMetas = [mk(NEXT)];
+      let cb: (() => void) | null = null;
+      let disconnected = false;
+      let watchedTarget: unknown = null;
+      const scheduled: { fn: () => void; ms: number }[] = [];
+      class Obs {
+        constructor(fn: () => void) {
+          cb = fn;
+        }
+        observe(target: unknown) {
+          watchedTarget = target;
+        }
+        disconnect() {
+          disconnected = true;
+        }
+      }
+      const html = {};
+      const doc = { documentElement: html, querySelectorAll: () => docMetas };
+      assert.equal(ensureAndroidShellViewport(win, doc, Obs, (fn, ms) => scheduled.push({ fn, ms })), true);
+      assert.equal(rereads, 1);
+      assert.equal(watchedTarget, html, "backstop watches the whole document");
+      docMetas.push(mk(NEXT)); // React appends the original (cover) meta
+      (cb as unknown as () => void)();
+      assert.equal(docMetas[1].content, "width=device-width, initial-scale=1", "appended cover stripped by the backstop watch");
+      assert.equal(rereads, 2, "Capacitor re-asked after the late strip");
+      (cb as unknown as () => void)(); // nothing to strip → no extra read
+      assert.equal(rereads, 2);
+      assert.equal(scheduled.length, 1);
+      assert.equal(scheduled[0].ms, 15000);
+      scheduled[0].fn();
+      assert.equal(disconnected, true, "backstop watch stops after 15 s");
+
+      // Normal page (nothing to strip): no watch is opened at all.
+      let opened = false;
+      class Obs2 {
+        constructor() {
+          opened = true;
+        }
+        observe() {}
+        disconnect() {}
+      }
+      const clean = [mk("width=device-width, initial-scale=1")];
+      assert.equal(ensureAndroidShellViewport(win, { documentElement: html, querySelectorAll: () => clean }, Obs2, () => {}), false);
+      assert.equal(opened, false, "no watch on normal pages");
+    }
+
     // NativeShellInit runs the backstop.
     const init = readFileSync(join(process.cwd(), "components/native/NativeShellInit.tsx"), "utf8");
     assert.match(init, /ensureAndroidShellViewport\(\)/, "NativeShellInit calls the backstop");

@@ -36,22 +36,15 @@ export const ANDROID_SHELL_VIEWPORT_SCRIPT = `(function(){try{if(typeof window.C
 
 type ShellWindow = { CapacitorSystemBarsAndroidInterface?: { onDOMReady?: () => void } };
 type ViewportMeta = { getAttribute(name: string): string | null; setAttribute(name: string, value: string): void };
+type ShellDocument = {
+  querySelectorAll(selector: string): ArrayLike<ViewportMeta>;
+  documentElement?: unknown;
+};
+type ObserverCtor = new (cb: () => void) => { observe(target: unknown, opts: unknown): void; disconnect(): void };
 
-/**
- * Client-side backstop for documents where the inline script never ran: Next's
- * error-fallback document (a notFound() thrown inside a layout) renders the root
- * layout on the client, and a <script> React inserts is not executed. Inside the
- * Android shell only, this strips viewport-fit=cover and — only if it had to —
- * asks Capacitor to read the viewport again (SystemBars' public onDOMReady), so
- * that page also gets the padded layout. On normal pages the script already ran
- * and this is a no-op. Returns whether it changed anything.
- */
-export function ensureAndroidShellViewport(
-  win: ShellWindow = window as unknown as ShellWindow,
-  doc: { querySelectorAll(selector: string): ArrayLike<ViewportMeta> } = document
-): boolean {
-  const shell = win.CapacitorSystemBarsAndroidInterface;
-  if (!shell) return false;
+const BACKSTOP_WATCH_MS = 15000;
+
+function stripCover(doc: ShellDocument): boolean {
   let stripped = false;
   const metas = doc.querySelectorAll('meta[name="viewport"]');
   for (let i = 0; i < metas.length; i++) {
@@ -61,12 +54,45 @@ export function ensureAndroidShellViewport(
       stripped = true;
     }
   }
-  if (stripped && typeof shell.onDOMReady === "function") {
+  return stripped;
+}
+
+/**
+ * Client-side backstop for documents where the inline script never ran: Next's
+ * error-fallback document (a notFound() thrown inside a layout) renders the root
+ * layout on the client, and a <script> React inserts is not executed. Inside the
+ * Android shell only, this strips viewport-fit=cover and — only if it had to —
+ * asks Capacitor to read the viewport again (SystemBars' public onDOMReady).
+ * On those documents React can append a fresh cover meta after this ran (the
+ * emulator sweep caught it on flag-off notFound() pages), so the backstop also
+ * watches the document for 15 s, stripping again and re-asking Capacitor each
+ * time it has to. On normal pages the inline script already ran: nothing to
+ * strip, no watch, no call. Returns whether it changed anything.
+ */
+export function ensureAndroidShellViewport(
+  win: ShellWindow = window as unknown as ShellWindow,
+  doc: ShellDocument = document,
+  Observer: ObserverCtor | undefined = typeof MutationObserver !== "undefined" ? (MutationObserver as unknown as ObserverCtor) : undefined,
+  schedule: (fn: () => void, ms: number) => unknown = (fn, ms) => setTimeout(fn, ms)
+): boolean {
+  const shell = win.CapacitorSystemBarsAndroidInterface;
+  if (!shell) return false;
+  const reread = () => {
+    if (typeof shell.onDOMReady !== "function") return;
     try {
       shell.onDOMReady();
     } catch {
       // the padded layout is a nicety on these pages; never break them over it
     }
+  };
+  if (!stripCover(doc)) return false;
+  reread();
+  if (Observer && doc.documentElement) {
+    const watch = new Observer(() => {
+      if (stripCover(doc)) reread();
+    });
+    watch.observe(doc.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["content"] });
+    schedule(() => watch.disconnect(), BACKSTOP_WATCH_MS);
   }
-  return stripped;
+  return true;
 }
