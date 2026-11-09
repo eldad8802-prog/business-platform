@@ -42,6 +42,58 @@ function main() {
   // iPhone / iOS shell / browsers: no SystemBars Android interface → untouched.
   assert.deepEqual(run([NEXT], false), [NEXT]);
 
+  // Hydration puts the cover back → the observer strips it again (Capacitor reads it later).
+  {
+    const meta = {
+      content: NEXT,
+      getAttribute() {
+        return this.content;
+      },
+      setAttribute(_n: string, v: string) {
+        this.content = v;
+      },
+    };
+    let onMutation: (() => void) | null = null;
+    let observed: unknown = null;
+    class FakeObserver {
+      constructor(cb: () => void) {
+        onMutation = cb;
+      }
+      observe(target: unknown, opts: unknown) {
+        observed = { target, opts };
+      }
+    }
+    const head = {};
+    const ctx = {
+      window: { CapacitorSystemBarsAndroidInterface: {} },
+      document: { head, querySelectorAll: () => [meta] },
+      MutationObserver: FakeObserver,
+    };
+    runInNewContext(ANDROID_SHELL_VIEWPORT_SCRIPT, ctx);
+    assert.equal(meta.content, "width=device-width, initial-scale=1");
+    assert.ok(onMutation && observed, "Android shell watches the head");
+    assert.equal((observed as { target: unknown }).target, head);
+    meta.content = NEXT; // React re-renders the viewport meta
+    (onMutation as unknown as () => void)();
+    assert.equal(meta.content, "width=device-width, initial-scale=1", "restored cover is stripped again");
+    (onMutation as unknown as () => void)(); // no cover → no write, no loop
+    assert.equal(meta.content, "width=device-width, initial-scale=1");
+
+    // Outside the Android shell nothing is observed.
+    let created = false;
+    runInNewContext(ANDROID_SHELL_VIEWPORT_SCRIPT, {
+      window: {},
+      document: { head, querySelectorAll: () => [meta] },
+      MutationObserver: class {
+        constructor() {
+          created = true;
+        }
+        observe() {}
+      },
+    });
+    assert.equal(created, false, "no observer outside the Android shell");
+  }
+
   // A throwing DOM never breaks the page.
   assert.doesNotThrow(() =>
     runInNewContext(ANDROID_SHELL_VIEWPORT_SCRIPT, {
