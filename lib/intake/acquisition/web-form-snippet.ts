@@ -39,6 +39,10 @@ export const WEB_FORM_SCRIPT =
   "if(self.addEventListener)self.addEventListener('pageshow',function(){try{var n=performance.getEntriesByType('navigation')[0],l;" +
   "if(!n||n.type!=='back_forward')return;l=r();if(l&&l.i&&l.h===h()){s.value=l.i}}catch(_){}})});";
 
+/** 1×1, clipped, transparent, not clickable — present in the form and its submission, never laid out wider than it. */
+export const HONEYPOT_STYLE =
+  "position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;opacity:0;pointer-events:none";
+
 export function webFormSnippet(url: string): string {
   return [
     `<form data-dubiz-form action="${url}" method="post" accept-charset="UTF-8" dir="rtl" style="display:grid;gap:8px;max-width:420px">`,
@@ -46,7 +50,9 @@ export function webFormSnippet(url: string): string {
     `  <input name="phone" type="tel" placeholder="טלפון" autocomplete="tel" required>`,
     `  <input name="email" type="email" placeholder="אימייל (לא חובה)" autocomplete="email">`,
     `  <textarea name="message" rows="4" placeholder="במה נוכל לעזור?"></textarea>`,
-    `  <input name="_hp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-5000px">`,
+    // The honeypot stays a real, named, submitted field (bots fill it; the endpoint drops such posts). Hidden IN PLACE —
+    // an off-screen offset (left:-5000px) widened a right-to-left page to ~5,400px and Android zoomed the form away.
+    `  <input name="_hp" tabindex="-1" autocomplete="off" aria-hidden="true" style="${HONEYPOT_STYLE}">`,
     `  <input type="hidden" name="submission_id">`,
     `  <input type="hidden" name="page_url">`,
     `  <button type="submit">שליחה</button>`,

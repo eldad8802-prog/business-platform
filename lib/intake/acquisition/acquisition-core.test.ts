@@ -289,11 +289,34 @@ t("ready-made form: back + resubmit is the same in every browser — unchanged =
   const p5 = open(T, "back_forward", {}); p5.pageshow();
   assert.ok(![A, B, C].includes(p5.fields.submission_id.value));
 
+  // A field changed and changed BACK to what was sent is the same enquiry: the same id (one receipt, nothing lost).
+  const T2 = tab();
+  const q1 = open(T2, "navigate"); q1.pageshow(); fill(q1, answers);
+  const E = q1.submit();
+  fill(q1, { phone: "050-7654321" }); fill(q1, { phone: answers.phone });
+  assert.equal(q1.submit(), E, "changed then restored on the same page = the same id");
+  const q2 = open(T2, "back_forward", answers); q2.pageshow();
+  fill(q2, { message: "something else" }); fill(q2, { message: answers.message });
+  assert.equal(q2.submit(), E, "back + change + restore = the same id");
+
   // No sessionStorage (blocked / private mode): exactly the old behaviour, and nothing throws.
   const p6 = open(tab(), "back_forward", answers, { noStorage: true }); p6.pageshow(); fill(p6, answers);
   const D = p6.submit();
   assert.match(D, /^[0-9a-f-]{36}$/);
   assert.equal(p6.submit(), D);
+});
+
+t("ready-made form: the honeypot is a real, submitted field, hidden in place — never an off-screen offset", () => {
+  const snippet = webFormSnippet("https://promaxgroup.co.il/api/intake/acquisition/web/abc");
+  const hp = /<input name="_hp"[^>]*>/.exec(snippet)?.[0] ?? "";
+  assert.ok(hp, "the honeypot is still in the form (bots fill it; the endpoint drops such posts)");
+  assert.match(hp, /tabindex="-1"/, "never reached by Tab");
+  assert.match(hp, /aria-hidden="true"/, "never read by a screen reader");
+  assert.match(hp, /autocomplete="off"/, "never autofilled for a real visitor");
+  assert.doesNotMatch(hp, /type="hidden"|disabled/, "a real text input, submitted with the form");
+  assert.doesNotMatch(hp, /(left|right|top|margin-left|margin-right)\s*:\s*-\d{3,}/, "no large off-screen offset (it widened RTL pages)");
+  assert.match(hp, /width:1px;height:1px/);
+  assert.match(hp, /pointer-events:none/);
 });
 
 t("receipt key: the submission id decides — same id = one receipt whatever the time; two ids = two, even for identical text", () => {
