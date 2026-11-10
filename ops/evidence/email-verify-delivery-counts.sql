@@ -7,6 +7,13 @@
 --
 -- "Since verification went on" = since the first EMAIL_VERIFY row (fallback 2026-10-22 if there is none).
 --
+-- Section 5 splits those signups at the moment #1074 (WELCOME at signup) began serving Production:
+-- 2026-11-10 10:49:17 UTC — the Vercel "success" deployment status for revision 4028145e (GitHub deployment
+-- 7680032140, dpl_DYsyU15FNfZKDPDEZKfSJ7q99xjM). Until then the previous deployment served signups (#1074
+-- landed on main at 10:46:58, the build started 10:47:01). A signup is "Google" when its Google identity was linked within
+-- 60 seconds of the account's creation (Google signup links it in the account transaction); every other
+-- account is a password signup — a password account that links Google later stays "password".
+--
 -- PRIVACY: counts only. No address, name, id, digest, payload, business name or error text is selected.
 -- Every column is named *_count so scripts/ci/evidence-redact.mjs passes the integers through.
 -- Guard-clean: SELECT only, inside a READ ONLY transaction rolled back at the end.
@@ -85,5 +92,67 @@ SELECT
   (SELECT count(*) FROM w WHERE "status" = 'FAILED')           AS welcome_failed_count,
   (SELECT count(*) FROM w WHERE "status" = 'EXPIRED')          AS welcome_expired_count,
   (SELECT count(*) FROM w WHERE "lastErrorCode" IS NOT NULL)   AS welcome_with_error_code_count;
+
+\echo '== 5a. signups before / after #1074 (cutoff 2026-11-10 10:49:17 UTC), with / without WELCOME, by method =='
+
+WITH anchor AS (
+  SELECT coalesce((SELECT min("createdAt") FROM "TransactionalEmail" WHERE "kind" = 'EMAIL_VERIFY'),
+                  timestamp '2026-10-22 00:00:00') AS t
+),
+s AS (
+  SELECT u."createdAt" >= timestamp '2026-11-10 10:49:17' AS post_fix,
+         EXISTS (SELECT 1 FROM "UserIdentity" i WHERE i."userId" = u."id"
+                   AND abs(extract(epoch FROM (i."linkedAt" - u."createdAt"))) <= 60)                      AS google_signup,
+         EXISTS (SELECT 1 FROM "TransactionalEmail" t WHERE t."userId" = u."id" AND t."kind" = 'WELCOME')      AS has_welcome,
+         EXISTS (SELECT 1 FROM "TransactionalEmail" t WHERE t."userId" = u."id" AND t."kind" = 'EMAIL_VERIFY') AS has_verify
+  FROM "User" u, anchor
+  WHERE u."createdAt" >= anchor.t
+)
+SELECT
+  (SELECT count(*) FROM s WHERE NOT post_fix)                                             AS pre_fix_signups_count,
+  (SELECT count(*) FROM s WHERE NOT post_fix AND has_welcome)                             AS pre_fix_with_welcome_count,
+  (SELECT count(*) FROM s WHERE NOT post_fix AND NOT has_welcome)                         AS pre_fix_without_welcome_count,
+  (SELECT count(*) FROM s WHERE NOT post_fix AND NOT google_signup)                       AS pre_fix_password_signups_count,
+  (SELECT count(*) FROM s WHERE NOT post_fix AND NOT google_signup AND has_welcome)       AS pre_fix_password_with_welcome_count,
+  (SELECT count(*) FROM s WHERE NOT post_fix AND NOT google_signup AND NOT has_welcome)   AS pre_fix_password_without_welcome_count,
+  (SELECT count(*) FROM s WHERE NOT post_fix AND google_signup)                           AS pre_fix_google_signups_count,
+  (SELECT count(*) FROM s WHERE NOT post_fix AND google_signup AND has_welcome)           AS pre_fix_google_with_welcome_count,
+  (SELECT count(*) FROM s WHERE NOT post_fix AND google_signup AND NOT has_welcome)       AS pre_fix_google_without_welcome_count,
+  (SELECT count(*) FROM s WHERE post_fix)                                                 AS post_fix_signups_count,
+  (SELECT count(*) FROM s WHERE post_fix AND has_welcome)                                 AS post_fix_with_welcome_count,
+  (SELECT count(*) FROM s WHERE post_fix AND NOT has_welcome)                             AS post_fix_without_welcome_count,
+  (SELECT count(*) FROM s WHERE post_fix AND NOT google_signup)                           AS post_fix_password_signups_count,
+  (SELECT count(*) FROM s WHERE post_fix AND NOT google_signup AND has_welcome)           AS post_fix_password_with_welcome_count,
+  (SELECT count(*) FROM s WHERE post_fix AND NOT google_signup AND NOT has_welcome)       AS post_fix_password_without_welcome_count,
+  (SELECT count(*) FROM s WHERE post_fix AND NOT google_signup AND has_verify)            AS post_fix_password_with_verify_email_count,
+  (SELECT count(*) FROM s WHERE post_fix AND google_signup)                               AS post_fix_google_signups_count,
+  (SELECT count(*) FROM s WHERE post_fix AND google_signup AND has_welcome)               AS post_fix_google_with_welcome_count,
+  (SELECT count(*) FROM s WHERE post_fix AND google_signup AND NOT has_welcome)           AS post_fix_google_without_welcome_count;
+
+\echo '== 5b. WELCOME status of the signups after #1074, by method =='
+
+WITH p AS (
+  SELECT t."status",
+         EXISTS (SELECT 1 FROM "UserIdentity" i WHERE i."userId" = u."id"
+                   AND abs(extract(epoch FROM (i."linkedAt" - u."createdAt"))) <= 60) AS google_signup
+  FROM "TransactionalEmail" t JOIN "User" u ON u."id" = t."userId"
+  WHERE t."kind" = 'WELCOME' AND u."createdAt" >= timestamp '2026-11-10 10:49:17'
+)
+SELECT
+  (SELECT count(*) FROM p WHERE "status" = 'PENDING')                         AS post_fix_welcome_pending_count,
+  (SELECT count(*) FROM p WHERE "status" = 'SENDING')                         AS post_fix_welcome_sending_count,
+  (SELECT count(*) FROM p WHERE "status" = 'SENT')                            AS post_fix_welcome_sent_count,
+  (SELECT count(*) FROM p WHERE "status" = 'FAILED')                          AS post_fix_welcome_failed_count,
+  (SELECT count(*) FROM p WHERE "status" = 'EXPIRED')                         AS post_fix_welcome_expired_count,
+  (SELECT count(*) FROM p WHERE NOT google_signup AND "status" = 'PENDING')   AS post_fix_password_welcome_pending_count,
+  (SELECT count(*) FROM p WHERE NOT google_signup AND "status" = 'SENDING')   AS post_fix_password_welcome_sending_count,
+  (SELECT count(*) FROM p WHERE NOT google_signup AND "status" = 'SENT')      AS post_fix_password_welcome_sent_count,
+  (SELECT count(*) FROM p WHERE NOT google_signup AND "status" = 'FAILED')    AS post_fix_password_welcome_failed_count,
+  (SELECT count(*) FROM p WHERE NOT google_signup AND "status" = 'EXPIRED')   AS post_fix_password_welcome_expired_count,
+  (SELECT count(*) FROM p WHERE google_signup AND "status" = 'PENDING')       AS post_fix_google_welcome_pending_count,
+  (SELECT count(*) FROM p WHERE google_signup AND "status" = 'SENDING')       AS post_fix_google_welcome_sending_count,
+  (SELECT count(*) FROM p WHERE google_signup AND "status" = 'SENT')          AS post_fix_google_welcome_sent_count,
+  (SELECT count(*) FROM p WHERE google_signup AND "status" = 'FAILED')        AS post_fix_google_welcome_failed_count,
+  (SELECT count(*) FROM p WHERE google_signup AND "status" = 'EXPIRED')       AS post_fix_google_welcome_expired_count;
 
 ROLLBACK;
