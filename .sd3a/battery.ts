@@ -11,11 +11,14 @@
  *      conflict; coverage needed for a repair; holds; finish → READY; QA refused without its checklist; out-of-scope
  *      actions; "not collected" needs a reminder; cancel stamps and the reason stays out of the journal payload;
  *      IN_SHOP check-in refused without a stored signature (1.3b) — and accepted once the object exists.
- *   S  technician: another business's staff refused; compare-and-set; idempotent by value; stale; inactive refused.
+ *   S  technician: without the P4 audit journal the journaled command is refused (NOT_AVAILABLE_UNTIL_AUDIT), nothing
+ *      written; the lab assigns as the owner; an inactive assigned technician is refused at diagnosis. (P4 records:
+ *      .sd3p4/records-battery.ts.)
  *   I  isolation: another business cannot read, list, see the journal of, or act on a case.
  *   K  races: two actions at one version → one wins; one key five times at once → one event; 20 parallel openings →
  *      20 distinct contiguous numbers.
- *   ST settings: first save, replay, stale, foreign staff refused; the default technician on a new case.
+ *   ST settings: without the P4 audit journal a save is refused, nothing written; the lab seeds them as the owner; the
+ *      default technician on a new case.
  *   W  repeat warranty from the parent's LOCKED offer end date; no locked offer → "not recorded"; foreign parent refused.
  *
  * env: OWNER_URL (lab owner), DATABASE_URL = DIRECT_URL (app_runtime_prod), STORAGE_PROVIDER=local, LOCAL_STORAGE_ROOT,
@@ -38,6 +41,15 @@ let pass = 0;
 const failures: string[] = [];
 function ok(name: string, cond: boolean, detail = "") {
   if (cond) { pass++; console.log(`  [PASS] ${name}`); } else { failures.push(name); console.log(`  [FAIL] ${name}${detail ? " — " + detail : ""}`); }
+}
+// P4 PR-2: the technician / intake / QA / settings commands are journaled and need migration 20261122090000. This
+// battery runs on the 1.3-0 lab (journal absent: the commands must refuse with no write) and as the P4 workflow's
+// regression with the journal applied (there the records battery .sd3p4/records-battery.ts proves them); the
+// absent-journal checks are skipped — and NOT counted — when the journal is present.
+let journalPresent = false;
+async function absent(name: string, cond: () => Promise<boolean>) {
+  if (journalPresent) { console.log(`  [SKIP] ${name} — the audit journal is applied here (see .sd3p4/records-battery.ts)`); return; }
+  ok(name, await cond());
 }
 type Rows = Record<string, unknown>[];
 const q = (sql: string, ...a: unknown[]) => owner.$queryRawUnsafe(sql, ...a) as Promise<Rows>;
@@ -72,6 +84,8 @@ const act = (z: Biz, id: number, action: Record<string, unknown>, expectedVersio
 const events = (b: number, id: number) => n(`SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "businessId" = $1 AND "caseId" = $2`, b, id);
 
 async function main() {
+  journalPresent = (await q(`SELECT to_regclass('public."ServiceSettingsEvent"') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'qa.recorded') r`))[0].r === true;
+  console.log(`audit journal (P4) ${journalPresent ? "PRESENT" : "absent"}`);
   const A = await business("a"), B = await business("b"), C = await business("c");
   const sdPolicy = (await q(`SELECT "globalEnabled" g, "emergencyDisabled" e FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'service_desk'`))[0];
   ok("setup: the lab carries the service_desk policy seeded OFF by 1.3-0", sdPolicy?.g === false && sdPolicy?.e === false, JSON.stringify(sdPolicy));
@@ -125,8 +139,13 @@ async function main() {
   ok("T10 a CANCELLED case takes no further action (TERMINAL_STATUS)", (await code(() => act(A, o2.case.id, { type: "CHECK_IN" }, 2))).includes("TERMINAL_STATUS"));
   // IN_SHOP: intake data, then check-in needs a STORED signature (1.3b writes it; here the lab simulates one)
   const s1 = await open(A, "IN_SHOP", { deviceId: A.device });
-  const in1 = await recordIntake(A.p, s1.case.id, { conditionNote: "שריטה בפינה", accessoriesNote: "מטען", conditionRecorded: true, accessoriesRecorded: true, expectedUpdatedAt: null });
-  ok("T11 IN_SHOP intake data recorded (no signature, no PDF)", in1.intake?.conditionRecorded === true && in1.intake?.customerSigned === false);
+  // P4 PR-2: recording intake is journaled and needs the audit journal migration, which this lab (1.3-0 only) lacks →
+  // the command is refused with no write; the lab writes the intake row as the owner instead.
+  await absent("T11 without the audit journal: intake → NOT_AVAILABLE_UNTIL_AUDIT, no intake row written", async () =>
+    (await code(() => recordIntake(A.p, s1.case.id, { conditionNote: "שריטה בפינה", accessoriesNote: "מטען", conditionRecorded: true, accessoriesRecorded: true, expectedVersion: 1 }, { idempotencyKey: key() }))) === "NOT_AVAILABLE_UNTIL_AUDIT"
+    && (await q(`SELECT count(*)::int n FROM "ServiceCaseIntake" WHERE "caseId" = $1`, s1.case.id))[0].n === 0
+    && (await events(A.b, s1.case.id)) === 1);
+  await x(`INSERT INTO "ServiceCaseIntake" ("businessId", "caseId", "conditionNote", "accessoriesNote", "conditionRecorded", "accessoriesRecorded", "updatedAt") VALUES ($1, $2, 'שריטה בפינה', 'מטען', true, true, now())`, A.b, s1.case.id);
   ok("T12 IN_SHOP check-in without a signature → REFUSED INTAKE_INCOMPLETE", (await code(() => act(A, s1.case.id, { type: "CHECK_IN" }, 1))).includes("INTAKE_INCOMPLETE"));
   const sigKey = `biz/${A.b}/service/cases/${s1.case.id}/intake/signature.png`;
   await x(`UPDATE "ServiceCaseIntake" SET "customerSigned" = true, "signedAt" = now(), "signatureKey" = $2 WHERE "caseId" = $1`, s1.case.id, sigKey);
@@ -134,7 +153,7 @@ async function main() {
   await getStorageService().putObjectIfAbsent({ key: sigKey, body: Buffer.from("png"), contentType: "image/png", metadata: { businessId: A.b, domain: "service", visibility: "private" } });
   const sci = await act(A, s1.case.id, { type: "CHECK_IN" }, 1);
   ok("T14 … once the signature object exists → CHECKED_IN", sci.case.status === "CHECKED_IN");
-  ok("T15 a signed intake is frozen (REFUSED INTAKE_SIGNED / not before check-in)", (await code(() => recordIntake(A.p, s1.case.id, { conditionNote: "אחר", accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedUpdatedAt: in1.intake!.updatedAt }))).startsWith("REFUSED"));
+  await absent("T15 without the audit journal: intake after check-in → still NOT_AVAILABLE_UNTIL_AUDIT (no write attempted)", async () => (await code(() => recordIntake(A.p, s1.case.id, { conditionNote: "אחר", accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedVersion: sci.case.version }, { idempotencyKey: key() }))) === "NOT_AVAILABLE_UNTIL_AUDIT");
   await x(`UPDATE "ServiceCase" SET "coverageSource" = 'STORE', "coverageDecision" = 'APPROVED' WHERE id = $1`, s1.case.id);
   const sdg = await act(A, s1.case.id, { type: "START_DIAGNOSIS" }, 2);
   const srp = await act(A, s1.case.id, { type: "START_REPAIR" }, sdg.case.version);
@@ -147,11 +166,14 @@ async function main() {
 
   console.log("S — technician");
   const s2 = await open(A, "FIELD");
-  ok("S1 another business's staff member → SERVER_CHECK_FAILED", (await code(() => assignTechnician(A.p, s2.case.id, { staffMemberId: B.staff, from: null }))).includes("STAFF_BELONGS_TO_BUSINESS"));
-  const as1 = await assignTechnician(A.p, s2.case.id, { staffMemberId: A.staff, from: null });
-  const as2 = await assignTechnician(A.p, s2.case.id, { staffMemberId: A.staff, from: null });
-  ok("S2 assigned (compare-and-set); the same request again → the same state (idempotent by value)", as1.staffMemberId === A.staff && as2.staffMemberId === A.staff);
-  ok("S3 a stale 'from' → STALE_STATE", (await code(() => assignTechnician(A.p, s2.case.id, { staffMemberId: null, from: 999999 }))).startsWith("STALE_STATE"));
+  // P4 PR-2: assignment is journaled (full coverage in .sd3p4/records-battery.ts); without the migration it is refused.
+  await absent("S1 without the audit journal: assign → NOT_AVAILABLE_UNTIL_AUDIT (own or another business's staff)", async () =>
+    (await code(() => assignTechnician(A.p, s2.case.id, { staffMemberId: A.staff, expectedVersion: 1 }, { idempotencyKey: key() }))) === "NOT_AVAILABLE_UNTIL_AUDIT"
+    && (await code(() => assignTechnician(A.p, s2.case.id, { staffMemberId: B.staff, expectedVersion: 1 }, { idempotencyKey: key() }))) === "NOT_AVAILABLE_UNTIL_AUDIT");
+  ok("S2 … nothing written: no technician, version 1, one event",
+    (await q(`SELECT "staffMemberId" s, version v FROM "ServiceCase" WHERE id = $1`, s2.case.id))[0].s === null && (await events(A.b, s2.case.id)) === 1);
+  ok("S3 a malformed Idempotency-Key → IDEMPOTENCY_KEY_INVALID before any lookup", (await code(() => assignTechnician(A.p, s2.case.id, { staffMemberId: null, expectedVersion: 1 }, { idempotencyKey: "not-a-key" }))) === "IDEMPOTENCY_KEY_INVALID");
+  await x(`UPDATE "ServiceCase" SET "staffMemberId" = $2 WHERE id = $1`, s2.case.id, A.staff); // lab: the assignment (journaled command needs P4)
   const sci2 = await act(A, s2.case.id, { type: "CHECK_IN" }, 1);
   await x(`UPDATE "StaffMember" SET active = false WHERE id = $1`, A.staff);
   ok("S4 an assigned technician who is no longer active → diagnosis refused (SERVER_CHECK_FAILED)", (await code(() => act(A, s2.case.id, { type: "START_DIAGNOSIS" }, sci2.case.version))).includes("STAFF_BELONGS_TO_BUSINESS"));
@@ -166,8 +188,8 @@ async function main() {
     && !(await listCases(B.b)).cases.some((c) => c.id === id));
   ok("I2 another business cannot act on the case, assign it or record its intake (404)",
     (await code(() => act(B, id, { type: "CANCEL" }, fin.case.version))) === "NOT_FOUND"
-    && (await code(() => assignTechnician(B.p, s2.case.id, { staffMemberId: null, from: A.staff }))) === "NOT_FOUND"
-    && (await code(() => recordIntake(B.p, s1.case.id, { conditionNote: null, accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedUpdatedAt: null }))) === "NOT_FOUND");
+    && (await code(() => assignTechnician(B.p, s2.case.id, { staffMemberId: null, expectedVersion: 1 }, { idempotencyKey: key() }))) === "NOT_FOUND"
+    && (await code(() => recordIntake(B.p, s1.case.id, { conditionNote: null, accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedVersion: 1 }, { idempotencyKey: key() }))) === "NOT_FOUND");
   ok("I3 the list is scoped and newest first", (await listCases(A.b)).cases.every((c, i, a) => i === 0 || a[i - 1].id > c.id) && (await listCases(A.b)).cases.length >= 4);
 
   console.log("K — races");
@@ -194,12 +216,13 @@ async function main() {
 
   console.log("ST — settings");
   ok("ST1 no settings yet → version null, nothing set", (await getSettings(A.b)).version === null);
-  const st1 = await updateSettings(A.p, { expectedVersion: null, defaultStaffMemberId: A.staff, warrantyTemplate: { value: 3, unit: "MONTHS", scope: "החלפת חלקים בתיקון", exclusions: null } });
-  const st2 = await updateSettings(A.p, { expectedVersion: null, defaultStaffMemberId: A.staff, warrantyTemplate: { value: 3, unit: "MONTHS", scope: "החלפת חלקים בתיקון", exclusions: null } });
-  ok("ST2 first save → version 1; the same request again → unchanged (idempotent by value)", st1.version === 1 && st2.version === 1 && st1.defaultStaffMemberId === A.staff);
-  ok("ST3 a stale expectedVersion → VERSION_CONFLICT; another business's staff → refused",
-    (await code(() => updateSettings(A.p, { expectedVersion: null, defaultStaffMemberId: null, warrantyTemplate: null }))) === "VERSION_CONFLICT"
-    && (await code(() => updateSettings(A.p, { expectedVersion: 1, defaultStaffMemberId: B.staff, warrantyTemplate: null }))).includes("STAFF_BELONGS_TO_BUSINESS"));
+  // P4 PR-2: settings saves are journaled in ServiceSettingsEvent; without the migration they are refused, nothing written.
+  await absent("ST2 without the audit journal: save → NOT_AVAILABLE_UNTIL_AUDIT, no settings row", async () =>
+    (await code(() => updateSettings(A.p, { expectedVersion: null, defaultStaffMemberId: A.staff, warrantyTemplate: { value: 3, unit: "MONTHS", scope: "החלפת חלקים בתיקון", exclusions: null } }, { idempotencyKey: key() }))) === "NOT_AVAILABLE_UNTIL_AUDIT"
+    && (await getSettings(A.b)).version === null);
+  await absent("ST3 … the same for another business's staff (refused before any check)", async () =>
+    (await code(() => updateSettings(A.p, { expectedVersion: null, defaultStaffMemberId: B.staff, warrantyTemplate: null }, { idempotencyKey: key() }))) === "NOT_AVAILABLE_UNTIL_AUDIT");
+  await x(`INSERT INTO "ServiceSettings" ("businessId", "defaultStaffMemberId", "warrantyTemplateValue", "warrantyTemplateUnit", "warrantyTemplateScope", "updatedAt") VALUES ($1, $2, 3, 'MONTHS', 'החלפת חלקים בתיקון', now())`, A.b, A.staff); // lab: the settings
   const withDefault = await open(A, "FIELD");
   ok("ST4 a new case gets the default technician from the settings", withDefault.case.staffMemberId === A.staff);
   await x(`UPDATE "StaffMember" SET active = false WHERE id = $1`, A.staff);
@@ -268,6 +291,7 @@ async function main() {
   const routes = {
     technician: await import("../app/api/service-desk/cases/[id]/technician/route"),
     intake: await import("../app/api/service-desk/cases/[id]/intake/route"),
+    qa: await import("../app/api/service-desk/cases/[id]/qa/route"),
     settings: await import("../app/api/service-desk/settings/route"),
     actions: await import("../app/api/service-desk/cases/[id]/actions/route"),
     case: await import("../app/api/service-desk/cases/[id]/route"),
@@ -282,18 +306,21 @@ async function main() {
     st: (await q(`SELECT version v, "defaultStaffMemberId" d, "updatedAt" u FROM "ServiceSettings" WHERE "businessId" = $1`, A.b))[0] ?? null,
     e: await n(`SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "businessId" = $1`, A.b),
   });
+  // P4 PR-2: the routes are open in code but journaled — each needs the Idempotency-Key and expectedVersion, and the
+  // service refuses NOT_AVAILABLE_UNTIL_AUDIT before any write while the audit journal migration is absent (this lab).
   const closedCalls = async (token: string | null) => [
-    await routes.technician.PUT(http("PUT", { staffMemberId: A.staff, from: null }, token)),
-    await routes.intake.PUT(http("PUT", { conditionNote: "x", accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedUpdatedAt: null }, token)),
-    await routes.settings.PUT(http("PUT", { expectedVersion: 1, defaultStaffMemberId: null, warrantyTemplate: null }, token)),
+    await routes.technician.PUT(http("PUT", { staffMemberId: A.staff, expectedVersion: 1 }, token, { "idempotency-key": key() }), params(hCase.case.id)),
+    await routes.intake.PUT(http("PUT", { conditionNote: "x", accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedVersion: 1 }, token, { "idempotency-key": key() }), params(hCase.case.id)),
+    await routes.qa.PUT(http("PUT", { results: { powers_on: "PASS" }, expectedVersion: 1 }, token, { "idempotency-key": key() }), params(hCase.case.id)),
+    await routes.settings.PUT(http("PUT", { expectedVersion: 1, defaultStaffMemberId: null, warrantyTemplate: null }, token, { "idempotency-key": key() })),
   ];
   await setPolicy(false); await setOverride(A.b, "ENABLED"); // FULL for A (lab only)
   const beforeH = await snap();
-  const full = await closedCalls(tokenA);
+  const full: Response[] = journalPresent ? [] : await closedCalls(tokenA);
   const fullBodies = await Promise.all(full.map((r) => r.json()));
-  ok("H1 FULL: PUT technician / intake / settings → 422 NOT_AVAILABLE_UNTIL_AUDIT, never a success",
-    full.every((r) => r.status === 422) && fullBodies.every((b) => b.error === "NOT_AVAILABLE_UNTIL_AUDIT"), JSON.stringify(full.map((r) => r.status)));
-  ok("H2 … and nothing was written: case (technician, version, updatedAt), intake, settings and the journal are unchanged", (await snap()) === beforeH);
+  await absent("H1 FULL without the audit journal: PUT technician / intake / qa / settings (with key + version) → 422 NOT_AVAILABLE_UNTIL_AUDIT, never a success",
+    async () => full.length === 4 && full.every((r) => r.status === 422) && fullBodies.every((b) => b.error === "NOT_AVAILABLE_UNTIL_AUDIT"));
+  await absent("H2 … and nothing was written: case (technician, version, updatedAt), intake, settings and the journal are unchanged", async () => (await snap()) === beforeH);
   ok("H3 no session → 401 on the closed routes (authentication unchanged)", (await closedCalls(null)).every((r) => r.status === 401));
   await setOverride(A.b, null);
   ok("H4 NONE (not launched) → 404 on the closed routes (the gate unchanged)", (await closedCalls(tokenA)).every((r) => r.status === 404));

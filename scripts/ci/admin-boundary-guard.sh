@@ -62,6 +62,12 @@ fi
 # the rotating cookie for a short access token, which is session resolution by
 # another name and belongs to the same plane as login and logout.
 #
+# Its sibling app/api/auth/refresh/revoke/route.ts is logout BY THAT COOKIE: it
+# ends the one session whose refresh credential the device proves it holds (the
+# current secret, or a rotated one inside its grace), for the cases with no live
+# access token. It sits under the cookie's path for that reason and touches
+# AuthSession and AuthSessionSecret only, through lib/auth/refresh-session.ts.
+#
 # lib/auth/session-directory.ts joins it for device management. Every query the
 # owner-facing session list and its revokes make lives in that ONE module, so the
 # ownership predicate sits in one place instead of three routes remembering it.
@@ -117,6 +123,7 @@ ci2a="$(
     "$ROOT/app" "$ROOT/lib" \
     --include="*.ts" --include="*.tsx" 2>/dev/null \
     | grep -vE "(^|/)app/api/auth/(login|logout|me|refresh)/route\.ts:" \
+    | grep -vE "(^|/)app/api/auth/refresh/revoke/route\.ts:" \
     | grep -vE "(^|/)lib/auth\.ts:" \
     | grep -vE "(^|/)lib/auth/signup\.ts:" \
     | grep -vE "(^|/)lib/auth/session-directory\\.ts:" \

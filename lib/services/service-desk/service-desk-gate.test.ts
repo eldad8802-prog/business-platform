@@ -97,7 +97,7 @@ async function main() {
   const files: string[] = [];
   const walk = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name === "route.ts") files.push(p); } };
   walk(root);
-  ok("R1 eight route files", files.length === 8, String(files.length));
+  ok("R1 ten route files", files.length === 10, String(files.length));
   let allGuarded = true, kindsRight = true;
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");
@@ -111,16 +111,19 @@ async function main() {
   }
   ok("R2 every handler goes through serviceDeskRoute; no route reads the user, the flag or a business id itself", allGuarded);
   ok("R3 GET handlers are reads, every other method is a write", kindsRight);
-  // Option B (owner, 2026-11-09): the three writes that would leave no audit event are closed until P4.
-  const closed = ["cases/[id]/technician/route.ts", "cases/[id]/intake/route.ts", "settings/route.ts"].map((r) => fs.readFileSync(path.join(root, r), "utf8"));
-  ok("R5 PUT technician / intake / settings: through the edge as writes, then NOT_AVAILABLE_UNTIL_AUDIT — no body read, no write function called",
-    closed.every((src) => {
-      const put = /export async function PUT\([\s\S]*?\n}\n/.exec(src)?.[0] ?? "";
-      return /serviceDeskRoute\(req, "write", async \(\) => \{\s*throw new ServiceDeskError\("NOT_AVAILABLE_UNTIL_AUDIT"\);\s*\}\);/.test(put)
-        && !/jsonBody|assignTechnician|recordIntake|updateSettings/.test(put);
-    }) && closed.every((src) => !/assignTechnician|recordIntake|updateSettings/.test(src)));
-  const blocked = await serviceDeskRoute(req("PUT"), "write", async () => { throw new (await import("@/lib/services/service-desk/service-desk-errors")).ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT"); }, { user: user(9), mode: async () => "FULL" });
-  ok("R6 the refusal is 422 NOT_AVAILABLE_UNTIL_AUDIT, never a success", blocked.status === 422 && (await blocked.json()).error === "NOT_AVAILABLE_UNTIL_AUDIT");
+  // P4 PR-2: the three writes are reopened as JOURNALED records (and QA joins them): each takes an Idempotency-Key and
+  // calls its journaled service function; without the P4 journal the service itself answers NOT_AVAILABLE_UNTIL_AUDIT.
+  const records: [string, RegExp][] = [
+    ["cases/[id]/technician/route.ts", /assignTechnician\(principal, id, \{ staffMemberId: b\.staffMemberId, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+    ["cases/[id]/intake/route.ts", /recordIntake\(principal, id, \{[\s\S]*expectedVersion: b\.expectedVersion,?\s*\}, \{ idempotencyKey: key \}\)/],
+    ["cases/[id]/qa/route.ts", /recordQa\(principal, id, \{ results: b\.results, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+    ["settings/route.ts", /updateSettings\(principal, \{[\s\S]*\}, \{ idempotencyKey: key \}\)/],
+  ];
+  ok("R5 PUT technician / intake / qa / settings: writes through the edge, an Idempotency-Key required, the journaled service called",
+    records.every(([r, call]) => {
+      const put = /export async function PUT\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
+      return /serviceDeskRoute\(req, "write"/.test(put) && /const key = idempotencyKeyOf\(req\);/.test(put) && call.test(put);
+    }));
   const saved = { db: process.env.DATABASE_URL, direct: process.env.DIRECT_URL };
   delete process.env.DATABASE_URL;
   delete process.env.DIRECT_URL;

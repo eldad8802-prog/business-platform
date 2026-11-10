@@ -20,6 +20,7 @@
  */
 
 import { Capacitor } from "@capacitor/core";
+import { ANDROID_SHELL_ROOT_PATHS } from "@/lib/native/android-shell-entry";
 
 export function isNative(): boolean {
   return Capacitor.isNativePlatform();
@@ -33,6 +34,36 @@ export async function openExternal(url: string): Promise<void> {
   }
   const { Browser } = await import("@capacitor/browser");
   await Browser.open({ url });
+}
+
+/**
+ * Android <= 14: keep the WebView below the status bar.
+ *
+ * @capacitor/status-bar defaults to overlaysWebView=true (capacitor.config.ts
+ * does not set it), so on launch it lays the WebView out BEHIND the status bar
+ * on every Android version. On Android 15+ SystemBars pads the WebView back
+ * below the bar (lib/native/android-viewport-fit.ts); below 15 nothing does, so
+ * every screen drew under the clock. Turning the overlay off here fixes the
+ * Google Play binary already installed (the plugin ships in it). On 15+ it
+ * changes nothing: edge-to-edge is enforced, SystemBars keeps padding.
+ *
+ * With the overlay off, Android <= 14 paints the bar with the plugin's own
+ * colour (black). setBackgroundColor only acts below Android 15 — the plugin
+ * gates it itself, so no version detection here — and, while the style is
+ * Default, also picks icons that contrast with that colour. The colours match
+ * the strip Android 15+ shows (the DayNight window background).
+ */
+export const ANDROID_STATUS_BAR_COLOR = { light: "#FAFAFA", dark: "#303030" } as const;
+
+type StatusBarApi = typeof import("@capacitor/status-bar").StatusBar;
+
+export async function placeAndroidWebViewBelowStatusBar(statusBar: StatusBarApi): Promise<void> {
+  await statusBar.setOverlaysWebView({ overlay: false });
+  const dark = window.matchMedia?.("(prefers-color-scheme: dark)");
+  const paint = () =>
+    statusBar.setBackgroundColor({ color: dark?.matches ? ANDROID_STATUS_BAR_COLOR.dark : ANDROID_STATUS_BAR_COLOR.light });
+  await paint();
+  dark?.addEventListener?.("change", () => void paint().catch(() => {}));
 }
 
 let initialized = false;
@@ -49,7 +80,10 @@ export async function initNativeShell(): Promise<void> {
   try {
     const { App } = await import("@capacitor/app");
     App.addListener("backButton", ({ canGoBack }) => {
-      if (canGoBack || window.history.length > 1) {
+      // Root screens (sign-in, business home) minimize — never back to the launch URL.
+      if (ANDROID_SHELL_ROOT_PATHS.includes(window.location.pathname)) {
+        void App.minimizeApp();
+      } else if (canGoBack || window.history.length > 1) {
         window.history.back();
       } else {
         void App.minimizeApp();
@@ -68,6 +102,7 @@ export async function initNativeShell(): Promise<void> {
     // system theme so they stay readable on that strip. iOS keeps Light: its
     // strip is the cream WebView background in both modes.
     await StatusBar.setStyle({ style: Capacitor.getPlatform() === "android" ? Style.Default : Style.Light });
+    if (Capacitor.getPlatform() === "android") await placeAndroidWebViewBelowStatusBar(StatusBar);
   } catch (err) {
     console.error("[native-shell] status bar failed:", err);
   }

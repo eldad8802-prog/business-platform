@@ -512,6 +512,29 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       { model: "PurchaseOrderSheet", deleted: true, cleared: [], kept: {} },
     ],
   },
+  // Service Desk P4 audit journal (migration 20261122090000). The account-deletion adapter calls it in the purge
+  // transaction, after service_desk_ui_erase_business(). Who acted and the request digest are personal / linkable; the
+  // rest is RETAINED as the business's audit record of settings changes — pseudonymised (no acting user), not anonymous:
+  // it stays linked to the (anonymised) business row. The P4 case records live in ServiceCaseEvent and are blanked by
+  // service_erase_business() (actorUserId, requestDigest, digestKeyId) — their payload is closed (tokens, numbers,
+  // booleans; staff ids whose display names the purge blanks).
+  {
+    fn: "service_settings_journal_erase_business",
+    migration: "20261122090000_service_desk_audit_journal",
+    models: [
+      {
+        model: "ServiceSettingsEvent",
+        cleared: ["actorUserId", "requestDigest", "digestKeyId"],
+        kept: {
+          settingsVersion: "the settings version the change produced — a counter, not the person",
+          changedFields: "names of the settings fields that changed, from a closed set (CHECK) — never their values",
+          actor: "always OWNER_USER (CHECK) — a role token, not the person once actorUserId is cleared",
+          occurredAt: "when the settings changed — the audit time of the business's own configuration",
+          idempotencyKey: "a client request token (a random UUIDv7: its only content is its creation time), not the person",
+        },
+      },
+    ],
+  },
 ];
 
 export type ErasureManifest = {

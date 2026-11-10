@@ -1,13 +1,19 @@
-import { serviceDeskRoute } from "@/lib/services/service-desk/service-desk-http";
-import { ServiceDeskError } from "@/lib/services/service-desk/service-desk-errors";
+import { idempotencyKeyOf, json, jsonBody, positiveId, serviceDeskRoute } from "@/lib/services/service-desk/service-desk-http";
+import { recordIntake } from "@/lib/services/service-desk/service-case.service";
 
 /**
- * PUT { conditionNote, accessoriesNote, … } — the intake data — CLOSED until the P4 audit journal exists (owner decision 2026-11-09, option B): this write would leave no
- * audit event. The edge still authenticates and applies the access gate first (401 / 404 / 403 READ_ONLY); then the
- * request is refused before its body is read or anything is written. No fake success.
+ * PUT { conditionNote, accessoriesNote, conditionRecorded, accessoriesRecorded, expectedVersion } + Idempotency-Key — the
+ * intake data (no signature, no PDF). Journaled (P4): which fields changed, never the text. Without the P4 journal in the
+ * database the service answers NOT_AVAILABLE_UNTIL_AUDIT and writes nothing.
  */
-export async function PUT(req: Request) {
-  return serviceDeskRoute(req, "write", async () => {
-    throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT");
+export async function PUT(req: Request, context: { params: Promise<{ id: string }> }) {
+  return serviceDeskRoute(req, "write", async ({ principal }) => {
+    const id = positiveId((await context.params).id);
+    const key = idempotencyKeyOf(req);
+    const b = await jsonBody(req);
+    return json(await recordIntake(principal, id, {
+      conditionNote: b.conditionNote, accessoriesNote: b.accessoriesNote, conditionRecorded: b.conditionRecorded,
+      accessoriesRecorded: b.accessoriesRecorded, expectedVersion: b.expectedVersion,
+    }, { idempotencyKey: key }));
   });
 }

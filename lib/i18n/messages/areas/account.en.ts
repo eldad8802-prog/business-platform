@@ -35,6 +35,7 @@ const authEn: Widen<typeof authHe> = {
     a11ySettings: "Accessibility settings",
     badge: "Secure sign-in",
     title: "Welcome",
+    appTitle: "Sign in to Dubiz",
     subtitle:
       "Sign in to keep managing your business, see conversations, check pricing, and work from one smart, organized, professional system.",
     emailLabel: "Email",

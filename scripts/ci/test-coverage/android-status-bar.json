@@ -1,0 +1,10 @@
+{
+  "note": "Issue 2 follow-up (Android <= 14 status-bar overlap): the @capacitor/status-bar plugin overlays the WebView by default and only Android 15+ SystemBars pads it back, so the shell turns the overlay off at init and paints the bar (the plugin applies the colour below Android 15 only).",
+  "tests": {
+    "lib/native/android-status-bar.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "status-bar layout of the Android shell only; no data, auth or permission path",
+      "reason": "pure: overlay turned off before the bar colour, light/dark colour follows prefers-color-scheme and its changes, works without matchMedia; wired for Android only; installed plugin still defaults overlaysWebView=true, clears the fullscreen flags on overlay=false and applies the colour only below Android 15"
+    }
+  }
+}

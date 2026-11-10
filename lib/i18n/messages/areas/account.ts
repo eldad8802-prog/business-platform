@@ -37,6 +37,8 @@ export const authHe = {
     a11ySettings: "הגדרות נגישות",
     badge: "כניסה מאובטחת למערכת",
     title: "ברוך הבא",
+    // The Android app's compact sign-in screen (lib/native/android-shell-entry.ts).
+    appTitle: "כניסה לדוביז",
     subtitle:
       "התחבר כדי להמשיך לניהול העסק שלך, לצפות בשיחות, לבדוק תמחור, ולעבוד מתוך מערכת אחת חכמה, מסודרת ומקצועית.",
     emailLabel: "אימייל",

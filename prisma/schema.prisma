@@ -8241,6 +8241,11 @@ enum ServiceCaseAction {
   CLOSE
   CANCEL
   ABANDON
+  // P4 (migration 20261122090000): status-preserving records — never transitions of the case machine.
+  ASSIGN_TECHNICIAN
+  RECORD_INTAKE
+  RECORD_COVERAGE
+  RECORD_QA
 }
 
 enum ServiceEventType {
@@ -8266,6 +8271,11 @@ enum ServiceEventType {
   case_cancelled              @map("case.cancelled")
   case_cancellation_requested @map("case.cancellation_requested")
   case_abandoned              @map("case.abandoned")
+  // P4 (migration 20261122090000): status-preserving records.
+  case_technician_assigned    @map("case.technician_assigned")
+  intake_recorded             @map("intake.recorded")
+  coverage_recorded           @map("coverage.recorded")
+  qa_recorded                 @map("qa.recorded")
 }
 
 model ServiceCaseNumberSequence {
@@ -8742,6 +8752,26 @@ model ServiceTextVersion {
 
   @@unique([businessId, id])
   @@unique([businessId, kind, version])
+}
+
+/// P4 (migration 20261122090000): the append-only journal of settings changes — field-name tokens only, never values.
+/// SELECT + INSERT for the runtime; UPDATE only by service_settings_journal_erase_business() (acting user and digest
+/// blanked), DELETE only by a cascade, TRUNCATE never. No relation to ServiceSettings: the journal outlives that row.
+model ServiceSettingsEvent {
+  id              Int          @id @default(autoincrement())
+  businessId      Int
+  settingsVersion Int
+  changedFields   String[]
+  actor           ServiceActor
+  actorUserId     Int? // cleared by service_settings_journal_erase_business()
+  occurredAt      DateTime     @default(now())
+  idempotencyKey  String
+  requestDigest   String? // cleared by service_settings_journal_erase_business()
+  digestKeyId     String? // cleared by service_settings_journal_erase_business()
+
+  @@unique([businessId, idempotencyKey])
+  @@unique([businessId, settingsVersion])
+  @@index([businessId, occurredAt])
 }
 
 model ServiceSettings {
