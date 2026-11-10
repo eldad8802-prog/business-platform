@@ -132,40 +132,60 @@ async function main() {
       const issued = p3.waitForResponse((r) => r.url().endsWith(`/api/billing/documents/${draftId}/issue`) && r.request().method() === "POST", { timeout: 300_000 });
       await dialog.getByRole("button", { name: "הפק חשבונית" }).click();
       const issueResp = await issued;
-      check("U3.issued", "OK", "the issue request returns 200 (the document is issued)", issueResp.status() === 200, issueResp.status());
-      // Wait for the issued state to render, then read the message the owner sees.
-      await p3.getByText("מסמך הופק").first().waitFor({ timeout: 120_000 });
       await p3.waitForTimeout(1500);
-      await shot(p3, "U3-after-issue-message");
+      await shot(p3, "U3-issue-refused");
       const msg = await body(p3);
-      const sub = await owner.billingAuthoritySubmission.findUnique({ where: { billingDocumentId: draftId } });
-      check("U3.message", "DEFECT", "after issuing, the screen says 'בקשת ההקצאה לא הושלמה … אפשר לנסות שוב' although nothing was sent (submission READY)",
-        /בקשת ההקצאה לא הושלמה/.test(msg) && /אפשר לנסות שוב/.test(msg) && sub?.status === "READY", { submission: sub?.status, excerpt: msg.slice(0, 500) });
+      const row = await owner.billingDocument.findUniqueOrThrow({ where: { id: draftId }, select: { status: true, documentNumber: true } });
+      check("U3.refused", "OK", "issuing is refused before numbering (409) and the dialog shows why; the document stays a draft without a number",
+        issueResp.status() === 409 && /מספר הקצאה/.test(msg) && row.status === "DRAFT" && row.documentNumber === null,
+        { status: issueResp.status(), doc: row, excerpt: msg.slice(0, 400) });
+      check("U3.noretry", "OK", "nothing on screen offers to 'try again'", !/נסו שוב|לנסות שוב/.test(msg), msg.slice(0, 300));
       await p3.reload();
-      await p3.getByText("מסמך הופק").first().waitFor({ timeout: 300_000 });
-      await p3.waitForTimeout(3000);
+      await p3.getByRole("button", { name: "הפק חשבונית" }).first().waitFor({ timeout: 300_000 });
       await shot(p3, "U3-after-reload");
       const reloaded = await body(p3);
-      check("U3.reload", "DEFECT", "after a reload the issued document's screen shows no allocation state at all", /מסמך הופק/.test(reloaded) && !/הקצאה/.test(reloaded), reloaded.slice(0, 500));
-      check("U3.ready", "DEFECT", "after a reload the screen tells the owner the official document is ready to share / download / view — while its PDF is refused",
-        /מוכן לשיתוף/.test(reloaded), reloaded.slice(0, 300));
-      // "שתף" opens the share options; "צפייה במסמך" / "הורדה" fetch the PDF.
-      await p3.getByRole("button", { name: /^שתף$/ }).first().click().catch(() => undefined);
-      await p3.waitForTimeout(1500);
-      await shot(p3, "U4-share-opened");
-      const pdfButton = p3.getByRole("button", { name: /צפייה במסמך|הורדה/ }).first();
-      if (await pdfButton.count()) {
-        const pdfResp = p3.waitForResponse((r) => r.url().includes(`/api/billing/documents/${draftId}/pdf`), { timeout: 300_000 }).catch(() => null);
-        await pdfButton.click().catch(() => undefined);
-        const r = await pdfResp;
-        await p3.waitForTimeout(2500);
-        await shot(p3, "U4-pdf-attempt");
-        const t = await body(p3);
-        check("U4.pdf", "OBSERVED", "the PDF request is refused (403); the screen shows the server's explanation", r?.status() === 403, { status: r?.status() ?? null, excerpt: t.slice(0, 400) });
-      } else {
-        check("U4.pdf", "OBSERVED", "the PDF request is refused (403); the screen shows the server's explanation", false, "no PDF button found");
-      }
+      check("U3.reload", "OK", "after a reload it is still a draft (no 'מסמך הופק', no 'מוכן לשיתוף')", !/מסמך הופק/.test(reloaded) && !/מוכן לשיתוף/.test(reloaded), reloaded.slice(0, 300));
     });
+
+    // U5 — an invoice that got stuck before the fix (issued, request READY, never sent), phone + desktop
+    const legacyId = await (async () => {
+      const r = await fetch(`${BASE}/api/billing/documents`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${A.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ documentType: "TAX_INVOICE", customerId: A.dealerId, initialLines: [{ description: "חשבונית תקועה", quantity: "1", unitPrice: "6000", vatRatePercent: "18" }] }),
+      });
+      const id = (await r.json()).document.id as number;
+      // Issued the way it was before the gate: in this process, where sending is open, with the
+      // Approval refused by the pilot — exactly the stuck state already present in old data.
+      process.env.BILLING_AUTHORITY_RUNTIME_ENVIRONMENT = "SANDBOX";
+      const { issueBillingDocument } = await import("@/lib/services/billing/billing-issue.service");
+      const u = await owner.user.findFirstOrThrow({ where: { businessId: A.businessId }, select: { id: true } });
+      await issueBillingDocument({ businessId: A.businessId, billingDocumentId: id, actorUserId: u.id }, {
+        executeApproval: async (i: { billingDocumentId: number }) => ({ outcome: "preflight_failed", billingDocumentId: i.billingDocumentId, errorCode: "AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED", safeToRetry: false }) as never,
+      });
+      return id;
+    })();
+    for (const size of [{ name: "desktop", width: 1440, height: 900 }, { name: "phone", width: 390, height: 844 }]) {
+      const p5 = await page(browser, A.token);
+      await p5.setViewportSize({ width: size.width, height: size.height });
+      await scenario(`U5.${size.name}`, p5, async () => {
+        await p5.goto(`/billing/${legacyId}`);
+        await p5.getByText("מסמך הופק").first().waitFor({ timeout: 300_000 });
+        await p5.waitForTimeout(2000);
+        await shot(p5, `U5-stuck-invoice-${size.name}`);
+        const text = await body(p5);
+        const banner = await p5.locator('[data-billing-authority-state="READY"]').count();
+        check(`U5.${size.name}.state`, "OK", "a stuck invoice shows, after load, that the allocation request was not sent and it cannot be delivered",
+          banner === 1 && /בקשת ההקצאה לא נשלחה/.test(text) && /לא ניתן כעת למסור/.test(text), { banner, excerpt: text.slice(0, 400) });
+        check(`U5.${size.name}.noshare`, "OK", "no 'מוכן לשיתוף', no share button, no 'שיתוף המסמך'",
+          !/מוכן לשיתוף/.test(text) && (await p5.getByRole("button", { name: /^שתף$/ }).count()) === 0 && !/שיתוף המסמך/.test(text), text.slice(0, 300));
+        check(`U5.${size.name}.noretry`, "OK", "nothing on screen offers to 'try again'", !/נסו שוב|לנסות שוב/.test(text), "");
+        if (size.name === "phone") {
+          const overflow = await p5.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+          check("U5.phone.noscroll", "OK", "phone 390: no side scroll", overflow <= 1, overflow);
+        }
+      });
+    }
   } finally {
     await browser.close();
   }

@@ -225,7 +225,7 @@ jobs:
         run: |
           set -euo pipefail
           asLab() { sudo -E env PATH="$PATH" setpriv --reuid="$(id -u)" --regid="$(getent group labnet | cut -d: -f3)" --clear-groups -- "$@"; }
-          asLab env E2E_BASE=http://localhost:3730 PATH="$PATH" \
+          asLab env E2E_BASE=http://localhost:3730 DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" PATH="$PATH" \
             npx tsx .tax-classification-lab/ui.e2e.mts
 
       - name: Server log (filtered)

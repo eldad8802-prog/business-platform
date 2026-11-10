@@ -425,24 +425,37 @@ async function main() {
   }
   {
     // T1 — submissions closed (OPERATIONS=oauth, business not in the pilot list): the real route.
+    // After the issue-time allocation gate: refused BEFORE numbering, the draft stays a draft.
     const id = await readyInvoice(A);
     const netBefore = networkAttempts.length;
+    const seqBefore = await seq(A.businessId, BillingDocumentType.TAX_INVOICE);
     const r = await issue(A, id);
     const sub = await submissionOf(id);
-    const display = describeAuthorityIssueOutcome(r.json.authority);
-    saveEvidence("allocation/T1-submissions-closed.json", JSON.stringify({ route: r.json?.authority, display, submission: sub && { status: sub.status, errorCode: sub.errorCode, attempts: sub.attemptCount ?? null } }, null, 2));
-    check("T1.state", "OK", "API", "≥5,000 ₪ to a dealer customer, submissions closed: ISSUED, submission READY, nothing sent (0 network attempts)",
-      r.status === 200 && r.json?.document?.status === "ISSUED" && sub?.status === "READY" && networkAttempts.length === netBefore,
-      { authority: r.json?.authority, sub: sub?.status, net: networkAttempts.length - netBefore }, tagsT);
-    check("T1.message", "DEFECT", "API", "the user is told 'בקשת ההקצאה לא הושלמה … אפשר לנסות שוב' although nothing was sent and the server says not safe to retry",
-      /אפשר לנסות שוב/.test(display.detail) && r.json?.authority?.safeToRetry === false, { title: display.title, detail: display.detail, safeToRetry: r.json?.authority?.safeToRetry }, tagsT);
-    const pdf = await getPdf(A, id);
-    check("T1.pdf", "DEFECT", "API", "the issued invoice's PDF is refused (READY blocks delivery) — the invoice is stuck with no way forward", pdf.status === 403, { status: pdf.status, error: errorText(pdf) }, tagsT);
+    const row = await docRow(id);
+    saveEvidence("allocation/T1-submissions-closed.json", JSON.stringify({ status: r.status, body: r.json, submission: sub && { status: sub.status }, document: { status: row.status, number: row.documentNumber } }, null, 2));
+    check("T1.state", "OK", "API", "≥5,000 ₪ to a dealer customer, submissions closed: refused before numbering (409) — DRAFT, no number, no submission, sequence untouched, nothing sent",
+      r.status === 409 && r.json?.code === "AUTHORITY_ALLOCATION_SENDING_CLOSED" && row.status === "DRAFT" && row.documentNumber === null && sub === null &&
+        (await seq(A.businessId, BillingDocumentType.TAX_INVOICE)) === seqBefore && networkAttempts.length === netBefore,
+      { status: r.status, code: r.json?.code, doc: row.status, n: row.documentNumber, sub: sub?.status ?? null }, tagsT);
+    check("T1.message", "OK", "API", "the refusal explains, in Hebrew, that an allocation is required, sending is not open, and the invoice stayed a draft without a number",
+      /מספר הקצאה/.test(errorText(r)) && /טיוטה/.test(errorText(r)) && !/נסו שוב|לנסות שוב/.test(errorText(r)), errorText(r), tagsT);
     const again = await getDoc(A, id);
-    check("T1.refresh", "DEFECT", "API", "after refresh the document API carries no allocation state (no submission status) for the screen to show",
-      again.status === 200 && again.json?.document && !("authoritySubmission" in again.json.document) && !("authorityStatus" in again.json.document), Object.keys(again.json?.document ?? {}), tagsT);
+    check("T1.refresh", "OK", "API", "after refresh the document reads back as a DRAFT with no allocation state (nothing issued)",
+      again.status === 200 && again.json?.document?.status === "DRAFT" && again.json?.document?.authorityState === null, { status: again.json?.document?.status, authorityState: again.json?.document?.authorityState }, tagsT);
     const routes = readdirSync("app/api/billing/documents/[id]");
-    check("T1.retry", "DEFECT", "STATIC", "no endpoint exists to send a READY / not-sent allocation request again", !routes.some((r) => /retry|resubmit|allocation-request|authority-approval/.test(r)), routes, tagsT);
+    check("T1.retry", "OBSERVED", "STATIC", "there is still no endpoint to resend a not-sent allocation request (no new invoice can reach that state through the gate)", !routes.some((r) => /retry|resubmit|allocation-request|authority-approval/.test(r)), routes, tagsT);
+
+    // T1L — an invoice that got stuck BEFORE the gate (issued READY, never sent): not changed by the fix.
+    process.env.BILLING_AUTHORITY_RUNTIME_ENVIRONMENT = "SANDBOX";
+    const legacy = await readyInvoice(A);
+    await issueBillingDocument({ businessId: A.businessId, billingDocumentId: legacy, actorUserId: A.userId }, { executeApproval: async (i: { billingDocumentId: number }) => ({ outcome: "preflight_failed", billingDocumentId: i.billingDocumentId, errorCode: "AUTHORITY_PRODUCTION_PILOT_NOT_ENABLED", safeToRetry: false }) } as never);
+    process.env.BILLING_AUTHORITY_RUNTIME_ENVIRONMENT = "PRODUCTION";
+    const lg = await getDoc(A, legacy);
+    const lst = lg.json?.document?.authorityState;
+    check("T1L.state", "OK", "API", "an invoice stuck before the fix: the document API now says READY + not deliverable, so the screen can show it after a reload",
+      lg.json?.document?.status === "ISSUED" && lst?.submissionStatus === "READY" && lst?.deliverable === false, lst, tagsT);
+    const lpdf = await getPdf(A, legacy);
+    check("T1L.pdf", "OBSERVED", "API", "its PDF stays refused — existing stuck invoices are left as they are (separate handling, not automatic)", lpdf.status === 403, { status: lpdf.status }, tagsT);
   }
 
   // Fake ITA: the real execution service and transitions; only the HTTP request is replaced.
@@ -464,7 +477,12 @@ async function main() {
   async function issueWithFake(t: Tenant, result: unknown, label: string) {
     const id = await readyInvoice(t);
     const callsBefore = itaCalls;
-    const out = await issueBillingDocument({ businessId: t.businessId, billingDocumentId: id, actorUserId: t.userId }, viaFakeIta(result) as never);
+    // These scenarios test what happens AFTER a send, so the issue itself runs where the
+    // send is open (SANDBOX); under Production's closed pilot the issue-time gate (T1) refuses first.
+    process.env.BILLING_AUTHORITY_RUNTIME_ENVIRONMENT = "SANDBOX";
+    const out = await issueBillingDocument({ businessId: t.businessId, billingDocumentId: id, actorUserId: t.userId }, viaFakeIta(result) as never).finally(() => {
+      process.env.BILLING_AUTHORITY_RUNTIME_ENVIRONMENT = "PRODUCTION";
+    });
     const sub = await submissionOf(id);
     const row = await docRow(id);
     const display = describeAuthorityIssueOutcome(out.authority);
@@ -512,8 +530,8 @@ async function main() {
     untested("T4.reconcile", "resolving an uncertain allocation", "no reconciliation path exists in the code — the invoice's PDF stays blocked; nothing to exercise", tagsT);
 
     const f = await issueWithFake(A, { outcome: "infrastructure_failure", classification: "NETWORK", message: "refused", sendCertainty: "NOT_SENT", failureKind: "CONNECT", providerHttpStatus: null, providerErrorId: null, transportCode: "ECONNREFUSED" }, "T5-not-sent");
-    check("T5.failed", "OK", "SERVICE", "provably not sent: FAILED, re-executable, message 'אפשר לנסות שוב' is true here, PDF blocked",
-      f.calls === 1 && f.sub?.status === "FAILED" && /אפשר לנסות שוב/.test(f.display.detail) && f.pdf.status === 403,
+    check("T5.failed", "OK", "SERVICE", "provably not sent: FAILED, the message says it was not sent and offers no retry, PDF blocked",
+      f.calls === 1 && f.sub?.status === "FAILED" && /לא נשלחה/.test(f.display.detail) && !/לנסות שוב/.test(f.display.detail) && f.pdf.status === 403,
       { calls: f.calls, sub: f.sub?.status, code: f.sub?.errorCode, detail: f.display.detail, pdf: f.pdf.status }, tagsT);
     const retry = await viaFakeIta({ outcome: "approved", confirmationNumber: "2026111099999999" }).executeApproval({ businessId: A.businessId, billingDocumentId: f.id, actorUserId: A.userId });
     check("T5.retry", "OBSERVED", "SERVICE", "the service can re-send a not-sent request (approved on retry) — but no route / screen offers it", retry.outcome === "completed_approved", retry, tagsT);
@@ -528,7 +546,9 @@ async function main() {
 
     // concurrency: five parallel executions of one READY request → one send
     const id = await readyInvoice(C);
+    process.env.BILLING_AUTHORITY_RUNTIME_ENVIRONMENT = "SANDBOX";
     await issueBillingDocument({ businessId: C.businessId, billingDocumentId: id, actorUserId: C.userId }, { executeApproval: async (i: { billingDocumentId: number }) => ({ outcome: "preflight_failed", billingDocumentId: i.billingDocumentId, errorCode: "LAB_HOLD", safeToRetry: false }) } as never);
+    process.env.BILLING_AUTHORITY_RUNTIME_ENVIRONMENT = "PRODUCTION";
     const b2 = itaCalls;
     const slow = viaFakeIta({ outcome: "approved", confirmationNumber: "2026111055555555" }, 300);
     const outs = await Promise.all(Array.from({ length: 5 }, () => slow.executeApproval({ businessId: C.businessId, billingDocumentId: id, actorUserId: C.userId })));
