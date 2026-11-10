@@ -62,13 +62,16 @@ jobs:
           for MODE in before after; do
             rm -rf .next && cp -r ".next-$MODE" .next
             (npx next start -p 3000 > "server-$MODE.log" 2>&1 &)
+            sleep 3; grep -q EADDRINUSE "server-$MODE.log" && { echo "!! $MODE server did not start"; exit 1; }
             for i in $(seq 1 60); do curl -s -m 5 -o /dev/null http://localhost:3000/login && break; sleep 2; done
             for r in home about privacy login app; do
               curl -s -H 'accept-language: he-IL' -H 'accept-encoding: identity' -H 'cookie: dz_locale=en' "http://localhost:3000/$r" -o "html/$MODE-$r.html"
             done
-            for p in $(lsof -ti tcp:3000 -sTCP:LISTEN 2>/dev/null); do kill -9 "$p"; done; sleep 2
+            pkill -9 -f "next-server" 2>/dev/null; pkill -9 -f "next start" 2>/dev/null
+            for i in $(seq 1 30); do curl -s -m 2 -o /dev/null http://localhost:3000/login || break; sleep 1; done
           done
           ls -l html
+          echo "entry script in after-login: $(grep -c data-shell html/after-login.html) / before-login: $(grep -c data-shell html/before-login.html)"
           node scripts/native/html-bytes-diff.mjs html | tee html/diff.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
