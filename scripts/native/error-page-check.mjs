@@ -37,7 +37,11 @@ const [device] = await android.devices();
 const shot = async (n) => writeFileSync(join(OUT, "shots", `${n}.png`), await device.screenshot());
 let pg;
 const attach = async () => { const wv = await device.webView({ pkg: PKG }, { timeout: 45000 }); pg = await wv.page(); };
-const state = () => pg.evaluate(() => ({
+// Android 14's WebView can hand Playwright a new page target when navigation moves between the local
+// error page and the site; re-attach once and read again.
+const withPage = async (fn) => { try { return await fn(); } catch (e) { if (!/closed|Target/.test(String(e))) throw e; await attach(); return fn(); } };
+const state = () => withPage(() => readState());
+const readState = () => pg.evaluate(() => ({
   url: location.href,
   site: document.getElementById("site")?.textContent ?? null,
   title: document.getElementById("title")?.textContent ?? null,
@@ -47,9 +51,9 @@ const state = () => pg.evaluate(() => ({
   online: navigator.onLine,
   injected: typeof window.WEBVIEW_SERVER_URL === "string" ? window.WEBVIEW_SERVER_URL : null,
 }));
-const go = async (path) => { try { await pg.goto(BASE + path, { waitUntil: "commit", timeout: 15000 }); } catch {} };
+const go = async (path) => { try { await withPage(() => pg.goto(BASE + path, { waitUntil: "commit", timeout: 15000 })); } catch {} };
 const waitVerdict = async (ms = 9000) => { await sleep(ms); return state(); };
-const tap = async (id) => { const b = await pg.evaluate((i) => { const r = document.getElementById(i)?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2, dpr: devicePixelRatio } : null; }, id);
+const tap = async (id) => { const b = await withPage(() => pg.evaluate((i) => { const r = document.getElementById(i)?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2, dpr: devicePixelRatio } : null; }, id));
   if (!b) return false; adb("shell", "uiautomator", "dump", "/sdcard/ui.xml"); const x = adb("shell", "cat", "/sdcard/ui.xml");
   const m = x.match(/class="android\.webkit\.WebView"[^>]*?bounds="\[(\d+),(\d+)\]/); const top = m ? +m[2] : 0, left = m ? +m[1] : 0;
   adb("shell", "input", "tap", String(Math.round(left + b.x * b.dpr)), String(Math.round(top + b.y * b.dpr))); return true; };

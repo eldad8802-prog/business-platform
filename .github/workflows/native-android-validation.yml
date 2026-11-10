@@ -32,9 +32,6 @@ jobs:
       matrix:
         include:
           - { api: '34', profile: 'pixel_6' }
-          - { api: '35', profile: 'pixel_6' }
-          - { api: '36', profile: 'pixel_7_pro' }
-          - { api: '37.0', profile: 'pixel_6' }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
