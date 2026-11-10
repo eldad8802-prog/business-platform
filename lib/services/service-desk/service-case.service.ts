@@ -538,7 +538,7 @@ async function requireAuditJournal(tx: Tx) {
   if (!(await auditJournalReady(tx))) throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT");
 }
 
-type RecordAction = "ASSIGN_TECHNICIAN" | "RECORD_INTAKE" | "RECORD_QA";
+export type RecordAction = "ASSIGN_TECHNICIAN" | "RECORD_INTAKE" | "RECORD_QA";
 const RECORD_EVENT: Record<RecordAction, string> = {
   ASSIGN_TECHNICIAN: "case.technician_assigned",
   RECORD_INTAKE: "intake.recorded",
@@ -546,7 +546,7 @@ const RECORD_EVENT: Record<RecordAction, string> = {
 };
 
 /** Bump the case version (status, hold, cancel request, outcome untouched) and append the record with seq = version. */
-async function appendRecord(tx: Tx, b: number, caseId: number, c: ServiceCaseContext, action: RecordAction, payload: Record<string, string | number | boolean | null>, userId: number, prepared: Prepared): Promise<number> {
+export async function appendRecord(tx: Tx, b: number, caseId: number, c: ServiceCaseContext, action: RecordAction, payload: Record<string, string | number | boolean | null>, userId: number, prepared: Prepared): Promise<number> {
   const next = c.version + 1;
   const n = await tx.$executeRaw`UPDATE "ServiceCase" SET version = ${next}::int, "updatedAt" = now() WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${c.version}::int`;
   if (n !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
@@ -563,7 +563,7 @@ async function appendRecord(tx: Tx, b: number, caseId: number, c: ServiceCaseCon
 const isTerminalStatus = (s: ServiceCaseStatus) => s === "CLOSED" || s === "CANCELLED";
 
 /** A case record command: lock the case → the journal present? → an earlier answer? → expectedVersion → work. */
-async function recordCommand(
+export async function recordCommand(
   p: ServiceDeskPrincipal,
   caseId: number,
   expectedVersion: unknown,

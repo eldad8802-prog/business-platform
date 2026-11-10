@@ -36,6 +36,10 @@
     ".business-documents/po-sheet-checks.test.mts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure: the 'same copy' checks of the purchase-order sheet double-click / retry scenarios (.business-documents/po-sheet-checks.mts, used by the R2 battery, the production-mode e2e and the service battery) cannot pass when the saves failed — both requests 500, one success and one failure, missing or invalid ids all fail (run 42725350210 printed a vacuous PASS before this); run on pull_request by business-documents-po-sheet-ci.yml"
+    },
+    "features/business-documents/document-production-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: the \"הפקת מסמך\" production list (stage 1, owner-approved 2026-11-10) offers only document types whose flow already works end to end (tax invoice, quote, letter, supplier order; no receipt / invoice-receipt / credit note / payment request / order / delivery note / return note / service call, no \"בקרוב\"), hides the tax invoice from an exempt dealer, and accepts only a valid customer id from the customer card; the browser proof is .business-documents/production-entry-ui-e2e.mts; run on pull_request by business-documents-production-entry-ci.yml"
     }
   }
 }
