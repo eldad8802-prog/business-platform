@@ -222,7 +222,7 @@ async function main() {
   // A1–A6 (erasure audit 2026-11-10): the four tables stage 2 now anonymises in place — see
   // EXPECTED_RUNTIME_TABLE_PRIVILEGES for the basis.
   await owner.$executeRawUnsafe(
-    `GRANT SELECT, INSERT, UPDATE, DELETE ON "Supplier","Payee","BusinessBankAccount","Deal" TO ${RT_ROLE}`
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON "Supplier","Payee","BusinessBankAccount","Deal","PaymentDestination","Cheque","InventoryItem" TO ${RT_ROLE}`
   );
   // I-8A: Production hands the runtime SELECT and INSERT here and revokes the
   // rest, so the lab does the same. Giving this table the blanket grant above
@@ -599,7 +599,7 @@ async function main() {
       `DELETE FROM "OAuthToken" WHERE "connectionId" IN
          (SELECT id FROM "EmailConnection" WHERE "businessId" IN (${bids}))`
     );
-    for (const t of ["Cheque", "Payment", "Deal", "BillingDocument", "Supplier", "Payee", "BusinessBankAccount"]) {
+    for (const t of ["PaymentPreparation", "Cheque", "Payment", "PaymentDestination", "Commitment", "InventoryMovement", "InventoryItem", "Deal", "BillingDocument", "Supplier", "Payee", "BusinessBankAccount"]) {
       await owner.$executeRawUnsafe(`DELETE FROM "${t}" WHERE "businessId" IN (${bids})`);
     }
     for (const t of [
@@ -1035,10 +1035,34 @@ async function main() {
       data: {
         businessId: b.id, payeeNameSnapshot: `${A16}payee-${tag}`, amount: "150.00", chequeNumber: `${tag}-77`,
         issueDate: new Date("2026-10-02T00:00:00Z"), dueDate: new Date("2026-11-02T00:00:00Z"), sourceBankAccountId: bank.id, payeeId: payee.id,
+        note: `${A16}cheque-note-${tag}`, cancellationReason: `${A16}cheque-cancel-${tag}`,
       },
     });
     const payment = await owner.payment.create({
       data: { businessId: b.id, payeeId: payee.id, payeeNameSnapshot: `${A16}payee-${tag}`, amount: "150.00", paidAt: new Date("2026-10-03T00:00:00Z"), method: "BANK_TRANSFER" },
+    });
+    // Closure 2026-11-10: a payee's destination, and a PREPARED payment that froze it — its approvalHash and
+    // frozenDestinationFingerprint must survive byte for byte, and still match the destination's fingerprint.
+    const commitment = await owner.commitment.create({
+      data: { businessId: b.id, title: `${A16}rent-${tag}`, payeeNameSnapshot: `${A16}payee-${tag}`, scheduleKind: "ONE_OFF", payeeId: payee.id },
+    });
+    const destination = await owner.paymentDestination.create({
+      data: {
+        businessId: b.id, payeeId: payee.id, label: `${A16}dest-${tag}`, beneficiaryName: `${A16}beneficiary-${tag}`, note: `${A16}dest-note`,
+        coordinatesEncrypted: "ZGVzdA==", coordinatesIv: "aXYy", coordinatesTag: "dGFnMg==", encryptionKeyId: "lab-key-1", accountLast4: "8765", fingerprint: `dfp-${tag}`,
+      },
+    });
+    const preparation = await owner.paymentPreparation.create({
+      data: {
+        businessId: b.id, commitmentId: commitment.id, payeeId: payee.id, payeeNameSnapshot: `${A16}payee-${tag}`, amount: "320.00", method: "BANK_TRANSFER",
+        destinationId: destination.id, frozenDestinationFingerprint: destination.fingerprint, sourceBankAccountId: bank.id, frozenSourceFingerprint: bank.fingerprint,
+        approvalHash: `approval-${tag}-${"0".repeat(40)}`,
+      },
+    });
+    // An inventory item carrying a supplier name, with stock history.
+    const item = await owner.inventoryItem.create({ data: { businessId: b.id, name: `פריט-${tag}`, unitType: "UNIT", supplierName: `${A16}item-supplier-${tag}` } });
+    const movement = await owner.inventoryMovement.create({
+      data: { businessId: b.id, itemId: item.id, movementType: "IN", reason: "SUPPLIER_PURCHASE", quantityDelta: 5, quantityBefore: 0, quantityAfter: 5 },
     });
     const deal = await owner.deal.create({ data: { businessId: b.id, leadId: lead.id, lostReason: `${A16}deal-lost-${tag}`, status: "LOST" } });
     // An OLD-shape learning event (before 9f6c6673) carrying the customer's name.
@@ -1054,6 +1078,7 @@ async function main() {
       emailConn, authorityConn, payConn, waConn, posKey, po, poLine, recv,
       attachment, attachmentKey,
       profile, invoice, issuedSnapshot, supplier, payee, bank, cheque, payment, deal, lead, oldEvent,
+      commitment, destination, preparation, item, movement,
     };
   };
 
@@ -1607,6 +1632,42 @@ async function main() {
     ok("A6 · the ACCOUNT_DELETED evidence row is written", (await owner.learningEvent.count({ where: { businessId: A.biz.id, eventType: "ACCOUNT_DELETED" } })) === 1);
     ok("A1–A6 · no A16 marker is left anywhere in A's supplier / payee / bank / profile / deal / learning rows",
       !JSON.stringify([supA, payeeA, bankA, profA, dealA, evA]).includes(A16));
+
+    // ── Closure 2026-11-10: PaymentDestination / Cheque free texts / InventoryItem.supplierName ──
+    const destA = await owner.paymentDestination.findUnique({ where: { id: A.destination.id } });
+    ok("A3b · A's payment destination: beneficiary + label replaced, note null, sealed coordinates blanked",
+      destA !== null && destA.beneficiaryName === "מוטב שנמחק" && destA.label === "חשבון שנמחק" && destA.note === null
+        && destA.coordinatesEncrypted === "" && destA.coordinatesIv === "" && destA.coordinatesTag === "");
+    ok("A3b · … fingerprint, last4, key id, payee link and status stay", destA?.fingerprint === A.destination.fingerprint && destA?.accountLast4 === "8765"
+      && destA?.encryptionKeyId === "lab-key-1" && destA?.payeeId === A.payee.id && destA?.isActive === A.destination.isActive);
+    const prepA = await owner.paymentPreparation.findUnique({ where: { id: A.preparation.id } });
+    ok("A3b · A's PAYMENT PREPARATION is untouched: approvalHash, frozen destination / source fingerprints, destination link, amount, payee name",
+      prepA !== null && prepA.approvalHash === A.preparation.approvalHash && prepA.frozenDestinationFingerprint === A.preparation.frozenDestinationFingerprint
+        && prepA.frozenSourceFingerprint === A.preparation.frozenSourceFingerprint && prepA.destinationId === A.destination.id
+        && String(prepA.amount) === String(A.preparation.amount) && prepA.payeeNameSnapshot === A.preparation.payeeNameSnapshot);
+    ok("A3b · … and the frozen fingerprint still equals the destination's (the execution-time substitution check holds)",
+      prepA?.frozenDestinationFingerprint === destA?.fingerprint);
+    const commitA = await owner.commitment.findUnique({ where: { id: A.commitment.id } });
+    ok("A3b · A's commitment is not touched by this erasure (out of scope; recorded debt)", commitA?.title === A.commitment.title);
+    const chqA2 = await owner.cheque.findUnique({ where: { id: A.cheque.id } });
+    ok("A3c · A's cheque: note and cancellationReason null; payeeNameSnapshot UNCHANGED (pending decision); number, amount, status unchanged",
+      chqA2 !== null && chqA2.note === null && chqA2.cancellationReason === null && chqA2.payeeNameSnapshot === A.cheque.payeeNameSnapshot
+        && chqA2.chequeNumber === A.cheque.chequeNumber && String(chqA2.amount) === String(A.cheque.amount) && chqA2.status === A.cheque.status);
+    const itemA = await owner.inventoryItem.findUnique({ where: { id: A.item.id } });
+    const movA = await owner.inventoryMovement.findUnique({ where: { id: A.movement.id } });
+    ok("A7 · A's inventory item: supplierName null; the item itself (name, unit) stays", itemA !== null && itemA.supplierName === null && itemA.name === A.item.name && itemA.unitType === "UNIT");
+    ok("A7 · A's stock history is untouched (the movement row, its item link and quantities)",
+      movA !== null && movA.itemId === A.item.id && movA.quantityDelta === 5 && movA.quantityAfter === 5 && movA.reason === "SUPPLIER_PURCHASE");
+    ok("closure · no A16 marker is left in A's destination / cheque free texts / item supplier name",
+      !JSON.stringify([destA?.beneficiaryName, destA?.label, destA?.note, chqA2?.note, chqA2?.cancellationReason, itemA?.supplierName]).includes(A16));
+    const [destB, prepB, chqB, itemB] = await Promise.all([
+      owner.paymentDestination.findUnique({ where: { id: B.destination.id } }), owner.paymentPreparation.findUnique({ where: { id: B.preparation.id } }),
+      owner.cheque.findUnique({ where: { id: B.cheque.id } }), owner.inventoryItem.findUnique({ where: { id: B.item.id } }),
+    ]);
+    ok("closure · B's destination, preparation, cheque texts and item supplier name are untouched",
+      destB?.beneficiaryName === B.destination.beneficiaryName && destB?.coordinatesEncrypted === B.destination.coordinatesEncrypted
+        && prepB?.approvalHash === B.preparation.approvalHash && chqB?.note === B.cheque.note && chqB?.cancellationReason === B.cheque.cancellationReason
+        && itemB?.supplierName === B.item.supplierName);
 
     // B — the neighbour — is byte-for-byte untouched by A's erasure.
     const [supB, payeeB, bankB, profB, dealB, evB, invB] = await Promise.all([

@@ -108,11 +108,9 @@ const MODEL_LEVEL: DebtEntry[] = [
   // Payables Phase 3. The business's own bank account (personal for a sole
   // trader, even though it is stored only as ciphertext + last4 + a keyed
   // fingerprint) and the cheques written from it take the same E2 position.
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Cheque", why: "E2" },
   // Payables Phases 4–6: destinations, prepared payments, bank lines, their
   // rejections, and outbound executions take the same E2 position as the rest
   // of the payables family.
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PaymentDestination", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PaymentPreparation", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "ExternalTransaction", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "ExternalTransactionMatchRejection", why: "E2" },
@@ -121,7 +119,6 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAttachmentImport", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailMessage", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryDraft", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryItem", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryMovement", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PurchaseOrder", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Recommendation", why: "E2" },

@@ -367,6 +367,21 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             where: { businessId },
             data: { label: "חשבון שנמחק", note: null, coordinatesEncrypted: "", coordinatesIv: "", coordinatesTag: "" },
           });
+          // A3b (closure 2026-11-10, owner-approved). A payee's payment destinations: the beneficiary's name, the owner's
+          // label and note, and the sealed coordinates go. `fingerprint` and `accountLast4` stay — a preparation's
+          // approvalHash and frozenDestinationFingerprint are built from the fingerprint, and the (businessId, payeeId,
+          // fingerprint) key needs it; no hash input changes. Rows stay (preparations RESTRICT their deletion).
+          await tx.paymentDestination.updateMany({
+            where: { businessId },
+            data: { beneficiaryName: "מוטב שנמחק", label: "חשבון שנמחק", note: null, coordinatesEncrypted: "", coordinatesIv: "", coordinatesTag: "" },
+          });
+          // A3c. Cheques: only the two optional free texts. The cancellation itself stays as a fact (status,
+          // cancelledAt), and payeeNameSnapshot is NOT touched — kept pending a separate retention decision (bookkeeping
+          // evidence of a payment). The audit journal's copy of a cancellation reason is out of scope (kept by design).
+          await tx.cheque.updateMany({ where: { businessId }, data: { note: null, cancellationReason: null } });
+          // A7. An inventory item's denormalised supplier name (free text copied from a supplier or a document). The item,
+          // its movements and its purchase-draft lines are untouched; no supplier link is stored on the item itself.
+          await tx.inventoryItem.updateMany({ where: { businessId }, data: { supplierName: null } });
           // A6. A deal's lost reason is free text about a named counterparty. `leadId` stays: it points at a lead this
           // same transaction anonymizes, so it identifies nobody, and the pipeline history keeps its shape.
           await tx.deal.updateMany({ where: { businessId }, data: { lostReason: null } });

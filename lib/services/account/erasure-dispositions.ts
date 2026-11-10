@@ -99,10 +99,128 @@ export const COVERED_MODELS = [
   "StaffMember",
   "BookingRequest",
   "ReceivingSession",
+  // Closure 2026-11-10: a payee's payment destinations and the business's cheques.
+  "Payee",
+  "PaymentDestination",
+  "Cheque",
   "PurchaseOrderLine",
 ] as const;
 
 export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
+  // Closure 2026-11-10 (owner-approved). A payee's bank destination: the beneficiary's identity and the sealed
+  // coordinates go; what a payment preparation's approvalHash / frozenDestinationFingerprint is built from stays.
+  // A3 (erasure audit 2026-11-10): the payee is anonymised in place; the row stays because payments, cheques and
+  // destinations point at it.
+  Payee: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    displayName: { disposition: "ANONYMISE" },
+    kind: { disposition: "STRUCTURAL" },
+    legalName: { disposition: "ERASE" },
+    taxId: { disposition: "ERASE" },
+    taxIdType: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "an enum saying which kind of identifier was held, once the identifier is gone (as on Customer)",
+      basis: "PRODUCT",
+    },
+    isActive: { disposition: "STRUCTURAL" },
+    note: { disposition: "ERASE" },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+  PaymentDestination: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    payeeId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "the destination belongs to a payee the same erasure anonymises (A3) — a pointer, not an identity",
+      basis: "PRODUCT",
+      dependsOn: { model: "Payee", fields: ["displayName", "legalName", "taxId", "note"] },
+    },
+    kind: { disposition: "STRUCTURAL" },
+    label: { disposition: "ANONYMISE" },
+    beneficiaryName: { disposition: "ANONYMISE" },
+    coordinatesEncrypted: { disposition: "ERASE" },
+    coordinatesIv: { disposition: "ERASE" },
+    coordinatesTag: { disposition: "ERASE" },
+    encryptionKeyId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "the id of the key the (now erased) coordinates were sealed with — names a key, not a person",
+      basis: "SECURITY/AUDIT",
+    },
+    accountLast4: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "four digits shown beside a payment preparation that froze this destination; with the coordinates and the beneficiary gone it identifies no account holder",
+      basis: "PRODUCT",
+    },
+    fingerprint: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "a keyed HMAC (not reversible without the key) that a preparation's approvalHash and frozenDestinationFingerprint are built from, and part of the (businessId, payeeId, fingerprint) unique key",
+      basis: "SECURITY/AUDIT",
+    },
+    origin: { disposition: "STRUCTURAL" },
+    verification: { disposition: "STRUCTURAL" },
+    isActive: { disposition: "STRUCTURAL" },
+    isDefault: { disposition: "STRUCTURAL" },
+    replacesDestinationId: { disposition: "STRUCTURAL" },
+    note: { disposition: "ERASE" },
+    createdByUserId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: which user entered the destination. An id into a User row whose email, name and password the same erasure destroys — a pointer, not an identity",
+      basis: "SECURITY/AUDIT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+  // Closure 2026-11-10 (owner-approved). Only the two optional free texts are erased. The cheque itself — number,
+  // amount, dates, status, cancellation as a fact — and the payee name it was written to are kept.
+  Cheque: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    payeeId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "the payee the same erasure anonymises (A3) — a pointer, not an identity",
+      basis: "PRODUCT",
+      dependsOn: { model: "Payee", fields: ["displayName", "legalName", "taxId", "note"] },
+    },
+    payeeNameSnapshot: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose:
+        "the name the cheque was written to — evidence of a payment the business made. Kept pending a SEPARATE " +
+        "owner / legal decision on its retention duty (closure 2026-11-10); recorded as a gap, not as a decision.",
+      basis: "UNPROVEN",
+    },
+    amount: { disposition: "RETAIN_BY_DESIGN", purpose: "the amount of a payment the business made", basis: "LEGAL/FISCAL" },
+    currency: { disposition: "STRUCTURAL" },
+    chequeNumber: { disposition: "RETAIN_BY_DESIGN", purpose: "the business's own cheque number — payment evidence", basis: "LEGAL/FISCAL" },
+    issueDate: { disposition: "STRUCTURAL" },
+    dueDate: { disposition: "STRUCTURAL" },
+    sourceBankAccountId: { disposition: "STRUCTURAL" },
+    installmentId: { disposition: "STRUCTURAL" },
+    commitmentId: { disposition: "STRUCTURAL" },
+    status: { disposition: "STRUCTURAL" },
+    clearedAssertedAt: { disposition: "STRUCTURAL" },
+    clearedSource: { disposition: "STRUCTURAL" },
+    clearedAssertedBy: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: which user asserted the clearing. An id into a User row whose email, name and password the same erasure destroys — a pointer, not an identity",
+      basis: "SECURITY/AUDIT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
+    cancelledAt: { disposition: "STRUCTURAL" },
+    cancellationReason: { disposition: "ERASE" },
+    replacesChequeId: { disposition: "STRUCTURAL" },
+    note: { disposition: "ERASE" },
+    createdByUserId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: which user recorded the cheque. An id into a User row whose email, name and password the same erasure destroys — a pointer, not an identity",
+      basis: "SECURITY/AUDIT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
   User: {
     id: { disposition: "STRUCTURAL" },
     email: { disposition: "ANONYMISE" },

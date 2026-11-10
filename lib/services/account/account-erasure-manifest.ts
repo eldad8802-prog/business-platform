@@ -141,6 +141,10 @@ export const ANONYMIZE_MODELS = [
   { model: "payee", fields: { displayName: "anonymized-name", legalName: "null", taxId: "null", note: "null" } },
   { model: "businessBankAccount", fields: { label: "anonymized-name", note: "null", coordinatesEncrypted: "blank", coordinatesIv: "blank", coordinatesTag: "blank" } },
   { model: "deal", fields: { lostReason: "null" } },
+  // Closure 2026-11-10 (owner-approved): a payee's destinations, the cheques' free texts, an item's supplier name.
+  { model: "paymentDestination", fields: { beneficiaryName: "anonymized-name", label: "anonymized-name", note: "null", coordinatesEncrypted: "blank", coordinatesIv: "blank", coordinatesTag: "blank" } },
+  { model: "cheque", fields: { note: "null", cancellationReason: "null" } },
+  { model: "inventoryItem", fields: { supplierName: "null" } },
   // E2-W1. The column is `customerName`, not `name` — this entry named a field
   // that does not exist on Lead, and because nothing compared the manifest to
   // the schema it passed for months. The four content fields and the customer
