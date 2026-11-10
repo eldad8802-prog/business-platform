@@ -52,6 +52,11 @@ const STATES = {
   "settings-saved-toast": { page: "/service-desk/settings", access: "FULL", settings: EMPTY, put: { status: 200 }, act: "save-new" },
   "settings-leave-confirm": { page: "/service-desk/settings", access: "FULL", settings: SAVED, act: "leave" },
   "settings-inactive-technician": { page: "/service-desk/settings", access: "FULL", settings: { ...SAVED, defaultStaffMemberId: 99 } },
+  // A phone with the on-screen keyboard open: ~470px of visible height while a field is focused.
+  "settings-keyboard": { page: "/service-desk/settings", access: "FULL", settings: SAVED, act: "keyboard", viewports: [{ width: 360, height: 420 }, { width: 390, height: 470 }] },
+  "settings-back": { page: "/service-desk/settings", access: "FULL", settings: SAVED, act: "back" },
+  "tools-on": { page: "/tools/operations", access: "FULL" },
+  "tools-off": { page: "/tools/operations", access: 404 },
 };
 
 /* -------------------------------------------------------------- stubs -- */
@@ -82,7 +87,7 @@ async function main() {
   await mkdir(OUT, { recursive: true });
   const browser = await chromium.launch({ headless: true });
   for (const [key, s] of Object.entries(STATES)) {
-    for (const vp of VIEWPORTS) {
+    for (const vp of s.viewports ?? VIEWPORTS) {
       const ctx = await browser.newContext({ viewport: vp, deviceScaleFactor: 1, locale: "he-IL", reducedMotion: "reduce" });
       const page = await ctx.newPage();
       const sent = [];
@@ -94,11 +99,16 @@ async function main() {
           /* ignore */
         }
       });
-      await page.goto(`${BASE}${s.page}`, { waitUntil: "domcontentloaded" });
+      await page.goto(`${BASE}${s.page}`, { waitUntil: "domcontentloaded", timeout: 180000 });
       await page.waitForSelector("h1", { timeout: 180000 });
       const tag = `${key} @${vp.width}`;
 
       if (s.page === "/service-desk/settings" && s.access !== 404) await page.waitForSelector("#sd-tech", { timeout: 120000 });
+      else if (s.page.startsWith("/tools/")) {
+        await page.waitForSelector("h1", { timeout: 120000 });
+        if (s.access === "FULL") await page.waitForSelector("main >> text=תיקונים ושירות", { timeout: 60000 }).catch(() => {});
+        else await page.waitForTimeout(6000);
+      }
       else await page.waitForSelector(s.access === 404 ? "text=עדיין לא פתוחה" : "text=הגדרות שירות", { timeout: 120000 });
 
       if (s.act === "invalid") {
@@ -125,6 +135,26 @@ async function main() {
         await page.click("[data-back-button], header button, header a", { timeout: 10000 });
         await page.waitForSelector("text=יש שינויים שלא נשמרו", { timeout: 10000 });
       }
+      let kb = null;
+      if (s.act === "keyboard") {
+        await page.click("#sd-w-scope");
+        await page.keyboard.type(" והחלפת סוללה");
+        await page.waitForTimeout(300);
+        kb = await page.evaluate(() => {
+          const r = (el) => el?.getBoundingClientRect();
+          const f = r(document.activeElement);
+          const save = r(document.querySelector("button[type=submit]"));
+          const h = window.innerHeight;
+          return { focusedId: document.activeElement?.id, fieldVisible: !!f && f.top >= 0 && f.top < h, saveVisible: !!save && save.top >= 0 && save.bottom <= h, saveEnabled: !document.querySelector("button[type=submit]")?.disabled };
+        });
+      }
+      let backUrl = null;
+      if (s.act === "back") {
+        await page.click("header a, header button", { timeout: 10000 });
+        await page.waitForURL((u) => !u.pathname.endsWith("/settings"), { timeout: 20000 });
+        backUrl = new URL(page.url()).pathname;
+        await page.waitForSelector("text=הגדרות שירות", { timeout: 60000 });
+      }
       await page.waitForTimeout(500);
 
       const m = await page.evaluate(() => ({
@@ -141,7 +171,7 @@ async function main() {
       }));
       check(`${tag}: RTL`, m.dir === "rtl", m.dir);
       check(`${tag}: no horizontal overflow`, m.scrollW <= m.iw + 1, `${m.scrollW} vs ${m.iw}`);
-      check(`${tag}: the "חזרה" control is present`, m.back);
+      if (!s.page.startsWith("/tools/")) check(`${tag}: the "חזרה" control is present`, m.back);
       if (vp.width === 1440) {
         const inNav = m.nav.some((t) => t.includes("תיקונים ושירות"));
         check(`${tag}: «ניהול העסק» lists the module only while service_desk is ON`, s.access === "FULL" ? inNav : !inNav, m.nav.join(" | ").slice(0, 200));
@@ -185,6 +215,19 @@ async function main() {
         case "settings-leave-confirm":
           check(`${tag}: unsaved change + "חזרה" → the confirm, the page stays`, m.text.includes("יש שינויים שלא נשמרו") && m.text.includes("להישאר") && page.url().endsWith("/service-desk/settings"));
           break;
+        case "settings-keyboard":
+          check(`${tag}: keyboard open — the focused field stays in view and the save action stays reachable (sticky, enabled)`,
+            kb?.focusedId === "sd-w-scope" && kb.fieldVisible && kb.saveVisible && kb.saveEnabled, JSON.stringify(kb));
+          break;
+        case "settings-back":
+          check(`${tag}: "חזרה" with no unsaved change → back to the service home, no confirm`, backUrl === "/service-desk" && !m.text.includes("יש שינויים שלא נשמרו"), String(backUrl));
+          break;
+        case "tools-on":
+          check(`${tag}: «ניהול העסק» lists "תיקונים ושירות" while service_desk is ON`, m.text.includes("תיקונים ושירות"));
+          break;
+        case "tools-off":
+          check(`${tag}: «ניהול העסק» hides "תיקונים ושירות" while service_desk is OFF`, !m.text.includes("תיקונים ושירות") && m.text.length > 0);
+          break;
         case "settings-inactive-technician":
           check(`${tag}: an inactive default technician is named as such and explained`, m.options.includes("טכנאי שכבר לא פעיל") && m.text.includes("כבר לא פעיל בעסק"));
           break;
@@ -194,6 +237,8 @@ async function main() {
 
       const file = path.join(OUT, `service-desk-${key}-${vp.width}.png`);
       await page.screenshot({ path: file, fullPage: true });
+      // What the phone actually shows (fixed bars in place), next to the full-length capture.
+      if (vp.width !== 1440) await page.screenshot({ path: path.join(OUT, `service-desk-${key}-${vp.width}-fold.png`), fullPage: false });
       await ctx.close();
     }
   }
