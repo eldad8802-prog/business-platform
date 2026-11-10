@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { BottomBar } from "./bottom-bar";
 import { NavRail, NavSidebar } from "./side-nav";
 import { useShellChromeHidden } from "./shell-chrome-visibility";
+import { RefreshCoordinator } from "@/components/auth/refresh-coordinator";
 
 type ShellChromeProps = {
   children: ReactNode;
@@ -211,8 +212,15 @@ export function ShellChrome({ children, topSlot = null }: ShellChromeProps) {
         className="shell-content min-h-0 min-w-0 flex-1 overflow-x-hidden"
         style={{ position: "relative", zIndex: 1 }}
       >
-        {chromeHidden ? null : topSlot}
-        {children}
+        {/* Every authenticated screen that draws the chrome — inside (shell) and
+            outside it (settings, business, billing, offers, …) — keeps its
+            session fresh and leaves for /login when the server ends it. Nested
+            instances (a page that draws ShellChrome inside a layout that also
+            does) defer to the outer one. */}
+        <RefreshCoordinator>
+          {chromeHidden ? null : topSlot}
+          {children}
+        </RefreshCoordinator>
       </div>
 
       {chromeHidden ? null : (
