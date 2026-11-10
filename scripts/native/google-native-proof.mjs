@@ -31,9 +31,28 @@ const tapText = async (re, tries = 12) => {
   }
   return null;
 };
-const proofText = async () => { const wv = await device.webView({ pkg: PKG }, { timeout: 60000 }); const p = await wv.page(); await p.waitForTimeout(2500); return p.evaluate(() => ({ path: location.pathname + location.hash, proof: window.__proof || [], status: document.getElementById("s")?.textContent })); };
+const sockets = () => adb("shell", "cat", "/proc/net/unix").split("\n").filter((l) => /devtools/.test(l)).map((l) => l.trim().split(/\s+/).pop()).join(" ");
+const webview = async () => {
+  for (let i = 0; i < 3; i++) {
+    try { return await device.webView({ pkg: PKG }, { timeout: 25000 }); }
+    catch (e) { log({ note: "webview not found yet", attempt: i + 1, pid: pid(), focus: focus(), sockets: sockets() }); if (i === 1) { adb("shell", "am", "start", "-n", `${PKG}/.MainActivity`); await sleep(6000); } }
+  }
+  throw new Error("webview never appeared");
+};
+const proofText = async () => { const wv = await webview(); const p = await wv.page(); await p.waitForTimeout(2500); return p.evaluate(() => ({ path: location.pathname + location.hash, proof: window.__proof || [], status: document.getElementById("s")?.textContent })); };
 const launch = async () => { adb("shell", "am", "force-stop", PKG); await sleep(1500); adb("shell", "am", "start", "-n", `${PKG}/.MainActivity`); await sleep(8000); };
-const startFlow = async () => { const wv = await device.webView({ pkg: PKG }, { timeout: 60000 }); const p = await wv.page(); await p.waitForTimeout(1500); await p.click("#g"); await sleep(5000); };
+// Chrome's first-run screens can show inside the Custom Tab on a fresh emulator: tap through them.
+const passChromeFirstRun = async () => {
+  for (let i = 0; i < 8; i++) {
+    if (!/chrome/.test(focus())) return;
+    adb("shell", "uiautomator", "dump", "/sdcard/ui.xml");
+    if (/Continue as test user/.test(adb("shell", "cat", "/sdcard/ui.xml"))) return;
+    const t = await tapText(/^(Use without an account|Accept & continue|Accept &amp; continue|No thanks|No, thanks|Continue|Got it|Skip|Not now|OK)$/i, 2);
+    log({ note: "chrome first-run", tapped: t, focus: focus() });
+    await sleep(2500);
+  }
+};
+const startFlow = async () => { const wv = await webview(); const p = await wv.page(); await p.waitForTimeout(1500); await p.click("#g"); await sleep(5000); await passChromeFirstRun(); };
 
 // Chrome without first-run screens (debug-app command line), as in the earlier issue-2 harness.
 adb("shell", "am", "set-debug-app", "--persistent", "com.android.chrome");
