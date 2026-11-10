@@ -17,6 +17,12 @@ const read = (p: string) => readFileSync(join(root, p), "utf8");
 const PACKAGE = "il.co.promaxgroup.dubiz";
 const SITE_STATEMENT = "https://promaxgroup.co.il/.well-known/assetlinks.json";
 const ASSETLINKS = "public/.well-known/assetlinks.json";
+/**
+ * Play App Signing — app signing key certificate (the key Play Console marks in use; upload key excluded).
+ * Owner-verified 2026-11-10. The previous key's classical/PQC fingerprints (0% install base) are left out
+ * on purpose: adding one is an owner decision backed by device evidence, not a drive-by edit.
+ */
+const APPROVED_FINGERPRINTS = ["B5:42:26:A9:6F:46:A4:53:33:B1:6E:E9:48:9D:92:D9:52:C5:90:83:1F:93:A1:18:16:4E:C6:82:1E:34:98:0B"];
 
 /** The opening tag of the <input> with this id, attributes only. */
 function inputTag(source: string, id: string): string {
@@ -75,7 +81,7 @@ function main() {
     assert.equal(links[0].target.namespace, "android_app");
     assert.equal(links[0].target.package_name, PACKAGE);
     const prints = links[0].target.sha256_cert_fingerprints as string[];
-    assert.ok(Array.isArray(prints) && prints.length >= 1, "at least the Play App Signing fingerprint");
+    assert.deepEqual(prints, APPROVED_FINGERPRINTS, "exactly the owner-approved app signing key(s)");
     for (const p of prints) assert.match(p, /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/, "SHA-256, upper-case, colon-separated");
     console.log("assetlinks.json: present and valid");
   } else {
