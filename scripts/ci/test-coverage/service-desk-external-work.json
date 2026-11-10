@@ -5,6 +5,10 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "pure (no DB): owner rule 2026-11-10 — the external-work API stays closed until the intake and signature path (1.3b): EXTERNAL_WORK_OPEN is false, every handler of the three routes calls assertExternalWorkOpen() first inside the edge, the closed answer is ACTION_NOT_IN_SCOPE (422) naming the capability, and only those routes import the service; run by service-desk-ci.yml and security-gate (pure lab)"
+    },
+    "lib/services/service-desk/cancel-stamp.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB): the 1d-A stampsFor change does not alter any existing cancel — every CANCEL the core allows (3 kinds x 9 statuses x quote / reservations / pending request) stamps cancelledAt exactly as before outside EXTERNAL, the cancel requested at a supplier is now stamped (CHECK ServiceCase_cancel_stamp), every result satisfies the CHECK, and no other action stamps a cancel; run on pull_request by service-desk-ci.yml"
     }
   }
 }
