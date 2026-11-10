@@ -8,6 +8,10 @@
     "lib/services/service-desk/legal-approval-guard.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (source scan): owner decision D25 item 6 — no product path under app/, lib/, features/ or components/ grants LEGALLY_APPROVED or records a legal approver (the database still permits it until the D25 schema proposal is approved); the detector is proven on positive and negative samples; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/intake-slip-html.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB): the 1.3b-B intake slip HTML — Hebrew RTL, every text escaped, nothing fetched (strict CSP, no script, no external URL), the signature only as a PNG data URL, the evidence (text versions + hashes, signature hash, intake digest, photo hashes) on the page; run on pull_request by service-desk-ci.yml"
     }
   }
 }
