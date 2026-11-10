@@ -591,7 +591,11 @@ function HistorySection<T>({
         <span className="crm-section__count">{total}</span>
       </div>
       {items.length === 0 ? (
-        <p className="crm-note-empty">{emptyText}</p>
+        <>
+          <p className="crm-note-empty">{emptyText}</p>
+          {/* the footer's actions (e.g. "הפקת מסמך ללקוח") also serve a customer with no documents yet */}
+          {footer}
+        </>
       ) : (
         <div className="cust-group">
           <div className="crm-list">{shown.map(renderItem)}</div>
