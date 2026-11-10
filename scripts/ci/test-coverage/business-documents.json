@@ -32,6 +32,10 @@
     "lib/services/business-documents/po-sheet/supplier-document-unchanged.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure: the supplier order PDF is unchanged by the extraction of its builder (purchase-order sheet, owner-approved 2026-11-09) — the exact pdfmake definition handed to createPdf, functions included, equals hashes recorded from the original function for three fixtures, through the browser download and the extracted builder; run on pull_request by business-documents-ci.yml (the PG batteries .business-documents/po-sheet*.battery.mts run in the same workflow)"
+    },
+    ".business-documents/po-sheet-checks.test.mts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: the 'same copy' checks of the purchase-order sheet double-click / retry scenarios (.business-documents/po-sheet-checks.mts, used by the R2 battery, the production-mode e2e and the service battery) cannot pass when the saves failed — both requests 500, one success and one failure, missing or invalid ids all fail (run 42725350210 printed a vacuous PASS before this); run on pull_request by business-documents-po-sheet-ci.yml"
     }
   }
 }
