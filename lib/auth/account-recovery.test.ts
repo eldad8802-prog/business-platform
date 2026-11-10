@@ -297,19 +297,21 @@ async function main() {
     ok("status: ON and not signed in → 401", statusAnon.status === 401);
     const statusFor = async (state: "PENDING" | "VERIFIED" | "NOT_REQUIRED" | null) =>
       JSON.stringify(await (await handleStatus(new Request("http://x/api/auth/email/status"), { enabled: () => true, currentUser: async () => ({ id: 1 }), readState: async () => state })).json());
-    ok("status: ON, new account not verified → { required:true, verified:false } (the banner shows)",
+    ok("status: ON, new account not verified → { required:true, verified:false } (Settings: not verified)",
       (await statusFor("PENDING")) === JSON.stringify({ verificationEnabled: true, required: true, verified: false }));
     ok("status: ON, verified → { required:true, verified:true }",
       (await statusFor("VERIFIED")) === JSON.stringify({ verificationEnabled: true, required: true, verified: true }));
-    ok("status: ON, account opened before verification → { required:false } (no banner, ever)",
+    ok("status: ON, account opened before verification → { required:false } (nothing shown, ever)",
       (await statusFor("NOT_REQUIRED")) === JSON.stringify({ verificationEnabled: true, required: false, verified: false }));
 
-    // The banner itself: it asks for the owner's status and shows only for required + not verified,
-    // and offers no way to hide it (it stays until the address is verified).
-    const bannerSrc = fs.readFileSync(path.join(process.cwd(), "components/auth/email-verification-banner.tsx"), "utf8");
-    ok("banner: shown only when verificationEnabled && required && !verified",
-      /d\?\.verificationEnabled === true && d\?\.required === true && d\?\.verified === false/.test(bannerSrc));
-    ok("banner: no hide control and no session-storage switch", !/sessionStorage|הסתרת ההודעה|banner\.hide|onClick=\{hide\}/.test(bannerSrc));
+    // No shell-wide banner (2026-11-10): verification lives in Settings → Security only. The client mapping
+    // of { verificationEnabled, required, verified } is proved in lib/auth/email-verification-client.test.ts.
+    const read = (f: string) => fs.readFileSync(path.join(process.cwd(), f), "utf8");
+    ok("banner: removed — the shell layout draws no verification notice",
+      !fs.existsSync(path.join(process.cwd(), "components/auth/email-verification-banner.tsx")) &&
+        !/EmailVerification|verify-banner|\/api\/auth\/email\/status/.test(read("app/(shell)/layout.tsx")));
+    ok("settings: Settings → Security renders the email verification status",
+      /<EmailVerificationStatus \/>/.test(read("app/settings/security/page.tsx")));
   }
 
   // ── 7. honeypot ────────────────────────────────────────────────────────────
