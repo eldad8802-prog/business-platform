@@ -69,8 +69,10 @@ jobs:
           set -euo pipefail
           e=$(gh api "repos/$GITHUB_REPOSITORY/environments/business-docs-r2-test") || { echo "::error::Environment business-docs-r2-test does not exist — create it with its protections first"; exit 1; }
           reviewers=$(jq -r '[.protection_rules[] | select(.type=="required_reviewers") | .reviewers[].reviewer.login] | join(",")' <<<"$e")
-          custom=$(jq -r '.deployment_branch_policy.custom_branch_policies // false' <<<"$e")
-          bypass=$(jq -r '.can_admins_bypass // true' <<<"$e")
+          # Explicit comparisons, never jq's `//`: it replaces false as well as null, so `false // true` is true.
+          # A missing field fails closed (custom → false, bypass → true).
+          custom=$(jq -r 'if .deployment_branch_policy.custom_branch_policies == true then "true" else "false" end' <<<"$e")
+          bypass=$(jq -r 'if .can_admins_bypass == false then "false" else "true" end' <<<"$e")
           policies=$(gh api "repos/$GITHUB_REPOSITORY/environments/business-docs-r2-test/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | join(",")')
           echo "reviewers=$reviewers custom_branch_policies=$custom policies=$policies admins_bypass=$bypass"
           [[ ",$reviewers," == *",eldad8802-prog,"* ]] || { echo "::error::required reviewer eldad8802-prog missing"; exit 1; }
