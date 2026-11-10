@@ -160,6 +160,8 @@ async function main() {
         const dialog = page.getByRole("dialog", { name: "יצירת טיוטת חשבונית" });
         const select = dialog.locator("select").first();
         await select.waitFor();
+        // the customer list loads after the modal opens; the pre-selected customer must be the selected option then
+        await page.waitForFunction(([id]) => (document.querySelector("[role=dialog] select") as HTMLSelectElement | null)?.value === id, [String(seed.A.customerId)], { timeout: 30_000 }).catch(() => undefined);
         if ((await select.inputValue()) !== String(seed.A.customerId)) throw new Error(`selected ${await select.inputValue()}`);
         await Promise.all([page.waitForURL(/\/billing\/\d+$/, { timeout: 60_000 }), dialog.getByRole("button", { name: "התחל מסמך" }).click()]);
         const d = await drafts(seed.A);
