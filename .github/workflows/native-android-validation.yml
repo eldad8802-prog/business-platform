@@ -1,25 +1,22 @@
 name: native-android-validation
 
-# W7 Native Validation — Android (Adaptive+Native Spec v1 §13, §31).
-#
-# Manual, on-demand runtime proof for the Capacitor Android shell. This is the
-# gate that lets Native be marked CLOSED: it BUILDS the real APK and RUNS it on
-# an emulator, capturing screenshots of the running app (not a web browser at a
-# phone width). Until this workflow has a green run with attached artifacts,
-# Native stays OPEN by the owner's instruction.
-#
-# Why manual: it boots an emulator (~10 min, KVM runner) — it is a release gate,
-# not a per-PR check.
+# DIAGNOSTIC BRANCH ONLY (diag/android-cream-bars) — consolidated Android release, stage 1 (cream bars).
+# One web build of this branch (the gated native-shell.ts), served on localhost:3000, and two APKs pointed at
+# it (cleartext, throwaway builds only):
+#   old = today's native (origin/main styles/colors/config), versionCode 1 — the installed Play build's shape
+#   new = this branch's native, versionCode 2 (what #1027 will set)
+# Each is measured on the emulator: cold start, light/dark, rotation, keyboard, status/navigation bars.
+# No secret, no database, no Production contact. Dispatch inputs kept only for the main-branch form.
 on:
   workflow_dispatch:
     inputs:
       server_url:
-        description: 'CAP_SERVER_URL for the WebView (production or a preview URL)'
+        description: 'ignored on the diagnostic branch'
         required: true
         default: 'https://promaxgroup.co.il'
         type: string
       api_level:
-        description: 'Android API level to validate (36 = the Play target)'
+        description: 'ignored on the diagnostic branch (matrix below)'
         required: true
         default: '36'
         type: choice
@@ -29,73 +26,77 @@ permissions:
   contents: read
 
 jobs:
-  android-runtime-proof:
-    # KVM-enabled runner — required for a usable emulator.
+  cream-bars:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { api: '34', profile: 'pixel_6' }
+          - { api: '35', profile: 'pixel_6' }
+          - { api: '36', profile: 'pixel_7_pro' }
+          - { api: '37.0', profile: 'pixel_6' }
     steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-
-      - name: Enable KVM (hardware acceleration for the emulator)
+          fetch-depth: 0
+      - name: Enable KVM
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
-
-      - name: Setup JDK 21
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: 'temurin'
           java-version: '21'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
-
-      - name: Install dependencies
-        run: npm ci
-
-      # The native shell loads the app remotely (Spec v1 §15 — remote WebView,
-      # conditionally approved). No Next build is needed for the APK itself.
-      - name: Capacitor sync (with the target server URL)
-        env:
-          CAP_SERVER_URL: ${{ inputs.server_url }}
-        run: npx cap sync android
-
-      - name: Assemble debug APK
-        working-directory: android
-        run: ./gradlew --no-daemon assembleDebug
-
-      - name: Run the native validation battery on an emulator
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        env:
-          CAP_SERVER_URL: ${{ inputs.server_url }}
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
-          api-level: ${{ inputs.api_level }}
-          target: google_apis
+          packages: 'platform-tools'
+      - run: |
+          npm ci
+          npx prisma generate
+      - name: Web build (this branch)
+        run: npx next build > build.log 2>&1 || { tail -40 build.log; exit 1; }
+      - name: APKs — new (branch native, versionCode 2) and old (main native, versionCode 1)
+        env:
+          CAP_SERVER_URL: http://localhost:3000
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          G=android/app/build.gradle
+          mkdir -p apk
+          sed -i 's|<application|<application android:usesCleartextTraffic="true"|' "$M"
+          sed -i 's|versionCode 1|versionCode 2|' "$G"
+          npx cap sync android
+          grep -o '"StatusBar":{[^}]*}' android/app/src/main/assets/capacitor.config.json || cat android/app/src/main/assets/capacitor.config.json | tr -d '\n\t ' | grep -o '"StatusBar":{[^}]*}'
+          (cd android && ./gradlew --no-daemon assembleDebug) && cp android/app/build/outputs/apk/debug/app-debug.apk apk/app-new.apk
+          BASE=$(git merge-base origin/main HEAD)
+          git checkout "$BASE" -- android/app/src/main/res/values/styles.xml android/app/src/main/res/values/colors.xml capacitor.config.ts
+          sed -i 's|versionCode 2|versionCode 1|' "$G"
+          npx cap sync android
+          tr -d '\n\t ' < android/app/src/main/assets/capacitor.config.json | grep -o '"StatusBar":{[^}]*}'
+          (cd android && ./gradlew --no-daemon assembleDebug) && cp android/app/build/outputs/apk/debug/app-debug.apk apk/app-old.apk
+          git checkout HEAD -- android/app/src/main/res/values/styles.xml android/app/src/main/res/values/colors.xml capacitor.config.ts
+          ls -l apk
+      - name: Old vs new on the emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis_playstore
           arch: x86_64
-          profile: pixel_6
+          profile: ${{ matrix.profile }}
           ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: bash scripts/native/android-validate.sh
-
-      - name: Upload runtime evidence (screenshots + logs + report)
+          script: bash scripts/native/cream-bars-run.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: android-runtime-evidence-api${{ inputs.api_level }}
-          path: |
-            native-evidence/**
-          if-no-files-found: warn
-          retention-days: 30
+          name: cream-bars-api${{ matrix.api }}
+          path: native-evidence/**
+          retention-days: 14
