@@ -227,24 +227,15 @@ async function main() {
     const eb = await expired.json();
     ok("check: EXPIRED → { ok:false, code TOKEN_EXPIRED } with the Hebrew reason", eb.ok === false && eb.code === "TOKEN_EXPIRED" && eb.error.includes("פג"));
 
-    const vScheduled: Array<[number, number]> = [];
-    const vSchedule = (id: number, b: number) => { vScheduled.push([id, b]); };
+    // Verifying records and sends nothing (the WELCOME is the signup's, owner decision 2026-11-10).
     const verified = await handleVerify(post("/api/auth/email/verify", { token: "t" }), {
-      rateLimit: allow, schedule: vSchedule, consume: async () => ({ status: "VERIFIED", userId: 1, businessId: 2, welcomeEmailId: 77 }),
+      rateLimit: allow, consume: async () => ({ status: "VERIFIED", userId: 1, businessId: 2 }),
     });
-    ok("verify: VERIFIED → 200, and the WELCOME it recorded is scheduled for that business",
-      verified.status === 200 && (await verified.json()).ok === true && JSON.stringify(vScheduled) === "[[77,2]]", JSON.stringify(vScheduled));
-    vScheduled.length = 0;
-    const verifiedNoWelcome = await handleVerify(post("/api/auth/email/verify", { token: "t" }), {
-      rateLimit: allow, schedule: vSchedule, consume: async () => ({ status: "VERIFIED", userId: 1, businessId: 2, welcomeEmailId: null }),
-    });
-    ok("verify: VERIFIED with no new WELCOME (one already existed) → 200, nothing scheduled", verifiedNoWelcome.status === 200 && vScheduled.length === 0);
-    const verifiedThrows = await handleVerify(post("/api/auth/email/verify", { token: "t" }), {
-      rateLimit: allow, schedule: () => { throw new Error("boom"); }, consume: async () => ({ status: "VERIFIED", userId: 1, businessId: 2, welcomeEmailId: 78 }),
-    });
-    ok("verify: a scheduling failure never fails the verification (200)", verifiedThrows.status === 200);
-    const used = await handleVerify(post("/api/auth/email/verify", { token: "t" }), { rateLimit: allow, schedule: vSchedule, consume: async () => ({ status: "USED" }) });
-    ok("verify: USED → 400 TOKEN_USED, nothing scheduled", used.status === 400 && (await used.json()).code === "TOKEN_USED" && vScheduled.length === 0);
+    ok("verify: VERIFIED → 200 { ok: true }", verified.status === 200 && (await verified.json()).ok === true);
+    const used = await handleVerify(post("/api/auth/email/verify", { token: "t" }), { rateLimit: allow, consume: async () => ({ status: "USED" }) });
+    ok("verify: USED → 400 TOKEN_USED", used.status === 400 && (await used.json()).code === "TOKEN_USED");
+    const expiredLink = await handleVerify(post("/api/auth/email/verify", { token: "t" }), { rateLimit: allow, consume: async () => ({ status: "EXPIRED" }) });
+    ok("verify: EXPIRED → 400 TOKEN_EXPIRED", expiredLink.status === 400 && (await expiredLink.json()).code === "TOKEN_EXPIRED");
 
     // The library refuses garbage before the database is ever asked (no DATABASE_URL in this process).
     ok("lib: a short new password is refused before anything else", (await consumePasswordReset("x", "short")).status === "WEAK_PASSWORD");

@@ -341,10 +341,9 @@ async function main() {
     ok("scope: only signup (WELCOME), the account-link flows (EMAIL_VERIFY / PASSWORD_RESET) and the Google link (LINK_GOOGLE / GOOGLE_LINKED / GOOGLE_UNLINKED) enqueue — login, setup, refresh and every other flow do not",
       JSON.stringify(enqueuers) === JSON.stringify(["lib/auth/email-tokens.ts", "lib/auth/google-link.ts", "lib/auth/signup.ts"]), JSON.stringify(enqueuers));
     const deliverers = files.filter((f) => /deliverTransactionalEmail\(|runTransactionalEmailSweep\(|deliverNow\b|scheduleDelivery\b/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
-    ok("scope: delivery is reached only after a response (register, forgot-password, resend-verification, verification → deferred WELCOME) and from the sweep route",
+    ok("scope: delivery is reached only after a response (register, forgot-password, resend-verification) and from the sweep route — verifying an address delivers nothing",
       JSON.stringify(deliverers) === JSON.stringify([
         "app/api/auth/email/resend/route.ts",
-        "app/api/auth/email/verify/route.ts",
         // "Continue with Google": the completed signup's WELCOME, scheduled after the response exactly as register does.
         "app/api/auth/google/complete/route.ts",
         "app/api/auth/password/forgot/route.ts",
@@ -363,6 +362,14 @@ async function main() {
     const enq = signup.indexOf("enqueueWelcomeEmail(tx");
     const txEnd = signup.indexOf("} catch (error)");
     ok("scope: the WELCOME is enqueued INSIDE the account transaction, on its tx", txStart > 0 && enq > txStart && enq < txEnd);
+    // Owner decision 2026-11-10: the WELCOME does not wait for email verification, and verifying records none.
+    const welcomeGate = signup.slice(signup.lastIndexOf("const welcomeEmailId", enq), enq);
+    ok("scope: the password signup's WELCOME is gated on the auth plane only — never on the verification link",
+      /isAuthPlaneActive()/.test(welcomeGate) && !/verification/.test(welcomeGate), welcomeGate);
+    const tokens = code("lib/auth/email-tokens.ts");
+    ok("scope: email verification records no WELCOME (email-tokens.ts never enqueues one)",
+      !/enqueueWelcomeEmail|welcomeDedupeKey|"WELCOME"/.test(tokens));
+    ok("scope: the verify route schedules no delivery", !/scheduleDelivery|deliverTransactionalEmail/.test(code("app/api/auth/email/verify/route.ts")));
     // Raw text: the comment stripper above would eat the `//` of the URL itself.
     const raw = (f: string) => fs.readFileSync(path.join(root, f), "utf8");
     const providerHosts = files.filter((f) => /api\.resend\.com/.test(raw(f)));
