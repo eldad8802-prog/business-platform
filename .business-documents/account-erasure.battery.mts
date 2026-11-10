@@ -255,7 +255,8 @@ async function mirrorBusinessNameGrant(): Promise<boolean> {
   const fs = await import("node:fs");
   const path = await import("node:path");
   const file = path.join(process.cwd(), "prisma/migrations/20261011090100_signup_consent_business_rename/migration.sql");
-  const grant = /GRANT UPDATE ("name") ON "Business" TO app_runtime;/.exec(fs.readFileSync(file, "utf8"))?.[0];
+  const literal = 'GRANT UPDATE ("name") ON "Business" TO app_runtime;';
+  const grant = fs.readFileSync(file, "utf8").includes(literal) ? literal : undefined;
   if (!grant) throw new Error(`the Business name grant was not found in ${file}`);
   const sup = new PrismaClient({ datasources: { db: { url: process.env.SUPER_URL } } });
   try {

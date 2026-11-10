@@ -26,7 +26,7 @@ psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/202609081
 # Production applied 20261011090100 after the narrowing: it grants the runtime UPDATE ("name") on Business (account
 # erasure A1 renames the business at the terminal transition). Taken VERBATIM from that migration — never widened.
 REN="$ROOT/prisma/migrations/20261011090100_signup_consent_business_rename/migration.sql"
-NAME_GRANT="$(grep -oE 'GRANT UPDATE ("name") ON "Business" TO app_runtime;' "$REN" | head -1)"
+NAME_GRANT="$(grep -oF 'GRANT UPDATE ("name") ON "Business" TO app_runtime;' "$REN" | head -1)"
 [ -n "$NAME_GRANT" ] || { echo "the Business name grant was not found in $REN"; exit 1; }
 echo "$NAME_GRANT" | psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL"
 if [ "${2:-}" = "--b4" ]; then
