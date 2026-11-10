@@ -150,6 +150,30 @@ async function main() {
     ok("ALREADY REPLACED: recovered with no refresh request, read retried", r === "recovered" && refreshCalls === 0 && retries === 1 && b.replaced.length === 0);
   }
 
+  // ── a pending sign-out is never undone by recovery (M6, device QA) ───────
+  {
+    // "Clear this device anyway": no token, the marker, and the cookie still in
+    // the jar as the proof. The server WOULD refresh it — the guard must not ask.
+    const b = installBrowser(null, "/setup"); sg.__testing.reset(); rc.__testing.resetInFlight();
+    b.store.set(sg.PENDING_REVOKE_KEY, JSON.stringify({ since: 1, sid: "a" }));
+    serverSays("ok");
+    const r = await sg.handleUnauthorized({ rejectedToken: null });
+    ok("PENDING SIGN-OUT, no token: signed_out — the cleared session is NOT resumed", r === "signed_out", r);
+    ok("...with NO refresh request (the cookie is proof, not a session)", refreshCalls === 0, `${refreshCalls}`);
+    ok("...no reload, but /login — where the pending sign-out is finished", b.reloads === 0 && b.replaced.length === 1 && b.replaced[0].endsWith("/login"));
+    ok("...and the marker is kept for the login screen", b.store.has(sg.PENDING_REVOKE_KEY));
+  }
+  {
+    // A later sign-in (a token present) is a different session: the old marker
+    // does not stop its normal recovery.
+    const b = installBrowser(tok("later")); sg.__testing.reset(); rc.__testing.resetInFlight();
+    b.store.set(sg.PENDING_REVOKE_KEY, JSON.stringify({ since: 1, sid: "a" }));
+    serverSays("ok");
+    let retries = 0;
+    const r = await sg.handleUnauthorized({ rejectedToken: tok("later"), retry: () => { retries += 1; } });
+    ok("PENDING SIGN-OUT + a later sign-in's token: recovered normally", r === "recovered" && retries === 1 && b.replaced.length === 0, r);
+  }
+
   // ── no token at all ──────────────────────────────────────────────────────
   {
     const b = installBrowser(null); sg.__testing.reset(); rc.__testing.resetInFlight();
