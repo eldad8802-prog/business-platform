@@ -21,6 +21,7 @@ import { readCommittedFile, sha256Hex } from "../lib/services/business-documents
 import { listPurchaseOrderSheets, purchaseOrderSheetFile, PurchaseOrderSheetNotFoundError, savePurchaseOrderSheet } from "../lib/services/business-documents/po-sheet/po-sheet.service";
 import { issueRequestKey } from "../lib/services/business-documents/requests/business-docs-requests";
 import { getStorageService, type StorageService } from "../lib/storage";
+import { validId } from "./po-sheet-checks.mts";
 
 const own = new PrismaClient({ datasources: { db: { url: process.env.OWNER_URL } } });
 
@@ -105,7 +106,8 @@ async function main() {
     savePurchaseOrderSheet({ businessId: A, userId: uA, supplierOrderId: order.id, locale: "he", idempotencyKey: k2 }),
   ]);
   const ids = [c1, c2].filter((r) => r.status === "fulfilled").map((r) => (r as PromiseFulfilledResult<{ id: number }>).value.id);
-  ok("two concurrent saves with one key make at most one copy", new Set(ids).size <= 1 && (await sheetsOf(A)) === before + 1, `${c1.status}/${c2.status}`);
+  // At least one save succeeded with a real id (an empty list must not pass), every success is that one copy.
+  ok("two concurrent saves with one key make at most one copy", ids.length >= 1 && ids.every(validId) && new Set(ids).size === 1 && (await sheetsOf(A)) === before + 1, `${c1.status}/${c2.status}`);
 
   console.log("--- isolation ---");
   await refused("business B cannot save a copy of A's order", async () => savePurchaseOrderSheet({ businessId: B, userId: uB, supplierOrderId: order.id, locale: "he", idempotencyKey: await key(B, uB) }), (e) => e instanceof PurchaseOrderSheetNotFoundError);

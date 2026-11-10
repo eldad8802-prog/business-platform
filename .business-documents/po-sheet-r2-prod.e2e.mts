@@ -18,6 +18,7 @@ import { DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command, S3Client }
 import { PrismaClient } from "@prisma/client";
 
 import { mirrorMissingEraseFunctions, uniqueBusinessIds } from "./lab-erase-functions.mts";
+import { sameCopy } from "./po-sheet-checks.mts";
 
 const env = (k: string) => (process.env[k] ?? "").trim();
 const BASE = env("E2E_BASE");
@@ -95,7 +96,7 @@ async function main() {
   ok("E1 the server issues a key and the save answers 201", k1.length > 0 && s1.status === 201 && Boolean(v1?.id), `${s1.status}`);
   const l = await api(sheetsPath, tA);
   const lj = l.status === 200 ? ((await l.json()) as { sheets: { id: number }[] }) : null;
-  ok("E1 the copy is listed (exactly one)", lj?.sheets.length === 1 && lj.sheets[0].id === v1?.id, `${l.status} ${lj?.sheets.length}`);
+  ok("E1 the copy is listed (exactly one)", lj?.sheets.length === 1 && sameCopy([{ status: s1.status, id: v1?.id, ok: [201] }, { status: l.status, id: lj.sheets[0].id, ok: [200] }]), `${l.status} ${lj?.sheets.length}`);
 
   console.log("--- E2 download = the object in the bucket ---");
   const d = await api(`/api/business-documents/po-sheets/${v1?.id}/pdf`, tA);
@@ -111,15 +112,16 @@ async function main() {
   const both = await Promise.all([save(k2), save(k2)]);
   const statuses = both.map((r) => r.status);
   ok("E3 two saves at once: each saved, replayed or was told to retry (409) — nothing else", statuses.every((s) => s === 201 || s === 200 || s === 409) && statuses.some((s) => s === 201), statuses.join(","));
-  const ids = await Promise.all(both.filter((r) => r.status < 300).map(async (r) => ((await r.json()) as { id: number }).id));
+  const won = await Promise.all(both.filter((r) => r.status === 201 || r.status === 200).map(async (r) => ({ status: r.status, id: ((await r.json()) as { id?: unknown }).id, ok: [201, 200] })));
   const retry2 = await save(k2);
-  const rv2 = retry2.status === 200 ? ((await retry2.json()) as { id: number; replay?: boolean }) : null;
-  ok("E3 the retry of that click returns the same copy (200)", Boolean(rv2) && ids.every((id) => id === rv2?.id), `${retry2.status}`);
+  const rv2 = retry2.status === 200 ? ((await retry2.json()) as { id?: unknown }) : null;
+  // At least one click saved (two answers to compare), every saved click and the retry carry the same real id.
+  ok("E3 the retry of that click returns the same copy (200)", sameCopy([...won, { status: retry2.status, id: rv2?.id, ok: [200] }]), `${retry2.status}, saved ${won.length}`);
 
   console.log("--- E4 retry with the first key ---");
   const retry1 = await save(k1);
-  const rv1 = retry1.status === 200 ? ((await retry1.json()) as { id: number }) : null;
-  ok("E4 the same copy as the first save (200)", rv1?.id === v1?.id, `${retry1.status}`);
+  const rv1 = retry1.status === 200 ? ((await retry1.json()) as { id?: unknown }) : null;
+  ok("E4 the same copy as the first save (200)", sameCopy([{ status: s1.status, id: v1?.id, ok: [201] }, { status: retry1.status, id: rv1?.id, ok: [200] }]), `${s1.status} → ${retry1.status}`);
   ok("E4 two copies in all (one per key), two objects in the bucket", (await sheets()) === 2 && (await pdfObjects()) === 2, `${await sheets()} / ${await pdfObjects()}`);
 
   console.log("--- E5 business without the feature ---");

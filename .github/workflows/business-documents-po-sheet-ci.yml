@@ -41,6 +41,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: The browser download hands pdfmake exactly the original definition
         run: npx tsx lib/services/business-documents/po-sheet/supplier-document-unchanged.test.ts
+      - name: The "same copy" checks of the double-click / retry scenarios cannot pass when the saves failed
+        run: npx tsx .business-documents/po-sheet-checks.test.mts
 
   service:
     name: Purchase-order sheet service on the real migrations, as the runtime role (PG17)

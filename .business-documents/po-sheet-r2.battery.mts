@@ -31,6 +31,7 @@ import { listPurchaseOrderSheets, purchaseOrderSheetFile, savePurchaseOrderSheet
 import { BusinessDocumentsRequestError, issueRequestKey } from "../lib/services/business-documents/requests/business-docs-requests";
 import { R2StorageService } from "../lib/storage";
 import { mirrorMissingEraseFunctions, uniqueBusinessIds } from "./lab-erase-functions.mts";
+import { idsMatch } from "./po-sheet-checks.mts";
 
 const env = (k: string) => (process.env[k] ?? "").trim();
 const cfg = { accountId: env("R2_TEST_ACCOUNT_ID"), accessKeyId: env("R2_TEST_ACCESS_KEY_ID"), secretAccessKey: env("R2_TEST_SECRET_ACCESS_KEY"), bucketName: env("R2_TEST_BUCKET") };
@@ -134,7 +135,7 @@ async function main() {
 
   console.log("--- P2 listed ---");
   const listed = await listPurchaseOrderSheets(A, order);
-  ok("the list holds exactly this copy", listed.length === 1 && listed[0].id === s1.id, `${listed.length}`);
+  ok("the list holds exactly this copy", listed.length === 1 && idsMatch([s1.id, listed[0].id]), `${listed.length}`);
 
   console.log("--- P3 download = stored ---");
   const downloaded = file ? await readCommittedFile(A, file.fileId, storage) : Buffer.alloc(0);
@@ -147,12 +148,12 @@ async function main() {
   const busy = both.filter((r) => r.status === "rejected" && (r as PromiseRejectedResult).reason instanceof BusinessDocumentsRequestError && (r as PromiseRejectedResult).reason.code === "IN_PROGRESS").length;
   ok("each click either saved or was told to retry — nothing else", won.length + busy === 2 && won.length >= 1, `saved ${won.length}, retry ${busy}`);
   const again = await save(k2);
-  ok("the retry of that click returns the same copy", won.every((id) => id === again.id) && again.replay === true);
+  ok("the retry of that click returns the same copy", won.length >= 1 && idsMatch([...won, again.id]) && again.replay === true);
   ok("…two copies in all (one per key), two objects", (await sheets()) === 2 && (await pdfObjects()).length === 2, `${await sheets()} / ${(await pdfObjects()).length}`);
 
   console.log("--- P5 retry with the first key ---");
   const r1 = await save(k1);
-  ok("the same copy (replay), never a new one", r1.id === s1.id && r1.replay === true);
+  ok("the same copy (replay), never a new one", idsMatch([s1.id, r1.id]) && r1.replay === true);
   ok("…still two copies, two objects", (await sheets()) === 2 && (await pdfObjects()).length === 2);
   const keys = (await own.businessDocumentFile.findMany({ where: { businessId: A, purpose: "PURCHASE_ORDER_SHEET" }, select: { objectKey: true } })).map((f) => f.objectKey);
 
