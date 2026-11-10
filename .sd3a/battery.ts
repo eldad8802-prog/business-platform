@@ -295,6 +295,7 @@ async function main() {
     settings: await import("../app/api/service-desk/settings/route"),
     actions: await import("../app/api/service-desk/cases/[id]/actions/route"),
     case: await import("../app/api/service-desk/cases/[id]/route"),
+    staff: await import("../app/api/service-desk/staff/route"),
   };
   const http = (method: string, body: unknown, token: string | null, extra: Record<string, string> = {}) =>
     new Request("https://lab.test/api/service-desk/x", { method, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", ...extra }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -328,6 +329,18 @@ async function main() {
   ok("H5 READ_ONLY → 403 READ_ONLY on the closed routes, before the closure", (await Promise.all((await closedCalls(tokenA)).map(async (r) => r.status === 403 && (await r.json()).error === "READ_ONLY"))).every(Boolean));
   const settingsRead = await routes.settings.GET(http("GET", undefined, tokenA));
   ok("H6 READ_ONLY still reads (GET settings, GET case)", settingsRead.status === 200 && (await routes.case.GET(http("GET", undefined, tokenA), params(hCase.case.id))).status === 200);
+  // UI 1.3a: GET /api/service-desk/staff — the technician pickers' list, under the Service Desk gate (not appointments).
+  const inactive = Number((await q(`INSERT INTO "StaffMember" ("businessId", "displayName", active, "updatedAt") VALUES ($1, 'לא פעיל', false, now()) RETURNING id`, A.b))[0].id);
+  const erased = Number((await q(`INSERT INTO "StaffMember" ("businessId", "displayName", "erasedAt", "updatedAt") VALUES ($1, '', now(), now()) RETURNING id`, A.b))[0].id);
+  const staffRes = await routes.staff.GET(http("GET", undefined, tokenA));
+  const staffIds = staffRes.status === 200 ? ((await staffRes.json()).staff as { id: number; displayName: string }[]).map((m) => m.id) : [];
+  ok("HS1 GET staff (READ_ONLY reads): this business's active staff only — not inactive, not erased, never another business's",
+    staffRes.status === 200 && staffIds.includes(A.staff) && !staffIds.includes(inactive) && !staffIds.includes(erased) && !staffIds.includes(B.staff));
+  ok("HS2 GET staff: no session → 401", (await routes.staff.GET(http("GET", undefined, null))).status === 401);
+  await setOverride(A.b, null); await setPolicy(false);
+  ok("HS3 GET staff: NONE (not open) → 404, like every Service Desk route", (await routes.staff.GET(http("GET", undefined, tokenA))).status === 404);
+  await q(`DELETE FROM "StaffMember" WHERE id = ANY($1::int[])`, [inactive, erased]);
+  await setPolicy(true); await setOverride(A.b, "DISABLED");
   ok("H7 still nothing written after every refusal", (await snap()) === beforeH);
   await setPolicy(false); await setOverride(A.b, "ENABLED");
   const hk = key();
