@@ -570,6 +570,36 @@ export const insightsHe = {
       accessories: "אקססוריז",
       homeDesign: "עיצוב לבית",
       onlineStore: "חנות אונליין",
+      jewelry: "תכשיטים",
+    },
+    automotive: {
+      label: "רכב",
+      garage: "מוסך",
+      bodyShop: "פחחות וצבע",
+      tires: "צמיגים",
+      autoElectric: "חשמלאי רכב",
+    },
+    deviceRepair: {
+      label: "תיקון מכשירים",
+      mobilePhones: "סלולר",
+      computers: "מחשבים",
+      electronics: "מוצרי חשמל",
+    },
+    installations: {
+      label: "התקנות",
+      securityCameras: "מצלמות ואבטחה",
+      furnitureAssembly: "הרכבת רהיטים",
+      solar: "מערכות סולאריות",
+    },
+    itServices: {
+      label: "IT ותמיכה טכנית",
+      techSupport: "תמיכה טכנית",
+      networks: "רשתות ותקשורת",
+    },
+    professionalServices: {
+      label: "שירותים מקצועיים",
+      consulting: "ייעוץ",
+      training: "הדרכה",
     },
     other: {
       label: "אחר",
