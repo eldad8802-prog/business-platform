@@ -441,7 +441,9 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
   // biz/{id}/service/ go after commit (OBJECT_SURFACES, service-storage-erasure.ts).
   {
     fn: "service_desk_ui_erase_business",
-    migration: "20261120090000_service_desk_ui_foundation",
+    // Its current text: 20261123090000 (ex-#1026, owner option A 2026-11-09) replaced the 1.3-0 version — it also deletes
+    // the business's ServiceSettings row and replaces the warranty offers' free texts by a fixed placeholder.
+    migration: "20261123090000_service_desk_ui_erasure_text",
     models: [
       {
         model: "ServiceTextVersion",
@@ -461,13 +463,14 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
       {
         model: "ServiceWarrantyOffer",
-        cleared: ["changeReason", "presentedByUserId", "createdByUserId"],
+        cleared: ["changeReason", "presentedByUserId", "createdByUserId", "exclusionsText"],
         kept: {
-          scopeText: "the commercial warranty scope offered for the repair — kept by the applied function as the case's consumer record; per-case owner free text, so scrubbing it is an OPEN owner decision (privacy mapping, 1.3-0 PR-2)",
-          exclusionsText: "the commercial warranty exclusions offered for the repair — kept by the applied function, same open owner decision as scopeText",
+          scopeText: "replaced by the fixed placeholder '[נמחק]' (NOT NULL column; owner option A 2026-11-09) — no owner free text remains, only that constant",
           contentSha256: "the hash of the offer's content, not the person",
         },
       },
+      // The business's Service Desk settings (warranty template texts, default staff member): deleted with the account.
+      { model: "ServiceSettings", deleted: true, cleared: [], kept: {} },
       {
         model: "ServiceIntakePhoto",
         cleared: ["createdByUserId"],

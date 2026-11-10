@@ -42,6 +42,7 @@ on:
       - ".sd3/lab.sh"
       - "prisma/migrations/20261120090000_service_desk_ui_foundation/**"
       - "prisma/migrations/20261122090000_service_desk_audit_journal/**"
+      - "prisma/migrations/20261123090000_service_desk_ui_erasure_text/**"
       - ".github/workflows/service-desk-foundation-lab.yml"
       - ".github/workflows/prod-readonly-evidence.yml"
       - "prisma/schema.prisma"
@@ -125,6 +126,8 @@ jobs:
             [[ "$n" != "20261115090000_service_parts" ]] || continue
             [[ "$n" != "20261120090000_service_desk_ui_foundation" ]] || continue
             [[ "$n" != "20261122090000_service_desk_audit_journal" ]] || continue
+            # The 1.3-0 erasure texts (renamed #1026): replaces three 1.3-0 functions on purpose, proven by its own lab.
+            [[ "$n" != "20261123090000_service_desk_ui_erasure_text" ]] || continue
             if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"Service(CaseNumberSequence|Device|Case|CaseIntake|Quote|CaseEvent|Handover)"|service_(erase_business|case_guard|case_opening_guard|quote_guard|event_|handover_guard|intake_guard|device_guard|user_same_business|journal_truncate)'; then
               echo "$n names a service desk object"; exit 1
             fi
