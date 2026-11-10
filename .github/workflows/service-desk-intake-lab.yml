@@ -1,0 +1,71 @@
+name: service desk 1.3b — intake signature path lab (terms, photos, signature) (ephemeral PG17)
+
+# Stage 1.3b (owner-approved 2026-11-10): the intake terms snapshot, photos and signature over the existing tables, AS the
+# runtime role, on the P4 lab (1.2a + 1.2b + M2 + 1.3-0 + P4 applied by migrate deploy). Synthetic only; no secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/service-desk/**"
+      - "app/api/service-desk/**"
+      - "lib/tenant/**"
+      - ".sd13b/**"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - "prisma/schema.prisma"
+      - ".github/workflows/service-desk-intake-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk 1.3b intake (PG17, runtime role, P4 applied)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sd13b_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sd13b_ci_synthetic_super_pw
+      LAB_PASSWORD: sd13b_ci_synthetic_role_pw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: The intake signature path as the runtime role (local object store)
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sd13b >/dev/null
+          bash .sd3p4/lab.sh sd13b --deploy-only >/dev/null
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sd13b"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sd13b"
+          S="postgresql://lab_super:$PGPASSWORD@localhost:5432/sd13b"
+          OWNER_URL="$A" SUPER_URL="$S" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sd13b-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sd13b-ci \
+          AUTH_TOKEN_SECRET=sd13b-ci-synthetic-auth-secret-0123456789abcdef \
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/sd13b-storage" \
+            npx tsx .sd13b/battery.ts | tee /tmp/sd13b.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sd13b.out || { echo "the 1.3b battery is not green"; exit 1; }

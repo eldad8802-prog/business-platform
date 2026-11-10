@@ -1,0 +1,9 @@
+{
+  "note": "Service Desk 1.3b: the intake signature path — terms snapshot (approved texts only), intake photos, the customer's signature. The data service itself is proven by the PG17 lab .sd13b/battery.ts (service-desk-intake-lab.yml).",
+  "tests": {
+    "lib/services/service-desk/intake-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB): who may present terms, add a photo and sign (IN_SHOP before check-in, unsigned), approved texts only (owner rule: no signature without legally approved terms), images judged by their bytes, photo size / count, signature PNG bounds, all reasons reported together, determinism and no I/O; run on pull_request by service-desk-ci.yml"
+    }
+  }
+}
