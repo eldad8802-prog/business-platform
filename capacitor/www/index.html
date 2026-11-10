@@ -61,12 +61,16 @@
       The careful message is what shows first, before any evidence; the page never navigates by itself (no
       reload loop), and it checks again when the device reports it is back online.
 
-      ACTIONS work with or without navigation history:
-        retry  history.back() re-requests the failed URL (the entry Capacitor pushed this page on top of) and
-               leaves this page forward rather than behind the app; with no earlier entry, open the app's
-               start page (location.reload() would only re-render this local file — a dead end).
-        back   history.go(-2) skips the failed entry; shown only when there is a page before it.
+      ACTIONS work with or without navigation history. Capacitor gives this page no failed URL, and the
+      emulator showed WebView versions disagree on whether the failed entry stays in history (Android 14-16
+      keep it under this page, 17 replaces it), so nothing depends on guessing the stack:
+        retry  open the app's start page (`/` → sign-in or the business home). Deterministic; never
+               location.reload(), which would only re-render this local file — a dead end.
+        back   to the page before the failure: history.go(-2) when the failed entry sits under this page
+               (more than two entries), history.back() when it was replaced (two). Hidden with no history.
         home   the app's home (/app; it sends a signed-out user to sign-in).
+      The SERVER ORIGIN is Production's (the release build's server.url): Capacitor does not inject
+      WEBVIEW_SERVER_URL into this local page (proven on the emulator); if it ever does, that value wins.
     -->
     <div class="wrap">
       <div class="brand">Dubiz</div>
@@ -101,8 +105,9 @@
         }
 
         /**
-         * The app's origin. With server.url set, Capacitor injects its origin as WEBVIEW_SERVER_URL; without
-         * it (or if the value is odd, or it is the app's own local origin) this is the Production site.
+         * The app's origin: Production's (the release build's server.url). Capacitor does not inject
+         * WEBVIEW_SERVER_URL into this local page; should a future version do so, a well-formed value that is
+         * not the app's own local origin is used instead.
          */
         function serverOrigin(win) {
           var injected = typeof win.WEBVIEW_SERVER_URL === "string" ? win.WEBVIEW_SERVER_URL : "";
@@ -142,14 +147,14 @@
 
         function wire(win, doc) {
           var origin = serverOrigin(win);
-          var hasBefore = function () { return win.history.length > 2; };
-          doc.getElementById("back").hidden = !hasBefore();
+          doc.getElementById("back").hidden = win.history.length < 2;
           doc.getElementById("retry").addEventListener("click", function () {
-            if (win.history.length > 1) win.history.back();
-            else win.location.replace(origin + "/");
+            win.location.replace(origin + "/");
           });
           doc.getElementById("back").addEventListener("click", function () {
-            if (hasBefore()) win.history.go(-2);
+            var n = win.history.length;
+            if (n > 2) win.history.go(-2);
+            else if (n === 2) win.history.back();
             else win.location.replace(origin + "/app");
           });
           doc.getElementById("home").addEventListener("click", function () {

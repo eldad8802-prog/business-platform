@@ -167,27 +167,41 @@ async function main() {
   }
 
   // ── 5. The actions, with and without history ───────────────────────────────────────────────────
+  // WebView versions disagree on whether the failed entry stays in history (emulator: 14-16 keep it, 17
+  // replaces it), so retry never depends on the stack, and back adapts to its length.
   {
-    const f = load({ historyLength: 3, injected: "https://promaxgroup.co.il" });
-    assert.equal(f.els.back.hidden, false, "back is offered when a page exists before the failed one");
+    const f = load({ historyLength: 3 });
+    assert.equal(f.els.back.hidden, false, "back is offered with history");
     f.els.retry.click();
     f.els.back.click();
     f.els.home.click();
-    assert.deepEqual(f.nav, ["back()", "go(-2)", "replace(https://promaxgroup.co.il/app)"]);
+    assert.deepEqual(f.nav, ["replace(https://promaxgroup.co.il/)", "go(-2)", "replace(https://promaxgroup.co.il/app)"], "failed entry kept under this page → back skips it");
   }
   {
     const f = load({ historyLength: 2 });
-    assert.equal(f.els.back.hidden, true, "no page before the failed one → no 'back'");
+    assert.equal(f.els.back.hidden, false);
+    f.els.back.click();
     f.els.retry.click();
-    assert.deepEqual(f.nav, ["back()"], "retry re-requests the failed entry");
+    assert.deepEqual(f.nav, ["back()", "replace(https://promaxgroup.co.il/)"], "failed entry replaced → back is one step; retry is the start page");
   }
   {
-    const f = load({ historyLength: 1, injected: "https://promaxgroup.co.il" });
+    const f = load({ historyLength: 1 });
+    assert.equal(f.els.back.hidden, true, "no history → no 'back'");
     f.els.retry.click();
     f.els.back.click();
     f.els.home.click();
     assert.deepEqual(f.nav, ["replace(https://promaxgroup.co.il/)", "replace(https://promaxgroup.co.il/app)", "replace(https://promaxgroup.co.il/app)"], "no history: every action still leads into the app");
-    assert.ok(!f.nav.includes("reload()"), "never reload() (it would only re-render this local page)");
+  }
+  {
+    // Should Capacitor ever inject a server origin into this page, the actions follow it.
+    const f = load({ historyLength: 1, injected: "http://localhost:3000" });
+    f.els.retry.click();
+    assert.deepEqual(f.nav, ["replace(http://localhost:3000/)"]);
+  }
+  for (const n of [1, 2, 3, 6]) {
+    const f = load({ historyLength: n });
+    f.els.retry.click(); f.els.back.click(); f.els.home.click();
+    assert.ok(!f.nav.includes("reload()"), `never reload() (history ${n})`);
   }
   assert.doesNotMatch(script, /location\.reload\(/, "the script never reloads itself");
   assert.doesNotMatch(script, /setInterval|location\.href\s*=/, "no polling, no automatic navigation");
@@ -199,10 +213,10 @@ async function main() {
     const body = cap.slice(cap.indexOf(`public void ${hook}(`), cap.indexOf(`public void ${hook}(`) + 900);
     assert.match(body, /errorPath != null && request\.isForMainFrame\(\)\s*\)\s*\{\s*view\.loadUrl\(errorPath\);/, `${hook} shows the error page for main-frame loads only`);
   }
-  const bridge = readFileSync(join(root, "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/Bridge.java"), "utf8");
-  assert.ok(bridge.includes(`"window.WEBVIEW_SERVER_URL = '" + localUrl + "';"`), "Capacitor injects the server origin");
-  assert.match(bridge, /localUrl = appUrlObject\.getProtocol\(\) \+ ":\/\/" \+ appUrlObject\.getAuthority\(\);/, "with server.url, that origin is the server's");
-  assert.match(readFileSync(join(root, "capacitor.config.ts"), "utf8"), /errorPath: "index\.html"/, "the app still points errorPath at this page");
+  const config = readFileSync(join(root, "capacitor.config.ts"), "utf8");
+  assert.match(config, /errorPath: "index\.html"/, "the app still points errorPath at this page");
+  // The page's fallback origin is the Production site the release build loads.
+  assert.ok(script.includes(`var PRODUCTION_ORIGIN = "https://promaxgroup.co.il";`));
 
   console.log("android-error-page: all assertions passed");
 }
