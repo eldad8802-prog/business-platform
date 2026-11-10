@@ -8,6 +8,7 @@ import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibilit
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
 import { handleUnauthorized } from "@/lib/auth/session-guard";
+import { flushAuthCookies } from "@/lib/native/auth-cookies";
 
 const LOGIN_A11Y_STYLE: React.CSSProperties = {
   position: "absolute",
@@ -243,6 +244,8 @@ export default function LoginForm({
       }
 
       window.localStorage.setItem("token", data.token);
+      // Android app: the session cookie this response set goes to disk now, not ~30 s later.
+      void flushAuthCookies();
 
       if (data.sessionId) {
         window.localStorage.setItem("sessionId", data.sessionId);

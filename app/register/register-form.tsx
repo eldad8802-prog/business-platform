@@ -8,6 +8,7 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/signup-identity";
 import { SIGNUP_HONEYPOT_FIELD } from "@/lib/auth/signup-honeypot";
 import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
+import { flushAuthCookies } from "@/lib/native/auth-cookies";
 
 import styles from "./register.module.css";
 
@@ -243,6 +244,8 @@ export default function RegisterForm({
       // Stored exactly as login stores it; the refresh credential arrived as an
       // httpOnly cookie on this same response and never touches JavaScript.
       localStorage.setItem("token", registerData.token);
+      // Android app: the session cookie this response set goes to disk now, not ~30 s later.
+      void flushAuthCookies();
 
       if (registerData.sessionId) {
         localStorage.setItem("sessionId", registerData.sessionId);
