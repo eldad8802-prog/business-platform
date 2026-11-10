@@ -16,6 +16,7 @@ on:
       - "scripts/ci/test-coverage/service-desk-profiles.json"
       - "scripts/ci/test-coverage/service-desk-external-work.json"
       - "scripts/ci/test-coverage/service-desk-parts.json"
+      - "scripts/ci/test-coverage/service-desk-intake.json"
       - ".github/workflows/service-desk-ci.yml"
   workflow_dispatch:
 
@@ -44,6 +45,8 @@ jobs:
       - run: npx tsx lib/services/service-desk/external-work-lock.test.ts
       - run: npx tsx lib/services/service-desk/cancel-stamp.test.ts
       - run: npx tsx lib/services/service-desk/parts-lock.test.ts
+      - run: npx tsx lib/services/service-desk/intake-core.test.ts
+      - run: npx tsx lib/services/service-desk/legal-approval-guard.test.ts
       - run: npx tsx lib/services/service-desk/qa-templates.test.ts
       - run: npx tsx features/service-desk/settings-model.test.ts
         env:
