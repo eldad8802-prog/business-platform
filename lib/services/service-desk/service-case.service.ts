@@ -704,6 +704,21 @@ export async function getSettings(businessId: number): Promise<ServiceSettingsVi
   return tenantTx(businessId, (tx) => readSettings(tx, businessId));
 }
 
+export type ServiceStaffMember = { id: number; displayName: string };
+
+/**
+ * UI 1.3a: the staff members a case or the settings may name — this business's active, not erased staff, in the business's
+ * own order. The same rows `staffOfBusiness` accepts, so a pick from this list passes the server check. Read only; under the
+ * Service Desk gate (not the appointments flag), so the settings screen does not depend on another module being open.
+ */
+export async function listActiveStaff(businessId: number): Promise<{ staff: ServiceStaffMember[] }> {
+  const rows = await tenantTx(businessId, (tx) => tx.$queryRaw<{ id: number; displayName: string }[]>`
+    SELECT id, "displayName" FROM "StaffMember"
+     WHERE "businessId" = ${businessId}::int AND active AND "erasedAt" IS NULL
+     ORDER BY "sortOrder", id`);
+  return { staff: rows.map((r) => ({ id: Number(r.id), displayName: String(r.displayName) })) };
+}
+
 /** The settings journal is its own ledger: same key + same request → the stored answer (the current settings). */
 async function findPriorSettings(tx: Tx, businessId: number, p: Prepared): Promise<boolean> {
   const rows = await tx.$queryRaw<{ d: string | null; k: string | null }[]>`

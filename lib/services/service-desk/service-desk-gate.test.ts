@@ -97,7 +97,8 @@ async function main() {
   const files: string[] = [];
   const walk = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name === "route.ts") files.push(p); } };
   walk(root);
-  ok("R1 ten route files", files.length === 10, String(files.length));
+  // UI 1.3a added one read: GET /api/service-desk/staff (the technician pickers), under the same edge as the rest.
+  ok("R1 eleven route files (incl. the staff read)", files.length === 11 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
   let allGuarded = true, kindsRight = true;
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");

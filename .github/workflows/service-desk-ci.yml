@@ -8,6 +8,7 @@ on:
     paths:
       - "lib/services/service-desk/**"
       - "app/api/service-desk/**"
+      - "features/service-desk/**"
       - "lib/services/feature-access/**"
       - "lib/storage/**"
       - "lib/services/feature-access/platform-feature-catalog.ts"
@@ -39,6 +40,7 @@ jobs:
       - run: npx tsx lib/services/service-desk/service-desk-gate.test.ts
       - run: npx tsx lib/services/service-desk/service-profiles.test.ts
       - run: npx tsx lib/services/service-desk/qa-templates.test.ts
+      - run: npx tsx features/service-desk/settings-model.test.ts
         env:
           AUTH_TOKEN_SECRET: sd-ci-synthetic-auth-secret-0123456789abcdef
       - run: npx eslint lib/services/service-desk
