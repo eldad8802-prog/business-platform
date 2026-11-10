@@ -24,7 +24,7 @@ permissions:
 jobs:
   lab:
     name: service desk 1.3b intake (PG17, runtime role, P4 applied)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
     timeout-minutes: 45
     services:
       postgres:
