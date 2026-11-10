@@ -114,6 +114,7 @@ export const customersHe = {
       },
       recentDocuments: "מסמכים אחרונים",
       allDocuments: "לכל המסמכים של הלקוח",
+      produceDocument: "הפקת מסמך ללקוח",
       recentPayments: "תשלומים אחרונים",
       noDocuments: "אין עדיין מסמכים ללקוח",
       noPayments: "אין עדיין תשלומים ללקוח",
