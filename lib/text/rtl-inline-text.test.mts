@@ -1,5 +1,5 @@
 /**
- * Right-to-left text in the supplier order PDF (lib/pdf/rtl-inline-text). Pure: no DB, no network.
+ * Right-to-left text in the supplier order PDF (lib/text/rtl-inline-text). Pure: no DB, no network.
  *
  * Found in the business 9 pilot (2026-11-10): the PDF header printed "zibuD" for "Dubiz". Cause, proven here on the
  * real renderers: pdfmake has no bidi; fontkit draws a word's glyphs reversed when its first letter is Hebrew, so the
@@ -13,7 +13,7 @@
  * 3. The BROWSER download (pdfmake's browser bundle, with its own pdfkit/fontkit) draws the very same text at the very
  *    same positions as the server, and its header reads "Dubiz" (it read "zibuD" before the fix).
  *
- * Run: npx tsx lib/pdf/rtl-inline-text.test.mts
+ * Run: npx tsx lib/text/rtl-inline-text.test.mts
  */
 import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
@@ -21,7 +21,7 @@ import { isDeepStrictEqual } from "node:util";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
-import { rtlInlines } from "@/lib/pdf/rtl-inline-text";
+import { rtlInlines } from "@/lib/text/rtl-inline-text";
 import { renderSupplierOrderPdf, supplierOrderHeaderTitle } from "@/lib/services/business-documents/po-sheet/po-sheet-pdf";
 import {
   buildSupplierPurchaseOrderDocDefinition,

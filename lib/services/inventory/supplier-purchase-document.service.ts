@@ -2,7 +2,7 @@
 import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
 import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
-import { rtlInlines } from "@/lib/pdf/rtl-inline-text";
+import { rtlInlines } from "@/lib/text/rtl-inline-text";
 import { formatQtyNumber, qtyWithUnit, unitWord } from "@/lib/inventory/unit-words";
 
 /** Minimal draft shape for building supplier order text / PDF (client-side). */
@@ -150,7 +150,7 @@ export function buildSupplierPurchaseOrderDocDefinition(
   draft: SupplierPurchaseDraftForDocument,
   context: SupplierPurchaseOrderDocumentContext
 ): any {
-  // pdfmake has no bidi: every text goes out as direction runs in visual order (lib/pdf/rtl-inline-text)
+  // pdfmake has no bidi: every text goes out as direction runs in visual order (lib/text/rtl-inline-text)
   const rtlText = rtlInlines;
 
   const supplierName = draft.supplierName || "ספק";

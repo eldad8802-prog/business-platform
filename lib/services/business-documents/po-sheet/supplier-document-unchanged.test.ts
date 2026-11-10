@@ -8,7 +8,7 @@
  * extracted builder must produce that very definition — so the browser download, and a server rendering of the same
  * draft with the same header and date, print the same document.
  *
- * The right-to-left text fix (lib/pdf/rtl-inline-text: "Dubiz" printed as "zibuD", multi-word Hebrew in reversed word
+ * The right-to-left text fix (lib/text/rtl-inline-text: "Dubiz" printed as "zibuD", multi-word Hebrew in reversed word
  * order) changes the document ON PURPOSE, so the hashes are not compared with today's builder any more. They stay as
  * recorded: a verbatim copy of the builder before the fix (supplier-document-before-bidi.fixture.ts) must still give
  * them, and today's builder must equal that copy everywhere except its text nodes, each of which is the same text as
@@ -23,7 +23,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import pdfMake from "pdfmake/build/pdfmake";
 
-import { rtlInlines } from "@/lib/pdf/rtl-inline-text";
+import { rtlInlines } from "@/lib/text/rtl-inline-text";
 import { buildSupplierPurchaseOrderDocDefinitionBeforeBidi } from "@/lib/services/business-documents/po-sheet/supplier-document-before-bidi.fixture";
 import {
   buildSupplierPurchaseOrderDocDefinition,

@@ -1,6 +1,6 @@
 /**
  * TEST FIXTURE — a verbatim copy of buildSupplierPurchaseOrderDocDefinition as it was on origin/main 5d146aa2, before
- * the right-to-left text fix (lib/pdf/rtl-inline-text). supplier-document-unchanged.test.ts proves this copy still
+ * the right-to-left text fix (lib/text/rtl-inline-text). supplier-document-unchanged.test.ts proves this copy still
  * produces the hashes recorded from the ORIGINAL browser download, and that the fixed builder differs from it only
  * in its text nodes, each the same text as direction runs. Never imported by application code.
  */
