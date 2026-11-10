@@ -114,6 +114,7 @@ export const customersEn: Widen<typeof customersHe> = {
       },
       recentDocuments: "Recent documents",
       allDocuments: "All of this customer's documents",
+      produceDocument: "Produce a document for this customer",
       recentPayments: "Recent payments",
       noDocuments: "No documents for this customer yet",
       noPayments: "No payments for this customer yet",
