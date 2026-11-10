@@ -1,0 +1,123 @@
+# Issuance: an invoice that needs an ITA allocation number is refused BEFORE numbering
+# while the Approval is known to be refused (Production pilot gate) — so no invoice is
+# issued that can never be delivered.
+#
+# Its own job and database on purpose: the test replays EVERY RLS / policy statement
+# the migrations ship, which would change the posture for any step that ran after it.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+# The post-commit Approval is a local stub; global fetch throws.
+
+name: billing issue allocation gate (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/billing-issue.service.ts"
+      - "lib/services/billing/billing-issue-allocation-gate.rls.integration.test.ts"
+      - "lib/services/billing/authority/billing-authority-issue-gate.ts"
+      - "lib/services/billing/authority/billing-authority-issue-gate.test.ts"
+      - "lib/services/billing/authority/billing-authority-readiness.ts"
+      - "lib/services/billing/authority/billing-authority-production-pilot.ts"
+      - "lib/services/billing/authority/billing-authority-threshold.ts"
+      - "lib/tenant/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - ".github/workflows/billing-issue-allocation-gate-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  allocation-gate:
+    name: Allocation gate at issue (unit + PG17, replayed RLS, NOBYPASSRLS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ag_owner
+          POSTGRES_PASSWORD: ag_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_ag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ag_owner -d dubiz_ag"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://ag_owner:ag_ci_synthetic_owner_pw@localhost:5432/dubiz_ag
+      RUNTIME_URL: postgresql://ag_runtime:ag_ci_synthetic_runtime_pw@localhost:5432/dubiz_ag
+      AUTH_TOKEN_SECRET: billing_ag_ci_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Rule (pure)
+        run: npx tsx lib/services/billing/authority/billing-authority-issue-gate.test.ts
+
+      - name: Push schema as the owner
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Create the governed runtime role
+        env:
+          PGPASSWORD: ag_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE ag_runtime LOGIN PASSWORD 'ag_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO ag_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ag_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ag_runtime;"
+
+      - name: Issuance under replayed RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx lib/services/billing/billing-issue-allocation-gate.rls.integration.test.ts
+
+      # The gate's refusal is removed from issuance (exactly the defect) and the suite must
+      # go red on G1 — the READY invoice issuing with a number under a closed pilot gate.
+      - name: Negative proof — issuance without the gate is caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          prove() {
+            local file=lib/services/billing/billing-issue.service.ts
+            cp "$file" "$file.bak"
+            perl -0pi -e 's/    if \(gate\.blocked\) \{\n      throw new ConflictError\(\n        AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE,\n        AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE\n      \);\n    \}\n/    void gate;\n/' "$file"
+            if cmp -s "$file" "$file.bak"; then
+              mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply"; return 1
+            fi
+            npx tsx lib/services/billing/billing-issue-allocation-gate.rls.integration.test.ts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then
+              echo "::error::NEGATIVE-PROOF FAIL: issuance without the gate and the suite stayed green"; return 1
+            fi
+            if ! grep -q "\[FAIL\] G1" np.log; then
+              echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on G1"; tail -30 np.log; return 1
+            fi
+            echo "negative proof OK — issuance without the gate fails G1"
+          }
+          prove || exit 1
