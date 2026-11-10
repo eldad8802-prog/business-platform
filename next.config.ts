@@ -25,6 +25,7 @@ const nextConfig: NextConfig = {
     "/api/business-documents/letters": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/business-documents/letters/pdf": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/business-documents/quotes/\\[id\\]/share/copies": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/service-desk/cases/\\[id\\]/intake/slip": ["./node_modules/@sparticuz/chromium/bin/**/*"],
   },
 
   // Retire the legacy duplicate homepage `/corporate-home` (superseded by

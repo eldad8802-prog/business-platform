@@ -15,7 +15,9 @@ import {
 import { TOKEN } from "@/lib/design/billing-theme";
 import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/billing-theme";
 import { useI18n } from "@/components/i18n/I18nProvider";
-import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
+import { useFeatureState } from "@/lib/ui/use-feature-enabled";
+import { DocumentProductionSheet } from "@/features/business-documents/document-production-sheet";
+import { parseProductionEntry } from "@/features/business-documents/document-production-model";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
@@ -127,7 +129,11 @@ export default function BillingHubPage() {
   const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
   // ה׳13: the business-documents entry is shown only while that feature is on (off by default).
-  const moreDocumentsOn = useFeatureEnabled("business_documents");
+  // Stage 1 of "הפקת מסמך": while it is on, one production button replaces the create buttons (null = not known yet).
+  const documentsState = useFeatureState("business_documents");
+  const moreDocumentsOn = documentsState === true;
+  const [productionOpen, setProductionOpen] = useState<boolean>(false);
+  const [productionCustomer, setProductionCustomer] = useState<{ customerId: number | null; customerName: string | null }>({ customerId: null, customerName: null });
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [createDocumentType, setCreateDocumentType] = useState<
     "TAX_INVOICE" | "QUOTE"
@@ -299,13 +305,31 @@ export default function BillingHubPage() {
   const createParam = searchParams.get("create");
   useEffect(() => {
     if (!createParam) return;
+    // ?create=documents (the production button of a customer card) opens the production list, with that customer.
+    // It waits for the feature state; with the feature off it starts the invoice flow, as any other value does.
+    if (createParam === "documents") {
+      if (documentsState === null) return;
+      const entry = parseProductionEntry(searchParams);
+      router.replace("/billing");
+      if (documentsState) {
+        openProductionList(entry);
+      } else {
+        openCreateFlow("TAX_INVOICE");
+      }
+      return;
+    }
     const type = createParam === "QUOTE" ? "QUOTE" : "TAX_INVOICE";
     router.replace("/billing");
     openCreateFlow(type);
     // openCreateFlow reads identity state that is settled by the time a user
     // can act; re-running on every change would re-open the modal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createParam]);
+  }, [createParam, documentsState]);
+
+  function openProductionList(customer: { customerId: number | null; customerName: string | null }) {
+    setProductionCustomer(customer);
+    setProductionOpen(true);
+  }
 
   function openCreateFlow(type: "TAX_INVOICE" | "QUOTE") {
     if (billingIdentityOk === false) {
@@ -399,6 +423,30 @@ export default function BillingHubPage() {
               width: "100%",
             }}
           >
+            {moreDocumentsOn ? (
+              /* Stage 1 of "הפקת מסמך" (owner-approved 2026-11-10): while business_documents is on, one button opens the
+                 list of document types; each type opens its existing flow (tax invoice and quote: openCreateFlow below,
+                 unchanged). With the feature off, the two buttons below are shown exactly as before. */
+              <button
+                className="billing-action-button"
+                type="button"
+                data-testid="document-production-button"
+                onClick={() => openProductionList({ customerId: null, customerName: null })}
+                data-dz-action="primary"
+                style={{
+                  ...primaryActionStyle({ height: 48 }),
+                  padding: "12px 18px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  minHeight: 48,
+                  flex: "0 1 264px",
+                }}
+              >
+                {t("billing.list.produceDocument")}
+              </button>
+            ) : (
+            <>
             <button
               className="billing-action-button"
               type="button"
@@ -433,30 +481,10 @@ export default function BillingHubPage() {
             >
               {t("billing.list.createQuote")}
             </button>
-            {/* ה׳13 (owner-approved 2026-11-05): one additive entry to the business-documents additions, only while that
-                feature is on. The two buttons above and their flows are unchanged. */}
-            {moreDocumentsOn ? (
-              <Link
-                className="billing-action-button"
-                href="/business-documents"
-                data-dz-action="secondary"
-                style={{
-                  ...glassActionStyle({ height: 48 }),
-                  padding: "12px 18px",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  whiteSpace: "nowrap",
-                  minHeight: 48,
-                  flex: "0 1 264px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  textDecoration: "none",
-                }}
-              >
-                {t("billing.list.moreDocuments")}
-              </Link>
-            ) : null}
+            </>
+            )}
+            {/* ה׳13 (owner-approved 2026-11-05): the entry to the business-documents additions is now the link at the
+                foot of the production list (DocumentProductionSheet), shown under the same feature. */}
           </div>
         </section>
 
@@ -956,9 +984,21 @@ export default function BillingHubPage() {
       {createOpen ? (
         <CreateDraftModal
           documentType={createDocumentType}
+          initialCustomer={productionCustomer.customerId !== null ? { id: productionCustomer.customerId, name: productionCustomer.customerName } : null}
           onClose={() => setCreateOpen(false)}
           onCreated={(id) => {
             router.push(`/billing/${id}`);
+          }}
+        />
+      ) : null}
+
+      {productionOpen ? (
+        <DocumentProductionSheet
+          customerName={productionCustomer.customerName}
+          onClose={() => setProductionOpen(false)}
+          onBillingDocument={(type) => {
+            setProductionOpen(false);
+            openCreateFlow(type);
           }}
         />
       ) : null}
@@ -1086,17 +1126,20 @@ function IdentityGateModal({
 
 function CreateDraftModal({
   documentType,
+  initialCustomer = null,
   onClose,
   onCreated,
 }: {
   documentType: "TAX_INVOICE" | "QUOTE";
+  /** Pre-selected customer (production list opened from a customer card); null = as before. */
+  initialCustomer?: { id: number; name: string | null } | null;
   onClose: () => void;
   onCreated: (documentId: number) => void;
 }) {
   const { t } = useI18n();
-  const [name, setName] = useState<string>("");
+  const [name, setName] = useState<string>(initialCustomer?.name ?? "");
   const [pickedCustomerId, setPickedCustomerId] = useState<number | null>(
-    null
+    initialCustomer?.id ?? null
   );
   const [customers, setCustomers] = useState<
     { id: number; name: string; phone: string | null }[]
@@ -1117,13 +1160,16 @@ function CreateDraftModal({
         const data = await res.json();
         const list = Array.isArray(data?.customers) ? data.customers : [];
         if (!cancelled) {
-          setCustomers(
-            list.map((c: { id: number; name: string; phone: string | null }) => ({
-              id: c.id,
-              name: c.name,
-              phone: c.phone ?? null,
-            }))
-          );
+          const loaded = list.map((c: { id: number; name: string; phone: string | null }) => ({
+            id: c.id,
+            name: c.name,
+            phone: c.phone ?? null,
+          }));
+          // the pre-selected customer stays selectable when it is not among the first 50
+          if (initialCustomer && !loaded.some((c: { id: number }) => c.id === initialCustomer.id)) {
+            loaded.unshift({ id: initialCustomer.id, name: initialCustomer.name ?? `#${initialCustomer.id}`, phone: null });
+          }
+          setCustomers(loaded);
         }
       } catch {
         /* ignore */
@@ -1132,6 +1178,8 @@ function CreateDraftModal({
     return () => {
       cancelled = true;
     };
+    // the list loads once when the modal opens; the pre-selected customer is fixed for its lifetime
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const trimmed = name.trim();

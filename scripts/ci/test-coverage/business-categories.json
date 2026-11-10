@@ -1,0 +1,9 @@
+{
+  "note": "D6 (2026-11-10): service categories in the onboarding map (lib/business/business-categories.ts). Pure; no schema, no migration.",
+  "tests": {
+    "lib/business/business-categories.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): every category and sub-category value that existed on main 5d146aa2 is unchanged and in order; the five new service categories and Retail / Jewelry exist with unique values; every label resolves in Hebrew and English; stored values still show (known → label, legacy free text as stored, Other / General → nothing); onboarding still renders the shared map in a select; run on pull_request by business-categories-ci.yml"
+    }
+  }
+}
