@@ -350,6 +350,7 @@ export default function RegisterForm({
               <label className={styles.label} htmlFor="reg-name">{t("account.auth.register.nameLabel")}</label>
               <input
                 id="reg-name"
+                name="name"
                 className={`${styles.input} ${fieldError("name") ? styles.invalid : ""}`}
                 autoComplete="name"
                 value={name}
@@ -365,6 +366,7 @@ export default function RegisterForm({
               <label className={styles.label} htmlFor="reg-business">{t("account.auth.register.businessLabel")}</label>
               <input
                 id="reg-business"
+                name="businessName"
                 className={`${styles.input} ${fieldError("businessName") ? styles.invalid : ""}`}
                 autoComplete="organization"
                 value={businessName}
@@ -382,10 +384,12 @@ export default function RegisterForm({
               <label className={styles.label} htmlFor="reg-email">{t("account.auth.common.emailLabel")}</label>
               <input
                 id="reg-email"
+                name="email"
                 type="email"
                 dir="ltr"
                 inputMode="email"
-                autoComplete="email"
+                // "username", not "email": without it the password manager saves the full-name field above as the account.
+                autoComplete="username"
                 placeholder="name@example.com"
                 className={`${styles.input} ${styles.ltr} ${fieldError("email") ? styles.invalid : ""}`}
                 value={email}
@@ -402,6 +406,7 @@ export default function RegisterForm({
               <div className={styles.pw}>
                 <input
                   id="reg-password"
+                  name="password"
                   type={showPassword ? "text" : "password"}
                   dir="ltr"
                   autoComplete="new-password"

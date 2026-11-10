@@ -13,6 +13,7 @@ on:
       - "lib/storage/**"
       - "lib/services/feature-access/platform-feature-catalog.ts"
       - "scripts/ci/test-coverage/service-desk-core.json"
+      - "scripts/ci/test-coverage/service-desk-profiles.json"
       - ".github/workflows/service-desk-ci.yml"
   workflow_dispatch:
 
@@ -37,6 +38,7 @@ jobs:
       - run: npx tsx lib/services/service-desk/storage/service-storage-keys.test.ts
       - run: npx tsx lib/services/service-desk/service-desk-access.test.ts
       - run: npx tsx lib/services/service-desk/service-desk-gate.test.ts
+      - run: npx tsx lib/services/service-desk/service-profiles.test.ts
       - run: npx tsx lib/services/service-desk/qa-templates.test.ts
       - run: npx tsx features/service-desk/settings-model.test.ts
         env:

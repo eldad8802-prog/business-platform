@@ -1,0 +1,10 @@
+{
+  "note": "Issue 4 (Android app load-error page): Capacitor shows capacitor/www/index.html for any main-frame load that fails at the network level OR answers HTTP >= 400, without saying which. The page now gathers evidence (navigator.onLine, a no-cors probe of the server's /api/health and of Android's connectivity check) and only names a cause it has evidence for; otherwise it shows a careful message. It never navigates by itself; retry / back / home work with or without history.",
+  "tests": {
+    "lib/native/android-error-page.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "a static, bundled error page of the Android shell; no data, auth, session or permission path (probes send no cookie and no referrer)",
+      "reason": "pure: runs the page's own script in a vm — the verdict table (page / server / offline / unknown; a specific claim only with evidence; onLine=true proves nothing), the copy per verdict and the careful initial message, the server origin (Production; an injected well-formed origin wins; local origin and odd values fall back), the probe (any opaque answer = reachable; reject / throw / timeout = not; no-cors, no cookie, no referrer, cache-busted), the page end to end for 404/500, server down, offline, unknown, the 'online' re-check (words only, never navigation, one probe pair at a time), and retry (always the start page) / back (go(-2) with the failed entry kept, back() when replaced, hidden without history) / home with 3, 2 and 1 entries, never reload; Production as the origin unless one is injected; premises in the installed Capacitor 8.5 (both error hooks, main frame only; errorPath still points here)"
+    }
+  }
+}
