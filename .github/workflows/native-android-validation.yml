@@ -62,6 +62,10 @@ jobs:
         run: |
           sed -i 's|<application|<application android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
           sed -i 's|androidScheme: "https"|androidScheme: "http"|' capacitor.config.ts
+          # The release build's server is Production; this build's server is the stand-in, so the page's
+          # Production origin is pointed at it (throwaway build only — the committed page is unchanged).
+          sed -i 's|var PRODUCTION_ORIGIN = "https://promaxgroup.co.il";|var PRODUCTION_ORIGIN = "http://localhost:3000";|' capacitor/www/index.html
+          grep -n "PRODUCTION_ORIGIN = " capacitor/www/index.html
           grep -n "androidScheme" capacitor.config.ts
           npx cap sync android
           grep -c "DubizErrorPage" android/app/src/main/assets/public/index.html

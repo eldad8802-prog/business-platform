@@ -8,7 +8,7 @@ adb install -r -t android/app/build/outputs/apk/debug/app-debug.apk > /dev/null 
 adb reverse tcp:3000 tcp:3000
 timeout 900 node scripts/native/error-page-check.mjs "$OUT" > "$OUT/check.log" 2>&1
 log "check exit=$? entries=$(grep -c '"check"' "$OUT/check.log")"
-adb shell cmd connectivity airplane-mode disable > /dev/null 2>&1
+adb shell svc wifi enable > /dev/null 2>&1; adb shell svc data enable > /dev/null 2>&1; adb shell cmd connectivity airplane-mode disable > /dev/null 2>&1
 adb logcat -d > "$OUT/logcat.txt" 2>&1
 grep -qE "ANR in il.co.promaxgroup.dubiz|Process: il.co.promaxgroup.dubiz" "$OUT/logcat.txt" && log "!! app crash/ANR" || log "no app crash/ANR"
 exit 0

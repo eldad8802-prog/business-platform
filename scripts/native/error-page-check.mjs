@@ -53,7 +53,9 @@ const tap = async (id) => { const b = await pg.evaluate((i) => { const r = docum
   if (!b) return false; adb("shell", "uiautomator", "dump", "/sdcard/ui.xml"); const x = adb("shell", "cat", "/sdcard/ui.xml");
   const m = x.match(/class="android\.webkit\.WebView"[^>]*?bounds="\[(\d+),(\d+)\]/); const top = m ? +m[2] : 0, left = m ? +m[1] : 0;
   adb("shell", "input", "tap", String(Math.round(left + b.x * b.dpr)), String(Math.round(top + b.y * b.dpr))); return true; };
-const airplane = (on) => adb("shell", "cmd", "connectivity", "airplane-mode", on ? "enable" : "disable");
+// Cut every network the emulator has (airplane mode through cmd connectivity did not change
+// navigator.onLine on the emulator in the first run); adb reverse to the stand-in survives either way.
+const airplane = (on) => { for (const s of ["wifi", "data"]) adb("shell", "svc", s, on ? "disable" : "enable"); adb("shell", "cmd", "connectivity", "airplane-mode", on ? "enable" : "disable"); };
 
 log({ check: "env", sdk: adb("shell", "getprop", "ro.build.version.sdk").trim() });
 await startServer();
