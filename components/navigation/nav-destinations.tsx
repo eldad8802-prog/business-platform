@@ -3,6 +3,7 @@ import {
   IconBox,
   IconCalendar,
   IconCalendarSimple,
+  IconWrench,
   IconCash,
   IconChat,
   IconFile,
@@ -93,6 +94,8 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   { key: "tasks", label: "משימות", labelKey: "nav.tasks", href: "/tasks", icon: IconTasks, group: "business", feature: "daily_tasks" },
   // Appointments milestone B (decision 12): the calendar sits in ניהול העסק, only while appointments is ON.
   { key: "calendar", label: "יומן ותורים", labelKey: "nav.calendar", href: "/calendar", icon: IconCalendarSimple, group: "business", feature: "appointments" },
+  // Service Desk UI 1.3a (decision ה4: entry via ניהול העסק): only while service_desk is ON for the business — off by default.
+  { key: "service-desk", label: "תיקונים ושירות", labelKey: "nav.serviceDesk", href: "/service-desk", icon: IconWrench, group: "business", feature: "service_desk" },
   { key: "secretary", label: "המזכירה שלי", labelKey: "nav.secretary", href: "/secretary", icon: IconSecretary, group: "business" },
   { key: "payables", label: "התחייבויות", labelKey: "nav.payables", href: "/payables", icon: IconCalendar, group: "business" },
   { key: "inventory", label: "מלאי", labelKey: "nav.inventory", href: "/inventory", icon: IconBox, group: "business" },
