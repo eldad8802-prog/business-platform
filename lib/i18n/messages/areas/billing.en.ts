@@ -71,6 +71,7 @@ export const billingEn: Widen<typeof billingHe> = {
     createInvoice: "+ Create invoice",
     createQuote: "+ Create quote",
     moreDocuments: "More documents",
+    produceDocument: "Produce a document",
     continueWork: "Continue working",
     identitySummary: "Business details on documents",
     overviewSummary: "Quick overview",

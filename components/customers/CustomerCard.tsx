@@ -498,7 +498,7 @@ function CustomerCardView({
 
       <div className="cust-file__grid">
         {/* 4 · Recent documents */}
-        <BillingDocumentsSection section={card.billingDocuments} />
+        <BillingDocumentsSection section={card.billingDocuments} customerName={customer.name} />
 
         {/* 5 · Recent payments */}
         <PaymentRequestsSection section={card.paymentRequests} customerId={customer.id} />
@@ -619,8 +619,10 @@ function HistorySection<T>({
 
 function BillingDocumentsSection({
   section,
+  customerName,
 }: {
   section: { items: CustomerCardBillingDocument[]; total: number };
+  customerName: string;
 }) {
   const { t, locale } = useI18n();
   // ר3: the full, read-only list of this customer's documents — only while business_documents is on.
@@ -634,10 +636,22 @@ function BillingDocumentsSection({
       section={section}
       emptyText={t("customers.customer.card.noDocuments")}
       footer={
-        fullListOn && customerId && section.total > 0 ? (
-          <Link className="cust-more" href={`/customers/${customerId}/documents`}>
-            {t("customers.customer.card.allDocuments")}
-          </Link>
+        fullListOn && customerId ? (
+          <>
+            {/* "הפקת מסמך" stage 1: the production list on the invoices screen, opened for this customer. */}
+            <Link
+              className="cust-more"
+              data-testid="customer-produce-document"
+              href={`/billing?create=documents&customerId=${encodeURIComponent(customerId)}&customerName=${encodeURIComponent(customerName)}`}
+            >
+              {t("customers.customer.card.produceDocument")}
+            </Link>
+            {section.total > 0 ? (
+              <Link className="cust-more" href={`/customers/${customerId}/documents`}>
+                {t("customers.customer.card.allDocuments")}
+              </Link>
+            ) : null}
+          </>
         ) : null
       }
       renderItem={(d) => {
