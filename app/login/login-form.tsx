@@ -493,6 +493,15 @@ export default function LoginForm({
     );
   }
 
+  // Android app (marked before the first paint, lib/native/android-shell-entry.ts): the compact
+  // sign-in screen — app title, no badge / long subtitle / divider, no autofocus (the keyboard would
+  // cover the screen on launch). Read here, after the boot screen: the server only ever renders that
+  // screen, so the form is client-only and this cannot mismatch; in a browser nothing changes.
+  const inAndroidApp = document.documentElement.getAttribute("data-shell") === "android";
+  // Field help keeps its space in the app but is not shown, so the inline error that replaces it
+  // never shifts the links below it mid-tap.
+  const fieldHelpStyle: React.CSSProperties = inAndroidApp ? { ...helperTextStyle, visibility: "hidden" } : helperTextStyle;
+
   return (
     <div style={pageStyle}>
       {/* The accessibility entry has a fixed place here, so the floating button stands down. */}
@@ -503,14 +512,16 @@ export default function LoginForm({
             <DubizLogo height={38} priority />
           </div>
 
-          <div style={badgeStyle}>
-            <span>🔐</span>
-            <span>{t("account.auth.login.badge")}</span>
-          </div>
+          {inAndroidApp ? null : (
+            <div style={badgeStyle}>
+              <span>🔐</span>
+              <span>{t("account.auth.login.badge")}</span>
+            </div>
+          )}
 
-          <h1 style={titleStyle}>{t("account.auth.login.title")}</h1>
+          <h1 style={titleStyle}>{t(inAndroidApp ? "account.auth.login.appTitle" : "account.auth.login.title")}</h1>
 
-          <p style={subtitleStyle}>{t("account.auth.login.subtitle")}</p>
+          {inAndroidApp ? null : <p style={subtitleStyle}>{t("account.auth.login.subtitle")}</p>}
         </div>
 
         <form style={bodyStyle} onSubmit={handleLogin} noValidate>
@@ -548,14 +559,14 @@ export default function LoginForm({
                 placeholder="name@example.com"
                 autoComplete="email"
                 spellCheck={false}
-                autoFocus
+                autoFocus={!inAndroidApp}
               />
             </div>
 
             {touched.email && errors.email ? (
               <p id="login-email-msg" role="alert" style={fieldErrorStyle}>{errors.email}</p>
             ) : (
-              <p id="login-email-msg" style={helperTextStyle}>
+              <p id="login-email-msg" style={fieldHelpStyle}>
                 {t("account.auth.login.emailHelp")}
               </p>
             )}
@@ -609,7 +620,7 @@ export default function LoginForm({
             {touched.password && errors.password ? (
               <p id="login-password-msg" role="alert" style={fieldErrorStyle}>{errors.password}</p>
             ) : (
-              <p id="login-password-msg" style={helperTextStyle}>{t("account.auth.login.passwordHelp")}</p>
+              <p id="login-password-msg" style={fieldHelpStyle}>{t("account.auth.login.passwordHelp")}</p>
             )}
             {passwordResetEnabled ? (
               <p style={{ ...helperTextStyle, marginTop: 6 }}>
@@ -650,11 +661,13 @@ export default function LoginForm({
             {loading ? t("account.auth.login.submitting") : t("account.auth.login.submit")}
           </PrimaryCta>
 
-          <div style={dividerStyle}>
-            <div style={lineStyle} />
-            <span>{t("account.auth.login.divider")}</span>
-            <div style={lineStyle} />
-          </div>
+          {inAndroidApp ? null : (
+            <div style={dividerStyle}>
+              <div style={lineStyle} />
+              <span>{t("account.auth.login.divider")}</span>
+              <div style={lineStyle} />
+            </div>
+          )}
 
           {signupEnabled ? (
             <p style={footerTextStyle}>
