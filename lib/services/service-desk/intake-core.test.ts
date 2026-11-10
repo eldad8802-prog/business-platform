@@ -13,7 +13,9 @@ import {
   evaluateAddPhoto,
   evaluatePresentTerms,
   evaluateSign,
+  crc32,
   pngDimensions,
+  pngStructureOk,
   sniffImage,
   type IntakeFacts,
   type TextFact,
@@ -27,12 +29,14 @@ function ok(name: string, cond: boolean, detail = "") {
 }
 const refusedWith = (d: { ok: boolean; violations?: string[] }, code: string) => !d.ok && (d.violations ?? []).includes(code);
 
-/** A PNG header with an IHDR of the given size, padded to `bytes` (the core reads only the header). */
+/** A structurally valid PNG (signature, IHDR with its CRC, filler, IEND) of the given size, padded to `bytes`. */
 function png(width: number, height: number, bytes = 2000): Uint8Array {
-  const b = new Uint8Array(Math.max(bytes, 33));
+  const b = new Uint8Array(Math.max(bytes, 45));
   b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
   const v = new DataView(b.buffer);
-  v.setUint32(16, width); v.setUint32(20, height);
+  v.setUint32(16, width); v.setUint32(20, height); b.set([8, 6, 0, 0, 0], 24);
+  v.setUint32(29, crc32(b.subarray(12, 29)));
+  b.set([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82], b.length - 12);
   return b;
 }
 const jpeg = (n = 5000) => { const b = new Uint8Array(n); b.set([0xff, 0xd8, 0xff, 0xe0]); return b; };
@@ -115,6 +119,13 @@ ok("G4 a JPEG, a tiny / huge PNG, too small or too large dimensions → SIGNATUR
 ok("G5 every reason is reported together (a FIELD case, unsigned data, no terms, a bad image)", (() => {
   const d = evaluateSign(facts({ kind: "FIELD", intake: null, termsSnapshot: null }), jpeg());
   return !d.ok && ["INTAKE_ONLY_IN_SHOP", "INTAKE_NOT_RECORDED", "TERMS_NOT_PRESENTED", "SIGNATURE_INVALID"].every((c) => d.violations.includes(c as never));
+})());
+
+ok("G6 a PNG with a broken IHDR CRC or without the IEND trailer → SIGNATURE_INVALID (structure, not only the header)", (() => {
+  const badCrc = png(600, 200); badCrc[30] ^= 0xff;
+  const noEnd = png(600, 200); noEnd[noEnd.length - 1] = 0;
+  return pngStructureOk(png(600, 200)) && !pngStructureOk(badCrc) && !pngStructureOk(noEnd)
+    && refusedWith(evaluateSign(facts(), badCrc), "SIGNATURE_INVALID") && refusedWith(evaluateSign(facts(), noEnd), "SIGNATURE_INVALID");
 })());
 
 // ── 6. purity ──

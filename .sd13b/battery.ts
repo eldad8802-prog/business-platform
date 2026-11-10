@@ -28,7 +28,8 @@ import { getStorageService } from "../lib/storage";
 import { uuidV7 } from "../lib/services/tasks/task-idempotency";
 import { ServiceDeskError } from "../lib/services/service-desk/service-desk-errors";
 import { openCase, recordIntake, runCaseAction, type ServiceDeskPrincipal } from "../lib/services/service-desk/service-case.service";
-import { addIntakePhoto, getIntake, presentTerms, readIntakeObject, signIntake } from "../lib/services/service-desk/intake.service";
+import { crc32 } from "../lib/services/service-desk/intake.core";
+import { addIntakePhoto, getIntake, intakeDigest, presentTerms, readIntakeObject, signIntake } from "../lib/services/service-desk/intake.service";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 const runtime = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL! }); // the real runtime role, for the guard checks
@@ -57,7 +58,10 @@ let salt = 0;
 function png(width: number, height: number, bytes = 3000): Buffer {
   const b = Buffer.alloc(bytes);
   b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
-  b.writeUInt32BE(width, 16); b.writeUInt32BE(height, 20); b.writeUInt32BE(++salt, bytes - 4);
+  b.writeUInt32BE(width, 16); b.writeUInt32BE(height, 20); b.set([8, 6, 0, 0, 0], 24);
+  b.writeUInt32BE(crc32(b.subarray(12, 29)), 29);
+  b.writeUInt32BE(++salt, 40);
+  b.set([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82], bytes - 12);
   return b;
 }
 function jpeg(bytes = 6000): Buffer { const b = Buffer.alloc(bytes); b.set([0xff, 0xd8, 0xff, 0xe0]); b.writeUInt32BE(++salt, bytes - 4); return b; }
@@ -172,6 +176,46 @@ async function main() {
   const f1 = await openCase(A.p, { kind: "FIELD", customerId: A.cust, problemDescription: "ביקור" }, { idempotencyKey: key() });
   ok("S9 a FIELD case has no shop intake: terms / photo / signature → INTAKE_ONLY_IN_SHOP",
     (await code(() => present(A, f1.case.id))).includes("INTAKE_ONLY_IN_SHOP") && (await code(() => photo(A, f1.case.id, jpeg()))).includes("INTAKE_ONLY_IN_SHOP"));
+
+
+  console.log("R — review follow-ups (idempotency, case binding, retries, evidence)");
+  const c6 = await shopCase(A);
+  const k6 = key(), v6 = await version(c6.id);
+  await addIntakePhoto(A.p, c6.id, { bytes: jpeg(), declaredMime: "image/jpeg", expectedVersion: v6 }, { idempotencyKey: k6 }, store);
+  ok("R1 the same key with another photo → IDEMPOTENCY_KEY_REUSED",
+    (await code(() => addIntakePhoto(A.p, c6.id, { bytes: jpeg(), declaredMime: "image/jpeg", expectedVersion: v6 }, { idempotencyKey: k6 }, store))).includes("IDEMPOTENCY_KEY_REUSED"));
+  const c6photo = Number((await q(`SELECT id FROM "ServiceIntakePhoto" WHERE "caseId" = $1`, c6.id))[0].id);
+  ok("R2 a photo of case X asked for under case Y of the same business → NOT_FOUND", (await code(() => readIntakeObject(A.b, c1.id, { kind: "photo", photoId: c6photo }, store))).startsWith("NOT_FOUND"));
+  const pre = jpeg(), preKey = `biz/${A.b}/service/cases/${c6.id}/intake/photos/${sha(pre)}.jpg`;
+  await store.putObjectIfAbsent({ key: preKey, body: pre, contentType: "image/jpeg", metadata: { businessId: A.b, domain: "service", visibility: "private" } });
+  const before6 = await photos(c6.id);
+  ok("R3 an upload that landed before its command failed: the retry reuses the object (EXISTS) and writes one row",
+    (await code(() => photo(A, c6.id, pre))) === "OK" && (await photos(c6.id)) === before6 + 1);
+  await store.deleteObject(preKey);
+  const lost = Number((await q(`SELECT id FROM "ServiceIntakePhoto" WHERE "storageKey" = $1`, preKey))[0].id);
+  ok("R4 a row whose object is gone → NOT_FOUND, never a 500", (await code(() => readIntakeObject(A.b, c6.id, { kind: "photo", photoId: lost }, store))).startsWith("NOT_FOUND"));
+  const refusedSig = png(600, 200);
+  ok("R5 a refused signature (no intake data yet) stores nothing — the preflight decides before any upload",
+    (await code(() => sign(A, c6.id, refusedSig))).includes("INTAKE_NOT_RECORDED") && !(await stored(`biz/${A.b}/service/cases/${c6.id}/intake/signature/${sha(refusedSig)}.png`)));
+  const signedEv = (await q(`SELECT payload FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND payload->>'step' = 'SIGNED'`, c1.id))[0].payload as Record<string, unknown>;
+  const snap1 = (await q(`SELECT "termsSha256" t, "statutorySha256" s FROM "ServiceIntakeTermsSnapshot" WHERE "caseId" = $1`, c1.id))[0];
+  const in1 = (await q(`SELECT "conditionNote" cn, "accessoriesNote" an, "conditionRecorded" cr, "accessoriesRecorded" ar FROM "ServiceCaseIntake" WHERE "caseId" = $1`, c1.id))[0];
+  const shas1 = (await q(`SELECT sha256 FROM "ServiceIntakePhoto" WHERE "caseId" = $1`, c1.id)).map((r) => String(r.sha256).trim());
+  const expectDigest = intakeDigest({ conditionNote: in1.cn as string, accessoriesNote: in1.an as string, conditionRecorded: in1.cr as boolean, accessoriesRecorded: in1.ar as boolean, photoShas: shas1 });
+  ok("R6 the SIGNED event proves on its own: snapshot text hashes, signature hash, and the digest of notes + flags + photo hashes",
+    signedEv.termsSha256 === String(snap1.t).trim() && signedEv.statutorySha256 === String(snap1.s).trim() && signedEv.signatureSha256 === sha(sig)
+      && signedEv.intakeSha256 === expectDigest && signedEv.photoCount === 10);
+  const c7 = await shopCase(A); await record(A, c7.id); await present(A, c7.id);
+  const T2 = await text(A, "TERMS", "תנאי שירות מאושרים — גרסה חדשה יותר", true);
+  await activate(A, T2, S1);
+  const ks7 = key(), sig7 = png(620, 210);
+  const s7 = await signIntake(A.p, c7.id, { signaturePng: sig7, expectedVersion: await version(c7.id) }, { idempotencyKey: ks7 }, store);
+  const tv7 = String((await q(`SELECT "termsVersion" tv FROM "ServiceCaseIntake" WHERE "caseId" = $1`, c7.id))[0].tv);
+  ok("R7 the active terms changed after presentation: the signature binds to the presented snapshot (label from the snapshot, not the new active)",
+    tv7 === `T${tvn}-S${svn}` && s7.replayed === false);
+  const again = await signIntake(A.p, c7.id, { signaturePng: sig7, expectedVersion: s7.case.version - 1 }, { idempotencyKey: ks7 }, store);
+  ok("R8 the same signature request again (same key) → the stored answer (replayed), no second upload decision", again.replayed === true);
+  await activate(A, T1, S1);
 
   console.log("V — view");
   const view = await getIntake(A.b, c1.id);

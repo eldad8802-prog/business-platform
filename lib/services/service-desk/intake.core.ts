@@ -76,6 +76,35 @@ export function pngDimensions(bytes: Uint8Array): { width: number; height: numbe
   return { width: view.getUint32(16), height: view.getUint32(20) };
 }
 
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+/** CRC-32 as PNG chunks use it (ISO 3309). */
+export function crc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+const IEND = [0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
+
+/** A PNG's outer structure: the signature, a 13-byte IHDR with a correct CRC, and the IEND trailer at the very end. */
+export function pngStructureOk(bytes: Uint8Array): boolean {
+  if (sniffImage(bytes) !== "image/png" || bytes.length < 8 + 25 + 12) return false;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(8) !== 13 || String.fromCharCode(...bytes.subarray(12, 16)) !== "IHDR") return false;
+  if (crc32(bytes.subarray(12, 29)) !== view.getUint32(29)) return false;
+  const tail = bytes.subarray(bytes.length - 12);
+  return IEND.every((b, i) => tail[i] === b);
+}
+
 /** The rules every intake step shares: an IN_SHOP case, before check-in, not yet signed. */
 function stepViolations(f: IntakeFacts): IntakeViolation[] {
   const v: IntakeViolation[] = [];
@@ -130,7 +159,7 @@ export function evaluateSign(f: IntakeFacts, signature: Uint8Array): SignDecisio
   if (!f.intake || !f.intake.conditionRecorded || !f.intake.accessoriesRecorded) v.push("INTAKE_NOT_RECORDED");
   if (!f.termsSnapshot) v.push("TERMS_NOT_PRESENTED");
   const dim = pngDimensions(signature);
-  if (!dim || signature.length < SIGNATURE_MIN_BYTES || signature.length > SIGNATURE_MAX_BYTES
+  if (!dim || !pngStructureOk(signature) || signature.length < SIGNATURE_MIN_BYTES || signature.length > SIGNATURE_MAX_BYTES
     || dim.width < SIGNATURE_MIN_WIDTH || dim.height < SIGNATURE_MIN_HEIGHT || dim.width > SIGNATURE_MAX_SIDE || dim.height > SIGNATURE_MAX_SIDE) {
     v.push("SIGNATURE_INVALID");
   }

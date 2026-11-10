@@ -9,10 +9,12 @@
  *   addIntakePhoto one photo (JPEG / PNG / WebP by its bytes), content-addressed in the private `service` domain.
  *   signIntake     the customer's signature PNG, content-addressed; the intake row becomes signed — what CHECK_IN demands.
  *
- * Objects are written create-once (putObjectIfAbsent) INSIDE the command, after the decision and before the row, so a
- * refused request stores nothing. A transaction that fails after the upload leaves an object with no row under the
- * business's prefix; the account-erasure job lists and deletes the whole prefix (ServiceStorageErasure), and the key is
- * the content hash, so a retry reuses it (EXISTS = the same bytes are already there).
+ * Objects are written create-once (putObjectIfAbsent) BEFORE the command transaction, after a preflight that takes the
+ * same decision (a refused request stores nothing) and skips the upload for a replayed key, so no case lock or pooled
+ * connection is held while bytes travel. The command then re-decides under the lock and writes only the row and event.
+ * A command that fails after its upload leaves an object with no row; the key is the content hash, so a retry with the
+ * same bytes reuses it (EXISTS). Orphans are removed with the business prefix by the account-erasure job; a periodic
+ * orphan sweep for live businesses is a documented follow-up.
  *
  * Journal payloads are tokens, numbers and booleans only (ServiceCaseEvent_payload_closed) — never a text body.
  */
@@ -24,6 +26,7 @@ import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { evaluateAddPhoto, evaluatePresentTerms, evaluateSign, sniffImage, type IntakeFacts, type IntakeViolation, type TextFact } from "./intake.core";
 import {
   appendRecord,
+  isNonNegativeInt,
   isPositiveInt,
   prepare,
   recordCommand,
@@ -34,7 +37,7 @@ import {
   type WriteRequest,
 } from "./service-case.service";
 import { ServiceDeskError } from "./service-desk-errors";
-import { SERVICE_STORAGE_DOMAIN, intakePhotoKey, intakeSignatureKey, isServiceKeyOfBusiness } from "./storage/service-storage-keys";
+import { SERVICE_STORAGE_DOMAIN, intakePhotoKey, intakeSignatureKey, isServiceKeyOfBusiness, serviceBusinessPrefix } from "./storage/service-storage-keys";
 
 /** Vercel caps a request body at 4.5 MB: the screen downsizes photos; the server refuses more than this. */
 export const PHOTO_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
@@ -42,27 +45,57 @@ export const PHOTO_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 const sha256Hex = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const refused = (violations: IntakeViolation[]) => new ServiceDeskError("REFUSED", { violations });
 
-// ── Facts (read under the case lock) ────────────────────────────────────────────────────────────────────────
+// ── Facts ───────────────────────────────────────────────────────────────────────────────────────────────────
 
-async function intakeFacts(tx: Tx, b: number, caseId: number, locked: Locked): Promise<IntakeFacts> {
-  const intake = (await tx.$queryRaw<{ cr: boolean; ar: boolean; signed: boolean }[]>`
-    SELECT "conditionRecorded" AS cr, "accessoriesRecorded" AS ar, "signedAt" IS NOT NULL AS signed
+type IntakeData = IntakeFacts & {
+  notes: { conditionNote: string | null; accessoriesNote: string | null };
+  snapshotHashes: { termsSha256: string; statutorySha256: string } | null;
+  photoShas: string[];
+};
+
+/** The intake facts of a case (inside a transaction; under the case lock when the caller holds it). */
+async function intakeData(tx: Tx, b: number, caseId: number, kind: IntakeFacts["kind"], status: IntakeFacts["status"]): Promise<IntakeData> {
+  const intake = (await tx.$queryRaw<{ cr: boolean; ar: boolean; signed: boolean; cn: string | null; an: string | null }[]>`
+    SELECT "conditionRecorded" AS cr, "accessoriesRecorded" AS ar, "signedAt" IS NOT NULL AS signed, "conditionNote" AS cn, "accessoriesNote" AS an
       FROM "ServiceCaseIntake" WHERE "businessId" = ${b}::int AND "caseId" = ${caseId}::int`)[0];
-  const snap = (await tx.$queryRaw<{ tv: number; sv: number }[]>`
-    SELECT t.version AS tv, s.version AS sv
+  const snap = (await tx.$queryRaw<{ tv: number; sv: number; th: string; sh: string }[]>`
+    SELECT t.version AS tv, s.version AS sv, x."termsSha256" AS th, x."statutorySha256" AS sh
       FROM "ServiceIntakeTermsSnapshot" x
       JOIN "ServiceTextVersion" t ON t."businessId" = x."businessId" AND t.id = x."termsVersionId"
       JOIN "ServiceTextVersion" s ON s."businessId" = x."businessId" AND s.id = x."statutoryNoticeVersionId"
      WHERE x."businessId" = ${b}::int AND x."caseId" = ${caseId}::int`)[0];
-  const photos = Number((await tx.$queryRaw<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM "ServiceIntakePhoto" WHERE "businessId" = ${b}::int AND "caseId" = ${caseId}::int`)[0]?.n ?? 0);
+  const photos = await tx.$queryRaw<{ sha256: string }[]>`
+    SELECT sha256 FROM "ServiceIntakePhoto" WHERE "businessId" = ${b}::int AND "caseId" = ${caseId}::int`;
   return {
-    kind: locked.context.kind,
-    status: locked.context.status,
+    kind, status,
     intake: intake ? { conditionRecorded: intake.cr, accessoriesRecorded: intake.ar, signed: intake.signed } : null,
     termsSnapshot: snap ? { termsVersion: Number(snap.tv), statutoryVersion: Number(snap.sv) } : null,
-    photoCount: photos,
+    photoCount: photos.length,
+    notes: { conditionNote: intake?.cn ?? null, accessoriesNote: intake?.an ?? null },
+    snapshotHashes: snap ? { termsSha256: String(snap.th).trim(), statutorySha256: String(snap.sh).trim() } : null,
+    photoShas: photos.map((r) => String(r.sha256).trim()).sort(),
   };
+}
+
+const lockedData = (tx: Tx, b: number, caseId: number, locked: Locked) => intakeData(tx, b, caseId, locked.context.kind, locked.context.status);
+
+/**
+ * Before an upload, OUTSIDE the command transaction (no case lock is held while bytes travel to storage): an earlier
+ * answer for this key → skip the upload (recordCommand replays); otherwise the same decision the command takes again
+ * under the lock — a request refused here stores nothing.
+ */
+async function preflight(b: number, caseId: number, idempotencyKey: string, decide: (f: IntakeData) => IntakeViolation[] | null): Promise<"REPLAY" | "UPLOAD"> {
+  return tenantTx(b, async (tx) => {
+    const prior = (await tx.$queryRaw<{ ok: boolean }[]>`
+      SELECT EXISTS (SELECT 1 FROM "ServiceCaseEvent" WHERE "businessId" = ${b}::int AND "idempotencyKey" = ${idempotencyKey}) AS ok`)[0]?.ok === true;
+    if (prior) return "REPLAY";
+    const c = (await tx.$queryRaw<{ kind: string; status: string }[]>`
+      SELECT kind::text AS kind, status::text AS status FROM "ServiceCase" WHERE id = ${caseId}::int AND "businessId" = ${b}::int`)[0];
+    if (!c) throw new ServiceDeskError("NOT_FOUND");
+    const v = decide(await intakeData(tx, b, caseId, c.kind as never, c.status as never));
+    if (v && v.length > 0) throw refused(v);
+    return "UPLOAD";
+  });
 }
 
 async function textFact(tx: Tx, b: number, id: number | null): Promise<TextFact> {
@@ -76,8 +109,17 @@ async function textFact(tx: Tx, b: number, id: number | null): Promise<TextFact>
 async function storeCreateOnce(storage: StorageService, b: number, key: string, bytes: Uint8Array, contentType: string): Promise<void> {
   if (!isServiceKeyOfBusiness(key, b)) throw new ServiceDeskError("INVALID_INPUT", { field: "key" }); // never: keys are built here
   // CREATED, or EXISTS: under a content-addressed key that means these very bytes are already stored (a retry, or a
-  // transaction that failed after its upload). Never an overwrite: the domain accepts create-once writes only.
+  // command that failed after its upload). Never an overwrite: the domain accepts create-once writes only.
   await storage.putObjectIfAbsent({ key, body: Buffer.from(bytes), contentType, metadata: { businessId: b, domain: SERVICE_STORAGE_DOMAIN, visibility: "private" } });
+}
+
+/**
+ * What the customer signed, as one hash: the intake notes and flags and the sorted photo hashes, in a fixed canonical
+ * form. Journaled with the signature, so the event alone proves later that none of it was changed.
+ */
+export function intakeDigest(d: { conditionNote: string | null; accessoriesNote: string | null; conditionRecorded: boolean; accessoriesRecorded: boolean; photoShas: string[] }): string {
+  const canonical = JSON.stringify([d.conditionNote ?? null, d.accessoriesNote ?? null, d.conditionRecorded, d.accessoriesRecorded, [...d.photoShas].sort()]);
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
 // ── Commands ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -88,7 +130,7 @@ export async function presentTerms(p: ServiceDeskPrincipal, caseId: unknown, bod
   const prepared = prepare(p, req, "service-desk/cases:intake-terms", { caseId, expectedVersion: body.expectedVersion });
   const b = p.businessId;
   return recordCommand(p, caseId, body.expectedVersion, prepared, async (tx, locked) => {
-    const f = await intakeFacts(tx, b, caseId, locked);
+    const f = await lockedData(tx, b, caseId, locked);
     const s = (await tx.$queryRaw<{ t: number | null; s: number | null }[]>`
       SELECT "activeTermsVersionId" AS t, "activeStatutoryNoticeVersionId" AS s FROM "ServiceSettings" WHERE "businessId" = ${b}::int`)[0];
     const d = evaluatePresentTerms(f, await textFact(tx, b, s?.t ?? null), await textFact(tx, b, s?.s ?? null));
@@ -101,7 +143,7 @@ export async function presentTerms(p: ServiceDeskPrincipal, caseId: unknown, bod
   });
 }
 
-/** One intake photo. The bytes decide the type; the key is the content hash. */
+/** One intake photo. The bytes decide the type; the key is the content hash; uploaded before the command, not inside it. */
 export async function addIntakePhoto(
   p: ServiceDeskPrincipal,
   caseId: unknown,
@@ -112,17 +154,25 @@ export async function addIntakePhoto(
   if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
   if (!(body.bytes instanceof Uint8Array) || body.bytes.length === 0) throw new ServiceDeskError("INVALID_INPUT", { field: "body" });
   if (body.bytes.length > PHOTO_UPLOAD_MAX_BYTES) throw refused(["PHOTO_TOO_LARGE"]);
+  if (!isNonNegativeInt(body.expectedVersion)) throw new ServiceDeskError("INVALID_INPUT", { field: "expectedVersion" });
   const sha256 = sha256Hex(body.bytes);
   const prepared = prepare(p, req, "service-desk/cases:intake-photo", { caseId, sha256, declaredMime: body.declaredMime ?? null, expectedVersion: body.expectedVersion });
   const b = p.businessId;
+  const decide = (f: IntakeData): IntakeViolation[] | null => {
+    const d = evaluateAddPhoto(f, { declaredMime: body.declaredMime, bytes: body.bytes });
+    if (!d.ok) return d.violations;
+    return f.photoShas.includes(sha256) ? ["PHOTO_DUPLICATE"] : null;
+  };
+  const mode = await preflight(b, caseId, prepared.key, decide);
+  const mime = sniffImage(body.bytes);
+  if (mode === "UPLOAD" && mime) await storeCreateOnce(storage, b, intakePhotoKey({ businessId: b, caseId, sha256, mimeType: mime }), body.bytes, mime);
   const r = await recordCommand(p, caseId, body.expectedVersion, prepared, async (tx, locked) => {
-    const d = evaluateAddPhoto(await intakeFacts(tx, b, caseId, locked), { declaredMime: body.declaredMime, bytes: body.bytes });
+    const f = await lockedData(tx, b, caseId, locked);
+    const v = decide(f);
+    if (v) throw refused(v);
+    const d = evaluateAddPhoto(f, { declaredMime: body.declaredMime, bytes: body.bytes });
     if (!d.ok) throw refused(d.violations);
     const key = intakePhotoKey({ businessId: b, caseId, sha256, mimeType: d.mimeType });
-    const dup = (await tx.$queryRaw<{ ok: boolean }[]>`
-      SELECT EXISTS (SELECT 1 FROM "ServiceIntakePhoto" WHERE "businessId" = ${b}::int AND "storageKey" = ${key}) AS ok`)[0]?.ok === true;
-    if (dup) throw refused(["PHOTO_DUPLICATE"]);
-    await storeCreateOnce(storage, b, key, body.bytes, d.mimeType);
     await tx.$executeRaw`
       INSERT INTO "ServiceIntakePhoto" ("businessId", "caseId", "storageKey", sha256, "mimeType", "byteSize", "createdByUserId")
       VALUES (${b}::int, ${caseId}::int, ${key}, ${sha256}::char(64), ${d.mimeType}, ${d.byteSize}::int, ${p.userId}::int)`;
@@ -131,7 +181,11 @@ export async function addIntakePhoto(
   return { ...r, photo: { sha256 } };
 }
 
-/** The customer's signature: intake data recorded, approved terms frozen, a plausible PNG. Freezes the intake. */
+/**
+ * The customer's signature: intake data recorded, approved terms frozen, a structurally valid PNG. Freezes the intake.
+ * The event carries the evidence on its own: the snapshot's text hashes, the signature hash and the digest of what was
+ * signed (notes, flags, photo hashes).
+ */
 export async function signIntake(
   p: ServiceDeskPrincipal,
   caseId: unknown,
@@ -141,21 +195,27 @@ export async function signIntake(
 ): Promise<CommandResult> {
   if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
   if (!(body.signaturePng instanceof Uint8Array) || body.signaturePng.length === 0) throw new ServiceDeskError("INVALID_INPUT", { field: "signature" });
+  if (!isNonNegativeInt(body.expectedVersion)) throw new ServiceDeskError("INVALID_INPUT", { field: "expectedVersion" });
   const sha256 = sha256Hex(body.signaturePng);
   const prepared = prepare(p, req, "service-desk/cases:intake-sign", { caseId, sha256, expectedVersion: body.expectedVersion });
   const b = p.businessId;
+  const key = intakeSignatureKey({ businessId: b, caseId, sha256 });
+  const mode = await preflight(b, caseId, prepared.key, (f) => { const d = evaluateSign(f, body.signaturePng); return d.ok ? null : d.violations; });
+  if (mode === "UPLOAD") await storeCreateOnce(storage, b, key, body.signaturePng, "image/png");
   return recordCommand(p, caseId, body.expectedVersion, prepared, async (tx, locked) => {
-    const f = await intakeFacts(tx, b, caseId, locked);
+    const f = await lockedData(tx, b, caseId, locked);
     const d = evaluateSign(f, body.signaturePng);
-    if (!d.ok || !f.termsSnapshot) throw refused(d.ok ? ["TERMS_NOT_PRESENTED"] : d.violations);
-    const key = intakeSignatureKey({ businessId: b, caseId, sha256 });
-    await storeCreateOnce(storage, b, key, body.signaturePng, "image/png");
+    if (!d.ok) throw refused(d.violations);
+    if (!f.termsSnapshot || !f.snapshotHashes || !f.intake) throw refused(["TERMS_NOT_PRESENTED"]);
     const n = await tx.$executeRaw`
       UPDATE "ServiceCaseIntake" SET "customerSigned" = true, "signedAt" = now(), "signatureKey" = ${key}, "termsVersion" = ${d.termsVersionLabel}, "updatedAt" = now()
        WHERE "businessId" = ${b}::int AND "caseId" = ${caseId}::int AND "signedAt" IS NULL`;
     if (n !== 1) throw refused(["INTAKE_SIGNED"]);
-    await appendRecord(tx, b, caseId, locked.context, "RECORD_INTAKE",
-      { step: "SIGNED", termsVersion: f.termsSnapshot.termsVersion, statutoryVersion: f.termsSnapshot.statutoryVersion, signatureSha256: sha256 }, p.userId, prepared);
+    const intakeSha256 = intakeDigest({ ...f.notes, conditionRecorded: f.intake.conditionRecorded, accessoriesRecorded: f.intake.accessoriesRecorded, photoShas: f.photoShas });
+    await appendRecord(tx, b, caseId, locked.context, "RECORD_INTAKE", {
+      step: "SIGNED", termsVersion: f.termsSnapshot.termsVersion, statutoryVersion: f.termsSnapshot.statutoryVersion,
+      termsSha256: f.snapshotHashes.termsSha256, statutorySha256: f.snapshotHashes.statutorySha256, signatureSha256: sha256, intakeSha256, photoCount: f.photoCount,
+    }, p.userId, prepared);
   });
 }
 
@@ -240,9 +300,16 @@ export async function readIntakeObject(
       SELECT "signatureKey" AS key, 'image/png' AS mime FROM "ServiceCaseIntake"
        WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int AND "erasedAt" IS NULL`)[0] ?? null;
   });
-  if (!row || !row.key || !isServiceKeyOfBusiness(row.key, businessId)) throw new ServiceDeskError("NOT_FOUND");
-  const o = await storage.getObject(row.key);
-  const bytes = Buffer.from(o.body as Uint8Array);
-  if (sniffImage(bytes) === null) throw new ServiceDeskError("NOT_FOUND"); // a fence marker or a foreign object is never served
+  // The key must sit under THIS case's own intake folder, and the bytes must hash to the name it carries.
+  const folder = `${serviceBusinessPrefix(businessId)}cases/${caseId}/intake/${what.kind === "photo" ? "photos" : "signature"}/`;
+  if (!row || !row.key || !isServiceKeyOfBusiness(row.key, businessId) || !row.key.startsWith(folder)) throw new ServiceDeskError("NOT_FOUND");
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from((await storage.getObject(row.key)).body);
+  } catch {
+    throw new ServiceDeskError("NOT_FOUND"); // the row outlived its object (an erasure race, a lost write): never a 500
+  }
+  const named = row.key.slice(folder.length).split(".")[0];
+  if (sniffImage(bytes) === null || sha256Hex(bytes) !== named) throw new ServiceDeskError("NOT_FOUND"); // a fence marker or foreign bytes are never served
   return { bytes, contentType: row.mime };
 }

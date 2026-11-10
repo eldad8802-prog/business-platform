@@ -4,6 +4,10 @@
     "lib/services/service-desk/intake-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB): who may present terms, add a photo and sign (IN_SHOP before check-in, unsigned), approved texts only (owner rule: no signature without legally approved terms), images judged by their bytes, photo size / count, signature PNG bounds, all reasons reported together, determinism and no I/O; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/legal-approval-guard.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (source scan): owner decision D25 item 6 — no product path under app/, lib/, features/ or components/ grants LEGALLY_APPROVED or records a legal approver (the database still permits it until the D25 schema proposal is approved); the detector is proven on positive and negative samples; run on pull_request by service-desk-ci.yml"
     }
   }
 }
