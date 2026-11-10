@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DubizLogo } from "@/components/ui/dubiz-logo";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
@@ -167,8 +168,7 @@ export default function SetupPage() {
     <div className={styles.page}>
       <header className={styles.top}>
         <div className={styles.logo}>
-          <span className={styles.logoMark} aria-hidden="true">d</span>
-          <span className={styles.logoWord} dir="ltr">dubiz</span>
+          <DubizLogo height={34} priority />
         </div>
         <AccessibilityTrigger className={styles.iconBtn} label={t("account.setup.a11ySettings")} />
       </header>

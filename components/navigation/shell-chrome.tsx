@@ -90,9 +90,7 @@ const shellCss = `
 }
 .dz-rail__logo {
   width: 44px; height: 44px; flex-shrink: 0; border-radius: 14px;
-  background: linear-gradient(150deg, #246966, #3D9C9A); color: #FFFFFF;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 600; font-size: 22px; text-decoration: none;
+  display: flex; align-items: center; justify-content: center; text-decoration: none;
 }
 .dz-rail__new {
   width: 56px; height: 56px; flex-shrink: 0; margin: 6px 0 10px; border-radius: 18px; border: 0;
@@ -118,11 +116,6 @@ const shellCss = `
   color: #1E2B2A;
 }
 .dz-sidebar__brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; text-decoration: none; }
-.dz-sidebar__mark {
-  width: 36px; height: 36px; border-radius: 11px; background: linear-gradient(150deg, #246966, #3D9C9A);
-  color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 19px;
-}
-.dz-sidebar__word { font-size: 25px; font-weight: 600; color: #246966; letter-spacing: -0.5px; }
 .dz-sidebar__business {
   display: flex; align-items: center; gap: 10px; width: 100%; height: 56px; box-sizing: border-box; flex-shrink: 0;
   padding: 0 12px; border-radius: 14px; border: 1px solid #F0E3D3; background: #FEF8F2; color: #1E2B2A;

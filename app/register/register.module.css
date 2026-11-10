@@ -39,29 +39,14 @@
   flex-direction: column;
   gap: 28px;
 }
+/* The official lockup sits on a light plate: its dark-teal "du" would lose contrast on the dark brand panel. */
 .logo {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-}
-.logoMark {
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
-  background: #2b7a78;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-rubik), "Heebo", sans-serif;
-  font-weight: 700;
-  font-size: 22px;
-}
-.logoWord {
-  font-family: var(--font-rubik), "Heebo", sans-serif;
-  font-weight: 700;
-  font-size: 26px;
-  letter-spacing: -0.01em;
+  align-self: flex-start;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: var(--dz-surface-flat, #fff);
 }
 .brandTitle {
   margin: 0;
@@ -139,16 +124,6 @@
   align-items: center;
   gap: 8px;
   color: var(--dz-brand);
-}
-.topLogo .logoMark {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  background: var(--dz-brand);
-  font-size: 18px;
-}
-.topLogo .logoWord {
-  font-size: 21px;
 }
 .a11yBtn {
   width: 44px;

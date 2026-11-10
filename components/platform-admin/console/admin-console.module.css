@@ -47,14 +47,9 @@
 .mark {
   width: 30px;
   height: 30px;
-  border-radius: 9px;
   display: grid;
   place-items: center;
   flex: none;
-  background: linear-gradient(135deg, #3e8f88, var(--dz-brand));
-  color: #fbfaf6;
-  font-family: var(--font-rubik), system-ui, sans-serif;
-  font-weight: 700;
 }
 .navGroup {
   padding: 14px 10px 4px;

@@ -18,6 +18,7 @@ import type { PlatformAdminSessionResponse } from "@/lib/services/platform-admin
 import { getAdminElevationExpiresAt } from "@/lib/platform-admin/admin-elevation";
 import { PlatformAdminGate } from "../platform-admin-gate";
 import { ConsoleIcon, type ConsoleIconName } from "./console-icons";
+import { DubizMark } from "@/components/ui/dubiz-logo";
 import styles from "./admin-console.module.css";
 
 type NavEntry = { href: string; label: string; icon: ConsoleIconName };
@@ -150,7 +151,7 @@ export function AdminConsole({ title, backHref, children }: AdminConsoleProps) {
           <aside className={styles.side} aria-label="ניווט ראשי של אזור הניהול">
             <div className={styles.brand}>
               <span className={styles.mark} aria-hidden="true">
-                D
+                <DubizMark height={26} />
               </span>
               <div>
                 Dubiz Admin
@@ -203,7 +204,7 @@ export function AdminConsole({ title, backHref, children }: AdminConsoleProps) {
                 </Link>
               ) : (
                 <span className={styles.mark} aria-hidden="true">
-                  D
+                  <DubizMark height={26} />
                 </span>
               )}
               <span className={styles.mobileTitle}>{title}</span>

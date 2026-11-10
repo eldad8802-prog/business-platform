@@ -11,6 +11,7 @@ import { buildEmailLink, type EmailTokenPurpose } from "@/lib/auth/email-link";
 import type { Translator } from "@/lib/i18n/translate";
 
 import { emailLanguage, firstNameOf, greeting, type EmailLanguage, type RenderedEmail } from "./welcome";
+import { emailLogoRow } from "./brand";
 
 export type AccountLinkPayload = { tokenId: string; firstName: string | null };
 
@@ -63,7 +64,7 @@ function escapeHtml(s: string): string {
 }
 
 /** The account-email frame, shared with the Google link emails (templates/google-link.ts). */
-export function renderAccountEmail(copy: AccountEmailCopy, firstName: string | null, link: string, L: EmailLanguage): RenderedEmail {
+export function renderAccountEmail(copy: AccountEmailCopy, firstName: string | null, link: string, L: EmailLanguage, appBaseUrl: string): RenderedEmail {
   const hello = greeting(firstName, L.t);
   const signature = L.t("system.email.signature");
   const text = [hello, "", ...copy.lines, "", `${copy.cta}: ${link}`, "", ...copy.after, "", signature, "", "—", copy.reason].join("\n");
@@ -87,7 +88,7 @@ export function renderAccountEmail(copy: AccountEmailCopy, firstName: string | n
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:${C.page};">
 <tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;" dir="${L.dir}">
-<tr><td style="padding:0 4px 20px 4px;text-align:${L.align};font-family:${font};font-size:24px;font-weight:700;letter-spacing:0.2px;color:${C.brand};">Dubiz</td></tr>
+${emailLogoRow(appBaseUrl, L.align)}
 <tr><td style="background:${C.card};border:1px solid ${C.border};border-radius:16px;padding:32px 28px;text-align:${L.align};" dir="${L.dir}">
 <p style="margin:0 0 20px 0;font-family:${font};font-size:22px;line-height:1.4;font-weight:700;color:${C.text};text-align:${L.align};">${escapeHtml(hello)}</p>
 ${copy.lines.map((l) => `<p style="${p}">${escapeHtml(l)}</p>`).join("\n")}
@@ -111,7 +112,7 @@ ${copy.after.map((l) => `<p style="${small}">${escapeHtml(l)}</p>`).join("\n")}
 function renderFor(purpose: EmailTokenPurpose) {
   return (payload: AccountLinkPayload, ctx: { appBaseUrl: string; locale?: string | null }): RenderedEmail => {
     const L = emailLanguage(ctx.locale);
-    return renderAccountEmail(copyFor(purpose, L.t), payload.firstName, buildEmailLink(ctx.appBaseUrl, payload.tokenId, purpose), L);
+    return renderAccountEmail(copyFor(purpose, L.t), payload.firstName, buildEmailLink(ctx.appBaseUrl, payload.tokenId, purpose), L, ctx.appBaseUrl);
   };
 }
 

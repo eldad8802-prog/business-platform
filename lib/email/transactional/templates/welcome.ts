@@ -12,6 +12,7 @@
 import { resolveLocale, type Locale } from "@/lib/i18n/config";
 import { getMessages } from "@/lib/i18n/messages";
 import { createTranslator, type Translator } from "@/lib/i18n/translate";
+import { emailLogoRow } from "./brand";
 
 export type WelcomePayload = {
   /** First word of the name the owner typed at signup. Absent → a greeting without a name. */
@@ -142,7 +143,7 @@ export function renderWelcome(payload: WelcomePayload, ctx: { appBaseUrl: string
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:${C.page};">
 <tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;" dir="${L.dir}">
-<tr><td style="padding:0 4px 20px 4px;text-align:${L.align};font-family:${font};font-size:24px;font-weight:700;letter-spacing:0.2px;color:${C.brand};">Dubiz</td></tr>
+${emailLogoRow(ctx.appBaseUrl, L.align)}
 <tr><td style="background:${C.card};border:1px solid ${C.border};border-radius:16px;padding:32px 28px;text-align:${L.align};" dir="${L.dir}">
 <p style="margin:0 0 20px 0;font-family:${font};font-size:22px;line-height:1.4;font-weight:700;color:${C.text};text-align:${L.align};">${escapeHtml(hello)}</p>
 <p style="${p}">${escapeHtml(lines.thanks)}<br>${escapeHtml(lines.value)}</p>

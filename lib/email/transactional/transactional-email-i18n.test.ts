@@ -46,8 +46,12 @@ const CASES: [string, unknown][] = [
 const render = (locale?: string | null) =>
   CASES.map(([kind, payload]) => renderStored(kind, payload, { appBaseUrl: "https://app.example.test", ...(locale === undefined ? {} : { locale }) }));
 
-/** The pre-i18n templates' output for CASES (AUTH_TOKEN_SECRET = "a" × 64), as SHA-256 of its JSON. */
-const LEGACY_HEBREW_SHA = "b018afa9d2599235d2218abcceeee9d5da94f2b4f2017b7bdf3a384e5d0c8b57";
+/**
+ * The pre-i18n templates' output for CASES (AUTH_TOKEN_SECRET = "a" × 64), as SHA-256 of its JSON — with one
+ * deliberate change since: the text "Dubiz" header row became the logo image (templates/brand.ts). Every other
+ * byte of the HTML, and all of the text part and subject, is unchanged.
+ */
+const LEGACY_HEBREW_SHA = "4eb4c87743446ca1e6434ac2413d337518c5c2e562e7fe44db9dbf23ac32baae";
 
 console.log("Hebrew is byte-identical to the pre-i18n templates");
 for (const locale of [undefined, null, "he", "", "fr", "EN", "toString"]) {

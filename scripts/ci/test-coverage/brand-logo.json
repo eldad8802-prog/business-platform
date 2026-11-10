@@ -1,0 +1,10 @@
+{
+  "note": "Official Dubiz logo instead of the \"d\" tile + typed \"dubiz\": register, Google signup/link, setup, side nav (lockup) and nav rail / admin console (mark) via components/ui/dubiz-logo.tsx; transactional emails open with public/email/dubiz-logo-v1.png (templates/brand.ts).",
+  "tests": {
+    "components/ui/brand-logo.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "presentation only: which image the brand slot shows and the email header row; no data, auth, session or permission path",
+      "reason": "pure source checks: each former stand-in screen renders DubizLogo/DubizMark from the official component with no lone d glyph or stand-in classes; components point at public/dubiz-logo.png (827x266) and dubiz-mark.png (303x261); email asset is 336x108 (2x of 168x54, lockup ratio), absolute URL, alt Dubiz, align follows reading direction, base URL escaped; welcome and account templates use the logo row, not the text header"
+    }
+  }
+}

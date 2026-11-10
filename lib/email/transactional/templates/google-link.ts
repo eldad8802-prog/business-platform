@@ -73,13 +73,13 @@ export function googleUnlinkedCopy(googleEmail: string): AccountEmailCopy {
 export const SECURITY_SETTINGS_PATH = "/settings/security";
 
 export function renderLinkGoogle(payload: AccountLinkPayload, ctx: { appBaseUrl: string }): RenderedEmail {
-  return renderAccountEmail(LINK_GOOGLE_COPY, payload.firstName, buildEmailLink(ctx.appBaseUrl, payload.tokenId, "LINK_GOOGLE"), HE);
+  return renderAccountEmail(LINK_GOOGLE_COPY, payload.firstName, buildEmailLink(ctx.appBaseUrl, payload.tokenId, "LINK_GOOGLE"), HE, ctx.appBaseUrl);
 }
 
 export function renderGoogleLinked(payload: GoogleNoticePayload, ctx: { appBaseUrl: string }): RenderedEmail {
-  return renderAccountEmail(googleLinkedCopy(payload.googleEmail), payload.firstName, `${ctx.appBaseUrl}${SECURITY_SETTINGS_PATH}`, HE);
+  return renderAccountEmail(googleLinkedCopy(payload.googleEmail), payload.firstName, `${ctx.appBaseUrl}${SECURITY_SETTINGS_PATH}`, HE, ctx.appBaseUrl);
 }
 
 export function renderGoogleUnlinked(payload: GoogleNoticePayload, ctx: { appBaseUrl: string }): RenderedEmail {
-  return renderAccountEmail(googleUnlinkedCopy(payload.googleEmail), payload.firstName, `${ctx.appBaseUrl}${SECURITY_SETTINGS_PATH}`, HE);
+  return renderAccountEmail(googleUnlinkedCopy(payload.googleEmail), payload.firstName, `${ctx.appBaseUrl}${SECURITY_SETTINGS_PATH}`, HE, ctx.appBaseUrl);
 }

@@ -19,6 +19,7 @@ import {
 } from "./nav-destinations";
 import { IconPlus, IconSearch } from "./nav-icons";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { DubizLogo, DubizMark } from "@/components/ui/dubiz-logo";
 import { AccessibilityGlyph, AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import {
   useHasUnreadNotifications,
@@ -59,7 +60,7 @@ export function NavRail() {
     <>
       <nav aria-label={t("nav.a11y.mainNav")} className="dz-rail" style={{ fontFamily: RUBIK }}>
         <Link href="/app" prefetch={false} aria-label={t("nav.a11y.homeLink")} className="dz-rail__logo">
-          d
+          <DubizMark height={32} />
         </Link>
         <button
           type="button"
@@ -133,12 +134,7 @@ export function NavSidebar() {
     <>
       <nav aria-label={t("nav.a11y.mainNav")} className="dz-sidebar" style={{ fontFamily: RUBIK }}>
         <Link href="/app" prefetch={false} className="dz-sidebar__brand" aria-label={t("nav.a11y.homeLink")}>
-          <span className="dz-sidebar__mark" aria-hidden>
-            d
-          </span>
-          <span dir="ltr" className="dz-sidebar__word" aria-hidden>
-            dubiz
-          </span>
+          <DubizLogo height={36} />
         </Link>
 
         {businessName ? (
