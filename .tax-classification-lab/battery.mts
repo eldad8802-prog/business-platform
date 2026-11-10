@@ -18,12 +18,13 @@
  *   STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT=… BILLING_PDF_STORAGE_ROOT=… ; Chromium installed (playwright)
  *   npx tsx .tax-classification-lab/battery.mts
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BillingDocumentType, CustomerTaxIdType, PrismaClient } from "@prisma/client";
 
 import {
   callRoute,
+  EVIDENCE_DIR,
   check,
   errorText,
   failureCount,
@@ -679,9 +680,17 @@ async function main() {
     const pfi = await issue(Q, pf.json.document.id);
     const pfNo = (await docRow(pf.json.document.id)).documentNumber;
     const sBefore = await seq(Q.businessId, TI);
-    process.env.AWS_LAMBDA_FUNCTION_NAME = "taxlab-broken-renderer";
+    // Break the PDF's storage for one call, the same way on every OS: the storage root points
+    // under a regular file, so the write fails after the render. Restored right after.
+    const { resetStorageServiceForTests } = await import("@/lib/storage/storage.factory");
+    const realRoot = process.env.LOCAL_STORAGE_ROOT;
+    const blocker = path.join(EVIDENCE_DIR, "storage-blocker");
+    writeFileSync(blocker, "not a directory");
+    process.env.LOCAL_STORAGE_ROOT = path.join(blocker, "root");
+    resetStorageServiceForTests();
     const broken = await getPdf(Q, pf.json.document.id);
-    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    process.env.LOCAL_STORAGE_ROOT = realRoot;
+    resetStorageServiceForTests();
     const status1 = (await owner.billingDocument.findUniqueOrThrow({ where: { id: pf.json.document.id }, select: { pdfRenderStatus: true } })).pdfRenderStatus;
     const fixed = await getPdf(Q, pf.json.document.id);
     const fixedText = fixed.buffer ? await pdfText(fixed.buffer) : "";
