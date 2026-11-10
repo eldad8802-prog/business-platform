@@ -1,7 +1,7 @@
 -- ============================================================================
--- LAB CHECK for issuer-declaration-and-series-opening-v1.DRAFT.sql — synthetic data, throwaway DB.
--- Fixtures are written by the OWNER; the checks run as decl_lab_rt, a NOSUPERUSER NOBYPASSRLS login
--- that is a member of app_runtime (SET ROLE). Each check prints PASS/FAIL; a FAIL is a design defect.
+-- LAB CHECK for issuer-declaration-and-series-opening-v1.DRAFT.sql (revision 2) — synthetic, throwaway DB.
+-- Fixtures by the OWNER; checks as decl_lab_rt (NOSUPERUSER NOBYPASSRLS, member of app_runtime).
+-- Each check prints PASS/FAIL; a FAIL is a design defect.
 --   psql <owner url of a throwaway DB where the draft was applied> -v ON_ERROR_STOP=1 -f this-file
 -- ============================================================================
 \set QUIET on
@@ -9,28 +9,35 @@ DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'decl_lab_rt')
   CREATE ROLE decl_lab_rt LOGIN NOSUPERUSER NOBYPASSRLS IN ROLE app_runtime; END IF; END $$;
 GRANT USAGE ON SCHEMA public TO app_runtime;
 GRANT SELECT ON "BillingDocument", "BillingDocumentNumberSequence" TO app_runtime;
+GRANT SELECT, UPDATE ON "BusinessProfile" TO app_runtime;
+GRANT UPDATE ("status","issuedAt") ON "BillingDocument" TO app_runtime;
 
-INSERT INTO "Business"("id","name","createdAt","updatedAt") VALUES (910001,'decl-lab-1',now(),now()),(910002,'decl-lab-2',now(),now());
-INSERT INTO "User"("id","email","password","businessId","role","createdAt","updatedAt")
-  VALUES (920001,'decl1@example.test','x',910001,'USER',now(),now()),(920002,'decl2@example.test','x',910002,'USER',now(),now());
--- business 2 already used its RECEIPT series (counter exists)
+-- B1 solo (1 user) · B2 solo, used RECEIPT series · B3 two users (designation needed)
+INSERT INTO "Business"("id","name","createdAt","updatedAt") VALUES (910001,'decl-lab-1',now(),now()),(910002,'decl-lab-2',now(),now()),(910003,'decl-lab-3',now(),now());
+INSERT INTO "User"("id","email","password","businessId","role","createdAt","updatedAt") VALUES
+  (920001,'d1@example.test','x',910001,'USER',now(),now()),
+  (920002,'d2@example.test','x',910002,'USER',now(),now()),
+  (920031,'d3a@example.test','x',910003,'USER',now(),now()),
+  (920032,'d3b@example.test','x',910003,'USER',now(),now()),
+  (929999,'admin@example.test','x',910001,'PLATFORM_ADMIN',now(),now());
+DELETE FROM "User" WHERE "id" = 929999;   -- the admin acts through the designation function only
 INSERT INTO "BillingDocumentNumberSequence"("businessId","documentType","nextNumber","createdAt","updatedAt") VALUES (910002,'RECEIPT',5,now(),now());
+INSERT INTO "BusinessProfile"("businessId","billingLegalName","billingBusinessKind","billingTaxId","billingVatNumber","createdAt","updatedAt")
+  VALUES (910001,'ישראל ישראלי','AUTHORIZED_DEALER','000000018','000000018',now(),now());
 
--- pg_temp.decl(...) builds one declaration INSERT; supersedes = the business's version (v - 1) when v > 1
 CREATE OR REPLACE FUNCTION pg_temp.decl(b int, v int, kind text, track text, form text, vat text, lname text,
-                                        idtype text, idnum text, vatnum text, addr text, u int)
+                                        idtype text, idnum text, vatnum text, addr text, authz int, by_user int, basis text)
 RETURNS text LANGUAGE sql AS $f$
   SELECT format(
-    'INSERT INTO "BusinessIssuerDeclaration"("businessId","version","supersedesId","kind","track","legalForm","vatStatus","legalName","idType","idNumber","vatRegistrationNumber","address","phone","email","effectiveFrom","declaredByUserId","declarantName","declarantCapacity","statementVersion","statementSha256","reauthMethod","reauthAt") '
-    'SELECT %s,%s,%s,%L,%L,%L,%L,%L,%L,%L,%s,%L,''0500000000'',''lab@example.test'',now(),%s,''בעל העסק לבדיקה'',''בעל העסק'',''issuer-declaration-he-v1'',repeat(''a'',64),''EMAIL_CODE'',now()',
+    'INSERT INTO "BusinessIssuerDeclaration"("businessId","version","supersedesId","kind","track","legalForm","vatStatus","legalName","idType","idNumber","vatRegistrationNumber","address","phone","email","effectiveFrom","authorizedUserId","authorityBasis","declaredByUserId","declarantName","declarantCapacity","statementVersion","statementSha256","reauthMethod","reauthAt") '
+    'SELECT %s,%s,%s,%L,%L,%L,%L,%L,%L,%L,%s,%L,''0500000000'',''lab@example.test'',now(),%s,%L,%s,''בעל העסק לבדיקה'',''בעל העסק'',''issuer-declaration-he-v1'',repeat(''a'',64),''EMAIL_LINK'',now()',
     b, v,
     CASE WHEN v = 1 THEN 'NULL' ELSE format('(SELECT "id" FROM "BusinessIssuerDeclaration" WHERE "businessId"=%s AND "version"=%s)', b, v - 1) END,
     kind, track, form, vat, lname, idtype, idnum,
     CASE WHEN vatnum IS NULL THEN 'NULL' ELSE quote_literal(vatnum) END,
-    addr, u)
+    addr, authz, basis, by_user)
 $f$;
 
--- pg_temp.opening(...) inserts one opening and REQUIRES exactly one row (a 0-row insert is a FAIL, never a pass)
 CREATE OR REPLACE FUNCTION pg_temp.opening(b int, dtype text, num int, src text, tool text, lastnum int, u int)
 RETURNS text LANGUAGE sql AS $f$
   SELECT format(
@@ -55,32 +62,39 @@ BEGIN
   END IF;
 END $f$;
 
+-- ======================= business 1 — a single user ==========================
 SET ROLE decl_lab_rt;
 SELECT set_config('app.current_business_id', '910001', false);
-
-SELECT pg_temp.expect('D1 first declaration (authorized dealer, individual) is accepted',
-  pg_temp.decl(910001,1,'INITIAL','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 1',920001), 'OK');
-SELECT pg_temp.expect('D2 a track that does not match its legal form / VAT status is refused',
-  pg_temp.decl(910001,2,'CORRECTION','COMPANY_AUTHORIZED_DEALER','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 1',920001), 'IssuerDeclaration_track_shape');
-SELECT pg_temp.expect('D3 an authorized dealer without a VAT registration number is refused',
-  pg_temp.decl(910001,2,'CORRECTION','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018',NULL,'רחוב 2',920001), 'IssuerDeclaration_vat_number');
-SELECT pg_temp.expect('D4 skipping the chain (version 3 while the current is 1) is refused',
-  pg_temp.decl(910001,3,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 2',920001), 'ISSUER_DECLARATION_MUST_SUPERSEDE_CURRENT');
-SELECT pg_temp.expect('D5 a contact update (new address) superseding v1 is accepted',
-  pg_temp.decl(910001,2,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 2',920001), 'OK');
-SELECT pg_temp.expect('D6 a contact update that changes the legal name is refused',
-  pg_temp.decl(910001,3,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','שם אחר','ISRAELI_ID','000000018','000000018','רחוב 2',920001), 'ISSUER_CONTACT_UPDATE_TOUCHES_IDENTITY');
-SELECT pg_temp.expect('D7 becoming a company (new legal person, new number) inside the business is refused',
-  pg_temp.decl(910001,3,'STATUS_CHANGE','COMPANY_AUTHORIZED_DEALER','COMPANY','AUTHORIZED','חברה בע"מ','COMPANY_NUMBER','516000004','516000004','רחוב 2',920001), 'ISSUER_IDENTITY_IS_LOCKED');
-SELECT pg_temp.expect('D8 a "status change" that does not change the VAT status is refused',
-  pg_temp.decl(910001,3,'STATUS_CHANGE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 2',920001), 'ISSUER_STATUS_CHANGE_INVALID');
-SELECT pg_temp.expect('D9 UPDATE of a declaration is refused for the runtime',
-  $q$UPDATE "BusinessIssuerDeclaration" SET "address"='x' WHERE "businessId"=910001$q$, 'permission denied');
-SELECT pg_temp.expect('D10 DELETE of a declaration is refused for the runtime',
+SELECT pg_temp.expect('A1 sole user of the business confirms (server verifies: exactly one user, and it is the confirmer)',
+  pg_temp.decl(910001,1,'INITIAL','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 1',920001,920001,'SOLE_USER_VERIFIED'), 'OK');
+SELECT pg_temp.expect('A2 nobody may self-assign the PLATFORM_DESIGNATED basis from the runtime',
+  pg_temp.decl(910001,2,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 2',920001,920001,'PLATFORM_DESIGNATED'), 'ISSUER_DESIGNATION_ONLY_BY_PLATFORM_FUNCTION');
+SELECT pg_temp.expect('D1 a track that does not match its legal form / VAT status is refused',
+  pg_temp.decl(910001,2,'CORRECTION','COMPANY_AUTHORIZED_DEALER','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 1',920001,920001,'CURRENT_AUTHORIZED_USER'), 'IssuerDeclaration_track_shape');
+SELECT pg_temp.expect('D2 an authorized dealer without a VAT registration number is refused',
+  pg_temp.decl(910001,2,'CORRECTION','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018',NULL,'רחוב 2',920001,920001,'CURRENT_AUTHORIZED_USER'), 'IssuerDeclaration_vat_number');
+SELECT pg_temp.expect('D3 skipping the chain (version 3 while the current is 1) is refused',
+  pg_temp.decl(910001,3,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 2',920001,920001,'CURRENT_AUTHORIZED_USER'), 'ISSUER_DECLARATION_MUST_SUPERSEDE_CURRENT');
+SELECT pg_temp.expect('D4 a contact update (new address) by the authorized user is accepted',
+  pg_temp.decl(910001,2,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 2',920001,920001,'CURRENT_AUTHORIZED_USER'), 'OK');
+SELECT pg_temp.expect('D5 a contact update that changes the legal name is refused',
+  pg_temp.decl(910001,3,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','שם אחר','ISRAELI_ID','000000018','000000018','רחוב 2',920001,920001,'CURRENT_AUTHORIZED_USER'), 'ISSUER_CONTACT_UPDATE_TOUCHES_IDENTITY');
+SELECT pg_temp.expect('D6 becoming a company (new legal person) inside the business is refused',
+  pg_temp.decl(910001,3,'STATUS_CHANGE','COMPANY_AUTHORIZED_DEALER','COMPANY','AUTHORIZED','חברה בע"מ','COMPANY_NUMBER','516000004','516000004','רחוב 2',920001,920001,'CURRENT_AUTHORIZED_USER'), 'ISSUER_IDENTITY_IS_LOCKED');
+SELECT pg_temp.expect('D7 UPDATE / DELETE of a declaration are refused for the runtime',
   $q$DELETE FROM "BusinessIssuerDeclaration" WHERE "businessId"=910001$q$, 'permission denied');
-SELECT pg_temp.expect('D11 a declaration for ANOTHER business is refused by RLS',
-  pg_temp.decl(910002,1,'INITIAL','EXEMPT_DEALER','INDIVIDUAL','EXEMPT','פלוני','ISRAELI_ID','000000026',NULL,'רחוב 1',920002), 'row-level security');
+SELECT pg_temp.expect('D8 a declaration for ANOTHER business is refused by RLS',
+  pg_temp.decl(910002,1,'INITIAL','EXEMPT_DEALER','INDIVIDUAL','EXEMPT','פלוני','ISRAELI_ID','000000026',NULL,'רחוב 1',920002,920002,'SOLE_USER_VERIFIED'), 'row-level security');
 
+-- profile lock (B2): the profile mirrors the current declaration
+SELECT pg_temp.expect('L1 editing the profile legal name away from the declaration is refused (an older release cannot reopen it)',
+  $q$UPDATE "BusinessProfile" SET "billingLegalName" = 'שם אחר' WHERE "businessId" = 910001$q$, 'ISSUER_PROFILE_IDENTITY_LOCKED');
+SELECT pg_temp.expect('L2 clearing the profile classification is refused',
+  $q$UPDATE "BusinessProfile" SET "billingBusinessKind" = NULL WHERE "businessId" = 910001$q$, 'ISSUER_PROFILE_IDENTITY_LOCKED');
+SELECT pg_temp.expect('L3 writing the same identity (projection) is accepted',
+  $q$UPDATE "BusinessProfile" SET "billingLegalName" = 'ישראל ישראלי' WHERE "businessId" = 910001$q$, 'OK');
+
+-- openings
 SELECT pg_temp.expect('O1 continuing a previous tool: opening 459 after last 458 is accepted',
   pg_temp.opening(910001,'TAX_INVOICE',459,'CONTINUES_PREVIOUS_TOOL','ספר ידני',458,920001), 'OK');
 SELECT pg_temp.expect('O2 a second opening for the same series is refused',
@@ -89,28 +103,88 @@ SELECT pg_temp.expect('O3 NEW_BUSINESS with an opening other than 1 is refused',
   pg_temp.opening(910001,'RECEIPT',7,'NEW_BUSINESS',NULL,NULL,920001), 'SeriesOpening_source_shape');
 SELECT pg_temp.expect('O4 an opening that does not follow the previous tool''s last number is refused',
   pg_temp.opening(910001,'RECEIPT',100,'CONTINUES_PREVIOUS_TOOL','תוכנה קודמת',458,920001), 'SeriesOpening_source_shape');
-SELECT pg_temp.expect('O5 NEW_BUSINESS opening 1 for an unused series is accepted',
-  pg_temp.opening(910001,'RECEIPT',1,'NEW_BUSINESS',NULL,NULL,920001), 'OK');
-SELECT pg_temp.expect('O6 UPDATE of an opening is refused for the runtime',
+SELECT pg_temp.expect('O5 UPDATE of an opening is refused for the runtime',
   $q$UPDATE "BillingSeriesOpening" SET "openingNumber"=1$q$, 'permission denied');
 
+-- ======================= business 3 — two users ==============================
+SELECT set_config('app.current_business_id', '910003', false);
+SELECT pg_temp.expect('A3 a business with TWO users cannot self-confirm (no order-of-signup authority)',
+  pg_temp.decl(910003,1,'INITIAL','EXEMPT_DEALER','INDIVIDUAL','EXEMPT','פלונית','ISRAELI_ID','000000034',NULL,'רחוב 3',920031,920031,'SOLE_USER_VERIFIED'), 'ISSUER_AUTHORITY_SOLE_USER_REQUIRED');
+
+-- business 1 gains a second user; that user may not change anything
 RESET ROLE;
--- business 2 gets its declaration from the owner (fixture), then its runtime tries to open an ALREADY USED series
+INSERT INTO "User"("id","email","password","businessId","role","createdAt","updatedAt") VALUES (920011,'d1b@example.test','x',910001,'USER',now(),now());
+SET ROLE decl_lab_rt;
+SELECT set_config('app.current_business_id', '910001', false);
+SELECT pg_temp.expect('A4 a second user of the same business may not file a change',
+  pg_temp.decl(910001,3,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 3',920001,920011,'CURRENT_AUTHORIZED_USER'), 'ISSUER_ONLY_AUTHORIZED_USER_MAY_CHANGE');
+SELECT pg_temp.expect('A5 with two users, the CURRENT authorized user still files (authority is named, not counted)',
+  pg_temp.decl(910001,3,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 3',920001,920001,'CURRENT_AUTHORIZED_USER'), 'OK');
+SELECT pg_temp.expect('A5b with two users, nobody can claim SOLE_USER again',
+  pg_temp.decl(910001,4,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 4',920001,920001,'SOLE_USER_VERIFIED'), 'ISSUER_AUTHORITY_SOLE_USER_REQUIRED');
+SELECT pg_temp.expect('A6 the runtime cannot call the platform designation function',
+  $q$SELECT public.issuer_designate_authorized_user(910001, 920011, 920001, 'x', 'case-1', 'x', 'v1', repeat('a',64))$q$, 'permission denied');
+
+-- access recovery: a platform admin (owner here = app_admin in Production) designates the second user
+RESET ROLE;
+SELECT pg_temp.expect('A7 platform designation (evidence ref + elevation) transfers authority, issuer unchanged',
+  $q$SELECT public.issuer_designate_authorized_user(910001, 920011, 920001, 'מנהל לבדיקה', 'support-case-123', 'המאשר אינו זמין', 'designation-he-v1', repeat('b',64))$q$, 'OK');
+SET ROLE decl_lab_rt;
+SELECT set_config('app.current_business_id', '910001', false);
+SELECT pg_temp.expect('A8 after the transfer the OLD authorized user may not file',
+  pg_temp.decl(910001,5,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 5',920001,920001,'CURRENT_AUTHORIZED_USER'), 'ISSUER_ONLY_AUTHORIZED_USER_MAY_CHANGE');
+SELECT pg_temp.expect('A8b the NEW authorized user may',
+  pg_temp.decl(910001,5,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','ישראל ישראלי','ISRAELI_ID','000000018','000000018','רחוב 5',920011,920011,'CURRENT_AUTHORIZED_USER'), 'OK');
+SELECT pg_temp.expect('A9 the transfer did not change the issuer identity (same idNumber, legal name, track)',
+  $q$SELECT 1/(CASE WHEN count(DISTINCT ("idNumber","legalName","track")) = 1 THEN 1 ELSE 0 END) FROM "BusinessIssuerDeclaration" WHERE "businessId"=910001$q$, 'OK');
+
+-- ======================= business 2 — used series ============================
+RESET ROLE;
 SELECT set_config('app.current_business_id', '910002', false);
 SELECT pg_temp.expect('fixture: business 2 declaration (owner)',
-  pg_temp.decl(910002,1,'EXISTING_CONFIRMATION','EXEMPT_DEALER','INDIVIDUAL','EXEMPT','פלוני','ISRAELI_ID','000000026',NULL,'רחוב 1',920002), 'OK');
+  pg_temp.decl(910002,1,'EXISTING_CONFIRMATION','EXEMPT_DEALER','INDIVIDUAL','EXEMPT','פלוני','ISRAELI_ID','000000026',NULL,'רחוב 1',920002,920002,'SOLE_USER_VERIFIED'), 'OK');
 SET ROLE decl_lab_rt;
 SELECT set_config('app.current_business_id', '910002', false);
-SELECT pg_temp.expect('O7 an opening for a series that was already used (counter exists) is refused',
+SELECT pg_temp.expect('O6 an opening for a series that was already used (counter exists) is refused',
   pg_temp.opening(910002,'RECEIPT',1,'NEW_BUSINESS',NULL,NULL,920002), 'SERIES_ALREADY_USED_OPENING_REFUSED');
-SELECT pg_temp.expect('R1 business 2 sees none of business 1''s declarations',
-  $q$SELECT 1 / (CASE WHEN count(*) = 0 THEN 1 ELSE 0 END) FROM "BusinessIssuerDeclaration" WHERE "businessId"=910001$q$, 'OK');
-SELECT pg_temp.expect('R2 business 2 sees none of business 1''s openings',
-  $q$SELECT 1 / (CASE WHEN count(*) = 0 THEN 1 ELSE 0 END) FROM "BillingSeriesOpening" WHERE "businessId"=910001$q$, 'OK');
+SELECT pg_temp.expect('R1 business 2 sees none of business 1''s declarations or openings',
+  $q$SELECT 1 / (CASE WHEN (SELECT count(*) FROM "BusinessIssuerDeclaration" WHERE "businessId"=910001) + (SELECT count(*) FROM "BillingSeriesOpening" WHERE "businessId"=910001) = 0 THEN 1 ELSE 0 END)$q$, 'OK');
+
+-- ======================= enforcement (one-way) and issuance ====================
+RESET ROLE;
+INSERT INTO "IssuerDeclarationEnforcement"("enforcedFrom","recordedBy") VALUES (now(), 'lab');
+INSERT INTO "BillingDocument"("id","businessId","documentType","status","customerNameSnapshot","currency","subtotalAmount","vatAmount","totalAmount","createdAt","updatedAt")
+  VALUES (930001,910003,'RECEIPT','DRAFT','x','ILS',0,0,10,now(),now()), (930002,910002,'RECEIPT','DRAFT','x','ILS',0,0,10,now(),now());
+SET ROLE decl_lab_rt;
+SELECT set_config('app.current_business_id', '910003', false);
+SELECT pg_temp.expect('B1 with enforcement on, a business with NO declaration cannot move a document to ISSUED (any release)',
+  $q$UPDATE "BillingDocument" SET "status"='ISSUED' WHERE "id"=930001$q$, 'ISSUER_DECLARATION_REQUIRED_TO_ISSUE');
+SELECT set_config('app.current_business_id', '910002', false);
+SELECT pg_temp.expect('B2 a business WITH a declaration can',
+  $q$UPDATE "BillingDocument" SET "status"='ISSUED', "issuedAt"=now() WHERE "id"=930002$q$, 'OK');
+RESET ROLE;
+SELECT pg_temp.expect('B3 enforcement cannot be switched off by deleting its row (even the owner)',
+  $q$DELETE FROM "IssuerDeclarationEnforcement"$q$, 'ISSUER_RECORDS_APPEND_ONLY');
+
+-- ======================= erase (R-split) ======================================
+SELECT set_config('app.current_business_id', '910002', false);
+SELECT pg_temp.expect('E1 the erase keeps a declaration that a fiscal document was issued under (business 2)',
+  $q$SELECT 1/(CASE WHEN public.issuer_declaration_erase() = 0 THEN 1 ELSE 0 END)$q$, 'OK');
+SELECT set_config('app.current_business_id', '910003', false);
+INSERT INTO "BusinessIssuerDeclaration"("businessId","version","kind","track","legalForm","vatStatus","legalName","idType","idNumber","address","phone","email","effectiveFrom","authorizedUserId","authorityBasis","authorityEvidenceRef","declaredByUserId","declarantName","declarantCapacity","statementVersion","statementSha256","reauthMethod","reauthAt")
+  SELECT 910003,1,'INITIAL','EXEMPT_DEALER','INDIVIDUAL','EXEMPT','פלונית','ISRAELI_ID','000000034','רחוב 3','050','b3@example.test',now(),920031,'PLATFORM_DESIGNATED','support-case-9',920032,'מנהל','מנהל פלטפורמה','v1',repeat('c',64),'PLATFORM_ADMIN_ELEVATION',now()
+  FROM (SELECT set_config('app.issuer_designation','on',true)) s;
+SELECT pg_temp.expect('E2 the erase anonymises a declaration nothing was issued under (business 3)',
+  $q$SELECT 1/(CASE WHEN public.issuer_declaration_erase() = 1 THEN 1 ELSE 0 END)$q$, 'OK');
+SELECT pg_temp.expect('E3 the anonymised row kept its structure (track, version, dates) and lost the personal fields',
+  $q$SELECT 1/(CASE WHEN "legalName"='—' AND "idNumber"='000000000' AND "track"='EXEMPT_DEALER' AND "anonymisedAt" IS NOT NULL THEN 1 ELSE 0 END) FROM "BusinessIssuerDeclaration" WHERE "businessId"=910003$q$, 'OK');
+SELECT pg_temp.expect('E4 even the owner may not change anything else (e.g. the track)',
+  $q$UPDATE "BusinessIssuerDeclaration" SET "track"='AUTHORIZED_DEALER_INDIVIDUAL' WHERE "businessId"=910002$q$, 'ISSUER_RECORDS_APPEND_ONLY');
+SELECT pg_temp.expect('E5 nobody may DELETE a declaration (owner included)',
+  $q$DELETE FROM "BusinessIssuerDeclaration" WHERE "businessId"=910003$q$, 'ISSUER_RECORDS_APPEND_ONLY');
+SET ROLE decl_lab_rt;
+SELECT pg_temp.expect('E6 the runtime cannot call the erase function',
+  $q$SELECT public.issuer_declaration_erase()$q$, 'permission denied');
 RESET ROLE;
 SELECT pg_temp.expect('T1 TRUNCATE is refused even for the owner',
   $q$TRUNCATE "BusinessIssuerDeclaration" CASCADE$q$, 'ISSUER_RECORDS_APPEND_ONLY');
-SELECT pg_temp.expect('T2 DELETE is refused even for the owner',
-  $q$DELETE FROM "BillingSeriesOpening" WHERE "businessId"=910001$q$, 'ISSUER_RECORDS_APPEND_ONLY');
-SELECT pg_temp.expect('T3 the owner (erase path) may UPDATE — the only admitted change',
-  $q$UPDATE "BusinessIssuerDeclaration" SET "phone"='erased' WHERE "businessId"=910002$q$, 'OK');
