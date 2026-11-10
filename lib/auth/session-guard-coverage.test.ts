@@ -82,8 +82,11 @@ for (const page of pages) {
 }
 console.log(`  [measured] token-reading pages checked: ${checked}`);
 ok("every token-reading page is under the session coordinator (or explicitly public)", uncovered.length === 0, uncovered.join(", "));
-ok("the coordinator is mounted by ShellChrome", COVERS.test(readFileSync(join(ROOT, "components/navigation/shell-chrome.tsx"), "utf8")));
-ok("...and by the admin console layout", /RefreshCoordinator/.test(readFileSync(join(ROOT, "app/(platform-admin)/layout.tsx"), "utf8")));
+// Rendered, not merely imported: the JSX element itself must be there.
+const MOUNTS = /<RefreshCoordinator>/;
+ok("the coordinator is mounted by ShellChrome", MOUNTS.test(readFileSync(join(ROOT, "components/navigation/shell-chrome.tsx"), "utf8")));
+ok("...and by the admin console layout", MOUNTS.test(readFileSync(join(ROOT, "app/(platform-admin)/layout.tsx"), "utf8")));
+ok("...and by the onboarding layout", MOUNTS.test(readFileSync(join(ROOT, "app/onboarding/layout.tsx"), "utf8")));
 
 console.log(failed === 0 ? "\nALL PASS" : `\n${failed} FAILED`);
 if (failed > 0) process.exit(1);
