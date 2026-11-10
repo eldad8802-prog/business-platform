@@ -112,6 +112,12 @@ async function setBusinessWriteContext(tx: Prisma.TransactionClient, businessId:
   await tx.$executeRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;
 }
 
+/**
+ * The name a deleted business carries (A1). Never `__PLATFORM_SYSTEM__`: the platform's own business is recognised by
+ * that name (platform-usage-overview), and a deleted tenant must not be mistaken for it.
+ */
+export const DELETED_BUSINESS_NAME = "עסק שנמחק";
+
 export const prismaAccountDeletionStore: AccountDeletionStore = {
   async getBusiness(businessId) {
     const b = await prisma.business.findUnique({
@@ -325,6 +331,9 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
               billingPhone: null, billingEmail: null, billingAddress: null,
               city: null, latitude: null, longitude: null, openingHours: null,
               billingLogoDataUrl: null, billingSignatureDataUrl: null,
+              // A5 (erasure audit 2026-11-10): the owner's free-text payment / footer notes. Issued documents are
+              // unaffected — the notes are frozen into each document's issuedSnapshot at issue.
+              billingPaymentNote: null, billingFooterNote: null,
             },
           });
           // Customers anonymized (NOT deleted) — issued invoices reference customerId;
@@ -333,6 +342,40 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             where: { businessId },
             data: { name: "לקוח שנמחק", phone: null, email: null, city: null, legalName: null, taxId: null, notes: null },
           });
+          // A2 (erasure audit 2026-11-10). Suppliers anonymized in place, NOT deleted: document-supplier links and
+          // external Service Desk work reference them (NO ACTION). Category, lead time and payment terms describe the
+          // business's purchasing, not a counterparty's identity, and stay. Issued documents carry their own snapshot.
+          await tx.supplier.updateMany({
+            where: { businessId },
+            data: {
+              name: "ספק שנמחק", phone: null, email: null, notes: null, legalName: null, taxId: null, website: null,
+              contactName: null, contactRole: null, contactPhone: null, contactEmail: null,
+              addressStreet: null, addressCity: null, addressPostalCode: null,
+            },
+          });
+          // A3. Payees anonymized in place: a kept Payment holds its own payeeNameSnapshot (SetNull FK), and a payment
+          // preparation restricts deletion through its destination — so the row stays and only the identity goes.
+          await tx.payee.updateMany({
+            where: { businessId },
+            data: { displayName: "מקבל תשלום שנמחק", legalName: null, taxId: null, note: null },
+          });
+          // A4. The business's own bank accounts: the encrypted coordinates, the owner's label and note go. The row stays
+          // (cheques and payment preparations RESTRICT its deletion), and so do `fingerprint` (unique per business, and
+          // part of the preparations' source snapshot) and `accountLast4`. Nothing decrypts after quarantine: every
+          // reader is tenant-scoped and refused for a business being deleted.
+          await tx.businessBankAccount.updateMany({
+            where: { businessId },
+            data: { label: "חשבון שנמחק", note: null, coordinatesEncrypted: "", coordinatesIv: "", coordinatesTag: "" },
+          });
+          // A6. A deal's lost reason is free text about a named counterparty. `leadId` stays: it points at a lead this
+          // same transaction anonymizes, so it identifies nobody, and the pipeline history keeps its shape.
+          await tx.deal.updateMany({ where: { businessId }, data: { lostReason: null } });
+          // A6. Older BILLING_DRAFT_CREATED learning events (before 2026-09-24, 9f6c6673) carried the customer's name in
+          // the payload; the current writer stores only `customerNameSet`. Only that key is removed — the event and the
+          // ACCOUNT_DELETED evidence row stay.
+          await tx.$executeRaw`
+            UPDATE "LearningEvent" SET payload = payload - 'customerNameSnapshot'
+             WHERE "businessId" = ${businessId}::int AND jsonb_typeof(payload) = 'object' AND payload ? 'customerNameSnapshot'`;
           // E2-W1. This statement used to clear two columns. The manifest
           // declared `email` erased and the adapter never wrote it — the
           // contract lie the whole residual sweep started from. The other three
@@ -838,9 +881,12 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
     await prisma.$transaction(async (tx) => {
       // Business write pinning (B4) — see quarantineAndRevokeIntegrations.
       await setBusinessWriteContext(tx, businessId);
+      // A1 (erasure audit 2026-11-10, owner decision): the business's name goes with the terminal transition. For a
+      // sole trader it IS the owner's name; every issued document keeps the name it was issued under in its own
+      // issuedSnapshot, so the legal record does not depend on this column.
       await tx.business.updateMany({
         where: { id: businessId, deletedAt: null },
-        data: { deletedAt: now, archivedAt: now, archivedByUserId: actorUserId },
+        data: { name: DELETED_BUSINESS_NAME, deletedAt: now, archivedAt: now, archivedByUserId: actorUserId },
       });
     });
   },

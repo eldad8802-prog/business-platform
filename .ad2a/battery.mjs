@@ -74,6 +74,12 @@ const MARK = "ad2a-";
  *  let a Wave-1 assertion pass because some OTHER model happened to be clean.
  *  A separate marker makes "this specific value is unrecoverable" the claim. */
 const W1 = "ERASURE_W1_7c41af-";
+// A1–A6 (erasure audit 2026-11-10): a marker for the fixtures the six fixes anonymise.
+const A16 = "ERASURE_A16_3e9d-";
+// A1: an erased business is renamed to this (the store's DELETED_BUSINESS_NAME), so the lab's own businesses are
+// "named with MARK, or erased" — the cleanup and the residue check must find both, or an erased business would
+// silently survive the run. This ephemeral lab holds no other business.
+const OURS = `(name LIKE '${MARK}%' OR name = 'עסק שנמחק')`;
 
 let pass = 0;
 let fail = 0;
@@ -212,6 +218,11 @@ async function main() {
   // the outside, so it has to be stated here rather than inherited.
   await owner.$executeRawUnsafe(
     `GRANT SELECT, INSERT, UPDATE, DELETE ON "InboundEmailAuthorizedSender","InboundEmailSenderChallenge" TO ${RT_ROLE}`
+  );
+  // A1–A6 (erasure audit 2026-11-10): the four tables stage 2 now anonymises in place — see
+  // EXPECTED_RUNTIME_TABLE_PRIVILEGES for the basis.
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON "Supplier","Payee","BusinessBankAccount","Deal" TO ${RT_ROLE}`
   );
   // I-8A: Production hands the runtime SELECT and INSERT here and revokes the
   // rest, so the lab does the same. Giving this table the blanket grant above
@@ -568,7 +579,7 @@ async function main() {
   // ── Phase 3: fixtures ─────────────────────────────────────────────────────
   console.log("--- phase 3: fixtures ---");
   const cleanup = async () => {
-    const bids = `SELECT id FROM "Business" WHERE name LIKE '${MARK}%'`;
+    const bids = `SELECT id FROM "Business" WHERE ${OURS}`;
     await owner.$executeRawUnsafe(`DELETE FROM "LearningEvent" WHERE "businessId" IN (${bids})`);
     await owner.$executeRawUnsafe(`DELETE FROM "Appointment" WHERE "businessId" IN (${bids})`);
     await owner.$executeRawUnsafe(`DELETE FROM "ReplySuggestion" WHERE "businessId" IN (${bids})`);
@@ -588,6 +599,9 @@ async function main() {
       `DELETE FROM "OAuthToken" WHERE "connectionId" IN
          (SELECT id FROM "EmailConnection" WHERE "businessId" IN (${bids}))`
     );
+    for (const t of ["Cheque", "Payment", "Deal", "BillingDocument", "Supplier", "Payee", "BusinessBankAccount"]) {
+      await owner.$executeRawUnsafe(`DELETE FROM "${t}" WHERE "businessId" IN (${bids})`);
+    }
     for (const t of [
       "CrmAttachment", "CrmNote", "Customer", "Lead", "BusinessProfile", "POSApiKey",
       "EmailConnection", "WhatsAppConnection", "BillingAuthorityConnection",
@@ -595,8 +609,8 @@ async function main() {
     ]) {
       await owner.$executeRawUnsafe(`DELETE FROM "${t}" WHERE "businessId" IN (${bids})`);
     }
-    await owner.$executeRawUnsafe(`DELETE FROM "User" WHERE email LIKE '%@ad2a.test'`);
-    await owner.$executeRawUnsafe(`DELETE FROM "Business" WHERE name LIKE '${MARK}%'`);
+    await owner.$executeRawUnsafe(`DELETE FROM "User" WHERE email LIKE '%@ad2a.test' OR email LIKE 'deleted-biz-%@deleted.invalid'`);
+    await owner.$executeRawUnsafe(`DELETE FROM "Business" WHERE ${OURS}`);
   };
   await cleanup();
 
@@ -976,10 +990,70 @@ async function main() {
       },
     });
 
+    // ── A1–A6 (erasure audit 2026-11-10) ─────────────────────────────────────
+    //
+    // Everything the six fixes anonymise, AND the kept records that reference it or
+    // froze a copy of it — so the battery proves both halves: the identity goes, and
+    // no issued document, payment, cheque or reference is touched.
+    const profile = await owner.businessProfile.upsert({
+      where: { businessId: b.id },
+      create: { businessId: b.id, billingPaymentNote: `${A16}pay-note-${tag}`, billingFooterNote: `${A16}footer-${tag}` },
+      update: { billingPaymentNote: `${A16}pay-note-${tag}`, billingFooterNote: `${A16}footer-${tag}` },
+    });
+    // An ISSUED invoice whose frozen snapshot carries the business name, the notes and
+    // the customer — the legal record that must survive byte for byte.
+    const issuedSnapshot = {
+      issuer: { name: b.name, legalName: `${A16}legal-${tag}`, paymentNote: `${A16}pay-note-${tag}`, footerNote: `${A16}footer-${tag}` },
+      customer: { name: `${MARK}cust-${tag}`, taxId: "000000018" },
+      lines: [{ description: "תיקון", quantity: 1, unitPriceAgorot: 10000 }],
+    };
+    const invoice = await owner.billingDocument.create({
+      data: {
+        businessId: b.id, documentType: "TAX_INVOICE", status: "ISSUED", issuedAt: new Date("2026-10-01T10:00:00Z"),
+        customerId: c.id, customerNameSnapshot: `${MARK}cust-${tag}`, issuedSnapshot,
+      },
+    });
+    const supplier = await owner.supplier.create({
+      data: {
+        businessId: b.id, name: `${A16}supplier-${tag}`, phone: "050-0000000", email: `${A16}s-${tag}@example.test`,
+        notes: `${A16}s-notes`, legalName: `${A16}s-legal`, taxId: "514000000", website: "https://supplier.example.test",
+        contactName: `${A16}s-contact`, contactRole: "מנהל", contactPhone: "050-1111111", contactEmail: `${A16}c-${tag}@example.test`,
+        addressStreet: "הרצל 1", addressCity: "תל אביב", addressPostalCode: "6100000", category: "parts", paymentTermsDays: 30,
+      },
+    });
+    const payee = await owner.payee.create({
+      data: { businessId: b.id, displayName: `${A16}payee-${tag}`, legalName: `${A16}p-legal`, taxId: "039999999", note: `${A16}p-note` },
+    });
+    const bank = await owner.businessBankAccount.create({
+      data: {
+        businessId: b.id, label: `${A16}bank-${tag}`, note: `${A16}bank-note`, coordinatesEncrypted: "Y2lwaGVy", coordinatesIv: "aXY=",
+        coordinatesTag: "dGFn", encryptionKeyId: "lab-key-1", accountLast4: "4321", fingerprint: `fp-${tag}`,
+      },
+    });
+    // Kept records that REFERENCE the anonymised rows, each with its own frozen name.
+    const cheque = await owner.cheque.create({
+      data: {
+        businessId: b.id, payeeNameSnapshot: `${A16}payee-${tag}`, amount: "150.00", chequeNumber: `${tag}-77`,
+        issueDate: new Date("2026-10-02T00:00:00Z"), dueDate: new Date("2026-11-02T00:00:00Z"), sourceBankAccountId: bank.id, payeeId: payee.id,
+      },
+    });
+    const payment = await owner.payment.create({
+      data: { businessId: b.id, payeeId: payee.id, payeeNameSnapshot: `${A16}payee-${tag}`, amount: "150.00", paidAt: new Date("2026-10-03T00:00:00Z"), method: "BANK_TRANSFER" },
+    });
+    const deal = await owner.deal.create({ data: { businessId: b.id, leadId: lead.id, lostReason: `${A16}deal-lost-${tag}`, status: "LOST" } });
+    // An OLD-shape learning event (before 9f6c6673) carrying the customer's name.
+    const oldEvent = await owner.learningEvent.create({
+      data: {
+        businessId: b.id, eventType: "BILLING_DRAFT_CREATED", entityType: "BILLING_DOCUMENT", entityId: invoice.id,
+        payload: { customerNameSnapshot: `${A16}learn-name-${tag}`, documentType: "TAX_INVOICE", lineCount: 1 },
+      },
+    });
+
     return {
       biz: b, user: u, customer: c, conversation: conv, doc, run, historical, reversal,
       emailConn, authorityConn, payConn, waConn, posKey, po, poLine, recv,
       attachment, attachmentKey,
+      profile, invoice, issuedSnapshot, supplier, payee, bank, cheque, payment, deal, lead, oldEvent,
     };
   };
 
@@ -1478,6 +1552,74 @@ async function main() {
   ok("A's customer is ANONYMIZED, not deleted (invoice FK)", custA !== null && custA.name === "לקוח שנמחק");
   const userA = await owner.user.findUnique({ where: { id: A.user.id } });
   ok("A's user identity is tombstoned", userA.email.startsWith("deleted-biz-") && userA.name === null);
+
+  // ── A1–A6 (erasure audit 2026-11-10) — the identity goes, the legal record stays ──
+  //
+  // Read back through the OWNER client: the question is what is left in the table,
+  // not what the runtime may see. Every "kept" assertion compares against the value
+  // captured at seed time, so an accidental write to a fiscal record fails here.
+  {
+    // jsonb stores object keys in its own order, so compare canonically (keys sorted, recursively).
+    const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
+    const same = (x, y) => JSON.stringify(canon(x)) === JSON.stringify(canon(y));
+    const bizA = await owner.business.findUnique({ where: { id: A.biz.id } });
+    const bizB = await owner.business.findUnique({ where: { id: B.biz.id } });
+    ok("A1 · A's business name is replaced by 'עסק שנמחק' (terminal transition); B's name untouched",
+      bizA?.name === "עסק שנמחק" && bizA?.deletedAt !== null && bizB?.name === B.biz.name, `A=${bizA?.name} B=${bizB?.name}`);
+    const invA = await owner.billingDocument.findUnique({ where: { id: A.invoice.id } });
+    ok("A1/A5 · A's ISSUED invoice is untouched: status, customerNameSnapshot and the frozen issuedSnapshot (business name, notes, customer) byte for byte",
+      invA !== null && invA.status === "ISSUED" && invA.customerNameSnapshot === A.invoice.customerNameSnapshot && same(invA.issuedSnapshot, A.issuedSnapshot)
+        && invA.issuedSnapshot?.issuer?.name === A.biz.name);
+    ok("A1/A5 · no billing document of A was deleted",
+      (await owner.billingDocument.count({ where: { businessId: A.biz.id } })) === 1);
+
+    const supA = await owner.supplier.findUnique({ where: { id: A.supplier.id } });
+    ok("A2 · A's supplier is ANONYMISED IN PLACE (row kept): placeholder name, every contact / legal / address / note field null",
+      supA !== null && supA.name === "ספק שנמחק" && [supA.phone, supA.email, supA.notes, supA.legalName, supA.taxId, supA.website, supA.contactName,
+        supA.contactRole, supA.contactPhone, supA.contactEmail, supA.addressStreet, supA.addressCity, supA.addressPostalCode].every((v) => v === null));
+    ok("A2 · the supplier's purchasing terms stay (category, payment terms)", supA?.category === "parts" && supA?.paymentTermsDays === 30);
+
+    const payeeA = await owner.payee.findUnique({ where: { id: A.payee.id } });
+    ok("A3 · A's payee is anonymised in place: placeholder name, legalName / taxId / note null",
+      payeeA !== null && payeeA.displayName === "מקבל תשלום שנמחק" && payeeA.legalName === null && payeeA.taxId === null && payeeA.note === null);
+    const payA = await owner.payment.findUnique({ where: { id: A.payment.id } });
+    const chqA = await owner.cheque.findUnique({ where: { id: A.cheque.id } });
+    ok("A3 · A's PAYMENT is untouched: still linked to the payee, its own payeeNameSnapshot and amount unchanged",
+      payA !== null && payA.payeeId === A.payee.id && payA.payeeNameSnapshot === A.payment.payeeNameSnapshot && String(payA.amount) === String(A.payment.amount));
+    ok("A3/A4 · A's CHEQUE is untouched: payee + bank account links, payeeNameSnapshot, number and amount unchanged",
+      chqA !== null && chqA.payeeId === A.payee.id && chqA.sourceBankAccountId === A.bank.id && chqA.payeeNameSnapshot === A.cheque.payeeNameSnapshot
+        && chqA.chequeNumber === A.cheque.chequeNumber && String(chqA.amount) === String(A.cheque.amount));
+
+    const bankA = await owner.businessBankAccount.findUnique({ where: { id: A.bank.id } });
+    ok("A4 · A's bank account: encrypted coordinates blanked, label replaced, note null",
+      bankA !== null && bankA.coordinatesEncrypted === "" && bankA.coordinatesIv === "" && bankA.coordinatesTag === "" && bankA.label === "חשבון שנמחק" && bankA.note === null);
+    ok("A4 · … while fingerprint and last4 stay (unique key; the preparations' source snapshot)",
+      bankA?.fingerprint === A.bank.fingerprint && bankA?.accountLast4 === A.bank.accountLast4);
+
+    const profA = await owner.businessProfile.findUnique({ where: { businessId: A.biz.id } });
+    ok("A5 · A's billing payment / footer notes are null", profA !== null && profA.billingPaymentNote === null && profA.billingFooterNote === null);
+
+    const dealA = await owner.deal.findUnique({ where: { id: A.deal.id } });
+    ok("A6 · A's deal: lostReason null, the lead link and status kept", dealA !== null && dealA.lostReason === null && dealA.leadId === A.lead.id && dealA.status === "LOST");
+    const evA = await owner.learningEvent.findUnique({ where: { id: A.oldEvent.id } });
+    ok("A6 · A's old learning event lost ONLY customerNameSnapshot; the event and its other keys stay",
+      evA !== null && evA.eventType === "BILLING_DRAFT_CREATED" && !("customerNameSnapshot" in (evA.payload ?? {})) && evA.payload?.documentType === "TAX_INVOICE" && evA.payload?.lineCount === 1);
+    ok("A6 · the ACCOUNT_DELETED evidence row is written", (await owner.learningEvent.count({ where: { businessId: A.biz.id, eventType: "ACCOUNT_DELETED" } })) === 1);
+    ok("A1–A6 · no A16 marker is left anywhere in A's supplier / payee / bank / profile / deal / learning rows",
+      !JSON.stringify([supA, payeeA, bankA, profA, dealA, evA]).includes(A16));
+
+    // B — the neighbour — is byte-for-byte untouched by A's erasure.
+    const [supB, payeeB, bankB, profB, dealB, evB, invB] = await Promise.all([
+      owner.supplier.findUnique({ where: { id: B.supplier.id } }), owner.payee.findUnique({ where: { id: B.payee.id } }),
+      owner.businessBankAccount.findUnique({ where: { id: B.bank.id } }), owner.businessProfile.findUnique({ where: { businessId: B.biz.id } }),
+      owner.deal.findUnique({ where: { id: B.deal.id } }), owner.learningEvent.findUnique({ where: { id: B.oldEvent.id } }),
+      owner.billingDocument.findUnique({ where: { id: B.invoice.id } }),
+    ]);
+    ok("A1–A6 · B's supplier, payee, bank account, notes, deal, learning event and invoice are untouched",
+      supB?.name === B.supplier.name && supB?.taxId === B.supplier.taxId && payeeB?.displayName === B.payee.displayName && bankB?.coordinatesEncrypted === B.bank.coordinatesEncrypted
+        && profB?.billingPaymentNote === B.profile.billingPaymentNote && dealB?.lostReason === B.deal.lostReason
+        && evB?.payload?.customerNameSnapshot === B.oldEvent.payload.customerNameSnapshot && same(invB?.issuedSnapshot, B.issuedSnapshot));
+  }
 
   // ── E2 WAVE 1 — deterministic residual personal data ──────────────────────
   //
@@ -2186,8 +2328,8 @@ async function main() {
   await cleanup();
   const residue = Number(
     (await owner.$queryRawUnsafe(
-      `SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE '${MARK}%')
-            + (SELECT count(*)::int FROM "User" WHERE email LIKE '%@ad2a.test') AS c`
+      `SELECT (SELECT count(*)::int FROM "Business" WHERE ${OURS})
+            + (SELECT count(*)::int FROM "User" WHERE email LIKE '%@ad2a.test' OR email LIKE 'deleted-biz-%@deleted.invalid') AS c`
     ))[0].c
   );
   ok("synthetic residue = 0", residue === 0, `found ${residue}`);

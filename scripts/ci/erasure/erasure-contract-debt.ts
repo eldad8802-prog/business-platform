@@ -100,7 +100,6 @@ const MODEL_LEVEL: DebtEntry[] = [
   // models quietly carrying personal data nobody declared.
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Commitment", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Installment", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Payee", why: "E2" },
   // Payables Phase 2. A rejected match carries the owner's free-text `reason`,
   // which can name a person as readily as any other note field, so it takes the
   // same E2 position as the models above rather than being waved through as a
@@ -109,7 +108,6 @@ const MODEL_LEVEL: DebtEntry[] = [
   // Payables Phase 3. The business's own bank account (personal for a sole
   // trader, even though it is stored only as ciphertext + last4 + a keyed
   // fingerprint) and the cheques written from it take the same E2 position.
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBankAccount", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Cheque", why: "E2" },
   // Payables Phases 4–6: destinations, prepared payments, bank lines, their
   // rejections, and outbound executions take the same E2 position as the rest
@@ -119,7 +117,6 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "ExternalTransaction", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "ExternalTransactionMatchRejection", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "OutboundExecution", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Deal", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAddress", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAttachmentImport", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailMessage", why: "E2" },
@@ -129,10 +126,8 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PurchaseOrder", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Recommendation", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "RecommendationOutcome", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Supplier", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "SupplierPurchaseDraft", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "VendorLearning", why: "E2" },
-  { code: "C13-NEEDS-OWNER-DECISION", key: "Business", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBot", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBotLearningSuggestion", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBotMemoryPolicy", why: "E2" },

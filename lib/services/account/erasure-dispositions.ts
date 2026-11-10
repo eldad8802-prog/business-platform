@@ -192,18 +192,9 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     billingPhone: { disposition: "ERASE" },
     billingEmail: { disposition: "ERASE" },
     billingAddress: { disposition: "ERASE" },
-    billingPaymentNote: {
-      disposition: "RETAIN_BY_DESIGN",
-      purpose:
-        "free text the owner writes onto invoices. NOT erased today, and the residual " +
-        "sweep flagged it. Recorded as a gap, not as a decision.",
-      basis: "UNPROVEN",
-    },
-    billingFooterNote: {
-      disposition: "RETAIN_BY_DESIGN",
-      purpose: "as billingPaymentNote — free text, not erased today",
-      basis: "UNPROVEN",
-    },
+    // Erasure audit 2026-11-10 (A5): erased. Issued documents keep the notes they were issued with in issuedSnapshot.
+    billingPaymentNote: { disposition: "ERASE" },
+    billingFooterNote: { disposition: "ERASE" },
     billingPaymentTermsDays: { disposition: "STRUCTURAL" },
     billingLogoDataUrl: { disposition: "ERASE" },
     billingSignatureDataUrl: { disposition: "ERASE" },
