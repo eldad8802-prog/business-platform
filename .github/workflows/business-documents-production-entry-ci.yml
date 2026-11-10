@@ -1,0 +1,115 @@
+# Business documents — "הפקת מסמך" stage 1 (owner-approved 2026-11-10): one production button on the invoices screen
+# and the customer card, behind business_documents; every listed type opens a flow that already works.
+#
+# Synthetic data only; ZERO secrets; NO environment; ZERO Neon; ZERO network beyond localhost.
+
+name: business documents — production entry
+
+on:
+  pull_request:
+    paths:
+      - "app/billing/page.tsx"
+      - "components/customers/CustomerCard.tsx"
+      - "features/business-documents/document-production-*"
+      - "lib/i18n/messages/areas/billing*.ts"
+      - "lib/i18n/messages/areas/customers*.ts"
+      - ".business-documents/production-entry-ui-*"
+      - ".business-documents/delivery-note-reference-check.mts"
+      - ".github/workflows/business-documents-production-entry-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bd-production-entry-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  model:
+    name: Production list model — only types whose flow works, business kind, entry parameters (pure)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx features/business-documents/document-production-model.test.ts
+      - name: Check (not a recommendation) — a delivery-note reference in an invoice line, through the existing snapshot, HTML, PDF and uniform export
+        run: npx tsx .business-documents/delivery-note-reference-check.mts
+
+  ui-e2e:
+    name: Production entry in a browser — invoices screen + customer card, feature ON + OFF, exempt dealer, identity gate, phone (PG17 lab)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: pe_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: pe_ci_synthetic_super_pw
+      LAB_PASSWORD: pe_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: pe-ui-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: pe-ui-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      CRON_SECRET: pe_ui_ci_cron_secret_synthetic_at_least_32
+      AUTH_PLANE_ENABLED: "true"
+      RATE_LIMIT_BACKEND: memory
+      DUBIZ_I18N_ENABLED: "true"
+      STORAGE_PROVIDER: local
+      LOCAL_STORAGE_ROOT: /tmp/pe-ui-store
+      NEXT_TELEMETRY_DISABLED: "1"
+      OUT: /tmp/bd-pe-ui
+      SEED_OUT: /tmp/bd-pe-ui-seed.json
+      E2E_BASE: http://localhost:3730
+      OWNER_URL: postgresql://lab_owner:pe_ci_synthetic_role_pw@localhost:5432/pe_ui
+      DATABASE_URL: postgresql://app_runtime_prod:pe_ci_synthetic_role_pw@localhost:5432/pe_ui?connection_limit=20
+      DIRECT_URL: postgresql://app_runtime_prod:pe_ci_synthetic_role_pw@localhost:5432/pe_ui
+      AUTH_DATABASE_URL: postgresql://lab_owner:pe_ci_synthetic_role_pw@localhost:5432/pe_ui
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab — the real migrations by migrate deploy, Production role topology
+        run: bash .business-documents/lab.sh pe_ui --with-po
+      - name: Seed — A (ON, authorized dealer), E (ON, exempt dealer), I (ON, identity incomplete), B (default OFF)
+        run: npx tsx .business-documents/production-entry-ui-seed.mts
+      - run: npx playwright install --with-deps chromium
+      - name: Start the app (next dev, as the other business-documents browser lab)
+        shell: bash
+        run: |
+          mkdir -p "$OUT" "$LOCAL_STORAGE_ROOT"
+          (nohup npx next dev -p 3730 > "$OUT/server.log" 2>&1 &)
+          for i in $(seq 1 150); do curl -sf -o /dev/null http://localhost:3730/login && break; sleep 2; done
+          curl -sf -o /dev/null http://localhost:3730/login
+      - name: End to end — feature OFF unchanged, ON list, existing flows, exempt dealer, identity gate, customer card, phone
+        run: npx tsx .business-documents/production-entry-ui-e2e.mts
+      - name: Server log (on failure)
+        if: failure()
+        run: grep -vE "auth_sidless_token_accepted" "$OUT/server.log" | tail -n 120 || true
+      - name: Screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-entry-e2e
+          path: /tmp/bd-pe-ui
+          retention-days: 14
