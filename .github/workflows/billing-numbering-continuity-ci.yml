@@ -1,0 +1,107 @@
+# Numbering continuity check (READ-ONLY): for every issued fiscal series of a business, the
+# numbers that exist, the numbers that are missing (as ranges), duplicates, and whether the
+# counter agrees — הוראות ניהול פנקסים, נספח ה' (א)(5). It changes nothing.
+#
+# Its own job and database: the integration test replays EVERY RLS statement the migrations ship.
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+
+name: billing numbering continuity (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/numbering/**"
+      - "lib/services/billing/billing-issue.service.ts"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - ".github/workflows/billing-numbering-continuity-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  continuity:
+    name: Numbering continuity (unit + PG17, replayed RLS, NOBYPASSRLS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: nc_owner
+          POSTGRES_PASSWORD: nc_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_nc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nc_owner -d dubiz_nc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://nc_owner:nc_ci_synthetic_owner_pw@localhost:5432/dubiz_nc
+      RUNTIME_URL: postgresql://nc_runtime:nc_ci_synthetic_runtime_pw@localhost:5432/dubiz_nc
+      AUTH_TOKEN_SECRET: billing_nc_ci_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Analysis (pure)
+        run: npx tsx lib/services/billing/numbering/billing-numbering-continuity.test.ts
+
+      - name: Push schema as the owner
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Create the governed runtime role
+        env:
+          PGPASSWORD: nc_ci_synthetic_owner_pw
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE nc_runtime LOGIN PASSWORD 'nc_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO nc_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO nc_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO nc_runtime;"
+
+      - name: Report under replayed RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx lib/services/billing/numbering/billing-numbering-continuity.rls.integration.test.ts
+
+      # Gap detection is switched off in this ephemeral checkout: the suite must go red on C3.
+      - name: Negative proof — a check that misses a hole is caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          prove() {
+            local file=lib/services/billing/numbering/billing-numbering-continuity.ts
+            cp "$file" "$file.bak"
+            perl -pi -e 's/    if \(n > expected\) missing\.push\(\{ from: expected, to: n - 1 \}\);/    void 0;/' "$file"
+            if cmp -s "$file" "$file.bak"; then mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply"; return 1; fi
+            npx tsx lib/services/billing/numbering/billing-numbering-continuity.rls.integration.test.ts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then echo "::error::NEGATIVE-PROOF FAIL: suite stayed green"; return 1; fi
+            if ! grep -q "\[FAIL\] C3" np.log; then echo "::error::NEGATIVE-PROOF FAIL: failed, but not on C3"; tail -20 np.log; return 1; fi
+            echo "negative proof OK — a missed hole fails C3"
+          }
+          prove || exit 1

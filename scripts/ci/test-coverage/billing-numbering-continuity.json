@@ -1,0 +1,14 @@
+{
+  "note": "Numbering continuity check (read-only): existing and missing numbers per issued fiscal series, duplicates, counter agreement — הוראות ניהול פנקסים, נספח ה' (א)(5). Owner-approved numbering audit scope, 2026-11-10. Run by billing-numbering-continuity-ci.yml with a negative proof.",
+  "tests": {
+    "lib/services/billing/numbering/billing-numbering-continuity.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): ranges of missing numbers, duplicates, counter agreement, a series starting above 1"
+    },
+    "lib/services/billing/numbering/billing-numbering-continuity.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: replays every repository RLS statement, runs as a NOSUPERUSER NOBYPASSRLS login and refuses otherwise; real issuance; the report reads only its own business and writes nothing; 6/6 locally on PG18; without gap detection C3 fails"
+    }
+  }
+}
