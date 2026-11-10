@@ -19,6 +19,8 @@ on:
       - ".business-documents/lab.sh"
       - ".business-documents/po-sheet*"
       - ".github/workflows/business-documents-po-sheet-ci.yml"
+      - "ops/evidence/business-documents-pilot-business-9.sql"
+      - ".business-documents/pilot-evidence-lab.mts"
 
 permissions:
   contents: read
@@ -167,3 +169,84 @@ jobs:
           name: po-sheet-e2e
           path: /tmp/bd-po-ui
           retention-days: 14
+
+  pilot-evidence:
+    name: Business 9 pilot evidence query — read-only on the real migrations; tells S1 / S2 / S3 apart, shows a concurrent change, catches business 38 (PG17 lab)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: po_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: po_ci_synthetic_super_pw
+      LAB_PASSWORD: po_ci_synthetic_role_pw
+      EV: ops/evidence/business-documents-pilot-business-9.sql
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab database (both business-documents migrations, Production role topology)
+        run: bash .business-documents/lab.sh po_ev --with-po
+      - name: The query, read-only as in Production, at each stage of the pilot
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/po-ev-store"
+          export STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/po-ev-store"
+          export OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/po_ev"
+          export DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/po_ev?connection_limit=5"
+          export DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/po_ev"
+          URL="postgresql://lab_super:$PGPASSWORD@localhost:5432/po_ev"
+          # Exactly as prod-readonly-evidence.yml runs it: every transaction READ ONLY, output through the redaction filter.
+          ev() { echo "=== evidence at $1"; PGOPTIONS="-c default_transaction_read_only=on" psql "$URL" --no-psqlrc --set=ON_ERROR_STOP=1 --file="$EV" | node scripts/ci/evidence-redact.mjs | tee "/tmp/ev-$1.out"; \
+                 [ "$(grep -cE '^ *[0-9]+ \| (PASS|FAIL|INFO|<redacted>) ' "/tmp/ev-$1.out")" = 22 ] || { echo "::error::$1: not 22 rows"; exit 1; }; }
+          val() { grep -E "^ *$2 \| " "/tmp/ev-$1.out" | head -1 | awk -F'|' '{gsub(/ /, "", $3); print $3}'; }
+          res() { grep -E "^ *$2 \| " "/tmp/ev-$1.out" | head -1 | awk -F'|' '{gsub(/ /, "", $2); print $2}'; }
+          want() { [ "$(val "$1" "$2")" = "$3" ] || { echo "::error::$1 check $2: want $3, got $(val "$1" "$2")"; exit 1; }; }
+          pass() { [ "$(res "$1" "$2")" = PASS ] || { echo "::error::$1 check $2: want PASS, got $(res "$1" "$2")"; exit 1; }; }
+          fail() { [ "$(res "$1" "$2")" = FAIL ] || { echo "::error::$1 check $2: want FAIL, got $(res "$1" "$2")"; exit 1; }; }
+          same() { [ "$(val "$1" "$3")" = "$(val "$2" "$3")" ] || { echo "::error::check $3 differs between $1 and $2"; exit 1; }; }
+          differs() { [ "$(val "$1" "$3")" != "$(val "$2" "$3")" ] || { echo "::error::check $3 should differ between $1 and $2"; exit 1; }; }
+          lab() { npx tsx .business-documents/pilot-evidence-lab.mts "$1"; }
+
+          lab seed
+          ev S1                                   # baseline: business 9 exists with an order and stock, nothing enabled
+          for n in 0 1 4 5 7 10; do pass S1 $n; done; want S1 2 0; want S1 3 0; want S1 6 0
+          ev S1b                                  # the same state read twice: every value identical (stable fingerprints)
+          for n in $(seq 0 21); do same S1 S1b $n; done
+
+          lab enable
+          ev S2                                   # after the switch-on, before any save
+          for n in 0 1 4 5 7 10; do pass S2 $n; done; want S2 2 1; want S2 3 1; want S2 6 0
+          for n in 12 13 14 15 16 17 18 19 20 21; do same S1 S2 $n; done
+
+          lab save
+          ev S3                                   # after one save through the real service
+          for n in 0 1 4 5 7 10; do pass S3 $n; done; want S3 2 1; want S3 3 1; want S3 6 1; want S3 8 1; want S3 9 0; want S3 11 1
+          for n in 12 13 14 15 16 17 18 19 20 21; do same S2 S3 $n; done   # letters, quotes, orders, stock unchanged
+
+          lab parallel
+          ev P                                    # an unrelated stock movement in business 9: shown, not hidden
+          differs S3 P 17; differs S3 P 20; same S3 P 15; same S3 P 16; same S3 P 6
+
+          lab extra38
+          ev C                                    # an override on business 38 must be caught
+          fail C 4; fail C 5
+          echo "all stages told apart"
