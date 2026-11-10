@@ -9,7 +9,7 @@
  * so packages D/A/B carry them.
  *
  * All four start from the certified simulator fixture through the EXISTING builder, unchanged:
- *   C  the certified package itself (control; passed the simulator on 2026-07-02)
+ *   C  the certified package itself, byte for byte (control; passed the simulator on 2026-07-02 — hashes pinned)
  *   D  C + 5 of its tax invoices turned into delivery notes (C100 1203 / D110 1253 = 200), NO references
  *   A  D + one later tax invoice of the same customer per delivery note names it: 1256 = 200, 1257 = its number
  *   B  as A, but every delivery-note number carries the series prefix "N-" — on the note itself (C100 1204,
@@ -56,8 +56,27 @@ function set(rec: string, [a, b]: [number, number], value: string): string {
   return chars.join("");
 }
 
+/**
+ * The identity of the run that passed on 2026-07-02, as printed in its official report
+ * (docs/compliance/tax-authority/simulator-report-2026-07-02.pdf: "DUBIZ , 1.0", registration 00000001) and as the
+ * code produced it at the certification commit 39b74f05. SIMULATOR_SOFTWARE_CONFIG today names the software
+ * "דוביז Dubiz" / vendor "נהרי אלדד" (changed after the run, in 98fef0fa), although its comment says it is the
+ * 2026-07-02 identity. Only these two INI fields differ; BKMVDATA does not depend on them.
+ */
+const CERTIFIED_RUN_CONFIG = { ...SIMULATOR_SOFTWARE_CONFIG, softwareName: "DUBIZ", vendorName: "DUBIZ" };
+/** sha256 of the package regenerated at 39b74f05 with scripts/uniform-export-sim-package.ts (2026-11-11). */
+const CERTIFIED = {
+  ini: "7cd4636034be8f2cffb5228efcf26a60865db04fa3115611a0477ab52b19fd2b",
+  bkmvdata: "e863dbdef792f0a965ca5318a1123fd1cc43a7f3316a68c4518aa4b36ccde3c1",
+};
+const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+
 const proj = assembleUniformExportProjection(SIM_FIXTURE_INPUT);
-const built = buildUniformExportFiles(proj, SIMULATOR_SOFTWARE_CONFIG, { primaryId: SIM_BUILD_OPTS.primaryId, generatedAt: SIM_BUILD_OPTS.generatedAt });
+const built = buildUniformExportFiles(proj, CERTIFIED_RUN_CONFIG, { primaryId: SIM_BUILD_OPTS.primaryId, generatedAt: SIM_BUILD_OPTS.generatedAt });
+if (sha(built.iniBuffer) !== CERTIFIED.ini || sha(built.bkmvdataBuffer) !== CERTIFIED.bkmvdata) {
+  throw new Error(`control is not the certified package: INI ${sha(built.iniBuffer)}, BKMVDATA ${sha(built.bkmvdataBuffer)}`);
+}
+console.log("control C = the certified package, byte for byte (INI + BKMVDATA sha256 pinned)");
 const control = built.bkmvdataText.split(CRLF);
 
 // documents: C100 header + its D110 lines (same type + number), tax invoices without payments only
@@ -135,7 +154,7 @@ for (const [k, recs] of Object.entries(packages)) {
   const bkmv = encodeIso8859_8i(recs.join(CRLF));
   writeFileSync(join(dir, "INI.TXT"), built.iniBuffer); // counts per record type and totals do not move
   writeFileSync(join(dir, "BKMVDATA.TXT"), bkmv);
-  for (const [name, buf] of [["INI.TXT", built.iniBuffer], ["BKMVDATA.TXT", bkmv]] as const) sums.push(`${createHash("sha256").update(buf).digest("hex")}  ${k}/${built.meta.dirPath}/${name}`);
+  for (const [name, buf] of [["INI.TXT", built.iniBuffer], ["BKMVDATA.TXT", bkmv]] as const) sums.push(`${sha(buf)}  ${k}/${built.meta.dirPath}/${name}`);
   const changed = recs.filter((r, i) => r !== control[i]).length;
   console.log(`${k}: ${changed} records differ from the certified package → ${dir}`);
 }
