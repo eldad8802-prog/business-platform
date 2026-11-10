@@ -58,6 +58,12 @@ import { ServiceDeskError } from "./service-desk-errors";
 /**
  * Owner decision 2026-11-10: users cannot reach these actions before the intake and signature path (1.3b) is done.
  * A code constant, not a flag: opening it is a reviewed change in a later PR. Every parts route checks it first.
+ *
+ * BINDING BLOCKER (owner, 2026-11-10) — do not open before BOTH are done and tested:
+ *   1. 1.3b intake + signature path complete and tested.
+ *   2. Case CANCEL with open part reservations: the core emits RELEASE_PART_RESERVATIONS and runCaseAction refuses any
+ *      effect (ACTION_NOT_IN_SCOPE), so once parts can be RESERVED a case with reservations cannot be cancelled. The
+ *      release must run in the cancel's transaction (each RESERVED line → RELEASED with its event), with lab tests.
  */
 export const PARTS_API_OPEN = false;
 
