@@ -1,25 +1,20 @@
 name: native-android-validation
 
-# W7 Native Validation — Android (Adaptive+Native Spec v1 §13, §31).
-#
-# Manual, on-demand runtime proof for the Capacitor Android shell. This is the
-# gate that lets Native be marked CLOSED: it BUILDS the real APK and RUNS it on
-# an emulator, capturing screenshots of the running app (not a web browser at a
-# phone width). Until this workflow has a green run with attached artifacts,
-# Native stays OPEN by the owner's instruction.
-#
-# Why manual: it boots an emulator (~10 min, KVM runner) — it is a release gate,
-# not a per-PR check.
+# DIAGNOSTIC BRANCH ONLY (diag/android-error-page) — issue 4: the bundled load-error page on real
+# emulators against 404, 500, server down, no internet, connection coming back and a cold start without
+# history. The debug APK points at a stand-in site on localhost:3000 (cleartext, http local scheme so the
+# page's server probe is same-scheme as in Production; throwaway build only). No secret, no Production.
+# The dispatch inputs are kept only so the main-branch dispatch form accepts it.
 on:
   workflow_dispatch:
     inputs:
       server_url:
-        description: 'CAP_SERVER_URL for the WebView (production or a preview URL)'
+        description: 'ignored on the diagnostic branch'
         required: true
         default: 'https://promaxgroup.co.il'
         type: string
       api_level:
-        description: 'Android API level to validate (36 = the Play target)'
+        description: 'ignored on the diagnostic branch (matrix below)'
         required: true
         default: '36'
         type: choice
@@ -29,73 +24,62 @@ permissions:
   contents: read
 
 jobs:
-  android-runtime-proof:
-    # KVM-enabled runner — required for a usable emulator.
+  error-page:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { api: '34', profile: 'pixel_6' }
+          - { api: '35', profile: 'pixel_6' }
+          - { api: '36', profile: 'pixel_7_pro' }
+          - { api: '37.0', profile: 'pixel_6' }
     steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-
-      - name: Enable KVM (hardware acceleration for the emulator)
+      - name: Enable KVM
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
-
-      - name: Setup JDK 21
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: 'temurin'
           java-version: '21'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
-
-      - name: Install dependencies
-        run: npm ci
-
-      # The native shell loads the app remotely (Spec v1 §15 — remote WebView,
-      # conditionally approved). No Next build is needed for the APK itself.
-      - name: Capacitor sync (with the target server URL)
-        env:
-          CAP_SERVER_URL: ${{ inputs.server_url }}
-        run: npx cap sync android
-
-      - name: Assemble debug APK
-        working-directory: android
-        run: ./gradlew --no-daemon assembleDebug
-
-      - name: Run the native validation battery on an emulator
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        env:
-          CAP_SERVER_URL: ${{ inputs.server_url }}
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
-          api-level: ${{ inputs.api_level }}
-          target: google_apis
+          packages: 'platform-tools'
+      - run: npm ci
+      - name: Debug APK → localhost:3000 (throwaway)
+        env:
+          CAP_SERVER_URL: http://localhost:3000
+        run: |
+          sed -i 's|<application|<application android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|androidScheme: "https"|androidScheme: "http"|' capacitor.config.ts
+          grep -n "androidScheme" capacitor.config.ts
+          npx cap sync android
+          grep -c "DubizErrorPage" android/app/src/main/assets/public/index.html
+          cd android && ./gradlew --no-daemon assembleDebug
+      - name: Error-page scenarios on the emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis_playstore
           arch: x86_64
-          profile: pixel_6
+          profile: ${{ matrix.profile }}
           ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: bash scripts/native/android-validate.sh
-
-      - name: Upload runtime evidence (screenshots + logs + report)
+          script: bash scripts/native/error-page-run.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: android-runtime-evidence-api${{ inputs.api_level }}
-          path: |
-            native-evidence/**
-          if-no-files-found: warn
-          retention-days: 30
+          name: error-page-api${{ matrix.api }}
+          path: native-evidence/**
+          retention-days: 14
