@@ -16,6 +16,7 @@
  *   C1 customer card (ON): "הפקת מסמך ללקוח" opens the list for that customer; tax invoice → the modal has the
  *      customer selected → the draft belongs to that customer
  *   P1 phone 390: the list fits, no side scroll
+ *   E1 English interface: the list speaks English (no Hebrew left in the list)
  *   L1 the database holds exactly the drafts the scenarios made, all DRAFT, none numbered
  *
  * env: E2E_BASE, SEED_OUT, OUT, OWNER_URL.
@@ -49,15 +50,15 @@ async function check(name: string, fn: () => Promise<unknown>): Promise<void> {
 }
 const DESKTOP = { width: 1440, height: 900, phone: false };
 const PHONE = { width: 390, height: 844, phone: true };
-async function ctx(browser: Browser, token: string, size: typeof DESKTOP): Promise<BrowserContext> {
+async function ctx(browser: Browser, token: string, size: typeof DESKTOP, lang: "he" | "en" = "he"): Promise<BrowserContext> {
   const c = await browser.newContext({
     baseURL: BASE,
-    locale: "he-IL",
+    locale: lang === "he" ? "he-IL" : "en-US",
     timezoneId: "Asia/Jerusalem",
     viewport: { width: size.width, height: size.height },
     ...(size.phone ? { deviceScaleFactor: 2, isMobile: true, hasTouch: true } : {}),
   });
-  await c.addCookies([{ name: "dz_locale", value: "he", url: BASE }]);
+  await c.addCookies([{ name: "dz_locale", value: lang, url: BASE }]);
   await c.addInitScript((t) => { try { localStorage.setItem("token", t); } catch { /* opaque */ } }, token);
   return c;
 }
@@ -210,6 +211,24 @@ async function main() {
         if (!box || box.x < 0 || box.x + box.width > 391) throw new Error(JSON.stringify(box));
       });
       await shot(page, "P1-phone-list");
+      await c.close();
+    }
+
+    {
+      const c = await ctx(browser, seed.A.token, DESKTOP, "en");
+      const page = await c.newPage();
+      current = page;
+      await check("E1 English interface: the list speaks English", async () => {
+        await page.goto("/billing");
+        await page.getByTestId("document-production-button").click({ timeout: 90_000 });
+        const sheet = page.getByTestId("document-production-sheet");
+        await sheet.waitFor();
+        await page.waitForTimeout(800);
+        const text = await sheet.innerText();
+        for (const w of ["Produce a document", "Tax invoice", "Quote", "Letter", "Supplier order"]) if (!text.includes(w)) throw new Error(`missing ${w}`);
+        if (/[֐-׿]/.test(text)) throw new Error(`Hebrew left: ${text.slice(0, 120)}`);
+      });
+      await shot(page, "E1-english-list");
       await c.close();
     }
 

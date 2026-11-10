@@ -488,4 +488,18 @@ export const billingHe = {
     creating: "יוצר…",
     createAndPick: "צור ובחר",
   },
+  production: {
+    title: "הפקת מסמך",
+    forCustomer: "עבור {name}.",
+    chooseType: "בחרו את סוג המסמך.",
+    followUp: "מעקב הצעות מחיר ומכתבים שמורים",
+    close: "סגירה",
+    group: { tax: "מסמכי מס", sales: "מכירה", general: "כללי", purchasing: "רכש" },
+    option: {
+      TAX_INVOICE: { title: "חשבונית מס", help: "על מכירה או שירות. מקבלת מספר רק בהפקה הסופית." },
+      QUOTE: { title: "הצעת מחיר", help: "לפני עסקה. אפשר להמיר אותה לחשבונית כשהלקוח מאשר." },
+      LETTER: { title: "מכתב", help: "מכתב ללקוח או לגורם אחר, נשמר עם PDF." },
+      SUPPLIER_ORDER: { title: "הזמנה לספק", help: "הזמנת סחורה מספק, במסך המלאי. שם אפשר גם לשמור עותק." },
+    },
+  },
 } as const;

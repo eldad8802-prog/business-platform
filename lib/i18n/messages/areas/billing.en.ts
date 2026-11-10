@@ -487,4 +487,18 @@ export const billingEn: Widen<typeof billingHe> = {
     creating: "Creating…",
     createAndPick: "Create and select",
   },
+  production: {
+    title: "Produce a document",
+    forCustomer: "For {name}.",
+    chooseType: "Choose the document type.",
+    followUp: "Quote follow-up and saved letters",
+    close: "Close",
+    group: { tax: "Tax documents", sales: "Sales", general: "General", purchasing: "Purchasing" },
+    option: {
+      TAX_INVOICE: { title: "Tax invoice", help: "For a sale or a service. It gets a number only when it is issued." },
+      QUOTE: { title: "Quote", help: "Before a deal. It can become an invoice once the customer accepts." },
+      LETTER: { title: "Letter", help: "A letter to a customer or anyone else, saved with a PDF." },
+      SUPPLIER_ORDER: { title: "Supplier order", help: "Order goods from a supplier, in inventory. A copy can be saved there." },
+    },
+  },
 };

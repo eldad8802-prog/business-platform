@@ -2,6 +2,9 @@
  * "הפקת מסמך" stage 1 — which document types the production list offers. Pure.
  * Run: npx tsx features/business-documents/document-production-model.test.ts
  */
+import { billingHe } from "@/lib/i18n/messages/areas/billing";
+import { billingEn } from "@/lib/i18n/messages/areas/billing.en";
+
 import { groupedProductionOptions, parseProductionEntry, productionOptions } from "./document-production-model";
 
 let pass = 0;
@@ -26,12 +29,20 @@ const all = productionOptions({ businessKind: "AUTHORIZED_DEALER" });
 for (const notYet of ["RECEIPT", "TAX_INVOICE_RECEIPT", "CREDIT_NOTE", "PAYMENT_REQUEST", "ORDER", "DELIVERY_NOTE", "RETURN_NOTE", "SERVICE_CALL"]) {
   ok(`${notYet} is not offered (its flow does not work yet)`, !all.some((o) => (o.key as string) === notYet));
 }
-ok("no option says 'בקרוב'", !all.some((o) => /בקרוב/.test(o.title + o.help)));
+console.log("every option and group has its words in Hebrew and English (billing.production)");
+for (const [lang, m] of [["he", billingHe.production], ["en", billingEn.production]] as const) {
+  for (const o of productionOptions({ businessKind: null })) {
+    const w = (m.option as Record<string, { title: string; help: string }>)[o.key];
+    ok(`${lang}: ${o.key} has a title and says when to choose it`, !!w && w.title.length > 1 && w.help.length > 10, JSON.stringify(w));
+    ok(`${lang}: ${o.key} says nothing like "coming soon"`, !!w && !/בקרוב|soon/i.test(w.title + w.help));
+  }
+  for (const g of ["tax", "sales", "general", "purchasing"] as const) ok(`${lang}: group ${g} has a heading`, (m.group as Record<string, string>)[g]?.length > 1);
+  ok(`${lang}: the customer line carries the name`, m.forCustomer.includes("{name}"));
+}
 ok("tax invoice and quote go to the existing billing create flow", all.filter((o) => o.kind === "billing").map((o) => o.key).join() === "TAX_INVOICE,QUOTE");
 const hrefs = Object.fromEntries(all.flatMap((o) => (o.kind === "link" ? [[o.key, o.href]] : [])));
 ok("letter → the existing new-letter screen, no customer passed (it would overwrite the device draft)", hrefs.LETTER === "/business-documents/letters/new");
 ok("supplier order → the existing inventory flow", hrefs.SUPPLIER_ORDER === "/inventory/supplier-purchases/new");
-ok("every option explains when to choose it", all.every((o) => o.help.length > 10));
 
 console.log("groups keep a fixed order and drop empty ones");
 ok("authorized dealer: tax, sales, general, purchasing", groupedProductionOptions(all).map((g) => g.group).join() === "tax,sales,general,purchasing");

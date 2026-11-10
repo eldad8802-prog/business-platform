@@ -16,18 +16,13 @@
  */
 export type ProductionBusinessKind = "EXEMPT_DEALER" | "AUTHORIZED_DEALER" | "LTD_COMPANY" | null;
 
+/** The words (title, when to choose it) live in the billing messages: billing.production.option.<key>. */
 export type ProductionOption =
-  | { key: "TAX_INVOICE" | "QUOTE"; kind: "billing"; group: ProductionGroup; title: string; help: string }
-  | { key: "LETTER" | "SUPPLIER_ORDER"; kind: "link"; group: ProductionGroup; title: string; help: string; href: string };
+  | { key: "TAX_INVOICE" | "QUOTE"; kind: "billing"; group: ProductionGroup }
+  | { key: "LETTER" | "SUPPLIER_ORDER"; kind: "link"; group: ProductionGroup; href: string };
 
+/** Group headings: billing.production.group.<group>. */
 export type ProductionGroup = "tax" | "sales" | "general" | "purchasing";
-
-export const PRODUCTION_GROUP_TITLE: Record<ProductionGroup, string> = {
-  tax: "מסמכי מס",
-  sales: "מכירה",
-  general: "כללי",
-  purchasing: "רכש",
-};
 
 export function productionOptions(input: { businessKind: ProductionBusinessKind }): ProductionOption[] {
   const options: ProductionOption[] = [];
@@ -36,23 +31,17 @@ export function productionOptions(input: { businessKind: ProductionBusinessKind 
       key: "TAX_INVOICE",
       kind: "billing",
       group: "tax",
-      title: "חשבונית מס",
-      help: "על מכירה או שירות. מקבלת מספר רק בהפקה הסופית.",
     });
   }
   options.push({
     key: "QUOTE",
     kind: "billing",
     group: "sales",
-    title: "הצעת מחיר",
-    help: "לפני עסקה. אפשר להמיר אותה לחשבונית כשהלקוח מאשר.",
   });
   options.push({
     key: "LETTER",
     kind: "link",
     group: "general",
-    title: "מכתב",
-    help: "מכתב ללקוח או לגורם אחר, נשמר עם PDF.",
     // no customer passed: the letter screen restores its device draft, which a passed customer would overwrite
     href: "/business-documents/letters/new",
   });
@@ -60,17 +49,15 @@ export function productionOptions(input: { businessKind: ProductionBusinessKind 
     key: "SUPPLIER_ORDER",
     kind: "link",
     group: "purchasing",
-    title: "הזמנה לספק",
-    help: "הזמנת סחורה מספק, במסך המלאי. שם אפשר גם לשמור עותק.",
     href: "/inventory/supplier-purchases/new",
   });
   return options;
 }
 
-export function groupedProductionOptions(options: ProductionOption[]): { group: ProductionGroup; title: string; options: ProductionOption[] }[] {
+export function groupedProductionOptions(options: ProductionOption[]): { group: ProductionGroup; options: ProductionOption[] }[] {
   const order: ProductionGroup[] = ["tax", "sales", "general", "purchasing"];
   return order
-    .map((group) => ({ group, title: PRODUCTION_GROUP_TITLE[group], options: options.filter((o) => o.group === group) }))
+    .map((group) => ({ group, options: options.filter((o) => o.group === group) }))
     .filter((g) => g.options.length > 0);
 }
 
