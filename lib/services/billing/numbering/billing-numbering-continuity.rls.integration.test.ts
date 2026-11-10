@@ -1,11 +1,12 @@
 /**
  * The numbering continuity report under replayed RLS, as a NOBYPASSRLS login:
  *
- *   C1  real issuance (three tax invoices, two receipts) → every series continuous
+ *   C1  real issuance (three tax invoices, two receipts) → consistent in range, reported as PARTIAL (opening unknown)
  *   C2  the report reads nothing of another business
  *   C3  a hole written behind the counter's back → reported as a missing range and an inconsistent counter
  *   C4  a number issued twice in another business's data never leaks into this one
  *   C5  the report writes nothing (row counts and counters unchanged)
+ *   C6  a series whose first issued number is 459 is not reported as missing 1–458, and is not "fully verified"
  *
  * Synthetic data only. No secrets, no Neon, no network.
  * Run: npx tsx lib/services/billing/numbering/billing-numbering-continuity.rls.integration.test.ts
@@ -132,8 +133,8 @@ async function main() {
   const report = await loadNumberingContinuityReport(a.businessId);
   const ti = report.find((r) => r.documentType === "TAX_INVOICE")!;
   const rc = report.find((r) => r.documentType === "RECEIPT")!;
-  ok("C1 real issuance → tax invoices 1–3 and receipts 1–2 continuous, counters agree",
-    ti.continuous && ti.first === 1 && ti.last === 3 && ti.counterNext === 4 && rc.continuous && rc.last === 2 && report.every((r) => r.continuous),
+  ok("C1 real issuance → tax invoices 1–3 and receipts 1–2 consistent in range, counters agree; partial (opening unknown), never fully verified",
+    ti.consistentInRange && ti.first === 1 && ti.last === 3 && ti.counterNext === 4 && rc.consistentInRange && rc.last === 2 && report.every((r) => r.consistentInRange && !r.fullyVerified) && ti.coverage === "FROM_FIRST_ISSUED",
     JSON.stringify(report));
   ok("C2 the report reads nothing of another business (b's invoice is not counted)", ti.issuedCount === 3, String(ti.issuedCount));
 
@@ -143,16 +144,26 @@ async function main() {
   });
   const r2 = (await loadNumberingContinuityReport(a.businessId)).find((r) => r.documentType === "TAX_INVOICE")!;
   ok("C3 a hole is reported as the missing range 4–5, and the counter as inconsistent",
-    JSON.stringify(r2.missing) === JSON.stringify([{ from: 4, to: 5 }]) && !r2.counterConsistent && !r2.continuous, JSON.stringify(r2));
+    JSON.stringify(r2.missing) === JSON.stringify([{ from: 4, to: 5 }]) && !r2.counterConsistent && !r2.consistentInRange, JSON.stringify(r2));
 
   const rb = (await loadNumberingContinuityReport(b.businessId)).find((r) => r.documentType === "TAX_INVOICE")!;
-  ok("C4 the other business's report is its own (one invoice, continuous)", rb.issuedCount === 1 && rb.continuous, JSON.stringify(rb));
+  ok("C4 the other business's report is its own (one invoice, consistent in range)", rb.issuedCount === 1 && rb.consistentInRange, JSON.stringify(rb));
 
   const counters = await owner.billingDocumentNumberSequence.findMany({ where: { businessId: a.businessId }, orderBy: { documentType: "asc" } });
   await loadNumberingContinuityReport(a.businessId);
   const counters2 = await owner.billingDocumentNumberSequence.findMany({ where: { businessId: a.businessId }, orderBy: { documentType: "asc" } });
   ok("C5 the report writes nothing (documents and counters unchanged)",
     (await owner.billingDocument.count()) === before + 1 && JSON.stringify(counters.map((c) => c.nextNumber)) === JSON.stringify(counters2.map((c) => c.nextNumber)));
+
+  // A series that starts at 459 (as after moving from earlier software), written by the owner.
+  const c = await tenant("c");
+  for (const n of [459, 460, 461]) {
+    await owner.billingDocument.create({ data: { businessId: c.businessId, documentType: BillingDocumentType.RECEIPT, status: BillingDocumentStatus.ISSUED, documentNumber: n, documentNumberFormatted: String(n).padStart(6, "0"), customerNameSnapshot: "x", currency: "ILS", subtotalAmount: "0", vatAmount: "0", totalAmount: "1" } });
+  }
+  await owner.billingDocumentNumberSequence.create({ data: { businessId: c.businessId, documentType: BillingDocumentType.RECEIPT, nextNumber: 462 } });
+  const r459 = (await loadNumberingContinuityReport(c.businessId)).find((r) => r.documentType === "RECEIPT")!;
+  ok("C6 first issued 459 → nothing missing (1–458 not claimed), consistent in range, partial, not fully verified",
+    r459.missingCount === 0 && r459.first === 459 && r459.consistentInRange && r459.coverage === "FROM_FIRST_ISSUED" && !r459.fullyVerified, JSON.stringify(r459));
 
   await owner.$disconnect();
   console.log(`\n${pass} passed, ${failures.length} failed`);

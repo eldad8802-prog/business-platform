@@ -3,12 +3,12 @@
   "tests": {
     "lib/services/billing/numbering/billing-numbering-continuity.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "pure (no DB/network): ranges of missing numbers, duplicates, counter agreement, a series starting above 1"
+      "reason": "pure (no DB/network): missing ranges, duplicates, counter agreement; opening unknown → partial, never fully verified; a series starting at 459 is not missing 1–458; cancelled numbers are present"
     },
     "lib/services/billing/numbering/billing-numbering-continuity.rls.integration.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "rls-db",
-      "reason": "DB-RLS proof: replays every repository RLS statement, runs as a NOSUPERUSER NOBYPASSRLS login and refuses otherwise; real issuance; the report reads only its own business and writes nothing; 6/6 locally on PG18; without gap detection C3 fails"
+      "reason": "DB-RLS proof: replays every repository RLS statement, runs as a NOSUPERUSER NOBYPASSRLS login and refuses otherwise; real issuance; the report reads only its own business and writes nothing; 7/7 locally on PG18 incl. a series starting at 459; without gap detection C3 fails"
     }
   }
 }

@@ -96,7 +96,7 @@ jobs:
           prove() {
             local file=lib/services/billing/numbering/billing-numbering-continuity.ts
             cp "$file" "$file.bak"
-            perl -pi -e 's/    if \(n > expected\) missing\.push\(\{ from: expected, to: n - 1 \}\);/    void 0;/' "$file"
+            perl -pi -e 's/      if \(n > expected\) missing\.push\(\{ from: expected, to: n - 1 \}\);/      void 0;/' "$file"
             if cmp -s "$file" "$file.bak"; then mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply"; return 1; fi
             npx tsx lib/services/billing/numbering/billing-numbering-continuity.rls.integration.test.ts > np.log 2>&1; local status=$?
             mv "$file.bak" "$file"
