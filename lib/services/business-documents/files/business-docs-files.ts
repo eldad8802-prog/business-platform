@@ -25,13 +25,13 @@ const FENCE_CONTENT_TYPE = "application/x-dubiz-fence";
 export const UPLOAD_LEASE_SECONDS = 120;
 const FENCE_ATTEMPTS = 6;
 
-export type FilePurpose = "QUOTE_SHARE_COPY" | "LETTER";
+export type FilePurpose = "QUOTE_SHARE_COPY" | "LETTER" | "PURCHASE_ORDER_SHEET";
 export type FileState = "PENDING" | "COMMITTED" | "DELETING" | "FENCED";
 
 export const sha256Hex = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
 
 export function objectKeyFor(businessId: number, purpose: FilePurpose): string {
-  const folder = purpose === "LETTER" ? "letters" : "quote-shares";
+  const folder = purpose === "LETTER" ? "letters" : purpose === "PURCHASE_ORDER_SHEET" ? "po-sheets" : "quote-shares";
   return `biz/${businessId}/business-docs/${folder}/${randomUUID()}.pdf`;
 }
 
