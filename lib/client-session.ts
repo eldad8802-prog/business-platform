@@ -65,8 +65,9 @@ export async function signOut(): Promise<void> {
  * A request came back 401 (or there was no token to send). Decide it the one
  * way every screen now decides it — lib/auth/session-guard.ts:
  *
- *   the session can be refreshed → stay; `retry` (a READ) runs once with the new
- *                                  token. No retry is given for a write.
+ *   the session can be refreshed → stay (nothing is re-run from here, so a write
+ *                                  is never repeated; the screen's next load uses
+ *                                  the new token).
  *   the server ended the session → local state goes, the page is hidden and
  *                                  replaced by /login.
  *   network / timeout / 429 / 5xx → nothing is cleared; the screen shows its error.
@@ -76,9 +77,12 @@ export async function signOut(): Promise<void> {
  * person to the sign-in screen. Deliberately does NOT call the logout endpoint:
  * a rejected token has no session left to revoke.
  */
-export function redirectToLogin(retry?: () => void | Promise<void>): void {
+export function redirectToLogin(): void {
+  // Deliberately takes NO arguments: screens pass it straight to onClick, and an
+  // optional parameter would receive the click event. A screen that wants its
+  // READ retried after recovery calls handleUnauthorized({ retry }) directly.
   if (typeof window === "undefined") return;
-  void handleUnauthorized({ rejectedToken: getClientAuthToken(), retry });
+  void handleUnauthorized({ rejectedToken: getClientAuthToken() });
 }
 
 /** Sign out and return to the login screen. The path a "log out" control takes. */
