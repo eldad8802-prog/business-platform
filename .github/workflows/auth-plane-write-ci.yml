@@ -200,6 +200,7 @@ jobs:
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS: $4"
           }
           mutate lib/auth/session-guard.ts 'window.location.replace(`${window.location.origin}/login`);' '/* stays */' stays-on-screen 'FAIL  - ...and replaced by /login' lib/auth/session-guard.test.ts
+          mutate lib/auth/session-guard.ts 'if (rejectedToken === null && signOutPending()) {' 'if (false) {' pending-signout-resumed 'FAIL  - PENDING SIGN-OUT, no token' lib/auth/session-guard.test.ts
           mutate components/navigation/shell-chrome.tsx '<RefreshCoordinator>' '<>' no-coordinator 'FAIL  - the coordinator is mounted by ShellChrome' lib/auth/session-guard-coverage.test.ts
           git diff --exit-code
 

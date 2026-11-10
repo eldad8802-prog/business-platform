@@ -383,16 +383,25 @@ async function main() {
     const home = src("app/(shell)/app/page.tsx");
     ok("cta: /app with no session sends the visitor to /login",
       /if \(!currentToken\) \{\s*window\.location\.replace\(`\$\{window\.location\.origin\}\/login`\)/.test(home));
-    ok("cta: /app with a rejected session (401) sends the visitor to /login",
-      /res\.status === 401\)[\s\S]{0,200}window\.location\.replace\(`\$\{window\.location\.origin\}\/login`\)/.test(home));
+    // A 401 on /app goes through the one shared decision (lib/auth/session-guard.ts):
+    // a spent token is renewed in place; a session the server ended leaves for /login.
+    const guard = src("lib/auth/session-guard.ts");
+    ok("cta: /app with a rejected session (401) goes through the shared decision, which leaves for /login when the session is over",
+      /res\.status === 401\)[\s\S]{0,200}redirectToLogin\(\)/.test(home) &&
+        /endSessionLocally[\s\S]*window\.location\.replace\(`\$\{window\.location\.origin\}\/login`\)/.test(guard));
     const shell = src("app/(shell)/layout.tsx");
     ok("cta: /app sits under the shell's RefreshCoordinator (a spent access token is refreshed from the cookie before Home loads)",
       /<RefreshCoordinator>[\s\S]*\{children\}[\s\S]*<\/RefreshCoordinator>/.test(shell));
     const login = src("app/login/login-form.tsx");
     ok("cta: login lands on /app — after signing in, and when already signed in",
       (login.match(/window\.location\.replace\(`\$\{window\.location\.origin\}\/app`\)/g) ?? []).length >= 2);
-    ok("cta: /login does NOT refresh a spent token (it clears it and shows the form) — why it is not the target",
-      !/RefreshCoordinator|bootstrapRefresh|refreshAccessToken/.test(login) && /status === 401 \|\| status === 403/.test(login));
+    // /login now renews a spent token too (through the same decision) and lands on
+    // /app, and it no longer clears a session on 403. /app stays the target: it is
+    // the canonical entry and works signed in, signed out and with a spent token.
+    ok("cta: /login renews a spent token through the shared decision and lands on /app; it never clears on 403",
+      /handleUnauthorized\(/.test(login) &&
+        /retry: \(\) => window\.location\.replace\(`\$\{window\.location\.origin\}\/app`\)/.test(login) &&
+        !/status === 401 \|\| status === 403/.test(login));
   }
 
   console.log(`\n[transactional-email] ${pass} passed, ${fail} failed`);

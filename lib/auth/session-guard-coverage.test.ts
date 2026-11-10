@@ -88,5 +88,17 @@ ok("the coordinator is mounted by ShellChrome", MOUNTS.test(readFileSync(join(RO
 ok("...and by the admin console layout", MOUNTS.test(readFileSync(join(ROOT, "app/(platform-admin)/layout.tsx"), "utf8")));
 ok("...and by the onboarding layout", MOUNTS.test(readFileSync(join(ROOT, "app/onboarding/layout.tsx"), "utf8")));
 
+// ── 3. the guard reads the SAME pending-sign-out marker the sign-out writes ──
+// lib/client-session.ts owns it (PENDING_REVOKE_KEY, the "clear this device
+// anyway" flow). Until that lands here the check is vacuous; once it does, a
+// renamed key on either side would silently let recovery resume a session the
+// person asked this device to forget.
+{
+  const guard = readFileSync(join(ROOT, "lib/auth/session-guard.ts"), "utf8").match(/PENDING_REVOKE_KEY = "([^"]+)"/)?.[1];
+  const writer = readFileSync(join(ROOT, "lib/client-session.ts"), "utf8").match(/PENDING_REVOKE_KEY = "([^"]+)"/)?.[1];
+  ok("the guard names the pending-sign-out marker", typeof guard === "string" && guard.length > 0);
+  ok("...and it is the key the sign-out writes (when the sign-out flow is present)", writer === undefined || writer === guard, `${guard} vs ${writer}`);
+}
+
 console.log(failed === 0 ? "\nALL PASS" : `\n${failed} FAILED`);
 if (failed > 0) process.exit(1);

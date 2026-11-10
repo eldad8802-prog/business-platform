@@ -38,6 +38,25 @@ export type RejectionOutcome = "recovered" | "signed_out" | "transient";
 const recoveredTokens = new Set<string>();
 
 /**
+ * The marker an unfinished sign-out leaves ("clear this device anyway",
+ * lib/client-session.ts — PENDING_REVOKE_KEY). Kept in step with it by
+ * lib/auth/session-guard-coverage.test.ts.
+ *
+ * While it is present, the refresh cookie still in the jar is the PROOF that
+ * finishes that sign-out — not a session to resume. Recovering with it would
+ * bring back exactly the session the person asked this device to forget.
+ */
+export const PENDING_REVOKE_KEY = "dubiz.auth.pendingRevoke";
+
+function signOutPending(): boolean {
+  try {
+    return window.localStorage.getItem(PENDING_REVOKE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The session is over: forget it here and leave for /login, hiding the page
  * first so business data already on screen is not left visible while the
  * navigation runs. The pending sign-out marker (lib/client-session.ts) is left
@@ -81,6 +100,15 @@ export async function handleUnauthorized(opts: {
     // The server accepted this exact token a moment ago. This 401 is about the
     // request, not the session: report it, do not chase it.
     return "transient";
+  }
+
+  if (rejectedToken === null && signOutPending()) {
+    // No token because the person cleared this device and the sign-out is still
+    // pending. Never resume from the cookie that proves it: go to /login, where
+    // the pending sign-out is finished. (With a token — a later sign-in — the
+    // marker belongs to an older session and does not apply.)
+    endSessionLocally();
+    return "signed_out";
   }
 
   const result = await recoverSession(rejectedToken);
