@@ -9,8 +9,8 @@
  * rtlInlines returns the text as pdfmake inlines in VISUAL order (left to right), one inline per direction run, with
  * spaces as NBSP so pdfmake never splits a run into words: fontkit reverses the Hebrew runs into reading order and
  * leaves the Latin / digit runs as written. The paragraph direction is right to left (the documents are Hebrew), so a
- * text with no Hebrew at all comes out unchanged. A simplified Unicode bidi algorithm: digits run left to right with
- * their separators and %/#/currency signs, neutrals between two left-to-right runs join them, any other neutral takes
+ * text with no Hebrew at all comes out unchanged. A simplified Unicode bidi algorithm: a number keeps its separators and
+ * %/#/currency signs and goes with a Latin word before it; neutrals between two Latin runs join them, any other takes
  * the paragraph direction; brackets in right-to-left runs are mirrored here (fontkit does not mirror them).
  * No bidi control characters are emitted (the Hebrew font draws them as squares), and incoming ones are dropped.
  */
@@ -22,34 +22,52 @@ const RTL_LETTER = /[\p{Script=Hebrew}\p{Script=Arabic}]/u;
 const LTR_LETTER = /[\p{L}\p{N}]/u;
 const DIGIT = /\p{Nd}/u;
 const NUMBER_SIGN = /[%#$€₪£°]/;
+const NUMBER_SEPARATOR = /[.,:/-]/;
 const MIRROR: Record<string, string> = { "(": ")", ")": "(", "[": "]", "]": "[", "{": "}", "}": "{", "<": ">", ">": "<" };
 
-type Dir = "R" | "L" | "N";
+// R: right-to-left letter · L: other letter · EN: number · N: neutral (space, punctuation)
+type Dir = "R" | "L" | "EN" | "N";
 
 export function rtlInlines(value: string | null | undefined): PdfInline[] {
   const chars = [...String(value ?? "").replace(BIDI_CONTROLS, "")];
   if (chars.length === 0) return [{ text: "" }];
 
-  const dir: Dir[] = chars.map((c) => (RTL_LETTER.test(c) ? "R" : LTR_LETTER.test(c) ? "L" : "N"));
-  // a %/#/currency sign touching a digit belongs to the number
-  for (let i = 0; i < chars.length; i++) {
-    if (dir[i] === "N" && NUMBER_SIGN.test(chars[i]) && (DIGIT.test(chars[i - 1] ?? "") || DIGIT.test(chars[i + 1] ?? ""))) dir[i] = "L";
+  const dir: Dir[] = chars.map((c) => (RTL_LETTER.test(c) ? "R" : DIGIT.test(c) ? "EN" : LTR_LETTER.test(c) ? "L" : "N"));
+  // a separator between two digits (1.5, 1,000, 12:30, 3/4, 2-3) and a %/#/currency sign touching a number belong to it
+  for (let i = 1; i < chars.length - 1; i++) {
+    if (dir[i] === "N" && NUMBER_SEPARATOR.test(chars[i]) && dir[i - 1] === "EN" && dir[i + 1] === "EN") dir[i] = "EN";
   }
-  // neutrals: between two left-to-right runs they join them, otherwise they take the paragraph direction
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (let i = 0; i < chars.length; i++) {
+      if (dir[i] === "N" && NUMBER_SIGN.test(chars[i]) && (dir[i - 1] === "EN" || dir[i + 1] === "EN")) { dir[i] = "EN"; changed = true; }
+    }
+  }
+  // a number after a Latin word goes with it (iPhone 15); after Hebrew, or at the start, it stands alone
+  let lastStrong: "R" | "L" = "R";
+  for (let i = 0; i < chars.length; i++) {
+    if (dir[i] === "R" || dir[i] === "L") lastStrong = dir[i] as "R" | "L";
+    else if (dir[i] === "EN" && lastStrong === "L") dir[i] = "L";
+  }
+  // neutrals: between two Latin runs they join them, otherwise (numbers count as right-to-left here) they take the
+  // paragraph direction — so "3% 1" inside Hebrew stays two numbers read right to left
+  const side = (d: Dir | undefined): "R" | "L" => (d === "L" ? "L" : "R");
   for (let i = 0; i < chars.length; ) {
     if (dir[i] !== "N") { i++; continue; }
     let j = i;
     while (j < chars.length && dir[j] === "N") j++;
-    const resolved: Dir = dir[i - 1] === "L" && dir[j] === "L" ? "L" : "R";
+    const resolved: Dir = side(dir[i - 1]) === "L" && side(dir[j]) === "L" ? "L" : "R";
     for (let k = i; k < j; k++) dir[k] = resolved;
     i = j;
   }
 
-  const runs: { dir: Dir; text: string }[] = [];
+  // Latin letters and numbers next to each other display as one left-to-right run (1.5L)
+  const runs: { dir: "R" | "L"; text: string }[] = [];
   chars.forEach((c, i) => {
+    const d = dir[i] === "R" ? "R" : "L";
     const last = runs[runs.length - 1];
-    if (last && last.dir === dir[i]) last.text += c;
-    else runs.push({ dir: dir[i], text: c });
+    if (last && last.dir === d) last.text += c;
+    else runs.push({ dir: d, text: c });
   });
 
   return runs.reverse().map((run) => {
