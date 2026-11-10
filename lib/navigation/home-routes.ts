@@ -369,6 +369,21 @@ export const TOOLS: Tool[] = [
     feature: "appointments",
   },
 
+  // Service Desk UI 1.3a (decision ה4: entry via ניהול העסק): listed only while service_desk is ON — off by default.
+  {
+    key: "service-desk",
+    label: HE_T("insights.tools.items.serviceDesk.label"),
+    labelKey: "insights.tools.items.serviceDesk.label",
+    description: HE_T("insights.tools.items.serviceDesk.description"),
+    descriptionKey: "insights.tools.items.serviceDesk.description",
+    entity: "service",
+    href: "/service-desk",
+    color: "amber",
+    group: "operations",
+    colorSource: "borrowed:secretary",
+    feature: "service_desk",
+  },
+
   {
     key: "inventory",
     label: HE_T("insights.tools.items.inventory.label"),

@@ -97,7 +97,9 @@ async function main() {
   const files: string[] = [];
   const walk = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name === "route.ts") files.push(p); } };
   walk(root);
-  ok("R1 ten route files", files.length === 10, String(files.length));
+  // UI 1.3a added one read: GET /api/service-desk/staff (the technician pickers); 1d-A added three external-work routes and
+  // 1d-B two parts routes, all closed until 1.3b. All under the same edge as the rest.
+  ok("R1 sixteen route files (the staff read, three external-work and two parts routes)", files.length === 16 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
   let allGuarded = true, kindsRight = true;
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");
