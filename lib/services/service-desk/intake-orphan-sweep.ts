@@ -14,7 +14,8 @@
  *   - only while holding the case row lock (SELECT … FOR UPDATE) and only when no row names the key — a command writes
  *     its row under that same lock and first re-checks its object (ensureStoredUnderLock), so a swept object is written
  *     again by a late command and a row never names a missing object;
- *   - never in a business being deleted (the erasure job owns it), never a case that no longer exists.
+ *   - never in a business being deleted, never a case being / already erased (the erasure job owns both), never a case
+ *     that no longer exists.
  */
 import { getStorageService, type StorageService } from "@/lib/storage";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
@@ -31,7 +32,7 @@ export type SweepReport = {
   dryRun: boolean;
   scanned: number;
   ignored: number;
-  kept: { key: string; reason: "TOO_YOUNG" | "NO_TIME" | "LINKED" | "CASE_GONE" }[];
+  kept: { key: string; reason: "TOO_YOUNG" | "NO_TIME" | "LINKED" | "CASE_GONE" | "CASE_ERASED" }[];
   orphans: string[];
   deleted: string[];
   skipped: "BUSINESS_DELETING" | null;
@@ -83,9 +84,10 @@ export async function sweepIntakeOrphans(
     if (age !== "OK") { report.kept.push({ key: o.key, reason: age }); continue; }
     // Under the case lock: no row names the key → an orphan; delete it while the lock is held.
     const verdict = await tenantTx(businessId, async (tx) => {
-      const kase = (await tx.$queryRaw<{ id: number }[]>`
-        SELECT id FROM "ServiceCase" WHERE id = ${c.caseId}::int AND "businessId" = ${businessId}::int FOR UPDATE`)[0];
+      const kase = (await tx.$queryRaw<{ id: number; erased: boolean }[]>`
+        SELECT id, "erasedAt" IS NOT NULL AS erased FROM "ServiceCase" WHERE id = ${c.caseId}::int AND "businessId" = ${businessId}::int FOR UPDATE`)[0];
       if (!kase) return "CASE_GONE" as const;
+      if (kase.erased) return "CASE_ERASED" as const;
       const linked = (await tx.$queryRaw<{ ok: boolean }[]>`
         SELECT (EXISTS (SELECT 1 FROM "ServiceIntakePhoto" WHERE "businessId" = ${businessId}::int AND "storageKey" = ${c.key})
              OR EXISTS (SELECT 1 FROM "ServiceCaseIntake" WHERE "businessId" = ${businessId}::int AND ("signatureKey" = ${c.key} OR "slipPdfKey" = ${c.key}))) AS ok`)[0]?.ok === true;

@@ -42,6 +42,7 @@ import { addIntakePhoto, getIntake, intakeDigest, presentTerms, readIntakeObject
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 const runtime = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL! }); // the real runtime role, for the guard checks
+const sup = new PrismaClient({ datasourceUrl: process.env.SUPER_URL! }); // lab superuser — fixtures only
 let pass = 0;
 const failures: string[] = [];
 function ok(name: string, cond: boolean, detail = "") {
@@ -336,6 +337,13 @@ async function main() {
   const bDel = await sweepIntakeOrphans(B.b, { dryRun: false, now: future }, store);
   await x(`UPDATE "Business" SET "deletionRequestedAt" = NULL WHERE id = $1`, B.b);
   ok("O6 a business being deleted is skipped entirely (the account erasure owns its prefix)", bDel.skipped === "BUSINESS_DELETING" && bDel.scanned === 0 && (await stored(bKey)));
+
+  const c9 = await shopCase(A);
+  const erJpg = jpeg(), erKey = `biz/${A.b}/service/cases/${c9.id}/intake/photos/${sha(erJpg)}.jpg`;
+  await put(erKey, erJpg, "image/jpeg");
+  await sup.$transaction([sup.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`), sup.$executeRawUnsafe(`UPDATE "ServiceCase" SET "erasedAt" = now() WHERE id = $1`, c9.id)]); // lab fixture: a case under erasure
+  const erRun = await sweepIntakeOrphans(A.b, { dryRun: false, now: future }, store);
+  ok("O7 an unlinked object of a case being / already erased is kept (CASE_ERASED) — the erasure job owns it", (await stored(erKey)) && erRun.kept.some((k) => k.key === erKey && k.reason === "CASE_ERASED"));
 
   console.log("V — view");
   const view = await getIntake(A.b, c1.id);
