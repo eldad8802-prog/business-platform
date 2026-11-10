@@ -534,6 +534,7 @@ export default function LoginForm({
               <input
                 type="email"
                 id="login-email"
+                name="email"
                 aria-invalid={touched.email && !!errors.email}
                 aria-describedby="login-email-msg"
                 value={email}
@@ -557,7 +558,7 @@ export default function LoginForm({
                       : "0 1px 2px rgba(52, 60, 50, 0.04)",
                 }}
                 placeholder="name@example.com"
-                autoComplete="email"
+                autoComplete="username"
                 spellCheck={false}
                 autoFocus={!inAndroidApp}
               />
@@ -578,6 +579,7 @@ export default function LoginForm({
               <input
                 type={showPassword ? "text" : "password"}
                 id="login-password"
+                name="password"
                 aria-invalid={touched.password && !!errors.password}
                 aria-describedby="login-password-msg"
                 value={password}
