@@ -31,3 +31,12 @@ if [ -f "$P4" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.
   echo "ERASURE PREREQ: P4 audit journal applied verbatim from 20261122090000"
 fi
 echo "ERASURE PREREQ READY: $DB (document_supplier_link_erase_business from 20261103090000, business_documents_erase from 20261114090000, verbatim)"
+# A1 (erasure audit 2026-11-10): the purge's terminal transition now also renames the business. Production's runtime
+# holds UPDATE ("name") on Business since migration 20261011090100 (applied); this lab chain records that migration in the
+# ledger without running it, so the grant is missing here. It is taken VERBATIM from that migration — never widened.
+REN="$ROOT/prisma/migrations/20261011090100_signup_consent_business_rename/migration.sql"
+NAME_GRANT="$(grep -oE 'GRANT UPDATE ("name") ON "Business" TO app_runtime;' "$REN" | head -1)"
+[ -n "$NAME_GRANT" ] || { echo "the Business name grant was not found in $REN"; exit 1; }
+if [ "$(psql -X -At "$OWNER_URL" -c "SELECT has_column_privilege('app_runtime', 'public.\"Business\"', 'name', 'UPDATE')")" != "t" ]; then
+  echo "$NAME_GRANT" | PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL"
+fi

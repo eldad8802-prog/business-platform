@@ -246,6 +246,28 @@ async function mirrorMissingEraseFunctions(): Promise<string[]> {
   return mirrored;
 }
 
+/**
+ * A1 (erasure audit 2026-11-10): the purge's terminal transition renames the business. Production's runtime holds
+ * UPDATE ("name") on Business since migration 20261011090100; this lab chain records that migration without running it.
+ * The grant is taken VERBATIM from that migration (a hard stop if it is not there) — never a wider one.
+ */
+async function mirrorBusinessNameGrant(): Promise<boolean> {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const file = path.join(process.cwd(), "prisma/migrations/20261011090100_signup_consent_business_rename/migration.sql");
+  const grant = /GRANT UPDATE ("name") ON "Business" TO app_runtime;/.exec(fs.readFileSync(file, "utf8"))?.[0];
+  if (!grant) throw new Error(`the Business name grant was not found in ${file}`);
+  const sup = new PrismaClient({ datasources: { db: { url: process.env.SUPER_URL } } });
+  try {
+    const has = await sup.$queryRawUnsafe<{ ok: boolean }[]>(`SELECT has_column_privilege('app_runtime', 'public."Business"', 'name', 'UPDATE') AS ok`);
+    if (has[0]?.ok === true) return false;
+    await sup.$executeRawUnsafe(grant);
+    return true;
+  } finally {
+    await sup.$disconnect();
+  }
+}
+
 async function main() {
   // The lab mirror itself must be honest (hard stops, not counted checks): it refuses a function no migration defines,
   // and what it installs is the migration's own text, matched by name AND argument types — never a stand-in.
@@ -264,6 +286,7 @@ async function main() {
     console.log("lab mirror self-check: refuses an undefined function; record_pass(integer, integer, text) taken verbatim from its migration");
   }
   console.log(`lab: erase functions mirrored from their migrations: ${(await mirrorMissingEraseFunctions()).join(", ") || "none"}`);
+  console.log(`lab: Business name grant (20261011090100) ${(await mirrorBusinessNameGrant()) ? "mirrored" : "already present"}`);
   {
     const migrations = await labMigrations();
     for (const fn of await requiredEraseFunctions()) {

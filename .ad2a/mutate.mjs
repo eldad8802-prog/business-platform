@@ -118,8 +118,9 @@ const MUTATIONS = {
   I1: () => dropContractEntry("Lead"),
   // A required runtime GRANT removed: CrmNote leaves the lab's broad grant.
   I2: () => replaceOnce(BATTERY, `"CrmNote","CrmAttachment"`, `"CrmAttachment"`),
-  // A runtime GRANT nobody declared.
-  I3: () => afterContractApply("`GRANT SELECT ON \"Deal\" TO ${RT_ROLE}`"),
+  // A runtime GRANT nobody declared. The table must hold NO declared privilege, or the extra GRANT is a no-op and
+  // proves nothing: it was Deal until A6 (erasure audit 2026-11-10) declared Deal; Cheque stays undeclared.
+  I3: () => afterContractApply("`GRANT SELECT ON \"Cheque\" TO ${RT_ROLE}`"),
   // A policy nobody declared — permissive, FOR DELETE, which is exactly the kind that matters.
   I4: () => afterContractApply(js(`CREATE POLICY ad2a_undeclared_delete ON "Customer" FOR DELETE USING (true)`)),
   // A policy's command changed in the contract: the pilot UPDATE policy becomes FOR ALL.

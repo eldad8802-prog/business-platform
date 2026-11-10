@@ -23,6 +23,12 @@ psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
   "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_auth') THEN CREATE ROLE app_auth NOLOGIN NOSUPERUSER NOBYPASSRLS; END IF; END \$\$"
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/migration.sql"
+# Production applied 20261011090100 after the narrowing: it grants the runtime UPDATE ("name") on Business (account
+# erasure A1 renames the business at the terminal transition). Taken VERBATIM from that migration — never widened.
+REN="$ROOT/prisma/migrations/20261011090100_signup_consent_business_rename/migration.sql"
+NAME_GRANT="$(grep -oE 'GRANT UPDATE ("name") ON "Business" TO app_runtime;' "$REN" | head -1)"
+[ -n "$NAME_GRANT" ] || { echo "the Business name grant was not found in $REN"; exit 1; }
+echo "$NAME_GRANT" | psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL"
 if [ "${2:-}" = "--b4" ]; then
   psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/20261006090000_business_tenant_write_rls/migration.sql"
   psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
