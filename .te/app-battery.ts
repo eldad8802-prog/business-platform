@@ -15,6 +15,10 @@
  *
  * Run: OWNER_URL=… AUTH_URL=… RUNTIME_URL=… npx tsx .te/app-battery.ts
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { PrismaClient } from "@prisma/client";
 
 const OWNER_URL = process.env.OWNER_URL!;
@@ -61,6 +65,31 @@ async function rejects(fn: () => Promise<unknown>, re: RegExp): Promise<boolean>
   }
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Split a migration into statements, keeping dollar-quoted bodies whole (as .authfix does). */
+function sqlStatements(sql: string): string[] {
+  const src = sql.replace(/--.*$/gm, "");
+  const out: string[] = [];
+  let buf = "";
+  let i = 0;
+  while (i < src.length) {
+    const m = src[i] === "$" ? /^\$[A-Za-z0-9_]*\$/.exec(src.slice(i)) : null;
+    if (m) {
+      const close = src.indexOf(m[0], i + m[0].length);
+      const end = close === -1 ? src.length : close + m[0].length;
+      buf += src.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (src[i] === ";") {
+      if (buf.trim()) out.push(buf.trim());
+      buf = "";
+    } else buf += src[i];
+    i++;
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out;
+}
 
 type Sent = { idempotencyKey: string; to: string; subject: string; html: string; text: string; from: string; replyTo: string | null };
 function fakeProvider(script: (n: number) => Promise<import("../lib/email/transactional/provider").SendResult> | import("../lib/email/transactional/provider").SendResult) {
@@ -373,6 +402,100 @@ async function main() {
     delete process.env.SIGNUP_ALLOWED_EMAILS;
     const removed = await call(`${tag}-after@battery.test`, "198.51.100.25");
     ok("beta: list removed → the closed gate exactly as before", removed.status === 403 && (await removed.json()).code === "SIGNUP_DISABLED");
+  }
+
+  console.log("--- verification ON: the WELCOME does not wait for it (owner decision 2026-11-10) ---");
+  {
+    const { consumeEmailVerification } = await import("../lib/auth/email-tokens");
+    const { renderStored } = await import("../lib/email/transactional/registry");
+    // db push built AuthEmailToken and User.emailVerifiedAt from the models, without the shipped migration's
+    // functions, RLS and grants. Rebuild them from the migration verbatim (as the lab does for
+    // TransactionalEmail), so createAccount issues a REAL verification link as app_auth.
+    const ROOT = fileURLToPath(new URL("../", import.meta.url));
+    await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS "AuthEmailToken" CASCADE`);
+    await owner.$executeRawUnsafe(`ALTER TABLE "User" DROP COLUMN IF EXISTS "emailVerifiedAt"`);
+    for (const st of sqlStatements(readFileSync(join(ROOT, "prisma/migrations/20261017090000_auth_email_tokens/migration.sql"), "utf8"))) {
+      await owner.$executeRawUnsafe(st);
+    }
+    const kindsOf = async (userId: number) => (await rowsOf(userId)).map((x) => x.kind).sort().join(",");
+    const welcomesOf = async (userId: number) => (await rowsOf(userId)).filter((x) => x.kind === "WELCOME");
+    const isVerified = async (userId: number) =>
+      (await owner.$queryRawUnsafe<Array<{ v: boolean }>>(`SELECT "emailVerifiedAt" IS NOT NULL AS v FROM "User" WHERE id = $1`, userId))[0]?.v === true;
+    const linkToken = (payload: unknown) => {
+      const rendered = renderStored("EMAIL_VERIFY", payload, { appBaseUrl: "https://app.battery.test" });
+      const m = rendered ? /#t=([0-9a-f-]{36}\.[A-Za-z0-9_-]{43})/.exec(rendered.text) : null;
+      return m ? m[1] : "";
+    };
+    const signupV = (n: string) =>
+      createAccount({
+        email: `${tag}-${n}@battery.test`,
+        passwordHash: "$2b$10$abcdefghijklmnopqrstuuTkV4bBuvZ4Lr1nYp0V.Qj1m3XyQnA2",
+        name: "מאיה לוי",
+        businessName: `${tag} ${n}`,
+        now: new Date(),
+        sendVerification: true,
+      });
+
+    const v = await signupV("v1");
+    const vRows = await rowsOf(v.userId);
+    const vWelcome = vRows.find((x) => x.kind === "WELCOME");
+    const vLink = vRows.find((x) => x.kind === "EMAIL_VERIFY");
+    ok("signup with verification ON → exactly two rows: ONE WELCOME and ONE EMAIL_VERIFY", (await kindsOf(v.userId)) === "EMAIL_VERIFY,WELCOME", await kindsOf(v.userId));
+    ok("createAccount returns both ids", v.welcomeEmailId === vWelcome?.id && v.verificationEmailId === vLink?.id);
+    ok("the WELCOME: PENDING, due now, 24h lifetime, dedupe welcome:user:<id>, first name only",
+      vWelcome?.status === "PENDING" && vWelcome.nextAttemptAt !== null && vWelcome.expiresAt.getTime() - vWelcome.createdAt.getTime() === 24 * 3600_000 &&
+        vWelcome.dedupeKey === `welcome:user:${v.userId}` && JSON.stringify(vWelcome.payload) === JSON.stringify({ firstName: "מאיה" }));
+    ok("…and the address is NOT verified yet (the WELCOME did not need it)", (await isVerified(v.userId)) === false);
+
+    ok("double submit with verification ON → EmailAlreadyRegistered; still one WELCOME and one link",
+      (await signupV("v1").catch((e) => e)) instanceof EmailAlreadyRegisteredError && (await kindsOf(v.userId)) === "EMAIL_VERIFY,WELCOME");
+
+    const sent = fakeProvider(() => SENT);
+    ok("the WELCOME is delivered before any verification",
+      (await deliverTransactionalEmail(v.welcomeEmailId!, { provider: sent.provider, env: ON })) === "sent" &&
+        sent.calls.length === 1 && sent.calls[0].subject === "ברוכים הבאים ל־Dubiz 👋" && sent.calls[0].to === `${tag}-v1@battery.test`);
+    ok("a delivered WELCOME is never sent again",
+      (await deliverTransactionalEmail(v.welcomeEmailId!, { provider: sent.provider, env: ON })) === "not_claimable" && sent.calls.length === 1);
+
+    const token = linkToken(vLink?.payload);
+    const verified = await consumeEmailVerification(token);
+    ok("verifying later (real link, real function) stamps the address", verified.status === "VERIFIED" && (await isVerified(v.userId)), JSON.stringify(verified));
+    ok("…and records NOTHING: still exactly one WELCOME, no other row", (await rowsOf(v.userId)).length === 2 && (await welcomesOf(v.userId)).length === 1);
+    ok("replaying the link → USED, still exactly one WELCOME", (await consumeEmailVerification(token)).status === "USED" && (await welcomesOf(v.userId)).length === 1);
+    const sweepAfter = fakeProvider(() => SENT);
+    await runTransactionalEmailSweep({ provider: sweepAfter.provider, env: ON });
+    await runTransactionalEmailSweep({ provider: sweepAfter.provider, env: ON });
+    ok("background sweeps run again → this account's WELCOME is not sent a second time",
+      sweepAfter.calls.every((c) => c.idempotencyKey !== `te:${v.welcomeEmailId}`) && (await welcomesOf(v.userId)).length === 1);
+
+    // A send failure: the WELCOME fails permanently; verification still works, and nothing re-creates it.
+    const w = await signupV("v2");
+    const bad = fakeProvider(() => ({ outcome: "permanent" as const, code: "rejected_422" }));
+    ok("a WELCOME that fails to send → FAILED",
+      (await deliverTransactionalEmail(w.welcomeEmailId!, { provider: bad.provider, env: ON })) === "failed" &&
+        (await owner.transactionalEmail.findUnique({ where: { id: w.welcomeEmailId! } }))?.status === "FAILED");
+    const wLink = (await rowsOf(w.userId)).find((x) => x.kind === "EMAIL_VERIFY");
+    ok("…verification is unaffected by it", (await consumeEmailVerification(linkToken(wLink?.payload))).status === "VERIFIED");
+    ok("…and verifying does not re-create a WELCOME (still one row, FAILED)",
+      (await welcomesOf(w.userId)).length === 1 && (await welcomesOf(w.userId))[0].status === "FAILED");
+    const reenq = await authDb().$transaction((tx) =>
+      enqueueWelcomeEmail(tx, { userId: w.userId, businessId: w.businessId, toEmail: `${tag}-v2@battery.test`, name: "מאיה", now: new Date() }));
+    ok("re-enqueueing (a retried job) returns the same row and writes none", reenq === w.welcomeEmailId && (await welcomesOf(w.userId)).length === 1);
+
+    // A retryable failure, then the next attempt: delivered once, with the same key.
+    const r = await signupV("v3");
+    let attempt = 0;
+    const flaky = fakeProvider(() => (++attempt === 1 ? { outcome: "retryable" as const, code: "provider_503", retryAfterMs: null } : SENT));
+    const t0 = new Date();
+    ok("a retryable failure → retry scheduled",
+      (await deliverTransactionalEmail(r.welcomeEmailId!, { provider: flaky.provider, env: ON, now: t0 })) === "retry_scheduled");
+    ok("…delivered on the next attempt, same idempotency key, exactly once",
+      (await deliverTransactionalEmail(r.welcomeEmailId!, { provider: flaky.provider, env: ON, now: new Date(t0.getTime() + 61_000) })) === "sent" &&
+        flaky.calls.length === 2 && flaky.calls.every((c) => c.idempotencyKey === `te:${r.welcomeEmailId}`) && (await welcomesOf(r.userId)).length === 1);
+
+    // Verification OFF (the route passes sendVerification false): the WELCOME alone, as before.
+    const offAcct = await signup("v4");
+    ok("verification OFF → the WELCOME only (unchanged)", (await kindsOf(offAcct.userId)) === "WELCOME" && offAcct.verificationEmailId === null);
   }
 
   console.log("--- no backfill ---");

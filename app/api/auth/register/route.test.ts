@@ -91,8 +91,8 @@ function makeDeps(
         businessName: input.businessName,
         tokenVersion: 0,
         session: FAKE_SESSION,
-        // As createAccount records them: a verification link replaces the signup WELCOME.
-        welcomeEmailId: input.sendVerification ? null : 501,
+        // As createAccount records them: the WELCOME always, the verification link only when asked for.
+        welcomeEmailId: 501,
         verificationEmailId: input.sendVerification ? 502 : null,
       };
     },
@@ -531,8 +531,8 @@ async function main() {
   {
     const { deps, calls } = makeDeps(true, { isVerificationEnabled: () => true });
     const res = await handleRegister(req(), deps);
-    ok("verify -> ON: ONLY the verification email is scheduled after the response (the WELCOME follows the verification)",
-      res.status === 200 && JSON.stringify(calls.scheduled) === JSON.stringify([502]), JSON.stringify(calls.scheduled));
+    ok("verify -> ON: BOTH emails are scheduled after the response — the verification link and the WELCOME (it does not wait for verification)",
+      res.status === 200 && JSON.stringify(calls.scheduled) === JSON.stringify([502, 501]), JSON.stringify(calls.scheduled));
   }
   // ── honeypot ──
   {
