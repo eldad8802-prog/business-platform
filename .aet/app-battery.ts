@@ -169,7 +169,6 @@ async function main() {
   const rowsOf = async (userId: number) =>
     (await owner.$queryRawUnsafe(`SELECT "id","kind","toEmail","businessId","status" FROM "TransactionalEmail" WHERE "userId" = $1 ORDER BY "id"`, userId)) as
       { id: number; kind: string; toEmail: string; businessId: number; status: string }[];
-  const kinds = async (userId: number) => (await rowsOf(userId)).map((r) => r.kind).join(",");
 
   // An account that existed before verification was switched on: never asked to verify.
   ok("an EXISTING account (opened without verification) reads NOT_REQUIRED — no banner",
@@ -179,16 +178,19 @@ async function main() {
     (await requestEmailVerification(B.userId, new Date())).status === "NOT_REQUIRED" && (await rowsOf(B.userId)).length === bRowsBefore);
 
   // A NEW account opened with verification ON. This lab does not hold the signup plane's grants
-  // (createAccount itself is covered by the register route test and the browser E2E), so the account
-  // is a fixture and its signup link is issued exactly as signup issues it: issueAccountLink in a
-  // transaction, which records the EMAIL_VERIFY email — and, by signup's rule, no WELCOME.
+  // (createAccount itself is covered by .te/app-battery.ts and the register route test), so the account
+  // is a fixture and its emails are recorded exactly as signup records them (owner decision 2026-11-10):
+  // the WELCOME and the verification link, in ONE transaction — the WELCOME does not wait for verification.
   const C = await account("C");
   const cEmail = C.email;
-  const signupLink = await owner.$transaction((tx) =>
-    issueAccountLink(tx, { userId: C.userId, purpose: "EMAIL_VERIFY", name: "דנה C", now: new Date() }));
-  ok("an account opened with verification has ONLY the verification email — no WELCOME yet",
-    signupLink !== null && (await kinds(C.userId)) === "EMAIL_VERIFY", await kinds(C.userId));
-  ok("the new account reads PENDING (the banner shows)", (await readVerificationState(C.userId)) === "PENDING");
+  const signupLink = await owner.$transaction(async (tx) => {
+    await enqueueWelcomeEmail(tx, { userId: C.userId, businessId: C.businessId, toEmail: cEmail, name: "דנה C", now: new Date() });
+    return issueAccountLink(tx, { userId: C.userId, purpose: "EMAIL_VERIFY", name: "דנה C", now: new Date() });
+  });
+  const sortedKinds = async (userId: number) => (await rowsOf(userId)).map((r) => r.kind).sort().join(",");
+  ok("an account opened with verification has BOTH emails at signup — the WELCOME and the verification link",
+    signupLink !== null && (await sortedKinds(C.userId)) === "EMAIL_VERIFY,WELCOME", await sortedKinds(C.userId));
+  ok("the new account reads PENDING (Settings: not verified yet)", (await readVerificationState(C.userId)) === "PENDING");
   const firstRow = signupLink ? await emailRow(signupLink.emailId) : undefined;
   const firstToken = firstRow ? tokenFrom("EMAIL_VERIFY", firstRow.payload) : "";
 
@@ -202,12 +204,13 @@ async function main() {
   const r2Row = r2 ? await emailRow(r2.emailId) : undefined;
   ok("a reset link cannot verify", (await consumeEmailVerification(r2Row ? tokenFrom("PASSWORD_RESET", r2Row.payload) : "")).status === "INVALID");
 
+  const cRowsBeforeVerify = (await rowsOf(C.userId)).length;
   const verified = await consumeEmailVerification(vToken);
-  ok("the verify link verifies, and records the WELCOME in the same step",
-    verified.status === "VERIFIED" && verified.welcomeEmailId !== null && verified.businessId === C.businessId, JSON.stringify(verified));
+  ok("the verify link verifies — and records nothing (no second WELCOME, no other email)",
+    verified.status === "VERIFIED" && verified.businessId === C.businessId && (await rowsOf(C.userId)).length === cRowsBeforeVerify, JSON.stringify(verified));
   const welcomeRows = (await rowsOf(C.userId)).filter((r) => r.kind === "WELCOME");
-  ok("exactly ONE WELCOME, PENDING, to the account's own address, filed under its own business",
-    welcomeRows.length === 1 && welcomeRows[0].toEmail === cEmail && Number(welcomeRows[0].businessId) === C.businessId && welcomeRows[0].status === "PENDING");
+  ok("exactly ONE WELCOME (the signup's), to the account's own address, filed under its own business",
+    welcomeRows.length === 1 && welcomeRows[0].toEmail === cEmail && Number(welcomeRows[0].businessId) === C.businessId);
   const vReplay = await consumeEmailVerification(vToken);
   ok("replaying the link → USED, and no second WELCOME",
     vReplay.status === "USED" && (await rowsOf(C.userId)).filter((r) => r.kind === "WELCOME").length === 1);
@@ -226,8 +229,40 @@ async function main() {
   const plainRow = plainLink ? await emailRow(plainLink.emailId) : undefined;
   const plainVerified = await consumeEmailVerification(plainRow ? tokenFrom("EMAIL_VERIFY", plainRow.payload) : "");
   ok("verifying an account that already has a WELCOME records none (still exactly one WELCOME)",
-    plainVerified.status === "VERIFIED" && plainVerified.welcomeEmailId === null &&
+    plainVerified.status === "VERIFIED" &&
       (await rowsOf(plain.userId)).filter((r) => r.kind === "WELCOME").length === 1, JSON.stringify(plainVerified));
+
+  // An account opened BEFORE the 2026-11-10 decision: signup then recorded the verification link only, no
+  // WELCOME. Verifying now records none either — there is no retroactive WELCOME (a separate owner decision).
+  const legacy = await account("legacy");
+  const legacyLink = await owner.$transaction((tx) =>
+    issueAccountLink(tx, { userId: legacy.userId, purpose: "EMAIL_VERIFY", name: "רון לגסי", now: new Date() }));
+  const legacyRow = legacyLink ? await emailRow(legacyLink.emailId) : undefined;
+  const legacyVerified = await consumeEmailVerification(legacyRow ? tokenFrom("EMAIL_VERIFY", legacyRow.payload) : "");
+  ok("an account from before the decision (link only, no WELCOME) verifies — and still gets NO WELCOME (nothing retroactive)",
+    legacyVerified.status === "VERIFIED" && (await readEmailVerified(legacy.userId)) === true &&
+      (await rowsOf(legacy.userId)).filter((r) => r.kind === "WELCOME").length === 0, await sortedKinds(legacy.userId));
+
+  // An expired link: nothing is stamped and nothing is recorded; a new link still verifies.
+  const late = await account("late");
+  const lateLink = await owner.$transaction(async (tx) => {
+    await enqueueWelcomeEmail(tx, { userId: late.userId, businessId: late.businessId, toEmail: late.email, name: "גל מאוחר", now: new Date() });
+    return issueAccountLink(tx, { userId: late.userId, purpose: "EMAIL_VERIFY", name: "גל מאוחר", now: new Date() });
+  });
+  const lateRow = lateLink ? await emailRow(lateLink.emailId) : undefined;
+  const lateToken = lateRow ? tokenFrom("EMAIL_VERIFY", lateRow.payload) : "";
+  await owner.$executeRawUnsafe(
+    `UPDATE "AuthEmailToken" SET "createdAt" = "createdAt" - interval '25 hours', "expiresAt" = "expiresAt" - interval '25 hours' WHERE "userId" = $1`,
+    late.userId);
+  const lateRowsBefore = (await rowsOf(late.userId)).length;
+  ok("an expired link → EXPIRED, nothing stamped, nothing recorded (the WELCOME already went with signup)",
+    (await consumeEmailVerification(lateToken)).status === "EXPIRED" && (await readEmailVerified(late.userId)) === false &&
+      (await rowsOf(late.userId)).length === lateRowsBefore && (await rowsOf(late.userId)).filter((r) => r.kind === "WELCOME").length === 1);
+  const lateAgain = await requestEmailVerification(late.userId, new Date());
+  const lateAgainRow = lateAgain.status === "SENT" ? await emailRow(lateAgain.link.emailId) : undefined;
+  const lateVerified = await consumeEmailVerification(lateAgainRow ? tokenFrom("EMAIL_VERIFY", lateAgainRow.payload) : "");
+  ok("…a new link verifies later — and still exactly ONE WELCOME",
+    lateVerified.status === "VERIFIED" && (await rowsOf(late.userId)).filter((r) => r.kind === "WELCOME").length === 1);
 
   console.log("\n— 5. login: 4 failures / rolling 15 minutes / 15-minute lock —");
   // Every request from a NEW IP: nothing below can be the per-IP limit.

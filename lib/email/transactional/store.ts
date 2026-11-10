@@ -118,8 +118,8 @@ export function enqueueGoogleNoticeEmail(
 }
 
 /**
- * The WELCOME a new account owes its owner: recorded by signup, or — for an account opened with email
- * verification — by the verification that confirms its address (lib/auth/email-tokens.ts).
+ * The WELCOME a new account owes its owner: recorded by signup (password or Google), in the account
+ * transaction, whether or not a verification link was issued. Verification never records one.
  */
 export function enqueueWelcomeEmail(
   tx: SqlClient,
