@@ -22,8 +22,7 @@ import type { Prisma } from "@prisma/client";
 import type { EmailTokenStatus } from "@/lib/auth/auth-messages";
 import { isDerivedSecret, mintEmailToken, parseLinkToken, type EmailTokenPurpose } from "@/lib/auth/email-link";
 import { MIN_PASSWORD_LENGTH, normalizeEmail } from "@/lib/auth/signup-identity";
-import { welcomeDedupeKey } from "@/lib/email/transactional/registry";
-import { enqueueAccountLinkEmail, enqueueWelcomeEmail } from "@/lib/email/transactional/store";
+import { enqueueAccountLinkEmail } from "@/lib/email/transactional/store";
 import type { Locale } from "@/lib/i18n/config";
 import { authDb } from "@/lib/prisma-auth";
 
@@ -143,50 +142,25 @@ export async function checkAccountLink(raw: unknown, purpose: EmailTokenPurpose)
 }
 
 export type VerifyOutcome =
-  | { status: "VERIFIED"; userId: number; businessId: number; welcomeEmailId: number | null }
+  | { status: "VERIFIED"; userId: number; businessId: number }
   | { status: Exclude<EmailTokenStatus, "VALID"> };
 
 /**
- * An account opened with verification gets its WELCOME when the address is confirmed, not at signup
- * (lib/auth/signup.ts records only the verification email then). Recorded in the transaction that
- * spent the link, at most once ever per user (the WELCOME dedupe key); null when one already exists.
+ * Spend an email-verification link: the database stamps User.emailVerifiedAt in the same step. Nothing else is
+ * recorded — the WELCOME is owed by the signup itself (lib/auth/signup.ts, owner decision 2026-11-10), so
+ * verifying never records one: not for a new account (it already has its WELCOME) and not for an account
+ * opened before that decision (no retroactive WELCOME).
  */
-async function enqueueWelcomeAfterVerification(
-  tx: SqlClient,
-  input: { userId: number; businessId: number; now: Date; locale?: Locale }
-): Promise<number | null> {
-  const existing = await tx.$queryRaw<{ x: number }[]>`
-    SELECT 1 AS x FROM "TransactionalEmail" WHERE "dedupeKey" = ${welcomeDedupeKey(input.userId)} LIMIT 1`;
-  if (existing.length > 0) return null;
-  const users = await tx.$queryRaw<{ email: string; name: string | null }[]>`
-    SELECT "email", "name" FROM "User" WHERE "id" = ${input.userId}`;
-  if (users.length !== 1) return null;
-  return enqueueWelcomeEmail(tx, {
-    userId: input.userId,
-    businessId: input.businessId,
-    toEmail: users[0].email,
-    name: users[0].name,
-    now: input.now,
-    locale: input.locale,
-  });
-}
-
-/** `locale`: the interface language of the verifying request (getServerI18n) — the WELCOME's language. */
-export async function consumeEmailVerification(raw: unknown, now: Date = new Date(), locale?: Locale): Promise<VerifyOutcome> {
+export async function consumeEmailVerification(raw: unknown): Promise<VerifyOutcome> {
   const token = readToken(raw, "EMAIL_VERIFY");
   if (!token) return { status: "INVALID" };
-  return authDb().$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<{ status: string; user_id: number | null; business_id: number | null }[]>`
-      SELECT status, user_id, business_id FROM public.auth_email_verify_consume(${token.tokenId}::uuid, ${token.secret})`;
-    const row = rows[0];
-    if (row?.status === "VERIFIED" && row.user_id !== null && row.business_id !== null) {
-      const userId = Number(row.user_id);
-      const businessId = Number(row.business_id);
-      const welcomeEmailId = await enqueueWelcomeAfterVerification(tx, { userId, businessId, now, locale });
-      return { status: "VERIFIED" as const, userId, businessId, welcomeEmailId };
-    }
-    return { status: asProblem(row?.status) };
-  });
+  const rows = await authDb().$queryRaw<{ status: string; user_id: number | null; business_id: number | null }[]>`
+    SELECT status, user_id, business_id FROM public.auth_email_verify_consume(${token.tokenId}::uuid, ${token.secret})`;
+  const row = rows[0];
+  if (row?.status === "VERIFIED" && row.user_id !== null && row.business_id !== null) {
+    return { status: "VERIFIED", userId: Number(row.user_id), businessId: Number(row.business_id) };
+  }
+  return { status: asProblem(row?.status) };
 }
 
 export type ResetOutcome =

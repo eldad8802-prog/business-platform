@@ -111,11 +111,10 @@ async function openLinkInChrome(a: Account): Promise<Response> {
   });
   return handleVerify(req, {
     rateLimit: allow,
-    schedule: () => undefined,
     consume: async () => {
       if (a.linkOutcome === "VERIFIED") {
         a.state = "VERIFIED";
-        return { status: "VERIFIED" as const, welcomeEmailId: null, businessId: 3 } as never;
+        return { status: "VERIFIED" as const, userId: 7, businessId: 3 };
       }
       return { status: a.linkOutcome } as never;
     },
