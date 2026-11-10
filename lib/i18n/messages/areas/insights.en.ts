@@ -562,6 +562,36 @@ export const insightsEn: Widen<typeof insightsHe> = {
       accessories: "Accessories",
       homeDesign: "Home design",
       onlineStore: "Online store",
+      jewelry: "Jewelry",
+    },
+    automotive: {
+      label: "Automotive",
+      garage: "Garage",
+      bodyShop: "Body shop & paint",
+      tires: "Tires",
+      autoElectric: "Auto electrician",
+    },
+    deviceRepair: {
+      label: "Device repair",
+      mobilePhones: "Mobile phones",
+      computers: "Computers",
+      electronics: "Electronics",
+    },
+    installations: {
+      label: "Installations",
+      securityCameras: "Security cameras",
+      furnitureAssembly: "Furniture assembly",
+      solar: "Solar systems",
+    },
+    itServices: {
+      label: "IT & tech support",
+      techSupport: "Tech support",
+      networks: "Networks",
+    },
+    professionalServices: {
+      label: "Professional services",
+      consulting: "Consulting",
+      training: "Training",
     },
     other: {
       label: "Other",

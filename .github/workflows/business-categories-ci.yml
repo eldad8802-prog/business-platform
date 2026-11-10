@@ -1,0 +1,35 @@
+name: business categories — onboarding map (pure)
+
+# D6 (owner, 2026-11-10): service categories added to the onboarding map. Pure proofs only — no database,
+# no network, no secrets: existing values unchanged, new values unique, labels resolve in Hebrew and English.
+
+on:
+  pull_request:
+    paths:
+      - "lib/business/business-categories.ts"
+      - "lib/business/business-categories.test.ts"
+      - "lib/i18n/messages/areas/insights.ts"
+      - "lib/i18n/messages/areas/insights.en.ts"
+      - "app/onboarding/page.tsx"
+      - "scripts/ci/test-coverage/business-categories.json"
+      - ".github/workflows/business-categories-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx lib/business/business-categories.test.ts
+      - run: npx tsx lib/services/profile/profile-settings.verify.test.ts
