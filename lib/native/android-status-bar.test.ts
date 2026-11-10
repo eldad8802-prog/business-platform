@@ -59,15 +59,18 @@ async function main() {
   const root = process.cwd();
   // Wired into the shell init for Android only; iOS keeps its overlay (cover + contentInset).
   const shell = readFileSync(join(root, "lib/native/native-shell.ts"), "utf8");
-  assert.match(shell, /if \(Capacitor\.getPlatform\(\) === "android"\) await placeAndroidWebViewBelowStatusBar\(StatusBar\)/);
+  // (builds before ANDROID_CREAM_BARS_MIN_BUILD — the Google Play build — keep exactly this path)
+  assert.match(shell, /\} else \{[\s\S]*?await StatusBar\.setStyle\(\{ style: android \? Style\.Default : Style\.Light \}\);\s*if \(android\) await placeAndroidWebViewBelowStatusBar\(StatusBar\);/);
 
   // The premises, in the installed plugin (same 8.0.3 the Google Play binary ships):
   const sb = (f: string) =>
     readFileSync(join(root, "node_modules/@capacitor/status-bar/android/src/main/java/com/capacitorjs/plugins/statusbar", f), "utf8");
-  // overlaysWebView defaults to true and the app config does not override it — the cause on Android <= 14;
+  // overlaysWebView defaults to true and the installed Play build's config does not override it — the cause on
+  // Android <= 14 (this web-side fix is what reaches that build);
   assert.match(sb("StatusBarConfig.java"), /private boolean overlaysWebView = true;/, "status-bar plugin overlays by default");
   const cap = readFileSync(join(root, "capacitor.config.ts"), "utf8");
-  assert.doesNotMatch(cap, /overlaysWebView/, "config does not set overlaysWebView (the native fix waits for the consolidated release)");
+  // newer Android builds set it natively, and only for an Android build (lib/native/android-cream-bars.test.ts).
+  assert.match(cap, /\.\.\.\(androidBars \? \{ overlaysWebView: false, backgroundColor: ANDROID_BAR_COLOR \} : \{\}\)/, "overlaysWebView=false only in an Android build's config");
   const impl = sb("StatusBar.java");
   // setOverlaysWebView(false) clears the fullscreen layout flags;
   assert.match(impl, /uiOptions & ~getSystemUiFlagLayoutStableDeprecated\(\) & ~getSystemUiFlagLayoutFullscreenDeprecated\(\)/);

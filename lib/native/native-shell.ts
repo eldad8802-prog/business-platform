@@ -39,8 +39,8 @@ export async function openExternal(url: string): Promise<void> {
 /**
  * Android <= 14: keep the WebView below the status bar.
  *
- * @capacitor/status-bar defaults to overlaysWebView=true (capacitor.config.ts
- * does not set it), so on launch it lays the WebView out BEHIND the status bar
+ * @capacitor/status-bar defaults to overlaysWebView=true (the config of builds
+ * before ANDROID_CREAM_BARS_MIN_BUILD does not set it), so on launch it lays the WebView out BEHIND the status bar
  * on every Android version. On Android 15+ SystemBars pads the WebView back
  * below the bar (lib/native/android-viewport-fit.ts); below 15 nothing does, so
  * every screen drew under the clock. Turning the overlay off here fixes the
@@ -64,6 +64,47 @@ export async function placeAndroidWebViewBelowStatusBar(statusBar: StatusBarApi)
     statusBar.setBackgroundColor({ color: dark?.matches ? ANDROID_STATUS_BAR_COLOR.dark : ANDROID_STATUS_BAR_COLOR.light });
   await paint();
   dark?.addEventListener?.("change", () => void paint().catch(() => {}));
+}
+
+/**
+ * The first Android build whose theme and config carry the cream bars: styles.xml / colors.xml paint the
+ * window, status and navigation bars cream with dark icons, and capacitor.config.ts turns the overlay off and
+ * pins dark icons natively (Android builds only). The Google Play build installed today is versionCode 1, and
+ * Play accepts only a higher versionCode for every new upload — so "at least 2" names every build that has
+ * them, whatever number the consolidated release ends up with. Builds below it keep the behaviour above.
+ */
+export const ANDROID_CREAM_BARS_MIN_BUILD = 2;
+/** capacitor.config.ts ANDROID_BAR_COLOR / colors.xml dubizAppBackground. */
+export const ANDROID_CREAM_BAR_COLOR = "#FEF8F2";
+
+type AppInfoApi = { getInfo(): Promise<{ build: string }> };
+type StyleEnum = typeof import("@capacitor/status-bar").Style;
+
+/**
+ * Does the installed Android build carry the cream bars? App.getInfo().build is the app's versionCode
+ * (@capacitor/app, PackageInfoCompat.getLongVersionCode). Anything unreadable counts as an old build, so a
+ * doubt always keeps today's behaviour.
+ */
+export async function androidHasCreamBars(app?: AppInfoApi): Promise<boolean> {
+  try {
+    const api: AppInfoApi = app ?? (await import("@capacitor/app")).App;
+    const build = String((await api.getInfo()).build ?? "").trim();
+    return /^\d+$/.test(build) && Number(build) >= ANDROID_CREAM_BARS_MIN_BUILD;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A build with the cream bars: dark icons on cream in light AND dark mode. The theme and config already set
+ * this natively from the first frame; these calls keep the web side from overriding it (no Default style, no
+ * light/dark repaint). The colour applies below Android 15 only (the plugin gates it); on 15+ the strip is the
+ * cream window background.
+ */
+export async function paintAndroidCreamBars(statusBar: StatusBarApi, style: StyleEnum): Promise<void> {
+  await statusBar.setStyle({ style: style.Light });
+  await statusBar.setOverlaysWebView({ overlay: false });
+  await statusBar.setBackgroundColor({ color: ANDROID_CREAM_BAR_COLOR });
 }
 
 let initialized = false;
@@ -95,14 +136,20 @@ export async function initNativeShell(): Promise<void> {
 
   try {
     const { StatusBar, Style } = await import("@capacitor/status-bar");
-    // Android: Capacitor now pads the WebView below the status bar (see
-    // lib/native/android-viewport-fit.ts), so the strip behind the icons is the
-    // window background — light in light mode, dark grey in dark mode until the
-    // theme sets a cream windowBackground. Default makes the icons follow the
-    // system theme so they stay readable on that strip. iOS keeps Light: its
-    // strip is the cream WebView background in both modes.
-    await StatusBar.setStyle({ style: Capacitor.getPlatform() === "android" ? Style.Default : Style.Light });
-    if (Capacitor.getPlatform() === "android") await placeAndroidWebViewBelowStatusBar(StatusBar);
+    const android = Capacitor.getPlatform() === "android";
+    if (android && (await androidHasCreamBars())) {
+      // A build with the cream theme (ANDROID_CREAM_BARS_MIN_BUILD and up).
+      await paintAndroidCreamBars(StatusBar, Style);
+    } else {
+      // Older Android builds (the Google Play build today): Capacitor pads the
+      // WebView below the status bar (lib/native/android-viewport-fit.ts), so the
+      // strip behind the icons is the default window background — light in light
+      // mode, dark grey in dark mode. Default makes the icons follow the system
+      // theme so they stay readable on that strip. iOS keeps Light: its strip is
+      // the cream WebView background in both modes.
+      await StatusBar.setStyle({ style: android ? Style.Default : Style.Light });
+      if (android) await placeAndroidWebViewBelowStatusBar(StatusBar);
+    }
   } catch (err) {
     console.error("[native-shell] status bar failed:", err);
   }

@@ -18,6 +18,21 @@ import type { CapacitorConfig } from "@capacitor/cli";
  */
 const serverUrl = process.env.CAP_SERVER_URL?.trim();
 
+/**
+ * Is the CLI building the Android project? Capacitor writes ONE plugins config to every platform, and iOS
+ * honours StatusBar.overlaysWebView / backgroundColor and SystemBars.style as well — so the Android-only bar
+ * settings below are added only for `npx cap sync|copy|update|run android`. If the platform cannot be told
+ * (a bare `npx cap sync`), nothing is added: iOS is untouched and Android keeps today's behaviour (the web
+ * app turns the overlay off at start-up, lib/native/native-shell.ts). Release builds run `cap sync android`.
+ */
+export function isAndroidCapBuild(argv: readonly string[] = process.argv): boolean {
+  return argv.includes("android") && !argv.includes("ios");
+}
+const androidBars = isAndroidCapBuild();
+
+/** The app background behind the bars (android/app/src/main/res/values/colors.xml dubizAppBackground). */
+export const ANDROID_BAR_COLOR = "#FEF8F2";
+
 const config: CapacitorConfig = {
   appId: "il.co.promaxgroup.dubiz",
   appName: "Dubiz",
@@ -53,8 +68,12 @@ const config: CapacitorConfig = {
     // bar and above the navigation bar and pages see zero insets — the pages
     // never reserved the top inset, and WebView 140+ otherwise drew every screen
     // under the status bar (issue 2). iOS keeps cover + ios.contentInset.
+    // Android: dark icons on the cream bars in light AND dark mode. SystemBars re-applies its style on
+    // every configuration change (rotation, dark mode); left at its default it would follow the system
+    // theme and turn the icons light on cream.
     SystemBars: {
       insetsHandling: "css",
+      ...(androidBars ? { style: "LIGHT" } : {}),
     },
     // Branded launch: DS v1 warm cream behind the splash.
     //
@@ -76,8 +95,11 @@ const config: CapacitorConfig = {
       showSpinner: false,
     },
     // Light product surfaces → dark status-bar content on both platforms.
+    // Android: the WebView below the status bar from the first frame (Android 14 and older; 15+ is
+    // edge-to-edge and padded by SystemBars either way), on the cream bar the theme also sets.
     StatusBar: {
       style: "LIGHT",
+      ...(androidBars ? { overlaysWebView: false, backgroundColor: ANDROID_BAR_COLOR } : {}),
     },
   },
 };
