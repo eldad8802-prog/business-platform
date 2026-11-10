@@ -16,11 +16,15 @@
  *   J  every intake payload is tokens / numbers / booleans — no Hebrew, no body text.
  *   I  isolation: another business cannot read, present, upload, sign or fetch an object of A's case.
  *   K  races: two signatures at once (one signs); one photo key five times (one row); two presentations (one snapshot).
+ *   L  the slip PDF (1.3b-B): only for a signed intake; rendered once (Chromium), stored content-addressed, only slipPdfKey set
+ *      (the guard refuses any later change); replay; read back by its hash; isolation.
  *
  * env: OWNER_URL (lab owner), SUPER_URL (lab superuser — fixtures only), DATABASE_URL = DIRECT_URL (app_runtime_prod),
  *      TASK_REQUEST_HMAC_KEY / _ID, AUTH_TOKEN_SECRET.
  */
 import { createHash } from "node:crypto";
+import * as fs from "node:fs";
+import { deflateSync } from "node:zlib";
 
 import { PrismaClient } from "@prisma/client";
 
@@ -29,6 +33,7 @@ import { uuidV7 } from "../lib/services/tasks/task-idempotency";
 import { ServiceDeskError } from "../lib/services/service-desk/service-desk-errors";
 import { openCase, recordIntake, runCaseAction, type ServiceDeskPrincipal } from "../lib/services/service-desk/service-case.service";
 import { crc32 } from "../lib/services/service-desk/intake.core";
+import { createIntakeSlip, readIntakeSlip, renderIntakeSlipPdf } from "../lib/services/service-desk/intake-slip.service";
 import { addIntakePhoto, getIntake, intakeDigest, presentTerms, readIntakeObject, signIntake } from "../lib/services/service-desk/intake.service";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
@@ -55,14 +60,25 @@ const stored = async (k: string) => (await store.headObject(k)).exists;
 
 // ── images (the core reads the header; the bytes differ per call so each photo is its own object) ──
 let salt = 0;
-function png(width: number, height: number, bytes = 3000): Buffer {
-  const b = Buffer.alloc(bytes);
-  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
-  b.writeUInt32BE(width, 16); b.writeUInt32BE(height, 20); b.set([8, 6, 0, 0, 0], 24);
-  b.writeUInt32BE(crc32(b.subarray(12, 29)), 29);
-  b.writeUInt32BE(++salt, 40);
-  b.set([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82], bytes - 12);
-  return b;
+/** A real, decodable PNG: a white canvas with a dark stroke (a drawn signature), unique per call (a tEXt chunk). */
+function png(width: number, height: number): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type, "latin1"), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr.set([8, 2, 0, 0, 0], 8);
+  const raw = Buffer.alloc((width * 3 + 1) * height, 255);
+  for (let y = 0; y < height; y++) raw[y * (width * 3 + 1)] = 0;
+  for (let x = Math.floor(width * 0.1); x < Math.floor(width * 0.9); x++) {
+    const y = Math.floor(height / 2 + Math.sin(x / 18) * height * 0.25);
+    for (let t = -2; t <= 2; t++) { const yy = Math.min(height - 1, Math.max(0, y + t)); const o = yy * (width * 3 + 1) + 1 + x * 3; raw[o] = 20; raw[o + 1] = 20; raw[o + 2] = 60; }
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr), chunk("tEXt", Buffer.from(`lab\0${++salt}`, "latin1")), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 function jpeg(bytes = 6000): Buffer { const b = Buffer.alloc(bytes); b.set([0xff, 0xd8, 0xff, 0xe0]); b.writeUInt32BE(++salt, bytes - 4); return b; }
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
@@ -217,11 +233,40 @@ async function main() {
   ok("R8 the same signature request again (same key) → the stored answer (replayed), no second upload decision", again.replayed === true);
   await activate(A, T1, S1);
 
+
+  console.log("L — the intake slip PDF (1.3b-B)");
+  let renders = 0;
+  const render = async (html: string) => { renders++; return renderIntakeSlipPdf(html); };
+  const slip = async (z: Biz, id: number, k = key()) => createIntakeSlip(z.p, id, { expectedVersion: await version(id) }, { idempotencyKey: k }, { storage: store, render });
+  ok("L1 an unsigned intake → INTAKE_NOT_SIGNED; nothing rendered, nothing stored", (await code(() => slip(A, c3.id))).includes("INTAKE_NOT_SIGNED") && renders === 0);
+  const before1 = (await q(`SELECT "signedAt" sa, "signatureKey" k, "termsVersion" tv, "updatedAt" ua FROM "ServiceCaseIntake" WHERE "caseId" = $1`, c1.id))[0];
+  const kl = key();
+  const l1 = await slip(A, c1.id, kl);
+  const after1 = (await q(`SELECT "signedAt" sa, "signatureKey" k, "termsVersion" tv, "updatedAt" ua, "slipPdfKey" sk FROM "ServiceCaseIntake" WHERE "caseId" = $1`, c1.id))[0];
+  const lev = (await q(`SELECT payload FROM "ServiceCaseEvent" WHERE "caseId" = $1 ORDER BY seq DESC LIMIT 1`, c1.id))[0].payload as Record<string, unknown>;
+  ok("L2 a signed intake → one PDF rendered (Chromium) and stored content-addressed; only slipPdfKey changed on the row; event SLIP_STORED with the PDF hash",
+    renders === 1 && typeof l1.slip?.sha256 === "string" && String(after1.sk) === `biz/${A.b}/service/cases/${c1.id}/intake/slip/${l1.slip?.sha256}.pdf`
+      && (await stored(String(after1.sk))) && String(before1.sa) === String(after1.sa) && before1.k === after1.k && before1.tv === after1.tv && String(before1.ua) === String(after1.ua)
+      && lev.step === "SLIP_STORED" && lev.slipSha256 === l1.slip?.sha256);
+  ok("L3 a second slip → SLIP_EXISTS, no render", (await code(() => slip(A, c1.id))).includes("SLIP_EXISTS") && renders === 1);
+  const again1 = await createIntakeSlip(A.p, c1.id, { expectedVersion: l1.case.version - 1 }, { idempotencyKey: kl }, { storage: store, render });
+  ok("L4 the same key again → the stored answer (replayed), no render", again1.replayed === true && renders === 1);
+  const pdf = await readIntakeSlip(A.b, c1.id, store);
+  ok("L5 the stored slip reads back through the intake row: a PDF whose hash is its name", pdf.bytes.subarray(0, 5).toString("latin1") === "%PDF-" && sha(pdf.bytes) === l1.slip?.sha256 && pdf.bytes.length > 5000);
+  fs.writeFileSync(process.env.SLIP_OUT ?? "sd13b-slip-sample.pdf", pdf.bytes);
+  const isoL = await Promise.all([code(() => readIntakeSlip(B.b, c1.id, store)), code(() => createIntakeSlip(B.p, c1.id, { expectedVersion: 1 }, { idempotencyKey: key() }, { storage: store, render }))]);
+  ok("L6 business B cannot read or create A's slip → NOT_FOUND", isoL.every((c) => c.startsWith("NOT_FOUND")), isoL.join(" | "));
+  const direct2 = await code(() => runtime.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(A.b));
+    await tx.$executeRawUnsafe(`UPDATE "ServiceCaseIntake" SET "slipPdfKey" = $2 WHERE "caseId" = $1`, c1.id, `biz/${A.b}/service/cases/${c1.id}/intake/slip/${"0".repeat(64)}.pdf`);
+  }));
+  ok("L7 the database refuses replacing a stored slip key, even by the runtime role directly (the intake guard)", direct2 !== "OK", direct2);
+
   console.log("V — view");
   const view = await getIntake(A.b, c1.id);
-  ok("V1 the view: signed, both frozen bodies + versions, 10 photos, the steps in order (TERMS_PRESENTED, PHOTO_ADDED…, SIGNED)",
+  ok("V1 the view: signed, both frozen bodies + versions, 10 photos, the steps in order (TERMS_PRESENTED, PHOTO_ADDED…, SIGNED, SLIP_STORED)",
     view.intake?.signed === true && view.terms?.termsBody === "תנאי שירות מאושרים — גרסה 2" && view.terms?.statutoryVersion === svn && view.photos.length === 10
-      && view.history[0].step === "TERMS_PRESENTED" && view.history.filter((h) => h.step === "PHOTO_ADDED").length === 10 && view.history.at(-1)?.step === "SIGNED"
+      && view.history[0].step === "TERMS_PRESENTED" && view.history.filter((h) => h.step === "PHOTO_ADDED").length === 10 && view.history.some((h) => h.step === "SIGNED") && view.history.at(-1)?.step === "SLIP_STORED"
       && view.activeTerms.approved === true);
   const c4 = await shopCase(A);
   await activate(A, draftT, draftS);
