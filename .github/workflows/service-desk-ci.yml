@@ -47,6 +47,7 @@ jobs:
       - run: npx tsx lib/services/service-desk/parts-lock.test.ts
       - run: npx tsx lib/services/service-desk/intake-core.test.ts
       - run: npx tsx lib/services/service-desk/legal-approval-guard.test.ts
+      - run: npx tsx lib/services/service-desk/intake-slip-html.test.ts
       - run: npx tsx lib/services/service-desk/qa-templates.test.ts
       - run: npx tsx features/service-desk/settings-model.test.ts
         env:
