@@ -2,6 +2,7 @@
 import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
 import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
+import { rtlInlines } from "@/lib/pdf/rtl-inline-text";
 import { formatQtyNumber, qtyWithUnit, unitWord } from "@/lib/inventory/unit-words";
 
 /** Minimal draft shape for building supplier order text / PDF (client-side). */
@@ -149,8 +150,8 @@ export function buildSupplierPurchaseOrderDocDefinition(
   draft: SupplierPurchaseDraftForDocument,
   context: SupplierPurchaseOrderDocumentContext
 ): any {
-  const nbsp = "\u00A0";
-  const rtlText = (value: string) => value.replaceAll(" ", nbsp);
+  // pdfmake has no bidi: every text goes out as direction runs in visual order (lib/pdf/rtl-inline-text)
+  const rtlText = rtlInlines;
 
   const supplierName = draft.supplierName || "ספק";
   const today = context.displayDate ?? formatSupplierDraftDisplayDate(draft);
@@ -163,7 +164,7 @@ export function buildSupplierPurchaseOrderDocDefinition(
 
   const metaRows: any[][] = [
     [
-      { text: supplierName, style: "metaValue" },
+      { text: rtlText(supplierName), style: "metaValue" },
       { text: rtlText("ספק"), style: "metaLabel" },
     ],
     [
@@ -175,7 +176,7 @@ export function buildSupplierPurchaseOrderDocDefinition(
   const ext = draft.externalOrderId?.trim();
   if (ext) {
     metaRows.push([
-      { text: ext, style: "metaValue" },
+      { text: rtlText(ext), style: "metaValue" },
       { text: rtlText("מספר חיצוני"), style: "metaLabel" },
     ]);
   }
@@ -287,7 +288,7 @@ export function buildSupplierPurchaseOrderDocDefinition(
               { text: rtlText(unitWord(line.unitType, Number(line.quantity))), alignment: "center" },
               { text: formatQtyNumber(Number(line.quantity)), alignment: "center" },
               {
-                text: line.rawName || "מוצר ללא שם",
+                text: rtlText(line.rawName || "מוצר ללא שם"),
                 alignment: "right",
               },
             ]),

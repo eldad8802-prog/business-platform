@@ -8,14 +8,23 @@
  * extracted builder must produce that very definition — so the browser download, and a server rendering of the same
  * draft with the same header and date, print the same document.
  *
+ * The right-to-left text fix (lib/pdf/rtl-inline-text: "Dubiz" printed as "zibuD", multi-word Hebrew in reversed word
+ * order) changes the document ON PURPOSE, so the hashes are not compared with today's builder any more. They stay as
+ * recorded: a verbatim copy of the builder before the fix (supplier-document-before-bidi.fixture.ts) must still give
+ * them, and today's builder must equal that copy everywhere except its text nodes, each of which is the same text as
+ * direction runs (rtlInlines). Browser download and server rendering still get one and the same definition.
+ *
  * Run: npx tsx lib/services/business-documents/po-sheet/supplier-document-unchanged.test.ts
  */
 process.env.TZ = "Asia/Jerusalem";
 
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import pdfMake from "pdfmake/build/pdfmake";
 
+import { rtlInlines } from "@/lib/pdf/rtl-inline-text";
+import { buildSupplierPurchaseOrderDocDefinitionBeforeBidi } from "@/lib/services/business-documents/po-sheet/supplier-document-before-bidi.fixture";
 import {
   buildSupplierPurchaseOrderDocDefinition,
   downloadSupplierPurchaseOrderPdf,
@@ -59,7 +68,44 @@ const ORIGINAL: Record<string, string> = {
   "many-lines-box": "682f4c4f3c666ee497876e931d8593979699ed27d820cad2da8e5bea713ca9bb",
 };
 
-console.log("the browser download hands pdfmake exactly the original definition");
+console.log("the copy of the builder before the right-to-left fix is the original");
+for (const [name, draft] of Object.entries(FIXTURES)) {
+  ok(`${name}: pre-fix copy = original`, digest(buildSupplierPurchaseOrderDocDefinitionBeforeBidi(draft, { headerTitle: TITLE })) === ORIGINAL[name]);
+}
+
+/** Every place where `fixed` differs from `before`: allowed only at a `text` whose fixed value is rtlInlines(before). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pdfmake definitions are untyped
+function differences(fixed: any, before: any, path: string, out: string[]): string[] {
+  if (path.endsWith(".text") && typeof before === "string" && Array.isArray(fixed)) {
+    if (!isDeepStrictEqual(fixed, rtlInlines(before.replaceAll(" ", " ")))) out.push(`${path}: not the same text as direction runs`);
+    return out;
+  }
+  if (typeof fixed === "function" || typeof before === "function") {
+    if (String(fixed) !== String(before)) out.push(`${path}: function changed`);
+    return out;
+  }
+  if (fixed && before && typeof fixed === "object" && typeof before === "object") {
+    const keys = new Set([...Object.keys(fixed), ...Object.keys(before)]);
+    for (const k of keys) differences(fixed[k], before[k], `${path}.${k}`, out);
+    return out;
+  }
+  if (fixed !== before) out.push(`${path}: ${JSON.stringify(before)} -> ${JSON.stringify(fixed)}`);
+  return out;
+}
+
+console.log("the fixed builder differs from the original only in its text nodes, each the same text as direction runs");
+for (const [name, draft] of Object.entries(FIXTURES)) {
+  for (const displayDate of [undefined, formatSupplierDraftDisplayDate(draft)]) {
+    const fixed = buildSupplierPurchaseOrderDocDefinition(draft, { headerTitle: TITLE, displayDate });
+    const before = buildSupplierPurchaseOrderDocDefinitionBeforeBidi(draft, { headerTitle: TITLE, displayDate });
+    const diff = differences({ ...fixed, footerAt2of3: fixed.footer(2, 3) }, { ...before, footerAt2of3: before.footer(2, 3) }, "def", []);
+    ok(`${name}${displayDate ? " (explicit date)" : ""}: only text direction changed`, diff.length === 0, diff.slice(0, 3).join("; "));
+  }
+  const header = buildSupplierPurchaseOrderDocDefinition(draft, { headerTitle: TITLE }).content[0].text;
+  ok(`${name}: the header is direction runs (Latin brand apart from the Hebrew)`, isDeepStrictEqual(header, [{ text: "Dubiz" }, { text: "מלאי · " }]), JSON.stringify(header));
+}
+
+console.log("the browser download hands pdfmake exactly the builder's definition (what a server renders)");
 for (const [name, draft] of Object.entries(FIXTURES)) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pdfmake stub
   let captured: any = null;
@@ -69,16 +115,8 @@ for (const [name, draft] of Object.entries(FIXTURES)) {
     return { download() {} };
   };
   downloadSupplierPurchaseOrderPdf(draft, { windowTitle: TITLE });
-  ok(`${name}: download definition = original`, captured !== null && digest(captured) === ORIGINAL[name], captured ? digest(captured) : "nothing captured");
-}
-
-console.log("the extracted builder (what a server renders) produces that same definition");
-for (const [name, draft] of Object.entries(FIXTURES)) {
-  ok(`${name}: builder with the same header = original`, digest(buildSupplierPurchaseOrderDocDefinition(draft, { headerTitle: TITLE })) === ORIGINAL[name]);
-  ok(
-    `${name}: an explicit date equal to the browser's gives the same document`,
-    digest(buildSupplierPurchaseOrderDocDefinition(draft, { headerTitle: TITLE, displayDate: formatSupplierDraftDisplayDate(draft) })) === ORIGINAL[name]
-  );
+  const built = digest(buildSupplierPurchaseOrderDocDefinition(draft, { headerTitle: TITLE }));
+  ok(`${name}: download definition = builder definition`, captured !== null && digest(captured) === built, captured ? digest(captured) : "nothing captured");
 }
 
 console.log("the builder is pure");

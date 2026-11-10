@@ -13,6 +13,7 @@ on:
       - "prisma/schema.prisma"
       - "lib/services/business-documents/**"
       - "lib/services/inventory/supplier-purchase-document.service.ts"
+      - "lib/pdf/rtl-inline-text*"
       - "app/api/business-documents/**"
       - "app/(shell)/inventory/supplier-purchases/**"
       - "features/business-documents/po-sheet-panel.tsx"
@@ -45,6 +46,8 @@ jobs:
         run: npx tsx lib/services/business-documents/po-sheet/supplier-document-unchanged.test.ts
       - name: The "same copy" checks of the double-click / retry scenarios cannot pass when the saves failed
         run: npx tsx .business-documents/po-sheet-checks.test.mts
+      - name: Right-to-left text in the supplier order PDF (Dubiz not zibuD, Hebrew word order) — server and browser renderers
+        run: npx tsx lib/pdf/rtl-inline-text.test.mts
 
   service:
     name: Purchase-order sheet service on the real migrations, as the runtime role (PG17)
