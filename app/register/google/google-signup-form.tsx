@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { DubizLogo } from "@/components/ui/dubiz-logo";
 import { useRouter } from "next/navigation";
 
 import { establishSessionFromCookie } from "@/components/auth/google-sign-in";
@@ -136,8 +137,7 @@ export default function GoogleSignupForm() {
         {/* Its own header at every width: the signup's top bar is shown only beside its brand panel. */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", maxWidth: 520, margin: "0 auto 8px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className={styles.logoMark} aria-hidden="true">d</span>
-            <span className={styles.logoWord} dir="ltr">dubiz</span>
+            <DubizLogo height={32} priority />
           </div>
           <AccessibilityTrigger className={styles.a11yBtn} label="הגדרות נגישות" />
         </div>

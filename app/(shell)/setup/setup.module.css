@@ -26,24 +26,6 @@
   gap: 8px;
   color: var(--dz-brand);
 }
-.logoMark {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  background: var(--dz-brand);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-rubik), "Heebo", sans-serif;
-  font-weight: 700;
-  font-size: 18px;
-}
-.logoWord {
-  font-family: var(--font-rubik), "Heebo", sans-serif;
-  font-weight: 700;
-  font-size: 21px;
-}
 .iconBtn {
   width: 44px;
   height: 44px;
@@ -468,14 +450,6 @@
 @media (min-width: 768px) {
   .top {
     padding: 24px 48px 0;
-  }
-  .logoMark {
-    width: 36px;
-    height: 36px;
-    font-size: 20px;
-  }
-  .logoWord {
-    font-size: 24px;
   }
   .main {
     padding: 28px 48px 40px;

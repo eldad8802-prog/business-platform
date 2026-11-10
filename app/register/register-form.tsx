@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { DubizLogo } from "@/components/ui/dubiz-logo";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/signup-identity";
@@ -281,8 +282,7 @@ export default function RegisterForm({
         <div className={styles.brandInner}>
           <div className={styles.brandHead}>
             <div className={styles.logo}>
-              <span className={styles.logoMark} aria-hidden="true">d</span>
-              <span className={styles.logoWord} dir="ltr">dubiz</span>
+              <DubizLogo height={40} priority />
             </div>
             <AccessibilityTrigger className={`${styles.a11yBtn} ${styles.brandA11y}`} label={t("account.auth.common.a11ySettings")} />
           </div>
@@ -317,8 +317,7 @@ export default function RegisterForm({
       <div className={styles.formSide}>
         <div className={styles.topBar}>
           <div className={styles.topLogo}>
-            <span className={styles.logoMark} aria-hidden="true">d</span>
-            <span className={styles.logoWord} dir="ltr">dubiz</span>
+            <DubizLogo height={32} priority />
           </div>
           <AccessibilityTrigger className={styles.a11yBtn} label={t("account.auth.common.a11ySettings")} />
         </div>
