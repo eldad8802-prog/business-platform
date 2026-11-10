@@ -5,4 +5,7 @@
     <color name="colorPrimaryDark">#1D5654</color>
     <color name="colorAccent">#3D9C9A</color>
     <color name="dubizSplashBackground">#FEF8F2</color>
+    <!-- The app's own background behind the WebView, the status bar and the navigation bar — the same
+         cream in light and dark mode (the web app is light-only), with dark bar icons. -->
+    <color name="dubizAppBackground">#FEF8F2</color>
 </resources>
