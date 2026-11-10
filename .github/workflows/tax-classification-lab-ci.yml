@@ -73,6 +73,16 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
 
+      # The pure tests of the fixes this lab head carries. #1077's own workflow cannot run
+      # before it exists on main (a new workflow is dispatchable only from the default
+      # branch), so its test runs here too, on the exact combined head.
+      - name: Pure tests of the carried fixes (#1076 gate, #1077 document state, #1079 continuity)
+        run: |
+          set -euo pipefail
+          npx tsx lib/services/billing/authority/billing-authority-issue-gate.test.ts
+          npx tsx lib/billing/authority-document-state-display.test.ts
+          npx tsx lib/services/billing/numbering/billing-numbering-continuity.test.ts
+
       - name: Push schema as the owner; create the governed runtime role
         env:
           DATABASE_URL: ${{ env.OWNER_URL }}

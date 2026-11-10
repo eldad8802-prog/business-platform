@@ -735,7 +735,17 @@ async function main() {
     check("NUM12.date", "OK", "STATIC", "the issue date is the server's clock at issue — no caller-supplied or back-dated document date", /const issuedAt = new Date\(\)/.test(issueSrc) || /issuedAt: new Date\(\)/.test(issueSrc), "", tags);
     const libFiles = execGrep("documentNumber", ["lib/services/billing", "app/api/billing", "app/api/reports"], ".ts").filter((f) =>
       /function\s+\w*(Continuity|NumberGap|SequenceGap|MissingNumber|DuplicateNumber)\w*/i.test(readFileSync(f, "utf8")));
-    check("NUM13.nocheck", "OBSERVED", "STATIC", "no continuity / duplicate report over issued numbers exists in the billing code", libFiles.length === 0, libFiles, tags);
+    // After #1079: a read-only continuity check exists — as an internal service only (no route, no screen).
+    check("NUM13.check", "OK", "STATIC", "a read-only continuity / duplicate check exists in the billing code (#1079) — internal service only, no route or screen",
+      libFiles.some((f) => f.split(path.sep).join("/").endsWith("numbering/billing-numbering-continuity.ts")) &&
+        !readdirSync("app/api/billing").some((d) => /continuity|numbering/.test(d)), libFiles, tags);
+    const { loadNumberingContinuityReport } = await import("@/lib/services/billing/numbering/billing-numbering-continuity");
+    const qReport = await loadNumberingContinuityReport(Q.businessId);
+    const qTi = qReport.find((r) => r.documentType === "TAX_INVOICE")!;
+    const qCn = qReport.find((r) => r.documentType === "CREDIT_NOTE")!;
+    saveEvidence("numbering/continuity-Q.json", JSON.stringify(qReport, null, 2));
+    check("NUM14.report", "OK", "SERVICE", "on the lab business: tax invoices and credit notes consistent in range, counters agree — reported PARTIAL (no opening number recorded), never fully verified",
+      qTi.consistentInRange && qCn.consistentInRange && qReport.every((r) => !r.fullyVerified) && qTi.coverage === "FROM_FIRST_ISSUED", qReport.map((r) => ({ t: r.documentType, cov: r.coverage, ok: r.consistentInRange, full: r.fullyVerified, range: [r.first, r.last] })), tags);
   }
 
   // ------------------------------------------------------------------ UI-only items (recorded, not exercised here)

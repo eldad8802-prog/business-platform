@@ -140,6 +140,8 @@ async function main() {
         issueResp.status() === 409 && /מספר הקצאה/.test(msg) && row.status === "DRAFT" && row.documentNumber === null,
         { status: issueResp.status(), doc: row, excerpt: msg.slice(0, 400) });
       check("U3.noretry", "OK", "nothing on screen offers to 'try again'", !/נסו שוב|לנסות שוב/.test(msg), msg.slice(0, 300));
+      const alerts = await p3.locator('[role="alert"]').filter({ hasText: "מספר הקצאה" }).count();
+      check("U3.a11y", "OK", "the refusal is announced to assistive technology (role=alert in the issue dialog)", alerts >= 1, alerts);
       await p3.reload();
       await p3.getByRole("button", { name: "הפק חשבונית" }).first().waitFor({ timeout: 300_000 });
       await shot(p3, "U3-after-reload");
@@ -174,8 +176,8 @@ async function main() {
         await p5.waitForTimeout(2000);
         await shot(p5, `U5-stuck-invoice-${size.name}`);
         const text = await body(p5);
-        const banner = await p5.locator('[data-billing-authority-state="READY"]').count();
-        check(`U5.${size.name}.state`, "OK", "a stuck invoice shows, after load, that the allocation request was not sent and it cannot be delivered",
+        const banner = await p5.locator('[role="status"][data-billing-authority-state="READY"]').count();
+        check(`U5.${size.name}.state`, "OK", "a stuck invoice shows, after a fresh sign-in and load, that the allocation request was not sent and it cannot be delivered (banner role=status)",
           banner === 1 && /בקשת ההקצאה לא נשלחה/.test(text) && /לא ניתן כעת למסור/.test(text), { banner, excerpt: text.slice(0, 400) });
         check(`U5.${size.name}.noshare`, "OK", "no 'מוכן לשיתוף', no share button, no 'שיתוף המסמך'",
           !/מוכן לשיתוף/.test(text) && (await p5.getByRole("button", { name: /^שתף$/ }).count()) === 0 && !/שיתוף המסמך/.test(text), text.slice(0, 300));
