@@ -160,15 +160,21 @@ const authEn: Widen<typeof authHe> = {
     verifiedBody: "You can keep working as usual.",
     enterApp: "Go to Dubiz",
     failedTitle: "We couldn't verify the address",
-    failedBody: "You can request a new link from inside Dubiz, in the bar at the top of the screen.",
+    failedBody: "You can request a new link from inside Dubiz, in Settings → Security.",
+    returnToApp: "Opened the link in your browser? You can go back to the app — the status in Settings updates by itself.",
   },
-  banner: {
+  emailStatus: {
+    title: "Email address",
+    verified: "Email verified",
+    unverified: "Email not verified yet",
+    unverifiedHint: "We sent a verification link to the account's email address. Didn't arrive? Check your spam folder, or request a new link. The latest link is the one that works.",
+    resend: "Resend verification link",
+    sent: "We sent a new verification link to the account's email address.",
+    rateLimited: "You've requested several links in a short time. Please wait a bit and try again.",
+    unavailable: "A verification link can't be sent right now.",
     error: "Something went wrong. Please try again.",
     offline: "You're offline. Please try again.",
-    regionLabel: "Email address verification",
-    message: "To secure your account, verify your email address — we've sent it a link.",
-    resend: "Resend",
-    hide: "Hide this message",
+    loadError: "The verification status of the email address can't be shown right now.",
   },
 };
 

@@ -1,0 +1,9 @@
+{
+  "note": "Service Desk stage 1 (PR-B0): the universal service model's profile and track catalog (lib/services/service-desk/service-profiles.ts). Code only, not wired: no schema, no database, no route.",
+  "tests": {
+    "lib/services/service-desk/service-profiles.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): the catalog equals the planning matrix (8 profiles x 7 tracks: default / enabled / available); profile resolution owner choice > sub-category > category > general; signed intake, QA and signed handover fixed wherever the item is at the business (C1, exchange keeps QA with EXCHANGE.v1); D15 approval levels; owner overrides tighten freely and a loosening of a fixed requirement is refused, never dropped; the D14 snapshot is frozen, serialisable, deterministic and untouched by later settings (D17); every track stays reachable in suggestions; the module is pure and not imported by any product file; run on pull_request by service-desk-ci.yml"
+    }
+  }
+}

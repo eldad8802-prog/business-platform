@@ -69,6 +69,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/tasks", root: true },
   // Appointments milestone B (flag appointments): the calendar; its settings screens return to it.
   { pattern: "/calendar", root: true },
+  // Service Desk UI 1.3a (flag service_desk, off): the module home in «ניהול העסק»; its settings return to it.
+  { pattern: "/service-desk", root: true },
   { pattern: "/settings", root: true },
   // Sidebar business card (desktop / tablet) and the Settings hub.
   { pattern: "/profile", root: true },
@@ -142,6 +144,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/business-documents/letters", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   { pattern: "/business-documents/letters/new", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   { pattern: "/business-documents/quotes/[id]", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
+  // ---- Service Desk (UI 1.3a, flag service_desk) ---------------------------
+  { pattern: "/service-desk/settings", parent: "/service-desk", parentLabelKey: "toServiceDesk" },
   { pattern: "/payables/[id]", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/bank", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/bank/import", parent: "/payables", parentLabelKey: "toAllPayables" },
