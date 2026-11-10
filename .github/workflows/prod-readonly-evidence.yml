@@ -170,6 +170,7 @@ on:
           - 'ops/evidence/business-documents-pilot-business-9.sql'
           - 'ops/evidence/service-desk-audit-journal-preflight.sql'
           - 'ops/evidence/service-desk-audit-journal-production-evidence.sql'
+          - 'ops/evidence/email-verify-delivery-counts.sql'
 
 permissions:
   contents: read

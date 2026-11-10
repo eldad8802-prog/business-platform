@@ -164,6 +164,13 @@ export const IconCalendarSimple: IconComponent = (p) => (
   </Svg>
 );
 
+/** Service Desk (repairs & service): a wrench, in the same outline set. */
+export const IconWrench: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M14.7 6.3a4 4 0 0 0 5 5L21 12.6a6 6 0 0 1-7.6 2.3L7 21.3a2 2 0 0 1-2.8-2.8l6.4-6.4A6 6 0 0 1 12.9 4.5z" />
+  </Svg>
+);
+
 export const IconCalendarPlus: IconComponent = (p) => (
   <Svg {...p}>
     <rect x="3" y="4" width="18" height="18" rx="2" />
