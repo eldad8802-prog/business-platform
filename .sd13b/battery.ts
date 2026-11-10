@@ -270,7 +270,9 @@ async function main() {
       && view.activeTerms.approved === true);
   const c4 = await shopCase(A);
   await activate(A, draftT, draftS);
-  ok("V2 with DRAFT texts active the view says approved = false (the screen shows the intake cannot be signed)", (await getIntake(A.b, c4.id)).activeTerms.approved === false);
+  const v4 = await getIntake(A.b, c4.id);
+  ok("V2 with DRAFT texts active the view says approved = false and allows neither presenting nor signing (the screen offers neither)", v4.activeTerms.approved === false && !v4.allowed.presentTerms && !v4.allowed.sign && v4.allowed.recordData);
+  ok("V3 a signed intake with its slip allows nothing more (no data, photo, terms, signature or second slip)", Object.values(view.allowed).every((x) => x === false));
   await activate(A, T1, S1);
 
   console.log("J — journal payloads");
