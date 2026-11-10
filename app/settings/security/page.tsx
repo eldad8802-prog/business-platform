@@ -1,5 +1,6 @@
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
 import { DevicesScreen } from "@/components/settings/security/devices-screen";
+import { EmailVerificationStatus } from "@/components/settings/security/email-verification-status";
 import { GoogleConnection } from "@/components/settings/security/google-connection";
 import { readGoogleLoginConfig } from "@/lib/auth/google-oauth";
 import { getServerI18n } from "@/lib/i18n/server";
@@ -13,6 +14,11 @@ export default async function SettingsSecurityPage() {
   return (
     <div className={styles.focused}>
       <SettingsSubPageHeader title={t("account.settings.categories.security.title")} />
+      {/* The account's email address: verified, or not yet with "send the link again". Renders nothing for an
+          account that is not asked to verify. The only place verification is shown after sign-in. */}
+      <div className="mb-6 empty:hidden">
+        <EmailVerificationStatus />
+      </div>
       {/* "Continue with Google": the account's own link and its disconnect — only while the feature is on;
           during the pilot only for an account that is (or was just) connected. */}
       {google ? (
