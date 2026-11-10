@@ -31,11 +31,15 @@
     },
     "lib/services/business-documents/po-sheet/supplier-document-unchanged.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "pure: the supplier order PDF is unchanged by the extraction of its builder (purchase-order sheet, owner-approved 2026-11-09) — the exact pdfmake definition handed to createPdf, functions included, equals hashes recorded from the original function for three fixtures, through the browser download and the extracted builder; run on pull_request by business-documents-ci.yml (the PG batteries .business-documents/po-sheet*.battery.mts run in the same workflow)"
+      "reason": "pure: the supplier order PDF is unchanged by the extraction of its builder (purchase-order sheet, owner-approved 2026-11-09) — the exact pdfmake definition handed to createPdf, functions included, equals hashes recorded from the original function for three fixtures through a verbatim pre-fix copy (supplier-document-before-bidi.fixture.ts), today's builder differs from it only in text nodes made direction runs (right-to-left fix), and the browser download hands pdfmake the builder's definition; run on pull_request by business-documents-ci.yml (the PG batteries .business-documents/po-sheet*.battery.mts run in the same workflow)"
     },
     ".business-documents/po-sheet-checks.test.mts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure: the 'same copy' checks of the purchase-order sheet double-click / retry scenarios (.business-documents/po-sheet-checks.mts, used by the R2 battery, the production-mode e2e and the service battery) cannot pass when the saves failed — both requests 500, one success and one failure, missing or invalid ids all fail (run 42725350210 printed a vacuous PASS before this); run on pull_request by business-documents-po-sheet-ci.yml"
+    },
+    "lib/text/rtl-inline-text.test.mts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: right-to-left text in the supplier order PDF (lib/text/rtl-inline-text; found in the business 9 pilot 2026-11-10: the header printed \"zibuD\" for \"Dubiz\" and multi-word Hebrew names read in reversed word order) — what the server renderer (the saved purchase-order sheet) actually draws, captured glyph by glyph against hand-written expectations, Hebrew, English and mixed, and the browser download (pdfmake browser bundle) drawing the same text at the same positions; fails on the code before the fix (19/29); run on pull_request by business-documents-po-sheet-ci.yml"
     }
   }
 }
