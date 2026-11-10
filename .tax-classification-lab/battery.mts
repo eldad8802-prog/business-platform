@@ -609,6 +609,106 @@ async function main() {
     check("R4.roles", "OBSERVED", "API", "any user of the business may issue (no owner / staff / accountant roles exist)", second.status === 200, second.status, {});
   }
 
+  // ================================================================== 10. numbering audit (API + SERVICE + STATIC)
+  console.log("\n— 10. numbering");
+  {
+    // A fresh company issuer so every number below is predictable.
+    const Q = await tenant("Q", "LTD_COMPANY", { ...base("מספור"), billingBusinessKind: "LTD_COMPANY", billingTaxId: "516000020", billingVatNumber: "516000020" });
+    const tags = { classification: "LTD_COMPANY", docType: "TAX_INVOICE" };
+    const TI = BillingDocumentType.TAX_INVOICE;
+    const small = (label: string) => createDraft(Q, "TAX_INVOICE", { customerId: Q.privateCustomerId, initialLines: [line(label, "100", "18")] });
+
+    // drafts never consume a number: three drafts, the third issued first → 000001
+    const d1 = await small("טיוטה 1");
+    const d2 = await small("טיוטה 2");
+    const d3 = await small("טיוטה 3");
+    check("NUM1.draft", "OK", "API", "drafts hold no number; the sequence does not exist until the first issue",
+      [d1, d2, d3].every((d) => d.json.document.documentNumber === null) && (await seq(Q.businessId, TI)) === null, [d1, d2, d3].map((d) => d.json.document.documentNumber), tags);
+    const i3 = await issue(Q, d3.json.document.id);
+    check("NUM2.first", "OBSERVED", "API", "the first issued document of a series is always 000001 — there is no opening number to set",
+      i3.status === 200 && (await docRow(d3.json.document.id)).documentNumber === 1, (await docRow(d3.json.document.id)).documentNumberFormatted, { ...tags, legal: "opening number / continuing a previous book — see chapter 10" });
+
+    // a refused issue inside the issue transaction consumes nothing: two full credit drafts of one invoice;
+    // once the first is issued, the second exceeds what is left to credit and is refused at issue.
+    const cnA = await credit(Q, d3.json.document.id);
+    const cnB = await credit(Q, d3.json.document.id);
+    await issue(Q, cnA.json.creditNoteId);
+    const cnId = cnB.json?.creditNoteId as number;
+    const cnSeq = await seq(Q.businessId, BillingDocumentType.CREDIT_NOTE);
+    const refused = await issue(Q, cnId);
+    check("NUM3.refused", "OK", "API", "a refused issue (second full credit of an already credited invoice) leaves the draft unnumbered and the sequence untouched",
+      refused.status >= 400 && (await docRow(cnId)).documentNumber === null && (await seq(Q.businessId, BillingDocumentType.CREDIT_NOTE)) === cnSeq,
+      { status: refused.status, error: errorText(refused), seqBefore: cnSeq, seqAfter: await seq(Q.businessId, BillingDocumentType.CREDIT_NOTE) }, { ...tags, docType: "CREDIT_NOTE" });
+
+    // retry after a lost response: the second call is refused, the number and the sequence stay as they were
+    const before = await seq(Q.businessId, TI);
+    const again = await issue(Q, d3.json.document.id);
+    check("NUM4.retry", "OK", "API", "a repeated issue of an issued document (retry after a lost response) is refused; same number, sequence unchanged",
+      again.status === 403 && (await docRow(d3.json.document.id)).documentNumber === 1 && (await seq(Q.businessId, TI)) === before, { status: again.status, error: errorText(again) }, tags);
+    check("NUM4.msg", "OBSERVED", "API", "the refusal text the client gets on that retry", true, errorText(again), tags);
+
+    // two clicks at once on the same draft: one number, the loser's increment rolled back
+    const s0 = await seq(Q.businessId, TI);
+    const twice = await Promise.all([issue(Q, d1.json.document.id), issue(Q, d1.json.document.id)]);
+    const s1 = await seq(Q.businessId, TI);
+    check("NUM5.doubleclick", "OK", "API", "double click: one 200, one 403, the sequence advanced by exactly one",
+      twice.filter((r) => r.status === 200).length === 1 && s1 === (s0 ?? 1) + 1, { statuses: twice.map((r) => r.status), s0, s1 }, tags);
+
+    // PDF failure after the issue committed: same document, same number, later render works
+    const pf = await small("PDF נכשל");
+    const pfi = await issue(Q, pf.json.document.id);
+    const pfNo = (await docRow(pf.json.document.id)).documentNumber;
+    const sBefore = await seq(Q.businessId, TI);
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "taxlab-broken-renderer";
+    const broken = await getPdf(Q, pf.json.document.id);
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    const status1 = (await owner.billingDocument.findUniqueOrThrow({ where: { id: pf.json.document.id }, select: { pdfRenderStatus: true } })).pdfRenderStatus;
+    const fixed = await getPdf(Q, pf.json.document.id);
+    const fixedText = fixed.buffer ? await pdfText(fixed.buffer) : "";
+    check("NUM6.pdffail", "OK", "API", "PDF fails after issue → document stays ISSUED with its number (FAILED recorded); the next download renders the same number; sequence untouched",
+      pfi.status === 200 && broken.status >= 500 && status1 === "FAILED" && fixed.status === 200 && fixedText.includes(String(pfNo).padStart(6, "0")) && (await seq(Q.businessId, TI)) === sBefore,
+      { broken: broken.status, renderStatus: status1, fixed: fixed.status, number: pfNo }, tags);
+
+    // a credit note never renumbers its source
+    const src = await small("מקור לזיכוי");
+    await issue(Q, src.json.document.id);
+    const srcNo = (await docRow(src.json.document.id)).documentNumber;
+    const c2 = await credit(Q, src.json.document.id);
+    const c2i = await issue(Q, c2.json.creditNoteId);
+    check("NUM7.credit", "OK", "API", "a credit note takes its own series number and leaves the source invoice's number unchanged",
+      c2i.status === 200 && (await docRow(src.json.document.id)).documentNumber === srcNo && (await docRow(c2.json.creditNoteId)).documentType === "CREDIT_NOTE",
+      { srcNo, credit: (await docRow(c2.json.creditNoteId)).documentNumberFormatted }, { ...tags, docType: "CREDIT_NOTE" });
+
+    // the database refuses a duplicate number in the same (business, type) — the last line of defence
+    let dupError = "";
+    try {
+      await owner.billingDocument.create({ data: { businessId: Q.businessId, documentType: TI, status: "ISSUED", documentNumber: srcNo, documentNumberFormatted: "dup", customerNameSnapshot: "x", currency: "ILS", subtotalAmount: "0", vatAmount: "0", totalAmount: "0" } });
+    } catch (e) {
+      dupError = (e as { code?: string }).code ?? (e as Error).message;
+    }
+    check("NUM8.unique", "OK", "SERVICE", "a duplicate (business, type, number) is refused by the database's unique index", dupError === "P2002", dupError, tags);
+
+    // a change of legal identity on the same business continues the same series
+    const idChange = await patchProfile(Q.token, { billingTaxId: "516000038", billingLegalName: "חברה אחרת בע\"מ" });
+    const after = await small("אחרי שינוי זהות");
+    await issue(Q, after.json.document.id);
+    const afterRow = await docRow(after.json.document.id);
+    const issuer = (afterRow.issuedSnapshot as { issuer?: { taxId?: string } } | null)?.issuer?.taxId;
+    check("NUM9.identity", "DEFECT", "API", "changing the issuer's tax id / legal name on the same business is accepted and the new entity simply continues the old series",
+      idChange.status === 200 && issuer === "516000038" && (afterRow.documentNumber ?? 0) > (srcNo ?? 0), { status: idChange.status, issuer, number: afterRow.documentNumber }, { ...tags, legal: "a company is a separate עוסק — chapter 10" });
+
+    // static: what the schema and code do not have
+    const schema = readFileSync("prisma/schema.prisma", "utf8");
+    const seqModel = /model BillingDocumentNumberSequence \{[\s\S]*?\n\}/.exec(schema)?.[0] ?? "";
+    check("NUM10.noyear", "OK", "STATIC", "no annual reset: the sequence has no year in its key ((businessId, documentType) only)", !/year|fiscal/i.test(seqModel) && /@@unique\(\[businessId, documentType\]\)/.test(seqModel), seqModel.replace(/\s+/g, " ").slice(0, 200), tags);
+    check("NUM11.noseries", "OBSERVED", "STATIC", "no series identity beyond (business, type): no series code, no opening number, no lock, no record of a previous book/software", !/series|openingNumber|startNumber|locked/i.test(seqModel), "", tags);
+    const issueSrc = readFileSync("lib/services/billing/billing-issue.service.ts", "utf8");
+    check("NUM12.date", "OK", "STATIC", "the issue date is the server's clock at issue — no caller-supplied or back-dated document date", /const issuedAt = new Date\(\)/.test(issueSrc) || /issuedAt: new Date\(\)/.test(issueSrc), "", tags);
+    const libFiles = execGrep("documentNumber", ["lib/services/billing", "app/api/billing", "app/api/reports"], ".ts").filter((f) =>
+      /function\s+\w*(Continuity|NumberGap|SequenceGap|MissingNumber|DuplicateNumber)\w*/i.test(readFileSync(f, "utf8")));
+    check("NUM13.nocheck", "OBSERVED", "STATIC", "no continuity / duplicate report over issued numbers exists in the billing code", libFiles.length === 0, libFiles, tags);
+  }
+
   // ------------------------------------------------------------------ UI-only items (recorded, not exercised here)
   untested("U1", "exempt dealer is offered 'חשבונית מס' in the create menu", "UI behaviour — exercised in the UI job (ui.e2e.mts), not here");
   untested("U2", "allocation state visible on the document screen after reload", "UI behaviour — exercised in the UI job (ui.e2e.mts), not here");
