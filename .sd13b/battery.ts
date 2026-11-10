@@ -16,6 +16,8 @@
  *   J  every intake payload is tokens / numbers / booleans — no Hebrew, no body text.
  *   I  isolation: another business cannot read, present, upload, sign or fetch an object of A's case.
  *   K  races: two signatures at once (one signs); one photo key five times (one row); two presentations (one snapshot).
+ *   O  the orphan sweep (library, not scheduled): grace period, dry run, only unlinked intake shapes, under the case lock;
+ *      a swept upload is written again by its late command; per-business prefix; a deleting business skipped.
  *   L  the slip PDF (1.3b-B): only for a signed intake; rendered once (Chromium), stored content-addressed, only slipPdfKey set
  *      (the guard refuses any later change); replay; read back by its hash; isolation.
  *
@@ -35,6 +37,7 @@ import { openCase, recordIntake, runCaseAction, type ServiceDeskPrincipal } from
 import { crc32 } from "../lib/services/service-desk/intake.core";
 import { createIntakeSlip, loadSlipInput, readIntakeSlip, renderIntakeSlipPdf } from "../lib/services/service-desk/intake-slip.service";
 import { buildIntakeSlipHtml } from "../lib/services/service-desk/intake-slip-html";
+import { sweepIntakeOrphans } from "../lib/services/service-desk/intake-orphan-sweep";
 import { addIntakePhoto, getIntake, intakeDigest, presentTerms, readIntakeObject, signIntake } from "../lib/services/service-desk/intake.service";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
@@ -296,6 +299,43 @@ async function main() {
   fs.writeFileSync(process.env.SLIP_OUT ?? "sd13b-slip-sample.pdf", pdfN.bytes);
   const ckEv = (await q(`SELECT "actorUserId" a, "fromStatus"::text f, "toStatus"::text t, payload->>'intakeConfirmed' c FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND action::text = 'CHECK_IN'`, cN.id))[0];
   ok("N6 the audit journal names who confirmed, the status change and the confirmation (no signature data)", Number(ckEv.a) === A.u && ckEv.f === "OPEN" && ckEv.t === "CHECKED_IN" && ckEv.c === "true");
+  console.log("O — the intake orphan sweep (library only, not scheduled)");
+  const c8 = await shopCase(A); await record(A, c8.id);
+  const put = async (k: string, body: Buffer, type: string) => store.putObjectIfAbsent({ key: k, body, contentType: type, metadata: { businessId: A.b, domain: "service", visibility: "private" } });
+  const orphanJpg = jpeg(), orphanKey = `biz/${A.b}/service/cases/${c8.id}/intake/photos/${sha(orphanJpg)}.jpg`;
+  await put(orphanKey, orphanJpg, "image/jpeg");                       // an upload whose command never wrote its row
+  const strangeKey = `biz/${A.b}/service/cases/${c8.id}/notes/readme.txt`;
+  await put(strangeKey, Buffer.from("not an intake object"), "text/plain"); // not this sweep's shape
+  const linkedPhotoKey = String((await q(`SELECT "storageKey" k FROM "ServiceIntakePhoto" WHERE "caseId" = $1 LIMIT 1`, c1.id))[0].k);
+  const linkedSigKey = String((await q(`SELECT "signatureKey" k FROM "ServiceCaseIntake" WHERE "caseId" = $1`, c1.id))[0].k);
+  const linkedSlipKey = String((await q(`SELECT "slipPdfKey" k FROM "ServiceCaseIntake" WHERE "caseId" = $1`, c1.id))[0].k);
+  const future = new Date(Date.now() + 48 * 3600_000);                  // every object looks two days old
+  const young = await sweepIntakeOrphans(A.b, { dryRun: false }, store);
+  ok("O1 with the real clock every new object is younger than the grace → nothing deleted, all kept as in flight",
+    young.deleted.length === 0 && young.kept.some((k) => k.key === orphanKey && k.reason === "TOO_YOUNG") && (await stored(orphanKey)));
+  const dry = await sweepIntakeOrphans(A.b, { now: future }, store);
+  ok("O2 dry run (the default) reports the orphan and deletes nothing", dry.dryRun && dry.orphans.includes(orphanKey) && dry.deleted.length === 0 && (await stored(orphanKey)));
+  const real = await sweepIntakeOrphans(A.b, { dryRun: false, now: future }, store);
+  ok("O3 a real run deletes ONLY the orphan: linked photo, signature and slip kept (LINKED), the foreign-shaped object ignored",
+    real.deleted.includes(orphanKey) && !(await stored(orphanKey)) && (await stored(linkedPhotoKey)) && (await stored(linkedSigKey)) && (await stored(linkedSlipKey))
+      && [linkedPhotoKey, linkedSigKey, linkedSlipKey].every((k) => real.kept.some((x) => x.key === k && x.reason === "LINKED"))
+      && (await stored(strangeKey)) && real.ignored >= 1);
+  const lateJpg = jpeg(), lateKey = `biz/${A.b}/service/cases/${c8.id}/intake/photos/${sha(lateJpg)}.jpg`;
+  await put(lateKey, lateJpg, "image/jpeg");
+  await sweepIntakeOrphans(A.b, { dryRun: false, now: future }, store);   // swept before its command took the lock
+  const late = await addIntakePhoto(A.p, c8.id, { bytes: lateJpg, declaredMime: "image/jpeg", expectedVersion: await version(c8.id) }, { idempotencyKey: key() }, store);
+  ok("O4 a command whose upload was swept writes it again under the lock: the row and the object both exist (never a dangling row)",
+    late.photo?.sha256 === sha(lateJpg) && (await stored(lateKey)) && (await n(`SELECT count(*)::int AS n FROM "ServiceIntakePhoto" WHERE "storageKey" = $1`, lateKey)) === 1);
+  const bOrphan = jpeg(), bKey = `biz/${B.b}/service/cases/999999/intake/photos/${sha(bOrphan)}.jpg`;
+  await store.putObjectIfAbsent({ key: bKey, body: bOrphan, contentType: "image/jpeg", metadata: { businessId: B.b, domain: "service", visibility: "private" } });
+  const aAgain = await sweepIntakeOrphans(A.b, { dryRun: false, now: future }, store);
+  const bRun = await sweepIntakeOrphans(B.b, { dryRun: false, now: future }, store);
+  ok("O5 a sweep of A never touches B's prefix; in B an object of a case that does not exist is kept (CASE_GONE), not guessed",
+    (await stored(bKey)) && !aAgain.deleted.includes(bKey) && bRun.kept.some((k) => k.key === bKey && k.reason === "CASE_GONE"));
+  await x(`UPDATE "Business" SET "deletionRequestedAt" = now() WHERE id = $1`, B.b);
+  const bDel = await sweepIntakeOrphans(B.b, { dryRun: false, now: future }, store);
+  await x(`UPDATE "Business" SET "deletionRequestedAt" = NULL WHERE id = $1`, B.b);
+  ok("O6 a business being deleted is skipped entirely (the account erasure owns its prefix)", bDel.skipped === "BUSINESS_DELETING" && bDel.scanned === 0 && (await stored(bKey)));
 
   console.log("V — view");
   const view = await getIntake(A.b, c1.id);

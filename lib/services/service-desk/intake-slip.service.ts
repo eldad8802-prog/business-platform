@@ -16,7 +16,7 @@ import { getStorageService, type StorageService } from "@/lib/storage";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 import { buildIntakeSlipHtml, type IntakeSlipInput } from "./intake-slip-html";
-import { intakeDigest } from "./intake.service";
+import { ensureStoredUnderLock, intakeDigest } from "./intake.service";
 import { appendRecord, isNonNegativeInt, isPositiveInt, prepare, recordCommand, type CommandResult, type ServiceDeskPrincipal, type Tx, type WriteRequest } from "./service-case.service";
 import { ServiceDeskError } from "./service-desk-errors";
 import { SERVICE_STORAGE_DOMAIN, intakeSlipKey, isServiceKeyOfBusiness, serviceBusinessPrefix } from "./storage/service-storage-keys";
@@ -124,18 +124,21 @@ export async function createIntakeSlip(
   let key: string | null = null;
   let sha256: string | null = null;
   let intakeSha256: string | null = null;
+  let pdfBytes: Buffer | null = null;
   if (!replay) {
     const input = await loadSlipInput(b, caseId);
     intakeSha256 = input.evidence.intakeSha256;
     const pdf = await render(buildIntakeSlipHtml(input));
     if (!isPdf(pdf)) throw new ServiceDeskError("REFUSED", { violations: ["SLIP_RENDER_FAILED"] });
     sha256 = sha256Hex(pdf);
+    pdfBytes = pdf;
     key = intakeSlipKey({ businessId: b, caseId, sha256 });
     await storage.putObjectIfAbsent({ key, body: pdf, contentType: "application/pdf", metadata: { businessId: b, domain: SERVICE_STORAGE_DOMAIN, visibility: "private" } });
   }
   const r = await recordCommand(p, caseId, body.expectedVersion, prepared, async (tx, locked) => {
     const v = slipViolations(await slipState(tx, b, caseId));
-    if (v.length > 0 || !key || !sha256) throw refused(v.length > 0 ? v : ["SLIP_RENDER_FAILED"]);
+    if (v.length > 0 || !key || !sha256 || !pdfBytes) throw refused(v.length > 0 ? v : ["SLIP_RENDER_FAILED"]);
+    await ensureStoredUnderLock(storage, b, key, pdfBytes, "application/pdf");
     // Set once: slipPdfKey NULL → key (updatedAt untouched; a legacy signed intake allows exactly this change).
     const n = await tx.$executeRaw`
       UPDATE "ServiceCaseIntake" SET "slipPdfKey" = ${key}
