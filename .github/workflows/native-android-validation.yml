@@ -67,7 +67,20 @@ jobs:
           sed -i '0,/<\/intent-filter>/s|</intent-filter>|</intent-filter>\n            <intent-filter>\n                <action android:name="android.intent.action.VIEW" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n                <data android:scheme="http" android:host="localhost" android:port="3000" android:path="/native/google/return" />\n            </intent-filter>|' "$M"
           grep -n "native/google/return" "$M"
           npx cap sync android
-          cd android && ./gradlew --no-daemon assembleDebug
+          mkdir -p apk
+          (cd android && ./gradlew --no-daemon assembleDebug) && cp android/app/build/outputs/apk/debug/app-debug.apk apk/app-current.apk
+          # Variant "flush": persist WebView cookies to disk whenever the app goes to the background.
+          A=android/app/src/main/java/il/co/promaxgroup/dubiz/MainActivity.java
+          python3 - "$A" <<'PY'
+          import sys
+          p = sys.argv[1]; s = open(p).read().rstrip()
+          assert s.endswith("}")
+          s = s[:-1] + "    @Override\n    public void onPause() {\n        super.onPause();\n        android.webkit.CookieManager.getInstance().flush();\n    }\n}\n"
+          open(p, "w").write(s)
+          PY
+          tail -8 "$A"
+          (cd android && ./gradlew --no-daemon assembleDebug) && cp android/app/build/outputs/apk/debug/app-debug.apk apk/app-flush.apk
+          git checkout -- "$A"
       - name: Prove the round trip on the emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:

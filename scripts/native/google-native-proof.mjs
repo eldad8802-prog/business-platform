@@ -9,14 +9,15 @@ import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const OUT = process.argv[2];
+const VARIANT = process.argv[3] || "current";
 const PKG = "il.co.promaxgroup.dubiz";
 mkdirSync(join(OUT, "shots"), { recursive: true });
 const results = [];
-const log = (o) => { results.push(o); writeFileSync(join(OUT, "proof.json"), JSON.stringify(results, null, 1)); console.log(JSON.stringify(o).slice(0, 700)); };
+const log = (o) => { results.push(o); writeFileSync(join(OUT, `proof-${VARIANT}.json`), JSON.stringify(results, null, 1)); console.log(JSON.stringify(o).slice(0, 700)); };
 const adb = (...a) => { try { return execFileSync("adb", a, { timeout: 30000, maxBuffer: 64 << 20 }).toString(); } catch (e) { return `ERR ${e.message}`; } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const [device] = await android.devices();
-const shot = async (n) => writeFileSync(join(OUT, "shots", `${n}.png`), await device.screenshot());
+const shot = async (n) => writeFileSync(join(OUT, "shots", `${VARIANT}-${n}.png`), await device.screenshot());
 const focus = () => adb("shell", "dumpsys", "window").match(/mCurrentFocus=Window\{[^}]*\s(\S+)\}/)?.[1] || "?";
 const pid = () => adb("shell", "pidof", PKG).trim();
 // Tap a visible text in whatever is on screen (Custom Tab / app) — real input.
@@ -57,11 +58,13 @@ const startFlow = async () => { const wv = await webview(); const p = await wv.p
 // Chrome without first-run screens (debug-app command line), as in the earlier issue-2 harness.
 adb("shell", "am", "set-debug-app", "--persistent", "com.android.chrome");
 adb("shell", "sh", "-c", "echo 'chrome --disable-fre --no-default-browser-check --no-first-run' > /data/local/tmp/chrome-command-line");
-log({ check: "env", sdk: adb("shell", "getprop", "ro.build.version.sdk").trim() });
+log({ check: "env", variant: VARIANT, sdk: adb("shell", "getprop", "ro.build.version.sdk").trim() });
 
 // S1 — warm round trip.
 try {
   adb("shell", "pm", "clear", PKG); await sleep(1000);
+  // the first start after clearing data initializes the WebView: give it time, then start again
+  adb("shell", "am", "start", "-n", `${PKG}/.MainActivity`); await sleep(15000);
   await launch();
   await startFlow();
   const f1 = focus();
@@ -103,7 +106,7 @@ try {
 } catch (e) { log({ check: "S3-no-cookie-client", error: String(e).slice(0, 200) }); }
 
 // Log audit: which requests ever carried a code, and from where.
-const lines = readFileSync(join(OUT, "proof-server.log"), "utf8").split("\n").filter(Boolean);
+const lines = readFileSync(join(OUT, `proof-server-${VARIANT}.log`), "utf8").split("\n").filter(Boolean);
 log({
   check: "log-audit",
   requestsWithCodeInUrl: lines.filter((l) => / REQ /.test(l) && /code=/.test(l)).map((l) => l.replace(/code=[^&\s#]+/, "code=<…>").replace(/state=[^&\s#]+/, "state=<…>").slice(25)),
