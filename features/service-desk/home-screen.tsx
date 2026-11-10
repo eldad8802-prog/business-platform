@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * "תיקונים ושירות" — the Service Desk home (UI 1.3a, PR 1). For now it leads to the service settings only; the cases list
+ * "שירות ואחריות" — the Service Desk home (UI 1.3a, PR 1). For now it leads to the service settings only; the cases list
  * and opening a case arrive in the next step and are not shown before they work. Opened from «ניהול העסק». Every answer
  * comes from the server's Service Desk gate (GET /api/service-desk/access): while service_desk is off, no business sees it.
  */
@@ -17,7 +17,7 @@ export function ServiceDeskHome() {
   return (
     <main className={s.screen} data-page-intent="content">
       <div className={s.narrow}>
-        <ScreenHead title="תיקונים ושירות" subtitle="קריאות שירות ותיקונים לעסק" fallback="/app" fallbackLabel="לבית" />
+        <ScreenHead title="שירות ואחריות" subtitle="תיקי שירות, עבודות ואחריות של העסק" fallback="/app" fallbackLabel="לבית" />
         {access.status === "loading" ? (
           <Loading />
         ) : access.status === "error" ? (
@@ -32,13 +32,13 @@ export function ServiceDeskHome() {
                 <Link className={s.row} href="/service-desk/settings">
                   <span className={s.rowText}>
                     <span className={s.rowTitle}>הגדרות שירות</span>
-                    <span className={s.rowSub}>טכנאי ברירת מחדל ואחריות לתיקון</span>
+                    <span className={s.rowSub}>איש מקצוע ברירת מחדל ואחריות על השירות</span>
                   </span>
                   <Chevron />
                 </Link>
               </li>
             </ul>
-            <p className={s.note}>רשימת התיקים ופתיחת תיק חדש יתווספו כאן בשלב הבא.</p>
+            <p className={s.note}>רשימת תיקי השירות ופתיחת תיק חדש יתווספו כאן בשלב הבא.</p>
           </>
         )}
       </div>

@@ -104,7 +104,7 @@ export function ServiceSettingsScreen() {
   return (
     <main className={readOnly ? s.screen : `${s.screen} ${s.withSaveBar}`} data-page-intent="content">
       <div className={s.narrow}>
-        <ScreenHead title="הגדרות שירות" subtitle="טכנאי ברירת מחדל ואחריות לתיקון" fallback="/service-desk" fallbackLabel="לתיקונים ושירות" onBeforeLeave={beforeLeave} />
+        <ScreenHead title="הגדרות שירות" subtitle="איש מקצוע ברירת מחדל ואחריות על השירות" fallback="/service-desk" fallbackLabel="לשירות ואחריות" onBeforeLeave={beforeLeave} />
         {access.status === "loading" ? (
           <Loading />
         ) : access.status === "error" ? (
@@ -128,20 +128,20 @@ export function ServiceSettingsScreen() {
 
             <section className={s.card} aria-labelledby="sd-tech-title">
               <div className={s.cardHead}>
-                <h2 className={s.cardTitle} id="sd-tech-title">טכנאי ברירת מחדל</h2>
-                <p className={s.cardSub}>הטכנאי שתבחר כאן ישויך אוטומטית לכל תיק חדש שייפתח. בלי בחירה — אתה מטפל בתיקים החדשים בעצמך.</p>
+                <h2 className={s.cardTitle} id="sd-tech-title">איש מקצוע ברירת מחדל</h2>
+                <p className={s.cardSub}>איש המקצוע שתבחר כאן ישויך אוטומטית לכל תיק חדש שייפתח. בלי בחירה — אתה מטפל בתיקים החדשים בעצמך.</p>
               </div>
               <div className={s.field}>
-                <label className={s.label} htmlFor="sd-tech">טכנאי לתיקים חדשים</label>
+                <label className={s.label} htmlFor="sd-tech">איש מקצוע לתיקים חדשים</label>
                 <select id="sd-tech" className={s.select} value={form.staffId} disabled={disabled} onChange={(e) => set({ staffId: e.target.value })}>
                   <option value="">אני (בעל העסק)</option>
                   {loaded.staff.map((m) => (
                     <option key={m.id} value={String(m.id)}>{m.displayName}</option>
                   ))}
-                  {staleDefault ? <option value={form.staffId} disabled>טכנאי שכבר לא פעיל</option> : null}
+                  {staleDefault ? <option value={form.staffId} disabled>איש מקצוע שכבר לא פעיל</option> : null}
                 </select>
                 {staleDefault ? (
-                  <span className={s.problem}>הטכנאי שהוגדר כבר לא פעיל בעסק, ולכן תיקים חדשים יטופלו על ידך. בחר טכנאי אחר או את עצמך.</span>
+                  <span className={s.problem}>איש המקצוע שהוגדר כבר לא פעיל בעסק, ולכן תיקים חדשים יטופלו על ידך. בחר איש מקצוע אחר או את עצמך.</span>
                 ) : loaded.staff.length === 0 ? (
                   <span className={s.hint}>אין כרגע עובדים פעילים בעסק, ולכן התיקים יטופלו על ידך.</span>
                 ) : null}
@@ -150,12 +150,12 @@ export function ServiceSettingsScreen() {
 
             <section className={s.card} aria-labelledby="sd-warranty-title">
               <div className={s.cardHead}>
-                <h2 className={s.cardTitle} id="sd-warranty-title">אחריות על תיקונים</h2>
-                <p className={s.cardSub}>אין ברירת מחדל. אם העסק נותן אחריות על תיקונים, הגדר אותה כאן והיא תוצע בתיקים.</p>
+                <h2 className={s.cardTitle} id="sd-warranty-title">אחריות על השירות</h2>
+                <p className={s.cardSub}>אין ברירת מחדל. אם העסק נותן אחריות על השירות, הגדר אותה כאן והיא תוצע בתיקים.</p>
               </div>
               <label className={s.check}>
                 <input type="checkbox" checked={form.warrantyOn} disabled={disabled} onChange={(e) => set({ warrantyOn: e.target.checked })} />
-                <span>העסק נותן אחריות על תיקונים</span>
+                <span>העסק נותן אחריות על השירות</span>
               </label>
               {form.warrantyOn ? (
                 <>
@@ -218,8 +218,8 @@ export function ServiceSettingsScreen() {
             </section>
 
             <section className={s.card} aria-label="בשלבים הבאים">
-              <Later title="תנאי שירות" text="נוסח התנאים שהלקוח מאשר בקבלת המכשיר." />
-              <Later title="תזכורות איסוף" text="תזכורות ללקוח כשהמכשיר מוכן — רק אחרי שיחובר ערוץ שליחה." />
+              <Later title="תנאי שירות" text="נוסח התנאים שהלקוח מאשר בקבלת הפריט לשירות." />
+              <Later title="תזכורות איסוף" text="תזכורות ללקוח כשהפריט מוכן לאיסוף — רק אחרי שיחובר ערוץ שליחה." />
             </section>
 
             {!readOnly ? (

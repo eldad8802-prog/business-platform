@@ -62,7 +62,7 @@ export const en: Messages = {
     leads: "Leads",
     tasks: "Tasks",
     calendar: "Calendar",
-    serviceDesk: "Repairs & service",
+    serviceDesk: "Service & warranty",
     secretary: "My secretary",
     payables: "Commitments",
     inventory: "Inventory",

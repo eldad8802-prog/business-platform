@@ -106,13 +106,13 @@ async function main() {
       if (s.page === "/service-desk/settings" && s.access !== 404) await page.waitForSelector("#sd-tech", { timeout: 120000 });
       else if (s.page.startsWith("/tools/")) {
         await page.waitForSelector("h1", { timeout: 120000 });
-        if (s.access === "FULL") await page.waitForSelector("main >> text=תיקונים ושירות", { timeout: 60000 }).catch(() => {});
+        if (s.access === "FULL") await page.waitForSelector("main >> text=שירות ואחריות", { timeout: 60000 }).catch(() => {});
         else await page.waitForTimeout(6000);
       }
       else await page.waitForSelector(s.access === 404 ? "text=עדיין לא פתוחה" : "text=הגדרות שירות", { timeout: 120000 });
 
       if (s.act === "invalid") {
-        await page.getByLabel("העסק נותן אחריות על תיקונים").check();
+        await page.getByLabel("העסק נותן אחריות על השירות").check();
         await page.fill("#sd-w-value", "0");
         await page.click("button[type=submit]");
         await page.waitForSelector("#sd-w-scope-p", { timeout: 10000 });
@@ -124,7 +124,7 @@ async function main() {
       }
       if (s.act === "save-new") {
         await page.selectOption("#sd-tech", "12");
-        await page.getByLabel("העסק נותן אחריות על תיקונים").check();
+        await page.getByLabel("העסק נותן אחריות על השירות").check();
         await page.fill("#sd-w-value", "3");
         await page.fill("#sd-w-scope", "  עבודת התיקון בלבד  ");
         await page.click("button[type=submit]");
@@ -172,14 +172,17 @@ async function main() {
       check(`${tag}: RTL`, m.dir === "rtl", m.dir);
       check(`${tag}: no horizontal overflow`, m.scrollW <= m.iw + 1, `${m.scrollW} vs ${m.iw}`);
       if (!s.page.startsWith("/tools/")) check(`${tag}: the "חזרה" control is present`, m.back);
+      // D1 (2026-11-10): the module is "שירות ואחריות"; the old repair-centric name never appears.
+      check(`${tag}: the old module name "תיקונים ושירות" appears nowhere`, !m.text.includes("תיקונים ושירות"));
+      if (page.url().endsWith("/service-desk/settings")) check(`${tag}: settings back control reads "לשירות ואחריות"`, m.text.includes("לשירות ואחריות"));
       if (vp.width === 1440) {
-        const inNav = m.nav.some((t) => t.includes("תיקונים ושירות"));
+        const inNav = m.nav.some((t) => t.includes("שירות ואחריות"));
         check(`${tag}: «ניהול העסק» lists the module only while service_desk is ON`, s.access === "FULL" ? inNav : !inNav, m.nav.join(" | ").slice(0, 200));
       }
 
       switch (key) {
         case "home-not-open":
-          check(`${tag}: not open → the notice, no link to the settings`, m.text.includes("עדיין לא פתוחה") && !m.text.includes("טכנאי ברירת מחדל ואחריות"));
+          check(`${tag}: not open → the notice, no link to the settings`, m.text.includes("עדיין לא פתוחה") && !m.text.includes("איש מקצוע ברירת מחדל ואחריות"));
           break;
         case "home":
           check(`${tag}: the settings entry; cases are announced, not offered`, m.text.includes("הגדרות שירות") && m.text.includes("בשלב הבא") && !m.text.includes("תיק חדש\n"));
@@ -223,13 +226,13 @@ async function main() {
           check(`${tag}: "חזרה" with no unsaved change → back to the service home, no confirm`, backUrl === "/service-desk" && !m.text.includes("יש שינויים שלא נשמרו"), String(backUrl));
           break;
         case "tools-on":
-          check(`${tag}: «ניהול העסק» lists "תיקונים ושירות" while service_desk is ON`, m.text.includes("תיקונים ושירות"));
+          check(`${tag}: «ניהול העסק» lists "שירות ואחריות" while service_desk is ON`, m.text.includes("שירות ואחריות"));
           break;
         case "tools-off":
-          check(`${tag}: «ניהול העסק» hides "תיקונים ושירות" while service_desk is OFF`, !m.text.includes("תיקונים ושירות") && m.text.length > 0);
+          check(`${tag}: «ניהול העסק» hides "שירות ואחריות" while service_desk is OFF`, !m.text.includes("שירות ואחריות") && m.text.length > 0);
           break;
         case "settings-inactive-technician":
-          check(`${tag}: an inactive default technician is named as such and explained`, m.options.includes("טכנאי שכבר לא פעיל") && m.text.includes("כבר לא פעיל בעסק"));
+          check(`${tag}: an inactive default technician is named as such and explained`, m.options.includes("איש מקצוע שכבר לא פעיל") && m.text.includes("כבר לא פעיל בעסק"));
           break;
         default:
           break;
