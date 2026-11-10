@@ -19,6 +19,9 @@
  * database they answer NOT_AVAILABLE_UNTIL_AUDIT and write nothing.
  *
  * Raw SQL with explicit casts throughout: the queries name exactly the columns and locks they need.
+ *
+ * The request / journal / lock helpers are exported for the sibling services of the same module (external work, parts),
+ * so every Service Desk command keeps ONE implementation of the idempotency, locking and guard-refusal rules.
  */
 import { Prisma } from "@prisma/client";
 
@@ -45,7 +48,7 @@ import { checkCommandEnvelope, evaluateRepeatCase, evaluateTransition, openServi
 import { ServiceDeskError, refused } from "./service-desk-errors";
 import { evaluateQa } from "./qa-templates";
 
-type Tx = Prisma.TransactionClient;
+export type Tx = Prisma.TransactionClient;
 
 export type ServiceDeskPrincipal = { businessId: number; userId: number };
 export type WriteRequest = { idempotencyKey: string; now?: Date };
@@ -63,31 +66,32 @@ export const OUT_OF_SCOPE_ACTIONS: Readonly<Record<Exclude<ServiceCaseActionType
   REVISE_QUOTE: "quotes — 1.3c",
   APPROVE_QUOTE: "quotes — 1.3c",
   REJECT_QUOTE: "quotes — 1.3c",
-  SEND_TO_EXTERNAL: "external work — 1.3d",
-  RETURN_FROM_EXTERNAL: "external work — 1.3d",
+  SEND_TO_EXTERNAL: "external work — its own commands (external-work.service), closed until 1.3b",
+  RETURN_FROM_EXTERNAL: "external work — its own commands (external-work.service), closed until 1.3b",
   DELIVER: "handover, balance, warranty lock — 1.3c",
   CLOSE: "closing after handover — 1.3c",
 };
 
 /** The write-once time stamps a decision sets (the database guard keeps cancelledAt / abandonedAt write-once). */
-function stampsFor(d: Extract<ServiceTransitionDecision, { ok: true }>) {
+export function stampsFor(d: Extract<ServiceTransitionDecision, { ok: true }>) {
   return {
     checkedIn: d.statusChanged && d.to === "CHECKED_IN",
     ready: d.statusChanged && d.to === "READY",
-    // A cancel is stamped when it is decided — also when a held item goes to READY to be handed back.
-    cancelled: d.action === "CANCEL" && d.outcome === "CANCELLED",
+    // A cancel is stamped when it is decided — also when a held item goes to READY to be handed back, and when it is
+    // only requested while the item is at a supplier (CHECK ServiceCase_cancel_stamp: a requested cancel carries cancelledAt).
+    cancelled: d.action === "CANCEL" && (d.outcome === "CANCELLED" || d.cancellationRequestedAfter === true),
     abandoned: d.statusChanged && d.to === "ABANDONED",
   };
 }
 
-const isPositiveInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n > 0;
-const isNonNegativeInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0;
+export const isPositiveInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n > 0;
+export const isNonNegativeInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0;
 
 // ── Requests: key, digest, the journal as the ledger ────────────────────────────────────────────────────────
 
-type Prepared = { key: string; now: Date; keys: ReturnType<typeof digestKeysFromEnv>; ident: RequestIdentity; digest: { value: string; keyId: string } };
+export type Prepared = { key: string; now: Date; keys: ReturnType<typeof digestKeysFromEnv>; ident: RequestIdentity; digest: { value: string; keyId: string } };
 
-function prepare(p: ServiceDeskPrincipal, req: WriteRequest, route: string, body: unknown): Prepared {
+export function prepare(p: ServiceDeskPrincipal, req: WriteRequest, route: string, body: unknown): Prepared {
   const now = req.now ?? new Date();
   const key = req.idempotencyKey;
   const verdict = checkIdempotencyKey(key, now);
@@ -97,7 +101,7 @@ function prepare(p: ServiceDeskPrincipal, req: WriteRequest, route: string, body
   return { key, now, keys, ident, digest: { value: requestDigest(keys.current, ident), keyId: keys.current.id } };
 }
 
-type Prior = { caseId: number; seq: number };
+export type Prior = { caseId: number; seq: number };
 
 async function findPrior(tx: Tx, businessId: number, p: Prepared): Promise<Prior | null> {
   const rows = await tx.$queryRaw<{ caseId: number; seq: number; d: string | null; k: string | null }[]>`
@@ -111,13 +115,13 @@ async function findPrior(tx: Tx, businessId: number, p: Prepared): Promise<Prior
   return { caseId: Number(origin.caseId), seq: Number(origin.seq) };
 }
 
-const isUniqueViolation = (e: unknown) => {
+export const isUniqueViolation = (e: unknown) => {
   const code = (e as { code?: string; meta?: { code?: string } })?.meta?.code ?? (e as { code?: string })?.code;
   return code === "P2002" || code === "23505" || /23505|unique constraint/i.test(e instanceof Error ? e.message : "");
 };
 
 /** A database guard of the module refused the write (DZS…/DZU… codes): a refusal, never a 500. */
-function guardRefusal(e: unknown): ServiceDeskError | null {
+export function guardRefusal(e: unknown): ServiceDeskError | null {
   const text = e instanceof Error ? e.message : String(e);
   if (/SERVICE_UI_BUSINESS_DELETING|DZU02/.test(text)) return new ServiceDeskError("BUSINESS_DELETING");
   const m = /(SERVICE_[A-Z_]+):/.exec(text);
@@ -132,7 +136,7 @@ function guardRefusal(e: unknown): ServiceDeskError | null {
  * one with the same key sees that one's committed event and is answered from it (never a version conflict, never a
  * consumed case number).
  */
-async function journaled<T, L>(
+export async function journaled<T, L>(
   p: ServiceDeskPrincipal,
   prepared: Prepared,
   lock: (tx: Tx) => Promise<L>,
@@ -165,7 +169,7 @@ async function journaled<T, L>(
   }
 }
 
-async function appendEvent(tx: Tx, businessId: number, caseId: number, seq: number, e: ServiceJournalEventDraft, userId: number, prepared: Prepared) {
+export async function appendEvent(tx: Tx, businessId: number, caseId: number, seq: number, e: ServiceJournalEventDraft, userId: number, prepared: Prepared) {
   const actor = e.actor.kind === "OWNER" ? "OWNER_USER" : e.actor.kind;
   await tx.$executeRaw`
     INSERT INTO "ServiceCaseEvent" ("businessId", "caseId", seq, "eventType", action, "fromStatus", "toStatus", "holdReasonBefore", "holdReasonAfter",
@@ -178,7 +182,7 @@ async function appendEvent(tx: Tx, businessId: number, caseId: number, seq: numb
 
 // ── Facts the server checks verify ──────────────────────────────────────────────────────────────────────────
 
-async function staffOfBusiness(tx: Tx, businessId: number, staffId: number): Promise<boolean> {
+export async function staffOfBusiness(tx: Tx, businessId: number, staffId: number): Promise<boolean> {
   const r = await tx.$queryRaw<{ ok: boolean }[]>`
     SELECT EXISTS (SELECT 1 FROM "StaffMember" WHERE id = ${staffId}::int AND "businessId" = ${businessId}::int AND active AND "erasedAt" IS NULL) AS ok`;
   return r[0]?.ok === true;
@@ -323,7 +327,7 @@ export type CommandResult = { case: CaseSummary; event: { seq: number }; replaye
 /** The database requires a problem description on every case (CHECK ServiceCase_problem_described, ≤ 4000). */
 const PROBLEM_MAX = 4000;
 
-async function summaryOf(tx: Tx, businessId: number, caseId: number): Promise<CaseSummary> {
+export async function summaryOf(tx: Tx, businessId: number, caseId: number): Promise<CaseSummary> {
   const rows = await tx.$queryRaw<Record<string, unknown>[]>`
     SELECT ${SUMMARY_COLUMNS} FROM "ServiceCase" c LEFT JOIN "Customer" cu ON cu.id = c."customerId" AND cu."businessId" = c."businessId"
      WHERE c.id = ${caseId}::int AND c."businessId" = ${businessId}::int`;
@@ -401,9 +405,9 @@ export async function openCase(p: ServiceDeskPrincipal, input: OpenCaseInput, re
 
 // ── Transitions ─────────────────────────────────────────────────────────────────────────────────────────────
 
-type Locked = { context: ServiceCaseContext; signatureKey: string | null };
+export type Locked = { context: ServiceCaseContext; signatureKey: string | null };
 
-async function lockCase(tx: Tx, businessId: number, caseId: number): Promise<Locked> {
+export async function lockCase(tx: Tx, businessId: number, caseId: number): Promise<Locked> {
   const c = (await tx.$queryRaw<Record<string, unknown>[]>`
     SELECT kind::text AS kind, status::text AS status, "holdReason"::text AS "holdReason", outcome::text AS outcome, version, "staffMemberId",
            "coverageSource"::text AS "coverageSource", "coverageDecision"::text AS "coverageDecision", "qaCompletedAt", "pickupRemindersSent", "cancellationRequested"

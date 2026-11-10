@@ -97,7 +97,7 @@ async function main() {
   const files: string[] = [];
   const walk = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name === "route.ts") files.push(p); } };
   walk(root);
-  ok("R1 ten route files", files.length === 10, String(files.length));
+  ok("R1 thirteen route files (1d-A: three external-work routes, closed until 1.3b)", files.length === 13, String(files.length));
   let allGuarded = true, kindsRight = true;
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");
