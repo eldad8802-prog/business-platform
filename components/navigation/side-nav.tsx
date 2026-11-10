@@ -120,6 +120,7 @@ export function NavSidebar() {
   const visible = useMediaQuery(SIDEBAR_QUERY);
   const tasksOn = useFeatureEnabled("daily_tasks", visible);
   const appointmentsOn = useFeatureEnabled("appointments", visible);
+  const serviceDeskOn = useFeatureEnabled("service_desk", visible);
   const hasUnread = useHasUnreadNotifications(pathname, visible);
   const badges = useNavBadges(visible, pathname, tasksOn);
   const { businessName } = useSessionIdentity(visible);
@@ -183,7 +184,7 @@ export function NavSidebar() {
               <span style={{ width: 7, height: 7, borderRadius: 2, background: g.dot }} />
               {t(g.labelKey)}
             </div>
-            {destinationsIn(g.key).filter((d) => !d.feature || (d.feature === "daily_tasks" && tasksOn) || (d.feature === "appointments" && appointmentsOn)).map((d) => (
+            {destinationsIn(g.key).filter((d) => !d.feature || (d.feature === "daily_tasks" && tasksOn) || (d.feature === "appointments" && appointmentsOn) || (d.feature === "service_desk" && serviceDeskOn)).map((d) => (
               <SidebarItem key={d.key} dest={d} active={isNavActive(pathname, d.href)} badge={badgeFor(d.key)} />
             ))}
           </div>
