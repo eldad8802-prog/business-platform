@@ -187,20 +187,8 @@ const MUTATIONS = {
     fs.writeFileSync(ADAPTER, text.slice(0, start) + text.slice(end));
   },
 
-  /** S3 — InventoryItem's MODEL-level C12 is resolved. Its image surface must survive that. */
-  S3: () => {
-    replaceOnce(
-      ADAPTER,
-      "          await tx.crmAttachment.deleteMany({ where: { businessId } });",
-      '          await tx.inventoryItem.updateMany({ where: { businessId }, data: { supplierName: null } });\n' +
-        "          await tx.crmAttachment.deleteMany({ where: { businessId } });"
-    );
-    replaceOnce(
-      COVERAGE,
-      '  InventoryItem: unmanaged("supplierName, a denormalised copy of a Supplier name"),',
-      '  InventoryItem: { disposition: "ERASURE_MANAGED" },'
-    );
-  },
+  // S3 retired 2026-11-10: the erasure closure made InventoryItem ERASURE_MANAGED for real; the CI step now
+  // asserts the same outcome on the real tree.
 
   /** S4 — the InventoryItem image surface declaration is removed. */
   S4: () => dropObjectSurface("InventoryItem", "imageUrl"),

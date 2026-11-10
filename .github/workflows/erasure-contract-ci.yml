@@ -492,16 +492,12 @@ jobs:
 
       # The load-bearing one for the Supplier wave: resolving InventoryItem's MODEL-level
       # C12 must NOT take its image debt with it.
+      # S3 used to SIMULATE InventoryItem's model-level C12 resolving (a mutation). Since the erasure closure
+      # (2026-11-10, owner-approved) the real erasure clears supplierName and the model is ERASURE_MANAGED, so the
+      # same assertions now run against the real tree: C12 gone, the image object debt still open.
       - name: proof — S3 a model-level C12 resolving leaves the object finding standing
         run: |
-          A="lib/services/account/account-deletion.prisma-store.ts"
-          C="scripts/ci/erasure/erasure-model-coverage.ts"
-          cp "$A" "$RUNNER_TEMP/S3.a"; cp "$C" "$RUNNER_TEMP/S3.c"
-          node .ad2a/mutate.mjs S3
-          if cmp -s "$A" "$RUNNER_TEMP/S3.a"; then echo "MUTATION NOT APPLIED"; exit 1; fi
           set +e; npm run verify:erasure-contract > "$RUNNER_TEMP/S3.out" 2>&1; set -e
-          cp "$RUNNER_TEMP/S3.a" "$A"; cp "$RUNNER_TEMP/S3.c" "$C"
-          cmp -s "$A" "$RUNNER_TEMP/S3.a" && cmp -s "$C" "$RUNNER_TEMP/S3.c" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
           grep -qF "InventoryItem holds personal data" "$RUNNER_TEMP/S3.out" && { echo "the model-level C12 did not resolve; the proof proves nothing"; exit 1; }
           grep -qF "C19-EXTERNAL-OBJECT-UNERASED" "$RUNNER_TEMP/S3.out" || { echo "PROOF FAIL: no object findings at all"; exit 1; }
           grep -qF "InventoryItem.imageUrl points at stored bytes" "$RUNNER_TEMP/S3.out" || { tail -40 "$RUNNER_TEMP/S3.out"; echo "PROOF FAIL: the image debt vanished with the model-level finding"; exit 1; }
