@@ -19,6 +19,7 @@ on:
       - ".business-documents/lab.sh"
       - ".business-documents/po-sheet*"
       - ".github/workflows/business-documents-po-sheet-ci.yml"
+      - "ops/evidence/business-documents-pilot-business-9.sql"
 
 permissions:
   contents: read
@@ -167,3 +168,67 @@ jobs:
           name: po-sheet-e2e
           path: /tmp/bd-po-ui
           retention-days: 14
+
+  pilot-evidence:
+    name: Business 9 pilot evidence query — runs read-only on the real migrations, and tells the states apart (PG17 lab)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: po_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: po_ci_synthetic_super_pw
+      LAB_PASSWORD: po_ci_synthetic_role_pw
+      EV: ops/evidence/business-documents-pilot-business-9.sql
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab database (both business-documents migrations, Production role topology)
+        run: bash .business-documents/lab.sh po_ev --with-po
+      - name: The query runs read-only (as Production runs it, through the redaction filter) and tells three states apart
+        run: |
+          set -euo pipefail
+          URL="postgresql://lab_super:$PGPASSWORD@localhost:5432/po_ev"
+          # Exactly as prod-readonly-evidence.yml runs it: every transaction READ ONLY, output redacted.
+          ev() { PGOPTIONS="-c default_transaction_read_only=on" psql "$URL" --no-psqlrc --set=ON_ERROR_STOP=1 --file="$EV" | node scripts/ci/evidence-redact.mjs | tee "/tmp/ev-$1.out"; }
+          row() { grep -E "^ *$2 \| " "/tmp/ev-$1.out" | head -1; }
+          expect() { r="$(row "$1" "$2")"; echo "$r" | grep -qE "\| *$3 *\| *$4 *$" || { echo "::error::state $1, check $2: want '$3 | $4', got '$r'"; exit 1; }; }
+          rows() { [ "$(grep -cE '^ *[0-9]+ \| (PASS|FAIL|INFO|<redacted>) ' "/tmp/ev-$1.out")" = 16 ] || { echo "::error::state $1: not 16 rows"; exit 1; }; }
+          lab() { psql "$URL" --no-psqlrc --set=ON_ERROR_STOP=1 -qc "$1"; }
+
+          echo "--- state A: nothing enabled (Production today)"
+          ev A; rows A
+          expect A 0 PASS 1; expect A 1 PASS 1; expect A 4 PASS 0; expect A 5 PASS 0; expect A 7 PASS 0; expect A 10 PASS 1
+          grep -qE '^ *2 \| .* 0 *$' /tmp/ev-A.out && grep -qE '^ *3 \| .* 0 *$' /tmp/ev-A.out
+
+          echo "--- state B: business 9 alone ENABLED (the approved switch-on)"
+          lab "INSERT INTO \"Business\" (id, name, \"updatedAt\") VALUES (9, 'lab nine', now()), (38, 'lab thirty-eight', now())"
+          lab "INSERT INTO \"BusinessFeatureAccess\" (\"businessId\", \"featureKey\", state, reason, \"updatedAt\") VALUES (9, 'business_documents', 'ENABLED', 'lab', now())"
+          ev B; rows B
+          expect B 1 PASS 1; expect B 4 PASS 0; expect B 5 PASS 0
+          grep -qE '^ *2 \| .* 1 *$' /tmp/ev-B.out && grep -qE '^ *3 \| .* 1 *$' /tmp/ev-B.out
+          cmp <(row A 13) <(row B 13) && cmp <(row A 15) <(row B 15)
+
+          echo "--- state C: business 38 also holds an override (must be caught)"
+          lab "INSERT INTO \"BusinessFeatureAccess\" (\"businessId\", \"featureKey\", state, reason, \"updatedAt\") VALUES (38, 'business_documents', 'DISABLED', 'lab', now())"
+          ev C; rows C
+          expect C 4 FAIL 1; expect C 5 FAIL 1
