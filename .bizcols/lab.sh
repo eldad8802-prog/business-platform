@@ -25,13 +25,6 @@ OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${P
 psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/migration.sql"
 if [ "${2:-}" = "--b4" ]; then
   psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ROOT/prisma/migrations/20261006090000_business_tenant_write_rls/migration.sql"
-  # Production applied 20261011090100 after B4: it grants the runtime UPDATE ("name") on Business (account erasure A1
-  # renames the business at the terminal transition, which the B4 battery runs). Taken VERBATIM from that migration —
-  # never widened. Only in --b4: the base lab is the D2 E4 forensic snapshot (preflight check 20: UPDATE on the five only).
-  REN="$ROOT/prisma/migrations/20261011090100_signup_consent_business_rename/migration.sql"
-  NAME_GRANT="$(grep -oF 'GRANT UPDATE ("name") ON "Business" TO app_runtime;' "$REN" | head -1)"
-  [ -n "$NAME_GRANT" ] || { echo "the Business name grant was not found in $REN"; exit 1; }
-  echo "$NAME_GRANT" | psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL"
   psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres -c \
     "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_auth_lab') THEN CREATE ROLE app_auth_lab LOGIN NOSUPERUSER NOBYPASSRLS ${LAB_PASSWORD:+PASSWORD '${LAB_PASSWORD}'} IN ROLE app_auth; END IF; END \$\$"
   echo "LAB READY: $DB (+ D2 E4 narrowing + B4)"
