@@ -374,7 +374,7 @@ async function main() {
       registerPOST(new Request("https://app.battery.test/api/auth/register", {
         method: "POST",
         headers: { "content-type": "application/json", "x-forwarded-for": ip },
-        body: JSON.stringify({ email, password: "beta-battery-pw-1", name: "בטא בודק", businessName: `${tag} beta`, acceptTerms: true }),
+        body: JSON.stringify({ email, password: "beta-battery-pw-1", name: "בטא בודק", businessName: `${tag} beta`, businessKind: "AUTHORIZED_DEALER", acceptTerms: true }),
       }));
     const rows0 = await total();
     const users0 = await owner.user.count();

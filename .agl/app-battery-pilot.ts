@@ -115,9 +115,9 @@ async function read(res: Response) {
   const refresh = set.find((c) => c.startsWith("dubiz_rt="));
   return { status: res.status, body: (await res.json().catch(() => ({}))) as Record<string, unknown>, refresh: refresh ? decodeURIComponent(refresh.split(";")[0].slice(9)) || null : null };
 }
-const complete = async (ticket: string | null) => read(await handleGoogleComplete(post("/api/auth/google/complete", GOOGLE_TICKET_COOKIE, ticket, { name: "דנה", businessName: "עסק פיילוט", acceptTerms: true }),
+const complete = async (ticket: string | null) => read(await handleGoogleComplete(post("/api/auth/google/complete", GOOGLE_TICKET_COOKIE, ticket, { name: "דנה", businessName: "עסק פיילוט", businessKind: "AUTHORIZED_DEALER", acceptTerms: true }),
   { config: CFG, isSignupEnabled: isPublicSignupEnabled, signupAllowlist: readSignupAllowlist, readTicket: readSignupTicket, rateLimit: consumeRateLimit,
-    createAccount: createAccountFromGoogle, recordUsage: recordProductUsageEvent, scheduleWelcome: () => {} }));
+    createAccount: createAccountFromGoogle, recordUsage: recordProductUsageEvent, scheduleWelcome: () => {}, seedBusinessKind: async () => "seeded" as const }));
 const linkPassword = async (cookie: string | null) => read(await handleLinkPassword(post("/api/auth/google/link/password", GOOGLE_LINK_COOKIE, cookie, { password: PASSWORD }),
   { config: CFG, readTicket: readLinkTicket, findAccount: findLinkAccount, rateLimit: consumeRateLimit, reserve: reserveAttempt, compare: (p, h) => bcrypt.compare(p, h), complete: completeGoogleLink, deliver: () => {} }));
 const requestEmail = async (cookie: string | null) => read(await handleLinkEmailRequest(post("/api/auth/google/link/email", GOOGLE_LINK_COOKIE, cookie),
