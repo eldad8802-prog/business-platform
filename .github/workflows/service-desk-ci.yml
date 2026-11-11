@@ -42,6 +42,7 @@ jobs:
       - run: npx tsx lib/services/service-desk/service-desk-access.test.ts
       - run: npx tsx lib/services/service-desk/service-desk-gate.test.ts
       - run: npx tsx lib/services/service-desk/service-profiles.test.ts
+      - run: npx tsx lib/services/service-desk/tracks-core.test.ts
       - run: npx tsx lib/services/service-desk/external-work-lock.test.ts
       - run: npx tsx lib/services/service-desk/cancel-stamp.test.ts
       - run: npx tsx lib/services/service-desk/settlement.test.ts

@@ -133,6 +133,18 @@ async function main() {
     ok("E1 T1: a handover record, no completion record", (await count(A, "ServiceHandover", c.id)) === 1 && (await count(A, "ServiceCompletion", c.id)) === 0);
   }
   {
+    // E1b — a failed QA round: the stamp of the earlier complete checklist does not carry into the next round
+    const c = await open(A, { track: "T1", subject: { displayName: "טלפון סינתטי ב" } });
+    const pre = [await intake(A, c.id), await walk(A, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }]),
+      await qa(A, c.id, "IN_SHOP.v1"), await walk(A, c.id, [{ type: "FAIL_QA" }, { type: "FINISH_REPAIR" }])];
+    const stamp = (await own(A.b, `SELECT "qaCompletedAt" FROM "ServiceCase" WHERE id = $1`, c.id))[0].qaCompletedAt;
+    const again = await act(A, c.id, { type: "PASS_QA", outcome: "REPAIRED" });
+    ok("E1b after FAIL_QA and a new repair the case is back in QA with no completion stamp", pre.every((s) => s === "OK") && (await row(A, c.id)).status === "QA" && stamp === null, pre.join(" | "));
+    ok("E1b PASS_QA without a fresh checklist is refused (QA_INCOMPLETE)", again.includes("QA_INCOMPLETE"), again);
+    const fresh = [await qa(A, c.id, "IN_SHOP.v1"), await walk(A, c.id, [{ type: "PASS_QA", outcome: "REPAIRED" }])];
+    ok("E1b a fresh complete checklist lets PASS_QA through", fresh.every((s) => s === "OK") && (await row(A, c.id)).status === "READY", fresh.join(" | "));
+  }
+  {
     // T2 — a vehicle at the business: VEHICLE.v1 checklist
     const c = await open(A, { track: "T2", subject: { displayName: "רכב סינתטי", attributes: { plate: "12-345-67", km: 120000 } } });
     const path = [await intake(A, c.id), await walk(A, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }])];
