@@ -101,8 +101,10 @@ async function main() {
   const A2 = await user(A, "a2"); // another user of the SAME business (no staff accounts exist; a second user row is enough to prove attribution)
 
   console.log("H — the version-2 record");
-  ok("H1 settled (0 / 0), no exception → accepted", (await rt(A.b, handover(A, await kase(A)))) === "OK");
-  let r = await rt(A.b, handover(A, await kase(A), { v: null }));
+  let r: string;
+  r = await rt(A.b, handover(A, await kase(A)));
+  ok("H1 settled (0 / 0), no exception → accepted", r === "OK", r);
+  r = await rt(A.b, handover(A, await kase(A), { v: null }));
   ok("H2 the legacy writer (no recordVersion) → refused SERVICE_HANDOVER_RECORD_V2", r.includes("SERVICE_HANDOVER_RECORD_V2"), r);
   r = await rt(A.b, handover(A, await kase(A), { v: 1 }));
   ok("H3 recordVersion 1 stated explicitly → refused", r.includes("SERVICE_HANDOVER_RECORD_V2"), r);
@@ -158,6 +160,10 @@ async function main() {
   ok("P3 approver = a user of ANOTHER business → refused", r.includes("SERVICE_APPROVER_NOT_ACTOR") || r.includes("SERVICE_USER_OTHER_BUSINESS"), r);
   r = await rt(A.b, handover(A, await kase(A), debtOk(A, { approver: B.u, actor: B.u })));
   ok("P4 actor AND approver = a user of another business → SERVICE_USER_OTHER_BUSINESS", r.includes("SERVICE_USER_OTHER_BUSINESS"), r);
+  r = await rt(A.b, handover(A, await kase(A), { loanerReason: "x", loanerApprover: B.u, loanerAt: true, actor: B.u }));
+  ok("P4b loaner exception only, actor = approver = a user of another business → SERVICE_USER_OTHER_BUSINESS", r.includes("SERVICE_USER_OTHER_BUSINESS"), r);
+  r = await rt(A.b, handover(A, await kase(A), { actor: B.u }));
+  ok("P4c no exception, the actor a user of another business → SERVICE_USER_OTHER_BUSINESS", r.includes("SERVICE_USER_OTHER_BUSINESS"), r);
   const gone = await user(A, "gone");
   await q(`DELETE FROM "User" WHERE id = $1`, gone);
   r = await rt(A.b, handover(A, await kase(A), debtOk(A, { approver: gone, actor: gone })));
@@ -247,8 +253,8 @@ async function main() {
   for (const z of [A, D]) await q(`UPDATE "Business" SET "deletionRequestedAt" = now() WHERE id = $1`, z.b);
   r = await rt(A.b, handover(A, await kase(A)));
   ok("E1 a business being deleted cannot get a new handover → SERVICE_UI_BUSINESS_DELETING", r.includes("SERVICE_UI_BUSINESS_DELETING"), r);
-  const n1 = await rtRows(A.b, `SELECT public.service_erase_business() AS f, public.service_handover_record_erase_business() AS h`);
-  const n2 = await rtRows(D.b, `SELECT public.service_handover_record_erase_business() AS h, public.service_erase_business() AS f`);
+  const n1 = await rtRows(A.b, `SELECT public.service_erase_business() AS f, public.service_handover_record_erase_business() AS h`).catch((e) => [{ h: 0, error: err(e).slice(-200) }] as Rows);
+  const n2 = await rtRows(D.b, `SELECT public.service_handover_record_erase_business() AS h, public.service_erase_business() AS f`).catch((e) => [{ h: 0, error: err(e).slice(-200) }] as Rows);
   ok("E2 both orders run as the runtime (each touched rows)", Number(n1[0].h) > 0 && Number(n2[0].h) > 0, JSON.stringify([n1, n2]));
   for (const [z, c, label] of [[A, cDebt, "foundation first"], [D, cD, "this function first"]] as const) {
     const e = (await own(z.b, `SELECT "receivedByName" n, "debtOverrideReason" r, "loanerOverrideReason" lr, "actorUserId" u, "debtApprovedByUserId" a,
