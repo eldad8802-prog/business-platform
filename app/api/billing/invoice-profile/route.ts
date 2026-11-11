@@ -18,6 +18,7 @@ import {
   loadBillingInvoiceProfile,
 } from "@/lib/services/billing/billing-invoice-profile.service";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
+import { assertIssuerIdentityEditableTx } from "@/lib/services/billing/issuer-declaration/issuer-declaration-gates";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 
 const MAX_LOGO_CHARS = 500_000;
@@ -217,6 +218,10 @@ export async function PATCH(req: NextRequest) {
         where: { businessId: user.businessId },
         select: BILLING_INVOICE_PROFILE_SELECT,
       });
+
+      // #1081: once the business has a live issuer declaration, its declared identity is locked — refused here
+      // with a clear message (the database trigger BusinessProfile_issuer_identity_lock is the backstop).
+      await assertIssuerIdentityEditableTx(tx, user.businessId, before, persist);
 
       const saved = await tx.businessProfile.upsert({
         where: { businessId: user.businessId },

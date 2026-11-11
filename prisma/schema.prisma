@@ -9103,3 +9103,118 @@ model BusinessDocumentErasure {
   startedAt   DateTime                     @default(now()) @db.Timestamptz(3)
   completedAt DateTime?                    @db.Timestamptz(3)
 }
+
+// ── Issuer declaration (#1081, migration 20261123090000_issuer_declaration) ──────────────────────────────
+// The declared issuer identity of a business, append-only. Foreign keys, CHECK shapes, the partial unique index
+// and every guard (chain, designation origin, series-unused, issuance, profile lock, erase) live in the migration
+// SQL; the runtime may only SELECT and INSERT.
+
+enum IssuerTrack {
+  EXEMPT_DEALER
+  AUTHORIZED_DEALER_INDIVIDUAL
+  COMPANY_AUTHORIZED_DEALER
+}
+
+enum IssuerLegalForm {
+  INDIVIDUAL
+  COMPANY
+}
+
+enum IssuerVatStatus {
+  EXEMPT
+  AUTHORIZED
+}
+
+enum IssuerIdType {
+  ISRAELI_ID
+  COMPANY_NUMBER
+}
+
+enum IssuerDeclarationKind {
+  INITIAL
+  EXISTING_CONFIRMATION
+  CONTACT_UPDATE
+  STATUS_CHANGE
+  CORRECTION
+  AUTHORITY_TRANSFER
+}
+
+enum IssuerAuthorityBasis {
+  SOLE_USER_VERIFIED
+  PLATFORM_DESIGNATED
+  CURRENT_AUTHORIZED_USER
+}
+
+enum IssuerReauthMethod {
+  PASSWORD
+  EMAIL_LINK
+  PLATFORM_ADMIN_ELEVATION
+}
+
+enum SeriesOpeningSource {
+  NEW_BUSINESS
+  CONTINUES_PREVIOUS_TOOL
+  EXPLICIT_NEW_SERIES
+}
+
+model BusinessIssuerDeclaration {
+  id                    Int                   @id @default(autoincrement())
+  businessId            Int
+  version               Int
+  supersedesId          Int?
+  kind                  IssuerDeclarationKind
+  track                 IssuerTrack
+  legalForm             IssuerLegalForm
+  vatStatus             IssuerVatStatus
+  legalName             String
+  tradeName             String?
+  idType                IssuerIdType
+  idNumber              String
+  vatRegistrationNumber String?
+  address               String
+  phone                 String
+  email                 String
+  effectiveFrom         DateTime              @db.Timestamptz(6)
+  reason                String?
+  authorizedUserId      Int
+  authorityBasis        IssuerAuthorityBasis
+  authorityEvidenceRef  String?
+  declaredByUserId      Int
+  declarantName         String
+  declarantCapacity     String
+  statementVersion      String
+  statementSha256       String                @db.Char(64)
+  reauthMethod          IssuerReauthMethod
+  reauthAt              DateTime              @db.Timestamptz(6)
+  anonymisedAt          DateTime?             @db.Timestamptz(6)
+  createdAt             DateTime              @default(now()) @db.Timestamptz(6)
+
+  @@unique([businessId, version])
+  @@unique([businessId, id])
+  @@index([businessId, effectiveFrom(sort: Desc)])
+}
+
+/// Declared opening number of a document series, accepted only while the series has never been used.
+model BillingSeriesOpening {
+  id                       Int                 @id @default(autoincrement())
+  businessId               Int
+  documentType             BillingDocumentType
+  seriesCode               String              @default("MAIN")
+  openingNumber            Int
+  source                   SeriesOpeningSource
+  previousToolName         String?
+  lastNumberInPreviousTool Int?
+  declarationId            Int
+  declaredByUserId         Int
+  createdAt                DateTime            @default(now()) @db.Timestamptz(6)
+
+  @@unique([businessId, documentType, seriesCode], map: "BillingSeriesOpening_series_key")
+}
+
+/// One-way switch: once its single row exists, issuance without a declaration is refused in the database.
+model IssuerDeclarationEnforcement {
+  id           Int      @id @default(autoincrement())
+  enforcedFrom DateTime @db.Timestamptz(6)
+  recordedBy   String
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+}

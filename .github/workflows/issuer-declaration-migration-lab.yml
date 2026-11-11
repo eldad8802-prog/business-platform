@@ -5,6 +5,10 @@
 #
 # Synthetic data only; ZERO secrets; no network beyond the service container.
 #
+# Job 3 (the #1081 code): D1/D2/D4 pure, then the declaration flow (D3 and session 23's checks (a)-(d)) on session
+# 23's Production auth-topology lab with their link migration (.agl/lab.sh --with-issuer), billing's migration
+# applied after it as the owner.
+#
 # Job 2 runs TODAY's account deletion (deleteOwnBusinessAccount) on the Production-topology lab with the migration applied
 # by `prisma migrate deploy` — the window between the migration and the #1081 code (.issuer-declaration/).
 
@@ -18,6 +22,12 @@ on:
       - "scripts/ci/issuer-declaration/**"
       - ".issuer-declaration/**"
       - "lib/services/account/**"
+      - "lib/billing/issuer-declaration/**"
+      - "lib/services/billing/issuer-declaration/**"
+      - "lib/services/billing/billing-issue.service.ts"
+      - "app/api/billing/issuer-declaration/**"
+      - "app/api/billing/invoice-profile/**"
+      - "app/billing/issuer-declaration/**"
       - ".github/workflows/issuer-declaration-migration-lab.yml"
   workflow_dispatch:
 
@@ -73,6 +83,8 @@ jobs:
           for url in "$OWNER_URL" "$NEG_URL"; do
             DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db push --skip-generate
             psql "$url" -q -f "$SECF" > /dev/null
+            # The code PR models the declaration tables: drop what db push built (no-op on the migration-only PR).
+            psql "$url" -v ON_ERROR_STOP=1 -q -f .issuer-declaration/drop-pushed.sql > /dev/null 2>&1
           done
 
       - name: Apply the migration
@@ -148,3 +160,66 @@ jobs:
           AUTH_TOKEN_SECRET=decl-ci-synthetic-auth-secret-0123456789abcdef \
             npx tsx .issuer-declaration/account-deletion.battery.mts | tee /tmp/decl-del.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/decl-del.out || { echo "the account-deletion battery is not green"; exit 1; }
+
+  declaration-code:
+    name: Declaration code — D1 D2 D4 (pure) + D3 (a)-(d) flow (link + declaration migrations, PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: idc_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: idc_ci_synthetic_super_pw
+      LAB_PASSWORD: idc_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: D1 issuer details per track (pure)
+        run: npx tsx lib/billing/issuer-declaration/details.test.ts
+      - name: D2 canonical statement and digest (pure)
+        run: npx tsx lib/billing/issuer-declaration/statement.test.ts
+      - name: D4 issuance gate OFF/ON and identity lock (pure)
+        run: npx tsx lib/services/billing/issuer-declaration/issuer-declaration-gates.test.ts
+
+      - name: Lab — link migration (migrate deploy) → drop db-push copies → declaration migration (owner)
+        run: |
+          set -euo pipefail
+          if [ ! -f prisma/migrations/20261126090000_auth_issuer_declaration_link/migration.sql ]; then
+            echo "::error::the link migration (#1105) is not in the tree"; exit 1
+          fi
+          bash .agl/lab.sh idc --with-issuer | tail -3
+          O="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idc"
+          psql "$O" -v ON_ERROR_STOP=1 -q -f .issuer-declaration/drop-pushed.sql > /dev/null 2>&1
+          psql "$O" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261123090000_issuer_declaration/migration.sql > /dev/null
+          psql "$O" -Atc "SELECT count(*) FROM pg_proc WHERE proname IN ('auth_issuer_declaration_consume','issuer_issue_requires_declaration')" | grep -qx 2
+
+      - name: D3 + (a)-(d) — the declaration flow, real auth plane + tenant transaction as the runtime
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idc"           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idc"           AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/idc"             npx tsx .issuer-declaration/declaration-flow.battery.mts | tee /tmp/idc.out
+          grep -qx "ALL PASS" /tmp/idc.out || { echo "::error::the declaration flow battery is not green"; exit 1; }

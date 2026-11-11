@@ -24,6 +24,8 @@ if [ "$MODE" != "--deploy-only" ]; then
   bash "$ROOT/.sd3p4/lab.sh" "$DB" >/dev/null
   bash "$ROOT/.sd3p4/lab.sh" "$DB" --deploy-only >/dev/null
   bash "$ROOT/.sdf/erasure-prereq.sh" "$DB" >/dev/null
+  # The code PR models the declaration tables: drop what db push built, so the migration builds them (no-op otherwise).
+  psql -X -q -v ON_ERROR_STOP=1 "$OWNER_URL" -f "$ROOT/.issuer-declaration/drop-pushed.sql" >/dev/null 2>&1
   [ "$(psql -X -At "$OWNER_URL" -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '$ME'")" = "0" ] \
     || { echo "$ME is already recorded"; exit 1; }
   echo "LAB READY: $DB (P4 applied, erasure prerequisites in place; $ME pending)"

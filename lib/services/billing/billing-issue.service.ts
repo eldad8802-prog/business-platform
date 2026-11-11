@@ -58,6 +58,7 @@ import {
   type BillingPdfTemplateStyle,
 } from "@/lib/billing/billing-pdf-template-style";
 import { billingTenantTx } from "./billing-tenant-tx";
+import { assertIssuerDeclarationForIssueTx } from "./issuer-declaration/issuer-declaration-gates";
 
 const SNAPSHOT_SCHEMA_VERSION = 1;
 const DOCUMENT_NUMBER_PAD = 6;
@@ -747,6 +748,14 @@ export async function issueBillingDocumentTx(
     business.profile?.billingBusinessKind,
     doc.documentType
   );
+  // #1081: once the owner-approved enforcement row exists, a governed document needs complete issuer details and
+  // a live issuer declaration — refused here, before numbering. Without that row this reads one empty table and
+  // changes nothing.
+  await assertIssuerDeclarationForIssueTx(tx, {
+    businessId: input.businessId,
+    documentType: doc.documentType,
+    profile: business.profile,
+  });
 
   let customerData:
     | {
