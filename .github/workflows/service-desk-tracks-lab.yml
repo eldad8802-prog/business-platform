@@ -81,9 +81,10 @@ jobs:
           TASK_REQUEST_HMAC_KEY=sdm1-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdm1-ci \
           AUTH_TOKEN_SECRET=sdm1-ci-synthetic-auth-secret-0123456789abcdef \
             npx tsx .sdm1/battery.ts | tee /tmp/sdm1.out
-          grep -qE '^[0-9]+ passed, 0 failed
- /tmp/sdm1.out || { echo "the M1 battery is not green"; exit 1; }
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdm1.out || { echo "the M1 battery is not green"; exit 1; }
           # M1 CODE: the seven tracks end to end through the real service, on the same chain
-          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true           TASK_REQUEST_HMAC_KEY=sdm1-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdm1-ci           AUTH_TOKEN_SECRET=sdm1-ci-synthetic-auth-secret-0123456789abcdef             npx tsx .sdm1code/battery.ts | tee /tmp/sdm1code.out
-          grep -qE '^[0-9]+ passed, 0 failed
- /tmp/sdm1code.out || { echo "the M1 code battery is not green"; exit 1; }
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdm1-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdm1-ci \
+          AUTH_TOKEN_SECRET=sdm1-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdm1code/battery.ts | tee /tmp/sdm1code.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdm1code.out || { echo "the M1 code battery is not green"; exit 1; }
