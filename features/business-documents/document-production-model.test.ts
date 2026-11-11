@@ -5,7 +5,7 @@
 import { billingHe } from "@/lib/i18n/messages/areas/billing";
 import { billingEn } from "@/lib/i18n/messages/areas/billing.en";
 
-import { groupedProductionOptions, parseProductionEntry, productionOptions } from "./document-production-model";
+import { blocksTaxInvoiceEntry, groupedProductionOptions, parseProductionEntry, productionOptions } from "./document-production-model";
 
 let pass = 0;
 const failures: string[] = [];
@@ -56,6 +56,18 @@ for (const bad of ["0", "-3", "1.5", "abc", "12abc", "99999999999", ""]) {
   ok(`invalid customer id ${JSON.stringify(bad)} → none (and no name)`, JSON.stringify(p(`customerId=${bad}&customerName=x`)) === JSON.stringify({ customerId: null, customerName: null }));
 }
 ok("a name is trimmed and capped at 200", p(`customerId=5&customerName=${encodeURIComponent("  " + "א".repeat(300))}`).customerName?.length === 200);
+
+console.log("the invoices screen's tax-invoice entries: blocked only for an exempt dealer (feature OFF and ON)");
+for (const type of ["TAX_INVOICE", "QUOTE"] as const) {
+  for (const businessKind of ["EXEMPT_DEALER", "AUTHORIZED_DEALER", "LTD_COMPANY", null] as const) {
+    const want = type === "TAX_INVOICE" && businessKind === "EXEMPT_DEALER";
+    ok(`${type} · ${businessKind ?? "unknown kind"} → ${want ? "notice" : "as before"}`, blocksTaxInvoiceEntry({ type, businessKind }) === want);
+  }
+}
+for (const [lang, m] of [["he", billingHe.list], ["en", billingEn.list]] as const) {
+  ok(`notice words present (${lang})`, m.exemptNoTaxInvoiceTitle.length > 10 && m.exemptNoTaxInvoiceBody.length > 20 && m.exemptNoTaxInvoiceClose.length > 1);
+}
+ok("the Hebrew title is the owner's wording", billingHe.list.exemptNoTaxInvoiceTitle === "עוסק פטור אינו רשאי להפיק חשבונית מס");
 
 console.log(`\n${pass}/${pass + failures.length} passed`);
 if (failures.length) process.exit(1);
