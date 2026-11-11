@@ -6,43 +6,12 @@
  * the invoices screen, which runs its own create flow (identity gate, draft) exactly as before.
  */
 import Link from "next/link";
-import { useEffect, useState } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { TOKEN } from "@/lib/design/billing-theme";
 
-import {
-  groupedProductionOptions,
-  productionOptions,
-  type ProductionBusinessKind,
-} from "./document-production-model";
-
-function getAuthToken(): string {
-  if (typeof window === "undefined") return "1";
-  return localStorage.getItem("token") || "1";
-}
-
-/** The business kind from the existing invoice profile route (read only); unknown → null. */
-function useBusinessKind(): ProductionBusinessKind {
-  const [kind, setKind] = useState<ProductionBusinessKind>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/billing/invoice-profile", { headers: { Authorization: `Bearer ${getAuthToken()}` }, cache: "no-store" });
-        if (!res.ok) return;
-        const raw = (await res.json())?.profile?.billingBusinessKind;
-        if (!cancelled && (raw === "EXEMPT_DEALER" || raw === "AUTHORIZED_DEALER" || raw === "LTD_COMPANY")) setKind(raw);
-      } catch {
-        /* unknown kind: the list shows what the screen shows today */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return kind;
-}
+import { groupedProductionOptions, productionOptions } from "./document-production-model";
+import { useBusinessKind } from "./use-business-kind";
 
 export function DocumentProductionSheet({
   customerName,
@@ -54,7 +23,8 @@ export function DocumentProductionSheet({
   onBillingDocument: (type: "TAX_INVOICE" | "QUOTE") => void;
 }) {
   const { t } = useI18n();
-  const businessKind = useBusinessKind();
+  // undefined (still loading) lists what the screen shows today; the server still refuses an exempt tax invoice
+  const businessKind = useBusinessKind() ?? null;
   const groups = groupedProductionOptions(productionOptions({ businessKind }));
 
   const rowStyle = {
