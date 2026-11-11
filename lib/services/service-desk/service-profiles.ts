@@ -10,10 +10,12 @@
  *   - the case TRACK (T1–T7) is chosen per case, from any track the profile enables.
  * A profile never removes a capability: every track can be enabled by any business (D23, "+" in the matrix).
  *
- * Requirements are data the server will enforce later, never UI hints. Three of them are fixed for every profile
- * because the code already enforces them today, and an override may not loosen them:
- *   - a signed intake when an item enters the business's custody (core: CHECK_IN on IN_SHOP needs the signature);
- *   - a signed handover when such an item is handed back (DB CHECK ServiceHandover_signed);
+ * Requirements are data the server will enforce later, never UI hints. Owner decision 2026-11-11: NO customer signature
+ * anywhere — the owner (or an authorized user) confirms each action and the journal records who, when and what changed.
+ * Three requirements are fixed for every profile, and an override may not loosen them:
+ *   - an owner-confirmed intake when an item enters the business's custody (core: CHECK_IN on IN_SHOP needs the
+ *     documented intake and the explicit confirmation);
+ *   - an owner-confirmed handover when such an item is handed back (the receiver's name is optional);
  *   - QA on every case where the item is at the business (core: IN_SHOP FINISH_REPAIR → QA). Owner decision C1: an
  *     exchange keeps the QA step, with the short EXCHANGE.v1 checklist; the rule for other cases does not change.
  */
@@ -70,25 +72,24 @@ export const TERM_SLOTS = ["case", "subject", "professional", "work", "intake", 
 export type TermSlot = (typeof TERM_SLOTS)[number];
 
 export type QaMode = "REQUIRED" | "OPTIONAL" | "OFF";
-export type IntakeSignature = "REQUIRED" | "NONE";
+/** OWNER = the owner / an authorized user confirms the documented intake (no customer signature); NONE = no intake. */
+export type IntakeConfirmation = "OWNER" | "NONE";
 /** D15: ALWAYS = an approved quote or cover before every repair (today's rule); BY_D15 = only when a quote or a money
  *  commitment exists; NONE = the path has no repair step (credit, returning the item as is). */
 export type WorkApproval = "ALWAYS" | "BY_D15" | "NONE";
+/** How a case is proven done — always an owner action, never a customer signature (owner decision 2026-11-11). */
 export type CompletionProof =
-  | "HANDOVER_SIGNED"
-  | "CUSTOMER_SIGNATURE"
-  | "NAME_AND_PROFESSIONAL"
-  | "REMOTE_CONFIRMATION"
-  | "PROFESSIONAL_CONFIRMATION"
-  | "OWNER_WITH_CREDIT_DOCUMENT";
+  | "OWNER_HANDOVER" // a held item handed back, confirmed by the owner (receiver's name optional)
+  | "OWNER_CONFIRMATION" // the work confirmed done by the owner (on site, remote, professional service)
+  | "OWNER_WITH_CREDIT_DOCUMENT"; // a credit resolution, with its document
 
 export type Requirements = {
-  intakeSignature: IntakeSignature;
+  intakeConfirmation: IntakeConfirmation;
   workApproval: WorkApproval;
   qa: { mode: QaMode; template: string | null };
   completion: CompletionProof;
-  /** A signed handover of an item back to the customer (ServiceHandover). */
-  handoverSigned: boolean;
+  /** A held item goes back to the customer only through an owner-confirmed handover (ServiceHandover). */
+  handoverByOwner: boolean;
 };
 
 export type ProfileDefinition = {
@@ -169,20 +170,20 @@ export const PROFILES: Readonly<Record<ServiceProfileKey, ProfileDefinition>> = 
 function trackBase(track: ServiceTrack): Requirements {
   switch (track) {
     case "T1":
-      return { intakeSignature: "REQUIRED", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v1" }, completion: "HANDOVER_SIGNED", handoverSigned: true };
+      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
     case "T2":
-      return { intakeSignature: "REQUIRED", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "VEHICLE.v1" }, completion: "HANDOVER_SIGNED", handoverSigned: true };
+      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "VEHICLE.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
     case "T3":
-      return { intakeSignature: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "FIELD.v1" }, completion: "CUSTOMER_SIGNATURE", handoverSigned: false };
+      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "FIELD.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T4":
-      return { intakeSignature: "NONE", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "INSTALLATION.v1" }, completion: "CUSTOMER_SIGNATURE", handoverSigned: false };
+      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "INSTALLATION.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T5":
-      return { intakeSignature: "NONE", workApproval: "BY_D15", qa: { mode: "OFF", template: null }, completion: "PROFESSIONAL_CONFIRMATION", handoverSigned: false };
+      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OFF", template: null }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T6":
-      return { intakeSignature: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "REMOTE.v1" }, completion: "REMOTE_CONFIRMATION", handoverSigned: false };
+      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "REMOTE.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T7":
       // T7 has one row per resolution; this base is the repair row (afterSaleRequirements gives the others).
-      return { intakeSignature: "REQUIRED", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v1" }, completion: "HANDOVER_SIGNED", handoverSigned: true };
+      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
   }
 }
 
@@ -192,11 +193,11 @@ function afterSaleBase(resolution: AfterSaleResolution): Requirements {
     case "REPAIR":
       return trackBase("T7");
     case "EXCHANGE":
-      return { intakeSignature: "REQUIRED", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "EXCHANGE.v1" }, completion: "HANDOVER_SIGNED", handoverSigned: true };
+      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "EXCHANGE.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
     case "CREDIT":
-      return { intakeSignature: "REQUIRED", workApproval: "NONE", qa: { mode: "OFF", template: null }, completion: "OWNER_WITH_CREDIT_DOCUMENT", handoverSigned: false };
+      return { intakeConfirmation: "OWNER", workApproval: "NONE", qa: { mode: "OFF", template: null }, completion: "OWNER_WITH_CREDIT_DOCUMENT", handoverByOwner: false };
     case "RETURN_ORIGINAL":
-      return { intakeSignature: "REQUIRED", workApproval: "NONE", qa: { mode: "OFF", template: null }, completion: "HANDOVER_SIGNED", handoverSigned: true };
+      return { intakeConfirmation: "OWNER", workApproval: "NONE", qa: { mode: "OFF", template: null }, completion: "OWNER_HANDOVER", handoverByOwner: true };
   }
 }
 
@@ -292,14 +293,7 @@ export type OverrideViolation = { code: string; path: string };
 const TERM_MAX = 40;
 const QA_STRICTNESS: Readonly<Record<QaMode, number>> = { OFF: 0, OPTIONAL: 1, REQUIRED: 2 };
 const APPROVAL_STRICTNESS: Readonly<Record<WorkApproval, number>> = { NONE: 0, BY_D15: 1, ALWAYS: 2 };
-const COMPLETION_PROOFS: readonly CompletionProof[] = [
-  "HANDOVER_SIGNED",
-  "CUSTOMER_SIGNATURE",
-  "NAME_AND_PROFESSIONAL",
-  "REMOTE_CONFIRMATION",
-  "PROFESSIONAL_CONFIRMATION",
-  "OWNER_WITH_CREDIT_DOCUMENT",
-];
+const COMPLETION_PROOFS: readonly CompletionProof[] = ["OWNER_HANDOVER", "OWNER_CONFIRMATION", "OWNER_WITH_CREDIT_DOCUMENT"];
 
 function isTrack(value: unknown): value is ServiceTrack {
   return typeof value === "string" && (SERVICE_TRACKS as readonly string[]).includes(value);
@@ -323,22 +317,21 @@ function checkRequirementOverride(track: ServiceTrack, base: Requirements, o: Re
   if (o.completion !== undefined) {
     if (!COMPLETION_PROOFS.includes(o.completion)) v.push({ code: "INVALID_VALUE", path: `${path}.completion` });
     else if (!allowedCompletions(base).includes(o.completion)) {
-      v.push({ code: base.handoverSigned ? "FIXED_REQUIREMENT" : "COMPLETION_NOT_ALLOWED", path: `${path}.completion` });
+      v.push({ code: base.handoverByOwner ? "FIXED_REQUIREMENT" : "COMPLETION_NOT_ALLOWED", path: `${path}.completion` });
     }
   }
   return v;
 }
 
 /**
- * Completion proofs an owner may choose for a row:
- *   - a held item always leaves through a signed handover (DB CHECK ServiceHandover_signed) — nothing else;
- *   - on site, a customer signature may be relaxed to name + professional confirmation (both always remain);
- *   - anywhere else, the base proof or the stricter customer signature.
+ * Completion proofs an owner may choose for a row (all owner actions — no customer signature):
+ *   - a held item always leaves through an owner-confirmed handover — nothing else;
+ *   - a credit resolution keeps its credit document;
+ *   - anywhere else, the owner's confirmation.
  */
 function allowedCompletions(base: Requirements): readonly CompletionProof[] {
-  if (base.handoverSigned) return ["HANDOVER_SIGNED"];
-  if (base.completion === "CUSTOMER_SIGNATURE") return ["CUSTOMER_SIGNATURE", "NAME_AND_PROFESSIONAL"];
-  return [base.completion, "CUSTOMER_SIGNATURE"];
+  if (base.handoverByOwner) return ["OWNER_HANDOVER"];
+  return base.completion === "OWNER_WITH_CREDIT_DOCUMENT" ? ["OWNER_WITH_CREDIT_DOCUMENT"] : ["OWNER_CONFIRMATION"];
 }
 
 export function validateOverrides(profileKey: ServiceProfileKey, overrides: ProfileOverrides | null | undefined): OverrideViolation[] {

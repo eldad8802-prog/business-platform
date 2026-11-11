@@ -18,7 +18,7 @@
  * replacement device link, 1.3c) is refused as out of scope.
  *
  * CLOSED TO USERS (owner, 2026-11-10): the routes refuse before calling this service while EXTERNAL_WORK_OPEN is false
- * — until the intake and signature path (1.3b) is complete and tested. The service itself is exercised by the lab.
+ * — until the intake confirmation path (1.3b, owner-confirmed, no customer signature) is complete and tested. The service itself is exercised by the lab.
  */
 import { Prisma } from "@prisma/client";
 
@@ -59,13 +59,13 @@ import {
 import { ServiceDeskError } from "./service-desk-errors";
 
 /**
- * Owner decision 2026-11-10: users cannot reach these actions before the intake and signature path (1.3b) is done.
+ * Owner decision 2026-11-10: users cannot reach these actions before the intake confirmation path (1.3b, owner-confirmed, no customer signature) is done.
  * A code constant, not a flag: opening it is a reviewed change in a later PR. Every external-work route checks it first.
  */
 export const EXTERNAL_WORK_OPEN = false;
 
 export function assertExternalWorkOpen(): void {
-  if (!EXTERNAL_WORK_OPEN) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { capability: "external_work", until: "intake_signature_1_3b" });
+  if (!EXTERNAL_WORK_OPEN) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { capability: "external_work", until: "intake_confirmation_1_3b" });
 }
 
 // ── Views ─────────────────────────────────────────────────────────────────────────────────────────────────────
