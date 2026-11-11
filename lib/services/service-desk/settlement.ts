@@ -7,7 +7,8 @@
  * ids, and the per-case balance computed from both. The absence of an invoice is never read as "no debt".
  *
  *   NO_CHARGE              the owner marked the case free of charge, with a reason  → delivery may proceed (0)
- *   SETTLED                a charge exists and is fully paid                       → delivery may proceed (0)
+ *   SETTLED                a charge exists and is fully paid                       → delivery may proceed (0); an
+ *                                                                                   overpayment is carried and journaled
  *   OPEN                   documented charge, open balance > 0 (integer agorot)    → only with the owner's reason (ש4)
  *   CHARGE_NOT_DOCUMENTED  a charge agreed on the service side, no charge document → the remainder (agreed − linked
  *                          yet (the normal case for an exempt dealer)                receipts) is a debt: > 0 only with
@@ -28,10 +29,10 @@ import type { ServiceCaseContext } from "./contracts";
 
 export type ServiceCaseSettlement =
   | { state: "NO_CHARGE"; openBalanceAgorot: 0 }
-  | { state: "SETTLED"; openBalanceAgorot: 0 }
+  | { state: "SETTLED"; openBalanceAgorot: 0; overpaidAgorot?: number }
   | { state: "OPEN"; openBalanceAgorot: number }
   | { state: "CHARGE_NOT_DOCUMENTED"; openBalanceAgorot: number }
-  | { state: "UNKNOWN"; openBalanceAgorot: null; reason: "NOT_LINKED" | "DRAFT_PENDING" | "FOREIGN_CURRENCY" | "READ_ERROR" };
+  | { state: "UNKNOWN"; openBalanceAgorot: null; reason: "NOT_LINKED" | "NO_CHARGE_DECISION" | "CONFLICT" | "DRAFT_PENDING" | "FOREIGN_CURRENCY" | "READ_ERROR" };
 
 export type SettlementReader = (tx: Prisma.TransactionClient, businessId: number, caseId: number) => Promise<ServiceCaseSettlement>;
 
@@ -43,8 +44,12 @@ export function settlementForCore(s: ServiceCaseSettlement): ServiceCaseContext[
   switch (s.state) {
     case "NO_CHARGE":
       return s.openBalanceAgorot === 0 ? { known: true, openBalanceAgorot: 0, basis: "NO_CHARGE" } : { known: false };
-    case "SETTLED":
-      return s.openBalanceAgorot === 0 ? { known: true, openBalanceAgorot: 0, basis: "DOCUMENTED" } : { known: false };
+    case "SETTLED": {
+      // an overpayment is reported (journal + screen), never silently dropped; no automatic refund
+      const over = s.overpaidAgorot ?? 0;
+      if (s.openBalanceAgorot !== 0 || !Number.isSafeInteger(over) || over < 0) return { known: false };
+      return { known: true, openBalanceAgorot: 0, basis: "DOCUMENTED", ...(over > 0 ? { overpaidAgorot: over } : {}) };
+    }
     case "OPEN":
       return Number.isSafeInteger(s.openBalanceAgorot) && s.openBalanceAgorot > 0
         ? { known: true, openBalanceAgorot: s.openBalanceAgorot, basis: "DOCUMENTED" }
