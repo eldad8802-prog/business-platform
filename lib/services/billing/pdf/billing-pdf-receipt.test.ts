@@ -44,6 +44,54 @@ ok("an exempt dealer is never presented as 'עוסק מורשה'", !ex.includes(
 const noPay = text(buildBillingInvoiceHtml(exemptReceipt, "data:,", []));
 ok("a receipt without stored payment lines says so (no invented method)", noPay.includes("אמצעי התשלום לא נשמרו במסמך"));
 
+// Every supported track, with a recorded payment: title, money RECEIVED, the method, no "not set" placeholder.
+const cashPayment: PdfReceiptPayment[] = [
+  { method: "CASH", amount: "1000.00", currency: "ILS", paymentDate: "2026-07-15T08:00:00.000Z", bankName: null, bankBranch: null,
+    bankAccountNumber: null, checkNumber: null, checkDueDate: null, cardBrand: null, cardLast4: null, reference: null },
+];
+const tracks: { kind: string; vat: string | null; exempt: boolean }[] = [
+  { kind: "EXEMPT_DEALER", vat: null, exempt: true },
+  { kind: "AUTHORIZED_DEALER", vat: "999999998", exempt: false },
+  { kind: "LTD_COMPANY", vat: "999999998", exempt: false },
+];
+for (const tr of tracks) {
+  const snap: BillingIssuedSnapshotV1 = {
+    ...receipt,
+    issuer: { ...receipt.issuer, vatRegistration: tr.vat },
+    extensions: { ...(receipt.extensions ?? {}), billingBusinessKind: tr.kind },
+  };
+  const t = text(buildBillingInvoiceHtml(snap, "data:,", cashPayment));
+  ok(`${tr.kind}: title 'קבלה', not 'RECEIPT'`, t.includes("קבלה") && !/\bRECEIPT\b/.test(t));
+  ok(`${tr.kind}: the money is 'סה"כ התקבל', never 'סה"כ לתשלום'`, t.includes('סה"כ התקבל') && !t.includes('סה"כ לתשלום'));
+  ok(`${tr.kind}: the payment method is printed (מזומן, 1,000.00)`, t.includes("אמצעי תשלום") && t.includes("מזומן") && t.includes("1,000.00"), t);
+  ok(`${tr.kind}: no 'לא הוגדרו פרטי תשלום' placeholder when a payment is recorded`, !t.includes("לא הוגדרו פרטי תשלום"));
+  ok(`${tr.kind}: 'עוסק פטור' ${tr.exempt ? "stated" : "absent"}`, t.includes("עוסק פטור") === tr.exempt);
+  ok(`${tr.kind}: 'עוסק מורשה' ${tr.exempt ? "absent" : "stated (VAT number)"}`, t.includes("עוסק מורשה") === !tr.exempt);
+}
+
+// An OLD receipt: its issued snapshot froze no classification and its payment rows were never stored. It renders, it
+// invents nothing (no method, no status line), and it does not fall back to the issuer's bank details.
+{
+  const { billingBusinessKind: _dropped, ...extNoKind } = (receipt.extensions ?? {}) as Record<string, unknown>;
+  void _dropped;
+  const oldNoKind: BillingIssuedSnapshotV1 = { ...receipt, extensions: extNoKind };
+  const oldNoExt = { ...receipt } as Partial<BillingIssuedSnapshotV1>;
+  delete oldNoExt.extensions;
+  for (const [label, snap] of [["no frozen kind", oldNoKind], ["no extensions at all", oldNoExt as BillingIssuedSnapshotV1]] as const) {
+    let html = "";
+    let threw: unknown = null;
+    try { html = buildBillingInvoiceHtml(snap, "data:,", []); } catch (e) { threw = e; }
+    ok(`old receipt (${label}): renders without throwing`, threw === null && html.length > 0, String(threw));
+    const t = text(html);
+    ok(`old receipt (${label}): says the payment methods were not stored`, t.includes("אמצעי התשלום לא נשמרו במסמך"));
+    ok(`old receipt (${label}): no invented payment method`,
+      !["מזומן", "העברה בנקאית", "שיק", "כרטיס אשראי", "ביט", "פייבוקס", "הוראת קבע"].some((m) => t.includes(m)), t);
+    ok(`old receipt (${label}): no 'עוסק פטור' inferred`, !t.includes("עוסק פטור"));
+    ok(`old receipt (${label}): no issuer bank details / 'not set' placeholder`, !t.includes("פרטי תשלום") && !t.includes("לא הוגדרו"));
+    ok(`old receipt (${label}): title 'קבלה' and money received`, t.includes("קבלה") && t.includes('סה"כ התקבל'));
+  }
+}
+
 const inv = text(buildBillingInvoiceHtml(invoice, "data:,"));
 ok("a tax invoice is unchanged: 'חשבונית מס', 'סה\"כ לתשלום', bank details", inv.includes("חשבונית מס") && inv.includes('סה"כ לתשלום') && inv.includes("פרטי תשלום"));
 

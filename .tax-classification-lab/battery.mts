@@ -257,12 +257,22 @@ async function main() {
     const pe = await pdfEvidence(E, rc.json.document.id, "E-receipt");
     check("E3.RCPT.pdf", "OK", "API", "the receipt PDF is produced through the real PDF route", pe.r.status === 200, { status: pe.r.status, error: errorText(pe.r) }, { ...tags, docType: "RECEIPT" });
     if (pe.r.status === 200) {
-      check("E3.RCPT.title", "DEFECT", "API", "receipt PDF title is the raw key 'RECEIPT', not 'קבלה'", pe.text.includes("RECEIPT"), pe.text.slice(0, 200), { ...tags, docType: "RECEIPT" });
-      check("E3.RCPT.kind", "DEFECT", "API", "receipt PDF does not state 'עוסק פטור'", !printed(pe.text, "עוסק פטור"), "", { ...tags, docType: "RECEIPT", legal: "whether stating 'עוסק פטור' is mandatory — open" });
-      check("E3.RCPT.vatrow", "OBSERVED", "API", "exempt dealer's receipt PDF prints a VAT row (מע\"מ)", /מע"מ|מ"מע|מע״מ/.test(pe.text), "", { ...tags, docType: "RECEIPT", legal: "wording for an exempt dealer — open" });
-      check("E3.RCPT.placeholder", "DEFECT", "API", "the receipt PDF prints 'לא הוגדרו פרטי תשלום' (payment details not set) on a document that records a payment", /לא הוגדרו פרטי תשלום/.test(pe.text), "", { ...tags, docType: "RECEIPT" });
-      check("E3.RCPT.payments", "DEFECT", "API", "receipt PDF prints no payment method (the payment lines are not in the snapshot)", !printed(pe.text, "מזומן") && !pe.text.includes("CASH"), "", { ...tags, docType: "RECEIPT", legal: "הוראות ניהול פנקסים s.5 — nature of payment; source = mirror, verify" });
-      check("E3.RCPT.filename", "DEFECT", "API", "receipt download is named 'חשבונית-…pdf' / invoice-…pdf", /invoice-/.test(pe.disposition), pe.disposition, { ...tags, docType: "RECEIPT" });
+      // #1108 fixed the receipt PDF: these were DEFECT/OBSERVED checks (the defect reproduced) and now assert the fix.
+      check("E3.RCPT.title", "OK", "API", "receipt PDF is titled 'קבלה', never the raw key 'RECEIPT'",
+        printed(pe.text, "קבלה") && !pe.text.includes("RECEIPT"), pe.text.slice(0, 200), { ...tags, docType: "RECEIPT" });
+      check("E3.RCPT.kind", "OK", "API", "an exempt dealer's receipt PDF states 'עוסק פטור' (from the kind frozen at issue) and never 'עוסק מורשה'",
+        printed(pe.text, "עוסק פטור") && !printed(pe.text, "עוסק מורשה"),
+        { exempt: printed(pe.text, "עוסק פטור"), authorized: printed(pe.text, "עוסק מורשה") }, { ...tags, docType: "RECEIPT", legal: "whether stating 'עוסק פטור' is mandatory — open" });
+      check("E3.RCPT.vatrow", "OK", "API", "an exempt dealer's receipt PDF prints no VAT row (מע\"מ)", !/מע"מ|מ"מע|מע״מ/.test(pe.text), "", { ...tags, docType: "RECEIPT", legal: "wording for an exempt dealer — open" });
+      check("E3.RCPT.placeholder", "OK", "API", "a receipt that records a payment does not print 'לא הוגדרו פרטי תשלום'", !/לא הוגדרו פרטי תשלום/.test(pe.text) && !printed(pe.text, "לא הוגדרו"), "", { ...tags, docType: "RECEIPT" });
+      check("E3.RCPT.payments", "OK", "API", "the receipt PDF prints the recorded payment: method (מזומן) and amount (250.00)",
+        printed(pe.text, "אמצעי תשלום") && printed(pe.text, "מזומן") && pe.text.includes("250.00") && !pe.text.includes("CASH"),
+        { section: printed(pe.text, "אמצעי תשלום"), method: printed(pe.text, "מזומן"), amount: pe.text.includes("250.00") }, { ...tags, docType: "RECEIPT", legal: "הוראות ניהול פנקסים s.5 — nature of payment; source = mirror, verify" });
+      check("E3.RCPT.wording", "OK", "API", "the receipt PDF labels the money as received ('התקבל'), never 'סה\"כ לתשלום'",
+        printed(pe.text, "התקבל") && !printed(pe.text, "לתשלום"), "", { ...tags, docType: "RECEIPT" });
+      check("E3.RCPT.filename", "OK", "API", "receipt download is named receipt-…pdf / קבלה-…pdf, never invoice-/חשבונית-",
+        /filename="receipt-/.test(pe.disposition) && pe.disposition.includes(encodeURIComponent("קבלה")) && !/invoice-/.test(pe.disposition) && !pe.disposition.includes(encodeURIComponent("חשבונית")),
+        pe.disposition, { ...tags, docType: "RECEIPT" });
       await reread(E, rc.json.document.id, "E3.RCPT", pe.r, { ...tags, docType: "RECEIPT" });
     }
 
@@ -331,11 +341,20 @@ async function main() {
     check(`${k}3.RCPT.issue`, "OK", "API", "RECEIPT allocated to the issued invoice issues (number 00001)", al.status === 200 && rci.status === 200, { alloc: al.status, allocError: errorText(al), issue: rci.status, error: errorText(rci) }, { ...tags, docType: "RECEIPT" });
     const rcp = await pdfEvidence(t, rc.json.document.id, `${k}-receipt`);
     if (rcp.r.status === 200) {
-      check(`${k}3.RCPT.title`, "DEFECT", "API", "receipt PDF title is the raw key 'RECEIPT'", rcp.text.includes("RECEIPT"), "", { ...tags, docType: "RECEIPT" });
+      // #1108 fixed the receipt PDF: title / wording were DEFECT checks and now assert the fix (+ method, placeholder, status line).
+      check(`${k}3.RCPT.title`, "OK", "API", "receipt PDF is titled 'קבלה', never the raw key 'RECEIPT'",
+        printed(rcp.text, "קבלה") && !rcp.text.includes("RECEIPT"), rcp.text.slice(0, 200), { ...tags, docType: "RECEIPT" });
+      check(`${k}3.RCPT.payments`, "OK", "API", "the receipt PDF prints the recorded payment (מזומן, 652.00) and no 'לא הוגדרו פרטי תשלום'",
+        printed(rcp.text, "אמצעי תשלום") && printed(rcp.text, "מזומן") && rcp.text.includes("652.00") && !printed(rcp.text, "לא הוגדרו"),
+        { section: printed(rcp.text, "אמצעי תשלום"), method: printed(rcp.text, "מזומן"), amount: rcp.text.includes("652.00"), placeholder: printed(rcp.text, "לא הוגדרו") }, { ...tags, docType: "RECEIPT" });
+      check(`${k}3.RCPT.kind`, "OK", "API", "an authorized dealer / company receipt never states 'עוסק פטור'; its VAT number is shown as 'עוסק מורשה'",
+        !printed(rcp.text, "עוסק פטור") && printed(rcp.text, "עוסק מורשה"),
+        { exempt: printed(rcp.text, "עוסק פטור"), authorized: printed(rcp.text, "עוסק מורשה") }, { ...tags, docType: "RECEIPT" });
       const snap = JSON.stringify((await docRow(rc.json.document.id)).issuedSnapshot ?? {});
       check(`${k}3.RCPT.source`, "OBSERVED", "SERVICE", "the receipt's frozen snapshot (and so its PDF) carries no reference to the invoice it pays",
         !/allocations|invoiceDocumentId|referenceDocumentNumber/i.test(snap), snap.slice(0, 200), { ...tags, docType: "RECEIPT" });
-      check(`${k}3.RCPT.wording`, "DEFECT", "API", "the receipt PDF labels the money received as 'סה\"כ לתשלום' (total to pay)", /לתשלום/.test(rcp.text), "", { ...tags, docType: "RECEIPT" });
+      check(`${k}3.RCPT.wording`, "OK", "API", "the receipt PDF labels the money as received ('התקבל'), never 'סה\"כ לתשלום'",
+        printed(rcp.text, "התקבל") && !printed(rcp.text, "לתשלום"), "", { ...tags, docType: "RECEIPT" });
     } else check(`${k}3.RCPT.pdf`, "OK", "API", "receipt PDF renders", false, { status: rcp.r.status, error: errorText(rcp.r) }, { ...tags, docType: "RECEIPT" });
 
     // credit note on a historical 17% invoice
