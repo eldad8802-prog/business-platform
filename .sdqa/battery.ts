@@ -82,7 +82,7 @@ const ITEMS: Item[] = [
 type ListOpts = {
   name?: string; items?: Item[]; declare?: { itemCount?: number; requiredCount?: number }; template?: string | null;
   noEvent?: boolean; eventRevision?: number; eventUser?: number | null; actor?: string; head?: { currentVersion?: number; revision?: number; archived?: boolean };
-  idem?: string; user?: number | null;
+  idem?: string; user?: number | null; eventCounts?: { itemCount: number; requiredCount: number };
 };
 async function writeVersion(s: S, z: Biz, listId: number, version: number, o: ListOpts) {
   const items = o.items ?? ITEMS;
@@ -98,7 +98,7 @@ async function writeEvent(s: S, z: Biz, listId: number, revision: number, action
   if (o.noEvent) return;
   await s.x(`INSERT INTO "ServiceQaListEvent" ("businessId", "listId", revision, action, "listVersion", "itemCount", "requiredCount", actor, "actorUserId", "idempotencyKey")
     VALUES ($1, $2, $3, $4::"ServiceQaListAction", $5, $6, $7, $8::"ServiceActor", $9, $10)`, z.b, listId, o.eventRevision ?? revision, action, listVersion,
-    o.declare?.itemCount ?? items.length, o.declare?.requiredCount ?? items.filter((i) => i.required).length, o.actor ?? "OWNER_USER", o.eventUser === undefined ? z.u : o.eventUser, o.idem ?? key());
+    o.eventCounts?.itemCount ?? o.declare?.itemCount ?? items.length, o.eventCounts?.requiredCount ?? o.declare?.requiredCount ?? items.filter((i) => i.required).length, o.actor ?? "OWNER_USER", o.eventUser === undefined ? z.u : o.eventUser, o.idem ?? key());
 }
 let lastListId = 0;
 async function createList(z: Biz, o: ListOpts = {}): Promise<string> {
@@ -256,6 +256,9 @@ async function main() {
       && has(await createList(A, { items: [{ key: "a", label: "א\nב", required: true }] }), "ServiceQaListItem_label")
       && has(await createList(A, { items: [{ key: "Bad Key", label: "בדיקה", required: true }] }), "ServiceQaListItem_key")
       && (await createList(A, { items: Array.from({ length: 101 }, (_, i) => ({ key: `k${i}`, label: "בדיקה", required: false })) })).startsWith("ERR"));
+  ok("L13 an event whose counts are not the version's (REQUIRED count, check count) → SERVICE_QA_LIST_EVENT_MISMATCH",
+    has(await createList(A, { eventCounts: { itemCount: 3, requiredCount: 1 } }), "SERVICE_QA_LIST_EVENT_MISMATCH")
+      && has(await createList(A, { eventCounts: { itemCount: 2, requiredCount: 2 } }), "SERVICE_QA_LIST_EVENT_MISMATCH"));
   ok("L11 an unknown origin template token → ServiceQaList_source", has(await createList(A, { template: "vehicle; drop" }), "ServiceQaList_source"));
   ok("L12 a list whose every check is optional → written (the business decides per check)",
     (await createList(A, { items: [{ key: "a", label: "אופציונלי", required: false }] })) === "OK");
@@ -300,6 +303,8 @@ async function main() {
         await s.x(`INSERT INTO "ServiceQaListEvent" ("businessId", "listId", revision, action, "listVersion", "itemCount", "requiredCount", actor, "actorUserId", "idempotencyKey")
           VALUES ($1, $2, 3, 'REVISE', 2, 2, 1, 'OWNER_USER', $3, $4)`, A.b, L1, A.u, key());
       })).startsWith("ERR"));
+  ok("V12 a revision counter that skips (+2) → SERVICE_QA_LIST_REVISION",
+    has(await rt(A.b, (s) => s.x(`UPDATE "ServiceQaList" SET revision = revision + 2, "archivedAt" = now() WHERE id = $1`, L1)), "SERVICE_QA_LIST_REVISION"));
   ok("V11 the head's identity is fixed: its origin template cannot change", has(await rt(A.b, (s) => s.x(`UPDATE "ServiceQaList" SET "sourceTemplateId" = 'EXCHANGE.v1', revision = revision + 1 WHERE id = $1`, L1)), "SERVICE_QA_LIST_IDENTITY_FIXED"));
 
   console.log("A — archive / restore");
@@ -326,7 +331,9 @@ async function main() {
   ok("C3 a choice of an older version (1) → SERVICE_CASE_QA_LIST_NOT_CURRENT", has(await choose(A, c2, L1, { version: 1 }), "SERVICE_CASE_QA_LIST_NOT_CURRENT"));
   ok("C4 a choice without its qa.list_chosen event → SERVICE_CASE_QA_LIST_NOT_JOURNALED (or the event FK)", (await choose(A, c2, L_OPT, { noEvent: true })).startsWith("ERR"));
   ok("C5 an event whose payload names another list → SERVICE_CASE_QA_LIST_NOT_JOURNALED",
-    has(await choose(A, c2, L_OPT, { payload: { listId: L1, listVersion: 2 } }), "SERVICE_CASE_QA_LIST_NOT_JOURNALED"));
+    has(await choose(A, c2, L_OPT, { payload: { listId: L1, listVersion: 2 } }), "SERVICE_CASE_QA_LIST_NOT_JOURNALED")
+      && has(await choose(A, c2, L_OPT, { payload: { listId: L1, listVersion: 1 } }), "SERVICE_CASE_QA_LIST_NOT_JOURNALED")
+      && has(await choose(A, c2, L_OPT, { payload: { listId: L_OPT, listVersion: 2 } }), "SERVICE_CASE_QA_LIST_NOT_JOURNALED"));
   ok("C6 a choice together with a status change → SERVICE_CASE_QA_LIST_FIXED", has(await choose(A, c2, L_OPT, { statusTo: "CHECKED_IN" }), "SERVICE_CASE_QA_LIST_FIXED"));
   ok("C7 a choice that skips a version number → SERVICE_CASE_QA_LIST_RECORD", has(await choose(A, c2, L_OPT, { extraVersion: 1 }), "SERVICE_CASE_QA_LIST_RECORD"));
   ok("C8 back to no list (journaled, payload null) → written", (await choose(A, c2, null)) === "OK" && (await caseRow(A, c2)).listId === null);
