@@ -308,8 +308,13 @@ ALTER TABLE "ServiceCaseDetailChange" ADD CONSTRAINT "ServiceCaseDetailChange_ev
 ALTER TABLE "ServiceCaseDetailChange" ADD CONSTRAINT "ServiceCaseDetailChange_actorUserId_fkey"
   FOREIGN KEY ("actorUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
+-- ServiceCompletion: at INSERT only (like ServiceHandover_user_same_business). After birth the row is fixed —
+-- service_completion_guard refuses every UPDATE except the erasure and a deleted user's FK action, both of which only set
+-- user references to NULL. Checking on UPDATE would break exactly that FK action when one user is BOTH the actor and the
+-- approver (the only allowed shape — approver = actor): deleting that user sets the two columns NULL one FK at a time,
+-- and the check of the first update would see the second column still naming the (already deleted) user.
 CREATE TRIGGER "ServiceCompletion_user_same_business"
-  BEFORE INSERT OR UPDATE OF "businessId", "actorUserId", "debtApprovedByUserId" ON "ServiceCompletion"
+  BEFORE INSERT ON "ServiceCompletion"
   FOR EACH ROW EXECUTE FUNCTION public.service_user_same_business('actorUserId', 'debtApprovedByUserId');
 CREATE TRIGGER "ServiceCaseDetailChange_user_same_business"
   BEFORE INSERT OR UPDATE OF "businessId", "actorUserId" ON "ServiceCaseDetailChange"

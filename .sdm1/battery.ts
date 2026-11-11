@@ -372,6 +372,13 @@ async function main() {
   const o5 = await open(A, "FIELD");
   ok("O16k a debt approved by the acting owner → written (its approver is scrubbed by the erasure, E3b)",
     (await toWorkDone(o5)) === "OK" && (await complete(A, o5, "OWNER_CONFIRMED_ON_SITE", { bal: { open: 300, reason: "חוב קטן", approver: A.u, approvedAt: true } })) === "OK");
+  // the same-business trigger checks at INSERT only (so a deleted actor-approver's FK action works, O16j); after birth
+  // the guard alone keeps the people fixed — even the table owner cannot re-point them, to any user
+  const repoint = async (u: number) => { try { await own(A.b, `UPDATE "ServiceCompletion" SET "actorUserId" = $2, "debtApprovedByUserId" = $2 WHERE "caseId" = $1`, o5, u); return "OK"; } catch (e) { return err(e); } };
+  const toOther = await repoint(B.u);
+  const toSame = await repoint(Number((await q(`INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ($1, $2, now()) RETURNING id`, `sdm1-repoint-${t}@lab.invalid`, A.b))[0].id));
+  ok("O16l after birth the actor + approver cannot be re-pointed, not even by the table owner (another business's user, or another user of the same business) → SERVICE_COMPLETION_FIXED",
+    toOther.includes("SERVICE_COMPLETION_FIXED") && toSame.includes("SERVICE_COMPLETION_FIXED"), toOther + " | " + toSame);
   const o2v = (await row(A, o2)).version;
   ok("O17 a COMPLETE journaled from a status other than WORK_DONE → ServiceCaseEvent_tracks_in_place",
     (await rt(A.b, [`UPDATE "ServiceCase" SET status = 'CLOSED', "closedAt" = now(), "completionType" = 'OWNER_CONFIRMED_ON_SITE', "completedAt" = now(), version = version + 1 WHERE id = $1`, o2],
