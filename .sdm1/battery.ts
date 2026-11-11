@@ -290,6 +290,13 @@ async function main() {
   const sigCols = await q(`SELECT column_name FROM information_schema.columns WHERE table_name = 'ServiceCompletion'
       AND column_name IN ('signatureCaptured', 'signatureKey', 'confirmationChannel', 'signedAt')`);
   ok("O16 no signature columns exist on ServiceCompletion (owner decision 2026-11-11)", sigCols.length === 0, JSON.stringify(sigCols));
+  // Owner decision 2026-11-11: closing with an open balance follows the handover rule — the owner's documented reason.
+  const debtIns = (reason: string | null): Stmt => [`INSERT INTO "ServiceCompletion" ("businessId", "caseId", "completionType", "openBalanceAgorot", "debtOverrideReason", "actorUserId")
+    VALUES ($1, $2, 'OWNER_CONFIRMED_ON_SITE', 5000, $3, $4)`, A.b, o1, reason, A.u];
+  const noReason = await rt(A.b, debtIns(null));
+  const withReason = await rt(A.b, debtIns("לקוח קבוע"));
+  ok("O16b an open balance without the owner's reason → ServiceCompletion_debt_decided; with a reason the CHECK passes (only the one-per-case key refuses)",
+    noReason.includes("ServiceCompletion_debt_decided") && !withReason.includes("ServiceCompletion_debt_decided") && (withReason.includes("23505") || withReason.includes("Unique") || withReason.includes("unique")), noReason + " | " + withReason);
   const o2v = (await row(A, o2)).version;
   ok("O17 a COMPLETE journaled from a status other than WORK_DONE → ServiceCaseEvent_tracks_in_place",
     (await rt(A.b, [`UPDATE "ServiceCase" SET status = 'CLOSED', "closedAt" = now(), "completionType" = 'OWNER_CONFIRMED_ON_SITE', "completedAt" = now(), version = version + 1 WHERE id = $1`, o2],

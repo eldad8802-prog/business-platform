@@ -208,6 +208,10 @@ CREATE TABLE "ServiceCompletion" (
   "completionType"  "ServiceCompletionType" NOT NULL,
   "confirmedByName" TEXT,
   "note"            TEXT,
+  -- the balance when the owner confirmed, and the owner's documented reason to close with a debt (the handover rule,
+  -- owner decision 2026-11-11: explicit confirmation, a reason, the history)
+  "openBalanceAgorot"  INTEGER NOT NULL DEFAULT 0,
+  "debtOverrideReason" TEXT,
   "actorUserId"     INTEGER,
   "completedAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "createdAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -215,7 +219,11 @@ CREATE TABLE "ServiceCompletion" (
   CONSTRAINT "ServiceCompletion_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "ServiceCompletion_texts" CHECK (
         ("confirmedByName" IS NULL OR (char_length("confirmedByName") <= 200 AND btrim("confirmedByName") <> ''))
-    AND ("note" IS NULL OR (char_length("note") <= 2000 AND btrim("note") <> '')))
+    AND ("note" IS NULL OR (char_length("note") <= 2000 AND btrim("note") <> ''))
+    AND ("debtOverrideReason" IS NULL OR (char_length("debtOverrideReason") <= 1000 AND btrim("debtOverrideReason") <> ''
+         AND "debtOverrideReason" = btrim("debtOverrideReason")))),
+  -- like ServiceHandover_debt_decided: closing with an open balance carries the owner's reason (until the erasure)
+  CONSTRAINT "ServiceCompletion_debt_decided" CHECK ("openBalanceAgorot" <= 0 OR "debtOverrideReason" IS NOT NULL OR "erasedAt" IS NOT NULL)
 );
 CREATE UNIQUE INDEX "ServiceCompletion_businessId_id_key" ON "ServiceCompletion"("businessId", "id");
 CREATE UNIQUE INDEX "ServiceCompletion_businessId_caseId_key" ON "ServiceCompletion"("businessId", "caseId");
@@ -508,7 +516,7 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $fn$
 DECLARE
-  erasable constant text[] := ARRAY['confirmedByName', 'note', 'actorUserId', 'erasedAt'];
+  erasable constant text[] := ARRAY['confirmedByName', 'note', 'debtOverrideReason', 'actorUserId', 'erasedAt'];
   v_status text;
 BEGIN
   IF TG_OP = 'DELETE' THEN
@@ -516,7 +524,7 @@ BEGIN
   ELSIF TG_OP = 'UPDATE' THEN
     IF public.service_tracks_in_erasure(TG_RELID)
        AND (to_jsonb(NEW) - erasable) = (to_jsonb(OLD) - erasable)
-       AND NEW."confirmedByName" IS NULL AND NEW."note" IS NULL AND NEW."actorUserId" IS NULL AND NEW."erasedAt" IS NOT NULL THEN
+       AND NEW."confirmedByName" IS NULL AND NEW."note" IS NULL AND NEW."debtOverrideReason" IS NULL AND NEW."actorUserId" IS NULL AND NEW."erasedAt" IS NOT NULL THEN
       RETURN NEW;
     END IF;
     IF pg_trigger_depth() > 1 AND NEW."actorUserId" IS NULL
@@ -685,7 +693,7 @@ BEGIN
   UPDATE public."ServiceDevice" SET "displayName" = NULL, "attributes" = NULL
    WHERE "businessId" = v_business AND ("displayName" IS NOT NULL OR "attributes" IS NOT NULL);
   GET DIAGNOSTICS v_k = ROW_COUNT; v_n := v_n + v_k;
-  UPDATE public."ServiceCompletion" SET "confirmedByName" = NULL, "note" = NULL, "actorUserId" = NULL, "erasedAt" = CURRENT_TIMESTAMP
+  UPDATE public."ServiceCompletion" SET "confirmedByName" = NULL, "note" = NULL, "debtOverrideReason" = NULL, "actorUserId" = NULL, "erasedAt" = CURRENT_TIMESTAMP
    WHERE "businessId" = v_business AND "erasedAt" IS NULL;
   GET DIAGNOSTICS v_k = ROW_COUNT; v_n := v_n + v_k;
   UPDATE public."ServiceCaseDetailChange" SET "reason" = NULL, "actorUserId" = NULL, "siteAddressBefore" = NULL, "siteAddressAfter" = NULL,
