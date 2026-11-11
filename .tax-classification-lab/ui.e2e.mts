@@ -201,6 +201,45 @@ async function main() {
         }
       });
     }
+
+    // U6 (#1111) — "+ הוסף פריט" on a draft: the new line's VAT default follows the business kind the SERVER holds.
+    // Each draft already has a saved line at 17%: it must stay 17 (a stored rate is never rewritten), also after reload.
+    const C = await tenant("C", "LTD_COMPANY");
+    for (const t of [
+      { key: "E", tenant: E, type: "QUOTE", want: "0" },
+      { key: "A", tenant: A, type: "TAX_INVOICE", want: "18" },
+      { key: "C", tenant: C, type: "TAX_INVOICE", want: "18" },
+    ]) {
+      const created = await fetch(`${BASE}/api/billing/documents`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${t.tenant.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ documentType: t.type, customerId: t.tenant.dealerId, initialLines: [{ description: "שורה שמורה", quantity: "1", unitPrice: "100", vatRatePercent: "17" }] }),
+      });
+      const createdJson = await created.json().catch(() => ({}));
+      const docId = createdJson?.document?.id as number | undefined;
+      const p6 = await page(browser, t.tenant.token);
+      await scenario(`U6.${t.key}`, p6, async () => {
+        if (!docId) throw new Error(`draft not created: ${created.status} ${JSON.stringify(createdJson).slice(0, 200)}`);
+        await p6.goto(`/billing/${docId}`);
+        const add = p6.getByRole("button", { name: "+ הוסף פריט" }).first();
+        await add.waitFor({ timeout: 300_000 });
+        const vat = p6.getByLabel('אחוז מע"מ');
+        const before = await vat.count();
+        await add.click();
+        await vat.nth(before).waitFor({ timeout: 30_000 });
+        const values = await vat.evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
+        await shot(p6, `U6-${t.key}-new-line`);
+        check(`U6.${t.key}.default`, "OK", `${t.key === "E" ? "exempt dealer" : t.key === "A" ? "authorized dealer" : "company"}: a new line's VAT default is ${t.want}%`,
+          values.length === before + 1 && values[values.length - 1] === t.want, { values, before });
+        check(`U6.${t.key}.saved`, "OK", "the saved 17% line is shown as 17 (never rewritten by the default)", Number(values[0]) === 17, { values });
+        await p6.reload();
+        await add.waitFor({ timeout: 300_000 });
+        const afterReload = await vat.evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
+        const row = await owner.billingDocumentLine.findMany({ where: { billingDocumentId: docId }, select: { vatRatePercent: true } });
+        check(`U6.${t.key}.stored`, "OK", "after reload: one stored line, still 17% (an unsaved new line changes nothing in the database)",
+          afterReload.length === 1 && Number(afterReload[0]) === 17 && row.length === 1 && Number(row[0].vatRatePercent) === 17, { afterReload, row });
+      });
+    }
   } finally {
     await browser.close();
   }

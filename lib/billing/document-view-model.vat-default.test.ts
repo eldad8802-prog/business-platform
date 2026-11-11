@@ -62,5 +62,18 @@ ok("an authorized dealer gets the standard rate", newEmptyLocalLine({ businessKi
   ok("no server billing module (lib/services/billing, app/api/billing) imports the draft view model", offenders.length === 0, offenders);
 }
 
+// #1111 owner-approved screen wiring (focused A0 exception): all three kinds, and where the kind comes from.
+ok("a company (LTD_COMPANY) gets the standard rate", newEmptyLocalLine({ businessKind: "LTD_COMPANY", today: new Date("2026-11-11T10:00:00Z") }).vatRatePercent === "18");
+ok("an authorized dealer on 31.12.2024 gets 17 (the rate follows the date, not the kind)", newEmptyLocalLine({ businessKind: "AUTHORIZED_DEALER", today: new Date("2024-12-31T12:00:00Z") }).vatRatePercent === "17");
+{
+  const page = readFileSync("app/billing/[id]/page.tsx", "utf8");
+  ok("the screen never builds a new line without the kind (no bare newEmptyLocalLine())", !page.includes("newEmptyLocalLine()"));
+  ok("the screen passes the kind to the new line", page.includes("newEmptyLocalLine({ businessKind })"));
+  ok("the kind comes from the server (GET /api/billing/invoice-profile → profile.billingBusinessKind)",
+    page.includes('newLineKindRef.current ??= fetch("/api/billing/invoice-profile"') && page.includes("j?.profile?.billingBusinessKind"));
+  ok("a failed read gives null (standard rate), never an inferred exempt kind", page.slice(page.indexOf("newLineKindRef.current ??="), page.indexOf("return newLineKindRef.current")).includes(".catch(() => null)"));
+  ok("the kind is not read from the URL, query or form", !page.split(/\r?\n/).some((l) => l.includes("businessKind") && l.includes("searchParams")));
+}
+
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");
 if (failed) process.exit(1);
