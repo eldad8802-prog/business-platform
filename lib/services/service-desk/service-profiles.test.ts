@@ -4,7 +4,8 @@
  * Stage 1 (PR-B0) — the service profile and track catalog, pure proofs (no database, no network, no clock):
  *   - the catalog equals the planning matrix (8 profiles × 7 tracks: ★ default, ✓ enabled, every other track "+");
  *   - profile resolution: owner choice → sub-category → category → general;
- *   - the three fixed requirements wherever the item is at the business (signed intake, QA, signed handover — C1);
+ *   - the three fixed requirements wherever the item is at the business (owner-confirmed intake, QA, owner-confirmed
+ *     handover — C1; owner decision 2026-11-11: no customer signature anywhere);
  *   - D15 approval levels; T7 rows per resolution (exchange keeps QA with EXCHANGE.v1);
  *   - owner overrides: tightening allowed, loosening a fixed requirement refused, never silently dropped;
  *   - the snapshot (D14) is frozen, serialisable, deterministic and unaffected by later settings (D17);
@@ -93,21 +94,21 @@ ok("P3 prototype keys are not categories", resolveProfileKey({ category: "constr
 for (const k of SERVICE_PROFILE_KEYS) {
   const s = snap(k);
   const held = SERVICE_TRACKS.filter((t) => TRACKS[t].itemAtBusiness);
-  ok(`P4 ${k}: T1 / T2 / T7 — signed intake, QA REQUIRED, signed handover`,
+  ok(`P4 ${k}: T1 / T2 / T7 — owner-confirmed intake, QA REQUIRED, owner-confirmed handover`,
     held.length === 3 && held.every((t) => {
       const r = requirementsFromSnapshot(s, t);
-      return r.intakeSignature === "REQUIRED" && r.qa.mode === "REQUIRED" && r.qa.template !== null && r.handoverSigned && r.completion === "HANDOVER_SIGNED";
+      return r.intakeConfirmation === "OWNER" && r.qa.mode === "REQUIRED" && r.qa.template !== null && r.handoverByOwner && r.completion === "OWNER_HANDOVER";
     }));
   ok(`P4 ${k}: T7 exchange keeps QA with the short EXCHANGE.v1 checklist (C1)`,
     requirementsFromSnapshot(s, "T7", "EXCHANGE").qa.mode === "REQUIRED" && requirementsFromSnapshot(s, "T7", "EXCHANGE").qa.template === "EXCHANGE.v1");
-  ok(`P4 ${k}: T7 credit — signed intake, no handover, the owner's confirmation with the credit document`,
-    (() => { const r = requirementsFromSnapshot(s, "T7", "CREDIT"); return r.intakeSignature === "REQUIRED" && !r.handoverSigned && r.completion === "OWNER_WITH_CREDIT_DOCUMENT"; })());
-  ok(`P4 ${k}: T7 returning the original — signed intake and signed handover`,
-    (() => { const r = requirementsFromSnapshot(s, "T7", "RETURN_ORIGINAL"); return r.intakeSignature === "REQUIRED" && r.handoverSigned; })());
+  ok(`P4 ${k}: T7 credit — owner-confirmed intake, no handover, the owner's confirmation with the credit document`,
+    (() => { const r = requirementsFromSnapshot(s, "T7", "CREDIT"); return r.intakeConfirmation === "OWNER" && !r.handoverByOwner && r.completion === "OWNER_WITH_CREDIT_DOCUMENT"; })());
+  ok(`P4 ${k}: T7 returning the original — owner-confirmed intake and handover`,
+    (() => { const r = requirementsFromSnapshot(s, "T7", "RETURN_ORIGINAL"); return r.intakeConfirmation === "OWNER" && r.handoverByOwner; })());
 }
 ok("P4 on site / remote / professional: no intake signature, no handover", SERVICE_PROFILE_KEYS.every((k) => {
   const s = snap(k);
-  return (["T3", "T4", "T5", "T6"] as ServiceTrack[]).every((t) => requirementsFromSnapshot(s, t).intakeSignature === "NONE" && !requirementsFromSnapshot(s, t).handoverSigned);
+  return (["T3", "T4", "T5", "T6"] as ServiceTrack[]).every((t) => requirementsFromSnapshot(s, t).intakeConfirmation === "NONE" && !requirementsFromSnapshot(s, t).handoverByOwner);
 }));
 ok("P4 every T7 resolution has a row", SERVICE_PROFILE_KEYS.every((k) => AFTER_SALE_RESOLUTIONS.every((r) => requirementsFromSnapshot(snap(k), "T7", r) !== undefined)));
 
@@ -128,9 +129,12 @@ ok("P5 NONE only where the path has no repair step (credit, returning the origin
 ok("P6 QA cannot be loosened where the item is at the business (T1 / T2 / T7)",
   (["T1", "T2", "T7"] as const).every((t) => codes("general", { requirements: { [t]: { qaMode: "OPTIONAL" } } }).includes("FIXED_REQUIREMENT")
     && codes("general", { requirements: { [t]: { qaMode: "OFF" } } }).includes("FIXED_REQUIREMENT")));
-ok("P6 a signed handover cannot be replaced", codes("jewelry", { requirements: { T1: { completion: "NAME_AND_PROFESSIONAL" } } }).includes("FIXED_REQUIREMENT"));
+ok("P6 an owner-confirmed handover of a held item cannot be replaced", codes("jewelry", { requirements: { T1: { completion: "OWNER_CONFIRMATION" } } }).includes("FIXED_REQUIREMENT"));
 ok("P6 approval never below D15", codes("home_technician", { requirements: { T3: { workApproval: "NONE" } } }).includes("BELOW_D15"));
-ok("P6 an on-site signature cannot become a remote confirmation", codes("home_technician", { requirements: { T3: { completion: "REMOTE_CONFIRMATION" } } }).includes("COMPLETION_NOT_ALLOWED"));
+ok("P6 an on-site completion cannot become a handover or a credit document", codes("home_technician", { requirements: { T3: { completion: "OWNER_HANDOVER" } } }).includes("COMPLETION_NOT_ALLOWED")
+  && codes("home_technician", { requirements: { T3: { completion: "OWNER_WITH_CREDIT_DOCUMENT" } } }).includes("COMPLETION_NOT_ALLOWED"));
+ok("P6 the removed signature proofs are unknown values now (owner decision: no customer signature)",
+  ["HANDOVER_SIGNED", "CUSTOMER_SIGNATURE", "NAME_AND_PROFESSIONAL", "REMOTE_CONFIRMATION"].every((c) => codes("home_technician", { requirements: { T3: { completion: c as never } } }).includes("INVALID_VALUE")));
 ok("P6 QA cannot be raised where the track has no checklist", codes("professional", { requirements: { T5: { qaMode: "REQUIRED" } } }).includes("NO_QA_TEMPLATE"));
 ok("P6 unknown keys, tracks, slots and values are refused",
   codes("general", { colour: "red" }).includes("UNKNOWN_KEY")
@@ -148,12 +152,14 @@ ok("P6 a refused override builds no snapshot at all", (() => {
 })());
 
 // ── P7 overrides allowed ───────────────────────────────────────────────────────────────────────────────────────────
-ok("P7 tightening is always allowed (T3 QA OPTIONAL → REQUIRED; T6 confirmation → customer signature)",
+ok("P7 tightening is always allowed (T3 QA OPTIONAL → REQUIRED); every on-site / remote / professional row completes by owner confirmation",
   requirementsFromSnapshot(snap("home_technician", { requirements: { T3: { qaMode: "REQUIRED" } } }), "T3").qa.mode === "REQUIRED"
-    && requirementsFromSnapshot(snap("remote_it", { requirements: { T6: { completion: "CUSTOMER_SIGNATURE" } } }), "T6").completion === "CUSTOMER_SIGNATURE");
-ok("P7 the owner may loosen on-site QA and an on-site signature to name + professional",
+    && (["T3", "T4", "T5", "T6"] as const).every((t) => requirementsFromSnapshot(snap("general"), t).completion === "OWNER_CONFIRMATION"));
+ok("P7 the owner may loosen on-site QA; restating the owner confirmation is accepted",
   requirementsFromSnapshot(snap("installer", { requirements: { T4: { qaMode: "OPTIONAL" } } }), "T4").qa.mode === "OPTIONAL"
-    && requirementsFromSnapshot(snap("home_technician", { requirements: { T3: { completion: "NAME_AND_PROFESSIONAL" } } }), "T3").completion === "NAME_AND_PROFESSIONAL");
+    && requirementsFromSnapshot(snap("home_technician", { requirements: { T3: { completion: "OWNER_CONFIRMATION" } } }), "T3").completion === "OWNER_CONFIRMATION");
+ok("P7 no requirement anywhere names a customer signature (owner decision 2026-11-11)",
+  !/SIGNATURE|SIGNED|signature/.test(JSON.stringify((["T1", "T2", "T3", "T4", "T5", "T6", "T7"] as const).map((t) => requirementsFromSnapshot(snap("general"), t)))));
 ok("P7 approval ALWAYS may relax to BY_D15, never further",
   requirementsFromSnapshot(snap("device_lab", { requirements: { T1: { workApproval: "BY_D15" } } }), "T1").workApproval === "BY_D15");
 ok("P7 the owner can enable any other track; the profile's own tracks stay enabled",

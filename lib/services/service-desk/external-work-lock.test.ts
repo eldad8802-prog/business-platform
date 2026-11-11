@@ -23,7 +23,7 @@ let thrown: unknown = null;
 try { assertExternalWorkOpen(); } catch (e) { thrown = e; }
 ok("L2 the closed answer is ACTION_NOT_IN_SCOPE (422) naming the capability and what it waits for",
   thrown instanceof ServiceDeskError && thrown.code === "ACTION_NOT_IN_SCOPE" && thrown.status === 422
-    && thrown.details.capability === "external_work" && thrown.details.until === "intake_signature_1_3b");
+    && thrown.details.capability === "external_work" && thrown.details.until === "intake_confirmation_1_3b");
 
 const ROOT = process.cwd();
 const ROUTES = [

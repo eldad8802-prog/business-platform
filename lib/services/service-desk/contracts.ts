@@ -94,7 +94,10 @@ export type QuoteWithdrawalDecision =
   | { ok: true; quote: ServiceQuoteSnapshot }
   | { ok: false; violations: readonly ServiceCaseViolation[] };
 
-/** IN_SHOP check-in record. Photos, PDF and signature bytes are stored by the service; the core sees booleans. */
+/**
+ * IN_SHOP check-in record (the core sees booleans). Owner decision 2026-11-11: no customer signature anywhere —
+ * customerSigned is kept for records written before the decision and is no longer required by any rule.
+ */
 export interface ServiceIntakeFacts {
   conditionRecorded: boolean;
   accessoriesRecorded: boolean;
@@ -181,7 +184,8 @@ export interface HandoverReceipt {
 
 export type ServiceCaseAction =
   | { type: "SCHEDULE"; appointmentId: number }
-  | { type: "CHECK_IN" }
+  /** IN_SHOP: the owner (or an authorized user) confirms the documented intake explicitly — no customer signature. */
+  | { type: "CHECK_IN"; intakeConfirmed?: boolean }
   | { type: "START_DIAGNOSIS" }
   | { type: "SEND_QUOTE"; quote: { version: number; totalAgorot: number; docHash: string } }
   /** Replace the SENT version `replaces` with the next version, while the case stays QUOTE_PENDING (ז-1 A). */
@@ -252,6 +256,7 @@ export type ServiceCaseViolationCode =
   | "STAFF_REQUIRED"
   | "SITE_REQUIRED"
   | "INTAKE_INCOMPLETE"
+  | "INTAKE_NOT_CONFIRMED"
   | "QUOTE_TOTAL_REQUIRES_COVERAGE"
   | "QUOTE_VERSION_NOT_NEWER"
   | "QUOTE_NOT_AWAITING_DECISION"

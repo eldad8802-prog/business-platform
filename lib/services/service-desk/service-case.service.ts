@@ -474,6 +474,9 @@ function actionFrom(raw: Record<string, unknown>): ServiceCaseAction {
     case "ABANDON":
       if (typeof raw.reason !== "string") throw new ServiceDeskError("INVALID_INPUT", { field: "action.reason" });
       return { type, reason: raw.reason };
+    case "CHECK_IN":
+      if (raw.intakeConfirmed !== undefined && typeof raw.intakeConfirmed !== "boolean") throw new ServiceDeskError("INVALID_INPUT", { field: "action.intakeConfirmed" });
+      return raw.intakeConfirmed === true ? { type, intakeConfirmed: true } : { type };
     default:
       return { type } as ServiceCaseAction;
   }

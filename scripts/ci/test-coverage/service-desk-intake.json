@@ -12,6 +12,10 @@
     "lib/services/service-desk/intake-slip-html.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB): the 1.3b-B intake slip HTML — Hebrew RTL, every text escaped, nothing fetched (strict CSP, no script, no external URL), the signature only as a PNG data URL, the evidence (text versions + hashes, signature hash, intake digest, photo hashes) on the page; run on pull_request by service-desk-ci.yml"
+    },
+    "features/service-desk/intake-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB): the 1.3b-C intake screen logic and the server allowed-actions (intakeAllowed) the screen offers — sections, the signing blocker (no signature without legally approved terms), history lines, photo downscale under the request cap, a drawn signature, every allowed combination; run on pull_request by service-desk-ci.yml"
     }
   }
 }
