@@ -229,7 +229,12 @@ function readPendingRevoke(): { since?: unknown; sid?: unknown } | null {
   }
 }
 
-/** A sign-in on this device replaces the cookie the marker was about. Drop it. */
+/**
+ * A sign-in on this device replaces the cookie the marker was about. Drop it —
+ * every sign-in path calls this once the new session is stored (password login,
+ * signup, Google). A marker left behind would later be "completed" against the
+ * NEW account's cookie and tell that person their sign-out was not confirmed.
+ */
 export function clearPendingRevoke(): void {
   if (typeof window === "undefined") return;
   try {
@@ -237,6 +242,25 @@ export function clearPendingRevoke(): void {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * Before a NEW sign-in replaces the refresh cookie: give an unfinished
+ * "clear anyway" sign-out one last, bounded chance to finish while the cookie
+ * that proves it is still in the jar. Never fails the sign-in and waits at most
+ * `timeoutMs`; the marker is dropped by `clearPendingRevoke` once the new
+ * session is stored either way, because the proof is gone after that.
+ */
+export async function finishPendingRevokeBeforeSignIn(timeoutMs: number = 3000): Promise<void> {
+  if (!hasPendingRevoke()) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    completePendingRevoke().catch(() => "still_pending" as const),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+  if (timer !== undefined) clearTimeout(timer);
 }
 
 export async function completePendingRevoke(): Promise<PendingRevokeResult> {

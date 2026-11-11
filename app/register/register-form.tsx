@@ -9,6 +9,7 @@ import { MIN_PASSWORD_LENGTH } from "@/lib/auth/signup-identity";
 import { SIGNUP_HONEYPOT_FIELD } from "@/lib/auth/signup-honeypot";
 import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
 import { flushAuthCookies } from "@/lib/native/auth-cookies";
+import { clearPendingRevoke, finishPendingRevokeBeforeSignIn } from "@/lib/client-session";
 
 import styles from "./register.module.css";
 
@@ -192,6 +193,10 @@ export default function RegisterForm({
       setLoading(true);
       setErrors({});
 
+      // An earlier "clear anyway" sign-out still pending: finish it while the
+      // cookie that proves it is in the jar — the new account replaces it.
+      await finishPendingRevokeBeforeSignIn();
+
       const registerRes = await fetch("/api/auth/register", {
         method: "POST",
         headers: {
@@ -251,6 +256,8 @@ export default function RegisterForm({
       localStorage.setItem("token", registerData.token);
       // Android app: the session cookie this response set goes to disk now, not ~30 s later.
       void flushAuthCookies();
+      // The new cookie replaced the one an older pending sign-out was about.
+      clearPendingRevoke();
 
       if (registerData.sessionId) {
         localStorage.setItem("sessionId", registerData.sessionId);

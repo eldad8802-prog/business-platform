@@ -7,7 +7,13 @@ import { PrimaryCta } from "@/components/ui/primary-cta";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
-import { completePendingRevoke, consumeSignOutUnconfirmed, hasPendingRevoke } from "@/lib/client-session";
+import {
+  clearPendingRevoke,
+  completePendingRevoke,
+  consumeSignOutUnconfirmed,
+  finishPendingRevokeBeforeSignIn,
+  hasPendingRevoke,
+} from "@/lib/client-session";
 import { handleUnauthorized } from "@/lib/auth/session-guard";
 import { flushAuthCookies } from "@/lib/native/auth-cookies";
 
@@ -150,7 +156,22 @@ export default function LoginForm({
 
     void boot();
 
+    // The check above could not reach the server (no network, or a 5xx) and
+    // kept the stored session. When the device comes back online, check again:
+    // a session that is still valid goes straight to /app instead of leaving the
+    // person on a sign-in form they do not need. Without a stored token nothing
+    // happens, so this never interrupts someone typing their password.
+    const onOnline = () => {
+      try {
+        if (isMounted && window.localStorage.getItem("token")) void boot();
+      } catch {
+        /* storage refused: stay on the form */
+      }
+    };
+    window.addEventListener("online", onOnline);
+
     return () => {
+      window.removeEventListener("online", onOnline);
       isMounted = false;
     };
   }, [router]);
@@ -244,6 +265,10 @@ export default function LoginForm({
         form: undefined,
       }));
 
+      // An earlier "clear anyway" sign-out still pending: finish it now, while
+      // the cookie that proves it is in the jar — this sign-in replaces it.
+      await finishPendingRevokeBeforeSignIn();
+
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
@@ -277,6 +302,8 @@ export default function LoginForm({
       window.localStorage.setItem("token", data.token);
       // Android app: the session cookie this response set goes to disk now, not ~30 s later.
       void flushAuthCookies();
+      // The new cookie replaced the one an older pending sign-out was about.
+      clearPendingRevoke();
 
       if (data.sessionId) {
         window.localStorage.setItem("sessionId", data.sessionId);

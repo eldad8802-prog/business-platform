@@ -92,6 +92,7 @@ const server = http.createServer(async (req, res) => {
     const raw = await body(req);
     S.seen.push({ path: "revoke", cookie, body: raw });
     if (S.mode.revoke === "drop") return req.socket.destroy();
+    if (S.mode.revoke === "hang") return; // never answers: the caller must not wait forever
     if (S.mode.revoke === "500") return json(res, 500, { error: "Server error" });
     if (S.mode.revoke === "unproven") return json(res, 200, { revoked: false }, ""); // e.g. a secret past its grace
     const expected = raw ? JSON.parse(raw).expectedSessionId ?? null : null;
@@ -365,6 +366,42 @@ async function pendingAfterFailedSignOut(user = 1) {
     r === "unproven" && (await ls(again.p)).marker === null && (await ls(again.p)).token !== null);
   ok("...the old account's session is untouched by a cookie the device no longer holds", S.sessions.get(old.sid).revoked === false);
   await again.ctx.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// 14. a NEW sign-in on a device with a pending sign-out (login / signup / Google)
+//     a) the server is back: the old session is ended BEFORE the new cookie replaces the proof
+{
+  reset();
+  const { dir, ctx, p, s: old } = await pendingAfterFailedSignOut(1);
+  S.mode.revoke = "ok"; S.seen = [];
+  await p.evaluate(() => window.DubizSession.finishPendingRevokeBeforeSignIn());
+  ok("SIGN-IN WITH PENDING: the old session is ended first, with the cookie as proof",
+    S.sessions.get(old.sid).revoked === true && S.seen.find((x) => x.path === "revoke")?.cookie === old.cookie);
+  ok("...marker gone", (await ls(p)).marker === null);
+  await ctx.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+//     b) the server hangs: the sign-in waits at most the bound, then the marker is dropped with the new session
+{
+  reset();
+  const { dir, ctx, p, s: old } = await pendingAfterFailedSignOut(1);
+  S.mode.revoke = "hang";
+  const ms = await p.evaluate(async () => { const t = performance.now(); await window.DubizSession.finishPendingRevokeBeforeSignIn(800); return performance.now() - t; });
+  ok("SIGN-IN, SERVER HANGS: never blocks longer than the bound", ms >= 700 && ms < 2500, String(Math.round(ms)));
+  const fresh = await p.evaluate(async () => {
+    const j = await (await fetch("/__login?user=2", { method: "POST", credentials: "same-origin" })).json();
+    localStorage.setItem("token", j.token);
+    window.DubizSession.clearPendingRevoke(); // what login / signup / Google now do once the new session is stored
+    return j.sid;
+  });
+  S.mode.revoke = "ok"; S.seen = [];
+  const r = await p.evaluate(() => window.DubizSession.completePendingRevoke());
+  ok("...after sign-in no stale marker: nothing to complete, no request, no 'not confirmed' notice for the new account",
+    r === "none" && !S.seen.some((x) => x.path === "revoke") && (await ls(p)).marker === null, r);
+  ok("...the new account's session is alive, signed in", S.sessions.get(fresh).revoked === false && (await ls(p)).token !== null);
+  ok("...the old session was not claimed ended", S.sessions.get(old.sid).revoked === false);
+  await ctx.close();
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
