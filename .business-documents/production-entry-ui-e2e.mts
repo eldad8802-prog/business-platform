@@ -79,6 +79,9 @@ async function openBilling(page: Page) {
   current = page;
   await page.goto("/billing");
   await page.getByRole("heading", { name: "חשבוניות" }).waitFor({ timeout: 90_000 });
+  // the heading is server-rendered: wait until the page is hydrated and its first reads are done, so a click is
+  // not lost before React attaches the handlers
+  await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => undefined);
 }
 async function openList(page: Page) {
   await openBilling(page);
@@ -281,7 +284,9 @@ async function main() {
       current = p2;
       await check("XO5 … English: the notice in English", async () => {
         await p2.goto("/billing");
-        await p2.getByRole("button", { name: "+ Create invoice" }).click({ timeout: 90_000 });
+        await p2.getByRole("button", { name: "+ Create invoice" }).waitFor({ timeout: 90_000 });
+        await p2.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => undefined);
+        await p2.getByRole("button", { name: "+ Create invoice" }).click();
         const n = p2.getByTestId("exempt-tax-invoice-notice");
         await n.waitFor();
         if (!(await n.innerText()).includes("An exempt dealer may not issue a tax invoice")) throw new Error(await n.innerText());
