@@ -7,8 +7,8 @@
 #
 #   L  legacy: handovers written the pre-migration way (zero balance, an approved debt with only a reason, a NEGATIVE
 #      balance = a legacy overpayment, the loaner exception, an erased row) exist BEFORE the migration.
-#   F  fault: on a copy, the migration fails on its final statement → nothing of it exists, the replaced functions and the
-#      same-business trigger are the old ones; the ledger marks it failed; resolve --rolled-back + deploy recovers.
+#   F  fault: on a copy, the migration fails on its final statement → nothing of it exists, the replaced function, the
+#      completion guard (not touched — approver = actor is M1's own rule) and the same-business trigger are the old ones; the ledger marks it failed; resolve --rolled-back + deploy recovers.
 #   A  apply: exactly this migration; nothing failed; every legacy row byte-identical apart from the new columns, which
 #      read recordVersion 1 / NULL; every new CHECK VALIDATED (not NOT VALID) although legacy rows exist.
 #   S  a second application by hand is refused by the premise and changes nothing.
@@ -73,35 +73,7 @@ pass=0; fail=0
 ok() { if eval "$2"; then pass=$((pass+1)); echo "  [PASS] $1"; else fail=$((fail+1)); echo "  [FAIL] $1"; fi; }
 
 echo "L — legacy handovers, written before the migration"
-psql -X -q -v ON_ERROR_STOP=1 "$(owner_url "$DB")" >/dev/null <<'SQL'
-BEGIN;
-INSERT INTO "Business" (name, "updatedAt") VALUES ('hov-legacy', now());
-SELECT set_config('app.current_business_id', currval(pg_get_serial_sequence('"Business"', 'id'))::text, true);
-INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ('hov-legacy-' || currval(pg_get_serial_sequence('"Business"', 'id')) || '@lab.invalid', currval(pg_get_serial_sequence('"Business"', 'id')), now());
-INSERT INTO "Customer" ("businessId", name, "updatedAt") VALUES (currval(pg_get_serial_sequence('"Business"', 'id')), 'לקוח סינתטי', now());
-DO $$
-DECLARE b int := currval(pg_get_serial_sequence('"Business"', 'id')); u int := currval(pg_get_serial_sequence('"User"', 'id'));
-        c int := currval(pg_get_serial_sequence('"Customer"', 'id')); k int; i int;
-BEGIN
-  FOR i IN 1..5 LOOP
-    INSERT INTO "ServiceCase" ("businessId", "caseNumber", kind, "customerId", "problemDescription")
-      VALUES (b, 900 + i, 'IN_SHOP', c, 'תקלה סינתטית') RETURNING id INTO k;
-    INSERT INTO "ServiceCaseEvent" ("businessId", "caseId", seq, "eventType", action, "toStatus", "cancellationRequestedBefore",
-                                    "cancellationRequestedAfter", actor, "actorUserId", "idempotencyKey")
-      VALUES (b, k, 1, 'case.opened', 'OPEN', 'OPEN', false, false, 'OWNER_USER', u, 'hov-legacy-' || k);
-    INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "debtOverrideReason",
-                                   "loanerOverrideReason", "actorUserId", "erasedAt")
-      VALUES (b, k,
-              CASE i WHEN 5 THEN NULL ELSE 'דנה' END, i <> 1,
-              CASE i WHEN 2 THEN 5000 WHEN 3 THEN -300 WHEN 5 THEN 1000 ELSE 0 END,
-              CASE i WHEN 2 THEN 'ישלם מחר' END,
-              CASE i WHEN 4 THEN 'ההשאלה תוחזר מחר' END,
-              CASE i WHEN 5 THEN NULL ELSE u END,
-              CASE i WHEN 5 THEN now() END);
-  END LOOP;
-END $$;
-COMMIT;
-SQL
+psql -X -q -v ON_ERROR_STOP=1 "$(owner_url "$DB")" -f "$ROOT/.sdhov/seed-legacy.sql" >/dev/null
 ok "L1 five legacy handovers exist (zero, debt+reason only, negative balance, loaner, erased)" \
   'test "$(q "$DB" "SELECT count(*) FROM \"ServiceHandover\" h JOIN \"Business\" b ON b.id = h.\"businessId\" WHERE b.name = '"'"'hov-legacy'"'"'")" = "5"'
 FP_BEFORE="$(fingerprint "$DB")"

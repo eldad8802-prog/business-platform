@@ -13,14 +13,17 @@ const TPL = process.argv[2];
 if (!TPL) { console.error("usage: mutate.mjs <template-db>"); process.exit(2); }
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
 const MIG = readFileSync(path.join(ROOT, "prisma/migrations/20261130090000_service_handover_debt_record/migration.sql"), "utf8");
+// approver = actor on the work completion is M1's own rule (20261127090000, owner decision 2026-11-12): its guard is mutated
+// from M1's text, and this battery (P7 / P9) must still catch it
+const M1 = readFileSync(path.join(ROOT, "prisma/migrations/20261127090000_service_desk_tracks/migration.sql"), "utf8");
 const H = `${process.env.PGHOST ?? "localhost"}:${process.env.PGPORT ?? "5432"}`;
 const pw = process.env.LAB_PASSWORD ?? "sd_lab_pw";
 const ownerUrl = (db) => `postgresql://lab_owner:${pw}@${H}/${db}`;
 const runtimeUrl = (db) => `postgresql://app_runtime_prod:${pw}@${H}/${db}`;
 const superSql = (sql) => execFileSync("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", process.env.SUPER, "-d", "postgres", "-c", sql], { stdio: "pipe" });
-const fn = (name) => {
-  const m = MIG.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\(\\)[\\s\\S]*?\\$fn\\$;`));
-  if (!m) throw new Error(`${name} not found in the migration`);
+const fn = (name, src = MIG) => {
+  const m = src.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\(\\)[\\s\\S]*?\\$fn\\$;`));
+  if (!m) throw new Error(`${name} not found in the migration text`);
   return m[0];
 };
 const cut = (text, from, to) => {
@@ -42,7 +45,7 @@ const MUTATIONS = [
   ["record guard: approver may differ from the actor (debt)", replace(fn("service_handover_record_guard"), `(NEW."debtApprovedByUserId" IS NOT NULL AND NEW."debtApprovedByUserId" <> NEW."actorUserId")`, `false`)],
   ["record guard: approver may differ from the actor (loaner)", replace(fn("service_handover_record_guard"), `OR (NEW."loanerApprovedByUserId" IS NOT NULL AND NEW."loanerApprovedByUserId" <> NEW."actorUserId")`, ``)],
   ["record guard: a deleting business accepted", replace(fn("service_handover_record_guard"), `IF NOT public.service_ui_business_writable(NEW."businessId") THEN`, `IF false THEN`)],
-  ["completion guard: approver may differ from the actor", replace(fn("service_completion_guard"), `IF NEW."debtApprovedByUserId" IS NOT NULL AND NEW."debtApprovedByUserId" <> NEW."actorUserId" THEN`, `IF false THEN`)],
+  ["completion guard (M1): approver may differ from the actor", replace(fn("service_completion_guard", M1), `IF NEW."debtApprovedByUserId" IS NOT NULL AND NEW."debtApprovedByUserId" <> NEW."actorUserId" THEN`, `IF false THEN`)],
   ["handover guard: foundation erasure may re-attribute approvers", replace(fn("service_handover_guard"), `AND NEW."loanerOverrideReason" IS NULL AND NEW."actorUserId" IS NULL AND NEW."erasedAt" IS NOT NULL
        AND approvers_kept_or_null THEN`, `AND NEW."loanerOverrideReason" IS NULL AND NEW."actorUserId" IS NULL AND NEW."erasedAt" IS NOT NULL THEN`)],
   ["handover guard: record erasure may change anything", replace(fn("service_handover_guard"), `AND (to_jsonb(NEW) - approvers) = (to_jsonb(OLD) - approvers)

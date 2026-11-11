@@ -2,7 +2,7 @@ name: service desk handover record — balance, overpayment, actor / approver la
 
 # Migration 20261130090000_service_handover_debt_record (DRAFT — never applied without a separate owner approval): the
 # version-2 handover record (balance + overpayment, debt / loaner approvals with the approver apart from the actor), the
-# approver = actor rule on ServiceHandover AND ServiceCompletion, its erase function. The application chain (#1096 →
+# approver = actor rule on ServiceHandover (on ServiceCompletion it is M1's own rule — proven here too), its erase function. The application chain (#1096 →
 # #1104 → M1 → this, via prisma migrate deploy) over LEGACY handovers, fault + recovery, second-apply refusal, rollback;
 # then the database rules AS the runtime role, and the mutation run (every key guard, weakened, is caught). Synthetic
 # only; no secrets.
