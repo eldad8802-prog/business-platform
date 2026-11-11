@@ -145,7 +145,7 @@ async function main() {
   const race = await Promise.all([setD(A, "T6", L, 0), setD(A, "T6", L2, 0), setD(A, "T6", L, 0)]);
   ok("G8 three writers of revision 0 at once: exactly one wins, the others VERSION_CONFLICT; one row",
     race.filter((r) => r === "OK").length === 1 && race.filter((r) => r.startsWith("VERSION_CONFLICT")).length === 2
-      && Number((await own(A.b, `SELECT count(*)::int n FROM "ServiceQaTrackDefault" WHERE track = 'T6'`))[0].n) === 1, race.join(" | "));
+      && Number((await own(A.b, `SELECT count(*)::int n FROM "ServiceQaTrackDefault" WHERE "businessId" = $1 AND track = 'T6'`, A.b))[0].n) === 1, race.join(" | "));
   const kr = key();
   const same = await Promise.all([setD(A, "T7", L, 0, kr), setD(A, "T7", L, 0, kr)]);
   ok("G9 the same request twice at once: one write, one replay (no error)", same.every((r) => r === "OK") && (await view(A, "T7")).revision === 1, same.join(" | "));
@@ -246,7 +246,7 @@ async function main() {
     n > 0 && Number(left.dirty) === 0 && Number(left.total) === n && after.tracks.find((v) => v.track === "T1")!.listId === L2
       && after.tracks.every((v) => v.changedByUserId === null), `${n} ${JSON.stringify(left)}`);
   ok("X2 nothing new for a business being deleted (BUSINESS_DELETING)", (await setD(A, "T2", L2, 0)).startsWith("BUSINESS_DELETING"));
-  ok("X3 B untouched", Number((await own(B.b, `SELECT count(*)::int n FROM "ServiceQaTrackDefault" WHERE "actorUserId" IS NOT NULL`))[0].n) === 1);
+  ok("X3 B untouched", Number((await own(B.b, `SELECT count(*)::int n FROM "ServiceQaTrackDefault" WHERE "businessId" = $1 AND "actorUserId" IS NOT NULL`, B.b))[0].n) === 1);
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length > 0) process.exitCode = 1;
