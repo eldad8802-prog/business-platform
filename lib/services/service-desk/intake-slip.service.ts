@@ -1,8 +1,8 @@
 /**
- * Service Desk 1.3b-B — the intake slip PDF. A signed intake gets ONE stored slip: rendered through the shared Chromium
- * launcher (lib/pdf/chromium) from intake-slip-html, stored content-addressed in the private `service` domain
- * (create-once), its key set on the intake row — the only change the database allows after signature
- * (service_intake_guard: slipPdfKey NULL → key, once) — and one RECORD_INTAKE event (SLIP_STORED, the PDF hash).
+ * Service Desk — the intake slip PDF. A CONFIRMED intake (the owner's CHECK_IN, owner decision 2026-11-11: no customer
+ * signature) gets ONE stored slip: rendered through the shared Chromium launcher (lib/pdf/chromium) from
+ * intake-slip-html, stored content-addressed in the private `service` domain (create-once), its key set on the intake
+ * row once, and one RECORD_INTAKE event (SLIP_STORED: the PDF hash and the intake digest).
  *
  * Kept apart from intake.service so only the slip route carries the browser bundle (next.config.ts
  * outputFileTracingIncludes + scripts/ci/pdf-route-tracing-guard.mjs). Rendering and upload run BEFORE the command
@@ -16,7 +16,7 @@ import { getStorageService, type StorageService } from "@/lib/storage";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 import { buildIntakeSlipHtml, type IntakeSlipInput } from "./intake-slip-html";
-import { readIntakeObject } from "./intake.service";
+import { intakeDigest } from "./intake.service";
 import { appendRecord, isNonNegativeInt, isPositiveInt, prepare, recordCommand, type CommandResult, type ServiceDeskPrincipal, type Tx, type WriteRequest } from "./service-case.service";
 import { ServiceDeskError } from "./service-desk-errors";
 import { SERVICE_STORAGE_DOMAIN, intakeSlipKey, isServiceKeyOfBusiness, serviceBusinessPrefix } from "./storage/service-storage-keys";
@@ -27,24 +27,26 @@ const isPdf = (b: Uint8Array) => b.length > 5 && Buffer.from(b.subarray(0, 5)).t
 
 export const fontDataUri = () => `data:font/ttf;base64,${hebrewFontVfs["NotoSansHebrew-Regular.ttf"]}`;
 
-/** "dd.mm.yyyy, hh:mm" in Israel time — the slip shows the signature time as the customer lived it. */
+/** "dd.mm.yyyy, hh:mm" in Israel time — the slip shows the confirmation time as the business lived it. */
 export function israelTime(d: Date): string {
   return new Intl.DateTimeFormat("he-IL", { timeZone: "Asia/Jerusalem", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
 }
 
-type SlipState = { signed: boolean; hasSlip: boolean };
+type SlipState = { confirmed: boolean; hasSlip: boolean };
 
+/** The intake is confirmed once the owner's CHECK_IN event exists (owner decision 2026-11-11 — no customer signature). */
 async function slipState(tx: Tx, b: number, caseId: number): Promise<SlipState | null> {
-  const r = (await tx.$queryRaw<{ signed: boolean; slip: boolean }[]>`
-    SELECT "signedAt" IS NOT NULL AS signed, "slipPdfKey" IS NOT NULL AS slip FROM "ServiceCaseIntake"
-     WHERE "businessId" = ${b}::int AND "caseId" = ${caseId}::int`)[0];
-  return r ? { signed: r.signed, hasSlip: r.slip } : null;
+  const r = (await tx.$queryRaw<{ slip: boolean; confirmed: boolean }[]>`
+    SELECT i."slipPdfKey" IS NOT NULL AS slip,
+           EXISTS (SELECT 1 FROM "ServiceCaseEvent" e WHERE e."businessId" = i."businessId" AND e."caseId" = i."caseId" AND e.action::text = 'CHECK_IN') AS confirmed
+      FROM "ServiceCaseIntake" i WHERE i."businessId" = ${b}::int AND i."caseId" = ${caseId}::int`)[0];
+  return r ? { confirmed: r.confirmed, hasSlip: r.slip } : null;
 }
 
-const slipViolations = (s: SlipState | null): string[] => (!s || !s.signed ? ["INTAKE_NOT_SIGNED"] : s.hasSlip ? ["SLIP_EXISTS"] : []);
+const slipViolations = (s: SlipState | null): string[] => (!s || !s.confirmed ? ["INTAKE_NOT_CONFIRMED"] : s.hasSlip ? ["SLIP_EXISTS"] : []);
 
-/** Everything the slip shows, read in one tenant transaction, plus the signature bytes through the intake row. */
-export async function loadSlipInput(businessId: number, caseId: number, storage: StorageService): Promise<IntakeSlipInput> {
+/** Everything the slip shows, read in one tenant transaction: the documented intake and who confirmed it, when. */
+export async function loadSlipInput(businessId: number, caseId: number): Promise<IntakeSlipInput> {
   const data = await tenantTx(businessId, async (tx) => {
     const c = (await tx.$queryRaw<Record<string, unknown>[]>`
       SELECT c."caseNumber", c."problemDescription", cu.name AS "customerName", bz.name AS "businessName",
@@ -55,37 +57,29 @@ export async function loadSlipInput(businessId: number, caseId: number, storage:
         LEFT JOIN "ServiceDevice" d ON d.id = c."deviceId" AND d."businessId" = c."businessId"
        WHERE c.id = ${caseId}::int AND c."businessId" = ${businessId}::int`)[0];
     if (!c) throw new ServiceDeskError("NOT_FOUND");
-    const i = (await tx.$queryRaw<Record<string, unknown>[]>`
-      SELECT "conditionNote", "accessoriesNote", "signedAt", "signatureKey" FROM "ServiceCaseIntake"
-       WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int AND "signedAt" IS NOT NULL`)[0];
-    if (!i) throw refused(["INTAKE_NOT_SIGNED"]);
-    const t = (await tx.$queryRaw<Record<string, unknown>[]>`
-      SELECT x."termsSha256", x."statutorySha256", t.version AS tv, t.body AS tb, s.version AS sv, s.body AS sb
-        FROM "ServiceIntakeTermsSnapshot" x
-        JOIN "ServiceTextVersion" t ON t."businessId" = x."businessId" AND t.id = x."termsVersionId"
-        JOIN "ServiceTextVersion" s ON s."businessId" = x."businessId" AND s.id = x."statutoryNoticeVersionId"
-       WHERE x."businessId" = ${businessId}::int AND x."caseId" = ${caseId}::int`)[0];
-    if (!t) throw refused(["TERMS_NOT_PRESENTED"]);
+    const i = (await tx.$queryRaw<{ cn: string | null; an: string | null; cr: boolean; ar: boolean }[]>`
+      SELECT "conditionNote" AS cn, "accessoriesNote" AS an, "conditionRecorded" AS cr, "accessoriesRecorded" AS ar FROM "ServiceCaseIntake"
+       WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int`)[0];
+    const conf = (await tx.$queryRaw<{ at: Date; name: string | null }[]>`
+      SELECT e."occurredAt" AS at, COALESCE(NULLIF(btrim(u.name), ''), u.email) AS name
+        FROM "ServiceCaseEvent" e LEFT JOIN "User" u ON u.id = e."actorUserId"
+       WHERE e."businessId" = ${businessId}::int AND e."caseId" = ${caseId}::int AND e.action::text = 'CHECK_IN' ORDER BY e.seq DESC LIMIT 1`)[0];
+    if (!i || !conf) throw refused(["INTAKE_NOT_CONFIRMED"]);
     const photos = await tx.$queryRaw<{ sha256: string }[]>`
       SELECT sha256 FROM "ServiceIntakePhoto" WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int AND "erasedAt" IS NULL ORDER BY id`;
-    const signed = (await tx.$queryRaw<{ p: Record<string, unknown> }[]>`
-      SELECT payload AS p FROM "ServiceCaseEvent" WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int
-         AND action::text = 'RECORD_INTAKE' AND payload->>'step' = 'SIGNED' ORDER BY seq DESC LIMIT 1`)[0];
-    return { c, i, t, photos, signed: signed?.p ?? null };
+    return { c, i, conf, photos };
   });
-  const sig = await readIntakeObject(businessId, caseId, { kind: "signature" }, storage);
   const str = (v: unknown) => (typeof v === "string" ? v : null);
+  const photoShas = data.photos.map((p) => String(p.sha256).trim());
   return {
     business: { name: String(data.c.businessName ?? "") },
     caseNumber: Number(data.c.caseNumber),
     customerName: str(data.c.customerName),
     item: { category: str(data.c.category), brand: str(data.c.brand), model: str(data.c.model), serialNumber: str(data.c.serialNumber), problemDescription: str(data.c.problemDescription) },
-    intake: { conditionNote: str(data.i.conditionNote), accessoriesNote: str(data.i.accessoriesNote) },
-    photos: data.photos.map((p) => ({ sha256: String(p.sha256).trim() })),
-    terms: { version: Number(data.t.tv), sha256: String(data.t.termsSha256).trim(), body: String(data.t.tb) },
-    statutory: { version: Number(data.t.sv), sha256: String(data.t.statutorySha256).trim(), body: String(data.t.sb) },
-    signature: { pngDataUrl: `data:image/png;base64,${sig.bytes.toString("base64")}`, sha256: sha256Hex(sig.bytes), signedAtText: israelTime(new Date(data.i.signedAt as string)) },
-    evidence: { intakeSha256: str(data.signed?.intakeSha256) },
+    intake: { conditionNote: data.i.cn, accessoriesNote: data.i.an },
+    photos: photoShas.map((sha256) => ({ sha256 })),
+    confirmation: { byName: data.conf.name ?? null, atText: israelTime(new Date(data.conf.at)) },
+    evidence: { intakeSha256: intakeDigest({ conditionNote: data.i.cn, accessoriesNote: data.i.an, conditionRecorded: data.i.cr, accessoriesRecorded: data.i.ar, photoShas }) },
     fontDataUri: fontDataUri(),
   };
 }
@@ -129,8 +123,11 @@ export async function createIntakeSlip(
   });
   let key: string | null = null;
   let sha256: string | null = null;
+  let intakeSha256: string | null = null;
   if (!replay) {
-    const pdf = await render(buildIntakeSlipHtml(await loadSlipInput(b, caseId, storage)));
+    const input = await loadSlipInput(b, caseId);
+    intakeSha256 = input.evidence.intakeSha256;
+    const pdf = await render(buildIntakeSlipHtml(input));
     if (!isPdf(pdf)) throw new ServiceDeskError("REFUSED", { violations: ["SLIP_RENDER_FAILED"] });
     sha256 = sha256Hex(pdf);
     key = intakeSlipKey({ businessId: b, caseId, sha256 });
@@ -139,12 +136,12 @@ export async function createIntakeSlip(
   const r = await recordCommand(p, caseId, body.expectedVersion, prepared, async (tx, locked) => {
     const v = slipViolations(await slipState(tx, b, caseId));
     if (v.length > 0 || !key || !sha256) throw refused(v.length > 0 ? v : ["SLIP_RENDER_FAILED"]);
-    // The only change the intake guard allows after signature: slipPdfKey NULL → key (updatedAt untouched).
+    // Set once: slipPdfKey NULL → key (updatedAt untouched; a legacy signed intake allows exactly this change).
     const n = await tx.$executeRaw`
       UPDATE "ServiceCaseIntake" SET "slipPdfKey" = ${key}
-       WHERE "businessId" = ${b}::int AND "caseId" = ${caseId}::int AND "signedAt" IS NOT NULL AND "slipPdfKey" IS NULL`;
+       WHERE "businessId" = ${b}::int AND "caseId" = ${caseId}::int AND "slipPdfKey" IS NULL`;
     if (n !== 1) throw refused(["SLIP_EXISTS"]);
-    await appendRecord(tx, b, caseId, locked.context, "RECORD_INTAKE", { step: "SLIP_STORED", slipSha256: sha256 }, p.userId, prepared);
+    await appendRecord(tx, b, caseId, locked.context, "RECORD_INTAKE", { step: "SLIP_STORED", slipSha256: sha256, ...(intakeSha256 ? { intakeSha256 } : {}) }, p.userId, prepared);
   });
   return { ...r, ...(sha256 ? { slip: { sha256 } } : {}) };
 }

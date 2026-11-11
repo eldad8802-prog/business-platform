@@ -15,12 +15,30 @@ export type ErrorView = {
 
 const REFUSAL: Record<string, string> = {
   NO_CHANGE: "לא שינית דבר מאז השמירה האחרונה.",
-  INTAKE_INCOMPLETE: "כדי לקבל את המכשיר חסר: מצב המכשיר / אביזרים / חתימת הלקוח",
+  INTAKE_INCOMPLETE: "כדי לקבל את המכשיר חסר תיעוד: מצב המכשיר / אביזרים (אפשר לציין שלא נמסרו אביזרים)",
+  INTAKE_NOT_CONFIRMED: "אשרו את פרטי הקליטה כדי לקבל את המכשיר.",
   STAFF_REQUIRED: "בחר טכנאי מטפל לפני תחילת האבחון",
   COVERAGE_NOT_APPROVED: "תיקון בלי הצעת מחיר אפשרי רק עם אחריות מאושרת",
   QA_INCOMPLETE: "השלם את רשימת הבדיקות לפני «עבר בדיקה»",
   REASON_REQUIRED: "ביטול כשהמכשיר אצלנו או אצל ספק דורש סיבה",
   TERMINAL_STATUS: "התיק סגור או מבוטל — אפשר רק לצפות בו.",
+  // 1.3b — the intake signature path
+  INTAKE_ONLY_IN_SHOP: "קליטה חתומה קיימת רק לתיק מעבדה.",
+  INTAKE_ONLY_BEFORE_CHECK_IN: "אחרי קבלת המכשיר אי אפשר לשנות את הקליטה.",
+  INTAKE_SIGNED: "הקליטה כבר נחתמה — אי אפשר לשנות אותה.",
+  INTAKE_NOT_RECORDED: "קודם שמרו את מצב המכשיר והאביזרים.",
+  INTAKE_NOT_SIGNED: "טופס הקליטה נוצר רק אחרי חתימת הלקוח.",
+  TERMS_NOT_CONFIGURED: "לא הוגדר נוסח תנאים פעיל לעסק.",
+  TERMS_NOT_APPROVED: "נוסח התנאים עוד לא אושר משפטית — אי אפשר להציג אותו ללקוח.",
+  TERMS_ALREADY_PRESENTED: "התנאים כבר הוצגו ללקוח בתיק הזה.",
+  TERMS_NOT_PRESENTED: "קודם הציגו ללקוח את תנאי השירות.",
+  PHOTO_TYPE: "אפשר להעלות רק תמונה (JPG, PNG או WebP).",
+  PHOTO_TOO_LARGE: "התמונה גדולה מדי. נסו שוב.",
+  PHOTO_LIMIT: "אפשר עד 10 תמונות בקליטה.",
+  PHOTO_DUPLICATE: "התמונה הזו כבר הועלתה.",
+  SIGNATURE_INVALID: "החתימה לא נקלטה כראוי. בקשו מהלקוח לחתום שוב.",
+  SLIP_EXISTS: "טופס הקליטה כבר נשמר.",
+  SLIP_RENDER_FAILED: "יצירת הטופס נכשלה. לא נשמר דבר — נסו שוב.",
 };
 
 const SERVER_CHECK: Record<string, string> = {

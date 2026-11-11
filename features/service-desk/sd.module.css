@@ -128,3 +128,19 @@
 .confirm { display: flex; flex-direction: column; gap: 10px; padding: 20px; font-size: 16px; line-height: 1.5; }
 .confirm strong { font-size: 18px; }
 .confirmRow { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+
+/* ── 1.3b intake (photos, terms, signature, history) — phone first ── */
+.card[data-current] { border-color: var(--sd-brand); }
+.actions { display: flex; flex-direction: column; gap: 10px; }
+.photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+.photo { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--sd-line); background: var(--sd-bg); }
+.photoEmpty { display: block; }
+.fileButton { display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+.termsBody {
+  max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 14px; line-height: 1.6; padding: 10px 12px;
+  border: 1px solid var(--sd-line); border-radius: 12px; background: var(--sd-bg);
+}
+.padWrap { display: flex; flex-direction: column; gap: 8px; }
+.pad { width: 100%; height: auto; aspect-ratio: 3 / 1; touch-action: none; border: 1.5px dashed var(--sd-line); border-radius: 12px; background: #fff; }
+.signature { max-width: 100%; max-height: 120px; object-fit: contain; align-self: flex-start; background: #fff; border-radius: 8px; }
+.history { margin: 0; padding-inline-start: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }

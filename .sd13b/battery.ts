@@ -33,7 +33,8 @@ import { uuidV7 } from "../lib/services/tasks/task-idempotency";
 import { ServiceDeskError } from "../lib/services/service-desk/service-desk-errors";
 import { openCase, recordIntake, runCaseAction, type ServiceDeskPrincipal } from "../lib/services/service-desk/service-case.service";
 import { crc32 } from "../lib/services/service-desk/intake.core";
-import { createIntakeSlip, readIntakeSlip, renderIntakeSlipPdf } from "../lib/services/service-desk/intake-slip.service";
+import { createIntakeSlip, loadSlipInput, readIntakeSlip, renderIntakeSlipPdf } from "../lib/services/service-desk/intake-slip.service";
+import { buildIntakeSlipHtml } from "../lib/services/service-desk/intake-slip-html";
 import { addIntakePhoto, getIntake, intakeDigest, presentTerms, readIntakeObject, signIntake } from "../lib/services/service-desk/intake.service";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
@@ -185,10 +186,10 @@ async function main() {
   ok("S5 after the signature: a photo, a second signature and new intake data → refused (INTAKE_SIGNED)", after.every((c) => c.includes("INTAKE_SIGNED")), after.join(" | "));
   const sigBack = await readIntakeObject(A.b, c1.id, { kind: "signature" }, store);
   ok("S6 the signature PNG reads back through the intake row", sigBack.contentType === "image/png" && Buffer.compare(sigBack.bytes, sig) === 0);
-  const ciReal = await code(async () => runCaseAction(A.p, c1.id, { action: { type: "CHECK_IN" }, expectedVersion: await version(c1.id) }, { idempotencyKey: key() }));
+  const ciReal = await code(async () => runCaseAction(A.p, c1.id, { action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion: await version(c1.id) }, { idempotencyKey: key() }));
   const st = String((await q(`SELECT status::text s FROM "ServiceCase" WHERE id = $1`, c1.id))[0].s);
-  ok("S7 the signed case can now CHECK_IN (status CHECKED_IN) — the unchanged case machine reads the signature", ciReal === "OK" && st === "CHECKED_IN", `${ciReal} / ${st}`);
-  ok("S8 an unsigned case is still refused CHECK_IN (behaviour unchanged)", (await code(async () => runCaseAction(A.p, c3.id, { action: { type: "CHECK_IN" }, expectedVersion: await version(c3.id) }, { idempotencyKey: key() }))) !== "OK");
+  ok("S7 the case checks in on the owner's confirmation (CHECKED_IN)", ciReal === "OK" && st === "CHECKED_IN", `${ciReal} / ${st}`);
+  ok("S8 without the owner's explicit confirmation CHECK_IN is refused (INTAKE_NOT_CONFIRMED)", (await code(async () => runCaseAction(A.p, c3.id, { action: { type: "CHECK_IN" }, expectedVersion: await version(c3.id) }, { idempotencyKey: key() }))) !== "OK");
   const f1 = await openCase(A.p, { kind: "FIELD", customerId: A.cust, problemDescription: "ביקור" }, { idempotencyKey: key() });
   ok("S9 a FIELD case has no shop intake: terms / photo / signature → INTAKE_ONLY_IN_SHOP",
     (await code(() => present(A, f1.case.id))).includes("INTAKE_ONLY_IN_SHOP") && (await code(() => photo(A, f1.case.id, jpeg()))).includes("INTAKE_ONLY_IN_SHOP"));
@@ -238,7 +239,7 @@ async function main() {
   let renders = 0;
   const render = async (html: string) => { renders++; return renderIntakeSlipPdf(html); };
   const slip = async (z: Biz, id: number, k = key()) => createIntakeSlip(z.p, id, { expectedVersion: await version(id) }, { idempotencyKey: k }, { storage: store, render });
-  ok("L1 an unsigned intake → INTAKE_NOT_SIGNED; nothing rendered, nothing stored", (await code(() => slip(A, c3.id))).includes("INTAKE_NOT_SIGNED") && renders === 0);
+  ok("L1 an intake the owner has not confirmed → INTAKE_NOT_CONFIRMED; nothing rendered, nothing stored", (await code(() => slip(A, c3.id))).includes("INTAKE_NOT_CONFIRMED") && renders === 0);
   const before1 = (await q(`SELECT "signedAt" sa, "signatureKey" k, "termsVersion" tv, "updatedAt" ua FROM "ServiceCaseIntake" WHERE "caseId" = $1`, c1.id))[0];
   const kl = key();
   const l1 = await slip(A, c1.id, kl);
@@ -253,7 +254,6 @@ async function main() {
   ok("L4 the same key again → the stored answer (replayed), no render", again1.replayed === true && renders === 1);
   const pdf = await readIntakeSlip(A.b, c1.id, store);
   ok("L5 the stored slip reads back through the intake row: a PDF whose hash is its name", pdf.bytes.subarray(0, 5).toString("latin1") === "%PDF-" && sha(pdf.bytes) === l1.slip?.sha256 && pdf.bytes.length > 5000);
-  fs.writeFileSync(process.env.SLIP_OUT ?? "sd13b-slip-sample.pdf", pdf.bytes);
   const isoL = await Promise.all([code(() => readIntakeSlip(B.b, c1.id, store)), code(() => createIntakeSlip(B.p, c1.id, { expectedVersion: 1 }, { idempotencyKey: key() }, { storage: store, render }))]);
   ok("L6 business B cannot read or create A's slip → NOT_FOUND", isoL.every((c) => c.startsWith("NOT_FOUND")), isoL.join(" | "));
   const direct2 = await code(() => runtime.$transaction(async (tx) => {
@@ -261,6 +261,41 @@ async function main() {
     await tx.$executeRawUnsafe(`UPDATE "ServiceCaseIntake" SET "slipPdfKey" = $2 WHERE "caseId" = $1`, c1.id, `biz/${A.b}/service/cases/${c1.id}/intake/slip/${"0".repeat(64)}.pdf`);
   }));
   ok("L7 the database refuses replacing a stored slip key, even by the runtime role directly (the intake guard)", direct2 !== "OK", direct2);
+
+
+  console.log("N — no customer signature: owner-confirmed intake end to end (owner decision 2026-11-11)");
+  const cN = await shopCase(A);
+  await recordIntake(A.p, cN.id, { conditionNote: "שריטה במסך", accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedVersion: await version(cN.id) }, { idempotencyKey: key() });
+  await photo(A, cN.id, jpeg());
+  const vN0 = await getIntake(A.b, cN.id);
+  ok("N1 documented (no accessories handed over) + a photo, no terms, no signature → the owner may confirm; no slip yet",
+    vN0.allowed.confirm && !vN0.allowed.createSlip && vN0.confirmation === null && vN0.terms === null && vN0.intake?.signed === false);
+  const kN = key(), vNb = await version(cN.id);
+  const ciN = await runCaseAction(A.p, cN.id, { action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion: vNb }, { idempotencyKey: kN });
+  const vN1 = await getIntake(A.b, cN.id);
+  ok("N2 the owner's confirmation checks the item in: CHECKED_IN, confirmation by this user with its time, signedAt still empty, no signature object",
+    ciN.case.status === "CHECKED_IN" && vN1.confirmation?.byUserId === A.u && typeof vN1.confirmation?.at === "string" && vN1.intake?.signed === false && vN1.intake?.hasSignature === false);
+  ok("N3 after the confirmation the intake is closed: no data, no photo, no second confirmation; the slip is offered",
+    !vN1.allowed.recordData && !vN1.allowed.addPhoto && !vN1.allowed.confirm && vN1.allowed.createSlip
+      && (await code(() => photo(A, cN.id, jpeg()))).includes("INTAKE_ONLY_BEFORE_CHECK_IN"));
+  const evBefore = await events(cN.id);
+  const replayN = await runCaseAction(A.p, cN.id, { action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion: vNb }, { idempotencyKey: kN });
+  const second = await code(async () => runCaseAction(A.p, cN.id, { action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion: await version(cN.id) }, { idempotencyKey: key() }));
+  ok("N7 no double confirmation: the same request replays the stored answer; a new confirmation is refused; nothing more journaled",
+    replayN.replayed === true && second !== "OK" && (await events(cN.id)) === evBefore
+      && (await n(`SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND action::text = 'CHECK_IN'`, cN.id)) === 1, second);
+  const nHtml = buildIntakeSlipHtml(await loadSlipInput(A.b, cN.id));
+  ok("N4 the slip names the confirming user and says no accessories were handed over; no signature, no terms, no image",
+    nHtml.includes("הקליטה אושרה") && nHtml.includes("לא נמסרו אביזרים") && !/חתימ|תנאי השירות|<img/.test(nHtml));
+  const slN = await slip(A, cN.id);
+  const evN = (await q(`SELECT payload FROM "ServiceCaseEvent" WHERE "caseId" = $1 ORDER BY seq DESC LIMIT 1`, cN.id))[0].payload as Record<string, unknown>;
+  const pdfN = await readIntakeSlip(A.b, cN.id, store);
+  ok("N5 the slip of an unsigned, owner-confirmed intake is rendered once and stored; SLIP_STORED carries the PDF hash and the intake digest",
+    typeof slN.slip?.sha256 === "string" && evN.step === "SLIP_STORED" && evN.slipSha256 === slN.slip?.sha256 && /^[0-9a-f]{64}$/.test(String(evN.intakeSha256))
+      && pdfN.bytes.subarray(0, 5).toString("latin1") === "%PDF-");
+  fs.writeFileSync(process.env.SLIP_OUT ?? "sd13b-slip-sample.pdf", pdfN.bytes);
+  const ckEv = (await q(`SELECT "actorUserId" a, "fromStatus"::text f, "toStatus"::text t, payload->>'intakeConfirmed' c FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND action::text = 'CHECK_IN'`, cN.id))[0];
+  ok("N6 the audit journal names who confirmed, the status change and the confirmation (no signature data)", Number(ckEv.a) === A.u && ckEv.f === "OPEN" && ckEv.t === "CHECKED_IN" && ckEv.c === "true");
 
   console.log("V — view");
   const view = await getIntake(A.b, c1.id);
@@ -270,7 +305,9 @@ async function main() {
       && view.activeTerms.approved === true);
   const c4 = await shopCase(A);
   await activate(A, draftT, draftS);
-  ok("V2 with DRAFT texts active the view says approved = false (the screen shows the intake cannot be signed)", (await getIntake(A.b, c4.id)).activeTerms.approved === false);
+  const v4 = await getIntake(A.b, c4.id);
+  ok("V2 an intake with nothing documented allows recording data but not the confirmation", v4.allowed.recordData && !v4.allowed.confirm && !v4.allowed.createSlip);
+  ok("V3 a confirmed intake with its slip allows nothing more (no data, photo, confirmation or second slip)", Object.values(view.allowed).every((x) => x === false));
   await activate(A, T1, S1);
 
   console.log("J — journal payloads");
