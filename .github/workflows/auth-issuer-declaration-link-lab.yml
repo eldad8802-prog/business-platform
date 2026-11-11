@@ -6,6 +6,7 @@
 #   2. `prisma migrate deploy` applies it: proof 12/12; the earlier AuthEmailToken proofs (AET 17, LINK 14) still
 #      whole; PREFLIGHT now fails exactly 1, 3, 4, 5, 6;
 #   3. battery (real roles): T4 issue, T5 consume, T6 Google-only account, T7 privileges;
+#  3b. the library (lib/auth/issuer-declaration-link.ts) on the auth plane and inside a real tenant transaction;
 #   4. atomicity: the migration failing on its last statement leaves nothing of it behind;
 #   5. rollback: refused while an issuer-declaration token exists; otherwise reverts whole — the proof fails
 #      again and the earlier proofs stay whole;
@@ -26,6 +27,11 @@ on:
       - "ops/evidence/auth-email-tokens-production-evidence.sql"
       - "ops/evidence/oauth-identity-link-production-evidence.sql"
       - ".aid/**"
+      - "lib/auth/issuer-declaration-link.ts"
+      - "lib/auth/email-link.ts"
+      - "lib/email/transactional/registry.ts"
+      - "lib/email/transactional/store.ts"
+      - "lib/email/transactional/templates/issuer-declaration.ts"
       - ".agl/lab.sh"
       - ".aet/lab.sh"
       - ".github/workflows/auth-issuer-declaration-link-lab.yml"
@@ -128,6 +134,11 @@ jobs:
           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idl_post" \
           AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/idl_post" \
             npx tsx .aid/battery.ts
+
+      - name: 3b. The library as billing will call it — auth plane + a real tenant transaction
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idl_post"           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idl_post"           AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/idl_post"             npx tsx .aid/library-battery.ts
 
       - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
         run: |

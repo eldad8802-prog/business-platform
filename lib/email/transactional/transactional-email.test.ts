@@ -95,8 +95,8 @@ async function main() {
 
   // ── 2. registry ──────────────────────────────────────────────────────────────
   {
-    ok("registry: the kinds are exactly WELCOME, EMAIL_VERIFY, PASSWORD_RESET and the Google link's LINK_GOOGLE, GOOGLE_LINKED, GOOGLE_UNLINKED",
-      JSON.stringify(Object.keys(EMAIL_KINDS)) === JSON.stringify(["WELCOME", "EMAIL_VERIFY", "PASSWORD_RESET", "LINK_GOOGLE", "GOOGLE_LINKED", "GOOGLE_UNLINKED"]));
+    ok("registry: the kinds are exactly WELCOME, EMAIL_VERIFY, PASSWORD_RESET, the Google link's LINK_GOOGLE, GOOGLE_LINKED, GOOGLE_UNLINKED and the issuer declaration's ISSUER_DECLARATION",
+      JSON.stringify(Object.keys(EMAIL_KINDS)) === JSON.stringify(["WELCOME", "EMAIL_VERIFY", "PASSWORD_RESET", "LINK_GOOGLE", "GOOGLE_LINKED", "GOOGLE_UNLINKED", "ISSUER_DECLARATION"]));
     ok("registry: WELCOME TTL is 24h", WELCOME_TTL_MS === 24 * 3600_000 && EMAIL_KINDS.WELCOME.ttlMs === WELCOME_TTL_MS);
     ok("registry: no kind outlives the provider's 24h idempotency window",
       Object.values(EMAIL_KINDS).every((k) => k.ttlMs <= PROVIDER_IDEMPOTENCY_WINDOW_MS));
@@ -337,9 +337,9 @@ async function main() {
     walk("app");
     walk("lib");
     const code = (f: string) => fs.readFileSync(path.join(root, f), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
-    const enqueuers = files.filter((f) => /enqueue(Welcome|Transactional|AccountLink)Email\(/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
-    ok("scope: only signup (WELCOME), the account-link flows (EMAIL_VERIFY / PASSWORD_RESET) and the Google link (LINK_GOOGLE / GOOGLE_LINKED / GOOGLE_UNLINKED) enqueue — login, setup, refresh and every other flow do not",
-      JSON.stringify(enqueuers) === JSON.stringify(["lib/auth/email-tokens.ts", "lib/auth/google-link.ts", "lib/auth/signup.ts"]), JSON.stringify(enqueuers));
+    const enqueuers = files.filter((f) => /enqueue(Welcome|Transactional|AccountLink|GoogleNotice|IssuerDeclaration)Email\(/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
+    ok("scope: only signup (WELCOME), the account-link flows (EMAIL_VERIFY / PASSWORD_RESET), the Google link (LINK_GOOGLE / GOOGLE_LINKED / GOOGLE_UNLINKED) and the issuer-declaration link (ISSUER_DECLARATION) enqueue — login, setup, refresh and every other flow do not",
+      JSON.stringify(enqueuers) === JSON.stringify(["lib/auth/email-tokens.ts", "lib/auth/google-link.ts", "lib/auth/issuer-declaration-link.ts", "lib/auth/signup.ts"]), JSON.stringify(enqueuers));
     const deliverers = files.filter((f) => /deliverTransactionalEmail\(|runTransactionalEmailSweep\(|deliverNow\b|scheduleDelivery\b/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
     ok("scope: delivery is reached only after a response (register, forgot-password, resend-verification) and from the sweep route — verifying an address delivers nothing",
       JSON.stringify(deliverers) === JSON.stringify([
