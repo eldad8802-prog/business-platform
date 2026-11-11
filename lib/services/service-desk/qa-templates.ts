@@ -52,7 +52,8 @@ export const QA_TEMPLATES: Readonly<Record<ServiceCaseKind, QaTemplate>> = {
     kind: "REMOTE",
     items: [
       { key: "original_fault_resolved", label: "הבעיה המקורית נפתרה", required: false },
-      { key: "customer_confirmed_working", label: "הלקוח אישר שהמערכת פועלת", required: false },
+      // owner 2026-11-11: record the health-check result; never require the customer's confirmation
+      { key: "health_check_recorded", label: "בוצעה בדיקת תקינות ותוצאתה תועדה", required: false },
       { key: "remote_access_closed", label: "הגישה מרחוק נסגרה", required: false },
       { key: "notes_recorded", label: "סיכום הטיפול נרשם", required: false },
     ],
@@ -73,7 +74,8 @@ export const TRACK_QA_TEMPLATES: Readonly<Record<string, QaTemplate>> = {
       { key: "road_or_run_test", label: "בוצעה בדיקת הפעלה / נסיעה", required: false },
       { key: "no_warning_lights", label: "אין נורות אזהרה פעילות", required: false },
       { key: "no_new_damage", label: "לא נגרם נזק חיצוני חדש", required: false },
-      { key: "replaced_parts_kept", label: "החלקים שהוחלפו נשמרו ללקוח", required: false },
+      // owner 2026-11-11: document what happened to the replaced parts; never require keeping them for the customer
+      { key: "replaced_parts_handled", label: "תועד הטיפול בחלקים שהוחלפו (נמסרו ללקוח, הושלכו או הוחזרו לספק)", required: false },
     ],
   },
   "INSTALLATION.v1": {
