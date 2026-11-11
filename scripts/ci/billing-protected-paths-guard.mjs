@@ -19,6 +19,12 @@
  *   G4  an added or modified migration.sql that mentions a protected table or
  *       type at all (ALTER, DROP, REFERENCES, TRIGGER, POLICY, GRANT, DML …) —
  *       comments are ignored.
+ *       Narrow exception (owner instruction 2026-11-11): a mention is not reported when EVERY line of that migration
+ *       that names the protected identifier is (a) a READ — to_regclass(…) or SELECT … FROM — with no write, DDL, grant
+ *       or row-lock word on the line, (b) listed by the sha256 of its normalized text in READONLY_MENTIONS_FILE for that
+ *       file and name, and (c) that entry carries the owner's approval (approvedBy + reference). A listed read without
+ *       the approval is still reported ("pending"); any edit of the line or a new mention is reported as before. The
+ *       billing module itself is never exempt (G1–G3 unchanged); only G4 reads the list.
  *
  * Scope: reporting only. It is not a required status check and changes no
  * branch protection; whether to make it required is the owner's decision.
@@ -27,6 +33,30 @@
  *   node scripts/ci/billing-protected-paths-guard.mjs --self-test
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+
+export const READONLY_MENTIONS_FILE = "scripts/ci/billing-protected-paths-guard.readonly-mentions.json";
+/** [{ file, name, lines: [{ sha256, text }], reason, approval: { approvedBy, approvedAt, reference } }] */
+export function loadReadonlyMentions(file = READONLY_MENTIONS_FILE) {
+  try {
+    return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : [];
+  } catch {
+    return []; // unreadable → no exception at all (fail closed)
+  }
+}
+export const normalizeSqlLine = (line) => line.replace(/\r/g, "").replace(/\s+/g, " ").trim();
+export const sqlLineHash = (line) => createHash("sha256").update(normalizeSqlLine(line)).digest("hex");
+const WRITE_OR_LOCK = /\b(INSERT|UPDATE|DELETE|MERGE|TRUNCATE|ALTER|DROP|CREATE|GRANT|REVOKE|REFERENCES|TRIGGER|POLICY|COPY|LOCK|SHARE|NOWAIT|EXECUTE|CALL|OWNER|RENAME|COMMENT|SECURITY)\b/i;
+/** A line that only READS the protected identifier: an existence probe or a SELECT … FROM it, nothing else. */
+export function isReadOnlyMention(line, name) {
+  const l = normalizeSqlLine(line);
+  if (WRITE_OR_LOCK.test(l)) return false;
+  const q = "(?:public\\.)?\"?" + name + "\"?";
+  const probe = new RegExp("to_regclass\\('" + q + "'\\)");
+  const select = new RegExp("\\bFROM " + q + "(?: (?:AS )?\\w+)?(?:\\b|$)", "i");
+  return probe.test(l) || (/\bSELECT\b/i.test(l) && select.test(l));
+}
 
 export const PROTECTED_PATHS = [
   "lib/services/billing/",
@@ -105,7 +135,7 @@ function stripSqlComments(sql) {
 }
 
 /** Every protected identifier a migration mentions (quoted or bare, whole word). */
-export function migrationViolations(file, sql) {
+export function migrationViolations(file, sql, allow = loadReadonlyMentions()) {
   const body = stripSqlComments(sql);
   const hits = new Set();
   const re = /"?\b([A-Z][A-Za-z0-9_]*)\b"?/g;
@@ -113,7 +143,20 @@ export function migrationViolations(file, sql) {
   while ((m = re.exec(body))) {
     if (isProtectedSchemaName(m[1])) hits.add(m[1]);
   }
-  return [...hits].sort().map((n) => `G4 ${file}: mentions protected "${n}"`);
+  const out = [];
+  for (const n of [...hits].sort()) {
+    const word = new RegExp("\\b" + n + "\\b");
+    const lines = body.split("\n").filter((l) => word.test(l));
+    const entry = (Array.isArray(allow) ? allow : []).find((e) => e && e.file === file && e.name === n);
+    const listed = new Set((entry?.lines ?? []).map((x) => x?.sha256));
+    const allRead = lines.length > 0 && lines.every((l) => isReadOnlyMention(l, n) && listed.has(sqlLineHash(l)));
+    const approved = Boolean(entry?.approval?.approvedBy?.trim() && entry?.approval?.reference?.trim());
+    if (allRead && approved) continue;
+    out.push(allRead
+      ? `G4 ${file}: mentions protected "${n}" — read-only lines listed in ${READONLY_MENTIONS_FILE}, pending the owner's approval`
+      : `G4 ${file}: mentions protected "${n}"`);
+  }
+  return out;
 }
 
 export function pathViolations(changes) {
@@ -229,6 +272,21 @@ function selfTest() {
   t("G4 mention only inside a comment passes", migrationViolations("m.sql", '-- unlike "BillingDocument", this table is separate\nCREATE TABLE "OperationalDocument" (id int);\n/* REFERENCES "BillingDocument" */').length === 0);
   t("G4 new unrelated table passes", migrationViolations("m.sql", 'CREATE TABLE "OperationalDocument" ("id" SERIAL PRIMARY KEY, "billingDocumentId" INTEGER);').length === 0);
   t("G4 payables table passes", migrationViolations("m.sql", 'ALTER TABLE "Payment" ADD COLUMN "x" int;').length === 0);
+  // the narrow read-only exception (owner instruction 2026-11-11)
+  const probeL = "  OR to_regclass('public.\"BillingDocument\"') IS NULL THEN";
+  const selL = "  SELECT d.\"status\"::text INTO v FROM public.\"BillingDocument\" d";
+  const sqlRO = "DO $$ BEGIN IF false\n" + probeL + "\nEND IF; END $$;\nCREATE FUNCTION f() RETURNS void LANGUAGE plpgsql AS $f$ BEGIN\n" + selL + "\n WHERE d.id = 1; END $f$;";
+  const okList = [{ file: "m.sql", name: "BillingDocument", lines: [{ sha256: sqlLineHash(probeL) }, { sha256: sqlLineHash(selL) }], approval: { approvedBy: "owner", reference: "issue#1" } }];
+  const pendingList = [{ ...okList[0], approval: { approvedBy: "", reference: "" } }];
+  const writeL = 'UPDATE "BillingDocument" SET x = 1;';
+  t("G4 listed read-only lines with the owner's approval pass", migrationViolations("m.sql", sqlRO, okList).length === 0);
+  t("G4 listed read-only lines without the approval are still reported (pending)", migrationViolations("m.sql", sqlRO, pendingList).some((v) => v.includes("pending")));
+  t("G4 the list never applies to another file", migrationViolations("other.sql", sqlRO, okList).length === 1);
+  t("G4 an edited listed line is reported again", migrationViolations("m.sql", sqlRO.replace("v FROM", "w FROM"), okList).length === 1);
+  t("G4 one unlisted mention beside listed ones is reported", migrationViolations("m.sql", sqlRO + '\nALTER TABLE "BillingDocument" ADD COLUMN x int;', okList).length === 1);
+  t("G4 writes and row locks are never read-only", !isReadOnlyMention(writeL, "BillingDocument") && !isReadOnlyMention('SELECT 1 FROM "BillingDocument" FOR UPDATE', "BillingDocument") && !isReadOnlyMention('INSERT INTO t SELECT * FROM "BillingDocument"', "BillingDocument") && !isReadOnlyMention('SELECT 1 FROM "BillingDocument" FOR SHARE', "BillingDocument"));
+  t("G4 a listed write line is still reported", migrationViolations("m.sql", writeL, [{ file: "m.sql", name: "BillingDocument", lines: [{ sha256: sqlLineHash(writeL) }], approval: { approvedBy: "o", reference: "r" } }]).length === 1);
+  t("G4 an unreadable list grants nothing", loadReadonlyMentions("does/not/exist.json").length === 0);
 
   console.log(`self-test: ${pass} passed, ${fails.length} failed`);
   for (const f of fails) console.log(`FAIL: ${f}`);
