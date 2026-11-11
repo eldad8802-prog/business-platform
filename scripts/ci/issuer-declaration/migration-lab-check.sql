@@ -220,3 +220,19 @@ SELECT pg_temp.expect('N4 the stored record names the designated user, basis PLA
      WHERE "businessId"=910004 AND "authorizedUserId"=920041 AND "authorityBasis"='PLATFORM_DESIGNATED' AND "authorityEvidenceRef"='support-case-44' AND "reauthMethod"='PLATFORM_ADMIN_ELEVATION'$q$, 'OK');
 SELECT pg_temp.expect('N5 the initial designation cannot be repeated once a declaration exists',
   $q$SELECT public.issuer_designate_initial(910004, 920042, 929000, 'x', 'case', 'x', 'v1', repeat('d',64), '{"track":"EXEMPT_DEALER","legalForm":"INDIVIDUAL","vatStatus":"EXEMPT","legalName":"x","idType":"ISRAELI_ID","idNumber":"000000042","address":"x","phone":"x","email":"x@x.x"}'::jsonb)$q$, 'ISSUER_DESIGNATION_INITIAL_ALREADY_DECLARED');
+
+-- ======================= account deletion: the profile lock admits the purge ==
+-- business 1 has a live declaration; the runtime purge clears the identity columns only once deletion is requested
+SET ROLE decl_lab_rt;
+SELECT set_config('app.current_business_id', '910001', false);
+SELECT pg_temp.expect('P1 while the business is live, the runtime still cannot clear the locked identity',
+  $q$UPDATE "BusinessProfile" SET "billingLegalName" = NULL, "billingTaxId" = NULL, "billingVatNumber" = NULL WHERE "businessId" = 910001$q$, 'ISSUER_PROFILE_IDENTITY_LOCKED');
+RESET ROLE;
+UPDATE "Business" SET "deletionRequestedAt" = now() WHERE "id" = 910001;
+SET ROLE decl_lab_rt;
+SELECT set_config('app.current_business_id', '910001', false);
+SELECT pg_temp.expect('P2 once deletion is requested (stage 1), the runtime purge clears the identity columns',
+  $q$UPDATE "BusinessProfile" SET "billingLegalName" = NULL, "billingTaxId" = NULL, "billingVatNumber" = NULL WHERE "businessId" = 910001$q$, 'OK');
+RESET ROLE;
+SELECT pg_temp.expect('P3 the declaration itself is untouched by that (legal name and id number kept)',
+  $q$SELECT 1/(CASE WHEN count(*) >= 1 THEN 1 ELSE 0 END) FROM "BusinessIssuerDeclaration" WHERE "businessId" = 910001 AND "legalName" = 'ישראל ישראלי' AND "idNumber" = '000000018' AND "anonymisedAt" IS NULL$q$, 'OK');

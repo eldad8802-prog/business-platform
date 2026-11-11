@@ -386,13 +386,26 @@ REVOKE ALL ON FUNCTION public.issuer_issue_requires_declaration() FROM PUBLIC;
 CREATE TRIGGER "BillingDocument_issue_requires_declaration" BEFORE UPDATE OF "status" ON "BillingDocument"
   FOR EACH ROW EXECUTE FUNCTION public.issuer_issue_requires_declaration();
 
--- SECURITY INVOKER on purpose: it must see WHO writes (the runtime is caught; the purge runs as the owner).
+-- SECURITY INVOKER on purpose: it must see WHO writes (the runtime is caught).
+-- The account purge (account-deletion.prisma-store.ts, stage 2) runs AS THE RUNTIME and clears these columns. It runs only
+-- after stage 1 committed Business.deletionRequestedAt (a quarantine: every normal write is refused from then on), so a
+-- business being deleted is let through — otherwise a declaration documents were issued under (retained, never
+-- anonymised) would block the purge forever. The issued documents keep their own frozen issuer snapshot.
+-- Narrow definer helper: answers one yes/no question about one business, so the invoker trigger below does not depend
+-- on the caller's table grants on "Business".
+CREATE OR REPLACE FUNCTION public.issuer_business_is_being_deleted(p_business integer)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
+  SELECT EXISTS (SELECT 1 FROM public."Business" b WHERE b."id" = p_business
+                   AND (b."deletionRequestedAt" IS NOT NULL OR b."deletedAt" IS NOT NULL))
+$fn$;
+REVOKE ALL ON FUNCTION public.issuer_business_is_being_deleted(integer) FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION public.issuer_profile_identity_lock()
 RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE cur public."BusinessIssuerDeclaration";
 BEGIN
-  -- the account-purge path (session user = table owner) may clear the profile; the runtime never is the owner
-  IF current_user = (SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = TG_RELID) THEN
+  IF current_user = (SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = TG_RELID)
+     OR public.issuer_business_is_being_deleted(NEW."businessId") THEN
     RETURN NEW;
   END IF;
   SELECT * INTO cur FROM public."BusinessIssuerDeclaration" WHERE "businessId" = NEW."businessId" ORDER BY "version" DESC LIMIT 1;
@@ -477,6 +490,8 @@ BEGIN
     GRANT USAGE, SELECT ON SEQUENCE "BusinessIssuerDeclaration_id_seq", "BillingSeriesOpening_id_seq" TO app_runtime;
     -- the account-purge path runs as the runtime, like business_documents_erase()
     GRANT EXECUTE ON FUNCTION public.issuer_declaration_erase() TO app_runtime;
+    -- read by the profile identity lock, which runs as the writer
+    GRANT EXECUTE ON FUNCTION public.issuer_business_is_being_deleted(integer) TO app_runtime;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_admin') THEN
     -- platform designation only — the application calls these behind the existing platform-admin elevation
