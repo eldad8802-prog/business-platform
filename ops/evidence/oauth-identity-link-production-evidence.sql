@@ -31,7 +31,7 @@
 \echo ' 3 the recorded checksum is the reviewed sha256 of migration.sql'
 \echo ' 4 auth email tokens, oauth identity and ticket cancel still carry their reviewed checksums (observed = of 3)'
 \echo ' 5 AuthEmailToken.oauthTicketId: nullable uuid, keyed to OAuthSignupTicket, cascading on removal, indexed'
-\echo ' 6 AuthEmailToken: purpose exactly EMAIL_VERIFY / PASSWORD_RESET / LINK_GOOGLE; the ticket binding; six check constraints, seven once 20261126090000 is finished (observed = check constraints)'
+\echo ' 6 AuthEmailToken: purpose exactly EMAIL_VERIFY / PASSWORD_RESET / LINK_GOOGLE (+ ISSUER_DECLARATION once 20261126090000 is finished); the ticket binding; six check constraints, seven then (observed = check constraints)'
 \echo ' 7 AuthEmailToken: RLS ENABLED + FORCED, exactly the two app_runtime policies (observed = policies)'
 \echo ' 8 app_runtime on AuthEmailToken: table letters exactly d; column read exactly id, businessId (observed = column grants)'
 \echo ' 9 app_auth and PUBLIC hold nothing on AuthEmailToken (observed = privileges)'
@@ -110,7 +110,8 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 5, EXISTS (SELECT 1 FROM col WHERE atttypid = 'uuid'::regtype AND NOT attnotnull)
                       AND EXISTS (SELECT 1 FROM fk WHERE confdeltype = 'c') AND EXISTS (SELECT 1 FROM idx), 1
   UNION ALL SELECT 6, EXISTS (SELECT 1 FROM purpose WHERE def LIKE '%''EMAIL_VERIFY''%' AND def LIKE '%''PASSWORD_RESET''%' AND def LIKE '%''LINK_GOOGLE''%'
-                                AND (SELECT count(*) FROM regexp_matches(def, '''[A-Z_]+''', 'g') m) = 3)
+                                AND (SELECT count(*) FROM regexp_matches(def, '''[A-Z_]+''', 'g') m) = 3 + (SELECT n FROM issuer)
+                                AND (def LIKE '%''ISSUER_DECLARATION''%') = ((SELECT n FROM issuer) = 1))
                       AND EXISTS (SELECT 1 FROM binding WHERE def LIKE '%LINK_GOOGLE%' AND def LIKE '%oauthTicketId%')
                       AND (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM aet) AND k.contype = 'c') = 6 + (SELECT n FROM issuer),
                       (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM aet) AND k.contype = 'c')
