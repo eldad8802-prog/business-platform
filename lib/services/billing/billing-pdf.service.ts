@@ -22,6 +22,7 @@ import {
   BillingPdfRenderStatus,
 } from "@prisma/client";
 import {
+  AppError,
   ForbiddenError,
   NotFoundError,
   UnauthorizedError,
@@ -85,6 +86,38 @@ function billingPdfDebugEnabled(): boolean {
  */
 function billingPdfSkipCache(): boolean {
   return process.env.BILLING_PDF_SKIP_CACHE === "1";
+}
+
+/**
+ * Owner decision 2026-11-12: an issued receipt is NOT re-rendered automatically — the PDF produced for it stays exactly
+ * as it was, also after a template change (#1108). Once a receipt's PDF has been produced (RENDERED, with a storage key
+ * and a hash), it is served from storage only: whatever its template version, and never replaced by a fresh render when
+ * the stored file is missing, unreadable or does not match its hash (the request is refused instead, nothing is written).
+ * A receipt that never got a PDF (PENDING / FAILED) is rendered for the first time with the current template.
+ * `BILLING_PDF_SKIP_CACHE=1` stays an explicit operator/debug override.
+ */
+export const RECEIPT_STORED_PDF_UNAVAILABLE_CODE = "RECEIPT_STORED_PDF_UNAVAILABLE" as const;
+
+export function isFrozenReceiptPdf(doc: {
+  documentType: string;
+  pdfRenderStatus: BillingPdfRenderStatus | string | null;
+  pdfStorageKey: string | null;
+  pdfHash: string | null;
+}): boolean {
+  return (
+    doc.documentType === "RECEIPT" &&
+    doc.pdfRenderStatus === BillingPdfRenderStatus.RENDERED &&
+    typeof doc.pdfStorageKey === "string" && doc.pdfStorageKey.length > 0 &&
+    typeof doc.pdfHash === "string" && doc.pdfHash.length > 0
+  );
+}
+
+function storedReceiptPdfUnavailable(): AppError {
+  return new AppError(
+    "הקבלה הופקה והקובץ שלה שמור, אך הוא אינו זמין כרגע — נסו שוב מאוחר יותר",
+    503,
+    RECEIPT_STORED_PDF_UNAVAILABLE_CODE
+  );
 }
 
 export type GetOrRenderBillingPdfInput = {
@@ -274,6 +307,10 @@ export async function getOrRenderBillingPdf(
     doc.pdfHash.length > 0 &&
     doc.pdfTemplateVersion === effectivePdfTemplateVersion;
 
+  // An issued receipt's produced PDF is frozen (see isFrozenReceiptPdf): served whatever its template version.
+  const frozenReceipt = isFrozenReceiptPdf(doc) && !billingPdfSkipCache();
+  if (frozenReceipt) cacheCandidate = true;
+
   if (billingPdfSkipCache()) {
     cacheCandidate = false;
     if (billingPdfDebugEnabled()) {
@@ -295,6 +332,11 @@ export async function getOrRenderBillingPdf(
     if (fileExists) {
       try {
         const buffer = await readByKey(storageKey);
+        if (frozenReceipt && sha256Hex(buffer) !== pdfHash) {
+          // never serve altered bytes, and never replace them with a fresh render
+          console.error("billing-pdf: stored receipt PDF does not match its hash", { billingDocumentId: doc.id, businessId: input.businessId });
+          throw storedReceiptPdfUnavailable();
+        }
         if (billingPdfDebugEnabled()) {
           console.log("[billing-pdf-debug] CACHE_HIT — returning bytes from storage (no renderer)", {
             billingDocumentId: doc.id,
@@ -308,14 +350,23 @@ export async function getOrRenderBillingPdf(
         return {
           buffer,
           pdfHash,
-          pdfTemplateVersion: effectivePdfTemplateVersion,
+          // a frozen receipt reports the version it was actually produced with
+          pdfTemplateVersion: frozenReceipt ? (doc.pdfTemplateVersion ?? effectivePdfTemplateVersion) : effectivePdfTemplateVersion,
           documentNumberFormatted,
           renderedNow: false,
         };
-      } catch {
+      } catch (readError) {
+        if (frozenReceipt) {
+          throw readError instanceof AppError ? readError : storedReceiptPdfUnavailable();
+        }
         // Fall through to a fresh render if the cached file became
         // unreadable between the existence check and the actual read.
       }
+    }
+    if (frozenReceipt) {
+      // stored file missing (or the storage check failed): refuse — an issued receipt's PDF is never re-rendered
+      console.error("billing-pdf: stored receipt PDF unavailable; not re-rendering", { billingDocumentId: doc.id, businessId: input.businessId });
+      throw storedReceiptPdfUnavailable();
     }
     // file missing or unreadable → fall through to render
   }
