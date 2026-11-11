@@ -390,7 +390,8 @@ export async function returnFromExternal(
   if (!isPositiveInt(workId)) throw new ServiceDeskError("NOT_FOUND");
   if (!isPositiveInt(body.expectedVersion)) throw new ServiceDeskError("INVALID_INPUT", { field: "expectedVersion" });
   if (!isNonNegativeInt(body.caseExpectedVersion)) throw new ServiceDeskError("INVALID_INPUT", { field: "caseExpectedVersion" });
-  if (!["IN_REPAIR", "QA", "READY"].includes(body.next as string)) throw new ServiceDeskError("INVALID_INPUT", { field: "next" });
+  // M1: WORK_DONE on a track that hands nothing back (the case machine refuses it on any other case, and READY there).
+  if (!["IN_REPAIR", "QA", "READY", "WORK_DONE"].includes(body.next as string)) throw new ServiceDeskError("INVALID_INPUT", { field: "next" });
   // REPLACED needs the replacement device link (LINK_REPLACEMENT_DEVICE, 1.3c) — out of scope here.
   if (body.outcome === "REPLACED") throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { action: "RETURN_FROM_EXTERNAL:REPLACED" });
   if (body.outcome !== undefined && body.outcome !== null && body.outcome !== "REPAIRED" && body.outcome !== "NOT_REPAIRED") throw new ServiceDeskError("INVALID_INPUT", { field: "outcome" });
