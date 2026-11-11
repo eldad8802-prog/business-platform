@@ -10,7 +10,10 @@
  *      at the new version, deferred), never leaving AT_BUSINESS after an intake was started; UNSCHEDULE only journaled;
  *      D14 snapshot fixed; detail history append-only.
  *   O  WORK_DONE / COMPLETED / COMPLETE: outcome rule widened, COMPLETED not for REPAIR, completion stamp + record
- *      (one per case, immutable, no signature columns, place = place of the work), journal pairing.
+ *      (one per case, immutable, no signature columns, place = place of the work), journal pairing; closing with an open
+ *      debt (owner decision 2026-11-11): the balance is always stated (no default — UNKNOWN is unrepresentable), never
+ *      negative, debt XOR overpayment; a debt needs reason + approving user (same business) + approval time; no debt →
+ *      none of them; a deleted approver only nulls the approver; the erasure clears reason + approver, keeps the numbers.
  *   S  settings: profile key from the closed list, overrides an object; the settings journal names the new fields.
  *   V  subject: subjectKind default ITEM, attributes an object, display name bounded.
  *   I  isolation.  E  erasure: refused unless deleting; not imitable; scrubs in place; re-run safe.
@@ -114,14 +117,20 @@ async function changeDetails(z: Biz, id: number, d: Details, o: { noEvent?: bool
   }
   return rt(z.b, ...stmts);
 }
-const completion = (z: Biz, id: number, type: string, user: number | null = z.u): Stmt =>
-  [`INSERT INTO "ServiceCompletion" ("businessId", "caseId", "completionType", "confirmedByName", note, "actorUserId")
-    VALUES ($1, $2, $3::"ServiceCompletionType", 'דנה (סינתטי)', 'הותקן ונבדק', $4)`, z.b, id, type, user];
-async function complete(z: Biz, id: number, type: string, o: { noRecord?: boolean; recordType?: string } = {}): Promise<string> {
+/** The balance a completion states (agorot), and the debt approval: reason, approving user, approval time (now()). */
+type Bal = { open?: number; over?: number; reason?: string | null; approver?: number | null; approvedAt?: boolean; omitBalance?: boolean };
+const completion = (z: Biz, id: number, type: string, user: number | null = z.u, bal: Bal = {}): Stmt =>
+  bal.omitBalance
+    ? [`INSERT INTO "ServiceCompletion" ("businessId", "caseId", "completionType", "actorUserId") VALUES ($1, $2, $3::"ServiceCompletionType", $4)`, z.b, id, type, user]
+    : [`INSERT INTO "ServiceCompletion" ("businessId", "caseId", "completionType", "confirmedByName", note, "openBalanceAgorot", "overpaidAgorot",
+          "debtOverrideReason", "debtApprovedByUserId", "debtApprovedAt", "actorUserId")
+        VALUES ($1, $2, $3::"ServiceCompletionType", 'דנה (סינתטי)', 'הותקן ונבדק', $4::int, $5::int, $6::text, $7::int, CASE WHEN $8::boolean THEN now() END, $9::int)`,
+      z.b, id, type, bal.open ?? 0, bal.over ?? 0, bal.reason ?? null, bal.approver ?? null, bal.approvedAt ?? false, user];
+async function complete(z: Biz, id: number, type: string, o: { noRecord?: boolean; recordType?: string; bal?: Bal } = {}): Promise<string> {
   const c = await row(z, id);
   const stmts: Stmt[] = [[`UPDATE "ServiceCase" SET status = 'CLOSED', "closedAt" = now(), "completionType" = $2::"ServiceCompletionType", "completedAt" = now(),
       version = version + 1 WHERE id = $1`, id, type]];
-  if (!o.noRecord) stmts.push(completion(z, id, o.recordType ?? type));
+  if (!o.noRecord) stmts.push(completion(z, id, o.recordType ?? type, z.u, o.bal));
   stmts.push(ev(z, id, c.version + 1, "case.completed", "COMPLETE", c.status, "CLOSED", "COMPLETED"));
   return rt(z.b, ...stmts);
 }
@@ -290,13 +299,64 @@ async function main() {
   const sigCols = await q(`SELECT column_name FROM information_schema.columns WHERE table_name = 'ServiceCompletion'
       AND column_name IN ('signatureCaptured', 'signatureKey', 'confirmationChannel', 'signedAt')`);
   ok("O16 no signature columns exist on ServiceCompletion (owner decision 2026-11-11)", sigCols.length === 0, JSON.stringify(sigCols));
-  // Owner decision 2026-11-11: closing with an open balance follows the handover rule — the owner's documented reason.
-  const debtIns = (reason: string | null): Stmt => [`INSERT INTO "ServiceCompletion" ("businessId", "caseId", "completionType", "openBalanceAgorot", "debtOverrideReason", "actorUserId")
-    VALUES ($1, $2, 'OWNER_CONFIRMED_ON_SITE', 5000, $3, $4)`, A.b, o1, reason, A.u];
-  const noReason = await rt(A.b, debtIns(null));
-  const withReason = await rt(A.b, debtIns("לקוח קבוע"));
-  ok("O16b an open balance without the owner's reason → ServiceCompletion_debt_decided; with a reason the CHECK passes (only the one-per-case key refuses)",
-    noReason.includes("ServiceCompletion_debt_decided") && !withReason.includes("ServiceCompletion_debt_decided") && (withReason.includes("23505") || withReason.includes("Unique") || withReason.includes("unique")), noReason + " | " + withReason);
+  // Owner decision 2026-11-11: closing with an open debt — explicit approval (reason + approving user + time), the
+  // balance and an overpayment stored, never an unknown balance. On o1 (already completed): a row that passes every rule
+  // is refused ONLY by the one-per-case key, so each probe isolates one rule.
+  const onlyKey = (s: string) => s.includes("23505") || s.includes("Unique") || s.includes("unique");
+  const probe = (bal: Bal, user: number | null = A.u) => rt(A.b, completion(A, o1, "OWNER_CONFIRMED_ON_SITE", user, bal));
+  const debtOk: Bal = { open: 5000, reason: "לקוח קבוע", approver: A.u, approvedAt: true };
+  const noBalance = await probe({ omitBalance: true });
+  ok("O16b no stated balance (an UNKNOWN balance has no representation: NOT NULL, no default) → refused",
+    noBalance.includes("openBalanceAgorot") && (noBalance.includes("23502") || noBalance.toLowerCase().includes("null")), noBalance);
+  const noReason = await probe({ ...debtOk, reason: null });
+  const withAll = await probe(debtOk);
+  ok("O16c an open debt without the owner's reason → ServiceCompletion_debt_decided; with reason + approver + time only the one-per-case key refuses",
+    noReason.includes("ServiceCompletion_debt_decided") && onlyKey(withAll) && !withAll.includes("debt_decided"), noReason + " | " + withAll);
+  const noTime = await probe({ ...debtOk, approvedAt: false });
+  ok("O16d an open debt without the approval time → ServiceCompletion_debt_decided", noTime.includes("ServiceCompletion_debt_decided"), noTime);
+  const noApprover = await probe({ ...debtOk, approver: null });
+  const otherApprover = await probe({ ...debtOk, approver: B.u });
+  ok("O16e an open debt without the approving user → SERVICE_COMPLETION_DEBT_UNAPPROVED; an approver of another business → SERVICE_USER_OTHER_BUSINESS",
+    noApprover.includes("SERVICE_COMPLETION_DEBT_UNAPPROVED") && otherApprover.includes("SERVICE_USER_OTHER_BUSINESS"), noApprover + " | " + otherApprover);
+  const negOpen = await probe({ open: -100 });
+  const negOver = await probe({ over: -1 });
+  const bothSides = await probe({ ...debtOk, over: 200 });
+  const overOnly = await probe({ over: 1500 });
+  ok("O16f a negative balance or overpayment, or a debt AND an overpayment together → ServiceCompletion_balance; an overpayment alone passes (only the key refuses)",
+    negOpen.includes("ServiceCompletion_balance") && negOver.includes("ServiceCompletion_balance") && bothSides.includes("ServiceCompletion_balance") && onlyKey(overOnly),
+    [negOpen, negOver, bothSides, overOnly].join(" | "));
+  const strayReason = await probe({ reason: "סתם" });
+  const strayApprover = await probe({ approver: A.u });
+  const strayTime = await probe({ approvedAt: true });
+  ok("O16g no debt → no reason, no approver, no approval time (ServiceCompletion_debt_decided)",
+    [strayReason, strayApprover, strayTime].every((s) => s.includes("ServiceCompletion_debt_decided")), [strayReason, strayApprover, strayTime].join(" | "));
+  // End to end: a debt closed by a second user of the business (the approver), and an overpaid case.
+  const approver = Number((await q(`INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ($1, $2, now()) RETURNING id`, `sdm1-approver-${t}@lab.invalid`, A.b))[0].id);
+  const toWorkDone = async (id: number) => {
+    await changeDetails(A, id, { workType: "INSTALLATION", serviceLocation: "FIELD_SITE", siteAddress: "אתר סינתטי 3" });
+    return step(A, id, `outcome = 'COMPLETED'`, "FINISH_REPAIR", "repair.finished", "WORK_DONE", "COMPLETED");
+  };
+  const o3 = await open(A, "FIELD");
+  const o4 = await open(A, "FIELD");
+  const o3done = (await toWorkDone(o3)) === "OK"
+    && (await complete(A, o3, "OWNER_CONFIRMED_ON_SITE", { bal: { open: 7000, reason: "ישלם בסוף החודש", approver, approvedAt: true } })) === "OK";
+  const o4done = (await toWorkDone(o4)) === "OK" && (await complete(A, o4, "OWNER_CONFIRMED_ON_SITE", { bal: { over: 1500 } })) === "OK";
+  const rec = await own(A.b, `SELECT "caseId", "openBalanceAgorot" o, "overpaidAgorot" v, "debtOverrideReason" r, "debtApprovedByUserId" a,
+      ("debtApprovedAt" IS NOT NULL AND "debtApprovedAt" <= "completedAt") t FROM "ServiceCompletion" WHERE "caseId" IN ($1, $2) ORDER BY "caseId"`, o3, o4);
+  ok("O16h COMPLETE with an approved debt and COMPLETE with an overpayment → written; the record holds the balance, reason, approver, time and the overpayment",
+    o3done && o4done && rec.length === 2 && Number(rec[0].o) === 7000 && Number(rec[0].v) === 0 && rec[0].r === "ישלם בסוף החודש" && Number(rec[0].a) === approver && rec[0].t === true
+      && Number(rec[1].o) === 0 && Number(rec[1].v) === 1500 && rec[1].r === null && rec[1].a === null, JSON.stringify(rec));
+  ok("O16i the approval is part of the permanent record (the runtime cannot rewrite it)",
+    (await rt(A.b, [`UPDATE "ServiceCompletion" SET "debtOverrideReason" = 'אחר' WHERE "caseId" = $1`, o3])) !== "OK"
+      && (await rt(A.b, [`UPDATE "ServiceCompletion" SET "openBalanceAgorot" = 0, "debtOverrideReason" = NULL, "debtApprovedByUserId" = NULL, "debtApprovedAt" = NULL WHERE "caseId" = $1`, o3])) !== "OK");
+  let delOut = "OK";
+  try { await x(`DELETE FROM "User" WHERE id = $1`, approver); } catch (e) { delOut = err(e); }
+  const afterDel = (await own(A.b, `SELECT "openBalanceAgorot" o, "debtOverrideReason" r, "debtApprovedByUserId" a, "debtApprovedAt" IS NOT NULL t, "actorUserId" u FROM "ServiceCompletion" WHERE "caseId" = $1`, o3))[0];
+  ok("O16j a deleted approver: the FK sets the approver to NULL and nothing else moves (balance, reason, time, actor kept)",
+    delOut === "OK" && afterDel.a === null && Number(afterDel.o) === 7000 && afterDel.r === "ישלם בסוף החודש" && afterDel.t === true && Number(afterDel.u) === A.u, `${delOut} ${JSON.stringify(afterDel)}`);
+  const o5 = await open(A, "FIELD");
+  ok("O16k a debt approved by the acting owner → written (its approver is scrubbed by the erasure, E3b)",
+    (await toWorkDone(o5)) === "OK" && (await complete(A, o5, "OWNER_CONFIRMED_ON_SITE", { bal: { open: 300, reason: "חוב קטן", approver: A.u, approvedAt: true } })) === "OK");
   const o2v = (await row(A, o2)).version;
   ok("O17 a COMPLETE journaled from a status other than WORK_DONE → ServiceCaseEvent_tracks_in_place",
     (await rt(A.b, [`UPDATE "ServiceCase" SET status = 'CLOSED', "closedAt" = now(), "completionType" = 'OWNER_CONFIRMED_ON_SITE', "completedAt" = now(), version = version + 1 WHERE id = $1`, o2],
@@ -353,7 +413,8 @@ async function main() {
   const left = (await own(A.b, `SELECT
       (SELECT count(*) FROM "ServiceCase" WHERE "businessId" = $1 AND ("siteAddress" IS NOT NULL OR "siteNotes" IS NOT NULL OR "originalSaleRef" IS NOT NULL))::int c,
       (SELECT count(*) FROM "ServiceDevice" WHERE "businessId" = $1 AND ("displayName" IS NOT NULL OR attributes IS NOT NULL))::int v,
-      (SELECT count(*) FROM "ServiceCompletion" WHERE "businessId" = $1 AND ("confirmedByName" IS NOT NULL OR note IS NOT NULL OR "actorUserId" IS NOT NULL OR "erasedAt" IS NULL))::int k,
+      (SELECT count(*) FROM "ServiceCompletion" WHERE "businessId" = $1 AND ("confirmedByName" IS NOT NULL OR note IS NOT NULL OR "actorUserId" IS NOT NULL
+         OR "debtOverrideReason" IS NOT NULL OR "debtApprovedByUserId" IS NOT NULL OR "erasedAt" IS NULL))::int k,
       (SELECT count(*) FROM "ServiceCaseDetailChange" WHERE "businessId" = $1 AND (reason IS NOT NULL OR "actorUserId" IS NOT NULL OR "siteAddressBefore" IS NOT NULL OR "siteAddressAfter" IS NOT NULL OR "erasedAt" IS NULL))::int d,
       (SELECT count(*) FROM "ServiceCaseDetailChange" WHERE "businessId" = $1)::int dn,
       (SELECT count(*) FROM "ServiceCase" WHERE "businessId" = $1 AND "workType" IS NOT NULL)::int kept,
@@ -361,6 +422,12 @@ async function main() {
   ok("E3 with the foundation erasure in one transaction: addresses, notes, sale refs, subject names / attributes, completion and detail personal fields blanked; work types, completion type and the detail rows kept",
     both === "OK" && erased > 0 && Number(left.c) === 0 && Number(left.v) === 0 && Number(left.k) === 0 && Number(left.d) === 0
       && Number(left.dn) >= 6 && Number(left.kept) >= 6 && left.ct === "OWNER_CONFIRMED_ON_SITE", `${both} ${erased} ${JSON.stringify(left)}`);
+  const debtKept = await own(A.b, `SELECT "caseId", "openBalanceAgorot" o, "overpaidAgorot" v, "debtApprovedAt" IS NOT NULL t, "debtOverrideReason" r, "debtApprovedByUserId" a
+      FROM "ServiceCompletion" WHERE "caseId" IN ($1, $2, $3) ORDER BY "caseId"`, o3, o4, o5);
+  ok("E3b the erasure clears the debt reason and the approver (o5: approved by a live user) and keeps the balance, the overpayment and the approval time (ServiceCompletion_debt_decided still holds)",
+    debtKept.length === 3 && debtKept.every((r) => r.r === null && r.a === null)
+      && Number(debtKept[0].o) === 7000 && debtKept[0].t === true && Number(debtKept[1].v) === 1500 && debtKept[1].t === false
+      && Number(debtKept[2].o) === 300 && debtKept[2].t === true, JSON.stringify(debtKept));
   const again = Number((await rtRows(A.b, `SELECT public.service_tracks_erase_business() AS n`))[0].n);
   ok("E4 re-run safe (0 rows the second time)", again === 0, String(again));
   ok("E5 nothing new is written for a business being deleted",
