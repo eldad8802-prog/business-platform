@@ -451,6 +451,20 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_settings_journal_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_settings_journal_erase_business() TO ${RT_ROLE}`);
   }
+  // Service Desk case charge — migration 20261126090000_service_desk_case_charge. The same, for
+  // service_case_charge_erase_business() (it blanks who acted and the free-text reasons of the charge history and the
+  // billing links; tables from db push).
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261126090000_service_desk_case_charge/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_case_charge_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_case_charge_erase_business() not found in migration 20261126090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_case_charge_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_case_charge_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //
