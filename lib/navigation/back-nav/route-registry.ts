@@ -146,6 +146,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/business-documents/quotes/[id]", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   // ---- Service Desk (UI 1.3a, flag service_desk) ---------------------------
   { pattern: "/service-desk/settings", parent: "/service-desk", parentLabelKey: "toServiceDesk" },
+  // 1.3b: the intake of one case. Back goes to the module home until the 1.3a case card exists (then: the case).
+  { pattern: "/service-desk/cases/[id]/intake", parent: "/service-desk", parentLabelKey: "toServiceDesk" },
   { pattern: "/payables/[id]", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/bank", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/bank/import", parent: "/payables", parentLabelKey: "toAllPayables" },

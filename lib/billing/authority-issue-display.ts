@@ -86,8 +86,9 @@ export function describeAuthorityIssueOutcome(
       return {
         ...base,
         tone: "danger",
-        title: "המסמך הונפק — בקשת ההקצאה לא הושלמה",
-        detail: "לא ניתן היה להשלים את בקשת מספר ההקצאה כעת. אפשר לנסות שוב.",
+        title: "המסמך הונפק — בקשת ההקצאה לא נשלחה",
+        // No "try again": the product has no path to resend an allocation request.
+        detail: "בקשת מספר ההקצאה לא נשלחה לרשות המסים. החשבונית נשמרה, אך לא ניתן למסור אותה סופית עד שיתקבל מספר הקצאה.",
       };
     case "ambiguous":
       return {

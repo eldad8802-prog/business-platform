@@ -401,16 +401,16 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       if (onSite) {
         technician();
       } else {
+        // Owner decision 2026-11-11: no customer signature. The intake is documented (condition; accessories — "none
+        // handed over" is a valid record) and the acting owner / authorized user confirms it explicitly; the journal
+        // event names who, when, the case and the status change.
         const i = context.intake;
         const missing = !i
-          ? ["condition", "accessories", "customerSignature"]
-          : [
-              ...(i.conditionRecorded ? [] : ["condition"]),
-              ...(i.accessoriesRecorded ? [] : ["accessories"]),
-              ...(i.customerSigned ? [] : ["customerSignature"]),
-            ];
+          ? ["condition", "accessories"]
+          : [...(i.conditionRecorded ? [] : ["condition"]), ...(i.accessoriesRecorded ? [] : ["accessories"])];
         if (missing.length > 0) fail("INTAKE_INCOMPLETE", `missing: ${missing.join(", ")}`);
-        else r.serverChecks.push("INTAKE_ARTIFACTS_STORED");
+        if ((action as { intakeConfirmed?: boolean }).intakeConfirmed !== true) fail("INTAKE_NOT_CONFIRMED", "the owner confirms the documented intake");
+        r.payload.intakeConfirmed = true;
       }
       break;
     }
