@@ -8246,6 +8246,10 @@ enum ServiceCaseAction {
   RECORD_INTAKE
   RECORD_COVERAGE
   RECORD_QA
+  // migration 20261126090000: the case charge and its billing links — status-preserving records.
+  RECORD_CHARGE
+  LINK_BILLING_DOCUMENT
+  UNLINK_BILLING_DOCUMENT
 }
 
 enum ServiceEventType {
@@ -8276,6 +8280,10 @@ enum ServiceEventType {
   intake_recorded             @map("intake.recorded")
   coverage_recorded           @map("coverage.recorded")
   qa_recorded                 @map("qa.recorded")
+  // migration 20261126090000: the case charge and its billing links — status-preserving records.
+  charge_recorded             @map("charge.recorded")
+  billing_linked              @map("billing.linked")
+  billing_unlinked            @map("billing.unlinked")
 }
 
 model ServiceCaseNumberSequence {

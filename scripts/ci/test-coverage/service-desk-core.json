@@ -41,6 +41,10 @@
     "lib/services/service-desk/case-balance.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/clock): the balance of a service case from its charge, active billing links and billing's settlement facts (#1102 shape) — the five handover cases, exempt dealer, overpayment shown never zeroed, another business's / vanished / draft / foreign / wrong-type document → UNKNOWN, a double link → UNKNOWN, no double count of allocated receipts / tax invoice-receipts / credits, partial payments and one receipt over several invoices, documented above the charge → UNKNOWN, and charge changes against issued documents; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/case-charge-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): the case charge and its billing links (migration 20261126090000) — input parsing (modes, positive integer agorot ≤ int4, reasons 1–1000 characters trimmed, link roles, unlink reason required), decisions (CLOSED / CANCELLED final, NO_CHARGE and every change need a reason, an identical record is NO_CHANGE, seq last + 1, OWNER_ENTERED only, closed payload with no reason text, no link to a NO_CHARGE case, a correction after DELIVERED allowed), the link guard refusals and the one-active-link UNIQUE mapped to stable codes, and the real settlement reader over a fake transaction (no migration → NOT_LINKED, no charge → NO_CHARGE_DECISION, exempt dealer settled by a standalone receipt, overpayment carried, billing read error → READ_ERROR, draft → DRAFT_PENDING, vanished document → CONFLICT); run on pull_request by service-desk-ci.yml"
     }
   }
 }

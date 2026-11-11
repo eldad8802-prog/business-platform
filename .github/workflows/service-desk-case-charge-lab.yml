@@ -12,6 +12,11 @@ on:
       - "prisma/migrations/20261125090000_service_desk_handover_owner_confirmed/**"
       - "prisma/migrations/20261126090000_service_desk_case_charge/**"
       - "lib/services/service-desk/service-case.service.ts"
+      - "lib/services/service-desk/case-charge.service.ts"
+      - "lib/services/service-desk/case-charge.core.ts"
+      - "lib/services/service-desk/case-settlement-reader.ts"
+      - "lib/services/service-desk/case-balance.ts"
+      - "lib/services/billing/settlement/read-documents-settlement.ts"
       - ".sdcharge/**"
       - ".sd3p4/lab.sh"
       - ".sd3/lab.sh"
@@ -76,3 +81,13 @@ jobs:
           AUTH_TOKEN_SECRET=sdcharge-ci-synthetic-auth-secret-0123456789abcdef \
             npx tsx .sdcharge/battery.ts | tee /tmp/sdcharge.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdcharge.out || { echo "the case charge battery is not green"; exit 1; }
+      - name: The charge commands end to end as the runtime role (record, link, unlink, the real handover reader)
+        run: |
+          set -euo pipefail
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdcharge"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdcharge"
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdcharge-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdcharge-ci \
+          AUTH_TOKEN_SECRET=sdcharge-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdcharge/commands-battery.ts | tee /tmp/sdcharge-commands.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdcharge-commands.out || { echo "the case charge commands battery is not green"; exit 1; }

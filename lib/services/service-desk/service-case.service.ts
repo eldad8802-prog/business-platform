@@ -46,7 +46,8 @@ import {
 import { OPEN_PART_STATES } from "./parts.contracts";
 import { checkCommandEnvelope, evaluateRepeatCase, evaluateTransition, openServiceCase } from "./service-case.core";
 import { ServiceDeskError, refused } from "./service-desk-errors";
-import { readSettlementNotLinked, settlementForCore, type SettlementReader } from "./settlement";
+import { settlementForCore, type SettlementReader } from "./settlement";
+import { readCaseSettlement } from "./case-settlement-reader";
 import { evaluateQa } from "./qa-templates";
 
 export type Tx = Prisma.TransactionClient;
@@ -528,7 +529,9 @@ export async function runCaseAction(
 
   return journaled<CommandResult, Locked>(p, prepared, (tx) => lockCase(tx, b, caseId), async (tx, { context: locked, signatureKey }) => {
     // 1.3c: a handover reads the balance HERE — same transaction, under the case lock. Unknown stays unknown (blocked).
-    const settlement = action.type === "DELIVER" ? await (deps.settlement ?? readSettlementNotLinked)(tx, b, caseId) : null;
+    // The default reader is the real one (case charge + billing links + billing facts); without migration 20261126090000
+    // it answers UNKNOWN / NOT_LINKED, as before.
+    const settlement = action.type === "DELIVER" ? await (deps.settlement ?? readCaseSettlement)(tx, b, caseId) : null;
     const context = settlement ? { ...locked, settlement: settlementForCore(settlement) } : locked;
     const envelope = checkCommandEnvelope(context, { caseId, action, expectedVersion: body.expectedVersion as number, idempotencyKey: prepared.key });
     if (!envelope.ok) throw refused(envelope.violations);
@@ -591,11 +594,15 @@ async function requireAuditJournal(tx: Tx) {
   if (!(await auditJournalReady(tx))) throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT");
 }
 
-export type RecordAction = "ASSIGN_TECHNICIAN" | "RECORD_INTAKE" | "RECORD_QA";
+export type RecordAction = "ASSIGN_TECHNICIAN" | "RECORD_INTAKE" | "RECORD_QA" | "RECORD_CHARGE" | "LINK_BILLING_DOCUMENT" | "UNLINK_BILLING_DOCUMENT";
 const RECORD_EVENT: Record<RecordAction, string> = {
   ASSIGN_TECHNICIAN: "case.technician_assigned",
   RECORD_INTAKE: "intake.recorded",
   RECORD_QA: "qa.recorded",
+  // migration 20261126090000 (CHECK ServiceCaseEvent_charge_in_place): the case charge and its billing links
+  RECORD_CHARGE: "charge.recorded",
+  LINK_BILLING_DOCUMENT: "billing.linked",
+  UNLINK_BILLING_DOCUMENT: "billing.unlinked",
 };
 
 /** Bump the case version (status, hold, cancel request, outcome untouched) and append the record with seq = version. */
