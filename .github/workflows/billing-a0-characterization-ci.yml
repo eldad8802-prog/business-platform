@@ -59,6 +59,10 @@ jobs:
       - name: Golden characterization
         run: npx tsx .billing-a0/golden.test.ts
 
+      # New-line VAT default: the standard rate in force today (18% from 1.1.2025), 0 for an exempt dealer.
+      - name: VAT default of a new draft line (pure)
+        run: npx tsx lib/billing/document-view-model.vat-default.test.ts
+
       - name: Protected-paths guard self-test
         run: node scripts/ci/billing-protected-paths-guard.mjs --self-test
 
