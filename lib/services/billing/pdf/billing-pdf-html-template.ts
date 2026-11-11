@@ -834,7 +834,7 @@ export function buildBillingInvoiceHtml(
     </div>
   </div>
 
-  <div class="section-title">${dyn("פירוט פריטים", "label")}</div>
+  ${isReceipt && lines.length === 0 ? "" : `<div class="section-title">${dyn("פירוט פריטים", "label")}</div>
 
   <table class="lines" aria-label="פירוט פריטים">
     <thead>
@@ -850,7 +850,7 @@ export function buildBillingInvoiceHtml(
     <tbody>
       ${tableRows}
     </tbody>
-  </table>
+  </table>`}
 
   <div class="totals-wrap">
     <table class="totals">
@@ -875,8 +875,8 @@ export function buildBillingInvoiceHtml(
     ${receiptPayments.length > 0
       ? `<table class="totals" style="width:100%;">${receiptPayments.map((p) => `<tr>
         <td class="lbl">${dyn(PAYMENT_METHOD_LABELS_HE[p.method] ?? p.method, "label")}${receiptPaymentDetails(p, tz) ? ` <span style="color:${BRAND_MUTED};font-size:9px;">${dyn(receiptPaymentDetails(p, tz), "freeText")}</span>` : ""}</td>
-        <td class="lbl">${dyn(formatIssuedAt(p.paymentDate, tz), "numeric")}</td>
-        <td class="amt">${dyn(formatMoney(p.amount, p.currency || currency), "numeric")}</td>
+        <td class="lbl" style="white-space:nowrap;">${dyn(formatIssuedAt(p.paymentDate, tz), "numeric")}</td>
+        <td class="amt" style="white-space:nowrap;">${dyn(formatMoney(p.amount, p.currency || currency), "numeric")}</td>
       </tr>`).join("")}</table>`
       : `<div style="font-size:10px;color:${BRAND_MUTED};">${dyn("אמצעי התשלום לא נשמרו במסמך", "label")}</div>`}
   </div>`
