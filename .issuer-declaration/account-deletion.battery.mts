@@ -17,6 +17,7 @@
  *      STORAGE_PROVIDER=local, LOCAL_STORAGE_ROOT, TASK_REQUEST_HMAC_KEY(_ID), AUTH_TOKEN_SECRET. Synthetic only.
  */
 import { readFileSync } from "node:fs";
+import { inspect } from "node:util";
 import { PrismaClient } from "@prisma/client";
 import { deleteOwnBusinessAccount } from "../lib/services/account/account-deletion.service";
 import { prismaAccountDeletionStore } from "../lib/services/account/account-deletion.prisma-store";
@@ -66,7 +67,8 @@ const docRow = async (id: number) => (await q(`SELECT "documentNumber" n, "docum
 const profile = async (b: number) => (await q(`SELECT "billingLegalName" l, "billingTaxId" t, "billingVatNumber" v FROM "BusinessProfile" WHERE "businessId" = $1`, b))[0];
 async function del(z: { b: number; u: number }): Promise<string> {
   try { const r = await deleteOwnBusinessAccount(prismaAccountDeletionStore, { businessId: z.b, actorUserId: z.u }); return r.status; }
-  catch (e) { return `ERR:${(e as Error).message.slice(0, 200)}`; }
+  // A Prisma error raised by a trigger keeps the Postgres code and message in nested fields, not in `.message`.
+  catch (e) { return `ERR:${inspect(e, { depth: 6 }).replace(/\s+/g, " ").slice(0, 600)}`; }
 }
 async function eraseAsRuntime(b: number): Promise<string> {
   try {
@@ -132,7 +134,8 @@ async function main() {
   await x(before);
   const r5 = await del(B5);
   await x(fixed);
-  ok("N1 with the pre-fix lock, today's purge of a business with a used declaration FAILS on the lock", r5.includes("ISSUER_PROFILE_IDENTITY_LOCKED"), r5);
+  ok("N1 with the pre-fix lock, today's purge of a business with a used declaration FAILS on the lock (DZD35)",
+    r5.startsWith("ERR:") && (r5.includes("ISSUER_PROFILE_IDENTITY_LOCKED") || r5.includes("DZD35")), r5);
   const r5b = await del(B5);
   ok("N2 with the fixed lock restored, the same deletion completes", r5b === "deleted", r5b);
 
