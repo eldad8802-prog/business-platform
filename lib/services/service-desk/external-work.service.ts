@@ -62,7 +62,9 @@ import { ServiceDeskError } from "./service-desk-errors";
  * Owner decision 2026-11-10: users cannot reach these actions before the intake confirmation path (1.3b, owner-confirmed, no customer signature) is done.
  * A code constant, not a flag: opening it is a reviewed change in a later PR. Every external-work route checks it first.
  */
-export const EXTERNAL_WORK_OPEN = false;
+// OPENED (this PR, for the owner's explicit approval): the 1.3b intake confirmation path is merged (#1088, #1094).
+// Merging this PR is the decision.
+export const EXTERNAL_WORK_OPEN = true;
 
 export function assertExternalWorkOpen(): void {
   if (!EXTERNAL_WORK_OPEN) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { capability: "external_work", until: "intake_confirmation_1_3b" });

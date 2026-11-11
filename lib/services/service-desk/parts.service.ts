@@ -67,7 +67,9 @@ import { ServiceDeskError } from "./service-desk-errors";
  *      .sdquote/battery.ts X2 ("cancel with RESERVED parts → released in the same transaction"). The lock stays false
  *      until a reviewed PR opens it (condition 1 and the owner's decision).
  */
-export const PARTS_API_OPEN = false;
+// OPENED (this PR, for the owner's explicit approval): both binding conditions are met — 1.3b intake confirmation
+// merged (#1088, #1094) and the cancel releases reservations (condition 2 above). Merging this PR is the decision.
+export const PARTS_API_OPEN = true;
 
 export function assertPartsApiOpen(): void {
   if (!PARTS_API_OPEN) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { capability: "parts", until: "intake_confirmation_1_3b" });
