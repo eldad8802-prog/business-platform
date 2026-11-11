@@ -69,7 +69,7 @@ jobs:
           AUTH_TOKEN_SECRET=sdparts-ci-synthetic-auth-secret-0123456789abcdef \
             npx tsx .sdparts/battery.ts | tee /tmp/sdparts.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdparts.out || { echo "the 1d-B battery is not green"; exit 1; }
-      - name: The unlock proof — isolation, reservation, cancel release, double use, idempotency (parts + external work)
+      - name: The unlock proof — isolation, reservation, cancel release, double use, idempotency, parallel requests, mid-operation failure, inventory consistency (parts + external work)
         run: |
           set -euo pipefail
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdparts"

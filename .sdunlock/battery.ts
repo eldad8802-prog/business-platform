@@ -20,6 +20,19 @@
  *   IDM  repeated actions: a replay with the same Idempotency-Key returns the first result and writes nothing; the same
  *        key with another body (or another line / work) → IDEMPOTENCY_KEY_REUSED; a stale expectedVersion →
  *        VERSION_CONFLICT with nothing written; one key five times at once → one write.
+ *   (additions after END1 — the test extension of #1116, same lab, same helpers)
+ *   RES9–12 / ISO15–16  a line asking more than on hand, an item at 0, a CANCELLED line, RELEASE of a NEEDED line, CANCEL
+ *        of a RESERVED line frees it; A's part-action key on B's line is B's own write; A and B reserve at the same moment.
+ *   PAR  parallel requests on separate connections: RESERVE vs CANCEL, RELEASE vs CANCEL, two cancels of one case,
+ *        case cancel vs RELEASE, a reserve/release storm on one item, one add key ×4, two returns of one work — exactly
+ *        one wins where one must, and every line equals its journal.
+ *   FAIL failure mid-operation: a temporary lab trigger raises after the first writes inside the transaction (add,
+ *        RESERVE, case CANCEL after one / after all releases, send, return) → error and the database exactly as before;
+ *        the same key afterwards is a fresh write. The trigger is dropped in a finally.
+ *   INV  inventory: every stock-moving action ACTION_NOT_IN_SCOPE; no SERVICE_PART movement reason exists (no issue is
+ *        possible); the runtime role cannot fake an issue (wrong movement / none) nor change a line without its event;
+ *        a till sale below a soft reservation; reserved ≤ on hand, 0 movement links, every line = its journal.
+ *   [GAP] (printed, not counted) whether the database alone refuses a RESERVED line on a CANCELLED case.
  *
  * env: OWNER_URL (lab owner — fixtures and read-backs), DATABASE_URL = DIRECT_URL
  *      (app_runtime_prod — the services and the RLS probes), TASK_REQUEST_HMAC_KEY / _ID, AUTH_TOKEN_SECRET.
@@ -439,6 +452,312 @@ async function main() {
       && (await code(() => ret(A, ws.work.id, 2, ws.case.version, { finalCostAgorot: 5 }, kRt))) === "IDEMPOTENCY_KEY_REUSED", rt2);
 
   ok("END1 no InventoryMovement was written for either business by anything above", (await movements(A.b)) === movA0 && (await movements(B.b)) === movB0);
+
+  // ── 6. RES+ / ISO+ — wrong reservations and cross-tenant keys (additions, PR #1116 test extension) ─────────────
+  console.log("RES+ / ISO+ — wrong reservations, cross-tenant keys");
+  {
+    const big = await newItem(A, 3);
+    const bc1 = await openFIELD(A);
+    const over = await stockLine(A, bc1.id, big, 4);
+    ok("RES9 one line asking for MORE than on hand (4 of 3) → RESERVE refused PART_NOT_AVAILABLE, still NEEDED v1, 0 reserved",
+      (await code(() => pact(A, over.part.id, { type: "RESERVE" }, 1))).includes("PART_NOT_AVAILABLE") && (await partRow(over.part.id)).s === "NEEDED" && (await reservedOf(big)) === 0);
+    const zero = await newItem(A, 0);
+    const zl = await stockLine(A, bc1.id, zero);
+    ok("RES10 an item with 0 on hand → RESERVE refused PART_NOT_AVAILABLE, nothing written",
+      (await code(() => pact(A, zl.part.id, { type: "RESERVE" }, 1))).includes("PART_NOT_AVAILABLE") && (await partEvents(zl.part.id)) === 1);
+    const cl = await stockLine(A, bc1.id, big);
+    const clv = (await pact(A, cl.part.id, { type: "CANCEL", reason: "לא נדרש" }, 1)).part.version;
+    const nl = await stockLine(A, bc1.id, big);
+    const r10 = [await code(() => pact(A, cl.part.id, { type: "RESERVE" }, clv)), await code(() => pact(A, nl.part.id, { type: "RELEASE" }, 1))];
+    ok("RES11 a CANCELLED line cannot be reserved, a NEEDED line cannot be released → REFUSED ×2, nothing written",
+      r10.every((r) => r.startsWith("REFUSED")) && (await partEvents(cl.part.id)) === 2 && (await partEvents(nl.part.id)) === 1 && (await reservedOf(big)) === 0, JSON.stringify(r10));
+    const rl = await stockLine(A, bc1.id, big, 2);
+    const rv = await pact(A, rl.part.id, { type: "RESERVE" }, 1);
+    const rc = await pact(A, rl.part.id, { type: "CANCEL", reason: "הלקוח ויתר" }, rv.part.version);
+    ok("RES12 CANCEL of a RESERVED line → CANCELLED, the 2 units are free again (0 reserved), no movement",
+      rc.part.state === "CANCELLED" && (await reservedOf(big)) === 0 && (await movements(A.b)) === movA0);
+    // ISO+: a part-action key of A replayed by B on B's own line is B's own write
+    const kShared = key();
+    const aL = await stockLine(A, bc1.id, big);
+    const bcase = await openFIELD(B);
+    const bL = await stockLine(B, bcase.id, B.item2);
+    const aR = await pact(A, aL.part.id, { type: "RESERVE" }, 1, kShared);
+    const bR = await pact(B, bL.part.id, { type: "RESERVE" }, 1, kShared);
+    ok("ISO15 A's RESERVE Idempotency-Key used by B on B's line → B's own fresh reservation (not a replay, not A's line), A untouched",
+      !aR.replayed && !bR.replayed && bR.part.id === bL.part.id && bR.part.state === "RESERVED" && (await partRow(aL.part.id)).s === "RESERVED" && Number((await partRow(aL.part.id)).v) === 2);
+    // two businesses reserving at the same moment never block or count each other
+    const ia = await newItem(A, 1), ib = await newItem(B, 1);
+    const ca = await openFIELD(A), cb = await openFIELD(B);
+    const la = await stockLine(A, ca.id, ia), lb = await stockLine(B, cb.id, ib);
+    const both = await Promise.all([code(() => pact(A, la.part.id, { type: "RESERVE" }, 1)), code(() => pact(B, lb.part.id, { type: "RESERVE" }, 1))]);
+    ok("ISO16 A and B each reserve the last unit of their own item at the same moment → both OK (no cross-tenant counting or blocking)",
+      both.every((r) => r === "OK") && (await reservedOf(ia)) === 1 && (await reservedOf(ib)) === 1, JSON.stringify(both));
+  }
+
+  // ── 7. PAR — parallel requests on the same line / case (separate pooled connections, Promise.all) ──────────
+  console.log("PAR — parallel requests");
+  /** The line agrees with its journal: version = number of events = last seq; lastEventKind / state = the last event's. */
+  const journalOk = async (partId: number) => {
+    const p = await partRow(partId);
+    const evs = await q(`SELECT seq, kind::text k, "stateAfter"::text sa FROM "ServicePartEvent" WHERE "partId" = $1 ORDER BY seq`, partId);
+    const last = evs[evs.length - 1];
+    return evs.length === Number(p.v) && evs.every((e, i) => Number(e.seq) === i + 1) && last.k === p.k && last.sa === p.s;
+  };
+  {
+    const it1 = await newItem(A, 3);
+    let par1 = true; const log1: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const c = await openFIELD(A);
+      const l = await stockLine(A, c.id, it1);
+      const rs = await Promise.all([code(() => pact(A, l.part.id, { type: "RESERVE" }, 1)), code(() => pact(A, l.part.id, { type: "CANCEL", reason: "x" }, 1))]);
+      const pr = await partRow(l.part.id);
+      log1.push(`${rs.join("/")}→${pr.s}v${pr.v}`);
+      par1 &&= rs.filter((r) => r === "OK").length === 1 && rs.includes("VERSION_CONFLICT") && Number(pr.v) === 2 && (await journalOk(l.part.id));
+    }
+    ok("PAR1 RESERVE and CANCEL of the same NEEDED line at once (×3) → exactly one wins, the other VERSION_CONFLICT; the line = its journal (v2)",
+      par1 && (await reservedOf(it1)) <= 3, log1.join(" | "));
+    const it2 = await newItem(A, 3);
+    let par2 = true; const log2: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const c = await openFIELD(A);
+      const l = await stockLine(A, c.id, it2);
+      const v = (await pact(A, l.part.id, { type: "RESERVE" }, 1)).part.version;
+      const rs = await Promise.all([code(() => pact(A, l.part.id, { type: "RELEASE" }, v)), code(() => pact(A, l.part.id, { type: "CANCEL", reason: "x" }, v))]);
+      const pr = await partRow(l.part.id);
+      log2.push(`${rs.join("/")}→${pr.s}v${pr.v}`);
+      par2 &&= rs.filter((r) => r === "OK").length === 1 && rs.includes("VERSION_CONFLICT") && Number(pr.v) === 3 && pr.s !== "RESERVED" && (await journalOk(l.part.id));
+    }
+    ok("PAR2 RELEASE and CANCEL of the same RESERVED line at once (×3) → exactly one wins, the other VERSION_CONFLICT; never still RESERVED; the line = its journal; the units free",
+      par2 && (await reservedOf(it2)) === 0, log2.join(" | "));
+    let par3 = true; const log3: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const i1 = await newItem(A, 2), i2 = await newItem(A, 2);
+      const c = await openFIELD(A);
+      const l1 = await stockLine(A, c.id, i1), l2 = await stockLine(A, c.id, i2);
+      await pact(A, l1.part.id, { type: "RESERVE" }, 1); await pact(A, l2.part.id, { type: "RESERVE" }, 1);
+      const cv = Number((await caseRow(c.id)).v);
+      const rs = await Promise.all([code(() => act(A, c.id, { type: "CANCEL", reason: "ביטול א" }, cv)), code(() => act(A, c.id, { type: "CANCEL", reason: "ביטול ב" }, cv))]);
+      const rel = await n(`SELECT count(*)::int AS n FROM "ServicePartEvent" WHERE "caseId" = $1 AND kind = 'RELEASED'`, c.id);
+      const cancels = await n(`SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND "toStatus" = 'CANCELLED'`, c.id);
+      log3.push(`${rs.map((r) => r.slice(0, 30)).join("/")}→rel${rel},cx${cancels}`);
+      par3 &&= rs.filter((r) => r === "OK").length === 1 && (await caseRow(c.id)).s === "CANCELLED" && rel === 2 && cancels === 1
+        && (await journalOk(l1.part.id)) && (await journalOk(l2.part.id)) && (await reservedOf(i1)) === 0 && (await reservedOf(i2)) === 0;
+    }
+    ok("PAR3 two different CANCEL requests of one case with 2 reservations at once (×3) → one wins; each line released exactly once; one CANCELLED case event",
+      par3, log3.join(" | "));
+    let par4 = true; const log4: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const i1 = await newItem(A, 1);
+      const c = await openFIELD(A);
+      const l1 = await stockLine(A, c.id, i1);
+      const v = (await pact(A, l1.part.id, { type: "RESERVE" }, 1)).part.version;
+      const cv = Number((await caseRow(c.id)).v);
+      const rs = await Promise.all([code(() => act(A, c.id, { type: "CANCEL", reason: "ביטול" }, cv)), code(() => pact(A, l1.part.id, { type: "RELEASE" }, v))]);
+      const rel = await n(`SELECT count(*)::int AS n FROM "ServicePartEvent" WHERE "partId" = $1 AND kind = 'RELEASED'`, l1.part.id);
+      const pr = await partRow(l1.part.id);
+      log4.push(`${rs.map((r) => r.slice(0, 25)).join("/")}→${pr.s},rel${rel}`);
+      par4 &&= rs[0] === "OK" && (await caseRow(c.id)).s === "CANCELLED" && pr.s === "NEEDED" && rel === 1 && (await journalOk(l1.part.id)) && (await reservedOf(i1)) === 0;
+    }
+    ok("PAR4 case CANCEL racing a RELEASE of its reserved line (×4) → the cancel always succeeds; the line released exactly once (one RELEASED event), NEEDED, consistent",
+      par4, log4.join(" | "));
+    const sItem = await newItem(A, 4);
+    const held: { id: number; v: number }[] = [];
+    for (let i = 0; i < 2; i++) { const c = await openFIELD(A); const l = await stockLine(A, c.id, sItem); held.push({ id: l.part.id, v: (await pact(A, l.part.id, { type: "RESERVE" }, 1)).part.version }); }
+    const fresh: number[] = [];
+    for (let i = 0; i < 8; i++) { const c = await openFIELD(A); fresh.push((await stockLine(A, c.id, sItem)).part.id); }
+    const storm = await Promise.all([
+      ...fresh.map((id) => code(() => pact(A, id, { type: "RESERVE" }, 1))),
+      ...held.map((h) => code(() => pact(A, h.id, { type: "RELEASE" }, h.v))),
+    ]);
+    const okRes = storm.slice(0, 8).filter((r) => r === "OK").length;
+    const consistent = (await Promise.all([...fresh, ...held.map((h) => h.id)].map(journalOk))).every(Boolean);
+    ok("PAR5 8 RESERVEs and 2 RELEASEs of one item (4 on hand, 2 held) at once → both releases OK, 2..4 reserves win, the rest PART_NOT_AVAILABLE; reserved = the winners, never above 4; every line = its journal",
+      storm.slice(8).every((r) => r === "OK") && okRes >= 2 && okRes <= 4 && storm.slice(0, 8).every((r) => r === "OK" || r.includes("PART_NOT_AVAILABLE"))
+        && (await reservedOf(sItem)) === okRes && consistent, JSON.stringify(storm));
+    const kA = key();
+    const pc = await openFIELD(A);
+    const adds = await Promise.all(Array.from({ length: 4 }, () => add(A, pc.id, { source: "STOCK", inventoryItemId: sItem, name: "חלק", quantity: 1 }, kA)
+      .then((r) => `${r.part.id}:${r.replayed}`, (e) => `E:${(e as ServiceDeskError).code ?? (e as Error).message}`)));
+    ok("PAR6 one add Idempotency-Key four times at once → one line, one ADDED event; every answer names that line (one fresh, three replays)",
+      new Set(adds.map((r) => r.split(":")[0])).size === 1 && adds.filter((r) => r.endsWith(":false")).length === 1
+        && (await n(`SELECT count(*)::int AS n FROM "ServicePart" WHERE "caseId" = $1`, pc.id)) === 1 && (await n(`SELECT count(*)::int AS n FROM "ServicePartEvent" WHERE "idempotencyKey" = $1`, kA)) === 1, JSON.stringify(adds));
+    const wd = await diagnosing(A);
+    const ws = await send(A, wd.id, wd.v);
+    const rr = await Promise.all([code(() => ret(A, ws.work.id, 1, ws.case.version)), code(() => ret(A, ws.work.id, 1, ws.case.version))]);
+    ok("PAR7 two returns (two keys) of the same external work at once → exactly one wins, the other VERSION_CONFLICT; one RETURNED event, one case event for it",
+      rr.filter((r) => r === "OK").length === 1 && rr.includes("VERSION_CONFLICT") && (await n(`SELECT count(*)::int AS n FROM "ServiceExternalWorkEvent" WHERE "workId" = $1 AND kind = 'RETURNED'`, ws.work.id)) === 1
+        && (await n(`SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "caseId" = $1`, wd.id)) === ws.case.version + 1, JSON.stringify(rr));
+  }
+
+  // ── 8. FAIL — a failure in the middle of an operation rolls everything back ─────────────────────────────────
+  // A temporary trigger (lab only, created and dropped here by the lab owner) raises AFTER the operation's first writes
+  // are already done inside its transaction; the answer must be an error and the database exactly as before.
+  console.log("FAIL — failure mid-operation");
+  {
+    await x(`CREATE OR REPLACE FUNCTION public.u16b_inject_failure() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN RAISE EXCEPTION 'U16B_INJECTED_FAILURE on %', TG_TABLE_NAME; END $f$`);
+    const inject = (table: string, when: string) => x(`CREATE TRIGGER u16b_fail AFTER INSERT ON "${table}" FOR EACH ROW WHEN (${when}) EXECUTE FUNCTION public.u16b_inject_failure()`);
+    const clear = (table: string) => x(`DROP TRIGGER IF EXISTS u16b_fail ON "${table}"`);
+    const injected = (r: string) => r.includes("U16B_INJECTED_FAILURE");
+    try {
+      const fItem = await newItem(A, 3);
+      const fBefore = await itemRow(fItem);
+      const mov0 = await movements(A.b);
+      const fc = await openFIELD(A);
+      await inject("ServicePartEvent", `NEW."caseId" = ${fc.id}`);
+      const kAdd = key();
+      const f1 = await code(() => add(A, fc.id, { source: "STOCK", inventoryItemId: fItem, name: "חלק", quantity: 1 }, kAdd));
+      const linesAfter = await n(`SELECT count(*)::int AS n FROM "ServicePart" WHERE "caseId" = $1`, fc.id);
+      await clear("ServicePartEvent");
+      const f1b = await add(A, fc.id, { source: "STOCK", inventoryItemId: fItem, name: "חלק", quantity: 1 }, kAdd);
+      ok("FAIL1 add: the ADDED event fails after the line was inserted → error, NO line, no event; the same key afterwards → a fresh line (the failed try left no ledger entry)",
+        injected(f1) && linesAfter === 0 && !f1b.replayed && (await n(`SELECT count(*)::int AS n FROM "ServicePart" WHERE "caseId" = $1`, fc.id)) === 1, f1);
+      const fl = f1b.part.id;
+      const snap2 = JSON.stringify(await partRow(fl));
+      await inject("ServicePartEvent", `NEW."partId" = ${fl} AND NEW.kind = 'RESERVED'`);
+      const kR = key();
+      const f2 = await code(() => pact(A, fl, { type: "RESERVE" }, 1, kR));
+      const after2 = JSON.stringify(await partRow(fl));
+      const ev2 = await partEvents(fl), res2 = await reservedOf(fItem);
+      await clear("ServicePartEvent");
+      const f2b = await pact(A, fl, { type: "RESERVE" }, 1, kR);
+      ok("FAIL2 RESERVE: the RESERVED event fails after the line was set RESERVED → error; the line byte-for-byte NEEDED v1, 1 event, 0 reserved; the same key afterwards reserves fresh (v2)",
+        injected(f2) && after2 === snap2 && ev2 === 1 && res2 === 0 && !f2b.replayed && f2b.part.version === 2 && (await partEvents(fl)) === 2, f2);
+      const i1 = await newItem(A, 2), i2 = await newItem(A, 2);
+      const cc = await openFIELD(A);
+      const l1 = await stockLine(A, cc.id, i1), l2 = await stockLine(A, cc.id, i2);
+      await pact(A, l1.part.id, { type: "RESERVE" }, 1); await pact(A, l2.part.id, { type: "RESERVE" }, 1);
+      const snapC = async () => JSON.stringify([await caseRow(cc.id), await partRow(l1.part.id), await partRow(l2.part.id),
+        await n(`SELECT count(*)::int AS n FROM "ServicePartEvent" WHERE "caseId" = $1`, cc.id), await n(`SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "caseId" = $1`, cc.id),
+        await reservedOf(i1), await reservedOf(i2), await itemRow(i1), await itemRow(i2)]);
+      const c0 = await snapC();
+      const ccv = Number((await caseRow(cc.id)).v);
+      const kC = key();
+      await inject("ServicePartEvent", `NEW."partId" = ${Math.max(l1.part.id, l2.part.id)} AND NEW.kind = 'RELEASED'`);
+      const f3 = await code(() => act(A, cc.id, { type: "CANCEL", reason: "ביטול" }, ccv, kC));
+      const c3 = await snapC();
+      await clear("ServicePartEvent");
+      ok("FAIL3 case CANCEL: the first line's release is written, the second's event fails → error; the case, BOTH lines (still RESERVED), both journals, the case journal and the items exactly as before",
+        injected(f3) && c3 === c0, `${f3} | ${c0} | ${c3}`);
+      await inject("ServiceCaseEvent", `NEW."caseId" = ${cc.id}`);
+      const f4 = await code(() => act(A, cc.id, { type: "CANCEL", reason: "ביטול" }, ccv, kC));
+      const c4 = await snapC();
+      await clear("ServiceCaseEvent");
+      ok("FAIL4 case CANCEL: both releases and the case row written, the case event (the last write) fails → error; everything exactly as before (no released line, no RELEASED event, the case not cancelled)",
+        injected(f4) && c4 === c0, `${f4} | ${c4}`);
+      const f5 = await act(A, cc.id, { type: "CANCEL", reason: "ביטול" }, ccv, kC);
+      ok("FAIL5 the same cancel key once the failure is gone → a fresh cancel (not a replay): CANCELLED, each line released exactly once, 0 reserved",
+        !f5.replayed && f5.case.status === "CANCELLED" && (await n(`SELECT count(*)::int AS n FROM "ServicePartEvent" WHERE "caseId" = $1 AND kind = 'RELEASED'`, cc.id)) === 2
+          && (await reservedOf(i1)) === 0 && (await reservedOf(i2)) === 0 && (await journalOk(l1.part.id)) && (await journalOk(l2.part.id)));
+      const sd = await diagnosing(A);
+      const sSnap = async () => JSON.stringify([await caseRow(sd.id), await n(`SELECT count(*)::int AS n FROM "ServiceExternalWork" WHERE "caseId" = $1`, sd.id),
+        await n(`SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "caseId" = $1`, sd.id)]);
+      const s0 = await sSnap();
+      await inject("ServiceExternalWorkEvent", `NEW."caseId" = ${sd.id}`);
+      const f6 = await code(() => send(A, sd.id, sd.v));
+      const s6 = await sSnap();
+      await clear("ServiceExternalWorkEvent");
+      ok("FAIL6 send to a supplier: case → EXTERNAL, its event and the work row written, the work's SENT event fails → error; the case (status, version), works and case journal exactly as before",
+        injected(f6) && s6 === s0, `${f6} | ${s0} | ${s6}`);
+      const sw = await send(A, sd.id, sd.v);
+      const rSnap = async () => JSON.stringify([await caseRow(sd.id), (await q(`SELECT state::text s, version v FROM "ServiceExternalWork" WHERE id = $1`, sw.work.id))[0], await workEvents(sw.work.id),
+        await n(`SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "caseId" = $1`, sd.id)]);
+      const r0 = await rSnap();
+      await inject("ServiceCaseEvent", `NEW."caseId" = ${sd.id}`);
+      const f7 = await code(() => ret(A, sw.work.id, 1, sw.case.version));
+      const r7 = await rSnap();
+      await clear("ServiceCaseEvent");
+      ok("FAIL7 return from the supplier: the work (RETURNED) and the case row written, the case event fails → error; the work still AT_SUPPLIER, the case and both journals exactly as before",
+        injected(f7) && r7 === r0 && r0.includes("AT_SUPPLIER"), `${f7} | ${r0} | ${r7}`);
+      ok("FAIL8 no failed operation left an inventory trace: the item row unchanged, no InventoryMovement",
+        (await itemRow(fItem)) === fBefore && (await movements(A.b)) === mov0);
+    } finally {
+      for (const tb of ["ServicePartEvent", "ServiceCaseEvent", "ServiceExternalWorkEvent"]) await clear(tb);
+      await x(`DROP FUNCTION IF EXISTS public.u16b_inject_failure()`);
+    }
+    ok("FAIL9 the injected triggers and their function are gone (the lab is left as the migrations built it)",
+      (await n(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname = 'u16b_fail'`)) === 0 && (await n(`SELECT count(*)::int AS n FROM pg_proc WHERE proname = 'u16b_inject_failure'`)) === 0);
+  }
+
+  // ── 9. INV — consistency with the inventory ──────────────────────────────────────────────────────────────────
+  console.log("INV — inventory consistency");
+  {
+    let ownerMovements = 0; // movements this section writes itself, as the inventory module would (never the parts service)
+    const vItem = await newItem(A, 4);
+    const vc = await openFIELD(A);
+    const vl = await stockLine(A, vc.id, vItem, 2);
+    const vv = (await pact(A, vl.part.id, { type: "RESERVE" }, 1)).part.version;
+    const vRow0 = JSON.stringify(await partRow(vl.part.id));
+    const vBefore = [vRow0, await itemRow(vItem), await movements(A.b), await partEvents(vl.part.id)].join("|");
+    const moving = ["ISSUE", "RETURN", "INSTALL", "WRITE_OFF", "SEND_WITH_EXTERNAL", "RESOLVE_FROM_EXTERNAL", "CORRECT_COST", "MARK_ON_ORDER", "UPDATE_ORDER", "RECORD_QUOTED"];
+    const inv1 = await Promise.all(moving.map((type) => code(() => pact(A, vl.part.id, { type }, vv))));
+    ok("INV1 every action that would move stock or needs an issued line (ISSUE, RETURN, INSTALL, WRITE_OFF, SEND/RESOLVE external, CORRECT_COST, orders, quoted) → ACTION_NOT_IN_SCOPE; line, item, movements, journal unchanged",
+      inv1.every((r) => r.startsWith("ACTION_NOT_IN_SCOPE")) && [JSON.stringify(await partRow(vl.part.id)), await itemRow(vItem), await movements(A.b), await partEvents(vl.part.id)].join("|") === vBefore, JSON.stringify(inv1));
+    const labels = (await q(`SELECT e.enumlabel l FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'InventoryMovementReason'`)).map((r) => String(r.l));
+    ok("INV2 the inventory has no SERVICE_PART movement reason yet (M0 not applied), so no OUT movement can satisfy a part issue — a STOCK line cannot reach ISSUED today (no double issue possible)",
+      labels.length > 0 && !labels.includes("SERVICE_PART"), JSON.stringify(labels));
+    const sale = Number((await q(`INSERT INTO "InventoryMovement" ("businessId", "itemId", "movementType", reason, "quantityDelta", "quantityBefore", "quantityAfter", note)
+      VALUES ($1, $2, 'OUT', 'SALE', -2, 4, 2, 'u16b sim') RETURNING id`, A.b, vItem))[0].id);
+    ownerMovements++;
+    const fakeIssue = (movement: number | null) => asRuntime(A.b, async (tx) => {
+      await tx.$executeRawUnsafe(`UPDATE "ServicePart" SET state = 'ISSUED', "issueMovementId" = $2, "unitCostAgorot" = 100, "costSource" = 'MANUAL', version = version + 1, "lastEventKind" = 'ISSUED', "updatedAt" = now() WHERE id = $1`, vl.part.id, movement);
+      await tx.$executeRawUnsafe(`INSERT INTO "ServicePartEvent" ("businessId", "partId", "caseId", seq, kind, "stateBefore", "stateAfter", quantity, actor, "actorUserId", payload, "idempotencyKey", "movementId")
+        VALUES ($1, $2, $3, $4, 'ISSUED', 'RESERVED', 'ISSUED', 2, 'OWNER_USER', $5, '{}'::jsonb, $6, $7)`, A.b, vl.part.id, vc.id, vv + 1, A.u, key(), movement);
+      return "COMMITTED";
+    });
+    const fi1 = await fakeIssue(sale);
+    const fi2 = await fakeIssue(null);
+    ok("INV3 the runtime role issuing a line against a real OUT movement of the same item and quantity that is NOT a service-part issue (a SALE) → SERVICE_PART_MOVEMENT_MISMATCH; with no movement → SERVICE_PART_ISSUE; the line unchanged",
+      /SERVICE_PART_MOVEMENT_MISMATCH/.test(String(fi1)) && /SERVICE_PART_ISSUE/.test(String(fi2)) && JSON.stringify(await partRow(vl.part.id)) === vRow0, `${String(fi1).slice(0, 100)} | ${String(fi2).slice(0, 100)}`);
+    const silent = await asRuntime(A.b, async (tx) => {
+      await tx.$executeRawUnsafe(`UPDATE "ServicePart" SET state = 'NEEDED', version = version + 1, "lastEventKind" = 'RELEASED', "updatedAt" = now() WHERE id = $1`, vl.part.id);
+      return "COMMITTED";
+    });
+    ok("INV4 the runtime role releasing a line WITHOUT its journal event → refused at COMMIT (SERVICE_PART_SILENT_CHANGE); the line still RESERVED, 2 reserved",
+      /SERVICE_PART_SILENT_CHANGE/.test(String(silent)) && JSON.stringify(await partRow(vl.part.id)) === vRow0 && (await reservedOf(vItem)) === 2, String(silent).slice(0, 120));
+    // the inventory sells under a soft reservation (simulated as the inventory module: its movements + its quantity)
+    await x(`INSERT INTO "InventoryMovement" ("businessId", "itemId", "movementType", reason, "quantityDelta", "quantityBefore", "quantityAfter", note) VALUES ($1, $2, 'OUT', 'SALE', -1, 2, 1, 'u16b sim')`, A.b, vItem);
+    ownerMovements++;
+    await x(`UPDATE "InventoryItem" SET "currentQuantity" = 1, "updatedAt" = now() WHERE id = $1`, vItem);
+    const vc2 = await openFIELD(A);
+    const vl2 = await stockLine(A, vc2.id, vItem, 1);
+    ok("INV5 the till sold below the soft reservation (on hand 1, 2 reserved): the reservation stays RESERVED (soft, M1), a new reservation of 1 is refused PART_NOT_AVAILABLE, the item still 1 (parts wrote nothing to it)",
+      (await partRow(vl.part.id)).s === "RESERVED" && (await code(() => pact(A, vl2.part.id, { type: "RESERVE" }, 1))).includes("PART_NOT_AVAILABLE")
+        && Number((await q(`SELECT "currentQuantity" q FROM "InventoryItem" WHERE id = $1`, vItem))[0].q) === 1);
+    await pact(A, vl.part.id, { type: "RELEASE" }, vv);
+    ok("INV6 after the over-reserved line is released, the 1 unit left can be reserved by the other case (available = on hand − other reservations)",
+      (await pact(A, vl2.part.id, { type: "RESERVE" }, 1)).part.state === "RESERVED" && (await reservedOf(vItem)) === 1);
+    const over = await q(`SELECT i.id, i."currentQuantity" q, COALESCE(sum(p.quantity) FILTER (WHERE p.state = 'RESERVED'), 0)::float8 r
+      FROM "InventoryItem" i LEFT JOIN "ServicePart" p ON p."inventoryItemId" = i.id WHERE i."businessId" = ANY($1::int[])
+      GROUP BY i.id HAVING COALESCE(sum(p.quantity) FILTER (WHERE p.state = 'RESERVED'), 0) > i."currentQuantity" + 1e-9`, [A.b, B.b]);
+    ok("INV7 for every item of both businesses the RESERVED quantity is within on hand after everything above (no over-reservation through the service)",
+      over.length === 0, JSON.stringify(over));
+    const left = await n(`SELECT count(*)::int AS n FROM "ServicePart" WHERE "businessId" = ANY($1::int[]) AND (state IN ('ISSUED','INSTALLED','RETURNED','WRITTEN_OFF') OR "issueMovementId" IS NOT NULL OR "returnMovementId" IS NOT NULL)`, [A.b, B.b]);
+    ok("INV8 no part line of either business left the stock or links a movement (0 ISSUED / INSTALLED / RETURNED / WRITTEN_OFF, 0 links); the only new movements are the 2 this section wrote as the inventory",
+      left === 0 && (await movements(A.b)) === movA0 + ownerMovements && (await movements(B.b)) === movB0);
+    const bad = await q(`SELECT p.id FROM "ServicePart" p WHERE p."businessId" = ANY($1::int[]) AND (p.version <> (SELECT count(*) FROM "ServicePartEvent" e WHERE e."partId" = p.id)
+      OR p."lastEventKind" <> (SELECT e.kind FROM "ServicePartEvent" e WHERE e."partId" = p.id ORDER BY seq DESC LIMIT 1)
+      OR p.state <> (SELECT e."stateAfter" FROM "ServicePartEvent" e WHERE e."partId" = p.id ORDER BY seq DESC LIMIT 1))`, [A.b, B.b]);
+    ok("INV9 every part line of both businesses equals its journal (version = events, last kind and state = the last event's)", bad.length === 0, JSON.stringify(bad));
+    const cxRes = await q(`SELECT p.id FROM "ServicePart" p JOIN "ServiceCase" c ON c.id = p."caseId" WHERE p."businessId" = ANY($1::int[]) AND c.status IN ('CANCELLED','CLOSED') AND p.state = 'RESERVED'`, [A.b, B.b]);
+    ok("INV10 no cancelled or closed case of either business holds a RESERVED line after everything above (the app rule; see the GAP probe for the database)", cxRes.length === 0, JSON.stringify(cxRes));
+  }
+
+  // ── GAP probe (informational, not counted): does the database alone stop a RESERVED line on a CANCELLED case? ──
+  {
+    const gItem = await newItem(A, 1);
+    const gc = await openFIELD(A);
+    const gl = await stockLine(A, gc.id, gItem);
+    await act(A, gc.id, { type: "CANCEL", reason: "בדיקה" }, Number((await caseRow(gc.id)).v));
+    const g = await asRuntime(A.b, async (tx) => {
+      await tx.$executeRawUnsafe(`UPDATE "ServicePart" SET state = 'RESERVED', version = 2, "lastEventKind" = 'RESERVED', "updatedAt" = now() WHERE id = $1`, gl.part.id);
+      await tx.$executeRawUnsafe(`INSERT INTO "ServicePartEvent" ("businessId", "partId", "caseId", seq, kind, "stateBefore", "stateAfter", quantity, actor, "actorUserId", payload, "idempotencyKey")
+        VALUES ($1, $2, $3, 2, 'RESERVED', 'NEEDED', 'RESERVED', 1, 'OWNER_USER', $4, '{}'::jsonb, $5)`, A.b, gl.part.id, gc.id, A.u, key());
+      return "COMMITTED";
+    });
+    console.log(`  [GAP] the runtime role writing RESERVED (with a matching event) on a CANCELLED case's line, bypassing the service: ${String(g).slice(0, 140)}`
+      + (g === "COMMITTED" ? " — the database ACCEPTS it today (app-only rule; a DB guard is pending in a separate PR)" : " — refused by the database"));
+    if (g === "COMMITTED") await pact(A, gl.part.id, { type: "CANCEL", reason: "ניקוי בדיקה" }, 2); // leave no RESERVED line on a cancelled case
+  }
 
   console.log("\nper section: " + Object.entries(tally).map(([s, [p, f]]) => `${s} ${p}/${p + f}`).join(", "));
   console.log(`\n${pass} passed, ${failures.length} failed`);
