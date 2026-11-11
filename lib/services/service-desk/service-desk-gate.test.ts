@@ -98,8 +98,9 @@ async function main() {
   const walk = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name === "route.ts") files.push(p); } };
   walk(root);
   // UI 1.3a added one read: GET /api/service-desk/staff (the technician pickers); 1d-A added three external-work routes and
-  // 1d-B two parts routes (closed until 1.3b); 1.3b added six intake routes (terms, photos, one photo, sign, signature, slip).
-  ok("R1 twenty-two route files (the staff read, three external-work, two parts and six intake routes incl. the slip)", files.length === 22 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
+  // 1d-B two parts routes (closed until 1.3b); 1.3b added six intake routes (terms, photos, one photo, sign, signature, slip);
+  // 1.3c added four quote routes (list + send, revise, one version's decision, one version's stored PDF).
+  ok("R1 twenty-six route files (the staff read, three external-work, two parts, six intake routes incl. the slip, four quote routes)", files.length === 26 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
   let allGuarded = true, kindsRight = true;
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");

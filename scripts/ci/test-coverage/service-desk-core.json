@@ -41,6 +41,10 @@
     "lib/services/service-desk/case-balance.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/clock): the balance of a service case from its charge, active billing links and billing's settlement facts (#1102 shape) — the five handover cases, exempt dealer, overpayment shown never zeroed, another business's / vanished / draft / foreign / wrong-type document → UNKNOWN, a double link → UNKNOWN, no double count of allocated receipts / tax invoice-receipts / credits, partial payments and one receipt over several invoices, documented above the charge → UNKNOWN, and charge changes against issued documents; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/quote-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk 1.3c quotes — the canonical quote content (\"sdq1\" array) and its docHash: exact, deterministic, line-order and decimal-scale independent, changed by every content field and by nothing else; exact agorot from decimal text (never a float, int4 bound); the billing document check (another business = not found, not a QUOTE, not ILS, another customer, no lines, converted, issued); the owner's decision (APPROVE / REJECT by PHONE / IN_PERSON, LINK refused, the approval names the row's exact version / total / docHash, superseded / withdrawn rows named by their state); the approval's charge = the approved total, none for ₪0; the frozen-copy key under the business's service prefix; fit with the unchanged case core; run on pull_request by service-desk-ci.yml"
     }
   }
 }

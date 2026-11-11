@@ -46,6 +46,7 @@ jobs:
       - run: npx tsx lib/services/service-desk/cancel-stamp.test.ts
       - run: npx tsx lib/services/service-desk/settlement.test.ts
       - run: npx tsx lib/services/service-desk/case-balance.test.ts
+      - run: npx tsx lib/services/service-desk/quote-core.test.ts
       - run: npx tsx lib/services/service-desk/parts-lock.test.ts
       - run: npx tsx lib/services/service-desk/intake-core.test.ts
       - run: npx tsx lib/services/service-desk/legal-approval-guard.test.ts

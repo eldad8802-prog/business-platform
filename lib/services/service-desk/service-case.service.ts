@@ -48,28 +48,35 @@ import { checkCommandEnvelope, evaluateRepeatCase, evaluateTransition, openServi
 import { ServiceDeskError, refused } from "./service-desk-errors";
 import { readSettlementNotLinked, settlementForCore, type SettlementReader } from "./settlement";
 import { evaluateQa } from "./qa-templates";
+import { releaseCaseReservations } from "./part-release";
+import { supersedeOpenQuote, withdrawOpenQuote, type FrozenQuote } from "./quote-rows";
 
 export type Tx = Prisma.TransactionClient;
 
 export type ServiceDeskPrincipal = { businessId: number; userId: number };
 export type WriteRequest = { idempotencyKey: string; now?: Date };
 
-/** The transitions 1.3a carries (owner-approved scope ש2). Everything else is refused as ACTION_NOT_IN_SCOPE. */
+/**
+ * The transitions the generic action route carries (owner-approved scope ש2; CLOSE since 1.3c). Everything else is refused
+ * there as ACTION_NOT_IN_SCOPE — the four quote actions run through their own commands (quote.service), like external work.
+ */
 export const IN_SCOPE_ACTIONS = [
   "CHECK_IN", "START_DIAGNOSIS", "START_REPAIR", "SET_HOLD", "CLEAR_HOLD", "FINISH_REPAIR", "PASS_QA", "FAIL_QA",
-  "MARK_NOT_REPAIRABLE", "CANCEL", "ABANDON", "DELIVER",
+  "MARK_NOT_REPAIRABLE", "CANCEL", "ABANDON", "DELIVER", "CLOSE",
 ] as const satisfies readonly ServiceCaseActionType[];
 
-/** Why each other action is not here — the gap report reads this. */
+/** 1.3c: carried by quote.service (the /cases/[id]/quotes routes) — the frozen sent copy is prepared before the case lock. */
+export const QUOTE_COMMAND_ACTIONS = ["SEND_QUOTE", "REVISE_QUOTE", "APPROVE_QUOTE", "REJECT_QUOTE"] as const satisfies readonly ServiceCaseActionType[];
+
+/** Why each other action is not on the generic route — the gap report reads this. */
 export const OUT_OF_SCOPE_ACTIONS: Readonly<Record<Exclude<ServiceCaseActionType, (typeof IN_SCOPE_ACTIONS)[number]>, string>> = {
   SCHEDULE: "no appointment ↔ case link exists to verify APPOINTMENT_BELONGS_TO_CASE (schema / appointments decision)",
-  SEND_QUOTE: "quotes — 1.3c (billing module, content hash)",
-  REVISE_QUOTE: "quotes — 1.3c",
-  APPROVE_QUOTE: "quotes — 1.3c",
-  REJECT_QUOTE: "quotes — 1.3c",
+  SEND_QUOTE: "quotes — their own command (quote.service sendQuote, POST /cases/[id]/quotes)",
+  REVISE_QUOTE: "quotes — their own command (quote.service reviseQuote, POST /cases/[id]/quotes/revise)",
+  APPROVE_QUOTE: "quotes — their own command (quote.service decideQuote, POST /cases/[id]/quotes/[version]/decision)",
+  REJECT_QUOTE: "quotes — their own command (quote.service decideQuote, POST /cases/[id]/quotes/[version]/decision)",
   SEND_TO_EXTERNAL: "external work — its own commands (external-work.service), closed until 1.3b",
   RETURN_FROM_EXTERNAL: "external work — its own commands (external-work.service), closed until 1.3b",
-  CLOSE: "closing after handover — 1.3c",
 };
 
 /** The write-once time stamps a decision sets (the database guard keeps cancelledAt / abandonedAt write-once). */
@@ -81,6 +88,7 @@ export function stampsFor(d: Extract<ServiceTransitionDecision, { ok: true }>) {
     // only requested while the item is at a supplier (CHECK ServiceCase_cancel_stamp: a requested cancel carries cancelledAt).
     cancelled: d.action === "CANCEL" && (d.outcome === "CANCELLED" || d.cancellationRequestedAfter === true),
     abandoned: d.statusChanged && d.to === "ABANDONED",
+    closed: d.statusChanged && d.to === "CLOSED",
   };
 }
 
@@ -194,6 +202,11 @@ async function verifyServerChecks(tx: Tx, businessId: number, checks: readonly S
       case "SETTLEMENT_READ_IN_SAME_TRANSACTION":
         // 1.3c: the balance was read by this command, in this transaction, under the case lock (settlement.ts).
         if (f.settlementRead !== true) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check });
+        break;
+      case "PART_RESERVATIONS_COUNTED_UNDER_LOCK":
+        // 1.3c CLOSE: lockCase counts the open part lines AFTER taking the case row FOR UPDATE, and every part write locks
+        // that row first (the parts triggers) — the count cannot move before this commits. The deferred guard
+        // ServiceCase_parts_resolved_on_close re-checks it at COMMIT.
         break;
       case "STAFF_BELONGS_TO_BUSINESS":
         if (f.staffMemberId === null || !(await staffOfBusiness(tx, businessId, f.staffMemberId))) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check });
@@ -459,6 +472,7 @@ function inScope(type: unknown): type is (typeof IN_SCOPE_ACTIONS)[number] {
 function actionFrom(raw: Record<string, unknown>): ServiceCaseAction {
   const type = raw.type;
   if (!inScope(type)) {
+    if (typeof type === "string" && (QUOTE_COMMAND_ACTIONS as readonly string[]).includes(type)) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { action: type, use: "quotes" });
     if (typeof type === "string" && type in OUT_OF_SCOPE_ACTIONS) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { action: type });
     throw new ServiceDeskError("INVALID_INPUT", { field: "action.type" });
   }
@@ -503,13 +517,67 @@ function actionFrom(raw: Record<string, unknown>): ServiceCaseAction {
   }
 }
 
-function applyEffects(d: Extract<ServiceTransitionDecision, { ok: true }>) {
-  // RELEASE_PART_RESERVATIONS / WITHDRAW_OPEN_QUOTE / SUPERSEDE_OPEN_QUOTE / LINK_REPLACEMENT_DEVICE / ATTEMPT_AUTO_CLOSE
-  // belong to parts, quotes and handover — none is carried out in 1.3a, so a decision that needs one is refused.
-  // 1.3c: ATTEMPT_AUTO_CLOSE after a handover is an attempt, not a requirement — closing (CLOSE) is not carried here, so
-  // the case stays DELIVERED (a valid state) and closes in its own step. Every other effect is still refused.
-  const required = d.effects.filter((e) => e !== "ATTEMPT_AUTO_CLOSE");
-  if (required.length > 0) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { effects: [...required] });
+/** What a command prepared outside the case transaction for an effect (1.3c: the next quote version of a revision). */
+export type EffectExtras = { nextQuote?: FrozenQuote };
+
+/**
+ * The decision's effects, in the command's transaction, BEFORE the case row and its event are written (the case lock is
+ * held; the effects read the case as it stood when the core decided):
+ *   RELEASE_PART_RESERVATIONS — every RESERVED part line → NEEDED, each with its RELEASED event (part-release.ts);
+ *   WITHDRAW_OPEN_QUOTE       — the SENT version the core named → WITHDRAWN (quote-rows.ts);
+ *   SUPERSEDE_OPEN_QUOTE      — N → SUPERSEDED and the prepared N+1 inserted as the one SENT version (revise command only);
+ *   ATTEMPT_AUTO_CLOSE        — no-op: an auto-close is the SYSTEM actor's (contracts: "SYSTEM is the future sweep /
+ *                               auto-close"), never the owner's handover command; the case stays DELIVERED (a valid state)
+ *                               and the owner closes it with CLOSE (in scope since 1.3c) — or the future sweep does;
+ *   LINK_REPLACEMENT_DEVICE   — still refused (no replacement device link yet).
+ */
+async function applyEffects(tx: Tx, b: number, caseId: number, context: ServiceCaseContext, d: Extract<ServiceTransitionDecision, { ok: true }>, userId: number, prepared: Prepared, extras: EffectExtras = {}) {
+  const refusedEffects = d.effects.filter((e) => e === "LINK_REPLACEMENT_DEVICE");
+  if (refusedEffects.length > 0) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { effects: [...refusedEffects] });
+  for (const effect of d.effects) {
+    switch (effect) {
+      case "RELEASE_PART_RESERVATIONS":
+        await releaseCaseReservations(tx, b, caseId, context, userId, prepared);
+        break;
+      case "WITHDRAW_OPEN_QUOTE":
+        if (!d.withdrawQuote) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "OPEN_QUOTE_PRESENT" });
+        await withdrawOpenQuote(tx, b, caseId, d.withdrawQuote, userId);
+        break;
+      case "SUPERSEDE_OPEN_QUOTE":
+        if (!d.supersedeQuote) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "OPEN_QUOTE_PRESENT" });
+        await supersedeOpenQuote(tx, b, caseId, d.supersedeQuote.superseded, d.supersedeQuote.next, extras.nextQuote, userId);
+        break;
+      default:
+        break; // ATTEMPT_AUTO_CLOSE — see above
+    }
+  }
+}
+
+/**
+ * One judged transition, written (1.3c, for the sibling quote commands): the effects, the case row (status / hold /
+ * outcome / cancel request / version / stamps / reasons, compare-and-set on the version) and its event with seq = the new
+ * version — the same writes runCaseAction makes. The caller holds the case lock (journaled + lockCase), compared the
+ * version, ran the core and verified every server check. Returns the new version.
+ */
+export async function commitTransition(tx: Tx, b: number, caseId: number, context: ServiceCaseContext, d: Extract<ServiceTransitionDecision, { ok: true }>, userId: number, prepared: Prepared, extras: EffectExtras = {}): Promise<number> {
+  await applyEffects(tx, b, caseId, context, d, userId, prepared, extras);
+  const next = context.version + 1;
+  const st = stampsFor(d);
+  const updated = await tx.$executeRaw`
+    UPDATE "ServiceCase" SET status = ${d.to}::"ServiceCaseStatus", "holdReason" = ${d.holdReason}::"ServiceHoldReason", outcome = ${d.outcome}::"ServiceOutcome",
+           "cancellationRequested" = ${d.cancellationRequestedAfter}::boolean, version = ${next}::int, "updatedAt" = now(),
+           "checkedInAt" = CASE WHEN ${st.checkedIn}::boolean THEN now() ELSE "checkedInAt" END,
+           "readyAt" = CASE WHEN ${st.ready}::boolean THEN now() ELSE "readyAt" END,
+           "deliveredAt" = CASE WHEN ${d.statusChanged && d.to === "DELIVERED"}::boolean AND "deliveredAt" IS NULL THEN now() ELSE "deliveredAt" END,
+           "closedAt" = CASE WHEN ${st.closed}::boolean AND "closedAt" IS NULL THEN now() ELSE "closedAt" END,
+           "cancelledAt" = CASE WHEN ${st.cancelled}::boolean AND "cancelledAt" IS NULL THEN now() ELSE "cancelledAt" END,
+           "abandonedAt" = CASE WHEN ${st.abandoned}::boolean AND "abandonedAt" IS NULL THEN now() ELSE "abandonedAt" END,
+           "cancelReason" = COALESCE("cancelReason", ${d.texts.cancelReason}::text),
+           "abandonReason" = COALESCE("abandonReason", ${d.texts.abandonReason}::text)
+     WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${context.version}::int`;
+  if (updated !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
+  await appendEvent(tx, b, caseId, next, d.event, userId, prepared);
+  return next;
 }
 
 export async function runCaseAction(
@@ -535,7 +603,7 @@ export async function runCaseAction(
     const d = evaluateTransition(context, action, { kind: "OWNER", userId: p.userId });
     if (!d.ok) throw refused(d.violations);
     await verifyServerChecks(tx, b, d.serverChecks, { staffMemberId: context.staffMemberId, signatureKey, settlementRead: settlement !== null });
-    applyEffects(d);
+    await applyEffects(tx, b, caseId, context, d, p.userId, prepared);
     const next = context.version + 1;
     const st = stampsFor(d);
     const updated = await tx.$executeRaw`
@@ -544,6 +612,7 @@ export async function runCaseAction(
              "checkedInAt" = CASE WHEN ${st.checkedIn}::boolean THEN now() ELSE "checkedInAt" END,
              "readyAt" = CASE WHEN ${st.ready}::boolean THEN now() ELSE "readyAt" END,
              "deliveredAt" = CASE WHEN ${d.statusChanged && d.to === "DELIVERED"}::boolean AND "deliveredAt" IS NULL THEN now() ELSE "deliveredAt" END,
+             "closedAt" = CASE WHEN ${st.closed}::boolean AND "closedAt" IS NULL THEN now() ELSE "closedAt" END,
              "cancelledAt" = CASE WHEN ${st.cancelled}::boolean AND "cancelledAt" IS NULL THEN now() ELSE "cancelledAt" END,
              "abandonedAt" = CASE WHEN ${st.abandoned}::boolean AND "abandonedAt" IS NULL THEN now() ELSE "abandonedAt" END,
              "cancelReason" = COALESCE("cancelReason", ${d.texts.cancelReason}::text),
