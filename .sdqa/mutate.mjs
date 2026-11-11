@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const TEMPLATE = process.argv[2];
+const ONLY = process.argv[3] ? new Set(process.argv[3].split(",").map(Number)) : null; // e.g. 3,10,22 — rerun some mutants
 if (!TEMPLATE) throw new Error("usage: node .sdqa/mutate.mjs <m1-template-db>");
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
 const MIG = path.join(ROOT, "prisma/migrations/20261129090000_service_desk_qa_lists/migration.sql");
@@ -68,10 +69,11 @@ console.log(`ORIGINAL: ${base.passed} passed, ${base.failedN} failed`);
 if (!base.applied || base.failedN !== 0) { console.log("the original is not green — stop"); process.exit(1); }
 let killed = 0;
 for (const [i, [label, from, to]] of MUTANTS.entries()) {
+  if (ONLY && !ONLY.has(i + 1)) continue;
   if (!SRC.includes(from)) { console.log(`  [NOT FOUND] M${i + 1} ${label}`); continue; }
   const r = battery(`qa_mut_${i + 1}`, label, SRC.replace(from, to));
   const dead = !r.applied || r.failedN > 0 || r.passed < 0;
   if (dead) killed++;
   console.log(`  [${dead ? "KILLED" : "SURVIVED"}] M${i + 1} ${label}${r.applied ? ` — ${r.failedN} failed: ${r.failed.slice(0, 3).join(" | ")}` : ` — not applied: ${r.out}`}`);
 }
-console.log(`\nmutants: ${MUTANTS.length}, killed ${killed}`);
+console.log(`\nmutants: ${ONLY ? ONLY.size : MUTANTS.length}, killed ${killed}`);
