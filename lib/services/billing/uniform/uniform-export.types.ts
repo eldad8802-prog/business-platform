@@ -101,6 +101,19 @@ export type UniformDocumentInput = {
   payments: UniformPayment[];
   /** Frozen legal snapshot (preferred over live columns when present). */
   issuedSnapshot: ParsedIssuedSnapshot | null;
+  /**
+   * CREDIT_NOTE only: the issued source invoice `referenceDocumentId` points at, read in the same business (it may
+   * have been issued before the export period). Absent / null when there is none — never guessed.
+   */
+  baseDocument?: UniformBaseDocument | null;
+};
+
+/** The base document of a D110 line (fields 1256 / 1257): its type and the number printed on it. */
+export type UniformBaseDocument = {
+  documentId: number;
+  documentType: string; // BillingDocumentType
+  /** As printed: the frozen snapshot's formatted number first, then the live columns (same rule as field 1204). */
+  numberPrinted: string;
 };
 
 export type UniformExportAssemblerInput = {
@@ -151,6 +164,8 @@ export type UniformDocumentRecord = {
   lineCount: number;
   paymentCount: number;
   source: RecordSource;
+  /** CREDIT_NOTE only: the source invoice, written to 1256 / 1257 of every line. Null otherwise. */
+  baseDocument: UniformBaseDocument | null;
 };
 
 export type UniformLineRecord = { documentId: number } & UniformLine;

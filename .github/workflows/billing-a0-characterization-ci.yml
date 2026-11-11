@@ -59,6 +59,10 @@ jobs:
       - name: Golden characterization
         run: npx tsx .billing-a0/golden.test.ts
 
+      # Credit note → source invoice (D110 1256 / 1257) from the existing referenceDocumentId; no schema change.
+      - name: Uniform credit note base document (pure)
+        run: npx tsx lib/services/billing/uniform/uniform-credit-base-document.test.ts
+
       # Field 1260: a newline in a line description must never reach a D110 record; plain text stays byte-identical
       # (the golden above proves the existing files did not change).
       - name: Uniform field 1260 — free text in one record (pure)
