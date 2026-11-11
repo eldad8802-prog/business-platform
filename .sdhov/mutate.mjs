@@ -53,7 +53,9 @@ const MUTATIONS = [
   RAISE EXCEPTION USING
     ERRCODE = 'DZS07',
     MESSAGE = format('SERVICE_HANDOVER_FIXED`)],
-  ["same-business trigger: approvers not checked", `DROP TRIGGER "ServiceHandover_user_same_business" ON "ServiceHandover";
+  // (The foundation form — the actor only — is an EQUIVALENT mutant while approver = actor is enforced: an approver of
+  // another business is then also the actor. The approver arguments are kept for the day that rule is relaxed.)
+  ["same-business trigger: the actor not checked", `DROP TRIGGER "ServiceHandover_user_same_business" ON "ServiceHandover";
      CREATE TRIGGER "ServiceHandover_user_same_business" BEFORE INSERT ON "ServiceHandover"
        FOR EACH ROW EXECUTE FUNCTION public.service_user_same_business('debtApprovedByUserId');`],
   ["erase: the loaner approver kept", replace(fn("service_handover_record_erase_business"), `SET "debtApprovedByUserId" = NULL, "loanerApprovedByUserId" = NULL`, `SET "debtApprovedByUserId" = NULL`)],
