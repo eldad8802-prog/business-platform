@@ -11,6 +11,7 @@ on:
       - "app/api/service-desk/**"
       - "lib/tenant/**"
       - ".sdparts/**"
+      - ".sdunlock/**"
       - ".sd3p4/lab.sh"
       - ".sd3/lab.sh"
       - "prisma/schema.prisma"
@@ -68,3 +69,13 @@ jobs:
           AUTH_TOKEN_SECRET=sdparts-ci-synthetic-auth-secret-0123456789abcdef \
             npx tsx .sdparts/battery.ts | tee /tmp/sdparts.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdparts.out || { echo "the 1d-B battery is not green"; exit 1; }
+      - name: The unlock proof — isolation, reservation, cancel release, double use, idempotency (parts + external work)
+        run: |
+          set -euo pipefail
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdparts"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdparts"
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdparts-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdparts-ci \
+          AUTH_TOKEN_SECRET=sdparts-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdunlock/battery.ts | tee /tmp/sdunlock.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdunlock.out || { echo "the unlock proof battery is not green"; exit 1; }
