@@ -134,6 +134,8 @@ async function main() {
   const invB = await billingDoc(B, "TAX_INVOICE", "ISSUED", 999);
   const rc2 = await billingDoc(A, "RECEIPT", "ISSUED", 300);
   const rcDraft = await billingDoc(A, "RECEIPT", "DRAFT", 300);
+  const cn = await billingDoc(A, "CREDIT_NOTE", "ISSUED", 100);
+  const cnDraft = await billingDoc(A, "CREDIT_NOTE", "DRAFT", 100);
   ok("L1 CHARGE → A's issued tax invoice; CHARGE → a tax invoice / receipt; STANDALONE_PAYMENT → a receipt: all written",
     (await rt(A.b, link(A, a1, inv1, "CHARGE"))) === "OK" && (await rt(A.b, link(A, a1, tir, "CHARGE"))) === "OK" && (await rt(A.b, link(A, a1, rc1, "STANDALONE_PAYMENT"))) === "OK");
   ok("L2 another business's document id → SERVICE_BILLING_LINK_DOCUMENT (it does not exist in this business)",
@@ -148,6 +150,10 @@ async function main() {
     (await rt(A.b, link(A, a2, draft, "CHARGE"))) === "OK");
   ok("L5b a receipt is linked as a payment only once issued (a draft receipt → SERVICE_BILLING_LINK_RECEIPT_NOT_ISSUED)",
     (await rt(A.b, link(A, a2, rcDraft, "STANDALONE_PAYMENT"))).includes("SERVICE_BILLING_LINK_RECEIPT_NOT_ISSUED"));
+  ok("L5c an issued credit note is linked as AFTER_SALE_CREDIT (T7 evidence); a draft one is refused; a credit note can never be a CHARGE",
+    (await rt(A.b, link(A, a2, cn, "AFTER_SALE_CREDIT"))) === "OK"
+      && (await rt(A.b, link(A, a2, cnDraft, "AFTER_SALE_CREDIT"))).includes("SERVICE_BILLING_LINK_CREDIT_NOT_ISSUED")
+      && (await rt(A.b, link(A, a1, cnDraft, "CHARGE"))).includes("SERVICE_BILLING_LINK_ROLE"));
   ok("L6 a new link must record who linked it (no user → SERVICE_BILLING_LINK_NEW)",
     (await rt(A.b, [link(A, a2, rc2, "STANDALONE_PAYMENT")[0], A.b, a2, rc2, "STANDALONE_PAYMENT", null])).includes("SERVICE_BILLING_LINK_NEW"));
   ok("L7 unlink without a reason → refused; with who and why → done",
@@ -183,8 +189,8 @@ async function main() {
   const after = await own(A.b, `SELECT (SELECT count(*) FROM "ServiceCaseCharge" WHERE "businessId" = $1 AND (reason IS NOT NULL OR "actorUserId" IS NOT NULL))::int left_c,
       (SELECT count(*) FROM "ServiceCaseBillingLink" WHERE "businessId" = $1 AND ("linkedByUserId" IS NOT NULL OR "unlinkReason" IS NOT NULL OR "unlinkedByUserId" IS NOT NULL))::int left_l,
       (SELECT sum("amountAgorot") FROM "ServiceCaseCharge" WHERE "businessId" = $1)::int amounts, (SELECT count(*) FROM "ServiceCaseBillingLink" WHERE "businessId" = $1)::int links`, A.b);
-  ok("E3 while deleting: who acted and every reason blanked; amounts (50000 + 60000) and the 5 link rows kept",
-    erased > 0 && Number(after[0].left_c) === 0 && Number(after[0].left_l) === 0 && Number(after[0].amounts) === 110000 && Number(after[0].links) === 5, `${erased} ${JSON.stringify(after)}`);
+  ok("E3 while deleting: who acted and every reason blanked; amounts (50000 + 60000) and the 6 link rows kept",
+    erased > 0 && Number(after[0].left_c) === 0 && Number(after[0].left_l) === 0 && Number(after[0].amounts) === 110000 && Number(after[0].links) === 6, `${erased} ${JSON.stringify(after)}`);
   const again = Number((await rtRows(A.b, `SELECT public.service_case_charge_erase_business() AS n`))[0].n);
   ok("E4 re-run safe (0 rows the second time)", again === 0);
   ok("E5 nothing new is written for a business being deleted", (await rt(A.b, charge(A, a1, 3, "CHARGEABLE", 1, "OWNER_ENTERED", "x"))).includes("SERVICE_UI_BUSINESS_DELETING"));
