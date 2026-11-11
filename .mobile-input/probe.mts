@@ -54,6 +54,8 @@ async function ctx(browser: Browser, engine: "chromium" | "webkit", token: strin
   const c = await browser.newContext({ ...d, baseURL: BASE, locale: lang === "he" ? "he-IL" : "en-US", timezoneId: "Asia/Jerusalem" });
   await c.addCookies([{ name: "dz_locale", value: lang, url: BASE }]);
   await c.addInitScript((t) => { try { localStorage.setItem("token", t); } catch { /* opaque */ } }, token);
+  // tsx (esbuild keepNames) wraps named functions inside page.evaluate callbacks in __name(...): give the page a no-op
+  await c.addInitScript({ content: "window.__name = window.__name || function (f) { return f; };" });
   return c;
 }
 
