@@ -33,6 +33,8 @@ export type SignupInput = {
   password: unknown;
   name: unknown;
   businessName: unknown;
+  /** One of SIGNUP_BUSINESS_KINDS: the owner's choice of עוסק פטור / עוסק מורשה / חברה בע״מ. */
+  businessKind?: unknown;
   /** Must be exactly `true`: the box was ticked. Anything else is refusal. */
   acceptTerms?: unknown;
   /** Whatever the landing page captured; reduced by normalizeSignupAttribution. */
@@ -54,10 +56,20 @@ export type NormalizedSignup = {
   password: string;
   name: string;
   businessName: string;
+  businessKind: SignupBusinessKind;
   attribution: SignupAttribution | null;
 };
 
-export type SignupField = "email" | "password" | "name" | "businessName" | "acceptTerms";
+/**
+ * The business kinds a new owner chooses from at signup (owner decision 2026-11-11). The same three values
+ * as BillingBusinessKind (lib/billing/business-identity.ts) — kept here so this module stays dependency-free;
+ * the signup suite pins the two lists equal. The choice SEEDS BusinessProfile.billingBusinessKind; it is not
+ * the issuer declaration, which billing confirms separately before the first issuance.
+ */
+export const SIGNUP_BUSINESS_KINDS = ["EXEMPT_DEALER", "AUTHORIZED_DEALER", "LTD_COMPANY"] as const;
+export type SignupBusinessKind = (typeof SIGNUP_BUSINESS_KINDS)[number];
+
+export type SignupField = "email" | "password" | "name" | "businessName" | "businessKind" | "acceptTerms";
 
 export class SignupValidationError extends Error {
   readonly field: SignupField;
@@ -158,6 +170,12 @@ function checkBusinessName(businessName: unknown): asserts businessName is strin
   }
 }
 
+function checkBusinessKind(businessKind: unknown): asserts businessKind is SignupBusinessKind {
+  if (typeof businessKind !== "string" || !(SIGNUP_BUSINESS_KINDS as readonly string[]).includes(businessKind)) {
+    throw new SignupValidationError("businessKind", "יש לבחור את סוג העסק: עוסק פטור, עוסק מורשה או חברה בע״מ");
+  }
+}
+
 function checkTerms(acceptTerms: unknown): void {
   // Strictly `true`. A string "true", a 1 or a missing field is not consent.
   if (acceptTerms !== true) {
@@ -166,11 +184,12 @@ function checkTerms(acceptTerms: unknown): void {
 }
 
 export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
-  const { email, password, name, businessName, acceptTerms, attribution } =
+  const { email, password, name, businessName, businessKind, acceptTerms, attribution } =
     input ?? ({} as SignupInput);
 
   checkName(name);
   checkBusinessName(businessName);
+  checkBusinessKind(businessKind);
 
   if (typeof email !== "string" || !EMAIL_SHAPE.test(email.trim())) {
     throw new SignupValidationError("email", "יש להזין כתובת אימייל תקינה");
@@ -193,12 +212,18 @@ export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
     password,
     name: name.trim(),
     businessName: businessName.trim(),
+    businessKind,
     attribution: normalizeSignupAttribution(attribution),
   };
 }
 
-export type GoogleSignupInput = { name: unknown; businessName: unknown; acceptTerms: unknown; attribution?: unknown };
-export type NormalizedGoogleSignup = { name: string; businessName: string; attribution: SignupAttribution | null };
+export type GoogleSignupInput = { name: unknown; businessName: unknown; businessKind?: unknown; acceptTerms: unknown; attribution?: unknown };
+export type NormalizedGoogleSignup = {
+  name: string;
+  businessName: string;
+  businessKind: SignupBusinessKind;
+  attribution: SignupAttribution | null;
+};
 
 /**
  * The Google completion form: the same rules as signup for every field it shares (name, business name,
@@ -206,9 +231,15 @@ export type NormalizedGoogleSignup = { name: string; businessName: string; attri
  * password: an account opened with Google has none until its owner sets one.
  */
 export function normalizeGoogleSignupInput(input: GoogleSignupInput): NormalizedGoogleSignup {
-  const { name, businessName, acceptTerms, attribution } = input ?? ({} as GoogleSignupInput);
+  const { name, businessName, businessKind, acceptTerms, attribution } = input ?? ({} as GoogleSignupInput);
   checkName(name);
   checkBusinessName(businessName);
+  checkBusinessKind(businessKind);
   checkTerms(acceptTerms);
-  return { name: name.trim(), businessName: businessName.trim(), attribution: normalizeSignupAttribution(attribution) };
+  return {
+    name: name.trim(),
+    businessName: businessName.trim(),
+    businessKind,
+    attribution: normalizeSignupAttribution(attribution),
+  };
 }
