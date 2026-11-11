@@ -231,25 +231,27 @@ export type IntakeView = {
   activeTerms: { termsVersion: number | null; statutoryVersion: number | null; approved: boolean };
   photos: { id: number; sha256: string; mimeType: string; byteSize: number; createdAt: string }[];
   history: { seq: number; step: string | null; occurredAt: string }[];
+  /** The owner's confirmation of the intake (the CHECK_IN event): when and by whom. Owner decision 2026-11-11 — no customer signature. */
+  confirmation: { at: string; byUserId: number | null; byName: string | null } | null;
   /** The case this intake belongs to (the screen's title) and what the server allows NOW — the screen offers only these. */
   case: { caseNumber: number; kind: string; status: string; version: number };
   allowed: IntakeAllowed;
 };
 
 /** The intake actions the server would accept now (write access aside — the gate answers READ_ONLY). */
-export type IntakeAllowed = { recordData: boolean; addPhoto: boolean; presentTerms: boolean; sign: boolean; createSlip: boolean };
+export type IntakeAllowed = { recordData: boolean; addPhoto: boolean; confirm: boolean; createSlip: boolean };
 
-/** Pure: the actions an intake allows, from the same rules the commands apply (intake.core). */
-export function intakeAllowed(v: {
-  kind: string; status: string; signed: boolean; recorded: boolean; photoCount: number; presented: boolean; approved: boolean; hasSlip: boolean;
-}): IntakeAllowed {
-  const open = v.kind === "IN_SHOP" && (v.status === "OPEN" || v.status === "SCHEDULED") && !v.signed;
+/**
+ * Pure: the intake actions allowed now, from the same rules the commands apply. Owner decision 2026-11-11: no customer
+ * signature and no terms step — the owner confirms the documented intake (CHECK_IN with intakeConfirmed), then the slip.
+ */
+export function intakeAllowed(v: { kind: string; status: string; recorded: boolean; photoCount: number; confirmed: boolean; hasSlip: boolean }): IntakeAllowed {
+  const open = v.kind === "IN_SHOP" && (v.status === "OPEN" || v.status === "SCHEDULED") && !v.confirmed;
   return {
     recordData: open,
     addPhoto: open && v.photoCount < INTAKE_PHOTOS_PER_CASE,
-    presentTerms: open && !v.presented && v.approved,
-    sign: open && v.presented && v.recorded,
-    createSlip: v.signed && !v.hasSlip,
+    confirm: open && v.recorded,
+    createSlip: v.kind === "IN_SHOP" && v.confirmed && !v.hasSlip,
   };
 }
 
@@ -281,6 +283,10 @@ export async function getIntake(businessId: number, caseId: unknown): Promise<In
     const photos = await tx.$queryRaw<{ id: number; sha256: string; mimeType: string; byteSize: number; createdAt: Date }[]>`
       SELECT id, sha256, "mimeType", "byteSize", "createdAt" FROM "ServiceIntakePhoto"
        WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int AND "erasedAt" IS NULL ORDER BY id`;
+    const conf = (await tx.$queryRaw<{ at: Date; uid: number | null; name: string | null }[]>`
+      SELECT e."occurredAt" AS at, e."actorUserId" AS uid, COALESCE(NULLIF(btrim(u.name), ''), u.email) AS name
+        FROM "ServiceCaseEvent" e LEFT JOIN "User" u ON u.id = e."actorUserId"
+       WHERE e."businessId" = ${businessId}::int AND e."caseId" = ${caseId}::int AND e.action::text = 'CHECK_IN' ORDER BY e.seq DESC LIMIT 1`)[0];
     const history = await tx.$queryRaw<{ seq: number; step: string | null; occurredAt: Date }[]>`
       SELECT seq, payload->>'step' AS step, "occurredAt" FROM "ServiceCaseEvent"
        WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int AND action::text = 'RECORD_INTAKE' ORDER BY seq`;
@@ -299,9 +305,10 @@ export async function getIntake(businessId: number, caseId: unknown): Promise<In
       photos: photos.map((r) => ({ id: Number(r.id), sha256: String(r.sha256), mimeType: String(r.mimeType), byteSize: Number(r.byteSize), createdAt: iso(r.createdAt) as string })),
       history: history.map((r) => ({ seq: Number(r.seq), step: r.step ?? null, occurredAt: iso(r.occurredAt) as string })),
       case: { caseNumber: Number(kase.n), kind: kase.kind, status: kase.status, version: Number(kase.version) },
+      confirmation: conf ? { at: iso(conf.at) as string, byUserId: conf.uid === null ? null : Number(conf.uid), byName: conf.name ?? null } : null,
       allowed: intakeAllowed({
-        kind: kase.kind, status: kase.status, signed: i?.signedAt != null, recorded: i?.conditionRecorded === true && i?.accessoriesRecorded === true,
-        photoCount: photos.length, presented: Boolean(t), approved: a?.ok === true, hasSlip: i?.slipPdfKey != null,
+        kind: kase.kind, status: kase.status, recorded: i?.conditionRecorded === true && i?.accessoriesRecorded === true,
+        photoCount: photos.length, confirmed: Boolean(conf), hasSlip: i?.slipPdfKey != null,
       }),
     };
   });

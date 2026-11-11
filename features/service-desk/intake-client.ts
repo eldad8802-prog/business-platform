@@ -10,7 +10,7 @@ import { keyFor, settleKey } from "@/lib/tasks/tasks-client";
 
 import { ServiceDeskApiError } from "./service-desk-client";
 
-export type IntakeAllowed = { recordData: boolean; addPhoto: boolean; presentTerms: boolean; sign: boolean; createSlip: boolean };
+export type IntakeAllowed = { recordData: boolean; addPhoto: boolean; confirm: boolean; createSlip: boolean };
 export type IntakeView = {
   intake: {
     conditionNote: string | null; accessoriesNote: string | null; conditionRecorded: boolean; accessoriesRecorded: boolean;
@@ -20,6 +20,8 @@ export type IntakeView = {
   activeTerms: { termsVersion: number | null; statutoryVersion: number | null; approved: boolean };
   photos: { id: number; sha256: string; mimeType: string; byteSize: number; createdAt: string }[];
   history: { seq: number; step: string | null; occurredAt: string }[];
+  /** The owner's confirmation of the intake (CHECK_IN): when and by whom. No customer signature (owner decision 2026-11-11). */
+  confirmation: { at: string; byUserId: number | null; byName: string | null } | null;
   case: { caseNumber: number; kind: string; status: string; version: number };
   allowed: IntakeAllowed;
 };
@@ -76,16 +78,14 @@ export type IntakeDataBody = { conditionNote: string | null; accessoriesNote: st
 export const saveIntakeData = (caseId: number, body: IntakeDataBody) =>
   once(`service-desk/intake:${caseId}:data:${JSON.stringify(body)}`, (key) => asJson<CommandAnswer>(send("PUT", base(caseId), JSON.stringify(body), "application/json", key)));
 
-export const presentTerms = (caseId: number, expectedVersion: number) =>
-  once(`service-desk/intake:${caseId}:terms:${expectedVersion}`, (key) => asJson<CommandAnswer>(send("POST", `${base(caseId)}/terms`, JSON.stringify({ expectedVersion }), "application/json", key)));
-
 /** `photoId` names the picked file (its size + time), so a retry of the same pick reuses the key. */
 export const uploadPhoto = (caseId: number, blob: Blob, expectedVersion: number, photoId: string) =>
   once(`service-desk/intake:${caseId}:photo:${photoId}`, (key) => asJson<CommandAnswer>(send("POST", `${base(caseId)}/photos?expectedVersion=${expectedVersion}`, blob, blob.type, key, 60000)));
 
-export const signIntake = (caseId: number, signaturePngBase64: string, expectedVersion: number) =>
-  once(`service-desk/intake:${caseId}:sign:${signaturePngBase64.length}:${signaturePngBase64.slice(-32)}`, (key) =>
-    asJson<CommandAnswer>(send("POST", `${base(caseId)}/sign`, JSON.stringify({ signaturePngBase64, expectedVersion }), "application/json", key)));
+/** The owner confirms the documented intake: the case's CHECK_IN with intakeConfirmed (no customer signature). */
+export const confirmIntake = (caseId: number, expectedVersion: number) =>
+  once(`service-desk/intake:${caseId}:confirm:${expectedVersion}`, (key) =>
+    asJson<CommandAnswer>(send("POST", `/api/service-desk/cases/${caseId}/actions`, JSON.stringify({ action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion }), "application/json", key)));
 
 export const createSlip = (caseId: number, expectedVersion: number) =>
   once(`service-desk/intake:${caseId}:slip`, (key) => asJson<CommandAnswer>(send("POST", `${base(caseId)}/slip`, JSON.stringify({ expectedVersion }), "application/json", key, 60000)));

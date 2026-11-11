@@ -1,18 +1,16 @@
 "use client";
 
 /**
- * Service Desk 1.3b-C — the intake screen of one IN_SHOP case: device condition and accessories, photos, the service
- * terms shown to the customer, the customer's signature, the intake slip PDF, and the intake history. Hebrew, RTL,
- * phone first. Every action is offered only when the server allows it (IntakeView.allowed) and the access is FULL; a
- * refused action is explained, never hidden behind a fake success. Without legally approved terms the screen says so and
- * offers no signature (owner rule: no signed intake without approved terms).
+ * Service Desk — the intake screen of one IN_SHOP case: the item's condition and accessories, photos and notes, the
+ * owner's confirmation of the intake, the intake slip PDF, and the intake history. Hebrew, RTL, phone first.
+ * Owner decision 2026-11-11: no customer signature and no legal-terms step — the owner (or an authorized user) confirms
+ * the documented intake; the journal records who, when and the status change. Every action is offered only when the
+ * server allows it (IntakeView.allowed) and the access is FULL; a refused action is explained.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import {
-  createSlip, fetchIntakeBlob, getIntake, presentTerms, saveIntakeData, signIntake, uploadPhoto, type IntakeView,
-} from "./intake-client";
-import { PHOTO_JPEG_QUALITY, currentSection, downscaleTarget, historyLine, israelDateTime, signBlocker, signatureLooksDrawn } from "./intake-model";
+import { confirmIntake, createSlip, fetchIntakeBlob, getIntake, saveIntakeData, uploadPhoto, type IntakeView } from "./intake-client";
+import { PHOTO_JPEG_QUALITY, confirmBlocker, currentSection, downscaleTarget, historyLine, israelDateTime } from "./intake-model";
 import { errorView } from "./service-desk-errors";
 import s from "./sd.module.css";
 import { LoadError, Loading, NotOpen, ReadOnlyBanner, ScreenHead } from "./ui";
@@ -55,58 +53,6 @@ async function downsize(file: File): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("encode"))), "image/jpeg", PHOTO_JPEG_QUALITY));
 }
 
-function SignaturePad({ disabled, onChange }: { disabled: boolean; onChange: (pngBase64: string | null) => void }) {
-  const ref = useRef<HTMLCanvasElement | null>(null);
-  const strokes = useRef<{ x: number; y: number }[][]>([]);
-  const drawing = useRef(false);
-
-  const point = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) * e.currentTarget.width) / r.width, y: ((e.clientY - r.top) * e.currentTarget.height) / r.height };
-  };
-  const finish = () => {
-    drawing.current = false;
-    const c = ref.current;
-    onChange(c && signatureLooksDrawn(strokes.current) ? c.toDataURL("image/png").replace(/^data:image\/png;base64,/, "") : null);
-  };
-  const clear = () => {
-    const c = ref.current;
-    c?.getContext("2d")?.clearRect(0, 0, c.width, c.height);
-    strokes.current = [];
-    onChange(null);
-  };
-
-  return (
-    <div className={s.padWrap}>
-      <canvas
-        ref={ref}
-        className={s.pad}
-        width={900}
-        height={300}
-        aria-label="אזור חתימת הלקוח"
-        onPointerDown={(e) => {
-          if (disabled) return;
-          e.currentTarget.setPointerCapture(e.pointerId);
-          drawing.current = true;
-          strokes.current.push([point(e)]);
-        }}
-        onPointerMove={(e) => {
-          if (!drawing.current) return;
-          const ctx = e.currentTarget.getContext("2d");
-          const stroke = strokes.current[strokes.current.length - 1];
-          const p = point(e);
-          const prev = stroke[stroke.length - 1];
-          stroke.push(p);
-          if (ctx && prev) { ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.strokeStyle = "#1f1b16"; ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(p.x, p.y); ctx.stroke(); }
-        }}
-        onPointerUp={finish}
-        onPointerCancel={finish}
-      />
-      <button type="button" className={s.button} onClick={clear} disabled={disabled}>ניקוי</button>
-    </div>
-  );
-}
-
 export function IntakeScreen({ caseId }: { caseId: number }) {
   const { access, retry } = useServiceDeskAccess();
   const [view, setView] = useState<IntakeView | null>(null);
@@ -114,7 +60,6 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [signature, setSignature] = useState<string | null>(null);
 
   const [tick, setTick] = useState(0);
   /** Reload the intake from the server (after every action, and on "retry"). */
@@ -147,17 +92,15 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
     }
   };
 
-  const sigLoad = useCallback(() => fetchIntakeBlob(caseId, { kind: "signature" }), [caseId]);
-  const signatureUrl = useBlobUrl(view?.intake?.hasSignature ? sigLoad : null);
   const section = view ? currentSection(view) : null;
-  const blocker = view ? signBlocker(view) : null;
+  const blocker = view ? confirmBlocker(view) : null;
 
   return (
     <main className={s.screen} data-page-intent="content">
       <div className={s.narrow}>
         <ScreenHead
           title={view ? `קליטה · תיק ${view.case.caseNumber}` : "קליטה"}
-          subtitle="מצב המכשיר, תמונות, תנאי השירות וחתימת הלקוח"
+          subtitle="מצב הפריט, אביזרים, תמונות ואישור הקליטה"
           fallback="/service-desk"
           fallbackLabel="לשירות ואחריות"
         />
@@ -228,56 +171,27 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
               ) : null}
             </section>
 
-            <section className={s.card} aria-labelledby="in-terms" data-current={section === "terms" || undefined}>
-              <h2 id="in-terms" className={s.cardTitle}>תנאי השירות</h2>
-              {view.terms ? (
-                <>
-                  <p className={s.cardSub}>הוצג ללקוח · גרסה {view.terms.termsVersion} · {israelDateTime(view.terms.presentedAt)}</p>
-                  <div className={s.termsBody} tabIndex={0} aria-label="נוסח תנאי השירות">{view.terms.termsBody}</div>
-                  <h3 className={s.label}>הודעה לפי דין (גרסה {view.terms.statutoryVersion})</h3>
-                  <div className={s.termsBody} tabIndex={0} aria-label="הודעה לפי דין">{view.terms.statutoryBody}</div>
-                </>
-              ) : can("presentTerms") ? (
+            <section className={s.card} aria-labelledby="in-confirm" data-current={section === "confirm" || undefined}>
+              <h2 id="in-confirm" className={s.cardTitle}>אישור הקליטה</h2>
+              {view.confirmation ? (
+                <p className={s.cardSub}>הקליטה אושרה על ידי {view.confirmation.byName ?? "משתמש העסק"} · {israelDateTime(view.confirmation.at)}</p>
+              ) : can("confirm") ? (
                 <div className={s.actions}>
-                  <p className={s.hint}>הציגו ללקוח את תנאי השירות המאושרים לפני החתימה. הנוסח נשמר בתיק כפי שהוצג.</p>
+                  <p className={s.hint}>באישור הקליטה אתם מאשרים שמצב הפריט, האביזרים והתמונות תועדו, והפריט התקבל לטיפול. האישור נרשם ביומן התיק עם שמכם והשעה.</p>
                   <button type="button" className={`${s.button} ${s.primary}`} disabled={!!busy}
-                    onClick={() => void act("terms", () => presentTerms(caseId, view.case.version), "התנאים הוצגו ונשמרו בתיק.")}>
-                    {busy === "terms" ? "שומר…" : "הצגת התנאים ללקוח"}
+                    onClick={() => void act("confirm", () => confirmIntake(caseId, view.case.version), "הקליטה אושרה והפריט התקבל לטיפול.")}>
+                    {busy === "confirm" ? "שומר…" : "אישור קליטה וקבלת הפריט"}
                   </button>
                 </div>
-              ) : (
-                <p className={s.legal}>{view.activeTerms.approved ? "אי אפשר להציג תנאים במצב הנוכחי של התיק." : "אין עדיין נוסח תנאים שאושר משפטית. אי אפשר להציג תנאים או להחתים לקוח עד לאישור."}</p>
-              )}
-            </section>
-
-            <section className={s.card} aria-labelledby="in-sign" data-current={section === "sign" || undefined}>
-              <h2 id="in-sign" className={s.cardTitle}>חתימת הלקוח</h2>
-              {view.intake?.signed ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element -- a private blob: URL; next/image cannot load it */}
-                  {signatureUrl ? <img className={s.signature} src={signatureUrl} alt="חתימת הלקוח" /> : null}
-                  <p className={s.cardSub}>נחתם {view.intake.signedAt ? israelDateTime(view.intake.signedAt) : ""} · תנאים {view.intake.termsVersion}</p>
-                </>
-              ) : can("sign") ? (
-                <>
-                  <p className={s.hint}>הלקוח חותם כאן. בחתימה הוא מאשר את מצב המכשיר, האביזרים והתנאים שהוצגו לו.</p>
-                  <SignaturePad disabled={!!busy} onChange={setSignature} />
-                  <div className={s.actions}>
-                    <button type="button" className={`${s.button} ${s.primary}`} disabled={!!busy || !signature}
-                      onClick={() => signature && void act("sign", () => signIntake(caseId, signature, view.case.version), "הקליטה נחתמה.")}>
-                      {busy === "sign" ? "שומר…" : "אישור וחתימה"}
-                    </button>
-                  </div>
-                </>
               ) : (
                 <p className={s.legal}>{blocker}</p>
               )}
             </section>
 
-            {view.intake?.signed ? (
+            {view.confirmation ? (
               <section className={s.card} aria-labelledby="in-slip">
                 <h2 id="in-slip" className={s.cardTitle}>טופס קליטה</h2>
-                {view.intake.hasSlip ? (
+                {view.intake?.hasSlip ? (
                   <button type="button" className={s.button} disabled={!!busy}
                     onClick={() => void act("slip-open", async () => {
                       const url = URL.createObjectURL(await fetchIntakeBlob(caseId, { kind: "slip" }));
