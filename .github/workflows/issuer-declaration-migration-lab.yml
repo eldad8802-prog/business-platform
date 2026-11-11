@@ -218,7 +218,7 @@ jobs:
           psql "$O" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261123090000_issuer_declaration/migration.sql > /dev/null
           psql "$O" -Atc "SELECT count(*) FROM pg_proc WHERE proname IN ('auth_issuer_declaration_consume','issuer_issue_requires_declaration')" | grep -qx 2
 
-      - name: D3 + (a)-(d) — the declaration flow, real auth plane + tenant transaction as the runtime
+      - name: D3 + (a)-(d) + E (real issue chain) — the declaration flow, real auth plane + tenant transaction as the runtime
         run: |
           set -euo pipefail
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idc"           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idc"           AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/idc"             npx tsx .issuer-declaration/declaration-flow.battery.mts | tee /tmp/idc.out

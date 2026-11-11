@@ -13,6 +13,9 @@
  *   (c) after a declaration the identity is locked: the #1091 trigger refuses each identity column as the runtime,
  *       and the API gate (the function the profile PATCH calls) refuses too.
  *   (d) a Google-only account (password NULL) end to end → a row with reauthMethod EMAIL_LINK.
+ *   E   the REAL issue chain with enforcement ON: a blocked attempt consumes no number → declare → issue (number 1)
+ *       → duplicate attempt (no 2nd number) → PDF (stored, same hash) → next number 2; multi-user stays blocked;
+ *       Google-only company; a document issued before the declaration keeps status/number/snapshot/PDF hash.
  *
  *   OWNER_URL=… AUTH_URL=… RUNTIME_URL=… npx tsx .issuer-declaration/declaration-flow.battery.mts
  *   NEG=non-atomic … — negative proof: the spend in its own transaction; (a) must FAIL.
@@ -28,6 +31,7 @@ process.env.DATABASE_URL = process.env.RUNTIME_URL!;
 process.env.DIRECT_URL = process.env.RUNTIME_URL!;
 process.env.AUTH_TOKEN_SECRET ??= "idc-battery-synthetic-token-secret-0123456789abcdef";
 process.env.RATE_LIMIT_BACKEND = "memory";
+process.env.BILLING_PDF_STORAGE_ROOT ??= `/tmp/idc-billing-pdf-${process.pid}`;
 
 const counts: Record<string, { pass: number; fail: number }> = {};
 const failures: string[] = [];
@@ -280,6 +284,46 @@ async function main() {
     ok("(d)", "a declaration row with reauthMethod EMAIL_LINK", d.reauthMethod === "EMAIL_LINK" && Number(d.declaredByUserId) === u.id, d.reauthMethod);
   }
 
+
+  // ---- E: the real issue chain (issueBillingDocument → number → PDF → deliverable), no ITA call anywhere ----
+  const { issueBillingDocument } = await import("../lib/services/billing/billing-issue.service");
+  const { getOrRenderBillingPdf } = await import("../lib/services/billing/billing-pdf.service");
+  const noIta = { executeApproval: async () => { throw new Error("LAB: the tax authority must not be called"); } };
+  const mkDraft = async (b: number) => {
+    const cust = Number((await q(`INSERT INTO "Customer" ("businessId", name, "updatedAt") VALUES ($1,'לקוח פרטי', now()) RETURNING id`, b))[0].id);
+    const id = Number((await q(`INSERT INTO "BillingDocument" ("businessId","documentType","status","customerId","customerNameSnapshot","currency","subtotalAmount",
+        "vatAmount","totalAmount","createdAt","updatedAt") VALUES ($1,'TAX_INVOICE','DRAFT',$2,'לקוח פרטי','ILS',100,18,118, now(), now()) RETURNING id`, b, cust))[0].id);
+    await x(`INSERT INTO "BillingDocumentLine" ("billingDocumentId","lineIndex","description","quantity","unitPrice","vatRatePercent","lineSubtotal","vatAmount","lineTotal","updatedAt")
+             VALUES ($1,0,'שירות',1,100,18,100,18,118, now())`, id);
+    return id;
+  };
+  type IssueOut = { ok: true; n: number | null; authority: string } | { ok: false; err: string };
+  const issueReal = (u: { id: number; businessId: number }, id: number): Promise<IssueOut> =>
+    issueBillingDocument({ businessId: u.businessId, billingDocumentId: id, actorUserId: u.id }, noIta as never)
+      .then((r): IssueOut => ({ ok: true, n: r.document.documentNumber ?? null, authority: JSON.stringify(r.authority).slice(0, 120) }))
+      .catch((e): IssueOut => ({ ok: false, err: errText(e).slice(0, 300) }));
+  const seqNext = async (b: number) => {
+    const r = await q(`SELECT "nextNumber" FROM "BillingDocumentNumberSequence" WHERE "businessId" = $1 AND "documentType" = 'TAX_INVOICE'`, b);
+    return r.length ? Number(r[0].nextNumber) : null;
+  };
+  const docState = async (id: number) =>
+    (await q(`SELECT status::text AS status, "documentNumber" AS n, md5("issuedSnapshot"::text) AS snap, "pdfHash" FROM "BillingDocument" WHERE id = $1`, id))[0] as
+      { status: string; n: number | null; snap: string | null; pdfHash: string | null };
+  const pdfOf = (u: { id: number; businessId: number }, id: number) =>
+    getOrRenderBillingPdf({ businessId: u.businessId, billingDocumentId: id, actorUserId: u.id })
+      .then((r) => ({ ok: true as const, bytes: r.buffer.length, head: r.buffer.subarray(0, 5).toString("latin1"), hash: r.pdfHash, number: r.documentNumberFormatted }))
+      .catch((e) => ({ ok: false as const, err: errText(e).slice(0, 300) }));
+  const countDocs = async (b: number) => Number((await q(`SELECT count(*) n FROM "BillingDocument" WHERE "businessId" = $1 AND status = 'ISSUED'`, b))[0].n);
+
+  console.log("E0 — before enforcement: a legacy business issues for real (its document must survive the declaration untouched)");
+  const legacy = await account("e-legacy");
+  const legacyDoc = await mkDraft(legacy.businessId);
+  const l1 = await issueReal(legacy, legacyDoc);
+  ok("E", "E0 enforcement OFF: an undeclared business issues (number 1) — today's behaviour unchanged", l1.ok && l1.n === 1, l1);
+  const legacyPdf = await pdfOf(legacy, legacyDoc);
+  ok("E", "E0 its PDF renders (%PDF) and is deliverable (no authority hold)", legacyPdf.ok && legacyPdf.head === "%PDF-", legacyPdf);
+  const legacyBefore = await docState(legacyDoc);
+
   console.log("D3 — enforcement ON in the database (lab only; last, the switch is append-only)");
   {
     const undeclared = await account("d3-enf-none");
@@ -307,8 +351,67 @@ async function main() {
     ok("D3", "ON: the database backstop refuses ISSUED without a declaration (DZD34)", res.includes("ISSUER_DECLARATION_REQUIRED_TO_ISSUE"), res.slice(0, 160));
   }
 
+  console.log("E — enforcement ON: signup kind → details → declaration → issue → number → PDF → deliverable, end to end");
+  {
+    // Signup collects the kind only (#1103 seeds billingBusinessKind); the details are completed on the profile.
+    const u = await account("e-chain", { kind: "AUTHORIZED_DEALER" });
+    const d = await mkDraft(u.businessId);
+    const seq0 = await seqNext(u.businessId);
+    const blocked = await issueReal(u, d);
+    ok("E", "E1 no declaration → the real issue is refused", !blocked.ok && blocked.err.includes("ValidationError"), blocked);
+    const afterBlock = await docState(d);
+    const seqAfterBlock = await seqNext(u.businessId);
+    ok("E", "E1 … the draft stays DRAFT with no number, and the sequence is untouched (a blocked attempt consumes no number)",
+      afterBlock.status === "DRAFT" && afterBlock.n === null && seqAfterBlock === seq0, { afterBlock, seq0, seqAfterBlock });
+
+    const r = await request(u);
+    ok("E", "E2 request → SENT (email link bound to account + business + digest)", r.outcome === "SENT", r.outcome);
+    ok("E", "E2 confirm → CONFIRMED", (await confirm(u, r.token)) === "CONFIRMED");
+    ok("E", "E2 the link cannot be reused (ALREADY_DECLARED, link USED, one declaration)",
+      (await confirm(u, r.token)) === "ALREADY_DECLARED" && (await decls(u.businessId)).length === 1 && (await link.checkIssuerDeclarationLink(r.token)) === "USED");
+
+    const ok1 = await issueReal(u, d);
+    ok("E", "E3 declared → the same draft issues, number 1", ok1.ok && ok1.n === 1, ok1);
+    ok("E", "E3 … the sequence advanced exactly once (nextNumber 2)", (await seqNext(u.businessId)) === 2, await seqNext(u.businessId));
+    const dup = await issueReal(u, d);
+    ok("E", "E4 issuing the same document again: no second number, no second document",
+      (await seqNext(u.businessId)) === 2 && (await countDocs(u.businessId)) === 1 && Number((await docState(d)).n) === 1, { dup, seq: await seqNext(u.businessId) });
+    const p1 = await pdfOf(u, d);
+    ok("E", "E5 the PDF renders (%PDF) with the issued number — delivery guard passes (NOT_REQUIRED)", p1.ok && p1.head === "%PDF-" && String(p1.ok ? p1.number : "").endsWith("1"), p1);
+    const p2 = await pdfOf(u, d);
+    ok("E", "E5 … a second fetch returns the stored PDF (same hash, number unchanged)",
+      p1.ok && p2.ok && p1.hash === p2.hash && Number((await docState(d)).n) === 1, { p1, p2 });
+    const ok2 = await issueReal(u, await mkDraft(u.businessId));
+    ok("E", "E6 the next document takes number 2 (series continues, no gap)", ok2.ok && ok2.n === 2, ok2);
+
+    // A multi-user business cannot self-declare; it stays blocked at issue (no first-user inference).
+    const two = await account("e-two", { users: 2 });
+    const tr = await request(two);
+    const twoIssue = await issueReal(two, await mkDraft(two.businessId));
+    ok("E", "E7 a multi-user business: NEEDS_DESIGNATION, and issue stays refused", tr.outcome === "NEEDS_DESIGNATION" && !twoIssue.ok, { out: tr.outcome, twoIssue });
+
+    // Google-only company account: kind → details → declaration (EMAIL_LINK) → issue.
+    const g = await account("e-google", { password: false, kind: "LTD_COMPANY" });
+    const gr = await request(g);
+    const gc = await confirm(g, gr.token);
+    const gi = await issueReal(g, await mkDraft(g.businessId));
+    ok("E", "E8 a Google-only company account: CONFIRMED with EMAIL_LINK → issues number 1",
+      gc === "CONFIRMED" && gi.ok && gi.n === 1 && (await decls(g.businessId))[0]?.reauthMethod === "EMAIL_LINK", { gc, gi });
+
+    // The legacy business declares after the fact: its old document is untouched; its series continues.
+    const lr = await request(legacy);
+    const lc = await confirm(legacy, lr.token);
+    ok("E", "E9 the legacy business declares → EXISTING_CONFIRMATION", lc === "CONFIRMED" && (await decls(legacy.businessId))[0]?.kind === "EXISTING_CONFIRMATION", lc);
+    const legacyAfter = await docState(legacyDoc);
+    const legacyPdf2 = await pdfOf(legacy, legacyDoc);
+    ok("E", "E9 … its old document: same status, number, snapshot and PDF hash",
+      JSON.stringify(legacyAfter) === JSON.stringify(legacyBefore) && legacyPdf.ok && legacyPdf2.ok && legacyPdf.hash === legacyPdf2.hash, { legacyBefore, legacyAfter });
+    const ln = await issueReal(legacy, await mkDraft(legacy.businessId));
+    ok("E", "E9 … and its series continues at 2 (no reset)", ln.ok && ln.n === 2, ln);
+  }
+
   await owner.$disconnect();
-  const groups = ["D3", "(a)", "(b)", "(c)", "(d)"];
+  const groups = ["D3", "(a)", "(b)", "(c)", "(d)", "E"];
   console.log("\nSUMMARY");
   for (const g of groups) console.log(`  ${g}: ${counts[g]?.pass ?? 0}/${(counts[g]?.pass ?? 0) + (counts[g]?.fail ?? 0)}`);
   if (failures.length) {
