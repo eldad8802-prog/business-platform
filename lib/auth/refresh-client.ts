@@ -154,6 +154,12 @@ export type RefreshEnv = {
   setInterval: (fn: () => void, ms: number) => unknown;
   clearInterval: (handle: unknown) => void;
   ownerId: string;
+  /**
+   * Called once an auth response has been RECEIVED — success or refusal, since
+   * either may have set or cleared the cookie. In the Android app it persists the
+   * cookie jar (lib/native/auth-cookies.ts); elsewhere it is a no-op.
+   */
+  afterAuthResponse?: () => void;
 };
 
 function randomId(): string {
@@ -189,6 +195,10 @@ export function browserRefreshEnv(): RefreshEnv {
     setInterval: (fn, ms) => setInterval(fn, ms),
     clearInterval: (h) => clearInterval(h as ReturnType<typeof setInterval>),
     ownerId: randomId(),
+    // Loaded on demand so neither a browser nor a test pulls in the native bridge.
+    afterAuthResponse: () => {
+      void import("@/lib/native/auth-cookies").then((m) => m.flushAuthCookies()).catch(() => {});
+    },
   };
 }
 
@@ -290,6 +300,9 @@ async function attemptRefresh(env: RefreshEnv): Promise<RefreshResult> {
       keepalive: true,
       headers: { "content-type": "application/json" },
     });
+    // The response's Set-Cookie (a rotated secret, or a clearing one) is in the
+    // jar now; get it onto disk before anything can kill the app.
+    env.afterAuthResponse?.();
 
     if (res.status === 401 || res.status === 403) return "unauthenticated";
     if (!res.ok) return "failed";
