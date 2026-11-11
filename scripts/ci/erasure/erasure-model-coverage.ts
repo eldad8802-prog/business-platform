@@ -176,6 +176,11 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   // service_case_charge_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
   ServiceCaseCharge: { disposition: "ERASURE_MANAGED" },
   ServiceCaseBillingLink: { disposition: "ERASURE_MANAGED" },
+  // Service Desk tracks (migration 20261127090000): the completion's confirmer / note / actor and the details changes'
+  // reasons / addresses / actor are erased in place by service_tracks_erase_business(), declared in
+  // DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceCompletion: { disposition: "ERASURE_MANAGED" },
+  ServiceCaseDetailChange: { disposition: "ERASURE_MANAGED" },
   ServicePhoneReminder: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },

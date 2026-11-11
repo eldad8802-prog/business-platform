@@ -358,6 +358,12 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
         cleared: ["problemDescription", "diagnosisNote", "cancelReason", "abandonReason"],
         kept: {
           qaChecklist: "QA checklist results: item keys with pass / fail flags, no free text — the writer (task 1.3) must keep it so or add it to service_erase_business()",
+          // M1 (20261127090000): this function's fixed column list cannot know these — a second declared function clears them.
+          siteAddress: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          siteNotes: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          originalSaleRef: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          profileKey: "the service profile key (one of eight code tokens) the case was opened under — not personal",
+          profileSnapshot: "the requirement rules copied from the code catalog at the opening (tokens and booleans) — no personal data",
         },
       },
       {
@@ -367,6 +373,8 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
           category: "the product category (e.g. phone), not the person",
           brand: "the maker (e.g. Samsung), not the person",
           model: "the product model (e.g. A54), not the person",
+          displayName: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          attributes: "cleared by service_tracks_erase_business() (M1) — see its declaration",
         },
       },
       {
@@ -565,6 +573,57 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
           role: "CHARGE or STANDALONE_PAYMENT (enum)",
           linkedAt: "when the document was linked",
           unlinkedAt: "when it was unlinked, if it was",
+        },
+      },
+    ],
+  },
+  // Service Desk tracks (migration 20261127090000). The account-deletion adapter calls it in the purge transaction, after
+  // service_case_charge_erase_business(). It scrubs the M1 personal columns that service_erase_business()'s fixed column
+  // list cannot know; the work type, place, profile snapshot and completion type stay as the case's record.
+  {
+    fn: "service_tracks_erase_business",
+    migration: "20261127090000_service_desk_tracks",
+    models: [
+      {
+        model: "ServiceCase",
+        cleared: ["siteAddress", "siteNotes", "originalSaleRef"],
+        kept: {
+          profileKey: "the service profile key (one of eight code tokens) the case was opened under — not personal",
+          profileSnapshot: "the requirement rules copied from the code catalog at the opening (tokens and booleans) — no personal data",
+          problemDescription: "cleared by service_erase_business() (foundation) — see its declaration",
+          diagnosisNote: "cleared by service_erase_business() (foundation) — see its declaration",
+          cancelReason: "cleared by service_erase_business() (foundation) — see its declaration",
+          abandonReason: "cleared by service_erase_business() (foundation) — see its declaration",
+          qaChecklist: "item keys with pass / fail flags — declared kept by service_erase_business() (foundation)",
+        },
+      },
+      {
+        model: "ServiceDevice",
+        cleared: ["displayName", "attributes"],
+        kept: {
+          serialNumber: "cleared by service_erase_business() (foundation) — see its declaration",
+          serialNormalized: "cleared by service_erase_business() (foundation) — see its declaration",
+          description: "cleared by service_erase_business() (foundation) — see its declaration",
+          category: "the product category, not the person — declared kept by service_erase_business()",
+          brand: "the maker, not the person — declared kept by service_erase_business()",
+          model: "the product model, not the person — declared kept by service_erase_business()",
+        },
+      },
+      {
+        model: "ServiceCompletion",
+        cleared: ["confirmedByName", "note", "actorUserId"],
+        kept: {
+          completionType: "where the owner confirmed the work (enum) — not who",
+          completedAt: "when the case was completed",
+        },
+      },
+      {
+        model: "ServiceCaseDetailChange",
+        cleared: ["reason", "actorUserId", "siteAddressBefore", "siteAddressAfter"],
+        kept: {
+          changedFields: "names of the changed fields (a closed set of tokens) — never values",
+          caseVersion: "the case version the change produced — a counter",
+          occurredAt: "when the details changed",
         },
       },
     ],
