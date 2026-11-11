@@ -22,6 +22,9 @@
  *   D3 the page behind does not scroll while open
  *   D4 focus starts on the close button, Tab stays inside, Escape closes, focus returns to the production button
  *   D5 the X button closes the panel
+ *   D6 short explanations (owner wording) and a fine divider between rows, none above the first
+ *   D7 narrow phone (320) + text enlarged 150%: names and explanations wrap to more lines, nothing clipped or cut,
+ *      no side scroll, the last row is reachable
  *   E1 English interface: the list speaks English (no Hebrew left in the list)
  *   XO1 exempt dealer, feature OFF: "+ צור חשבונית" shows the notice — no create modal, no draft
  *   XO2 … the empty-state button shows the notice
@@ -281,6 +284,41 @@ async function main() {
         await page.getByTestId("document-production-close").click();
         await page.getByTestId("document-production-sheet").waitFor({ state: "detached" });
       });
+      await check("D6 short explanations (owner wording) and a fine divider between rows, none above the first", async () => {
+        await page.getByTestId("document-production-button").click();
+        const sheet = page.getByTestId("document-production-sheet");
+        await sheet.waitFor();
+        const text = await sheet.innerText();
+        for (const w of ["תיעוד מכירה או שירות", "הצעה ללקוח לפני אישור", "מסמך ללקוח או לגורם אחר", "הזמנת מוצרים מספק"]) if (!text.includes(w)) throw new Error(`missing "${w}"`);
+        const borders = await sheet.locator("[data-option]").evaluateAll((els) => els.map((e) => { const cs = getComputedStyle(e); return { w: parseFloat(cs.borderTopWidth), style: cs.borderTopStyle }; }));
+        if (borders[0].w !== 0 && borders[0].style !== "none") throw new Error(`divider above the first row ${JSON.stringify(borders[0])}`);
+        for (const b of borders.slice(1)) if (b.w < 0.5 || b.w > 1.5 || b.style !== "solid") throw new Error(`divider ${JSON.stringify(borders)}`);
+        await page.keyboard.press("Escape");
+        await sheet.waitFor({ state: "detached" });
+      });
+      await c.close();
+    }
+    {
+      const c = await ctx(browser, seed.A.token, { width: 320, height: 640, phone: true });
+      const page = await c.newPage();
+      await openList(page);
+      // simulated large text: names and explanations at 150%, the way the phone's text-size setting scales them
+      await page.addStyleTag({ content: '[data-testid="document-production-sheet"] [data-option] span span { font-size: 150% !important; }' });
+      await page.waitForTimeout(300);
+      await check("D7 narrow phone 320 + text 150%: names and explanations wrap, nothing clipped, no side scroll, last row reachable", async () => {
+        const sheet = page.getByTestId("document-production-sheet");
+        const w = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, view: window.innerWidth }));
+        if (w.doc > w.view + 1) throw new Error(`side scroll ${JSON.stringify(w)}`);
+        const info = await sheet.locator("[data-option] span span").evaluateAll((els) => els.map((e) => { const cs = getComputedStyle(e); const r = e.getBoundingClientRect(); return { t: (e.textContent ?? "").trim(), clipped: e.scrollWidth > e.clientWidth + 1, lines: Math.round(r.height / parseFloat(cs.lineHeight)), right: r.right, left: r.left, ws: cs.whiteSpace, ov: cs.textOverflow }; }));
+        for (const i of info) if (i.clipped || i.left < 0 || i.right > 321 || i.ws === "nowrap" || i.ov === "ellipsis") throw new Error(`clipped ${JSON.stringify(i)}`);
+        if (!info.some((i) => i.lines >= 2)) throw new Error(`nothing wrapped ${JSON.stringify(info)}`);
+        const last = sheet.locator("[data-option]").last();
+        await last.scrollIntoViewIfNeeded();
+        const box = (await last.boundingBox())!;
+        const hit = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest("[data-option]"), [box.x + box.width / 2, box.y + box.height / 2]);
+        if (!hit) throw new Error("last row not reachable");
+      });
+      await page.screenshot({ path: join(OUT, "D7-narrow-large-text.png") });
       await c.close();
     }
 
@@ -295,7 +333,7 @@ async function main() {
         await sheet.waitFor();
         await page.waitForTimeout(800);
         const text = await sheet.innerText();
-        for (const w of ["Produce a document", "Tax invoice", "Quote", "Letter", "Supplier order"]) if (!text.includes(w)) throw new Error(`missing ${w}`);
+        for (const w of ["Produce a document", "Tax invoice", "Quote", "Letter", "Supplier order", "Record a sale or a service", "An offer before the customer accepts", "A document for a customer or anyone else", "Order products from a supplier"]) if (!text.includes(w)) throw new Error(`missing ${w}`);
         if (/[֐-׿]/.test(text)) throw new Error(`Hebrew left: ${text.slice(0, 120)}`);
       });
       await shot(page, "E1-english-list");

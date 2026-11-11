@@ -57,6 +57,7 @@
   font-size: 17px;
   font-weight: 600;
   line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .subtitle {
@@ -85,7 +86,7 @@
 
 .list {
   display: grid;
-  gap: 2px;
+  gap: 0;
 }
 
 .row {
@@ -94,9 +95,9 @@
   gap: 12px;
   width: 100%;
   min-height: 52px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  border: 1px solid transparent;
+  padding: 9px 10px;
+  border-radius: 0;
+  border: 0;
   background: transparent;
   color: inherit;
   text-align: start;
@@ -105,12 +106,17 @@
   cursor: pointer;
   box-sizing: border-box;
 }
+/* a fine divider between rows (none above the first) */
+.row + .row {
+  border-top: 1px solid rgba(17, 24, 39, 0.08);
+}
 .row:hover {
   background: rgba(17, 24, 39, 0.04);
 }
 .row:focus-visible {
   outline: 2px solid currentColor;
-  outline-offset: 1px;
+  outline-offset: -2px;
+  border-radius: 10px;
 }
 
 .icon {
@@ -126,6 +132,7 @@
 }
 
 .text {
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -141,6 +148,7 @@
   font-size: 12px;
   line-height: 1.35;
   opacity: 0.72;
+  overflow-wrap: anywhere;
 }
 
 .foot {
