@@ -91,8 +91,10 @@ jobs:
           cp "$F" "$F.bak"
           sed -i 's/, \.\.\.authoritativeAllocationWhere(businessId) }/ }/g' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "::error::negative-proof setup did not apply"; exit 1; fi
-          npx tsx lib/services/billing/settlement/read-documents-settlement.rls.integration.test.ts > np.log 2>&1; status=$?
+          # the runner's shell is `bash -e`: a red run must be captured by `if`, not by `$?` after the fact
+          if npx tsx lib/services/billing/settlement/read-documents-settlement.rls.integration.test.ts > np.log 2>&1; then
+            mv "$F.bak" "$F"; echo "::error::NEGATIVE-PROOF FAIL: a draft receipt's allocation went unnoticed"; exit 1
+          fi
           mv "$F.bak" "$F"
-          if [ "$status" -eq 0 ]; then echo "::error::NEGATIVE-PROOF FAIL: a draft receipt's allocation went unnoticed"; exit 1; fi
           grep -q "\[FAIL\] S4" np.log || { echo "::error::NEGATIVE-PROOF FAIL: red, but not on the partial-payment check"; tail -20 np.log; exit 1; }
           echo "negative proof OK — counting a draft receipt's allocation fails S4"
