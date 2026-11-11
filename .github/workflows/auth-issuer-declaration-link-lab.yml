@@ -7,8 +7,11 @@
 #      whole; PREFLIGHT now fails exactly 1, 3, 4, 5, 6;
 #   3. battery (real roles): T4 issue, T5 consume, T6 Google-only account, T7 privileges;
 #   4. atomicity: the migration failing on its last statement leaves nothing of it behind;
+#   6. order independence with billing's #1091: both apply orders give the same objects; the battery passes on both;
 #   5. rollback: refused while an issuer-declaration token exists; otherwise reverts whole — the proof fails
-#      again and the earlier proofs stay whole.
+#      again and the earlier proofs stay whole;
+#   6. order independence with billing's #1091: both apply orders give the same functions and checks; the battery
+#      passes on both.
 # Synthetic only. ZERO secrets. ZERO network. ZERO Production.
 
 name: auth issuer-declaration link — migration lab (ephemeral PG17)
@@ -144,10 +147,15 @@ jobs:
         run: |
           set -euo pipefail
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
-          # idl_post holds the battery's issuer-declaration tokens: refused, nothing changes.
+          # idl_post holds the battery's issuer-declaration tokens: refused, nothing changes. (The battery itself moved
+          # one token's clock back to test expiry, so check 12 may already read FAIL there: compare before / after.)
+          before=$(lab idl_post -f "$EVIDENCE" | grep -E '^ +[0-9]+ \| (PASS|FAIL)')
           if lab idl_post -f .aid/rollback.sql >/tmp/rb1.log 2>&1; then echo "::error::rollback ran while tokens exist"; exit 1; fi
           grep -q "rollback refused" /tmp/rb1.log || { cat /tmp/rb1.log; exit 1; }
-          test "$(lab idl_post -f "$EVIDENCE" | grep -cE '^ +[0-9]+ \| PASS')" = "12" || { echo "::error::a refused rollback changed something"; exit 1; }
+          after=$(lab idl_post -f "$EVIDENCE" | grep -E '^ +[0-9]+ \| (PASS|FAIL)')
+          test "$before" = "$after" || { echo "::error::a refused rollback changed something"; diff <(echo "$before") <(echo "$after") || true; exit 1; }
+          lab idl_post -Atc "SELECT count(*) FROM pg_proc WHERE proname IN ('auth_issuer_declaration_issue','auth_issuer_declaration_consume')" | grep -qx 2 \
+            || { echo "::error::a refused rollback removed a function"; exit 1; }
           # A fresh database with the migration and no such token: reverts whole.
           bash .agl/lab.sh idl_rb --with-issuer >/dev/null
           lab idl_rb -f .aid/rollback.sql
@@ -161,3 +169,35 @@ jobs:
             test "$got" = "$want" || { echo "::error::$f is $got/$want after the rollback"; exit 1; }
           done
           echo "rollback refused with tokens; reverted whole without; earlier proofs whole"
+
+      - name: 6. Order independence with billing's #1091 (20261123090000_issuer_declaration) — both orders, same objects, battery whole
+        run: |
+          set -euo pipefail
+          # Billing's migration lives on its own PR until merged; read it from there (read-only). When it is on main the
+          # file is already in the tree. Neither migration names the other's objects (asserted below).
+          F=prisma/migrations/20261123090000_issuer_declaration/migration.sql
+          if [ -f "$F" ]; then cp "$F" /tmp/m1091.sql
+          elif git fetch -q --depth=1 origin pull/1091/head:pr1091 2>/dev/null && git show "pr1091:$F" > /tmp/m1091.sql 2>/dev/null; then :
+          else echo "::notice::#1091's migration is not reachable — order check skipped"; exit 0; fi
+          if sed 's/--.*$//' /tmp/m1091.sql | grep -nE 'AuthEmailToken|auth_issuer_declaration|bindingSha256'; then echo "::error::#1091 names this migration's objects"; exit 1; fi
+          if sed 's/--.*$//' "$MIGRATION" | grep -nE 'BusinessIssuerDeclaration|BillingSeriesOpening|IssuerDeclarationEnforcement|issuer_(records|declaration|designat|issue)'; then echo "::error::this migration names #1091's objects"; exit 1; fi
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          # (a) this migration first (the release mechanism), then #1091
+          bash .agl/lab.sh idl_o1 --with-issuer >/dev/null
+          lab idl_o1 -q -f /tmp/m1091.sql >/dev/null
+          # (b) #1091 first, then this migration
+          bash .agl/lab.sh idl_o2 --with-link >/dev/null
+          lab idl_o2 -q -f /tmp/m1091.sql >/dev/null
+          lab idl_o2 -q -f "$MIGRATION" >/dev/null
+          q="SELECT string_agg(p.proname || ':' || md5(p.prosrc) || ':' || p.prosecdef || ':' || coalesce(array_to_string(p.proconfig, ','), '') || ':' || coalesce(array_to_string(p.proacl, ','), ''), '|' ORDER BY p.proname)
+               FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND (p.proname LIKE 'auth_issuer_declaration_%' OR p.proname LIKE 'issuer_%')"
+          c="SELECT string_agg(conname || ':' || pg_get_constraintdef(oid), '|' ORDER BY conname) FROM pg_constraint WHERE conrelid = '\"AuthEmailToken\"'::regclass"
+          test "$(lab idl_o1 -Atc "$q")" = "$(lab idl_o2 -Atc "$q")" || { echo "::error::the functions differ by apply order"; exit 1; }
+          test "$(lab idl_o1 -Atc "$c")" = "$(lab idl_o2 -Atc "$c")" || { echo "::error::AuthEmailToken's checks differ by apply order"; exit 1; }
+          for db in idl_o1 idl_o2; do
+            OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/$db" \
+            RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/$db" \
+            AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/$db" \
+              npx tsx .aid/battery.ts | tail -1
+          done
+          echo "order independent with #1091: same functions and checks either way; the battery whole on both"
