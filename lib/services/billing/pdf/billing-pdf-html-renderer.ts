@@ -13,7 +13,7 @@ import { join } from "path";
 import { launchChromium } from "@/lib/pdf/chromium";
 import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
 import { escapeHtmlForPdf } from "@/lib/services/billing/pdf/billing-pdf-text-policy";
-import { buildBillingInvoiceHtml } from "@/lib/services/billing/pdf/billing-pdf-html-template";
+import { buildBillingInvoiceHtml, type PdfReceiptPayment } from "@/lib/services/billing/pdf/billing-pdf-html-template";
 import type { BillingIssuedSnapshotV1 } from "@/lib/services/billing/pdf/billing-pdf-template";
 
 const FONT_FILENAME = "NotoSansHebrew-Regular.ttf";
@@ -81,7 +81,8 @@ function buildFooterTemplate(fontDataUri: string, issuerName: string): string {
 }
 
 export async function renderBillingPdfHtmlFromSnapshot(
-  snapshot: BillingIssuedSnapshotV1
+  snapshot: BillingIssuedSnapshotV1,
+  receiptPayments: PdfReceiptPayment[] = []
 ): Promise<Buffer> {
   if (billingPdfDebugEnabled()) {
     const firstLine = snapshot.lines[0]?.description ?? "(no lines)";
@@ -92,7 +93,7 @@ export async function renderBillingPdfHtmlFromSnapshot(
   }
 
   const fontDataUri = getNotoSansHebrewFontDataUri();
-  const html = buildBillingInvoiceHtml(snapshot, fontDataUri);
+  const html = buildBillingInvoiceHtml(snapshot, fontDataUri, receiptPayments);
 
   const browser = await launchChromium();
 

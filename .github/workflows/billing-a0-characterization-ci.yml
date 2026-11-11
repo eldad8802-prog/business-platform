@@ -59,6 +59,10 @@ jobs:
       - name: Golden characterization
         run: npx tsx .billing-a0/golden.test.ts
 
+      # Receipt PDF: titled קבלה, money received, payment lines, an exempt dealer stated as עוסק פטור.
+      - name: Receipt PDF wording and payment lines (pure)
+        run: npx tsx lib/services/billing/pdf/billing-pdf-receipt.test.ts
+
       - name: Protected-paths guard self-test
         run: node scripts/ci/billing-protected-paths-guard.mjs --self-test
 

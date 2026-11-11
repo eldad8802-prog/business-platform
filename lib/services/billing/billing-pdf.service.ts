@@ -33,6 +33,7 @@ import { logAuditEvent } from "@/lib/services/audit.service";
 import { createBillingAuditEventBestEffort } from "@/lib/services/billing/billing-audit.service";
 import { deriveAllocationNumber } from "@/lib/services/billing/billing-allocation-number";
 import { renderBillingPdfHtmlFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
+import type { PdfReceiptPayment } from "@/lib/services/billing/pdf/billing-pdf-html-template";
 import { renderBillingPdfFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-renderer";
 import {
   assertSnapshotV1,
@@ -162,6 +163,15 @@ export async function getOrRenderBillingPdf(
           status: true,
           heldDecisionType: true,
           heldDecisionReportedAt: true,
+        },
+      },
+      // A receipt's payment lines (method, amount, date, details) for its PDF. They are not in the frozen
+      // snapshot; the rows are fiscally immutable once the receipt is issued (secf_fiscal_immutable).
+      receiptPayments: {
+        orderBy: { lineIndex: "asc" },
+        select: {
+          method: true, amount: true, currency: true, paymentDate: true, bankName: true, bankBranch: true,
+          bankAccountNumber: true, checkNumber: true, checkDueDate: true, cardBrand: true, cardLast4: true, reference: true,
         },
       },
     },
@@ -326,8 +336,16 @@ export async function getOrRenderBillingPdf(
           : "renderBillingPdfFromSnapshot (pdfmake)",
       });
     }
+    const receiptPayments: PdfReceiptPayment[] = doc.documentType === "RECEIPT"
+      ? doc.receiptPayments.map((p) => ({
+          method: p.method, amount: p.amount.toFixed(2), currency: p.currency, paymentDate: p.paymentDate.toISOString(),
+          bankName: p.bankName, bankBranch: p.bankBranch, bankAccountNumber: p.bankAccountNumber, checkNumber: p.checkNumber,
+          checkDueDate: p.checkDueDate ? p.checkDueDate.toISOString() : null, cardBrand: p.cardBrand, cardLast4: p.cardLast4,
+          reference: p.reference,
+        }))
+      : [];
     buffer = shouldUseHtmlBillingPdfRenderer()
-      ? await renderBillingPdfHtmlFromSnapshot(snapshot)
+      ? await renderBillingPdfHtmlFromSnapshot(snapshot, receiptPayments)
       : await renderBillingPdfFromSnapshot(snapshot);
     if (!buffer || buffer.length === 0) {
       throw new Error("Renderer produced empty buffer");
