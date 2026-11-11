@@ -18,6 +18,7 @@ import type {
 } from "@/lib/services/billing/uniform/uniform-export.types";
 import type { UniformSoftwareConfig } from "@/lib/services/billing/uniform/uniform-config";
 import { encodeIso8859_8i } from "@/lib/services/billing/uniform/uniform-encoding";
+import { normalizeFreeText } from "@/lib/services/billing/uniform/uniform-field-format";
 import {
   A000_LAYOUT,
   A100_LAYOUT,
@@ -195,7 +196,7 @@ function d110Values(line: UniformLineRecord, docType: string, docNum: string, do
     1257: base ? base.numberPrinted : "",
     1258: "0",
     1259: "",
-    1260: line.description,
+    1260: normalizeFreeText(line.description), // one record, one line: no raw CR / LF / TAB (BKMVDATA structure)
     1261: "",
     1262: "",
     1263: "יחידה",
