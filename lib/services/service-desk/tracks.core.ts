@@ -99,6 +99,39 @@ export function requirementsOf(snapshot: ProfileSnapshot, track: ServiceTrack, r
   return requirementsFromSnapshot(snapshot, track, track === "T7" && resolution !== null ? resolution : undefined);
 }
 
+/**
+ * The track facts the case machine judges a track case by, from the case's own columns and snapshot (D14). The service
+ * loads the inputs under the case lock; this is the one place they are turned into facts. A case without a snapshot
+ * has no facts (null) and keeps today's kind rules — callers never call this for one.
+ */
+export function buildTrackFacts(input: {
+  snapshot: ProfileSnapshot;
+  kind: ServiceCaseKind;
+  workType: ServiceWorkType | null;
+  serviceLocation: ServiceLocation | null;
+  subjectKind: ServiceSubjectKind | null;
+  afterSaleResolution: AfterSaleResolution | null;
+  siteAddressSet: boolean;
+  moneyCommitment: boolean;
+  creditDocumentLinked: boolean;
+}): ServiceTrackFacts {
+  const workType = effectiveWorkType(input.kind, input.workType);
+  const location = effectiveLocation(input.kind, input.serviceLocation);
+  const track = deriveTrack(workType, location, input.subjectKind);
+  const resolution = track === "T7" ? input.afterSaleResolution : null;
+  return {
+    track,
+    workType,
+    location,
+    itemAtBusiness: TRACKS[track].itemAtBusiness,
+    requirements: requirementsOf(input.snapshot, track, resolution),
+    afterSaleResolution: resolution,
+    siteAddressSet: input.siteAddressSet,
+    moneyCommitment: input.moneyCommitment,
+    creditDocumentLinked: input.creditDocumentLinked,
+  };
+}
+
 /** A snapshot read back from the database is accepted only in the shape and version this code writes (fail closed). */
 export function parseSnapshot(raw: unknown): ProfileSnapshot | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;

@@ -276,7 +276,8 @@ export type ServiceCaseAction =
   | { type: "SEND_TO_EXTERNAL"; supplierId: number }
   | {
       type: "RETURN_FROM_EXTERNAL";
-      next: "IN_REPAIR" | "QA" | "READY";
+      /** M1: WORK_DONE (never READY) on a track that hands nothing back. */
+      next: "IN_REPAIR" | "QA" | "READY" | "WORK_DONE";
       outcome?: "REPAIRED" | "NOT_REPAIRED" | "REPLACED";
       replacementDeviceId?: number;
     }
@@ -293,9 +294,27 @@ export type ServiceCaseAction =
   /** SCHEDULED → SCHEDULED with the (new or moved) appointment of the same business and customer. */
   | { type: "RESCHEDULE"; appointmentId: number }
   /** WORK_DONE → CLOSED: the owner confirms the work is done (no customer signature); the name is optional. */
-  | { type: "COMPLETE"; completion: ServiceCompletionInput }
+  | { type: "COMPLETE"; completion: ServiceCompletionInput; debtOverride?: OwnerOverride }
   /** D3: work type, place, address, return reason (kind follows the place) while OPEN / SCHEDULED, before any binding action. */
   | { type: "CHANGE_DETAILS"; next: ServiceCaseDetails; reason?: string | null; appointmentImpact?: ServiceAppointmentImpact };
+
+/** The fields CHANGE_DETAILS may name (CHECK ServiceCaseDetailChange_fields). */
+export const SERVICE_DETAIL_FIELDS = ["kind", "workType", "serviceLocation", "siteAddress", "returnReason"] as const;
+export type ServiceDetailField = (typeof SERVICE_DETAIL_FIELDS)[number];
+
+export interface ServiceDetailChange {
+  before: ServiceCaseDetails;
+  after: ServiceCaseDetails;
+  changedFields: ServiceDetailField[];
+  /** Trimmed, ≤ 1000, or null. Stored in ServiceCaseDetailChange only. */
+  reason: string | null;
+}
+
+export interface ServiceCompletionRecord {
+  completionType: ServiceCompletionType;
+  confirmedByName: string | null;
+  note: string | null;
+}
 
 /** What happens to a SCHEDULED case's appointment when its place or address changes (section ט). */
 export type ServiceAppointmentImpact = "KEEP_TIME" | "UNSCHEDULE";
@@ -328,6 +347,8 @@ export interface ServiceCaseOpenInput {
   deviceId: number | null;
   /** A repeat repair (evaluateRepeatCase) names its parent; otherwise null. */
   parentCaseId: number | null;
+  /** M1: the track the case is opened on (planTrackOpening), or absent / null for today's kind-only case. */
+  track?: ServiceTrack | null;
 }
 
 /** Every action a journal row may name: OPEN + the 20 transition actions (the database enum's 21 values). */
@@ -426,7 +447,9 @@ export type ServiceServerCheck =
   | "PARENT_CASE_BELONGS_TO_BUSINESS"
   // M1
   | "CREDIT_DOCUMENT_LINKED"
-  | "DETAIL_BLOCKERS_COUNTED_UNDER_LOCK";
+  | "DETAIL_BLOCKERS_COUNTED_UNDER_LOCK"
+  /** CHANGE_DETAILS on a track case: the derived track is enabled by the case's snapshot and fits its subject. */
+  | "TRACK_ENABLED_AND_FITS_SUBJECT";
 
 /** Every command, whatever its action: the service layer's job, never the core's. */
 export const SERVICE_COMMAND_SERVER_DUTIES = [
@@ -442,7 +465,16 @@ export type ServiceCaseEffect =
   | "WITHDRAW_OPEN_QUOTE"
   | "SUPERSEDE_OPEN_QUOTE"
   | "ATTEMPT_AUTO_CLOSE"
-  | "LINK_REPLACEMENT_DEVICE";
+  | "LINK_REPLACEMENT_DEVICE"
+  // M1
+  /** COMPLETE: insert the ServiceCompletion row and stamp completionType / completedAt (decision.completion). */
+  | "RECORD_COMPLETION"
+  /** CHANGE_DETAILS: write the new details and the ServiceCaseDetailChange row at this event's seq (decision.detailChange). */
+  | "RECORD_DETAIL_CHANGE"
+  /** CHANGE_DETAILS with UNSCHEDULE (SCHEDULED → OPEN): the case no longer names its appointment (D13). */
+  | "UNLINK_APPOINTMENT"
+  /** RESCHEDULE: the case names the new appointment. */
+  | "LINK_APPOINTMENT";
 
 export type ServiceCaseEventType =
   | "case.scheduled"
@@ -555,6 +587,10 @@ export type ServiceTransitionDecision =
       texts: ServiceDecisionTexts;
       serverChecks: readonly ServiceServerCheck[];
       event: ServiceCaseEventDraft;
+      /** M1 — set only with RECORD_DETAIL_CHANGE: the normalized details before / after (free text: never in the payload). */
+      detailChange?: ServiceDetailChange | null;
+      /** M1 — set only with RECORD_COMPLETION: what the ServiceCompletion row holds (free text: never in the payload). */
+      completion?: ServiceCompletionRecord | null;
     }
   | {
       ok: false;
