@@ -221,8 +221,15 @@ async function main() {
       await scenario(`U6.${t.key}`, p6, async () => {
         if (!docId) throw new Error(`draft not created: ${created.status} ${JSON.stringify(createdJson).slice(0, 200)}`);
         await p6.goto(`/billing/${docId}`);
+        // The lines editor lives inside the collapsed "עריכה נוספת" panel (<details>): open it first.
+        const more = p6.locator("summary", { hasText: "עריכה נוספת" }).first();
+        const openMore = async () => {
+          await more.waitFor({ timeout: 300_000 });
+          if (!(await more.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) await more.click();
+        };
+        await openMore();
         const add = p6.getByRole("button", { name: "+ הוסף פריט" }).first();
-        await add.waitFor({ timeout: 300_000 });
+        await add.waitFor({ timeout: 30_000 });
         const vat = p6.getByLabel('אחוז מע"מ');
         const before = await vat.count();
         await add.click();
@@ -233,7 +240,8 @@ async function main() {
           values.length === before + 1 && values[values.length - 1] === t.want, { values, before });
         check(`U6.${t.key}.saved`, "OK", "the saved 17% line is shown as 17 (never rewritten by the default)", Number(values[0]) === 17, { values });
         await p6.reload();
-        await add.waitFor({ timeout: 300_000 });
+        await openMore();
+        await add.waitFor({ timeout: 30_000 });
         const afterReload = await vat.evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
         const row = await owner.billingDocumentLine.findMany({ where: { billingDocumentId: docId }, select: { vatRatePercent: true } });
         check(`U6.${t.key}.stored`, "OK", "after reload: one stored line, still 17% (an unsaved new line changes nothing in the database)",
