@@ -1,0 +1,10 @@
+{
+  "note": "Document screen: the stored allocation state is shown on every load; 'ready to share' and the delivery actions only when the delivery rule allows the final PDF; no 'try again' wording. Owner-approved under A0, 2026-11-10 (focused). Run by billing-document-allocation-state-ci.yml with a negative proof.",
+  "tests": {
+    "lib/billing/authority-document-state-display.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the server state builder agrees with the PDF delivery rule for every submission status; the screen wording never claims 'ready', 'sent' or 'received' beyond the stored state and never offers a retry"
+    }
+  }
+}
