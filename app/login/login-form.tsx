@@ -8,6 +8,8 @@ import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibilit
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
 import { completePendingRevoke, consumeSignOutUnconfirmed, hasPendingRevoke } from "@/lib/client-session";
+import { handleUnauthorized } from "@/lib/auth/session-guard";
+import { flushAuthCookies } from "@/lib/native/auth-cookies";
 
 const LOGIN_A11Y_STYLE: React.CSSProperties = {
   position: "absolute",
@@ -124,11 +126,17 @@ export default function LoginForm({
           return; // keep the boot loader visible while navigating away
         }
 
-        // Definitively unauthorized → clear the stale credentials.
-        if (status === 401 || status === 403) {
-          window.localStorage.removeItem("token");
-          window.localStorage.removeItem("sessionId");
-          window.localStorage.removeItem("user");
+        // 401: the one decision (lib/auth/session-guard.ts). An expired token
+        // with a live refresh session is renewed and goes straight to /app; a
+        // session the server ended is cleared here (already on /login, so no
+        // redirect loop); a network failure clears nothing. 403 is not a
+        // sign-out and is left alone — the form simply shows.
+        if (status === 401) {
+          const outcome = await handleUnauthorized({
+            rejectedToken: token,
+            retry: () => window.location.replace(`${window.location.origin}/app`),
+          });
+          if (outcome === "recovered") return; // keep the boot loader while navigating
         }
 
         // Any non-200 (incl. transient network/5xx): show the form so the user
@@ -267,6 +275,8 @@ export default function LoginForm({
       }
 
       window.localStorage.setItem("token", data.token);
+      // Android app: the session cookie this response set goes to disk now, not ~30 s later.
+      void flushAuthCookies();
 
       if (data.sessionId) {
         window.localStorage.setItem("sessionId", data.sessionId);
