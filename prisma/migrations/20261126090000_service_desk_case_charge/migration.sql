@@ -17,6 +17,9 @@
 --                               STANDALONE_PAYMENT  an ISSUED RECEIPT (e.g. an exempt dealer's), linked by the owner
 --                                                   explicitly — at most ONE case at a time; only the part billing
 --                                                   attributes to no invoice is credited (owner decision 2026-11-11)
+--                               AFTER_SALE_CREDIT   an ISSUED credit note, as the record of a T7 (return / exchange)
+--                                                   case resolved by a credit; evidence only — it never enters the
+--                                                   case balance (it refunds the original sale, not this service)
 --                             A receipt allocated to invoices is never linked: its money reaches a case only through
 --                             the outstanding of the case's invoices (no double count). Credits come with their invoice.
 --                             An unlink happens once, with who and why; the row stays (history). A document's status
@@ -56,7 +59,7 @@ SET lock_timeout = '5s';
 -- ── 1. Types ────────────────────────────────────────────────────────────────────────────────────────────────
 CREATE TYPE "ServiceChargeMode" AS ENUM ('CHARGEABLE', 'NO_CHARGE');
 CREATE TYPE "ServiceChargeSource" AS ENUM ('APPROVED_QUOTE', 'OWNER_ENTERED');
-CREATE TYPE "ServiceBillingLinkRole" AS ENUM ('CHARGE', 'STANDALONE_PAYMENT');
+CREATE TYPE "ServiceBillingLinkRole" AS ENUM ('CHARGE', 'STANDALONE_PAYMENT', 'AFTER_SALE_CREDIT');
 
 -- The case journal (ServiceCaseEvent) gains three STATUS-PRESERVING records, as P4 did: a charge recorded by the owner,
 -- a billing document linked, one unlinked. Each bumps the case version and leaves status / hold / cancel request as they
@@ -282,12 +285,16 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'DZU13', MESSAGE = 'SERVICE_BILLING_LINK_DOCUMENT: no such billing document in this business';
   END IF;
   IF NOT ((NEW."role" = 'CHARGE' AND v_type IN ('TAX_INVOICE', 'TAX_INVOICE_RECEIPT'))
-       OR (NEW."role" = 'STANDALONE_PAYMENT' AND v_type = 'RECEIPT')) THEN
-    RAISE EXCEPTION USING ERRCODE = 'DZU13', MESSAGE = 'SERVICE_BILLING_LINK_ROLE: CHARGE links a tax invoice (or tax invoice / receipt); STANDALONE_PAYMENT links a receipt';
+       OR (NEW."role" = 'STANDALONE_PAYMENT' AND v_type = 'RECEIPT')
+       OR (NEW."role" = 'AFTER_SALE_CREDIT' AND v_type = 'CREDIT_NOTE')) THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZU13', MESSAGE = 'SERVICE_BILLING_LINK_ROLE: CHARGE links a tax invoice (or tax invoice / receipt); STANDALONE_PAYMENT a receipt; AFTER_SALE_CREDIT a credit note';
   END IF;
   -- a payment is credited only from an issued receipt (an invoice may be linked as a draft: the reader answers UNKNOWN)
   IF NEW."role" = 'STANDALONE_PAYMENT' AND v_status IS DISTINCT FROM 'ISSUED' THEN
     RAISE EXCEPTION USING ERRCODE = 'DZU13', MESSAGE = 'SERVICE_BILLING_LINK_RECEIPT_NOT_ISSUED: only an issued receipt is linked as a payment';
+  END IF;
+  IF NEW."role" = 'AFTER_SALE_CREDIT' AND v_status IS DISTINCT FROM 'ISSUED' THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZU13', MESSAGE = 'SERVICE_BILLING_LINK_CREDIT_NOT_ISSUED: only an issued credit note is the record of an after-sale credit';
   END IF;
   RETURN NEW;
 END

@@ -17,7 +17,7 @@ import type { CaseBillingLink, CaseCharge } from "./case-balance";
 
 export const CHARGE_MODES = ["CHARGEABLE", "NO_CHARGE"] as const;
 export type ChargeMode = (typeof CHARGE_MODES)[number];
-export const LINK_ROLES = ["CHARGE", "STANDALONE_PAYMENT"] as const;
+export const LINK_ROLES = ["CHARGE", "STANDALONE_PAYMENT", "AFTER_SALE_CREDIT"] as const;
 export type LinkRole = (typeof LINK_ROLES)[number];
 
 /** CHECK ServiceCaseCharge_reason_text / ServiceCaseBillingLink_unlink: 1..1000 characters after trimming. */
@@ -101,14 +101,15 @@ export function currentCharge(previous: PreviousCharge): CaseCharge {
 export type LinkViolation = "TERMINAL_STATUS" | "NO_CHARGE_WITH_DOCUMENTS";
 
 /**
- * May the owner link a billing document now? A case marked free of charge takes no document (it would contradict the
- * owner's own decision and leave the balance UNKNOWN / CONFLICT): record a charge first. The document's existence, type
- * and status are the database guard's (read under RLS).
+ * May the owner link a billing document now? A case marked free of charge takes no charge / payment document (it would
+ * contradict the owner's own decision and leave the balance UNKNOWN / CONFLICT): record a charge first. An
+ * AFTER_SALE_CREDIT (an issued credit note — the record of a T7 credit, never part of the balance) is allowed on any
+ * non-final case. The document's existence, type and status are the database guard's (read under RLS).
  */
-export function decideLink(status: ServiceCaseStatus, charge: CaseCharge): { ok: true } | { ok: false; violations: LinkViolation[] } {
+export function decideLink(status: ServiceCaseStatus, charge: CaseCharge, role: LinkRole = "CHARGE"): { ok: true } | { ok: false; violations: LinkViolation[] } {
   const violations: LinkViolation[] = [];
   if (isFinalStatus(status)) violations.push("TERMINAL_STATUS");
-  if (charge?.mode === "NO_CHARGE") violations.push("NO_CHARGE_WITH_DOCUMENTS");
+  if (charge?.mode === "NO_CHARGE" && role !== "AFTER_SALE_CREDIT") violations.push("NO_CHARGE_WITH_DOCUMENTS");
   return violations.length ? { ok: false, violations } : { ok: true };
 }
 
@@ -116,7 +117,7 @@ export function decideUnlink(status: ServiceCaseStatus): { ok: true } | { ok: fa
   return isFinalStatus(status) ? { ok: false, violations: ["TERMINAL_STATUS"] } : { ok: true };
 }
 
-export type LinkGuardCode = "BILLING_DOCUMENT_NOT_FOUND" | "BILLING_DOCUMENT_ROLE_MISMATCH" | "RECEIPT_NOT_ISSUED" | "BILLING_DOCUMENT_ALREADY_LINKED";
+export type LinkGuardCode = "BILLING_DOCUMENT_NOT_FOUND" | "BILLING_DOCUMENT_ROLE_MISMATCH" | "RECEIPT_NOT_ISSUED" | "CREDIT_NOTE_NOT_ISSUED" | "BILLING_DOCUMENT_ALREADY_LINKED";
 
 /**
  * A refusal of the link guard (DZU13) or the one-active-link UNIQUE (23505) → a stable code. Another business's document
@@ -125,6 +126,7 @@ export type LinkGuardCode = "BILLING_DOCUMENT_NOT_FOUND" | "BILLING_DOCUMENT_ROL
 export function linkGuardCode(e: unknown): LinkGuardCode | null {
   const text = e instanceof Error ? e.message : String(e);
   if (/SERVICE_BILLING_LINK_RECEIPT_NOT_ISSUED/.test(text)) return "RECEIPT_NOT_ISSUED";
+  if (/SERVICE_BILLING_LINK_CREDIT_NOT_ISSUED/.test(text)) return "CREDIT_NOTE_NOT_ISSUED";
   if (/SERVICE_BILLING_LINK_DOCUMENT\b/.test(text)) return "BILLING_DOCUMENT_NOT_FOUND";
   if (/SERVICE_BILLING_LINK_ROLE\b/.test(text)) return "BILLING_DOCUMENT_ROLE_MISMATCH";
   const code = (e as { code?: string; meta?: { code?: string } })?.meta?.code ?? (e as { code?: string })?.code;

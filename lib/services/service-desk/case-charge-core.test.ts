@@ -89,7 +89,8 @@ async function main() {
       && decideCharge("DELIVERED", prev, { mode: "CHARGEABLE", amountAgorot: 70000, reason: "תיקון אחרי מסירה" }).ok
       && decideCharge("ABANDONED", null, { mode: "CHARGEABLE", amountAgorot: 1, reason: null }).ok && decideLink("DELIVERED", null).ok && decideUnlink("DELIVERED").ok);
   ok("D6 linking a document to a case marked free of charge → NO_CHARGE_WITH_DOCUMENTS; with no charge yet or CHARGEABLE → allowed",
-    j(decideLink("READY", { mode: "NO_CHARGE" })) === j({ ok: false, violations: ["NO_CHARGE_WITH_DOCUMENTS"] }) && decideLink("READY", null).ok && decideLink("READY", { mode: "CHARGEABLE", amountAgorot: 5 }).ok);
+    j(decideLink("READY", { mode: "NO_CHARGE" })) === j({ ok: false, violations: ["NO_CHARGE_WITH_DOCUMENTS"] }) && decideLink("READY", null).ok && decideLink("READY", { mode: "CHARGEABLE", amountAgorot: 5 }).ok
+      && decideLink("READY", { mode: "NO_CHARGE" }, "AFTER_SALE_CREDIT").ok && !decideLink("READY", { mode: "NO_CHARGE" }, "STANDALONE_PAYMENT").ok);
   ok("D7 currentCharge maps the last record (null → null)", currentCharge(null) === null && j(currentCharge(prev)) === j({ mode: "CHARGEABLE", amountAgorot: 50000 })
     && j(currentCharge({ seq: 1, mode: "NO_CHARGE", amountAgorot: null })) === j({ mode: "NO_CHARGE" }));
   ok("D8 the link payload is the role token and the document id only", j(linkPayload({ billingDocumentId: 9, role: "STANDALONE_PAYMENT" })) === j({ role: "STANDALONE_PAYMENT", billingDocumentId: 9 }));

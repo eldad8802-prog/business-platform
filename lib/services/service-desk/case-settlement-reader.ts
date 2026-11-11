@@ -51,7 +51,8 @@ export async function activeLinks(tx: Tx, businessId: number, caseId: number): P
 export async function billingFacts(tx: Tx, businessId: number, links: readonly CaseBillingLink[]): Promise<DocumentsSettlement | null> {
   if (links.length > MAX_LINKS) return null;
   try {
-    return await readDocumentsSettlement(tx, businessId, links.map((l) => l.billingDocumentId));
+    // AFTER_SALE_CREDIT links are T7 evidence, never part of the balance: their documents are not read here
+    return await readDocumentsSettlement(tx, businessId, links.filter((l) => l.role !== "AFTER_SALE_CREDIT").map((l) => l.billingDocumentId));
   } catch {
     return null;
   }
