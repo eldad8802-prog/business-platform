@@ -74,6 +74,7 @@ const authEn: Widen<typeof authHe> = {
       nameTooShort: "The name must be at least 2 characters",
       businessRequired: "Enter a business name",
       businessTooShort: "The business name must be at least 2 characters",
+      businessKindRequired: "Choose the business type",
       termsRequired: "Please accept the Terms of Use and Privacy Policy",
       registerFailed: "Sign-up failed",
       noToken: "Your account was created, but we couldn't sign you in. You can sign in on the next screen.",
@@ -94,6 +95,13 @@ const authEn: Widen<typeof authHe> = {
     toLogin: "Sign in",
     nameLabel: "Full name",
     businessLabel: "Business name",
+    businessKind: {
+      label: "Business type",
+      placeholder: "Choose the business type",
+      EXEMPT_DEALER: "Exempt dealer (Osek Patur)",
+      AUTHORIZED_DEALER: "Licensed dealer (Osek Murshe)",
+      LTD_COMPANY: "Limited company (Ltd.)",
+    },
     terms: {
       prefix: "I agree to the",
       termsLink: "Terms of Use",

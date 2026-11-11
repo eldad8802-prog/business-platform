@@ -512,6 +512,7 @@ async function main() {
           password: PASSWORD,
           name: "בעלת עסק",
           businessName,
+          businessKind: "AUTHORIZED_DEALER",
           acceptTerms: true,
           attribution: { utm_source: "facebook", utm_medium: "<b>", referrer: "https://www.google.com/search?q=private" },
         }),
@@ -527,6 +528,27 @@ async function main() {
   const resB = await register(emailB, "עסק ב");
   const bodyB = (await resB.json()) as RegisterBody;
   ok("a second owner registers too", resB.status === 200, `status ${resB.status} ${bodyB.error ?? ""}`);
+
+  // 3b — the business kind chosen at signup (owner decision 2026-11-11) is seeded by the REAL route through
+  //      the tenant runtime under FORCE RLS: written once, never over an existing kind.
+  {
+    const { seedSignupBusinessKind } = await import("@/lib/auth/signup-business-kind");
+    const kindOf = async (businessId: number) =>
+      (await owner.businessProfile.findUnique({ where: { businessId }, select: { billingBusinessKind: true } }))?.billingBusinessKind ?? null;
+    const bizA = bodyA.user?.businessId ?? -1;
+    const bizB = bodyB.user?.businessId ?? -1;
+    ok("signup seeded the chosen kind into the new business's profile (real route, tenant runtime)", (await kindOf(bizA)) === "AUTHORIZED_DEALER", String(await kindOf(bizA)));
+    ok("...and only that business's profile — the other new business has its own", (await kindOf(bizB)) === "AUTHORIZED_DEALER");
+    const again = await seedSignupBusinessKind(bizA, "LTD_COMPANY");
+    ok("a second seed never overwrites an existing kind (kept, value unchanged)", again === "kept" && (await kindOf(bizA)) === "AUTHORIZED_DEALER", again);
+    await owner.businessProfile.update({ where: { businessId: bizB }, data: { billingBusinessKind: null } });
+    const fill = await seedSignupBusinessKind(bizB, "EXEMPT_DEALER");
+    ok("a profile that exists without a kind is filled (seeded)", fill === "seeded" && (await kindOf(bizB)) === "EXEMPT_DEALER", fill);
+    const noBiz = await seedSignupBusinessKind(2_000_000_000, "LTD_COMPANY");
+    ok("a business that does not exist is never created by the seed (failed, contained)", noBiz === "failed" &&
+      (await owner.businessProfile.count({ where: { businessId: 2_000_000_000 } })) === 0, noBiz);
+    await owner.businessProfile.update({ where: { businessId: bizB }, data: { billingBusinessKind: "AUTHORIZED_DEALER" } });
+  }
 
   const tokenA = bodyA.token ?? "";
   const tokenB = bodyB.token ?? "";
@@ -744,7 +766,7 @@ async function main() {
       new Request("https://lab.invalid/api/auth/register", {
         method: "POST",
         headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.250" },
-        body: JSON.stringify({ email: `noconsent-${Date.now()}@lab.invalid`, password: PASSWORD, name: "x y", businessName: "עסק" }),
+        body: JSON.stringify({ email: `noconsent-${Date.now()}@lab.invalid`, password: PASSWORD, name: "x y", businessName: "עסק", businessKind: "AUTHORIZED_DEALER" }),
       })
     );
     ok("no consent → 400 and nothing created", noConsent.status === 400 && (await businessCount()) === before);

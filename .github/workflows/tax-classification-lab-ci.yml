@@ -1,0 +1,251 @@
+# PR-0 — tax-classification readiness lab (tests only; no product code).
+#
+# Every supported classification × every billing document type, create → edit → issue → numbering → saved
+# state → PDF → re-read, on an ephemeral postgres:17 with synthetic data, under the repository's replayed RLS,
+# connected as a NOBYPASSRLS role. Production's pilot settings (OPERATIONS=oauth, pilot list "9"); allocation
+# outcomes through the real execution service with only the HTTP request replaced by a local fake.
+#
+# Network: the battery and the app run with the group "labnet"; iptables rejects every non-loopback packet
+# from that group (v4 + v6), and a probe step proves the block before anything runs. The battery also traps
+# sockets in-process and fails on any attempt.
+#
+# A reproduced defect is a PASSING check marked DEFECT (see .tax-classification-lab/lab-kit.mts); a fix turns
+# it red and the expectation is updated in the fixing PR. Evidence (PDFs, text, JSON, screenshots) is uploaded.
+#
+# ZERO secrets, ZERO Neon, ZERO Production, ZERO authority.
+
+name: tax-classification lab (PR-0)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".tax-classification-lab/**"
+      - ".github/workflows/tax-classification-lab-ci.yml"
+      - "lib/billing/**"
+      - "lib/services/billing/**"
+      - "app/api/billing/**"
+      - "app/billing/**"
+      - "components/billing/**"
+      - "prisma/schema.prisma"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OWNER_URL: postgresql://tl_owner:tl_ci_synthetic_owner_pw@localhost:5432/dubiz_taxlab
+  RUNTIME_URL: postgresql://tl_runtime:tl_ci_synthetic_runtime_pw@localhost:5432/dubiz_taxlab
+  AUTH_TOKEN_SECRET: taxlab_ci_synthetic_secret_at_least_32_chars
+  STORAGE_PROVIDER: local
+  LOCAL_STORAGE_ROOT: /tmp/taxlab-storage
+  BILLING_PDF_STORAGE_ROOT: /tmp/taxlab-storage/billing
+  LAB_EVIDENCE_DIR: /tmp/taxlab-evidence
+  PLAYWRIGHT_BROWSERS_PATH: /tmp/pw-browsers
+
+jobs:
+  battery:
+    name: Lab battery — API + services (PG17, replayed RLS, NOBYPASSRLS, network blocked)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: tl_owner
+          POSTGRES_PASSWORD: tl_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_taxlab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tl_owner -d dubiz_taxlab"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+
+      # The pure tests of the fixes this lab head carries. #1077's own workflow cannot run
+      # before it exists on main (a new workflow is dispatchable only from the default
+      # branch), so its test runs here too, on the exact combined head.
+      - name: Pure tests of the carried fixes (#1076 gate, #1077 document state, #1079 continuity)
+        run: |
+          set -euo pipefail
+          npx tsx lib/services/billing/authority/billing-authority-issue-gate.test.ts
+          npx tsx lib/billing/authority-document-state-display.test.ts
+          npx tsx lib/services/billing/numbering/billing-numbering-continuity.test.ts
+
+      - name: Push schema as the owner; create the governed runtime role
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -euo pipefail
+          asLab() { sudo -E env PATH="$PATH" setpriv --reuid="$(id -u)" --regid="$(getent group labnet | cut -d: -f3)" --clear-groups -- "$@"; }
+          npx prisma db push --skip-generate
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE tl_runtime LOGIN PASSWORD 'tl_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO tl_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO tl_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO tl_runtime;"
+
+      - name: Block the network for group labnet (loopback only) and prove it
+        run: |
+          set -euo pipefail
+          asLab() { sudo -E env PATH="$PATH" setpriv --reuid="$(id -u)" --regid="$(getent group labnet | cut -d: -f3)" --clear-groups -- "$@"; }
+          sudo groupadd -f labnet
+          for t in iptables ip6tables; do
+            sudo $t -A OUTPUT -m owner --gid-owner labnet -o lo -j ACCEPT
+          done
+          # the postgres service container (docker bridge) — the only non-loopback peer allowed
+          sudo iptables -A OUTPUT -m owner --gid-owner labnet -d 172.16.0.0/12 -j ACCEPT
+          for t in iptables ip6tables; do
+            sudo $t -A OUTPUT -m owner --gid-owner labnet -j REJECT
+          done
+          if asLab curl -sS --max-time 10 https://example.com -o /dev/null; then
+            echo "::error::network block not effective"; exit 1
+          fi
+          asLab pg_isready -h localhost -p 5432
+          echo "network blocked for labnet; loopback reachable"
+
+      - name: Lab battery (as group labnet)
+        run: |
+          set -euo pipefail
+          asLab() { sudo -E env PATH="$PATH" setpriv --reuid="$(id -u)" --regid="$(getent group labnet | cut -d: -f3)" --clear-groups -- "$@"; }
+          asLab env \
+            DATABASE_URL="$RUNTIME_URL" DIRECT_URL="$RUNTIME_URL" AUTH_DATABASE_URL="$RUNTIME_URL" RLS_ADMIN_URL="$OWNER_URL" \
+            PATH="$PATH" npx tsx .tax-classification-lab/battery.mts 2>&1 | grep -v auth_sidless_token_accepted
+
+      - name: Results table
+        if: always()
+        run: '[ -f "$LAB_EVIDENCE_DIR/results.md" ] && cat "$LAB_EVIDENCE_DIR/results.md" >> "$GITHUB_STEP_SUMMARY" || true'
+
+      # The exempt-dealer refusal is removed from issuance in this ephemeral checkout: the lab must go red on E1.TI.
+      - name: Negative proof — the lab notices a missing exempt-dealer rule
+        run: |
+          set -uo pipefail
+          asLab() { sudo -E env PATH="$PATH" setpriv --reuid="$(id -u)" --regid="$(getent group labnet | cut -d: -f3)" --clear-groups -- "$@"; }
+          prove() {
+            local file=lib/services/billing/billing-issue.service.ts
+            cp "$file" "$file.bak"
+            perl -0pi -e 's/\n  assertDocumentTypeAllowedForBusinessKind\(\n    business\.profile\?\.billingBusinessKind,\n    doc\.documentType\n  \);/\n/' "$file"
+            if cmp -s "$file" "$file.bak"; then mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply"; return 1; fi
+            asLab env \
+              DATABASE_URL="$RUNTIME_URL" DIRECT_URL="$RUNTIME_URL" AUTH_DATABASE_URL="$RUNTIME_URL" RLS_ADMIN_URL="$OWNER_URL" \
+              LAB_EVIDENCE_DIR=/tmp/taxlab-np PATH="$PATH" npx tsx .tax-classification-lab/battery.mts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then echo "::error::NEGATIVE-PROOF FAIL: lab stayed green without the rule"; return 1; fi
+            if ! grep -q "\[FAIL\] E1.TI" np.log; then echo "::error::NEGATIVE-PROOF FAIL: lab failed, but not on E1.TI"; grep FAIL np.log | head -20; return 1; fi
+            echo "negative proof OK — E1.TI goes red without the rule"
+          }
+          prove || exit 1
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tax-classification-lab-battery-evidence
+          path: /tmp/taxlab-evidence
+          retention-days: 30
+
+  ui:
+    name: Lab UI — screens in a browser (next dev, PG17, network blocked)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: tl_owner
+          POSTGRES_PASSWORD: tl_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_taxlab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tl_owner -d dubiz_taxlab"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+
+      - name: Push schema as the owner; create the governed runtime role
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -euo pipefail
+          asLab() { sudo -E env PATH="$PATH" setpriv --reuid="$(id -u)" --regid="$(getent group labnet | cut -d: -f3)" --clear-groups -- "$@"; }
+          npx prisma db push --skip-generate
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE tl_runtime LOGIN PASSWORD 'tl_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO tl_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO tl_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO tl_runtime;"
+
+      - name: Block the network for group labnet (loopback only) and prove it
+        run: |
+          set -euo pipefail
+          asLab() { sudo -E env PATH="$PATH" setpriv --reuid="$(id -u)" --regid="$(getent group labnet | cut -d: -f3)" --clear-groups -- "$@"; }
+          sudo groupadd -f labnet
+          for t in iptables ip6tables; do
+            sudo $t -A OUTPUT -m owner --gid-owner labnet -o lo -j ACCEPT
+          done
+          # the postgres service container (docker bridge) — the only non-loopback peer allowed
+          sudo iptables -A OUTPUT -m owner --gid-owner labnet -d 172.16.0.0/12 -j ACCEPT
+          for t in iptables ip6tables; do
+            sudo $t -A OUTPUT -m owner --gid-owner labnet -j REJECT
+          done
+          if asLab curl -sS --max-time 10 https://example.com -o /dev/null; then
+            echo "::error::network block not effective"; exit 1
+          fi
+          asLab pg_isready -h localhost -p 5432
+
+      - name: Start the app (next dev, Production pilot settings, as group labnet)
+        run: |
+          set -euo pipefail
+          asLab() { sudo -E env PATH="$PATH" setpriv --reuid="$(id -u)" --regid="$(getent group labnet | cut -d: -f3)" --clear-groups -- "$@"; }
+          mkdir -p "$LAB_EVIDENCE_DIR/ui"
+          (asLab env \
+            DATABASE_URL="$RUNTIME_URL" DIRECT_URL="$RUNTIME_URL" AUTH_DATABASE_URL="$RUNTIME_URL" \
+            BILLING_AUTHORITY_RUNTIME_ENVIRONMENT=PRODUCTION BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS=9 \
+            BILLING_AUTHORITY_PRODUCTION_PILOT_USER_IDS=9 BILLING_AUTHORITY_PRODUCTION_PILOT_OPERATIONS=oauth \
+            PATH="$PATH" nohup npx next dev -p 3730 > "$LAB_EVIDENCE_DIR/ui/server.log" 2>&1 &)
+          for i in $(seq 1 120); do curl -s -o /dev/null http://localhost:3730/login && break; sleep 2; done
+
+      - name: Lab UI (as group labnet)
+        run: |
+          set -euo pipefail
+          asLab() { sudo -E env PATH="$PATH" setpriv --reuid="$(id -u)" --regid="$(getent group labnet | cut -d: -f3)" --clear-groups -- "$@"; }
+          asLab env E2E_BASE=http://localhost:3730 DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" PATH="$PATH" \
+            npx tsx .tax-classification-lab/ui.e2e.mts
+
+      - name: Server log (filtered)
+        if: always()
+        run: grep -vE "auth_sidless_token_accepted" "$LAB_EVIDENCE_DIR/ui/server.log" | tail -n 120 || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tax-classification-lab-ui-evidence
+          path: /tmp/taxlab-evidence
+          retention-days: 30

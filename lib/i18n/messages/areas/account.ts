@@ -77,6 +77,7 @@ export const authHe = {
       nameTooShort: "השם חייב להכיל לפחות 2 תווים",
       businessRequired: "יש להזין שם עסק",
       businessTooShort: "שם העסק חייב להכיל לפחות 2 תווים",
+      businessKindRequired: "יש לבחור את סוג העסק",
       termsRequired: "יש לאשר את תנאי השימוש ומדיניות הפרטיות",
       registerFailed: "שגיאה בהרשמה",
       noToken: "החשבון נפתח, אבל לא הצלחנו להשלים את הכניסה. אפשר להתחבר מהמסך הבא.",
@@ -97,6 +98,13 @@ export const authHe = {
     toLogin: "להתחברות",
     nameLabel: "שם מלא",
     businessLabel: "שם העסק",
+    businessKind: {
+      label: "סוג העסק",
+      placeholder: "בחירת סוג העסק",
+      EXEMPT_DEALER: "עוסק פטור",
+      AUTHORIZED_DEALER: "עוסק מורשה",
+      LTD_COMPANY: "חברה בע״מ",
+    },
     terms: {
       prefix: "אני מאשר/ת את",
       termsLink: "תנאי השימוש",

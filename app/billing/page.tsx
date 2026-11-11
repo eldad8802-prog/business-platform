@@ -17,7 +17,8 @@ import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/des
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 import { DocumentProductionSheet } from "@/features/business-documents/document-production-sheet";
-import { parseProductionEntry } from "@/features/business-documents/document-production-model";
+import { blocksTaxInvoiceEntry, parseProductionEntry } from "@/features/business-documents/document-production-model";
+import { useBusinessKind } from "@/features/business-documents/use-business-kind";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
 
@@ -133,6 +134,11 @@ export default function BillingHubPage() {
   const documentsState = useFeatureState("business_documents");
   const moreDocumentsOn = documentsState === true;
   const [productionOpen, setProductionOpen] = useState<boolean>(false);
+  // Exempt dealer (owner-approved 2026-11-11, feature OFF and ON): the tax-invoice entries show a notice instead of a draft.
+  // An entry used before the business kind is known waits for it (queuedCreate).
+  const businessKind = useBusinessKind();
+  const [queuedCreate, setQueuedCreate] = useState<"TAX_INVOICE" | "QUOTE" | null>(null);
+  const [exemptNoticeOpen, setExemptNoticeOpen] = useState<boolean>(false);
   const [productionCustomer, setProductionCustomer] = useState<{ customerId: number | null; customerName: string | null }>({ customerId: null, customerName: null });
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [createDocumentType, setCreateDocumentType] = useState<
@@ -314,13 +320,13 @@ export default function BillingHubPage() {
       if (documentsState) {
         openProductionList(entry);
       } else {
-        openCreateFlow("TAX_INVOICE");
+        requestCreate("TAX_INVOICE");
       }
       return;
     }
     const type = createParam === "QUOTE" ? "QUOTE" : "TAX_INVOICE";
     router.replace("/billing");
-    openCreateFlow(type);
+    requestCreate(type);
     // openCreateFlow reads identity state that is settled by the time a user
     // can act; re-running on every change would re-open the modal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -330,6 +336,30 @@ export default function BillingHubPage() {
     setProductionCustomer(customer);
     setProductionOpen(true);
   }
+
+  /** The screen's create entries: a tax invoice for an exempt dealer (feature OFF or ON) shows a notice instead. */
+  function requestCreate(type: "TAX_INVOICE" | "QUOTE") {
+    if (type === "TAX_INVOICE" && businessKind === undefined) {
+      setQueuedCreate(type); // decided as soon as the business kind is known
+      return;
+    }
+    decideCreate(type);
+  }
+
+  function decideCreate(type: "TAX_INVOICE" | "QUOTE") {
+    setQueuedCreate(null);
+    if (blocksTaxInvoiceEntry({ type, businessKind: businessKind ?? null })) {
+      setExemptNoticeOpen(true);
+      return;
+    }
+    openCreateFlow(type);
+  }
+
+  useEffect(() => {
+    if (queuedCreate === null || businessKind === undefined) return;
+    decideCreate(queuedCreate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queuedCreate, businessKind]);
 
   function openCreateFlow(type: "TAX_INVOICE" | "QUOTE") {
     if (billingIdentityOk === false) {
@@ -450,7 +480,7 @@ export default function BillingHubPage() {
             <button
               className="billing-action-button"
               type="button"
-              onClick={() => openCreateFlow("TAX_INVOICE")}
+              onClick={() => requestCreate("TAX_INVOICE")}
               data-dz-action="primary"
               style={{
                 ...primaryActionStyle({ height: 48 }),
@@ -670,7 +700,7 @@ export default function BillingHubPage() {
               setFilter("ALL");
               setSearchInput("");
             }}
-            onCreate={() => openCreateFlow("TAX_INVOICE")}
+            onCreate={() => requestCreate("TAX_INVOICE")}
           />
         ) : (
           <section
@@ -965,8 +995,12 @@ export default function BillingHubPage() {
               if (ok) {
                 // Identity complete: close the gate and open the create flow.
                 setIdentityGateOpen(false);
-                setCreateDocumentType(pendingCreateType);
-                setCreateOpen(true);
+                if (blocksTaxInvoiceEntry({ type: pendingCreateType, businessKind: gateForm.billingBusinessKind === "EXEMPT_DEALER" ? "EXEMPT_DEALER" : null })) {
+                  setExemptNoticeOpen(true);
+                } else {
+                  setCreateDocumentType(pendingCreateType);
+                  setCreateOpen(true);
+                }
               } else {
                 // Incomplete: keep the gate OPEN so the error is visible and the
                 // user can finish. Do NOT clear pendingCreateType.
@@ -990,6 +1024,34 @@ export default function BillingHubPage() {
             router.push(`/billing/${id}`);
           }}
         />
+      ) : null}
+
+      {exemptNoticeOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="exempt-notice-title"
+          data-testid="exempt-tax-invoice-notice"
+          onClick={() => setExemptNoticeOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(35, 48, 43, 0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 130, padding: 16 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 420, background: TOKEN.surface.card, borderRadius: 18, padding: 20, display: "flex", flexDirection: "column", gap: 12, boxShadow: TOKEN.shadow.floating }}
+          >
+            <h2 id="exempt-notice-title" style={{ margin: 0, fontSize: 17, fontWeight: 600, color: TOKEN.ink.primary }}>
+              {t("billing.list.exemptNoTaxInvoiceTitle")}
+            </h2>
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: TOKEN.ink.secondary }}>{t("billing.list.exemptNoTaxInvoiceBody")}</p>
+            <button
+              type="button"
+              onClick={() => setExemptNoticeOpen(false)}
+              style={{ ...glassActionStyle({ height: 44 }), alignSelf: "flex-start", padding: "10px 18px", fontSize: 14, fontWeight: 600 }}
+            >
+              {t("billing.list.exemptNoTaxInvoiceClose")}
+            </button>
+          </div>
+        </div>
       ) : null}
 
       {productionOpen ? (
