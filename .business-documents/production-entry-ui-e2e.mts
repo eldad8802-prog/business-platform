@@ -16,6 +16,9 @@
  *   C1 customer card (ON): "הפקת מסמך ללקוח" opens the list for that customer; tax invoice → the modal has the
  *      customer selected → the draft belongs to that customer
  *   P1 phone 390: the list fits, no side scroll
+ *   D1 phone: the panel and its backdrop stay above the bottom navigation bar (no overlap)
+ *   D2 compact rows: icon + document name + short explanation, no row arrows
+ *   D3 the close button (a clear, >= 32px target) closes the panel
  *   E1 English interface: the list speaks English (no Hebrew left in the list)
  *   L1 the database holds exactly the drafts the scenarios made, all DRAFT, none numbered
  *
@@ -211,6 +214,27 @@ async function main() {
         if (!box || box.x < 0 || box.x + box.width > 391) throw new Error(JSON.stringify(box));
       });
       await shot(page, "P1-phone-list");
+      await check("D1 phone: the panel and its backdrop stay above the bottom navigation bar — no overlap", async () => {
+        const bar = await page.locator('[data-component="shell-bottom-bar"]').boundingBox();
+        const panel = await page.getByTestId("document-production-sheet").locator("> div").boundingBox();
+        const backdrop = await page.getByTestId("document-production-sheet").boundingBox();
+        if (!bar) throw new Error("bottom bar not shown");
+        if (!panel || panel.y + panel.height > bar.y + 0.5) throw new Error(`panel ${JSON.stringify(panel)} vs bar ${JSON.stringify(bar)}`);
+        if (!backdrop || backdrop.y + backdrop.height > bar.y + 0.5) throw new Error(`backdrop ${JSON.stringify(backdrop)} vs bar ${JSON.stringify(bar)}`);
+      });
+      await check("D2 compact rows: icon + document name + short explanation, no row arrows", async () => {
+        const rowsInfo = await page.locator('[data-testid="document-production-sheet"] [data-option]').evaluateAll((els) =>
+          els.map((e) => ({ svgs: e.querySelectorAll("svg").length, texts: [...e.querySelectorAll("span span")].map((x) => (x.textContent ?? "").trim()).filter(Boolean).length, h: Math.round(e.getBoundingClientRect().height) })));
+        if (rowsInfo.length !== 4) throw new Error(`rows ${rowsInfo.length}`);
+        for (const r of rowsInfo) if (r.svgs !== 1 || r.texts !== 2 || r.h > 72) throw new Error(JSON.stringify(rowsInfo));
+      });
+      await check("D3 the close button closes the panel", async () => {
+        const close = page.getByTestId("document-production-close");
+        const box = await close.boundingBox();
+        if (!box || box.width < 32 || box.height < 32) throw new Error(`close target ${JSON.stringify(box)}`);
+        await close.click();
+        await page.getByTestId("document-production-sheet").waitFor({ state: "detached" });
+      });
       await c.close();
     }
 

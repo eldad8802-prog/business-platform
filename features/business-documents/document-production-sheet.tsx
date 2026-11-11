@@ -6,9 +6,10 @@
  * the invoices screen, which runs its own create flow (identity gate, draft) exactly as before.
  */
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { IconBox, IconFileCheck, IconMail, IconReceipt } from "@/components/navigation/nav-icons";
 import { TOKEN } from "@/lib/design/billing-theme";
 
 import {
@@ -16,6 +17,7 @@ import {
   productionOptions,
   type ProductionBusinessKind,
 } from "./document-production-model";
+import s from "./document-production-sheet.module.css";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -57,70 +59,73 @@ export function DocumentProductionSheet({
   const businessKind = useBusinessKind();
   const groups = groupedProductionOptions(productionOptions({ businessKind }));
 
-  const rowStyle = {
-    display: "flex",
-    flexDirection: "column" as const,
-    alignItems: "flex-start",
-    gap: 2,
-    width: "100%",
-    textAlign: "start" as const,
-    padding: "12px 14px",
-    borderRadius: 14,
-    border: `1px solid ${TOKEN.border.DEFAULT}`,
-    background: TOKEN.surface.card,
-    color: TOKEN.ink.primary,
-    textDecoration: "none",
-    cursor: "pointer",
-    font: "inherit",
-    boxSizing: "border-box" as const,
+  const iconFor: Record<string, ReactNode> = {
+    TAX_INVOICE: <IconReceipt size={20} />,
+    QUOTE: <IconFileCheck size={20} />,
+    LETTER: <IconMail size={20} />,
+    SUPPLIER_ORDER: <IconBox size={20} />,
   };
+  const row = (key: string) => (
+    <>
+      <span className={s.icon} aria-hidden>
+        {iconFor[key]}
+      </span>
+      <span className={s.text}>
+        <span className={s.name}>{t(`billing.production.option.${key}.title`)}</span>
+        <span className={s.help} style={{ color: TOKEN.ink.secondary }}>
+          {t(`billing.production.option.${key}.help`)}
+        </span>
+      </span>
+    </>
+  );
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={t("billing.production.title")}
+      aria-labelledby="document-production-title"
       data-testid="document-production-sheet"
+      className={s.backdrop}
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(35, 48, 43, 0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 130, padding: 16 }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: "100%", maxWidth: 480, maxHeight: "calc(100dvh - 32px)", overflowY: "auto", background: TOKEN.surface.card, borderRadius: 18, padding: 20, display: "flex", flexDirection: "column", gap: 14, boxShadow: TOKEN.shadow.floating }}
-      >
-        <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: TOKEN.ink.primary }}>{t("billing.production.title")}</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 13, color: TOKEN.ink.muted }}>
-            {customerName ? <><bdi>{t("billing.production.forCustomer", { name: customerName })}</bdi> </> : null}
-            {t("billing.production.chooseType")}
-          </p>
+      <div className={s.panel} style={{ background: TOKEN.surface.card, color: TOKEN.ink.primary }} onClick={(e) => e.stopPropagation()}>
+        <div className={s.head}>
+          <div>
+            <h2 id="document-production-title" className={s.title}>
+              {t("billing.production.title")}
+            </h2>
+            <p className={s.subtitle}>
+              {customerName ? <><bdi>{t("billing.production.forCustomer", { name: customerName })}</bdi> </> : null}
+              {t("billing.production.chooseType")}
+            </p>
+          </div>
+          <button type="button" className={s.close} onClick={onClose} aria-label={t("billing.production.close")} data-testid="document-production-close">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden focusable="false">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
         </div>
 
         {groups.map((g) => (
-          <section key={g.group} style={{ display: "grid", gap: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.muted }}>{t(`billing.production.group.${g.group}`)}</div>
+          <section key={g.group} className={s.group}>
+            <div className={s.groupTitle}>{t(`billing.production.group.${g.group}`)}</div>
             {g.options.map((o) =>
               o.kind === "billing" ? (
-                <button key={o.key} type="button" data-option={o.key} style={rowStyle} onClick={() => onBillingDocument(o.key)}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>{t(`billing.production.option.${o.key}.title`)}</span>
-                  <span style={{ fontSize: 12, color: TOKEN.ink.secondary }}>{t(`billing.production.option.${o.key}.help`)}</span>
+                <button key={o.key} type="button" data-option={o.key} className={s.row} onClick={() => onBillingDocument(o.key)}>
+                  {row(o.key)}
                 </button>
               ) : (
-                <Link key={o.key} href={o.href} data-option={o.key} style={rowStyle}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>{t(`billing.production.option.${o.key}.title`)}</span>
-                  <span style={{ fontSize: 12, color: TOKEN.ink.secondary }}>{t(`billing.production.option.${o.key}.help`)}</span>
+                <Link key={o.key} href={o.href} data-option={o.key} className={s.row}>
+                  {row(o.key)}
                 </Link>
               )
             )}
           </section>
         ))}
 
-        <Link href="/business-documents" style={{ fontSize: 13, color: TOKEN.ink.secondary, textAlign: "center" }}>
+        <Link href="/business-documents" className={s.foot}>
           {t("billing.production.followUp")}
         </Link>
-        <button type="button" onClick={onClose} style={{ border: "none", background: "transparent", color: TOKEN.ink.muted, fontSize: 13, cursor: "pointer", padding: 6 }}>
-          {t("billing.production.close")}
-        </button>
       </div>
     </div>
   );
