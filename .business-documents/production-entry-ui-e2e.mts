@@ -19,7 +19,7 @@
  *   E1 English interface: the list speaks English (no Hebrew left in the list)
  *   XO1 exempt dealer, feature OFF: "+ צור חשבונית" shows the notice — no create modal, no draft
  *   XO2 … the empty-state button shows the notice
- *   XO3 … /billing?create=1 and /billing?create=documents show the notice
+ *   XO3 … /billing?create=1, ?create=TAX_INVOICE and ?create=documents show the notice
  *   XO4 … the quote stays available (its create modal opens)
  *   XO5 … English: the notice in English
  *   XG1 kind unknown, feature OFF: the identity gate opens as before; declaring "עוסק פטור" there shows the notice
@@ -267,8 +267,8 @@ async function main() {
         await page.getByRole("button", { name: "התחל מסמך ללקוח" }).click({ timeout: 30_000 });
         await noticeShown();
       });
-      await check("XO3 … ?create=1 and ?create=documents show the notice", async () => {
-        for (const q of ["create=1", "create=documents"]) {
+      await check("XO3 … ?create=1, ?create=TAX_INVOICE and ?create=documents show the notice", async () => {
+        for (const q of ["create=1", "create=TAX_INVOICE", "create=documents"]) {
           await page.goto(`/billing?${q}`);
           await noticeShown();
         }
