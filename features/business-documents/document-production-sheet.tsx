@@ -7,41 +7,15 @@
  */
 import Link from "next/link";
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconBox, IconFileCheck, IconMail, IconReceipt } from "@/components/navigation/nav-icons";
 import { TOKEN } from "@/lib/design/billing-theme";
 
-import { productionOptions, type ProductionBusinessKind, type ProductionOption } from "./document-production-model";
+import { productionOptions, type ProductionOption } from "./document-production-model";
 import s from "./document-production-sheet.module.css";
-
-function getAuthToken(): string {
-  if (typeof window === "undefined") return "1";
-  return localStorage.getItem("token") || "1";
-}
-
-/** The business kind from the existing invoice profile route (read only); unknown → null. */
-function useBusinessKind(): ProductionBusinessKind {
-  const [kind, setKind] = useState<ProductionBusinessKind>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/billing/invoice-profile", { headers: { Authorization: `Bearer ${getAuthToken()}` }, cache: "no-store" });
-        if (!res.ok) return;
-        const raw = (await res.json())?.profile?.billingBusinessKind;
-        if (!cancelled && (raw === "EXEMPT_DEALER" || raw === "AUTHORIZED_DEALER" || raw === "LTD_COMPANY")) setKind(raw);
-      } catch {
-        /* unknown kind: the list shows what the screen shows today */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return kind;
-}
+import { useBusinessKind } from "./use-business-kind";
 
 export function DocumentProductionSheet({
   customerName,
@@ -53,7 +27,8 @@ export function DocumentProductionSheet({
   onBillingDocument: (type: "TAX_INVOICE" | "QUOTE") => void;
 }) {
   const { t } = useI18n();
-  const businessKind = useBusinessKind();
+  // undefined (still loading) lists what the screen shows today; the server still refuses an exempt tax invoice
+  const businessKind = useBusinessKind() ?? null;
   const options = productionOptions({ businessKind });
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);

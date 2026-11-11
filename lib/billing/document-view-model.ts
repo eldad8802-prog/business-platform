@@ -12,6 +12,7 @@
 import { TOKEN } from "@/lib/design/billing-theme";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { Translator } from "@/lib/i18n/translate";
+import type { AuthorityDocumentStateView } from "@/lib/billing/authority-document-state-display";
 
 export type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -45,6 +46,12 @@ export type BillingDocumentDetail = {
   createdAt: string;
   updatedAt: string;
   lines: BillingDocumentLine[];
+  /**
+   * The stored allocation state of an issued document (document API only; null
+   * for a draft). Absent on responses that do not carry it — callers then keep
+   * today's behaviour.
+   */
+  authorityState?: AuthorityDocumentStateView | null;
 };
 
 export type LocalLine = {

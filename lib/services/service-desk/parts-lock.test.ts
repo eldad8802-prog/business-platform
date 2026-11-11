@@ -25,7 +25,7 @@ let thrown: unknown = null;
 try { assertPartsApiOpen(); } catch (e) { thrown = e; }
 ok("P2 the closed answer is ACTION_NOT_IN_SCOPE (422) naming the capability and what it waits for",
   thrown instanceof ServiceDeskError && thrown.code === "ACTION_NOT_IN_SCOPE" && thrown.status === 422
-    && thrown.details.capability === "parts" && thrown.details.until === "intake_signature_1_3b");
+    && thrown.details.capability === "parts" && thrown.details.until === "intake_confirmation_1_3b");
 
 const ROOT = process.cwd();
 const ROUTES = ["app/api/service-desk/cases/[id]/parts/route.ts", "app/api/service-desk/parts/[partId]/actions/route.ts"];

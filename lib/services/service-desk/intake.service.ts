@@ -37,7 +37,7 @@ import {
   type WriteRequest,
 } from "./service-case.service";
 import { ServiceDeskError } from "./service-desk-errors";
-import { SERVICE_STORAGE_DOMAIN, intakePhotoKey, intakeSignatureKey, isServiceKeyOfBusiness, serviceBusinessPrefix } from "./storage/service-storage-keys";
+import { INTAKE_PHOTOS_PER_CASE, SERVICE_STORAGE_DOMAIN, intakePhotoKey, intakeSignatureKey, isServiceKeyOfBusiness, serviceBusinessPrefix } from "./storage/service-storage-keys";
 
 /** Vercel caps a request body at 4.5 MB: the screen downsizes photos; the server refuses more than this. */
 export const PHOTO_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
@@ -231,7 +231,29 @@ export type IntakeView = {
   activeTerms: { termsVersion: number | null; statutoryVersion: number | null; approved: boolean };
   photos: { id: number; sha256: string; mimeType: string; byteSize: number; createdAt: string }[];
   history: { seq: number; step: string | null; occurredAt: string }[];
+  /** The owner's confirmation of the intake (the CHECK_IN event): when and by whom. Owner decision 2026-11-11 — no customer signature. */
+  confirmation: { at: string; byUserId: number | null; byName: string | null } | null;
+  /** The case this intake belongs to (the screen's title) and what the server allows NOW — the screen offers only these. */
+  case: { caseNumber: number; kind: string; status: string; version: number };
+  allowed: IntakeAllowed;
 };
+
+/** The intake actions the server would accept now (write access aside — the gate answers READ_ONLY). */
+export type IntakeAllowed = { recordData: boolean; addPhoto: boolean; confirm: boolean; createSlip: boolean };
+
+/**
+ * Pure: the intake actions allowed now, from the same rules the commands apply. Owner decision 2026-11-11: no customer
+ * signature and no terms step — the owner confirms the documented intake (CHECK_IN with intakeConfirmed), then the slip.
+ */
+export function intakeAllowed(v: { kind: string; status: string; recorded: boolean; photoCount: number; confirmed: boolean; hasSlip: boolean }): IntakeAllowed {
+  const open = v.kind === "IN_SHOP" && (v.status === "OPEN" || v.status === "SCHEDULED") && !v.confirmed;
+  return {
+    recordData: open,
+    addPhoto: open && v.photoCount < INTAKE_PHOTOS_PER_CASE,
+    confirm: open && v.recorded,
+    createSlip: v.kind === "IN_SHOP" && v.confirmed && !v.hasSlip,
+  };
+}
 
 const iso = (d: unknown) => (d === null || d === undefined ? null : new Date(d as string).toISOString());
 
@@ -239,8 +261,9 @@ const iso = (d: unknown) => (d === null || d === undefined ? null : new Date(d a
 export async function getIntake(businessId: number, caseId: unknown): Promise<IntakeView> {
   if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
   return tenantTx(businessId, async (tx) => {
-    const exists = (await tx.$queryRaw<{ ok: boolean }[]>`SELECT EXISTS (SELECT 1 FROM "ServiceCase" WHERE id = ${caseId}::int AND "businessId" = ${businessId}::int) AS ok`)[0]?.ok;
-    if (!exists) throw new ServiceDeskError("NOT_FOUND");
+    const kase = (await tx.$queryRaw<{ n: number; kind: string; status: string; version: number }[]>`
+      SELECT "caseNumber" AS n, kind::text AS kind, status::text AS status, version FROM "ServiceCase" WHERE id = ${caseId}::int AND "businessId" = ${businessId}::int`)[0];
+    if (!kase) throw new ServiceDeskError("NOT_FOUND");
     const i = (await tx.$queryRaw<Record<string, unknown>[]>`
       SELECT "conditionNote", "accessoriesNote", "conditionRecorded", "accessoriesRecorded", "signedAt", "termsVersion", "signatureKey", "slipPdfKey"
         FROM "ServiceCaseIntake" WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int`)[0];
@@ -260,6 +283,10 @@ export async function getIntake(businessId: number, caseId: unknown): Promise<In
     const photos = await tx.$queryRaw<{ id: number; sha256: string; mimeType: string; byteSize: number; createdAt: Date }[]>`
       SELECT id, sha256, "mimeType", "byteSize", "createdAt" FROM "ServiceIntakePhoto"
        WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int AND "erasedAt" IS NULL ORDER BY id`;
+    const conf = (await tx.$queryRaw<{ at: Date; uid: number | null; name: string | null }[]>`
+      SELECT e."occurredAt" AS at, e."actorUserId" AS uid, COALESCE(NULLIF(btrim(u.name), ''), u.email) AS name
+        FROM "ServiceCaseEvent" e LEFT JOIN "User" u ON u.id = e."actorUserId"
+       WHERE e."businessId" = ${businessId}::int AND e."caseId" = ${caseId}::int AND e.action::text = 'CHECK_IN' ORDER BY e.seq DESC LIMIT 1`)[0];
     const history = await tx.$queryRaw<{ seq: number; step: string | null; occurredAt: Date }[]>`
       SELECT seq, payload->>'step' AS step, "occurredAt" FROM "ServiceCaseEvent"
        WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int AND action::text = 'RECORD_INTAKE' ORDER BY seq`;
@@ -277,6 +304,12 @@ export async function getIntake(businessId: number, caseId: unknown): Promise<In
       activeTerms: { termsVersion: a?.tv === null || a?.tv === undefined ? null : Number(a.tv), statutoryVersion: a?.sv === null || a?.sv === undefined ? null : Number(a.sv), approved: a?.ok === true },
       photos: photos.map((r) => ({ id: Number(r.id), sha256: String(r.sha256), mimeType: String(r.mimeType), byteSize: Number(r.byteSize), createdAt: iso(r.createdAt) as string })),
       history: history.map((r) => ({ seq: Number(r.seq), step: r.step ?? null, occurredAt: iso(r.occurredAt) as string })),
+      case: { caseNumber: Number(kase.n), kind: kase.kind, status: kase.status, version: Number(kase.version) },
+      confirmation: conf ? { at: iso(conf.at) as string, byUserId: conf.uid === null ? null : Number(conf.uid), byName: conf.name ?? null } : null,
+      allowed: intakeAllowed({
+        kind: kase.kind, status: kase.status, recorded: i?.conditionRecorded === true && i?.accessoriesRecorded === true,
+        photoCount: photos.length, confirmed: Boolean(conf), hasSlip: i?.slipPdfKey != null,
+      }),
     };
   });
 }

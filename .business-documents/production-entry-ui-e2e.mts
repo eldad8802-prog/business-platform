@@ -23,6 +23,16 @@
  *   D4 focus starts on the close button, Tab stays inside, Escape closes, focus returns to the production button
  *   D5 the X button closes the panel
  *   E1 English interface: the list speaks English (no Hebrew left in the list)
+ *   XO1 exempt dealer, feature OFF: "+ צור חשבונית" shows the notice — no create modal, no draft
+ *   XO2 … the empty-state button shows the notice
+ *   XO3 … /billing?create=1, ?create=TAX_INVOICE and ?create=documents show the notice
+ *   XO4 … the quote stays available (its create modal opens)
+ *   XO5 … English: the notice in English
+ *   XG1 kind unknown, feature OFF: the identity gate opens as before; declaring "עוסק פטור" there shows the notice
+ *   AO1 authorized dealer, feature OFF: the empty-state button and ?create=1 open the invoice create modal as before
+ *   EO1 exempt dealer, feature ON: the "+" menu's ?create=1 and ?create=TAX_INVOICE show the notice, no tax-invoice form
+ *   EO2 … the production list still opens; the quote is available from it
+ *   AO2 authorized dealer, feature ON: ?create=1 still opens the tax-invoice form
  *   L1 the database holds exactly the drafts the scenarios made, all DRAFT, none numbered
  *
  * env: E2E_BASE, SEED_OUT, OUT, OWNER_URL.
@@ -35,7 +45,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 const BASE = process.env.E2E_BASE ?? "http://localhost:3730";
 const OUT = process.env.OUT ?? "/tmp/bd-pe-ui";
 type Biz = { businessId: number; token: string; customerId: number };
-const seed = JSON.parse(readFileSync(process.env.SEED_OUT!, "utf8")) as Record<"A" | "E" | "I" | "B", Biz>;
+const seed = JSON.parse(readFileSync(process.env.SEED_OUT!, "utf8")) as Record<"A" | "E" | "I" | "B" | "X" | "U", Biz>;
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 mkdirSync(OUT, { recursive: true });
 
@@ -77,6 +87,9 @@ async function openBilling(page: Page) {
   current = page;
   await page.goto("/billing");
   await page.getByRole("heading", { name: "חשבוניות" }).waitFor({ timeout: 90_000 });
+  // the heading is server-rendered: wait until the page is hydrated and its first reads are done, so a click is
+  // not lost before React attaches the handlers
+  await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => undefined);
 }
 async function openList(page: Page) {
   await openBilling(page);
@@ -287,9 +300,132 @@ async function main() {
       await c.close();
     }
 
+    // ── exempt dealer, feature OFF: the three tax-invoice entries show a notice (owner-approved 2026-11-11) ──
+    {
+      const NOTICE = "עוסק פטור אינו רשאי להפיק חשבונית מס";
+      const c = await ctx(browser, seed.X.token, DESKTOP);
+      const page = await c.newPage();
+      const noticeShown = async () => {
+        const n = page.getByTestId("exempt-tax-invoice-notice");
+        await n.waitFor({ timeout: 30_000 });
+        if (!(await n.innerText()).includes(NOTICE)) throw new Error("notice text");
+        if ((await page.getByRole("dialog", { name: "יצירת טיוטת חשבונית" }).count()) !== 0) throw new Error("invoice create modal opened");
+        if (new URL(page.url()).pathname !== "/billing") throw new Error(`navigated to ${page.url()}`);
+      };
+      const closeNotice = () => page.getByTestId("exempt-tax-invoice-notice").getByRole("button").click();
+      await openBilling(page);
+      await check("XO1 exempt, feature OFF: '+ צור חשבונית' shows the notice, no modal", async () => {
+        await page.getByRole("button", { name: "+ צור חשבונית" }).click({ timeout: 30_000 });
+        await noticeShown();
+      });
+      await shot(page, "XO1-exempt-off-notice");
+      await check("XO2 … the empty-state button shows the notice", async () => {
+        await closeNotice();
+        await page.getByRole("button", { name: "התחל מסמך ללקוח" }).click({ timeout: 30_000 });
+        await noticeShown();
+      });
+      await check("XO3 … ?create=1, ?create=TAX_INVOICE and ?create=documents show the notice", async () => {
+        for (const q of ["create=1", "create=TAX_INVOICE", "create=documents"]) {
+          await page.goto(`/billing?${q}`);
+          await noticeShown();
+        }
+      });
+      await check("XO4 … the quote stays available", async () => {
+        await closeNotice();
+        await page.getByRole("button", { name: "+ צור הצעת מחיר" }).click();
+        await page.getByRole("dialog", { name: "יצירת הצעת מחיר" }).waitFor();
+      });
+      await c.close();
+      const en = await ctx(browser, seed.X.token, DESKTOP, "en");
+      const p2 = await en.newPage();
+      current = p2;
+      await check("XO5 … English: the notice in English", async () => {
+        await p2.goto("/billing");
+        await p2.getByRole("button", { name: "+ Create invoice" }).waitFor({ timeout: 90_000 });
+        await p2.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => undefined);
+        await p2.getByRole("button", { name: "+ Create invoice" }).click();
+        const n = p2.getByTestId("exempt-tax-invoice-notice");
+        await n.waitFor();
+        if (!(await n.innerText()).includes("An exempt dealer may not issue a tax invoice")) throw new Error(await n.innerText());
+      });
+      await shot(p2, "XO5-exempt-off-notice-en");
+      await en.close();
+    }
+
+    // ── kind unknown, feature OFF: the identity gate as before; declaring exempt there shows the notice ──
+    {
+      const c = await ctx(browser, seed.U.token, DESKTOP);
+      const page = await c.newPage();
+      await openBilling(page);
+      await page.waitForTimeout(2000);
+      await check("XG1 unknown kind: the gate opens as before; declaring exempt there shows the notice, not the modal", async () => {
+        await page.getByRole("button", { name: "+ צור חשבונית" }).click({ timeout: 30_000 });
+        const gate = page.locator('[aria-labelledby="identity-gate-title"]');
+        await gate.waitFor({ timeout: 15_000 });
+        await gate.getByLabel("שם העסק במסמך").fill("עסק בדיקה U");
+        await gate.getByLabel("סוג עסק").selectOption("EXEMPT_DEALER");
+        await gate.getByLabel("ע.מ. / ח.פ.").fill("515000123");
+        await gate.getByLabel("כתובת").fill("רחוב הבדיקה 2, חיפה");
+        await gate.getByLabel("טלפון").fill("0501234567");
+        await gate.getByLabel('דוא"ל').fill("u@lab.test");
+        await gate.getByRole("button", { name: "שמור והמשך" }).click();
+        await page.getByTestId("exempt-tax-invoice-notice").waitFor({ timeout: 30_000 });
+        if ((await page.getByRole("dialog", { name: "יצירת טיוטת חשבונית" }).count()) !== 0) throw new Error("invoice create modal opened");
+      });
+      await shot(page, "XG1-gate-exempt-notice");
+      await c.close();
+    }
+
+    // ── authorized dealer, feature OFF and exempt dealer, feature ON: unchanged ──
+    {
+      const c = await ctx(browser, seed.B.token, DESKTOP);
+      const page = await c.newPage();
+      await openBilling(page);
+      await check("AO1 authorized, feature OFF: empty-state button and ?create=1 open the invoice create modal as before", async () => {
+        await page.getByRole("button", { name: "התחל מסמך ללקוח" }).click({ timeout: 30_000 });
+        await page.getByRole("dialog", { name: "יצירת טיוטת חשבונית" }).waitFor();
+        await page.goto("/billing?create=1");
+        await page.getByRole("dialog", { name: "יצירת טיוטת חשבונית" }).waitFor({ timeout: 60_000 });
+        if ((await page.getByTestId("exempt-tax-invoice-notice").count()) !== 0) throw new Error("notice shown to an authorized dealer");
+      });
+      await c.close();
+      const c2 = await ctx(browser, seed.E.token, DESKTOP);
+      const p2 = await c2.newPage();
+      current = p2;
+      await check("EO1 exempt, feature ON: the \"+\" menu's ?create=1 and ?create=TAX_INVOICE show the notice — no tax-invoice form", async () => {
+        for (const q of ["create=1", "create=TAX_INVOICE"]) {
+          await p2.goto(`/billing?${q}`);
+          const n = p2.getByTestId("exempt-tax-invoice-notice");
+          await n.waitFor({ timeout: 90_000 });
+          if (!(await n.innerText()).includes("עוסק פטור אינו רשאי להפיק חשבונית מס")) throw new Error("notice text");
+          if ((await p2.getByRole("dialog", { name: "יצירת טיוטת חשבונית" }).count()) !== 0) throw new Error(`invoice create modal opened (${q})`);
+          if (new URL(p2.url()).pathname !== "/billing") throw new Error(`navigated to ${p2.url()}`);
+          await n.getByRole("button").click();
+        }
+      });
+      await shot(p2, "EO1-exempt-on-notice");
+      await check("EO2 exempt, feature ON: the production list still opens and the quote is available from it", async () => {
+        await p2.getByTestId("document-production-button").click({ timeout: 30_000 });
+        await p2.getByTestId("document-production-sheet").waitFor();
+        await p2.waitForTimeout(800);
+        await p2.locator('[data-testid="document-production-sheet"] [data-option="QUOTE"]').click();
+        await p2.getByRole("dialog", { name: "יצירת הצעת מחיר" }).waitFor();
+      });
+      await c2.close();
+      const c3 = await ctx(browser, seed.A.token, DESKTOP);
+      const p3 = await c3.newPage();
+      current = p3;
+      await check("AO2 authorized, feature ON: ?create=1 still opens the tax-invoice form; no notice", async () => {
+        await p3.goto("/billing?create=1");
+        await p3.getByRole("dialog", { name: "יצירת טיוטת חשבונית" }).waitFor({ timeout: 90_000 });
+        if ((await p3.getByTestId("exempt-tax-invoice-notice").count()) !== 0) throw new Error("notice shown to an authorized dealer");
+      });
+      await c3.close();
+    }
+
     await check("L1 the database holds exactly the drafts the scenarios made, all DRAFT, none numbered", async () => {
       const a = await drafts(seed.A);
-      const others = (await Promise.all([seed.E, seed.I, seed.B].map(drafts))).flat();
+      const others = (await Promise.all([seed.E, seed.I, seed.B, seed.X, seed.U].map(drafts))).flat();
       if (a.length !== 2 || others.length !== 0 || a.some((d) => d.status !== "DRAFT" || d.documentNumber !== null)) throw new Error(JSON.stringify({ a, others }));
     });
   } finally {
