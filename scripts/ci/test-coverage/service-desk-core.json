@@ -36,7 +36,11 @@
     },
     "lib/services/service-desk/settlement.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "pure (no DB): 1.3c — the balance a handover reads: only SETTLED and OPEN (integer agorot > 0) are known; UNKNOWN (any reason) and NO_CHARGE_DOCUMENT keep the handover blocked and are never read as 0; today's only reader answers UNKNOWN / NOT_LINKED (no billing link yet, no inference); run on pull_request by service-desk-ci.yml"
+      "reason": "pure (no DB): 1.3c — the balance a handover reads (contract v2): NO_CHARGE (explicit) and SETTLED are 0, an overpayment is carried; OPEN and CHARGE_NOT_DOCUMENTED carry the debt; UNKNOWN (any reason) keeps the handover blocked and is never read as 0; today's only reader answers UNKNOWN / NOT_LINKED; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/case-balance.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/clock): the balance of a service case from its charge, active billing links and billing's settlement facts (#1102 shape) — the five handover cases, exempt dealer, overpayment shown never zeroed, another business's / vanished / draft / foreign / wrong-type document → UNKNOWN, a double link → UNKNOWN, no double count of allocated receipts / tax invoice-receipts / credits, partial payments and one receipt over several invoices, documented above the charge → UNKNOWN, and charge changes against issued documents; run on pull_request by service-desk-ci.yml"
     }
   }
 }
