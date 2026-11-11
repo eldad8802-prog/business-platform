@@ -290,6 +290,7 @@ function readTokenFrom(env: RefreshEnv): string | null {
 
 /** One request. `credentials: "same-origin"` is what makes the browser send the cookie at all. */
 async function attemptRefresh(env: RefreshEnv): Promise<RefreshResult> {
+  const sentWith = readTokenFrom(env);
   try {
     const res = await env.fetch("/api/auth/refresh", {
       method: "POST",
@@ -309,6 +310,16 @@ async function attemptRefresh(env: RefreshEnv): Promise<RefreshResult> {
 
     const body = (await res.json()) as { token?: unknown };
     if (typeof body.token !== "string" || body.token.length === 0) return "failed";
+
+    // A LATE answer must never undo what happened while it was on the way.
+    // The token in storage is compared with the one there when the request
+    // left: if the person signed out (it is gone) or signed in again (it is a
+    // different one), this response belongs to a session the device has moved
+    // on from, and writing it back would put that session — possibly one a
+    // "clear this device anyway" sign-out left alive on the server — back on
+    // the device. Nothing is written; the device keeps what it has now.
+    const now = readTokenFrom(env);
+    if (now !== sentWith) return now === null ? "unauthenticated" : "refreshed";
 
     try {
       env.storage()?.setItem(TOKEN_KEY, body.token);
