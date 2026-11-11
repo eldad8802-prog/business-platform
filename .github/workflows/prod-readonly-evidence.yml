@@ -171,6 +171,8 @@ on:
           - 'ops/evidence/billing-allocation-stuck-evidence.sql'
           - 'ops/evidence/service-desk-audit-journal-preflight.sql'
           - 'ops/evidence/service-desk-audit-journal-production-evidence.sql'
+          - 'ops/evidence/service-handover-record-preflight.sql'
+          - 'ops/evidence/service-handover-record-production-evidence.sql'
           - 'ops/evidence/email-verify-delivery-counts.sql'
           - 'ops/evidence/service-desk-no-signature-counts.sql'
 
