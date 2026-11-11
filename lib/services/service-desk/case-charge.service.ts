@@ -104,7 +104,7 @@ export async function linkBillingDocument(
   const prepared = prepare(p, req, "service-desk/cases:billing-link", { caseId, ...link, expectedVersion: body.expectedVersion });
   return recordCommand(p, caseId, body.expectedVersion, prepared, async (tx, { context }) => {
     await requireChargeSchema(tx);
-    const d = decideLink(context.status, currentCharge(await lastCharge(tx, b, caseId)));
+    const d = decideLink(context.status, currentCharge(await lastCharge(tx, b, caseId)), parsed.role);
     if (!d.ok) {
       if (d.violations.length === 1 && d.violations[0] === "NO_CHARGE_WITH_DOCUMENTS") throw new ServiceDeskError("NO_CHARGE_WITH_DOCUMENTS");
       throw new ServiceDeskError("REFUSED", { violations: d.violations });
@@ -164,7 +164,7 @@ export type CaseChargeRecord = {
 };
 
 export type CaseBillingLinkView = {
-  id: number; billingDocumentId: number; role: "CHARGE" | "STANDALONE_PAYMENT"; active: boolean;
+  id: number; billingDocumentId: number; role: "CHARGE" | "STANDALONE_PAYMENT" | "AFTER_SALE_CREDIT"; active: boolean;
   linkedAt: string; linkedByUserId: number | null; unlinkedAt: string | null; unlinkedByUserId: number | null; unlinkReason: string | null;
   /** billing's facts for an ACTIVE link (null for history): type, status, ILS total, and why it cannot be counted */
   document: { type: string | null; status: string | null; currency: string | null; totalAgorot: number | null; flag: string | null } | null;

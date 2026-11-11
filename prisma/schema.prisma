@@ -8838,6 +8838,7 @@ enum ServiceChargeSource {
 enum ServiceBillingLinkRole {
   CHARGE
   STANDALONE_PAYMENT
+  AFTER_SALE_CREDIT // an issued credit note — the record of a T7 credit; never part of the balance
 }
 
 model ServiceSettings {
