@@ -15,6 +15,7 @@
  *   (d) a Google-only account (password NULL) end to end → a row with reauthMethod EMAIL_LINK.
  *
  *   OWNER_URL=… AUTH_URL=… RUNTIME_URL=… npx tsx .issuer-declaration/declaration-flow.battery.mts
+ *   NEG=non-atomic … — negative proof: the spend in its own transaction; (a) must FAIL.
  * Synthetic only. ZERO secrets. ZERO network.
  */
 import { inspect } from "node:util";
@@ -86,8 +87,19 @@ async function main() {
     const r = await svc.requestDeclarationLink(u, new Date());
     return r.outcome === "SENT" ? { ...r, ...(await tokenOf(r.emailId)) } : { ...r, token: "", kind: "" };
   };
+  // NEGATIVE PROOF (NEG=non-atomic): spend the link in its OWN committed transaction instead of the confirm's —
+  // (a) must then fail (a failure after the spend leaves the link spent).
+  const nonAtomic = process.env.NEG === "non-atomic";
+  const depsFor = (u: { businessId: number }) =>
+    nonAtomic
+      ? {
+          request: link.requestIssuerDeclarationLink,
+          consume: ((_tx: unknown, input: Parameters<typeof link.consumeIssuerDeclarationLink>[1]) =>
+            tenantTx(u.businessId, (own) => link.consumeIssuerDeclarationLink(own, input))) as typeof link.consumeIssuerDeclarationLink,
+        }
+      : undefined;
   const confirm = (u: { id: number; businessId: number }, token: unknown, hooks?: Parameters<typeof svc.confirmDeclaration>[4]) =>
-    svc.confirmDeclaration(u, token, new Date(), undefined, hooks).then((r) => r.outcome as string).catch((e) => `ERROR ${errText(e).slice(0, 300)}`);
+    svc.confirmDeclaration(u, token, new Date(), depsFor(u), hooks).then((r) => r.outcome as string).catch((e) => `ERROR ${errText(e).slice(0, 300)}`);
   const decls = async (b: number) => q(`SELECT * FROM "BusinessIssuerDeclaration" WHERE "businessId" = $1 ORDER BY version`, b);
   const tokenCount = async (u: number) => Number((await q(`SELECT count(*) n FROM "AuthEmailToken" WHERE "userId" = $1 AND purpose = 'ISSUER_DECLARATION'`, u))[0].n);
 

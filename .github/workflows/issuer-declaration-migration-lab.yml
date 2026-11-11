@@ -223,3 +223,22 @@ jobs:
           set -euo pipefail
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idc"           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idc"           AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/idc"             npx tsx .issuer-declaration/declaration-flow.battery.mts | tee /tmp/idc.out
           grep -qx "ALL PASS" /tmp/idc.out || { echo "::error::the declaration flow battery is not green"; exit 1; }
+
+      - name: Negative proof — the spend in its own transaction must fail (a)
+        run: |
+          set -uo pipefail
+          O="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/postgres"
+          psql "$O" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE idc_neg" > /dev/null
+          bash .agl/lab.sh idc_neg --with-issuer > /dev/null
+          N="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idc_neg"
+          psql "$N" -v ON_ERROR_STOP=1 -q -f .issuer-declaration/drop-pushed.sql > /dev/null 2>&1
+          psql "$N" -v ON_ERROR_STOP=1 -q -f prisma/migrations/20261123090000_issuer_declaration/migration.sql > /dev/null
+          NEG=non-atomic OWNER_URL="$N" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idc_neg" \
+          AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/idc_neg" \
+            npx tsx .issuer-declaration/declaration-flow.battery.mts > /tmp/idc-neg.out 2>&1 || true
+          grep -E '^\s+\(a\):' /tmp/idc-neg.out || true
+          if grep -qx "ALL PASS" /tmp/idc-neg.out || ! grep -q "\[FAIL\] (a)" /tmp/idc-neg.out; then
+            echo "::error::NEGATIVE-PROOF FAIL: a non-atomic spend was not caught by (a)"; exit 1
+          fi
+          echo "negative proof OK — a spend outside the declaration transaction is caught by (a)"
