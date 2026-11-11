@@ -348,6 +348,8 @@ async function main() {
         "app/api/auth/google/complete/route.ts",
         "app/api/auth/password/forgot/route.ts",
         "app/api/auth/register/route.ts",
+        // #1081: the issuer-declaration link email, scheduled after the response exactly as register does.
+        "app/api/billing/issuer-declaration/request/route.ts",
         "app/api/transactional-email/sweep/route.ts",
         // "Continue with Google", milestone 3: the link email and the security notices, after the response.
         "lib/auth/google-link-delivery.ts",

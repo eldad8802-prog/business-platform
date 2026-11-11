@@ -49,16 +49,20 @@ export default function ConfirmScreen() {
           credentials: "same-origin",
           body: JSON.stringify({ token: t }),
         });
-        const body = (await res.json().catch(() => ({}))) as { status?: string; message?: string | null };
+        const body = (await res.json().catch(() => ({}))) as {
+          status?: string;
+          message?: string | null;
+          statement?: IssuerStatement | null;
+          precondition?: string | null;
+        };
         if (!alive) return;
         if (body.status !== "VALID") {
           setView({ kind: "blocked", status: body.status ?? "INVALID", message: body.message ?? "הקישור אינו תקין." });
           return;
         }
-        const st = await fetch("/api/billing/issuer-declaration", { headers: authHeaders(), credentials: "same-origin", cache: "no-store" });
-        const sb = (await st.json().catch(() => ({}))) as { statement?: IssuerStatement | null; precondition?: string | null };
-        if (!alive) return;
-        if (!st.ok || !sb.statement || sb.precondition) {
+        // The same response carries the signed-in business's statement (one call, nothing changed).
+        const sb = body;
+        if (!res.ok || !sb.statement || sb.precondition) {
           const status = sb.precondition ?? "INCOMPLETE";
           setView({ kind: "blocked", status, message: PRECONDITION_MESSAGE[status] ?? PRECONDITION_MESSAGE.INCOMPLETE });
           return;
