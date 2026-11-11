@@ -290,13 +290,13 @@ async function main() {
     await x(`UPDATE "Business" SET "deletionRequestedAt" = now() WHERE id = $1`, A.b);
     const n = Number((await rtRows(A.b, `SELECT public.service_tracks_erase_business() AS n`))[0].n);
     const left = (await own(A.b, `SELECT
-        (SELECT count(*)::int FROM "ServiceCase" WHERE "siteAddress" IS NOT NULL OR "siteNotes" IS NOT NULL OR "originalSaleRef" IS NOT NULL) c,
-        (SELECT count(*)::int FROM "ServiceDevice" WHERE "displayName" IS NOT NULL OR attributes IS NOT NULL) d,
-        (SELECT count(*)::int FROM "ServiceCompletion" WHERE "confirmedByName" IS NOT NULL OR note IS NOT NULL OR "actorUserId" IS NOT NULL) k,
-        (SELECT count(*)::int FROM "ServiceCaseDetailChange" WHERE reason IS NOT NULL OR "siteAddressBefore" IS NOT NULL OR "siteAddressAfter" IS NOT NULL OR "actorUserId" IS NOT NULL) h,
-        (SELECT count(*)::int FROM "ServiceCompletion") kept`))[0];
+        (SELECT count(*)::int FROM "ServiceCase" WHERE "businessId" = $1 AND ("siteAddress" IS NOT NULL OR "siteNotes" IS NOT NULL OR "originalSaleRef" IS NOT NULL)) c,
+        (SELECT count(*)::int FROM "ServiceDevice" WHERE "businessId" = $1 AND ("displayName" IS NOT NULL OR attributes IS NOT NULL)) d,
+        (SELECT count(*)::int FROM "ServiceCompletion" WHERE "businessId" = $1 AND ("confirmedByName" IS NOT NULL OR note IS NOT NULL OR "actorUserId" IS NOT NULL)) k,
+        (SELECT count(*)::int FROM "ServiceCaseDetailChange" WHERE "businessId" = $1 AND (reason IS NOT NULL OR "siteAddressBefore" IS NOT NULL OR "siteAddressAfter" IS NOT NULL OR "actorUserId" IS NOT NULL)) h,
+        (SELECT count(*)::int FROM "ServiceCompletion" WHERE "businessId" = $1) kept`, A.b))[0];
     ok("X1 the tracks erasure scrubs every M1 personal column the service wrote; the records themselves stay", n > 0 && Number(left.c) === 0 && Number(left.d) === 0 && Number(left.k) === 0 && Number(left.h) === 0 && Number(left.kept) >= 3, JSON.stringify(left));
-    const other = (await own(C.b, `SELECT count(*)::int n FROM "ServiceCase" WHERE "siteAddress" IS NOT NULL`))[0];
+    const other = (await own(C.b, `SELECT count(*)::int n FROM "ServiceCase" WHERE "businessId" = $1 AND "siteAddress" IS NOT NULL`, C.b))[0];
     ok("X2 another business is untouched", Number(other.n) >= 1);
   }
 
