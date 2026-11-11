@@ -270,13 +270,20 @@ async function main() {
   const vN0 = await getIntake(A.b, cN.id);
   ok("N1 documented (no accessories handed over) + a photo, no terms, no signature → the owner may confirm; no slip yet",
     vN0.allowed.confirm && !vN0.allowed.createSlip && vN0.confirmation === null && vN0.terms === null && vN0.intake?.signed === false);
-  const ciN = await runCaseAction(A.p, cN.id, { action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion: await version(cN.id) }, { idempotencyKey: key() });
+  const kN = key(), vNb = await version(cN.id);
+  const ciN = await runCaseAction(A.p, cN.id, { action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion: vNb }, { idempotencyKey: kN });
   const vN1 = await getIntake(A.b, cN.id);
   ok("N2 the owner's confirmation checks the item in: CHECKED_IN, confirmation by this user with its time, signedAt still empty, no signature object",
     ciN.case.status === "CHECKED_IN" && vN1.confirmation?.byUserId === A.u && typeof vN1.confirmation?.at === "string" && vN1.intake?.signed === false && vN1.intake?.hasSignature === false);
   ok("N3 after the confirmation the intake is closed: no data, no photo, no second confirmation; the slip is offered",
     !vN1.allowed.recordData && !vN1.allowed.addPhoto && !vN1.allowed.confirm && vN1.allowed.createSlip
       && (await code(() => photo(A, cN.id, jpeg()))).includes("INTAKE_ONLY_BEFORE_CHECK_IN"));
+  const evBefore = await events(cN.id);
+  const replayN = await runCaseAction(A.p, cN.id, { action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion: vNb }, { idempotencyKey: kN });
+  const second = await code(async () => runCaseAction(A.p, cN.id, { action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion: await version(cN.id) }, { idempotencyKey: key() }));
+  ok("N7 no double confirmation: the same request replays the stored answer; a new confirmation is refused; nothing more journaled",
+    replayN.replayed === true && second !== "OK" && (await events(cN.id)) === evBefore
+      && (await n(`SELECT count(*)::int AS n FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND action::text = 'CHECK_IN'`, cN.id)) === 1, second);
   const nHtml = buildIntakeSlipHtml(await loadSlipInput(A.b, cN.id));
   ok("N4 the slip names the confirming user and says no accessories were handed over; no signature, no terms, no image",
     nHtml.includes("הקליטה אושרה") && nHtml.includes("לא נמסרו אביזרים") && !/חתימ|תנאי השירות|<img/.test(nHtml));
