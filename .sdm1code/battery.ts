@@ -6,7 +6,8 @@
  *
  *   E  the seven tracks, T1 … T7, end to end (QA templates, D15, WORK_DONE → COMPLETE, handover, T7 resolutions)
  *   C  COMPLETE: balance UNKNOWN blocks, an open balance needs the owner's reason, one immutable completion record,
- *      no customer signature anywhere, idempotent replay, stale version refused
+ *      no customer signature anywhere, idempotent replay, stale version refused; the record stores the balance, the
+ *      approving user + time of a debt (owner decision 2026-11-11) and an overpayment; UNKNOWN writes nothing
  *   D  CHANGE_DETAILS: journaled (event tokens + detail row with the values), D12, D3 binding, track enabled by the
  *      case's OWN snapshot (D14) — a later settings change never reaches an open case
  *   O  opening: profile snapshot taken now; track not enabled / subject not fitting → refused, nothing written
@@ -234,6 +235,30 @@ async function main() {
       && (ev.payload as Record<string, unknown>).debtOverride === true && Number((ev.payload as Record<string, unknown>).openBalanceAgorot) === 25_000
       && !payload.includes("יוסי") && !payload.includes("ממסר") && !payload.includes("לקוח קבוע"));
     ok("C10 a closed case is final: COMPLETE again → refused", (await act(A, id, done("OWNER_CONFIRMED_ON_SITE"))).includes("TERMINAL_STATUS"));
+    // Owner decision 2026-11-11: closing with an open debt = explicit approval stored with the record.
+    const appr = (await own(A.b, `SELECT "debtApprovedByUserId" a, ("debtApprovedAt" IS NOT NULL AND "debtApprovedAt" <= "completedAt") t, "overpaidAgorot" o FROM "ServiceCompletion" WHERE "caseId" = $1`, id))[0];
+    ok("C11 the debt record names the approving user (the acting owner) and the approval time; no overpayment", Number(appr?.a) === A.u && appr?.t === true && Number(appr?.o) === 0, JSON.stringify(appr));
+    const clean = (await own(A.b, `SELECT count(*)::int n FROM "ServiceCompletion" WHERE "businessId" = $1 AND "openBalanceAgorot" = 0
+        AND ("debtOverrideReason" IS NOT NULL OR "debtApprovedByUserId" IS NOT NULL OR "debtApprovedAt" IS NOT NULL)`, A.b))[0];
+    ok("C12 completions without a debt (T4 / T5 / T6, NO_CHARGE) carry no reason, approver or approval time", Number(clean.n) === 0, JSON.stringify(clean));
+  }
+  {
+    // An overpaid case (the billing facts stubbed through the reader seam): the overpayment is stored, not only journaled;
+    // an UNKNOWN balance first blocks and writes nothing.
+    const c = await open(A, { track: "T3", siteAddress: "רחוב העודף 7" });
+    await walk(A, c.id, [{ type: "CHECK_IN" }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR", outcome: "REPAIRED" }]);
+    const unknownReader = async () => ({ state: "UNKNOWN", openBalanceAgorot: null, reason: "READ_ERROR" }) as const;
+    const overReader = async () => ({ state: "SETTLED", openBalanceAgorot: 0, overpaidAgorot: 1_200 }) as const;
+    const v = (await row(A, c.id)).version;
+    const blocked = await tryIt(() => runCaseAction(A.p, c.id, { action: done("OWNER_CONFIRMED_ON_SITE"), expectedVersion: v }, { idempotencyKey: key() }, { settlement: unknownReader }));
+    ok("C13 an UNKNOWN balance → BALANCE_UNKNOWN, no completion record, the case stays WORK_DONE",
+      blocked.includes("BALANCE_UNKNOWN") && (await count(A, "ServiceCompletion", c.id)) === 0 && (await row(A, c.id)).status === "WORK_DONE", blocked);
+    const paid = await tryIt(() => runCaseAction(A.p, c.id, { action: done("OWNER_CONFIRMED_ON_SITE"), expectedVersion: v }, { idempotencyKey: key() }, { settlement: overReader }));
+    const rec = (await own(A.b, `SELECT "openBalanceAgorot" b, "overpaidAgorot" o, "debtOverrideReason" r, "debtApprovedByUserId" a, "debtApprovedAt" t FROM "ServiceCompletion" WHERE "caseId" = $1`, c.id))[0];
+    const ev = (await events(A, c.id)).at(-1)!;
+    ok("C14 an overpaid case closes; the record stores the overpayment (1,200 agorot) with no debt approval, and the journal shows it",
+      paid === "OK" && Number(rec?.b) === 0 && Number(rec?.o) === 1_200 && rec?.r === null && rec?.a === null && rec?.t === null
+        && Number((ev.payload as Record<string, unknown>).overpaidAgorot) === 1_200, `${paid} ${JSON.stringify(rec)}`);
   }
 
   console.log("D — CHANGE_DETAILS through the service");
@@ -296,10 +321,14 @@ async function main() {
     const left = (await own(A.b, `SELECT
         (SELECT count(*)::int FROM "ServiceCase" WHERE "businessId" = $1 AND ("siteAddress" IS NOT NULL OR "siteNotes" IS NOT NULL OR "originalSaleRef" IS NOT NULL)) c,
         (SELECT count(*)::int FROM "ServiceDevice" WHERE "businessId" = $1 AND ("displayName" IS NOT NULL OR attributes IS NOT NULL)) d,
-        (SELECT count(*)::int FROM "ServiceCompletion" WHERE "businessId" = $1 AND ("confirmedByName" IS NOT NULL OR note IS NOT NULL OR "debtOverrideReason" IS NOT NULL OR "actorUserId" IS NOT NULL)) k,
+        (SELECT count(*)::int FROM "ServiceCompletion" WHERE "businessId" = $1 AND ("confirmedByName" IS NOT NULL OR note IS NOT NULL OR "debtOverrideReason" IS NOT NULL OR "actorUserId" IS NOT NULL
+           OR "debtApprovedByUserId" IS NOT NULL)) k,
+        (SELECT count(*)::int FROM "ServiceCompletion" WHERE "businessId" = $1 AND "openBalanceAgorot" = 25000 AND "debtApprovedAt" IS NOT NULL) "debtKept",
+        (SELECT count(*)::int FROM "ServiceCompletion" WHERE "businessId" = $1 AND "overpaidAgorot" = 1200) "overKept",
         (SELECT count(*)::int FROM "ServiceCaseDetailChange" WHERE "businessId" = $1 AND (reason IS NOT NULL OR "siteAddressBefore" IS NOT NULL OR "siteAddressAfter" IS NOT NULL OR "actorUserId" IS NOT NULL)) h,
         (SELECT count(*)::int FROM "ServiceCompletion" WHERE "businessId" = $1) kept`, A.b))[0];
     ok("X1 the tracks erasure scrubs every M1 personal column the service wrote; the records themselves stay", n > 0 && Number(left.c) === 0 && Number(left.d) === 0 && Number(left.k) === 0 && Number(left.h) === 0 && Number(left.kept) >= 3, JSON.stringify(left));
+    ok("X1b …the debt reason and approver are cleared; the balance, the approval time and the overpayment stay", Number(left.debtKept) === 1 && Number(left.overKept) === 1, JSON.stringify(left));
     const other = (await own(C.b, `SELECT count(*)::int n FROM "ServiceCase" WHERE "businessId" = $1 AND "siteAddress" IS NOT NULL`, C.b))[0];
     ok("X2 another business is untouched", Number(other.n) >= 1);
   }

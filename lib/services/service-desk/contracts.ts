@@ -314,6 +314,18 @@ export interface ServiceCompletionRecord {
   completionType: ServiceCompletionType;
   confirmedByName: string | null;
   note: string | null;
+  /**
+   * The KNOWN balance the case is closed with (owner decision 2026-11-11), in agorot: the open debt and the overpayment,
+   * both >= 0, never both > 0 (CHECK ServiceCompletion_balance). Taken from the settlement the core judged — an unknown
+   * balance never reaches a record (BALANCE_UNKNOWN).
+   */
+  openBalanceAgorot: number;
+  overpaidAgorot: number;
+  /**
+   * An open debt closed by the acting owner's explicit approval (reason in texts.debtOverrideReason). The service stores
+   * the acting user as the approver and the transaction time as the approval time (CHECK ServiceCompletion_debt_decided).
+   */
+  debtApproved: boolean;
 }
 
 /** What happens to a SCHEDULED case's appointment when its place or address changes (section ט). */
