@@ -99,8 +99,9 @@ async function main() {
   walk(root);
   // UI 1.3a added one read: GET /api/service-desk/staff (the technician pickers); 1d-A added three external-work routes and
   // 1d-B two parts routes (closed until 1.3b); 1.3b added six intake routes (terms, photos, one photo, sign, signature, slip);
-  // the case charge added three (charges, billing-links, billing-links/unlink).
-  ok("R1 twenty-five route files (the staff read, three external-work, two parts, six intake and three charge routes)", files.length === 25 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
+  // the case charge added three (charges, billing-links, billing-links/unlink); 1.3c added four quote routes (list + send,
+  // revise, one version's decision, one version's stored PDF).
+  ok("R1 twenty-nine route files (the staff read, three external-work, two parts, six intake, three charge and four quote routes)", files.length === 29 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
   let allGuarded = true, kindsRight = true;
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");

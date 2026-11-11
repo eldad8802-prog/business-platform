@@ -45,6 +45,10 @@
     "lib/services/service-desk/case-charge-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): the case charge and its billing links (migration 20261126090000) — input parsing (modes, positive integer agorot ≤ int4, reasons 1–1000 characters trimmed, link roles, unlink reason required), decisions (CLOSED / CANCELLED final, NO_CHARGE and every change need a reason, an identical record is NO_CHANGE, seq last + 1, OWNER_ENTERED only, closed payload with no reason text, no link to a NO_CHARGE case, a correction after DELIVERED allowed), the link guard refusals and the one-active-link UNIQUE mapped to stable codes, and the real settlement reader over a fake transaction (no migration → NOT_LINKED, no charge → NO_CHARGE_DECISION, exempt dealer settled by a standalone receipt, overpayment carried, billing read error → READ_ERROR, draft → DRAFT_PENDING, vanished document → CONFLICT); run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/quote-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk 1.3c quotes — the canonical quote content (\"sdq1\" array) and its docHash: exact, deterministic, line-order and decimal-scale independent, changed by every content field and by nothing else; exact agorot from decimal text (never a float, int4 bound); the billing document check (another business = not found, not a QUOTE, not ILS, another customer, no lines, converted, issued); the owner's decision (APPROVE / REJECT by PHONE / IN_PERSON, LINK refused, the approval names the row's exact version / total / docHash, superseded / withdrawn rows named by their state); the approval's charge = the approved total, none for ₪0; the frozen-copy key under the business's service prefix; fit with the unchanged case core; run on pull_request by service-desk-ci.yml"
     }
   }
 }
