@@ -448,8 +448,8 @@ export type ServiceServerCheck =
   // M1
   | "CREDIT_DOCUMENT_LINKED"
   | "DETAIL_BLOCKERS_COUNTED_UNDER_LOCK"
-  /** CHANGE_DETAILS on a track case: the derived track is enabled by the case's snapshot and fits its subject. */
-  | "TRACK_ENABLED_AND_FITS_SUBJECT";
+  /** CHANGE_DETAILS on a track case: the derived track fits the case subject (T2 needs a vehicle). Every track is open to every business. */
+  | "SUBJECT_FITS_TRACK";
 
 /** Every command, whatever its action: the service layer's job, never the core's. */
 export const SERVICE_COMMAND_SERVER_DUTIES = [

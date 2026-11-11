@@ -245,15 +245,16 @@ async function main() {
     const ev = (await events(A, c.id)).at(-1)!;
     ok("D1 a new address: case updated, detail row at the event's seq with before / after / reason", r1 === "OK" && r.siteAddress === "רחוב חדש 9" && Number(d?.v) === r.version && d?.b === "רחוב ישן 1" && d?.a === "רחוב חדש 9" && d?.reason === "הלקוח עבר דירה", r1);
     ok("D2 the journal event: CHANGE_DETAILS in place, field names only", ev.action === "CHANGE_DETAILS" && ev.fromStatus === "OPEN" && ev.toStatus === "OPEN" && (ev.payload as Record<string, unknown>).changedFields === "siteAddress" && !JSON.stringify(ev.payload).includes("רחוב"));
-    ok("D3 to professional work on site (T5, enabled by the case's snapshot) → allowed", (await change({ workType: "PROFESSIONAL", siteAddress: "רחוב חדש 9" })) === "OK");
+    ok("D3 to professional work on site (T5) → allowed", (await change({ workType: "PROFESSIONAL", siteAddress: "רחוב חדש 9" })) === "OK");
+    // Owner decision 2026-11-11 (universal service): every track is open to every business, whatever its category or profile.
     const cC = await open(C, { track: "T3", siteAddress: "רחוב 3" });
-    ok("D4 to installation (T4) on a business whose snapshot does not enable it → SERVER_CHECK_FAILED, nothing written",
-      (await act(C, cC.id, { type: "CHANGE_DETAILS", next: { kind: "FIELD", workType: "INSTALLATION", serviceLocation: "AT_CUSTOMER", siteAddress: "רחוב 3", returnReason: null } })).includes("TRACK_ENABLED_AND_FITS_SUBJECT")
-      && (await row(C, cC.id)).workType === "REPAIR");
-    // D14: a settings change after the opening never reaches the open case
-    await rtRows(C.b, `INSERT INTO "ServiceSettings" ("businessId", version, "updatedAt", "serviceProfileKey", "profileOverrides") VALUES ($1, 1, now(), 'general', '{"enabledTracks":["T4"]}') RETURNING "businessId"`, C.b);
-    ok("D5 D14: T4 enabled in the settings later — the case's own snapshot still refuses it",
-      (await act(C, cC.id, { type: "CHANGE_DETAILS", next: { kind: "FIELD", workType: "INSTALLATION", serviceLocation: "AT_CUSTOMER", siteAddress: "רחוב 3", returnReason: null } })).includes("TRACK_ENABLED_AND_FITS_SUBJECT"));
+    ok("D4 universal: to installation (T4) on a business that never enabled it → allowed",
+      (await act(C, cC.id, { type: "CHANGE_DETAILS", next: { kind: "FIELD", workType: "INSTALLATION", serviceLocation: "AT_CUSTOMER", siteAddress: "רחוב 3", returnReason: null } })) === "OK"
+      && (await row(C, cC.id)).workType === "INSTALLATION");
+    const cS = await open(C, { track: "T1" });
+    ok("D5 universal: a repair at the business moves on site before work starts (T1 → T3) — allowed",
+      (await act(C, cS.id, { type: "CHANGE_DETAILS", next: { kind: "FIELD", workType: "REPAIR", serviceLocation: "AT_CUSTOMER", siteAddress: "רחוב 4", returnReason: null } })) === "OK"
+      && (await row(C, cS.id)).serviceLocation === "AT_CUSTOMER");
     const c1 = await open(A, { track: "T1" });
     await intake(A, c1.id);
     ok("D6 D12: an intake was started at the business — moving on site refused",
@@ -264,8 +265,10 @@ async function main() {
 
   console.log("O — opening");
   {
-    ok("O1 a track the profile does not enable → TRACK_NOT_ENABLED, no case number consumed",
-      await (async () => { const n0 = Number((await own(C.b, `SELECT count(*)::int n FROM "ServiceCase"`))[0].n); const r = await tryIt(() => open(C, { track: "T2", subject: { kind: "VEHICLE" } })); return r.includes("TRACK_NOT_ENABLED") && Number((await own(C.b, `SELECT count(*)::int n FROM "ServiceCase"`))[0].n) === n0; })());
+    // Universal: the business category never decides the profile, tracks or requirements (owner decision 2026-11-11).
+    await q(`INSERT INTO "BusinessProfile" ("businessId", category, "subCategory", "updatedAt") VALUES ($1, $2, $3, now())`, C.b, "automotive", "garage").catch(() => undefined);
+    const o1 = await tryIt(async () => { const c = await open(C, { track: "T2", subject: { kind: "VEHICLE" } }); const r = await row(C, c.id); if (r.profileKey !== "general") throw new Error(String(r.profileKey)); });
+    ok("O1 universal: any track opens on any business; the category does not pick the profile (general unless the owner chose one)", o1 === "OK", o1);
     ok("O2 an address at the business is refused", (await tryIt(() => open(A, { track: "T1", siteAddress: "x" }))).startsWith("INVALID_INPUT"));
     ok("O3 a kind contradicting the track is refused", (await tryIt(() => open(A, { track: "T6", kind: "IN_SHOP" }))).startsWith("INVALID_INPUT"));
     ok("O4 track fields without a track are refused", (await tryIt(() => open(A, { kind: "IN_SHOP", siteAddress: "x" }))).startsWith("INVALID_INPUT"));

@@ -1001,7 +1001,7 @@ function changeDetails(
     if (wasAfterSale !== isAfterSale) fail("AFTER_SALE_FIELDS", "an after-sale case stays after-sale, and no other case becomes one");
     else if (isAfterSale && n.returnReason === null) fail("AFTER_SALE_FIELDS", "an after-sale case keeps its return reason");
     else if (!isAfterSale && n.returnReason !== null) fail("AFTER_SALE_FIELDS", "a return reason belongs to an after-sale case");
-    r.serverChecks.push("TRACK_ENABLED_AND_FITS_SUBJECT");
+    r.serverChecks.push("SUBJECT_FITS_TRACK");
   }
   const onSiteNext = place === "AT_CUSTOMER" || place === "FIELD_SITE";
   if (!onSiteNext && address !== null) fail("INVALID_INPUT", "next.siteAddress: only work on site has a site address");

@@ -6,8 +6,8 @@
  *
  *   - loadTrackState    the case's own snapshot (D14) → ServiceTrackFacts (null = a case without a track: today's rules)
  *   - countDetailBlockers  the D3 blockers of CHANGE_DETAILS (the guard's list + D12 intake + D16 appointment started)
- *   - verifyTrackFits   a details change keeps a track the case's snapshot enables and its subject fits
- *   - planOpening       a case opened with a track: the business's profile snapshot, the place, the subject
+ *   - verifyTrackFits   a details change keeps a track its subject fits (every track is open to every business)
+ *   - planOpening       a case opened with a track: the chosen profile template (else general) snapshot, the place, the subject
  *
  * No free text leaves this module in an error: codes and field names only.
  */
@@ -16,8 +16,7 @@ import type { ServiceCaseDetails, ServiceCaseKind, ServiceDetailBlockers, Servic
 import { ServiceDeskError } from "./service-desk-errors";
 import {
   buildProfileSnapshot,
-  isTrackEnabled,
-  resolveProfileKey,
+  isServiceProfileKey,
   type AfterSaleResolution,
   type ProfileOverrides,
   type ProfileSnapshot,
@@ -136,14 +135,15 @@ export async function countDetailBlockers(tx: Tx, b: number, caseId: number, app
 }
 
 /**
- * TRACK_ENABLED_AND_FITS_SUBJECT: the track the new details derive is one the case's OWN snapshot enables, and the case's
+ * SUBJECT_FITS_TRACK: the track the new details derive is one the case's OWN snapshot enables, and the case's
  * subject keeps it derivable (T2 needs a vehicle; T1 must not name one). Refused, never assumed.
  */
 export function verifyTrackFits(state: TrackState, after: ServiceCaseDetails): void {
-  if (!state.snapshot) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "TRACK_ENABLED_AND_FITS_SUBJECT" });
+  if (!state.snapshot) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "SUBJECT_FITS_TRACK" });
   const track = deriveTrack(effectiveWorkType(after.kind, after.workType), effectiveLocation(after.kind, after.serviceLocation), state.subjectKind);
-  if (!isTrackEnabled(state.snapshot, track) || !subjectFitsTrack(track, state.subjectKind)) {
-    throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "TRACK_ENABLED_AND_FITS_SUBJECT", track });
+  // Owner decision 2026-11-11 (universal service): every track is open to every business — only the subject must fit.
+  if (!subjectFitsTrack(track, state.subjectKind)) {
+    throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "SUBJECT_FITS_TRACK", track });
   }
 }
 
@@ -164,13 +164,14 @@ export async function planOpening(tx: Tx, b: number, input: TrackOpeningInput): 
   }
   const s = (await tx.$queryRaw<{ key: string | null; overrides: unknown }[]>`
     SELECT "serviceProfileKey" AS key, "profileOverrides" AS overrides FROM "ServiceSettings" WHERE "businessId" = ${b}::int`)[0];
-  const bp = (await tx.$queryRaw<{ category: string | null; sub: string | null }[]>`
-    SELECT category, "subCategory" AS sub FROM "BusinessProfile" WHERE "businessId" = ${b}::int`)[0];
-  const profileKey = resolveProfileKey({ serviceProfileKey: s?.key ?? null, category: bp?.category ?? null, subCategory: bp?.sub ?? null });
+  // Owner decision 2026-11-11 (universal service): the business category never decides anything here. A profile is a
+  // template the owner may choose in the settings; without that choice every business gets the general profile.
+  const chosen = typeof s?.key === "string" ? s.key.trim() : "";
+  const profileKey = isServiceProfileKey(chosen) ? chosen : "general";
   const built = buildProfileSnapshot(profileKey, (s?.overrides ?? null) as ProfileOverrides | null);
   // Overrides that no longer validate are never applied silently: the opening is refused until the settings are fixed.
   if (!built.ok) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "PROFILE_OVERRIDES_VALID" });
-  if (!isTrackEnabled(built.snapshot, plan.opening.track)) throw new ServiceDeskError("REFUSED", { violations: ["TRACK_NOT_ENABLED"], track: plan.opening.track });
+  // Every track is open to every business (owner decision 2026-11-11): the profile's tracks are suggestions only.
   return { opening: plan.opening, profileKey, snapshot: built.snapshot };
 }
 

@@ -218,7 +218,7 @@ async function verifyServerChecks(
         // M1: lockCase counted them AFTER taking the case row FOR UPDATE; service_case_guard (a) re-checks the same rows.
         if (!f.decision || f.decision.action !== "CHANGE_DETAILS") throw new ServiceDeskError("SERVER_CHECK_FAILED", { check });
         break;
-      case "TRACK_ENABLED_AND_FITS_SUBJECT":
+      case "SUBJECT_FITS_TRACK":
         if (!f.track || !f.decision?.detailChange) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check });
         verifyTrackFits(f.track, f.decision.detailChange.after);
         break;

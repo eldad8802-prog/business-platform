@@ -276,7 +276,7 @@ console.log("— 4. CHANGE_DETAILS (D3 / D11 / D12 / D13 / D16)");
   const addr = change(open3(), { siteAddress: " הרצל 7, חיפה " }, { reason: "הלקוח עבר דירה" });
   check("OPEN: a new address → in place, journaled by field name only", addr.ok && addr.to === "OPEN" && !addr.statusChanged && addr.event.payload.changedFields === "siteAddress" && addr.effects.includes("RECORD_DETAIL_CHANGE"));
   check("…before / after / reason travel in decision.detailChange, never in the event", addr.ok && addr.detailChange?.before.siteAddress === "הרצל 1, חיפה" && addr.detailChange?.after.siteAddress === "הרצל 7, חיפה" && addr.detailChange?.reason === "הלקוח עבר דירה" && !JSON.stringify(addr.event).includes("הרצל"));
-  check("…the server re-counts the blockers under the lock and re-checks the track", addr.ok && addr.serverChecks.includes("DETAIL_BLOCKERS_COUNTED_UNDER_LOCK") && addr.serverChecks.includes("TRACK_ENABLED_AND_FITS_SUBJECT"));
+  check("…the server re-counts the blockers under the lock and re-checks the track", addr.ok && addr.serverChecks.includes("DETAIL_BLOCKERS_COUNTED_UNDER_LOCK") && addr.serverChecks.includes("SUBJECT_FITS_TRACK"));
   const toShop = change(open3(), { kind: "IN_SHOP", serviceLocation: "AT_BUSINESS", siteAddress: null });
   check("OPEN: on site → at the business (T3 → T1): kind follows the place", toShop.ok && toShop.event.payload.changedFields === "kind:serviceLocation:siteAddress");
   refused("the kind must follow the place", change(open3(), { kind: "IN_SHOP" }), "INVALID_INPUT");
