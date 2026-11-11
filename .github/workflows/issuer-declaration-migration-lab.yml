@@ -97,7 +97,7 @@ jobs:
           pass=$(grep -c "PASS  " lab.log || true); fail=$(grep -c "FAIL  " lab.log || true)
           echo "PASS=$pass FAIL=$fail"
           grep "FAIL  " lab.log || true
-          if [ "$fail" -ne 0 ] || [ "$pass" -lt 49 ]; then echo "::error::lab check: $pass passed, $fail failed (expected 49/0)"; exit 1; fi
+          if [ "$fail" -ne 0 ] || [ "$pass" -lt 58 ]; then echo "::error::lab check: $pass passed, $fail failed (expected 58/0)"; exit 1; fi
           if grep -q "ERROR:" lab.log; then echo "::error::the lab check itself raised an error"; exit 1; fi
 
       - name: Negative proof — without the designation-origin trigger, N1 is caught

@@ -82,7 +82,7 @@ CREATE TABLE "BusinessIssuerDeclaration" (
   CONSTRAINT "IssuerDeclaration_vat_number" CHECK ("vatStatus" = 'EXEMPT' OR "vatRegistrationNumber" IS NOT NULL),
   CONSTRAINT "IssuerDeclaration_first_has_no_predecessor" CHECK (("version" = 1) = ("supersedesId" IS NULL)),
   CONSTRAINT "IssuerDeclaration_first_kind" CHECK ("version" > 1 OR "kind" IN ('INITIAL', 'EXISTING_CONFIRMATION')),
-  CONSTRAINT "IssuerDeclaration_designation_evidence" CHECK ("authorityBasis" <> 'PLATFORM_DESIGNATED' OR "authorityEvidenceRef" IS NOT NULL),
+  CONSTRAINT "IssuerDeclaration_designation_evidence" CHECK ("authorityBasis" <> 'PLATFORM_DESIGNATED' OR length(btrim(COALESCE("authorityEvidenceRef", ''))) >= 1),
   CONSTRAINT "IssuerDeclaration_admin_reauth" CHECK (("reauthMethod" = 'PLATFORM_ADMIN_ELEVATION') = ("authorityBasis" = 'PLATFORM_DESIGNATED' AND "declaredByUserId" <> "authorizedUserId"))
 );
 CREATE UNIQUE INDEX "BusinessIssuerDeclaration_businessId_version_key" ON "BusinessIssuerDeclaration" ("businessId", "version");
@@ -198,8 +198,16 @@ BEGIN
     NULL;  -- the writer is checked by BusinessIssuerDeclaration_designation_origin (SECURITY INVOKER)
   END IF;
 
+  -- R1 (review 2026-11-11): a declaration cannot take effect in the future — a far-future effectiveFrom would make
+  -- "documents issued under it" (issuedAt >= effectiveFrom) always empty and so open CORRECTION and erase.
+  IF NEW."effectiveFrom" > now() + interval '5 minutes' THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZD31', MESSAGE = 'ISSUER_EFFECTIVE_FROM_IN_FUTURE';
+  END IF;
   SELECT * INTO cur FROM public."BusinessIssuerDeclaration"
    WHERE "businessId" = NEW."businessId" ORDER BY "version" DESC LIMIT 1;
+  IF cur."id" IS NOT NULL AND NEW."effectiveFrom" < cur."effectiveFrom" THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZD31', MESSAGE = 'ISSUER_EFFECTIVE_FROM_BEFORE_CURRENT';
+  END IF;
   IF cur."id" IS NULL THEN
     IF NEW."version" <> 1 THEN RAISE EXCEPTION USING ERRCODE = 'DZD31', MESSAGE = 'ISSUER_DECLARATION_FIRST_MUST_BE_VERSION_1'; END IF;
     IF NEW."authorityBasis" = 'CURRENT_AUTHORIZED_USER' THEN
@@ -278,8 +286,9 @@ CREATE OR REPLACE FUNCTION public.issuer_designate_authorized_user(
   p_business integer, p_authorized_user integer, p_admin_user integer, p_admin_name text,
   p_evidence_ref text, p_reason text, p_statement_version text, p_statement_sha256 text)
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
-DECLARE cur public."BusinessIssuerDeclaration"; new_id integer;
+DECLARE cur public."BusinessIssuerDeclaration"; new_id integer; prev_business text;
 BEGIN
+  prev_business := current_setting('app.current_business_id', true);
   PERFORM set_config('app.current_business_id', p_business::text, true);
   IF NOT EXISTS (SELECT 1 FROM public."User" u WHERE u."id" = p_authorized_user AND u."businessId" = p_business) THEN
     RAISE EXCEPTION USING ERRCODE = 'DZD33', MESSAGE = 'ISSUER_DESIGNATED_USER_NOT_IN_BUSINESS';
@@ -297,6 +306,8 @@ BEGIN
       cur."effectiveFrom", p_reason, p_authorized_user, 'PLATFORM_DESIGNATED', p_evidence_ref, p_admin_user, p_admin_name, 'מנהל פלטפורמה',
       p_statement_version, p_statement_sha256, 'PLATFORM_ADMIN_ELEVATION', now())
   RETURNING "id" INTO new_id;
+  -- R3 (review 2026-11-11): the caller's tenant setting is restored — nothing after this call runs as p_business.
+  PERFORM set_config('app.current_business_id', COALESCE(prev_business, ''), true);
   RETURN new_id;
 END
 $fn$;
@@ -307,8 +318,9 @@ CREATE OR REPLACE FUNCTION public.issuer_designate_initial(
   p_business integer, p_authorized_user integer, p_admin_user integer, p_admin_name text,
   p_evidence_ref text, p_reason text, p_statement_version text, p_statement_sha256 text, p_issuer jsonb)
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
-DECLARE v public."BusinessIssuerDeclaration"; new_id integer;
+DECLARE v public."BusinessIssuerDeclaration"; new_id integer; prev_business text;
 BEGIN
+  prev_business := current_setting('app.current_business_id', true);
   PERFORM set_config('app.current_business_id', p_business::text, true);
   IF NOT EXISTS (SELECT 1 FROM public."User" u WHERE u."id" = p_authorized_user AND u."businessId" = p_business) THEN
     RAISE EXCEPTION USING ERRCODE = 'DZD33', MESSAGE = 'ISSUER_DESIGNATED_USER_NOT_IN_BUSINESS';
@@ -326,6 +338,8 @@ BEGIN
       COALESCE(v."effectiveFrom", now()), p_reason, p_authorized_user, 'PLATFORM_DESIGNATED', p_evidence_ref, p_admin_user,
       p_admin_name, 'מנהל פלטפורמה', p_statement_version, p_statement_sha256, 'PLATFORM_ADMIN_ELEVATION', now())
   RETURNING "id" INTO new_id;
+  -- R3 (review 2026-11-11): the caller's tenant setting is restored — nothing after this call runs as p_business.
+  PERFORM set_config('app.current_business_id', COALESCE(prev_business, ''), true);
   RETURN new_id;
 END
 $fn$;
@@ -373,7 +387,11 @@ CREATE TRIGGER "IssuerDeclarationEnforcement_no_truncate" BEFORE TRUNCATE ON "Is
 CREATE OR REPLACE FUNCTION public.issuer_issue_requires_declaration()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 BEGIN
-  IF NEW."status"::text = 'ISSUED' AND OLD."status"::text <> 'ISSUED'
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD."status"::text = 'ISSUED' THEN RETURN NEW; END IF;   -- not a transition to ISSUED
+  END IF;
+  -- R4 (review 2026-11-11): INSERT … status ISSUED is covered too (no application path does it today).
+  IF NEW."status"::text = 'ISSUED'
      AND NEW."documentType"::text IN ('TAX_INVOICE','TAX_INVOICE_RECEIPT','RECEIPT','CREDIT_NOTE')
      AND EXISTS (SELECT 1 FROM public."IssuerDeclarationEnforcement")
      AND NOT EXISTS (SELECT 1 FROM public."BusinessIssuerDeclaration" x WHERE x."businessId" = NEW."businessId" AND x."anonymisedAt" IS NULL) THEN
@@ -385,6 +403,8 @@ $fn$;
 REVOKE ALL ON FUNCTION public.issuer_issue_requires_declaration() FROM PUBLIC;
 CREATE TRIGGER "BillingDocument_issue_requires_declaration" BEFORE UPDATE OF "status" ON "BillingDocument"
   FOR EACH ROW EXECUTE FUNCTION public.issuer_issue_requires_declaration();
+CREATE TRIGGER "BillingDocument_insert_issued_requires_declaration" BEFORE INSERT ON "BillingDocument"
+  FOR EACH ROW WHEN (NEW."status"::text = 'ISSUED') EXECUTE FUNCTION public.issuer_issue_requires_declaration();
 
 -- SECURITY INVOKER on purpose: it must see WHO writes (the runtime is caught).
 -- The account purge (account-deletion.prisma-store.ts, stage 2) runs AS THE RUNTIME and clears these columns. It runs only
@@ -426,8 +446,12 @@ $fn$;
 REVOKE ALL ON FUNCTION public.issuer_profile_identity_lock() FROM PUBLIC;
 CREATE TRIGGER "BusinessProfile_issuer_identity_lock" BEFORE UPDATE OF "billingLegalName", "billingTaxId", "billingVatNumber", "billingBusinessKind" ON "BusinessProfile"
   FOR EACH ROW EXECUTE FUNCTION public.issuer_profile_identity_lock();
--- (the account-purge path clears these profile columns as the table owner — the only session the lock lets
---  through; a retained declaration keeps the issuer identity of the documents issued under it — §5)
+-- R5 (review 2026-11-11): an upsert that CREATES the profile row is held to the same rule.
+CREATE TRIGGER "BusinessProfile_issuer_identity_lock_insert" BEFORE INSERT ON "BusinessProfile"
+  FOR EACH ROW EXECUTE FUNCTION public.issuer_profile_identity_lock();
+-- (the account purge runs AS THE RUNTIME and is let through only for a business being deleted — see
+--  issuer_business_is_being_deleted above; a retained declaration keeps the issuer identity of the documents
+--  issued under it — §5)
 
 -- ---------------------------------------------------------------- erase (decision R-split)
 -- Anonymise (never DELETE) a declaration under which no fiscal document was issued; keep the others

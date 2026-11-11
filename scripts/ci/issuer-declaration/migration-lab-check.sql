@@ -221,6 +221,51 @@ SELECT pg_temp.expect('N4 the stored record names the designated user, basis PLA
 SELECT pg_temp.expect('N5 the initial designation cannot be repeated once a declaration exists',
   $q$SELECT public.issuer_designate_initial(910004, 920042, 929000, 'x', 'case', 'x', 'v1', repeat('d',64), '{"track":"EXEMPT_DEALER","legalForm":"INDIVIDUAL","vatStatus":"EXEMPT","legalName":"x","idType":"ISRAELI_ID","idNumber":"000000042","address":"x","phone":"x","email":"x@x.x"}'::jsonb)$q$, 'ISSUER_DESIGNATION_INITIAL_ALREADY_DECLARED');
 
+-- ======================= R: hardening after the independent review (2026-11-11) ==
+-- B5 one user, declares with no profile row yet · B6 one user, no declaration (enforcement is ON from here)
+INSERT INTO "Business"("id","name","createdAt","updatedAt") VALUES (910005,'decl-lab-5',now(),now()), (910006,'decl-lab-6',now(),now());
+INSERT INTO "User"("id","email","password","businessId","role","createdAt","updatedAt") VALUES
+  (920051,'d5@example.test','x',910005,'USER',now(),now()),
+  (920061,'d6@example.test','x',910006,'USER',now(),now());
+INSERT INTO "Customer"("businessId","name","updatedAt") VALUES (910006,'לקוח לבדיקה',now());
+GRANT INSERT ON "BusinessProfile" TO app_runtime;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_runtime;
+SELECT pg_temp.expect('R4a enforcement ON: a DRAFT row is inserted as before (the INSERT trigger fires only for ISSUED)',
+  $q$INSERT INTO "BillingDocument"("businessId","documentType","status","customerId","customerNameSnapshot","currency","subtotalAmount","vatAmount","totalAmount","createdAt","updatedAt")
+     SELECT 910006,'TAX_INVOICE','DRAFT',c."id",'לקוח לבדיקה','ILS',100,18,118,now(),now() FROM "Customer" c WHERE c."businessId"=910006 LIMIT 1$q$, 'OK');
+SELECT pg_temp.expect('R4b enforcement ON: a row INSERTed directly as ISSUED without a declaration is refused (DZD34)',
+  $q$INSERT INTO "BillingDocument"("businessId","documentType","status","customerId","customerNameSnapshot","currency","subtotalAmount","vatAmount","totalAmount","documentNumber","issuedAt","createdAt","updatedAt")
+     SELECT 910006,'TAX_INVOICE','ISSUED',c."id",'לקוח לבדיקה','ILS',100,18,118,77,now(),now(),now() FROM "Customer" c WHERE c."businessId"=910006 LIMIT 1$q$, 'ISSUER_DECLARATION_REQUIRED_TO_ISSUE');
+SET ROLE decl_lab_rt;
+SELECT set_config('app.current_business_id', '910006', false);
+SELECT pg_temp.expect('R1a a declaration that takes effect in the future is refused',
+  replace(pg_temp.decl(910006,1,'INITIAL','EXEMPT_DEALER','INDIVIDUAL','EXEMPT','פלונית','ISRAELI_ID','000000059',NULL,'רחוב 6',920061,920061,'SOLE_USER_VERIFIED'),
+          '''lab@example.test'',now()', '''lab@example.test'',now() + interval ''30 days'''), 'ISSUER_EFFECTIVE_FROM_IN_FUTURE');
+SELECT set_config('app.current_business_id', '910005', false);
+SELECT pg_temp.expect('R5 setup: business 5 declares (sole user) before any profile row exists',
+  pg_temp.decl(910005,1,'INITIAL','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','חנה לוי','ISRAELI_ID','000000067','000000067','רחוב 5',920051,920051,'SOLE_USER_VERIFIED'), 'OK');
+SELECT pg_temp.expect('R5a creating the profile row with a DIFFERENT identity is refused (INSERT is locked like UPDATE)',
+  $q$INSERT INTO "BusinessProfile"("businessId","billingLegalName","billingBusinessKind","billingTaxId","billingVatNumber","createdAt","updatedAt")
+     VALUES (910005,'שם אחר','AUTHORIZED_DEALER','000000067','000000067',now(),now())$q$, 'ISSUER_PROFILE_IDENTITY_LOCKED');
+SELECT pg_temp.expect('R5b creating the profile row with the declared identity is accepted',
+  $q$INSERT INTO "BusinessProfile"("businessId","billingLegalName","billingBusinessKind","billingTaxId","billingVatNumber","createdAt","updatedAt")
+     VALUES (910005,'חנה לוי','AUTHORIZED_DEALER','000000067','000000067',now(),now())$q$, 'OK');
+SELECT pg_temp.expect('R1b a new version that takes effect BEFORE the current declaration is refused',
+  replace(pg_temp.decl(910005,2,'CONTACT_UPDATE','AUTHORIZED_DEALER_INDIVIDUAL','INDIVIDUAL','AUTHORIZED','חנה לוי','ISRAELI_ID','000000067','000000067','רחוב 7',920051,920051,'CURRENT_AUTHORIZED_USER'),
+          '''lab@example.test'',now()', '''lab@example.test'',now() - interval ''1 day'''), 'ISSUER_EFFECTIVE_FROM_BEFORE_CURRENT');
+RESET ROLE;
+SELECT pg_temp.expect('R2 a platform designation with a blank evidence reference is refused',
+  $q$SELECT public.issuer_designate_initial(910006, 920061, 929000, 'מנהל לבדיקה', '   ', 'בדיקה', 'designation-he-v1', repeat('d',64),
+     '{"track":"EXEMPT_DEALER","legalForm":"INDIVIDUAL","vatStatus":"EXEMPT","legalName":"פלונית","idType":"ISRAELI_ID","idNumber":"000000059","address":"רחוב 6","phone":"050","email":"b6@example.test"}'::jsonb)$q$,
+  'IssuerDeclaration_designation_evidence');
+SELECT pg_temp.expect('R3 a designation restores the caller''s tenant setting (nothing after it runs as the designated business)',
+  $q$DO $d$ BEGIN
+       PERFORM set_config('app.current_business_id', '910099', true);
+       PERFORM public.issuer_designate_initial(910006, 920061, 929000, 'מנהל לבדיקה', 'support-case-66', 'בדיקה', 'designation-he-v1', repeat('d',64),
+         '{"track":"EXEMPT_DEALER","legalForm":"INDIVIDUAL","vatStatus":"EXEMPT","legalName":"פלונית","idType":"ISRAELI_ID","idNumber":"000000059","address":"רחוב 6","phone":"050","email":"b6@example.test"}'::jsonb);
+       IF current_setting('app.current_business_id', true) IS DISTINCT FROM '910099' THEN RAISE EXCEPTION 'GUC_LEAKED %', current_setting('app.current_business_id', true); END IF;
+     END $d$q$, 'OK');
+
 -- ======================= account deletion: the profile lock admits the purge ==
 -- business 1 has a live declaration; the runtime purge clears the identity columns only once deletion is requested
 SET ROLE decl_lab_rt;
