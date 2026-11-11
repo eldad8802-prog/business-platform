@@ -85,10 +85,12 @@ async function listHead(z: Biz, id: number) {
 }
 async function archiveList(z: Biz, id: number, archived: boolean): Promise<string> {
   const h = await listHead(z, id);
+  const c = (await own(z.b, `SELECT "itemCount" n, "requiredCount" r FROM "ServiceQaListVersion" WHERE "listId" = $1 AND version = $2`, id, h.version))[0];
   return rt(z.b, async (s) => {
     await s.x(`UPDATE "ServiceQaList" SET revision = revision + 1, "archivedAt" = ${archived ? "now()" : "NULL"} WHERE id = $1`, id);
+    // the event names the current version's own counts (#1124's event guard)
     await s.x(`INSERT INTO "ServiceQaListEvent" ("businessId", "listId", revision, action, "listVersion", "itemCount", "requiredCount", actor, "actorUserId", "idempotencyKey")
-      VALUES ($1, $2, $3, $4::"ServiceQaListAction", $5, 1, 1, 'OWNER_USER', $6, $7)`, z.b, id, h.revision + 1, archived ? "ARCHIVE" : "RESTORE", h.version, z.u, key());
+      VALUES ($1, $2, $3, $4::"ServiceQaListAction", $5, $6, $7, 'OWNER_USER', $8, $9)`, z.b, id, h.revision + 1, archived ? "ARCHIVE" : "RESTORE", h.version, Number(c.n), Number(c.r), z.u, key());
   });
 }
 async function reviseList(z: Biz, id: number): Promise<string> {
