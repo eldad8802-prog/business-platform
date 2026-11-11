@@ -101,6 +101,7 @@ jobs:
             [[ "$n" != "20261126090000_service_desk_case_charge" ]] || continue
             [[ "$n" != "20261127090000_service_desk_tracks" ]] || continue
             [[ "$n" != "20261129090000_service_desk_qa_lists" ]] || continue
+            [[ "$n" != "20261130100000_service_qa_track_defaults" ]] || continue
             if sed 's/--.*$//' "$d/migration.sql" | grep -nE "\"($new)\"|service_ui_|service_text_version_|service_settings_guard|service_intake_terms_|service_warranty_|service_intake_photo_|service_share_event_|service_phone_reminder_|service_storage_erasure_|service_desk_ui_"; then
               echo "$n names a 1.3-0 object"; exit 1
             fi

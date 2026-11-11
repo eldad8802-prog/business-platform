@@ -173,6 +173,8 @@ on:
           - 'ops/evidence/service-desk-audit-journal-production-evidence.sql'
           - 'ops/evidence/service-desk-qa-lists-preflight.sql'
           - 'ops/evidence/service-desk-qa-lists-production-evidence.sql'
+          - 'ops/evidence/service-qa-track-defaults-preflight.sql'
+          - 'ops/evidence/service-qa-track-defaults-production-evidence.sql'
           - 'ops/evidence/email-verify-delivery-counts.sql'
 
 permissions:
