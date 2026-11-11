@@ -56,6 +56,7 @@ jobs:
         env:
           AUTH_TOKEN_SECRET: sd-ci-synthetic-auth-secret-0123456789abcdef
       - run: npx tsx lib/services/service-desk/qa-templates.test.ts
+      - run: npx tsx lib/services/service-desk/qa-lists-core.test.ts
       - run: npx tsx features/service-desk/settings-model.test.ts
         env:
           AUTH_TOKEN_SECRET: sd-ci-synthetic-auth-secret-0123456789abcdef

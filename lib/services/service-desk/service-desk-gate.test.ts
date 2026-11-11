@@ -100,8 +100,10 @@ async function main() {
   // UI 1.3a added one read: GET /api/service-desk/staff (the technician pickers); 1d-A added three external-work routes and
   // 1d-B two parts routes (closed until 1.3b); 1.3b added six intake routes (terms, photos, one photo, sign, signature, slip);
   // the case charge added three (charges, billing-links, billing-links/unlink); 1.3c added four quote routes (list + send,
-  // revise, one version's decision, one version's stored PDF); M1 added one (the T7 after-sale resolution).
-  ok("R1 thirty route files (the staff read, three external-work, two parts, six intake, three charge, four quote and the after-sale routes)", files.length === 30 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
+  // revise, one version's decision, one version's stored PDF); M1 added one (the T7 after-sale resolution); the per-business
+  // QA lists added four (qa-lists: list + create, one list + revise, its archive; the case's list choice — the case's QA
+  // route gained its GET read).
+  ok("R1 thirty-four route files (the staff read, three external-work, two parts, six intake, three charge, four quote, the after-sale and four QA-list routes)", files.length === 34 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
   let allGuarded = true, kindsRight = true;
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");
@@ -140,6 +142,27 @@ async function main() {
       const post = /export async function POST\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
       return /serviceDeskRoute\(req, "write"/.test(post) && /const key = idempotencyKeyOf\(req\);/.test(post) && call.test(post);
     }) && /serviceDeskRoute\(req, "read", async \(\{ principal \}\) => json\(await getCaseCharges\(principal\.businessId,/.test(fs.readFileSync(path.join(root, "cases/[id]/charges/route.ts"), "utf8")));
+  // the per-business QA lists (migration 20261129090000): reads of the lists, one list and the case's QA; four writes, each
+  // with an Idempotency-Key, each calling its journaled service function (NOT_AVAILABLE_UNTIL_MIGRATION before the migration).
+  const qaWrites: [string, string, RegExp][] = [
+    ["qa-lists/route.ts", "POST", /createQaList\(principal, \{ name: b\.name, items: b\.items, fromTemplate: b\.fromTemplate \}, \{ idempotencyKey: key \}\)/],
+    ["qa-lists/[listId]/route.ts", "PUT", /reviseQaList\(principal, id, \{ expectedRevision: b\.expectedRevision, name: b\.name, items: b\.items \}, \{ idempotencyKey: key \}\)/],
+    ["qa-lists/[listId]/archive/route.ts", "PUT", /setQaListArchived\(principal, id, \{ expectedRevision: b\.expectedRevision, archived: b\.archived \}, \{ idempotencyKey: key \}\)/],
+    ["cases/[id]/qa/list/route.ts", "PUT", /chooseCaseQaList\(principal, id, \{ listId: b\.listId, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+  ];
+  const qaReads: [string, RegExp][] = [
+    ["qa-lists/route.ts", /listQaLists\(principal\.businessId,/],
+    ["qa-lists/[listId]/route.ts", /getQaList\(principal\.businessId, id,/],
+    ["cases/[id]/qa/route.ts", /getCaseQa\(principal\.businessId, positiveId\(/],
+  ];
+  ok("R7 QA lists: POST / PUT writes through the edge, an Idempotency-Key required, the journaled service called; GET reads of listQaLists / getQaList / getCaseQa with the session's business",
+    qaWrites.every(([r, m, call]) => {
+      const fn = new RegExp(`export async function ${m}\\([\\s\\S]*?\\n}\\n`).exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
+      return /serviceDeskRoute\(req, "write"/.test(fn) && /const key = idempotencyKeyOf\(req\);/.test(fn) && call.test(fn);
+    }) && qaReads.every(([r, call]) => {
+      const fn = /export async function GET\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
+      return /serviceDeskRoute\(req, "read"/.test(fn) && call.test(fn);
+    }));
   const saved = { db: process.env.DATABASE_URL, direct: process.env.DIRECT_URL };
   delete process.env.DATABASE_URL;
   delete process.env.DIRECT_URL;

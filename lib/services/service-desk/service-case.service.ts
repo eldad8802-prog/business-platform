@@ -48,7 +48,9 @@ import { checkCommandEnvelope, evaluateRepeatCase, evaluateTransition, openServi
 import { ServiceDeskError, refused } from "./service-desk-errors";
 import { settlementForCore, type SettlementReader } from "./settlement";
 import { readCaseSettlement } from "./case-settlement-reader";
-import { evaluateQa } from "./qa-templates";
+import { qaTemplateFor } from "./qa-templates";
+import { evaluateChecklist, listChecklistToken } from "./qa-lists.core";
+import { caseQaChoice, insertQaRecord, qaListsSchemaReady, readVersion } from "./qa-lists.store";
 import { releaseCaseReservations } from "./part-release";
 import { supersedeOpenQuote, withdrawOpenQuote, type FrozenQuote } from "./quote-rows";
 import { countDetailBlockers, createSubject, creditDocumentLinked, loadTrackState, planOpening, subjectKindOf, verifyTrackFits, type TrackState } from "./tracks.service";
@@ -823,7 +825,7 @@ async function requireAuditJournal(tx: Tx) {
   if (!(await auditJournalReady(tx))) throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT");
 }
 
-export type RecordAction = "ASSIGN_TECHNICIAN" | "RECORD_INTAKE" | "RECORD_QA" | "RECORD_CHARGE" | "LINK_BILLING_DOCUMENT" | "UNLINK_BILLING_DOCUMENT";
+export type RecordAction = "ASSIGN_TECHNICIAN" | "RECORD_INTAKE" | "RECORD_QA" | "RECORD_CHARGE" | "LINK_BILLING_DOCUMENT" | "UNLINK_BILLING_DOCUMENT" | "CHOOSE_QA_LIST";
 const RECORD_EVENT: Record<RecordAction, string> = {
   ASSIGN_TECHNICIAN: "case.technician_assigned",
   RECORD_INTAKE: "intake.recorded",
@@ -832,6 +834,8 @@ const RECORD_EVENT: Record<RecordAction, string> = {
   RECORD_CHARGE: "charge.recorded",
   LINK_BILLING_DOCUMENT: "billing.linked",
   UNLINK_BILLING_DOCUMENT: "billing.unlinked",
+  // migration 20261129090000 (CHECK ServiceCaseEvent_qa_list_in_place): the case names a QA list version (or none)
+  CHOOSE_QA_LIST: "qa.list_chosen",
 };
 
 /** Bump the case version (status, hold, cancel request, outcome untouched) and append the record with seq = version. */
@@ -839,6 +843,15 @@ export async function appendRecord(tx: Tx, b: number, caseId: number, c: Service
   const next = c.version + 1;
   const n = await tx.$executeRaw`UPDATE "ServiceCase" SET version = ${next}::int, "updatedAt" = now() WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${c.version}::int`;
   if (n !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
+  return insertRecordEvent(tx, b, caseId, c, action, payload, userId, prepared);
+}
+
+/**
+ * The record event alone, with seq = c.version + 1 — for a command that bumps the case version in its OWN update (a QA list
+ * choice: the list columns and the version in one statement, as its guard demands). Returns the new version.
+ */
+export async function insertRecordEvent(tx: Tx, b: number, caseId: number, c: ServiceCaseContext, action: RecordAction, payload: Record<string, string | number | boolean | null>, userId: number, prepared: Prepared): Promise<number> {
+  const next = c.version + 1;
   await tx.$executeRaw`
     INSERT INTO "ServiceCaseEvent" ("businessId", "caseId", seq, "eventType", action, "fromStatus", "toStatus", "holdReasonBefore", "holdReasonAfter",
       "cancellationRequestedBefore", "cancellationRequestedAfter", outcome, actor, "actorUserId", payload, "idempotencyKey", "requestDigest", "digestKeyId")
@@ -945,27 +958,54 @@ export async function recordIntake(
 }
 
 /**
- * QA results against the kind's base template (P3). Stored on the case and journaled (P4). The case counts as "QA
- * completed" (qaCompletedAt) only when every required item is PASS; otherwise it is cleared, and the case machine keeps
- * refusing PASS_QA. Only while the case is in QA.
+ * QA results, while the case is in QA (P3 / P4; per-business lists since migration 20261129090000). The checklist is the
+ * one the case names: its chosen QA list VERSION, or — without one — its track's (snapshot) / kind's built-in template,
+ * exactly as before. The case counts as "QA completed" (qaCompletedAt) only when every REQUIRED check is PASS; otherwise
+ * it is cleared and the case machine keeps refusing PASS_QA. Stored on the case (qaChecklist: tokens only) and journaled
+ * (P4); with the migration also one ServiceCaseQaRecord at the event's seq and one row per check (result, the check's
+ * REQUIRED flag as it is in that version, an optional note) — the case's QA history, never rewritten by a later edit of
+ * the list. Without the migration: today's behaviour, and a note is refused.
  */
-export async function recordQa(p: ServiceDeskPrincipal, caseId: unknown, body: { results?: unknown; expectedVersion?: unknown }, req: WriteRequest): Promise<CommandResult & { qa?: { completed: boolean; template: string } }> {
+export async function recordQa(p: ServiceDeskPrincipal, caseId: unknown, body: { results?: unknown; expectedVersion?: unknown }, req: WriteRequest): Promise<CommandResult & { qa?: { completed: boolean; template: string; list: { listId: number; listVersion: number } | null } }> {
   if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
   const prepared = prepare(p, req, "service-desk/cases:qa", { caseId, results: body.results ?? null, expectedVersion: body.expectedVersion });
   const b = p.businessId;
-  let qa: { completed: boolean; template: string } | undefined;
+  let qa: { completed: boolean; template: string; list: { listId: number; listVersion: number } | null } | undefined;
   const r = await recordCommand(p, caseId, body.expectedVersion, prepared, async (tx, { context }) => {
     if (context.status !== "QA") throw new ServiceDeskError("REFUSED", { violations: ["QA_ONLY_IN_QA"] });
-    // M1: a track case is checked against its own snapshot's template (QA OFF on its track: nothing to record).
+    // M1: a track case is checked against its own snapshot (QA OFF on its track: nothing to record).
     if (context.track && context.track.requirements.qa.mode === "OFF") throw new ServiceDeskError("REFUSED", { violations: ["QA_NOT_FOR_KIND"] });
-    const e = evaluateQa(context.kind, body.results, context.track?.requirements.qa.template ?? null);
+    const lists = await qaListsSchemaReady(tx);
+    const chosen = lists ? await caseQaChoice(tx, b, caseId) : null;
+    let items: readonly { key: string; required: boolean }[];
+    let token: string;
+    if (chosen) {
+      const v = await readVersion(tx, b, chosen.listId, chosen.listVersion);
+      if (!v) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "QA_LIST_VERSION_PRESENT" });
+      items = v.items;
+      token = listChecklistToken(chosen.listId, chosen.listVersion);
+    } else {
+      const trackTemplate = context.track?.requirements.qa.template ?? null;
+      const t = qaTemplateFor(context.kind, trackTemplate);
+      if (!t) throw new ServiceDeskError("INVALID_INPUT", { field: trackTemplate ? "template" : "kind" });
+      items = t.items;
+      token = t.id;
+    }
+    const e = evaluateChecklist(items, body.results, { notes: lists });
     if (!e.ok) throw new ServiceDeskError("INVALID_INPUT", { field: e.field });
+    const checklist = { template: token, results: Object.fromEntries(e.results.map((x) => [x.key, x.result])) };
     await tx.$executeRaw`
-      UPDATE "ServiceCase" SET "qaChecklist" = ${JSON.stringify(e.checklist)}::jsonb,
+      UPDATE "ServiceCase" SET "qaChecklist" = ${JSON.stringify(checklist)}::jsonb,
              "qaCompletedAt" = CASE WHEN ${e.completed}::boolean THEN now() ELSE NULL END
        WHERE id = ${caseId}::int AND "businessId" = ${b}::int`;
-    qa = { completed: e.completed, template: e.template };
-    await appendRecord(tx, b, caseId, context, "RECORD_QA", { template: e.template, completed: e.completed, ...e.counts }, p.userId, prepared);
+    qa = { completed: e.completed, template: token, list: chosen };
+    const next = await appendRecord(tx, b, caseId, context, "RECORD_QA",
+      { template: token, completed: e.completed, ...e.counts, ...(chosen ? { listId: chosen.listId, listVersion: chosen.listVersion } : {}) }, p.userId, prepared);
+    if (lists) {
+      await insertQaRecord(tx, b, caseId, next, {
+        list: chosen, templateId: chosen ? null : token, itemCount: items.length, results: e.results, counts: e.counts, completed: e.completed, userId: p.userId,
+      });
+    }
   });
   return { ...r, qa };
 }

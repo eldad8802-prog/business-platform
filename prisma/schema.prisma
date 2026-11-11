@@ -8257,6 +8257,8 @@ enum ServiceCaseAction {
   RESCHEDULE
   COMPLETE
   CHANGE_DETAILS
+  // migration 20261129090000: the case names a QA list version (or none) — a status-preserving record.
+  CHOOSE_QA_LIST
 }
 
 enum ServiceEventType {
@@ -8295,6 +8297,8 @@ enum ServiceEventType {
   case_rescheduled            @map("case.rescheduled")
   case_completed              @map("case.completed")
   case_details_changed        @map("case.details_changed")
+  // migration 20261129090000
+  qa_list_chosen              @map("qa.list_chosen")
 }
 
 // M1 (migration 20261127090000) — the universal service model. NULL work type / place on a case = derived from kind.
@@ -8421,6 +8425,10 @@ model ServiceCase {
   returnReason          ServiceReturnReason?
   afterSaleResolution   ServiceAfterSaleResolution?
   originalSaleRef       String? // cleared by service_tracks_erase_business()
+  // migration 20261129090000: the QA list VERSION the case is checked against (NULL = its built-in template); composite
+  // tenant FK (businessId, qaListId, qaListVersion) → ServiceQaListVersion in the migration; changed only by CHOOSE_QA_LIST.
+  qaListId              Int?
+  qaListVersion         Int?
 
   @@unique([businessId, id])
   @@unique([businessId, caseNumber])
@@ -8923,6 +8931,130 @@ model ServiceCompletion {
 
 /// Service Desk M1 (D11) — one row per CHANGE_DETAILS, at the journal event's seq; append-only. Before / after values
 /// (the address too) live here, never in the journal payload.
+/// Service Desk QA lists (migration 20261129090000) — a business's own QA list: its head. The content lives in immutable
+/// versions; every change bumps `revision` and is journaled in ServiceQaListEvent at that revision.
+model ServiceQaList {
+  id               Int       @id @default(autoincrement())
+  businessId       Int
+  currentVersion   Int
+  revision         Int
+  sourceTemplateId String? // the built-in template it was started from (a code token, e.g. VEHICLE.v1) — copied, never linked
+  archivedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now())
+
+  @@unique([businessId, id])
+}
+
+/// An immutable content version of a QA list: its name and how many checks (REQUIRED among them) it holds.
+model ServiceQaListVersion {
+  id              Int       @id @default(autoincrement())
+  businessId      Int
+  listId          Int
+  version         Int
+  name            String? // cleared by service_qa_lists_erase_business()
+  itemCount       Int
+  requiredCount   Int
+  createdByUserId Int? // cleared by service_qa_lists_erase_business()
+  createdAt       DateTime  @default(now())
+  erasedAt        DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, listId, version])
+}
+
+/// An immutable check of one version: a stable key (token), its label, REQUIRED or optional, its position.
+model ServiceQaListItem {
+  id          Int       @id @default(autoincrement())
+  businessId  Int
+  listId      Int
+  listVersion Int
+  position    Int
+  itemKey     String
+  label       String? // cleared by service_qa_lists_erase_business()
+  required    Boolean
+  erasedAt    DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, listId, listVersion, itemKey])
+  @@unique([businessId, listId, listVersion, position])
+}
+
+/// The QA lists' journal and idempotency ledger: CREATE / REVISE / ARCHIVE / RESTORE — counts and tokens, never text.
+model ServiceQaListEvent {
+  id             Int                 @id @default(autoincrement())
+  businessId     Int
+  listId         Int
+  revision       Int
+  action         ServiceQaListAction
+  listVersion    Int
+  itemCount      Int
+  requiredCount  Int
+  actor          ServiceActor
+  actorUserId    Int? // cleared by service_qa_lists_erase_business()
+  occurredAt     DateTime            @default(now())
+  idempotencyKey String
+  requestDigest  String? // cleared by service_qa_lists_erase_business()
+  digestKeyId    String? // cleared by service_qa_lists_erase_business()
+
+  @@unique([businessId, idempotencyKey])
+  @@unique([businessId, listId, revision])
+}
+
+/// One QA record per RECORD_QA journal event of a case (caseVersion = the event's seq): which checklist it was judged
+/// against (a list version, or a built-in template id) and the counts — re-derived from the rows at COMMIT.
+model ServiceCaseQaRecord {
+  id              Int       @id @default(autoincrement())
+  businessId      Int
+  caseId          Int
+  caseVersion     Int
+  listId          Int?
+  listVersion     Int?
+  templateId      String? // a built-in template id (code token) when the case names no list
+  itemCount       Int
+  resultCount     Int
+  passCount       Int
+  failCount       Int
+  requiredMissing Int
+  requiredFailed  Int
+  completed       Boolean
+  actorUserId     Int? // cleared by service_qa_lists_erase_business()
+  recordedAt      DateTime  @default(now())
+  erasedAt        DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, caseVersion])
+}
+
+/// The result of one check in a QA record: PASS / FAIL, the check's REQUIRED flag as it was in that version, a note.
+model ServiceCaseQaItemResult {
+  id          Int             @id @default(autoincrement())
+  businessId  Int
+  recordId    Int
+  listId      Int?
+  listVersion Int?
+  itemKey     String
+  required    Boolean
+  result      ServiceQaResult
+  note        String? // cleared by service_qa_lists_erase_business()
+  erasedAt    DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, recordId, itemKey])
+}
+
+enum ServiceQaResult {
+  PASS
+  FAIL
+}
+
+enum ServiceQaListAction {
+  CREATE
+  REVISE
+  ARCHIVE
+  RESTORE
+}
+
 model ServiceCaseDetailChange {
   id                    Int                  @id @default(autoincrement())
   businessId            Int
