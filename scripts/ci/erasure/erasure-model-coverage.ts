@@ -142,6 +142,8 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceCase: { disposition: "ERASURE_MANAGED" },
   ServiceDevice: { disposition: "ERASURE_MANAGED" },
   ServiceCaseIntake: { disposition: "ERASURE_MANAGED" },
+  // + migration 20261130090000: its two approver columns are cleared by service_handover_record_erase_business(), also
+  // declared in DB_FUNCTION_ERASURES and proven by the contract.
   ServiceHandover: { disposition: "ERASURE_MANAGED" },
   // Business documents (migration 20261114090000). Customer and recipient names, the owner's notes, letter bodies:
   // their rows are DELETED by business_documents_erase(), which the adapter calls in the purge transaction —

@@ -36,7 +36,11 @@ export type ServiceDeskErrorCode =
   | "CREDIT_NOTE_NOT_ISSUED"
   | "BILLING_DOCUMENT_ALREADY_LINKED"
   /** no ACTIVE link of that document on this case */
-  | "LINK_NOT_FOUND";
+  | "LINK_NOT_FOUND"
+  /** 20261130090000: a request body named a user / business / approver — identities come from the session only */
+  | "IDENTITY_NOT_ACCEPTED"
+  /** 20261130090000: the signed-in user does not hold the authority an approval needs (approvals.ts APPROVAL_POLICY) */
+  | "APPROVAL_NOT_AUTHORIZED";
 
 const STATUS: Record<ServiceDeskErrorCode, number> = {
   NOT_FOUND: 404,
@@ -63,6 +67,8 @@ const STATUS: Record<ServiceDeskErrorCode, number> = {
   CREDIT_NOTE_NOT_ISSUED: 422,
   BILLING_DOCUMENT_ALREADY_LINKED: 409,
   LINK_NOT_FOUND: 422,
+  IDENTITY_NOT_ACCEPTED: 400,
+  APPROVAL_NOT_AUTHORIZED: 403,
 };
 
 export type ServiceDeskErrorDetails = Record<string, string | number | boolean | null | readonly string[]>;

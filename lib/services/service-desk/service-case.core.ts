@@ -71,6 +71,8 @@ import {
   type ServiceCaseOpenDecision,
   type ServiceCaseOpenInput,
   type ServiceDecisionTexts,
+  type ServiceApprovalKind,
+  type ServiceHandoverRecord,
   type ServiceCaseEffect,
   type ServiceCaseEventType,
   type ServiceCaseKind,
@@ -219,6 +221,9 @@ interface Resolution {
   violations: ServiceCaseViolation[];
   detailChange: ServiceDetailChange | null;
   completion: ServiceCompletionRecord | null;
+  /** 20261130090000: the exceptions this decision admits only with an approval (the approver is resolved by the service). */
+  approvals: ServiceApprovalKind[];
+  handover: ServiceHandoverRecord | null;
 }
 
 function violation(code: ServiceCaseViolationCode, detail: string): ServiceCaseViolation {
@@ -360,6 +365,8 @@ export function evaluateTransition(
         }
       : {}),
     ...(r.completion ? { completion: { ...r.completion } } : {}),
+    ...(r.handover ? { handover: { ...r.handover } } : {}),
+    approvals: [...r.approvals],
   };
 }
 
@@ -380,6 +387,8 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     violations: [],
     detailChange: null,
     completion: null,
+    approvals: [],
+    handover: null,
   };
   const fail = (code: ServiceCaseViolationCode, detail: string) => r.violations.push(violation(code, detail));
   /**
@@ -814,7 +823,8 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       r.payload.handoverConfirmed = receipt?.handoverConfirmed === true;
       r.payload.receiverNamed = hasText(named);
       // Owner decision ש4: an open balance only as the owner's explicit decision, with a reason. The debt itself stays.
-      judgeSettlement(action.debtOverride);
+      const balance = judgeSettlement(action.debtOverride);
+      let loanerApproved = false;
       if (context.openLoaner) {
         if (!action.loanerOverride) fail("OPEN_LOANER", "the temporary replacement item has not been returned");
         else {
@@ -823,9 +833,16 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
           else {
             r.texts.loanerOverrideReason = reason;
             r.payload.loanerOverride = true;
+            loanerApproved = true;
           }
         }
       }
+      // 20261130090000: the handover record states the judged balance; each exception needs its approval.
+      if (balance) {
+        r.handover = { ...balance, loanerApproved };
+        if (balance.debtApproved) r.approvals.push("HANDOVER_OPEN_DEBT");
+      }
+      if (loanerApproved) r.approvals.push("HANDOVER_OPEN_LOANER");
       r.effects.push("ATTEMPT_AUTO_CLOSE");
       break;
     }
@@ -933,6 +950,7 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       if (!balance) break;
       r.effects.push("RECORD_COMPLETION");
       r.completion = { completionType: expected, confirmedByName: name, note, ...balance };
+      if (balance.debtApproved) r.approvals.push("COMPLETION_OPEN_DEBT");
       break;
     }
     case "CHANGE_DETAILS": {

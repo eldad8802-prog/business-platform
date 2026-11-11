@@ -53,6 +53,10 @@
     "lib/services/service-desk/tracks-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): Service Desk M1 tracks — universal track opening (never reads the business category), subject fits track, track facts from the case snapshot (work approval, QA REQUIRED/OPTIONAL/OFF, handover by owner), after-sale resolutions (exchange blocked), completion with an open debt only with approval + reason and never on an UNKNOWN balance, overpayment kept; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/approvals.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk actor / approver (migration 20261130090000) — the core names every exception needing an approval (handover open debt, handover loaner out, completion open debt) and the handover record it judged (debt and overpayment apart, never both, UNKNOWN never recorded); resolveApproval grants only to the session principal with the owner authority, frozen and branded — a plain / JSON / copied grant, another business or another actor is refused; the HTTP edge refuses approverId / approvedBy / actorUserId / businessId at any depth (400 IDENTITY_NOT_ACCEPTED) and keeps legitimate ids and names; the sensitive-action inventory; run on pull_request by service-desk-ci.yml"
     }
   }
 }

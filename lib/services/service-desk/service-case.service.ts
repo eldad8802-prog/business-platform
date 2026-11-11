@@ -46,6 +46,7 @@ import {
 import { OPEN_PART_STATES } from "./parts.contracts";
 import { checkCommandEnvelope, evaluateRepeatCase, evaluateTransition, openServiceCase } from "./service-case.core";
 import { ServiceDeskError, refused } from "./service-desk-errors";
+import { approverFor, resolveApprovals, type ApprovalGrant } from "./approvals";
 import { settlementForCore, type SettlementReader } from "./settlement";
 import { readCaseSettlement } from "./case-settlement-reader";
 import { evaluateQa } from "./qa-templates";
@@ -657,7 +658,14 @@ function actionFrom(raw: Record<string, unknown>): ServiceCaseAction {
 }
 
 /** What a command prepared outside the case transaction for an effect (1.3c: the next quote version of a revision). */
-export type EffectExtras = { nextQuote?: FrozenQuote };
+export type EffectExtras = {
+  nextQuote?: FrozenQuote;
+  /**
+   * 20261130090000: the approvals the decision needs (d.approvals), resolved server-side by approvals.resolveApprovals from
+   * the session principal — never from the request. A decision that needs one and has no genuine grant writes nothing.
+   */
+  approvals?: readonly ApprovalGrant[];
+};
 
 /**
  * The decision's effects, in the command's transaction, BEFORE the case row and its event are written (the case lock is
@@ -700,6 +708,8 @@ async function applyEffects(tx: Tx, b: number, caseId: number, context: ServiceC
  * version, ran the core and verified every server check. Returns the new version.
  */
 export async function commitTransition(tx: Tx, b: number, caseId: number, context: ServiceCaseContext, d: Extract<ServiceTransitionDecision, { ok: true }>, userId: number, prepared: Prepared, extras: EffectExtras = {}): Promise<number> {
+  // every approval the decision needs is granted to THIS actor before anything is written (fail closed)
+  for (const kind of d.approvals) approverFor(extras.approvals, d.approvals, kind, { businessId: b, userId });
   await applyEffects(tx, b, caseId, context, d, userId, prepared, extras);
   const next = context.version + 1;
   const st = stampsFor(d);
@@ -742,7 +752,9 @@ export async function commitTransition(tx: Tx, b: number, caseId: number, contex
     // open debt is stored with the acting owner as its approver and the transaction time as the approval time — the
     // database refuses a debt without reason / approver / time and any approval field without a debt.
     const debt = done.openBalanceAgorot > 0;
-    if (debt !== done.debtApproved || (debt && !d.texts.debtOverrideReason)) {
+    // 20261130090000: the approver is the server-resolved grant (today: the acting session user), never request data
+    const approver = approverFor(extras.approvals, d.approvals, "COMPLETION_OPEN_DEBT", { businessId: b, userId });
+    if (debt !== done.debtApproved || debt !== (approver !== null) || (debt && !d.texts.debtOverrideReason)) {
       throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "DEBT_DECISION_PRESENT" });
     }
     await tx.$executeRaw`
@@ -750,7 +762,7 @@ export async function commitTransition(tx: Tx, b: number, caseId: number, contex
         "debtOverrideReason", "debtApprovedByUserId", "debtApprovedAt", "actorUserId")
       VALUES (${b}::int, ${caseId}::int, ${done.completionType}::"ServiceCompletionType", ${done.confirmedByName}::text, ${done.note}::text,
               ${done.openBalanceAgorot}::int, ${done.overpaidAgorot}::int, ${debt ? d.texts.debtOverrideReason : null}::text,
-              ${debt ? userId : null}::int, CASE WHEN ${debt}::boolean THEN now() END, ${userId}::int)`;
+              ${approver}::int, CASE WHEN ${debt}::boolean THEN now() END, ${userId}::int)`;
   }
   if (dc) {
     // D11: before / after at the event's seq (= the version this update set); the journal keeps field names only.
@@ -793,18 +805,17 @@ export async function runCaseAction(
     if (!envelope.ok) throw refused(envelope.violations);
     const d = evaluateTransition(context, action, { kind: "OWNER", userId: p.userId });
     if (!d.ok) throw refused(d.violations);
+    // 20261130090000: an exception (open debt, loaner out) is approved by a server-resolved approver — the session user
+    // holding the owner authority — before anything is written; nothing in the request can name one.
+    const approvals = resolveApprovals(p, d.approvals);
     await verifyServerChecks(tx, b, d.serverChecks, { staffMemberId: context.staffMemberId, signatureKey, settlementRead: settlement !== null, caseId, track, decision: d });
-    const next = await commitTransition(tx, b, caseId, context, d, p.userId, prepared);
+    const next = await commitTransition(tx, b, caseId, context, d, p.userId, prepared, { approvals });
     if (action.type === "DELIVER" && d.statusChanged && d.to === "DELIVERED") {
       // the core admitted the handover only on a known balance; an unknown one is never recorded as 0
       if (settlement === null || settlement.openBalanceAgorot === null) throw new ServiceDeskError("BALANCE_UNKNOWN");
       // The handover record: one per case (UNIQUE), immutable, the acting user, no signature (owner decision 2026-11-11).
       const receipt = (action as { receipt: { receivedByName?: string | null } }).receipt;
-      const texts = d.texts as { debtOverrideReason?: string | null; loanerOverrideReason?: string | null };
-      await tx.$executeRaw`
-        INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "debtOverrideReason", "loanerOverrideReason", "actorUserId")
-        VALUES (${b}::int, ${caseId}::int, ${receipt.receivedByName ?? null}::text, false, ${settlement.openBalanceAgorot}::int,
-                ${texts.debtOverrideReason ?? null}::text, ${texts.loanerOverrideReason ?? null}::text, ${p.userId}::int)`;
+      await insertHandover(tx, b, caseId, d, receipt.receivedByName ?? null, p.userId, approvals, settlement.openBalanceAgorot);
       // A presented warranty offer locks at the handover: starts on the delivery day, ends one duration later (guard rules).
       await tx.$executeRaw`
         UPDATE "ServiceWarrantyOffer" o SET state = 'LOCKED', "lockedAt" = now(), "startsOn" = h."deliveredAt"::date,
@@ -818,6 +829,49 @@ export async function runCaseAction(
     if (prior.caseId !== caseId) throw new ServiceDeskError("IDEMPOTENCY_KEY_REUSED");
     return { case: await summaryOf(tx, b, caseId), event: { seq: prior.seq }, replayed: true };
   });
+}
+
+/** Migration 20261130090000 is applied: the version-2 handover record (balance, overpayment, approvers) exists. */
+export async function handoverRecordReady(tx: Tx): Promise<boolean> {
+  const r = await tx.$queryRaw<{ ok: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ServiceHandover' AND column_name = 'recordVersion') AS ok`;
+  return r[0]?.ok === true;
+}
+
+/**
+ * The handover row. With migration 20261130090000: a version-2 record — the balance the core judged (debt and
+ * overpayment, both stated), the reason, the actor and, apart from it, each exception's server-resolved approver and the
+ * approval time (the transaction time). The database re-checks every rule (CHECKs + service_handover_record_guard:
+ * approver required, approver = actor, same business). Without the migration (a database still on the earlier chain)
+ * the row is written exactly as before it — the legacy shape; once the migration is applied its guard refuses that
+ * shape, so it can never be written there.
+ */
+async function insertHandover(tx: Tx, b: number, caseId: number, d: Extract<ServiceTransitionDecision, { ok: true }>, receivedByName: string | null,
+  userId: number, approvals: readonly ApprovalGrant[], legacyBalance: number) {
+  const texts = d.texts;
+  if (!(await handoverRecordReady(tx))) {
+    await tx.$executeRaw`
+      INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "debtOverrideReason", "loanerOverrideReason", "actorUserId")
+      VALUES (${b}::int, ${caseId}::int, ${receivedByName}::text, false, ${legacyBalance}::int,
+              ${texts.debtOverrideReason ?? null}::text, ${texts.loanerOverrideReason ?? null}::text, ${userId}::int)`;
+    return;
+  }
+  const h = d.handover ?? null;
+  if (!h) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "HANDOVER_RECORD_PRESENT" });
+  const debtApprover = approverFor(approvals, d.approvals, "HANDOVER_OPEN_DEBT", { businessId: b, userId });
+  const loanerApprover = approverFor(approvals, d.approvals, "HANDOVER_OPEN_LOANER", { businessId: b, userId });
+  const debt = h.openBalanceAgorot > 0;
+  if (debt !== h.debtApproved || debt !== (debtApprover !== null) || (debt && !texts.debtOverrideReason)
+      || h.loanerApproved !== (loanerApprover !== null) || h.loanerApproved !== (texts.loanerOverrideReason !== null)) {
+    throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "HANDOVER_DECISION_PRESENT" });
+  }
+  await tx.$executeRaw`
+    INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "recordVersion", "openBalanceAgorot", "overpaidAgorot",
+      "debtOverrideReason", "debtApprovedByUserId", "debtApprovedAt", "loanerOverrideReason", "loanerApprovedByUserId", "loanerApprovedAt", "actorUserId")
+    VALUES (${b}::int, ${caseId}::int, ${receivedByName}::text, false, 2, ${h.openBalanceAgorot}::int, ${h.overpaidAgorot}::int,
+            ${debt ? texts.debtOverrideReason : null}::text, ${debtApprover}::int, CASE WHEN ${debt}::boolean THEN now() END,
+            ${h.loanerApproved ? texts.loanerOverrideReason : null}::text, ${loanerApprover}::int, CASE WHEN ${h.loanerApproved}::boolean THEN now() END,
+            ${userId}::int)`;
 }
 
 // ── P4: status-preserving records (journaled, versioned, idempotent) ────────────────────────────────────────
@@ -1161,7 +1215,7 @@ export async function chooseAfterSaleResolution(
       const d = i === 0 ? { ...judged, event: { ...judged.event, payload: { ...judged.event.payload, afterSaleResolution: choice.resolution } } } : judged;
       await verifyServerChecks(tx, b, d.serverChecks, { staffMemberId: ctx.staffMemberId, signatureKey: locked.signatureKey, caseId, track: locked.track, decision: d });
       const stepPrepared = i === 0 ? prepared : { ...prepared, key: `${prepared.key}#${i + 1}` };
-      seq = await commitTransition(tx, b, caseId, ctx, d, p.userId, stepPrepared);
+      seq = await commitTransition(tx, b, caseId, ctx, d, p.userId, stepPrepared, { approvals: resolveApprovals(p, d.approvals) });
       ctx = { ...ctx, status: d.to, holdReason: d.holdReason, outcome: d.outcome, cancellationRequested: d.cancellationRequestedAfter, version: seq };
     }
     return { case: await summaryOf(tx, b, caseId), event: { seq }, replayed: false };

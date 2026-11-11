@@ -631,6 +631,31 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
     ],
   },
+  // Service Desk handover record (migration 20261130090000). The account-deletion adapter calls it in the purge
+  // transaction, after service_tracks_erase_business(). It clears who APPROVED a handover exception (open debt, loaner
+  // out) — the two user references the foundation function's fixed column list cannot know; the receiver, reasons,
+  // signature key and actor are cleared by service_erase_business() (foundation). Order-independent with it.
+  {
+    fn: "service_handover_record_erase_business",
+    migration: "20261130090000_service_handover_debt_record",
+    models: [
+      {
+        model: "ServiceHandover",
+        cleared: ["debtApprovedByUserId", "loanerApprovedByUserId"],
+        kept: {
+          receivedByName: "cleared by service_erase_business() (foundation) — see its declaration",
+          signatureKey: "cleared by service_erase_business() (foundation) — see its declaration",
+          debtOverrideReason: "cleared by service_erase_business() (foundation) — see its declaration",
+          loanerOverrideReason: "cleared by service_erase_business() (foundation) — see its declaration",
+          recordVersion: "1 (legacy shape) or 2 (full balance record) — a format marker, not the person",
+          openBalanceAgorot: "the open balance at the handover (an amount) — the business's record, not who",
+          overpaidAgorot: "the overpayment at the handover (an amount) — not who",
+          debtApprovedAt: "when the debt was approved — a time, not who (the approver is cleared)",
+          loanerApprovedAt: "when the loaner exception was approved — a time, not who (the approver is cleared)",
+        },
+      },
+    ],
+  },
 ];
 
 export type ErasureManifest = {

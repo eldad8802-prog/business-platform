@@ -328,6 +328,28 @@ export interface ServiceCompletionRecord {
   debtApproved: boolean;
 }
 
+/**
+ * 20261130090000 — the exceptions a decision admits only with an APPROVAL. The core names them; the service resolves the
+ * approver server-side (approvals.ts resolveApproval — never from the request) and stores actor and approver apart:
+ *   HANDOVER_OPEN_DEBT    DELIVER with an open balance        → ServiceHandover.debtApprovedByUserId / debtApprovedAt
+ *   HANDOVER_OPEN_LOANER  DELIVER while the loaner is still out → ServiceHandover.loanerApprovedByUserId / loanerApprovedAt
+ *   COMPLETION_OPEN_DEBT  COMPLETE with an open balance       → ServiceCompletion.debtApprovedByUserId / debtApprovedAt
+ * The reason of each is in texts (debtOverrideReason / loanerOverrideReason).
+ */
+export const SERVICE_APPROVAL_KINDS = ["HANDOVER_OPEN_DEBT", "HANDOVER_OPEN_LOANER", "COMPLETION_OPEN_DEBT"] as const;
+export type ServiceApprovalKind = (typeof SERVICE_APPROVAL_KINDS)[number];
+
+/** 20261130090000 — what a version-2 ServiceHandover row holds, as the core judged it (the balance read in the same transaction). */
+export interface ServiceHandoverRecord {
+  /** The KNOWN balance at the handover: debt and overpayment, both >= 0, never both > 0 (CHECK ServiceHandover_balance). */
+  openBalanceAgorot: number;
+  overpaidAgorot: number;
+  /** An open debt handed over with an approval (HANDOVER_OPEN_DEBT); the reason is texts.debtOverrideReason. */
+  debtApproved: boolean;
+  /** Handed over while the loaner is out, with an approval (HANDOVER_OPEN_LOANER); the reason is texts.loanerOverrideReason. */
+  loanerApproved: boolean;
+}
+
 /** What happens to a SCHEDULED case's appointment when its place or address changes (section ט). */
 export type ServiceAppointmentImpact = "KEEP_TIME" | "UNSCHEDULE";
 
@@ -603,6 +625,10 @@ export type ServiceTransitionDecision =
       detailChange?: ServiceDetailChange | null;
       /** M1 — set only with RECORD_COMPLETION: what the ServiceCompletion row holds (free text: never in the payload). */
       completion?: ServiceCompletionRecord | null;
+      /** 20261130090000 — set on a DELIVER: what the version-2 ServiceHandover row holds. */
+      handover?: ServiceHandoverRecord | null;
+      /** 20261130090000 — the exceptions this decision admits only with an approval; [] when none. */
+      approvals: readonly ServiceApprovalKind[];
     }
   | {
       ok: false;

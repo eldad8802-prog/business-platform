@@ -49,4 +49,12 @@ if [ -f "$M1" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.
   PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$M1"
   echo "ERASURE PREREQ: M1 tracks applied verbatim from 20261127090000"
 fi
+# Handover record (migration 20261130090000): the purge also calls service_handover_record_erase_business(), which clears
+# the two approver columns of ServiceHandover under the replaced handover guard. Where the lab does not carry it, the
+# migration is applied VERBATIM on top of M1 (its premise). A lab that already has it is left as it is.
+HOV="$ROOT/prisma/migrations/20261130090000_service_handover_debt_record/migration.sql"
+if [ -f "$HOV" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regprocedure('public.service_handover_record_erase_business()') IS NULL")" = "t" ]; then
+  PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$HOV"
+  echo "ERASURE PREREQ: handover record applied verbatim from 20261130090000"
+fi
 echo "ERASURE PREREQ READY: $DB (document_supplier_link_erase_business from 20261103090000, business_documents_erase from 20261114090000, verbatim)"
