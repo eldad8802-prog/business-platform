@@ -15,11 +15,12 @@ DROP TRIGGER IF EXISTS "BillingDocument_issue_requires_declaration" ON "BillingD
 DROP TRIGGER IF EXISTS "BillingDocument_insert_issued_requires_declaration" ON "BillingDocument";
 DROP TRIGGER IF EXISTS "BusinessProfile_issuer_identity_lock" ON "BusinessProfile";
 DROP TRIGGER IF EXISTS "BusinessProfile_issuer_identity_lock_insert" ON "BusinessProfile";
+DROP TRIGGER IF EXISTS "BillingDocumentNumberSequence_series_opening" ON "BillingDocumentNumberSequence";
 DROP TABLE IF EXISTS "BusinessIssuerDeclaration", "BillingSeriesOpening", "IssuerDeclarationEnforcement" CASCADE;
 DROP FUNCTION IF EXISTS public.issuer_records_append_only_guard(), public.issuer_declaration_chain_guard(),
   public.issuer_designation_origin_guard(), public.series_opening_unused_guard(), public.issuer_records_truncate_guard(),
   public.issuer_issue_requires_declaration(), public.issuer_profile_identity_lock(),
-  public.issuer_business_is_being_deleted(integer);
+  public.issuer_business_is_being_deleted(integer), public.series_opening_apply();
 DO $$
 DECLARE f regprocedure;
 BEGIN

@@ -184,6 +184,11 @@ DECLARE
   issued_under boolean;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('issuer_declaration:' || NEW."businessId", 0));
+  -- S1 (owner 2026-11-12): FOR UPDATE on the business row conflicts with the FOR KEY SHARE lock that inserting a
+  -- "User" (or moving one in) takes on its business — so the count below cannot be changed by a concurrent signup /
+  -- invitation until this transaction ends; a user added just before waits here and is counted. Held only for the
+  -- declaration transaction (milliseconds).
+  PERFORM 1 FROM public."Business" b WHERE b."id" = NEW."businessId" FOR UPDATE;
   SELECT count(*) INTO users_in_business FROM public."User" u WHERE u."businessId" = NEW."businessId";
 
   -- AUTHORITY (no order-of-signup anywhere)
@@ -290,6 +295,10 @@ DECLARE cur public."BusinessIssuerDeclaration"; new_id integer; prev_business te
 BEGIN
   prev_business := current_setting('app.current_business_id', true);
   PERFORM set_config('app.current_business_id', p_business::text, true);
+  -- S2 (owner 2026-11-12): the designating admin must be a platform admin (role PLATFORM_ADMIN) — not any user id.
+  IF NOT EXISTS (SELECT 1 FROM public."User" a WHERE a."id" = p_admin_user AND a."role"::text = 'PLATFORM_ADMIN') THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZD33', MESSAGE = 'ISSUER_DESIGNATION_REQUIRES_PLATFORM_ADMIN';
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM public."User" u WHERE u."id" = p_authorized_user AND u."businessId" = p_business) THEN
     RAISE EXCEPTION USING ERRCODE = 'DZD33', MESSAGE = 'ISSUER_DESIGNATED_USER_NOT_IN_BUSINESS';
   END IF;
@@ -322,6 +331,10 @@ DECLARE v public."BusinessIssuerDeclaration"; new_id integer; prev_business text
 BEGIN
   prev_business := current_setting('app.current_business_id', true);
   PERFORM set_config('app.current_business_id', p_business::text, true);
+  -- S2 (owner 2026-11-12): the designating admin must be a platform admin (role PLATFORM_ADMIN) — not any user id.
+  IF NOT EXISTS (SELECT 1 FROM public."User" a WHERE a."id" = p_admin_user AND a."role"::text = 'PLATFORM_ADMIN') THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZD33', MESSAGE = 'ISSUER_DESIGNATION_REQUIRES_PLATFORM_ADMIN';
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM public."User" u WHERE u."id" = p_authorized_user AND u."businessId" = p_business) THEN
     RAISE EXCEPTION USING ERRCODE = 'DZD33', MESSAGE = 'ISSUER_DESIGNATED_USER_NOT_IN_BUSINESS';
   END IF;
@@ -350,6 +363,12 @@ CREATE OR REPLACE FUNCTION public.series_opening_unused_guard()
 RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $fn$
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('series:' || NEW."businessId" || ':' || NEW."documentType"::text || ':' || NEW."seriesCode", 0));
+  -- S3 (owner 2026-11-12): issuance keeps ONE counter per (business, document type) — there is no secondary series
+  -- to number. A non-MAIN opening would be stored and silently ignored, so it is refused until series exist (schema
+  -- proposal, separate approval).
+  IF NEW."seriesCode" <> 'MAIN' THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZD32', MESSAGE = 'SERIES_CODE_NOT_SUPPORTED_BY_ISSUANCE';
+  END IF;
   IF NEW."seriesCode" = 'MAIN' AND (
        EXISTS (SELECT 1 FROM public."BillingDocumentNumberSequence" s WHERE s."businessId" = NEW."businessId" AND s."documentType" = NEW."documentType")
     OR EXISTS (SELECT 1 FROM public."BillingDocument" d WHERE d."businessId" = NEW."businessId" AND d."documentType" = NEW."documentType" AND d."documentNumber" IS NOT NULL)
@@ -362,6 +381,31 @@ $fn$;
 REVOKE ALL ON FUNCTION public.series_opening_unused_guard() FROM PUBLIC;
 CREATE TRIGGER "BillingSeriesOpening_unused" BEFORE INSERT ON "BillingSeriesOpening"
   FOR EACH ROW EXECUTE FUNCTION public.series_opening_unused_guard();
+
+-- S4 (owner 2026-11-12, A0 numbering — Draft for review): the recorded opening reaches numbering. Issuance creates
+-- the counter of a series the first time it issues (billing-issue.service: upsert, create nextNumber = 2 → the first
+-- number is 1). When the series has a MAIN opening, the NEW counter row is shifted by (opening - 1): first number =
+-- the opening, then +1. Only the INSERT of a new counter is touched: an existing counter is never changed (and an
+-- opening for a used series is refused above), so no series resets and no number already given changes. No opening
+-- row → nothing changes (today's behaviour; an unknown historical number is never invented). Same advisory lock as
+-- the opening guard: an opening and the first issue of its series cannot interleave. The number is consumed only if
+-- the issue transaction commits (a refused or rolled-back issue rolls the counter back with it).
+CREATE OR REPLACE FUNCTION public.series_opening_apply()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
+DECLARE o integer;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('series:' || NEW."businessId" || ':' || NEW."documentType"::text || ':MAIN', 0));
+  SELECT so."openingNumber" INTO o FROM public."BillingSeriesOpening" so
+   WHERE so."businessId" = NEW."businessId" AND so."documentType" = NEW."documentType" AND so."seriesCode" = 'MAIN';
+  IF o IS NOT NULL AND o > 1 THEN
+    NEW."nextNumber" := NEW."nextNumber" + (o - 1);
+  END IF;
+  RETURN NEW;
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.series_opening_apply() FROM PUBLIC;
+CREATE TRIGGER "BillingDocumentNumberSequence_series_opening" BEFORE INSERT ON "BillingDocumentNumberSequence"
+  FOR EACH ROW EXECUTE FUNCTION public.series_opening_apply();
 
 CREATE OR REPLACE FUNCTION public.issuer_records_truncate_guard()
 RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $fn$
