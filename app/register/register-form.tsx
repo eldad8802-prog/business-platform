@@ -17,6 +17,7 @@ const PRIVACY_HREF = "/privacy";
 type RegisterErrors = {
   name?: string;
   businessName?: string;
+  businessKind?: string;
   email?: string;
   password?: string;
   acceptTerms?: string;
@@ -35,6 +36,7 @@ export default function RegisterForm({
 
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
+  const [businessKind, setBusinessKind] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
@@ -123,6 +125,7 @@ export default function RegisterForm({
     if (businessNameError) nextErrors.businessName = businessNameError;
     if (emailError) nextErrors.email = emailError;
     if (passwordError) nextErrors.password = passwordError;
+    if (!businessKind) nextErrors.businessKind = t("account.auth.register.errors.businessKindRequired");
     if (!acceptTerms) nextErrors.acceptTerms = t("account.auth.register.errors.termsRequired");
 
     setErrors(nextErrors);
@@ -174,6 +177,7 @@ export default function RegisterForm({
     setTouched({
       name: true,
       businessName: true,
+      businessKind: true,
       email: true,
       password: true,
       acceptTerms: true,
@@ -195,6 +199,7 @@ export default function RegisterForm({
         body: JSON.stringify({
           name: name.trim(),
           businessName: businessName.trim(),
+          businessKind,
           email: email.trim(),
           password,
           acceptTerms,
@@ -378,6 +383,27 @@ export default function RegisterForm({
               {fieldError("businessName") ? (
                 <p id="reg-business-msg" role="alert" className={styles.error}>{fieldError("businessName")}</p>
               ) : null}
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="reg-business-kind">{t("account.auth.register.businessKind.label")}</label>
+              <select
+                id="reg-business-kind"
+                name="businessKind"
+                className={`${styles.input} ${fieldError("businessKind") ? styles.invalid : ""}`}
+                value={businessKind}
+                onChange={(e) => setBusinessKind(e.target.value)}
+                onBlur={() => setTouched((prev) => ({ ...prev, businessKind: true }))}
+                aria-invalid={!!fieldError("businessKind")}
+                aria-describedby={fieldError("businessKind") ? "reg-business-kind-msg" : undefined}
+                data-testid="signup-business-kind"
+              >
+                <option value="" disabled>{t("account.auth.register.businessKind.placeholder")}</option>
+                <option value="EXEMPT_DEALER">{t("account.auth.register.businessKind.EXEMPT_DEALER")}</option>
+                <option value="AUTHORIZED_DEALER">{t("account.auth.register.businessKind.AUTHORIZED_DEALER")}</option>
+                <option value="LTD_COMPANY">{t("account.auth.register.businessKind.LTD_COMPANY")}</option>
+              </select>
+              {fieldError("businessKind") ? <p id="reg-business-kind-msg" role="alert" className={styles.error}>{fieldError("businessKind")}</p> : null}
             </div>
 
             <div className={`${styles.field} ${styles.gridWide}`}>
