@@ -17,6 +17,7 @@ on:
       - ".business-documents/production-entry-ui-*"
       - ".business-documents/delivery-note-reference-check.mts"
       - ".github/workflows/business-documents-production-entry-ci.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
