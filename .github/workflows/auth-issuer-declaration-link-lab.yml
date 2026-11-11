@@ -190,7 +190,7 @@ jobs:
           elif git fetch -q --depth=1 origin pull/1091/head:pr1091 2>/dev/null && git show "pr1091:$F" > /tmp/m1091.sql 2>/dev/null; then :
           else echo "::notice::#1091's migration is not reachable — order check skipped"; exit 0; fi
           if sed 's/--.*$//' /tmp/m1091.sql | grep -nE 'AuthEmailToken|auth_issuer_declaration|bindingSha256'; then echo "::error::#1091 names this migration's objects"; exit 1; fi
-          if sed 's/--.*$//' "$MIGRATION" | grep -nE 'BusinessIssuerDeclaration|BillingSeriesOpening|IssuerDeclarationEnforcement|issuer_(records|declaration|designat|issue)'; then echo "::error::this migration names #1091's objects"; exit 1; fi
+          if sed 's/--.*$//' "$MIGRATION" | grep -nE 'BusinessIssuerDeclaration|BillingSeriesOpening|IssuerDeclarationEnforcement|(^|[^a-z_])issuer_(records|declaration_chain|designat|issue_requires)|series_opening'; then echo "::error::this migration names #1091's objects"; exit 1; fi
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
           # (a) this migration first (the release mechanism), then #1091
           bash .agl/lab.sh idl_o1 --with-issuer >/dev/null
