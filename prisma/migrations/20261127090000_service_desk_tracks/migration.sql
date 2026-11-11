@@ -215,6 +215,9 @@ CREATE TABLE "ServiceCompletion" (
   --   an open debt carries the owner's explicit approval: the reason, the approving user (a user of this business —
   --   ServiceCompletion_user_same_business; required at INSERT by service_completion_guard, since the FK of a deleted
   --   user / the erasure later set it NULL) and the approval time. No debt → no approval fields at all.
+  --   Owner decision 2026-11-12: until an independent approval mechanism exists, the approver is the authenticated user
+  --   who performed the action — service_completion_guard refuses debtApprovedByUserId <> actorUserId at INSERT
+  --   (SERVICE_APPROVER_NOT_ACTOR). Two columns, one rule today: a future flow replaces the guard, never the data.
   "openBalanceAgorot"    INTEGER NOT NULL,
   "overpaidAgorot"       INTEGER NOT NULL,
   "debtOverrideReason"   TEXT,
@@ -565,6 +568,11 @@ BEGIN
     -- time; the approver is required here, at birth, because a deleted user's FK action may later clear it)
     IF NEW."openBalanceAgorot" > 0 AND NEW."debtApprovedByUserId" IS NULL THEN
       RAISE EXCEPTION USING ERRCODE = 'DZS07', MESSAGE = 'SERVICE_COMPLETION_DEBT_UNAPPROVED: closing with an open balance needs the approving user';
+    END IF;
+    -- owner decision 2026-11-12: until an independent approval mechanism exists (an approval made from the approver's
+    -- OWN authenticated session), the approver is the authenticated user who performed the action
+    IF NEW."debtApprovedByUserId" IS NOT NULL AND NEW."debtApprovedByUserId" <> NEW."actorUserId" THEN
+      RAISE EXCEPTION USING ERRCODE = 'DZS07', MESSAGE = 'SERVICE_APPROVER_NOT_ACTOR: until an independent approver verification exists, the approver is the acting user';
     END IF;
     SELECT c."status"::text INTO v_status FROM public."ServiceCase" c
      WHERE c."businessId" = NEW."businessId" AND c."id" = NEW."caseId" FOR UPDATE;
