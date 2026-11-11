@@ -97,8 +97,11 @@ jobs:
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d idl_pre -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$PREFLIGHT" | tee /tmp/pre.out
           test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "10" || { echo "::error::preflight is not 10/10 before the migration"; exit 1; }
-          fails=$(lab -f "$EVIDENCE" | { grep -cE '^ +[0-9]+ \| FAIL' || true; })
-          test "$fails" -gt 0 || { echo "::error::the proof passed before the migration"; exit 1; }
+          # Before the migration the proof refuses: it errors (its column does not exist) or reports FAIL rows.
+          if out=$(lab -f "$EVIDENCE" 2>&1); then
+            echo "$out" | grep -qE '^ +[0-9]+ \| FAIL' || { echo "::error::the proof passed before the migration"; exit 1; }
+          fi
+          echo "the proof refuses before the migration"
 
       - name: 2. prisma migrate deploy applies it — proof 12/12; AET 17 and LINK 14 still whole; preflight fails exactly 1 3 4 5 6
         run: |
@@ -148,8 +151,9 @@ jobs:
           # A fresh database with the migration and no such token: reverts whole.
           bash .agl/lab.sh idl_rb --with-issuer >/dev/null
           lab idl_rb -f .aid/rollback.sql
-          fails=$(lab idl_rb -f "$EVIDENCE" | { grep -cE '^ +[0-9]+ \| FAIL' || true; })
-          test "$fails" -gt 0 || { echo "::error::the proof still passes after the rollback"; exit 1; }
+          if out=$(lab idl_rb -f "$EVIDENCE" 2>&1); then
+            echo "$out" | grep -qE '^ +[0-9]+ \| FAIL' || { echo "::error::the proof still passes after the rollback"; exit 1; }
+          fi
           test "$(lab idl_rb -f "$PREFLIGHT" | grep -cE '^ +[0-9]+ \| PASS')" = "10" || { echo "::error::preflight is not 10/10 after the rollback"; exit 1; }
           for pair in "$AET_EVIDENCE:17" "$LINK_EVIDENCE:14"; do
             f="${pair%%:*}"; want="${pair##*:}"
