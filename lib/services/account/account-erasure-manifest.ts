@@ -611,10 +611,13 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
       {
         model: "ServiceCompletion",
-        cleared: ["confirmedByName", "note", "debtOverrideReason", "actorUserId"],
+        cleared: ["confirmedByName", "note", "debtOverrideReason", "actorUserId", "debtApprovedByUserId"],
         kept: {
           completionType: "where the owner confirmed the work (enum) — not who",
           completedAt: "when the case was completed",
+          openBalanceAgorot: "the open balance the case was closed with (an amount) — not who",
+          overpaidAgorot: "the overpayment the case was closed with (an amount) — not who",
+          debtApprovedAt: "when the debt was approved — a time, not who (the approver is cleared)",
         },
       },
       {

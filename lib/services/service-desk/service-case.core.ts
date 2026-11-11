@@ -427,19 +427,26 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
    * The balance rule of a handover (owner decisions 3, 4, ש4), shared by DELIVER and COMPLETE: UNKNOWN blocks; an open
    * balance needs the owner's explicit decision with a reason; an overpayment is shown and journaled.
    */
-  const judgeSettlement = (debtOverride: { reason?: unknown } | undefined) => {
+  const judgeSettlement = (debtOverride: { reason?: unknown } | undefined): { openBalanceAgorot: number; overpaidAgorot: number; debtApproved: boolean } | null => {
     const s = context.settlement;
     if (!s || !s.known) {
       fail("BALANCE_UNKNOWN", "the balance could not be established — the case waits for it");
-      return;
+      return null;
     }
-    if (!Number.isInteger(s.openBalanceAgorot)) {
+    // A known balance is a debt (>= 0) and an overpayment (>= 0), never both: anything else is malformed — refuse.
+    const over = s.overpaidAgorot ?? 0;
+    if (!Number.isSafeInteger(s.openBalanceAgorot) || s.openBalanceAgorot < 0) {
       fail("INVALID_INPUT", "openBalanceAgorot");
-      return;
+      return null;
+    }
+    if (!Number.isSafeInteger(over) || over < 0 || (over > 0 && s.openBalanceAgorot > 0)) {
+      fail("INVALID_INPUT", "overpaidAgorot");
+      return null;
     }
     r.payload.openBalanceAgorot = s.openBalanceAgorot;
     if (s.basis) r.payload.chargeBasis = s.basis;
-    if (s.overpaidAgorot !== undefined && s.overpaidAgorot > 0) r.payload.overpaidAgorot = s.overpaidAgorot;
+    if (over > 0) r.payload.overpaidAgorot = over;
+    let debtApproved = false;
     if (s.openBalanceAgorot > 0) {
       if (!debtOverride) fail("OPEN_BALANCE_NEEDS_OWNER_DECISION", "an open balance needs the owner's decision");
       else {
@@ -448,10 +455,12 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
         else {
           r.texts.debtOverrideReason = reason;
           r.payload.debtOverride = true;
+          debtApproved = true;
         }
       }
     }
     r.serverChecks.push("SETTLEMENT_READ_IN_SAME_TRANSACTION");
+    return { openBalanceAgorot: s.openBalanceAgorot, overpaidAgorot: over, debtApproved };
   };
   /** Optional free text as stored: trimmed, null when absent or blank; over the column limit → INVALID_INPUT (never cut). */
   const textOrNull = (raw: unknown, max: number, field: string): string | null => {
@@ -915,13 +924,15 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       }
       if (context.currentQuote?.state === "SENT") fail("OPEN_QUOTE", "a sent quote still awaits a decision");
       r.serverChecks.push("PART_RESERVATIONS_COUNTED_UNDER_LOCK");
-      // The balance is judged exactly as at a handover (owner decisions 3, 4, ש4).
-      judgeSettlement(action.debtOverride);
+      // The balance is judged exactly as at a handover (owner decisions 3, 4, ש4); the record stores what was judged
+      // (owner decision 2026-11-11: the balance, the overpayment, the approval — never an unknown balance).
+      const balance = judgeSettlement(action.debtOverride);
       r.payload.completionType = expected;
       r.payload.confirmerNamed = name !== null;
       r.payload.noteRecorded = note !== null;
+      if (!balance) break;
       r.effects.push("RECORD_COMPLETION");
-      r.completion = { completionType: expected, confirmedByName: name, note };
+      r.completion = { completionType: expected, confirmedByName: name, note, ...balance };
       break;
     }
     case "CHANGE_DETAILS": {

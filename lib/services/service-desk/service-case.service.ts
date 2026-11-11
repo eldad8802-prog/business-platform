@@ -657,7 +657,7 @@ function actionFrom(raw: Record<string, unknown>): ServiceCaseAction {
 }
 
 /** What a command prepared outside the case transaction for an effect (1.3c: the next quote version of a revision). */
-export type EffectExtras = { nextQuote?: FrozenQuote; /** M1 COMPLETE: the balance read in this transaction (recorded with the completion). */ openBalanceAgorot?: number };
+export type EffectExtras = { nextQuote?: FrozenQuote };
 
 /**
  * The decision's effects, in the command's transaction, BEFORE the case row and its event are written (the case lock is
@@ -734,11 +734,20 @@ export async function commitTransition(tx: Tx, b: number, caseId: number, contex
   if (updated !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
   await appendEvent(tx, b, caseId, next, d.event, userId, prepared);
   if (done) {
-    // One per case (UNIQUE), immutable, the acting user, no signature columns (owner decision 2026-11-11).
+    // One per case (UNIQUE), immutable, the acting user, no signature columns (owner decision 2026-11-11). The balance is
+    // the one the core judged from the settlement read in THIS transaction (never a stand-in for an unknown one); an
+    // open debt is stored with the acting owner as its approver and the transaction time as the approval time — the
+    // database refuses a debt without reason / approver / time and any approval field without a debt.
+    const debt = done.openBalanceAgorot > 0;
+    if (debt !== done.debtApproved || (debt && !d.texts.debtOverrideReason)) {
+      throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "DEBT_DECISION_PRESENT" });
+    }
     await tx.$executeRaw`
-      INSERT INTO "ServiceCompletion" ("businessId", "caseId", "completionType", "confirmedByName", note, "openBalanceAgorot", "debtOverrideReason", "actorUserId")
+      INSERT INTO "ServiceCompletion" ("businessId", "caseId", "completionType", "confirmedByName", note, "openBalanceAgorot", "overpaidAgorot",
+        "debtOverrideReason", "debtApprovedByUserId", "debtApprovedAt", "actorUserId")
       VALUES (${b}::int, ${caseId}::int, ${done.completionType}::"ServiceCompletionType", ${done.confirmedByName}::text, ${done.note}::text,
-              ${extras.openBalanceAgorot ?? 0}::int, ${d.texts.debtOverrideReason}::text, ${userId}::int)`;
+              ${done.openBalanceAgorot}::int, ${done.overpaidAgorot}::int, ${debt ? d.texts.debtOverrideReason : null}::text,
+              ${debt ? userId : null}::int, CASE WHEN ${debt}::boolean THEN now() END, ${userId}::int)`;
   }
   if (dc) {
     // D11: before / after at the event's seq (= the version this update set); the journal keeps field names only.
@@ -782,14 +791,16 @@ export async function runCaseAction(
     const d = evaluateTransition(context, action, { kind: "OWNER", userId: p.userId });
     if (!d.ok) throw refused(d.violations);
     await verifyServerChecks(tx, b, d.serverChecks, { staffMemberId: context.staffMemberId, signatureKey, settlementRead: settlement !== null, caseId, track, decision: d });
-    const next = await commitTransition(tx, b, caseId, context, d, p.userId, prepared, { openBalanceAgorot: settlement?.openBalanceAgorot ?? 0 });
+    const next = await commitTransition(tx, b, caseId, context, d, p.userId, prepared);
     if (action.type === "DELIVER" && d.statusChanged && d.to === "DELIVERED") {
+      // the core admitted the handover only on a known balance; an unknown one is never recorded as 0
+      if (settlement === null || settlement.openBalanceAgorot === null) throw new ServiceDeskError("BALANCE_UNKNOWN");
       // The handover record: one per case (UNIQUE), immutable, the acting user, no signature (owner decision 2026-11-11).
       const receipt = (action as { receipt: { receivedByName?: string | null } }).receipt;
       const texts = d.texts as { debtOverrideReason?: string | null; loanerOverrideReason?: string | null };
       await tx.$executeRaw`
         INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "debtOverrideReason", "loanerOverrideReason", "actorUserId")
-        VALUES (${b}::int, ${caseId}::int, ${receipt.receivedByName ?? null}::text, false, ${settlement?.openBalanceAgorot ?? 0}::int,
+        VALUES (${b}::int, ${caseId}::int, ${receipt.receivedByName ?? null}::text, false, ${settlement.openBalanceAgorot}::int,
                 ${texts.debtOverrideReason ?? null}::text, ${texts.loanerOverrideReason ?? null}::text, ${p.userId}::int)`;
       // A presented warranty offer locks at the handover: starts on the delivery day, ends one duration later (guard rules).
       await tx.$executeRaw`

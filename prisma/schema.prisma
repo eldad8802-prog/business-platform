@@ -8909,9 +8909,15 @@ model ServiceCompletion {
   completionType  ServiceCompletionType
   confirmedByName String? // cleared by service_tracks_erase_business()
   note            String? // cleared by service_tracks_erase_business()
-  /// the balance when the owner confirmed; closing with a debt carries the owner's reason (CHECK ServiceCompletion_debt_decided)
-  openBalanceAgorot  Int     @default(0)
-  debtOverrideReason String? // cleared by service_tracks_erase_business()
+  /// the KNOWN balance when the owner confirmed (agorot, >= 0, no default — an unknown balance has no representation;
+  /// CHECK ServiceCompletion_balance: never a debt and an overpayment together)
+  openBalanceAgorot    Int
+  overpaidAgorot       Int
+  /// closing with a debt = the owner's explicit approval: reason + approving user (same business) + time
+  /// (CHECK ServiceCompletion_debt_decided; the approver is required at INSERT by service_completion_guard)
+  debtOverrideReason   String? // cleared by service_tracks_erase_business()
+  debtApprovedByUserId Int? // cleared by service_tracks_erase_business()
+  debtApprovedAt       DateTime?
   actorUserId     Int? // cleared by service_tracks_erase_business()
   completedAt     DateTime              @default(now())
   createdAt       DateTime              @default(now())

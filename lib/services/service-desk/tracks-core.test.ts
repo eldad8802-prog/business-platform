@@ -262,6 +262,17 @@ console.log("— 3. COMPLETE (WORK_DONE → CLOSED, the owner's confirmation)");
   const over = complete({ settlement: { known: true, openBalanceAgorot: 0, basis: "DOCUMENTED", overpaidAgorot: 300 } });
   check("an overpayment is shown in the journal (never hidden)", over.ok && over.event.payload.overpaidAgorot === 300);
   check("the settlement is re-read in the same transaction", ok.ok && ok.serverChecks.includes("SETTLEMENT_READ_IN_SAME_TRANSACTION"));
+  // owner decision 2026-11-11: the record stores what was judged — balance, overpayment, approval (CHECKs in M1)
+  check("record: a settled case stores 0 / 0, no approval", ok.ok && ok.completion?.openBalanceAgorot === 0 && ok.completion?.overpaidAgorot === 0 && ok.completion?.debtApproved === false);
+  check("record: an approved debt stores the balance and debtApproved (the reason stays in texts)", debt.ok && debt.completion?.openBalanceAgorot === 5000 && debt.completion?.overpaidAgorot === 0 && debt.completion?.debtApproved === true);
+  check("record: an overpayment is stored with the completion, not only journaled", over.ok && over.completion?.overpaidAgorot === 300 && over.completion?.openBalanceAgorot === 0 && over.completion?.debtApproved === false);
+  const unknown = complete({ settlement: { known: false } });
+  check("record: an UNKNOWN balance produces no record and no RECORD_COMPLETION (never stored as 0)", !unknown.ok);
+  refused("a negative balance is malformed (an overpayment is reported separately) → refused", complete({ settlement: { known: true, openBalanceAgorot: -300, basis: "DOCUMENTED" } }), "INVALID_INPUT");
+  refused("a debt AND an overpayment together are malformed → refused", complete({ settlement: { known: true, openBalanceAgorot: 100, basis: "DOCUMENTED", overpaidAgorot: 50 } }, { debtOverride: { reason: "x" } }), "INVALID_INPUT");
+  refused("a negative / fractional overpayment → refused", complete({ settlement: { known: true, openBalanceAgorot: 0, basis: "DOCUMENTED", overpaidAgorot: 1.5 } }), "INVALID_INPUT");
+  const noDebtOverride = complete({}, { debtOverride: { reason: "לא נדרש" } });
+  check("a debt decision without a debt is ignored: no reason stored, not approved", noDebtOverride.ok && noDebtOverride.texts.debtOverrideReason === null && noDebtOverride.completion?.debtApproved === false && noDebtOverride.event.payload.debtOverride === undefined);
 }
 
 // ── 4. CHANGE_DETAILS (D3) ───────────────────────────────────────────────────────────────────────────────────

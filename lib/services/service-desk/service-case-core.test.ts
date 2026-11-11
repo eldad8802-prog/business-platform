@@ -353,6 +353,10 @@ refusedWith("open balance: owner decision without a reason", ev(ready({ settleme
   check("  …and no effect touches the debt", d.ok && d.effects.every((e) => e === "ATTEMPT_AUTO_CLOSE"));
 }
 refusedWith("unknown balance: delivery refuses (fail closed)", ev(ready({ settlement: { known: false } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "x" } }, OWNER), "BALANCE_UNKNOWN");
+// owner decision 2026-11-11 (the same rule for DELIVER and COMPLETE): a known balance is debt XOR overpayment, never negative
+refusedWith("malformed balance: a negative open balance is refused (an overpayment is reported separately)", ev(ready({ settlement: { known: true, openBalanceAgorot: -100 } }), { type: "DELIVER", receipt: RECEIPT }, OWNER), "INVALID_INPUT");
+refusedWith("malformed balance: a debt and an overpayment together are refused", ev(ready({ settlement: { known: true, openBalanceAgorot: 100, overpaidAgorot: 20 } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "x" } }, OWNER), "INVALID_INPUT");
+refusedWith("malformed balance: a negative overpayment is refused", ev(ready({ settlement: { known: true, openBalanceAgorot: 0, overpaidAgorot: -5 } }), { type: "DELIVER", receipt: RECEIPT }, OWNER), "INVALID_INPUT");
 refusedWith("delivery needs the owner's confirmation (no customer signature — owner decision 2026-11-11)", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: false, receivedByName: "דנה" } }, OWNER), "HANDOVER_NOT_CONFIRMED");
 allowedTo("delivery without a receiver's name, on the owner's confirmation", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: true } }, OWNER), "DELIVERED");
 refusedWith("a receiver's name over 200 characters is refused", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: true, receivedByName: "א".repeat(201) } }, OWNER), "INVALID_INPUT");
