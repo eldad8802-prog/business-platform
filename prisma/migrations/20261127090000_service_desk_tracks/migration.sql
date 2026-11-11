@@ -208,10 +208,18 @@ CREATE TABLE "ServiceCompletion" (
   "completionType"  "ServiceCompletionType" NOT NULL,
   "confirmedByName" TEXT,
   "note"            TEXT,
-  -- the balance when the owner confirmed, and the owner's documented reason to close with a debt (the handover rule,
-  -- owner decision 2026-11-11: explicit confirmation, a reason, the history)
-  "openBalanceAgorot"  INTEGER NOT NULL DEFAULT 0,
-  "debtOverrideReason" TEXT,
+  -- Closing with an open debt (owner decision 2026-11-11 — the handover rule, enforced here too):
+  --   the KNOWN balance when the owner confirmed — the open debt and the overpayment, both in agorot, both >= 0, never
+  --   both > 0. NOT NULL and NO default: the writer must state both numbers, so an UNKNOWN balance has no
+  --   representation (the service refuses COMPLETE before it gets here — BALANCE_UNKNOWN);
+  --   an open debt carries the owner's explicit approval: the reason, the approving user (a user of this business —
+  --   ServiceCompletion_user_same_business; required at INSERT by service_completion_guard, since the FK of a deleted
+  --   user / the erasure later set it NULL) and the approval time. No debt → no approval fields at all.
+  "openBalanceAgorot"    INTEGER NOT NULL,
+  "overpaidAgorot"       INTEGER NOT NULL,
+  "debtOverrideReason"   TEXT,
+  "debtApprovedByUserId" INTEGER,
+  "debtApprovedAt"       TIMESTAMP(3),
   "actorUserId"     INTEGER,
   "completedAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "createdAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -222,8 +230,16 @@ CREATE TABLE "ServiceCompletion" (
     AND ("note" IS NULL OR (char_length("note") <= 2000 AND btrim("note") <> ''))
     AND ("debtOverrideReason" IS NULL OR (char_length("debtOverrideReason") <= 1000 AND btrim("debtOverrideReason") <> ''
          AND "debtOverrideReason" = btrim("debtOverrideReason")))),
-  -- like ServiceHandover_debt_decided: closing with an open balance carries the owner's reason (until the erasure)
-  CONSTRAINT "ServiceCompletion_debt_decided" CHECK ("openBalanceAgorot" <= 0 OR "debtOverrideReason" IS NOT NULL OR "erasedAt" IS NOT NULL)
+  -- a known balance: a debt or an overpayment (or neither), never negative, never both
+  CONSTRAINT "ServiceCompletion_balance" CHECK (
+    "openBalanceAgorot" >= 0 AND "overpaidAgorot" >= 0 AND ("openBalanceAgorot" = 0 OR "overpaidAgorot" = 0)),
+  -- like ServiceHandover_debt_needs_reason, and stricter: an open debt carries the approval time and the reason (the
+  -- reason until the erasure); without a debt there is no reason, no approver and no approval time
+  CONSTRAINT "ServiceCompletion_debt_decided" CHECK (
+    CASE WHEN "openBalanceAgorot" > 0
+         THEN "debtApprovedAt" IS NOT NULL AND ("debtOverrideReason" IS NOT NULL OR "erasedAt" IS NOT NULL)
+         ELSE "debtOverrideReason" IS NULL AND "debtApprovedByUserId" IS NULL AND "debtApprovedAt" IS NULL
+    END)
 );
 CREATE UNIQUE INDEX "ServiceCompletion_businessId_id_key" ON "ServiceCompletion"("businessId", "id");
 CREATE UNIQUE INDEX "ServiceCompletion_businessId_caseId_key" ON "ServiceCompletion"("businessId", "caseId");
@@ -233,6 +249,8 @@ ALTER TABLE "ServiceCompletion" ADD CONSTRAINT "ServiceCompletion_case_tenant_fk
   FOREIGN KEY ("businessId", "caseId") REFERENCES "ServiceCase"("businessId", "id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 ALTER TABLE "ServiceCompletion" ADD CONSTRAINT "ServiceCompletion_actorUserId_fkey"
   FOREIGN KEY ("actorUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "ServiceCompletion" ADD CONSTRAINT "ServiceCompletion_debtApprovedByUserId_fkey"
+  FOREIGN KEY ("debtApprovedByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- 5.2 ServiceCaseDetailChange (D11): one row per CHANGE_DETAILS, at the journal event's seq (= the case version it
 -- produced). The journal payload stays closed (tokens only); before / after values live here — the address too,
@@ -288,8 +306,8 @@ ALTER TABLE "ServiceCaseDetailChange" ADD CONSTRAINT "ServiceCaseDetailChange_ac
   FOREIGN KEY ("actorUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 CREATE TRIGGER "ServiceCompletion_user_same_business"
-  BEFORE INSERT OR UPDATE OF "businessId", "actorUserId" ON "ServiceCompletion"
-  FOR EACH ROW EXECUTE FUNCTION public.service_user_same_business('actorUserId');
+  BEFORE INSERT OR UPDATE OF "businessId", "actorUserId", "debtApprovedByUserId" ON "ServiceCompletion"
+  FOR EACH ROW EXECUTE FUNCTION public.service_user_same_business('actorUserId', 'debtApprovedByUserId');
 CREATE TRIGGER "ServiceCaseDetailChange_user_same_business"
   BEFORE INSERT OR UPDATE OF "businessId", "actorUserId" ON "ServiceCaseDetailChange"
   FOR EACH ROW EXECUTE FUNCTION public.service_user_same_business('actorUserId');
@@ -516,7 +534,8 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $fn$
 DECLARE
-  erasable constant text[] := ARRAY['confirmedByName', 'note', 'debtOverrideReason', 'actorUserId', 'erasedAt'];
+  erasable constant text[] := ARRAY['confirmedByName', 'note', 'debtOverrideReason', 'actorUserId', 'debtApprovedByUserId', 'erasedAt'];
+  user_refs constant text[] := ARRAY['actorUserId', 'debtApprovedByUserId'];
   v_status text;
 BEGIN
   IF TG_OP = 'DELETE' THEN
@@ -524,11 +543,15 @@ BEGIN
   ELSIF TG_OP = 'UPDATE' THEN
     IF public.service_tracks_in_erasure(TG_RELID)
        AND (to_jsonb(NEW) - erasable) = (to_jsonb(OLD) - erasable)
-       AND NEW."confirmedByName" IS NULL AND NEW."note" IS NULL AND NEW."debtOverrideReason" IS NULL AND NEW."actorUserId" IS NULL AND NEW."erasedAt" IS NOT NULL THEN
+       AND NEW."confirmedByName" IS NULL AND NEW."note" IS NULL AND NEW."debtOverrideReason" IS NULL AND NEW."actorUserId" IS NULL
+       AND NEW."debtApprovedByUserId" IS NULL AND NEW."erasedAt" IS NOT NULL THEN
       RETURN NEW;
     END IF;
-    IF pg_trigger_depth() > 1 AND NEW."actorUserId" IS NULL
-       AND (to_jsonb(NEW) - 'actorUserId') = (to_jsonb(OLD) - 'actorUserId') THEN
+    -- the FK action of a deleted user: a user reference goes to NULL, nothing else moves
+    IF pg_trigger_depth() > 1
+       AND (to_jsonb(NEW) - user_refs) = (to_jsonb(OLD) - user_refs)
+       AND (NEW."actorUserId" IS NULL OR NEW."actorUserId" = OLD."actorUserId")
+       AND (NEW."debtApprovedByUserId" IS NULL OR NEW."debtApprovedByUserId" = OLD."debtApprovedByUserId") THEN
       RETURN NEW;
     END IF;
   ELSE
@@ -537,6 +560,11 @@ BEGIN
     END IF;
     IF NEW."erasedAt" IS NOT NULL OR NEW."actorUserId" IS NULL THEN
       RAISE EXCEPTION USING ERRCODE = 'DZS07', MESSAGE = 'SERVICE_COMPLETION_NEW: a completion is confirmed by an owner user and never born erased';
+    END IF;
+    -- an open debt is closed only with a named approver (ServiceCompletion_debt_decided requires the reason and the
+    -- time; the approver is required here, at birth, because a deleted user's FK action may later clear it)
+    IF NEW."openBalanceAgorot" > 0 AND NEW."debtApprovedByUserId" IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = 'DZS07', MESSAGE = 'SERVICE_COMPLETION_DEBT_UNAPPROVED: closing with an open balance needs the approving user';
     END IF;
     SELECT c."status"::text INTO v_status FROM public."ServiceCase" c
      WHERE c."businessId" = NEW."businessId" AND c."id" = NEW."caseId" FOR UPDATE;
@@ -660,7 +688,8 @@ CREATE CONSTRAINT TRIGGER "ServiceCaseDetailChange_matches" AFTER INSERT ON "Ser
 --   ServiceCase              siteAddress, siteNotes, originalSaleRef (free text typed by the owner)
 --   ServiceDevice            displayName, attributes (a subject's name, plate / VIN / free attributes can identify a
 --                            person — blanked; subjectKind stays)
---   ServiceCompletion        confirmedByName, note, actorUserId; erasedAt stamped
+--   ServiceCompletion        confirmedByName, note, debtOverrideReason, actorUserId, debtApprovedByUserId; erasedAt
+--                            stamped (kept: the balance numbers and the approval time — amounts and a time, not a person)
 --   ServiceCaseDetailChange  reason, actorUserId, siteAddressBefore / After; erasedAt stamped
 -- Kept: work type, place, kind, return reason, resolution, completion type and times, the profile snapshot (the
 -- business's rules — no personal data), field-name lists. ServiceSettings.profileOverrides goes with the settings row
@@ -693,7 +722,8 @@ BEGIN
   UPDATE public."ServiceDevice" SET "displayName" = NULL, "attributes" = NULL
    WHERE "businessId" = v_business AND ("displayName" IS NOT NULL OR "attributes" IS NOT NULL);
   GET DIAGNOSTICS v_k = ROW_COUNT; v_n := v_n + v_k;
-  UPDATE public."ServiceCompletion" SET "confirmedByName" = NULL, "note" = NULL, "debtOverrideReason" = NULL, "actorUserId" = NULL, "erasedAt" = CURRENT_TIMESTAMP
+  UPDATE public."ServiceCompletion" SET "confirmedByName" = NULL, "note" = NULL, "debtOverrideReason" = NULL, "actorUserId" = NULL,
+         "debtApprovedByUserId" = NULL, "erasedAt" = CURRENT_TIMESTAMP
    WHERE "businessId" = v_business AND "erasedAt" IS NULL;
   GET DIAGNOSTICS v_k = ROW_COUNT; v_n := v_n + v_k;
   UPDATE public."ServiceCaseDetailChange" SET "reason" = NULL, "actorUserId" = NULL, "siteAddressBefore" = NULL, "siteAddressAfter" = NULL,
