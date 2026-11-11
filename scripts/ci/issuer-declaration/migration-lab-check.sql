@@ -264,7 +264,7 @@ SELECT pg_temp.expect('R3 a designation restores the caller''s tenant setting (n
        PERFORM public.issuer_designate_initial(910006, 920061, 929000, 'מנהל לבדיקה', 'support-case-66', 'בדיקה', 'designation-he-v1', repeat('d',64),
          '{"track":"EXEMPT_DEALER","legalForm":"INDIVIDUAL","vatStatus":"EXEMPT","legalName":"פלונית","idType":"ISRAELI_ID","idNumber":"000000059","address":"רחוב 6","phone":"050","email":"b6@example.test"}'::jsonb);
        IF current_setting('app.current_business_id', true) IS DISTINCT FROM '910099' THEN RAISE EXCEPTION 'GUC_LEAKED %', current_setting('app.current_business_id', true); END IF;
-     END $d$q$, 'OK');
+     END $d$$q$, 'OK');
 
 -- ======================= account deletion: the profile lock admits the purge ==
 -- business 1 has a live declaration; the runtime purge clears the identity columns only once deletion is requested
