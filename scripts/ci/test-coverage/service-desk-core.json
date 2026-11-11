@@ -53,6 +53,10 @@
     "lib/services/service-desk/quote-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): Service Desk 1.3c quotes — the canonical quote content (\"sdq1\" array) and its docHash: exact, deterministic, line-order and decimal-scale independent, changed by every content field and by nothing else; exact agorot from decimal text (never a float, int4 bound); the billing document check (another business = not found, not a QUOTE, not ILS, another customer, no lines, converted, issued); the owner's decision (APPROVE / REJECT by PHONE / IN_PERSON, LINK refused, the approval names the row's exact version / total / docHash, superseded / withdrawn rows named by their state); the approval's charge = the approved total, none for ₪0; the frozen-copy key under the business's service prefix; fit with the unchanged case core; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/tracks-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk M1 tracks — universal track opening (never reads the business category), subject fits track, track facts from the case snapshot (work approval, QA REQUIRED/OPTIONAL/OFF, handover by owner), after-sale resolutions (exchange blocked), completion with an open debt only with approval + reason and never on an UNKNOWN balance, overpayment kept; run on pull_request by service-desk-ci.yml"
     }
   }
 }

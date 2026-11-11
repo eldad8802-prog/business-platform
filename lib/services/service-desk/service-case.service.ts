@@ -722,6 +722,9 @@ export async function commitTransition(tx: Tx, b: number, caseId: number, contex
            "closedAt" = CASE WHEN ${st.closed}::boolean AND "closedAt" IS NULL THEN now() ELSE "closedAt" END,
            "cancelledAt" = CASE WHEN ${st.cancelled}::boolean AND "cancelledAt" IS NULL THEN now() ELSE "cancelledAt" END,
            "abandonedAt" = CASE WHEN ${st.abandoned}::boolean AND "abandonedAt" IS NULL THEN now() ELSE "abandonedAt" END,
+           -- a new QA round (the case enters QA again, e.g. FAIL_QA → repair → QA) needs its own complete checklist:
+           -- a stamp left from an earlier round never lets PASS_QA through without a fresh check
+           "qaCompletedAt" = CASE WHEN ${d.statusChanged && d.to === "QA"}::boolean THEN NULL ELSE "qaCompletedAt" END,
            "cancelReason" = COALESCE("cancelReason", ${d.texts.cancelReason}::text),
            "abandonReason" = COALESCE("abandonReason", ${d.texts.abandonReason}::text),
            kind = CASE WHEN ${dc !== null}::boolean THEN ${dc?.after.kind ?? null}::"ServiceCaseKind" ELSE kind END,
