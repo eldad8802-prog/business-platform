@@ -289,8 +289,10 @@ function readTokenFrom(env: RefreshEnv): string | null {
 }
 
 /** One request. `credentials: "same-origin"` is what makes the browser send the cookie at all. */
-async function attemptRefresh(env: RefreshEnv): Promise<RefreshResult> {
-  const sentWith = readTokenFrom(env);
+async function attemptRefresh(env: RefreshEnv, expected: string | null): Promise<RefreshResult> {
+  // The token this RUN started from — not the one in storage at this attempt: a
+  // retry after a sign-out would otherwise read "no token" and accept anything.
+  const sentWith = expected;
   try {
     const res = await env.fetch("/api/auth/refresh", {
       method: "POST",
@@ -356,11 +358,21 @@ export function createRefresher(env: RefreshEnv): Refresher {
     return current !== null && current !== startToken;
   };
 
+  // Signed out since the run began (the token it started from is gone). A retry
+  // from here would revive the session the person just left — including one a
+  // "clear this device anyway" sign-out left alive on the server — so stop.
+  const signedOutSince = (startToken: string | null): boolean =>
+    startToken !== null && readTokenFrom(env) === null;
+
   const run = async (startToken: string | null): Promise<RefreshResult> => {
     const result = await withRefreshLock(env, async (): Promise<RefreshResult> => {
       for (let attempt = 0; ; attempt++) {
         if (replacedSince(startToken)) return "refreshed";
-        const r = await attemptRefresh(env);
+        if (signedOutSince(startToken)) return "unauthenticated";
+        const r = await attemptRefresh(env, startToken);
+        // A refusal that lands after a NEW sign-in is about the old session: the
+        // device holds a different, usable token now — never wipe it for that.
+        if (r === "unauthenticated" && replacedSince(startToken)) return "refreshed";
         // A verdict — success or a definitive refusal — is final. Only a
         // transient failure earns another attempt, and only inside the grace.
         if (r !== "failed" || attempt >= RETRY_DELAYS_MS.length) return r;

@@ -93,6 +93,7 @@ const server = http.createServer(async (req, res) => {
     S.seen.push({ path: "revoke", cookie, body: raw });
     if (S.mode.revoke === "drop") return req.socket.destroy();
     if (S.mode.revoke === "hang") return; // never answers: the caller must not wait forever
+    if (S.mode.revoke === "slow") { await new Promise((r) => setTimeout(r, 2000)); return json(res, 200, { revoked: false }, ""); } // answers late, CLEARING the cookie
     if (S.mode.revoke === "500") return json(res, 500, { error: "Server error" });
     if (S.mode.revoke === "unproven") return json(res, 200, { revoked: false }, ""); // e.g. a secret past its grace
     const expected = raw ? JSON.parse(raw).expectedSessionId ?? null : null;
@@ -401,6 +402,28 @@ async function pendingAfterFailedSignOut(user = 1) {
     r === "none" && !S.seen.some((x) => x.path === "revoke") && (await ls(p)).marker === null, r);
   ok("...the new account's session is alive, signed in", S.sessions.get(fresh).revoked === false && (await ls(p)).token !== null);
   ok("...the old session was not claimed ended", S.sessions.get(old.sid).revoked === false);
+  await ctx.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// 15. the revoke answers LATE (it clears the cookie): a sign-in that does not
+//     wait for it must abort it, or its response deletes the NEW session's cookie
+{
+  reset();
+  const { dir, ctx, p } = await pendingAfterFailedSignOut(1);
+  S.mode.revoke = "slow";
+  void p.evaluate(() => window.DubizSession.completePendingRevoke()); // the login screen's own attempt, already on the way
+  await p.evaluate(() => window.DubizSession.finishPendingRevokeBeforeSignIn(500));
+  const fresh = await p.evaluate(async () => {
+    const j = await (await fetch("/__login?user=2", { method: "POST", credentials: "same-origin" })).json();
+    localStorage.setItem("token", j.token);
+    window.DubizSession.clearPendingRevoke();
+    return j.sid;
+  });
+  await p.waitForTimeout(2600); // past the slow revoke's answer
+  const c = await jar(ctx);
+  ok("LATE REVOKE ANSWER after a sign-in: the NEW session's cookie survives", c !== null && c.startsWith(fresh), String(c && c.slice(0, 8)));
+  ok("...and the new session is alive", S.sessions.get(fresh).revoked === false);
   await ctx.close();
   fs.rmSync(dir, { recursive: true, force: true });
 }

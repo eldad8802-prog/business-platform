@@ -92,7 +92,10 @@ async function persistCookieJar(): Promise<void> {
   }
 }
 
-export async function revokeByRefreshCookie(expectedSessionId: string | null = null): Promise<CookieRevokeResult> {
+export async function revokeByRefreshCookie(
+  expectedSessionId: string | null = null,
+  signal?: AbortSignal
+): Promise<CookieRevokeResult> {
   try {
     const res = await fetch("/api/auth/refresh/revoke", {
       method: "POST",
@@ -100,6 +103,7 @@ export async function revokeByRefreshCookie(expectedSessionId: string | null = n
       cache: "no-store",
       headers: { "content-type": "application/json" },
       ...(expectedSessionId ? { body: JSON.stringify({ expectedSessionId }) } : {}),
+      ...(signal ? { signal } : {}),
     });
     // Android app: the response cleared the cookie in the jar; persist the clear.
     await persistCookieJar();
@@ -252,7 +256,7 @@ export function clearPendingRevoke(): void {
  * session is stored either way, because the proof is gone after that.
  */
 export async function finishPendingRevokeBeforeSignIn(timeoutMs: number = 3000): Promise<void> {
-  if (!hasPendingRevoke()) return;
+  if (!hasPendingRevoke() && pendingRevokeInFlight === null) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
   await Promise.race([
     completePendingRevoke().catch(() => "still_pending" as const),
@@ -261,28 +265,61 @@ export async function finishPendingRevokeBeforeSignIn(timeoutMs: number = 3000):
     }),
   ]);
   if (timer !== undefined) clearTimeout(timer);
+  // A revoke still on the way MUST NOT finish after the sign-in: its response
+  // clears the refresh cookie, and arriving after the new session's Set-Cookie
+  // it would delete THAT cookie. Aborted, its response is never processed.
+  abortPendingRevoke();
 }
 
-export async function completePendingRevoke(): Promise<PendingRevokeResult> {
-  if (!hasPendingRevoke()) return "none";
+/** The one revoke in flight (the login screen's load/online attempts and a sign-in share it). */
+let pendingRevokeInFlight: { promise: Promise<PendingRevokeResult>; controller: AbortController | null } | null = null;
+
+/** Cancel a revoke still on the way; its marker stays (still pending). */
+export function abortPendingRevoke(): void {
+  const f = pendingRevokeInFlight;
+  if (f === null) return;
+  pendingRevokeInFlight = null;
+  try {
+    f.controller?.abort();
+  } catch {
+    /* ignore */
+  }
+}
+
+export function completePendingRevoke(): Promise<PendingRevokeResult> {
+  if (pendingRevokeInFlight !== null) return pendingRevokeInFlight.promise;
+  if (!hasPendingRevoke()) return Promise.resolve("none");
   const marker = readPendingRevoke();
   const sid = marker && typeof marker.sid === "string" ? marker.sid : null;
   // Without a session id there is no way to be sure the cookie still belongs to
   // the session being ended, so nothing is sent.
   if (sid === null) {
     clearPendingRevoke();
-    return "unproven";
+    return Promise.resolve("unproven");
   }
-  const r = await revokeByRefreshCookie(sid);
-  if (r === "revoked" || r === "unproven") {
-    try {
-      localStorage.removeItem(PENDING_REVOKE_KEY);
-    } catch {
-      /* ignore */
-    }
-    return r;
-  }
-  return "still_pending";
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const entry: { promise: Promise<PendingRevokeResult>; controller: AbortController | null } = {
+    controller,
+    promise: (async (): Promise<PendingRevokeResult> => {
+      const r = await revokeByRefreshCookie(sid, controller?.signal);
+      // Aborted (a sign-in took over): the verdict, if any, is not ours to apply.
+      if (controller?.signal.aborted) return "still_pending";
+      if (r === "revoked" || r === "unproven") {
+        try {
+          localStorage.removeItem(PENDING_REVOKE_KEY);
+        } catch {
+          /* ignore */
+        }
+        return r;
+      }
+      return "still_pending";
+    })(),
+  };
+  pendingRevokeInFlight = entry;
+  void entry.promise.finally(() => {
+    if (pendingRevokeInFlight === entry) pendingRevokeInFlight = null;
+  });
+  return entry.promise;
 }
 
 /**

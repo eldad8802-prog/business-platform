@@ -392,6 +392,43 @@ async function main() {
       ok("LATE after a new sign-in: the new session's token is kept", b.store.get("token") === B);
       ok("...reported refreshed (the device holds a usable token)", r === "refreshed", r);
     }
+    // offline, retrying — the person signs out ("clear anyway") during the wait,
+    // then the network returns: the retry must NOT bring session A back
+    {
+      mod.__testing.resetInFlight();
+      const b = installBrowser(A);
+      let calls = 0;
+      (globalThis as unknown as { fetch: unknown }).fetch = async () => {
+        calls += 1;
+        if (calls === 1) {
+          b.store.delete("token"); // signed out while the first attempt was failing
+          throw new TypeError("network down");
+        }
+        return { ok: true, status: 200, json: async () => ({ token: LATE }) } as unknown as Response;
+      };
+      const r = await mod.refreshAccessToken();
+      ok("RETRY after sign-out: no further request is made", calls === 1, `${calls}`);
+      ok("...nothing written back, unauthenticated", r === "unauthenticated" && b.store.get("token") === undefined, r);
+    }
+    // a refusal (401) that lands after a NEW sign-in never wipes the new token
+    {
+      mod.__testing.resetInFlight();
+      const b = installBrowser(A);
+      let release: (() => void) | null = null;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      (globalThis as unknown as { fetch: unknown }).fetch = async () => {
+        await gate;
+        return { ok: false, status: 401, json: async () => ({}) } as unknown as Response;
+      };
+      const p = mod.refreshAccessToken();
+      await new Promise((r) => setImmediate(r));
+      b.store.set("token", B);
+      release?.();
+      const r = await p;
+      ok("LATE 401 after a new sign-in: reported refreshed, the new token stays", r === "refreshed" && b.store.get("token") === B, r);
+    }
     // unchanged storage: the ordinary case still writes
     {
       mod.__testing.resetInFlight();
