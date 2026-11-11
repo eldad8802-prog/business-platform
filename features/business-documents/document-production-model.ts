@@ -72,3 +72,14 @@ export function parseProductionEntry(params: { get(name: string): string | null 
 function validId(v: unknown): v is number {
   return typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 }
+
+/**
+ * The invoices screen's tax-invoice entries for an exempt dealer (owner-approved 2026-11-11; extended the same day to
+ * the feature ON): the "+ צור חשבונית" button and the empty-state button (feature OFF), the "+" menu's
+ * ?create=1 and any ?create= / ?create=TAX_INVOICE link (feature ON or OFF), and the identity-gate resume — none of
+ * them may open a tax-invoice draft; the screen shows a notice instead. Only that case changes: an authorized dealer or
+ * a company, an unknown kind (handled by the tax-classification track) and a quote are left exactly as they are.
+ */
+export function blocksTaxInvoiceEntry(input: { type: "TAX_INVOICE" | "QUOTE"; businessKind: ProductionBusinessKind }): boolean {
+  return input.type === "TAX_INVOICE" && input.businessKind === "EXEMPT_DEALER";
+}
