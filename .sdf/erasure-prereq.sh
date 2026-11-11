@@ -49,4 +49,13 @@ if [ -f "$M1" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.
   PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$M1"
   echo "ERASURE PREREQ: M1 tracks applied verbatim from 20261127090000"
 fi
+# QA lists (migration 20261129090000): the purge also calls service_qa_lists_erase_business(), which blanks the lists'
+# texts and the QA results' notes under the migration's guards. The lab chain drops their `db push` tables and enums
+# (.sdf/lab.sh), so where the lab does not carry them the migration is applied VERBATIM (types, tables, CHECKs, guards,
+# policies, grants and function — never a copy), on top of M1 (its premise). A lab that already has them is left as it is.
+QA="$ROOT/prisma/migrations/20261129090000_service_desk_qa_lists/migration.sql"
+if [ -f "$QA" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.\"ServiceQaList\"') IS NULL")" = "t" ]; then
+  PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$QA"
+  echo "ERASURE PREREQ: QA lists applied verbatim from 20261129090000"
+fi
 echo "ERASURE PREREQ READY: $DB (document_supplier_link_erase_business from 20261103090000, business_documents_erase from 20261114090000, verbatim)"

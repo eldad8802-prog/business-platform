@@ -332,6 +332,14 @@ jobs:
             console.log(tf[0]);
             console.log("REVOKE ALL ON FUNCTION public.service_tracks_erase_business() FROM PUBLIC;");
             console.log("GRANT EXECUTE ON FUNCTION public.service_tracks_erase_business() TO app_runtime;");
+            // Service Desk QA lists (20261129090000): the same for service_qa_lists_erase_business() (its tables from db push;
+            // it calls no other function of the migration, so nothing else is mirrored).
+            const qa = require("fs").readFileSync("prisma/migrations/20261129090000_service_desk_qa_lists/migration.sql", "utf8");
+            const qf = qa.match(/CREATE OR REPLACE FUNCTION public\.service_qa_lists_erase_business\(\)[\s\S]*?\$fn\$;/);
+            if (!qf) { console.error("service_qa_lists_erase_business() not found in the migration"); process.exit(1); }
+            console.log(qf[0]);
+            console.log("REVOKE ALL ON FUNCTION public.service_qa_lists_erase_business() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.service_qa_lists_erase_business() TO app_runtime;");
           ' > /tmp/sd-erase.sql
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f /tmp/sd-erase.sql
 

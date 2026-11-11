@@ -628,6 +628,64 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
     ],
   },
+  // Service Desk QA lists (migration 20261129090000). The account-deletion adapter calls it in the purge transaction, after
+  // service_tracks_erase_business(). The texts the owner typed (list names, check labels, result notes) and who acted are
+  // personal; the structure — versions, check keys, REQUIRED flags, PASS / FAIL results, counts and times — stays as the
+  // cases' QA history. The list head (ServiceQaList) holds no text of a person (NON_PERSONAL_OPERATIONAL).
+  {
+    fn: "service_qa_lists_erase_business",
+    migration: "20261129090000_service_desk_qa_lists",
+    models: [
+      {
+        model: "ServiceQaListVersion",
+        cleared: ["name", "createdByUserId"],
+        kept: {
+          version: "the content version number — a counter",
+          itemCount: "how many checks the version holds — a count",
+          requiredCount: "how many of them are REQUIRED — a count",
+          createdAt: "when the version was written",
+        },
+      },
+      {
+        model: "ServiceQaListItem",
+        cleared: ["label"],
+        kept: {
+          itemKey: "the check's stable key — a token (CHECK ^[a-z][a-z0-9_]{0,39}$: generated i<version>_<n> or a built-in template's key)",
+          required: "whether the check is REQUIRED (boolean)",
+          position: "the check's place in its version — a counter",
+        },
+      },
+      {
+        model: "ServiceQaListEvent",
+        cleared: ["actorUserId", "requestDigest", "digestKeyId"],
+        kept: {
+          action: "CREATE / REVISE / ARCHIVE / RESTORE (enum) — what changed, not who",
+          revision: "the list's change counter",
+          listVersion: "the content version the change produced — a counter",
+          idempotencyKey: "a client request token (a random UUIDv7: its only content is its creation time), not the person",
+          occurredAt: "when the list changed",
+        },
+      },
+      {
+        model: "ServiceCaseQaRecord",
+        cleared: ["actorUserId"],
+        kept: {
+          templateId: "a built-in template id (a code token such as FIELD.v1, CHECK) when the case named no list — not personal",
+          completed: "whether QA was complete — the case's QA history",
+          recordedAt: "when the results were recorded",
+        },
+      },
+      {
+        model: "ServiceCaseQaItemResult",
+        cleared: ["note"],
+        kept: {
+          itemKey: "the check's key — a token (CHECK), never text typed by a person",
+          result: "PASS or FAIL (enum) — the case's QA history",
+          required: "the check's REQUIRED flag as it was in that version (boolean)",
+        },
+      },
+    ],
+  },
 ];
 
 export type ErasureManifest = {

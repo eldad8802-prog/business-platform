@@ -480,6 +480,20 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_tracks_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_tracks_erase_business() TO ${RT_ROLE}`);
   }
+  // Service Desk QA lists — migration 20261129090000_service_desk_qa_lists. The same, for service_qa_lists_erase_business()
+  // (it blanks the list names, check labels, result notes and who acted; tables from db push). It calls no other function
+  // of the migration (its guards' helper service_qa_in_erasure() is used only by triggers this lab does not create).
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261129090000_service_desk_qa_lists/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_qa_lists_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_qa_lists_erase_business() not found in migration 20261129090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_qa_lists_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_qa_lists_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //

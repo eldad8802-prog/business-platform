@@ -34,8 +34,13 @@ bash "$ROOT/.bkg/lab.sh" "$DB" --with-bkg >/dev/null
 # (migration 20261122090000, which uses "ServiceActor"). And for the case charge tables (migration 20261126090000, not
 # this lab's either): they use "ServiceActor" too, so they go first. And for M1's tables (migration 20261127090000, not
 # this lab's either): they reference ServiceCase and its enums, so they go first; M1's own enums go last, once the case,
-# device and settings tables that use them are gone.
+# device and settings tables that use them are gone. And for the QA lists' tables (migration 20261129090000, not this
+# lab's either): they reference ServiceCase and use "ServiceActor", so they go first, dependents before their parents;
+# their own enums with them.
 psql_owner <<'SQL'
+DROP TABLE IF EXISTS "ServiceCaseQaItemResult", "ServiceCaseQaRecord", "ServiceQaListEvent", "ServiceQaListItem",
+  "ServiceQaListVersion", "ServiceQaList" CASCADE;
+DROP TYPE IF EXISTS "ServiceQaResult", "ServiceQaListAction";
 DROP TABLE IF EXISTS "ServiceCaseDetailChange", "ServiceCompletion" CASCADE;
 DROP TABLE IF EXISTS "ServiceCaseBillingLink", "ServiceCaseCharge" CASCADE;
 DROP TYPE IF EXISTS "ServiceBillingLinkRole", "ServiceChargeSource", "ServiceChargeMode";
