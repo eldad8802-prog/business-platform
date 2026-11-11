@@ -111,6 +111,9 @@ ok("B0 no charge record → UNKNOWN / NO_CHARGE_DECISION (absence is never 'no d
   const tir = computeCaseBalance(charge(30000), [C(3)], facts({ documents: [doc(3, "TAX_INVOICE_RECEIPT")], receipts: [rcpt(3, 30000, 0, "TAX_INVOICE_RECEIPT")] }));
   ok("R4b a tax invoice / receipt is counted once (charge and payment in one) → SETTLED, documented 30000, paid 30000",
     tir.state === "SETTLED" && tir.detail.documentedAgorot === 30000 && tir.detail.paidAgorot === 30000, show(tir));
+  const tirCredit = computeCaseBalance(charge(30000), [C(3)], facts({ documents: [doc(3, "TAX_INVOICE_RECEIPT")], receipts: [rcpt(3, 30000, 0, "TAX_INVOICE_RECEIPT")], credits: [{ creditNoteId: 9, invoiceDocumentId: 3, amountAgorot: 5000 }] }));
+  ok("R4b2 a credit note against a tax invoice / receipt is not netted (no currency per credit) → UNKNOWN / CONFLICT",
+    tirCredit.state === "UNKNOWN" && (tirCredit as { reason: string }).reason === "CONFLICT", show(tirCredit));
   const credit = computeCaseBalance(charge(40000), [C(1)], facts({ documents: [doc(1, "TAX_INVOICE")], invoices: [inv(1, 50000, 10000, 0)], credits: [{ creditNoteId: 5, invoiceDocumentId: 1, amountAgorot: 10000 }] }));
   ok("R4c a credit note counts once, through its invoice (net 40000), never again from the credits list",
     credit.state === "SETTLED" && credit.detail.documentedAgorot === 40000 && credit.detail.paidAgorot === 40000, show(credit));
