@@ -16,9 +16,12 @@
  *   C1 customer card (ON): "הפקת מסמך ללקוח" opens the list for that customer; tax invoice → the modal has the
  *      customer selected → the draft belongs to that customer
  *   P1 phone 390: the list fits, no side scroll
- *   D1 phone: the panel and its backdrop stay above the bottom navigation bar (no overlap)
- *   D2 compact rows: icon + document name + short explanation, no row arrows
- *   D3 the close button (a clear, >= 32px target) closes the panel
+ *   D1 phone: the backdrop covers the whole screen (bottom bar included, not tappable); the panel rises from the
+ *      bottom with a safe margin
+ *   D2 compact rows: icon + document name + short explanation, no row arrows, no per-document group heading
+ *   D3 the page behind does not scroll while open
+ *   D4 focus starts on the close button, Tab stays inside, Escape closes, focus returns to the production button
+ *   D5 the X button closes the panel
  *   E1 English interface: the list speaks English (no Hebrew left in the list)
  *   L1 the database holds exactly the drafts the scenarios made, all DRAFT, none numbered
  *
@@ -214,25 +217,53 @@ async function main() {
         if (!box || box.x < 0 || box.x + box.width > 391) throw new Error(JSON.stringify(box));
       });
       await shot(page, "P1-phone-list");
-      await check("D1 phone: the panel and its backdrop stay above the bottom navigation bar — no overlap", async () => {
-        const bar = await page.locator('[data-component="shell-bottom-bar"]').boundingBox();
-        const panel = await page.getByTestId("document-production-sheet").locator("> div").boundingBox();
+      await check("D1 phone: the backdrop covers the whole screen, bottom bar included; the panel rises from the bottom with a safe margin", async () => {
+        const vp = page.viewportSize()!;
         const backdrop = await page.getByTestId("document-production-sheet").boundingBox();
-        if (!bar) throw new Error("bottom bar not shown");
-        if (!panel || panel.y + panel.height > bar.y + 0.5) throw new Error(`panel ${JSON.stringify(panel)} vs bar ${JSON.stringify(bar)}`);
-        if (!backdrop || backdrop.y + backdrop.height > bar.y + 0.5) throw new Error(`backdrop ${JSON.stringify(backdrop)} vs bar ${JSON.stringify(bar)}`);
+        const panel = await page.getByTestId("document-production-sheet").locator("> div").boundingBox();
+        if (!backdrop || backdrop.y > 0.5 || backdrop.height < vp.height - 0.5 || backdrop.width < vp.width - 0.5) throw new Error(`backdrop ${JSON.stringify(backdrop)} vs ${JSON.stringify(vp)}`);
+        if (!panel || vp.height - (panel.y + panel.height) < 8 || vp.height - (panel.y + panel.height) > 40) throw new Error(`panel bottom gap ${panel ? vp.height - (panel.y + panel.height) : "?"}`);
+        // the bottom bar is under the backdrop: a tap there lands on the backdrop, not on the bar
+        const bar = await page.locator('[data-component="shell-bottom-bar"]').boundingBox();
+        if (bar) {
+          const hit = await page.evaluate(([x, y]) => { const el = document.elementFromPoint(x, y); return { inBar: !!el?.closest('[data-component="shell-bottom-bar"]'), inSheet: !!el?.closest('[data-testid="document-production-sheet"]') }; }, [bar.x + bar.width / 2, bar.y + bar.height / 2]);
+          if (hit.inBar || !hit.inSheet) throw new Error(`bar still reachable ${JSON.stringify(hit)}`);
+        }
       });
-      await check("D2 compact rows: icon + document name + short explanation, no row arrows", async () => {
-        const rowsInfo = await page.locator('[data-testid="document-production-sheet"] [data-option]').evaluateAll((els) =>
+      await check("D2 compact rows: icon + document name + short explanation, no row arrows, no per-document group heading", async () => {
+        const sheet = page.getByTestId("document-production-sheet");
+        const rowsInfo = await sheet.locator("[data-option]").evaluateAll((els) =>
           els.map((e) => ({ svgs: e.querySelectorAll("svg").length, texts: [...e.querySelectorAll("span span")].map((x) => (x.textContent ?? "").trim()).filter(Boolean).length, h: Math.round(e.getBoundingClientRect().height) })));
         if (rowsInfo.length !== 4) throw new Error(`rows ${rowsInfo.length}`);
         for (const r of rowsInfo) if (r.svgs !== 1 || r.texts !== 2 || r.h > 72) throw new Error(JSON.stringify(rowsInfo));
+        const text = await sheet.innerText();
+        for (const heading of ["מסמכי מס", "מכירה", "כללי", "רכש"]) if (text.split("\n").some((l) => l.trim() === heading)) throw new Error(`group heading "${heading}" shown`);
       });
-      await check("D3 the close button closes the panel", async () => {
+      await check("D3 the page behind does not scroll while the panel is open, and scrolls again after it closes", async () => {
+        const locked = await page.evaluate(() => ({ body: getComputedStyle(document.body).overflow, html: getComputedStyle(document.documentElement).overflow }));
+        if (locked.body !== "hidden" || locked.html !== "hidden") throw new Error(JSON.stringify(locked));
+      });
+      await check("D4 focus: starts on the close button, Tab stays inside, Escape closes, focus returns to the production button", async () => {
         const close = page.getByTestId("document-production-close");
         const box = await close.boundingBox();
         if (!box || box.width < 32 || box.height < 32) throw new Error(`close target ${JSON.stringify(box)}`);
-        await close.click();
+        if (!(await close.evaluate((el) => el === document.activeElement))) throw new Error("focus is not on the close button");
+        for (let i = 0; i < 8; i++) {
+          await page.keyboard.press("Tab");
+          if (!(await page.evaluate(() => !!document.activeElement?.closest('[data-testid="document-production-sheet"]')))) throw new Error(`focus left the panel after ${i + 1} Tab`);
+        }
+        await page.keyboard.press("Shift+Tab");
+        if (!(await page.evaluate(() => !!document.activeElement?.closest('[data-testid="document-production-sheet"]')))) throw new Error("focus left the panel on Shift+Tab");
+        await page.keyboard.press("Escape");
+        await page.getByTestId("document-production-sheet").waitFor({ state: "detached" });
+        if (!(await page.getByTestId("document-production-button").evaluate((el) => el === document.activeElement))) throw new Error("focus did not return to the production button");
+        const after = await page.evaluate(() => getComputedStyle(document.body).overflow);
+        if (after === "hidden") throw new Error("page scroll still locked after closing");
+      });
+      await check("D5 the X button closes the panel too", async () => {
+        await page.getByTestId("document-production-button").click();
+        await page.getByTestId("document-production-sheet").waitFor();
+        await page.getByTestId("document-production-close").click();
         await page.getByTestId("document-production-sheet").waitFor({ state: "detached" });
       });
       await c.close();

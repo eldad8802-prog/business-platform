@@ -6,17 +6,13 @@
  * the invoices screen, which runs its own create flow (identity gate, draft) exactly as before.
  */
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconBox, IconFileCheck, IconMail, IconReceipt } from "@/components/navigation/nav-icons";
 import { TOKEN } from "@/lib/design/billing-theme";
 
-import {
-  groupedProductionOptions,
-  productionOptions,
-  type ProductionBusinessKind,
-} from "./document-production-model";
+import { productionOptions, type ProductionBusinessKind } from "./document-production-model";
 import s from "./document-production-sheet.module.css";
 
 function getAuthToken(): string {
@@ -57,7 +53,54 @@ export function DocumentProductionSheet({
 }) {
   const { t } = useI18n();
   const businessKind = useBusinessKind();
-  const groups = groupedProductionOptions(productionOptions({ businessKind }));
+  const options = productionOptions({ businessKind });
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // While open: the page behind does not scroll, focus starts on the close button and stays inside the panel
+  // (Tab / Shift+Tab wrap, Escape closes); on close, focus goes back to the button that opened the panel.
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    const html = document.documentElement;
+    const prev = { body: document.body.style.overflow, html: html.style.overflow };
+    document.body.style.overflow = "hidden";
+    html.style.overflow = "hidden";
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !panelRef.current) return;
+      const items = [...panelRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      } else if (!panelRef.current.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev.body;
+      html.style.overflow = prev.html;
+      const back = opener && document.contains(opener) ? opener : document.querySelector<HTMLElement>('[data-testid="document-production-button"]');
+      back?.focus();
+    };
+  }, []);
 
   const iconFor: Record<string, ReactNode> = {
     TAX_INVOICE: <IconReceipt size={20} />,
@@ -88,7 +131,7 @@ export function DocumentProductionSheet({
       className={s.backdrop}
       onClick={onClose}
     >
-      <div className={s.panel} style={{ background: TOKEN.surface.card, color: TOKEN.ink.primary }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className={s.panel} style={{ background: TOKEN.surface.card, color: TOKEN.ink.primary }} onClick={(e) => e.stopPropagation()}>
         <div className={s.head}>
           <div>
             <h2 id="document-production-title" className={s.title}>
@@ -99,29 +142,26 @@ export function DocumentProductionSheet({
               {t("billing.production.chooseType")}
             </p>
           </div>
-          <button type="button" className={s.close} onClick={onClose} aria-label={t("billing.production.close")} data-testid="document-production-close">
+          <button ref={closeRef} type="button" className={s.close} onClick={onClose} aria-label={t("billing.production.close")} data-testid="document-production-close">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden focusable="false">
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
         </div>
 
-        {groups.map((g) => (
-          <section key={g.group} className={s.group}>
-            <div className={s.groupTitle}>{t(`billing.production.group.${g.group}`)}</div>
-            {g.options.map((o) =>
-              o.kind === "billing" ? (
-                <button key={o.key} type="button" data-option={o.key} className={s.row} onClick={() => onBillingDocument(o.key)}>
-                  {row(o.key)}
-                </button>
-              ) : (
-                <Link key={o.key} href={o.href} data-option={o.key} className={s.row}>
-                  {row(o.key)}
-                </Link>
-              )
-            )}
-          </section>
-        ))}
+        <div className={s.list}>
+          {options.map((o) =>
+            o.kind === "billing" ? (
+              <button key={o.key} type="button" data-option={o.key} className={s.row} onClick={() => onBillingDocument(o.key)}>
+                {row(o.key)}
+              </button>
+            ) : (
+              <Link key={o.key} href={o.href} data-option={o.key} className={s.row}>
+                {row(o.key)}
+              </Link>
+            )
+          )}
+        </div>
 
         <Link href="/business-documents" className={s.foot}>
           {t("billing.production.followUp")}
