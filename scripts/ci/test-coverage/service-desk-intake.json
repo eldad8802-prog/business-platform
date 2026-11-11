@@ -16,6 +16,10 @@
     "features/service-desk/intake-model.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB): the 1.3b-C intake screen logic and the server allowed-actions (intakeAllowed) the screen offers — sections, the signing blocker (no signature without legally approved terms), history lines, photo downscale under the request cap, a drawn signature, every allowed combination; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/intake-orphan-sweep.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB): the intake orphan sweep judges only exact intake key shapes of its own business, never an object younger than the 1 h floor or without a time, dry run by default, deletes only under the case lock after the no-row check, and is not scheduled (no caller); the deletion itself is proven in the PG lab .sd13b section O; run on pull_request by service-desk-ci.yml"
     }
   }
 }
