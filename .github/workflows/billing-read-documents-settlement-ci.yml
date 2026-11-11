@@ -1,0 +1,100 @@
+# readDocumentsSettlement — read-only settlement facts for documents a caller (Service Desk) links to its records.
+# Runs as a NOSUPERUSER NOBYPASSRLS runtime with every repository RLS statement replayed. Synthetic data, no network.
+# Negative proof: counting a DRAFT receipt's allocation (the ISSUED filter removed) must be caught.
+
+name: billing read documents settlement (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/settlement/read-documents-settlement*.ts"
+      - "lib/services/billing/domain/billing-invoice-economic-remaining.ts"
+      - "lib/services/billing/domain/billing-allocation-authority.ts"
+      - "lib/tenant/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - ".github/workflows/billing-read-documents-settlement-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  settlement:
+    name: Settlement read (PG17, replayed RLS, NOBYPASSRLS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: st_owner
+          POSTGRES_PASSWORD: st_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_st
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U st_owner -d dubiz_st"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://st_owner:st_ci_synthetic_owner_pw@localhost:5432/dubiz_st
+      RUNTIME_URL: postgresql://st_runtime:st_ci_synthetic_runtime_pw@localhost:5432/dubiz_st
+      SECF: prisma/migrations/20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Push schema as the owner, replay fiscal immutability
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          npx prisma db push --skip-generate
+          psql "$OWNER_URL" -q -f "$SECF" > /dev/null
+
+      - name: Create the governed runtime role
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE st_runtime LOGIN PASSWORD 'st_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO st_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO st_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO st_runtime;"
+
+      - name: Settlement read under replayed RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx lib/services/billing/settlement/read-documents-settlement.rls.integration.test.ts
+
+      - name: Negative proof — a DRAFT receipt's allocation counted is caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          F="lib/services/billing/settlement/read-documents-settlement.ts"
+          cp "$F" "$F.bak"
+          sed -i 's/, \.\.\.authoritativeAllocationWhere(businessId) }/ }/g' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "::error::negative-proof setup did not apply"; exit 1; fi
+          # the runner's shell is `bash -e`: a red run must be captured by `if`, not by `$?` after the fact
+          if npx tsx lib/services/billing/settlement/read-documents-settlement.rls.integration.test.ts > np.log 2>&1; then
+            mv "$F.bak" "$F"; echo "::error::NEGATIVE-PROOF FAIL: a draft receipt's allocation went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          grep -q "\[FAIL\] S4" np.log || { echo "::error::NEGATIVE-PROOF FAIL: red, but not on the partial-payment check"; tail -20 np.log; exit 1; }
+          echo "negative proof OK — counting a draft receipt's allocation fails S4"
