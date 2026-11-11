@@ -108,7 +108,14 @@ export interface ServiceIntakeFacts {
  * The balance of the case's billing documents, as the billing services report it. The core never computes it.
  * `known: false` (the service could not establish it) makes delivery refuse — fail closed.
  */
-export type ServiceSettlementFacts = { known: true; openBalanceAgorot: number } | { known: false };
+/**
+ * The balance a handover is judged by (1.3c). basis says where a known balance comes from: DOCUMENTED (billing
+ * documents linked to the case), NO_CHARGE (the owner marked the case free of charge, with a reason), UNDOCUMENTED (a
+ * charge agreed on the service side with no charge document yet — e.g. an exempt dealer; any remainder is a debt, never 0).
+ */
+export type ServiceSettlementFacts =
+  | { known: true; openBalanceAgorot: number; basis?: "DOCUMENTED" | "NO_CHARGE" | "UNDOCUMENTED" }
+  | { known: false };
 
 /** Everything the core judges a transition by. The service layer loads it, under lock, per command. */
 export interface ServiceCaseContext {
@@ -177,9 +184,13 @@ export interface ServiceDecisionTexts {
 
 // ── Actions ────────────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The handover of a held item (1.3c). Owner decision 2026-11-11: no customer signature — the acting owner / authorized
+ * user confirms the handover explicitly; the receiver's name is optional on every track.
+ */
 export interface HandoverReceipt {
-  receivedByName: string;
-  signatureCaptured: boolean;
+  handoverConfirmed: boolean;
+  receivedByName?: string | null;
 }
 
 export type ServiceCaseAction =
@@ -280,6 +291,7 @@ export type ServiceCaseViolationCode =
   | "OUTCOME_NOT_ALLOWED"
   | "REPLACEMENT_DEVICE_REQUIRED"
   | "RECEIPT_INCOMPLETE"
+  | "HANDOVER_NOT_CONFIRMED"
   | "BALANCE_UNKNOWN"
   | "OPEN_BALANCE_NEEDS_OWNER_DECISION"
   | "OPEN_LOANER"

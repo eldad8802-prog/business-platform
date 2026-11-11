@@ -46,6 +46,7 @@ import {
 import { OPEN_PART_STATES } from "./parts.contracts";
 import { checkCommandEnvelope, evaluateRepeatCase, evaluateTransition, openServiceCase } from "./service-case.core";
 import { ServiceDeskError, refused } from "./service-desk-errors";
+import { readSettlementNotLinked, settlementForCore, type SettlementReader } from "./settlement";
 import { evaluateQa } from "./qa-templates";
 
 export type Tx = Prisma.TransactionClient;
@@ -56,7 +57,7 @@ export type WriteRequest = { idempotencyKey: string; now?: Date };
 /** The transitions 1.3a carries (owner-approved scope ש2). Everything else is refused as ACTION_NOT_IN_SCOPE. */
 export const IN_SCOPE_ACTIONS = [
   "CHECK_IN", "START_DIAGNOSIS", "START_REPAIR", "SET_HOLD", "CLEAR_HOLD", "FINISH_REPAIR", "PASS_QA", "FAIL_QA",
-  "MARK_NOT_REPAIRABLE", "CANCEL", "ABANDON",
+  "MARK_NOT_REPAIRABLE", "CANCEL", "ABANDON", "DELIVER",
 ] as const satisfies readonly ServiceCaseActionType[];
 
 /** Why each other action is not here — the gap report reads this. */
@@ -68,7 +69,6 @@ export const OUT_OF_SCOPE_ACTIONS: Readonly<Record<Exclude<ServiceCaseActionType
   REJECT_QUOTE: "quotes — 1.3c",
   SEND_TO_EXTERNAL: "external work — its own commands (external-work.service), closed until 1.3b",
   RETURN_FROM_EXTERNAL: "external work — its own commands (external-work.service), closed until 1.3b",
-  DELIVER: "handover, balance, warranty lock — 1.3c",
   CLOSE: "closing after handover — 1.3c",
 };
 
@@ -188,9 +188,13 @@ export async function staffOfBusiness(tx: Tx, businessId: number, staffId: numbe
   return r[0]?.ok === true;
 }
 
-async function verifyServerChecks(tx: Tx, businessId: number, checks: readonly ServiceServerCheck[], f: { staffMemberId: number | null; signatureKey: string | null }) {
+async function verifyServerChecks(tx: Tx, businessId: number, checks: readonly ServiceServerCheck[], f: { staffMemberId: number | null; signatureKey: string | null; settlementRead?: boolean }) {
   for (const check of checks) {
     switch (check) {
+      case "SETTLEMENT_READ_IN_SAME_TRANSACTION":
+        // 1.3c: the balance was read by this command, in this transaction, under the case lock (settlement.ts).
+        if (f.settlementRead !== true) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check });
+        break;
       case "STAFF_BELONGS_TO_BUSINESS":
         if (f.staffMemberId === null || !(await staffOfBusiness(tx, businessId, f.staffMemberId))) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check });
         break;
@@ -474,6 +478,23 @@ function actionFrom(raw: Record<string, unknown>): ServiceCaseAction {
     case "ABANDON":
       if (typeof raw.reason !== "string") throw new ServiceDeskError("INVALID_INPUT", { field: "action.reason" });
       return { type, reason: raw.reason };
+    case "DELIVER": {
+      // 1.3c: the owner confirms the handover; the receiver's name is optional; overrides carry a reason (decision ש4).
+      const r = raw.receipt as Record<string, unknown> | undefined;
+      if (!r || typeof r !== "object" || Array.isArray(r) || typeof r.handoverConfirmed !== "boolean") throw new ServiceDeskError("INVALID_INPUT", { field: "action.receipt" });
+      if (r.receivedByName !== undefined && r.receivedByName !== null && typeof r.receivedByName !== "string") throw new ServiceDeskError("INVALID_INPUT", { field: "action.receipt.receivedByName" });
+      const override = (o: unknown, field: string) => {
+        if (o === undefined || o === null) return undefined;
+        if (typeof o !== "object" || Array.isArray(o) || typeof (o as Record<string, unknown>).reason !== "string") throw new ServiceDeskError("INVALID_INPUT", { field });
+        return { reason: (o as Record<string, unknown>).reason as string };
+      };
+      const debtOverride = override(raw.debtOverride, "action.debtOverride");
+      const loanerOverride = override(raw.loanerOverride, "action.loanerOverride");
+      return {
+        type, receipt: { handoverConfirmed: r.handoverConfirmed, receivedByName: typeof r.receivedByName === "string" ? r.receivedByName.trim() || null : null },
+        ...(debtOverride ? { debtOverride } : {}), ...(loanerOverride ? { loanerOverride } : {}),
+      } as ServiceCaseAction;
+    }
     case "CHECK_IN":
       if (raw.intakeConfirmed !== undefined && typeof raw.intakeConfirmed !== "boolean") throw new ServiceDeskError("INVALID_INPUT", { field: "action.intakeConfirmed" });
       return raw.intakeConfirmed === true ? { type, intakeConfirmed: true } : { type };
@@ -485,10 +506,19 @@ function actionFrom(raw: Record<string, unknown>): ServiceCaseAction {
 function applyEffects(d: Extract<ServiceTransitionDecision, { ok: true }>) {
   // RELEASE_PART_RESERVATIONS / WITHDRAW_OPEN_QUOTE / SUPERSEDE_OPEN_QUOTE / LINK_REPLACEMENT_DEVICE / ATTEMPT_AUTO_CLOSE
   // belong to parts, quotes and handover — none is carried out in 1.3a, so a decision that needs one is refused.
-  if (d.effects.length > 0) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { effects: [...d.effects] });
+  // 1.3c: ATTEMPT_AUTO_CLOSE after a handover is an attempt, not a requirement — closing (CLOSE) is not carried here, so
+  // the case stays DELIVERED (a valid state) and closes in its own step. Every other effect is still refused.
+  const required = d.effects.filter((e) => e !== "ATTEMPT_AUTO_CLOSE");
+  if (required.length > 0) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { effects: [...required] });
 }
 
-export async function runCaseAction(p: ServiceDeskPrincipal, caseId: unknown, body: { action?: unknown; expectedVersion?: unknown }, req: WriteRequest): Promise<CommandResult> {
+export async function runCaseAction(
+  p: ServiceDeskPrincipal,
+  caseId: unknown,
+  body: { action?: unknown; expectedVersion?: unknown },
+  req: WriteRequest,
+  deps: { settlement?: SettlementReader } = {},
+): Promise<CommandResult> {
   if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
   if (!body.action || typeof body.action !== "object" || Array.isArray(body.action)) throw new ServiceDeskError("INVALID_INPUT", { field: "action" });
   if (!isNonNegativeInt(body.expectedVersion)) throw new ServiceDeskError("INVALID_INPUT", { field: "expectedVersion" });
@@ -496,12 +526,15 @@ export async function runCaseAction(p: ServiceDeskPrincipal, caseId: unknown, bo
   const prepared = prepare(p, req, "service-desk/cases:action", { caseId, action, expectedVersion: body.expectedVersion });
   const b = p.businessId;
 
-  return journaled<CommandResult, Locked>(p, prepared, (tx) => lockCase(tx, b, caseId), async (tx, { context, signatureKey }) => {
+  return journaled<CommandResult, Locked>(p, prepared, (tx) => lockCase(tx, b, caseId), async (tx, { context: locked, signatureKey }) => {
+    // 1.3c: a handover reads the balance HERE — same transaction, under the case lock. Unknown stays unknown (blocked).
+    const settlement = action.type === "DELIVER" ? await (deps.settlement ?? readSettlementNotLinked)(tx, b, caseId) : null;
+    const context = settlement ? { ...locked, settlement: settlementForCore(settlement) } : locked;
     const envelope = checkCommandEnvelope(context, { caseId, action, expectedVersion: body.expectedVersion as number, idempotencyKey: prepared.key });
     if (!envelope.ok) throw refused(envelope.violations);
     const d = evaluateTransition(context, action, { kind: "OWNER", userId: p.userId });
     if (!d.ok) throw refused(d.violations);
-    await verifyServerChecks(tx, b, d.serverChecks, { staffMemberId: context.staffMemberId, signatureKey });
+    await verifyServerChecks(tx, b, d.serverChecks, { staffMemberId: context.staffMemberId, signatureKey, settlementRead: settlement !== null });
     applyEffects(d);
     const next = context.version + 1;
     const st = stampsFor(d);
@@ -510,6 +543,7 @@ export async function runCaseAction(p: ServiceDeskPrincipal, caseId: unknown, bo
              "cancellationRequested" = ${d.cancellationRequestedAfter}::boolean, version = ${next}::int, "updatedAt" = now(),
              "checkedInAt" = CASE WHEN ${st.checkedIn}::boolean THEN now() ELSE "checkedInAt" END,
              "readyAt" = CASE WHEN ${st.ready}::boolean THEN now() ELSE "readyAt" END,
+             "deliveredAt" = CASE WHEN ${d.statusChanged && d.to === "DELIVERED"}::boolean AND "deliveredAt" IS NULL THEN now() ELSE "deliveredAt" END,
              "cancelledAt" = CASE WHEN ${st.cancelled}::boolean AND "cancelledAt" IS NULL THEN now() ELSE "cancelledAt" END,
              "abandonedAt" = CASE WHEN ${st.abandoned}::boolean AND "abandonedAt" IS NULL THEN now() ELSE "abandonedAt" END,
              "cancelReason" = COALESCE("cancelReason", ${d.texts.cancelReason}::text),
@@ -517,6 +551,22 @@ export async function runCaseAction(p: ServiceDeskPrincipal, caseId: unknown, bo
        WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${context.version}::int`;
     if (updated !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
     await appendEvent(tx, b, caseId, next, d.event, p.userId, prepared);
+    if (action.type === "DELIVER" && d.statusChanged && d.to === "DELIVERED") {
+      // The handover record: one per case (UNIQUE), immutable, the acting user, no signature (owner decision 2026-11-11).
+      const receipt = (action as { receipt: { receivedByName?: string | null } }).receipt;
+      const texts = d.texts as { debtOverrideReason?: string | null; loanerOverrideReason?: string | null };
+      await tx.$executeRaw`
+        INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "debtOverrideReason", "loanerOverrideReason", "actorUserId")
+        VALUES (${b}::int, ${caseId}::int, ${receipt.receivedByName ?? null}::text, false, ${settlement?.openBalanceAgorot ?? 0}::int,
+                ${texts.debtOverrideReason ?? null}::text, ${texts.loanerOverrideReason ?? null}::text, ${p.userId}::int)`;
+      // A presented warranty offer locks at the handover: starts on the delivery day, ends one duration later (guard rules).
+      await tx.$executeRaw`
+        UPDATE "ServiceWarrantyOffer" o SET state = 'LOCKED', "lockedAt" = now(), "startsOn" = h."deliveredAt"::date,
+               "endsOn" = public.service_warranty_end(h."deliveredAt"::date, o."durationValue", o."durationUnit"), "updatedAt" = now()
+          FROM "ServiceHandover" h
+         WHERE o."businessId" = ${b}::int AND o."caseId" = ${caseId}::int AND o.state = 'PRESENTED'
+           AND h."businessId" = o."businessId" AND h."caseId" = o."caseId"`;
+    }
     return { case: await summaryOf(tx, b, caseId), event: { seq: next }, replayed: false };
   }, async (tx, prior) => {
     if (prior.caseId !== caseId) throw new ServiceDeskError("IDEMPOTENCY_KEY_REUSED");
