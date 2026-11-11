@@ -69,10 +69,12 @@ jobs:
           bash .sd3p4/lab.sh sdcharge --deploy-only >/dev/null
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdcharge"
           A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdcharge"
-          # the application plan's order: #1096, then the charge migration — each in one transaction, as the owner role
-          psql -X -q -v ON_ERROR_STOP=1 -1 "$A" -f prisma/migrations/20261125090000_service_desk_handover_owner_confirmed/migration.sql
-          psql -X -q -v ON_ERROR_STOP=1 -1 "$A" -f prisma/migrations/20261126090000_service_desk_case_charge/migration.sql
-          # a second application is refused and changes nothing (the types exist)
+          # the application chain the way release-migrate applies it (prisma migrate deploy over the approved prefix):
+          # a failure inside the migration leaves nothing + the recovery procedure; #1096 then this, in order; the
+          # rollback scripts on a copy. (#1061 is not on this branch; locally the chain was proven with it first.)
+          bash .sdcharge/chain.sh sdcharge | tee /tmp/chain.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/chain.out || { echo "the application chain is not green"; exit 1; }
+          # a second application by hand is refused and changes nothing (the types exist)
           if psql -X -q -v ON_ERROR_STOP=1 -1 "$A" -f prisma/migrations/20261126090000_service_desk_case_charge/migration.sql 2>/dev/null; then
             echo "a second application must be refused"; exit 1
           fi
