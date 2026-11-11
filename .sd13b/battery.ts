@@ -185,10 +185,10 @@ async function main() {
   ok("S5 after the signature: a photo, a second signature and new intake data → refused (INTAKE_SIGNED)", after.every((c) => c.includes("INTAKE_SIGNED")), after.join(" | "));
   const sigBack = await readIntakeObject(A.b, c1.id, { kind: "signature" }, store);
   ok("S6 the signature PNG reads back through the intake row", sigBack.contentType === "image/png" && Buffer.compare(sigBack.bytes, sig) === 0);
-  const ciReal = await code(async () => runCaseAction(A.p, c1.id, { action: { type: "CHECK_IN" }, expectedVersion: await version(c1.id) }, { idempotencyKey: key() }));
+  const ciReal = await code(async () => runCaseAction(A.p, c1.id, { action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion: await version(c1.id) }, { idempotencyKey: key() }));
   const st = String((await q(`SELECT status::text s FROM "ServiceCase" WHERE id = $1`, c1.id))[0].s);
-  ok("S7 the signed case can now CHECK_IN (status CHECKED_IN) — the unchanged case machine reads the signature", ciReal === "OK" && st === "CHECKED_IN", `${ciReal} / ${st}`);
-  ok("S8 an unsigned case is still refused CHECK_IN (behaviour unchanged)", (await code(async () => runCaseAction(A.p, c3.id, { action: { type: "CHECK_IN" }, expectedVersion: await version(c3.id) }, { idempotencyKey: key() }))) !== "OK");
+  ok("S7 the case checks in on the owner's confirmation (CHECKED_IN)", ciReal === "OK" && st === "CHECKED_IN", `${ciReal} / ${st}`);
+  ok("S8 without the owner's explicit confirmation CHECK_IN is refused (INTAKE_NOT_CONFIRMED)", (await code(async () => runCaseAction(A.p, c3.id, { action: { type: "CHECK_IN" }, expectedVersion: await version(c3.id) }, { idempotencyKey: key() }))) !== "OK");
   const f1 = await openCase(A.p, { kind: "FIELD", customerId: A.cust, problemDescription: "ביקור" }, { idempotencyKey: key() });
   ok("S9 a FIELD case has no shop intake: terms / photo / signature → INTAKE_ONLY_IN_SHOP",
     (await code(() => present(A, f1.case.id))).includes("INTAKE_ONLY_IN_SHOP") && (await code(() => photo(A, f1.case.id, jpeg()))).includes("INTAKE_ONLY_IN_SHOP"));

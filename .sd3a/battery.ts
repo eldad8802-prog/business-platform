@@ -34,7 +34,6 @@ import {
   assignTechnician, getCase, getSettings, listCaseEvents, listCases, openCase, recordIntake, runCaseAction, updateSettings,
   type ServiceDeskPrincipal,
 } from "../lib/services/service-desk/service-case.service";
-import { getStorageService } from "../lib/storage/storage.factory";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 let pass = 0;
@@ -146,13 +145,13 @@ async function main() {
     && (await q(`SELECT count(*)::int n FROM "ServiceCaseIntake" WHERE "caseId" = $1`, s1.case.id))[0].n === 0
     && (await events(A.b, s1.case.id)) === 1);
   await x(`INSERT INTO "ServiceCaseIntake" ("businessId", "caseId", "conditionNote", "accessoriesNote", "conditionRecorded", "accessoriesRecorded", "updatedAt") VALUES ($1, $2, 'שריטה בפינה', 'מטען', true, true, now())`, A.b, s1.case.id);
-  ok("T12 IN_SHOP check-in without a signature → REFUSED INTAKE_INCOMPLETE", (await code(() => act(A, s1.case.id, { type: "CHECK_IN" }, 1))).includes("INTAKE_INCOMPLETE"));
-  const sigKey = `biz/${A.b}/service/cases/${s1.case.id}/intake/signature.png`;
-  await x(`UPDATE "ServiceCaseIntake" SET "customerSigned" = true, "signedAt" = now(), "signatureKey" = $2 WHERE "caseId" = $1`, s1.case.id, sigKey);
-  ok("T13 a signature row whose object is NOT stored → SERVER_CHECK_FAILED INTAKE_ARTIFACTS_STORED", (await code(() => act(A, s1.case.id, { type: "CHECK_IN" }, 1))).includes("INTAKE_ARTIFACTS_STORED"));
-  await getStorageService().putObjectIfAbsent({ key: sigKey, body: Buffer.from("png"), contentType: "image/png", metadata: { businessId: A.b, domain: "service", visibility: "private" } });
-  const sci = await act(A, s1.case.id, { type: "CHECK_IN" }, 1);
-  ok("T14 … once the signature object exists → CHECKED_IN", sci.case.status === "CHECKED_IN");
+  // Owner decision 2026-11-11: no customer signature. The documented intake checks in on the owner's explicit confirmation.
+  ok("T12 IN_SHOP check-in without the owner's confirmation → REFUSED INTAKE_NOT_CONFIRMED", (await code(() => act(A, s1.case.id, { type: "CHECK_IN" }, 1))).includes("INTAKE_NOT_CONFIRMED"));
+  const sci = await act(A, s1.case.id, { type: "CHECK_IN", intakeConfirmed: true }, 1);
+  const sciEv = (await q(`SELECT payload->>'intakeConfirmed' c, "actorUserId" a, "fromStatus"::text f, "toStatus"::text t FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND seq = 2`, s1.case.id))[0];
+  ok("T13 no signature, no stored object: the owner's confirmation checks the documented intake in → CHECKED_IN",
+    sci.case.status === "CHECKED_IN" && (await q(`SELECT "signedAt" s FROM "ServiceCaseIntake" WHERE "caseId" = $1`, s1.case.id))[0].s === null);
+  ok("T14 … the journal names the confirmation, the acting user and the status change", sciEv.c === "true" && Number(sciEv.a) === A.u && sciEv.f === "OPEN" && sciEv.t === "CHECKED_IN");
   await absent("T15 without the audit journal: intake after check-in → still NOT_AVAILABLE_UNTIL_AUDIT (no write attempted)", async () => (await code(() => recordIntake(A.p, s1.case.id, { conditionNote: "אחר", accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedVersion: sci.case.version }, { idempotencyKey: key() }))) === "NOT_AVAILABLE_UNTIL_AUDIT");
   await x(`UPDATE "ServiceCase" SET "coverageSource" = 'STORE', "coverageDecision" = 'APPROVED' WHERE id = $1`, s1.case.id);
   const sdg = await act(A, s1.case.id, { type: "START_DIAGNOSIS" }, 2);

@@ -15,7 +15,8 @@ export type ErrorView = {
 
 const REFUSAL: Record<string, string> = {
   NO_CHANGE: "לא שינית דבר מאז השמירה האחרונה.",
-  INTAKE_INCOMPLETE: "כדי לקבל את המכשיר חסר: מצב המכשיר / אביזרים / חתימת הלקוח",
+  INTAKE_INCOMPLETE: "כדי לקבל את המכשיר חסר תיעוד: מצב המכשיר / אביזרים (אפשר לציין שלא נמסרו אביזרים)",
+  INTAKE_NOT_CONFIRMED: "אשרו את פרטי הקליטה כדי לקבל את המכשיר.",
   STAFF_REQUIRED: "בחר טכנאי מטפל לפני תחילת האבחון",
   COVERAGE_NOT_APPROVED: "תיקון בלי הצעת מחיר אפשרי רק עם אחריות מאושרת",
   QA_INCOMPLETE: "השלם את רשימת הבדיקות לפני «עבר בדיקה»",
