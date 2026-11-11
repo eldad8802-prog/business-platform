@@ -35,14 +35,16 @@ const WARM_GROUND_PATHS = new Set(["/profile", "/settings", "/business/identity"
  * the offsets via `data-chrome="off"` — the existing contract, now centralized.
  */
 const shellCss = `
-[data-shell-root] .shell-content { padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)); }
+/* Bottom padding: the bar (or the edge), and never less than the strip the floating accessibility button
+   occupies (--dz-fab-clearance, measured by accessibility-fab), so the end of a screen scrolls above it. */
+[data-shell-root] .shell-content { padding-bottom: max(calc(100px + env(safe-area-inset-bottom, 0px)), var(--dz-fab-clearance, 0px)); }
 @media (min-width: 768px) {
-  [data-shell-root][data-chrome="on"] .shell-content { padding-bottom: 32px; padding-inline-start: 100px; }
+  [data-shell-root][data-chrome="on"] .shell-content { padding-bottom: max(32px, var(--dz-fab-clearance, 0px)); padding-inline-start: 100px; }
 }
 @media (min-width: 1280px) {
   [data-shell-root][data-chrome="on"] .shell-content { padding-inline-start: 264px; }
 }
-[data-shell-root][data-chrome="off"] .shell-content { padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); padding-inline-start: 0; }
+[data-shell-root][data-chrome="off"] .shell-content { padding-bottom: max(calc(8px + env(safe-area-inset-bottom, 0px)), var(--dz-fab-clearance, 0px)); padding-inline-start: 0; }
 
 /* Mutually-exclusive nav visibility — pure CSS, no JS, no hydration branch. */
 [data-shell-root] .shell-nav-mobile { display: block; }
