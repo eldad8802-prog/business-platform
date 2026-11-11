@@ -22,6 +22,9 @@ INSERT INTO "User"("id","email","password","businessId","role","createdAt","upda
   (920032,'d3b@example.test','x',910003,'USER',now(),now()),
   (929999,'admin@example.test','x',910001,'PLATFORM_ADMIN',now(),now());
 DELETE FROM "User" WHERE "id" = 929999;   -- the admin acts through the designation function only
+-- S2: designations name a real PLATFORM_ADMIN, who belongs to the platform's own business (not counted in any tenant)
+INSERT INTO "Business"("id","name","createdAt","updatedAt") VALUES (910098,'decl-lab-platform-0',now(),now());
+INSERT INTO "User"("id","email","password","businessId","role","createdAt","updatedAt") VALUES (929001,'platform-admin-0@example.test','x',910098,'PLATFORM_ADMIN',now(),now());
 INSERT INTO "BillingDocumentNumberSequence"("businessId","documentType","nextNumber","createdAt","updatedAt") VALUES (910002,'RECEIPT',5,now(),now());
 INSERT INTO "BusinessProfile"("businessId","billingLegalName","billingBusinessKind","billingTaxId","billingVatNumber","createdAt","updatedAt")
   VALUES (910001,'ישראל ישראלי','AUTHORIZED_DEALER','000000018','000000018',now(),now());
@@ -128,8 +131,19 @@ SELECT pg_temp.expect('A6 the runtime cannot call the platform designation funct
 
 -- access recovery: a platform admin (owner here = app_admin in Production) designates the second user
 RESET ROLE;
+SELECT pg_temp.expect('S2a a designation naming an ordinary user (not PLATFORM_ADMIN) as the admin is refused',
+  $q$SELECT public.issuer_designate_authorized_user(910001, 920011, 920001, 'לא מנהל', 'support-case-123', 'ניסיון', 'designation-he-v1', repeat('b',64))$q$, 'ISSUER_DESIGNATION_REQUIRES_PLATFORM_ADMIN');
+SELECT pg_temp.expect('S2b an initial designation naming an ordinary user as the admin is refused',
+  $q$SELECT public.issuer_designate_initial(910003, 920031, 920032, 'לא מנהל', 'support-case-9', 'ניסיון', 'v1', repeat('c',64),
+     '{"track":"EXEMPT_DEALER","legalForm":"INDIVIDUAL","vatStatus":"EXEMPT","legalName":"פלונית","idType":"ISRAELI_ID","idNumber":"000000034","address":"רחוב 3","phone":"050","email":"b3@example.test"}'::jsonb)$q$, 'ISSUER_DESIGNATION_REQUIRES_PLATFORM_ADMIN');
 SELECT pg_temp.expect('A7 platform designation (evidence ref + elevation) transfers authority, issuer unchanged',
-  $q$SELECT public.issuer_designate_authorized_user(910001, 920011, 920001, 'מנהל לבדיקה', 'support-case-123', 'המאשר אינו זמין', 'designation-he-v1', repeat('b',64))$q$, 'OK');
+  $q$SELECT public.issuer_designate_authorized_user(910001, 920011, 929001, 'מנהל לבדיקה', 'support-case-123', 'המאשר אינו זמין', 'designation-he-v1', repeat('b',64))$q$, 'OK');
+SELECT pg_temp.expect('S2c the transfer records the admin as declarant, the evidence and the elevation; earlier versions stay',
+  $q$SELECT 1/(CASE WHEN (SELECT count(*) FROM "BusinessIssuerDeclaration" WHERE "businessId"=910001) = 4
+                     AND EXISTS (SELECT 1 FROM "BusinessIssuerDeclaration" WHERE "businessId"=910001 AND "version"=4 AND "kind"='AUTHORITY_TRANSFER'
+                                   AND "declaredByUserId"=929001 AND "authorizedUserId"=920011 AND "authorityEvidenceRef"='support-case-123'
+                                   AND "reauthMethod"='PLATFORM_ADMIN_ELEVATION')
+                THEN 1 ELSE 0 END)$q$, 'OK');
 SET ROLE decl_lab_rt;
 SELECT set_config('app.current_business_id', '910001', false);
 SELECT pg_temp.expect('A8 after the transfer the OLD authorized user may not file',
@@ -178,7 +192,7 @@ SELECT set_config('app.current_business_id', '910002', false);
 SELECT pg_temp.expect('E1 the erase keeps a declaration that a fiscal document was issued under (business 2)',
   $q$SELECT 1/(CASE WHEN public.issuer_declaration_erase() = 0 THEN 1 ELSE 0 END)$q$, 'OK');
 SELECT set_config('app.current_business_id', '910003', false);
-SELECT public.issuer_designate_initial(910003, 920031, 920032, 'מנהל', 'support-case-9', 'שני משתמשים בעסק', 'v1', repeat('c',64),
+SELECT public.issuer_designate_initial(910003, 920031, 929001, 'מנהל', 'support-case-9', 'שני משתמשים בעסק', 'v1', repeat('c',64),
   '{"track":"EXEMPT_DEALER","legalForm":"INDIVIDUAL","vatStatus":"EXEMPT","legalName":"פלונית","idType":"ISRAELI_ID","idNumber":"000000034","address":"רחוב 3","phone":"050","email":"b3@example.test"}'::jsonb);
 SELECT pg_temp.expect('E2 the erase anonymises a declaration nothing was issued under (business 3)',
   $q$SELECT 1/(CASE WHEN public.issuer_declaration_erase() = 1 THEN 1 ELSE 0 END)$q$, 'OK');
@@ -265,6 +279,50 @@ SELECT pg_temp.expect('R3 a designation restores the caller''s tenant setting (n
          '{"track":"EXEMPT_DEALER","legalForm":"INDIVIDUAL","vatStatus":"EXEMPT","legalName":"פלונית","idType":"ISRAELI_ID","idNumber":"000000059","address":"רחוב 6","phone":"050","email":"b6@example.test"}'::jsonb);
        IF current_setting('app.current_business_id', true) IS DISTINCT FROM '910099' THEN RAISE EXCEPTION 'GUC_LEAKED %', current_setting('app.current_business_id', true); END IF;
      END $d$$q$, 'OK');
+
+-- ======================= S: opening number reaches numbering (owner 2026-11-12) ==
+-- The counter is driven exactly like billing-issue.service (upsert: create nextNumber = 2 → number 1; else +1).
+-- business 1 recorded TAX_INVOICE opening 459 (O1) and has never issued one.
+RESET ROLE;
+GRANT INSERT, UPDATE ON "BillingDocumentNumberSequence" TO app_runtime;
+CREATE OR REPLACE FUNCTION pg_temp.take(b int, t text, want int) RETURNS text LANGUAGE sql AS $f$
+  SELECT format(
+    'WITH x AS (INSERT INTO "BillingDocumentNumberSequence"("businessId","documentType","nextNumber","createdAt","updatedAt") VALUES (%s,%L,2,now(),now()) '
+    'ON CONFLICT ("businessId","documentType") DO UPDATE SET "nextNumber" = "BillingDocumentNumberSequence"."nextNumber" + 1, "updatedAt" = now() '
+    'RETURNING "nextNumber" - 1 AS n) SELECT 1/(CASE WHEN n = %s THEN 1 ELSE 0 END) FROM x', b, t, want)
+$f$;
+SET ROLE decl_lab_rt;
+SELECT set_config('app.current_business_id', '910001', false);
+SELECT pg_temp.expect('S4a a NEW series with opening 459: the first number issued is 459 (not 1)', pg_temp.take(910001,'TAX_INVOICE',459), 'OK');
+SELECT pg_temp.expect('S4b the next number is 460', pg_temp.take(910001,'TAX_INVOICE',460), 'OK');
+SELECT pg_temp.expect('S4c a refused / rolled-back issue consumes no number (the counter rolls back with it)',
+  $q$DO $d$ BEGIN
+       BEGIN
+         INSERT INTO "BillingDocumentNumberSequence"("businessId","documentType","nextNumber","createdAt","updatedAt") VALUES (910001,'TAX_INVOICE',2,now(),now())
+           ON CONFLICT ("businessId","documentType") DO UPDATE SET "nextNumber" = "BillingDocumentNumberSequence"."nextNumber" + 1;
+         RAISE EXCEPTION 'ISSUE_REFUSED_AFTER_NUMBER';
+       EXCEPTION WHEN raise_exception THEN NULL;
+       END;
+     END $d$$q$, 'OK');
+SELECT pg_temp.expect('S4d … after it, the next number is still 461 (no gap)', pg_temp.take(910001,'TAX_INVOICE',461), 'OK');
+SELECT pg_temp.expect('S4e another document type of the same business is its own series: RECEIPT (no opening) starts at 1',
+  pg_temp.take(910001,'RECEIPT',1), 'OK');
+SELECT pg_temp.expect('S3 a secondary (non-MAIN) series opening is refused — issuance keeps one counter per document type',
+  $q$INSERT INTO "BillingSeriesOpening"("businessId","documentType","seriesCode","openingNumber","source","declarationId","declaredByUserId")
+     SELECT 910001,'CREDIT_NOTE','B',50,'EXPLICIT_NEW_SERIES',(SELECT max("id") FROM "BusinessIssuerDeclaration" WHERE "businessId"=910001),920011$q$, 'SERIES_CODE_NOT_SUPPORTED_BY_ISSUANCE');
+SELECT pg_temp.expect('S4h an opening for a series already used (TAX_INVOICE now has a counter) is refused',
+  pg_temp.opening(910001,'TAX_INVOICE',1,'NEW_BUSINESS',NULL,NULL,920011), 'SERIES_ALREADY_USED_OPENING_REFUSED');
+SELECT pg_temp.expect('S4i an unused CREDIT_NOTE series takes a NEW_BUSINESS opening (1)', pg_temp.opening(910001,'CREDIT_NOTE',1,'NEW_BUSINESS',NULL,NULL,920011), 'OK');
+SELECT pg_temp.expect('S4j … and its first number is 1', pg_temp.take(910001,'CREDIT_NOTE',1), 'OK');
+SELECT set_config('app.current_business_id', '910005', false);
+SELECT pg_temp.expect('S4f no opening recorded → nothing is invented: business 5''s first TAX_INVOICE is 1', pg_temp.take(910005,'TAX_INVOICE',1), 'OK');
+SELECT set_config('app.current_business_id', '910002', false);
+SELECT pg_temp.expect('S4g an EXISTING counter never resets: business 2''s RECEIPT counter (next 5) gives 5', pg_temp.take(910002,'RECEIPT',5), 'OK');
+RESET ROLE;
+SELECT pg_temp.expect('S4k the trigger is BEFORE INSERT only (an existing counter row is never rewritten by it)',
+  $q$SELECT 1/(CASE WHEN count(*) = 1 THEN 1 ELSE 0 END) FROM pg_trigger t
+     WHERE t.tgrelid = '"BillingDocumentNumberSequence"'::regclass AND t.tgname = 'BillingDocumentNumberSequence_series_opening'
+       AND (t.tgtype & 2) = 2 AND (t.tgtype & 4) = 4 AND (t.tgtype & 8) = 0 AND (t.tgtype & 16) = 0$q$, 'OK');
 
 -- ======================= account deletion: the profile lock admits the purge ==
 -- business 1 has a live declaration; the runtime purge clears the identity columns only once deletion is requested
