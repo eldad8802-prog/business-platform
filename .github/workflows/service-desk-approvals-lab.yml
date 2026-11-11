@@ -67,14 +67,22 @@ jobs:
           bash .sd3p4/lab.sh sdappr --deploy-only >/dev/null
           bash .sdm1/chain.sh sdappr | tee /tmp/m1.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/m1.out || { echo "the M1 chain is not green"; exit 1; }
-          bash .sdhov/chain.sh sdappr | tee /tmp/hov.out
-          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/hov.out || { echo "the handover-record chain is not green"; exit 1; }
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdappr"
           A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdappr"
           export OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
             TASK_REQUEST_HMAC_KEY=sdappr-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdappr-ci \
             AUTH_TOKEN_SECRET=sdappr-ci-synthetic-auth-secret-0123456789abcdef
-          for b in .sdm1/battery.ts .sdm1code/battery.ts .sdhov/battery.ts .sdappr/battery.ts; do
+          # BEFORE 20261130090000 (M1 alone), with THIS code: the M1 guards and the seven tracks — the legacy handover path.
+          # (.sdm1/battery.ts O16h closes a debt approved by a SECOND user: M1 allows it, 20261130090000 refuses it
+          # (approver = actor) — so it runs before the migration; .sdhov P7 proves the refusal after it.)
+          for b in .sdm1/battery.ts .sdm1code/battery.ts; do
+            npx tsx "$b" | tee /tmp/b.out
+            grep -qE '^[0-9]+ passed, 0 failed$' /tmp/b.out || { echo "$b (before the migration) is not green"; exit 1; }
+          done
+          bash .sdhov/chain.sh sdappr | tee /tmp/hov.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/hov.out || { echo "the handover-record chain is not green"; exit 1; }
+          # AFTER it: the seven tracks write version-2 handovers; the record rules; actor / approver through the service
+          for b in .sdm1code/battery.ts .sdhov/battery.ts .sdappr/battery.ts; do
             npx tsx "$b" | tee /tmp/b.out
             grep -qE '^[0-9]+ passed, 0 failed$' /tmp/b.out || { echo "$b is not green"; exit 1; }
           done
