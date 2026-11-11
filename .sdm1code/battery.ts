@@ -222,9 +222,10 @@ async function main() {
     const first = await tryIt(() => runCaseAction(A.p, id, { action: body, expectedVersion: v }, { idempotencyKey: k }));
     const replay = await tryIt(() => runCaseAction(A.p, id, { action: body, expectedVersion: v }, { idempotencyKey: k }));
     const r = await row(A, id);
-    const rec = (await own(A.b, `SELECT "completionType"::text t, "confirmedByName" n, note, "actorUserId" u FROM "ServiceCompletion" WHERE "caseId" = $1`, id));
+    const rec = (await own(A.b, `SELECT "completionType"::text t, "confirmedByName" n, note, "actorUserId" u, "openBalanceAgorot" bal, "debtOverrideReason" why FROM "ServiceCompletion" WHERE "caseId" = $1`, id));
     ok("C6 with the owner's debt decision → CLOSED, completion stamped, outcome kept", first === "OK" && r.status === "CLOSED" && r.completionType === "OWNER_CONFIRMED_ON_SITE" && r.outcome === "REPAIRED", first);
     ok("C7 the same request again → replayed, still one completion record", replay === "OK" && rec.length === 1);
+    ok("C8b the record keeps the balance and the owner's documented debt reason (handover rule)", Number(rec[0]?.bal) === 25_000 && rec[0]?.why === "לקוח קבוע — ישלם בסוף החודש", JSON.stringify({ bal: rec[0]?.bal, why: rec[0]?.why }));
     ok("C8 the record: trimmed name, note, the acting user — and no signature column exists", rec[0]?.n === "יוסי (סינתטי)" && rec[0]?.note === "הוחלף ממסר" && Number(rec[0]?.u) === A.u
       && (await q(`SELECT count(*)::int n FROM information_schema.columns WHERE table_name = 'ServiceCompletion' AND column_name ILIKE '%signat%'`))[0].n === 0);
     const ev = (await events(A, id)).at(-1)!;
@@ -295,7 +296,7 @@ async function main() {
     const left = (await own(A.b, `SELECT
         (SELECT count(*)::int FROM "ServiceCase" WHERE "businessId" = $1 AND ("siteAddress" IS NOT NULL OR "siteNotes" IS NOT NULL OR "originalSaleRef" IS NOT NULL)) c,
         (SELECT count(*)::int FROM "ServiceDevice" WHERE "businessId" = $1 AND ("displayName" IS NOT NULL OR attributes IS NOT NULL)) d,
-        (SELECT count(*)::int FROM "ServiceCompletion" WHERE "businessId" = $1 AND ("confirmedByName" IS NOT NULL OR note IS NOT NULL OR "actorUserId" IS NOT NULL)) k,
+        (SELECT count(*)::int FROM "ServiceCompletion" WHERE "businessId" = $1 AND ("confirmedByName" IS NOT NULL OR note IS NOT NULL OR "debtOverrideReason" IS NOT NULL OR "actorUserId" IS NOT NULL)) k,
         (SELECT count(*)::int FROM "ServiceCaseDetailChange" WHERE "businessId" = $1 AND (reason IS NOT NULL OR "siteAddressBefore" IS NOT NULL OR "siteAddressAfter" IS NOT NULL OR "actorUserId" IS NOT NULL)) h,
         (SELECT count(*)::int FROM "ServiceCompletion" WHERE "businessId" = $1) kept`, A.b))[0];
     ok("X1 the tracks erasure scrubs every M1 personal column the service wrote; the records themselves stay", n > 0 && Number(left.c) === 0 && Number(left.d) === 0 && Number(left.k) === 0 && Number(left.h) === 0 && Number(left.kept) >= 3, JSON.stringify(left));

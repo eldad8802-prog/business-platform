@@ -611,7 +611,7 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
       {
         model: "ServiceCompletion",
-        cleared: ["confirmedByName", "note", "actorUserId"],
+        cleared: ["confirmedByName", "note", "debtOverrideReason", "actorUserId"],
         kept: {
           completionType: "where the owner confirmed the work (enum) — not who",
           completedAt: "when the case was completed",

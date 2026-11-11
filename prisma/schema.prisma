@@ -8909,6 +8909,9 @@ model ServiceCompletion {
   completionType  ServiceCompletionType
   confirmedByName String? // cleared by service_tracks_erase_business()
   note            String? // cleared by service_tracks_erase_business()
+  /// the balance when the owner confirmed; closing with a debt carries the owner's reason (CHECK ServiceCompletion_debt_decided)
+  openBalanceAgorot  Int     @default(0)
+  debtOverrideReason String? // cleared by service_tracks_erase_business()
   actorUserId     Int? // cleared by service_tracks_erase_business()
   completedAt     DateTime              @default(now())
   createdAt       DateTime              @default(now())

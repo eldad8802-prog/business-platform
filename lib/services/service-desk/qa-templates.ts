@@ -44,33 +44,35 @@ export const QA_TEMPLATES: Readonly<Record<ServiceCaseKind, QaTemplate>> = {
       { key: "next_visit_noted", label: "מועד הביקור הבא נרשם", required: false },
     ],
   },
-  // M1 — PROPOSAL, pending the owner's approval of the items (P3 approved the three above only). REMOTE exists only on a
-  // track case, which reads its template from its snapshot; this entry keeps the kind map total.
+  // M1 — SUGGESTED template (owner decision 2026-11-11): every item is optional, so it never blocks the track; a business
+  // will be able to adapt its checklists later (needs an approved store — no schema now). REMOTE exists only on a track
+  // case, which reads its template from its snapshot; this entry keeps the kind map total.
   REMOTE: {
     id: "REMOTE.v1",
     kind: "REMOTE",
     items: [
-      { key: "original_fault_resolved", label: "הבעיה המקורית נפתרה", required: true },
-      { key: "customer_confirmed_working", label: "הלקוח אישר שהמערכת פועלת", required: true },
-      { key: "remote_access_closed", label: "הגישה מרחוק נסגרה", required: true },
+      { key: "original_fault_resolved", label: "הבעיה המקורית נפתרה", required: false },
+      { key: "customer_confirmed_working", label: "הלקוח אישר שהמערכת פועלת", required: false },
+      { key: "remote_access_closed", label: "הגישה מרחוק נסגרה", required: false },
       { key: "notes_recorded", label: "סיכום הטיפול נרשם", required: false },
     ],
   },
 };
 
 /**
- * M1 — the templates a track names (service-profiles: requirements.qa.template). PROPOSAL, pending the owner's approval of
- * the items; the ids are fixed by the catalog (C1: EXCHANGE.v1 is the short exchange checklist).
+ * M1 — the templates a track names (service-profiles: requirements.qa.template). SUGGESTED templates (owner decision
+ * 2026-11-11): every item is optional — they guide QA, they never block a track. Per-business checklists are a later,
+ * approved change (a store); the ids are fixed by the catalog (C1: EXCHANGE.v1 is the short exchange checklist).
  */
 export const TRACK_QA_TEMPLATES: Readonly<Record<string, QaTemplate>> = {
   "VEHICLE.v1": {
     id: "VEHICLE.v1",
     kind: "IN_SHOP",
     items: [
-      { key: "original_fault_resolved", label: "התקלה המקורית נפתרה", required: true },
-      { key: "road_or_run_test", label: "בוצעה בדיקת הפעלה / נסיעה", required: true },
-      { key: "no_warning_lights", label: "אין נורות אזהרה פעילות", required: true },
-      { key: "no_new_damage", label: "לא נגרם נזק חיצוני חדש", required: true },
+      { key: "original_fault_resolved", label: "התקלה המקורית נפתרה", required: false },
+      { key: "road_or_run_test", label: "בוצעה בדיקת הפעלה / נסיעה", required: false },
+      { key: "no_warning_lights", label: "אין נורות אזהרה פעילות", required: false },
+      { key: "no_new_damage", label: "לא נגרם נזק חיצוני חדש", required: false },
       { key: "replaced_parts_kept", label: "החלקים שהוחלפו נשמרו ללקוח", required: false },
     ],
   },
@@ -78,10 +80,10 @@ export const TRACK_QA_TEMPLATES: Readonly<Record<string, QaTemplate>> = {
     id: "INSTALLATION.v1",
     kind: "FIELD",
     items: [
-      { key: "installed_as_ordered", label: "ההתקנה בוצעה לפי ההזמנה", required: true },
-      { key: "system_tested", label: "המערכת נבדקה בהפעלה מלאה", required: true },
-      { key: "safety_checked", label: "נבדקו חיבורים ובטיחות", required: true },
-      { key: "site_left_clean", label: "האתר הושאר נקי ובטוח", required: true },
+      { key: "installed_as_ordered", label: "ההתקנה בוצעה לפי ההזמנה", required: false },
+      { key: "system_tested", label: "המערכת נבדקה בהפעלה מלאה", required: false },
+      { key: "safety_checked", label: "נבדקו חיבורים ובטיחות", required: false },
+      { key: "site_left_clean", label: "האתר הושאר נקי ובטוח", required: false },
       { key: "customer_instructed", label: "הלקוח הודרך בשימוש", required: false },
     ],
   },
@@ -89,9 +91,9 @@ export const TRACK_QA_TEMPLATES: Readonly<Record<string, QaTemplate>> = {
     id: "EXCHANGE.v1",
     kind: "IN_SHOP",
     items: [
-      { key: "replacement_matches", label: "פריט ההחלפה תואם להזמנה", required: true },
-      { key: "replacement_works", label: "פריט ההחלפה נבדק ופועל", required: true },
-      { key: "returned_item_logged", label: "הפריט שהוחזר נרשם", required: true },
+      { key: "replacement_matches", label: "פריט ההחלפה תואם להזמנה", required: false },
+      { key: "replacement_works", label: "פריט ההחלפה נבדק ופועל", required: false },
+      { key: "returned_item_logged", label: "הפריט שהוחזר נרשם", required: false },
     ],
   },
 };

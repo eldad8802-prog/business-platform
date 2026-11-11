@@ -657,7 +657,7 @@ function actionFrom(raw: Record<string, unknown>): ServiceCaseAction {
 }
 
 /** What a command prepared outside the case transaction for an effect (1.3c: the next quote version of a revision). */
-export type EffectExtras = { nextQuote?: FrozenQuote };
+export type EffectExtras = { nextQuote?: FrozenQuote; /** M1 COMPLETE: the balance read in this transaction (recorded with the completion). */ openBalanceAgorot?: number };
 
 /**
  * The decision's effects, in the command's transaction, BEFORE the case row and its event are written (the case lock is
@@ -736,8 +736,9 @@ export async function commitTransition(tx: Tx, b: number, caseId: number, contex
   if (done) {
     // One per case (UNIQUE), immutable, the acting user, no signature columns (owner decision 2026-11-11).
     await tx.$executeRaw`
-      INSERT INTO "ServiceCompletion" ("businessId", "caseId", "completionType", "confirmedByName", note, "actorUserId")
-      VALUES (${b}::int, ${caseId}::int, ${done.completionType}::"ServiceCompletionType", ${done.confirmedByName}::text, ${done.note}::text, ${userId}::int)`;
+      INSERT INTO "ServiceCompletion" ("businessId", "caseId", "completionType", "confirmedByName", note, "openBalanceAgorot", "debtOverrideReason", "actorUserId")
+      VALUES (${b}::int, ${caseId}::int, ${done.completionType}::"ServiceCompletionType", ${done.confirmedByName}::text, ${done.note}::text,
+              ${extras.openBalanceAgorot ?? 0}::int, ${d.texts.debtOverrideReason}::text, ${userId}::int)`;
   }
   if (dc) {
     // D11: before / after at the event's seq (= the version this update set); the journal keeps field names only.
@@ -781,7 +782,7 @@ export async function runCaseAction(
     const d = evaluateTransition(context, action, { kind: "OWNER", userId: p.userId });
     if (!d.ok) throw refused(d.violations);
     await verifyServerChecks(tx, b, d.serverChecks, { staffMemberId: context.staffMemberId, signatureKey, settlementRead: settlement !== null, caseId, track, decision: d });
-    const next = await commitTransition(tx, b, caseId, context, d, p.userId, prepared);
+    const next = await commitTransition(tx, b, caseId, context, d, p.userId, prepared, { openBalanceAgorot: settlement?.openBalanceAgorot ?? 0 });
     if (action.type === "DELIVER" && d.statusChanged && d.to === "DELIVERED") {
       // The handover record: one per case (UNIQUE), immutable, the acting user, no signature (owner decision 2026-11-11).
       const receipt = (action as { receipt: { receivedByName?: string | null } }).receipt;
