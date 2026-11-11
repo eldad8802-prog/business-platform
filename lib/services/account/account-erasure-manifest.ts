@@ -535,6 +535,40 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
     ],
   },
+  // Service Desk case charge (migration 20261126090000). The account-deletion adapter calls it in the purge transaction,
+  // after service_settings_journal_erase_business(). Who acted and the free-text reasons are personal; the amounts,
+  // modes, document ids and times are RETAINED as the business's financial record — pseudonymised, linked to the
+  // (anonymised) business row.
+  {
+    fn: "service_case_charge_erase_business",
+    migration: "20261126090000_service_desk_case_charge",
+    models: [
+      {
+        model: "ServiceCaseCharge",
+        cleared: ["reason", "actorUserId"],
+        kept: {
+          seq: "the record's place in the case's charge history — a counter, not the person",
+          mode: "CHARGEABLE or NO_CHARGE (enum) — what the case was charged, not who decided",
+          amountAgorot: "the agreed amount — the business's financial record of the case",
+          currency: "always ILS (CHECK)",
+          source: "APPROVED_QUOTE or OWNER_ENTERED (enum) — where the amount came from",
+          quoteVersion: "the quote version an approved amount came from — a counter",
+          actor: "a role token (OWNER_USER / CUSTOMER_LINK / SYSTEM), not the person once actorUserId is cleared",
+          createdAt: "when the charge was recorded — the financial record's time",
+        },
+      },
+      {
+        model: "ServiceCaseBillingLink",
+        cleared: ["linkedByUserId", "unlinkedByUserId", "unlinkReason"],
+        kept: {
+          billingDocumentId: "which billing document belonged to the case — an id into a retained fiscal record",
+          role: "CHARGE or STANDALONE_PAYMENT (enum)",
+          linkedAt: "when the document was linked",
+          unlinkedAt: "when it was unlinked, if it was",
+        },
+      },
+    ],
+  },
 ];
 
 export type ErasureManifest = {
