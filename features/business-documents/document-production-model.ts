@@ -74,11 +74,12 @@ function validId(v: unknown): v is number {
 }
 
 /**
- * The invoices screen's tax-invoice entries (the "+ צור חשבונית" button, the empty-state button and the ?create=
- * entries) for an exempt dealer while business_documents is OFF (owner-approved 2026-11-11): none of them may open a
- * tax-invoice draft — the screen shows a notice instead. Only that case changes: an authorized dealer or a company,
- * an unknown kind (handled by the tax-classification track), a quote, and the feature ON are left exactly as they are.
+ * The invoices screen's tax-invoice entries for an exempt dealer (owner-approved 2026-11-11; extended the same day to
+ * the feature ON): the "+ צור חשבונית" button and the empty-state button (feature OFF), the "+" menu's
+ * ?create=1 and any ?create= / ?create=TAX_INVOICE link (feature ON or OFF), and the identity-gate resume — none of
+ * them may open a tax-invoice draft; the screen shows a notice instead. Only that case changes: an authorized dealer or
+ * a company, an unknown kind (handled by the tax-classification track) and a quote are left exactly as they are.
  */
-export function blocksTaxInvoiceEntry(input: { type: "TAX_INVOICE" | "QUOTE"; businessKind: ProductionBusinessKind; featureOn: boolean }): boolean {
-  return input.type === "TAX_INVOICE" && input.businessKind === "EXEMPT_DEALER" && input.featureOn === false;
+export function blocksTaxInvoiceEntry(input: { type: "TAX_INVOICE" | "QUOTE"; businessKind: ProductionBusinessKind }): boolean {
+  return input.type === "TAX_INVOICE" && input.businessKind === "EXEMPT_DEALER";
 }

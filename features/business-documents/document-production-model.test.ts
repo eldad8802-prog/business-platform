@@ -57,13 +57,11 @@ for (const bad of ["0", "-3", "1.5", "abc", "12abc", "99999999999", ""]) {
 }
 ok("a name is trimmed and capped at 200", p(`customerId=5&customerName=${encodeURIComponent("  " + "א".repeat(300))}`).customerName?.length === 200);
 
-console.log("the invoices screen's tax-invoice entries: blocked only for an exempt dealer with the feature OFF");
+console.log("the invoices screen's tax-invoice entries: blocked only for an exempt dealer (feature OFF and ON)");
 for (const type of ["TAX_INVOICE", "QUOTE"] as const) {
   for (const businessKind of ["EXEMPT_DEALER", "AUTHORIZED_DEALER", "LTD_COMPANY", null] as const) {
-    for (const featureOn of [false, true]) {
-      const want = type === "TAX_INVOICE" && businessKind === "EXEMPT_DEALER" && !featureOn;
-      ok(`${type} · ${businessKind ?? "unknown kind"} · feature ${featureOn ? "ON" : "OFF"} → ${want ? "notice" : "as before"}`, blocksTaxInvoiceEntry({ type, businessKind, featureOn }) === want);
-    }
+    const want = type === "TAX_INVOICE" && businessKind === "EXEMPT_DEALER";
+    ok(`${type} · ${businessKind ?? "unknown kind"} → ${want ? "notice" : "as before"}`, blocksTaxInvoiceEntry({ type, businessKind }) === want);
   }
 }
 for (const [lang, m] of [["he", billingHe.list], ["en", billingEn.list]] as const) {

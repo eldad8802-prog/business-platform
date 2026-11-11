@@ -134,8 +134,8 @@ export default function BillingHubPage() {
   const documentsState = useFeatureState("business_documents");
   const moreDocumentsOn = documentsState === true;
   const [productionOpen, setProductionOpen] = useState<boolean>(false);
-  // Exempt dealer + feature OFF (owner-approved 2026-11-11): the tax-invoice entries show a notice instead of a draft.
-  // An entry used before the business kind or the feature state is known waits for both (queuedCreate).
+  // Exempt dealer (owner-approved 2026-11-11, feature OFF and ON): the tax-invoice entries show a notice instead of a draft.
+  // An entry used before the business kind is known waits for it (queuedCreate).
   const businessKind = useBusinessKind();
   const [queuedCreate, setQueuedCreate] = useState<"TAX_INVOICE" | "QUOTE" | null>(null);
   const [exemptNoticeOpen, setExemptNoticeOpen] = useState<boolean>(false);
@@ -337,10 +337,10 @@ export default function BillingHubPage() {
     setProductionOpen(true);
   }
 
-  /** The screen's create entries: a tax invoice for an exempt dealer with the feature OFF shows a notice instead. */
+  /** The screen's create entries: a tax invoice for an exempt dealer (feature OFF or ON) shows a notice instead. */
   function requestCreate(type: "TAX_INVOICE" | "QUOTE") {
-    if (type === "TAX_INVOICE" && (businessKind === undefined || documentsState === null)) {
-      setQueuedCreate(type); // decided as soon as the kind and the feature state are known
+    if (type === "TAX_INVOICE" && businessKind === undefined) {
+      setQueuedCreate(type); // decided as soon as the business kind is known
       return;
     }
     decideCreate(type);
@@ -348,7 +348,7 @@ export default function BillingHubPage() {
 
   function decideCreate(type: "TAX_INVOICE" | "QUOTE") {
     setQueuedCreate(null);
-    if (blocksTaxInvoiceEntry({ type, businessKind: businessKind ?? null, featureOn: documentsState === true })) {
+    if (blocksTaxInvoiceEntry({ type, businessKind: businessKind ?? null })) {
       setExemptNoticeOpen(true);
       return;
     }
@@ -356,10 +356,10 @@ export default function BillingHubPage() {
   }
 
   useEffect(() => {
-    if (queuedCreate === null || businessKind === undefined || documentsState === null) return;
+    if (queuedCreate === null || businessKind === undefined) return;
     decideCreate(queuedCreate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queuedCreate, businessKind, documentsState]);
+  }, [queuedCreate, businessKind]);
 
   function openCreateFlow(type: "TAX_INVOICE" | "QUOTE") {
     if (billingIdentityOk === false) {
@@ -995,7 +995,7 @@ export default function BillingHubPage() {
               if (ok) {
                 // Identity complete: close the gate and open the create flow.
                 setIdentityGateOpen(false);
-                if (blocksTaxInvoiceEntry({ type: pendingCreateType, businessKind: gateForm.billingBusinessKind === "EXEMPT_DEALER" ? "EXEMPT_DEALER" : null, featureOn: documentsState === true })) {
+                if (blocksTaxInvoiceEntry({ type: pendingCreateType, businessKind: gateForm.billingBusinessKind === "EXEMPT_DEALER" ? "EXEMPT_DEALER" : null })) {
                   setExemptNoticeOpen(true);
                 } else {
                   setCreateDocumentType(pendingCreateType);

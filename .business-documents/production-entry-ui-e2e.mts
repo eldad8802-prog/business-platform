@@ -24,7 +24,9 @@
  *   XO5 … English: the notice in English
  *   XG1 kind unknown, feature OFF: the identity gate opens as before; declaring "עוסק פטור" there shows the notice
  *   AO1 authorized dealer, feature OFF: the empty-state button and ?create=1 open the invoice create modal as before
- *   EO1 exempt dealer, feature ON: ?create=1 behaves as before (the invoice create modal), the list still has no tax invoice
+ *   EO1 exempt dealer, feature ON: the "+" menu's ?create=1 and ?create=TAX_INVOICE show the notice, no tax-invoice form
+ *   EO2 … the production list still opens; the quote is available from it
+ *   AO2 authorized dealer, feature ON: ?create=1 still opens the tax-invoice form
  *   L1 the database holds exactly the drafts the scenarios made, all DRAFT, none numbered
  *
  * env: E2E_BASE, SEED_OUT, OUT, OWNER_URL.
@@ -335,12 +337,35 @@ async function main() {
       const c2 = await ctx(browser, seed.E.token, DESKTOP);
       const p2 = await c2.newPage();
       current = p2;
-      await check("EO1 exempt, feature ON: ?create=1 behaves as before (invoice create modal); no notice", async () => {
-        await p2.goto("/billing?create=1");
-        await p2.getByRole("dialog", { name: "יצירת טיוטת חשבונית" }).waitFor({ timeout: 90_000 });
-        if ((await p2.getByTestId("exempt-tax-invoice-notice").count()) !== 0) throw new Error("notice shown with the feature ON");
+      await check("EO1 exempt, feature ON: the \"+\" menu's ?create=1 and ?create=TAX_INVOICE show the notice — no tax-invoice form", async () => {
+        for (const q of ["create=1", "create=TAX_INVOICE"]) {
+          await p2.goto(`/billing?${q}`);
+          const n = p2.getByTestId("exempt-tax-invoice-notice");
+          await n.waitFor({ timeout: 90_000 });
+          if (!(await n.innerText()).includes("עוסק פטור אינו רשאי להפיק חשבונית מס")) throw new Error("notice text");
+          if ((await p2.getByRole("dialog", { name: "יצירת טיוטת חשבונית" }).count()) !== 0) throw new Error(`invoice create modal opened (${q})`);
+          if (new URL(p2.url()).pathname !== "/billing") throw new Error(`navigated to ${p2.url()}`);
+          await n.getByRole("button").click();
+        }
+      });
+      await shot(p2, "EO1-exempt-on-notice");
+      await check("EO2 exempt, feature ON: the production list still opens and the quote is available from it", async () => {
+        await p2.getByTestId("document-production-button").click({ timeout: 30_000 });
+        await p2.getByTestId("document-production-sheet").waitFor();
+        await p2.waitForTimeout(800);
+        await p2.locator('[data-testid="document-production-sheet"] [data-option="QUOTE"]').click();
+        await p2.getByRole("dialog", { name: "יצירת הצעת מחיר" }).waitFor();
       });
       await c2.close();
+      const c3 = await ctx(browser, seed.A.token, DESKTOP);
+      const p3 = await c3.newPage();
+      current = p3;
+      await check("AO2 authorized, feature ON: ?create=1 still opens the tax-invoice form; no notice", async () => {
+        await p3.goto("/billing?create=1");
+        await p3.getByRole("dialog", { name: "יצירת טיוטת חשבונית" }).waitFor({ timeout: 90_000 });
+        if ((await p3.getByTestId("exempt-tax-invoice-notice").count()) !== 0) throw new Error("notice shown to an authorized dealer");
+      });
+      await c3.close();
     }
 
     await check("L1 the database holds exactly the drafts the scenarios made, all DRAFT, none numbered", async () => {
