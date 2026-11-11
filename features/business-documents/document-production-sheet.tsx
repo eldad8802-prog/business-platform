@@ -6,13 +6,14 @@
  * the invoices screen, which runs its own create flow (identity gate, draft) exactly as before.
  */
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconBox, IconFileCheck, IconMail, IconReceipt } from "@/components/navigation/nav-icons";
 import { TOKEN } from "@/lib/design/billing-theme";
 
-import { productionOptions, type ProductionBusinessKind } from "./document-production-model";
+import { productionOptions, type ProductionBusinessKind, type ProductionOption } from "./document-production-model";
 import s from "./document-production-sheet.module.css";
 
 function getAuthToken(): string {
@@ -102,13 +103,13 @@ export function DocumentProductionSheet({
     };
   }, []);
 
-  const iconFor: Record<string, ReactNode> = {
+  const iconFor: Record<ProductionOption["key"], ReactNode> = {
     TAX_INVOICE: <IconReceipt size={20} />,
     QUOTE: <IconFileCheck size={20} />,
     LETTER: <IconMail size={20} />,
     SUPPLIER_ORDER: <IconBox size={20} />,
   };
-  const row = (key: string) => (
+  const row = (key: ProductionOption["key"]) => (
     <>
       <span className={s.icon} aria-hidden>
         {iconFor[key]}
@@ -122,7 +123,9 @@ export function DocumentProductionSheet({
     </>
   );
 
-  return (
+  // rendered into <body>: the page content is its own stacking context (shell-content, z-index 1), under the fixed
+  // bottom bar — inside it the backdrop could not cover the bar
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -167,6 +170,7 @@ export function DocumentProductionSheet({
           {t("billing.production.followUp")}
         </Link>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
