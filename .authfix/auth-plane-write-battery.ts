@@ -338,22 +338,32 @@ async function main() {
         headers: { authorization: `Bearer ${token}` },
       })
     );
-    const body = (await res.json()) as { success?: boolean; error?: string };
+    const body = (await res.json()) as { success?: boolean; scope?: string; error?: string };
     ok("REAL logout route returns 200", res.status === 200, `status ${res.status} ${body.error ?? ""}`);
+    // Ordinary logout is per-device: it ends this session under the shipped
+    // grants and leaves the generation — every other device — alone.
+    ok("REAL logout ends this device only (scope=device)", body.scope === "device", JSON.stringify(body));
     const after = await owner.user.findUnique({
       where: { id: seeded.id },
       select: { tokenVersion: true },
     });
     ok(
-      "logout incremented tokenVersion",
-      (after?.tokenVersion ?? -1) === seeded.tokenVersion + 1,
+      "per-device logout did NOT increment tokenVersion",
+      (after?.tokenVersion ?? -1) === seeded.tokenVersion,
       `was ${seeded.tokenVersion}, now ${after?.tokenVersion}`
+    );
+    ok(
+      "...and the token it ended is refused",
+      (await getAuthContext(
+        new Request("https://lab.invalid/api/auth/me", { headers: { authorization: `Bearer ${token}` } })
+      )) === null
     );
 
     // The property that matters, now created DELIBERATELY instead of by accident.
     //
-    // The increment above has already signed the user out of every device, so a
-    // failure to MARK the rows must not be reported as a failed logout: telling
+    // "Every device" increments the generation, which has already signed the user
+    // out everywhere, so a failure to MARK the rows must not be reported as a
+    // failed logout: telling
     // someone who IS signed out that it did not work is the worst lie this
     // endpoint can tell. This used to be proven incidentally, because the lab
     // happened to grant nothing on the table. Login now needs those privileges to
@@ -377,10 +387,13 @@ async function main() {
       );
       const tok = ((await loginAgain.json()) as { token?: string }).token ?? "";
       await owner.$executeRawUnsafe(`REVOKE UPDATE ON public."AuthSession" FROM app_auth`);
+      // The per-device path has no generation bump to lean on and reports 500
+      // here instead (logout-scope-battery).
       const out = await logoutRoute.POST(
         new Request("https://lab.invalid/api/auth/logout", {
           method: "POST",
-          headers: { authorization: `Bearer ${tok}` },
+          headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" },
+          body: JSON.stringify({ scope: "all" }),
         })
       );
       const bumped = await owner.user.findUnique({
