@@ -7,7 +7,7 @@
  *      and no amount; amount > 0, ILS only; a quote-sourced amount must be that approved version; the acting owner is a
  *      user of the business; never updated, deleted or truncated; another business's case cannot be charged.
  *   L  billing links: the document exists in THIS business (another business's id is refused); its type fits the role
- *      (CHARGE = tax invoice or tax invoice / receipt, STANDALONE_PAYMENT = receipt; a quote never); at most one active
+ *      (CHARGE = tax invoice or tax invoice / receipt, STANDALONE_PAYMENT = an ISSUED receipt; a quote never); at most one active
  *      link per document (also across cases); a draft may be linked (the reader decides UNKNOWN, nothing is frozen);
  *      unlink once with who and why; nothing else changes; never deleted; after an unlink the document may be linked
  *      again (history kept).
@@ -133,6 +133,7 @@ async function main() {
   const draft = await billingDoc(A, "TAX_INVOICE", "DRAFT", 50);
   const invB = await billingDoc(B, "TAX_INVOICE", "ISSUED", 999);
   const rc2 = await billingDoc(A, "RECEIPT", "ISSUED", 300);
+  const rcDraft = await billingDoc(A, "RECEIPT", "DRAFT", 300);
   ok("L1 CHARGE → A's issued tax invoice; CHARGE → a tax invoice / receipt; STANDALONE_PAYMENT → a receipt: all written",
     (await rt(A.b, link(A, a1, inv1, "CHARGE"))) === "OK" && (await rt(A.b, link(A, a1, tir, "CHARGE"))) === "OK" && (await rt(A.b, link(A, a1, rc1, "STANDALONE_PAYMENT"))) === "OK");
   ok("L2 another business's document id → SERVICE_BILLING_LINK_DOCUMENT (it does not exist in this business)",
@@ -145,6 +146,8 @@ async function main() {
       && (await rt(A.b, link(A, a2, quote, "CHARGE"))).includes("SERVICE_BILLING_LINK_ROLE"));
   ok("L5 a draft invoice may be linked (status is not frozen here — the balance reader answers UNKNOWN / DRAFT_PENDING)",
     (await rt(A.b, link(A, a2, draft, "CHARGE"))) === "OK");
+  ok("L5b a receipt is linked as a payment only once issued (a draft receipt → SERVICE_BILLING_LINK_RECEIPT_NOT_ISSUED)",
+    (await rt(A.b, link(A, a2, rcDraft, "STANDALONE_PAYMENT"))).includes("SERVICE_BILLING_LINK_RECEIPT_NOT_ISSUED"));
   ok("L6 a new link must record who linked it (no user → SERVICE_BILLING_LINK_NEW)",
     (await rt(A.b, [link(A, a2, rc2, "STANDALONE_PAYMENT")[0], A.b, a2, rc2, "STANDALONE_PAYMENT", null])).includes("SERVICE_BILLING_LINK_NEW"));
   ok("L7 unlink without a reason → refused; with who and why → done",

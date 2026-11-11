@@ -14,8 +14,9 @@
 --                             first carries a reason, unless it is the approval of a quote (the quote is the record).
 --   "ServiceCaseBillingLink"  which billing documents belong to a case (the billing session's read contract, #1102):
 --                               CHARGE              a TAX_INVOICE or a TAX_INVOICE_RECEIPT — at most ONE case at a time
---                               STANDALONE_PAYMENT  a RECEIPT with no invoice (e.g. an exempt dealer's), linked by the
---                                                   owner explicitly — at most ONE case at a time
+--                               STANDALONE_PAYMENT  an ISSUED RECEIPT (e.g. an exempt dealer's), linked by the owner
+--                                                   explicitly — at most ONE case at a time; only the part billing
+--                                                   attributes to no invoice is credited (owner decision 2026-11-11)
 --                             A receipt allocated to invoices is never linked: its money reaches a case only through
 --                             the outstanding of the case's invoices (no double count). Credits come with their invoice.
 --                             An unlink happens once, with who and why; the row stays (history). A document's status
@@ -44,6 +45,9 @@ BEGIN
      OR to_regprocedure('public.service_ui_business_writable(integer)') IS NULL THEN
     RAISE EXCEPTION 'SERVICE_DESK_CHARGE: the Service Desk trigger functions are missing; nothing was changed';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ServiceCaseEvent_record_in_place') THEN
+    RAISE EXCEPTION 'SERVICE_DESK_CHARGE: the P4 audit journal (20261122090000) is not applied; nothing was changed';
+  END IF;
 END
 $do$;
 
@@ -53,6 +57,29 @@ SET lock_timeout = '5s';
 CREATE TYPE "ServiceChargeMode" AS ENUM ('CHARGEABLE', 'NO_CHARGE');
 CREATE TYPE "ServiceChargeSource" AS ENUM ('APPROVED_QUOTE', 'OWNER_ENTERED');
 CREATE TYPE "ServiceBillingLinkRole" AS ENUM ('CHARGE', 'STANDALONE_PAYMENT');
+
+-- The case journal (ServiceCaseEvent) gains three STATUS-PRESERVING records, as P4 did: a charge recorded by the owner,
+-- a billing document linked, one unlinked. Each bumps the case version and leaves status / hold / cancel request as they
+-- were (service_event_matches_case already demands it); the payload stays closed (tokens, numbers, booleans — the
+-- reasons live in their own columns). A quote approval writes its charge record under its own quote.approved event.
+ALTER TYPE "ServiceEventType" ADD VALUE IF NOT EXISTS 'charge.recorded';
+ALTER TYPE "ServiceEventType" ADD VALUE IF NOT EXISTS 'billing.linked';
+ALTER TYPE "ServiceEventType" ADD VALUE IF NOT EXISTS 'billing.unlinked';
+ALTER TYPE "ServiceCaseAction" ADD VALUE IF NOT EXISTS 'RECORD_CHARGE';
+ALTER TYPE "ServiceCaseAction" ADD VALUE IF NOT EXISTS 'LINK_BILLING_DOCUMENT';
+ALTER TYPE "ServiceCaseAction" ADD VALUE IF NOT EXISTS 'UNLINK_BILLING_DOCUMENT';
+-- compared as text: the new enum values are not used before this transaction ends
+ALTER TABLE "ServiceCaseEvent" ADD CONSTRAINT "ServiceCaseEvent_charge_in_place" CHECK (
+      ("action"::text IN ('RECORD_CHARGE', 'LINK_BILLING_DOCUMENT', 'UNLINK_BILLING_DOCUMENT'))
+    = ("eventType"::text IN ('charge.recorded', 'billing.linked', 'billing.unlinked'))
+  AND ("action"::text <> 'RECORD_CHARGE' OR "eventType"::text = 'charge.recorded')
+  AND ("action"::text <> 'LINK_BILLING_DOCUMENT' OR "eventType"::text = 'billing.linked')
+  AND ("action"::text <> 'UNLINK_BILLING_DOCUMENT' OR "eventType"::text = 'billing.unlinked')
+  AND ("action"::text NOT IN ('RECORD_CHARGE', 'LINK_BILLING_DOCUMENT', 'UNLINK_BILLING_DOCUMENT') OR (
+            "fromStatus" = "toStatus"
+        AND "holdReasonBefore" IS NOT DISTINCT FROM "holdReasonAfter"
+        AND "cancellationRequestedBefore" = "cancellationRequestedAfter"
+        AND "actor" = 'OWNER_USER')));
 
 -- ── 2. Tables ───────────────────────────────────────────────────────────────────────────────────────────────
 CREATE TABLE "ServiceCaseCharge" (
@@ -209,6 +236,7 @@ SET search_path = pg_catalog, public, pg_temp
 AS $fn$
 DECLARE
   v_type text;
+  v_status text;
 BEGIN
   IF TG_OP = 'DELETE' THEN
     IF pg_trigger_depth() > 1 THEN RETURN OLD; END IF;
@@ -247,7 +275,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public."ServiceCase" c WHERE c."businessId" = NEW."businessId" AND c."id" = NEW."caseId") THEN
     RAISE EXCEPTION USING ERRCODE = 'DZU13', MESSAGE = 'SERVICE_BILLING_LINK_CASE: no such case in this business';
   END IF;
-  SELECT d."documentType"::text INTO v_type FROM public."BillingDocument" d
+  -- the only read of a billing table: one row by primary key, no lock clause (ACCESS SHARE only), under the caller's RLS
+  SELECT d."documentType"::text, d."status"::text INTO v_type, v_status FROM public."BillingDocument" d
    WHERE d."id" = NEW."billingDocumentId" AND d."businessId" = NEW."businessId";
   IF v_type IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'DZU13', MESSAGE = 'SERVICE_BILLING_LINK_DOCUMENT: no such billing document in this business';
@@ -255,6 +284,10 @@ BEGIN
   IF NOT ((NEW."role" = 'CHARGE' AND v_type IN ('TAX_INVOICE', 'TAX_INVOICE_RECEIPT'))
        OR (NEW."role" = 'STANDALONE_PAYMENT' AND v_type = 'RECEIPT')) THEN
     RAISE EXCEPTION USING ERRCODE = 'DZU13', MESSAGE = 'SERVICE_BILLING_LINK_ROLE: CHARGE links a tax invoice (or tax invoice / receipt); STANDALONE_PAYMENT links a receipt';
+  END IF;
+  -- a payment is credited only from an issued receipt (an invoice may be linked as a draft: the reader answers UNKNOWN)
+  IF NEW."role" = 'STANDALONE_PAYMENT' AND v_status IS DISTINCT FROM 'ISSUED' THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZU13', MESSAGE = 'SERVICE_BILLING_LINK_RECEIPT_NOT_ISSUED: only an issued receipt is linked as a payment';
   END IF;
   RETURN NEW;
 END
