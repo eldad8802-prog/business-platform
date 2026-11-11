@@ -163,7 +163,7 @@ jobs:
 
   declaration-code:
     name: Declaration code — D1 D2 D4 (pure) + D3 (a)-(d) flow (link + declaration migrations, PG17)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
     timeout-minutes: 45
 
     services:
