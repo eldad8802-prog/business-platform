@@ -1,0 +1,80 @@
+name: service desk handover record — balance, overpayment, actor / approver lab (ephemeral PG17)
+
+# Migration 20261130090000_service_handover_debt_record (DRAFT — never applied without a separate owner approval): the
+# version-2 handover record (balance + overpayment, debt / loaner approvals with the approver apart from the actor), the
+# approver = actor rule on ServiceHandover AND ServiceCompletion, its erase function. The application chain (#1096 →
+# #1104 → M1 → this, via prisma migrate deploy) over LEGACY handovers, fault + recovery, second-apply refusal, rollback;
+# then the database rules AS the runtime role, and the mutation run (every key guard, weakened, is caught). Synthetic
+# only; no secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261127090000_service_desk_tracks/**"
+      - "prisma/migrations/20261130090000_service_handover_debt_record/**"
+      - ".sdhov/**"
+      - ".sdm1/chain.sh"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - "prisma/schema.prisma"
+      - ".github/workflows/service-desk-handover-record-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk handover record (PG17, runtime role, M1 + 20261130090000 applied over legacy rows)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdhov_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdhov_ci_synthetic_super_pw
+      LAB_PASSWORD: sdhov_ci_synthetic_role_pw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: The chain over legacy handovers, then the rules as the runtime role
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdhov >/dev/null
+          bash .sd3p4/lab.sh sdhov --deploy-only >/dev/null
+          bash .sdm1/chain.sh sdhov | tee /tmp/m1.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/m1.out || { echo "the M1 chain is not green"; exit 1; }
+          bash .sdhov/chain.sh sdhov | tee /tmp/chain.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/chain.out || { echo "the handover-record chain is not green"; exit 1; }
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdhov"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdhov"
+          psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d postgres -c "CREATE DATABASE sdhov_tpl TEMPLATE sdhov OWNER lab_owner"
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" npx tsx .sdhov/battery.ts | tee /tmp/sdhov.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdhov.out || { echo "the handover-record battery is not green"; exit 1; }
+      - name: Mutations — each key guard weakened must turn the battery red
+        run: |
+          set -euo pipefail
+          node .sdhov/mutate.mjs sdhov_tpl | tee /tmp/mut.out
+          grep -qE '^MUTATIONS: [0-9]+ killed, 0 survived$' /tmp/mut.out || { echo "a mutation survived"; exit 1; }
