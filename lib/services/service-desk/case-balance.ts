@@ -94,11 +94,11 @@ function chargeDocuments(links: readonly CaseBillingLink[], facts: BillingSettle
     } else {
       const r = facts.receipts.find((x) => x.id === l.billingDocumentId && x.type === "TAX_INVOICE_RECEIPT");
       if (!r || !isAmount(r.totalAgorot)) return "READ_ERROR";
-      const credited = facts.credits.filter((c) => c.invoiceDocumentId === r.id).reduce((s, c) => s + c.amountAgorot, 0);
-      const net = r.totalAgorot - credited;
-      if (!isAmount(credited) || net < 0) return "CONFLICT";
-      documented += net;
-      paid += net;
+      // Billing reports no credited total for a tax invoice / receipt and no currency per credit note: a credit against
+      // one is not netted here (no cross-currency sum) — the balance is UNKNOWN until the owner resolves it.
+      if (facts.credits.some((c) => c.invoiceDocumentId === r.id)) return "CONFLICT";
+      documented += r.totalAgorot;
+      paid += r.totalAgorot;
     }
   }
   return { documented, paid, docOpen };
