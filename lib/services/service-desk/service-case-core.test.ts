@@ -183,7 +183,7 @@ function samples(kind: ServiceCaseKind): Sample[] {
   const authorized = { coverage: { source: "MANUFACTURER" as const, decision: "APPROVED" as const }, currentQuote: approvedQuote() };
   return [
     { action: { type: "SCHEDULE", appointmentId: 11 }, actor: OWNER, over: { siteId: 4 } },
-    { action: { type: "CHECK_IN" }, actor: OWNER },
+    { action: { type: "CHECK_IN", intakeConfirmed: true }, actor: OWNER },
     { action: { type: "START_DIAGNOSIS" }, actor: OWNER },
     { action: { type: "SEND_QUOTE", quote: { version: 2, totalAgorot: 1000, docHash: "h2" } }, actor: OWNER, over: authorized },
     { action: { type: "APPROVE_QUOTE", approval: { version: 1, totalAgorot: 45_000, docHash: "h1", method: "PHONE" } }, actor: OWNER, over: { currentQuote: sentQuote() } },
@@ -263,12 +263,22 @@ refusedWith("missing data: schedule without an appointment", ev(ctx(), { type: "
   refusedWith("a malformed technician id is refused, never read as \"none\"", ev(ctx({ status: "CHECKED_IN", staffMemberId: 0 }), { type: "START_DIAGNOSIS" }, OWNER), "INVALID_INPUT");
 }
 {
-  const d = ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: false, customerSigned: false } }), { type: "CHECK_IN" }, OWNER);
+  const d = ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: false, customerSigned: false } }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER);
   refusedWith("missing data: IN_SHOP check-in without accessories and signature", d, "INTAKE_INCOMPLETE");
-  check("  …the refusal names what is missing", !d.ok && /accessories, customerSignature/.test(d.violations[0].detail));
+  check("  …the refusal names what is missing — the accessories record, never a customer signature", !d.ok && /accessories/.test(d.violations[0].detail) && !/ignature/.test(d.violations[0].detail));
 }
-refusedWith("missing data: IN_SHOP check-in with no intake at all", ev(ctx({ intake: null }), { type: "CHECK_IN" }, OWNER), "INTAKE_INCOMPLETE");
-allowedTo("IN_SHOP check-in with a full intake", ev(ctx(), { type: "CHECK_IN" }, OWNER), "CHECKED_IN");
+refusedWith("missing data: IN_SHOP check-in with no intake at all", ev(ctx({ intake: null }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "INTAKE_INCOMPLETE");
+allowedTo("IN_SHOP check-in with a full intake, confirmed by the owner", ev(ctx(), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "CHECKED_IN");
+// Owner decision 2026-11-11: no customer signature anywhere. The owner's explicit confirmation replaces it.
+allowedTo("no signature: a documented intake that was never signed checks in on the owner's confirmation",
+  ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: true, customerSigned: false } }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "CHECKED_IN");
+refusedWith("the owner's confirmation is explicit: a CHECK_IN of a held item without it is refused",
+  ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: true, customerSigned: false } }), { type: "CHECK_IN" }, OWNER), "INTAKE_NOT_CONFIRMED");
+{
+  const d = ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: true, customerSigned: false } }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER);
+  check("  …no stored-signature server check any more, and the journal payload records the confirmation",
+    d.ok && !(d.serverChecks as readonly string[]).includes("INTAKE_ARTIFACTS_STORED") && (d.event.payload as Record<string, unknown>).intakeConfirmed === true);
+}
 
 // unapproved quote
 refusedWith("unapproved quote: back from the supplier into repair", ev(ctx({ status: "EXTERNAL", currentQuote: sentQuote() }), { type: "RETURN_FROM_EXTERNAL", next: "IN_REPAIR" }, OWNER), "REPAIR_NOT_AUTHORIZED");
@@ -331,7 +341,7 @@ refusedWith("early close from READY", ev(ready(), { type: "CLOSE" }, OWNER), "IN
 refusedWith("early close from IN_REPAIR", ev(ctx({ status: "IN_REPAIR" }), { type: "CLOSE" }, OWNER), "INVALID_TRANSITION");
 refusedWith("the system may not deliver", ev(ready(), { type: "DELIVER", receipt: RECEIPT }, SYSTEM), "ACTOR_NOT_ALLOWED");
 refusedWith("an owner without a user is not an actor", ev(ready(), { type: "DELIVER", receipt: RECEIPT }, { kind: "OWNER", userId: 0 }), "ACTOR_NOT_ALLOWED");
-refusedWith("a CLOSED case does not reopen", ev(ctx({ status: "CLOSED", outcome: "REPAIRED" }), { type: "CHECK_IN" }, OWNER), "TERMINAL_STATUS");
+refusedWith("a CLOSED case does not reopen", ev(ctx({ status: "CLOSED", outcome: "REPAIRED" }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "TERMINAL_STATUS");
 
 // ── 4. The 12 alternative paths ────────────────────────────────────────────────────────────────────────────
 console.log("— 4. alternative paths");
@@ -409,7 +419,7 @@ console.log("  4.5 cancelled");
   allowedTo("a FIELD case holds nothing → CANCELLED", ev(ctx({ kind: "FIELD", status: "CHECKED_IN" }), { type: "CANCEL" }, OWNER), "CANCELLED");
   // Expectation changed by the owner decision of 11-03 (was: INVALID_TRANSITION — cancel during repair not implemented).
   allowedTo("cancel during repair (owner decision 11-03) → READY", ev(ctx({ status: "IN_REPAIR", currentQuote: approvedQuote() }), { type: "CANCEL", reason: "x" }, OWNER), "READY");
-  refusedWith("a CANCELLED case is final", ev(ctx({ status: "CANCELLED", outcome: "CANCELLED" }), { type: "CHECK_IN" }, OWNER), "TERMINAL_STATUS");
+  refusedWith("a CANCELLED case is final", ev(ctx({ status: "CANCELLED", outcome: "CANCELLED" }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "TERMINAL_STATUS");
   check("cancelling never deletes: it is an event like any other", open.ok && open.event.type === "case.cancelled");
 }
 
@@ -655,9 +665,9 @@ console.log("  4.11 field visit not finished on the first visit (contract compat
     const own = ev(f({ staffMemberId: null }), { type: "SCHEDULE", appointmentId: 11 }, OWNER);
     allowedTo("an on-site visit with no technician → the owner makes it", own, "SCHEDULED");
     check("  …marked as handled by the owner", own.ok && own.event.payload.handledByOwner === true);
-    allowedTo("on-site check-in with no technician → the owner", ev(f({ status: "SCHEDULED", staffMemberId: null }), { type: "CHECK_IN" }, OWNER), "CHECKED_IN");
+    allowedTo("on-site check-in with no technician → the owner", ev(f({ status: "SCHEDULED", staffMemberId: null }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "CHECKED_IN");
   }
-  allowedTo("technician on site → CHECKED_IN without a shop intake", ev(f({ status: "SCHEDULED" }), { type: "CHECK_IN" }, OWNER), "CHECKED_IN");
+  allowedTo("technician on site → CHECKED_IN without a shop intake", ev(f({ status: "SCHEDULED" }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "CHECKED_IN");
   const wait = ev(f({ status: "IN_REPAIR", currentQuote: approvedQuote() }), { type: "SET_HOLD", reason: "PARTS" }, OWNER);
   check("first visit ends waiting for a part: the case stays open in IN_REPAIR", wait.ok && wait.to === "IN_REPAIR" && wait.holdReason === "PARTS");
   allowedTo("the follow-up visit finishes → READY (no QA on site)", ev(f({ status: "IN_REPAIR", holdReason: "PARTS" }), { type: "FINISH_REPAIR", outcome: "REPAIRED" }, OWNER), "READY");
@@ -827,7 +837,7 @@ console.log("— 5. three separate fields");
 console.log("— 6. command envelope, event");
 {
   const c = ctx({ version: 7 });
-  const cmd = { caseId: 12, action: { type: "CHECK_IN" } as ServiceCaseAction, expectedVersion: 7, idempotencyKey: "0192f4b2-7c1e-7a3b-9f00-1a2b3c4d5e6f" };
+  const cmd = { caseId: 12, action: { type: "CHECK_IN", intakeConfirmed: true } as ServiceCaseAction, expectedVersion: 7, idempotencyKey: "0192f4b2-7c1e-7a3b-9f00-1a2b3c4d5e6f" };
   check("a well-formed command at the current version", checkCommandEnvelope(c, cmd).ok);
   const stale = checkCommandEnvelope(c, { ...cmd, expectedVersion: 6 });
   check("a stale version → VERSION_CONFLICT", !stale.ok && stale.violations.some((v) => v.code === "VERSION_CONFLICT"));
@@ -942,7 +952,7 @@ const OPEN_INPUT: ServiceCaseOpenInput = { kind: "IN_SHOP", customerId: 41, devi
     type Row = { seq: number; type: string };
     const journal: Row[] = [{ seq: d.seq, type: d.event.type }];
     let c = ctx({ status: d.status, version: d.version });
-    const steps: ServiceCaseAction[] = [{ type: "CHECK_IN" }, { type: "START_DIAGNOSIS" }, { type: "MARK_NOT_REPAIRABLE" }, { type: "DELIVER", receipt: RECEIPT }, { type: "CLOSE" }];
+    const steps: ServiceCaseAction[] = [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "MARK_NOT_REPAIRABLE" }, { type: "DELIVER", receipt: RECEIPT }, { type: "CLOSE" }];
     let chainOk = true;
     for (const a of steps) {
       const t = ev(c, a, OWNER);
