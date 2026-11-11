@@ -95,10 +95,17 @@ async function main() {
       check("U1.offer", "DEFECT", "exempt dealer is offered '+ צור חשבונית' (the tax-invoice flow) on the billing list", label.includes("צור חשבונית"), { label });
       check("U1.receipt", "OBSERVED", "the billing list offers no way to create a receipt", !/צור קבלה|קבלה חדשה|הפק קבלה/.test(text), text.slice(0, 400));
       await p1.locator(CREATE_INVOICE).first().click();
-      const opened = await p1.getByText("יצירת טיוטת חשבונית").first().waitFor({ timeout: 60_000 }).then(() => true, () => false);
+      // #1089: the click now shows the exempt-dealer notice; wait for whichever appears first (notice or form)
+      const NOTICE = /עוסק פטור אינו רשאי להפיק חשבונית מס/;
+      await Promise.race([
+        p1.getByText(NOTICE).first().waitFor({ timeout: 15_000 }),
+        p1.getByText("יצירת טיוטת חשבונית").first().waitFor({ timeout: 15_000 }),
+      ]).catch(() => undefined);
+      const opened = await p1.getByText("יצירת טיוטת חשבונית").first().isVisible().catch(() => false);
       await shot(p1, "U1-exempt-create-invoice-clicked");
       const after = await body(p1);
-      check("U1.flow", "OBSERVED", "clicking it opens 'יצירת טיוטת חשבונית' with no word about the classification", opened && !/עוסק פטור/.test(after), { opened, excerpt: after.slice(0, 300) });
+      // Was OBSERVED (the click opened the tax-invoice form, no word about the classification) — fixed by #1089.
+      check("U1.flow", "OK", "clicking it shows the exempt-dealer notice and opens no tax-invoice draft form", !opened && NOTICE.test(after), { opened, excerpt: after.slice(0, 300) });
     });
 
     // U2 — missing classification
