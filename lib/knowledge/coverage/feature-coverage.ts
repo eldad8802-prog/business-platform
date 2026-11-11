@@ -152,9 +152,7 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     rules: ["BILL-01", "BILL-02", "BILL-03", "BILL-04", "BILL-05"], temporalRules: ["T-BILL-01", "T-BILL-02"], otherUnits: ["cross-domain:X-COLL-01 (premise)"],
     l0: ["billing-review", "billing-pdf", "billing-draft-age"],
     models: ["BillingDocument", "BillingDocumentLine", "BillingReceiptPayment", "BillingPaymentAllocation", "BillingAuditEvent",
-      "BillingDocumentNumberSequence", "FinancialEvent", "HistoricalFiscalDocument",
-      // issuer declaration (#1081): who the issuer is, and where a series starts
-      "BusinessIssuerDeclaration", "BillingSeriesOpening"],
+      "BillingDocumentNumberSequence", "FinancialEvent", "HistoricalFiscalDocument"],
     sensors: [],
     legacyEvents: ["BILLING_DRAFT_CREATED", "BILLING_DRAFT_HEADER_UPDATED", "BILLING_DRAFT_LINES_REPLACED", "BILLING_DOC_ISSUED", "BILLING_DOC_SUBMITTED_FOR_REVIEW",
       "BILLING_DOC_REVERTED_TO_DRAFT", "BILLING_PDF_RENDERED", "BILLING_PDF_RENDER_FAILED", "BILLING_QUOTE_PDF_RENDERED", "BILLING_QUOTE_CONVERTED_TO_INVOICE",

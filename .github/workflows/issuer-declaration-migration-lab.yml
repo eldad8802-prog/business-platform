@@ -12,7 +12,6 @@ on:
     branches: [main]
     paths:
       - "prisma/migrations/20261123090000_issuer_declaration/**"
-      - "prisma/schema.prisma"
       - "scripts/ci/issuer-declaration/**"
       - ".github/workflows/issuer-declaration-migration-lab.yml"
   workflow_dispatch:
@@ -57,8 +56,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      # The schema already models the three new tables; drop what db push created so the migration itself
-      # creates them, exactly as it will on a database that does not have them.
+      # Migration-only PR (migration-first guard): schema.prisma does not model the new tables yet, so db push
+      # builds today's schema and the migration creates the tables, exactly as it will in Production.
       - name: Base schema (db push), roles, fiscal-immutability replay — for both databases
         run: |
           set -euo pipefail
@@ -68,9 +67,6 @@ jobs:
             -c "CREATE ROLE app_admin NOLOGIN NOSUPERUSER NOBYPASSRLS;"
           for url in "$OWNER_URL" "$NEG_URL"; do
             DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db push --skip-generate
-            psql "$url" -v ON_ERROR_STOP=1 -q \
-              -c 'DROP TABLE "BusinessIssuerDeclaration", "BillingSeriesOpening", "IssuerDeclarationEnforcement" CASCADE;' \
-              -c 'DROP TYPE "IssuerTrack", "IssuerLegalForm", "IssuerVatStatus", "IssuerIdType", "IssuerDeclarationKind", "IssuerAuthorityBasis", "IssuerReauthMethod", "SeriesOpeningSource";'
             psql "$url" -q -f "$SECF" > /dev/null
           done
 

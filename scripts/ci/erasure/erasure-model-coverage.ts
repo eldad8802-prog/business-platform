@@ -325,8 +325,6 @@ const RETAINED: Record<string, ModelCoverage> = {
     reason: "policy-lineage substrate; inert, no consumers",
     basis: "PRODUCT",
   },
-  // Issuer declaration (#1081, migration 20261123090000): the declared opening number of a numbering series.
-  BillingSeriesOpening: FISCAL("the declared opening number of a document numbering series, the previous tool's name and last number, and who declared it — numbering integrity"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -406,13 +404,6 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   ),
   InboundEmailAddress: unmanaged("localPartPreview, label, and the encrypted local part with its key id"),
   InboundEmailAttachmentImport: unmanaged("filename, plus the link to the message and the document"),
-  // Issuer declaration (#1081, migration 20261123090000). issuer_declaration_erase() exists (anonymises a declaration
-  // nothing was issued under; keeps the others, LEGAL/FISCAL) but the purge does not call it yet, and the
-  // DB-function contract only knows NULL / '' clearing — the table's CHECKs force placeholders. Recorded as debt.
-  BusinessIssuerDeclaration: unmanaged(
-    "legalName, tradeName, idNumber, vatRegistrationNumber, address, phone, email, declarantName, declarantCapacity",
-    "#1081 code PR: the purge calls issuer_declaration_erase(), and the DB-function contract learns placeholder anonymisation and conditional retention"
-  ),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -667,7 +658,6 @@ const INTERNAL: Record<string, ModelCoverage> = {
   BillingAuthorityApp: internal("Dubiz's own OAuth client credentials with the tax authority"),
   DerivationPolicy: internal("policy definitions in the inert derivation substrate"),
   DerivationPolicyVersion: internal("versions of the same"),
-  IssuerDeclarationEnforcement: internal("the platform-wide one-way switch of issuer-declaration enforcement: a time and the approval reference; names no business"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

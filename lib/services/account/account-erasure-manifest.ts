@@ -34,8 +34,6 @@ export const RETAIN_MODELS = [
   "billingReceiptPayment",
   "billingAuditEvent",
   "billingDocumentNumberSequence",
-  // issuer declaration (#1081): the declared opening number of a series — numbering integrity, like the sequence
-  "billingSeriesOpening",
   "billingPaymentAllocation",
   "financialEvent",
   "billingAuthoritySubmission",
