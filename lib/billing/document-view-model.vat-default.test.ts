@@ -4,7 +4,12 @@
  *
  *   npx tsx lib/billing/document-view-model.vat-default.test.ts
  */
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { linesAreDirty, mapServerLinesToLocal, newEmptyLocalLine, standardVatRatePercent } from "@/lib/billing/document-view-model";
+
+const walk = (d: string): string[] =>
+  readdirSync(d).flatMap((n) => { const p = join(d, n); return statSync(p).isDirectory() ? walk(p) : [p]; });
 
 let failed = 0;
 function ok(name: string, cond: boolean, got?: unknown) {
@@ -39,6 +44,23 @@ ok("adding a line to the reopened draft: only the NEW line takes 18, the saved o
   withNew[0].vatRatePercent === "17" && withNew[1].vatRatePercent === "0" && withNew[2].vatRatePercent === "18");
 // An issued document is never mapped through the editable draft lines: its PDF and export read the frozen
 // issuedSnapshot (billing-issue.service.ts), which this module does not touch.
+
+// Exact boundary: midnight Israel time (IST = UTC+2 in winter) on 1.1.2025.
+ok("31.12.2024 23:59:59 Israel time (21:59:59 UTC) → 17", standardVatRatePercent(new Date("2024-12-31T21:59:59Z")) === "17");
+ok("1.1.2025 00:00:00 Israel time (22:00:00 UTC on 31.12) → 18", standardVatRatePercent(new Date("2024-12-31T22:00:00Z")) === "18");
+ok("a date before every listed rate falls back to the oldest (17), never undefined", standardVatRatePercent(new Date("2010-01-01T12:00:00Z")) === "17");
+// The exempt default is 0 on any date; an unknown kind is NOT treated as exempt (no inference from a missing value).
+ok("an exempt dealer's new line is 0 before 2025 too", newEmptyLocalLine({ businessKind: "EXEMPT_DEALER", today: new Date("2024-06-01T12:00:00Z") }).vatRatePercent === "0");
+ok("an unknown kind (null) gets the standard rate, not 0", newEmptyLocalLine({ businessKind: null, today: new Date("2026-11-11T10:00:00Z") }).vatRatePercent === "18");
+ok("an authorized dealer gets the standard rate", newEmptyLocalLine({ businessKind: "AUTHORIZED_DEALER", today: new Date("2026-11-11T10:00:00Z") }).vatRatePercent === "18");
+
+// Structural: no issuance / PDF / export / server billing module imports this client view model, so the default can
+// never reach an issued document's frozen snapshot or a stored line except through an explicit user save.
+{
+  const offenders = ["lib/services/billing", "app/api/billing"].flatMap(walk)
+    .filter((f) => /\.tsx?$/.test(f) && readFileSync(f, "utf8").includes("billing/document-view-model"));
+  ok("no server billing module (lib/services/billing, app/api/billing) imports the draft view model", offenders.length === 0, offenders);
+}
 
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");
 if (failed) process.exit(1);
