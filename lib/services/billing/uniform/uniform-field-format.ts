@@ -5,6 +5,30 @@
  * encoding), so the serializer can concatenate them into a fixed-width record.
  */
 
+/**
+ * Free text (a line description, field 1260) made safe for one fixed-width record BEFORE formatAlpha:
+ *   - control characters (CR, LF, TAB, every C0 / C1) become a space — a raw LF inside a D110 record breaks the
+ *     line structure of BKMVDATA;
+ *   - direction marks (LRM / RLM / embeddings / isolates) are removed — they encode to "?";
+ *   - Hebrew points and cantillation are removed (they encode to "?"); the maqaf becomes "-";
+ *   - a character outside the BMP (an emoji) becomes ONE "?" — formatAlpha cuts by UTF-16 unit and would otherwise
+ *     split it into two;
+ *   - runs of spaces collapse to one, and the ends are trimmed.
+ * Plain Hebrew / ASCII text without any of these is returned unchanged, so existing files stay byte-identical.
+ */
+export function normalizeFreeText(value: string | null | undefined): string {
+  if (value == null) return "";
+  return String(value)
+    .normalize("NFC")
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
+    .replace(/[‎‏‪-‮⁦-⁩]/g, "")
+    .replace(/־/g, "-")
+    .replace(/[֑-ֽֿ-ׇ]/g, "")
+    .replace(/[\u{10000}-\u{10FFFF}]/gu, "?")
+    .replace(/ {2,}/g, " ")
+    .trim();
+}
+
 /** Alphanumeric: left-justified, space-padded on the right (§2.3.ה). */
 export function formatAlpha(value: string | null | undefined, len: number): string {
   let s = value == null ? "" : String(value);
