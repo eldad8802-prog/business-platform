@@ -147,6 +147,14 @@ ok("B0 no charge record → UNKNOWN / NO_CHARGE_DECISION (absence is never 'no d
     [above, freeWithDoc, wrongRole, badOutstanding, badReceipt].map((b) => (b as { reason?: string }).reason).join());
 }
 
+// ── T7: an after-sale credit note is evidence, never balance ─────────────────────────────────────────────────
+{
+  const ev: CaseBillingLink = { billingDocumentId: 70, role: "AFTER_SALE_CREDIT" };
+  const free = computeCaseBalance({ mode: "NO_CHARGE" }, [ev], facts({ documents: [doc(70, "CREDIT_NOTE", "NOT_A_SETTLEMENT_DOCUMENT")] }));
+  ok("T1 a T7 case resolved by a credit: NO_CHARGE + an AFTER_SALE_CREDIT link → NO_CHARGE (the credit is not a conflict, not a payment)", free.state === "NO_CHARGE", show(free));
+  ok("T2 … and a charge change ignores it too", checkChargeChange({ mode: "NO_CHARGE" }, [ev], facts({})).ok === true);
+}
+
 // ── charge changes against issued documents (also after a handover) ─────────────────────────────────────────
 {
   const f = facts({ documents: [doc(1, "TAX_INVOICE")], invoices: [inv(1, 50000, 0, 0)] });
