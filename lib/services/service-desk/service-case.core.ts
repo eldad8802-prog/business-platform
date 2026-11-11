@@ -651,6 +651,7 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
         fail("INVALID_INPUT", "openBalanceAgorot");
       } else {
         r.payload.openBalanceAgorot = s.openBalanceAgorot;
+        if (s.basis) r.payload.chargeBasis = s.basis;
         if (s.openBalanceAgorot > 0) {
           // Owner decision ש4: allowed only as the owner's explicit decision, with a reason. The debt itself stays.
           if (!action.debtOverride) fail("OPEN_BALANCE_NEEDS_OWNER_DECISION", "an open balance needs the owner's decision");

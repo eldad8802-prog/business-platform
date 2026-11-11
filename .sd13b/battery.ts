@@ -301,7 +301,8 @@ async function main() {
   console.log("H — 1.3c handover without a customer signature (settlement reader injected; the real one is NOT_LINKED)");
   const settled = async () => ({ state: "SETTLED" as const, openBalanceAgorot: 0 as const });
   const open5k = async () => ({ state: "OPEN" as const, openBalanceAgorot: 5000 });
-  const noCharge = async () => ({ state: "NO_CHARGE_DOCUMENT" as const, openBalanceAgorot: null });
+  const noCharge = async () => ({ state: "NO_CHARGE" as const, openBalanceAgorot: 0 as const });
+  const undocumented = async () => ({ state: "CHARGE_NOT_DOCUMENTED" as const, openBalanceAgorot: 30000 });
   const toReady = async () => {
     const c = await shopCase(A);
     await recordIntake(A.p, c.id, { conditionNote: "סדק", accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedVersion: await version(c.id) }, { idempotencyKey: key() });
@@ -340,7 +341,12 @@ async function main() {
     h2row.r === "דנה" && Number(h2row.ob) === 5000 && h2row.dr === "הלקוח ישלם בהעברה"
       && !String((await q(`SELECT payload::text p FROM "ServiceCaseEvent" WHERE "caseId" = $1 ORDER BY seq DESC LIMIT 1`, h2))[0].p).includes("העברה"));
   const h3 = await toReady();
-  ok("H8 NO_CHARGE_DOCUMENT → BALANCE_UNKNOWN (an owner decision first, never a silent 0)", (await code(() => deliver(h3, { receipt: { handoverConfirmed: true } }, noCharge))).includes("BALANCE_UNKNOWN"));
+  ok("H8 an undocumented charge (e.g. exempt dealer) is a debt: without the owner's reason → OPEN_BALANCE_NEEDS_OWNER_DECISION",
+    (await code(() => deliver(h3, { receipt: { handoverConfirmed: true } }, undocumented))).includes("OPEN_BALANCE_NEEDS_OWNER_DECISION") && (await handovers(h3)) === 0);
+  const d3 = await deliver(h3, { receipt: { handoverConfirmed: true } }, noCharge);
+  const p3 = (await q(`SELECT payload FROM "ServiceCaseEvent" WHERE "caseId" = $1 ORDER BY seq DESC LIMIT 1`, h3))[0].payload as Record<string, unknown>;
+  ok("H8b the owner marked it free of charge (NO_CHARGE) → delivered, balance 0, the journal says chargeBasis NO_CHARGE",
+    d3.case.status === "DELIVERED" && p3.chargeBasis === "NO_CHARGE" && p3.openBalanceAgorot === 0);
   ok("H9 another business cannot deliver A's case (NOT_FOUND)", (await code(() => deliver(h3, { receipt: { handoverConfirmed: true } }, settled, B))).startsWith("NOT_FOUND"));
   const dupe = await code(() => runtime.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(A.b));
