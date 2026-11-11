@@ -31,7 +31,7 @@
 \echo ' 3 the recorded checksum is the reviewed sha256 of migration.sql'
 \echo ' 4 auth email tokens, oauth identity and ticket cancel still carry their reviewed checksums (observed = of 3)'
 \echo ' 5 AuthEmailToken.oauthTicketId: nullable uuid, keyed to OAuthSignupTicket, cascading on removal, indexed'
-\echo ' 6 AuthEmailToken: purpose exactly EMAIL_VERIFY / PASSWORD_RESET / LINK_GOOGLE; the ticket binding; six check constraints (observed = check constraints)'
+\echo ' 6 AuthEmailToken: purpose exactly EMAIL_VERIFY / PASSWORD_RESET / LINK_GOOGLE; the ticket binding; six check constraints, seven once 20261126090000 is finished (observed = check constraints)'
 \echo ' 7 AuthEmailToken: RLS ENABLED + FORCED, exactly the two app_runtime policies (observed = policies)'
 \echo ' 8 app_runtime on AuthEmailToken: table letters exactly d; column read exactly id, businessId (observed = column grants)'
 \echo ' 9 app_auth and PUBLIC hold nothing on AuthEmailToken (observed = privileges)'
@@ -84,6 +84,9 @@ old AS (SELECT p.oid, p.proname, p.prosecdef, p.proowner, p.proconfig, p.proacl 
                             'auth_oauth_ticket_issue', 'auth_oauth_ticket_read', 'auth_oauth_ticket_consume', 'auth_oauth_identity_attach',
                             'auth_oauth_identity_resolve', 'auth_oauth_ticket_purge', 'auth_oauth_ticket_cancel')),
 -- The migration's own finish, as the UTC wall-clock the timestamp(3) columns hold.
+-- 20261126090000_auth_issuer_declaration_link (issuer-declaration link) widens this table by one check when finished.
+issuer AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name = '20261126090000_auth_issuer_declaration_link'
+           AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
 done AS (SELECT timezone('UTC', finished_at) AS at FROM "_prisma_migrations"
          WHERE migration_name = '20261102090000_oauth_identity_link' AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
 old_exec AS (SELECT f.proname, x.grantee FROM old f CROSS JOIN LATERAL aclexplode(f.proacl) x WHERE x.privilege_type = 'EXECUTE'),
@@ -109,7 +112,7 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 6, EXISTS (SELECT 1 FROM purpose WHERE def LIKE '%''EMAIL_VERIFY''%' AND def LIKE '%''PASSWORD_RESET''%' AND def LIKE '%''LINK_GOOGLE''%'
                                 AND (SELECT count(*) FROM regexp_matches(def, '''[A-Z_]+''', 'g') m) = 3)
                       AND EXISTS (SELECT 1 FROM binding WHERE def LIKE '%LINK_GOOGLE%' AND def LIKE '%oauthTicketId%')
-                      AND (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM aet) AND k.contype = 'c') = 6,
+                      AND (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM aet) AND k.contype = 'c') = 6 + (SELECT n FROM issuer),
                       (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM aet) AND k.contype = 'c')
   UNION ALL SELECT 7, EXISTS (SELECT 1 FROM aet WHERE relrowsecurity AND relforcerowsecurity)
                       AND (SELECT count(*) FROM pols) = 2
