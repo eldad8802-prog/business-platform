@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import BackButton from "@/components/ui/back-button";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
 import { BillingIdentityBanner } from "@/components/billing/BillingIdentityBanner";
@@ -16,11 +17,16 @@ import { TOKEN } from "@/lib/design/billing-theme";
 import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/billing-theme";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
-import { DocumentProductionSheet } from "@/features/business-documents/document-production-sheet";
 import { blocksTaxInvoiceEntry, parseProductionEntry } from "@/features/business-documents/document-production-model";
 import { useBusinessKind } from "@/features/business-documents/use-business-kind";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
+
+// The production list (and its stylesheet) loads only when it is opened: it adds nothing to this page's HTML.
+const DocumentProductionSheet = dynamic(
+  () => import("@/features/business-documents/document-production-sheet").then((m) => m.DocumentProductionSheet),
+  { ssr: false }
+);
 
 type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
