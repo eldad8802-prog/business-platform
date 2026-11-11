@@ -230,6 +230,8 @@ async function main() {
         if (!box || box.x < 0 || box.x + box.width > 391) throw new Error(JSON.stringify(box));
       });
       await shot(page, "P1-phone-list");
+      // what the phone actually shows (the viewport only — the full-page shot stretches past the fixed backdrop)
+      await page.screenshot({ path: join(OUT, "P1-phone-viewport.png") });
       await check("D1 phone: the backdrop covers the whole screen, bottom bar included; the panel rises from the bottom with a safe margin", async () => {
         const vp = page.viewportSize()!;
         const backdrop = await page.getByTestId("document-production-sheet").boundingBox();
