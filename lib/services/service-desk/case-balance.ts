@@ -27,7 +27,10 @@ import type { ServiceCaseSettlement } from "./settlement";
 export type CaseCharge = { mode: "CHARGEABLE"; amountAgorot: number } | { mode: "NO_CHARGE" } | null;
 
 /** An ACTIVE ServiceCaseBillingLink (unlinkedAt IS NULL). */
-export type CaseBillingLink = { billingDocumentId: number; role: "CHARGE" | "STANDALONE_PAYMENT" };
+export type CaseBillingLink = { billingDocumentId: number; role: "CHARGE" | "STANDALONE_PAYMENT" | "AFTER_SALE_CREDIT" };
+
+/** AFTER_SALE_CREDIT links are the record of a T7 credit (it refunds the original sale): never part of the balance. */
+const balanceLinks = (links: readonly CaseBillingLink[]) => links.filter((l) => l.role !== "AFTER_SALE_CREDIT");
 
 /**
  * The subset of billing's DocumentsSettlement (#1102) this needs — copied structurally, so the service side does not
@@ -104,7 +107,8 @@ function chargeDocuments(links: readonly CaseBillingLink[], facts: BillingSettle
   return { documented, paid, docOpen };
 }
 
-export function computeCaseBalance(charge: CaseCharge, links: readonly CaseBillingLink[], facts: BillingSettlementFacts): CaseBalance {
+export function computeCaseBalance(charge: CaseCharge, allLinks: readonly CaseBillingLink[], facts: BillingSettlementFacts): CaseBalance {
+  const links = balanceLinks(allLinks);
   if (charge === null) return unknown("NO_CHARGE_DECISION");
   const problem = linkProblem(links, facts);
   if (charge.mode === "NO_CHARGE") {
@@ -137,8 +141,9 @@ export function computeCaseBalance(charge: CaseCharge, links: readonly CaseBilli
  * A charge change (a new ServiceCaseCharge record, also after a handover) must not contradict issued documents:
  * lowering below what is documented needs a credit note in billing first; NO_CHARGE needs no linked document.
  */
-export function checkChargeChange(next: Exclude<CaseCharge, null>, links: readonly CaseBillingLink[], facts: BillingSettlementFacts):
+export function checkChargeChange(next: Exclude<CaseCharge, null>, allLinks: readonly CaseBillingLink[], facts: BillingSettlementFacts):
   { ok: true } | { ok: false; code: "NO_CHARGE_WITH_DOCUMENTS" | "CHARGE_BELOW_DOCUMENTED" | "BALANCE_UNKNOWN" } {
+  const links = balanceLinks(allLinks);
   if (next.mode === "NO_CHARGE") return links.length > 0 ? { ok: false, code: "NO_CHARGE_WITH_DOCUMENTS" } : { ok: true };
   if (linkProblem(links, facts)) return { ok: false, code: "BALANCE_UNKNOWN" };
   const docs = chargeDocuments(links, facts);
