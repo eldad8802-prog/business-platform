@@ -408,6 +408,64 @@ async function main() {
       JSON.stringify(legacyAfter) === JSON.stringify(legacyBefore) && legacyPdf.ok && legacyPdf2.ok && legacyPdf.hash === legacyPdf2.hash, { legacyBefore, legacyAfter });
     const ln = await issueReal(legacy, await mkDraft(legacy.businessId));
     ok("E", "E9 … and its series continues at 2 (no reset)", ln.ok && ln.n === 2, ln);
+
+    // E10 (owner 2026-11-12) — an opening recorded for a never-used series reaches the REAL issue service.
+    const op = await account("e-opening");
+    const opr = await request(op);
+    await confirm(op, opr.token);
+    const opIns = await tenantTx(op.businessId, (tx) => tx.$executeRawUnsafe(
+      `INSERT INTO "BillingSeriesOpening" ("businessId","documentType","seriesCode","openingNumber","source","previousToolName","lastNumberInPreviousTool","declarationId","declaredByUserId")
+       SELECT $1,'TAX_INVOICE','MAIN',459,'CONTINUES_PREVIOUS_TOOL','ספר ידני',458,max(id),$2 FROM "BusinessIssuerDeclaration" WHERE "businessId" = $1`, op.businessId, op.id))
+      .then(() => "OK").catch((e) => errText(e));
+    const od = await mkDraft(op.businessId);
+    const o1 = await issueReal(op, od);
+    ok("E", "E10 opening 459 (continues a previous tool, last 458) → the first real issue is 459, not 1",
+      opIns === "OK" && o1.ok && o1.n === 459 && (await seqNext(op.businessId)) === 460, { opIns, o1, seq: await seqNext(op.businessId) });
+    const op1 = await pdfOf(op, od);
+    ok("E", "E10 … its PDF carries 000459", op1.ok && op1.number === "000459", op1);
+    await issueReal(op, od);
+    ok("E", "E10 … issuing it again consumes no number (still 459, counter 460, one document)",
+      Number((await docState(od)).n) === 459 && (await seqNext(op.businessId)) === 460 && (await countDocs(op.businessId)) === 1);
+    const o2 = await issueReal(op, await mkDraft(op.businessId));
+    ok("E", "E10 … the next document is 460", o2.ok && o2.n === 460, o2);
+    const late = await tenantTx(op.businessId, (tx) => tx.$executeRawUnsafe(
+      `INSERT INTO "BillingSeriesOpening" ("businessId","documentType","seriesCode","openingNumber","source","previousToolName","lastNumberInPreviousTool","declarationId","declaredByUserId")
+       SELECT $1,'RECEIPT','MAIN',900,'CONTINUES_PREVIOUS_TOOL','ספר ידני',899,max(id),$2 FROM "BusinessIssuerDeclaration" WHERE "businessId" = $1`, op.businessId, op.id))
+      .then(() => "OK").catch((e) => errText(e));
+    ok("E", "E10 … the legacy business (series in use) cannot be given an opening afterwards — nothing renumbers",
+      (await tenantTx(legacy.businessId, (tx) => tx.$executeRawUnsafe(
+        `INSERT INTO "BillingSeriesOpening" ("businessId","documentType","seriesCode","openingNumber","source","declarationId","declaredByUserId")
+         SELECT $1,'TAX_INVOICE','MAIN',1,'NEW_BUSINESS',max(id),$2 FROM "BusinessIssuerDeclaration" WHERE "businessId" = $1`, legacy.businessId, legacy.id))
+        .then(() => "OK").catch((e) => errText(e))).includes("SERIES_ALREADY_USED_OPENING_REFUSED") && late === "OK");
+
+    // E11 — authority is re-checked at confirm time on the server: a user who joins after the link was sent voids it.
+    const solo = await account("e-recheck");
+    const sr = await request(solo);
+    await x(`INSERT INTO "User" ("email","password","name","businessId","updatedAt") VALUES ($1,NULL,'משתמש שני',$2, now())`,
+      `idc-e-recheck-late-${Date.now()}@lab.invalid`, solo.businessId);
+    const sc = await confirm(solo, sr.token);
+    ok("E", "E11 sole user when the link was sent, a second user joined before confirming → NOT confirmed, no declaration",
+      sr.outcome === "SENT" && sc !== "CONFIRMED" && (await decls(solo.businessId)).length === 0, { sent: sr.outcome, confirm: sc });
+    ok("E", "E11 … and issuing stays refused", !(await issueReal(solo, await mkDraft(solo.businessId))).ok);
+
+    // E12 — no bypass by writing a fiscal document straight as ISSUED (runtime, enforcement ON, no declaration).
+    const byp = await account("e-bypass");
+    const bc = Number((await q(`INSERT INTO "Customer" ("businessId", name, "updatedAt") VALUES ($1,'לקוח', now()) RETURNING id`, byp.businessId))[0].id);
+    const bypRes = await tenantTx(byp.businessId, (tx) => tx.$executeRawUnsafe(
+      `INSERT INTO "BillingDocument" ("businessId","documentType","status","customerId","customerNameSnapshot","currency","subtotalAmount","vatAmount","totalAmount",
+         "documentNumber","documentNumberFormatted","issuedAt","createdAt","updatedAt")
+       VALUES ($1,'RECEIPT','ISSUED',$2,'לקוח','ILS',100,0,100,1,'000001',now(),now(),now())`, byp.businessId, bc))
+      .then(() => "OK").catch((e) => errText(e));
+    ok("E", "E12 inserting a document directly as ISSUED without a declaration is refused (DZD34) — nothing stored",
+      bypRes.includes("ISSUER_DECLARATION_REQUIRED_TO_ISSUE") && (await countDocs(byp.businessId)) === 0, bypRes.slice(0, 160));
+
+    // E13 — a second user of a declared (multi-user) business cannot declare in its place.
+    const two2 = await account("e-two-declared", { users: 2 });
+    const second = Number((await q(`SELECT id FROM "User" WHERE "businessId" = $1 ORDER BY id DESC LIMIT 1`, two2.businessId))[0].id);
+    const t1 = await request(two2);
+    const t2 = await request({ id: second, businessId: two2.businessId });
+    ok("E", "E13 in a two-user business neither the first-registered nor the second user can self-declare (NEEDS_DESIGNATION for both)",
+      t1.outcome === "NEEDS_DESIGNATION" && t2.outcome === "NEEDS_DESIGNATION" && (await decls(two2.businessId)).length === 0, { t1: t1.outcome, t2: t2.outcome });
   }
 
   await owner.$disconnect();

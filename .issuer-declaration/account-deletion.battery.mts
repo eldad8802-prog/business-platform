@@ -101,15 +101,25 @@ async function main() {
   const p1 = await profile(B1.b);
   ok("W7 B1: the profile's identity columns are cleared by the existing purge (the lock admits a business being deleted)",
     p1.l === null && p1.t === null && p1.v === null, JSON.stringify(p1));
-  ok("W8 B2 in the window: today's purge does not call the erase yet — the declaration is still unchanged (the recorded #1081 code-PR debt)",
-    JSON.stringify(await declRow(B2.decl!)) === JSON.stringify(d2Before));
+  // W8 follows the purge in THIS tree: #1091 alone (main's purge) leaves the declaration unchanged — the recorded window;
+  // with the #1117 code the purge itself calls issuer_declaration_erase() and the unused declaration is anonymised.
+  const purgeCallsErase = readFileSync("lib/services/account/account-deletion.prisma-store.ts", "utf8").includes("SELECT public.issuer_declaration_erase() AS n");
+  const d2AfterPurge = await declRow(B2.decl!);
+  if (purgeCallsErase) {
+    ok("W8 B2: the purge itself anonymised the unused declaration (the #1117 code calls issuer_declaration_erase())",
+      d2AfterPurge.anonymisedAt !== null && d2AfterPurge.legalName === "—" && d2AfterPurge.idNumber === "000000000" && same(d2AfterPurge, d2Before, KEPT));
+  } else {
+    ok("W8 B2 in the window: today's purge does not call the erase yet — the declaration is still unchanged (the recorded #1081 code-PR debt)",
+      JSON.stringify(d2AfterPurge) === JSON.stringify(d2Before));
+  }
   ok("W9 B3: no declaration rows exist or were created", Number((await q(`SELECT count(*)::int n FROM "BusinessIssuerDeclaration" WHERE "businessId" = $1`, B3.b))[0].n) === 0);
   ok("W10 a second deletion → already_deleted", (await del(B1)) === "already_deleted");
 
   console.log("C — the #1081 code's erase call, after the purge");
   const e2 = await eraseAsRuntime(B2.b);
   const d2After = await declRow(B2.decl!);
-  ok("C1 B2: issuer_declaration_erase() anonymises the unused declaration (1 row)", e2 === "1", e2);
+  ok(purgeCallsErase ? "C1 B2: already anonymised by the purge — a further erase changes nothing (0 rows)" : "C1 B2: issuer_declaration_erase() anonymises the unused declaration (1 row)",
+    e2 === (purgeCallsErase ? "0" : "1") && (!purgeCallsErase || JSON.stringify(d2After) === JSON.stringify(d2AfterPurge)), e2);
   ok("C2 B2: the personal fields are anonymised (legal/trade name, id, VAT no., address, phone, email, declarant name/capacity)",
     d2After.legalName === "—" && d2After.tradeName === null && d2After.idNumber === "000000000" && d2After.vatRegistrationNumber === "000000000"
     && d2After.address === "—" && d2After.phone === "—" && d2After.email === "erased@invalid" && d2After.declarantName === "—"

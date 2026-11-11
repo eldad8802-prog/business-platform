@@ -411,7 +411,7 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   // DB-function contract only knows NULL / '' clearing — the table's CHECKs force placeholders. Recorded as debt.
   BusinessIssuerDeclaration: unmanaged(
     "legalName, tradeName, idNumber, vatRegistrationNumber, address, phone, email, declarantName, declarantCapacity",
-    "#1081 code PR: the purge calls issuer_declaration_erase(), and the DB-function contract learns placeholder anonymisation and conditional retention"
+    "the purge calls issuer_declaration_erase() (#1117, proven by the account-deletion lab W8/C); still debt until the DB-function contract learns placeholder anonymisation and conditional retention"
   ),
 };
 
