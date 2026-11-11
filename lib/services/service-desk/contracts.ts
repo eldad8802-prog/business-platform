@@ -15,6 +15,8 @@
  * under a row lock, compare the version, record the idempotency key and write the event in one transaction.
  */
 
+import type { AfterSaleResolution, Requirements, ReturnReason, ServiceLocation, ServiceTrack, ServiceWorkType } from "./service-profiles";
+
 // ── Status, kind, hold, outcome ────────────────────────────────────────────────────────────────────────────
 
 export const SERVICE_CASE_STATUSES = [
@@ -31,6 +33,9 @@ export const SERVICE_CASE_STATUSES = [
   "CLOSED", // נסגר
   "CANCELLED", // בוטל
   "ABANDONED", // לא נאסף
+  // M1 (migration 20261127090000): the work is finished where nothing is handed back (on site, remote, professional,
+  // a T7 credit) — only the owner-confirmed COMPLETE (→ CLOSED) is left. A held item never passes here.
+  "WORK_DONE", // העבודה הסתיימה
 ] as const;
 export type ServiceCaseStatus = (typeof SERVICE_CASE_STATUSES)[number];
 
@@ -38,14 +43,16 @@ export type ServiceCaseStatus = (typeof SERVICE_CASE_STATUSES)[number];
 export const TERMINAL_STATUSES: readonly ServiceCaseStatus[] = ["CLOSED", "CANCELLED"];
 
 /** IN_SHOP = store / lab (the MVP). FIELD and MAINTENANCE are modelled only so the contract does not need to change. */
-export const SERVICE_CASE_KINDS = ["IN_SHOP", "FIELD", "MAINTENANCE"] as const;
+/** M1: REMOTE exists only on a case opened with a track (T6, or T5 remotely) — openCase refuses it without one. */
+export const SERVICE_CASE_KINDS = ["IN_SHOP", "FIELD", "MAINTENANCE", "REMOTE"] as const;
 export type ServiceCaseKind = (typeof SERVICE_CASE_KINDS)[number];
 
 /** Valid only while the case is IN_REPAIR. A supplier wait is the EXTERNAL status, not a hold. */
 export const SERVICE_HOLD_REASONS = ["PARTS", "CUSTOMER"] as const;
 export type ServiceHoldReason = (typeof SERVICE_HOLD_REASONS)[number];
 
-export const SERVICE_OUTCOMES = ["REPAIRED", "NOT_REPAIRED", "REPLACED", "QUOTE_REJECTED", "CANCELLED"] as const;
+/** M1: COMPLETED — work that is not a repair (installation, professional, remote support, a T7 credit). */
+export const SERVICE_OUTCOMES = ["REPAIRED", "NOT_REPAIRED", "REPLACED", "QUOTE_REJECTED", "CANCELLED", "COMPLETED"] as const;
 export type ServiceOutcome = (typeof SERVICE_OUTCOMES)[number];
 
 // ── Facts the core is handed ───────────────────────────────────────────────────────────────────────────────
@@ -117,6 +124,59 @@ export type ServiceSettlementFacts =
   | { known: true; openBalanceAgorot: number; basis?: "DOCUMENTED" | "NO_CHARGE" | "UNDOCUMENTED"; overpaidAgorot?: number }
   | { known: false };
 
+// ── M1: tracks (migration 20261127090000; service-profiles.ts) ───────────────────────────────────────────────
+
+/** Where the owner confirmed a completion — always the place of the work (CHECK ServiceCase_completion_place). */
+export const SERVICE_COMPLETION_TYPES = ["OWNER_CONFIRMED_ON_SITE", "OWNER_CONFIRMED_REMOTE", "OWNER_CONFIRMED_AT_BUSINESS"] as const;
+export type ServiceCompletionType = (typeof SERVICE_COMPLETION_TYPES)[number];
+
+/** The case's details D3 lets CHANGE_DETAILS move (the DB guard's list). NULL work type / place = derived from kind. */
+export interface ServiceCaseDetails {
+  kind: ServiceCaseKind;
+  workType: ServiceWorkType | null;
+  serviceLocation: ServiceLocation | null;
+  siteAddress: string | null;
+  returnReason: ReturnReason | null;
+}
+
+/**
+ * D3 blockers, counted by the service under the case row lock (the DB guard re-reads the same tables):
+ *   binding        an intake-terms snapshot, a signed intake, a SENT / APPROVED quote, a presented warranty offer, a part
+ *                  that is not CANCELLED, a supplier work, a handover or a completion exists (blockers 2, 4, 6–9);
+ *   intakeStarted  an unsigned intake or an intake photo exists — the case may not leave AT_BUSINESS (blocker 3, D12);
+ *   appointmentStarted  the linked appointment's start time passed or it is no longer PROPOSED / CONFIRMED (blocker 11,
+ *                  enforced by the server only — D16: the Appointment module is not touched).
+ */
+export interface ServiceDetailBlockers {
+  binding: boolean;
+  intakeStarted: boolean;
+  appointmentStarted: boolean;
+}
+
+/**
+ * A case opened with a track (profileSnapshot present). The requirements come from the case's OWN snapshot (D14),
+ * never from the request or the current settings; for T7 they are the chosen resolution's row (the repair row while
+ * none is chosen). A case without a snapshot has no track facts and keeps today's kind rules exactly.
+ */
+export interface ServiceTrackFacts {
+  track: ServiceTrack;
+  workType: ServiceWorkType;
+  /** The effective place: serviceLocation, or derived from kind. */
+  location: ServiceLocation;
+  /** The track keeps the item in the business's custody (T1 / T2 / T7). */
+  itemAtBusiness: boolean;
+  requirements: Requirements;
+  afterSaleResolution: AfterSaleResolution | null;
+  siteAddressSet: boolean;
+  /**
+   * D15: a quote exists (every ServiceQuote row is at least SENT) or a money commitment to the customer (a part line with
+   * a customer price that is not cancelled). With BY_D15 the work then needs an approved quote or cover.
+   */
+  moneyCommitment: boolean;
+  /** An ACTIVE AFTER_SALE_CREDIT link to an ISSUED credit note (billing issues it; the service only links it). */
+  creditDocumentLinked: boolean;
+}
+
 /** Everything the core judges a transition by. The service layer loads it, under lock, per command. */
 export interface ServiceCaseContext {
   kind: ServiceCaseKind;
@@ -145,6 +205,13 @@ export interface ServiceCaseContext {
   /** Pickup reminders already sent while READY. */
   pickupRemindersSent: number;
   settlement: ServiceSettlementFacts;
+  /** M1: the case's linked appointment (SCHEDULE / RESCHEDULE), or null. */
+  appointmentId?: number | null;
+  /** M1: present only for a case opened with a track (D14 snapshot). Absent / null = today's kind rules. */
+  track?: ServiceTrackFacts | null;
+  /** M1 CHANGE_DETAILS: the details as they stand, and the D3 blockers counted under the lock. */
+  details?: ServiceCaseDetails | null;
+  detailBlockers?: ServiceDetailBlockers | null;
 }
 
 // ── Who acts ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -213,14 +280,35 @@ export type ServiceCaseAction =
       outcome?: "REPAIRED" | "NOT_REPAIRED" | "REPLACED";
       replacementDeviceId?: number;
     }
-  | { type: "FINISH_REPAIR"; outcome?: "REPAIRED" | "REPLACED"; replacementDeviceId?: number }
-  | { type: "PASS_QA"; outcome: "REPAIRED" | "REPLACED"; replacementDeviceId?: number }
+  /** M1: COMPLETED for work that is not a repair; qa: true sends a track with OPTIONAL QA through QA. */
+  | { type: "FINISH_REPAIR"; outcome?: "REPAIRED" | "REPLACED" | "COMPLETED"; replacementDeviceId?: number; qa?: boolean }
+  | { type: "PASS_QA"; outcome: "REPAIRED" | "REPLACED" | "COMPLETED"; replacementDeviceId?: number }
   | { type: "FAIL_QA" }
   | { type: "MARK_NOT_REPAIRABLE" }
   | { type: "DELIVER"; receipt: HandoverReceipt; debtOverride?: OwnerOverride; loanerOverride?: OwnerOverride }
   | { type: "CLOSE" }
   | { type: "CANCEL"; reason?: string }
-  | { type: "ABANDON"; reason: string };
+  | { type: "ABANDON"; reason: string }
+  // M1 (migration 20261127090000)
+  /** SCHEDULED → SCHEDULED with the (new or moved) appointment of the same business and customer. */
+  | { type: "RESCHEDULE"; appointmentId: number }
+  /** WORK_DONE → CLOSED: the owner confirms the work is done (no customer signature); the name is optional. */
+  | { type: "COMPLETE"; completion: ServiceCompletionInput }
+  /** D3: work type, place, address, return reason (kind follows the place) while OPEN / SCHEDULED, before any binding action. */
+  | { type: "CHANGE_DETAILS"; next: ServiceCaseDetails; reason?: string | null; appointmentImpact?: ServiceAppointmentImpact };
+
+/** What happens to a SCHEDULED case's appointment when its place or address changes (section ט). */
+export type ServiceAppointmentImpact = "KEEP_TIME" | "UNSCHEDULE";
+
+export interface ServiceCompletionInput {
+  completionType: ServiceCompletionType;
+  /** The acting owner / authorized user confirms explicitly. */
+  ownerConfirmed: boolean;
+  /** Who confirmed on the customer's side — optional (≤ 200, non-blank when given). Stored in ServiceCompletion only. */
+  confirmedByName?: string | null;
+  /** ≤ 2000, non-blank when given. Stored in ServiceCompletion only. */
+  note?: string | null;
+}
 
 export type ServiceCaseActionType = ServiceCaseAction["type"];
 
@@ -299,7 +387,19 @@ export type ServiceCaseViolationCode =
   | "OPEN_PART_RESERVATIONS"
   | "OPEN_QUOTE"
   | "REASON_REQUIRED"
-  | "PICKUP_REMINDERS_REQUIRED";
+  | "PICKUP_REMINDERS_REQUIRED"
+  // M1
+  | "TRACK_REQUIRED"
+  | "COMPLETION_NOT_CONFIRMED"
+  | "COMPLETION_TYPE_MISMATCH"
+  | "HANDOVER_REQUIRED"
+  | "CREDIT_DOCUMENT_REQUIRED"
+  | "DETAILS_FIXED"
+  | "NO_CHANGE"
+  | "INTAKE_STARTED_AT_BUSINESS"
+  | "APPOINTMENT_IMPACT_REQUIRED"
+  | "APPOINTMENT_ALREADY_STARTED"
+  | "AFTER_SALE_FIELDS";
 
 export interface ServiceCaseViolation {
   code: ServiceCaseViolationCode;
@@ -323,7 +423,10 @@ export type ServiceServerCheck =
   // 1.1c — opening a case
   | "CUSTOMER_BELONGS_TO_BUSINESS"
   | "DEVICE_BELONGS_TO_CUSTOMER"
-  | "PARENT_CASE_BELONGS_TO_BUSINESS";
+  | "PARENT_CASE_BELONGS_TO_BUSINESS"
+  // M1
+  | "CREDIT_DOCUMENT_LINKED"
+  | "DETAIL_BLOCKERS_COUNTED_UNDER_LOCK";
 
 /** Every command, whatever its action: the service layer's job, never the core's. */
 export const SERVICE_COMMAND_SERVER_DUTIES = [
@@ -362,7 +465,11 @@ export type ServiceCaseEventType =
   | "case.closed"
   | "case.cancelled"
   | "case.cancellation_requested"
-  | "case.abandoned";
+  | "case.abandoned"
+  // M1
+  | "case.rescheduled"
+  | "case.completed"
+  | "case.details_changed";
 
 /** Every event a journal row may carry: `case.opened` (seq 1 only) + the 21 transition events. */
 export type ServiceJournalEventType = "case.opened" | ServiceCaseEventType;
