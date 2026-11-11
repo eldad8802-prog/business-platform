@@ -164,6 +164,14 @@ jobs:
             console.log(qf[0]);
             console.log("REVOKE ALL ON FUNCTION public.service_qa_lists_erase_business() FROM PUBLIC;");
             console.log("GRANT EXECUTE ON FUNCTION public.service_qa_lists_erase_business() TO app_runtime;");
+            // Service Desk QA track defaults (20261130100000): the same for service_qa_track_defaults_erase_business() (its table
+            // from db push; it calls no other function of the migration, so nothing else is mirrored).
+            const qd = require("fs").readFileSync("prisma/migrations/20261130100000_service_qa_track_defaults/migration.sql", "utf8");
+            const qdf = qd.match(/CREATE OR REPLACE FUNCTION public\.service_qa_track_defaults_erase_business\(\)[\s\S]*?\$fn\$;/);
+            if (!qdf) { console.error("service_qa_track_defaults_erase_business() not found in the migration"); process.exit(1); }
+            console.log(qdf[0]);
+            console.log("REVOKE ALL ON FUNCTION public.service_qa_track_defaults_erase_business() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.service_qa_track_defaults_erase_business() TO app_runtime;");
           ' | PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -q "postgresql://lab_owner@localhost:5432/dta"
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \

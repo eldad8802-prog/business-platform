@@ -57,6 +57,10 @@
     "lib/services/service-desk/tracks-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): Service Desk M1 tracks — universal track opening (never reads the business category), subject fits track, track facts from the case snapshot (work approval, QA REQUIRED/OPTIONAL/OFF, handover by owner), after-sale resolutions (exchange blocked), completion with an open debt only with approval + reason and never on an UNKNOWN balance, overpayment kept; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/qa-track-defaults-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk default QA list per track (migration 20261130100000) — the PUT body (T1–T7 only, listId a positive id or null, expectedRevision ≥ 0, unknown fields refused), the change decision (a list of THIS business only, active, NO_CHANGE, clearing), the opening's resolution (an explicit list or explicit none overrides; the default only with a track, QA not OFF and the list active — an archived default counts as none and is reported; the CURRENT version pinned; REQUIRED without a list keeps the built-in template; before the migrations nothing changes), the journal payload (#1124's fields + a token) and the read model; mutation-tested by .sdqadcode/mutate-core.mjs; run on pull_request by service-desk-ci.yml"
     }
   }
 }

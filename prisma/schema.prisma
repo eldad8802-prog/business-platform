@@ -9007,6 +9007,27 @@ model ServiceQaListEvent {
   @@unique([businessId, listId, revision])
 }
 
+/// Migration 20261130100000: the business's own DEFAULT QA list per service track (T1–T7). Append-only — the journal IS
+/// the state: the current default of a track is its highest revision; listId NULL = cleared. Never derived from the
+/// business category; a case opened on the track names the list's CURRENT version through the case's own QA list choice.
+model ServiceQaTrackDefault {
+  id             Int          @id @default(autoincrement())
+  businessId     Int
+  track          String // T1–T7 (CHECK)
+  revision       Int
+  listId         Int?
+  actor          ServiceActor
+  actorUserId    Int? // cleared by service_qa_track_defaults_erase_business()
+  occurredAt     DateTime     @default(now())
+  idempotencyKey String
+  requestDigest  String? // cleared by service_qa_track_defaults_erase_business()
+  digestKeyId    String? // cleared by service_qa_track_defaults_erase_business()
+
+  @@unique([businessId, id])
+  @@unique([businessId, track, revision])
+  @@unique([businessId, idempotencyKey])
+}
+
 /// One QA record per RECORD_QA journal event of a case (caseVersion = the event's seq): which checklist it was judged
 /// against (a list version, or a built-in template id) and the counts — re-derived from the rows at COMMIT.
 model ServiceCaseQaRecord {

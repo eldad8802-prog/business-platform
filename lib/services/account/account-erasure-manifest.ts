@@ -689,6 +689,26 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
     ],
   },
+  // Service Desk QA track defaults (migration 20261130100000). The account-deletion adapter calls it in the purge
+  // transaction, after service_qa_lists_erase_business(). Who chose a track's default and the request digest are personal;
+  // the choice itself — the track, its revision, the list id — is a configuration of the business, not of a person.
+  {
+    fn: "service_qa_track_defaults_erase_business",
+    migration: "20261130100000_service_qa_track_defaults",
+    models: [
+      {
+        model: "ServiceQaTrackDefault",
+        cleared: ["actorUserId", "requestDigest", "digestKeyId"],
+        kept: {
+          track: "the service track T1–T7 (a code token, CHECK) — not personal",
+          revision: "the track's change counter",
+          listId: "the default QA list's id (a number) or none — the business's configuration",
+          idempotencyKey: "a client request token (a random UUIDv7: its only content is its creation time), not the person",
+          occurredAt: "when the default changed",
+        },
+      },
+    ],
+  },
 ];
 
 export type ErasureManifest = {

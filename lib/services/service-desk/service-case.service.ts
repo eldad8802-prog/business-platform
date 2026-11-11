@@ -49,7 +49,9 @@ import { ServiceDeskError, refused } from "./service-desk-errors";
 import { settlementForCore, type SettlementReader } from "./settlement";
 import { readCaseSettlement } from "./case-settlement-reader";
 import { qaTemplateFor } from "./qa-templates";
-import { evaluateChecklist, listChecklistToken } from "./qa-lists.core";
+import { caseQaMode, evaluateChecklist, listChecklistToken } from "./qa-lists.core";
+import { openingChoicePayload, parseOpeningQaList, resolveOpeningQaList, type OpeningQaReason, type OpeningQaRequest } from "./qa-track-defaults.core";
+import { qaTrackDefaultsSchemaReady, readListState, readTrackDefaults } from "./qa-track-defaults.store";
 import { caseQaChoice, insertQaRecord, qaListsSchemaReady, readVersion } from "./qa-lists.store";
 import { releaseCaseReservations } from "./part-release";
 import { supersedeOpenQuote, withdrawOpenQuote, type FrozenQuote } from "./quote-rows";
@@ -367,8 +369,15 @@ export type OpenCaseInput = {
   kind?: unknown; customerId: unknown; deviceId?: unknown; parentCaseId?: unknown; problemDescription?: unknown;
   /** M1: open on a track (T1–T7). The kind then follows the track's place; the snapshot is the business's profile now (D14). */
   track?: unknown; serviceLocation?: unknown; siteAddress?: unknown; siteNotes?: unknown; returnReason?: unknown; originalSaleRef?: unknown; subject?: unknown;
+  /**
+   * QA track defaults (migration 20261130100000): absent → the track's default QA list (if any, active, QA not OFF); null →
+   * explicitly no list; a list id → that ACTIVE list of the business. The list's CURRENT version is pinned on the case.
+   */
+  qaListId?: unknown;
 };
 export type CommandResult = { case: CaseSummary; event: { seq: number }; replayed: boolean; repeat?: RepeatCaseDecision | null };
+/** What the opening named as the case's QA list, and why (a skipped default is reported, never silent). Null on a replay. */
+export type OpeningQaList = { list: { listId: number; listVersion: number } | null; reason: OpeningQaReason };
 
 /** The database requires a problem description on every case (CHECK ServiceCase_problem_described, ≤ 4000). */
 const PROBLEM_MAX = 4000;
@@ -397,7 +406,7 @@ async function repeatDecision(tx: Tx, businessId: number, parentCaseId: number, 
   });
 }
 
-export async function openCase(p: ServiceDeskPrincipal, input: OpenCaseInput, req: WriteRequest): Promise<CommandResult> {
+export async function openCase(p: ServiceDeskPrincipal, input: OpenCaseInput, req: WriteRequest): Promise<CommandResult & { qaList?: OpeningQaList | null }> {
   const problem = input.problemDescription;
   if (typeof problem !== "string" || problem.trim().length === 0 || [...problem.trim()].length > PROBLEM_MAX) {
     throw new ServiceDeskError("INVALID_INPUT", { field: "problemDescription" });
@@ -426,15 +435,19 @@ export async function openCase(p: ServiceDeskPrincipal, input: OpenCaseInput, re
   );
   if (!core.ok) throw refused(core.violations);
   if (!SERVICE_CASE_KINDS.includes(kind as ServiceCaseKind)) throw new ServiceDeskError("INVALID_INPUT", { field: "kind" });
+  const qaRequest = parseOpeningQaList(input.qaListId);
+  if (!qaRequest.ok) throw new ServiceDeskError("INVALID_INPUT", { field: qaRequest.field });
   const body = {
     kind, customerId: input.customerId, deviceId: input.deviceId ?? null, parentCaseId: input.parentCaseId ?? null, problemDescription: problem,
     ...(withTrack ? { trackOpening: trackInput } : {}),
+    // only when sent: a request without it keeps the digest it always had
+    ...(input.qaListId !== undefined ? { qaListId: input.qaListId } : {}),
   };
   const prepared = prepare(p, req, "service-desk/cases:open", body);
   const b = p.businessId;
 
   const lockOpenings = (tx: Tx) => tx.$executeRaw`SELECT pg_advisory_xact_lock(${0x53444f50}::int, ${b}::int)`; // 'SDOP'
-  return journaled<CommandResult, unknown>(p, prepared, lockOpenings, async (tx) => {
+  return journaled<CommandResult & { qaList?: OpeningQaList | null }, unknown>(p, prepared, lockOpenings, async (tx) => {
     // Openings are serialised per business by the lock above; the counter then hands out the next number.
     const n = Number((await tx.$queryRaw<{ n: number }[]>`
       INSERT INTO "ServiceCaseNumberSequence" ("businessId", "nextValue", "updatedAt") VALUES (${b}::int, 2, now())
@@ -479,8 +492,43 @@ export async function openCase(p: ServiceDeskPrincipal, input: OpenCaseInput, re
       RETURNING id`)[0].id);
     const payload = { ...core.event.payload, staffAssigned: staffMemberId !== null, ...(planned ? { deviceId, subjectCreated: planned.opening.subject !== null, profileKey: planned.profileKey } : {}) };
     await appendEvent(tx, b, id, core.seq, { ...core.event, payload }, p.userId, prepared);
-    return { case: await summaryOf(tx, b, id), event: { seq: core.seq }, replayed: false, repeat };
-  }, async (tx, prior) => ({ case: await summaryOf(tx, b, prior.caseId), event: { seq: prior.seq }, replayed: true, repeat: null }));
+    const qaList = await openingQaList(tx, b, id, qaRequest.value, p.userId, prepared);
+    return { case: await summaryOf(tx, b, id), event: { seq: core.seq }, replayed: false, repeat, qaList };
+  }, async (tx, prior) => ({ case: await summaryOf(tx, b, prior.caseId), event: { seq: prior.seq }, replayed: true, repeat: null, qaList: null }));
+}
+
+/**
+ * QA track defaults (migration 20261130100000) — the QA list a case names from its opening, in the opening's transaction.
+ * The case row is INSERTed without a list (#1124's guard: SERVICE_CASE_QA_LIST_AT_OPENING), then — when a list is named —
+ * the SAME journaled choice as PUT /cases/[id]/qa/list: status-preserving, version 1 → 2, a CHOOSE_QA_LIST event at seq 2
+ * with the request key + "#2" (keys are unique per event; a replay is answered from the opening event), the list's
+ * CURRENT version pinned. The mode is the case's own (lockCase: its snapshot's track row; without a track, its kind's).
+ */
+async function openingQaList(tx: Tx, b: number, caseId: number, request: OpeningQaRequest, userId: number, prepared: Prepared): Promise<OpeningQaList> {
+  const lists = await qaListsSchemaReady(tx);
+  if (request.kind === "LIST" && !lists) throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_MIGRATION");
+  if (request.kind === "NONE") return { list: null, reason: "EXPLICIT_NONE" };
+  const defaults = lists && (await qaTrackDefaultsSchemaReady(tx));
+  if (request.kind === "DEFAULT" && !defaults) return { list: null, reason: "NOT_AVAILABLE" };
+  const { context } = await lockCase(tx, b, caseId);
+  const track = context.track?.track ?? null;
+  const explicitList = request.kind === "LIST" ? await readListState(tx, b, request.listId, { share: true }) : null;
+  let defaultList = null;
+  if (request.kind === "DEFAULT" && track !== null) {
+    const row = (await readTrackDefaults(tx, b, track))[0];
+    if (row?.listId != null) defaultList = await readListState(tx, b, row.listId, { share: true });
+  }
+  const r = resolveOpeningQaList({ request, mode: caseQaMode(context.kind, context.track ?? null), track, explicitList, defaultList, available: { lists, defaults } });
+  if (!r.ok) throw new ServiceDeskError("REFUSED", { violations: r.violations });
+  if (r.to === null) return { list: null, reason: r.reason };
+  const n = await tx.$executeRaw`
+    UPDATE "ServiceCase" SET "qaListId" = ${r.to.listId}::int, "qaListVersion" = ${r.to.listVersion}::int, "qaCompletedAt" = NULL,
+           version = ${context.version + 1}::int, "updatedAt" = now()
+     WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${context.version}::int`;
+  if (n !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
+  await insertRecordEvent(tx, b, caseId, context, "CHOOSE_QA_LIST", openingChoicePayload(r.to, r.reason === "DEFAULT" ? "DEFAULT" : "EXPLICIT"), userId,
+    { ...prepared, key: `${prepared.key}#2` });
+  return { list: r.to, reason: r.reason };
 }
 
 // ── Transitions ─────────────────────────────────────────────────────────────────────────────────────────────

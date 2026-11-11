@@ -494,6 +494,20 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_qa_lists_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_qa_lists_erase_business() TO ${RT_ROLE}`);
   }
+  // Service Desk QA track defaults — migration 20261130100000_service_qa_track_defaults. The same, for
+  // service_qa_track_defaults_erase_business() (it blanks who chose a track's default QA list and the request digest; the
+  // table from db push). It calls no other function of the migration.
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261130100000_service_qa_track_defaults/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_qa_track_defaults_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_qa_track_defaults_erase_business() not found in migration 20261130100000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_qa_track_defaults_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_qa_track_defaults_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //

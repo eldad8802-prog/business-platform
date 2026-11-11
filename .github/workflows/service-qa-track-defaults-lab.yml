@@ -90,3 +90,15 @@ jobs:
           OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" \
             npx tsx .sdqad/battery.ts | tee /tmp/sdqad.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdqad.out || { echo "the QA track defaults battery is not green"; exit 1; }
+          # the code through the REAL service: defaults, the opening (default / explicit / none / OFF / no default), history,
+          # isolation, erasure — and the QA lists code battery of #1125 unchanged with this migration applied
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdqad-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdqad-ci \
+          AUTH_TOKEN_SECRET=sdqad-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdqadcode/battery.ts | tee /tmp/sdqadcode.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdqadcode.out || { echo "the QA track defaults code battery is not green"; exit 1; }
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdqad-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdqad-ci \
+          AUTH_TOKEN_SECRET=sdqad-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdqacode/battery.ts | tee /tmp/sdqacode.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdqacode.out || { echo "the QA lists code battery is not green with the defaults applied"; exit 1; }

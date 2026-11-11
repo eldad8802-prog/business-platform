@@ -58,4 +58,12 @@ if [ -f "$QA" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.
   PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$QA"
   echo "ERASURE PREREQ: QA lists applied verbatim from 20261129090000"
 fi
+# QA track defaults (migration 20261130100000): the purge also calls service_qa_track_defaults_erase_business(). The lab
+# chain drops its `db push` table (.sdf/lab.sh), so where the lab does not carry it the migration is applied VERBATIM
+# (table, CHECKs, guard, policies, grants and function — never a copy), on top of the QA lists (its premise).
+QD="$ROOT/prisma/migrations/20261130100000_service_qa_track_defaults/migration.sql"
+if [ -f "$QD" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.\"ServiceQaTrackDefault\"') IS NULL")" = "t" ]; then
+  PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$QD"
+  echo "ERASURE PREREQ: QA track defaults applied verbatim from 20261130100000"
+fi
 echo "ERASURE PREREQ READY: $DB (document_supplier_link_erase_business from 20261103090000, business_documents_erase from 20261114090000, verbatim)"

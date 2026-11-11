@@ -189,6 +189,9 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceQaListEvent: { disposition: "ERASURE_MANAGED" },
   ServiceCaseQaRecord: { disposition: "ERASURE_MANAGED" },
   ServiceCaseQaItemResult: { disposition: "ERASURE_MANAGED" },
+  // Service Desk QA track defaults (migration 20261130100000): who chose a default and the request digest are blanked in
+  // place by service_qa_track_defaults_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract.
+  ServiceQaTrackDefault: { disposition: "ERASURE_MANAGED" },
   ServicePhoneReminder: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },

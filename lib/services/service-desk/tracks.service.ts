@@ -162,6 +162,16 @@ export async function planOpening(tx: Tx, b: number, input: TrackOpeningInput): 
     if (plan.code === "INVALID_INPUT") throw new ServiceDeskError("INVALID_INPUT", { field: plan.field });
     throw new ServiceDeskError("REFUSED", { violations: [plan.code], field: plan.field });
   }
+  const { profileKey, snapshot } = await businessProfileSnapshot(tx, b);
+  // Every track is open to every business (owner decision 2026-11-11): the profile's tracks are suggestions only.
+  return { opening: plan.opening, profileKey, snapshot };
+}
+
+/**
+ * The snapshot a case opened NOW would take (D14): ServiceSettings.serviceProfileKey, else the general profile, with the
+ * owner's overrides, validated. Shared by planOpening and the QA track defaults read (which reports each track's QA mode).
+ */
+export async function businessProfileSnapshot(tx: Tx, b: number): Promise<{ profileKey: string; snapshot: ProfileSnapshot }> {
   const s = (await tx.$queryRaw<{ key: string | null; overrides: unknown }[]>`
     SELECT "serviceProfileKey" AS key, "profileOverrides" AS overrides FROM "ServiceSettings" WHERE "businessId" = ${b}::int`)[0];
   // Owner decision 2026-11-11 (universal service): the business category never decides anything here. A profile is a
@@ -171,8 +181,7 @@ export async function planOpening(tx: Tx, b: number, input: TrackOpeningInput): 
   const built = buildProfileSnapshot(profileKey, (s?.overrides ?? null) as ProfileOverrides | null);
   // Overrides that no longer validate are never applied silently: the opening is refused until the settings are fixed.
   if (!built.ok) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "PROFILE_OVERRIDES_VALID" });
-  // Every track is open to every business (owner decision 2026-11-11): the profile's tracks are suggestions only.
-  return { opening: plan.opening, profileKey, snapshot: built.snapshot };
+  return { profileKey, snapshot: built.snapshot };
 }
 
 /** The subject of an opening: an existing device of the customer (its kind) or the new one the opening creates. */
