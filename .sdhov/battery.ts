@@ -69,8 +69,16 @@ async function business(tag: string) {
 }
 type Biz = Awaited<ReturnType<typeof business>>;
 const user = async (z: Biz, tag: string) => Number((await q(`INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ($1, $2, now()) RETURNING id`, `hov-${tag}-${t}-${caseNo++}@lab.invalid`, z.b))[0].id);
-const kase = async (z: Biz) => Number((await own(z.b, `INSERT INTO "ServiceCase" ("businessId", "caseNumber", kind, "customerId", "problemDescription")
-  VALUES ($1, $2, 'IN_SHOP', $3, 'תקלה סינתטית') RETURNING id`, z.b, 10_000 + caseNo++, z.cust))[0].id);
+/** A case opened the way the foundation requires (the case and its case.opened event in one transaction). */
+const kase = async (z: Biz) => owner.$transaction(async (tx) => {
+  await tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(z.b));
+  const id = Number(((await tx.$queryRawUnsafe(`INSERT INTO "ServiceCase" ("businessId", "caseNumber", kind, "customerId", "problemDescription")
+    VALUES ($1, $2, 'IN_SHOP', $3, 'תקלה סינתטית') RETURNING id`, z.b, 10_000 + caseNo++, z.cust)) as Rows)[0].id);
+  await tx.$executeRawUnsafe(`INSERT INTO "ServiceCaseEvent" ("businessId", "caseId", seq, "eventType", action, "toStatus", "cancellationRequestedBefore",
+      "cancellationRequestedAfter", actor, "actorUserId", "idempotencyKey") VALUES ($1, $2, 1, 'case.opened', 'OPEN', 'OPEN', false, false, 'OWNER_USER', $3, $4)`,
+    z.b, id, z.u, `hov-${t}-${id}`);
+  return id;
+});
 
 type H = Partial<{ v: number | null; open: number; over: number | null; reason: string | null; approver: number | null; at: boolean;
   loanerReason: string | null; loanerApprover: number | null; loanerAt: boolean; actor: number | null; erased: boolean; name: string | null }>;
@@ -234,8 +242,8 @@ async function main() {
   const D = await business("d");
   const cD = await kase(D);
   await rt(D.b, handover(D, cD, debtOk(D, { loanerReason: "x", loanerApprover: D.u, loanerAt: true })));
-  const bRow = (await own(B.b, `SELECT count(*)::int n FROM "ServiceHandover"`))[0];
   await rt(B.b, handover(B, await kase(B), debtOk(B)));
+  const bRow = (await own(B.b, `SELECT count(*)::int n FROM "ServiceHandover" WHERE "businessId" = $1 AND "debtApprovedByUserId" IS NOT NULL`, B.b))[0];
   for (const z of [A, D]) await q(`UPDATE "Business" SET "deletionRequestedAt" = now() WHERE id = $1`, z.b);
   r = await rt(A.b, handover(A, await kase(A)));
   ok("E1 a business being deleted cannot get a new handover → SERVICE_UI_BUSINESS_DELETING", r.includes("SERVICE_UI_BUSINESS_DELETING"), r);
@@ -253,8 +261,8 @@ async function main() {
   const again = await rtRows(A.b, `SELECT public.service_handover_record_erase_business() AS h`);
   ok("E4 re-run safe: 0 rows the second time", Number(again[0].h) === 0);
   ok("E5 no approver left in A or D", Number((await q(`SELECT count(*)::int n FROM "ServiceHandover" WHERE "businessId" IN ($1, $2) AND ("debtApprovedByUserId" IS NOT NULL OR "loanerApprovedByUserId" IS NOT NULL)`, A.b, D.b))[0].n) === 0);
-  const bAfter = (await own(B.b, `SELECT count(*)::int n FROM "ServiceHandover" WHERE "debtApprovedByUserId" IS NOT NULL`))[0];
-  ok("E6 business B untouched", Number(bAfter.n) === Number(bRow.n) + 1);
+  const bAfter = (await own(B.b, `SELECT count(*)::int n FROM "ServiceHandover" WHERE "businessId" = $1 AND "debtApprovedByUserId" IS NOT NULL`, B.b))[0];
+  ok("E6 business B untouched (its approvers still named)", Number(bRow.n) >= 1 && Number(bAfter.n) === Number(bRow.n), JSON.stringify([bRow, bAfter]));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED: " + failures.join("; ")); process.exitCode = 1; }

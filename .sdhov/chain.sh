@@ -148,6 +148,11 @@ BEGIN;
 SELECT set_config('app.current_business_id', (SELECT id FROM "Business" WHERE name = 'hov-legacy')::text, true);
 INSERT INTO "ServiceCase" ("businessId", "caseNumber", kind, "customerId", "problemDescription")
   SELECT b.id, 999, 'IN_SHOP', c.id, 'תקלה סינתטית' FROM "Business" b JOIN "Customer" c ON c."businessId" = b.id WHERE b.name = 'hov-legacy' LIMIT 1;
+INSERT INTO "ServiceCaseEvent" ("businessId", "caseId", seq, "eventType", action, "toStatus", "cancellationRequestedBefore",
+                                "cancellationRequestedAfter", actor, "actorUserId", "idempotencyKey")
+  SELECT b.id, k.id, 1, 'case.opened', 'OPEN', 'OPEN', false, false, 'OWNER_USER', u.id, 'hov-rbx-' || k.id
+    FROM "Business" b JOIN "User" u ON u."businessId" = b.id JOIN "ServiceCase" k ON k."businessId" = b.id AND k."caseNumber" = 999
+   WHERE b.name = 'hov-legacy';
 INSERT INTO "ServiceHandover" ("businessId", "caseId", "signatureCaptured", "recordVersion", "openBalanceAgorot", "overpaidAgorot", "actorUserId")
   SELECT b.id, (SELECT id FROM "ServiceCase" WHERE "businessId" = b.id AND "caseNumber" = 999), false, 2, 0, 0, u.id
     FROM "Business" b JOIN "User" u ON u."businessId" = b.id WHERE b.name = 'hov-legacy';
