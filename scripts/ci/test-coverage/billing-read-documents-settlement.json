@@ -1,0 +1,10 @@
+{
+  "note": "readDocumentsSettlement — read-only settlement facts for documents a caller (Service Desk) links to its records; same outstanding rule as every billing path; no schema, no write. Owner-approved Draft, 2026-11-11. Run by billing-read-documents-settlement-ci.yml with a negative proof.",
+  "tests": {
+    "lib/services/billing/settlement/read-documents-settlement.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof as a NOSUPERUSER NOBYPASSRLS login: shared outstanding rule, one receipt across two cases, no double count, partial payment, standalone receipt, stated overpayment, draft receipt excluded, flags, business separation, read-only; 20/20 locally on PG18"
+    }
+  }
+}
