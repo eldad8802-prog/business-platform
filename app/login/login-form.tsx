@@ -7,6 +7,7 @@ import { PrimaryCta } from "@/components/ui/primary-cta";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
+import { completePendingRevoke, consumeSignOutUnconfirmed, hasPendingRevoke } from "@/lib/client-session";
 import { handleUnauthorized } from "@/lib/auth/session-guard";
 import { flushAuthCookies } from "@/lib/native/auth-cookies";
 
@@ -60,6 +61,36 @@ export default function LoginForm({
 
   const [errors, setErrors] = useState<LoginErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+
+  // A sign-out that was cleared on this device before the server confirmed it
+  // (Settings → "clear this device anyway") is finished here: on every load and
+  // whenever the device comes back online, until the server gives a verdict.
+  // The proof is the HttpOnly refresh cookie, attached by the browser; nothing
+  // secret lives in localStorage, and the marker pins the session id so a new
+  // sign-in on this device can never be ended by it.
+  const [pendingRevoke, setPendingRevoke] = useState<"none" | "pending" | "unproven">("none");
+  useEffect(() => {
+    let alive = true;
+    const attempt = async () => {
+      const r = await completePendingRevoke();
+      if (!alive) return;
+      setPendingRevoke(r === "still_pending" ? "pending" : r === "unproven" ? "unproven" : "none");
+    };
+    // The notice appears with the first verdict (always after a request), so
+    // nothing is set synchronously here.
+    if (hasPendingRevoke()) void attempt();
+    // A sign-out that cleared the device without the server's confirmation is
+    // said so here — never shown as a success.
+    if (consumeSignOutUnconfirmed()) queueMicrotask(() => alive && setPendingRevoke("unproven"));
+    const onOnline = () => {
+      if (hasPendingRevoke()) void attempt();
+    };
+    window.addEventListener("online", onOnline);
+    return () => {
+      alive = false;
+      window.removeEventListener("online", onOnline);
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -536,6 +567,13 @@ export default function LoginForm({
 
         <form style={bodyStyle} onSubmit={handleLogin} noValidate>
           <GoogleNotice notice={googleNotice} />
+          {pendingRevoke !== "none" ? (
+            <div role="status" style={warningStyle} data-testid="login-pending-revoke">
+              {pendingRevoke === "pending"
+                ? t("account.settings.logout.pendingNotice")
+                : t("account.settings.logout.pendingUnproven")}
+            </div>
+          ) : null}
           <GoogleSignInButton enabled={googleEnabled} from="login" />
 
           <div style={fieldWrapStyle}>
