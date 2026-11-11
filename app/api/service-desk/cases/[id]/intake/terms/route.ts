@@ -1,15 +1,13 @@
-import { presentTerms } from "@/lib/services/service-desk/intake.service";
-import { idempotencyKeyOf, json, jsonBody, positiveId, serviceDeskRoute } from "@/lib/services/service-desk/service-desk-http";
+import { ServiceDeskError } from "@/lib/services/service-desk/service-desk-errors";
+import { serviceDeskRoute } from "@/lib/services/service-desk/service-desk-http";
 
 /**
- * POST { expectedVersion } + Idempotency-Key — freeze the business's active terms and statutory notice for this case
- * (1.3b). Only LEGALLY_APPROVED texts are accepted (the database refuses any other); refused otherwise, nothing written.
+ * POST — the former terms presentation of the intake (1.3b-A).
+ * Owner decision 2026-11-11: no customer signature and no legal-terms step in the service desk. The route stays (same
+ * edge: 401 / 404 / READ_ONLY) but answers ACTION_NOT_IN_SCOPE and writes nothing; earlier records stay readable.
  */
-export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
-  return serviceDeskRoute(req, "write", async ({ principal }) => {
-    const id = positiveId((await context.params).id);
-    const key = idempotencyKeyOf(req);
-    const b = await jsonBody(req);
-    return json(await presentTerms(principal, id, { expectedVersion: b.expectedVersion }, { idempotencyKey: key }));
+export async function POST(req: Request) {
+  return serviceDeskRoute(req, "write", async () => {
+    throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { capability: "intake_terms", reason: "no_customer_signature_policy" });
   });
 }
