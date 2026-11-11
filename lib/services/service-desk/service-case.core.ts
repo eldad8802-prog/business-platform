@@ -636,11 +636,14 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     }
     case "DELIVER": {
       r.to = "DELIVERED";
+      // Owner decision 2026-11-11: no customer signature. The acting owner confirms the handover; the receiver's name
+      // is optional (when given: non-blank, at most 200 characters — the column CHECK).
       const receipt = action.receipt;
-      if (!receipt || !hasText(receipt.receivedByName) || receipt.signatureCaptured !== true) {
-        fail("RECEIPT_INCOMPLETE", "the receiver's name and signature are required");
-      }
-      r.payload.receiptSigned = receipt?.signatureCaptured === true;
+      if (!receipt || receipt.handoverConfirmed !== true) fail("HANDOVER_NOT_CONFIRMED", "the owner confirms the handover");
+      const named = receipt?.receivedByName;
+      if (named !== undefined && named !== null && (!hasText(named) || named.trim().length > 200)) fail("INVALID_INPUT", "receipt.receivedByName");
+      r.payload.handoverConfirmed = receipt?.handoverConfirmed === true;
+      r.payload.receiverNamed = hasText(named);
       const s = context.settlement;
       if (!s.known) {
         fail("BALANCE_UNKNOWN", "the balance could not be established — delivery waits for it");

@@ -177,9 +177,13 @@ export interface ServiceDecisionTexts {
 
 // ── Actions ────────────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The handover of a held item (1.3c). Owner decision 2026-11-11: no customer signature — the acting owner / authorized
+ * user confirms the handover explicitly; the receiver's name is optional on every track.
+ */
 export interface HandoverReceipt {
-  receivedByName: string;
-  signatureCaptured: boolean;
+  handoverConfirmed: boolean;
+  receivedByName?: string | null;
 }
 
 export type ServiceCaseAction =
@@ -280,6 +284,7 @@ export type ServiceCaseViolationCode =
   | "OUTCOME_NOT_ALLOWED"
   | "REPLACEMENT_DEVICE_REQUIRED"
   | "RECEIPT_INCOMPLETE"
+  | "HANDOVER_NOT_CONFIRMED"
   | "BALANCE_UNKNOWN"
   | "OPEN_BALANCE_NEEDS_OWNER_DECISION"
   | "OPEN_LOANER"

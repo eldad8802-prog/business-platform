@@ -297,6 +297,67 @@ async function main() {
   const ckEv = (await q(`SELECT "actorUserId" a, "fromStatus"::text f, "toStatus"::text t, payload->>'intakeConfirmed' c FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND action::text = 'CHECK_IN'`, cN.id))[0];
   ok("N6 the audit journal names who confirmed, the status change and the confirmation (no signature data)", Number(ckEv.a) === A.u && ckEv.f === "OPEN" && ckEv.t === "CHECKED_IN" && ckEv.c === "true");
 
+
+  console.log("H — 1.3c handover without a customer signature (settlement reader injected; the real one is NOT_LINKED)");
+  const settled = async () => ({ state: "SETTLED" as const, openBalanceAgorot: 0 as const });
+  const open5k = async () => ({ state: "OPEN" as const, openBalanceAgorot: 5000 });
+  const noCharge = async () => ({ state: "NO_CHARGE_DOCUMENT" as const, openBalanceAgorot: null });
+  const toReady = async () => {
+    const c = await shopCase(A);
+    await recordIntake(A.p, c.id, { conditionNote: "סדק", accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedVersion: await version(c.id) }, { idempotencyKey: key() });
+    for (const action of [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "MARK_NOT_REPAIRABLE" }]) {
+      await runCaseAction(A.p, c.id, { action, expectedVersion: await version(c.id) }, { idempotencyKey: key() });
+    }
+    return c.id;
+  };
+  const deliver = async (id: number, action: Record<string, unknown>, reader?: () => Promise<unknown>, z = A, k = key()) =>
+    runCaseAction(z.p, id, { action: { type: "DELIVER", ...action }, expectedVersion: await version(id) }, { idempotencyKey: k }, reader ? { settlement: reader as never } : {});
+  const handovers = (id: number) => n(`SELECT count(*)::int AS n FROM "ServiceHandover" WHERE "caseId" = $1`, id);
+  const h1 = await toReady();
+  ok("H0 the case reached READY through owner actions only (no signature)", String((await q(`SELECT status::text s FROM "ServiceCase" WHERE id = $1`, h1))[0].s) === "READY");
+  ok("H1 today's reader (no billing link): DELIVER → BALANCE_UNKNOWN; nothing written — unknown is never 0",
+    (await code(() => deliver(h1, { receipt: { handoverConfirmed: true } }))).includes("BALANCE_UNKNOWN") && (await handovers(h1)) === 0);
+  ok("H2 a settled balance but no owner confirmation → HANDOVER_NOT_CONFIRMED", (await code(() => deliver(h1, { receipt: { handoverConfirmed: false } }, settled))).includes("HANDOVER_NOT_CONFIRMED"));
+  const kd = key();
+  const d1 = await deliver(h1, { receipt: { handoverConfirmed: true } }, settled, A, kd);
+  const hrow = (await q(`SELECT "receivedByName" r, "signatureCaptured" sc, "actorUserId" a, "openBalanceAgorot" ob FROM "ServiceHandover" WHERE "caseId" = $1`, h1))[0];
+  const hev = (await q(`SELECT "eventType"::text et, "actorUserId" a, "fromStatus"::text f, "toStatus"::text t, payload FROM "ServiceCaseEvent" WHERE "caseId" = $1 ORDER BY seq DESC LIMIT 1`, h1))[0];
+  ok("H3 settled + confirmed, no receiver name → DELIVERED; one handover row (no name, no signature, the acting user, balance 0); deliveredAt stamped",
+    d1.case.status === "DELIVERED" && (await handovers(h1)) === 1 && hrow.r === null && hrow.sc === false && Number(hrow.a) === A.u && Number(hrow.ob) === 0
+      && (await q(`SELECT "deliveredAt" d FROM "ServiceCase" WHERE id = $1`, h1))[0].d !== null);
+  ok("H4 the journal: case.delivered by this user, READY → DELIVERED, handoverConfirmed, receiverNamed false, no signature data",
+    hev.et === "case.delivered" && Number(hev.a) === A.u && hev.f === "READY" && hev.t === "DELIVERED"
+      && (hev.payload as Record<string, unknown>).handoverConfirmed === true && (hev.payload as Record<string, unknown>).receiverNamed === false && !JSON.stringify(hev.payload).includes("ign"));
+  const rep1 = await runCaseAction(A.p, h1, { action: { type: "DELIVER", receipt: { handoverConfirmed: true } }, expectedVersion: d1.case.version - 1 }, { idempotencyKey: kd }, { settlement: settled as never });
+  ok("H5 no double handover: the same request replays; a new one is refused; still one row",
+    rep1.replayed === true && (await code(() => deliver(h1, { receipt: { handoverConfirmed: true } }, settled))) !== "OK" && (await handovers(h1)) === 1);
+  const h2 = await toReady();
+  ok("H6 an open balance without the owner's reason → OPEN_BALANCE_NEEDS_OWNER_DECISION; nothing written",
+    (await code(() => deliver(h2, { receipt: { handoverConfirmed: true, receivedByName: "דנה" } }, open5k))).includes("OPEN_BALANCE_NEEDS_OWNER_DECISION") && (await handovers(h2)) === 0);
+  await deliver(h2, { receipt: { handoverConfirmed: true, receivedByName: "דנה" }, debtOverride: { reason: "הלקוח ישלם בהעברה" } }, open5k);
+  const h2row = (await q(`SELECT "receivedByName" r, "openBalanceAgorot" ob, "debtOverrideReason" dr FROM "ServiceHandover" WHERE "caseId" = $1`, h2))[0];
+  ok("H7 … with the owner's reason → delivered; the row keeps the receiver's name, the open balance and the reason (in its column, never the journal)",
+    h2row.r === "דנה" && Number(h2row.ob) === 5000 && h2row.dr === "הלקוח ישלם בהעברה"
+      && !String((await q(`SELECT payload::text p FROM "ServiceCaseEvent" WHERE "caseId" = $1 ORDER BY seq DESC LIMIT 1`, h2))[0].p).includes("העברה"));
+  const h3 = await toReady();
+  ok("H8 NO_CHARGE_DOCUMENT → BALANCE_UNKNOWN (an owner decision first, never a silent 0)", (await code(() => deliver(h3, { receipt: { handoverConfirmed: true } }, noCharge))).includes("BALANCE_UNKNOWN"));
+  ok("H9 another business cannot deliver A's case (NOT_FOUND)", (await code(() => deliver(h3, { receipt: { handoverConfirmed: true } }, settled, B))).startsWith("NOT_FOUND"));
+  const dupe = await code(() => runtime.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(A.b));
+    await tx.$executeRawUnsafe(`INSERT INTO "ServiceHandover" ("businessId", "caseId", "signatureCaptured", "openBalanceAgorot", "actorUserId") VALUES ($1, $2, false, 0, $3)`, A.b, h1, A.u);
+  }));
+  ok("H10 the database refuses a second handover of the same case, even written directly by the runtime role (UNIQUE)", dupe !== "OK", dupe);
+  const h4 = await toReady();
+  const wo = await code(() => runtime.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(A.b));
+    await tx.$executeRawUnsafe(`INSERT INTO "ServiceWarrantyOffer" ("businessId", "caseId", seq, state, source, "durationValue", "durationUnit", "scopeText", "statutoryNoticeVersionId", "contentSha256", "presentedAt", "presentedByUserId", "createdByUserId", "updatedAt")
+      VALUES ($1, $2, 1, 'PRESENTED', 'INTAKE', 6, 'MONTHS', 'חלקים ועבודה', $3, $4, now(), $5, $5, now())`, A.b, h4, S1, "c".repeat(64), A.u);
+  }));
+  await deliver(h4, { receipt: { handoverConfirmed: true } }, settled);
+  const w = (await q(`SELECT state::text st, "startsOn"::text so, "endsOn"::text eo, (SELECT "deliveredAt"::date::text FROM "ServiceHandover" WHERE "caseId" = $1) dd FROM "ServiceWarrantyOffer" WHERE "caseId" = $1`, h4))[0];
+  ok("H11 a presented warranty offer locks at the handover: starts on the delivery day, ends six months later (the guard's own rule)",
+    wo === "OK" && w?.st === "LOCKED" && w.so === w.dd && typeof w.eo === "string" && w.eo > w.so, `${wo} / ${JSON.stringify(w)}`);
+
   console.log("V — view");
   const view = await getIntake(A.b, c1.id);
   ok("V1 the view: signed, both frozen bodies + versions, 10 photos, the steps in order (TERMS_PRESENTED, PHOTO_ADDED…, SIGNED, SLIP_STORED)",
