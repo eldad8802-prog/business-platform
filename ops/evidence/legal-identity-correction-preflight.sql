@@ -11,7 +11,7 @@
 \echo '== legal identity correction preflight: legend (n -> check) =='
 \echo ' 1 20261128090000_signup_legal_identity is finished (observed = finished rows)'
 \echo ' 2 20261128100000 is not in the ledger (observed = rows)'
-\echo ' 3 no finished migration sorts after 20261128100000_legal_identity_correction (observed = rows)'
+\echo ' 3 the ledger is clean: no unfinished and no rolled-back migration (observed = such rows)'
 \echo ' 4 LegalIdentityCorrectionRequest is absent (observed = tables)'
 \echo ' 5 none of its five functions exists yet (observed = of 5)'
 \echo ' 6 the roles exist: app_auth, app_runtime (observed = of 2)'
@@ -39,12 +39,11 @@ roleval AS (SELECT count(*) AS n FROM pg_enum e JOIN pg_type t ON t.oid = e.enum
 prev AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name = '20261128090000_signup_legal_identity'
            AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
 mine AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name = '20261128100000_legal_identity_correction'),
-later AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name > '20261128100000_legal_identity_correction'
-            AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
+unclean AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL),
 checks(n, ok, observed_count) AS (
   SELECT 1, (SELECT n FROM prev) = 1, (SELECT n FROM prev)
   UNION ALL SELECT 2, (SELECT n FROM mine) = 0, (SELECT n FROM mine)
-  UNION ALL SELECT 3, (SELECT n FROM later) = 0, (SELECT n FROM later)
+  UNION ALL SELECT 3, (SELECT n FROM unclean) = 0, (SELECT n FROM unclean)
   UNION ALL SELECT 4, (SELECT n FROM tbl) = 0, (SELECT n FROM tbl)
   UNION ALL SELECT 5, (SELECT n FROM fns) = 0, (SELECT n FROM fns)
   UNION ALL SELECT 6, (SELECT count(*) FROM pg_roles WHERE rolname IN ('app_auth', 'app_runtime')) = 2,
