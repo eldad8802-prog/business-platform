@@ -33,7 +33,7 @@ fn  AS (SELECT p.oid, p.proname, p.prosecdef, p.proowner, p.proacl,
 privs AS (SELECT v.p FROM (VALUES ('INS' || 'ERT'), ('UPD' || 'ATE'), ('DEL' || 'ETE'), ('TRUN' || 'CATE'), ('REFERENCES'), ('TRIGGER')) v(p)),
 ledger AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name = '20261128100000_legal_identity_correction'
              AND finished_at IS NOT NULL AND rolled_back_at IS NULL
-             AND checksum = 'efe529d175db4e53c8da7262c1f7f5a3186bffeb4ac5d2d237fa26c84590708e'),
+             AND checksum = '7a751e9f8eba4ef506b1381d6104ef8a2cc103db3253555b48507ae7af16d776'),
 pol AS (SELECT count(*) AS total, count(*) FILTER (WHERE polname = 'lic_tenant_read' AND polcmd = 'r') AS reads
           FROM pg_policy WHERE polrelid = (SELECT oid FROM t)),
 chk AS (SELECT count(*) AS n FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM t) AND k.contype = 'c' AND k.conname IN

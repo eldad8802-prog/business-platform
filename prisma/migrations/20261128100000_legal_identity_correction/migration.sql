@@ -235,7 +235,9 @@ CREATE OR REPLACE FUNCTION public.legal_identity_correction_erase()
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE v_business integer := NULLIF(current_setting('app.current_business_id', true), '')::integer; n integer;
 BEGIN
-  IF v_business IS NULL OR NOT public.legal_identity_business_is_being_deleted(v_business) THEN
+  IF v_business IS NULL THEN RAISE EXCEPTION USING ERRCODE = 'DZC01', MESSAGE = 'LEGAL_IDENTITY_CORRECTION_ERASE_NEEDS_TENANT'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public."Business" b WHERE b."id" = v_business
+                   AND (b."deletionRequestedAt" IS NOT NULL OR b."deletedAt" IS NOT NULL)) THEN
     RAISE EXCEPTION USING ERRCODE = 'DZC01', MESSAGE = 'LEGAL_IDENTITY_CORRECTION_ERASE_NOT_DELETING';
   END IF;
   UPDATE public."LegalIdentityCorrectionRequest"
