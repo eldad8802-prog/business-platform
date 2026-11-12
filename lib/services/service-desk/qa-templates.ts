@@ -13,6 +13,8 @@
  *     QA mode is REQUIRED still demands a real QA — never a single click — without making any check mandatory to pass.
  *   - a template with REQUIRED checks (the retired v1 templates, a test's synthetic template; per-business lists follow
  *     the same rule): every REQUIRED check PASS; optional checks may be PASS, FAIL or absent.
+ *   In the counts, requiredMissing = the checks that must be recorded and are not (a REQUIRED check, or any check of a
+ *   built-in template); requiredFailed = REQUIRED checks FAILED (always 0 on a built-in template). Completed ⇔ both 0.
  *   A FAILED or missing check that the rule needs keeps QA open: the result is stored and journaled, qaCompletedAt stays
  *   NULL and the case machine keeps refusing PASS_QA (QA_INCOMPLETE).
  *
@@ -230,16 +232,18 @@ export function evaluateQaAgainst(t: QaTemplate, results: unknown): QaEvaluation
     clean[key] = value;
   }
   if (entries.length === 0) return { ok: false, field: "results" };
-  const required = t.items.filter((i) => i.required);
-  const requiredFailed = required.filter((i) => clean[i.key] === "FAIL").length;
-  const requiredMissing = required.filter((i) => clean[i.key] === undefined).length;
-  const unrecorded = t.items.filter((i) => clean[i.key] === undefined).length;
+  // A check MUST BE RECORDED when it is REQUIRED or the template is performed in full (every built-in template); only
+  // a REQUIRED check must PASS. requiredMissing counts the checks that must be recorded and are not — so "completed"
+  // keeps its one meaning everywhere (no required check failed, none missing), as the QA record table checks it.
+  const mustRecord = t.items.filter((i) => i.required || t.everyCheckRecorded);
+  const requiredFailed = t.items.filter((i) => i.required && clean[i.key] === "FAIL").length;
+  const requiredMissing = mustRecord.filter((i) => clean[i.key] === undefined).length;
   const passed = Object.values(clean).filter((v) => v === "PASS").length;
   const failed = Object.values(clean).filter((v) => v === "FAIL").length;
   return {
     ok: true,
     template: t.id,
-    completed: requiredFailed === 0 && requiredMissing === 0 && (!t.everyCheckRecorded || unrecorded === 0),
+    completed: requiredFailed === 0 && requiredMissing === 0,
     checklist: { template: t.id, results: clean },
     counts: { items: t.items.length, recorded: entries.length, passed, failed, requiredFailed, requiredMissing },
   };

@@ -78,7 +78,7 @@ ok("T12b every built-in template completes by being performed (everyCheckRecorde
 ok("T13 every built-in template: every check recorded with every one FAILED → completed (no check must PASS)",
   builtIns.every((t) => { const e = evaluateQaAgainst(t, every(t, "FAIL")); return e.ok && e.completed && e.counts.requiredFailed === 0 && e.counts.requiredMissing === 0 && e.counts.failed === t.items.length; }));
 ok("T13b every built-in template: one check left unrecorded → NOT completed (REQUIRED QA means the checklist was performed)",
-  builtIns.every((t) => { const r = every(t); delete r[t.items[t.items.length - 1].key]; const e = evaluateQaAgainst(t, r); return e.ok && !e.completed && e.counts.recorded === t.items.length - 1; }));
+  builtIns.every((t) => { const r = every(t); delete r[t.items[t.items.length - 1].key]; const e = evaluateQaAgainst(t, r); return e.ok && !e.completed && e.counts.recorded === t.items.length - 1 && e.counts.requiredMissing === 1 && e.counts.requiredFailed === 0; }));
 ok("T13c a single recorded result never completes a built-in checklist",
   builtIns.every((t) => { const e = evaluateQaAgainst(t, { [t.items[0].key]: "PASS" }); return e.ok && !e.completed; }));
 ok("T13d through the kind / track entry points: IN_SHOP / FIELD / MAINTENANCE (kind) and every track template by id",
