@@ -13,7 +13,9 @@
  *      (one per case, immutable, no signature columns, place = place of the work), journal pairing; closing with an open
  *      debt (owner decision 2026-11-11): the balance is always stated (no default — UNKNOWN is unrepresentable), never
  *      negative, debt XOR overpayment; a debt needs reason + approving user (same business) + approval time; no debt →
- *      none of them; a deleted approver only nulls the approver; the erasure clears reason + approver, keeps the numbers.
+ *      none of them; the approver is the acting user (owner 2026-11-12: a second user as approver is refused until an
+ *      independent approval mechanism exists); a deleted user only nulls its references; the erasure clears reason +
+ *      approver, keeps the numbers.
  *   S  settings: profile key from the closed list, overrides an object; the settings journal names the new fields.
  *   V  subject: subjectKind default ITEM, attributes an object, display name bounded.
  *   I  isolation.  E  erasure: refused unless deleting; not imitable; scrubs in place; re-run safe.
@@ -316,8 +318,11 @@ async function main() {
   ok("O16d an open debt without the approval time → ServiceCompletion_debt_decided", noTime.includes("ServiceCompletion_debt_decided"), noTime);
   const noApprover = await probe({ ...debtOk, approver: null });
   const otherApprover = await probe({ ...debtOk, approver: B.u });
-  ok("O16e an open debt without the approving user → SERVICE_COMPLETION_DEBT_UNAPPROVED; an approver of another business → SERVICE_USER_OTHER_BUSINESS",
-    noApprover.includes("SERVICE_COMPLETION_DEBT_UNAPPROVED") && otherApprover.includes("SERVICE_USER_OTHER_BUSINESS"), noApprover + " | " + otherApprover);
+  // actor = approver = a user of ANOTHER business: approver = actor holds, so the same-business trigger is what refuses
+  const otherActor = await probe({ ...debtOk, approver: B.u }, B.u);
+  ok("O16e an open debt without the approving user → SERVICE_COMPLETION_DEBT_UNAPPROVED; an approver of another business → SERVICE_APPROVER_NOT_ACTOR; actor + approver of another business → SERVICE_USER_OTHER_BUSINESS",
+    noApprover.includes("SERVICE_COMPLETION_DEBT_UNAPPROVED") && otherApprover.includes("SERVICE_APPROVER_NOT_ACTOR")
+      && otherActor.includes("SERVICE_USER_OTHER_BUSINESS"), [noApprover, otherApprover, otherActor].join(" | "));
   const negOpen = await probe({ open: -100 });
   const negOver = await probe({ over: -1 });
   const bothSides = await probe({ ...debtOk, over: 200 });
@@ -330,7 +335,9 @@ async function main() {
   const strayTime = await probe({ approvedAt: true });
   ok("O16g no debt → no reason, no approver, no approval time (ServiceCompletion_debt_decided)",
     [strayReason, strayApprover, strayTime].every((s) => s.includes("ServiceCompletion_debt_decided")), [strayReason, strayApprover, strayTime].join(" | "));
-  // End to end: a debt closed by a second user of the business (the approver), and an overpaid case.
+  // End to end (owner decision 2026-11-12 — the approver is the authenticated user who performed the action, until an
+  // independent approval mechanism exists): a debt "approved" by a SECOND user of the business while the owner acts is
+  // refused and nothing of the COMPLETE is written; the same second user acting AND approving closes it; an overpaid case.
   const approver = Number((await q(`INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ($1, $2, now()) RETURNING id`, `sdm1-approver-${t}@lab.invalid`, A.b))[0].id);
   const toWorkDone = async (id: number) => {
     await changeDetails(A, id, { workType: "INSTALLATION", serviceLocation: "FIELD_SITE", siteAddress: "אתר סינתטי 3" });
@@ -338,25 +345,40 @@ async function main() {
   };
   const o3 = await open(A, "FIELD");
   const o4 = await open(A, "FIELD");
-  const o3done = (await toWorkDone(o3)) === "OK"
-    && (await complete(A, o3, "OWNER_CONFIRMED_ON_SITE", { bal: { open: 7000, reason: "ישלם בסוף החודש", approver, approvedAt: true } })) === "OK";
+  const o3debt: Bal = { open: 7000, reason: "ישלם בסוף החודש", approver, approvedAt: true };
+  const o3wd = (await toWorkDone(o3)) === "OK";
+  const o3v = (await row(A, o3)).version;
+  const byOther = await complete(A, o3, "OWNER_CONFIRMED_ON_SITE", { bal: o3debt });
+  const afterRefusal = await row(A, o3);
+  const noRecord = await own(A.b, `SELECT count(*)::int n FROM "ServiceCompletion" WHERE "caseId" = $1`, o3);
+  const asApprover = { ...A, u: approver, p: { businessId: A.b, userId: approver } as ServiceDeskPrincipal };
+  const o3done = o3wd && (await complete(asApprover, o3, "OWNER_CONFIRMED_ON_SITE", { bal: o3debt })) === "OK";
   const o4done = (await toWorkDone(o4)) === "OK" && (await complete(A, o4, "OWNER_CONFIRMED_ON_SITE", { bal: { over: 1500 } })) === "OK";
-  const rec = await own(A.b, `SELECT "caseId", "openBalanceAgorot" o, "overpaidAgorot" v, "debtOverrideReason" r, "debtApprovedByUserId" a,
+  const rec = await own(A.b, `SELECT "caseId", "openBalanceAgorot" o, "overpaidAgorot" v, "debtOverrideReason" r, "debtApprovedByUserId" a, "actorUserId" u,
       ("debtApprovedAt" IS NOT NULL AND "debtApprovedAt" <= "completedAt") t FROM "ServiceCompletion" WHERE "caseId" IN ($1, $2) ORDER BY "caseId"`, o3, o4);
-  ok("O16h COMPLETE with an approved debt and COMPLETE with an overpayment → written; the record holds the balance, reason, approver, time and the overpayment",
-    o3done && o4done && rec.length === 2 && Number(rec[0].o) === 7000 && Number(rec[0].v) === 0 && rec[0].r === "ישלם בסוף החודש" && Number(rec[0].a) === approver && rec[0].t === true
-      && Number(rec[1].o) === 0 && Number(rec[1].v) === 1500 && rec[1].r === null && rec[1].a === null, JSON.stringify(rec));
+  ok("O16h COMPLETE with a debt approved by a SECOND user while the owner acts → SERVICE_APPROVER_NOT_ACTOR, nothing written (case still WORK_DONE at its version, no record); the same user acting AND approving → written; COMPLETE with an overpayment → written; the records hold the balance, reason, approver = actor, time and the overpayment",
+    o3wd && byOther.includes("SERVICE_APPROVER_NOT_ACTOR") && afterRefusal.status === "WORK_DONE" && afterRefusal.version === o3v && Number(noRecord[0].n) === 0
+      && o3done && o4done && rec.length === 2 && Number(rec[0].o) === 7000 && Number(rec[0].v) === 0 && rec[0].r === "ישלם בסוף החודש"
+      && Number(rec[0].a) === approver && Number(rec[0].u) === approver && rec[0].t === true
+      && Number(rec[1].o) === 0 && Number(rec[1].v) === 1500 && rec[1].r === null && rec[1].a === null, `${byOther} ${JSON.stringify(afterRefusal)} ${JSON.stringify(rec)}`);
   ok("O16i the approval is part of the permanent record (the runtime cannot rewrite it)",
     (await rt(A.b, [`UPDATE "ServiceCompletion" SET "debtOverrideReason" = 'אחר' WHERE "caseId" = $1`, o3])) !== "OK"
       && (await rt(A.b, [`UPDATE "ServiceCompletion" SET "openBalanceAgorot" = 0, "debtOverrideReason" = NULL, "debtApprovedByUserId" = NULL, "debtApprovedAt" = NULL WHERE "caseId" = $1`, o3])) !== "OK");
   let delOut = "OK";
   try { await x(`DELETE FROM "User" WHERE id = $1`, approver); } catch (e) { delOut = err(e); }
   const afterDel = (await own(A.b, `SELECT "openBalanceAgorot" o, "debtOverrideReason" r, "debtApprovedByUserId" a, "debtApprovedAt" IS NOT NULL t, "actorUserId" u FROM "ServiceCompletion" WHERE "caseId" = $1`, o3))[0];
-  ok("O16j a deleted approver: the FK sets the approver to NULL and nothing else moves (balance, reason, time, actor kept)",
-    delOut === "OK" && afterDel.a === null && Number(afterDel.o) === 7000 && afterDel.r === "ישלם בסוף החודש" && afterDel.t === true && Number(afterDel.u) === A.u, `${delOut} ${JSON.stringify(afterDel)}`);
+  ok("O16j a deleted acting approver: the FK sets the approver and the actor (the same user) to NULL and nothing else moves (balance, reason, time kept)",
+    delOut === "OK" && afterDel.a === null && afterDel.u === null && Number(afterDel.o) === 7000 && afterDel.r === "ישלם בסוף החודש" && afterDel.t === true, `${delOut} ${JSON.stringify(afterDel)}`);
   const o5 = await open(A, "FIELD");
   ok("O16k a debt approved by the acting owner → written (its approver is scrubbed by the erasure, E3b)",
     (await toWorkDone(o5)) === "OK" && (await complete(A, o5, "OWNER_CONFIRMED_ON_SITE", { bal: { open: 300, reason: "חוב קטן", approver: A.u, approvedAt: true } })) === "OK");
+  // the same-business trigger checks at INSERT only (so a deleted actor-approver's FK action works, O16j); after birth
+  // the guard alone keeps the people fixed — even the table owner cannot re-point them, to any user
+  const repoint = async (u: number) => { try { await own(A.b, `UPDATE "ServiceCompletion" SET "actorUserId" = $2, "debtApprovedByUserId" = $2 WHERE "caseId" = $1`, o5, u); return "OK"; } catch (e) { return err(e); } };
+  const toOther = await repoint(B.u);
+  const toSame = await repoint(Number((await q(`INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ($1, $2, now()) RETURNING id`, `sdm1-repoint-${t}@lab.invalid`, A.b))[0].id));
+  ok("O16l after birth the actor + approver cannot be re-pointed, not even by the table owner (another business's user, or another user of the same business) → SERVICE_COMPLETION_FIXED",
+    toOther.includes("SERVICE_COMPLETION_FIXED") && toSame.includes("SERVICE_COMPLETION_FIXED"), toOther + " | " + toSame);
   const o2v = (await row(A, o2)).version;
   ok("O17 a COMPLETE journaled from a status other than WORK_DONE → ServiceCaseEvent_tracks_in_place",
     (await rt(A.b, [`UPDATE "ServiceCase" SET status = 'CLOSED', "closedAt" = now(), "completionType" = 'OWNER_CONFIRMED_ON_SITE', "completedAt" = now(), version = version + 1 WHERE id = $1`, o2],
