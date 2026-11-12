@@ -95,8 +95,8 @@ async function main() {
 
   // ── 2. registry ──────────────────────────────────────────────────────────────
   {
-    ok("registry: the kinds are exactly WELCOME, EMAIL_VERIFY, PASSWORD_RESET and the Google link's LINK_GOOGLE, GOOGLE_LINKED, GOOGLE_UNLINKED",
-      JSON.stringify(Object.keys(EMAIL_KINDS)) === JSON.stringify(["WELCOME", "EMAIL_VERIFY", "PASSWORD_RESET", "LINK_GOOGLE", "GOOGLE_LINKED", "GOOGLE_UNLINKED"]));
+    ok("registry: the kinds are exactly WELCOME, EMAIL_VERIFY, PASSWORD_RESET, the Google link's LINK_GOOGLE, GOOGLE_LINKED, GOOGLE_UNLINKED and the issuer declaration's ISSUER_DECLARATION",
+      JSON.stringify(Object.keys(EMAIL_KINDS)) === JSON.stringify(["WELCOME", "EMAIL_VERIFY", "PASSWORD_RESET", "LINK_GOOGLE", "GOOGLE_LINKED", "GOOGLE_UNLINKED", "ISSUER_DECLARATION"]));
     ok("registry: WELCOME TTL is 24h", WELCOME_TTL_MS === 24 * 3600_000 && EMAIL_KINDS.WELCOME.ttlMs === WELCOME_TTL_MS);
     ok("registry: no kind outlives the provider's 24h idempotency window",
       Object.values(EMAIL_KINDS).every((k) => k.ttlMs <= PROVIDER_IDEMPOTENCY_WINDOW_MS));
@@ -337,9 +337,9 @@ async function main() {
     walk("app");
     walk("lib");
     const code = (f: string) => fs.readFileSync(path.join(root, f), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
-    const enqueuers = files.filter((f) => /enqueue(Welcome|Transactional|AccountLink)Email\(/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
-    ok("scope: only signup (WELCOME), the account-link flows (EMAIL_VERIFY / PASSWORD_RESET) and the Google link (LINK_GOOGLE / GOOGLE_LINKED / GOOGLE_UNLINKED) enqueue — login, setup, refresh and every other flow do not",
-      JSON.stringify(enqueuers) === JSON.stringify(["lib/auth/email-tokens.ts", "lib/auth/google-link.ts", "lib/auth/signup.ts"]), JSON.stringify(enqueuers));
+    const enqueuers = files.filter((f) => /enqueue(Welcome|Transactional|AccountLink|GoogleNotice|IssuerDeclaration)Email\(/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
+    ok("scope: only signup (WELCOME), the account-link flows (EMAIL_VERIFY / PASSWORD_RESET), the Google link (LINK_GOOGLE / GOOGLE_LINKED / GOOGLE_UNLINKED) and the issuer-declaration link (ISSUER_DECLARATION) enqueue — login, setup, refresh and every other flow do not",
+      JSON.stringify(enqueuers) === JSON.stringify(["lib/auth/email-tokens.ts", "lib/auth/google-link.ts", "lib/auth/issuer-declaration-link.ts", "lib/auth/signup.ts"]), JSON.stringify(enqueuers));
     const deliverers = files.filter((f) => /deliverTransactionalEmail\(|runTransactionalEmailSweep\(|deliverNow\b|scheduleDelivery\b/.test(code(f)) && !f.startsWith("lib/email/transactional/")).sort();
     ok("scope: delivery is reached only after a response (register, forgot-password, resend-verification) and from the sweep route — verifying an address delivers nothing",
       JSON.stringify(deliverers) === JSON.stringify([
@@ -390,16 +390,25 @@ async function main() {
     const home = src("app/(shell)/app/page.tsx");
     ok("cta: /app with no session sends the visitor to /login",
       /if \(!currentToken\) \{\s*window\.location\.replace\(`\$\{window\.location\.origin\}\/login`\)/.test(home));
-    ok("cta: /app with a rejected session (401) sends the visitor to /login",
-      /res\.status === 401\)[\s\S]{0,200}window\.location\.replace\(`\$\{window\.location\.origin\}\/login`\)/.test(home));
+    // A 401 on /app goes through the one shared decision (lib/auth/session-guard.ts):
+    // a spent token is renewed in place; a session the server ended leaves for /login.
+    const guard = src("lib/auth/session-guard.ts");
+    ok("cta: /app with a rejected session (401) goes through the shared decision, which leaves for /login when the session is over",
+      /res\.status === 401\)[\s\S]{0,200}redirectToLogin\(\)/.test(home) &&
+        /endSessionLocally[\s\S]*window\.location\.replace\(`\$\{window\.location\.origin\}\/login`\)/.test(guard));
     const shell = src("app/(shell)/layout.tsx");
     ok("cta: /app sits under the shell's RefreshCoordinator (a spent access token is refreshed from the cookie before Home loads)",
       /<RefreshCoordinator>[\s\S]*\{children\}[\s\S]*<\/RefreshCoordinator>/.test(shell));
     const login = src("app/login/login-form.tsx");
     ok("cta: login lands on /app — after signing in, and when already signed in",
       (login.match(/window\.location\.replace\(`\$\{window\.location\.origin\}\/app`\)/g) ?? []).length >= 2);
-    ok("cta: /login does NOT refresh a spent token (it clears it and shows the form) — why it is not the target",
-      !/RefreshCoordinator|bootstrapRefresh|refreshAccessToken/.test(login) && /status === 401 \|\| status === 403/.test(login));
+    // /login now renews a spent token too (through the same decision) and lands on
+    // /app, and it no longer clears a session on 403. /app stays the target: it is
+    // the canonical entry and works signed in, signed out and with a spent token.
+    ok("cta: /login renews a spent token through the shared decision and lands on /app; it never clears on 403",
+      /handleUnauthorized\(/.test(login) &&
+        /retry: \(\) => window\.location\.replace\(`\$\{window\.location\.origin\}\/app`\)/.test(login) &&
+        !/status === 401 \|\| status === 403/.test(login));
   }
 
   console.log(`\n[transactional-email] ${pass} passed, ${fail} failed`);

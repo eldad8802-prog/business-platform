@@ -96,7 +96,7 @@ async function serverCancel(browser: Browser) {
   // The page's read (401) made this browser forget the copy; put it back, so the completion carries it.
   await b.addCookies([copy!]);
   const forged = await pageB.request.post(`${BASE}/api/auth/google/complete`, {
-    headers: { origin: BASE }, data: { name: "דנה כהן", businessName: `מאפייה ${stamp}`, acceptTerms: true },
+    headers: { origin: BASE }, data: { name: "דנה כהן", businessName: `מאפייה ${stamp}`, businessKind: "AUTHORIZED_DEALER", acceptTerms: true },
   });
   ok("8 …and a completion with the copy is refused (409), no account", forged.status() === 409 && (await users(w8.email)) === 0);
   await b.close();
@@ -133,6 +133,7 @@ async function serverCancel(browser: Browser) {
   await pageE.goto(`${BASE}/register/google`);
   await pageE.getByTestId("google-signup-form").waitFor({ state: "visible", timeout: 30_000 });
   await pageE.locator("#g-business").fill(`מאפיית דנה ${stamp}`);
+  await pageE.locator("#g-business-kind").selectOption("AUTHORIZED_DEALER");
   await pageE.locator("#g-terms").check();
   await pageE.getByTestId("google-signup-submit").click();
   await pageE.waitForURL(/\/setup/, { timeout: 30_000 });
@@ -198,6 +199,7 @@ async function onMode(browser: Browser) {
     await page.getByTestId("google-signup-form").waitFor({ state: "visible" });
     ok(`${vp.name} 5 back to Google → the form again (one open ticket)`, (await tickets(who.sub)) === 1);
     await page.locator("#g-business").fill(biz);
+    await page.locator("#g-business-kind").selectOption("AUTHORIZED_DEALER");
     await page.locator("#g-terms").check();
     await page.getByTestId("google-signup-submit").click();
     await page.waitForURL(/\/setup/, { timeout: 30_000 });
