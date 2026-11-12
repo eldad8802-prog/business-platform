@@ -122,13 +122,13 @@ async function main() {
 
   console.log("E — the seven tracks, end to end, through the real service");
   {
-    // T1 — repair at the business: intake confirmed by the owner, QA (IN_SHOP.v1), owner-confirmed handover
+    // T1 — repair at the business: intake confirmed by the owner, QA (IN_SHOP.v2), owner-confirmed handover
     const c = await open(A, { track: "T1", subject: { displayName: "טלפון סינתטי" } });
     const r0 = await row(A, c.id);
     ok("E1 T1 opens IN_SHOP / REPAIR / AT_BUSINESS with the profile snapshot taken now (D14)", r0.kind === "IN_SHOP" && r0.workType === "REPAIR" && r0.serviceLocation === "AT_BUSINESS" && r0.profileKey === "general" && r0.profileSnapshot !== null && r0.deviceId !== null, JSON.stringify({ k: r0.kind, w: r0.workType, p: r0.profileKey }));
     ok("E1 the intake must be confirmed (no signature): CHECK_IN without it refused", (await act(A, c.id, { type: "CHECK_IN", intakeConfirmed: true })).includes("INTAKE_INCOMPLETE"));
     const path = [await intake(A, c.id), await walk(A, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }]),
-      await qa(A, c.id, "IN_SHOP.v1"), await walk(A, c.id, [{ type: "PASS_QA", outcome: "REPAIRED" }]),
+      await qa(A, c.id, "IN_SHOP.v2"), await walk(A, c.id, [{ type: "PASS_QA", outcome: "REPAIRED" }]),
       await charge(A, c.id, { mode: "NO_CHARGE", reason: "תיקון באחריות" }),
       await walk(A, c.id, [{ type: "DELIVER", receipt: { handoverConfirmed: true, receivedByName: "דנה" } }, { type: "CLOSE" }])];
     const r1 = await row(A, c.id);
@@ -139,19 +139,39 @@ async function main() {
     // E1b — a failed QA round: the stamp of the earlier complete checklist does not carry into the next round
     const c = await open(A, { track: "T1", subject: { displayName: "טלפון סינתטי ב" } });
     const pre = [await intake(A, c.id), await walk(A, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }]),
-      await qa(A, c.id, "IN_SHOP.v1"), await walk(A, c.id, [{ type: "FAIL_QA" }, { type: "FINISH_REPAIR" }])];
+      await qa(A, c.id, "IN_SHOP.v2"), await walk(A, c.id, [{ type: "FAIL_QA" }, { type: "FINISH_REPAIR" }])];
     const stamp = (await own(A.b, `SELECT "qaCompletedAt" FROM "ServiceCase" WHERE id = $1`, c.id))[0].qaCompletedAt;
     const again = await act(A, c.id, { type: "PASS_QA", outcome: "REPAIRED" });
     ok("E1b after FAIL_QA and a new repair the case is back in QA with no completion stamp", pre.every((s) => s === "OK") && (await row(A, c.id)).status === "QA" && stamp === null, pre.join(" | "));
     ok("E1b PASS_QA without a fresh checklist is refused (QA_INCOMPLETE)", again.includes("QA_INCOMPLETE"), again);
-    const fresh = [await qa(A, c.id, "IN_SHOP.v1"), await walk(A, c.id, [{ type: "PASS_QA", outcome: "REPAIRED" }])];
+    const fresh = [await qa(A, c.id, "IN_SHOP.v2"), await walk(A, c.id, [{ type: "PASS_QA", outcome: "REPAIRED" }])];
     ok("E1b a fresh complete checklist lets PASS_QA through", fresh.every((s) => s === "OK") && (await row(A, c.id)).status === "READY", fresh.join(" | "));
+  }
+  {
+    // E1c — owner 2026-11-12: T1 QA is REQUIRED but its built-in IN_SHOP.v2 checklist is a suggestion: no check must PASS,
+    // yet the checklist must have been performed (every check recorded) — a single click does not complete it.
+    const c = await open(A, { track: "T1", subject: { displayName: "טלפון סינתטי ג" } });
+    const pre = [await intake(A, c.id), await walk(A, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }])];
+    const one = await tryIt(async () => { const v = (await row(A, c.id)).version; await recordQa(A.p, c.id, { results: { powers_on: "PASS" }, expectedVersion: v }, { idempotencyKey: key() }); return "OK"; });
+    const stamp1 = (await own(A.b, `SELECT "qaCompletedAt" FROM "ServiceCase" WHERE id = $1`, c.id))[0].qaCompletedAt;
+    const refused = await act(A, c.id, { type: "PASS_QA", outcome: "REPAIRED" });
+    ok("E1c one recorded check on a REQUIRED track: stored, NOT completed, PASS_QA refused (QA_INCOMPLETE)",
+      pre.every((s) => s === "OK") && one === "OK" && stamp1 === null && refused.includes("QA_INCOMPLETE"), `${pre.join(" | ")} ${one} ${refused}`);
+    const allFail = await tryIt(async () => {
+      const v = (await row(A, c.id)).version;
+      await recordQa(A.p, c.id, { results: Object.fromEntries(QA_TEMPLATE_BY_ID["IN_SHOP.v2"].items.map((i) => [i.key, "FAIL"])), expectedVersion: v }, { idempotencyKey: key() });
+      return "OK";
+    });
+    const stored = (await own(A.b, `SELECT "qaCompletedAt" IS NOT NULL done, "qaChecklist"->>'template' t FROM "ServiceCase" WHERE id = $1`, c.id))[0];
+    ok("E1c every check recorded (all FAILED) → completed against IN_SHOP.v2 — no built-in check must PASS; the owner then decides FAIL_QA",
+      allFail === "OK" && stored.done === true && stored.t === "IN_SHOP.v2", `${allFail} ${JSON.stringify(stored)}`);
+    ok("E1c … FAIL_QA stays available (back to repair)", (await walk(A, c.id, [{ type: "FAIL_QA" }])) === "OK" && (await row(A, c.id)).status === "IN_REPAIR");
   }
   {
     // T2 — a vehicle at the business: VEHICLE.v1 checklist
     const c = await open(A, { track: "T2", subject: { displayName: "רכב סינתטי", attributes: { plate: "12-345-67", km: 120000 } } });
     const path = [await intake(A, c.id), await walk(A, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }])];
-    ok("E2 T2: QA with the IN_SHOP checklist is refused (the track's template is VEHICLE.v1)", (await qa(A, c.id, "IN_SHOP.v1")).startsWith("INVALID_INPUT"));
+    ok("E2 T2: QA with the IN_SHOP checklist is refused (the track's template is VEHICLE.v1)", (await qa(A, c.id, "IN_SHOP.v2")).startsWith("INVALID_INPUT"));
     path.push(await qa(A, c.id, "VEHICLE.v1"), await walk(A, c.id, [{ type: "PASS_QA", outcome: "REPAIRED" }]));
     const sub = (await own(A.b, `SELECT "subjectKind"::text k, attributes FROM "ServiceDevice" WHERE id = (SELECT "deviceId" FROM "ServiceCase" WHERE id = $1)`, c.id))[0];
     ok("E2 T2: vehicle subject created with its attributes → QA (VEHICLE.v1) → READY", path.every((s) => s === "OK") && (await row(A, c.id)).status === "READY" && sub?.k === "VEHICLE", path.join(" | "));

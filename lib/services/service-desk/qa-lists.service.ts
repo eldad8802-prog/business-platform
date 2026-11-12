@@ -31,7 +31,7 @@ import {
   type PlannedVersion,
 } from "./qa-lists.core";
 import { caseQaChoice, qaListsSchemaReady, readVersion } from "./qa-lists.store";
-import { QA_TEMPLATE_BY_ID, qaTemplateFor } from "./qa-templates";
+import { qaTemplateFor, qaTemplateForHistory } from "./qa-templates";
 import type { QaMode } from "./service-profiles";
 import type { ServiceCaseKind, ServiceCaseStatus } from "./contracts";
 import { ServiceDeskError } from "./service-desk-errors";
@@ -398,7 +398,7 @@ export async function getCaseQa(businessId: number, caseId: unknown): Promise<Ca
          WHERE x."businessId" = ${b}::int AND r."caseId" = ${caseId}::int
          ORDER BY x."recordId", i.position NULLS LAST, x.id`;
       for (const r of recs) {
-        const template = r.templateId ? QA_TEMPLATE_BY_ID[String(r.templateId)] : undefined;
+        const template = r.templateId ? qaTemplateForHistory(String(r.templateId)) ?? undefined : undefined; // a retired v1 id: its frozen labels / order
         const order = (k: string) => template ? template.items.findIndex((i) => i.key === k) : 0;
         const mine = results.filter((x) => Number(x.recordId) === Number(r.id));
         if (template) mine.sort((a, z) => order(String(a.itemKey)) - order(String(z.itemKey)));

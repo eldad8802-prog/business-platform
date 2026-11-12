@@ -3,15 +3,17 @@
  * (qa-lists.service.ts) reads and writes; this decides.
  *
  * Owner decision 2026-11-11: every business that uses Service Desk defines its own QA lists — nothing depends on its
- * category. A list starts empty or from a built-in SUGGESTED template (qa-templates.ts, copied — never linked); the
- * business names it, adds / removes / reorders checks and decides per check whether it is REQUIRED. Every edit is a new
+ * category. A list starts empty or from a built-in SUGGESTED template (qa-templates.ts, copied — never linked; every
+ * built-in check is optional, owner 2026-11-12, so a copy starts all-optional); the business names it, adds / removes / reorders checks and decides per check whether it is REQUIRED. Every edit is a new
  * immutable version; a case names the version it is checked against, so an edit never reaches an older case.
  *
  *   parseListInput      the body of a create / revise: a name and the checks (or, on a create, a template to copy)
  *   planNewList         version 1: the template's checks or the given ones, every check keyed (stable token)
  *   planRevision        the next version against the current one: a kept check keeps its key; NO_CHANGE refused
  *   evaluateChecklist   results against ANY checklist (a list version or a built-in template): PASS / FAIL per check, an
- *                       optional note; complete only when every REQUIRED check PASSES; unknown keys / values refused
+ *                       optional note; complete only when every REQUIRED check PASSES (and, for a built-in template —
+ *                       every check a suggestion, owner 2026-11-12 — only when every check is recorded); unknown keys /
+ *                       values refused
  *   decideChoice        whether a case may name a list now (the track's QA mode, its status, the list's state)
  */
 import { QA_TEMPLATE_BY_ID, type QaTemplate } from "./qa-templates";
@@ -153,10 +155,12 @@ export type ChecklistEvaluation =
 /**
  * Results against a checklist: `{ <key>: "PASS" | "FAIL" | { result: "PASS" | "FAIL", note?: string } }`. Every key must be
  * a check of THIS checklist and every value a result (unknown keys / values refused, never ignored); at least one result;
- * a note 1–500 characters (trimmed; blank = none) only when `notes` is allowed. Complete ⇔ every REQUIRED check PASS.
+ * a note 1–500 characters (trimmed; blank = none) only when `notes` is allowed. Complete ⇔ every REQUIRED check PASS and,
+ * with `everyCheckRecorded` (a built-in template: its checks are suggestions, so completing it means it was performed),
+ * every check recorded — PASS or FAIL.
  * Results come back in the checklist's order.
  */
-export function evaluateChecklist(items: readonly { key: string; required: boolean }[], results: unknown, opts: { notes: boolean }): ChecklistEvaluation {
+export function evaluateChecklist(items: readonly { key: string; required: boolean }[], results: unknown, opts: { notes: boolean; everyCheckRecorded?: boolean }): ChecklistEvaluation {
   if (!results || typeof results !== "object" || Array.isArray(results)) return { ok: false, field: "results" };
   const entries = Object.entries(results as Record<string, unknown>);
   if (entries.length === 0) return { ok: false, field: "results" };
@@ -184,7 +188,7 @@ export function evaluateChecklist(items: readonly { key: string; required: boole
   const passed = out.filter((r) => r.result === "PASS").length;
   return {
     ok: true,
-    completed: requiredFailed === 0 && requiredMissing === 0,
+    completed: requiredFailed === 0 && requiredMissing === 0 && (opts.everyCheckRecorded !== true || out.length === items.length),
     results: out,
     counts: { items: items.length, recorded: out.length, passed, failed: out.length - passed, requiredFailed, requiredMissing },
   };

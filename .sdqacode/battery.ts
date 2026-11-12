@@ -24,6 +24,7 @@ import { PrismaClient } from "@prisma/client";
 import { uuidV7 } from "../lib/services/tasks/task-idempotency";
 import { ServiceDeskError } from "../lib/services/service-desk/service-desk-errors";
 import { openCase, recordQa, runCaseAction, type OpenCaseInput, type ServiceDeskPrincipal } from "../lib/services/service-desk/service-case.service";
+import { QA_TEMPLATE_BY_ID } from "../lib/services/service-desk/qa-templates";
 import {
   chooseCaseQaList, createQaList, getCaseQa, getQaList, listQaLists, reviseQaList, setQaListArchived, type QaListDetail,
 } from "../lib/services/service-desk/qa-lists.service";
@@ -229,6 +230,10 @@ async function main() {
   ok("M4 REQUIRED without a list: the built-in INSTALLATION.v1 (as before), recorded per check with its label and note",
     tr === "OK" && trv.checklist?.source === "TEMPLATE" && trv.checklist.templateId === "INSTALLATION.v1" && trv.records.length === 1
       && trv.records[0].templateId === "INSTALLATION.v1" && trv.records[0].results[0].label === "המערכת נבדקה בהפעלה מלאה" && trv.records[0].results[0].note === "נבדק", `${tr} ${JSON.stringify(trv.records)}`);
+  ok("M4b owner 2026-11-12: the built-in checklist is a suggestion but must be performed — one check of five recorded → not complete, PASS_QA refused; all five recorded (one FAILED) → complete",
+    trv.completed === false && trv.records[0].completed === false && (await act(A, t4c.id, { type: "PASS_QA", outcome: "COMPLETED" })).includes("QA_INCOMPLETE")
+      && (await qa(A, t4c.id, Object.fromEntries(QA_TEMPLATE_BY_ID["INSTALLATION.v1"].items.map((i, n) => [i.key, n === 0 ? "FAIL" : "PASS"])))) === "OK"
+      && (await getCaseQa(A.b, t4c.id)).completed === true && (await act(A, t4c.id, { type: "PASS_QA", outcome: "COMPLETED" })) === "OK");
   ok("M5 a QA OFF track's view: mode OFF, no checklist, nothing to choose or record", await (async () => {
     const v = await getCaseQa(A.b, t5.id); return v.mode === "OFF" && v.checklist === null && !v.canChooseList && !v.canRecord;
   })());

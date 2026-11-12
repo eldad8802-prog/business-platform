@@ -19,7 +19,7 @@ import {
   planRevision,
   type QaListInput,
 } from "./qa-lists.core";
-import { QA_TEMPLATES, TRACK_QA_TEMPLATES, evaluateQa } from "./qa-templates";
+import { QA_TEMPLATES, QA_TEMPLATE_BY_ID, RETIRED_QA_TEMPLATES, TRACK_QA_TEMPLATES, evaluateQa, evaluateQaAgainst } from "./qa-templates";
 import type { ServiceCaseStatus, ServiceTrackFacts } from "./contracts";
 
 let pass = 0;
@@ -66,6 +66,8 @@ ok("P6 a template: a known id alone → accepted (checks to copy); an unknown id
     && field(parseListInput({ name: "n", fromTemplate: "BAKERY.v1" }, { allowTemplate: true })) === "fromTemplate"
     && field(parseListInput({ name: "n", fromTemplate: "toString" }, { allowTemplate: true })) === "fromTemplate"
     && field(parseListInput({ name: "n", fromTemplate: "VEHICLE.v1", items: ONE }, { allowTemplate: false })) === "fromTemplate");
+ok("P7b a retired template (IN_SHOP.v1 / FIELD.v1 / MAINTENANCE.v1, the old REQUIRED checks) cannot be copied → fromTemplate",
+  Object.keys(RETIRED_QA_TEMPLATES).length === 3 && Object.keys(RETIRED_QA_TEMPLATES).every((id) => field(parseListInput({ name: "n", fromTemplate: id }, { allowTemplate: true })) === "fromTemplate"));
 
 // ── N: version 1 ───────────────────────────────────────────────────────────────────────────────────────────
 for (const id of [...Object.values(QA_TEMPLATES).map((t) => t.id), ...Object.keys(TRACK_QA_TEMPLATES)]) {
@@ -75,15 +77,25 @@ for (const id of [...Object.values(QA_TEMPLATES).map((t) => t.id), ...Object.key
     v.sourceTemplateId === id && JSON.stringify(v.items) === JSON.stringify(t.items.map((i) => ({ key: i.key, label: i.label, required: i.required })))
       && v.requiredCount === t.items.filter((i) => i.required).length);
 }
-ok("N2 the suggested track templates copy as all-optional (the business then decides per check)",
-  ["VEHICLE.v1", "INSTALLATION.v1", "EXCHANGE.v1", "REMOTE.v1"].every((id) => planNewList(input({ name: "n", fromTemplate: id })).requiredCount === 0));
+ok("N2 every built-in template (all 7, owner 2026-11-12) copies as all-optional (the business then decides per check)",
+  Object.keys(QA_TEMPLATE_BY_ID).length === 7
+    && Object.keys(QA_TEMPLATE_BY_ID).every((id) => { const v = planNewList(input({ name: "n", fromTemplate: id })); return v.requiredCount === 0 && v.items.every((i) => i.required === false); }));
+{
+  // owner requirement 3: copy IN_SHOP.v2, then the business marks two checks REQUIRED, removes one, adds one, reorders
+  const v1 = planNewList(input({ name: "בדיקת מעבדה", fromTemplate: "IN_SHOP.v2" }));
+  const [a, b, c, d, e] = v1.items;
+  const r = planRevision(v1, input({ name: "בדיקת מעבדה", items: [{ ...b, required: true }, { ...a, required: true }, c, e, { label: "צולם לפני מסירה", required: false }] }, false), 2, []);
+  ok("N2b a copied built-in list: the business marks checks REQUIRED, removes / adds / reorders → a new version with its own flags",
+    v1.requiredCount === 0 && r.ok && r.version.requiredCount === 2 && r.changes.requiredChanged === 2 && r.changes.removed === 1 && r.changes.added === 1 && r.changes.reordered
+      && r.version.items[0].key === b.key && r.version.items[0].required && !r.version.items.some((i) => i.key === d.key), JSON.stringify(r));
+}
 const own = planNewList(input({ name: "שלי", items: [{ label: "א", required: true }, { key: "b", label: "ב", required: false }, { label: "ג", required: true }] }));
 ok("N3 own checks: keys kept or fresh (i1_n, never colliding), order kept, REQUIRED counted, no origin",
   JSON.stringify(own.items.map((i) => i.key)) === JSON.stringify(["i1_1", "b", "i1_2"]) && own.requiredCount === 2 && own.sourceTemplateId === null && own.name === "שלי");
 const clash = planNewList(input({ name: "n", items: [{ key: "i1_1", label: "א", required: true }, { label: "ב", required: true }] }));
 ok("N4 a fresh key never repeats a key the request named", clash.items[1].key === "i1_2" && clash.items.every((i) => QA_ITEM_KEY.test(i.key)));
 ok("N5 the template's items with own checks: the given checks win, the template is only the origin",
-  (() => { const v = planNewList(input({ name: "n", fromTemplate: "IN_SHOP.v1", items: ONE })); return v.items.length === 1 && v.sourceTemplateId === "IN_SHOP.v1"; })());
+  (() => { const v = planNewList(input({ name: "n", fromTemplate: "IN_SHOP.v2", items: ONE })); return v.items.length === 1 && v.sourceTemplateId === "IN_SHOP.v2"; })());
 
 // ── R: the next version ────────────────────────────────────────────────────────────────────────────────────
 const CUR = { name: "בדיקה", items: [{ key: "a", label: "א", required: true }, { key: "b", label: "ב", required: false }, { key: "c", label: "ג", required: true }] };
@@ -130,10 +142,19 @@ for (const k of ["IN_SHOP", "FIELD", "MAINTENANCE", "REMOTE"] as const) {
   const t = QA_TEMPLATES[k];
   const r = Object.fromEntries(t.items.map((i, n) => [i.key, n === 0 ? "FAIL" : "PASS"]));
   const a = evaluateQa(k, r);
-  const b = evaluateChecklist(t.items, r, { notes: false });
+  const b = evaluateChecklist(t.items, r, { notes: false, everyCheckRecorded: t.everyCheckRecorded });
   ok(`E12 ${k}: the built-in template judged by the new evaluator = evaluateQa (completed and every count)`,
     a.ok && b.ok && a.completed === b.completed && JSON.stringify(a.counts) === JSON.stringify(b.counts));
 }
+ok("E13 every built-in template (7): every check recorded, all FAIL → complete; one left out → not; both evaluators agree",
+  Object.values(QA_TEMPLATE_BY_ID).every((t) => {
+    const all = Object.fromEntries(t.items.map((i) => [i.key, "FAIL"]));
+    const part = Object.fromEntries(t.items.slice(1).map((i) => [i.key, "PASS"]));
+    const [a1, b1, a2, b2] = [evaluateQaAgainst(t, all), evaluateChecklist(t.items, all, { notes: true, everyCheckRecorded: true }), evaluateQaAgainst(t, part), evaluateChecklist(t.items, part, { notes: true, everyCheckRecorded: true })];
+    return a1.ok && b1.ok && a2.ok && b2.ok && a1.completed && b1.completed && !a2.completed && !b2.completed && JSON.stringify(a2.counts) === JSON.stringify(b2.counts);
+  }));
+ok("E14 a business list never needs every check: without everyCheckRecorded an all-optional list completes with one result",
+  (() => { const e = evaluateChecklist([{ key: "x", required: false }, { key: "y", required: false }], { x: "FAIL" }, { notes: false }); return e.ok && e.completed; })());
 
 // ── C: the case's choice ───────────────────────────────────────────────────────────────────────────────────
 const L = { listId: 7, currentVersion: 3, archived: false };
