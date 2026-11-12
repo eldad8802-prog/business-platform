@@ -50,6 +50,7 @@ import { settlementForCore, type SettlementReader } from "./settlement";
 import { readCaseSettlement } from "./case-settlement-reader";
 import { evaluateQa } from "./qa-templates";
 import { releaseCaseReservations } from "./part-release";
+import { deriveIdempotencyKey } from "./idempotency-key";
 import { supersedeOpenQuote, withdrawOpenQuote, type FrozenQuote } from "./quote-rows";
 import { countDetailBlockers, createSubject, creditDocumentLinked, loadTrackState, planOpening, subjectKindOf, verifyTrackFits, type TrackState } from "./tracks.service";
 import { buildTrackFacts, decideAfterSale, planTrackOpening, subjectFitsTrack } from "./tracks.core";
@@ -1160,7 +1161,7 @@ export async function chooseAfterSaleResolution(
       // the first step's event names the resolution (a token; the payload object is the core's fresh copy)
       const d = i === 0 ? { ...judged, event: { ...judged.event, payload: { ...judged.event.payload, afterSaleResolution: choice.resolution } } } : judged;
       await verifyServerChecks(tx, b, d.serverChecks, { staffMemberId: ctx.staffMemberId, signatureKey: locked.signatureKey, caseId, track: locked.track, decision: d });
-      const stepPrepared = i === 0 ? prepared : { ...prepared, key: `${prepared.key}#${i + 1}` };
+      const stepPrepared = i === 0 ? prepared : { ...prepared, key: deriveIdempotencyKey(prepared.key, i + 1) };
       seq = await commitTransition(tx, b, caseId, ctx, d, p.userId, stepPrepared);
       ctx = { ...ctx, status: d.to, holdReason: d.holdReason, outcome: d.outcome, cancellationRequested: d.cancellationRequestedAfter, version: seq };
     }
