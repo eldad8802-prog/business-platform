@@ -175,6 +175,9 @@ on:
           - 'ops/evidence/service-desk-no-signature-counts.sql'
           - 'ops/evidence/auth-issuer-declaration-link-preflight.sql'
           - 'ops/evidence/auth-issuer-declaration-link-production-evidence.sql'
+          - 'ops/evidence/signup-legal-identity-preflight.sql'
+          - 'ops/evidence/signup-legal-identity-production-evidence.sql'
+          - 'ops/evidence/legal-identity-existing-accounts.sql'
 
 permissions:
   contents: read
