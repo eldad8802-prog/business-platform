@@ -12,11 +12,11 @@
 \echo ' 1 no finished migration sorts after 20261128090000_signup_legal_identity (observed = rows)'
 \echo ' 2 20261128090000 is not in the ledger (observed = rows)'
 \echo ' 3 BusinessProfile has neither legalIdentityConfirmedAt nor legalIdentitySource yet (observed = of 2)'
-\echo ' 4 none of its five functions exists yet (observed = of 5)'
+\echo ' 4 none of its six functions exists yet (observed = of 6)'
 \echo ' 5 no BusinessProfile_legal_identity_* trigger yet (observed = triggers)'
 \echo ' 6 the roles exist: app_auth, app_runtime (observed = of 2)'
 \echo ' 7 BusinessProfile is under FORCE row level security (observed = 1 when forced)'
-\echo ' 8 app_runtime may modify BusinessProfile rows but may not remove them (observed = 1 when both hold)'
+\echo ' 8 app_runtime may modify BusinessProfile rows (observed = 1 when it may)'
 \echo ' 9 the columns it reads and writes exist: BusinessProfile businessId + 6 billing identity columns, Business deletionRequestedAt + deletedAt (observed = of 9)'
 \echo '10 the xid8 -> xid cast its "created in this transaction" test uses exists (observed = casts)'
 \echo '11 app_auth holds no privilege on BusinessProfile (the seed writes through the definer function) (observed = privileges)'
@@ -29,7 +29,7 @@ bp  AS (SELECT c.oid, c.relforcerowsecurity FROM pg_class c WHERE c.relnamespace
 biz AS (SELECT c.oid FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname = 'Business' AND c.relkind = 'r'),
 fns AS (SELECT p.oid FROM pg_proc p WHERE p.pronamespace = (SELECT oid FROM pub) AND p.proname IN
          ('signup_legal_identity_seed', 'legal_identity_confirm_existing', 'legal_identity_tax_id_ok',
-          'legal_identity_business_is_being_deleted', 'legal_identity_lock')),
+          'legal_identity_business_is_being_deleted', 'legal_identity_lock', 'legal_identity_no_delete')),
 trg AS (SELECT t.oid FROM pg_trigger t WHERE t.tgrelid = (SELECT oid FROM bp) AND t.tgname LIKE 'BusinessProfile\_legal\_identity\_%'),
 cols AS (SELECT count(*) AS n FROM pg_attribute a WHERE NOT a.attisdropped AND (
            (a.attrelid = (SELECT oid FROM bp) AND a.attname IN ('businessId', 'billingBusinessKind', 'billingLegalName', 'billingTaxId',
@@ -52,10 +52,8 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 6, (SELECT count(*) FROM pg_roles WHERE rolname IN ('app_auth', 'app_runtime')) = 2,
                       (SELECT count(*) FROM pg_roles WHERE rolname IN ('app_auth', 'app_runtime'))
   UNION ALL SELECT 7, coalesce((SELECT relforcerowsecurity FROM bp), false), (SELECT count(*) FROM bp WHERE relforcerowsecurity)
-  UNION ALL SELECT 8, has_table_privilege('app_runtime', (SELECT oid FROM bp), 'UPD' || 'ATE')
-                      AND NOT has_table_privilege('app_runtime', (SELECT oid FROM bp), 'DEL' || 'ETE'),
-                      CASE WHEN has_table_privilege('app_runtime', (SELECT oid FROM bp), 'UPD' || 'ATE')
-                            AND NOT has_table_privilege('app_runtime', (SELECT oid FROM bp), 'DEL' || 'ETE') THEN 1 ELSE 0 END
+  UNION ALL SELECT 8, has_table_privilege('app_runtime', (SELECT oid FROM bp), 'UPD' || 'ATE'),
+                      CASE WHEN has_table_privilege('app_runtime', (SELECT oid FROM bp), 'UPD' || 'ATE') THEN 1 ELSE 0 END
   UNION ALL SELECT 9, (SELECT n FROM cols) = 9, (SELECT n FROM cols)
   UNION ALL SELECT 10, (SELECT n FROM xcast) = 1, (SELECT n FROM xcast)
   UNION ALL SELECT 11, (SELECT n FROM authpriv) = 0, (SELECT n FROM authpriv)

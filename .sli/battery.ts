@@ -208,7 +208,7 @@ async function main() {
   console.log("L9 deletion");
   const live = await signup();
   const e9 = await fails(() => asTenant(live, (tx) => tx.$executeRawUnsafe(`DELETE FROM "BusinessProfile" WHERE "businessId" = $1`, live)));
-  ok("L9 the runtime cannot delete a profile row (no DELETE grant)", !!e9 && DENIED.test(e9), e9 ?? "allowed");
+  ok("L9 the runtime cannot delete a confirmed profile (DZL05, or no DELETE grant)", !!e9 && (/DZL05/.test(e9) || DENIED.test(e9)), e9 ?? "allowed");
   const e9a = await fails(() => update(live, `"billingLegalName" = NULL`));
   ok("L9 a live business cannot clear a locked column (DZL04)", !!e9a && /DZL04/.test(e9a), e9a ?? "allowed");
   await owner.$executeRawUnsafe(`UPDATE "Business" SET "deletionRequestedAt" = now() WHERE id = $1`, live);
@@ -236,9 +236,9 @@ async function main() {
            COALESCE(p.proacl::text, '') LIKE '%=X/%' AS public_exec
       FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN
       ('signup_legal_identity_seed','legal_identity_confirm_existing','legal_identity_tax_id_ok',
-       'legal_identity_business_is_being_deleted','legal_identity_lock')`)) as Rows;
+       'legal_identity_business_is_being_deleted','legal_identity_lock','legal_identity_no_delete')`)) as Rows;
   const by = Object.fromEntries(acl.map((r) => [r.proname as string, r]));
-  ok("L12 five functions exist", acl.length === 5, String(acl.length));
+  ok("L12 six functions exist", acl.length === 6, String(acl.length));
   ok("L12 PUBLIC executes none", acl.every((r) => r.public_exec === false));
   ok("L12 seed: app_auth yes, runtime no", by.signup_legal_identity_seed?.auth === true && by.signup_legal_identity_seed?.rt === false);
   ok("L12 confirm: runtime yes, app_auth no", by.legal_identity_confirm_existing?.rt === true && by.legal_identity_confirm_existing?.auth === false);

@@ -24,7 +24,7 @@
 -- the runtime and clears these columns only after stage 1 committed Business.deletionRequestedAt).
 --
 -- Independent of the issuer declaration (#1091 20261123090000, #1105 20261126090000): names none of their objects,
--- and must be applied AFTER both (it sorts after them). Codes: DZL01..DZL04. Messages never carry a value.
+-- and must be applied AFTER both (it sorts after them). Codes: DZL01..DZL05. Messages never carry a value.
 
 SET lock_timeout = '3s';
 
@@ -179,8 +179,24 @@ CREATE TRIGGER "BusinessProfile_legal_identity_insert"
   BEFORE INSERT ON "BusinessProfile"
   FOR EACH ROW EXECUTE FUNCTION public.legal_identity_lock();
 
--- No DELETE guard: the runtime holds no DELETE on "BusinessProfile" (20260915120000), and the account purge clears
--- columns rather than deleting the row. The lab proves the runtime's DELETE is refused.
+-- A confirmed profile is never deleted by anyone but the owner while the business lives: delete-and-recreate would
+-- otherwise reset the lock. Independent of whether the runtime holds DELETE today (not assumed). The account purge
+-- clears columns of a business being deleted and is let through.
+CREATE OR REPLACE FUNCTION public.legal_identity_no_delete()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $fn$
+BEGIN
+  IF current_user <> (SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = TG_RELID)
+     AND OLD."legalIdentityConfirmedAt" IS NOT NULL
+     AND NOT public.legal_identity_business_is_being_deleted(OLD."businessId") THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZL05', MESSAGE = 'LEGAL_IDENTITY_LOCKED';
+  END IF;
+  RETURN OLD;
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.legal_identity_no_delete() FROM PUBLIC;
+CREATE TRIGGER "BusinessProfile_legal_identity_no_delete"
+  BEFORE DELETE ON "BusinessProfile"
+  FOR EACH ROW EXECUTE FUNCTION public.legal_identity_no_delete();
 
 -- ---------------------------------------------------------------- privileges (minimal)
 -- The owner's DEFAULT PRIVILEGES may hand new functions to the application roles: take everything back first, then
@@ -192,6 +208,7 @@ REVOKE ALL ON FUNCTION public.legal_identity_business_is_being_deleted(integer) 
 REVOKE ALL ON FUNCTION public.signup_legal_identity_seed(integer, text, text, text, text, text, text) FROM app_runtime, app_auth;
 REVOKE ALL ON FUNCTION public.legal_identity_confirm_existing(integer) FROM app_runtime, app_auth;
 REVOKE ALL ON FUNCTION public.legal_identity_lock() FROM app_runtime, app_auth;
+REVOKE ALL ON FUNCTION public.legal_identity_no_delete() FROM app_runtime, app_auth;
 GRANT EXECUTE ON FUNCTION public.legal_identity_business_is_being_deleted(integer) TO app_runtime;
 GRANT EXECUTE ON FUNCTION public.signup_legal_identity_seed(integer, text, text, text, text, text, text) TO app_auth;
 GRANT EXECUTE ON FUNCTION public.legal_identity_confirm_existing(integer) TO app_runtime;
