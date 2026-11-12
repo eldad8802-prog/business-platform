@@ -8,6 +8,8 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/signup-identity";
 import { SIGNUP_HONEYPOT_FIELD } from "@/lib/auth/signup-honeypot";
 import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
+import { flushAuthCookies } from "@/lib/native/auth-cookies";
+import { clearPendingRevoke, finishPendingRevokeBeforeSignIn } from "@/lib/client-session";
 
 import styles from "./register.module.css";
 
@@ -17,6 +19,7 @@ const PRIVACY_HREF = "/privacy";
 type RegisterErrors = {
   name?: string;
   businessName?: string;
+  businessKind?: string;
   email?: string;
   password?: string;
   acceptTerms?: string;
@@ -35,6 +38,7 @@ export default function RegisterForm({
 
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
+  const [businessKind, setBusinessKind] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
@@ -123,6 +127,7 @@ export default function RegisterForm({
     if (businessNameError) nextErrors.businessName = businessNameError;
     if (emailError) nextErrors.email = emailError;
     if (passwordError) nextErrors.password = passwordError;
+    if (!businessKind) nextErrors.businessKind = t("account.auth.register.errors.businessKindRequired");
     if (!acceptTerms) nextErrors.acceptTerms = t("account.auth.register.errors.termsRequired");
 
     setErrors(nextErrors);
@@ -174,6 +179,7 @@ export default function RegisterForm({
     setTouched({
       name: true,
       businessName: true,
+      businessKind: true,
       email: true,
       password: true,
       acceptTerms: true,
@@ -187,6 +193,10 @@ export default function RegisterForm({
       setLoading(true);
       setErrors({});
 
+      // An earlier "clear anyway" sign-out still pending: finish it while the
+      // cookie that proves it is in the jar — the new account replaces it.
+      await finishPendingRevokeBeforeSignIn();
+
       const registerRes = await fetch("/api/auth/register", {
         method: "POST",
         headers: {
@@ -195,6 +205,7 @@ export default function RegisterForm({
         body: JSON.stringify({
           name: name.trim(),
           businessName: businessName.trim(),
+          businessKind,
           email: email.trim(),
           password,
           acceptTerms,
@@ -243,6 +254,10 @@ export default function RegisterForm({
       // Stored exactly as login stores it; the refresh credential arrived as an
       // httpOnly cookie on this same response and never touches JavaScript.
       localStorage.setItem("token", registerData.token);
+      // Android app: the session cookie this response set goes to disk now, not ~30 s later.
+      void flushAuthCookies();
+      // The new cookie replaced the one an older pending sign-out was about.
+      clearPendingRevoke();
 
       if (registerData.sessionId) {
         localStorage.setItem("sessionId", registerData.sessionId);
@@ -378,6 +393,27 @@ export default function RegisterForm({
               {fieldError("businessName") ? (
                 <p id="reg-business-msg" role="alert" className={styles.error}>{fieldError("businessName")}</p>
               ) : null}
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="reg-business-kind">{t("account.auth.register.businessKind.label")}</label>
+              <select
+                id="reg-business-kind"
+                name="businessKind"
+                className={`${styles.input} ${fieldError("businessKind") ? styles.invalid : ""}`}
+                value={businessKind}
+                onChange={(e) => setBusinessKind(e.target.value)}
+                onBlur={() => setTouched((prev) => ({ ...prev, businessKind: true }))}
+                aria-invalid={!!fieldError("businessKind")}
+                aria-describedby={fieldError("businessKind") ? "reg-business-kind-msg" : undefined}
+                data-testid="signup-business-kind"
+              >
+                <option value="" disabled>{t("account.auth.register.businessKind.placeholder")}</option>
+                <option value="EXEMPT_DEALER">{t("account.auth.register.businessKind.EXEMPT_DEALER")}</option>
+                <option value="AUTHORIZED_DEALER">{t("account.auth.register.businessKind.AUTHORIZED_DEALER")}</option>
+                <option value="LTD_COMPANY">{t("account.auth.register.businessKind.LTD_COMPANY")}</option>
+              </select>
+              {fieldError("businessKind") ? <p id="reg-business-kind-msg" role="alert" className={styles.error}>{fieldError("businessKind")}</p> : null}
             </div>
 
             <div className={`${styles.field} ${styles.gridWide}`}>
