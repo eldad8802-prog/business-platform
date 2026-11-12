@@ -153,11 +153,11 @@ const CLOSE = (by: number, approver: number | null, note: string | null = "הל�
   ({ set: `state = 'CLOSED', "closedByUserId" = ${by}, "closeReason" = 'LOST', "closeNote" = ${note === null ? "NULL" : `'${note}'`}, "closeApprovedByUserId" = ${approver === null ? "NULL" : approver}, "closedAt" = now(), "closeApprovedAt" = now()`, evActor: by });
 const change = (z: Biz, loanId: number, kind: string, o: Change = {}, client = runtime) => inTx(client, z.b, (tx) => changeTx(tx, z, loanId, kind, o));
 /** The case exit approval for every OUT loan of the case, bound to the case event just written (seq = version). */
-async function exitApproveTx(tx: Tx, z: Biz, caseId: number, kind: "CANCEL_OPEN_LOANER" | "ABANDON_OPEN_LOANER", o: Partial<{ caseSeq: number; approver: number; reason: string | null }> = {}) {
+async function exitApproveTx(tx: Tx, z: Biz, caseId: number, kind: "CANCEL_OPEN_LOANER" | "ABANDON_OPEN_LOANER", o: Partial<{ caseSeq: number; approver: number | null; reason: string | null }> = {}) {
   const v = Number(((await tx.$queryRawUnsafe(`SELECT version FROM "ServiceCase" WHERE id = $1`, caseId)) as Rows)[0].version);
   const loans = (await tx.$queryRawUnsafe(`SELECT id FROM "ServiceLoan" WHERE "caseId" = $1 AND state = 'OUT' ORDER BY id FOR UPDATE`, caseId)) as Rows;
   for (const l of loans) {
-    await changeTx(tx, z, Number(l.id), "CASE_EXIT_APPROVED", { evApprovalKind: kind, evApprover: o.approver ?? z.u, evReason: o.reason === undefined ? "הלקוח יחזיר בשבוע הבא" : o.reason, caseSeq: o.caseSeq ?? v });
+    await changeTx(tx, z, Number(l.id), "CASE_EXIT_APPROVED", { evApprovalKind: kind, evApprover: o.approver === undefined ? z.u : o.approver, evReason: o.reason === undefined ? "הלקוח יחזיר בשבוע הבא" : o.reason, caseSeq: o.caseSeq ?? v });
   }
 }
 const state = async (z: Biz, loanId: number) => (await rowsOf(owner, z.b, `SELECT state::text s, version v, "lastEventKind"::text k FROM "ServiceLoan" WHERE id = $1`, loanId))[0];
@@ -319,7 +319,7 @@ async function main() {
     const l = await loanOf(A, c);
     ok("C1 without an approver → refused", has(await change(A, l, "CLOSED", CLOSE(A.u, null)), /SERVICE_LOAN_CLOSE_UNAPPROVED|ServiceLoan_state_shape/));
     ok("C2 without a reason → refused", has(await change(A, l, "CLOSED", CLOSE(A.u, A.u, null)), /SERVICE_LOAN_CLOSE_UNAPPROVED|ServiceLoan_state_shape/));
-    ok("C3 an approver other than the actor (same business) → refused SERVICE_APPROVER_NOT_ACTOR", has(await change(A, l, "CLOSED", CLOSE(A.u, A2)), "SERVICE_APPROVER_NOT_ACTOR"));
+    ok("C3 an approver other than the actor (same business) → refused SERVICE_APPROVER_NOT_ACTOR (by the loan row itself)", has(await change(A, l, "CLOSED", { ...CLOSE(A.u, A2), evApprover: A.u }), "SERVICE_APPROVER_NOT_ACTOR"));
     ok("C4 the close event without its approval kind / approver / reason → refused (the event mirrors the loan; CHECK ServiceLoanEvent_approval)",
       has(await change(A, l, "CLOSED", { ...CLOSE(A.u, A.u), evApprovalKind: null, evApprover: null, evReason: null }), /ServiceLoanEvent_approval|SERVICE_LOAN_EVENT_MISMATCH/)
       && has(await change(A, l, "CLOSED", { ...CLOSE(A.u, A.u), evApprovalKind: null }), /ServiceLoanEvent_approval/));
@@ -340,6 +340,7 @@ async function main() {
     ok("E3 an approval bound to an older case seq → refused", has(await inTx(runtime, A.b, async (tx) => { await cancel(tx); await exitApproveTx(tx, A, c, "CANCEL_OPEN_LOANER", { caseSeq: 2 }); }), "SERVICE_LOAN_EXIT_NOT_BOUND"));
     ok("E4 an approval written BEFORE the cancel event (nothing to bind to) → refused", has(await inTx(runtime, A.b, async (tx) => { await exitApproveTx(tx, A, c, "CANCEL_OPEN_LOANER"); await cancel(tx); }), "SERVICE_LOAN_EXIT_NOT_BOUND"));
     ok("E5 an approval without a reason → refused", has(await inTx(runtime, A.b, async (tx) => { await cancel(tx); await exitApproveTx(tx, A, c, "CANCEL_OPEN_LOANER", { reason: null }); }), /SERVICE_LOAN_EVENT_UNAPPROVED|ServiceLoanEvent_approval/));
+    ok("E5b an approval with a reason but no approver → refused SERVICE_LOAN_EVENT_UNAPPROVED", has(await inTx(runtime, A.b, async (tx) => { await cancel(tx); await exitApproveTx(tx, A, c, "CANCEL_OPEN_LOANER", { approver: null }); }), "SERVICE_LOAN_EVENT_UNAPPROVED"));
     ok("E6 an approver other than the actor → refused", has(await inTx(runtime, A.b, async (tx) => { await cancel(tx); await exitApproveTx(tx, A, c, "CANCEL_OPEN_LOANER", { approver: A2 }); }), "SERVICE_APPROVER_NOT_ACTOR"));
     ok("E7 CANCEL with the approval bound to its event → CANCELLED", (await inTx(runtime, A.b, async (tx) => { await cancel(tx); await exitApproveTx(tx, A, c, "CANCEL_OPEN_LOANER"); })) === "OK");
     const s = await state(A, l), ev = (await events(A, l))[1];
@@ -352,6 +353,12 @@ async function main() {
     const req = (tx: Tx) => moveTx(tx, A.b, x, "EXTERNAL", "CANCEL", "case.cancellation_requested", `"cancellationRequested" = true, "cancelReason" = 'בוטל', "cancelledAt" = now()`);
     ok("E9 a cancel REQUEST at the supplier with the loan out → refused without, accepted with the approval",
       has(await inTx(runtime, A.b, req), "SERVICE_LOAN_CANCEL_UNAPPROVED") && (await inTx(runtime, A.b, async (tx) => { await req(tx); await exitApproveTx(tx, A, x, "CANCEL_OPEN_LOANER"); })) === "OK");
+    const lx = await loanOf(A, x);
+    const oldSeq = Number((await rowsOf(owner, A.b, `SELECT version FROM "ServiceCase" WHERE id = $1`, x))[0].version);
+    ok("E9b the supplier returns the item (the cancel completes → READY + CANCELLED) with the approval in place → accepted",
+      (await inTx(runtime, A.b, (tx) => moveTx(tx, A.b, x, "READY", "RETURN_FROM_EXTERNAL", "external.returned", `outcome = 'CANCELLED', "cancellationRequested" = false`))) === "OK");
+    ok("E9c a new exit approval bound to that OLDER cancel event (not the case's current version) → refused SERVICE_LOAN_EXIT_NOT_BOUND",
+      has(await change(A, lx, "CASE_EXIT_APPROVED", { evApprovalKind: "CANCEL_OPEN_LOANER", evApprover: A.u, evReason: "שוב", caseSeq: oldSeq }), "SERVICE_LOAN_EXIT_NOT_BOUND"));
     // a held item cancelled → READY (+ CANCELLED)
     const h = await kase(A, TO_REPAIR);
     await lend(A, h, { ident: "EXIT-3" });
@@ -423,15 +430,17 @@ async function main() {
   console.log("P — forged approver / actor");
   {
     const open = await kase(A);
-    ok("P1 a lending exception approved by ANOTHER user of the same business → refused SERVICE_APPROVER_NOT_ACTOR", has(await lend(A, open, { reason: "x", approver: A2 }), "SERVICE_APPROVER_NOT_ACTOR"));
+    ok("P1 a lending exception approved by ANOTHER user of the same business → refused SERVICE_APPROVER_NOT_ACTOR (by the loan row itself)",
+      has(await lend(A, open, { reason: "x", approver: A2, evApprover: A.u }), "SERVICE_APPROVER_NOT_ACTOR"));
     ok("P2 … approved by a user of ANOTHER business → refused", has(await lend(A, open, { reason: "x", approver: B.u }), /SERVICE_USER_OTHER_BUSINESS|SERVICE_APPROVER_NOT_ACTOR/));
-    ok("P3 lent by a user of another business → refused SERVICE_USER_OTHER_BUSINESS", has(await lend(A, await kase(A, TO_REPAIR), { actor: B.u }), "SERVICE_USER_OTHER_BUSINESS"));
+    ok("P3 lent by a user of another business → refused SERVICE_USER_OTHER_BUSINESS (by the loan row itself)", has(await lend(A, await kase(A, TO_REPAIR), { actor: B.u, evActor: A.u }), "SERVICE_USER_OTHER_BUSINESS"));
     ok("P4 a non-existent user → refused", has(await lend(A, await kase(A, TO_REPAIR), { actor: 2_000_000_000 }), /SERVICE_USER_OTHER_BUSINESS|foreign key/i));
     ok("P5 the LENT event attributed to another user than the lender → refused", has(await lend(A, await kase(A, TO_REPAIR), { evActor: A2 }), "SERVICE_LOAN_EVENT_MISMATCH"));
     const c = await kase(A, TO_REPAIR);
     await lend(A, c);
     const l = await loanOf(A, c);
-    ok("P6 a return received by a user of another business → refused SERVICE_USER_OTHER_BUSINESS", has(await change(A, l, "RETURNED", { ...RETURN(A, B.u), evActor: B.u }), "SERVICE_USER_OTHER_BUSINESS"));
+    ok("P6 a return received by a user of another business → refused SERVICE_USER_OTHER_BUSINESS (by the loan row itself, and by its event)",
+      has(await change(A, l, "RETURNED", { ...RETURN(A, B.u), evActor: A.u }), "SERVICE_USER_OTHER_BUSINESS") && has(await change(A, l, "RETURNED", { ...RETURN(A, B.u), evActor: B.u }), "SERVICE_USER_OTHER_BUSINESS"));
     ok("P7 a return event by another user than the receiver → refused", has(await change(A, l, "RETURNED", { ...RETURN(A, A.u), evActor: A2 }), "SERVICE_LOAN_EVENT_MISMATCH"));
     ok("P8 a close approved by a user of another business → refused", has(await change(A, l, "CLOSED", CLOSE(A.u, B.u)), /SERVICE_USER_OTHER_BUSINESS|SERVICE_APPROVER_NOT_ACTOR/));
   }
@@ -471,10 +480,14 @@ async function main() {
       && (await rowsOf(runtime, B.b, `SELECT count(*)::int n FROM "ServiceLoanEvent" WHERE "businessId" = $1`, A.b))[0].n === 0);
     ok("I2 no tenant context sees nothing", (await rowsOf(runtime, null, `SELECT count(*)::int n FROM "ServiceLoan"`))[0].n === 0);
     ok("I3 B cannot write a loan for A (RLS)", has(await inTx(runtime, B.b, (tx) => lendTx(tx, A, c)), /row-level security|SERVICE_LOAN_CASE_INVALID/));
-    ok("I4 B cannot lend on A's case (composite tenant FK / case lookup)", has(await inTx(runtime, B.b, (tx) => lendTx(tx, B, c)), /SERVICE_LOAN_CASE_INVALID|foreign key/));
+    ok("I4 B cannot lend on A's case: the guard refuses (SERVICE_LOAN_CASE_INVALID) before the composite tenant FK would", has(await inTx(runtime, B.b, (tx) => lendTx(tx, B, c)), "SERVICE_LOAN_CASE_INVALID"));
+    ok("I4b … and the composite tenant FK alone refuses it too (owner, guard bypassed by a disabled trigger)", has(await inTx(owner, B.b, async (tx) => {
+      await tx.$executeRawUnsafe(`ALTER TABLE "ServiceLoan" DISABLE TRIGGER "ServiceLoan_insert_guard"`);
+      await tx.$executeRawUnsafe(`INSERT INTO "ServiceLoan" ("businessId", "caseId", "itemName", "lentByUserId", "conditionAtLend") VALUES ($1, $2, 'x', $3, 'GOOD')`, B.b, c, B.u);
+    }), /ServiceLoan_case_tenant_fkey|foreign key/));
     ok("I5 B cannot reference A's inventory item", has(await lend(B, await kase(B, TO_REPAIR), { item: A.item }), /foreign key|ServiceLoan_inventory_item_tenant_fkey/));
     ok("I6 B cannot return A's loan (the UPDATE sees no row)", (await rowsOf(runtime, B.b, `UPDATE "ServiceLoan" SET state = 'RETURNED' WHERE id = $1 RETURNING id`, l)).length === 0 && (await state(A, l)).s === "OUT");
-    ok("I7 an event of B naming A's loan → refused", has(await inTx(runtime, B.b, (tx) => tx.$executeRawUnsafe(`INSERT INTO "ServiceLoanEvent" ("businessId", "loanId", "caseId", seq, kind, "stateAfter", condition, actor, "actorUserId", "idempotencyKey") VALUES ($1, $2, $3, 2, 'EXPECTED_RETURN_CHANGED', 'OUT', NULL, 'OWNER_USER', $4, $5)`, B.b, l, c, B.u, ikey())), /SERVICE_LOAN_EVENT_LOAN_INVALID|foreign key/));
+    ok("I7 an event of B naming A's loan → refused", has(await inTx(runtime, B.b, (tx) => tx.$executeRawUnsafe(`INSERT INTO "ServiceLoanEvent" ("businessId", "loanId", "caseId", seq, kind, "stateAfter", condition, actor, "actorUserId", "idempotencyKey") VALUES ($1, $2, $3, 2, 'EXPECTED_RETURN_CHANGED', 'OUT', NULL, 'OWNER_USER', $4, $5)`, B.b, l, c, B.u, ikey())), "SERVICE_LOAN_EVENT_LOAN_INVALID"));
   }
 
   console.log("M — immutability");
@@ -495,6 +508,11 @@ async function main() {
       await tx.$executeRawUnsafe(`SELECT set_config('dubiz.service_loan_erasure', 'on', true)`);
       await tx.$executeRawUnsafe(`UPDATE "ServiceLoan" SET "itemName" = NULL, "itemIdentifier" = NULL, "itemIdentifierNormalized" = NULL, "lentByUserId" = NULL, "erasedAt" = now() WHERE id = $1`, l);
     }), /SERVICE_LOAN_VERSION|SERVICE_LOAN_/));
+    ok("M9 the runtime cannot null a user column by a plain update (only a deleted user's FK action may)",
+      has(await inTx(runtime, A.b, (tx) => tx.$executeRawUnsafe(`UPDATE "ServiceLoan" SET "lentByUserId" = NULL WHERE id = $1`, l)), /SERVICE_LOAN_VERSION|SERVICE_LOAN_/));
+    ok("M10 an extra journal event that mirrors no loan version (seq beyond the version) → refused SERVICE_LOAN_EVENT_MISMATCH",
+      has(await inTx(runtime, A.b, (tx) => tx.$executeRawUnsafe(`INSERT INTO "ServiceLoanEvent" ("businessId", "loanId", "caseId", seq, kind, "stateAfter", actor, "actorUserId", "idempotencyKey")
+        VALUES ($1, $2, $3, 7, 'EXPECTED_RETURN_CHANGED', 'OUT', 'OWNER_USER', $4, $5)`, A.b, l, c, A.u, ikey())), "SERVICE_LOAN_EVENT_MISMATCH"));
     ok("M8 an EXIT approval while no cancel happened (case event at the current seq is not a CANCEL) → refused",
       has(await change(A, l, "CASE_EXIT_APPROVED", { evApprovalKind: "CANCEL_OPEN_LOANER", evApprover: A.u, evReason: "x", caseSeq: Number((await rowsOf(owner, A.b, `SELECT version FROM "ServiceCase" WHERE id = $1`, c))[0].version) }), "SERVICE_LOAN_EXIT_NOT_BOUND"));
   }
