@@ -18,6 +18,71 @@ export function effectiveExpiry(row: { expiresAt: Date | null; createdAt: Date }
   return new Date(row.createdAt.getTime() + (cat?.ttlMinutes ?? 60) * 60_000);
 }
 
+/* ──────────────────────────────────────────────── clean-start cutover ── */
+
+/** The error of an owed push closed because it was created before the business's engine activation moment. */
+export const PRE_CUTOVER = "pre_cutover";
+
+/**
+ * The cutover rule (owner decision 2026-11-13: when the engine is enabled, NO push for an event created before that
+ * moment). The engine can be ON for a business only through its BusinessFeatureAccess override (state ENABLED — the
+ * catalog default is OFF, so the global policy alone cannot turn it on), written by the platform admin's
+ * feature-access mutation, which refuses a no-op and stamps `updatedAt` (Prisma @updatedAt) on every state change.
+ * So the latest OFF→ON moment is that row's updatedAt. The global policy row's updatedAt is folded in too: lifting
+ * the emergency kill switch is also an OFF→ON moment for every business. The later of the two wins — which can only
+ * move the cutover FORWARD (fewer pushes, never more): nothing created while the engine was OFF is pushed later.
+ */
+export function cutoverFrom(input: { override: { updatedAt: Date } | null; policy: { updatedAt: Date } | null }): Date | null {
+  const times = [input.override?.updatedAt, input.policy?.updatedAt].filter((d): d is Date => d instanceof Date);
+  if (times.length === 0) return null;
+  return new Date(Math.max(...times.map((d) => d.getTime())));
+}
+
+/** Was this owed row created before the engine's activation moment? (null moment = no cutover, TTL only.) */
+export function isPreCutover(createdAt: Date, cutoverAt: Date | null): boolean {
+  return cutoverAt !== null && createdAt.getTime() < cutoverAt.getTime();
+}
+
+export type ActivationCounts = { owed: number; wouldExpirePreCutover: number; wouldExpireTtl: number; wouldProceed: number };
+
+/** The dry run's arithmetic: what an activation at `activationAt` would do with these owed rows at `now`. */
+export function classifyOwedForActivation(
+  rows: readonly { createdAt: Date; expiresAt: Date | null; category: CategoryDefinition | null }[],
+  activationAt: Date | null,
+  now: Date,
+): ActivationCounts {
+  const out: ActivationCounts = { owed: rows.length, wouldExpirePreCutover: 0, wouldExpireTtl: 0, wouldProceed: 0 };
+  for (const r of rows) {
+    if (isPreCutover(r.createdAt, activationAt)) out.wouldExpirePreCutover += 1;
+    else if (effectiveExpiry(r, r.category).getTime() <= now.getTime()) out.wouldExpireTtl += 1;
+    else out.wouldProceed += 1;
+  }
+  return out;
+}
+
+/* ──────────────────────────────────────────────────────── digest window ── */
+
+export const DIGEST_FIRST_WINDOW_MS = 24 * 3_600_000;
+export const DIGEST_MAX_WINDOW_MS = 7 * 24 * 3_600_000;
+
+/**
+ * Where a user's digest window starts (owner decision 2026-11-13: an item is in exactly ONE digest per user — the
+ * first after it (re)surfaced): right after that user's previous ACTUAL digest (a day with nothing to report wrote
+ * none, so nothing is lost), never more than 7 days back; the first digest ever looks back 24 hours.
+ */
+export function digestWindowStart(now: Date, previousDigestAt: Date | null): Date {
+  if (previousDigestAt === null) return new Date(now.getTime() - DIGEST_FIRST_WINDOW_MS);
+  return new Date(Math.max(previousDigestAt.getTime(), now.getTime() - DIGEST_MAX_WINDOW_MS));
+}
+
+/**
+ * Does a push row speak for THIS surfacing of an item? Only a row written at or after it last surfaced — a push sent
+ * (or held back) for an earlier life of a reopened item says nothing about the new one.
+ */
+export function forThisSurfacing(rowAt: Date | null, lastSurfacedAt: Date): boolean {
+  return rowAt !== null && rowAt.getTime() >= lastSurfacedAt.getTime();
+}
+
 /* ───────────────────────────────────────────────────────── rate limit ── */
 
 export const RATE_LIMIT = { perHour: 4, perDay: 15 } as const;

@@ -21,6 +21,12 @@
  *                      writer's historical PENDING pushes expire (never sent), in an ON business too.
  *   writer             the snapshot writer's owed PUSH row now carries expiresAt.
  *   digest             08:00 business time, once a day, none when empty, never repeating what was pushed.
+ *   clean start        an owed push created before the engine's activation moment is closed FAILED pre_cutover (never
+ *                      sent), one created after it is sent; OFF → ON moves the moment (nothing written while OFF is
+ *                      pushed); the read-only dry run counts it beforehand; the health output reports it; no deletion.
+ *   digest windows     an item is in exactly one digest per user (window from the previous ACTUAL digest): no repeat
+ *                      on consecutive days, an item between digests once, a day without a digest loses nothing, a
+ *                      reopened item again — once.
  *   read side          another user's personal notification is invisible; a category switched off in-app is hidden.
  *   isolation          settings / overrides of one business are invisible and unwritable from another.
  *
@@ -75,8 +81,9 @@ async function main() {
   const { runWithTenantContext } = await import("@/lib/tenant/context");
   const { tenantTx } = await import("@/lib/tenant/tenant-tx");
   const { notify, NotifyRefusedError } = await import("./notify");
-  const { runPushWorker } = await import("./push-worker");
-  const { runDailyDigest, digestDedupeKey } = await import("./digest");
+  const { runPushWorker, workerHealth } = await import("./push-worker");
+  const { runDailyDigest, digestDedupeKey, digestSummary } = await import("./digest");
+  const { cutoverDryRun } = await import("./cutover-dry-run");
   const dev = await import("./devices");
   const store = await import("../preferences-store");
   const read = await import("../notification-read.service");
@@ -436,6 +443,85 @@ async function main() {
       (await read.countUnread(A, { userId: a1 })) === u1.length && (await read.countUnread(A, { userId: a2 })) === u2.length && u1.length < 50 && u2.length < 50, { u1: u1.length, u2: u2.length });
     ok("…a1's count excludes the hidden category, a2's excludes a1's personal row", !u1.includes(attn.notificationId) && u2.includes(attn.notificationId) && !u2.includes(personal.notificationId));
     ok("without a viewer the business-wide predicate is unchanged", (await read.listNotifications(A, { limit: 50, cursor: null, unreadOnly: false })).notifications.some((n) => n.id === personal.notificationId));
+
+    console.log("clean start: no push for what was created before the engine's activation");
+    await ageSends();
+    const CT = new Date("2026-12-20T10:00:00.000Z"); // 12:00 Jerusalem
+    const F = await biz("nte3-F", true);
+    await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt")
+      SELECT $1, 'inventory', 'ENABLED', now() WHERE EXISTS (SELECT 1 FROM "PlatformFeatureDefinition" WHERE "key" = 'inventory') ON CONFLICT DO NOTHING`, F);
+    const fUser = await user(F, "fUser");
+    const sF1 = await session(fUser); const tF1 = tok("fUser"); await register(F, fUser, sF1, tF1);
+    // The admin mutation stamps updatedAt on each state change; the lab sets the moments explicitly.
+    const setEngine = (state: "ENABLED" | "DISABLED", moment: Date) => owner.$executeRawUnsafe(
+      `UPDATE "BusinessFeatureAccess" SET "state" = $1::"BusinessFeatureAccessState", "updatedAt" = ($2::timestamptz AT TIME ZONE 'UTC') WHERE "businessId" = $3 AND "featureKey" = 'notifications_engine'`,
+      state, moment.toISOString(), F);
+    await setEngine("ENABLED", at(CT, -60));
+    const preEv = await notifyIn(F, { userId: fUser, now: at(CT, -90) }); // written before the activation, still inside its TTL
+    const dry = await cutoverDryRun(CT, { businessIds: [F, C] });
+    const dryF = dry.rows.find((r) => r.businessId === F);
+    const dryC = dry.rows.find((r) => r.businessId === C);
+    ok("dry run (engine ON): the owed push written before activation would be closed pre_cutover, none sent",
+      dryF?.engineOn === true && dryF.owed === 1 && dryF.wouldExpirePreCutover === 1 && dryF.wouldProceed === 0 && dryF.activationAt === at(CT, -60).toISOString(), dry);
+    ok("dry run (engine OFF): an activation now would close every owed push already there — none sent",
+      dryC?.engineOn === false && dryC.owed >= 1 && dryC.wouldExpirePreCutover === dryC.owed && dryC.wouldProceed === 0, dryC);
+    const preRowAfterDry = (await owed(F, preEv.notificationId))[0];
+    ok("dry run is read-only: the owed row is untouched (PENDING, no lease, no attempt)", preRowAfterDry.status === "PENDING" && preRowAfterDry.leaseUntil === null && preRowAfterDry.nextAttemptAt === null, preRowAfterDry);
+    const postEv = await notifyIn(F, { userId: fUser, now: CT });
+    const n5s = fcmSends.length;
+    const rc = await run(CT, F);
+    const preRow = (await owed(F, preEv.notificationId))[0];
+    const postRows = await owed(F, postEv.notificationId);
+    ok("a row created before the cutover is never sent: FAILED pre_cutover", preRow.status === "FAILED" && preRow.error === "pre_cutover" && preRow.completedAt !== null &&
+      !(await owed(F, preEv.notificationId)).some((d) => d.subscriptionId !== null), preRow);
+    ok("a row created after the cutover is sent", postRows.some((d) => d.status === "SENT" && d.subscriptionId !== null) && fcmSends.slice(n5s).length === 1 &&
+      fcmSends.slice(n5s)[0].data.notificationId === String(postEv.notificationId), { postRows, sends: fcmSends.slice(n5s) });
+    ok("health output reports it: preCutover 1, not counted as a failure", rc.preCutover === 1 && rc.failed === 0 && workerHealth(rc).preCutover === 1 && "expired" in workerHealth(rc), rc);
+    ok("no data deletion: the pre-cutover notification is still there (the center may show it)", (await owner.notification.count({ where: { id: preEv.notificationId } })) === 1);
+    // OFF, then ON again: the moment moves forward — what was written while OFF is never pushed.
+    await setEngine("DISABLED", at(CT, 10));
+    const offEv = await notifyIn(F, { userId: fUser, now: at(CT, 20) });
+    const n6s = fcmSends.length;
+    const rOff = await run(at(CT, 25), F);
+    ok("while OFF: nothing claimed or sent (held)", rOff.engineOff === 1 && fcmSends.length === n6s, rOff);
+    await setEngine("ENABLED", at(CT, 30));
+    const rOn = await run(at(CT, 56), F);
+    const offRow = (await owed(F, offEv.notificationId))[0];
+    ok("toggle OFF → ON: the row written while OFF is closed pre_cutover, never pushed", offRow.status === "FAILED" && offRow.error === "pre_cutover" && rOn.preCutover === 1 && fcmSends.length === n6s, { offRow, rOn });
+    const lateEv = await notifyIn(F, { userId: fUser, now: at(CT, 57) });
+    await run(at(CT, 58), F);
+    ok("…and a row written after the new moment is sent", (await owed(F, lateEv.notificationId)).some((d) => d.status === "SENT" && d.subscriptionId !== null) && fcmSends.length === n6s + 1);
+
+    console.log("digest windows: each item in exactly one digest per user");
+    const E = await biz("nte3-E", true);
+    await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt")
+      SELECT $1, 'billing', 'ENABLED', now() WHERE EXISTS (SELECT 1 FROM "PlatformFeatureDefinition" WHERE "key" = 'billing') ON CONFLICT DO NOTHING`, E);
+    const e1 = await user(E, "e1");
+    await store.putPreference({ businessId: E, userId: e1 }, "domain:billing", { inApp: null, push: null, delivery: "digest" }, NOW);
+    let docId = 7000;
+    const billE = (when: Date) => tenantTx(E, (tx) => notify(tx, { businessId: E, category: "billing.failure", entity: { type: "billing_document", id: ++docId }, title: "חשבונית", href: "/billing", userId: e1, now: when }));
+    const digestOf = (dayKey: string) => owner.notification.findFirst({ where: { businessId: E, dedupeKey: digestDedupeKey(e1, dayKey) }, select: { summary: true } });
+    const dgE = (when: Date) => runDailyDigest(when, { businessIds: [E], quiet: true });
+    await billE(new Date("2027-01-10T07:00:00Z")); // X, 09:00 local
+    const dg1 = await dgE(new Date("2027-01-10T08:00:00Z")); // a late run: 10:00 local
+    ok("day 1: the first digest (24 h back) has X", dg1.digests === 1 && (await digestOf("2027-01-10"))?.summary === digestSummary(1), dg1);
+    const Y = await billE(new Date("2027-01-10T12:00:00Z")); // between the digests
+    const dg2 = await dgE(new Date("2027-01-11T06:00:00Z")); // 08:00 local — a 24 h window would have repeated X
+    ok("day 2: only Y (surfaced between the digests) — X is not repeated", dg2.digests === 1 && (await digestOf("2027-01-11"))?.summary === digestSummary(1), dg2);
+    const dg3 = await dgE(new Date("2027-01-12T06:00:00Z"));
+    ok("day 3: nothing new ⇒ no digest (Y not repeated, never empty)", dg3.digests === 0 && dg3.empty === 1 && (await digestOf("2027-01-12")) === null, dg3);
+    await billE(new Date("2027-01-12T07:00:00Z")); // Z, after day 3's run
+    const dg4 = await dgE(new Date("2027-01-13T10:00:00Z")); // a late run: a 24 h window would have lost Z
+    ok("day 4 after a day without a digest: Z is not lost (window from the last ACTUAL digest), Y not repeated",
+      dg4.digests === 1 && (await digestOf("2027-01-13"))?.summary === digestSummary(1), dg4);
+    // Y is reopened (resolved, then back): it surfaces again and belongs to the next digest, once.
+    await owner.notification.update({ where: { id: Y.notificationId }, data: { resolvedAt: new Date("2027-01-14T05:00:00Z") } });
+    await owner.notification.update({ where: { id: Y.notificationId }, data: { resolvedAt: null, lastSurfacedAt: new Date("2027-01-14T07:00:00Z") } });
+    const dg5 = await dgE(new Date("2027-01-15T06:00:00Z"));
+    ok("day 5: the reopened item is included again", dg5.digests === 1 && (await digestOf("2027-01-15"))?.summary === digestSummary(1), dg5);
+    const dg6 = await dgE(new Date("2027-01-16T06:00:00Z"));
+    ok("day 6: …once", dg6.digests === 0 && (await digestOf("2027-01-16")) === null, dg6);
+    ok("four digests over six days, at most one a day", (await owner.notification.count({ where: { businessId: E, userId: e1, semanticCategory: "digest.daily" } })) === 4);
 
     console.log("isolation");
     const crossRead = await tenantTx(B, (tx) => tx.notificationPreference.count({ where: { userId: a1 } }));

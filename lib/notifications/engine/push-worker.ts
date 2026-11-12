@@ -9,6 +9,11 @@
  *      are only kept from clogging the queue: past their TTL → FAILED 'expired'; otherwise re-checked later.
  *   1. CLAIM: a conditional UPDATE sets leaseUntil = now + 2 min while the row is PENDING, due and not leased — one
  *      winner among concurrent workers; a crashed attempt becomes retryable when its lease runs out.
+ *  1b. Clean start (owner decision 2026-11-13): an owed row created before the business's engine activation moment
+ *      (engine-gate.ts cutoverFrom: the latest OFF→ON of its override / the global policy) is closed FAILED
+ *      'pre_cutover', never sent. Toggling OFF → ON moves the moment forward, so nothing created while OFF is pushed.
+ *      Historical rows stay (the notification center still shows them); nothing is deleted. cutoverDryRun() reports,
+ *      read-only, per business what an activation now would close vs send.
  *   2. userId NULL (the whole business) ⇒ FAN OUT: one owed row per recipient user (recipients.ts), the original
  *      SUPPRESSED 'fanned_out'.
  *   3. Per user: resolved / dismissed ⇒ SUPPRESSED 'resolved'; past expiry ⇒ FAILED 'expired' (rows written before
@@ -39,13 +44,26 @@ import { providerConfigured, sendToDevice, type SenderDeps } from "../push/push-
 import type { PushResult } from "../push/push-types";
 import { businessGates, type BusinessGates } from "./engine-gate";
 import { recipientUsers } from "./recipients";
-import { decideOwed, effectiveExpiry, eligibleDevices, retryAfter } from "./worker-decision";
+import { PRE_CUTOVER, decideOwed, effectiveExpiry, eligibleDevices, isPreCutover, retryAfter } from "./worker-decision";
 
 type Tx = Prisma.TransactionClient;
 
 export const LEASE_MS = 2 * 60_000;
 export const ENGINE_OFF_RECHECK_MS = 30 * 60_000;
 export const UNHEALTHY_AGE_SECONDS = 30 * 60;
+export { PRE_CUTOVER, isPreCutover };
+
+/**
+ * The monitoring view of a pass (counts only): the unhealthy signal and what it rests on, plus the rows closed
+ * without a send — expired (past TTL) and pre_cutover (created before activation) — so an activation's backlog
+ * closing is visible next to the health line, never mistaken for failures.
+ */
+export function workerHealth(r: WorkerReport) {
+  return {
+    unhealthy: r.unhealthy, oldestOwedAgeSeconds: r.oldestOwedAgeSeconds, devicesSent: r.devicesSent, devicesFailed: r.devicesFailed,
+    failed: r.failed, expired: r.expired, preCutover: r.preCutover, engineOff: r.engineOff, errors: r.errors,
+  };
+}
 const BATCH = 100;
 const MAX_DEVICES = 20;
 
@@ -60,6 +78,8 @@ export type WorkerReport = {
   deferred: number;
   retried: number;
   engineOff: number;
+  /** Owed pushes created before the business's engine activation moment, closed FAILED 'pre_cutover' (never sent). */
+  preCutover: number;
   errors: number;
   devicesSent: number;
   devicesFailed: number;
@@ -84,7 +104,7 @@ export type WorkerOptions = {
 
 const emptyReport = (): WorkerReport => ({
   owed: 0, claimed: 0, fannedOut: 0, sent: 0, failed: 0, suppressed: 0, expired: 0, deferred: 0, retried: 0,
-  engineOff: 0, errors: 0, devicesSent: 0, devicesFailed: 0, devicesRevoked: 0, oldestOwedAgeSeconds: 0, unhealthy: false,
+  engineOff: 0, preCutover: 0, errors: 0, devicesSent: 0, devicesFailed: 0, devicesRevoked: 0, oldestOwedAgeSeconds: 0, unhealthy: false,
 });
 
 /** The codebase's convention for raw timestamp parameters: a UTC wall-clock string, never the session's zone. */
@@ -153,9 +173,7 @@ export async function runPushWorker(now: Date = new Date(), opts: WorkerOptions 
   if (!opts.quiet) {
     console.log("[notifications] worker", JSON.stringify(report));
     if (report.unhealthy) {
-      console.warn("[notifications] worker unhealthy", JSON.stringify({
-        oldestOwedAgeSeconds: report.oldestOwedAgeSeconds, devicesFailed: report.devicesFailed, devicesSent: report.devicesSent,
-      }));
+      console.warn("[notifications] worker unhealthy", JSON.stringify(workerHealth(report)));
     }
   }
   return report;
@@ -247,8 +265,6 @@ async function claimAndDecide(tx: Tx, businessId: number, id: number, now: Date,
   const n = row.notification;
   const cat: CategoryDefinition | null = classifyNotification(n);
   const expiry = effectiveExpiry(row, cat);
-  const dueAt = row.nextAttemptAt ?? row.createdAt;
-  report.oldestOwedAgeSeconds = Math.max(report.oldestOwedAgeSeconds, Math.floor((now.getTime() - dueAt.getTime()) / 1000));
 
   const finish = async (status: "SENT" | "FAILED" | "SUPPRESSED", error: string | null, extra: { attempts?: number } = {}) => {
     await tx.notificationDelivery.updateMany({
@@ -258,8 +274,16 @@ async function claimAndDecide(tx: Tx, businessId: number, id: number, now: Date,
     if (status === "SENT") report.sent += 1;
     else if (status === "SUPPRESSED") report.suppressed += 1;
     else if (error === "expired") report.expired += 1;
+    else if (error === PRE_CUTOVER) report.preCutover += 1;
     else report.failed += 1;
   };
+
+  // ── 1b. clean start: nothing created before the engine's activation moment is ever pushed ─────────────────────
+  // (owner decision 2026-11-13). Checked before anything else and before the health age: the backlog an activation
+  // closes is expected, not a sign of a stuck queue. The row and its notification stay (no deletion).
+  if (isPreCutover(row.createdAt, gates.cutoverAt)) { await finish("FAILED", PRE_CUTOVER); return { kind: "done", children: [] }; }
+  const dueAt = row.nextAttemptAt ?? row.createdAt;
+  report.oldestOwedAgeSeconds = Math.max(report.oldestOwedAgeSeconds, Math.floor((now.getTime() - dueAt.getTime()) / 1000));
 
   // ── 2. the whole business → one owed row per recipient ──────────────────────────────────────────────────────────
   if (row.userId === null) {

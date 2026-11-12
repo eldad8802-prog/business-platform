@@ -12,9 +12,9 @@
       "count": 1,
       "reason": "Notification engine (migration 20261210090000): the push worker runs with no session and no tenant, so it asks the SECURITY DEFINER function notification_push_due(p_now, p_limit) (pinned search_path, REVOKE ALL FROM PUBLIC, EXECUTE for app_runtime alone) for IDENTIFIERS (businessId, deliveryId) of owed pushes only — no table is read by this query, and each owed push is then claimed, read and sent inside its own business's tenantTx. The same DB-scoped definer-lookup shape as task_reminders_due (dueReminders): listed for the same reason (the timestamp(3) signature and the ::timestamp(3) / ::int casts)."
     },
-    "lib/notifications/engine/digest.ts::runDailyDigest::raw:$queryRaw": {
+    "lib/notifications/engine/digest.ts::walkLiveBusinesses::raw:$queryRaw": {
       "count": 1,
-      "reason": "Notification engine (migration 20261210090000): the daily digest runs with no session and no tenant, so it pages the SECURITY DEFINER function notification_live_businesses(p_after, p_limit) (pinned search_path, REVOKE ALL FROM PUBLIC, EXECUTE for app_runtime alone) for business IDENTIFIERS only — no table is read by this query, and each business is then read inside its own tenantTx. Same definer-lookup shape as dueReminders; listed because the call needs explicit ::int casts for function resolution."
+      "reason": "Notification engine (migration 20261210090000): the daily digest (and the read-only clean-start dry run) run with no session and no tenant, so walkLiveBusinesses pages the SECURITY DEFINER function notification_live_businesses(p_after, p_limit) (pinned search_path, REVOKE ALL FROM PUBLIC, EXECUTE for app_runtime alone) for business IDENTIFIERS only — no table is read by this query, and each business is then read inside its own tenantTx. Same definer-lookup shape as dueReminders; listed because the call needs explicit ::int casts for function resolution."
     },
     "lib/services/booking/booking-sweep.service.ts::duePendingRequests::raw:$queryRaw": {
       "count": 1,

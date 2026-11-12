@@ -22,7 +22,7 @@
     },
     "lib/notifications/engine/worker-decision.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "pure: the worker's decision table in the spec's order (resolved, expired — historical rows without expiresAt expire their TTL —, unknown, feature, preference, digest, quiet defer / bypass, rate limit), the 4/hour 15/day limit, the retry backoff and its end, device eligibility (FCM only with a live session); run on pull_request by notification-engine-ci.yml"
+      "reason": "pure: the worker's decision table in the spec's order (resolved, expired — historical rows without expiresAt expire their TTL —, unknown, feature, preference, digest, quiet defer / bypass, rate limit), the 4/hour 15/day limit, the retry backoff and its end, device eligibility (FCM only with a live session), the clean-start cutover (activation moment = the later of the override / policy change, rows before it pre_cutover, OFF→ON moves it forward, the dry-run arithmetic) and the digest window (from the previous actual digest, 24 h first, 7 days cap, push rows for the current surfacing only); run on pull_request by notification-engine-ci.yml"
     },
     "lib/notifications/engine/engine-boundary.test.ts": {
       "class": "SECURITY_REQUIRED",
@@ -33,7 +33,7 @@
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",
       "workflow": "notification-engine-ci.yml",
-      "reason": "AS the restricted runtime on the real migration 20261210090000 (fake push providers): create → deliver, dedupe, claim / lease under racing workers, transient retry and its end, invalid-token revoke, quiet defer and bypass, settings and restore defaults, feature off with overrides kept, whole-business fan-out to each user's own devices, device logout / all devices / ended session / token-version bump / account switch (same and across businesses) / rotation, two businesses and the engine kill switch, historical PENDING pushes expiring unsent, the writer's expiresAt, the daily digest (08:00, once, never empty, never repeating a push), the read side per viewer, cross-business isolation of settings; run on pull_request by notification-engine-ci.yml"
+      "reason": "AS the restricted runtime on the real migration 20261210090000 (fake push providers): create → deliver, dedupe, claim / lease under racing workers, transient retry and its end, invalid-token revoke, quiet defer and bypass, settings and restore defaults, feature off with overrides kept, whole-business fan-out to each user's own devices, device logout / all devices / ended session / token-version bump / account switch (same and across businesses) / rotation, two businesses and the engine kill switch, historical PENDING pushes expiring unsent, the writer's expiresAt, the daily digest (08:00, once, never empty, never repeating a push), clean start (pre-cutover rows FAILED pre_cutover never sent, post-cutover sent, OFF→ON moves the moment, the read-only dry run, health counts, no deletion), digest windows (no repeat on consecutive days, between-digest item once, skipped day no loss, reopened item again once), the read side per viewer, cross-business isolation of settings; run on pull_request by notification-engine-ci.yml"
     }
   }
 }

@@ -12,10 +12,17 @@
  *  4. Retries: 1 m, 5 m, 15 m, 1 h, then the 5th failure ends it.
  *  5. Devices: FCM only with a live session; session-bound web push only while live; legacy web push (no session)
  *     allowed; unconfigured providers skipped; unknown providers never.
+ *  6. Clean-start cutover: the activation moment (the later of the override's and the policy's last change), rows
+ *     before it closed 'pre_cutover', toggling OFF → ON moves it forward; the dry run's arithmetic.
+ *  7. Digest window: from the previous actual digest (24 h for the first, 7 days at most); push rows count only for
+ *     the item's current surfacing.
  */
 import { getCategory } from "../catalog";
 import { effectiveSettings, resolveCategory } from "../preferences";
-import { MAX_ATTEMPTS, decideOwed, effectiveExpiry, eligibleDevices, rateLimited, retryAfter, type OwedFacts } from "./worker-decision";
+import {
+  MAX_ATTEMPTS, PRE_CUTOVER, classifyOwedForActivation, cutoverFrom, decideOwed, digestWindowStart, effectiveExpiry, eligibleDevices,
+  forThisSurfacing, isPreCutover, rateLimited, retryAfter, type OwedFacts,
+} from "./worker-decision";
 
 let passed = 0;
 let failed = 0;
@@ -110,6 +117,43 @@ ok("FCM live / legacy web / live web only", JSON.stringify(eligibleDevices(devs,
 ok("no live session ⇒ only legacy web push", JSON.stringify(eligibleDevices(devs, new Set(), () => true).map((d) => d.id)) === JSON.stringify([4]));
 ok("FCM not configured ⇒ skipped", JSON.stringify(eligibleDevices(devs, live, (p) => p === "WEB_PUSH").map((d) => d.id)) === JSON.stringify([4, 6]));
 ok("nothing configured ⇒ nothing", eligibleDevices(devs, live, () => false).length === 0);
+
+// ── 6. clean-start cutover (owner decision 2026-11-13) ──
+{
+  const T = new Date("2026-12-20T10:00:00Z");
+  ok("cutover: no timestamps ⇒ none (TTL only)", cutoverFrom({ override: null, policy: null }) === null);
+  ok("cutover: the override's last state change", cutoverFrom({ override: { updatedAt: T }, policy: null })?.getTime() === T.getTime());
+  ok("cutover: the later of override and policy (lifting the kill switch moves it forward)",
+    cutoverFrom({ override: { updatedAt: T }, policy: { updatedAt: min(T, 30) } })?.getTime() === min(T, 30).getTime() &&
+    cutoverFrom({ override: { updatedAt: min(T, 30) }, policy: { updatedAt: T } })?.getTime() === min(T, 30).getTime());
+  ok("pre-cutover: a row created before the moment", isPreCutover(min(T, -1), T));
+  ok("pre-cutover: a row created at / after the moment is not", !isPreCutover(T, T) && !isPreCutover(min(T, 1), T));
+  ok("pre-cutover: no moment ⇒ never", !isPreCutover(new Date(0), null));
+  // OFF at T+10, ON again at T+30: the override's updatedAt moves to T+30, so a row written while OFF is pre-cutover.
+  const reOn = cutoverFrom({ override: { updatedAt: min(T, 30) }, policy: { updatedAt: min(T, -10_000) } });
+  ok("toggle OFF → ON: a row created while OFF (T+20) is pre-cutover; one after (T+31) is not", isPreCutover(min(T, 20), reOn) && !isPreCutover(min(T, 31), reOn));
+  ok("the error code", PRE_CUTOVER === "pre_cutover");
+  const inv = getCategory("inventory.critical_stock")!;
+  const counts = classifyOwedForActivation([
+    { createdAt: min(T, -60), expiresAt: min(T, 300), category: inv },   // before the moment
+    { createdAt: min(T, 5), expiresAt: min(T, 6), category: inv },       // after, but past its TTL at T+10
+    { createdAt: min(T, 5), expiresAt: min(T, 300), category: inv },     // after, alive
+  ], T, min(T, 10));
+  ok("dry run: 1 pre-cutover, 1 expired, 1 proceeds", JSON.stringify(counts) === JSON.stringify({ owed: 3, wouldExpirePreCutover: 1, wouldExpireTtl: 1, wouldProceed: 1 }), counts);
+  const off = classifyOwedForActivation([{ createdAt: min(T, -1), expiresAt: null, category: inv }, { createdAt: min(T, -500), expiresAt: null, category: inv }], T, T);
+  ok("dry run: activation NOW (engine OFF) ⇒ every owed row is pre-cutover, none sent", off.wouldExpirePreCutover === 2 && off.wouldProceed === 0);
+}
+
+// ── 7. digest window (owner decision 2026-11-13: an item in exactly ONE digest per user) ──
+{
+  const M = new Date("2026-12-10T06:00:00Z");
+  ok("first digest ever: 24 hours back", digestWindowStart(M, null).getTime() === min(M, -24 * 60).getTime());
+  ok("next digest: starts at the previous actual digest", digestWindowStart(min(M, 24 * 60), M).getTime() === M.getTime());
+  ok("skipped day: still the last actual digest (48 h back)", digestWindowStart(min(M, 48 * 60), M).getTime() === M.getTime());
+  ok("capped at 7 days", digestWindowStart(min(M, 30 * 24 * 60), M).getTime() === min(M, 23 * 24 * 60).getTime());
+  ok("a push row for this surfacing counts", forThisSurfacing(min(M, 1), M) && forThisSurfacing(M, M));
+  ok("a push row for an earlier life of a reopened item does not", !forThisSurfacing(min(M, -1), M) && !forThisSurfacing(null, M));
+}
 
 console.log(`\n[worker-decision] PASS=${passed} FAIL=${failed}`);
 if (failed > 0) process.exit(1);

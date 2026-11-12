@@ -1,17 +1,24 @@
 /**
- * The daily digest — runDailyDigest(now) (notifications track spec, 2026-11-12). SERVER-ONLY.
+ * The daily digest — runDailyDigest(now) (notifications track spec, 2026-11-12; windows: owner decision 2026-11-13).
+ * SERVER-ONLY.
  *
  * Walks the live businesses in keyset pages (notification_live_businesses — identifiers only); for each business
  * where `notifications_engine` is ON, in its tenant transaction and its time zone (BookingSettings.timeZone, else
  * Asia/Jerusalem; Intl, DST-safe), for each user with the digest enabled whose local clock has reached their digest
  * minute (default 08:00) and who has no digest yet today:
  *
- *   collect the unresolved, undismissed notifications visible to the user (userId NULL or theirs) from the last 24
- *   hours whose category is in DIGEST mode for them, or whose push to them was held back (to_digest, rate_limited,
- *   quiet) — EXCLUDING anything already SENT to them by push. Nothing ⇒ nothing (never an empty push). Otherwise
- *   ONE notification (category digest.daily, userId = the user, dedupeKey `digest:u<userId>:<YYYY-MM-DD>` — the
- *   database's unique key makes a second digest that day impossible) with one owed push carrying the generic,
- *   count-only text "סיכום יומי: N עניינים מחכים לך". The push worker sends it.
+ *   collect the unresolved, undismissed notifications visible to the user (userId NULL or theirs) that SURFACED in
+ *   the user's digest window, whose category is in DIGEST mode for them, or whose push to them was held back
+ *   (to_digest, rate_limited, quiet) — EXCLUDING anything already SENT to them by push for that surfacing. Nothing ⇒
+ *   nothing (never an empty push). Otherwise ONE notification (category digest.daily, userId = the user, dedupeKey
+ *   `digest:u<userId>:<YYYY-MM-DD>` — the database's unique key makes a second digest that day impossible) with one
+ *   owed push carrying the generic, count-only text "סיכום יומי: N עניינים מחכים לך". The push worker sends it.
+ *
+ * The window (digestWindowStart): an item belongs to exactly ONE digest per user — the first digest after it
+ * (re)surfaced. The window starts at that user's previous ACTUAL digest (its own row's createdAt), so a day with
+ * nothing to report loses nothing (the next window still starts at the last digest written); the first digest ever
+ * looks back 24 hours; the window never reaches back more than 7 days. A reopened item surfaces again (its
+ * lastSurfacedAt moves) and is included again, once.
  *
  * Counts only in the report and the log.
  */
@@ -25,6 +32,7 @@ import { businessTimeZone, readUserPreferences } from "../preferences-store";
 import { businessGates, type BusinessGates } from "./engine-gate";
 import { notify } from "./notify";
 import { recipientUsers } from "./recipients";
+import { digestWindowStart, forThisSurfacing } from "./worker-decision";
 
 const PAGE = 200;
 const HELD_FOR_DIGEST = ["to_digest", "rate_limited", "quiet"];
@@ -33,6 +41,19 @@ export type DigestReport = { businesses: number; engineOff: number; usersChecked
 
 export const digestDedupeKey = (userId: number, dayKey: string) => `digest:u${userId}:${dayKey}`;
 export const digestSummary = (count: number) => `סיכום יומי: ${count} עניינים מחכים לך`;
+
+/** Page through the live businesses (identifiers only) and visit each one. */
+export async function walkLiveBusinesses(visit: (businessId: number) => Promise<void>): Promise<void> {
+  let after = 0;
+  for (;;) {
+    const page = await prisma.$queryRaw<{ businessId: number }[]>`
+      SELECT "businessId" FROM public.notification_live_businesses(${after}::int, ${PAGE}::int)`;
+    if (page.length === 0) break;
+    for (const r of page) await visit(Number(r.businessId));
+    after = Number(page[page.length - 1].businessId);
+    if (page.length < PAGE) break;
+  }
+}
 
 export async function runDailyDigest(
   now: Date = new Date(),
@@ -53,15 +74,7 @@ export async function runDailyDigest(
   if (opts.businessIds) {
     for (const b of opts.businessIds) await visit(b);
   } else {
-    let after = 0;
-    for (;;) {
-      const page = await prisma.$queryRaw<{ businessId: number }[]>`
-        SELECT "businessId" FROM public.notification_live_businesses(${after}::int, ${PAGE}::int)`;
-      if (page.length === 0) break;
-      for (const r of page) await visit(Number(r.businessId));
-      after = Number(page[page.length - 1].businessId);
-      if (page.length < PAGE) break;
-    }
+    await walkLiveBusinesses(visit);
   }
   if (!opts.quiet) console.log("[notifications] digest", JSON.stringify(report));
   return report;
@@ -85,16 +98,24 @@ async function digestBusiness(businessId: number, now: Date, gates: BusinessGate
         if (await tx.notification.findFirst({ where: { businessId, dedupeKey }, select: { id: true } })) return;
         report.due += 1;
 
+        // The previous ACTUAL digest of this user (a day with nothing to report wrote none, so it is skipped).
+        const previous = await tx.notification.findFirst({
+          where: { businessId, userId, semanticCategory: "digest.daily", dedupeKey: { startsWith: `digest:u${userId}:` }, createdAt: { lt: now } },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true },
+        });
+        const since = digestWindowStart(now, previous?.createdAt ?? null);
+
         const candidates = await tx.notification.findMany({
           where: {
             businessId,
             OR: [{ userId: null }, { userId }],
             resolvedAt: null,
             dismissedAt: null,
-            lastSurfacedAt: { gte: new Date(now.getTime() - 86_400_000) },
+            lastSurfacedAt: { gt: since, lte: now },
             NOT: { semanticCategory: { in: ["digest.daily", "system.test"] } },
           },
-          select: { id: true, domain: true, semanticCategory: true, severity: true, entityType: true },
+          select: { id: true, domain: true, semanticCategory: true, severity: true, entityType: true, lastSurfacedAt: true },
           take: 500,
         });
         const ids = candidates.map((c) => c.id);
@@ -103,17 +124,19 @@ async function digestBusiness(businessId: number, now: Date, gates: BusinessGate
             businessId, userId, channel: "PUSH", notificationId: { in: ids },
             OR: [{ status: "SENT", subscriptionId: { not: null } }, { status: "SUPPRESSED", error: { in: HELD_FOR_DIGEST } }],
           },
-          select: { notificationId: true, status: true },
+          select: { notificationId: true, status: true, attemptedAt: true, completedAt: true },
         });
-        const pushed = new Set(pushRows.filter((r) => r.status === "SENT").map((r) => r.notificationId));
-        const held = new Set(pushRows.filter((r) => r.status === "SUPPRESSED").map((r) => r.notificationId));
         let count = 0;
         for (const c of candidates) {
           const cat = classifyNotification(c);
-          if (!cat || pushed.has(c.id)) continue;
+          if (!cat) continue;
+          const mine = pushRows.filter((r) => r.notificationId === c.id);
+          const pushed = mine.some((r) => r.status === "SENT" && forThisSurfacing(r.attemptedAt, c.lastSurfacedAt));
+          if (pushed) continue;
+          const held = mine.some((r) => r.status === "SUPPRESSED" && forThisSurfacing(r.completedAt, c.lastSurfacedAt));
           const eff = resolveCategory(cat, settings, prefs, gates.categoryAvailable(cat));
           if (!eff.available || !eff.inApp) continue;
-          if (eff.delivery === "digest" || held.has(c.id)) count += 1;
+          if (eff.delivery === "digest" || held) count += 1;
         }
         if (count === 0) { report.empty += 1; return; }
         const out = await notify(tx, {
