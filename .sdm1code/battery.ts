@@ -27,6 +27,7 @@ import {
   chooseAfterSaleResolution, openCase, recordIntake, recordQa, runCaseAction, type OpenCaseInput, type ServiceDeskPrincipal,
 } from "../lib/services/service-desk/service-case.service";
 import { recordCharge } from "../lib/services/service-desk/case-charge.service";
+import { returnFromExternal, sendToExternal } from "../lib/services/service-desk/external-work.service";
 import { QA_TEMPLATE_BY_ID } from "../lib/services/service-desk/qa-templates";
 import { deriveIdempotencyKey } from "../lib/services/service-desk/idempotency-key";
 
@@ -146,6 +147,23 @@ async function main() {
     ok("E1b PASS_QA without a fresh checklist is refused (QA_INCOMPLETE)", again.includes("QA_INCOMPLETE"), again);
     const fresh = [await qa(A, c.id, "IN_SHOP.v2"), await walk(A, c.id, [{ type: "PASS_QA", outcome: "REPAIRED" }])];
     ok("E1b a fresh complete checklist lets PASS_QA through", fresh.every((s) => s === "OK") && (await row(A, c.id)).status === "READY", fresh.join(" | "));
+  }
+  {
+    // E1d — the same rule on the supplier path: FAIL_QA → repair → (on hold) → external → back to QA. The send clears the hold
+    // (CHECK ServiceCase_hold_only_in_repair) and the return into QA starts a new round: no stamp of the earlier checklist.
+    const supplier = Number((await q(`INSERT INTO "Supplier" ("businessId", name, "updatedAt") VALUES ($1, 'ספק סינתטי', now()) RETURNING id`, A.b))[0].id);
+    const c = await open(A, { track: "T1", subject: { displayName: "טלפון סינתטי ד" } });
+    const pre = [await intake(A, c.id), await walk(A, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }]),
+      await qa(A, c.id, "IN_SHOP.v2"), await walk(A, c.id, [{ type: "FAIL_QA" }, { type: "SET_HOLD", reason: "PARTS" }])];
+    const sent = await tryIt(async () => sendToExternal(A.p, c.id, { expectedVersion: (await row(A, c.id)).version, supplierId: supplier, sendReason: "בדיקת ספק" }, { idempotencyKey: key() }));
+    const hold = (await own(A.b, `SELECT "holdReason"::text h, status::text s FROM "ServiceCase" WHERE id = $1`, c.id))[0];
+    ok("E1d SEND_TO_EXTERNAL from IN_REPAIR on hold: sent, the hold cleared (the core's holdReasonAfter)", pre.every((s) => s === "OK") && sent === "OK" && hold?.s === "EXTERNAL" && hold?.h === null, `${pre.join(" | ")} ${sent}`);
+    const work = (await own(A.b, `SELECT id, version FROM "ServiceExternalWork" WHERE "caseId" = $1`, c.id))[0];
+    const back = work ? await tryIt(async () => returnFromExternal(A.p, Number(work.id), { expectedVersion: Number(work.version), caseExpectedVersion: (await row(A, c.id)).version, next: "QA", result: "REPAIRED", followUpRequired: false }, { idempotencyKey: key() })) : "NO_WORK";
+    const stamp = (await own(A.b, `SELECT "qaCompletedAt" FROM "ServiceCase" WHERE id = $1`, c.id))[0].qaCompletedAt;
+    const again = await act(A, c.id, { type: "PASS_QA", outcome: "REPAIRED" });
+    ok("E1d back from the supplier into QA: a new round with no completion stamp", back === "OK" && (await row(A, c.id)).status === "QA" && stamp === null, back);
+    ok("E1d PASS_QA without a fresh checklist is refused (QA_INCOMPLETE)", again.includes("QA_INCOMPLETE"), again);
   }
   {
     // E1c — owner 2026-11-12: T1 QA is REQUIRED but its built-in IN_SHOP.v2 checklist is a suggestion: no check must PASS,
