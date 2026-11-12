@@ -138,7 +138,7 @@ async function main() {
   const qe = await lastEvent(s1);
   ok("Q1 a check left unrecorded → stored and journaled, NOT completed (qaCompletedAt NULL)", qa1.qa?.completed === false && qa1.qa?.template === "IN_SHOP.v2"
     && (await q(`SELECT "qaCompletedAt" IS NULL x FROM "ServiceCase" WHERE id = $1`, s1))[0].x === true && qe.t === "qa.recorded" && String(qe.p).includes('"completed": false')
-    && String(qe.p).includes('"recorded": 4') && String(qe.p).includes('"requiredMissing": 0'));
+    && String(qe.p).includes('"recorded": 4') && String(qe.p).includes('"requiredMissing": 1') && String(qe.p).includes('"requiredFailed": 0'));
   v = qa1.case.version;
   ok("Q2 … and PASS_QA is still refused (QA_INCOMPLETE)", (await code(() => runCaseAction(A.p, s1, { action: { type: "PASS_QA", outcome: "REPAIRED" }, expectedVersion: v }, { idempotencyKey: key() }))).includes("QA_INCOMPLETE"));
   const oneFailed = Object.fromEntries(req.map((k, i) => [k, i === 0 ? "FAIL" : "PASS"]));
