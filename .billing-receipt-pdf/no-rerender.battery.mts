@@ -170,6 +170,8 @@ async function main() {
 
   // ===================================================================== C: controlled restore
   const restore = (id: number, apply = false) => restoreIssuedReceiptPdf({ businessId: b, billingDocumentId: id, actorUserId: u, apply });
+  // a read that never throws: a refused (503) read is reported as a failed check, not a crash
+  const served = async (id: number) => { try { return await call(id); } catch { return null; } };
   const restoredEvents = (id: number) => prisma.billingAuditEvent.count({ where: { billingDocumentId: id, eventType: "BILLING_PDF_RESTORED" } });
   const pdfText = async (buf: Buffer) => {
     const p = new PDFParse({ data: new Uint8Array(buf) });
@@ -184,9 +186,9 @@ async function main() {
     dry.verdict === "VERIFIED_BY_RERENDER" && dry.applied === false && storedObjects() === objsR1 && (await restoredEvents(m2)) === 0, JSON.stringify(dry));
   ok("R1 before restore the receipt is refused (503), not regenerated", (await refused(m2))?.status === 503);
   const app1 = await restore(m2, true);
-  const r1after = await call(m2);
+  const r1after = await served(m2);
   ok("R1 --apply puts back the exact original bytes (sha256 = pdfHash) under the recorded key",
-    app1.applied === true && r1after.renderedNow === false && r1after.buffer.equals(b1.buffer) && sha(r1after.buffer) === m2row.pdfHash, JSON.stringify(app1));
+    app1.applied === true && !!r1after && r1after.renderedNow === false && r1after.buffer.equals(b1.buffer) && sha(r1after.buffer) === m2row.pdfHash, JSON.stringify(app1));
   ok("R1 the document row is unchanged and one BILLING_PDF_RESTORED event is recorded",
     JSON.stringify(await row(m2)) === JSON.stringify(m2row) && (await restoredEvents(m2)) === 1);
 
@@ -204,10 +206,10 @@ async function main() {
   await new Promise((r) => setTimeout(r, 2000));
   await unlinkByKeyQuiet(v1Key);
   const app2 = await restore(m3, true);
-  const r2after = await call(m3);
-  const text2 = await pdfText(r2after.buffer);
+  const r2after = await served(m3);
+  const text2 = r2after ? await pdfText(r2after.buffer) : "";
   ok("R2 restore reproduces the pre-#1108 original with the frozen template (exact bytes)",
-    app2.verdict === "VERIFIED_BY_RERENDER" && r2after.buffer.equals(v1bytes), JSON.stringify(app2));
+    app2.verdict === "VERIFIED_BY_RERENDER" && !!r2after && r2after.buffer.equals(v1bytes), JSON.stringify(app2));
   ok("R2 the restored PDF is the OLD template (RECEIPT, no קבלה) — today's template is never presented as the original",
     text2.includes("RECEIPT") && !text2.includes("קבלה"));
 
@@ -234,9 +236,9 @@ async function main() {
   await prisma.accountantPackage.create({ data: { businessId: b, periodId: period.id, version: 1, contentFingerprint: "synthetic", status: "READY", storageKey: pkgKey, sha256: sha(zipBuf), createdAt: new Date(), readyAt: new Date() } });
   await unlinkByKeyQuiet(m4row.pdfStorageKey!);
   const app4 = await restore(m4, true);
-  const r4after = await call(m4);
+  const r4after = await served(m4);
   ok("R4 the exact bytes from a sealed accountant package → VERIFIED_FROM_PACKAGE, restored",
-    app4.verdict === "VERIFIED_FROM_PACKAGE" && r4after.buffer.equals(p4.buffer), JSON.stringify(app4));
+    app4.verdict === "VERIFIED_FROM_PACKAGE" && !!r4after && r4after.buffer.equals(p4.buffer), JSON.stringify(app4));
 
   // R5 no produced PDF
   const m5 = await newReceipt("10.00");
@@ -249,9 +251,9 @@ async function main() {
   await writeAtomic(m2row.pdfStorageKey!, Buffer.from("%PDF-1.4\n% altered\n%%EOF\n"));
   ok("R6 altered stored bytes are refused", (await refused(m2))?.status === 503);
   const app6 = await restore(m2, true);
-  const r6after = await call(m2);
+  const r6after = await served(m2);
   ok("R6 restore replaces altered bytes only with the verified original",
-    app6.verdict === "VERIFIED_BY_RERENDER" && r6after.buffer.equals(b1.buffer), JSON.stringify(app6));
+    app6.verdict === "VERIFIED_BY_RERENDER" && !!r6after && r6after.buffer.equals(b1.buffer), JSON.stringify(app6));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) process.exitCode = 1;
