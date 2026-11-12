@@ -105,6 +105,7 @@ on:
           - 'ops/evidence/accountant-g2-business-9-postcheck.sql'
           - 'ops/evidence/accountant-g2-business-9-details.sql'
           - 'ops/evidence/billing-pdf-render-state.sql'
+          - 'ops/evidence/receipt-pdf-state-counts.sql'
           - 'ops/evidence/accountant-source-documents-history.sql'
           - 'ops/evidence/accountant-link-events-preflight.sql'
           - 'ops/evidence/accountant-link-events-production-evidence.sql'
