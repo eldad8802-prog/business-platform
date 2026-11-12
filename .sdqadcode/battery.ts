@@ -9,7 +9,8 @@
  *      key reuse, stale revision, NO_CHANGE, another business's list, an archived list, invalid input, racing writers
  *   O  the opening: the default's CURRENT version pinned (journaled CHOOSE_QA_LIST at version 2, "#2" key, source
  *      DEFAULT), replay, explicit override, explicit none, OFF track ignores it, REQUIRED without a default → the built-in
- *      template, a case without a track, refused explicit lists write nothing
+ *      template, a case without a track, refused explicit lists write nothing; OK: a 199 / 200-character client key
+ *      refused cleanly, the derived "#2" key (deriveIdempotencyKey) within the column CHECK in the database
  *   H  history: a new default / a new list version / an archive never touch an existing case; an archived default counts
  *      as none at the opening (and says so), restored it counts again; a case opened with a default runs its QA against
  *      the pinned version and can still change its list by #1125's rules
@@ -25,6 +26,7 @@ import { ServiceDeskError } from "../lib/services/service-desk/service-desk-erro
 import { openCase, recordQa, runCaseAction, type OpenCaseInput, type ServiceDeskPrincipal } from "../lib/services/service-desk/service-case.service";
 import { chooseCaseQaList, createQaList, getCaseQa, reviseQaList, setQaListArchived } from "../lib/services/service-desk/qa-lists.service";
 import { getQaTrackDefaults, setQaTrackDefault } from "../lib/services/service-desk/qa-track-defaults.service";
+import { deriveIdempotencyKey } from "../lib/services/service-desk/idempotency-key";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 const runtime = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL! });
@@ -168,6 +170,20 @@ async function main() {
   const r1 = await open(A, T1, k2);
   ok("O3 the same opening again → replayed: the same case, no new event, no new number", r1.replayed && r1.case.id === o1.case.id && (await events(A, o1.case.id)).length === 2);
   ok("O4 the same key with another qaListId → IDEMPOTENCY_KEY_REUSED", (await tryIt(() => open(A, { ...T1, qaListId: L2 }, k2))).startsWith("IDEMPOTENCY_KEY_REUSED"));
+  // OK — the opening's derived key (deriveIdempotencyKey): a long client key answers cleanly (never a constraint error),
+  // the derived key fits the column CHECK in the database, a replay has no second effect (O3).
+  const nK = await caseCount(A);
+  const longK = [199, 200].map((n) => "a".repeat(n));
+  const longOpen: string[] = [];
+  for (const lk of longK) longOpen.push(await tryIt(() => open(A, T1, lk)));
+  ok("OK1 opening with a default list and a 199- / 200-character client key → IDEMPOTENCY_KEY_INVALID (a clean answer, not a constraint error), nothing opened",
+    longOpen.every((s) => s.startsWith("IDEMPOTENCY_KEY_INVALID")) && (await caseCount(A)) === nK, longOpen.join(" | "));
+  const derivedK = longK.map((lk) => deriveIdempotencyKey(lk, 2));
+  const tokensDef = String((await q(`SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname = 'ServiceCaseEvent_tokens'`))[0]?.d ?? "");
+  const fitsK = await q(`SELECT bool_and(k ~ '^[A-Za-z0-9:_#-]{8,200}$') ok FROM unnest($1::text[]) k`, derivedK);
+  ok("OK2 the opening's list event is keyed deriveIdempotencyKey(key, 2); the derived key of a 199- / 200-character key satisfies the column CHECK in the database",
+    e1[1].k === deriveIdempotencyKey(k2, 2) && tokensDef.includes("^[A-Za-z0-9:_#-]{8,200}$") && fitsK[0]?.ok === true && derivedK.every((d) => d.length <= 200),
+    JSON.stringify({ lens: derivedK.map((d) => d.length), tokensDef: tokensDef.slice(0, 120) }));
   const o2 = await open(A, { ...T1, qaListId: L2 });
   ok("O5 an explicit list overrides the default (L2 current version), reason EXPLICIT", o2.qaList?.reason === "EXPLICIT" && (await row(A, o2.case.id)).listId === L2
     && ((await events(A, o2.case.id))[1].payload as Record<string, unknown>).source === "EXPLICIT");

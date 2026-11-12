@@ -502,7 +502,7 @@ export async function openCase(p: ServiceDeskPrincipal, input: OpenCaseInput, re
  * QA track defaults (migration 20261130100000) — the QA list a case names from its opening, in the opening's transaction.
  * The case row is INSERTed without a list (#1124's guard: SERVICE_CASE_QA_LIST_AT_OPENING), then — when a list is named —
  * the SAME journaled choice as PUT /cases/[id]/qa/list: status-preserving, version 1 → 2, a CHOOSE_QA_LIST event at seq 2
- * with the request key + "#2" (keys are unique per event; a replay is answered from the opening event), the list's
+ * keyed deriveIdempotencyKey(request key, 2) (keys are unique per event; a replay is answered from the opening event), the list's
  * CURRENT version pinned. The mode is the case's own (lockCase: its snapshot's track row; without a track, its kind's).
  */
 async function openingQaList(tx: Tx, b: number, caseId: number, request: OpeningQaRequest, userId: number, prepared: Prepared): Promise<OpeningQaList> {
@@ -528,7 +528,7 @@ async function openingQaList(tx: Tx, b: number, caseId: number, request: Opening
      WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${context.version}::int`;
   if (n !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
   await insertRecordEvent(tx, b, caseId, context, "CHOOSE_QA_LIST", openingChoicePayload(r.to, r.reason === "DEFAULT" ? "DEFAULT" : "EXPLICIT"), userId,
-    { ...prepared, key: `${prepared.key}#2` });
+    { ...prepared, key: deriveIdempotencyKey(prepared.key, 2) });
   return { list: r.to, reason: r.reason };
 }
 
