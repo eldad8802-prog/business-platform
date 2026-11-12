@@ -75,7 +75,7 @@ BEGIN
   IF p_kind IS NULL OR p_kind NOT IN ('EXEMPT_DEALER', 'AUTHORIZED_DEALER', 'LTD_COMPANY') THEN
     RAISE EXCEPTION USING ERRCODE = 'DZL02', MESSAGE = 'LEGAL_IDENTITY_INVALID', DETAIL = 'kind';
   END IF;
-  IF p_legal_name IS NULL OR p_legal_name <> btrim(p_legal_name) OR length(p_legal_name) NOT BETWEEN 2 AND 200 THEN
+  IF p_legal_name IS NULL OR p_legal_name <> btrim(p_legal_name) OR length(p_legal_name) NOT BETWEEN 2 AND 120 THEN  -- 120 = the issuer declaration bound (#1117)
     RAISE EXCEPTION USING ERRCODE = 'DZL02', MESSAGE = 'LEGAL_IDENTITY_INVALID', DETAIL = 'legalName';
   END IF;
   IF p_tax_id IS NULL OR NOT public.legal_identity_tax_id_ok(p_tax_id) THEN
@@ -84,7 +84,7 @@ BEGIN
   IF p_address IS NULL OR p_address <> btrim(p_address) OR length(p_address) NOT BETWEEN 2 AND 300 THEN
     RAISE EXCEPTION USING ERRCODE = 'DZL02', MESSAGE = 'LEGAL_IDENTITY_INVALID', DETAIL = 'address';
   END IF;
-  IF p_phone IS NULL OR p_phone !~ '^\+?[0-9]{7,15}$' THEN
+  IF p_phone IS NULL OR p_phone !~ '^\+?[0-9]{9,15}$' THEN  -- 9..15 digits = the issuer declaration rule (#1117)
     RAISE EXCEPTION USING ERRCODE = 'DZL02', MESSAGE = 'LEGAL_IDENTITY_INVALID', DETAIL = 'phone';
   END IF;
   IF p_email IS NULL OR p_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' OR length(p_email) > 320 THEN
@@ -105,7 +105,7 @@ REVOKE ALL ON FUNCTION public.signup_legal_identity_seed(integer, text, text, te
 -- ---------------------------------------------------------------- controlled completion (existing businesses)
 -- Confirms the identity an existing business already has; never writes an identity value. The caller is the tenant
 -- runtime under the business's own context; p_user_id is the session user (server-derived), who must belong to it.
--- Answers: CONFIRMED | ALREADY_CONFIRMED | INCOMPLETE | INVALID_TAX_ID | NOT_ALLOWED.
+-- Answers: CONFIRMED | ALREADY_CONFIRMED | INCOMPLETE | INVALID_TAX_ID | LEGAL_NAME_TOO_LONG | NOT_ALLOWED.
 CREATE OR REPLACE FUNCTION public.legal_identity_confirm_existing(p_user_id integer)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE
@@ -131,6 +131,8 @@ BEGIN
     RETURN 'INCOMPLETE';
   END IF;
   IF NOT public.legal_identity_tax_id_ok(p."billingTaxId") THEN RETURN 'INVALID_TAX_ID'; END IF;
+  -- The issuer declaration (#1117) accepts a legal name of at most 120 characters: never lock one it cannot carry.
+  IF length(btrim(p."billingLegalName")) > 120 THEN RETURN 'LEGAL_NAME_TOO_LONG'; END IF;
   UPDATE public."BusinessProfile"
      SET "legalIdentityConfirmedAt" = now(), "legalIdentitySource" = 'OWNER_CONFIRMED', "updatedAt" = now()
    WHERE "id" = p."id";

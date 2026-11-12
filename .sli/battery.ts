@@ -132,7 +132,8 @@ async function main() {
   const cases: [string, Record<string, string>][] = [
     ["taxId", { taxId: INVALID }], ["taxId", { taxId: "111111111" }], ["taxId", { taxId: "12345" }],
     ["kind", { kind: "PARTNERSHIP" }], ["legalName", { legalName: " x" }], ["address", { address: "" }],
-    ["phone", { phone: "abc" }], ["email", { email: "no-at-sign" }],
+    ["phone", { phone: "abc" }], ["phone", { phone: "1234567" }], ["email", { email: "no-at-sign" }],
+    ["legalName", { legalName: "א".repeat(121) }],
   ];
   for (const [field, over] of cases) {
     const e = await fails(() => signup(over));
@@ -192,6 +193,8 @@ async function main() {
   ok("L8 INCOMPLETE without a profile", (await confirm(none.businessId, none.userId)) === "INCOMPLETE");
   const bad = await legacyBusiness({ ...COMPLETE, billingTaxId: INVALID });
   ok("L8 INVALID_TAX_ID", (await confirm(bad.businessId, bad.userId)) === "INVALID_TAX_ID");
+  const longName = await legacyBusiness({ ...COMPLETE, billingLegalName: "א".repeat(121) });
+  ok("L8 LEGAL_NAME_TOO_LONG (the declaration could never carry it)", (await confirm(longName.businessId, longName.userId)) === "LEGAL_NAME_TOO_LONG");
   const good = await legacyBusiness(COMPLETE);
   const other = await legacyBusiness(COMPLETE);
   ok("L8 NOT_ALLOWED for another business's user", (await confirm(good.businessId, other.userId)) === "NOT_ALLOWED");

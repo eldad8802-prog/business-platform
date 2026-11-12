@@ -31,10 +31,10 @@ fn  AS (SELECT p.oid, p.proname, p.prosecdef, coalesce(array_to_string(p.proconf
 checks(n, ok, observed_count) AS (
   SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261128090000_signup_legal_identity'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL
-               AND checksum = 'f81da1290e62705138d2a0e3a8440d1961c464df598c013995d828a577da00b7') = 1,
+               AND checksum = '7d9b52569135628dd3686c7cdbd176c288a8995ae1e11ad7205ac4e385e7fd23') = 1,
             (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261128090000_signup_legal_identity'
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL
-               AND checksum = 'f81da1290e62705138d2a0e3a8440d1961c464df598c013995d828a577da00b7')
+               AND checksum = '7d9b52569135628dd3686c7cdbd176c288a8995ae1e11ad7205ac4e385e7fd23')
   UNION ALL SELECT 2, (SELECT count(*) FROM pg_attribute a WHERE a.attrelid = (SELECT oid FROM bp) AND NOT a.attisdropped
                         AND NOT a.attnotnull AND a.attname IN ('legalIdentityConfirmedAt', 'legalIdentitySource')) = 2,
                       (SELECT count(*) FROM pg_attribute a WHERE a.attrelid = (SELECT oid FROM bp) AND NOT a.attisdropped
