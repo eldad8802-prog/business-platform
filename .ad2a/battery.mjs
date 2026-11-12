@@ -451,6 +451,19 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_settings_journal_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_settings_journal_erase_business() TO ${RT_ROLE}`);
   }
+  // Issuer declaration — migration 20261123090000_issuer_declaration. The same, for issuer_declaration_erase() (it
+  // anonymises declarations nothing was issued under; table from db push — the #1117 schema models it).
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261123090000_issuer_declaration/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.issuer_declaration_erase\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("issuer_declaration_erase() not found in migration 20261123090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.issuer_declaration_erase() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.issuer_declaration_erase() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //

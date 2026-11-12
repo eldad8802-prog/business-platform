@@ -39,7 +39,7 @@ if [ -f "$ID" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regprocedure('pub
     PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ID"
     echo "ERASURE PREREQ: issuer declaration applied verbatim from 20261123090000"
   else
-    IDFN="$(sed -n '/^CREATE OR REPLACE FUNCTION public.issuer_declaration_erase()/,/^REVOKE ALL ON FUNCTION public.issuer_declaration_erase() FROM PUBLIC;$/p' "$ID")"
+    IDFN="$(sed -n '/^CREATE OR REPLACE FUNCTION public\.issuer_declaration_erase()/,/^REVOKE ALL ON FUNCTION public\.issuer_declaration_erase() FROM PUBLIC;$/p' "$ID")"
     [ -n "$IDFN" ] || { echo "issuer_declaration_erase() not found in $ID"; exit 1; }
     { echo "$IDFN"; echo "GRANT EXECUTE ON FUNCTION public.issuer_declaration_erase() TO app_runtime;"; }       | PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL"
     echo "ERASURE PREREQ: issuer_declaration_erase() taken verbatim from 20261123090000"

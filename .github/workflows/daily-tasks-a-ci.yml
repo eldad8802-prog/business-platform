@@ -143,7 +143,7 @@ jobs:
             console.log("GRANT EXECUTE ON FUNCTION public.service_settings_journal_erase_business() TO app_runtime;");
             // Issuer declaration (#1081, 20261123090000): the purge also calls issuer_declaration_erase() (its table from db push).
             const idm = require("fs").readFileSync("prisma/migrations/20261123090000_issuer_declaration/migration.sql", "utf8");
-            const idf = idm.match(/CREATE OR REPLACE FUNCTION public.issuer_declaration_erase()[sS]*?$fn$;/);
+            const idf = idm.match(/CREATE OR REPLACE FUNCTION public\.issuer_declaration_erase\(\)[\s\S]*?\$fn\$;/);
             if (!idf) { console.error("issuer_declaration_erase() not found in the migration"); process.exit(1); }
             console.log(idf[0]);
             console.log("REVOKE ALL ON FUNCTION public.issuer_declaration_erase() FROM PUBLIC;");

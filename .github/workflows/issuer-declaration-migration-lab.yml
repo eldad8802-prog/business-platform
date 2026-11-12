@@ -120,6 +120,7 @@ jobs:
           psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE dubiz_decl_neg2"
           DATABASE_URL="$NEG2" DIRECT_URL="$NEG2" npx prisma db push --skip-generate
           psql "$NEG2" -q -f "$SECF" > /dev/null
+          psql "$NEG2" -v ON_ERROR_STOP=1 -q -f .issuer-declaration/drop-pushed.sql > /dev/null 2>&1
           grep -v 'PERFORM 1 FROM public."Business" b WHERE b."id" = NEW."businessId" FOR UPDATE;' "$MIGRATION" > /tmp/mig-neg2.sql
           if cmp -s /tmp/mig-neg2.sql "$MIGRATION"; then echo "::error::the lock line was not found — the negative proof would prove nothing"; exit 1; fi
           psql "$NEG2" -v ON_ERROR_STOP=1 -q -f /tmp/mig-neg2.sql
