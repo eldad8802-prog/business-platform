@@ -15,8 +15,11 @@ import android.os.Build;
  * this again is a no-op for an existing channel — Android keeps the person's own
  * choices (sound, importance) and ignores ours once the channel exists.
  *
- * Lock screen: PRIVATE — the device shows only the public version of a
- * notification while locked (the server sends a generic, lock-screen-safe text).
+ * Lock screen: we ASK for PRIVATE here, but Android keeps an app-created channel at
+ * VISIBILITY_NO_OVERRIDE (verified on API 36: lockscreenVisibility = -1000) — only the
+ * person can change a channel's lock-screen setting. Privacy is therefore enforced PER
+ * MESSAGE: the server sends android.notification.visibility = PRIVATE and a generic,
+ * lock-screen-safe text (lib/notifications/push/fcm-client.ts, push-content.ts).
  * Ids are part of the server contract (FCM android.notification.channel_id) and
  * must never be renamed: a renamed channel is a new channel, and the person's
  * settings on the old one are lost.
