@@ -235,10 +235,10 @@ async function main() {
       rem.dispatchDueReminders(NOW, { minLagMinutes: rem.BACKSTOP_LAG_MINUTES }),
       rem.dispatchDueReminders(NOW, A.businessId),
     ]);
-    const key = rem.reminderDedupeKey(raced.id, raced.remindAt!);
-    const notes = await owner.notification.findMany({ where: { businessId: A.businessId, dedupeKey: key }, select: { id: true } });
-    const inApp = notes.length === 1 ? await owner.notificationDelivery.count({ where: { notificationId: notes[0].id, channel: "IN_APP" } }) : -1;
-    ok("QStash + backstop + poll racing on one reminder: one bell row, one delivery (one claim winner)", notes.length === 1 && inApp === 1, { notes: notes.length, inApp });
+    const raceKey = rem.reminderDedupeKey(raced.id, raced.remindAt!);
+    const raceNotes = await owner.notification.findMany({ where: { businessId: A.businessId, dedupeKey: raceKey }, select: { id: true } });
+    const inApp = raceNotes.length === 1 ? await owner.notificationDelivery.count({ where: { notificationId: raceNotes[0].id, channel: "IN_APP" } }) : -1;
+    ok("QStash + backstop + poll racing on one reminder: one bell row, one delivery (one claim winner)", raceNotes.length === 1 && inApp === 1, { notes: raceNotes.length, inApp });
   } finally {
     await owner.$disconnect();
   }

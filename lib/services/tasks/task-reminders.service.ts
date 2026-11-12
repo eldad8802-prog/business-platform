@@ -160,7 +160,7 @@ export async function dispatchDueReminders(now: Date, onlyBusinessIdOrOptions?: 
   // guard against a double send. If every attempt fails, nothing was claimed: every reminder stays due for the next pass.
   const due = await withConnectionRetry(
     () => (opts.onlyBusinessId !== undefined ? dueRemindersForBusiness(opts.onlyBusinessId, cutoff) : dueReminders(cutoff)),
-    { label: "task-reminders.due", attempts: 3, delayMs: 500, beforeRetry: () => evictDeadConnections(prisma) },
+    { label: "task-reminders.due", attempts: 3, delayMs: 500, beforeRetry: () => evictDeadConnections(() => (opts.onlyBusinessId !== undefined ? dueRemindersForBusiness(opts.onlyBusinessId, cutoff, 1) : dueReminders(cutoff, 1))) },
   );
   let sent = 0, skipped = 0, pushed = 0, pushFailed = 0;
   for (const d of due) {

@@ -97,7 +97,6 @@ const CRON_ROUTES = [
   "app/api/intake/sweep/route.ts",
   "app/api/payments/reconciliation/route.ts",
   "app/api/payments/settlement-recovery/route.ts",
-  "app/api/task-reminders/backstop/route.ts",
   "app/api/transactional-email/sweep/route.ts",
 ];
 {
@@ -121,9 +120,8 @@ const CRON_ROUTES = [
   // sweep (Milestone C: expires lapsed requests and sends the owner's reminders; CRON_SECRET, Vercel cron). The
   // accountant package monitor (G5 milestone 1: inert until ACCOUNTANT_MONITOR_ENABLED; Vercel cron + the GitHub
   // watchdog) authenticates its schedulers through the same decision. The account deletion object stage sweep (inert
-  // until ACCOUNT_STORAGE_ERASURE_SWEEP_ENABLED) authenticates its scheduler through the same decision. The task-reminder backstop (the second path behind QStash;
-  // lagged, so it is idle while QStash is healthy; not scheduled in vercel.json) authenticates through the same decision.
-  const DECISION_CALLERS = ["app/api/account/storage-erasure-sweep/route.ts", "app/api/accountant/monitor/route.ts", "app/api/accountant/sweep/route.ts", "app/api/appointments/booking/sweep/route.ts", "app/api/payments/reconciliation/route.ts", "app/api/payments/settlement-recovery/route.ts", "app/api/task-reminders/backstop/route.ts", "app/api/transactional-email/sweep/route.ts", "lib/intake/sweep-auth.ts"];
+  // until ACCOUNT_STORAGE_ERASURE_SWEEP_ENABLED) authenticates its scheduler through the same decision.
+  const DECISION_CALLERS = ["app/api/account/storage-erasure-sweep/route.ts", "app/api/accountant/monitor/route.ts", "app/api/accountant/sweep/route.ts", "app/api/appointments/booking/sweep/route.ts", "app/api/payments/reconciliation/route.ts", "app/api/payments/settlement-recovery/route.ts", "app/api/transactional-email/sweep/route.ts", "lib/intake/sweep-auth.ts"];
   const cronCallers = files.filter((f) => /decideCronAuth\(/.test(code(f)) && !f.endsWith("settlement-recovery-auth.ts")).sort();
   ok("scope: decideCronAuth is called by exactly the two payment routes, the transactional email sweep, the accountant sweep and monitor, the public booking sweep and the intake sweep authority", JSON.stringify(cronCallers) === JSON.stringify(DECISION_CALLERS), JSON.stringify(cronCallers));
   const sweepAuthUsers = files.filter((f) => /from "@\/lib\/intake\/sweep-auth"/.test(code(f))).sort();

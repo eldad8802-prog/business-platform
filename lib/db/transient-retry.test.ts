@@ -181,25 +181,25 @@ async function main() {
   });
   await ok("evict: probes until a live connection answers (each failed probe spends one dead connection)", async () => {
     let dead = 3, calls = 0;
-    const client = { $queryRaw: async () => { calls += 1; if (dead > 0) { dead -= 1; throw prismaError("P1017"); } return [1]; } };
+    const client = (async () => { calls += 1; if (dead > 0) { dead -= 1; throw prismaError("P1017"); } return [1]; });
     assert.deepEqual(await evictDeadConnections(client), { probes: 4, live: true });
     assert.equal(calls, 4);
   });
   await ok("evict: bounded by MAX_PROBES and never throws", async () => {
     let calls = 0;
-    const client = { $queryRaw: async () => { calls += 1; throw prismaError("P1017"); } };
+    const client = (async () => { calls += 1; throw prismaError("P1017"); });
     assert.deepEqual(await evictDeadConnections(client), { probes: MAX_PROBES, live: false });
     assert.equal(calls, MAX_PROBES);
   });
   await ok("evict: a non-connection error stops at once (a real fault is not masked)", async () => {
     let calls = 0;
-    const client = { $queryRaw: async () => { calls += 1; throw prismaError("P2010"); } };
+    const client = (async () => { calls += 1; throw prismaError("P2010"); });
     assert.deepEqual(await evictDeadConnections(client), { probes: 1, live: false });
     assert.equal(calls, 1);
   });
   await ok("the Production pattern: 3 dead pooled connections, the read still succeeds on attempt 2", async () => {
     let dead = 3;
-    const pool = { $queryRaw: async () => { if (dead > 0) { dead -= 1; throw prismaError("P1017"); } return []; } };
+    const pool = async () => { if (dead > 0) { dead -= 1; throw prismaError("P1017"); } return []; };
     const read = async () => { if (dead > 0) { dead -= 1; throw prismaError("P1017"); } return ["due"]; };
     const seen: number[] = [];
     const out = await withConnectionRetry(async (attempt) => { seen.push(attempt); return read(); },
@@ -221,7 +221,9 @@ async function main() {
     assert.equal(calls.length, 1);
     // The read is the global identifier list, or the caller's own business inside its tenant tx: still only reads.
     assert.match(src, /withConnectionRetry\(\s*\(\) => \(opts\.onlyBusinessId !== undefined \? dueRemindersForBusiness\(opts\.onlyBusinessId, cutoff\) : dueReminders\(cutoff\)\),/);
-    assert.match(src, /label: "task-reminders\.due", attempts: 3, delayMs: 500, beforeRetry: \(\) => evictDeadConnections\(prisma\)/);
+    // Eviction probes with the SAME read (limit 1) — no new use of the bare client (AST-2/AST-3 ratchet).
+    assert.match(src, /label: "task-reminders\.due", attempts: 3, delayMs: 500, beforeRetry: \(\) => evictDeadConnections\(\(\) => \(opts\.onlyBusinessId !== undefined \? dueRemindersForBusiness\(opts\.onlyBusinessId, cutoff, 1\) : dueReminders\(cutoff, 1\)\)\)/);
+    assert.ok(!/evictDeadConnections\(prisma\)|\$queryRaw`SELECT 1`/.test(src));
     // The claim (conditional UPDATE on reminderSentAt) is still the guard against a double send.
     assert.match(src, /reminderSentAt: null, remindAt: due\.remindAt/);
   });
