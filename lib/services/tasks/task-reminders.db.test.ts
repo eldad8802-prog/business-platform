@@ -221,6 +221,9 @@ async function main() {
     ok("the in-app poll pass sends A's reminder", pollPass.sent >= 1 && (await owner.task.findUnique({ where: { id: aDue.id } }))!.reminderSentAt !== null, pollPass);
     ok("…and claims nothing in B", (await owner.task.count({ where: { businessId: B.businessId, title: { startsWith: "noise-" }, reminderSentAt: { not: null } } })) === 0);
 
+    // The noise has done its job; a business with daily_tasks OFF keeps its reminders due (never claimed), and in the
+    // GLOBAL pass they would fill the batch ahead of A's — a known limit of the global batch, reported separately.
+    await owner.task.updateMany({ where: { businessId: B.businessId, title: { startsWith: "noise-" } }, data: { reminderSentAt: NOW } });
     const recent = await owner.task.create({ data: { businessId: A.businessId, title: "A due 2 min ago", status: "OPEN", remindAt: plus(NOW, -2) } });
     const late = await owner.task.create({ data: { businessId: A.businessId, title: "A due 10 min ago", status: "OPEN", remindAt: plus(NOW, -10) } });
     await rem.dispatchDueReminders(NOW, { minLagMinutes: rem.BACKSTOP_LAG_MINUTES });
