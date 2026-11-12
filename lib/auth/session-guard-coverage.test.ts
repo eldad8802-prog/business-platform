@@ -100,5 +100,34 @@ ok("...and by the onboarding layout", MOUNTS.test(readFileSync(join(ROOT, "app/o
   ok("...and it is the key the sign-out writes (when the sign-out flow is present)", writer === undefined || writer === guard, `${guard} vs ${writer}`);
 }
 
+// ── 4. every sign-in drops a pending sign-out marker it has made moot ──
+// A new sign-in replaces the refresh cookie that proved the older pending
+// sign-out. A marker left behind is later "completed" against the NEW cookie
+// and shows the new account a false "sign-out not confirmed" (and disables the
+// guard's no-token recovery). Each path that stores a NEW session must clear it;
+// the two form paths first try to finish it while the proof is still in the jar.
+{
+  const read = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const login = read("app/login/login-form.tsx");
+  const register = read("app/register/register-form.tsx");
+  const google = read("components/auth/google-sign-in.tsx");
+  const order = (s: string, before: RegExp, after: RegExp) => {
+    const a = s.search(before);
+    const b = s.search(after);
+    return a >= 0 && b >= 0 && a < b;
+  };
+  ok("sign-in: login finishes a pending sign-out BEFORE it posts the credentials",
+    order(login, /await finishPendingRevokeBeforeSignIn\(\)/, /fetch\("\/api\/auth\/login"/));
+  ok("...and drops the marker once the new token is stored",
+    order(login, /setItem\("token", data\.token\)/, /clearPendingRevoke\(\);/));
+  ok("sign-up: the same, before /api/auth/register and after the token",
+    order(register, /await finishPendingRevokeBeforeSignIn\(\)/, /fetch\("\/api\/auth\/register"/) &&
+      order(register, /setItem\("token", registerData\.token\)/, /clearPendingRevoke\(\);/));
+  ok("Google (web): the marker is dropped once the session from the new cookie is established",
+    order(google, /const token = readToken\(\);/, /clearPendingRevoke\(\);/));
+  ok("/login re-checks a kept session when the device comes back online",
+    /addEventListener\("online", onOnline\)/.test(login) && /getItem\("token"\)\) void boot\(\)/.test(login));
+}
+
 console.log(failed === 0 ? "\nALL PASS" : `\n${failed} FAILED`);
 if (failed > 0) process.exit(1);
