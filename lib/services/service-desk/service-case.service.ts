@@ -1014,9 +1014,11 @@ export async function recordIntake(
 }
 
 /**
- * QA results against the kind's base template (P3). Stored on the case and journaled (P4). The case counts as "QA
- * completed" (qaCompletedAt) only when every required item is PASS; otherwise it is cleared, and the case machine keeps
- * refusing PASS_QA. Only while the case is in QA.
+ * QA results against the kind's / track's built-in template (P3 / M1 — every built-in check is a suggestion, owner
+ * 2026-11-12). Stored on the case and journaled (P4). The case counts as "QA completed" (qaCompletedAt) only by the
+ * template's completion rule (qa-templates.ts: a built-in template — every check recorded, PASS or FAIL); otherwise it
+ * is cleared, and the case machine keeps refusing PASS_QA. Only while the case is in QA. A stored result is never
+ * re-evaluated: this is the only caller of evaluateQa.
  */
 export async function recordQa(p: ServiceDeskPrincipal, caseId: unknown, body: { results?: unknown; expectedVersion?: unknown }, req: WriteRequest): Promise<CommandResult & { qa?: { completed: boolean; template: string } }> {
   if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
