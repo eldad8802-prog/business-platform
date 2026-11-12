@@ -76,7 +76,7 @@ async function signup(over: Partial<Record<string, string>> = {}): Promise<numbe
       `INSERT INTO "Business" ("name","createdAt","updatedAt") VALUES ($1, now(), now()) RETURNING "id"`,
       `sli-${++seq}`)) as Rows;
     const id = Number(b[0].id);
-    await tx.$queryRawUnsafe(SEED_SQL, ...SEED(id, over));
+    await tx.$executeRawUnsafe(SEED_SQL, ...SEED(id, over));
     return id;
   }, TX);
 }
@@ -123,7 +123,7 @@ async function main() {
 
   console.log("L2 seed for a business this transaction did not create");
   const legacy = await legacyBusiness(null);
-  const e2 = await fails(() => auth.$transaction((tx) => tx.$queryRawUnsafe(SEED_SQL, ...SEED(legacy.businessId)), TX));
+  const e2 = await fails(() => auth.$transaction((tx) => tx.$executeRawUnsafe(SEED_SQL, ...SEED(legacy.businessId)), TX));
   ok("L2 DZL01 for an existing business", !!e2 && /DZL01|LEGAL_IDENTITY_SEED_NOT_NEW_BUSINESS/.test(e2), e2 ?? "");
   ok("L2 no profile was written", (await profileOf(legacy.businessId)) === undefined);
 
@@ -242,7 +242,7 @@ async function main() {
   ok("L12 PUBLIC executes none", acl.every((r) => r.public_exec === false));
   ok("L12 seed: app_auth yes, runtime no", by.signup_legal_identity_seed?.auth === true && by.signup_legal_identity_seed?.rt === false);
   ok("L12 confirm: runtime yes, app_auth no", by.legal_identity_confirm_existing?.rt === true && by.legal_identity_confirm_existing?.auth === false);
-  const e12 = await fails(() => asTenant(a, (tx) => tx.$queryRawUnsafe(SEED_SQL, ...SEED(a))));
+  const e12 = await fails(() => asTenant(a, (tx) => tx.$executeRawUnsafe(SEED_SQL, ...SEED(a))));
   ok("L12 the runtime cannot call the seed", !!e12 && DENIED.test(e12), e12 ?? "allowed");
   const e12b = await fails(() => auth.$queryRawUnsafe(`SELECT public.legal_identity_confirm_existing(1)`));
   ok("L12 app_auth cannot call the completion", !!e12b && DENIED.test(e12b), e12b ?? "allowed");
