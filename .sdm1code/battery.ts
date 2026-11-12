@@ -4,7 +4,9 @@
  * --deploy-only, then .sdm1/chain.sh: #1096, #1104 and M1 applied). Every write passes the database guards of the real
  * migrations — the case guard (D3 / D14 / completion), the deferred journal and completion triggers, RLS. Synthetic only.
  *
- *   E  the seven tracks, T1 … T7, end to end (QA templates, D15, WORK_DONE → COMPLETE, handover, T7 resolutions)
+ *   E  the seven tracks, T1 … T7, end to end (QA templates, D15, WORK_DONE → COMPLETE, handover, T7 resolutions);
+ *      K  the after-sale second step's derived key: a 199 / 200-character client key refused cleanly, the derived key
+ *      within the column CHECK in the database, a replay answered with no second effect
  *   C  COMPLETE: balance UNKNOWN blocks, an open balance needs the owner's reason, one immutable completion record,
  *      no customer signature anywhere, idempotent replay, stale version refused; the record stores the balance, the
  *      approving user + time of a debt (owner decision 2026-11-11) and an overpayment; UNKNOWN writes nothing
@@ -26,6 +28,7 @@ import {
 } from "../lib/services/service-desk/service-case.service";
 import { recordCharge } from "../lib/services/service-desk/case-charge.service";
 import { QA_TEMPLATE_BY_ID } from "../lib/services/service-desk/qa-templates";
+import { deriveIdempotencyKey } from "../lib/services/service-desk/idempotency-key";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 const runtime = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL! });
@@ -219,6 +222,34 @@ async function main() {
     const r2 = await row(A, c2.id);
     ok("E7 RETURN_ORIGINAL → READY (NOT_REPAIRED), the item goes back through the owner-confirmed handover", back === "OK" && r2.status === "READY" && r2.outcome === "NOT_REPAIRED", back);
     ok("E7 a T7 opening needs a return reason", (await tryIt(() => open(A, { track: "T7" }))).includes("RETURN_REASON_REQUIRED"));
+
+    // K — the derived key of the second step (deriveIdempotencyKey): a long client key answers cleanly (never a
+    // constraint error), a replay is recognised and has no second effect.
+    const c3 = await open(A, { track: "T7", returnReason: "DEFECT" });
+    await intake(A, c3.id);
+    await walk(A, c3.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }]);
+    const v3 = (await row(A, c3.id)).version;
+    const n3 = (await events(A, c3.id)).length;
+    const long = [199, 200].map((n) => "a".repeat(n));
+    const longAns: string[] = [];
+    for (const lk of long) longAns.push(await tryIt(() => chooseAfterSaleResolution(A.p, c3.id, { resolution: "CREDIT", expectedVersion: v3 }, { idempotencyKey: lk })));
+    ok("K1 a 199- / 200-character client key → IDEMPOTENCY_KEY_INVALID (a clean answer, not a constraint error), nothing written",
+      longAns.every((s) => s.startsWith("IDEMPOTENCY_KEY_INVALID")) && (await row(A, c3.id)).version === v3 && (await events(A, c3.id)).length === n3, longAns.join(" | "));
+    const tokensDef = String((await q(`SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname = 'ServiceCaseEvent_tokens'`))[0]?.d ?? "");
+    const derivedLong = long.map((lk) => deriveIdempotencyKey(lk, 2));
+    const fits = await q(`SELECT bool_and(k ~ '^[A-Za-z0-9:_#-]{8,200}$') ok FROM unnest($1::text[]) k`, derivedLong);
+    ok("K2 the column CHECK is ^[A-Za-z0-9:_#-]{8,200}$ and the derived key of a 199- / 200-character key satisfies it in the database",
+      tokensDef.includes("^[A-Za-z0-9:_#-]{8,200}$") && fits[0]?.ok === true && derivedLong.every((d) => d.length <= 200), { lens: derivedLong.map((d) => d.length), tokensDef: tokensDef.slice(0, 120) });
+    const k3 = key();
+    const first3 = await chooseAfterSaleResolution(A.p, c3.id, { resolution: "CREDIT", expectedVersion: v3 }, { idempotencyKey: k3 });
+    const afterFirst = { r: await row(A, c3.id), ev: await events(A, c3.id) };
+    const replay3 = await chooseAfterSaleResolution(A.p, c3.id, { resolution: "CREDIT", expectedVersion: v3 }, { idempotencyKey: k3 });
+    const afterReplay = { r: await row(A, c3.id), ev: await events(A, c3.id) };
+    ok("K3 after-sale with a key: two events, the first keyed by the request key, the second by deriveIdempotencyKey(key, 2)",
+      first3.replayed === false && afterFirst.ev.length === n3 + 2 && String(afterFirst.ev[n3].idempotencyKey) === k3 && String(afterFirst.ev[n3 + 1].idempotencyKey) === deriveIdempotencyKey(k3, 2));
+    ok("K4 the same request again → replayed, no second effect (same version, same events, same resolution and status)",
+      replay3.replayed === true && afterReplay.r.version === afterFirst.r.version && afterReplay.ev.length === afterFirst.ev.length
+      && afterReplay.r.afterSaleResolution === "CREDIT" && afterReplay.r.status === afterFirst.r.status);
   }
 
   console.log("C — COMPLETE on T3: the balance, the record, replay");

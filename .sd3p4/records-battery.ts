@@ -12,6 +12,9 @@
  *   S  settings: first save + ServiceSettingsEvent (field names only); replay; stale; no change; two at once → one;
  *      the journal insert failing → the settings unchanged.
  *   A  without the P4 journal (the 1.3-0-only lab): every record write → NOT_AVAILABLE_UNTIL_AUDIT, nothing written.
+ *      With M1's code (it writes M1's columns; M1 needs the case charge, which needs P4) that lab can never carry the
+ *      code: AR1–AR4 then prove it — journal absent, the charge and M1 refuse there and change nothing, and on the P4 lab
+ *      (which carries M1) the code's journal probes are true (.sd3p4/absent-refusal-checks.ts).
  *   D  account deletion through the real deleteOwnBusinessAccount: a failure later in the purge transaction rolls the new
  *      erase back too; the rerun completes: settings events blanked and kept, the case journal's records blanked, the
  *      business's other data per the existing contract; a second deletion is "already_deleted".
@@ -30,6 +33,7 @@ import {
 } from "../lib/services/service-desk/service-case.service";
 import { deleteOwnBusinessAccount } from "../lib/services/account/account-deletion.service";
 import { prismaAccountDeletionStore } from "../lib/services/account/account-deletion.prisma-store";
+import { AUDIT_JOURNAL_READY_SQL, CHARGE, CHARGE_LEDGER_READY_SQL, CHARGE_REFUSAL, M1, M1_PREMISE_MISSING_SQL, M1_REFUSAL, psqlAt, refusedUnchanged } from "./absent-refusal-checks";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 let pass = 0;
@@ -163,7 +167,27 @@ async function main() {
   ok("S5 the journal insert fails → the settings change is rolled back (version unchanged)", faultS !== "OK" && (await getSettings(A.b)).version === before, faultS);
 
   console.log("A — without the P4 journal (1.3-0-only lab)");
-  if (process.env.ABSENT_OWNER_URL && process.env.ABSENT_RUNTIME_URL) {
+  // M1 (20261127090000): this code writes M1's columns (openCase, on every case); M1 refuses without the case charge
+  // (20261126090000), which refuses without P4 — so a database without the journal can never carry this code (release
+  // order is migration-first). Where the 1.3-0-only lab lacks M1 the child could not even open a case there (42703), so
+  // the record-write refusals A1/A2 are REPLACED by explicit, counted refusals on that same lab (owner decision
+  // 2026-11-12, option A): the charge and M1 refuse there and change nothing, and where this code can run (this P4 lab,
+  // which carries M1) the code's journal probes are true — NOT_AVAILABLE_UNTIL_AUDIT is unreachable.
+  const absentCarriesCode = !!process.env.ABSENT_OWNER_URL
+    && psqlAt(process.env.ABSENT_OWNER_URL, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ServiceCase' AND column_name = 'workType')::text`) === "true";
+  if (process.env.ABSENT_OWNER_URL && process.env.ABSENT_RUNTIME_URL && !absentCarriesCode) {
+    const url = process.env.ABSENT_OWNER_URL;
+    ok("AR1 the 1.3-0-only lab has no audit journal (the code's auditJournalReady probe is false there)", psqlAt(url, AUDIT_JOURNAL_READY_SQL) === "false");
+    const chargeR = refusedUnchanged(url, CHARGE, CHARGE_REFUSAL);
+    ok("AR2 without the journal the case charge (M1's premise), applied verbatim, refuses — the P4 audit journal is not applied — and nothing changed", chargeR.ok, chargeR.detail);
+    const m1Missing = psqlAt(url, M1_PREMISE_MISSING_SQL);
+    const m1R = refusedUnchanged(url, M1, M1_REFUSAL);
+    ok("AR3 without the journal M1, applied verbatim, refuses (P4's ServiceSettingsEvent missing) and nothing changed: this code cannot be deployed there",
+      m1R.ok && m1Missing === "ServiceSettingsEvent", `missing=${m1Missing} ${m1R.detail}`);
+    ok("AR4 where this code runs (this lab carries M1) the code's journal and charge probes are true: NOT_AVAILABLE_UNTIL_AUDIT is unreachable",
+      psqlAt(process.env.OWNER_URL!, AUDIT_JOURNAL_READY_SQL) === "true" && psqlAt(process.env.OWNER_URL!, CHARGE_LEDGER_READY_SQL) === "true"
+      && psqlAt(process.env.OWNER_URL!, `SELECT (to_regclass('public."ServiceCompletion"') IS NOT NULL)::text`) === "true");
+  } else if (process.env.ABSENT_OWNER_URL && process.env.ABSENT_RUNTIME_URL) {
     const env = { ...process.env, OWNER_URL: process.env.ABSENT_OWNER_URL, DATABASE_URL: process.env.ABSENT_RUNTIME_URL, DIRECT_URL: process.env.ABSENT_RUNTIME_URL, P4R_ABSENT_CHILD: "1" };
     const r = spawnSync(process.execPath, [...process.execArgv, process.argv[1]], { env, encoding: "utf8" });
     const out = `${r.stdout}`;
