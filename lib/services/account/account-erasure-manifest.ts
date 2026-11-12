@@ -535,6 +535,27 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
     ],
   },
+  // Legal identity correction requests (migration 20261128100000). The account-deletion adapter calls it in the purge
+  // transaction, next to business_documents_erase(). The identity values asked about (names, dealer numbers / ח"פ),
+  // the reason and the decision note are cleared; an open request is closed. What remains is the shape of the history:
+  // which kind of request, from which business kind to which, how it was verified, and how it ended.
+  {
+    fn: "legal_identity_correction_erase",
+    migration: "20261128100000_legal_identity_correction",
+    models: [
+      {
+        model: "LegalIdentityCorrectionRequest",
+        cleared: ["currentLegalName", "currentTaxId", "requestedLegalName", "requestedTaxId", "reason", "decisionNote"],
+        kept: {
+          kind: "TYPO_CORRECTION | BUSINESS_KIND_CHANGE (CHECK) — a fixed vocabulary, not the person",
+          currentBusinessKind: "EXEMPT_DEALER | AUTHORIZED_DEALER | LTD_COMPANY — a fixed vocabulary, not the person",
+          requestedBusinessKind: "EXEMPT_DEALER | AUTHORIZED_DEALER | LTD_COMPANY (CHECK) — a fixed vocabulary, not the person",
+          verificationMethod: "PASSWORD | RECENT_SIGN_IN (CHECK) — how the requester was re-verified, not the person",
+          status: "PENDING | APPLIED | REJECTED | CANCELLED | STALE (CHECK) — how the request ended, not the person",
+        },
+      },
+    ],
+  },
 ];
 
 export type ErasureManifest = {

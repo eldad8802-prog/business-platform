@@ -303,6 +303,7 @@ model Business {
   paymentRequests               PaymentRequest[]
   businessObligations           BusinessObligation[]
   businessObligationOrientation BusinessObligationOrientation?
+  legalIdentityCorrections      LegalIdentityCorrectionRequest[]
   payees                        Payee[]
   commitments                   Commitment[]
   installments                  Installment[]
@@ -9109,4 +9110,38 @@ model BusinessDocumentErasure {
   state       BusinessDocumentErasureState @default(PURGING_OBJECTS)
   startedAt   DateTime                     @default(now()) @db.Timestamptz(3)
   completedAt DateTime?                    @db.Timestamptz(3)
+}
+
+/// Legal identity correction requests (migration 20261128100000_legal_identity_correction). The business asks;
+/// an authorized party that is not the requester decides (legal_identity_correction_decide — granted to nobody
+/// until the owner approves the approver and the verification policy); an approved request is applied atomically.
+/// Written ONLY by the definer functions (the runtime holds SELECT under RLS); rows are never deleted or rewritten —
+/// they are the history. The five identity/reason columns are NULL only after account-deletion anonymisation.
+model LegalIdentityCorrectionRequest {
+  id                    Int       @id @default(autoincrement())
+  businessId            Int
+  requestedByUserId     Int
+  /// TYPO_CORRECTION | BUSINESS_KIND_CHANGE (derived from what changes, never chosen by the client)
+  kind                  String
+  currentBusinessKind   String
+  currentLegalName      String?
+  currentTaxId          String?
+  requestedBusinessKind String
+  requestedLegalName    String?
+  requestedTaxId        String?
+  reason                String?
+  sameLegalEntity       Boolean
+  /// PASSWORD | RECENT_SIGN_IN
+  verificationMethod    String
+  verifiedAt            DateTime  @db.Timestamptz(6)
+  /// PENDING | APPLIED | REJECTED | CANCELLED | STALE
+  status                String    @default("PENDING")
+  decidedByUserId       Int?
+  decidedAt             DateTime? @db.Timestamptz(6)
+  decisionNote          String?
+  anonymisedAt          DateTime? @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @db.Timestamptz(6)
+  business              Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt], map: "LegalIdentityCorrection_business_created")
 }

@@ -143,6 +143,10 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceDevice: { disposition: "ERASURE_MANAGED" },
   ServiceCaseIntake: { disposition: "ERASURE_MANAGED" },
   ServiceHandover: { disposition: "ERASURE_MANAGED" },
+  // Legal identity correction requests (migration 20261128100000). Names, dealer numbers / ח"פ, the reason and the
+  // decision note are cleared in place by legal_identity_correction_erase(), which the adapter calls in the purge
+  // transaction — declared in DB_FUNCTION_ERASURES (account-erasure-manifest.ts) and proven by the same contract.
+  LegalIdentityCorrectionRequest: { disposition: "ERASURE_MANAGED" },
   // Business documents (migration 20261114090000). Customer and recipient names, the owner's notes, letter bodies:
   // their rows are DELETED by business_documents_erase(), which the adapter calls in the purge transaction —
   // declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C26, rows deleted). The stored PDFs are the

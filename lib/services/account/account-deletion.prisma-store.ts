@@ -514,6 +514,10 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // after every database stage committed (eraseStoredObjects, then the sweep). It refuses unless the business
           // in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.business_documents_erase() AS n`;
+          // Legal identity correction requests (migration 20261128100000): the names, numbers, reason and decision note
+          // are cleared in place and an open request is closed; never deletes a row. Refuses unless the business in
+          // this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.legal_identity_correction_erase() AS n`;
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //
