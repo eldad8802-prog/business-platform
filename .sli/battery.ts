@@ -233,7 +233,7 @@ async function main() {
     SELECT p.proname,
            has_function_privilege('app_auth', p.oid, 'EXECUTE') AS auth,
            has_function_privilege('app_runtime', p.oid, 'EXECUTE') AS rt,
-           COALESCE(p.proacl::text, '') LIKE '%=X/%' AS public_exec
+           (COALESCE(p.proacl::text, '') = '' OR p.proacl::text LIKE '%{=X/%' OR p.proacl::text LIKE '%,=X/%') AS public_exec
       FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN
       ('signup_legal_identity_seed','legal_identity_confirm_existing','legal_identity_tax_id_ok',
        'legal_identity_business_is_being_deleted','legal_identity_lock','legal_identity_no_delete')`)) as Rows;
