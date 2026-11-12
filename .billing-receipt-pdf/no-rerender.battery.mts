@@ -14,6 +14,16 @@
  *   N7  stored file missing: refused the same way, DB row unchanged, nothing written
  *   C1  control: a TAX_INVOICE whose stored file is missing is still re-rendered (unchanged behaviour)
  *   C2  control: BILLING_PDF_SKIP_CACHE=1 (explicit operator/debug override) still renders
+ *   B1/B2  a receipt that never got a PDF is rendered once with today's template and RECORDS that template
+ *          (RECEIPT_CURRENT_HTML_TEMPLATE_VERSION) — it is never labelled as a pre-#1108 original
+ *   R1  controlled restore (owner-run): lost file → dry run verifies by re-render and writes nothing; --apply puts back the
+ *       exact original bytes under the recorded key, row unchanged, one BILLING_PDF_RESTORED audit event
+ *   R2  a receipt produced with the PRE-#1108 template (recorded "billing-v1-html"): restore reproduces it with the frozen
+ *       receipt-v1 template — the restored PDF still says RECEIPT / not קבלה (the original, not today's template)
+ *   R3  a recorded hash no source can reproduce → NOT_VERIFIED: nothing written, no audit event, still refused (503)
+ *   R4  the exact bytes in a sealed accountant package → VERIFIED_FROM_PACKAGE
+ *   R5  a receipt with no produced PDF → NOT_A_PRODUCED_RECEIPT_PDF, nothing written
+ *   R6  stored bytes altered → restore replaces them only with the verified original
  *
  *   npx tsx .billing-receipt-pdf/no-rerender.battery.mts   (DATABASE_URL = a throwaway lab, schema pushed; Chromium;
  *                                                          STORAGE_PROVIDER=local, LOCAL_STORAGE_ROOT set)
@@ -28,6 +38,12 @@ import { issueBillingDocument } from "../lib/services/billing/billing-issue.serv
 import { getOrRenderBillingPdf } from "../lib/services/billing/billing-pdf.service";
 import { buildStorageKey, unlinkByKeyQuiet, writeAtomic } from "../lib/services/billing/pdf/billing-pdf-storage";
 import { replaceReceiptPaymentLines } from "../lib/services/billing/receipt/billing-receipt-draft.service";
+import { renderBillingPdfHtmlFromSnapshot } from "../lib/services/billing/pdf/billing-pdf-html-renderer";
+import { RECEIPT_CURRENT_HTML_TEMPLATE_VERSION, RECEIPT_V1_HTML_TEMPLATE_VERSION } from "../lib/services/billing/pdf/receipt-template-version";
+import { restoreIssuedReceiptPdf } from "../lib/services/billing/receipt-pdf-restore.service";
+import { getStorageService } from "../lib/storage";
+import JSZip from "jszip";
+import { PDFParse } from "pdf-parse";
 
 const prisma = new PrismaClient();
 const stub = { executeApproval: async (i: { billingDocumentId: number }) => ({ outcome: "completed_approved" as const, billingDocumentId: i.billingDocumentId, submissionId: -1, allocationNumber: "123456789", safeToRetry: false }) };
@@ -137,6 +153,105 @@ async function main() {
     JSON.stringify(await row(m.id)) === JSON.stringify(before8) && storedObjects() === objs8, `objs ${objs8}→${storedObjects()}`);
   const r9 = await call(m.id);
   ok("C2 after the override the old-template bytes are still what is served", r9.renderedNow === false && r9.buffer.equals(legacy));
+
+  // ===================================================================== B: never-rendered receipt
+  const newReceipt = async (amount: string) => {
+    const d = await createBillingDraft({ businessId: b, actorUserId: u, documentType: BillingDocumentType.RECEIPT, customerId: c });
+    await replaceReceiptPaymentLines({ businessId: b, billingDocumentId: d.id, paymentLines: [{ lineIndex: 1, method: "CASH", amount, currency: "ILS", paymentDate: "2026-11-09" }] });
+    await issueBillingDocument({ businessId: b, billingDocumentId: d.id, actorUserId: u }, stub as never);
+    return d.id;
+  };
+  const m2 = await newReceipt("75.00");
+  const b1 = await call(m2);
+  const m2row = await row(m2);
+  ok("B1 a never-rendered receipt gets its first PDF with today's template, recording that template",
+    b1.renderedNow === true && m2row.pdfTemplateVersion === RECEIPT_CURRENT_HTML_TEMPLATE_VERSION, String(m2row.pdfTemplateVersion));
+  ok("B2 it is never recorded as a pre-#1108 original", m2row.pdfTemplateVersion !== RECEIPT_V1_HTML_TEMPLATE_VERSION);
+
+  // ===================================================================== C: controlled restore
+  const restore = (id: number, apply = false) => restoreIssuedReceiptPdf({ businessId: b, billingDocumentId: id, actorUserId: u, apply });
+  const restoredEvents = (id: number) => prisma.billingAuditEvent.count({ where: { billingDocumentId: id, eventType: "BILLING_PDF_RESTORED" } });
+  const pdfText = async (buf: Buffer) => {
+    const p = new PDFParse({ data: new Uint8Array(buf) });
+    try { return (await p.getText()).text.replace(/\s+/g, ""); } finally { await p.destroy(); }
+  };
+
+  // R1 lost file, today's template
+  await unlinkByKeyQuiet(m2row.pdfStorageKey!);
+  const objsR1 = storedObjects();
+  const dry = await restore(m2);
+  ok("R1 dry run: verified by re-render, nothing written",
+    dry.verdict === "VERIFIED_BY_RERENDER" && dry.applied === false && storedObjects() === objsR1 && (await restoredEvents(m2)) === 0, JSON.stringify(dry));
+  ok("R1 before restore the receipt is refused (503), not regenerated", (await refused(m2))?.status === 503);
+  const app1 = await restore(m2, true);
+  const r1after = await call(m2);
+  ok("R1 --apply puts back the exact original bytes (sha256 = pdfHash) under the recorded key",
+    app1.applied === true && r1after.renderedNow === false && r1after.buffer.equals(b1.buffer) && sha(r1after.buffer) === m2row.pdfHash, JSON.stringify(app1));
+  ok("R1 the document row is unchanged and one BILLING_PDF_RESTORED event is recorded",
+    JSON.stringify(await row(m2)) === JSON.stringify(m2row) && (await restoredEvents(m2)) === 1);
+
+  // R2 produced with the pre-#1108 template
+  const m3 = await newReceipt("40.00");
+  const snap3 = (await prisma.billingDocument.findUniqueOrThrow({ where: { id: m3 }, select: { issuedSnapshot: true } })).issuedSnapshot;
+  const v1bytes = await renderBillingPdfHtmlFromSnapshot(snap3 as never, [], "receipt-v1");
+  const v1At = new Date();
+  const v1Hash = sha(v1bytes);
+  const v1Key = buildStorageKey(b, m3, v1Hash);
+  await writeAtomic(v1Key, v1bytes);
+  await prisma.billingDocument.update({ where: { id: m3 }, data: { pdfRenderStatus: "RENDERED", pdfStorageKey: v1Key, pdfHash: v1Hash, pdfTemplateVersion: RECEIPT_V1_HTML_TEMPLATE_VERSION, pdfRenderedAt: v1At } });
+  const served3 = await call(m3);
+  ok("R2 (state A) a pre-#1108 receipt PDF is served as stored", served3.renderedNow === false && served3.buffer.equals(v1bytes));
+  await new Promise((r) => setTimeout(r, 2000));
+  await unlinkByKeyQuiet(v1Key);
+  const app2 = await restore(m3, true);
+  const r2after = await call(m3);
+  const t2 = await pdfText(r2after.buffer);
+  ok("R2 restore reproduces the pre-#1108 original with the frozen template (exact bytes)",
+    app2.verdict === "VERIFIED_BY_RERENDER" && r2after.buffer.equals(v1bytes), JSON.stringify(app2));
+  ok("R2 the restored PDF is the OLD template (RECEIPT, no קבלה) — today's template is never presented as the original",
+    t2.includes("RECEIPT") && !t2.includes("קבלה"));
+
+  // R3 a hash nothing can reproduce (the synthetic old-template bytes of N5)
+  await unlinkByKeyQuiet(legacyKey);
+  const objsR3 = storedObjects();
+  const r3 = await restore(m.id, true);
+  ok("R3 NOT_VERIFIED: nothing written, no audit event, the receipt stays refused",
+    r3.verdict === "NOT_VERIFIED" && r3.applied === false && storedObjects() === objsR3
+      && (await restoredEvents(m.id)) === 0 && (await refused(m.id))?.code === "RECEIPT_STORED_PDF_UNAVAILABLE", JSON.stringify(r3));
+
+  // R4 a sealed accountant package holds the exact bytes
+  const m4 = await newReceipt("90.00");
+  const p4 = await call(m4);
+  const m4row = await row(m4);
+  await prisma.billingDocument.update({ where: { id: m4 }, data: { pdfRenderedAt: new Date("2026-01-01T00:00:00Z") } }); // re-render window cannot match
+  const zip = new JSZip();
+  zip.file("issued/receipt-000004.pdf", p4.buffer);
+  zip.file("summary.txt", "synthetic");
+  const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
+  const pkgKey = `biz/${b}/exports/accountant/2026-11/v1-${sha(zipBuf).slice(0, 16)}.zip`;
+  await getStorageService().putObject({ key: pkgKey, body: zipBuf, contentType: "application/zip", metadata: { businessId: b, domain: "exports", visibility: "private" } });
+  const period = await prisma.accountantPeriod.create({ data: { businessId: b, periodKey: "2026-11", status: "OPEN", createdAt: new Date(), updatedAt: new Date() } });
+  await prisma.accountantPackage.create({ data: { businessId: b, periodId: period.id, version: 1, contentFingerprint: "synthetic", status: "READY", storageKey: pkgKey, sha256: sha(zipBuf), createdAt: new Date(), readyAt: new Date() } });
+  await unlinkByKeyQuiet(m4row.pdfStorageKey!);
+  const app4 = await restore(m4, true);
+  const r4after = await call(m4);
+  ok("R4 the exact bytes from a sealed accountant package → VERIFIED_FROM_PACKAGE, restored",
+    app4.verdict === "VERIFIED_FROM_PACKAGE" && r4after.buffer.equals(p4.buffer), JSON.stringify(app4));
+
+  // R5 no produced PDF
+  const m5 = await newReceipt("10.00");
+  const objsR5 = storedObjects();
+  const r5 = await restore(m5, true);
+  ok("R5 a receipt with no produced PDF → NOT_A_PRODUCED_RECEIPT_PDF, nothing written",
+    r5.verdict === "NOT_A_PRODUCED_RECEIPT_PDF" && r5.applied === false && storedObjects() === objsR5 && (await row(m5)).pdfRenderStatus !== "RENDERED");
+
+  // R6 altered bytes
+  await writeAtomic(m2row.pdfStorageKey!, Buffer.from("%PDF-1.4\n% altered\n%%EOF\n"));
+  ok("R6 altered stored bytes are refused", (await refused(m2))?.status === 503);
+  const app6 = await restore(m2, true);
+  const r6after = await call(m2);
+  ok("R6 restore replaces altered bytes only with the verified original",
+    app6.verdict === "VERIFIED_BY_RERENDER" && r6after.buffer.equals(b1.buffer), JSON.stringify(app6));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) process.exitCode = 1;

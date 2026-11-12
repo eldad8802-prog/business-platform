@@ -36,6 +36,7 @@ import { deriveAllocationNumber } from "@/lib/services/billing/billing-allocatio
 import { renderBillingPdfHtmlFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
 import type { PdfReceiptPayment } from "@/lib/services/billing/pdf/billing-pdf-html-template";
 import { renderBillingPdfFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-renderer";
+import { RECEIPT_CURRENT_HTML_TEMPLATE_VERSION } from "@/lib/services/billing/pdf/receipt-template-version";
 import {
   assertSnapshotV1,
   BILLING_PDF_TEMPLATE_VERSION,
@@ -114,7 +115,7 @@ export function isFrozenReceiptPdf(doc: {
 
 function storedReceiptPdfUnavailable(): AppError {
   return new AppError(
-    "הקבלה הופקה והקובץ שלה שמור, אך הוא אינו זמין כרגע — נסו שוב מאוחר יותר",
+    "קובץ ה-PDF המקורי של הקבלה אינו זמין כרגע. הקבלה עצמה רשומה ולא השתנתה, ולא יופק במקומה מסמך אחר. נסו שוב בעוד כמה דקות; אם זה חוזר — פנו לתמיכה לשחזור המקור המאומת.",
     503,
     RECEIPT_STORED_PDF_UNAVAILABLE_CODE
   );
@@ -275,7 +276,12 @@ export async function getOrRenderBillingPdf(
   }
 
   const documentNumberFormatted = doc.documentNumberFormatted;
-  const effectivePdfTemplateVersion = billingPdfTemplateVersionForRenderer();
+  // A receipt produced by today's HTML template records its own version, so every produced receipt PDF names the template
+  // that made it (controlled restore relies on it). Other types and the pdfmake renderer keep their version unchanged.
+  const effectivePdfTemplateVersion =
+    doc.documentType === "RECEIPT" && shouldUseHtmlBillingPdfRenderer()
+      ? RECEIPT_CURRENT_HTML_TEMPLATE_VERSION
+      : billingPdfTemplateVersionForRenderer();
 
   const firstLineDescription =
     snapshot.lines.length > 0 ? snapshot.lines[0].description : "(no lines)";

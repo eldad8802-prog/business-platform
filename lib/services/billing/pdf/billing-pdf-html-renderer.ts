@@ -14,6 +14,9 @@ import { launchChromium } from "@/lib/pdf/chromium";
 import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
 import { escapeHtmlForPdf } from "@/lib/services/billing/pdf/billing-pdf-text-policy";
 import { buildBillingInvoiceHtml, type PdfReceiptPayment } from "@/lib/services/billing/pdf/billing-pdf-html-template";
+// The HTML template exactly as it was before #1108 (byte-identical copy of origin/main, last changed 2026-08-18 in #225).
+// Used ONLY to restore a receipt PDF that was produced with it, and only when the result matches the recorded hash.
+import { buildBillingInvoiceHtml as buildBillingInvoiceHtmlReceiptV1 } from "@/lib/services/billing/pdf/billing-pdf-html-template.receipt-v1";
 import type { BillingIssuedSnapshotV1 } from "@/lib/services/billing/pdf/billing-pdf-template";
 
 const FONT_FILENAME = "NotoSansHebrew-Regular.ttf";
@@ -80,9 +83,13 @@ function buildFooterTemplate(fontDataUri: string, issuerName: string): string {
 </div>`;
 }
 
+/** "current" = today's template; "receipt-v1" = the template frozen before #1108 (controlled restore only). */
+export type BillingPdfHtmlTemplate = "current" | "receipt-v1";
+
 export async function renderBillingPdfHtmlFromSnapshot(
   snapshot: BillingIssuedSnapshotV1,
-  receiptPayments: PdfReceiptPayment[] = []
+  receiptPayments: PdfReceiptPayment[] = [],
+  template: BillingPdfHtmlTemplate = "current"
 ): Promise<Buffer> {
   if (billingPdfDebugEnabled()) {
     const firstLine = snapshot.lines[0]?.description ?? "(no lines)";
@@ -94,12 +101,13 @@ export async function renderBillingPdfHtmlFromSnapshot(
 
   const fontDataUri = getNotoSansHebrewFontDataUri();
   const html = buildBillingInvoiceHtml(snapshot, fontDataUri, receiptPayments);
+  const pageHtml = template === "receipt-v1" ? buildBillingInvoiceHtmlReceiptV1(snapshot, fontDataUri) : html;
 
   const browser = await launchChromium();
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle" });
+    await page.setContent(pageHtml, { waitUntil: "networkidle" });
 
     const pdf = await page.pdf({
       format: "A4",
