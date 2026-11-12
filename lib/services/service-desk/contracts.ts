@@ -193,7 +193,10 @@ export interface ServiceCaseContext {
   qaChecklistCompleted: boolean;
   /** Parts reserved for this case and neither consumed nor released. */
   openPartReservations: number;
-  /** A temporary replacement item lent to the customer and not yet returned. */
+  /**
+   * A temporary replacement item lent to the customer and not yet returned (migration 20261201090000: a ServiceLoan of
+   * this case in state OUT, read under the case lock — every loan write locks the case row first).
+   */
   openLoaner: boolean;
   /**
    * A cancel was requested while the item was at an external supplier (EXTERNAL). There is no extra status for it:
@@ -288,8 +291,10 @@ export type ServiceCaseAction =
   | { type: "MARK_NOT_REPAIRABLE" }
   | { type: "DELIVER"; receipt: HandoverReceipt; debtOverride?: OwnerOverride; loanerOverride?: OwnerOverride }
   | { type: "CLOSE" }
-  | { type: "CANCEL"; reason?: string }
-  | { type: "ABANDON"; reason: string }
+  /** 20261201090000: with a loan OUT, the cancel needs the owner's approval with a reason (CANCEL_OPEN_LOANER); the loan stays OUT. */
+  | { type: "CANCEL"; reason?: string; loanerOverride?: OwnerOverride }
+  /** 20261201090000: the same for ABANDON (ABANDON_OPEN_LOANER). */
+  | { type: "ABANDON"; reason: string; loanerOverride?: OwnerOverride }
   // M1 (migration 20261127090000)
   /** SCHEDULED → SCHEDULED with the (new or moved) appointment of the same business and customer. */
   | { type: "RESCHEDULE"; appointmentId: number }
@@ -336,7 +341,18 @@ export interface ServiceCompletionRecord {
  *   COMPLETION_OPEN_DEBT  COMPLETE with an open balance       → ServiceCompletion.debtApprovedByUserId / debtApprovedAt
  * The reason of each is in texts (debtOverrideReason / loanerOverrideReason).
  */
-export const SERVICE_APPROVAL_KINDS = ["HANDOVER_OPEN_DEBT", "HANDOVER_OPEN_LOANER", "COMPLETION_OPEN_DEBT"] as const;
+export const SERVICE_APPROVAL_KINDS = [
+  "HANDOVER_OPEN_DEBT", "HANDOVER_OPEN_LOANER", "COMPLETION_OPEN_DEBT",
+  // 20261201090000 (loans) — recorded on the loan and its journal (ServiceLoan / ServiceLoanEvent):
+  /** CANCEL while a loan is OUT → a CASE_EXIT_APPROVED event per OUT loan, bound to the cancel's case event (the loan stays OUT) */
+  "CANCEL_OPEN_LOANER",
+  /** ABANDON while a loan is OUT → the same, ABANDON_OPEN_LOANER */
+  "ABANDON_OPEN_LOANER",
+  /** lending while the case is OPEN / SCHEDULED / READY → ServiceLoan.lendApprovedByUserId / lendApprovedAt / lendExceptionReason */
+  "LEND_OUTSIDE_WORK",
+  /** closing a loan that did not come back (LOST / KEPT_BY_CUSTOMER / WRITTEN_OFF) → ServiceLoan.closeApprovedByUserId / closeApprovedAt / closeNote */
+  "LOAN_CLOSE_UNRETURNED",
+] as const;
 export type ServiceApprovalKind = (typeof SERVICE_APPROVAL_KINDS)[number];
 
 /** 20261130090000 — what a version-2 ServiceHandover row holds, as the core judged it (the balance read in the same transaction). */
@@ -508,7 +524,13 @@ export type ServiceCaseEffect =
   /** CHANGE_DETAILS with UNSCHEDULE (SCHEDULED → OPEN): the case no longer names its appointment (D13). */
   | "UNLINK_APPOINTMENT"
   /** RESCHEDULE: the case names the new appointment. */
-  | "LINK_APPOINTMENT";
+  | "LINK_APPOINTMENT"
+  /**
+   * 20261201090000: CANCEL / ABANDON with a loan OUT — AFTER the case event is written, every OUT loan of the case gets its
+   * CASE_EXIT_APPROVED journal event (approval kind = decision.approvals, reason = texts.loanerOverrideReason, bound to the
+   * event's seq). Nothing about the loan is released or deleted.
+   */
+  | "RECORD_LOANER_EXIT_APPROVAL";
 
 export type ServiceCaseEventType =
   | "case.scheduled"

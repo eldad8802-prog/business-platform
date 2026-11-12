@@ -57,6 +57,10 @@
     "lib/services/service-desk/approvals.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): Service Desk actor / approver (migration 20261130090000) — the core names every exception needing an approval (handover open debt, handover loaner out, completion open debt) and the handover record it judged (debt and overpayment apart, never both, UNKNOWN never recorded); resolveApproval grants only to the session principal with the owner authority, frozen and branded — a plain / JSON / copied grant, another business or another actor is refused; the HTTP edge refuses approverId / approvedBy / actorUserId / businessId at any depth (400 IDENTITY_NOT_ACCEPTED) and keeps legitimate ids and names; the sensitive-action inventory; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/loans-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk loans (migration 20261201090000) — lending in every case status (six work statuses normal; OPEN / SCHEDULED / READY only as an approved LEND_OUTSIDE_WORK exception with a reason; every other status and a case being cancelled refused), texts by code points, the identifier normalized like the database CHECK, tokens-only journal payload, the inventory reference read-only (no movement); RETURN once, CLOSE_UNRETURNED approved with a reason, the expected date must change, the version envelope; the case machine: CANCEL / ABANDON with a loan OUT need the owner override (CANCEL_OPEN_LOANER / ABANDON_OPEN_LOANER + the exit-approval effect), CLOSE and COMPLETE refused while a loan is OUT, DELIVER keeps HANDOVER_OPEN_LOANER; purity; run on pull_request by service-desk-ci.yml"
     }
   }
 }

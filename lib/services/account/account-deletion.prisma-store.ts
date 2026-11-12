@@ -524,6 +524,10 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // of the handover by a fixed column list that cannot know the two approver columns. Amounts and approval times
           // stay. It refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.service_handover_record_erase_business() AS n`;
+          // Service Desk loans (migration 20261201090000). The lent item's free texts (name, identifier, notes, reasons) and
+          // the users on the loan and its journal are cleared in place by this SECURITY DEFINER function (no DELETE grant
+          // exists; the loan record stays). It refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_loan_erase_business() AS n`;
           // Business documents (migration 20261114090000). Quote share copies and their events, saved letters and
           // idempotency keys are deleted, and every stored file is marked DELETING with its object key kept, by this
           // SECURITY DEFINER function — it also writes the durable erasure job, in THIS transaction, so a failed purge

@@ -656,6 +656,31 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
     ],
   },
+  // Service Desk loans (migration 20261201090000). The account-deletion adapter calls it in the purge transaction, after
+  // service_handover_record_erase_business(). It clears every free text of a lent item (its name, identifier, notes, the
+  // lending-exception and close reasons) and the five users on the loan, and in the journal who acted, who approved, the
+  // reason and the request digest. States, conditions, the close reason (an enum), dates, times, versions and the
+  // read-only inventory reference stay. Order-independent with the other Service Desk erase functions.
+  {
+    fn: "service_loan_erase_business",
+    migration: "20261201090000_service_desk_loans",
+    models: [
+      {
+        model: "ServiceLoan",
+        cleared: ["itemName", "itemIdentifier", "itemIdentifierNormalized", "lendNote", "returnNote", "closeNote", "lendExceptionReason",
+          "lentByUserId", "lendApprovedByUserId", "returnedByUserId", "closedByUserId", "closeApprovedByUserId"],
+        kept: {},
+      },
+      {
+        model: "ServiceLoanEvent",
+        cleared: ["actorUserId", "approvedByUserId", "requestDigest", "digestKeyId", "reason"],
+        kept: {
+          payload: "a closed JSON object of short tokens and booleans (no free text by DB CHECK ServiceLoanEvent_payload_closed)",
+          idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9:_#-]{8,200}$), not the person",
+        },
+      },
+    ],
+  },
 ];
 
 export type ErasureManifest = {

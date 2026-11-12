@@ -57,4 +57,11 @@ if [ -f "$HOV" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regprocedure('pu
   PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$HOV"
   echo "ERASURE PREREQ: handover record applied verbatim from 20261130090000"
 fi
+# Loans (migration 20261201090000): the purge also calls service_loan_erase_business(). Where the lab does not carry it,
+# the migration is applied VERBATIM on top of the handover record (its premise). A lab that already has it is left as it is.
+LOAN="$ROOT/prisma/migrations/20261201090000_service_desk_loans/migration.sql"
+if [ -f "$LOAN" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regprocedure('public.service_loan_erase_business()') IS NULL")" = "t" ]; then
+  PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$LOAN"
+  echo "ERASURE PREREQ: loans applied verbatim from 20261201090000"
+fi
 echo "ERASURE PREREQ READY: $DB (document_supplier_link_erase_business from 20261103090000, business_documents_erase from 20261114090000, verbatim)"

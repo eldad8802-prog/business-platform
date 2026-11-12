@@ -9312,3 +9312,113 @@ model BusinessDocumentErasure {
   startedAt   DateTime                     @default(now()) @db.Timestamptz(3)
   completedAt DateTime?                    @db.Timestamptz(3)
 }
+
+// ─── Service Desk — loans: a temporary replacement item lent during service ─────────────────────────────────────
+// Tables, checks, triggers, RLS and grants are built by migration 20261201090000_service_desk_loans. References to
+// existing models are scalar on purpose (composite tenant FKs live in the migration); no existing model gains a field.
+// The partial UNIQUE index (one OUT loan per normalized identifier), the CHECKs and the triggers are not expressible
+// here. inventoryItemId is a READ-ONLY reference: a loan never moves stock (the inventory movement contract is not ready).
+
+enum ServiceLoanState {
+  OUT
+  RETURNED
+  CLOSED
+}
+
+enum ServiceLoanCondition {
+  GOOD
+  WORN
+  DAMAGED
+  NOT_WORKING
+}
+
+enum ServiceLoanCloseReason {
+  LOST
+  KEPT_BY_CUSTOMER
+  WRITTEN_OFF
+}
+
+enum ServiceLoanEventKind {
+  LENT
+  EXPECTED_RETURN_CHANGED
+  RETURNED
+  CLOSED
+  CASE_EXIT_APPROVED
+}
+
+enum ServiceLoanApprovalKind {
+  LEND_OUTSIDE_WORK
+  LOAN_CLOSE_UNRETURNED
+  CANCEL_OPEN_LOANER
+  ABANDON_OPEN_LOANER
+}
+
+/// One lent item. state OUT → RETURNED | CLOSED (final). Times are stamped by the database; free texts and users are
+/// cleared by service_loan_erase_business().
+model ServiceLoan {
+  id                       Int                     @id @default(autoincrement())
+  businessId               Int
+  caseId                   Int
+  itemName                 String? // NULL only after the erasure
+  itemIdentifier           String?
+  itemIdentifierNormalized String? // set by the insert guard
+  inventoryItemId          Int? // READ-ONLY reference (composite tenant FK in the migration)
+  state                    ServiceLoanState        @default(OUT)
+  lastEventKind            ServiceLoanEventKind    @default(LENT)
+  version                  Int                     @default(1)
+  lentAt                   DateTime                @default(now())
+  lentByUserId             Int?
+  conditionAtLend          ServiceLoanCondition
+  lendNote                 String?
+  expectedReturnOn         DateTime?               @db.Date
+  lendExceptionReason      String?
+  lendApprovedByUserId     Int?
+  lendApprovedAt           DateTime?
+  returnedAt               DateTime?
+  returnedByUserId         Int?
+  conditionAtReturn        ServiceLoanCondition?
+  returnNote               String?
+  closedAt                 DateTime?
+  closedByUserId           Int?
+  closeReason              ServiceLoanCloseReason?
+  closeNote                String?
+  closeApprovedByUserId    Int?
+  closeApprovedAt          DateTime?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @default(now()) @updatedAt
+  erasedAt                 DateTime?
+
+  @@unique([businessId, id])
+  @@index([businessId, caseId])
+}
+
+/// The append-only journal of a loan: seq = the loan's version after the change; an approval (kind, approver = the actor
+/// today, reason, the case seq of a case exit) lives on the event that made it.
+model ServiceLoanEvent {
+  id               Int                      @id @default(autoincrement())
+  businessId       Int
+  loanId           Int
+  caseId           Int
+  seq              Int
+  kind             ServiceLoanEventKind
+  stateAfter       ServiceLoanState
+  expectedReturnOn DateTime?                @db.Date
+  condition        ServiceLoanCondition?
+  approvalKind     ServiceLoanApprovalKind?
+  approvedByUserId Int? // cleared by service_loan_erase_business()
+  reason           String? // cleared by service_loan_erase_business()
+  caseSeq          Int?
+  actor            ServiceActor
+  actorUserId      Int? // cleared by service_loan_erase_business()
+  occurredAt       DateTime                 @default(now())
+  payload          Json                     @default("{}")
+  idempotencyKey   String
+  requestDigest    String?
+  digestKeyId      String?
+  erasedAt         DateTime?
+
+  @@unique([businessId, loanId, seq])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, caseId])
+  @@index([businessId, occurredAt])
+}

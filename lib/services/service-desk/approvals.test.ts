@@ -146,7 +146,11 @@ async function http() {
 console.log("I — inventory");
 {
   check("I1 every approval kind has a policy with the owner authority and its own approver column",
-    SERVICE_APPROVAL_KINDS.every((k) => APPROVAL_POLICY[k].authority === "BUSINESS_OWNER" && /ApprovedByUserId$/.test(APPROVAL_POLICY[k].approver) && /ApprovedAt$/.test(APPROVAL_POLICY[k].at)));
+    // (the loan journal — 20261201090000 — names its approver "approvedByUserId" and the approval time is the event's "occurredAt")
+    SERVICE_APPROVAL_KINDS.every((k) => APPROVAL_POLICY[k].authority === "BUSINESS_OWNER" && /(^a|A)pprovedByUserId$/.test(APPROVAL_POLICY[k].approver)
+      && (/ApprovedAt$/.test(APPROVAL_POLICY[k].at) || (APPROVAL_POLICY[k].table === "ServiceLoanEvent" && APPROVAL_POLICY[k].at === "occurredAt"))));
+  check("I1b the four loan approvals (20261201090000) are recorded on the loan or its journal",
+    (["CANCEL_OPEN_LOANER", "ABANDON_OPEN_LOANER", "LEND_OUTSIDE_WORK", "LOAN_CLOSE_UNRETURNED"] as const).every((k) => /^ServiceLoan(Event)?$/.test(APPROVAL_POLICY[k].table)));
   const stored = Object.values(SENSITIVE_ACTIONS).filter((a) => a.class === "APPROVER_STORED").map((a) => a.approval).sort();
   check("I2 the inventory's APPROVER_STORED entries are exactly the approval kinds", stored.join() === [...SERVICE_APPROVAL_KINDS].sort().join());
   check("I3 the inventory names quote approval as the customer's decision, recorded by the owner", SENSITIVE_ACTIONS["quote:APPROVE / REJECT"]?.class === "CUSTOMER_DECIDES_OWNER_RECORDS");

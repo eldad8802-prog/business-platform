@@ -61,6 +61,7 @@ import {
   TERMINAL_STATUSES,
   SERVICE_HOLD_REASONS,
   SERVICE_REASON_MAX_LENGTH,
+  type OwnerOverride,
   type RepeatCaseDecision,
   type RepeatCaseInput,
   type ServiceCaseAction,
@@ -402,6 +403,28 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       fail("REASON_TOO_LONG", `${field} exceeds ${SERVICE_REASON_MAX_LENGTH} characters`);
     }
     return text;
+  };
+  /**
+   * 20261201090000: a case exit (CANCEL / ABANDON) while a lent item is OUT. Without the owner's override → OPEN_LOANER;
+   * with it → its reason (texts.loanerOverrideReason), the approval kind, and the effect that records the approval on
+   * every OUT loan (bound to this event). An override with no loan out is ignored (nothing to approve). false = refused.
+   */
+  const loanerExit = (override: OwnerOverride | undefined, kind: "CANCEL_OPEN_LOANER" | "ABANDON_OPEN_LOANER"): boolean => {
+    if (!context.openLoaner) return true;
+    if (!override) {
+      fail("OPEN_LOANER", "a temporary replacement item is still with the customer; approve the exit with a reason, or record its return first");
+      return false;
+    }
+    const reason = takeReason(override.reason, "loanerOverride.reason");
+    if (reason === null) {
+      fail("OVERRIDE_REASON_REQUIRED", "loaner decision reason");
+      return false;
+    }
+    r.texts.loanerOverrideReason = reason;
+    r.payload.loanerOverride = true;
+    r.approvals.push(kind);
+    r.effects.push("RECORD_LOANER_EXIT_APPROVAL");
+    return true;
   };
   // M1: a case opened with a track is judged by its own snapshot's requirements; without one, by its kind (today).
   const t: ServiceTrackFacts | null = context.track ?? null;
@@ -848,6 +871,8 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     }
     case "CLOSE": {
       r.to = "CLOSED";
+      // 20261201090000: a case never closes while a lent item is still out (return it, or close the loan with approval)
+      if (context.openLoaner) fail("OPEN_LOANER", "the temporary replacement item has not been returned or closed");
       if (!isNonNegativeInt(context.openPartReservations)) fail("INVALID_INPUT", "openPartReservations");
       else if (context.openPartReservations > 0) {
         fail("OPEN_PART_RESERVATIONS", `${context.openPartReservations} reserved part(s) still open`);
@@ -872,6 +897,9 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       // One reason column for the case, whether the cancel completes now or (at a supplier) on the item's return.
       r.texts.cancelReason = reason;
       r.payload.reasonRecorded = reason !== null;
+      // 20261201090000: never lose track of a lent item — with a loan OUT the cancel needs the owner's approval with a
+      // reason; the loan stays OUT (nothing released), its journal records the approval bound to this event
+      if (!loanerExit(action.loanerOverride, "CANCEL_OPEN_LOANER")) break;
       r.payload.itemHeldByBusiness = held;
       r.payload.itemAtSupplier = atSupplier;
       r.payload.quoteStateAtCancel = context.currentQuote?.state ?? null;
@@ -905,6 +933,7 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
         r.texts.abandonReason = reason;
         r.payload.reasonRecorded = true;
       }
+      loanerExit(action.loanerOverride, "ABANDON_OPEN_LOANER");
       if (!isNonNegativeInt(context.pickupRemindersSent) || context.pickupRemindersSent < 1) {
         fail("PICKUP_REMINDERS_REQUIRED", "at least one documented pickup reminder must precede it");
       } else {
@@ -934,7 +963,8 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
         if (!t.creditDocumentLinked) fail("CREDIT_DOCUMENT_REQUIRED", "link the issued credit note first");
         else r.serverChecks.push("CREDIT_DOCUMENT_LINKED");
       }
-      // Closing = CLOSE's rules: nothing still reserved, no quote awaiting a decision.
+      // Closing = CLOSE's rules: nothing still reserved, no quote awaiting a decision, no lent item still out.
+      if (context.openLoaner) fail("OPEN_LOANER", "the temporary replacement item has not been returned or closed");
       if (!isNonNegativeInt(context.openPartReservations)) fail("INVALID_INPUT", "openPartReservations");
       else if (context.openPartReservations > 0) {
         fail("OPEN_PART_RESERVATIONS", `${context.openPartReservations} reserved part(s) still open`);

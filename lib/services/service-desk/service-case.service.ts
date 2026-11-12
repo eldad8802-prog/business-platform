@@ -47,6 +47,7 @@ import { OPEN_PART_STATES } from "./parts.contracts";
 import { checkCommandEnvelope, evaluateRepeatCase, evaluateTransition, openServiceCase } from "./service-case.core";
 import { ServiceDeskError, refused } from "./service-desk-errors";
 import { approverFor, resolveApprovals, type ApprovalGrant } from "./approvals";
+import { caseHasOpenLoan, recordLoanerExitApproval } from "./loan-exit";
 import { settlementForCore, type SettlementReader } from "./settlement";
 import { readCaseSettlement } from "./case-settlement-reader";
 import { evaluateQa } from "./qa-templates";
@@ -538,7 +539,8 @@ export async function lockCase(tx: Tx, businessId: number, caseId: number, opts:
       intake: intake ? { conditionRecorded: intake.cr, accessoriesRecorded: intake.ar, customerSigned: intake.cs } : null,
       qaChecklistCompleted: c.qaCompletedAt !== null,
       openPartReservations: parts,
-      openLoaner: false,
+      // 20261201090000: a real read under the case lock (every loan write locks this row first); false without the migration
+      openLoaner: await caseHasOpenLoan(tx, businessId, caseId),
       cancellationRequested: c.cancellationRequested === true,
       pickupRemindersSent: Number(c.pickupRemindersSent),
       settlement: { known: false },
@@ -628,11 +630,17 @@ function actionFrom(raw: Record<string, unknown>): ServiceCaseAction {
       };
     }
     case "CANCEL":
-      if (raw.reason !== undefined && typeof raw.reason !== "string") throw new ServiceDeskError("INVALID_INPUT", { field: "action.reason" });
-      return raw.reason === undefined ? { type } : { type, reason: raw.reason as string };
-    case "ABANDON":
-      if (typeof raw.reason !== "string") throw new ServiceDeskError("INVALID_INPUT", { field: "action.reason" });
-      return { type, reason: raw.reason };
+    case "ABANDON": {
+      if (type === "ABANDON" ? typeof raw.reason !== "string" : raw.reason !== undefined && typeof raw.reason !== "string") throw new ServiceDeskError("INVALID_INPUT", { field: "action.reason" });
+      // 20261201090000: the owner approves leaving the case with a lent item still out, with a reason (never released)
+      const lo = raw.loanerOverride;
+      if (lo !== undefined && lo !== null && (typeof lo !== "object" || Array.isArray(lo) || typeof (lo as Record<string, unknown>).reason !== "string")) {
+        throw new ServiceDeskError("INVALID_INPUT", { field: "action.loanerOverride" });
+      }
+      const loanerOverride = lo ? { loanerOverride: { reason: (lo as Record<string, unknown>).reason as string } } : {};
+      if (type === "ABANDON") return { type, reason: raw.reason as string, ...loanerOverride };
+      return { type, ...(raw.reason === undefined ? {} : { reason: raw.reason as string }), ...loanerOverride };
+    }
     case "DELIVER": {
       // 1.3c: the owner confirms the handover; the receiver's name is optional; overrides carry a reason (decision ש4).
       const r = raw.receipt as Record<string, unknown> | undefined;
@@ -677,7 +685,8 @@ export type EffectExtras = {
  *   ATTEMPT_AUTO_CLOSE        — no-op: an auto-close is the SYSTEM actor's (contracts: "SYSTEM is the future sweep /
  *                               auto-close"), never the owner's handover command; the case stays DELIVERED (a valid state)
  *                               and the owner closes it with CLOSE (in scope since 1.3c) — or the future sweep does;
- *   LINK_REPLACEMENT_DEVICE   — still refused (no replacement device link yet).
+ *   LINK_REPLACEMENT_DEVICE   — still refused (no replacement device link yet);
+ *   RECORD_LOANER_EXIT_APPROVAL — not here: commitTransition records it AFTER the case event (the approval binds to its seq).
  */
 async function applyEffects(tx: Tx, b: number, caseId: number, context: ServiceCaseContext, d: Extract<ServiceTransitionDecision, { ok: true }>, userId: number, prepared: Prepared, extras: EffectExtras = {}) {
   // LINK_APPOINTMENT belongs to RESCHEDULE, which stays out of scope with SCHEDULE (owner 1.3a P1).
@@ -697,7 +706,7 @@ async function applyEffects(tx: Tx, b: number, caseId: number, context: ServiceC
         await supersedeOpenQuote(tx, b, caseId, d.supersedeQuote.superseded, d.supersedeQuote.next, extras.nextQuote, userId);
         break;
       default:
-        break; // ATTEMPT_AUTO_CLOSE — see above
+        break; // ATTEMPT_AUTO_CLOSE, RECORD_LOANER_EXIT_APPROVAL — see above
     }
   }
 }
@@ -747,6 +756,16 @@ export async function commitTransition(tx: Tx, b: number, caseId: number, contex
      WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${context.version}::int`;
   if (updated !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
   await appendEvent(tx, b, caseId, next, d.event, userId, prepared);
+  if (d.effects.includes("RECORD_LOANER_EXIT_APPROVAL")) {
+    // 20261201090000: CANCEL / ABANDON with a loan OUT — after the case event (the approval binds to its seq), every OUT loan
+    // of the case records the approval (kind, server-resolved approver = the acting user, reason). The loan stays OUT.
+    const kind = d.approvals.find((k): k is "CANCEL_OPEN_LOANER" | "ABANDON_OPEN_LOANER" => k === "CANCEL_OPEN_LOANER" || k === "ABANDON_OPEN_LOANER");
+    const approver = kind ? approverFor(extras.approvals, d.approvals, kind, { businessId: b, userId }) : null;
+    const reason = d.texts.loanerOverrideReason;
+    if (!kind || approver === null || !reason) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "LOANER_EXIT_APPROVED" });
+    const n = await recordLoanerExitApproval(tx, b, caseId, next, kind, approver, reason, userId, prepared, (step) => deriveIdempotencyKey(prepared.key, step));
+    if (n === 0) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "OPEN_LOAN_COUNTED_UNDER_LOCK" });
+  }
   if (done) {
     // One per case (UNIQUE), immutable, the acting user, no signature columns (owner decision 2026-11-11). The balance is
     // the one the core judged from the settlement read in THIS transaction (never a stand-in for an unknown one); an

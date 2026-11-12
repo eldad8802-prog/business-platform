@@ -37,6 +37,13 @@ export const APPROVAL_POLICY: Readonly<Record<ServiceApprovalKind, { authority: 
   HANDOVER_OPEN_DEBT: { authority: "BUSINESS_OWNER", table: "ServiceHandover", approver: "debtApprovedByUserId", at: "debtApprovedAt", reason: "debtOverrideReason" },
   HANDOVER_OPEN_LOANER: { authority: "BUSINESS_OWNER", table: "ServiceHandover", approver: "loanerApprovedByUserId", at: "loanerApprovedAt", reason: "loanerOverrideReason" },
   COMPLETION_OPEN_DEBT: { authority: "BUSINESS_OWNER", table: "ServiceCompletion", approver: "debtApprovedByUserId", at: "debtApprovedAt", reason: "debtOverrideReason" },
+  // migration 20261201090000 (loans): the case exit with a loan OUT is recorded on each OUT loan's journal (the loan stays OUT);
+  // the lending exception and the close of an unreturned loan on the loan row (+ its event). The database refuses an approver
+  // other than the actor on each (SERVICE_APPROVER_NOT_ACTOR).
+  CANCEL_OPEN_LOANER: { authority: "BUSINESS_OWNER", table: "ServiceLoanEvent", approver: "approvedByUserId", at: "occurredAt", reason: "reason" },
+  ABANDON_OPEN_LOANER: { authority: "BUSINESS_OWNER", table: "ServiceLoanEvent", approver: "approvedByUserId", at: "occurredAt", reason: "reason" },
+  LEND_OUTSIDE_WORK: { authority: "BUSINESS_OWNER", table: "ServiceLoan", approver: "lendApprovedByUserId", at: "lendApprovedAt", reason: "lendExceptionReason" },
+  LOAN_CLOSE_UNRETURNED: { authority: "BUSINESS_OWNER", table: "ServiceLoan", approver: "closeApprovedByUserId", at: "closeApprovedAt", reason: "closeNote" },
 };
 
 const GRANT: unique symbol = Symbol("ServiceApprovalGrant");
@@ -143,6 +150,11 @@ export const SENSITIVE_ACTIONS: Readonly<Record<string, { class: SensitiveAction
   "case:COMPLETE with an open debt": { class: "APPROVER_STORED", recordedIn: "ServiceCompletion + case event", approval: "COMPLETION_OPEN_DEBT" },
   "case:DELIVER / COMPLETE (no exception)": { class: "ACTOR_DECIDES", recordedIn: "ServiceHandover / ServiceCompletion.actorUserId + case event" },
   "case:CANCEL / ABANDON (reason)": { class: "ACTOR_DECIDES", recordedIn: "ServiceCase.cancelReason / abandonReason + case event actorUserId" },
+  "case:CANCEL with a loan out": { class: "APPROVER_STORED", recordedIn: "ServiceLoanEvent CASE_EXIT_APPROVED (per OUT loan, bound to the case event) + case event", approval: "CANCEL_OPEN_LOANER" },
+  "case:ABANDON with a loan out": { class: "APPROVER_STORED", recordedIn: "ServiceLoanEvent CASE_EXIT_APPROVED (per OUT loan, bound to the case event) + case event", approval: "ABANDON_OPEN_LOANER" },
+  "loan:LEND outside the work statuses (OPEN / SCHEDULED / READY)": { class: "APPROVER_STORED", recordedIn: "ServiceLoan.lendApprovedByUserId / lendApprovedAt / lendExceptionReason + LENT event", approval: "LEND_OUTSIDE_WORK" },
+  "loan:CLOSE_UNRETURNED (lost / kept / written off)": { class: "APPROVER_STORED", recordedIn: "ServiceLoan.closeApprovedByUserId / closeApprovedAt / closeNote + CLOSED event", approval: "LOAN_CLOSE_UNRETURNED" },
+  "loan:LEND / RETURN / CHANGE_EXPECTED_RETURN": { class: "ACTOR_DECIDES", recordedIn: "ServiceLoan.lentByUserId / returnedByUserId + loan event actorUserId" },
   "case:CHANGE_DETAILS (reason)": { class: "ACTOR_DECIDES", recordedIn: "ServiceCaseDetailChange.actorUserId + case event" },
   "case:CLOSE": { class: "ACTOR_DECIDES", recordedIn: "case event actorUserId" },
   "case:after-sale resolution (incl. CREDIT)": { class: "ACTOR_DECIDES", recordedIn: "case event actorUserId; the credit note itself is a Billing document" },

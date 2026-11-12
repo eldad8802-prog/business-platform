@@ -164,6 +164,14 @@ jobs:
             console.log(hf[0]);
             console.log("REVOKE ALL ON FUNCTION public.service_handover_record_erase_business() FROM PUBLIC;");
             console.log("GRANT EXECUTE ON FUNCTION public.service_handover_record_erase_business() TO app_runtime;");
+            // Service Desk loans (20261201090000): the same for service_loan_erase_business() (its tables from db push; it
+            // calls no other function of the migration, so nothing else is mirrored).
+            const lm = require("fs").readFileSync("prisma/migrations/20261201090000_service_desk_loans/migration.sql", "utf8");
+            const lf = lm.match(/CREATE OR REPLACE FUNCTION public.service_loan_erase_business()[sS]*?$fn$;/);
+            if (!lf) { console.error("service_loan_erase_business() not found in the migration"); process.exit(1); }
+            console.log(lf[0]);
+            console.log("REVOKE ALL ON FUNCTION public.service_loan_erase_business() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.service_loan_erase_business() TO app_runtime;");
           ' | PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -q "postgresql://lab_owner@localhost:5432/dta"
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \

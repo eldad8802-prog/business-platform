@@ -494,6 +494,20 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_handover_record_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_handover_record_erase_business() TO ${RT_ROLE}`);
   }
+  // Service Desk loans — migration 20261201090000_service_desk_loans. The same, for service_loan_erase_business() (it
+  // clears the lent item's free texts and the users of ServiceLoan / ServiceLoanEvent; the tables from db push). It calls
+  // no other function of the migration (its guards are triggers this lab does not create).
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261201090000_service_desk_loans/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public.service_loan_erase_business()[sS]*?$fn$;/);
+    if (!fn) throw new Error("service_loan_erase_business() not found in migration 20261201090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_loan_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_loan_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //
