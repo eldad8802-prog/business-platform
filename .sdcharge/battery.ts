@@ -11,6 +11,9 @@
  *      link per document (also across cases); a draft may be linked (the reader decides UNKNOWN, nothing is frozen);
  *      unlink once with who and why; nothing else changes; never deleted; after an unlink the document may be linked
  *      again (history kept).
+ *   U  a deleted user (owner decision 2026-11-12): the user who recorded a charge / linked a document can be deleted —
+ *      the FK only nulls the reference, nothing else on the row moves; no direct UPDATE (not even the table owner's)
+ *      nulls or re-points who acted; a new owner charge without its user is still refused (SERVICE_CHARGE_ACTOR).
  *   I  isolation: another business reads none of it and cannot write into it.
  *   E  erasure: refused unless the business is being deleted; then who acted and the reasons are blanked in place,
  *      amounts / document ids / times kept; re-run safe; the runtime cannot imitate the scrub.
@@ -109,7 +112,7 @@ async function main() {
     (await rt(A.b, charge(A, a1, 3, "CHARGEABLE", 60000, "APPROVED_QUOTE", null, `"quoteVersion"=7`))) !== "OK");
   ok("C10 the acting owner must be a user of the business (another business's user → refused); OWNER_USER without a user → refused",
     (await rt(A.b, [charge(A, a1, 3, "CHARGEABLE", 70000, "OWNER_ENTERED", "x")[0], A.b, a1, 3, "CHARGEABLE", 70000, "OWNER_ENTERED", "x", B.u])) !== "OK"
-      && (await rt(A.b, [charge(A, a1, 3, "CHARGEABLE", 70000, "OWNER_ENTERED", "x")[0], A.b, a1, 3, "CHARGEABLE", 70000, "OWNER_ENTERED", "x", null])).includes("ServiceCaseCharge_actor"));
+      && (await rt(A.b, [charge(A, a1, 3, "CHARGEABLE", 70000, "OWNER_ENTERED", "x")[0], A.b, a1, 3, "CHARGEABLE", 70000, "OWNER_ENTERED", "x", null])).includes("SERVICE_CHARGE_ACTOR"));
   ok("C11 a charge record is never updated or deleted by the runtime role (SERVICE_CHARGE_APPEND_ONLY / no privilege)",
     (await rt(A.b, [`UPDATE "ServiceCaseCharge" SET "amountAgorot" = 1 WHERE "caseId" = $1`, a1])) !== "OK"
       && (await rt(A.b, [`DELETE FROM "ServiceCaseCharge" WHERE "caseId" = $1`, a1])) !== "OK");
@@ -168,6 +171,41 @@ async function main() {
     (await rt(A.b, link(A, a2, inv1, "CHARGE"))) === "OK"
       && Number((await own(A.b, `SELECT count(*)::int n FROM "ServiceCaseBillingLink" WHERE "billingDocumentId" = $1`, inv1))[0].n) === 2);
   ok("L10 a link is never deleted by the runtime role", (await rt(A.b, [`DELETE FROM "ServiceCaseBillingLink" WHERE "billingDocumentId" = $1`, rc1])) !== "OK");
+
+  console.log("U — a deleted user (owner decision 2026-11-12: deleting a user nulls the references, never fails by mistake)");
+  // its own business, so the counts of E stay A's
+  const Z = await business("u");
+  const zu2 = Number((await q(`INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ($1, $2, now()) RETURNING id`, `sdcharge-u2-${t}@lab.invalid`, Z.b))[0].id);
+  const z1 = await shopCase(Z);
+  const zInv = await billingDoc(Z, "TAX_INVOICE", "ISSUED", 400);
+  ok("U1 a second owner user of the business records a charge and links a document",
+    (await rt(Z.b, [charge(Z, z1, 1, "CHARGEABLE", 40000, "OWNER_ENTERED", null)[0], Z.b, z1, 1, "CHARGEABLE", 40000, "OWNER_ENTERED", null, zu2])) === "OK"
+      && (await rt(Z.b, link(Z, z1, zInv, "CHARGE", zu2))) === "OK");
+  const zSnap = async () => (await own(Z.b, `SELECT (SELECT to_jsonb(c) - 'actorUserId' FROM "ServiceCaseCharge" c WHERE "caseId" = $1)::text c,
+      (SELECT "actorUserId" FROM "ServiceCaseCharge" WHERE "caseId" = $1) cu,
+      (SELECT to_jsonb(l) - 'linkedByUserId' FROM "ServiceCaseBillingLink" l WHERE "caseId" = $1)::text l,
+      (SELECT "linkedByUserId" FROM "ServiceCaseBillingLink" WHERE "caseId" = $1) lu`, z1))[0];
+  const before = await zSnap();
+  const ownUpd = async (sql: string, ...a: unknown[]) => { try { await own(Z.b, sql, ...a); return "OK"; } catch (e) { return err(e); } };
+  const nullActor = await ownUpd(`UPDATE "ServiceCaseCharge" SET "actorUserId" = NULL WHERE "caseId" = $1 RETURNING id`, z1);
+  const repointActor = await ownUpd(`UPDATE "ServiceCaseCharge" SET "actorUserId" = $2 WHERE "caseId" = $1 RETURNING id`, z1, Z.u);
+  const nullLinker = await ownUpd(`UPDATE "ServiceCaseBillingLink" SET "linkedByUserId" = NULL WHERE "caseId" = $1 RETURNING id`, z1);
+  const repointLinker = await ownUpd(`UPDATE "ServiceCaseBillingLink" SET "linkedByUserId" = $2 WHERE "caseId" = $1 RETURNING id`, z1, Z.u);
+  ok("U2 no direct UPDATE nulls or re-points who acted — not even the table owner's (SERVICE_CHARGE_APPEND_ONLY / SERVICE_BILLING_LINK_KEPT); the runtime role neither",
+    nullActor.includes("SERVICE_CHARGE_APPEND_ONLY") && repointActor.includes("SERVICE_CHARGE_APPEND_ONLY")
+      && nullLinker.includes("SERVICE_BILLING_LINK_KEPT") && repointLinker.includes("SERVICE_BILLING_LINK_KEPT")
+      && (await rt(Z.b, [`UPDATE "ServiceCaseCharge" SET "actorUserId" = NULL WHERE "caseId" = $1`, z1])) !== "OK"
+      && (await rt(Z.b, [`UPDATE "ServiceCaseBillingLink" SET "linkedByUserId" = $2 WHERE "caseId" = $1`, z1, Z.u])) !== "OK",
+    [nullActor, repointActor, nullLinker, repointLinker].join(" | "));
+  let zDel = "OK";
+  try { await x(`DELETE FROM "User" WHERE id = $1`, zu2); } catch (e) { zDel = err(e); }
+  const afterZ = await zSnap();
+  ok("U3 the user who recorded a charge and linked a document can be deleted: the FK sets actorUserId / linkedByUserId to NULL and nothing else on either row changes",
+    zDel === "OK" && Number(before.cu) === zu2 && Number(before.lu) === zu2 && afterZ.cu === null && afterZ.lu === null
+      && afterZ.c === before.c && afterZ.l === before.l, `${zDel} ${JSON.stringify(before)} → ${JSON.stringify(afterZ)}`);
+  ok("U4 a new owner charge without its user is still refused after that (SERVICE_CHARGE_ACTOR); with the user → written",
+    (await rt(Z.b, [charge(Z, z1, 2, "CHARGEABLE", 45000, "OWNER_ENTERED", "תוספת")[0], Z.b, z1, 2, "CHARGEABLE", 45000, "OWNER_ENTERED", "תוספת", null])).includes("SERVICE_CHARGE_ACTOR")
+      && (await rt(Z.b, charge(Z, z1, 2, "CHARGEABLE", 45000, "OWNER_ENTERED", "תוספת"))) === "OK");
 
   console.log("I — isolation");
   // the runtime role is NOBYPASSRLS: these counts are what B can see
