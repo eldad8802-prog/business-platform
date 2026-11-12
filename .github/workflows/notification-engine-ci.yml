@@ -32,6 +32,11 @@ on:
       - "lib/services/booking/booking-notify.ts"
       - "lib/services/feature-access/platform-feature-catalog.ts"
       - "lib/services/account/**"
+      - "lib/services/integrations/gmail/oauth-refresh.service.ts"
+      - "lib/services/integrations/gmail/gmail-auth.service.ts"
+      - "lib/services/integrations/gmail/gmail-discovery.service.ts"
+      - "lib/services/integrations/whatsapp/connection.service.ts"
+      - "app/api/integrations/gmail/callback/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20261210090000_notification_engine_foundation/**"
       - "prisma/migrations/20261211090000_notification_engine_followup/**"
@@ -94,6 +99,7 @@ jobs:
           npx tsx lib/notifications/push/push.test.ts
           npx tsx lib/notifications/engine/worker-decision.test.ts
           npx tsx lib/notifications/engine/engine-boundary.test.ts
+          npx tsx lib/notifications/producers/producers.test.ts
 
       - name: 2. Touched suites — task reminders (pure), cron authority registry, erasure contract
         run: |

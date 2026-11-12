@@ -29,6 +29,11 @@
       "lab": "pure",
       "reason": "static: worker / digest routes on CRON_SECRET via decideCronAuth and not scheduled; every self-service route takes the actor from the session behind notifications_engine and reads no user / business id from the request; no token, endpoint or text in a log; the logout / cookie-revoke / session-directory hooks run after the auth action through never-throwing wrappers writing PushSubscription via tenantTx only; the existing reminder loops go through the shared sender; run by security-gate (lab pure) and notification-engine-ci.yml"
     },
+    "lib/notifications/producers/producers.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (fakes for the gate / tenant tx / notify / kick, stubbed fetch, static call-site checks): connections.disconnected (Gmail invalid_grant, WhatsApp REVOKED_BY_META) — engine OFF writes nothing, ON calls notify() once with the catalog category, per-connection dedupe, internal href and generic text (no address / phone / digits), the worker kick only for an owed push, failures swallowed with an error class only; the Gmail hook fires on invalid_grant only and never changes the thrown error; every call site schedules AFTER the domain write and returns nothing new; reconnect resolves only that connection; security.new_device is not produced; the existing writer-based notifiers (inbox, documents queue, inventory, intake, accountant) classify to catalog keys and under default preferences only inventory critical stock may reach a device; run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
     "lib/notifications/engine/notification-engine.db.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",

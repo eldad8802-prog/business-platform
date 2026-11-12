@@ -33,6 +33,9 @@
  *                      reopened item again — once.
  *   read side          another user's personal notification is invisible; a category switched off in-app is hidden.
  *   isolation          settings / overrides of one business are invisible and unwritable from another.
+ *   producers (PR 5)   connections.disconnected through the real gate: engine OFF ⇒ nothing; ON ⇒ one whole-business
+ *                      row + one owed push + one kick; 24 h cooldown; in-app only by default (no device reached);
+ *                      Gmail / WhatsApp / another business never collide; reconnect resolves only that row.
  *
  * env: DATABASE_URL / DIRECT_URL = the runtime login (app_runtime_prod), OWNER_URL = the migration role (fixtures
  * only). Synthetic data only. Run: npx tsx lib/notifications/engine/notification-engine.db.test.ts
@@ -661,6 +664,65 @@ async function main() {
     } catch (e) { otherUser = e instanceof Error ? e.message.slice(0, 80) : "ERR"; }
     ok("a user of another business cannot be written into B (same-business trigger)", otherUser !== "WROTE", otherUser);
     ok("devices of B are invisible from A", (await tenantTx(A, (tx) => tx.pushSubscription.count({ where: { businessId: B } }))) === 0);
+
+    console.log("producers — connections.disconnected (PR 5)");
+    {
+      const prod = await import("../producers/connection-notifications");
+      const { notificationsEngineEnabled } = await import("./engine-gate");
+      const kicks: number[] = [];
+      const pdeps: import("../producers/connection-notifications").ProducerDeps = {
+        engineOn: notificationsEngineEnabled,
+        tenantTx: (b, fn) => tenantTx(b, fn),
+        notify,
+        kick: (b) => { kicks.push(b); },
+      };
+      const notes = (businessId: number, dedupeKey: string) => owner.notification.findMany({ where: { businessId, dedupeKey } });
+      const gRef = { businessId: A, provider: "gmail" as const, connectionId: 9_000_001 };
+      const cRef = { businessId: C, provider: "gmail" as const, connectionId: 9_000_001 };
+
+      ok("engine OFF (C): the real gate ⇒ nothing written, no kick",
+        (await prod.recordConnectionDisconnected(cRef, NOW, pdeps)) === "engine_off" && (await notes(C, "conn:gmail:9000001")).length === 0 && kicks.length === 0);
+      ok("engine OFF (C): resolve does nothing", (await prod.resolveConnectionDisconnected(cRef, NOW, pdeps)) === "engine_off");
+
+      const sentBeforeConn = fcmSends.length;
+      ok("engine ON (A): recorded", (await prod.recordConnectionDisconnected(gRef, NOW, pdeps)) === "notified");
+      const [gn] = await notes(A, "conn:gmail:9000001");
+      ok("…one whole-business row, category + domain from the catalog, generic text",
+        gn?.semanticCategory === "connections.disconnected" && gn.domain === "connections" && gn.userId === null && gn.entityType === "gmail_connection" &&
+        gn.entityId === 9_000_001 && gn.href === "/settings/connections" && !/[0-9@]/.test(`${gn.title} ${gn.summary}`), gn);
+      const gDel = await owner.notificationDelivery.findMany({ where: { businessId: A, notificationId: gn.id }, orderBy: { id: "asc" } });
+      ok("…in-app SENT + ONE owed push (PENDING, whole business, expires in 12 h)",
+        gDel.length === 2 && gDel[0].channel === "IN_APP" && gDel[0].status === "SENT" && gDel[1].channel === "PUSH" && gDel[1].status === "PENDING" &&
+        gDel[1].userId === null && gDel[1].expiresAt?.getTime() === at(NOW, 720).getTime(), gDel);
+      ok("…and the after-response kick for A only", JSON.stringify(kicks) === JSON.stringify([A]));
+      ok("a second detection inside 24 h: cooldown, nothing new",
+        (await prod.recordConnectionDisconnected(gRef, at(NOW, 60), pdeps)) === "cooldown" && (await notes(A, "conn:gmail:9000001")).length === 1 &&
+        (await owner.notificationDelivery.count({ where: { businessId: A, notificationId: gn.id } })) === 2 && kicks.length === 1);
+      await run(at(NOW, 61), A);
+      const gAfter = await owner.notificationDelivery.findMany({ where: { businessId: A, notificationId: gn.id, channel: "PUSH" } });
+      ok("default preferences (in-app only): the worker reaches no device", fcmSends.length === sentBeforeConn &&
+        !gAfter.some((d) => d.status === "SENT" && d.subscriptionId !== null) && gAfter.every((d) => d.status !== "PENDING"), gAfter.map((d) => [d.status, d.error]));
+      const listA2 = (await read.listNotifications(A, { limit: 100, cursor: null, unreadOnly: false, viewer: { userId: a2 } })).notifications.map((n) => n.id);
+      ok("the bell of every user of A shows it", listA2.includes(gn.id));
+
+      const wRef = { businessId: A, provider: "whatsapp" as const, connectionId: A };
+      ok("WhatsApp of the same business: its own fact (no collision with Gmail)",
+        (await prod.recordConnectionDisconnected(wRef, NOW, pdeps)) === "notified" && (await notes(A, `conn:whatsapp:${A}`)).length === 1);
+      const bRef = { businessId: B, provider: "gmail" as const, connectionId: 9_000_001 };
+      ok("the same connection id in business B: its own row in B", (await prod.recordConnectionDisconnected(bRef, NOW, pdeps)) === "notified" && (await notes(B, "conn:gmail:9000001")).length === 1);
+
+      ok("reconnect (A, Gmail): resolved", (await prod.resolveConnectionDisconnected(gRef, at(NOW, 90), pdeps)) === "resolved");
+      ok("…only that row: A's WhatsApp and B's Gmail stay open",
+        (await notes(A, "conn:gmail:9000001"))[0].resolvedAt !== null && (await notes(A, `conn:whatsapp:${A}`))[0].resolvedAt === null &&
+        (await notes(B, "conn:gmail:9000001"))[0].resolvedAt === null);
+      ok("a second resolve: nothing_open", (await prod.resolveConnectionDisconnected(gRef, at(NOW, 91), pdeps)) === "nothing_open");
+      ok("revoked again inside 24 h: the row reopens in-app, no new delivery (cooldown)",
+        (await prod.recordConnectionDisconnected(gRef, at(NOW, 120), pdeps)) === "cooldown" && (await notes(A, "conn:gmail:9000001"))[0].resolvedAt === null &&
+        (await owner.notificationDelivery.count({ where: { businessId: A, notificationId: gn.id, channel: "IN_APP" } })) === 1);
+      ok("revoked again after 24 h: notified again (new in-app + owed push)",
+        (await prod.recordConnectionDisconnected(gRef, at(NOW, 25 * 60), pdeps)) === "notified" &&
+        (await owner.notificationDelivery.count({ where: { businessId: A, notificationId: gn.id, channel: "IN_APP" } })) === 2);
+    }
   } finally {
     await owner.$disconnect();
   }
