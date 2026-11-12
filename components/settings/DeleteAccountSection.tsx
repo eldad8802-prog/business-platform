@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { clearClientSession } from "@/lib/client-session";
 
 /**
  * Self-service account deletion (Wave 1B). Discoverable in-app entry that satisfies
@@ -39,7 +40,7 @@ export function DeleteAccountSection() {
       });
       if (res.ok) {
         setDone(true);
-        try { localStorage.removeItem("token"); } catch { /* ignore */ }
+        clearClientSession();
         setTimeout(() => router.replace("/login"), 1800);
         return;
       }
