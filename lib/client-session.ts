@@ -1,3 +1,5 @@
+import { handleUnauthorized } from "@/lib/auth/session-guard";
+
 export function getClientAuthToken(): string | null {
   if (typeof window === "undefined") return null;
 
@@ -60,21 +62,27 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * Send an unauthenticated visitor to the login screen.
+ * A request came back 401 (or there was no token to send). Decide it the one
+ * way every screen now decides it — lib/auth/session-guard.ts:
  *
- * Deliberately does NOT call the logout endpoint: this path runs when a token
- * has already been rejected, and there is no session left to revoke.
+ *   the session can be refreshed → stay (nothing is re-run from here, so a write
+ *                                  is never repeated; the screen's next load uses
+ *                                  the new token).
+ *   the server ended the session → local state goes, the page is hidden and
+ *                                  replaced by /login.
+ *   network / timeout / 429 / 5xx → nothing is cleared; the screen shows its error.
+ *
+ * It used to clear the token and leave on the first 401, so a token that had
+ * merely expired — with a perfectly good refresh session behind it — sent the
+ * person to the sign-in screen. Deliberately does NOT call the logout endpoint:
+ * a rejected token has no session left to revoke.
  */
 export function redirectToLogin(): void {
+  // Deliberately takes NO arguments: screens pass it straight to onClick, and an
+  // optional parameter would receive the click event. A screen that wants its
+  // READ retried after recovery calls handleUnauthorized({ retry }) directly.
   if (typeof window === "undefined") return;
-
-  clearClientSession();
-
-  try {
-    window.location.replace(`${window.location.origin}/login`);
-  } catch {
-    /* ignore */
-  }
+  void handleUnauthorized({ rejectedToken: getClientAuthToken() });
 }
 
 /** Sign out and return to the login screen. The path a "log out" control takes. */
