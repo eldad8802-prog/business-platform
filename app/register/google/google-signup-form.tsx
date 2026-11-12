@@ -21,7 +21,7 @@ import { SIGNUP_HONEYPOT_FIELD } from "@/lib/auth/signup-honeypot";
 import styles from "../register.module.css";
 
 type View = { email: string; name: string | null };
-type Errors = { name?: string; businessName?: string; acceptTerms?: string; form?: string };
+type Errors = { name?: string; businessName?: string; businessKind?: string; acceptTerms?: string; form?: string };
 
 export default function GoogleSignupForm() {
   const router = useRouter();
@@ -31,6 +31,7 @@ export default function GoogleSignupForm() {
   const [state, setState] = useState<"loading" | "ready" | "expired" | "completed">("loading");
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
+  const [businessKind, setBusinessKind] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
@@ -88,6 +89,7 @@ export default function GoogleSignupForm() {
     const next: Errors = {};
     if (name.trim().length < 2) next.name = "יש להזין שם מלא";
     if (businessName.trim().length < 2) next.businessName = "יש להזין שם עסק";
+    if (!businessKind) next.businessKind = "יש לבחור את סוג העסק";
     if (!acceptTerms) next.acceptTerms = "יש לאשר את תנאי השימוש ומדיניות הפרטיות";
     setErrors(next);
     if (Object.keys(next).length > 0) return;
@@ -101,6 +103,7 @@ export default function GoogleSignupForm() {
         body: JSON.stringify({
           name: name.trim(),
           businessName: businessName.trim(),
+          businessKind,
           acceptTerms,
           [SIGNUP_HONEYPOT_FIELD]: honeypotRef.current?.value ?? "",
         }),
@@ -111,7 +114,7 @@ export default function GoogleSignupForm() {
           setState("expired");
           return;
         }
-        if (body.field === "name" || body.field === "businessName" || body.field === "acceptTerms") {
+        if (body.field === "name" || body.field === "businessName" || body.field === "businessKind" || body.field === "acceptTerms") {
           setErrors({ [body.field]: body.error });
           return;
         }
@@ -242,6 +245,26 @@ export default function GoogleSignupForm() {
             aria-describedby={errors.businessName ? "g-business-msg" : undefined}
           />
           {errors.businessName ? <p id="g-business-msg" role="alert" className={styles.error}>{errors.businessName}</p> : null}
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="g-business-kind">סוג העסק</label>
+          <select
+            id="g-business-kind"
+            name="businessKind"
+            className={`${styles.input} ${errors.businessKind ? styles.invalid : ""}`}
+            value={businessKind}
+            onChange={(e) => setBusinessKind(e.target.value)}
+            aria-invalid={!!errors.businessKind}
+            aria-describedby={errors.businessKind ? "g-business-kind-msg" : undefined}
+            data-testid="signup-business-kind"
+          >
+            <option value="" disabled>בחירת סוג העסק</option>
+            <option value="EXEMPT_DEALER">עוסק פטור</option>
+            <option value="AUTHORIZED_DEALER">עוסק מורשה</option>
+            <option value="LTD_COMPANY">חברה בע״מ</option>
+          </select>
+          {errors.businessKind ? <p id="g-business-kind-msg" role="alert" className={styles.error}>{errors.businessKind}</p> : null}
         </div>
       </div>
 

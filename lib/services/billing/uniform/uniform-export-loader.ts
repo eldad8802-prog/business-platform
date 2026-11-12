@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/prisma";
 import type {
   ParsedIssuedSnapshot,
+  UniformBaseDocument,
   UniformCustomer,
   UniformDocumentInput,
   UniformExportAssemblerInput,
@@ -180,6 +181,35 @@ export async function loadUniformExportInput(args: {
     orderBy: { id: "asc" },
   })) as Record<string, unknown>[];
 
+  const documents = docRows.map(mapDocument);
+
+  // A credit note's source invoice (D110 1256 / 1257). The issue path requires an ISSUED TAX_INVOICE of the same
+  // business, and the reference is immutable after issue; the source may predate the period, so it is read on its own.
+  const refs = [...new Set(documents
+    .filter((d) => d.documentType === "CREDIT_NOTE" && d.referenceDocumentId != null)
+    .map((d) => d.referenceDocumentId as number))];
+  if (refs.length > 0) {
+    const sourceRows = (await client.billingDocument.findMany({
+      where: { businessId: args.businessId, id: { in: refs }, status: "ISSUED", documentType: "TAX_INVOICE" },
+      select: { id: true, documentType: true, status: true, documentNumber: true, documentNumberFormatted: true, issuedSnapshot: true },
+    })) as Record<string, unknown>[];
+    const byId = new Map<number, UniformBaseDocument>();
+    for (const row of sourceRows) {
+      const id = Number(row.id);
+      // defense in depth: only what the query asked for, whatever the client returned
+      if (!refs.includes(id) || row.status !== "ISSUED" || row.documentType !== "TAX_INVOICE") continue;
+      const snap = (row.issuedSnapshot ?? null) as ParsedIssuedSnapshot | null;
+      const printed = (str(snap?.document?.numberFormatted) ?? str(row.documentNumberFormatted) ?? "").trim()
+        || (typeof row.documentNumber === "number" ? String(row.documentNumber) : "");
+      if (printed) byId.set(id, { documentId: id, documentType: "TAX_INVOICE", numberPrinted: printed });
+    }
+    for (const d of documents) {
+      if (d.documentType === "CREDIT_NOTE" && d.referenceDocumentId != null) {
+        d.baseDocument = byId.get(d.referenceDocumentId) ?? null;
+      }
+    }
+  }
+
   return {
     businessId: args.businessId,
     period: { start: args.periodStart, end: args.periodEnd },
@@ -194,6 +224,6 @@ export async function loadUniformExportInput(args: {
       billingPhone: str(profile.billingPhone),
       billingEmail: str(profile.billingEmail),
     },
-    documents: docRows.map(mapDocument),
+    documents,
   };
 }
