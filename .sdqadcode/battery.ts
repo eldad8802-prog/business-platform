@@ -189,9 +189,9 @@ async function main() {
     && ((await events(A, o2.case.id))[1].payload as Record<string, unknown>).source === "EXPLICIT");
   const o3 = await open(A, { ...T1, qaListId: null });
   const v3 = await getCaseQa(A.b, o3.case.id);
-  ok("O6 explicitly none overrides the default: no list, version 1, the built-in IN_SHOP.v1 checklist (T1 REQUIRED)",
+  ok("O6 explicitly none overrides the default: no list, version 1, the built-in IN_SHOP.v2 checklist (suggested) (T1 REQUIRED)",
     o3.qaList?.reason === "EXPLICIT_NONE" && o3.case.version === 1 && (await row(A, o3.case.id)).listId === null
-      && v3.mode === "REQUIRED" && v3.checklist?.source === "TEMPLATE" && v3.checklist.templateId === "IN_SHOP.v1");
+      && v3.mode === "REQUIRED" && v3.checklist?.source === "TEMPLATE" && v3.checklist.templateId === "IN_SHOP.v2");
   const o4 = await open(A, T5);
   ok("O7 a QA-OFF track (T5) ignores its default: no list, reason QA_OFF, version 1", o4.qaList?.reason === "QA_OFF" && (await row(A, o4.case.id)).listId === null && o4.case.version === 1);
   const n0 = await caseCount(A);
