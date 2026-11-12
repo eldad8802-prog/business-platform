@@ -9,7 +9,7 @@
  *      being deleted refused
  *   P  forged approver: another user of the same business, a user of another business, a deleted / non-existent user,
  *      an actor of another business — all refused by the database itself (approver = actor until an independent
- *      approver verification exists); the same rule on ServiceCompletion
+ *      approver verification exists); the same rule on ServiceCompletion (M1's own rule, 20261127090000 — proven here too)
  *   M  immutability: amounts, approvers, recordVersion, reasons never change; no DELETE / TRUNCATE; the erasure marker
  *      cannot be borrowed to change anything but the approvers to NULL; the runtime cannot UPDATE at all
  *   U  a deleted user only nulls the actor / approver; amounts and approval time stay
@@ -170,7 +170,8 @@ async function main() {
   ok("P5 actor = approver = a DELETED user → refused", r.includes("SERVICE_USER_OTHER_BUSINESS") || /foreign key/i.test(r), r);
   r = await rt(A.b, handover(A, await kase(A), debtOk(A, { approver: 2_000_000_000 })));
   ok("P6 approver = a user id that never existed → refused", r.startsWith("ERR"), r);
-  // ServiceCompletion: the approver check comes before the case-status check, so the refusal names it
+  // ServiceCompletion (M1's own rule since 2026-11-12, not replaced here): the approver check comes before the case-status
+  // check, so the refusal names it
   const cc = await kase(A);
   const completion = (approver: number): Stmt => [`INSERT INTO "ServiceCompletion" ("businessId", "caseId", "completionType", "openBalanceAgorot", "overpaidAgorot",
       "debtOverrideReason", "debtApprovedByUserId", "debtApprovedAt", "actorUserId") VALUES ($1, $2, 'OWNER_CONFIRMED_AT_BUSINESS', 5000, 0, 'סוף חודש', $3, now(), $4)`,
@@ -229,7 +230,7 @@ async function main() {
   r = await rt(B.b, handover(A, await kase(A)));
   ok("I2 B cannot write a handover for A (RLS)", /row-level security|policy/i.test(r), r);
 
-  console.log("L — legacy rows (written before the migration, by .sdhov/chain.sh)");
+  console.log("L — legacy rows (written before the migration by .sdhov/seed-legacy.sql — .sdhov/chain.sh or a combined lab)");
   const leg = await q(`SELECT h.id, h."businessId" b, h."openBalanceAgorot" o, h."recordVersion" v FROM "ServiceHandover" h JOIN "Business" x ON x.id = h."businessId" WHERE x.name = 'hov-legacy' ORDER BY h.id`);
   if (leg.length) {
     const lb = Number(leg[0].b);
@@ -240,7 +241,7 @@ async function main() {
     r = await inTx(owner, lb, [[`UPDATE "ServiceHandover" SET "debtApprovedByUserId" = "actorUserId" WHERE id = $1`, Number(leg[1].id)]]);
     ok("L3 an approver cannot be added to a legacy debt after the fact", r.includes("SERVICE_HANDOVER_FIXED"), r);
   } else {
-    ok("L0 legacy rows present (run .sdhov/chain.sh first)", false);
+    ok("L0 legacy rows present (run .sdhov/seed-legacy.sql before 20261130090000 — .sdhov/chain.sh does)", false);
   }
 
   console.log("E — erasure");

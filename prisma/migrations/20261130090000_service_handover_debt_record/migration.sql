@@ -4,7 +4,7 @@
 -- apart from the actor. DRAFT — never applied without the owner's separate approval.
 -- Order: after 20261127090000 (M1, #1118), which is after 20261126090000 (#1104) and 20261125090000 (#1096). Independent
 -- of 20261128090000 (parts reservation guard), 20261129090000 (QA lists) and 20261130100000 (QA track defaults): none of
--- them names ServiceHandover, ServiceCompletion or a function replaced here.
+-- them names ServiceHandover or a function replaced here.
 --
 -- Owner requirements (2026-11-11): the exact balance at the handover; an overpayment in its own field; a reason when a
 -- debt stays open; who acted, who approved and when; an immutable history. UNKNOWN never becomes a record; a debt never
@@ -24,15 +24,17 @@
 --
 -- ACTOR / APPROVER: "actorUserId" did the handover; "debtApprovedByUserId" / "loanerApprovedByUserId" approved the
 -- exception. Until an independent approver verification exists (an approval made from the approver's OWN authenticated
--- session), an approver can only be the authenticated user who acts: the INSERT guards (handover AND completion) refuse
--- an approver different from the actor (SERVICE_APPROVER_NOT_ACTOR). Two columns, one rule today — a future flow replaces
--- the guard function, never the data.
+-- session), an approver can only be the authenticated user who acts: the handover INSERT guard refuses an approver
+-- different from the actor (SERVICE_APPROVER_NOT_ACTOR). Two columns, one rule today — a future flow replaces the guard
+-- function, never the data. The same rule for the work completion lives in M1 itself (20261127090000,
+-- service_completion_guard, owner decision 2026-11-12): this migration does not touch ServiceCompletion; its premise
+-- only requires that rule to be in place.
 --
 --   ServiceHandover   + recordVersion, overpaidAgorot, debtApprovedByUserId, debtApprovedAt, loanerApprovedByUserId,
 --                     loanerApprovedAt; 5 CHECKs; 2 FKs to "User" (ON DELETE SET NULL); the same-business trigger now also
 --                     checks the two approvers; a new BEFORE INSERT guard; service_handover_guard replaced (the approvers
 --                     are erasable / nulled by a deleted user's FK action like the actor)
---   ServiceCompletion service_completion_guard replaced (approver = actor at INSERT) — body = M1's, one rule added
+--   ServiceCompletion untouched (approver = actor is M1's own rule — required by the premise)
 --   erasure           service_handover_record_erase_business() — SECURITY DEFINER, its own function: clears the two
 --                     approvers (service_erase_business clears the rest of the handover by its fixed column list)
 --
@@ -59,6 +61,11 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'ServiceHandover_user_same_business' AND tgrelid = 'public."ServiceHandover"'::regclass)
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'ServiceHandover_guard' AND tgrelid = 'public."ServiceHandover"'::regclass) THEN
     RAISE EXCEPTION 'SERVICE_HANDOVER_RECORD: M1 (20261127090000) or the handover triggers are not in place; nothing was changed';
+  END IF;
+  -- the approver = actor rule of the work completion is M1's own (20261127090000, owner decision 2026-11-12); an M1
+  -- without it would leave ServiceCompletion behind the rule this migration enforces on the handover
+  IF position('SERVICE_APPROVER_NOT_ACTOR' IN (SELECT p.prosrc FROM pg_proc p WHERE p.oid = 'public.service_completion_guard()'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'SERVICE_HANDOVER_RECORD: M1 (20261127090000) without the approver = actor rule of service_completion_guard; nothing was changed';
   END IF;
   -- a second application (or a partial hand-made one) is refused before anything moves
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ServiceHandover'
@@ -215,67 +222,6 @@ BEGIN
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.service_handover_guard() FROM PUBLIC;
-
--- 4.3 ⚠ service_completion_guard — CREATE OR REPLACE. Body = 20261127090000_service_desk_tracks section 7.4 (the only
--- definition), with exactly one change: at INSERT, an approver different from the acting user is refused
--- (SERVICE_APPROVER_NOT_ACTOR) — the rule of 4.1, for the work completion.
-CREATE OR REPLACE FUNCTION public.service_completion_guard()
-RETURNS trigger
-LANGUAGE plpgsql
-SET search_path = pg_catalog, public, pg_temp
-AS $fn$
-DECLARE
-  erasable constant text[] := ARRAY['confirmedByName', 'note', 'debtOverrideReason', 'actorUserId', 'debtApprovedByUserId', 'erasedAt'];
-  user_refs constant text[] := ARRAY['actorUserId', 'debtApprovedByUserId'];
-  v_status text;
-BEGIN
-  IF TG_OP = 'DELETE' THEN
-    IF pg_trigger_depth() > 1 THEN RETURN OLD; END IF;
-  ELSIF TG_OP = 'UPDATE' THEN
-    IF public.service_tracks_in_erasure(TG_RELID)
-       AND (to_jsonb(NEW) - erasable) = (to_jsonb(OLD) - erasable)
-       AND NEW."confirmedByName" IS NULL AND NEW."note" IS NULL AND NEW."debtOverrideReason" IS NULL AND NEW."actorUserId" IS NULL
-       AND NEW."debtApprovedByUserId" IS NULL AND NEW."erasedAt" IS NOT NULL THEN
-      RETURN NEW;
-    END IF;
-    -- the FK action of a deleted user: a user reference goes to NULL, nothing else moves
-    IF pg_trigger_depth() > 1
-       AND (to_jsonb(NEW) - user_refs) = (to_jsonb(OLD) - user_refs)
-       AND (NEW."actorUserId" IS NULL OR NEW."actorUserId" = OLD."actorUserId")
-       AND (NEW."debtApprovedByUserId" IS NULL OR NEW."debtApprovedByUserId" = OLD."debtApprovedByUserId") THEN
-      RETURN NEW;
-    END IF;
-  ELSE
-    IF NOT public.service_ui_business_writable(NEW."businessId") THEN
-      RAISE EXCEPTION USING ERRCODE = 'DZU02', MESSAGE = 'SERVICE_UI_BUSINESS_DELETING: the business is being deleted; nothing was written';
-    END IF;
-    IF NEW."erasedAt" IS NOT NULL OR NEW."actorUserId" IS NULL THEN
-      RAISE EXCEPTION USING ERRCODE = 'DZS07', MESSAGE = 'SERVICE_COMPLETION_NEW: a completion is confirmed by an owner user and never born erased';
-    END IF;
-    -- an open debt is closed only with a named approver (ServiceCompletion_debt_decided requires the reason and the
-    -- time; the approver is required here, at birth, because a deleted user's FK action may later clear it)
-    IF NEW."openBalanceAgorot" > 0 AND NEW."debtApprovedByUserId" IS NULL THEN
-      RAISE EXCEPTION USING ERRCODE = 'DZS07', MESSAGE = 'SERVICE_COMPLETION_DEBT_UNAPPROVED: closing with an open balance needs the approving user';
-    END IF;
-    -- 20261130090000: until an independent approver verification exists, the approver is the acting user
-    IF NEW."debtApprovedByUserId" IS NOT NULL AND NEW."debtApprovedByUserId" <> NEW."actorUserId" THEN
-      RAISE EXCEPTION USING ERRCODE = 'DZS07', MESSAGE = 'SERVICE_APPROVER_NOT_ACTOR: until an independent approver verification exists, the approver is the acting user';
-    END IF;
-    SELECT c."status"::text INTO v_status FROM public."ServiceCase" c
-     WHERE c."businessId" = NEW."businessId" AND c."id" = NEW."caseId" FOR UPDATE;
-    IF v_status IS NULL THEN
-      RAISE EXCEPTION USING ERRCODE = 'DZS07', MESSAGE = 'SERVICE_COMPLETION_CASE: no such case in this business';
-    END IF;
-    IF v_status NOT IN ('WORK_DONE', 'CLOSED') THEN
-      RAISE EXCEPTION USING ERRCODE = 'DZS07', MESSAGE = format('SERVICE_COMPLETION_NOT_WORK_DONE: the case is %s; only a WORK_DONE case is completed', v_status);
-    END IF;
-    RETURN NEW;
-  END IF;
-  RAISE EXCEPTION USING ERRCODE = 'DZS07',
-    MESSAGE = format('SERVICE_COMPLETION_FIXED: %s on %I is refused; a completion is a permanent record', TG_OP, TG_TABLE_NAME);
-END
-$fn$;
-REVOKE ALL ON FUNCTION public.service_completion_guard() FROM PUBLIC;
 
 -- ── 5. Erasure (account deletion) ───────────────────────────────────────────────────────────────────────────
 -- CONTRACT: no arguments; the business is the tenant context. Refuses (DZS08, nothing changed) without a context or when
