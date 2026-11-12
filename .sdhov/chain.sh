@@ -11,6 +11,7 @@
 #      completion guard (not touched — approver = actor is M1's own rule) and the same-business trigger are the old ones; the ledger marks it failed; resolve --rolled-back + deploy recovers.
 #   A  apply: exactly this migration; nothing failed; every legacy row byte-identical apart from the new columns, which
 #      read recordVersion 1 / NULL; every new CHECK VALIDATED (not NOT VALID) although legacy rows exist.
+#   P  premise: over an M1 without the approver = actor rule in service_completion_guard the migration refuses.
 #   S  a second application by hand is refused by the premise and changes nothing.
 #   R  rollback (copies): refuses while a version-2 handover exists; on a clean copy it removes everything, restores the
 #      two functions and the trigger byte-for-byte (fingerprints taken before the migration), keeps the legacy rows,
@@ -91,6 +92,22 @@ ok "F4 the ledger marks exactly that migration failed" \
 T="$(mktemp -d)"; stage "$T" "${DB}_fault"; resolve_rb "$T" "${DB}_fault" "$MIG"; OUT="$(deploy "$T" "${DB}_fault")"; rm -rf "$T"
 ok "F5 recovery: resolve --rolled-back, then a clean deploy applies it" 'echo "$OUT" | grep -q "Applying migration \`$MIG\`" && present "${DB}_fault"'
 super "DROP DATABASE ${DB}_fault"
+
+echo "P — the premise: approver = actor on the work completion is M1's own rule"
+super "DROP DATABASE IF EXISTS ${DB}_prem"; super "CREATE DATABASE ${DB}_prem TEMPLATE $DB OWNER lab_owner"
+PF="$(mktemp)"
+node -e '
+const s = require("fs").readFileSync(process.argv[1], "utf8");
+const m = s.match(/CREATE OR REPLACE FUNCTION public\.service_completion_guard\(\)[\s\S]*?\$fn\$;/);
+const a = `IF NEW."debtApprovedByUserId" IS NOT NULL AND NEW."debtApprovedByUserId" <> NEW."actorUserId" THEN`;
+if (!m || !m[0].includes(a)) { console.error("M1 rule not found"); process.exit(1); }
+process.stdout.write(m[0].replace(a, "IF false THEN").replace("SERVICE_APPROVER_NOT_ACTOR", "REMOVED_FOR_THE_LAB"));
+' "$ROOT/prisma/migrations/20261127090000_service_desk_tracks/migration.sql" > "$PF"
+psql -X -q -v ON_ERROR_STOP=1 "$(owner_url "${DB}_prem")" -f "$PF" >/dev/null; rm -f "$PF"
+T="$(mktemp -d)"; stage "$T" "${DB}_prem"; OUT="$(deploy "$T" "${DB}_prem" || true)"; rm -rf "$T"
+ok "P1 over an M1 whose completion guard lacks the approver = actor rule the migration refuses by its premise, and nothing of it exists" \
+  'echo "$OUT" | grep -q "without the approver = actor rule" && test "$(q "${DB}_prem" "SELECT count(*) FROM information_schema.columns WHERE table_name = '"'"'ServiceHandover'"'"' AND column_name = '"'"'recordVersion'"'"'")" = "0"'
+super "DROP DATABASE ${DB}_prem"
 
 echo "A — apply over legacy data"
 T="$(mktemp -d)"; stage "$T" "$DB"; OUT="$(deploy "$T" "$DB")"; rm -rf "$T"

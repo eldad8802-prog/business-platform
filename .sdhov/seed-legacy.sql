@@ -13,6 +13,8 @@
 --   5  an erased row (no receiver, no actor, erasedAt)
 -- Prerequisites: the P4 lab + M1 (.sd3p4/lab.sh, --deploy-only, .sdm1/chain.sh). Refuses to run twice (the business
 -- name is checked first) so the five rows stay the only 'hov-legacy' rows.
+-- the file is UTF-8 (Hebrew synthetic names): say so, whatever the client default (e.g. WIN1255 on a Windows lab)
+SET client_encoding = 'UTF8';
 DO $guard$
 BEGIN
   IF EXISTS (SELECT 1 FROM "Business" WHERE name = 'hov-legacy') THEN
