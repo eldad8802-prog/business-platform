@@ -4,12 +4,13 @@
 -- Read-only PREFLIGHT for 20261128090000_signup_legal_identity: the premises it builds on, checked in the target
 -- database BEFORE it is applied. Every check must PASS before the release applies it. After it is applied,
 -- exactly checks 2, 3, 4 and 5 turn FAIL (they describe "not there yet").
--- Ordering: it sorts after 20261123090000 (#1091) and 20261126090000 (#1105); check 1 refuses if anything that
--- sorts after it is already applied. Released in the same run as those two, Prisma applies them in order.
+-- Ordering: it depends on no other pending migration and may be released before or after a later-sorting one (the
+-- release gate and Prisma both accept that — verified by the Service Desk session on a lab copy, 2026-11-13). Check 1
+-- only asks that the ledger is clean: no failed or rolled-back attempt waiting to be resolved.
 -- OUTPUT: n | result (PASS/FAIL) | observed_count. Guard-clean: SELECT only. Counts only, no row values.
 -- ============================================================================
 \echo '== signup legal identity preflight: legend (n -> check) =='
-\echo ' 1 no finished migration sorts after 20261128090000_signup_legal_identity (observed = rows)'
+\echo ' 1 the ledger is clean: no unfinished or rolled-back migration row (observed = rows)'
 \echo ' 2 20261128090000 is not in the ledger (observed = rows)'
 \echo ' 3 BusinessProfile has neither legalIdentityConfirmedAt nor legalIdentitySource yet (observed = of 2)'
 \echo ' 4 none of its six functions exists yet (observed = of 6)'
@@ -39,8 +40,7 @@ newcols AS (SELECT count(*) AS n FROM pg_attribute a WHERE a.attrelid = (SELECT 
               AND a.attname IN ('legalIdentityConfirmedAt', 'legalIdentitySource')),
 authpriv AS (SELECT count(*) AS n FROM (VALUES ('SELECT'), ('INS' || 'ERT'), ('UPD' || 'ATE'), ('DEL' || 'ETE')) v(p)
               WHERE has_table_privilege('app_auth', (SELECT oid FROM bp), v.p)),
-later AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name > '20261128090000_signup_legal_identity'
-            AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
+later AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL),
 mine AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name = '20261128090000_signup_legal_identity'),
 xcast AS (SELECT count(*) AS n FROM pg_cast WHERE castsource = 'xid8'::regtype AND casttarget = 'xid'::regtype),
 checks(n, ok, observed_count) AS (
