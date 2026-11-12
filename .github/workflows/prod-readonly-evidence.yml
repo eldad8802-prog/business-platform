@@ -175,6 +175,8 @@ on:
           - 'ops/evidence/service-desk-qa-lists-production-evidence.sql'
           - 'ops/evidence/email-verify-delivery-counts.sql'
           - 'ops/evidence/service-desk-no-signature-counts.sql'
+          - 'ops/evidence/auth-issuer-declaration-link-preflight.sql'
+          - 'ops/evidence/auth-issuer-declaration-link-production-evidence.sql'
 
 permissions:
   contents: read

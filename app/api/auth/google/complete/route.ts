@@ -14,7 +14,8 @@ import {
 import { isPublicSignupEnabled, SIGNUP_DISABLED_STATUS, signupDisabledBody } from "@/lib/auth/signup-gate";
 import { readSignupAllowlist } from "@/lib/auth/signup-allowlist";
 import { isHoneypotFilled } from "@/lib/auth/signup-honeypot";
-import { normalizeGoogleSignupInput } from "@/lib/auth/signup-identity";
+import { normalizeGoogleSignupInput, type SignupBusinessKind } from "@/lib/auth/signup-identity";
+import { seedSignupBusinessKind, type SeedBusinessKindOutcome } from "@/lib/auth/signup-business-kind";
 import { authMessage } from "@/lib/auth/auth-messages";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
 import { deliverTransactionalEmail } from "@/lib/email/transactional/delivery";
@@ -56,6 +57,8 @@ export type CompleteDeps = {
   createAccount: (input: CreateGoogleAccountInput) => Promise<CreatedGoogleAccount>;
   recordUsage: typeof recordProductUsageEvent;
   scheduleWelcome: (emailId: number, businessId: number) => void;
+  /** The business kind chosen in the completion form, seeded as in register (only when none is set). */
+  seedBusinessKind: (businessId: number, kind: SignupBusinessKind) => Promise<SeedBusinessKindOutcome>;
 };
 
 function scheduleWelcomeAfterResponse(emailId: number, businessId: number): void {
@@ -72,6 +75,7 @@ const defaultDeps: CompleteDeps = {
   createAccount: createAccountFromGoogle,
   recordUsage: recordProductUsageEvent,
   scheduleWelcome: scheduleWelcomeAfterResponse,
+  seedBusinessKind: seedSignupBusinessKind,
 };
 
 const noStore = { "cache-control": "no-store" };
@@ -158,6 +162,13 @@ export async function handleGoogleComplete(req: Request, deps: CompleteDeps = de
       userAgent: req.headers.get("user-agent"),
       locale,
     });
+
+    // As in register: seeded before the response, contained — never fails the completed signup.
+    try {
+      await deps.seedBusinessKind(account.businessId, input.businessKind);
+    } catch (error) {
+      console.error("[signup] business_kind_seed_failed", { error: error instanceof Error ? error.name : "unknown" });
+    }
 
     await deps.recordUsage({
       businessId: account.businessId,
