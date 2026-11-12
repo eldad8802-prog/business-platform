@@ -14,13 +14,17 @@
  *   C  close without a return: approved (approver = actor), with a reason
  *   E  case exit: CANCEL / cancel request / held-item cancel / ABANDON with a loan OUT only with an approval bound to that
  *      case event; the loan stays OUT; CLOSED refused while a loan is OUT
- *   H  handover with a loan OUT carries the loaner exception; without a loan the handover is unchanged
+ *   H  handover with a loan OUT carries the loaner exception; with NO loan out (never lent, returned, closed, after a
+ *      cancel) no loaner field is saved (SERVICE_HANDOVER_LOANER_NONE); without a loan the plain handover is unchanged
+ *   L  handovers saved before this migration (legacy v1, v2 with a loaner exception and no loan): kept byte-identical,
+ *      readable, and their approval / reason never changes (nor is one added) afterwards
  *   P  forged approver / actor: another user of the same business, a user of another business — refused by the database
  *   U  deleting a user (every user column, and one of several) only nulls the column; rows and journal remain
  *   B  deleting a business removes its loans; another business is untouched
  *   I  isolation (RLS + composite tenant FKs): another business's loans, case or inventory item are out of reach
  *   M  immutability: no DELETE, no TRUNCATE, no change outside a kind, no version skip, the erasure marker not borrowable
- *   K  concurrency on two connections: the same item lent twice at once → one; returned twice at once → one; lend vs cancel
+ *   K  concurrency on two connections: the same item lent twice at once → one; returned twice at once → one; lend vs cancel;
+ *      handover vs return (with and without the case lock; REPEATABLE READ) and handover vs a new loan
  *   F  a failure mid-operation leaves nothing   ·   Q  idempotency keys unique per business
  *   Z  erasure: refused unless deleting; clears the texts and users; keeps states and times; re-run 0; others untouched
  *
@@ -163,6 +167,13 @@ async function exitApproveTx(tx: Tx, z: Biz, caseId: number, kind: "CANCEL_OPEN_
 const state = async (z: Biz, loanId: number) => (await rowsOf(owner, z.b, `SELECT state::text s, version v, "lastEventKind"::text k FROM "ServiceLoan" WHERE id = $1`, loanId))[0];
 const events = async (z: Biz, loanId: number) => rowsOf(owner, z.b, `SELECT seq, kind::text k, "approvalKind"::text a, "approvedByUserId" ab, reason, "caseSeq" cs, "actorUserId" u FROM "ServiceLoanEvent" WHERE "loanId" = $1 ORDER BY seq`, loanId);
 const has = (r: string, s: string | RegExp) => (typeof s === "string" ? r.includes(s) : s.test(r));
+type Hx = Partial<{ reason: string | null; approver: number | null; at: boolean }>;
+/** A version-2 handover row (zero balance) by the business's user, with any of the three loaner fields. */
+const hovTx = (tx: Tx, z: Biz, caseId: number, x: Hx = {}) => tx.$executeRawUnsafe(`INSERT INTO "ServiceHandover" ("businessId", "caseId", "signatureCaptured", "recordVersion",
+    "openBalanceAgorot", "overpaidAgorot", "loanerOverrideReason", "loanerApprovedByUserId", "loanerApprovedAt", "actorUserId")
+  VALUES ($1, $2, false, 2, 0, 0, $3, $4, $5::timestamp, $6)`, z.b, caseId, x.reason ?? null, x.approver ?? null, x.at ? new Date() : null, z.u);
+/** The full loaner exception as the service writes it: reason, approver = the acting user, the approval time. */
+const EXC = (z: Biz): Hx => ({ reason: "יחזיר מחר", approver: z.u, at: true });
 
 async function main() {
   const A = await business("a");
@@ -425,6 +436,82 @@ async function main() {
       await moveTx(tx, A.b, r, "DELIVERED", "DELIVER", "case.delivered", `"deliveredAt" = now()`);
       await tx.$executeRawUnsafe(`INSERT INTO "ServiceHandover" ("businessId", "caseId", "signatureCaptured", "recordVersion", "openBalanceAgorot", "overpaidAgorot", "actorUserId") VALUES ($1, $2, false, 2, 0, 0, $3)`, A.b, r, A.u);
     })) === "OK");
+
+    // the other direction (owner 2026-11-12): NO loan out ⇒ no loaner approval / reason is saved
+    const hovs = async (caseId: number) => Number((await rowsOf(owner, A.b, `SELECT count(*)::int n FROM "ServiceHandover" WHERE "caseId" = $1`, caseId))[0].n);
+    const deliverWith = (caseId: number, x: Hx) => async (tx: Tx) => {
+      await moveTx(tx, A.b, caseId, "DELIVERED", "DELIVER", "case.delivered", `"deliveredAt" = now()`);
+      await hovTx(tx, A, caseId, x);
+    };
+    const never = await kase(A, TO_READY);
+    ok("H6 a case that never had a loan: the full loaner exception (reason + approver = actor + time) → refused SERVICE_HANDOVER_LOANER_NONE, nothing written",
+      has(await inTx(runtime, A.b, deliverWith(never, EXC(A))), "SERVICE_HANDOVER_LOANER_NONE") && (await hovs(never)) === 0);
+    const rr = await kase(A, TO_READY);
+    await lend(A, rr, { reason: "עד האיסוף", ident: "HOV-RET" });
+    ok("H7 a loan returned, then the handover with the exception → refused SERVICE_HANDOVER_LOANER_NONE (the approval has nothing to approve)",
+      (await change(A, await loanOf(A, rr), "RETURNED", RETURN(A))) === "OK"
+      && has(await inTx(runtime, A.b, deliverWith(rr, EXC(A))), "SERVICE_HANDOVER_LOANER_NONE") && (await hovs(rr)) === 0);
+    ok("H7b … and the same handover without the exception → accepted", (await inTx(runtime, A.b, deliverWith(rr, {}))) === "OK" && (await hovs(rr)) === 1);
+    const cl = await kase(A, TO_READY);
+    await lend(A, cl, { reason: "עד האיסוף", ident: "HOV-CLS" });
+    ok("H8 a loan closed without a return (approved), then the handover with the exception → refused SERVICE_HANDOVER_LOANER_NONE",
+      (await change(A, await loanOf(A, cl), "CLOSED", CLOSE(A.u, A.u))) === "OK"
+      && has(await inTx(runtime, A.b, deliverWith(cl, EXC(A))), "SERVICE_HANDOVER_LOANER_NONE"));
+    const part = await kase(A, TO_READY);
+    const parts = await Promise.all([{ approver: A.u, at: true }, { at: true }, { approver: A.u }, { reason: "יחזיר" }, { reason: "יחזיר", approver: A.u }]
+      .map((x) => inTx(runtime, A.b, deliverWith(part, x))));
+    ok("H9 no loan: ANY loaner field alone or partial (approver + time, time, approver, reason, reason + approver) → refused SERVICE_HANDOVER_LOANER_NONE",
+      parts.every((x) => has(x, "SERVICE_HANDOVER_LOANER_NONE")) && (await hovs(part)) === 0, JSON.stringify(parts));
+    const out = await kase(A, TO_READY);
+    await lend(A, out, { reason: "עד האיסוף", ident: "HOV-OUT" });
+    const partsOut = await Promise.all([{ approver: A.u, at: true }, { approver: A.u }, { at: true }].map((x) => inTx(runtime, A.b, deliverWith(out, x))));
+    ok("H10 a loan OUT with a partial exception without its reason (approver + time, approver, time) → refused (CHECK ServiceHandover_loaner_decided)",
+      partsOut.every((x) => has(x, "ServiceHandover_loaner_decided")) && (await hovs(out)) === 0, JSON.stringify(partsOut));
+    ok("H11 a loan OUT with the full exception → accepted; the record holds the reason, approver = actor, the approval time",
+      (await inTx(runtime, A.b, deliverWith(out, EXC(A)))) === "OK");
+    const rec = (await rowsOf(owner, A.b, `SELECT "loanerOverrideReason" r, "loanerApprovedByUserId" a, "loanerApprovedAt" IS NOT NULL t, "actorUserId" u FROM "ServiceHandover" WHERE "caseId" = $1`, out))[0];
+    ok("H11b … reason, approver = actor (server-resolved), time", rec?.r === "יחזיר מחר" && Number(rec?.a) === A.u && Number(rec?.u) === A.u && rec?.t === true, JSON.stringify(rec));
+    const two = await kase(A, TO_READY);
+    await lend(A, two, { reason: "עד האיסוף", ident: "HOV-2A" });
+    await lend(A, two, { reason: "עד האיסוף", ident: "HOV-2B" });
+    ok("H12 two loans, one returned and one still OUT → the exception is still required and accepted",
+      (await change(A, await loanOf(A, two), "RETURNED", RETURN(A))) === "OK"
+      && has(await inTx(runtime, A.b, deliverWith(two, {})), "SERVICE_HANDOVER_LOANER_OUT") && (await inTx(runtime, A.b, deliverWith(two, EXC(A)))) === "OK");
+    // a case cancelled with the loan out: the cancel's approval (on the loan) is not the handover's
+    const cc = await kase(A, TO_REPAIR);
+    await lend(A, cc, { ident: "HOV-CNL" });
+    ok("H13 CANCEL with the loan out and its approval → CANCELLED, the loan stays OUT", (await inTx(runtime, A.b, async (tx) => {
+      await moveTx(tx, A.b, cc, "CANCELLED", "CANCEL", "case.cancelled", `outcome = 'CANCELLED', "cancelReason" = 'בוטל', "cancelledAt" = now()`);
+      await exitApproveTx(tx, A, cc, "CANCEL_OPEN_LOANER");
+    })) === "OK" && (await state(A, await loanOf(A, cc))).s === "OUT");
+    ok("H13b … a handover row for it without the loaner exception → refused SERVICE_HANDOVER_LOANER_OUT (the cancel approval does not stand in)",
+      has(await inTx(runtime, A.b, (tx) => hovTx(tx, A, cc, {})), "SERVICE_HANDOVER_LOANER_OUT"));
+    ok("H13c … after the loan's return, a handover row with the loaner exception → refused SERVICE_HANDOVER_LOANER_NONE",
+      (await change(A, await loanOf(A, cc), "RETURNED", RETURN(A))) === "OK" && has(await inTx(runtime, A.b, (tx) => hovTx(tx, A, cc, EXC(A))), "SERVICE_HANDOVER_LOANER_NONE"));
+    ok("H14 even the table owner cannot save a loaner exception with no loan out", has(await inTx(owner, A.b, deliverWith(await kase(A, TO_READY), EXC(A))), "SERVICE_HANDOVER_LOANER_NONE"));
+  }
+
+  console.log("L — handovers saved before this migration (legacy version 1, version 2 with a loaner exception and no loan)");
+  {
+    const pre = await q(`SELECT h.id, h."businessId" b, h."recordVersion" v, h."loanerOverrideReason" r, h."loanerApprovedByUserId" a, h."loanerApprovedAt" IS NOT NULL t,
+        md5(to_jsonb(h)::text) d FROM "ServiceHandover" h JOIN "Business" x ON x.id = h."businessId" WHERE x.name IN ('loan-pre-v2', 'hov-legacy') ORDER BY h.id`);
+    const v2x = pre.filter((h) => Number(h.v) === 2 && h.r !== null);
+    const v1x = pre.filter((h) => Number(h.v) === 1 && h.r !== null);
+    ok("L1 the rows exist: version-2 with a loaner exception and no loan, legacy version-1 with a loaner reason (.sdloan/seed-v2-loaner.sql, .sdhov/seed-legacy.sql)",
+      v2x.length >= 1 && v1x.length >= 1 && v2x.every((h) => h.a !== null && h.t === true), JSON.stringify(pre));
+    const vb = Number(v2x[0]?.b ?? 0), vid = Number(v2x[0]?.id ?? 0);
+    ok("L2 … readable through the runtime, unchanged by the migration (no loan for its case)", Number((await rowsOf(runtime, vb, `SELECT count(*)::int n FROM "ServiceHandover" h
+        WHERE h.id = $1 AND NOT EXISTS (SELECT 1 FROM "ServiceLoan" l WHERE l."caseId" = h."caseId")`, vid))[0].n) === 1);
+    const updPre = (set: string) => inTx(owner, vb, (tx) => tx.$executeRawUnsafe(`UPDATE "ServiceHandover" SET ${set} WHERE id = $1`, vid));
+    ok("L3 its saved approval / reason never changes retroactively (owner): reason, approver, time, cleared reason → SERVICE_HANDOVER_FIXED",
+      (await Promise.all([updPre(`"loanerOverrideReason" = 'אחר'`), updPre(`"loanerApprovedAt" = now() - interval '1 day'`),
+        updPre(`"loanerOverrideReason" = NULL, "loanerApprovedByUserId" = NULL, "loanerApprovedAt" = NULL`)])).every((x) => has(x, "SERVICE_HANDOVER_FIXED")));
+    ok("L3b … and the runtime cannot UPDATE a handover at all", /permission denied/i.test(await inTx(runtime, vb, (tx) => tx.$executeRawUnsafe(`UPDATE "ServiceHandover" SET "loanerOverrideReason" = 'x' WHERE id = $1`, vid))));
+    const plain = Number((await rowsOf(owner, A.b, `SELECT max(id) id FROM "ServiceHandover" WHERE "businessId" = $1 AND "loanerApprovedAt" IS NULL AND "recordVersion" = 2`, A.b))[0].id);
+    ok("L4 a loaner exception cannot be ADDED to a saved handover afterwards (owner) → SERVICE_HANDOVER_FIXED",
+      has(await inTx(owner, A.b, (tx) => tx.$executeRawUnsafe(`UPDATE "ServiceHandover" SET "loanerOverrideReason" = 'בדיעבד', "loanerApprovedByUserId" = $2, "loanerApprovedAt" = now() WHERE id = $1`, plain, A.u)), "SERVICE_HANDOVER_FIXED"));
+    const after = await q(`SELECT md5(to_jsonb(h)::text) d FROM "ServiceHandover" h JOIN "Business" x ON x.id = h."businessId" WHERE x.name IN ('loan-pre-v2', 'hov-legacy') ORDER BY h.id`);
+    ok("L5 every pre-migration row is byte-identical after all of the above", after.length === pre.length && after.every((h, i) => h.d === pre[i].d));
   }
 
   console.log("P — forged approver / actor");
@@ -535,6 +622,69 @@ async function main() {
     const after = (await rowsOf(owner, A.b, `SELECT c.outcome::text o, (SELECT count(*)::int FROM "ServiceLoan" l WHERE l."caseId" = c.id AND l.state = 'OUT') n FROM "ServiceCase" c WHERE c.id = $1`, c3))[0];
     ok("K3 a loan and an unapproved cancel of one case at once never leave a cancelled case with an unapproved loan out",
       !(after.o === "CANCELLED" && Number(after.n) > 0) && race.filter((r) => r === "OK").length === 1, JSON.stringify([race, after]));
+
+    // the handover vs a return / a new loan of the same case. Lock order on every path: the case row first, then the loan.
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const lockCase = (tx: Tx, caseId: number) => tx.$queryRawUnsafe(`SELECT id FROM "ServiceCase" WHERE id = $1 FOR UPDATE`, caseId);
+    const hovRow = async (caseId: number) => (await rowsOf(owner, A.b, `SELECT count(*)::int n, bool_or("loanerApprovedAt" IS NOT NULL OR "loanerOverrideReason" IS NOT NULL) x FROM "ServiceHandover" WHERE "caseId" = $1`, caseId))[0];
+    const outN = async (caseId: number) => Number((await rowsOf(owner, A.b, `SELECT count(*)::int n FROM "ServiceLoan" WHERE "caseId" = $1 AND state = 'OUT'`, caseId))[0].n);
+    // K4: the return (the service's order: case lock, loan, event) holds its locks; the handover with the exception
+    // arrives meanwhile, waits for the case, then reads the committed return → refused
+    const k4 = await kase(A, TO_READY);
+    await lend(A, k4, { reason: "עד האיסוף", ident: "RACE-4" });
+    const l4 = await loanOf(A, k4);
+    const r4 = await Promise.all([
+      inTx(runtime, A.b, async (tx) => { await lockCase(tx, k4); await changeTx(tx, A, l4, "RETURNED", RETURN(A)); await wait(400); }),
+      (async () => { await wait(100); return inTx(runtime2, A.b, (tx) => hovTx(tx, A, k4, EXC(A))); })(),
+    ]);
+    ok("K4 a return and a handover WITH the exception at once → the return wins, the exception is refused SERVICE_HANDOVER_LOANER_NONE",
+      r4[0] === "OK" && has(r4[1], "SERVICE_HANDOVER_LOANER_NONE") && Number((await hovRow(k4)).n) === 0 && (await outN(k4)) === 0, JSON.stringify(r4));
+    // K4b: the other order — the handover WITH the exception first (it holds the case, and the OUT loan FOR SHARE); the
+    // return (case lock first) waits, then commits after it: the exception was saved while the loan was out; no deadlock
+    const k4b = await kase(A, TO_READY);
+    await lend(A, k4b, { reason: "עד האיסוף", ident: "RACE-4B" });
+    const l4b = await loanOf(A, k4b);
+    const r4b = await Promise.all([
+      inTx(runtime2, A.b, async (tx) => { await hovTx(tx, A, k4b, EXC(A)); await wait(400); }),
+      (async () => { await wait(100); return inTx(runtime, A.b, async (tx) => { await lockCase(tx, k4b); await changeTx(tx, A, l4b, "RETURNED", RETURN(A)); }); })(),
+    ]);
+    ok("K4b the handover with the exception first, the return arriving meanwhile → it waits, both commit (the loan was out when approved), no deadlock",
+      r4b[0] === "OK" && r4b[1] === "OK" && (await hovRow(k4b)).x === true && (await outN(k4b)) === 0, JSON.stringify(r4b));
+    // K5: a NEW loan (its insert guard locks the case) holds; the handover WITHOUT the exception arrives meanwhile, waits
+    // for the case, then sees the committed loan → refused (never a case with a loan out and a handover without approval)
+    const k5 = await kase(A, TO_READY);
+    const r5 = await Promise.all([
+      inTx(runtime, A.b, async (tx) => { await lendTx(tx, A, k5, { reason: "עד האיסוף", ident: "RACE-5" }); await wait(400); }),
+      (async () => { await wait(100); return inTx(runtime2, A.b, (tx) => hovTx(tx, A, k5, {})); })(),
+    ]);
+    ok("K5 a new loan and a handover WITHOUT the exception at once → the loan wins, the handover is refused SERVICE_HANDOVER_LOANER_OUT",
+      r5[0] === "OK" && has(r5[1], "SERVICE_HANDOVER_LOANER_OUT") && Number((await hovRow(k5)).n) === 0 && (await outN(k5)) === 1, JSON.stringify(r5));
+    // K5b: a new loan racing a handover WITH the exception on a case with no loan before: after the case lock the loan is
+    // seen → the exception is valid and accepted (no false refusal, no stale "none")
+    const k5b = await kase(A, TO_READY);
+    const r5b = await Promise.all([
+      inTx(runtime, A.b, async (tx) => { await lendTx(tx, A, k5b, { reason: "עד האיסוף", ident: "RACE-5B" }); await wait(400); }),
+      (async () => { await wait(100); return inTx(runtime2, A.b, (tx) => hovTx(tx, A, k5b, EXC(A))); })(),
+    ]);
+    ok("K5b a new loan and a handover WITH the exception at once → both commit; the exception names a loan that is out",
+      r5b[0] === "OK" && r5b[1] === "OK" && (await hovRow(k5b)).x === true && (await outN(k5b)) === 1, JSON.stringify(r5b));
+    // K6: REPEATABLE READ — the handover's snapshot predates a committed return; the guard never judges by the stale "out"
+    const k6 = await kase(A, TO_READY);
+    await lend(A, k6, { reason: "עד האיסוף", ident: "RACE-6" });
+    const l6 = await loanOf(A, k6);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const r6 = await Promise.all([
+      runtime2.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(A.b));
+        await tx.$queryRawUnsafe(`SELECT count(*) FROM "ServiceLoan" WHERE "caseId" = $1`, k6); // the snapshot is taken here
+        await gate;
+        await hovTx(tx, A, k6, EXC(A));
+      }, { isolationLevel: "RepeatableRead", timeout: 60_000, maxWait: 60_000 }).then(() => "OK", (e) => `ERR:${err(e).slice(-300)}`),
+      (async () => { await wait(100); const x = await change(A, l6, "RETURNED", RETURN(A)); release(); return x; })(),
+    ]);
+    ok("K6 REPEATABLE READ: a return committed after the handover's snapshot → the exception is refused (serialization failure), never saved",
+      r6[1] === "OK" && /could not serialize|40001|SERVICE_HANDOVER_LOANER_NONE/i.test(r6[0]) && Number((await hovRow(k6)).n) === 0, JSON.stringify(r6));
   }
 
   console.log("F — failure mid-operation");

@@ -15,8 +15,11 @@
 --   * app_runtime table rights, read from the ACL letters: ServiceLoan exactly arw (read, append, change), the journal
 --     exactly ar (read, append) — never removal; no other grantee;
 --   * data invariants: no identified item OUT twice; every loan version has its journal event; no approval names an
---     approver other than its actor;
---   * informational counts: loans OUT, RETURNED, CLOSED.
+--     approver other than its actor; no handover written after this migration carries a loaner exception (reason /
+--     approver / approval time) on a case that never had a loan (the guard admits one only while a loan is OUT, and a
+--     loan is never deleted — clock-free);
+--   * informational counts: loans OUT, RETURNED, CLOSED; handovers written BEFORE this migration with a loaner
+--     exception and no loan (kept as they were: the rule judges new rows only).
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -41,9 +44,11 @@
 \echo '16 identified items OUT more than once (expected 0)'
 \echo '17 loans whose current version has no journal event (expected 0)'
 \echo '18 approvals naming an approver other than the actor (expected 0)'
-\echo '19 loans OUT (informational)'
-\echo '20 loans RETURNED (informational)'
-\echo '21 loans CLOSED without a return (informational)'
+\echo '19 handovers written after this migration with a loaner exception, on a case that never had a loan (expected 0)'
+\echo '20 loans OUT (informational)'
+\echo '21 loans RETURNED (informational)'
+\echo '22 loans CLOSED without a return (informational)'
+\echo '23 handovers written before this migration with a loaner exception and no loan (informational; kept as they were)'
 
 WITH f AS (
   SELECT p.oid, p.proname, p.prosecdef, p.proconfig FROM pg_proc p
@@ -53,6 +58,13 @@ WITH f AS (
 ), t AS (
   SELECT k.oid, k.relname, k.relowner, k.relacl FROM pg_class k
    WHERE k.relnamespace = 'public'::regnamespace AND k.relname IN ('ServiceLoan', 'ServiceLoanEvent')
+), h AS (
+  -- handovers with a loaner exception: written after this migration finished? did the case ever have a loan?
+  SELECT x."createdAt" > (SELECT max(m.finished_at) FROM "_prisma_migrations" m
+                            WHERE m.migration_name = '20261201090000_service_desk_loans' AND m.rolled_back_at IS NULL) AS after_mig,
+         EXISTS (SELECT 1 FROM "ServiceLoan" l WHERE l."businessId" = x."businessId" AND l."caseId" = x."caseId") AS any_loan
+    FROM "ServiceHandover" x
+   WHERE x."loanerOverrideReason" IS NOT NULL OR x."loanerApprovedByUserId" IS NOT NULL OR x."loanerApprovedAt" IS NOT NULL
 ), c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261201090000_service_desk_loans'
                      AND finished_at IS NOT NULL AND rolled_back_at IS NULL) AS observed, 1 AS want
@@ -87,9 +99,11 @@ WITH f AS (
   UNION ALL SELECT 17, (SELECT count(*) FROM "ServiceLoan" l WHERE NOT EXISTS (SELECT 1 FROM "ServiceLoanEvent" e
                           WHERE e."businessId" = l."businessId" AND e."loanId" = l.id AND e.seq = l.version AND e.kind = l."lastEventKind")), 0
   UNION ALL SELECT 18, (SELECT count(*) FROM "ServiceLoanEvent" WHERE "approvedByUserId" IS NOT NULL AND "approvedByUserId" IS DISTINCT FROM "actorUserId"), 0
-  UNION ALL SELECT 19, (SELECT count(*) FROM "ServiceLoan" WHERE state = 'OUT'), NULL
-  UNION ALL SELECT 20, (SELECT count(*) FROM "ServiceLoan" WHERE state = 'RETURNED'), NULL
-  UNION ALL SELECT 21, (SELECT count(*) FROM "ServiceLoan" WHERE state = 'CLOSED'), NULL
+  UNION ALL SELECT 19, (SELECT count(*) FROM h WHERE h.after_mig AND NOT h.any_loan), 0
+  UNION ALL SELECT 20, (SELECT count(*) FROM "ServiceLoan" WHERE state = 'OUT'), NULL
+  UNION ALL SELECT 21, (SELECT count(*) FROM "ServiceLoan" WHERE state = 'RETURNED'), NULL
+  UNION ALL SELECT 22, (SELECT count(*) FROM "ServiceLoan" WHERE state = 'CLOSED'), NULL
+  UNION ALL SELECT 23, (SELECT count(*) FROM h WHERE NOT h.after_mig AND NOT h.any_loan), NULL
 )
 SELECT n,
        CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,
