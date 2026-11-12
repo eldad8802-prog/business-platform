@@ -9,7 +9,7 @@
  *   1. a tax id stored with separators, or with 8 digits, is rewritten to its canonical nine digits — the same
  *      number, never a different one (the row is not locked yet, so the runtime may);
  *   2. legal_identity_confirm_existing(user) confirms what is stored — it never writes an identity value — and
- *      answers CONFIRMED | ALREADY_CONFIRMED | INCOMPLETE | INVALID_TAX_ID | NOT_ALLOWED.
+ *      answers CONFIRMED | ALREADY_CONFIRMED | INCOMPLETE | INVALID_TAX_ID | LEGAL_NAME_TOO_LONG | NOT_ALLOWED.
  * From CONFIRMED on, kind / legal name / tax id are locked exactly as for a business confirmed at signup.
  */
 
@@ -21,10 +21,11 @@ export type LegalIdentityCompletionResult =
   | "ALREADY_CONFIRMED"
   | "INCOMPLETE"
   | "INVALID_TAX_ID"
+  | "LEGAL_NAME_TOO_LONG"
   | "NOT_ALLOWED";
 
 const RESULTS: readonly LegalIdentityCompletionResult[] = [
-  "CONFIRMED", "ALREADY_CONFIRMED", "INCOMPLETE", "INVALID_TAX_ID", "NOT_ALLOWED",
+  "CONFIRMED", "ALREADY_CONFIRMED", "INCOMPLETE", "INVALID_TAX_ID", "LEGAL_NAME_TOO_LONG", "NOT_ALLOWED",
 ];
 
 export function isLegalIdentityCompletionEnabled(): boolean {

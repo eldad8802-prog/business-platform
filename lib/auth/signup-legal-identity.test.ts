@@ -114,9 +114,9 @@ function main() {
   });
   refuses("EXEMPT_DEALER", { ...valid, legalName: undefined }, "legalName", "legal name: missing");
   refuses("EXEMPT_DEALER", { ...valid, legalName: " א " }, "legalName", "legal name: one character");
-  refuses("EXEMPT_DEALER", { ...valid, legalName: "א".repeat(201) }, "legalName", "legal name: over 200");
-  check("legal name: exactly 200 is accepted", () => {
-    assert.equal(normalizeLegalIdentity("EXEMPT_DEALER", { ...valid, legalName: "א".repeat(200) }).legalName.length, 200);
+  refuses("EXEMPT_DEALER", { ...valid, legalName: "א".repeat(121) }, "legalName", "legal name: over 120 (the issuer declaration bound)");
+  check("legal name: exactly 120 is accepted", () => {
+    assert.equal(normalizeLegalIdentity("EXEMPT_DEALER", { ...valid, legalName: "א".repeat(120) }).legalName.length, 120);
   });
 
   // ── trade name (optional) ──
@@ -151,7 +151,7 @@ function main() {
     assert.equal(normalizePhone("+972 50 123 4567"), "+972501234567");
     assert.equal(normalizeLegalIdentity("EXEMPT_DEALER", { ...valid, phone: "050 123 4567" }).phone, "0501234567");
   });
-  for (const bad of ["abc", "123", "+", "0501234567890123", "050-12a-4567"]) {
+  for (const bad of ["abc", "123", "+", "12345678", "0501234567890123", "050-12a-4567"]) {
     refuses("EXEMPT_DEALER", { ...valid, phone: bad }, "phone", `phone: "${bad}" is refused`, bad.length > 3 ? bad : undefined);
   }
 
