@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const changed = await markAllNotificationsRead(user.businessId, new Date());
+    const changed = await markAllNotificationsRead(user.businessId, new Date(), { userId: user.id });
 
     return NextResponse.json({ ok: true, changed });
   } catch (error: unknown) {

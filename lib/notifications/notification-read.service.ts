@@ -28,6 +28,49 @@ import type { Prisma } from "@prisma/client";
 
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
+import { rulesForCategory } from "./catalog";
+import { effectiveSettings, hiddenInAppCategories } from "./preferences";
+import { readUserPreferences } from "./preferences-store";
+
+/**
+ * WHO is reading (notification engine, migration 20261210090000). A notification with a userId is that user's
+ * alone (a digest, a test push); NULL is the whole business's — every row written before the engine. Categories
+ * the viewer switched off in-app (their own NotificationPreference rows) are hidden. With no viewer the old
+ * business-wide predicate applies unchanged.
+ */
+export type Viewer = { userId: number };
+
+type Where = Prisma.NotificationWhereInput;
+
+/** The predicate a category's rows match (the catalog's declarative classification rules). */
+function categoryWhere(key: string): Where[] {
+  return rulesForCategory(key).map((r) => {
+    const engineRule = r.semanticCategories?.length === 1 && r.semanticCategories[0] === key;
+    return {
+      domain: r.domain,
+      ...(r.semanticCategories ? { semanticCategory: { in: [...r.semanticCategories] } } : {}),
+      ...(r.severities ? { severity: { in: [...r.severities] } } : {}),
+      ...(r.entityTypes ? { entityType: { in: [...r.entityTypes] } } : {}),
+      // Legacy rows never carry a '.' in semanticCategory; the engine's always do.
+      ...(engineRule ? {} : { NOT: { semanticCategory: { contains: "." } } }),
+    };
+  });
+}
+
+async function viewerWhere(tx: Prisma.TransactionClient, businessId: number, viewer: Viewer | undefined): Promise<Where[]> {
+  if (!viewer) return [];
+  const { settings, prefs } = await readUserPreferences(tx, businessId, viewer.userId);
+  const hidden = hiddenInAppCategories(effectiveSettings(settings), prefs).flatMap(categoryWhere);
+  return [
+    { OR: [{ userId: null }, { userId: viewer.userId }] },
+    ...(hidden.length > 0 ? [{ NOT: { OR: hidden } }] : []),
+  ];
+}
+
+function withViewer(base: Where, extra: Where[]): Where {
+  return extra.length === 0 ? base : { AND: [base, ...extra] };
+}
+
 /** Newest activity first. `id` breaks ties so paging is deterministic. */
 const ORDER: Prisma.NotificationOrderByWithRelationInput[] = [
   { lastSurfacedAt: "desc" },
@@ -111,13 +154,14 @@ export function clampLimit(raw: string | null): number {
  */
 export async function listNotifications(
   businessId: number,
-  opts: { limit: number; cursor: number | null; unreadOnly: boolean },
+  opts: { limit: number; cursor: number | null; unreadOnly: boolean; viewer?: Viewer },
 ): Promise<NotificationListPage> {
-  const where = opts.unreadOnly ? unreadWhere(businessId) : visible(businessId);
-
   // One tenant transaction, and therefore sequential: a transaction client is a
   // single connection, so these two cannot run concurrently on it.
-  const { rows, unreadCount } = await tenantTx(businessId, async (tx) => ({
+  const { rows, unreadCount } = await tenantTx(businessId, async (tx) => {
+    const extra = await viewerWhere(tx, businessId, opts.viewer);
+    const where = withViewer(opts.unreadOnly ? unreadWhere(businessId) : visible(businessId), extra);
+    return {
     rows: await tx.notification.findMany({
       where,
       select: LIST_SELECT,
@@ -127,8 +171,9 @@ export async function listNotifications(
       take: opts.limit + 1,
       ...(opts.cursor !== null ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
     }),
-    unreadCount: await tx.notification.count({ where: unreadWhere(businessId) }),
-  }));
+    unreadCount: await tx.notification.count({ where: withViewer(unreadWhere(businessId), extra) }),
+    };
+  });
 
   const hasMore = rows.length > opts.limit;
   const notifications = hasMore ? rows.slice(0, opts.limit) : rows;
@@ -140,9 +185,9 @@ export async function listNotifications(
   };
 }
 
-export async function countUnread(businessId: number): Promise<number> {
-  return tenantTx(businessId, (tx) =>
-    tx.notification.count({ where: unreadWhere(businessId) })
+export async function countUnread(businessId: number, viewer?: Viewer): Promise<number> {
+  return tenantTx(businessId, async (tx) =>
+    tx.notification.count({ where: withViewer(unreadWhere(businessId), await viewerWhere(tx, businessId, viewer)) })
   );
 }
 
@@ -166,10 +211,13 @@ export async function markNotificationRead(
   businessId: number,
   notificationId: number,
   now: Date,
+  viewer?: Viewer,
 ): Promise<MarkReadResult> {
   return tenantTx(businessId, async (tx) => {
+    // Another user's own notification is "not found" for this viewer, exactly like another tenant's.
+    const mine: Where = viewer ? { OR: [{ userId: null }, { userId: viewer.userId }] } : {};
     const res = await tx.notification.updateMany({
-      where: { id: notificationId, businessId, readAt: null },
+      where: { id: notificationId, businessId, readAt: null, ...mine },
       data: { readAt: now, updatedAt: now },
     });
 
@@ -178,7 +226,7 @@ export async function markNotificationRead(
     // Nothing changed: either it was already read, or it is not this tenant's.
     // Only this path pays for the second query.
     const exists = await tx.notification.count({
-      where: { id: notificationId, businessId },
+      where: { id: notificationId, businessId, ...mine },
     });
 
     return { found: exists === 1, changed: false };
@@ -195,10 +243,11 @@ export async function markNotificationRead(
 export async function markAllNotificationsRead(
   businessId: number,
   now: Date,
+  viewer?: Viewer,
 ): Promise<number> {
-  const res = await tenantTx(businessId, (tx) =>
+  const res = await tenantTx(businessId, async (tx) =>
     tx.notification.updateMany({
-      where: unreadWhere(businessId),
+      where: withViewer(unreadWhere(businessId), await viewerWhere(tx, businessId, viewer)),
       data: { readAt: now, updatedAt: now },
     })
   );

@@ -336,6 +336,14 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     readAt: { disposition: "STRUCTURAL" },
     dismissedAt: { disposition: "STRUCTURAL" },
     resolvedAt: { disposition: "STRUCTURAL" },
+    // Notification engine (migration 20261210090000): NULL = the whole business, else the one user a digest /
+    // test push is for. An id into a User row whose email, name and password the same erasure destroys.
+    userId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "which user of the business a personal notification (digest, test push) is for — a pointer, not an identity",
+      basis: "PRODUCT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },

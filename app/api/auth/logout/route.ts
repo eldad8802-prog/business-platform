@@ -55,6 +55,10 @@ import {
 } from "@/lib/services/product-usage/product-usage-catalog";
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
 import { safeErrorSummary } from "@/lib/security/log-safe-error";
+import {
+  revokeSessionDevicesBestEffort,
+  revokeUserDevicesBestEffort,
+} from "@/lib/notifications/engine/devices";
 
 export const dynamic = "force-dynamic";
 
@@ -126,6 +130,9 @@ export async function POST(req: Request) {
         now: new Date(),
       });
       logLogout({ scope: "device", userId: user.id, sid: (sessionId as string).slice(0, 8), result });
+      // The device's push ends with its session (notification engine). Best effort, never throws: the worker's
+      // own session-liveness check is the guarantee, and the sign-out above already happened.
+      await revokeSessionDevicesBestEffort(user.businessId, sessionId as string, "logout", user.id);
     } else {
       // See the same note in the login route: an implicit RETURNING reads back
       // columns the auth plane may not select, so the global sign-out would fail
@@ -169,6 +176,8 @@ export async function POST(req: Request) {
           error instanceof Error ? error.name : "UnknownError"
         );
       }
+      // Every device's push ends with every session (notification engine). Best effort, never throws.
+      await revokeUserDevicesBestEffort(user.businessId, user.id, "logout_all");
     }
 
     await recordProductUsageEvent({

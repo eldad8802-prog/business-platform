@@ -121,8 +121,14 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   Task: { disposition: "ERASURE_MANAGED" },
   TaskSeries: { disposition: "ERASURE_MANAGED" },
   TaskRequestLedger: { disposition: "ERASURE_MANAGED" },
-  // Web Push subscriptions — blanked and revoked in place by account deletion (migration 20261022090000).
+  // Web Push subscriptions — blanked and revoked in place by account deletion (migration 20261022090000). The
+  // Android app's FCM devices (migration 20261210090000) are rows of the same table, erased the same way: the
+  // `fcm:<token>` endpoint becomes erased:<id>.
   PushSubscription: { disposition: "ERASURE_MANAGED" },
+  // Notification engine (migration 20261210090000): each user's notification settings and overrides (booleans,
+  // minutes, catalog keys) are deleted with the account — the runtime holds DELETE on both, bound by RLS.
+  NotificationSettings: { disposition: "ERASURE_MANAGED" },
+  NotificationPreference: { disposition: "ERASURE_MANAGED" },
   // Monthly accountant workflow: the recipient row is deleted; every delivery's recipient snapshot is
   // erased in place and its link revoked (account-erasure-manifest.ts).
   AccountantRecipient: { disposition: "ERASURE_MANAGED" },
