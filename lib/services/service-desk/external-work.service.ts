@@ -245,10 +245,11 @@ export async function sendToExternal(
     await verifyWorkChecks(tx, b, [...new Set([...kase.serverChecks, ...work.serverChecks] as ExternalServerCheck[])],
       { supplierId: input.supplierId, deviceId: facts.deviceId === null ? null : Number(facts.deviceId), caseId, staffId: null });
 
-    // 1. the case moves to EXTERNAL (the work's insert guard requires it in the same transaction)
+    // 1. the case moves to EXTERNAL (the work's insert guard requires it in the same transaction). The hold is the core's
+    //    holdReasonAfter (null: a hold exists only in IN_REPAIR, CHECK ServiceCase_hold_only_in_repair) — as the event says.
     const next = context.version + 1;
     const updated = await tx.$executeRaw`
-      UPDATE "ServiceCase" SET status = ${kase.to}::"ServiceCaseStatus", version = ${next}::int, "updatedAt" = now()
+      UPDATE "ServiceCase" SET status = ${kase.to}::"ServiceCaseStatus", "holdReason" = ${kase.holdReason}::"ServiceHoldReason", version = ${next}::int, "updatedAt" = now()
        WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${context.version}::int`;
     if (updated !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
     await appendEvent(tx, b, caseId, next, kase.event, p.userId, prepared);
@@ -457,7 +458,9 @@ export async function returnFromExternal(
     const u = await tx.$executeRaw`
       UPDATE "ServiceCase" SET status = ${kase.to}::"ServiceCaseStatus", outcome = ${kase.outcome}::"ServiceOutcome",
              "cancellationRequested" = ${kase.cancellationRequestedAfter}::boolean, version = ${next}::int, "updatedAt" = now(),
-             "readyAt" = CASE WHEN ${st.ready}::boolean THEN now() ELSE "readyAt" END
+             "readyAt" = CASE WHEN ${st.ready}::boolean THEN now() ELSE "readyAt" END,
+             -- back into QA is a new QA round (as commitTransition): a stamp of an earlier checklist never lets PASS_QA through
+             "qaCompletedAt" = CASE WHEN ${kase.statusChanged && kase.to === "QA"}::boolean THEN NULL ELSE "qaCompletedAt" END
        WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${context.version}::int`;
     if (u !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
     await appendEvent(tx, b, caseId, next, kase.event, p.userId, prepared);
