@@ -116,6 +116,12 @@ jobs:
                 # its key and index, and the purpose / binding checks. Its own lab proves what those do.
                 bad=$(echo "$hits" | grep -E 'auth_email_token|auth_password_reset|(GRANT|REVOKE)[^;]*"AuthEmailToken"|POLICY|ROW LEVEL SECURITY' || true)
                 bad="$bad$(echo "$hits" | grep -E 'ALTER TABLE "AuthEmailToken"' | grep -vE 'ALTER TABLE "AuthEmailToken" (ADD COLUMN "oauthTicketId" UUID;|DROP CONSTRAINT "AuthEmailToken_purpose";|ADD CONSTRAINT "AuthEmailToken_(purpose|oauth_ticket|oauthTicketId_fkey)")' || true)" ;;
+              20261126090000_auth_issuer_declaration_link)
+                # The issuer-declaration link (#1081): never redefines, calls or re-grants the four functions of this
+                # migration, never changes a grant, policy or RLS of AuthEmailToken; it alters the table only by its
+                # own column and the purpose / binding checks, and reaches rows only inside its two definer functions.
+                bad=$(echo "$hits" | grep -E 'auth_email_token|auth_password_reset|auth_email_verify|(GRANT|REVOKE)[^;]*"AuthEmailToken"|POLICY|ROW LEVEL SECURITY' || true)
+                bad="$bad$(echo "$hits" | grep -E 'ALTER TABLE "AuthEmailToken"' | grep -vE 'ALTER TABLE "AuthEmailToken" (ADD COLUMN "bindingSha256" TEXT;|DROP CONSTRAINT "AuthEmailToken_purpose";|ADD CONSTRAINT "AuthEmailToken_(purpose|declaration_binding)")' || true)" ;;
               *) bad="$hits" ;;
             esac
             if [ -n "$bad" ]; then echo "$bad"; echo "$n names an auth email token object beyond its bound"; exit 1; fi
