@@ -1,0 +1,9 @@
+{
+  "note": "Uniform export D110 fields 1256 / 1257 for a credit note: the issued source invoice from the existing referenceDocumentId (same business, ISSUED TAX_INVOICE), its printed number by the 1204 rule; no schema change. Prepared for focused A0 review, 2026-11-11. Run by billing-a0-characterization-ci.yml.",
+  "tests": {
+    "lib/services/billing/uniform/uniform-credit-base-document.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (fake read client): 305 + printed number; source before the period; snapshot number wins; credit without a source → empty + warning, no guess; unrequested / non-issued rows ignored; no credit → one query, unchanged"
+    }
+  }
+}

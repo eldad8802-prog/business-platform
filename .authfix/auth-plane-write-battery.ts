@@ -338,22 +338,32 @@ async function main() {
         headers: { authorization: `Bearer ${token}` },
       })
     );
-    const body = (await res.json()) as { success?: boolean; error?: string };
+    const body = (await res.json()) as { success?: boolean; scope?: string; error?: string };
     ok("REAL logout route returns 200", res.status === 200, `status ${res.status} ${body.error ?? ""}`);
+    // Ordinary logout is per-device: it ends this session under the shipped
+    // grants and leaves the generation — every other device — alone.
+    ok("REAL logout ends this device only (scope=device)", body.scope === "device", JSON.stringify(body));
     const after = await owner.user.findUnique({
       where: { id: seeded.id },
       select: { tokenVersion: true },
     });
     ok(
-      "logout incremented tokenVersion",
-      (after?.tokenVersion ?? -1) === seeded.tokenVersion + 1,
+      "per-device logout did NOT increment tokenVersion",
+      (after?.tokenVersion ?? -1) === seeded.tokenVersion,
       `was ${seeded.tokenVersion}, now ${after?.tokenVersion}`
+    );
+    ok(
+      "...and the token it ended is refused",
+      (await getAuthContext(
+        new Request("https://lab.invalid/api/auth/me", { headers: { authorization: `Bearer ${token}` } })
+      )) === null
     );
 
     // The property that matters, now created DELIBERATELY instead of by accident.
     //
-    // The increment above has already signed the user out of every device, so a
-    // failure to MARK the rows must not be reported as a failed logout: telling
+    // "Every device" increments the generation, which has already signed the user
+    // out everywhere, so a failure to MARK the rows must not be reported as a
+    // failed logout: telling
     // someone who IS signed out that it did not work is the worst lie this
     // endpoint can tell. This used to be proven incidentally, because the lab
     // happened to grant nothing on the table. Login now needs those privileges to
@@ -377,10 +387,13 @@ async function main() {
       );
       const tok = ((await loginAgain.json()) as { token?: string }).token ?? "";
       await owner.$executeRawUnsafe(`REVOKE UPDATE ON public."AuthSession" FROM app_auth`);
+      // The per-device path has no generation bump to lean on and reports 500
+      // here instead (logout-scope-battery).
       const out = await logoutRoute.POST(
         new Request("https://lab.invalid/api/auth/logout", {
           method: "POST",
-          headers: { authorization: `Bearer ${tok}` },
+          headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" },
+          body: JSON.stringify({ scope: "all" }),
         })
       );
       const bumped = await owner.user.findUnique({
@@ -512,6 +525,7 @@ async function main() {
           password: PASSWORD,
           name: "בעלת עסק",
           businessName,
+          businessKind: "AUTHORIZED_DEALER",
           acceptTerms: true,
           attribution: { utm_source: "facebook", utm_medium: "<b>", referrer: "https://www.google.com/search?q=private" },
         }),
@@ -527,6 +541,27 @@ async function main() {
   const resB = await register(emailB, "עסק ב");
   const bodyB = (await resB.json()) as RegisterBody;
   ok("a second owner registers too", resB.status === 200, `status ${resB.status} ${bodyB.error ?? ""}`);
+
+  // 3b — the business kind chosen at signup (owner decision 2026-11-11) is seeded by the REAL route through
+  //      the tenant runtime under FORCE RLS: written once, never over an existing kind.
+  {
+    const { seedSignupBusinessKind } = await import("@/lib/auth/signup-business-kind");
+    const kindOf = async (businessId: number) =>
+      (await owner.businessProfile.findUnique({ where: { businessId }, select: { billingBusinessKind: true } }))?.billingBusinessKind ?? null;
+    const bizA = bodyA.user?.businessId ?? -1;
+    const bizB = bodyB.user?.businessId ?? -1;
+    ok("signup seeded the chosen kind into the new business's profile (real route, tenant runtime)", (await kindOf(bizA)) === "AUTHORIZED_DEALER", String(await kindOf(bizA)));
+    ok("...and only that business's profile — the other new business has its own", (await kindOf(bizB)) === "AUTHORIZED_DEALER");
+    const again = await seedSignupBusinessKind(bizA, "LTD_COMPANY");
+    ok("a second seed never overwrites an existing kind (kept, value unchanged)", again === "kept" && (await kindOf(bizA)) === "AUTHORIZED_DEALER", again);
+    await owner.businessProfile.update({ where: { businessId: bizB }, data: { billingBusinessKind: null } });
+    const fill = await seedSignupBusinessKind(bizB, "EXEMPT_DEALER");
+    ok("a profile that exists without a kind is filled (seeded)", fill === "seeded" && (await kindOf(bizB)) === "EXEMPT_DEALER", fill);
+    const noBiz = await seedSignupBusinessKind(2_000_000_000, "LTD_COMPANY");
+    ok("a business that does not exist is never created by the seed (failed, contained)", noBiz === "failed" &&
+      (await owner.businessProfile.count({ where: { businessId: 2_000_000_000 } })) === 0, noBiz);
+    await owner.businessProfile.update({ where: { businessId: bizB }, data: { billingBusinessKind: "AUTHORIZED_DEALER" } });
+  }
 
   const tokenA = bodyA.token ?? "";
   const tokenB = bodyB.token ?? "";
@@ -744,7 +779,7 @@ async function main() {
       new Request("https://lab.invalid/api/auth/register", {
         method: "POST",
         headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.250" },
-        body: JSON.stringify({ email: `noconsent-${Date.now()}@lab.invalid`, password: PASSWORD, name: "x y", businessName: "עסק" }),
+        body: JSON.stringify({ email: `noconsent-${Date.now()}@lab.invalid`, password: PASSWORD, name: "x y", businessName: "עסק", businessKind: "AUTHORIZED_DEALER" }),
       })
     );
     ok("no consent → 400 and nothing created", noConsent.status === 400 && (await businessCount()) === before);
