@@ -80,7 +80,16 @@ async function main() {
   const q = await prismaAccountDeletionStore.quarantineAndRevokeIntegrations(C.id, now).then((v) => ({ ok: true as const, v }), (e: Error) => ({ ok: false as const, e: e.message }));
   const cAfterQ = await owner.business.findUnique({ where: { id: C.id } });
   ok("quarantine (real code, names its business) sets deletionRequestedAt on C", q.ok && cAfterQ?.deletionRequestedAt !== null, q.ok ? "" : q.e);
-  const f = await prismaAccountDeletionStore.finalizeAndAudit(C.id, admin.id, new Date()).then(() => "ok", (e: Error) => e.message);
+  // Today's finalize also renames the business (account erasure A1). Production's runtime holds UPDATE ("name") on
+  // Business since 20261011090100 — applied AFTER B4. This lab is the B4-era topology and the B4 production evidence
+  // runs on it afterwards (check 10: UPDATE on the five lifecycle columns only), so the later grant is applied for this
+  // one call, VERBATIM from that migration, and revoked again: the lab leaves exactly as B4 left it.
+  const ren = (await import("node:fs")).readFileSync("prisma/migrations/20261011090100_signup_consent_business_rename/migration.sql", "utf8");
+  const nameGrant = 'GRANT UPDATE ("name") ON "Business" TO app_runtime;';
+  if (!ren.includes(nameGrant)) throw new Error("the Business name grant was not found in 20261011090100");
+  await owner.$executeRawUnsafe(nameGrant);
+  const f = await prismaAccountDeletionStore.finalizeAndAudit(C.id, admin.id, new Date()).then(() => "ok", (e: Error) => e.message)
+    .finally(() => owner.$executeRawUnsafe('REVOKE UPDATE ("name") ON "Business" FROM app_runtime'));
   const cAfterF = await owner.business.findUnique({ where: { id: C.id } });
   ok("finalize (real code) sets deletedAt / archivedAt / archivedByUserId on C", f === "ok" && cAfterF?.deletedAt !== null && cAfterF?.archivedByUserId === admin.id, f);
   ok("…and the account-deletion of C touched neither A's nor B's lifecycle",

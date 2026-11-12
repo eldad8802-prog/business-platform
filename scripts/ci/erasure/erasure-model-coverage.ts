@@ -174,6 +174,27 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceSettingsEvent: { disposition: "ERASURE_MANAGED" },
   ServicePhoneReminder: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
+  // Erasure audit 2026-11-10, A1–A6 (owner-approved direction). Anonymised IN PLACE by the adapter, declared field by
+  // field in ANONYMIZE_MODELS: the rows stay because other kept rows reference them, and issued documents carry their
+  // own frozen snapshot (issuedSnapshot), so none of these writes reaches the legal record.
+  //   Business — the name (owner decision A1): a sole trader's name; the row is the tombstone the lifecycle needs.
+  //   Supplier / Payee — the counterparty's identity and contacts; purchasing terms stay.
+  //   BusinessBankAccount — encrypted coordinates, label, note; fingerprint + last4 stay (unique key; preparations'
+  //     source snapshot), and nothing decrypts after quarantine.
+  //   Deal — the free-text lost reason; leadId stays (it points at a lead this erasure anonymises).
+  Business: { disposition: "ERASURE_MANAGED" },
+  Supplier: { disposition: "ERASURE_MANAGED" },
+  Payee: { disposition: "ERASURE_MANAGED" },
+  BusinessBankAccount: { disposition: "ERASURE_MANAGED" },
+  Deal: { disposition: "ERASURE_MANAGED" },
+  // Closure 2026-11-10 (owner-approved):
+  //   PaymentDestination — beneficiary, label, note and sealed coordinates; fingerprint + last4 kept (approvalHash).
+  //   Cheque — the two free texts only; payeeNameSnapshot kept as RETAIN_BY_DESIGN / UNPROVEN in erasure-dispositions.ts,
+  //     pending a separate retention decision (a column-level gap, declared — not a silent one).
+  //   InventoryItem — supplierName only (the other columns describe the business's stock, not a person).
+  PaymentDestination: { disposition: "ERASURE_MANAGED" },
+  Cheque: { disposition: "ERASURE_MANAGED" },
+  InventoryItem: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
   Customer: { disposition: "ERASURE_MANAGED" },
   Lead: { disposition: "ERASURE_MANAGED" },
@@ -338,14 +359,12 @@ const unmanaged = (surface: string, target = "E2"): ModelCoverage => ({
 });
 
 const UNMANAGED: Record<string, ModelCoverage> = {
-  Supplier: unmanaged("name, phone, email, contactName/Role/Phone/Email, legalName, taxId, full address, notes"),
   BusinessObligation: unmanaged("obligeeName and note"),
   // Payables, Phase 1a. A payee is the counterparty the business pays and may
   // well be a person — a landlord, an employee — so it sits beside Supplier
   // rather than being waved through as operational. Commitment and Installment
   // are the forward-looking obligations that replaced BusinessObligation and
   // inherit its classification.
-  Payee: unmanaged("displayName, legalName, taxId and note"),
   Commitment: unmanaged("payeeNameSnapshot, title and note"),
   Installment: unmanaged("note, plus the legacy settlement provenance"),
   // Payables, Phase 2. A rejected match is a decision record, but `reason` is
@@ -357,21 +376,16 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   // account, so the coordinates are personal data even though they are only
   // ever stored as AES-256-GCM ciphertext, last4 and a keyed fingerprint. A
   // cheque names its payee as written and carries free-text notes and reasons.
-  BusinessBankAccount: unmanaged("encrypted bank coordinates, last4, label and note"),
-  Cheque: unmanaged("payeeNameSnapshot, note and cancellationReason"),
   // Payables, Phases 4–6. A destination is a payee's bank account — for a
   // person-payee, personal data even though it is only ever sealed. A prepared
   // payment and an execution name their payee and carry references and notes;
   // a bank line carries a counterparty name and free-text description.
-  PaymentDestination: unmanaged("beneficiaryName, label, note and the sealed account coordinates"),
   PaymentPreparation: unmanaged("payeeNameSnapshot, reference, note and cancellationReason"),
   ExternalTransaction: unmanaged("counterpartyName, description, reference and dismissReason from a bank line"),
   ExternalTransactionMatchRejection: unmanaged("reason, the owner's free-text note on a rejected pairing"),
   OutboundExecution: unmanaged("providerReference and failureMessage returned by a provider"),
-  Deal: unmanaged("lostReason, and leadId to a partially-scrubbed Lead"),
   Recommendation: unmanaged("title and body, generated about the business"),
   RecommendationOutcome: unmanaged("notes"),
-  InventoryItem: unmanaged("supplierName, a denormalised copy of a Supplier name"),
   InventoryMovement: unmanaged("note, plus createdByUserId"),
   InventoryDraft: unmanaged("detectedName and imageUrl"),
   PurchaseOrder: unmanaged("supplierName and supplierId"),
@@ -680,10 +694,6 @@ const DECIDE: Record<string, ModelCoverage> = {
       "member; service_desk_ui_erase_business() does not touch the row and the table guard refuses runtime writes once " +
       "the business is being deleted — keep (with a basis), or scrub through a NEW database function (a migration)?",
     "SD-1.3a"
-  ),
-  Business: decide(
-    "Business.name survives. For a sole trader it IS the owner's name — but retained invoices " +
-      "name the same business by legal necessity, so anonymising it may be incoherent. Product decision."
   ),
   LearningEvent: decide(
     "payload is an untyped Json written from 16 call sites. One of them (billing-draft) writes " +

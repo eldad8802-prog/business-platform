@@ -192,6 +192,52 @@ export const PRODUCTION_RLS_CONTRACT = [
     policies: [{ name: "p7w2_tenant", command: "ALL", using: TENANT, check: TENANT }],
   },
 
+  // ── A1–A6 (erasure audit 2026-11-10): rows stage 2 now anonymises in place. ──
+  {
+    table: "Supplier",
+    migration: "20260825200000_d2_p7_wave3_tenant_rls",
+    why: "A2: stage 2 anonymises the business's suppliers in place, under the tenant context",
+    policies: [{ name: "p7w3_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "Payee",
+    migration: "20260917090100_payables_phase_1a_tenant_rls",
+    why: "A3: stage 2 anonymises the business's payees in place, under the tenant context",
+    policies: [{ name: "payables_p1a_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "BusinessBankAccount",
+    migration: "20260918120000_payables_phase_3_cheques_and_bank_accounts",
+    why: "A4: stage 2 blanks the business's encrypted bank coordinates, under the tenant context",
+    policies: [{ name: "payables_p3_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "Deal",
+    migration: "20260824210000_d2_p7_wave1_tenant_rls",
+    why: "A6: stage 2 clears a deal's lost reason, under the tenant context",
+    policies: [{ name: "p7w1_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+
+  // ── Closure 2026-11-10: three more rows stage 2 scrubs in place. ──
+  {
+    table: "PaymentDestination",
+    migration: "20260922130000_payables_p4_p6_outbound_foundation",
+    why: "closure: stage 2 anonymises a payee's destinations (identity, sealed coordinates), under the tenant context",
+    policies: [{ name: "payables_p46_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "Cheque",
+    migration: "20260918120000_payables_phase_3_cheques_and_bank_accounts",
+    why: "closure: stage 2 clears a cheque's two free texts, under the tenant context",
+    policies: [{ name: "payables_p3_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "InventoryItem",
+    migration: "20260825200000_d2_p7_wave3_tenant_rls",
+    why: "closure: stage 2 clears an item's denormalised supplier name, under the tenant context",
+    policies: [{ name: "p7w3_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+
   // ── Surfaces stage 2 reaches under a proven context. ──────────────────────
   // These were already modelled and are kept so the corrected battery still
   // proves what the original one legitimately proved.
@@ -765,6 +811,15 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   BusinessPaymentConnection: { verbs: SIUD, basis: LAB_BROAD },
   BillingAuthorityConnection: { verbs: SIUD, basis: LAB_BROAD },
   LearningEvent: { verbs: SIUD, basis: LAB_BROAD },
+  // A1–A6: the four tables stage 2 now anonymises. No migration grants or revokes them; the runtime reaches them through
+  // the owner's DEFAULT PRIVILEGES (see migration 20260927090000), bounded by the FOR ALL tenant policy above.
+  Supplier: { verbs: SIUD, basis: "LAB: A2 — owner default privileges in Production, bounded by p7w3_tenant" },
+  Payee: { verbs: SIUD, basis: "LAB: A3 — owner default privileges in Production, bounded by payables_p1a_tenant" },
+  BusinessBankAccount: { verbs: SIUD, basis: "LAB: A4 — owner default privileges in Production, bounded by payables_p3_tenant" },
+  Deal: { verbs: SIUD, basis: "LAB: A6 — owner default privileges in Production, bounded by p7w1_tenant" },
+  PaymentDestination: { verbs: SIUD, basis: "LAB: closure — owner default privileges in Production, bounded by payables_p46_tenant" },
+  Cheque: { verbs: SIUD, basis: "LAB: closure — owner default privileges in Production, bounded by payables_p3_tenant" },
+  InventoryItem: { verbs: SIUD, basis: "LAB: closure — owner default privileges in Production, bounded by p7w3_tenant" },
   Appointment: { verbs: SIUD, basis: LAB_BROAD },
   InboundEmailAuthorizedSender: { verbs: SIUD, basis: "migration 20260916090000 grants app_runtime all four" },
   InboundEmailSenderChallenge: { verbs: SIUD, basis: "migration 20260916090000 grants app_runtime all four" },

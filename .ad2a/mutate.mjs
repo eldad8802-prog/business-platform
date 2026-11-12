@@ -118,8 +118,10 @@ const MUTATIONS = {
   I1: () => dropContractEntry("Lead"),
   // A required runtime GRANT removed: CrmNote leaves the lab's broad grant.
   I2: () => replaceOnce(BATTERY, `"CrmNote","CrmAttachment"`, `"CrmAttachment"`),
-  // A runtime GRANT nobody declared.
-  I3: () => afterContractApply("`GRANT SELECT ON \"Deal\" TO ${RT_ROLE}`"),
+  // A runtime GRANT nobody declared. The table must hold NO declared privilege, or the extra GRANT is a no-op and
+  // proves nothing: it was Deal until A6 declared Deal, then Cheque until the closure (2026-11-10) declared Cheque;
+  // Commitment stays undeclared (the erasure does not touch it).
+  I3: () => afterContractApply("`GRANT SELECT ON \"Commitment\" TO ${RT_ROLE}`"),
   // A policy nobody declared — permissive, FOR DELETE, which is exactly the kind that matters.
   I4: () => afterContractApply(js(`CREATE POLICY ad2a_undeclared_delete ON "Customer" FOR DELETE USING (true)`)),
   // A policy's command changed in the contract: the pilot UPDATE policy becomes FOR ALL.
@@ -185,20 +187,8 @@ const MUTATIONS = {
     fs.writeFileSync(ADAPTER, text.slice(0, start) + text.slice(end));
   },
 
-  /** S3 — InventoryItem's MODEL-level C12 is resolved. Its image surface must survive that. */
-  S3: () => {
-    replaceOnce(
-      ADAPTER,
-      "          await tx.crmAttachment.deleteMany({ where: { businessId } });",
-      '          await tx.inventoryItem.updateMany({ where: { businessId }, data: { supplierName: null } });\n' +
-        "          await tx.crmAttachment.deleteMany({ where: { businessId } });"
-    );
-    replaceOnce(
-      COVERAGE,
-      '  InventoryItem: unmanaged("supplierName, a denormalised copy of a Supplier name"),',
-      '  InventoryItem: { disposition: "ERASURE_MANAGED" },'
-    );
-  },
+  // S3 retired 2026-11-10: the erasure closure made InventoryItem ERASURE_MANAGED for real; the CI step now
+  // asserts the same outcome on the real tree.
 
   /** S4 — the InventoryItem image surface declaration is removed. */
   S4: () => dropObjectSurface("InventoryItem", "imageUrl"),

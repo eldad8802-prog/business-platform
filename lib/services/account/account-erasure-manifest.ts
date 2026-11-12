@@ -125,8 +125,26 @@ export const REVOKE_INTEGRATIONS = [
  *  frozen customerNameSnapshot preserves the legal record independently. */
 export const ANONYMIZE_MODELS = [
   { model: "user", fields: { email: "tombstone-email", name: "null", password: "unusable" } },
-  { model: "businessProfile", fields: { billingLegalName: "null", billingTaxId: "null", billingVatNumber: "null", billingPhone: "null", billingEmail: "null", billingAddress: "null", city: "null", latitude: "null", longitude: "null", billingLogoDataUrl: "null", billingSignatureDataUrl: "null" } },
+  { model: "businessProfile", fields: { billingLegalName: "null", billingTaxId: "null", billingVatNumber: "null", billingPhone: "null", billingEmail: "null", billingAddress: "null", city: "null", latitude: "null", longitude: "null", billingLogoDataUrl: "null", billingSignatureDataUrl: "null", billingPaymentNote: "null", billingFooterNote: "null" } },
   { model: "customer", fields: { name: "anonymized-name", phone: "null", email: "null", city: "null", legalName: "null", taxId: "null", notes: "null" } },
+  // Erasure audit 2026-11-10, A1–A4/A6 (owner-approved direction). Rows kept (referenced by kept rows; issued documents
+  // carry their own frozen issuedSnapshot), identity scrubbed in place.
+  { model: "business", fields: { name: "anonymized-name" } },
+  {
+    model: "supplier",
+    fields: {
+      name: "anonymized-name", phone: "null", email: "null", notes: "null", legalName: "null", taxId: "null", website: "null",
+      contactName: "null", contactRole: "null", contactPhone: "null", contactEmail: "null",
+      addressStreet: "null", addressCity: "null", addressPostalCode: "null",
+    },
+  },
+  { model: "payee", fields: { displayName: "anonymized-name", legalName: "null", taxId: "null", note: "null" } },
+  { model: "businessBankAccount", fields: { label: "anonymized-name", note: "null", coordinatesEncrypted: "blank", coordinatesIv: "blank", coordinatesTag: "blank" } },
+  { model: "deal", fields: { lostReason: "null" } },
+  // Closure 2026-11-10 (owner-approved): a payee's destinations, the cheques' free texts, an item's supplier name.
+  { model: "paymentDestination", fields: { beneficiaryName: "anonymized-name", label: "anonymized-name", note: "null", coordinatesEncrypted: "blank", coordinatesIv: "blank", coordinatesTag: "blank" } },
+  { model: "cheque", fields: { note: "null", cancellationReason: "null" } },
+  { model: "inventoryItem", fields: { supplierName: "null" } },
   // E2-W1. The column is `customerName`, not `name` — this entry named a field
   // that does not exist on Lead, and because nothing compared the manifest to
   // the schema it passed for months. The four content fields and the customer
