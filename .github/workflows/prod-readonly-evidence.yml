@@ -174,6 +174,8 @@ on:
           - 'ops/evidence/email-verify-delivery-counts.sql'
           - 'ops/evidence/service-desk-case-charge-preflight.sql'
           - 'ops/evidence/service-desk-case-charge-production-evidence.sql'
+          - 'ops/evidence/service-desk-tracks-preflight.sql'
+          - 'ops/evidence/service-desk-tracks-production-evidence.sql'
 
 permissions:
   contents: read
