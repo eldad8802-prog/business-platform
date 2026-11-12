@@ -38,6 +38,7 @@ on:
       - "scripts/ci/billing-protected-paths-guard.mjs"
       - "scripts/ci/test-coverage/billing-a0.json"
       - ".github/workflows/billing-a0-characterization-ci.yml"
+      - ".tax-classification-lab/vat-default-regression.test.ts"
   workflow_dispatch:
 
 permissions:
@@ -58,6 +59,38 @@ jobs:
 
       - name: Golden characterization
         run: npx tsx .billing-a0/golden.test.ts
+
+      # New-line VAT default: the standard rate in force today (18% from 1.1.2025), 0 for an exempt dealer.
+      - name: VAT default of a new draft line (pure)
+        run: npx tsx lib/billing/document-view-model.vat-default.test.ts
+
+      # #1111 regression proof: kind from the session business, exempt refusal before numbering, no issued path
+      # imports the client view model, server issues from stored rates (the client default is only a default).
+      - name: VAT default regression boundaries (pure + structural)
+        run: npx tsx .tax-classification-lab/vat-default-regression.test.ts
+
+      # Credit note → source invoice (D110 1256 / 1257) from the existing referenceDocumentId; no schema change.
+      - name: Uniform credit note base document (pure)
+        run: npx tsx lib/services/billing/uniform/uniform-credit-base-document.test.ts
+
+      # Field 1260: a newline in a line description must never reach a D110 record; plain text stays byte-identical
+      # (the golden above proves the existing files did not change).
+      - name: Uniform field 1260 — free text in one record (pure)
+        run: npx tsx lib/services/billing/uniform/uniform-1260-free-text.test.ts
+
+      - name: Negative proof (1260 without the normalisation must be caught)
+        run: |
+          set -uo pipefail
+          F="lib/services/billing/uniform/uniform-file-builder.ts"
+          cp "$F" "$F.bak"
+          sed -i 's/1260: normalizeFreeText(line.description),/1260: line.description,/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAIL: the 1260 line was not found"; exit 1; fi
+          if npx tsx lib/services/billing/uniform/uniform-1260-free-text.test.ts > np1260.log 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a raw newline in 1260 went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          grep -q "FAIL: E2E: every record starts with a known record code" np1260.log || { echo "NEGATIVE-PROOF FAIL: red, but not on the record split"; tail -20 np1260.log; exit 1; }
+          echo "negative proof OK — a raw newline in 1260 splits a D110 record and is caught"
 
       - name: Protected-paths guard self-test
         run: node scripts/ci/billing-protected-paths-guard.mjs --self-test

@@ -14,7 +14,8 @@ import { Prisma } from "@prisma/client";
 
 import type { Locale } from "@/lib/i18n/config";
 
-import { EMAIL_KINDS, accountLinkDedupeKey, googleNoticeDedupeKey, welcomeDedupeKey, type EmailKind } from "./registry";
+import { EMAIL_KINDS, accountLinkDedupeKey, googleNoticeDedupeKey, issuerDeclarationDedupeKey, welcomeDedupeKey, type EmailKind } from "./registry";
+import type { IssuerDeclarationLegalForm, IssuerDeclarationPayload } from "./templates/issuer-declaration";
 import type { AccountLinkPayload } from "./templates/account-links";
 import type { GoogleNoticePayload } from "./templates/google-link";
 import { firstNameOf, type WelcomePayload } from "./templates/welcome";
@@ -134,6 +135,42 @@ export function enqueueWelcomeEmail(
     toEmail: input.toEmail,
     payload,
     locale: input.locale,
+    now: input.now,
+  });
+}
+
+/**
+ * The issuer-declaration link email (lib/auth/issuer-declaration-link.ts): the token id, a first name, the
+ * business's legal name and legal form — and nothing else (no ID, VAT / dealer / company number, address or
+ * phone ever reaches the outbox). Hebrew only.
+ */
+export function enqueueIssuerDeclarationEmail(
+  tx: SqlClient,
+  input: {
+    tokenId: string;
+    userId: number;
+    businessId: number;
+    toEmail: string;
+    name: string | null;
+    legalName: string;
+    legalForm: IssuerDeclarationLegalForm;
+    now: Date;
+  }
+): Promise<number> {
+  const payload: IssuerDeclarationPayload = {
+    tokenId: input.tokenId,
+    firstName: firstNameOf(input.name),
+    legalName: input.legalName,
+    legalForm: input.legalForm,
+  };
+  return enqueueTransactionalEmail(tx, {
+    kind: "ISSUER_DECLARATION",
+    dedupeKey: issuerDeclarationDedupeKey(input.tokenId),
+    userId: input.userId,
+    businessId: input.businessId,
+    toEmail: input.toEmail,
+    payload,
+    locale: "he",
     now: input.now,
   });
 }

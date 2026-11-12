@@ -329,7 +329,7 @@ const FAMILY_VISUAL: Record<string, { icon: IconComponent; color: string; bg: st
 export function FeatureTiles({ height, gap }: { height: number; gap: number }) {
   const { t } = useI18n();
   return (
-    <nav aria-label={t("home.parts.toolGroupsAria")} style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap }}>
+    <nav aria-label={t("home.parts.toolGroupsAria")} className="dzh-fit-row" style={{ gap }}>
       {TOOL_GROUPS.map((group) => {
         const v = FAMILY_VISUAL[group.key];
         const Icon = v.icon;
@@ -624,10 +624,9 @@ export const HOME_CSS = `
   outline: 2px solid #246966; outline-offset: 2px;
 }
 .dzh-root ::placeholder { color: #7A8583; }
-/* Narrow phones (under 390): the card header keeps "הכנסות והוצאות" on one
-   line by giving the period buttons a little less side padding. The info
-   button keeps its 44px target. Below 360 the title may wrap — it never
-   overflows. */
-@media (min-width: 360px) { .dzh-root .dzh-cash-title { white-space: nowrap; } }
-@media (max-width: 389.98px) { .dzh-root .dzh-period-btn { padding-inline: 10px !important; } }
+/* A row of up to three equal cards while every card fits its longest word. A card never gets narrower than its
+   min-content (min-width:auto restores that over the cards' inline min-width:0), so on a narrow phone, with large
+   text or page zoom, a card takes the room it needs or moves to the next row — a word is never split. */
+.dzh-root .dzh-fit-row { display: flex; flex-wrap: wrap; }
+.dzh-root .dzh-fit-row > * { flex: 1 1 0; min-width: auto !important; }
 `;

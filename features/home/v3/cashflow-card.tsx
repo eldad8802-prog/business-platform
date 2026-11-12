@@ -108,7 +108,9 @@ export function CashflowCard({
   const readoutLead = period === "week" ? null : t("home.cashflow.atHour");
 
   const header = (
-    <div style={{ display: "flex", flexWrap: variant === "desktop" ? "wrap" : undefined, gap: variant === "desktop" ? 12 : undefined, alignItems: "center", justifyContent: "space-between" }}>
+    // Wraps at every width: when the title and the period switch do not fit side by side (narrow phone, large
+    // text, page zoom), the switch moves to its own row instead of being pushed out of the card.
+    <div style={{ display: "flex", flexWrap: "wrap", gap: variant === "desktop" ? 12 : "10px 12px", alignItems: "center", justifyContent: "space-between" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         {variant === "desktop" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -377,7 +379,7 @@ function PeriodSwitch({
     { key: "month", label: t("home.cashflow.periodMonth"), disabled: true, reason: t("home.cashflow.monthSoon") },
   ];
   return (
-    <div role="group" aria-label={t("home.cashflow.periodAria")} style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999, background: "rgba(255,255,255,0.12)" }}>
+    <div role="group" aria-label={t("home.cashflow.periodAria")} style={{ display: "flex", flexWrap: "wrap", gap: 2, padding: 3, borderRadius: 999, background: "rgba(255,255,255,0.12)" }}>
       {options.map((o) => {
         const active = period === o.key;
         return (
