@@ -502,10 +502,10 @@ export const billingHe = {
     close: "סגירה",
     group: { tax: "מסמכי מס", sales: "מכירה", general: "כללי", purchasing: "רכש" },
     option: {
-      TAX_INVOICE: { title: "חשבונית מס", help: "על מכירה או שירות. מקבלת מספר רק בהפקה הסופית." },
-      QUOTE: { title: "הצעת מחיר", help: "לפני עסקה. אפשר להמיר אותה לחשבונית כשהלקוח מאשר." },
-      LETTER: { title: "מכתב", help: "מכתב ללקוח או לגורם אחר, נשמר עם PDF." },
-      SUPPLIER_ORDER: { title: "הזמנה לספק", help: "הזמנת סחורה מספק, במסך המלאי. שם אפשר גם לשמור עותק." },
+      TAX_INVOICE: { title: "חשבונית מס", help: "תיעוד מכירה או שירות" },
+      QUOTE: { title: "הצעת מחיר", help: "הצעה ללקוח לפני אישור" },
+      LETTER: { title: "מכתב", help: "מסמך ללקוח או לגורם אחר" },
+      SUPPLIER_ORDER: { title: "הזמנה לספק", help: "הזמנת מוצרים מספק" },
     },
   },
 } as const;
