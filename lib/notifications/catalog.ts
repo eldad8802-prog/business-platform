@@ -205,6 +205,23 @@ const CATEGORY_LIST = [
     hrefPrefixes: ["/settings/connections"],
   },
   {
+    // A connected Gmail / WhatsApp account stopped working on the provider's side (token revoked or expired). No
+    // feature key: the event can only happen to a business that HAS such a connection (unlike the lead-intake
+    // connections above, which stay behind intake_status_visibility).
+    key: "connections.account_disconnected",
+    domain: "connections",
+    featureKey: null,
+    importance: "normal",
+    defaults: { inApp: true, push: false, delivery: "instant" },
+    quietBypass: false,
+    rateExempt: false,
+    userMutable: { inApp: true, push: true, delivery: true },
+    cooldownHours: 24,
+    ttlMinutes: 12 * 60,
+    lockScreen: { title: GENERIC_PUSH_TITLE, body: "יש חיבור שדורש בדיקה" },
+    hrefPrefixes: ["/settings/connections"],
+  },
+  {
     key: "leads.follow_up",
     domain: "leads",
     featureKey: null,

@@ -1,5 +1,5 @@
 /**
- * Producer: `connections.disconnected` — a connected account stopped working on the provider's side
+ * Producer: `connections.account_disconnected` — a connected account stopped working on the provider's side
  * (notifications track PR 5). SERVER-ONLY.
  *
  *   gmail     Google refused the stored refresh token with `invalid_grant` (revoked / expired). Detected in ONE
@@ -41,7 +41,7 @@ export type ConnectionRef = {
   connectionId: number;
 };
 
-export const CONNECTION_CATEGORY: CategoryKey = "connections.disconnected";
+export const CONNECTION_CATEGORY: CategoryKey = "connections.account_disconnected";
 export const CONNECTIONS_HREF = "/settings/connections";
 
 const ENTITY_TYPE: Record<ConnectionProvider, string> = {
@@ -115,7 +115,7 @@ export async function recordConnectionDisconnected(ref: ConnectionRef, now: Date
     if (out.owedDeliveryId !== null) deps.kick(ref.businessId);
     return "notified";
   } catch (e) {
-    logFailure("connections.disconnected", e);
+    logFailure("connections.account_disconnected", e);
     return "error";
   }
 }
