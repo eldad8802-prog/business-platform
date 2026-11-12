@@ -5,7 +5,7 @@
 --   20261129090000_service_desk_qa_lists   (NOT applied)
 --
 -- Proves Production is the shape the migration expects:
---   * the ledger is clean; this migration is not recorded; nothing after it is finished;
+--   * the ledger is clean; this migration is not recorded; no later Service Desk migration is finished (other modules may be);
 --   * M1 (20261127090000_service_desk_tracks) is recorded and finished — its CHECK is a premise of this migration;
 --   * none of the names it introduces exists yet: the two enum values, the CHECK, the six tables, the two types, the
 --     fourteen functions, the two ServiceCase columns;
@@ -21,7 +21,7 @@
 \echo '== service desk QA lists preflight: legend (n -> check) =='
 \echo ' 1 ledger: no unfinished and no rolled-back row'
 \echo ' 2 20261129090000_service_desk_qa_lists is NOT recorded'
-\echo ' 3 no finished migration sorts after it'
+\echo ' 3 no finished Service Desk migration (name containing _service_) sorts after it; later migrations of other modules are fine'
 \echo ' 4 M1 20261127090000_service_desk_tracks is recorded and finished'
 \echo ' 5 none of the two new enum values exists yet'
 \echo ' 6 the CHECK ServiceCaseEvent_qa_list_in_place is not there yet'
@@ -39,7 +39,7 @@
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261129090000_service_desk_qa_lists'), 0
-  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261129090000_service_desk_qa_lists' AND finished_at IS NOT NULL), 0
+  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261129090000_service_desk_qa_lists' AND position('_service_' in migration_name) > 0 AND finished_at IS NOT NULL), 0
   UNION ALL SELECT 4, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261127090000_service_desk_tracks'
                           AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 1
   UNION ALL SELECT 5, (SELECT count(*) FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
