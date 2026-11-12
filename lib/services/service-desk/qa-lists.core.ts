@@ -157,7 +157,8 @@ export type ChecklistEvaluation =
  * a check of THIS checklist and every value a result (unknown keys / values refused, never ignored); at least one result;
  * a note 1–500 characters (trimmed; blank = none) only when `notes` is allowed. Complete ⇔ every REQUIRED check PASS and,
  * with `everyCheckRecorded` (a built-in template: its checks are suggestions, so completing it means it was performed),
- * every check recorded — PASS or FAIL.
+ * every check recorded — PASS or FAIL (a check not yet recorded then counts in requiredMissing; requiredFailed counts
+ * only REQUIRED checks, so it is always 0 on a built-in template).
  * Results come back in the checklist's order.
  */
 export function evaluateChecklist(items: readonly { key: string; required: boolean }[], results: unknown, opts: { notes: boolean; everyCheckRecorded?: boolean }): ChecklistEvaluation {
@@ -184,11 +185,13 @@ export function evaluateChecklist(items: readonly { key: string; required: boole
   }
   const out: ItemResult[] = items.filter((i) => given.has(i.key)).map((i) => ({ key: i.key, required: i.required, ...given.get(i.key)! }));
   const requiredFailed = out.filter((r) => r.required && r.result === "FAIL").length;
-  const requiredMissing = items.filter((i) => i.required && !given.has(i.key)).length;
+  // a check must be RECORDED when it is REQUIRED or the checklist is performed in full (a built-in template); only a
+  // REQUIRED check must PASS — so "completed" keeps its one meaning (ServiceCaseQaRecord_counts: none missing, none failed)
+  const requiredMissing = items.filter((i) => (i.required || opts.everyCheckRecorded === true) && !given.has(i.key)).length;
   const passed = out.filter((r) => r.result === "PASS").length;
   return {
     ok: true,
-    completed: requiredFailed === 0 && requiredMissing === 0 && (opts.everyCheckRecorded !== true || out.length === items.length),
+    completed: requiredFailed === 0 && requiredMissing === 0,
     results: out,
     counts: { items: items.length, recorded: out.length, passed, failed: out.length - passed, requiredFailed, requiredMissing },
   };
