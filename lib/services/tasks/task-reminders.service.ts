@@ -83,9 +83,10 @@ export async function dispatchReminder(due: DueReminder, now: Date): Promise<Dis
       data: { businessId: due.businessId, notificationId: notification.id, channel: "IN_APP", status: "SENT", attemptedAt: now, createdAt: now },
     });
     const userId = task.assigneeUserId ?? task.createdByUserId;
-    // Web push devices only: an Android app device (FCM, notification engine) is reached by the engine's worker.
+    // Web push devices only (an https endpoint — every row that exists today): an Android app device (FCM,
+    // endpoint fcm:<token>, notification engine) is reached by the engine's worker, never by this loop.
     const subscriptions = await tx.pushSubscription.findMany({
-      where: { businessId: due.businessId, revokedAt: null, provider: "WEB_PUSH", ...(userId ? { userId } : {}) },
+      where: { businessId: due.businessId, revokedAt: null, endpoint: { startsWith: "https://" }, ...(userId ? { userId } : {}) },
       select: { id: true, endpoint: true, p256dh: true, auth: true },
       take: 20,
     });

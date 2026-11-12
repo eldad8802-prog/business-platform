@@ -95,8 +95,9 @@ export async function claimReminder(tx: Tx, businessId: number, f: RequestFacts,
     data: { businessId, notificationId: row.id, channel: "IN_APP", status: "SENT", attemptedAt: now, createdAt: now },
   });
   const subscriptions = await tx.pushSubscription.findMany({
-    // Web push devices only: an Android app device (FCM, notification engine) is reached by the engine's worker.
-    where: { businessId, revokedAt: null, provider: "WEB_PUSH" },
+    // Web push devices only (an https endpoint — every row that exists today): an Android app device (FCM,
+    // endpoint fcm:<token>, notification engine) is reached by the engine's worker, never by this loop.
+    where: { businessId, revokedAt: null, endpoint: { startsWith: "https://" } },
     select: { id: true, endpoint: true, p256dh: true, auth: true },
     take: 20,
   });
