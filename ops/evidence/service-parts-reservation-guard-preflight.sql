@@ -5,7 +5,7 @@
 --   20261128090000_service_parts_reservation_guard   (NOT applied)
 --
 -- Proves Production is the shape the migration expects:
---   * the ledger is clean; this migration is not recorded; nothing after it is finished;
+--   * the ledger is clean; this migration is not recorded; no later Service Desk migration is finished (other modules may be);
 --   * M2 (20261115090000_service_parts) is recorded and finished — the migration adds two triggers on its tables and
 --     reads its guards' case-row convention;
 --   * none of the names it introduces exists yet (two functions, two triggers);
@@ -24,7 +24,7 @@
 \echo '== service parts reservation guard preflight: legend (n -> check) =='
 \echo ' 1 ledger: no unfinished and no rolled-back row'
 \echo ' 2 20261128090000_service_parts_reservation_guard is NOT recorded'
-\echo ' 3 no finished migration sorts after it'
+\echo ' 3 no finished Service Desk migration (name containing _service_) sorts after it; later migrations of other modules are fine'
 \echo ' 4 M2 20261115090000_service_parts is recorded and finished'
 \echo ' 5 none of the two new functions exists yet'
 \echo ' 6 none of the two new triggers exists yet'
@@ -40,7 +40,7 @@
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261128090000_service_parts_reservation_guard'), 0
-  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261128090000_service_parts_reservation_guard' AND finished_at IS NOT NULL), 0
+  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261128090000_service_parts_reservation_guard' AND position('_service_' in migration_name) > 0 AND finished_at IS NOT NULL), 0
   UNION ALL SELECT 4, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261115090000_service_parts'
                           AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 1
   UNION ALL SELECT 5, (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace
