@@ -1022,12 +1022,15 @@ export async function recordIntake(
 
 /**
  * QA results, while the case is in QA (P3 / P4; per-business lists since migration 20261129090000). The checklist is the
- * one the case names: its chosen QA list VERSION, or — without one — its track's (snapshot) / kind's built-in template,
- * exactly as before. The case counts as "QA completed" (qaCompletedAt) only when every REQUIRED check is PASS; otherwise
- * it is cleared and the case machine keeps refusing PASS_QA. Stored on the case (qaChecklist: tokens only) and journaled
- * (P4); with the migration also one ServiceCaseQaRecord at the event's seq and one row per check (result, the check's
- * REQUIRED flag as it is in that version, an optional note) — the case's QA history, never rewritten by a later edit of
- * the list. Without the migration: today's behaviour, and a note is refused.
+ * one the case names: its chosen QA list VERSION, or — without one — its track's (snapshot) / kind's built-in template
+ * (every built-in check is a suggestion, owner 2026-11-12; a retired v1 id in an older snapshot is judged by its v2).
+ * The case counts as "QA completed" (qaCompletedAt) — a list version: when every REQUIRED check is PASS; a built-in
+ * template: when every check is recorded (PASS or FAIL), so a REQUIRED track still means the checklist was performed;
+ * otherwise it is cleared and the case machine keeps refusing PASS_QA. Stored on the case (qaChecklist: tokens only) and
+ * journaled (P4); with the migration also one ServiceCaseQaRecord at the event's seq and one row per check (result, the
+ * check's REQUIRED flag as it is in that version, an optional note) — the case's QA history, never rewritten by a later
+ * edit of the list or of a template (a stored result is never re-evaluated). Without the migration: today's behaviour,
+ * and a note is refused.
  */
 export async function recordQa(p: ServiceDeskPrincipal, caseId: unknown, body: { results?: unknown; expectedVersion?: unknown }, req: WriteRequest): Promise<CommandResult & { qa?: { completed: boolean; template: string; list: { listId: number; listVersion: number } | null } }> {
   if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
@@ -1042,6 +1045,7 @@ export async function recordQa(p: ServiceDeskPrincipal, caseId: unknown, body: {
     const chosen = lists ? await caseQaChoice(tx, b, caseId) : null;
     let items: readonly { key: string; required: boolean }[];
     let token: string;
+    let everyCheckRecorded = false; // a list version: its REQUIRED checks decide; a built-in template: performed in full
     if (chosen) {
       const v = await readVersion(tx, b, chosen.listId, chosen.listVersion);
       if (!v) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "QA_LIST_VERSION_PRESENT" });
@@ -1053,8 +1057,9 @@ export async function recordQa(p: ServiceDeskPrincipal, caseId: unknown, body: {
       if (!t) throw new ServiceDeskError("INVALID_INPUT", { field: trackTemplate ? "template" : "kind" });
       items = t.items;
       token = t.id;
+      everyCheckRecorded = t.everyCheckRecorded;
     }
-    const e = evaluateChecklist(items, body.results, { notes: lists });
+    const e = evaluateChecklist(items, body.results, { notes: lists, everyCheckRecorded });
     if (!e.ok) throw new ServiceDeskError("INVALID_INPUT", { field: e.field });
     const checklist = { template: token, results: Object.fromEntries(e.results.map((x) => [x.key, x.result])) };
     await tx.$executeRaw`
