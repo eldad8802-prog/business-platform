@@ -73,7 +73,12 @@ const MUTATIONS = [
   ["case exit: held-item / requested cancel not covered", replace(fn("service_loan_case_exit_guard"), `OR c."cancellationRequested" OR c."outcome" IS NOT DISTINCT FROM 'CANCELLED')`, `)`)],
   ["case exit: abandon without approval", replace(fn("service_loan_case_exit_guard"), `IF c."status" = 'ABANDONED'`, `IF false`)],
   ["case exit: delivered without approval", replace(fn("service_loan_case_exit_guard"), `IF c."status" = 'DELIVERED'`, `IF false`)],
-  ["handover: loan out without exception", replace(fn("service_loan_handover_guard"), `IF NEW."loanerOverrideReason" IS NULL AND EXISTS`, `IF false AND EXISTS`)],
+  ["handover: loan out without exception", replace(fn("service_loan_handover_guard"), `IF loan_out AND NOT has_exception THEN`, `IF false THEN`)],
+  ["handover: a loaner exception with no loan out accepted", replace(fn("service_loan_handover_guard"), `IF has_exception AND NOT loan_out THEN`, `IF false THEN`)],
+  ["handover: the exception = the reason only (approver / time alone not counted)", replace(fn("service_loan_handover_guard"), `OR NEW."loanerApprovedByUserId" IS NOT NULL
+                                    OR NEW."loanerApprovedAt" IS NOT NULL;`, `;`)],
+  ["handover: no case lock first", replace(fn("service_loan_handover_guard"), `PERFORM 1 FROM "ServiceCase" WHERE "id" = NEW."caseId" AND "businessId" = NEW."businessId" FOR UPDATE;`, ``)],
+  ["handover: the OUT loans read without FOR SHARE (a stale out)", replace(fn("service_loan_handover_guard"), `AND l."state" = 'OUT' FOR SHARE;`, `AND l."state" = 'OUT';`)],
   ["same-business at insert: the lender not checked", `DROP TRIGGER "ServiceLoan_user_same_business" ON "ServiceLoan";
      CREATE TRIGGER "ServiceLoan_user_same_business" BEFORE INSERT ON "ServiceLoan"
        FOR EACH ROW EXECUTE FUNCTION public.service_user_same_business('lendApprovedByUserId');`],

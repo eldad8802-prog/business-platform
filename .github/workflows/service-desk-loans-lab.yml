@@ -19,6 +19,8 @@ on:
       - ".sdloan/**"
       - ".sdhov/chain.sh"
       - ".sdhov/rollback.sql"
+      - ".sdhov/battery.ts"
+      - ".sdhov/seed-legacy.sql"
       - ".sdm1/chain.sh"
       - ".sd3p4/lab.sh"
       - ".sd3/lab.sh"
@@ -110,9 +112,13 @@ jobs:
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/hov.out || { echo "the handover-record chain is not green"; exit 1; }
           A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdloan"
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdloan"
+          # version-2 handovers saved before the migration WITH a loaner exception and no loan (the rule judges new rows only)
+          psql -X -q -v ON_ERROR_STOP=1 "$A" -f .sdloan/seed-v2-loaner.sql
           psql -X -v ON_ERROR_STOP=1 "$A" -f "$PREFLIGHT" | tee /tmp/pre.out
           ! grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || { echo "the preflight fails on the chain before the migration"; exit 1; }
           test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "13" || { echo "expected 13 preflight PASS"; exit 1; }
+          grep -qE '^ +15 \| INFO +\| +[1-9][0-9]*$' /tmp/pre.out || { echo "expected the preflight to report (INFO) the existing v2 handovers with a loaner exception"; exit 1; }
+          grep -qE '^ +16 \| INFO +\| +[1-9][0-9]*$' /tmp/pre.out || { echo "expected the preflight to report (INFO) the legacy handovers with a loaner reason"; exit 1; }
           if psql -X -v ON_ERROR_STOP=1 "$A" -f "$EVIDENCE" 2>/dev/null | grep -qE '^ +1 \| PASS'; then echo "the proof passed before the migration"; exit 1; fi
           bash .sdloan/chain.sh sdloan | tee /tmp/chain.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/chain.out || { echo "the loans chain is not green"; exit 1; }
@@ -121,7 +127,8 @@ jobs:
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdloan.out || { echo "the loans battery is not green"; exit 1; }
           psql -X -v ON_ERROR_STOP=1 "$A" -f "$EVIDENCE" | tee /tmp/ev.out
           ! grep -E '^ +[0-9]+ \| FAIL' /tmp/ev.out || { echo "the proof fails after the migration (and the battery's rows)"; exit 1; }
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "18" || { echo "expected 18 proof PASS"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "19" || { echo "expected 19 proof PASS"; exit 1; }
+          grep -qE '^ +23 \| INFO +\| +[1-9][0-9]*$' /tmp/ev.out || { echo "expected the proof to report (INFO) the kept pre-migration handovers with a loaner exception"; exit 1; }
           # the earlier batteries on the same database stay green with the loan guards in place
           OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" npx tsx .sdhov/battery.ts | tee /tmp/hovb.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/hovb.out || { echo "the handover-record battery is not green with the loans applied"; exit 1; }

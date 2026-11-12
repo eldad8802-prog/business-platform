@@ -80,6 +80,32 @@ const kase = async (z: Biz) => owner.$transaction(async (tx) => {
   return id;
 });
 
+/**
+ * With the loans migration (20261201090000) applied on the same database — the loans lab runs this battery after it — a
+ * handover may carry a loaner field only while a loan of its case is OUT (owner 2026-11-12). There, a case meant for a
+ * loaner-exception handover is first given a loan OUT (lent by the business's user — an approved lending outside the work
+ * statuses, as the case is OPEN), so every rule below is still proven by the same refusal. Without the loans migration
+ * (this battery's own chain): a plain case, exactly as before.
+ */
+let loansApplied: boolean | null = null;
+const loanerCase = async (z: Biz) => {
+  const id = await kase(z);
+  if (loansApplied === null) {
+    loansApplied = Number((await q(`SELECT count(*)::int n FROM pg_class WHERE relname = 'ServiceLoan' AND relnamespace = 'public'::regnamespace`))[0].n) === 1;
+  }
+  if (loansApplied) {
+    await owner.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(z.b));
+      const loan = Number(((await tx.$queryRawUnsafe(`INSERT INTO "ServiceLoan" ("businessId", "caseId", "itemName", "lentByUserId", "conditionAtLend",
+          "lendExceptionReason", "lendApprovedByUserId", "updatedAt") VALUES ($1, $2, 'פריט חלופי', $3, 'GOOD', 'עד האיסוף', $3, now()) RETURNING id`, z.b, id, z.u)) as Rows)[0].id);
+      await tx.$executeRawUnsafe(`INSERT INTO "ServiceLoanEvent" ("businessId", "loanId", "caseId", seq, kind, "stateAfter", condition, "approvalKind",
+          "approvedByUserId", reason, actor, "actorUserId", payload, "idempotencyKey")
+        VALUES ($1, $2, $3, 1, 'LENT', 'OUT', 'GOOD', 'LEND_OUTSIDE_WORK', $4, 'עד האיסוף', 'OWNER_USER', $4, '{"lent":true}', $5)`, z.b, loan, id, z.u, `hov-loan-${t}-${loan}`);
+    });
+  }
+  return id;
+};
+
 type H = Partial<{ v: number | null; open: number; over: number | null; reason: string | null; approver: number | null; at: boolean;
   loanerReason: string | null; loanerApprover: number | null; loanerAt: boolean; actor: number | null; erased: boolean; name: string | null }>;
 /** One handover INSERT; every field can be left out or falsified. recordVersion omitted when v === null (legacy writer). */
@@ -135,13 +161,13 @@ async function main() {
   const cOver = await kase(A);
   ok("H15 an overpayment (700) is stated apart, no approval → accepted", (await rt(A.b, handover(A, cOver, { over: 700 }))) === "OK"
     && Number((await own(A.b, `SELECT "overpaidAgorot" p FROM "ServiceHandover" WHERE "caseId" = $1`, cOver))[0].p) === 700);
-  r = await rt(A.b, handover(A, await kase(A), { loanerReason: "יחזיר מחר", loanerAt: true }));
+  r = await rt(A.b, handover(A, await loanerCase(A), { loanerReason: "יחזיר מחר", loanerAt: true }));
   ok("H16 loaner out without an approver → SERVICE_HANDOVER_LOANER_UNAPPROVED", r.includes("SERVICE_HANDOVER_LOANER_UNAPPROVED"), r);
-  r = await rt(A.b, handover(A, await kase(A), { loanerReason: "יחזיר מחר", loanerApprover: A.u }));
+  r = await rt(A.b, handover(A, await loanerCase(A), { loanerReason: "יחזיר מחר", loanerApprover: A.u }));
   ok("H17 loaner exception without the approval time → CHECK ServiceHandover_loaner_decided", r.includes("ServiceHandover_loaner_decided"), r);
-  r = await rt(A.b, handover(A, await kase(A), { loanerApprover: A.u, loanerAt: true }));
+  r = await rt(A.b, handover(A, await loanerCase(A), { loanerApprover: A.u, loanerAt: true }));
   ok("H18 a loaner approval without its reason → CHECK ServiceHandover_loaner_decided", r.includes("ServiceHandover_loaner_decided"), r);
-  ok("H19 loaner exception with reason + approver + time → accepted", (await rt(A.b, handover(A, await kase(A), { loanerReason: "יחזיר מחר", loanerApprover: A.u, loanerAt: true }))) === "OK");
+  ok("H19 loaner exception with reason + approver + time → accepted", (await rt(A.b, handover(A, await loanerCase(A), { loanerReason: "יחזיר מחר", loanerApprover: A.u, loanerAt: true }))) === "OK");
   r = await rt(A.b, handover(A, await kase(A), { actor: null }));
   ok("H20 no actor → SERVICE_HANDOVER_NEW", r.includes("SERVICE_HANDOVER_NEW"), r);
   r = await rt(A.b, handover(A, await kase(A), { erased: true, name: null }));
@@ -154,13 +180,13 @@ async function main() {
   console.log("P — forged approver");
   r = await rt(A.b, handover(A, await kase(A), debtOk(A, { approver: A2 })));
   ok("P1 approver = ANOTHER user of the same business → SERVICE_APPROVER_NOT_ACTOR", r.includes("SERVICE_APPROVER_NOT_ACTOR"), r);
-  r = await rt(A.b, handover(A, await kase(A), { loanerReason: "x", loanerApprover: A2, loanerAt: true }));
+  r = await rt(A.b, handover(A, await loanerCase(A), { loanerReason: "x", loanerApprover: A2, loanerAt: true }));
   ok("P2 loaner approver = another user → SERVICE_APPROVER_NOT_ACTOR", r.includes("SERVICE_APPROVER_NOT_ACTOR"), r);
   r = await rt(A.b, handover(A, await kase(A), debtOk(A, { approver: B.u })));
   ok("P3 approver = a user of ANOTHER business → refused", r.includes("SERVICE_APPROVER_NOT_ACTOR") || r.includes("SERVICE_USER_OTHER_BUSINESS"), r);
   r = await rt(A.b, handover(A, await kase(A), debtOk(A, { approver: B.u, actor: B.u })));
   ok("P4 actor AND approver = a user of another business → SERVICE_USER_OTHER_BUSINESS", r.includes("SERVICE_USER_OTHER_BUSINESS"), r);
-  r = await rt(A.b, handover(A, await kase(A), { loanerReason: "x", loanerApprover: B.u, loanerAt: true, actor: B.u }));
+  r = await rt(A.b, handover(A, await loanerCase(A), { loanerReason: "x", loanerApprover: B.u, loanerAt: true, actor: B.u }));
   ok("P4b loaner exception only, actor = approver = a user of another business → SERVICE_USER_OTHER_BUSINESS", r.includes("SERVICE_USER_OTHER_BUSINESS"), r);
   r = await rt(A.b, handover(A, await kase(A), { actor: B.u }));
   ok("P4c no exception, the actor a user of another business → SERVICE_USER_OTHER_BUSINESS", r.includes("SERVICE_USER_OTHER_BUSINESS"), r);
@@ -211,7 +237,7 @@ async function main() {
 
   console.log("U — a deleted user");
   const leaving = await user(A, "leaving");
-  const cLeave = await kase(A);
+  const cLeave = await loanerCase(A);
   await rt(A.b, handover(A, cLeave, debtOk(A, { approver: leaving, actor: leaving, loanerReason: "x", loanerApprover: leaving, loanerAt: true })));
   await q(`DELETE FROM "User" WHERE id = $1`, leaving);
   const lv = (await own(A.b, `SELECT "actorUserId" u, "debtApprovedByUserId" a, "loanerApprovedByUserId" l, "openBalanceAgorot" o, "debtApprovedAt" IS NOT NULL t,
@@ -247,7 +273,7 @@ async function main() {
   console.log("E — erasure");
   // A: the foundation erase first, then this one; D: the other order
   const D = await business("d");
-  const cD = await kase(D);
+  const cD = await loanerCase(D);
   await rt(D.b, handover(D, cD, debtOk(D, { loanerReason: "x", loanerApprover: D.u, loanerAt: true })));
   await rt(B.b, handover(B, await kase(B), debtOk(B)));
   const bRow = (await own(B.b, `SELECT count(*)::int n FROM "ServiceHandover" WHERE "businessId" = $1 AND "debtApprovedByUserId" IS NOT NULL`, B.b))[0];

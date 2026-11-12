@@ -20,7 +20,9 @@
 --   - lent only while the case is being worked on; never on a cancelled / closed case (the statuses are below);
 --   - returned at any time — also after the repaired item was delivered, or the case closed / cancelled — once; a return
 --     never changes history and the loan record is never deleted;
---   - DELIVER while a loan is OUT needs the owner's approval with a reason (ServiceHandover loaner columns, #1128);
+--   - DELIVER while a loan is OUT needs the owner's approval with a reason (ServiceHandover loaner columns, #1128); and
+--     with NO loan out the handover carries no loaner approval / reason at all (refused at INSERT; rows saved before
+--     this migration are not re-judged);
 --   - CANCEL / ABANDON while a loan is OUT needs an approval with a reason, recorded ON THE LOAN (a CASE_EXIT_APPROVED
 --     journal event bound to the case event it approves); the loan stays OUT — a cancel never releases or deletes it;
 --   - a loan that will not come back is closed only by an explicit, approved action with a reason (LOST /
@@ -41,7 +43,7 @@
 -- Guards: the insert guard (case lock, statuses, initial shape, the identifier normalized by the database); one change
 -- kind per update; a deferred "no silent change"; the event mirrors the loan; the journal append-only; a deferred guard on
 -- ServiceCase (no CLOSED with a loan out; CANCELLED / cancel pending / ABANDONED / DELIVERED only with the approval);
--- a BEFORE INSERT guard on ServiceHandover (a loan out ⇒ the loaner exception). Every write locks the case row first.
+-- a BEFORE INSERT guard on ServiceHandover (a loan out ⇔ the loaner exception). Every write locks the case row first.
 -- SECURITY DEFINER: one new function, service_loan_erase_business(). No DELETE for the runtime anywhere.
 -- ============================================================================================================
 
@@ -603,19 +605,40 @@ CREATE CONSTRAINT TRIGGER "ServiceCase_loan_exit_guard" AFTER UPDATE OF "status"
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION public.service_loan_case_exit_guard();
 
--- 4.7 A handover while a loan is OUT carries the loaner exception (reason; approver + time by #1128's own rules). The case
--- row is locked first — the lock every loan write takes — so a handover and a loan of one case cannot both pass.
--- (A loaner reason with no loan out is left to the service: the handover record's own lab writes such rows.)
+-- 4.7 The handover and the loaner exception, both ways (owner 2026-11-12):
+--   a loan of the case is OUT  ⇒ the handover carries the loaner exception (SERVICE_HANDOVER_LOANER_OUT);
+--   no loan of the case is OUT ⇒ the handover carries none of it — no reason, no approver, no approval time
+--                                (SERVICE_HANDOVER_LOANER_NONE): an approval with nothing to approve is never saved.
+-- "The exception" = any of the three loaner columns; that it is complete (reason ⇔ approval time, an approver, approver =
+-- actor, server-resolved) is #1128's rule (CHECK ServiceHandover_loaner_decided + service_handover_record_guard), so a
+-- partial one is refused there either way. INSERT only: a saved handover never changes (service_handover_guard, #1128),
+-- and the rows written before this migration — legacy version 1 and version 2 alike, with or without a loaner reason —
+-- are not re-judged (the preflight counts them, INFO).
+-- Race-free by lock order: the case row FOR UPDATE first — the lock the loan insert guard, the handover service, every
+-- loan write of the service, the cancel and the abandon take first — so a handover and a NEW loan of one case serialise
+-- and the second one reads the first one's commit (READ COMMITTED: each statement here takes a fresh snapshot); then the
+-- case's OUT loans FOR SHARE — a return / close in flight is waited for and the row re-read, and at REPEATABLE READ /
+-- SERIALIZABLE a loan changed after this transaction's snapshot fails the handover (serialization failure, retried by
+-- the caller) instead of being judged by a stale "out". (A writer that takes the loan row before the case breaks that
+-- order; the worst it meets is a detected deadlock — one side refused, never a wrong record.)
 CREATE OR REPLACE FUNCTION public.service_loan_handover_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $fn$
+DECLARE
+  has_exception constant boolean := NEW."loanerOverrideReason" IS NOT NULL OR NEW."loanerApprovedByUserId" IS NOT NULL
+                                    OR NEW."loanerApprovedAt" IS NOT NULL;
+  loan_out boolean;
 BEGIN
   PERFORM 1 FROM "ServiceCase" WHERE "id" = NEW."caseId" AND "businessId" = NEW."businessId" FOR UPDATE;
-  IF NEW."loanerOverrideReason" IS NULL AND EXISTS (SELECT 1 FROM "ServiceLoan" l
-       WHERE l."businessId" = NEW."businessId" AND l."caseId" = NEW."caseId" AND l."state" = 'OUT') THEN
+  PERFORM 1 FROM "ServiceLoan" l WHERE l."businessId" = NEW."businessId" AND l."caseId" = NEW."caseId" AND l."state" = 'OUT' FOR SHARE;
+  loan_out := FOUND;
+  IF loan_out AND NOT has_exception THEN
     RAISE EXCEPTION USING ERRCODE = 'DZL07', MESSAGE = 'SERVICE_HANDOVER_LOANER_OUT: a loan of this case is still out; return it or approve the handover with it out';
+  END IF;
+  IF has_exception AND NOT loan_out THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZL07', MESSAGE = 'SERVICE_HANDOVER_LOANER_NONE: no loan of this case is out; a loaner approval or reason has nothing to approve and is not saved';
   END IF;
   RETURN NEW;
 END

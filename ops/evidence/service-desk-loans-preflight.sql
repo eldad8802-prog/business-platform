@@ -12,7 +12,10 @@
 --     triggers it adds on ServiceCase / ServiceHandover;
 --   * the functions it reuses exist (3) and the (businessId, id) keys of ServiceCase and InventoryItem exist (2);
 --   * app_runtime exists NOLOGIN NOSUPERUSER NOBYPASSRLS; the owner of ServiceCase carries BYPASSRLS or is a superuser;
---   * informational: cases, and handovers that carry a loaner reason (written before loans existed).
+--   * informational: cases; version-2 handovers that carry a loaner exception (any of reason / approver / approval time)
+--     — none of them can have an open loan, the loan table does not exist yet; the migration's handover rule (no loan
+--     out ⇒ no loaner exception) judges NEW rows only, so these rows stay valid and never stop it;
+--     legacy version-1 handovers with a loaner reason (the same: never re-judged).
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
@@ -33,7 +36,8 @@
 \echo '12 app_runtime exists NOLOGIN NOSUPERUSER NOBYPASSRLS'
 \echo '13 the owner of ServiceCase carries BYPASSRLS or is a superuser'
 \echo '14 service cases (informational)'
-\echo '15 handovers with a loaner reason (informational; written before loans existed)'
+\echo '15 version-2 handovers with a loaner exception and no open loan (informational; the rule judges new rows only, they stay valid)'
+\echo '16 version-1 (legacy) handovers with a loaner reason (informational; never re-judged)'
 
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want
@@ -58,7 +62,9 @@ WITH c AS (
   UNION ALL SELECT 13, (SELECT count(*) FROM pg_class k JOIN pg_roles r ON r.oid = k.relowner
                          WHERE k.relname = 'ServiceCase' AND k.relnamespace = 'public'::regnamespace AND (r.rolbypassrls OR r.rolsuper)), 1
   UNION ALL SELECT 14, (SELECT count(*) FROM "ServiceCase"), NULL
-  UNION ALL SELECT 15, (SELECT count(*) FROM "ServiceHandover" WHERE "loanerOverrideReason" IS NOT NULL), NULL
+  UNION ALL SELECT 15, (SELECT count(*) FROM "ServiceHandover" WHERE "recordVersion" = 2
+                          AND ("loanerOverrideReason" IS NOT NULL OR "loanerApprovedByUserId" IS NOT NULL OR "loanerApprovedAt" IS NOT NULL)), NULL
+  UNION ALL SELECT 16, (SELECT count(*) FROM "ServiceHandover" WHERE "recordVersion" = 1 AND "loanerOverrideReason" IS NOT NULL), NULL
 )
 SELECT n,
        CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,

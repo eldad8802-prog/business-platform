@@ -10,7 +10,9 @@
 #      ServiceHandover triggers and every Service Desk function are byte-identical to before; the ledger marks it failed;
 #      resolve --rolled-back + deploy recovers.
 #   P  premise: over a chain without the handover record (20261130090000 rolled back) the migration refuses, nothing exists.
-#   A  apply: exactly this migration; nothing failed; every existing case / event / handover row byte-identical.
+#   A  apply: exactly this migration; nothing failed; every existing case / event / handover row byte-identical —
+#      including version-2 handovers written before it WITH a loaner exception and no loan (.sdloan/seed-v2-loaner.sql:
+#      the new handover rule judges new rows only, existing data never blocks the migration).
 #   S  a second application by hand is refused by the premise and changes nothing.
 #   R  rollback (copies): refuses while a loan exists; on a clean copy it removes everything, the triggers and functions
 #      are byte-identical to before the migration, the ledger row is gone; a plain deploy re-applies.
@@ -71,6 +73,10 @@ rows_digest() { # every existing case, case event and handover row
 pass=0; fail=0
 ok() { if eval "$2"; then pass=$((pass+1)); echo "  [PASS] $1"; else fail=$((fail+1)); echo "  [FAIL] $1"; fi; }
 
+# version-2 handovers with a loaner exception and no loan, written before the migration (re-run safe)
+psql -X -q -v ON_ERROR_STOP=1 "$(owner_url "$DB")" -f "$ROOT/.sdloan/seed-v2-loaner.sql" >/dev/null 2>&1 </dev/null || true
+V2X_SQL="SELECT count(*) FROM \"ServiceHandover\" WHERE \"recordVersion\" = 2 AND (\"loanerOverrideReason\" IS NOT NULL OR \"loanerApprovedByUserId\" IS NOT NULL OR \"loanerApprovedAt\" IS NOT NULL)"
+V2X="$(q "$DB" "$V2X_SQL")"
 FP_BEFORE="$(fingerprint "$DB")"
 BEFORE="$(rows_digest "$DB")"
 NCASES="$(q "$DB" "SELECT count(*) FROM \"ServiceCase\"")"; NHOV="$(q "$DB" "SELECT count(*) FROM \"ServiceHandover\"")"
@@ -89,6 +95,14 @@ super "DROP DATABASE ${DB}_fault"
 
 echo "P — the premise: the handover record (20261130090000) must be in place"
 super "DROP DATABASE IF EXISTS ${DB}_prem"; super "CREATE DATABASE ${DB}_prem TEMPLATE $DB OWNER lab_owner"
+# (copy only) the version-2 seed rows would make the handover-record rollback refuse: remove them first, triggers off
+super "SET session_replication_role = replica;
+  DELETE FROM \"ServiceHandover\" WHERE \"businessId\" IN (SELECT id FROM \"Business\" WHERE name = 'loan-pre-v2');
+  DELETE FROM \"ServiceCaseEvent\" WHERE \"businessId\" IN (SELECT id FROM \"Business\" WHERE name = 'loan-pre-v2');
+  DELETE FROM \"ServiceCase\" WHERE \"businessId\" IN (SELECT id FROM \"Business\" WHERE name = 'loan-pre-v2');
+  DELETE FROM \"Customer\" WHERE \"businessId\" IN (SELECT id FROM \"Business\" WHERE name = 'loan-pre-v2');
+  DELETE FROM \"User\" WHERE \"businessId\" IN (SELECT id FROM \"Business\" WHERE name = 'loan-pre-v2');
+  DELETE FROM \"Business\" WHERE name = 'loan-pre-v2';" "${DB}_prem" >/dev/null
 psql -X -q -v ON_ERROR_STOP=1 "$(owner_url "${DB}_prem")" -f "$ROOT/.sdhov/rollback.sql" >/dev/null 2>&1 || true
 PREM_READY="$(q "${DB}_prem" "SELECT count(*) FROM information_schema.columns WHERE table_name = 'ServiceHandover' AND column_name = 'loanerApprovedAt'")"
 T="$(mktemp -d)"; stage "$T" "${DB}_prem"; OUT="$(deploy "$T" "${DB}_prem" || true)"; rm -rf "$T"
@@ -105,6 +119,8 @@ ok "A2 nothing failed or rolled back in the ledger" \
   'test "$(q "$DB" "SELECT count(*) FROM \"_prisma_migrations\" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL")" = "0"'
 ok "A3 every existing case, case event and handover row ($NCASES / $NHOV) is byte-identical" 'test "$(rows_digest "$DB")" = "$BEFORE"'
 ok "A4 its objects exist; no existing function or trigger of the two foundation tables changed" 'present "$DB"'
+ok "A5 the version-2 handovers saved before it with a loaner exception and no loan ($V2X) applied through and are kept" \
+  'test "$V2X" -ge 1 && test "$(q "$DB" "$V2X_SQL")" = "$V2X"'
 
 echo "S — a second application"
 FP_AFTER="$(q "$DB" "SELECT md5(string_agg(pg_get_functiondef(oid), '|' ORDER BY proname)) FROM pg_proc WHERE proname LIKE 'service\\_%'")"
