@@ -110,8 +110,12 @@ CREATE TABLE "ServiceCaseCharge" (
   CONSTRAINT "ServiceCaseCharge_reason_text" CHECK ("reason" IS NULL OR char_length(btrim("reason")) BETWEEN 1 AND 1000),
   -- free of charge always has its reason; a change after the first record has one too, unless it is a quote approval
   CONSTRAINT "ServiceCaseCharge_reason_required" CHECK (
-    "erasedAt" IS NOT NULL OR "reason" IS NOT NULL OR ("mode" = 'CHARGEABLE' AND ("seq" = 1 OR "source" = 'APPROVED_QUOTE'))),
-  CONSTRAINT "ServiceCaseCharge_actor" CHECK ("actor" <> 'OWNER_USER' OR "actorUserId" IS NOT NULL OR "erasedAt" IS NOT NULL)
+    "erasedAt" IS NOT NULL OR "reason" IS NOT NULL OR ("mode" = 'CHARGEABLE' AND ("seq" = 1 OR "source" = 'APPROVED_QUOTE')))
+  -- An owner's charge names the owner user: enforced by service_case_charge_guard at INSERT (SERVICE_CHARGE_ACTOR), NOT
+  -- by a CHECK. The user foreign key is ON DELETE SET NULL, so a CHECK requiring the user would make the FK action fail
+  -- and the user who recorded a charge could never be deleted (owner decision 2026-11-12: deleting a user nulls the
+  -- references, it never fails by mistake). After birth the guard refuses every UPDATE except that FK action and the
+  -- erasure, both of which only set the user to NULL — so no row loses its actor any other way.
 );
 CREATE UNIQUE INDEX "ServiceCaseCharge_businessId_id_key" ON "ServiceCaseCharge"("businessId", "id");
 CREATE UNIQUE INDEX "ServiceCaseCharge_businessId_caseId_seq_key" ON "ServiceCaseCharge"("businessId", "caseId", "seq");
@@ -207,6 +211,10 @@ BEGIN
   END IF;
   IF NEW."erasedAt" IS NOT NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'DZU12', MESSAGE = 'SERVICE_CHARGE_ERASED_ON_INSERT: a new charge record is never born erased';
+  END IF;
+  -- at birth (not a CHECK: the user FK is ON DELETE SET NULL — see the table)
+  IF NEW."actor" = 'OWNER_USER' AND NEW."actorUserId" IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZU12', MESSAGE = 'SERVICE_CHARGE_ACTOR: a charge recorded by the owner names the owner user';
   END IF;
   PERFORM 1 FROM public."ServiceCase" c WHERE c."businessId" = NEW."businessId" AND c."id" = NEW."caseId" FOR UPDATE;
   IF NOT FOUND THEN
