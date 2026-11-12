@@ -178,6 +178,8 @@ on:
           - 'ops/evidence/signup-legal-identity-preflight.sql'
           - 'ops/evidence/signup-legal-identity-production-evidence.sql'
           - 'ops/evidence/legal-identity-existing-accounts.sql'
+          - 'ops/evidence/legal-identity-correction-preflight.sql'
+          - 'ops/evidence/legal-identity-correction-production-evidence.sql'
 
 permissions:
   contents: read
