@@ -182,18 +182,16 @@ async function loanCommand<T>(
   }, { timeoutMs: 15_000 });
   const mapped = (e: unknown): unknown => {
     if (e instanceof ServiceDeskError) return e;
-    const text = e instanceof Error ? e.message : String(e);
-    // the double-loan index decided a race: the item is already out (never a 500, never a second loan)
-    if (/ServiceLoan_one_out_per_identifier/.test(text)) return new ServiceDeskError("REFUSED", { violations: ["LOAN_ITEM_ALREADY_OUT"] });
     return guardRefusal(e) ?? e;
   };
   try {
     return await attempt();
   } catch (e) {
-    if (!(e instanceof ServiceDeskError) && isUniqueViolation(e) && !/ServiceLoan_one_out_per_identifier/.test(e instanceof Error ? e.message : "")) {
-      // the same key committed by a concurrent request: the retry answers from it
+    if (!(e instanceof ServiceDeskError) && isUniqueViolation(e)) {
+      // A concurrent request committed first: the same key (the retry answers from its event), or the same identified
+      // item lent by the double-loan index (the retry's check, under the case lock, sees it OUT → LOAN_ITEM_ALREADY_OUT).
       try { return await attempt(); } catch (e2) {
-        if (!(e2 instanceof ServiceDeskError) && isUniqueViolation(e2) && !/ServiceLoan_one_out_per_identifier/.test(e2 instanceof Error ? e2.message : "")) throw new ServiceDeskError("CONFLICT");
+        if (!(e2 instanceof ServiceDeskError) && isUniqueViolation(e2)) throw new ServiceDeskError("CONFLICT");
         throw mapped(e2);
       }
     }
@@ -242,6 +240,8 @@ export async function lendLoaner(
       const r = await tx.$queryRaw<{ ok: boolean }[]>`SELECT EXISTS (SELECT 1 FROM "InventoryItem" WHERE id = ${d.row.inventoryItemId}::int AND "businessId" = ${b}::int) AS ok`;
       if (r[0]?.ok !== true) throw new ServiceDeskError("SERVER_CHECK_FAILED", { check: "INVENTORY_ITEM_BELONGS_TO_BUSINESS" });
     }
+    // A second OUT loan of the same identified item: refused here when it is already committed; a concurrent one is
+    // decided by the partial UNIQUE index (race-safe), and loanCommand's retry then answers LOAN_ITEM_ALREADY_OUT from here.
     if (d.row.itemIdentifierNormalized !== null) {
       const r = await tx.$queryRaw<{ ok: boolean }[]>`
         SELECT EXISTS (SELECT 1 FROM "ServiceLoan" WHERE "businessId" = ${b}::int AND "itemIdentifierNormalized" = ${d.row.itemIdentifierNormalized}::text AND state = 'OUT') AS ok`;

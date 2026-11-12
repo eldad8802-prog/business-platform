@@ -49,7 +49,8 @@ const SERVICE = [
   ["service: openLoaner hard-coded false again", CASESVC, `openLoaner: await caseHasOpenLoan(tx, businessId, caseId),`, `openLoaner: false,`],
   ["service: the cancel exit approval not written", CASESVC, `    const n = await recordLoanerExitApproval(`, `    const n = 1 || await recordLoanerExitApproval(`],
   ["service: no earlier-answer lookup (idempotency)", SVC, `    const prior = await findPriorLoanEvent(tx, b, prepared);\n`, `    const prior = null as { loanId: number; caseId: number } | null;\n`],
-  ["service: the double-loan race not mapped", SVC, `    if (/ServiceLoan_one_out_per_identifier/.test(text)) return new ServiceDeskError("REFUSED", { violations: ["LOAN_ITEM_ALREADY_OUT"] });\n`, ``],
+  ["service: no double-loan check before the insert (the index race is no longer answered)", SVC, `      if (r[0]?.ok === true) throw new ServiceDeskError("REFUSED", { violations: ["LOAN_ITEM_ALREADY_OUT"] });
+`, ``],
   ["service: a loan reached through another case", SVC, `if (!r || Number(r.caseId) !== caseId) throw new ServiceDeskError("NOT_FOUND");`, `if (!r) throw new ServiceDeskError("NOT_FOUND");`],
   ["service: the lend exception approver not stored", SVC, `${"${row.exceptionReason}"}::text, ${"${approver}"}::int, now())`, `${"${row.exceptionReason}"}::text, NULL::int, now())`],
 ];
@@ -64,7 +65,9 @@ const superSql = (sql) => execFileSync("psql", ["-X", "-q", "-v", "ON_ERROR_STOP
 let killed = 0;
 const survived = [];
 const list = [...PURE.map((m) => ["PURE", ...m]), ...(TPL ? SERVICE.map((m) => ["SERVICE", ...m]) : [])];
+const only = process.env.MUT_ONLY ? new RegExp(process.env.MUT_ONLY) : null;
 for (const [i, [kind, label, file, from, to]] of list.entries()) {
+  if (only && !only.test(label)) continue;
   const orig = readFileSync(file, "utf8");
   if (!orig.includes(from)) { console.log(`  [ANCHOR MISSING] ${label}`); survived.push(label); continue; }
   writeFileSync(file, orig.replace(from, to));
