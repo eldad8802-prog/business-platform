@@ -1,0 +1,209 @@
+# Migration 20261126090000_auth_issuer_declaration_link — the issuer-declaration link (#1081), on an ephemeral
+# PG17 with Production's role topology (.agl/lab.sh: non-superuser BYPASSRLS owner, NOLOGIN app_runtime + LOGIN
+# app_runtime_prod, NOLOGIN app_auth + LOGIN te_auth_login, AuthEmailToken under FORCE RLS):
+#   0. the evidence files are SELECT-only and selectable in Production; the proof pins the migration's checksum;
+#   1. baseline (pending): PREFLIGHT 10/10; the proof refuses;
+#   2. `prisma migrate deploy` applies it: proof 12/12; the earlier AuthEmailToken proofs (AET 17, LINK 14) still
+#      whole; PREFLIGHT now fails exactly 1, 3, 4, 5, 6;
+#   3. battery (real roles): T4 issue, T5 consume, T6 Google-only account, T7 privileges;
+#   4. atomicity: the migration failing on its last statement leaves nothing of it behind;
+#   5. rollback: refused while an issuer-declaration token exists; otherwise reverts whole — the proof fails
+#      again and the earlier proofs stay whole;
+#   6. order independence with billing's #1091: both apply orders give the same functions and checks; the battery
+#      passes on both.
+# Synthetic only. ZERO secrets. ZERO network. ZERO Production.
+
+name: auth issuer-declaration link — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261126090000_auth_issuer_declaration_link/**"
+      - "prisma/migrations/20261102090000_oauth_identity_link/**"
+      - "prisma/migrations/20261017090000_auth_email_tokens/**"
+      - "ops/evidence/auth-issuer-declaration-link-*.sql"
+      - "ops/evidence/auth-email-tokens-production-evidence.sql"
+      - "ops/evidence/oauth-identity-link-production-evidence.sql"
+      - ".aid/**"
+      - ".agl/lab.sh"
+      - ".aet/lab.sh"
+      - ".github/workflows/auth-issuer-declaration-link-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-issuer-declaration-link-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab:
+    name: auth issuer-declaration link (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: aid_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: aid_ci_synthetic_super_pw
+      LAB_PASSWORD: aid_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/auth-issuer-declaration-link-preflight.sql
+      EVIDENCE: ops/evidence/auth-issuer-declaration-link-production-evidence.sql
+      AET_EVIDENCE: ops/evidence/auth-email-tokens-production-evidence.sql
+      LINK_EVIDENCE: ops/evidence/oauth-identity-link-production-evidence.sql
+      MIGRATION: prisma/migrations/20261126090000_auth_issuer_declaration_link/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable in Production; the proof pins the checksum
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE" "$AET_EVIDENCE" "$LINK_EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "::error::$f is not SELECT-only"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "::error::$f is not selectable in prod-readonly-evidence.yml"; exit 1; }
+          done
+          sum=$(sha256sum "$MIGRATION" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "::error::the proof pins a different checksum (migration is $sum)"; exit 1; }
+          echo "guard OK; migration checksum $sum"
+
+      - name: 1. Baseline (pending) — PREFLIGHT 10/10; the proof refuses
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh idl_pre --with-link
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d idl_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "10" || { echo "::error::preflight is not 10/10 before the migration"; exit 1; }
+          # Before the migration the proof refuses: it errors (its column does not exist) or reports FAIL rows.
+          if out=$(lab -f "$EVIDENCE" 2>&1); then
+            echo "$out" | grep -qE '^ +[0-9]+ \| FAIL' || { echo "::error::the proof passed before the migration"; exit 1; }
+          fi
+          echo "the proof refuses before the migration"
+
+      - name: 2. prisma migrate deploy applies it — proof 12/12; AET 17 and LINK 14 still whole; preflight fails exactly 1 3 4 5 6
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh idl_post --with-issuer | tee /tmp/post.log
+          grep -q "20261126090000_auth_issuer_declaration_link" /tmp/post.log || { echo "::error::the migration was not applied"; exit 1; }
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d idl_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "12" || { echo "::error::the proof is not 12/12"; exit 1; }
+          for pair in "$AET_EVIDENCE:17" "$LINK_EVIDENCE:14"; do
+            f="${pair%%:*}"; want="${pair##*:}"
+            got=$(lab -f "$f" | { grep -cE '^ +[0-9]+ \| PASS' || true; })
+            test "$got" = "$want" || { echo "::error::$f is $got/$want after the migration"; lab -f "$f" | grep FAIL || true; exit 1; }
+          done
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "1 3 4 5 6 " || { echo "::error::preflight after the migration fails '$fails', expected '1 3 4 5 6 '"; exit 1; }
+
+      - name: 3. Battery — issue, consume, Google-only account, privileges (real roles)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idl_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idl_post" \
+          AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/idl_post" \
+            npx tsx .aid/battery.ts
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .agl/lab.sh idl_broken --broken-issuer
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d idl_broken -v ON_ERROR_STOP=1 "$@"; }
+          fn=$(lab -Atc "SELECT count(*) FROM pg_proc WHERE proname IN ('auth_issuer_declaration_issue','auth_issuer_declaration_consume')")
+          col=$(lab -Atc "SELECT count(*) FROM pg_attribute WHERE attrelid = '\"AuthEmailToken\"'::regclass AND attname = 'bindingSha256' AND NOT attisdropped")
+          wide=$(lab -Atc "SELECT count(*) FROM pg_constraint WHERE conname = 'AuthEmailToken_purpose' AND pg_get_constraintdef(oid) LIKE '%ISSUER_DECLARATION%'")
+          led=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261126090000_auth_issuer_declaration_link' AND finished_at IS NULL")
+          prev=$(lab -Atc "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261102090000_oauth_identity_link' AND finished_at IS NOT NULL")
+          echo "functions=$fn column=$col widened=$wide unfinished=$led link-finished=$prev"
+          test "$fn" = "0" && test "$col" = "0" && test "$wide" = "0" && test "$led" = "1" && test "$prev" = "1" || { echo "::error::NOT atomic"; exit 1; }
+
+      - name: 5. Rollback — refused while an issuer-declaration token exists; otherwise reverts whole
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          # idl_post holds the battery's issuer-declaration tokens: refused, nothing changes. (The battery itself moved
+          # one token's clock back to test expiry, so check 12 may already read FAIL there: compare before / after.)
+          before=$(lab idl_post -f "$EVIDENCE" | grep -E '^ +[0-9]+ \| (PASS|FAIL)')
+          if lab idl_post -f .aid/rollback.sql >/tmp/rb1.log 2>&1; then echo "::error::rollback ran while tokens exist"; exit 1; fi
+          grep -q "rollback refused" /tmp/rb1.log || { cat /tmp/rb1.log; exit 1; }
+          after=$(lab idl_post -f "$EVIDENCE" | grep -E '^ +[0-9]+ \| (PASS|FAIL)')
+          test "$before" = "$after" || { echo "::error::a refused rollback changed something"; diff <(echo "$before") <(echo "$after") || true; exit 1; }
+          lab idl_post -Atc "SELECT count(*) FROM pg_proc WHERE proname IN ('auth_issuer_declaration_issue','auth_issuer_declaration_consume')" | grep -qx 2 \
+            || { echo "::error::a refused rollback removed a function"; exit 1; }
+          # A fresh database with the migration and no such token: reverts whole.
+          bash .agl/lab.sh idl_rb --with-issuer >/dev/null
+          lab idl_rb -f .aid/rollback.sql
+          if out=$(lab idl_rb -f "$EVIDENCE" 2>&1); then
+            echo "$out" | grep -qE '^ +[0-9]+ \| FAIL' || { echo "::error::the proof still passes after the rollback"; exit 1; }
+          fi
+          test "$(lab idl_rb -f "$PREFLIGHT" | grep -cE '^ +[0-9]+ \| PASS')" = "10" || { echo "::error::preflight is not 10/10 after the rollback"; exit 1; }
+          for pair in "$AET_EVIDENCE:17" "$LINK_EVIDENCE:14"; do
+            f="${pair%%:*}"; want="${pair##*:}"
+            got=$(lab idl_rb -f "$f" | { grep -cE '^ +[0-9]+ \| PASS' || true; })
+            test "$got" = "$want" || { echo "::error::$f is $got/$want after the rollback"; exit 1; }
+          done
+          echo "rollback refused with tokens; reverted whole without; earlier proofs whole"
+
+      - name: 6. Order independence with billing's #1091 (20261123090000_issuer_declaration) — both orders, same objects, battery whole
+        run: |
+          set -euo pipefail
+          # Billing's migration lives on its own PR until merged; read it from there (read-only). When it is on main the
+          # file is already in the tree. Neither migration names the other's objects (asserted below).
+          F=prisma/migrations/20261123090000_issuer_declaration/migration.sql
+          if [ -f "$F" ]; then cp "$F" /tmp/m1091.sql
+          elif git fetch -q --depth=1 origin pull/1091/head:pr1091 2>/dev/null && git show "pr1091:$F" > /tmp/m1091.sql 2>/dev/null; then :
+          else echo "::notice::#1091's migration is not reachable — order check skipped"; exit 0; fi
+          if sed 's/--.*$//' /tmp/m1091.sql | grep -nE 'AuthEmailToken|auth_issuer_declaration|bindingSha256'; then echo "::error::#1091 names this migration's objects"; exit 1; fi
+          if sed 's/--.*$//' "$MIGRATION" | grep -nE 'BusinessIssuerDeclaration|BillingSeriesOpening|IssuerDeclarationEnforcement|(^|[^a-z_])issuer_(records|declaration_chain|designat|issue_requires)|series_opening'; then echo "::error::this migration names #1091's objects"; exit 1; fi
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          # On a tree whose schema.prisma already models #1091's tables (the stacked #1081 code PR), `db push` built
+          # them without #1091's triggers / policies / grants. Drop those copies first, as billing's own lab does, so
+          # #1091 builds them as Production will. Absent on this PR's own branch → nothing to drop.
+          DROP_PUSHED=.issuer-declaration/drop-pushed.sql
+          pre1091() { if [ -f "$DROP_PUSHED" ]; then lab "$1" -q -f "$DROP_PUSHED" >/dev/null; fi; }
+          # (a) this migration first (the release mechanism), then #1091
+          bash .agl/lab.sh idl_o1 --with-issuer >/dev/null
+          pre1091 idl_o1
+          lab idl_o1 -q -f /tmp/m1091.sql >/dev/null
+          # (b) #1091 first, then this migration
+          bash .agl/lab.sh idl_o2 --with-link >/dev/null
+          pre1091 idl_o2
+          lab idl_o2 -q -f /tmp/m1091.sql >/dev/null
+          lab idl_o2 -q -f "$MIGRATION" >/dev/null
+          q="SELECT string_agg(p.proname || ':' || md5(p.prosrc) || ':' || p.prosecdef || ':' || coalesce(array_to_string(p.proconfig, ','), '') || ':' || coalesce(array_to_string(p.proacl, ','), ''), '|' ORDER BY p.proname)
+               FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND (p.proname LIKE 'auth_issuer_declaration_%' OR p.proname LIKE 'issuer_%')"
+          c="SELECT string_agg(conname || ':' || pg_get_constraintdef(oid), '|' ORDER BY conname) FROM pg_constraint WHERE conrelid = '\"AuthEmailToken\"'::regclass"
+          test "$(lab idl_o1 -Atc "$q")" = "$(lab idl_o2 -Atc "$q")" || { echo "::error::the functions differ by apply order"; exit 1; }
+          test "$(lab idl_o1 -Atc "$c")" = "$(lab idl_o2 -Atc "$c")" || { echo "::error::AuthEmailToken's checks differ by apply order"; exit 1; }
+          for db in idl_o1 idl_o2; do
+            OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/$db" \
+            RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/$db" \
+            AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/$db" \
+              npx tsx .aid/battery.ts | tail -1
+          done
+          echo "order independent with #1091: same functions and checks either way; the battery whole on both"
