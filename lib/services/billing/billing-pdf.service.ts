@@ -467,6 +467,13 @@ export async function getOrRenderBillingPdf(
     throw renderError;
   }
 
+  // A frozen receipt reaches the renderer only through the explicit BILLING_PDF_SKIP_CACHE override: the fresh bytes are
+  // returned for inspection, but its recorded PDF (row + stored object) is never replaced.
+  if (isFrozenReceiptPdf(doc)) {
+    if (storageKey !== doc.pdfStorageKey) await unlinkByKeyQuiet(storageKey);
+    return { buffer, pdfHash, pdfTemplateVersion: effectivePdfTemplateVersion, documentNumberFormatted, renderedNow: true };
+  }
+
   // ---------------------------------------------------------------------
   // Persist success — guarded updateMany. count !== 1 is acceptable
   // (race with another renderer or status change) and not surfaced.

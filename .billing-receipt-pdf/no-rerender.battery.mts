@@ -93,7 +93,8 @@ async function main() {
   const legacyHash = sha(legacy);
   const legacyKey = buildStorageKey(b, m.id, legacyHash);
   await writeAtomic(legacyKey, legacy);
-  await prisma.billingDocument.update({ where: { id: m.id }, data: { pdfStorageKey: legacyKey, pdfHash: legacyHash, pdfTemplateVersion: "billing-v1-html" } });
+  // recorded as produced by the previous template version — after a template change only the freeze can serve it
+  await prisma.billingDocument.update({ where: { id: m.id }, data: { pdfStorageKey: legacyKey, pdfHash: legacyHash, pdfTemplateVersion: "billing-v0-html" } });
   const objs5 = storedObjects();
   const r5 = await call(m.id);
   ok("N5 an old-template receipt PDF is served byte-for-byte (sha256 = stored pdfHash) after the template change",
@@ -127,11 +128,15 @@ async function main() {
 
   // C2 control: the explicit operator/debug override still renders a receipt
   await writeAtomic(legacyKey, legacy);
+  const before8 = await row(m.id); const objs8 = storedObjects();
   process.env.BILLING_PDF_SKIP_CACHE = "1";
   const r8 = await call(m.id);
   delete process.env.BILLING_PDF_SKIP_CACHE;
   ok("C2 control: BILLING_PDF_SKIP_CACHE=1 (explicit override) still renders", r8.renderedNow === true);
-  ok("C2 the override does not overwrite the frozen receipt's recorded PDF (guarded update)", (await row(m.id)).pdfHash === legacyHash);
+  ok("C2 the override never replaces the frozen receipt's recorded PDF (row, version, stored object unchanged)",
+    JSON.stringify(await row(m.id)) === JSON.stringify(before8) && storedObjects() === objs8, `objs ${objs8}→${storedObjects()}`);
+  const r9 = await call(m.id);
+  ok("C2 after the override the old-template bytes are still what is served", r9.renderedNow === false && r9.buffer.equals(legacy));
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) process.exitCode = 1;

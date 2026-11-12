@@ -264,7 +264,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -pi -e 's/doc\.documentType === "RECEIPT" &&/doc.documentType === "NO_SUCH_TYPE" \&\&/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:receipt-pdf:no-rerender" --expect '[FAIL] N3' --expect '[FAIL] N5' --expect '[FAIL] N7' -- npx tsx .billing-receipt-pdf/no-rerender.battery.mts; then
+          if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:receipt-pdf:no-rerender" --expect '[FAIL] N3' --expect '[FAIL] N4' --expect '[FAIL] N5' --expect '[FAIL] N6' --expect '[FAIL] N7' -- npx tsx .billing-receipt-pdf/no-rerender.battery.mts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: re-rendering an issued receipt went unnoticed"; exit 1
           fi
           mv "$F.bak" "$F"
