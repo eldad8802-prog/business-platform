@@ -169,6 +169,9 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceWarrantyOffer: { disposition: "ERASURE_MANAGED" },
   ServiceIntakePhoto: { disposition: "ERASURE_MANAGED" },
   ServiceShareEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk 1.3-0 erasure texts (migration 20261123090000, ex-#1026): the business's settings row is DELETED by
+  // service_desk_ui_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceSettings: { disposition: "ERASURE_MANAGED" },
   // Service Desk P4 audit journal (migration 20261122090000): who acted and the request digest are erased in place by
   // service_settings_journal_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
   ServiceSettingsEvent: { disposition: "ERASURE_MANAGED" },
@@ -674,13 +677,6 @@ const decide = (question: string, target = "E2"): ModelCoverage => ({
 });
 
 const DECIDE: Record<string, ModelCoverage> = {
-  // Service Desk 1.3-0 — not decided by default (owner, 1.3-0 PR-2 ש-3: no automatic retention). No writer exists yet.
-  ServiceSettings: decide(
-    "the business's warranty template scope / exclusions are owner free text and defaultStaffMemberId names a staff " +
-      "member; service_desk_ui_erase_business() does not touch the row and the table guard refuses runtime writes once " +
-      "the business is being deleted — keep (with a basis), or scrub through a NEW database function (a migration)?",
-    "SD-1.3a"
-  ),
   Business: decide(
     "Business.name survives. For a sole trader it IS the owner's name — but retained invoices " +
       "name the same business by legal necessity, so anonymising it may be incoherent. Product decision."
