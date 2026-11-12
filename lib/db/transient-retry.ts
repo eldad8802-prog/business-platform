@@ -46,6 +46,12 @@ export type TransientRetryOptions = {
    * result must not be lost silently). Default: always retry.
    */
   canRetry?: () => boolean;
+  /**
+   * Run once after a connection error, before the pause and the retry — e.g. evict the other dead pooled connections so
+   * the retry does not draw one of them (lib/db/connection-recovery.ts). It must be safe to run at any time; whatever
+   * it throws is ignored (the retry still happens and decides the outcome).
+   */
+  beforeRetry?: () => Promise<unknown>;
   /** Tests only. */
   sleep?: (ms: number) => Promise<void>;
   /** Tests only. */
@@ -75,6 +81,13 @@ export async function withConnectionRetry<T>(fn: (attempt: number) => Promise<T>
         error: error instanceof Error ? error.name : "unknown",
         code: (error as { code?: unknown }).code ?? (error as { errorCode?: unknown }).errorCode ?? null,
       });
+      if (options.beforeRetry) {
+        try {
+          await options.beforeRetry();
+        } catch {
+          /* best effort: the retry itself decides */
+        }
+      }
       await sleep(delayMs);
     }
   }

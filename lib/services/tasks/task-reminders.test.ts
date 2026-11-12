@@ -11,8 +11,11 @@
  *     three variables and a mailto:/https: subject.
  *  5. The dispatcher's door (QStash only): no signature → 401; a signature with no keys → 503; a forged,
  *     wrongly-addressed or wrong-body signature → 401; a valid one for THIS url → accepted.
+ *  6. Reliability (static): the in-app poll reads only its own business inside its tenant tx.
  */
 import { createHash, createHmac } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 import { isAllowedPushEndpoint, vapidConfig } from "@/lib/push/web-push-sender";
 
@@ -129,6 +132,19 @@ async function door() {
   ok("failure facts: never the token", !logged.includes(tok) && !logged.includes(tok.slice(0, 12)), logged);
   ok("failure facts: shape only", facts.tokenLength === tok.length && facts.decodesToUserId === true && facts.rawWasCleaned === true && facts.looksLikeSigningKey === false);
   ok("failure facts: a signing key pasted as the token is named", publishFailureFacts("sig_abc", "sig_abc", "x", new Error("401")).looksLikeSigningKey === true);
+}
+
+// ── 6. reliability: the per-business poll (static — the db suite proves behaviour) ──
+{
+  const root = process.cwd();
+  const strip = (p: string) => fs.readFileSync(path.join(root, p), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  const service = strip("lib/services/tasks/task-reminders.service.ts");
+  const poll = strip("app/api/tasks/reminders/pending/route.ts");
+  ok("poll: the in-app poll dispatches only the caller's own business", /dispatchDueReminders\(now, actor\.businessId\)/.test(poll));
+  ok("poll: its due list is read inside that business's tenant tx (no global top-100 then filter)",
+    /dueRemindersForBusiness\(opts\.onlyBusinessId, cutoff\)/.test(service) && /export async function dueRemindersForBusiness[\s\S]*?tenantTx\(businessId, \(tx\) =>\s*tx\.task\.findMany\(/.test(service) && !/\.filter\(\(d\) => onlyBusinessId/.test(service));
+  ok("poll: same due conditions as task_reminders_due()", /status: "OPEN", remindAt: \{ not: null, lte: now \}, reminderSentAt: null, erasedAt: null/.test(service));
+  ok("claim: still the one guard against a double send", /reminderSentAt: null, remindAt: due\.remindAt/.test(service));
 }
 
 door().then(() => {
