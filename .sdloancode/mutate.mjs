@@ -46,6 +46,9 @@ const PURE = [
       // The balance`],
 ];
 const SERVICE = [
+  ["case: DELIVER keeps a loaner override with no loan out (the database must refuse it)", CASE, `      if (context.openLoaner) {
+        if (!action.loanerOverride) fail("OPEN_LOANER", "the temporary replacement item has not been returned");`, `      if (context.openLoaner || action.loanerOverride) {
+        if (!action.loanerOverride) fail("OPEN_LOANER", "the temporary replacement item has not been returned");`],
   ["service: openLoaner hard-coded false again", CASESVC, `openLoaner: await caseHasOpenLoan(tx, businessId, caseId),`, `openLoaner: false,`],
   ["service: the cancel exit approval not written", CASESVC, `    const n = await recordLoanerExitApproval(`, `    const n = 1 || await recordLoanerExitApproval(`],
   ["service: no earlier-answer lookup (idempotency)", SVC, `    const prior = await findPriorLoanEvent(tx, b, prepared);\n`, `    const prior = null as { loanId: number; caseId: number } | null;\n`],

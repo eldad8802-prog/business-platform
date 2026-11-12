@@ -222,6 +222,16 @@ async function main() {
     const r3 = await act(A, n, { ...DELIVER, loanerOverride: { reason: "אין חלופי" } });
     const hn = (await own(A.b, `SELECT "loanerOverrideReason" r, "loanerApprovedByUserId" a FROM "ServiceHandover" WHERE "caseId" = $1`, n))[0];
     ok("V5 DELIVER of a case with no loan: delivered, no loaner exception stored (an override is ignored)", r3 === "OK" && hn?.r === null && hn?.a === null, `${r3} ${JSON.stringify(hn)}`);
+    // owner 2026-11-12: no loan out ⇒ no loaner approval / reason — the service never sends one (the database refuses it:
+    // SERVICE_HANDOVER_LOANER_NONE, 20261201090000)
+    const rt = await inRepair(A);
+    await toReady(A, rt);
+    const lr = (await lend(A, rt, { exceptionReason: "עד שיאסוף", itemIdentifier: "DLV-RET" })).loan!;
+    const ret = await loanAct(A, rt, lr.id, { type: "RETURN", conditionAtReturn: "GOOD" });
+    const r6 = await act(A, rt, { ...DELIVER, loanerOverride: { reason: "כבר הוחזר", ...forged } });
+    const h6 = (await own(A.b, `SELECT "loanerOverrideReason" r, "loanerApprovedByUserId" a, "loanerApprovedAt" t FROM "ServiceHandover" WHERE "caseId" = $1`, rt))[0];
+    ok("V6 the loan returned, then DELIVER with an override → delivered; no loaner reason / approver / time stored (nothing to approve)",
+      ret === "OK" && r6 === "OK" && h6?.r === null && h6?.a === null && h6?.t === null, `${ret} | ${r6} ${JSON.stringify(h6)}`);
   }
 
   console.log("K — CANCEL / ABANDON with a loan OUT");
