@@ -5,7 +5,7 @@
 --   20261201090000_service_desk_loans   (NOT applied)
 --
 -- Proves Production is the shape the migration expects:
---   * the ledger is clean; this migration is not recorded; nothing after it is finished;
+--   * the ledger is clean; this migration is not recorded; no later Service Desk migration is finished (other modules may be);
 --   * the handover record (20261130090000_service_handover_debt_record) is recorded and finished, and its three loaner
 --     columns on ServiceHandover exist — they are a premise;
 --   * none of the names it introduces exists yet: the two tables, the five enum types, the eight functions, the two
@@ -24,7 +24,7 @@
 \echo '== service desk loans preflight: legend (n -> check) =='
 \echo ' 1 ledger: no unfinished and no rolled-back row'
 \echo ' 2 20261201090000_service_desk_loans is NOT recorded'
-\echo ' 3 no finished migration sorts after it'
+\echo ' 3 no finished Service Desk migration (name containing _service_) sorts after it; later migrations of other modules are fine'
 \echo ' 4 the handover record 20261130090000 is recorded and finished'
 \echo ' 5 the three ServiceHandover loaner columns exist (of 3)'
 \echo ' 6 neither loan table exists yet'
@@ -42,7 +42,7 @@
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261201090000_service_desk_loans'), 0
-  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261201090000_service_desk_loans' AND finished_at IS NOT NULL), 0
+  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261201090000_service_desk_loans' AND position('_service_' in migration_name) > 0 AND finished_at IS NOT NULL), 0
   UNION ALL SELECT 4, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261130090000_service_handover_debt_record'
                           AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 1
   UNION ALL SELECT 5, (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ServiceHandover'
