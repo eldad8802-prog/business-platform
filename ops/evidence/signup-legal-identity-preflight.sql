@@ -5,7 +5,7 @@
 -- database BEFORE it is applied. Every check must PASS before the release applies it. After it is applied,
 -- exactly checks 2, 3, 4 and 5 turn FAIL (they describe "not there yet").
 -- Ordering: it depends on no other pending migration and may be released before or after a later-sorting one (the
--- release gate and Prisma both accept that — verified by the Service Desk session on a lab copy, 2026-11-13). Check 1
+-- release gate and Prisma both accept that — verified by the Service Desk session in a lab, 2026-11-13). Check 1
 -- only asks that the ledger is clean: no failed or rolled-back attempt waiting to be resolved.
 -- OUTPUT: n | result (PASS/FAIL) | observed_count. Guard-clean: SELECT only. Counts only, no row values.
 -- ============================================================================
