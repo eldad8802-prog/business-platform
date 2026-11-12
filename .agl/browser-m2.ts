@@ -28,6 +28,20 @@ import fs from "node:fs";
 import { chromium, type Browser, type Page } from "playwright";
 import { PrismaClient } from "@prisma/client";
 
+/** The Google completion form since 2026-11-12: step 2 (kind + legal identity; the trade name becomes Business.name), then the review and the terms. */
+async function fillGoogleBusiness(page: import("playwright").Page, tradeName: string) {
+  await page.locator("#g-kind").selectOption("AUTHORIZED_DEALER");
+  await page.locator("#g-legalName").fill("דנה כהן");
+  await page.locator("#g-taxId").fill("000000018");
+  await page.locator("#g-tradeName").fill(tradeName);
+  await page.locator("#g-address").fill("הרצל 1, תל אביב");
+  await page.locator("#g-phone").fill("0501234567");
+  await page.getByTestId("signup-next").click();
+  await page.getByTestId("signup-review").waitFor({ state: "visible" });
+  await page.locator("#g-terms").check();
+}
+
+
 const BASE = process.env.BASE ?? "http://localhost:3611";
 const MOCK = process.env.MOCK ?? "http://localhost:3901";
 const MODE = process.env.MODE ?? "on";
@@ -96,7 +110,7 @@ async function serverCancel(browser: Browser) {
   // The page's read (401) made this browser forget the copy; put it back, so the completion carries it.
   await b.addCookies([copy!]);
   const forged = await pageB.request.post(`${BASE}/api/auth/google/complete`, {
-    headers: { origin: BASE }, data: { name: "דנה כהן", businessName: `מאפייה ${stamp}`, businessKind: "AUTHORIZED_DEALER", acceptTerms: true },
+    headers: { origin: BASE }, data: { name: "דנה כהן", businessName: `מאפייה ${stamp}`, businessKind: "AUTHORIZED_DEALER", legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", acceptTerms: true },
   });
   ok("8 …and a completion with the copy is refused (409), no account", forged.status() === 409 && (await users(w8.email)) === 0);
   await b.close();
@@ -132,9 +146,7 @@ async function serverCancel(browser: Browser) {
   const pageE = await e.newPage();
   await pageE.goto(`${BASE}/register/google`);
   await pageE.getByTestId("google-signup-form").waitFor({ state: "visible", timeout: 30_000 });
-  await pageE.locator("#g-business").fill(`מאפיית דנה ${stamp}`);
-  await pageE.locator("#g-business-kind").selectOption("AUTHORIZED_DEALER");
-  await pageE.locator("#g-terms").check();
+  await fillGoogleBusiness(pageE, `מאפיית דנה ${stamp}`);
   await pageE.getByTestId("google-signup-submit").click();
   await pageE.waitForURL(/\/setup/, { timeout: 30_000 });
   const before = await owner.user.findUnique({ where: { email: w10.email }, select: { id: true, businessId: true } });
@@ -180,9 +192,9 @@ async function onMode(browser: Browser) {
     ok(`${vp.name} 2 no horizontal overflow`, await noOverflow(page));
     await shot(page, `${vp.name}-2-complete-form`);
 
-    await page.getByTestId("google-signup-submit").click();
-    await page.locator("#g-business-msg").waitFor({ state: "visible" });
-    ok(`${vp.name} 3 an empty business name is stopped in the form`, (await page.locator("#g-business-msg").innerText()).includes("שם עסק") && (await users(who.email)) === 0);
+    await page.getByTestId("signup-next").click();
+    await page.locator("#g-kind-msg").waitFor({ state: "visible" });
+    ok(`${vp.name} 3 no business kind is stopped in the form (step 2), nothing sent`, (await page.locator("#g-kind-msg").innerText()).includes("סוג העסק") && (await users(who.email)) === 0);
     await shot(page, `${vp.name}-3-form-errors`);
 
     await page.getByTestId("google-signup-cancel").click();
@@ -198,9 +210,7 @@ async function onMode(browser: Browser) {
     await page.waitForURL(/\/register\/google$/);
     await page.getByTestId("google-signup-form").waitFor({ state: "visible" });
     ok(`${vp.name} 5 back to Google → the form again (one open ticket)`, (await tickets(who.sub)) === 1);
-    await page.locator("#g-business").fill(biz);
-    await page.locator("#g-business-kind").selectOption("AUTHORIZED_DEALER");
-    await page.locator("#g-terms").check();
+    await fillGoogleBusiness(page, biz);
     await page.getByTestId("google-signup-submit").click();
     await page.waitForURL(/\/setup/, { timeout: 30_000 });
     ok(`${vp.name} 5 completion → /setup with a stored session`, !!(await page.evaluate(() => localStorage.getItem("token"))));

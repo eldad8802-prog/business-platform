@@ -59,6 +59,9 @@ const M1_CASEFOLD = MIG("20261011090200_user_email_casefold_unique");
 // Transactional email: signup records the WELCOME it owes in the account transaction, so the
 // signup plane's INSERT on TransactionalEmail is part of the signup contract this lab proves.
 const TE = MIG("20261015090000_transactional_email_foundation");
+// Signup legal identity: the register route writes the business's legal identity INSIDE the account transaction
+// through signup_legal_identity_seed (app_auth EXECUTE only), so the lab carries the shipped file.
+const SLI = MIG("20261128090000_signup_legal_identity");
 
 const RUNTIME_ROLE = "app_runtime_battery";
 const RUNTIME_PW = "authfix_ci_synthetic_runtime_pw";
@@ -191,6 +194,16 @@ async function main() {
   // db push built TransactionalEmail from the model, without the migration's RLS and grants.
   await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS "TransactionalEmail" CASCADE`);
   for (const s of statements(readFileSync(TE, "utf8"))) await owner.$executeRawUnsafe(s);
+  // db push built the two confirmation columns from the model: remove them so the shipped migration builds them
+  // with its checks, its seed function and its lock trigger, exactly as Production will have them.
+  await owner.$executeRawUnsafe(`ALTER TABLE "BusinessProfile" DROP COLUMN IF EXISTS "legalIdentityConfirmedAt", DROP COLUMN IF EXISTS "legalIdentitySource"`);
+  for (const s of statements(readFileSync(SLI, "utf8"))) await owner.$executeRawUnsafe(s);
+  {
+    const fn = await owner.$queryRawUnsafe<Array<{ v: boolean }>>(
+      `SELECT has_function_privilege('app_auth', 'public.signup_legal_identity_seed(integer,text,text,text,text,text,text)', 'EXECUTE') AS v`
+    );
+    ok("signup legal identity migration applied: app_auth executes the seed", fn[0]?.v === true);
+  }
   {
     const te = await owner.$queryRawUnsafe<Array<{ r: boolean; f: boolean }>>(
       `SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE relname = 'TransactionalEmail'`
@@ -526,6 +539,7 @@ async function main() {
           name: "בעלת עסק",
           businessName,
           businessKind: "AUTHORIZED_DEALER",
+          legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid",
           acceptTerms: true,
           attribution: { utm_source: "facebook", utm_medium: "<b>", referrer: "https://www.google.com/search?q=private" },
         }),
@@ -542,25 +556,39 @@ async function main() {
   const bodyB = (await resB.json()) as RegisterBody;
   ok("a second owner registers too", resB.status === 200, `status ${resB.status} ${bodyB.error ?? ""}`);
 
-  // 3b — the business kind chosen at signup (owner decision 2026-11-11) is seeded by the REAL route through
-  //      the tenant runtime under FORCE RLS: written once, never over an existing kind.
+  // 3b — the legal identity entered at signup (owner decision 2026-11-12) is written by the REAL route INSIDE the
+  //      account transaction (signup_legal_identity_seed, migration 20261128090000) and confirmed (SIGNUP): read back
+  //      as the owner, it is exactly what was typed (canonical), for that business only, and locked.
   {
-    const { seedSignupBusinessKind } = await import("@/lib/auth/signup-business-kind");
-    const kindOf = async (businessId: number) =>
-      (await owner.businessProfile.findUnique({ where: { businessId }, select: { billingBusinessKind: true } }))?.billingBusinessKind ?? null;
+    const profileOf = async (businessId: number) =>
+      owner.businessProfile.findUnique({
+        where: { businessId },
+        select: { billingBusinessKind: true, billingLegalName: true, billingTaxId: true, billingAddress: true, billingPhone: true,
+                  billingEmail: true, legalIdentitySource: true, legalIdentityConfirmedAt: true },
+      });
     const bizA = bodyA.user?.businessId ?? -1;
     const bizB = bodyB.user?.businessId ?? -1;
-    ok("signup seeded the chosen kind into the new business's profile (real route, tenant runtime)", (await kindOf(bizA)) === "AUTHORIZED_DEALER", String(await kindOf(bizA)));
-    ok("...and only that business's profile — the other new business has its own", (await kindOf(bizB)) === "AUTHORIZED_DEALER");
-    const again = await seedSignupBusinessKind(bizA, "LTD_COMPANY");
-    ok("a second seed never overwrites an existing kind (kept, value unchanged)", again === "kept" && (await kindOf(bizA)) === "AUTHORIZED_DEALER", again);
-    await owner.businessProfile.update({ where: { businessId: bizB }, data: { billingBusinessKind: null } });
-    const fill = await seedSignupBusinessKind(bizB, "EXEMPT_DEALER");
-    ok("a profile that exists without a kind is filled (seeded)", fill === "seeded" && (await kindOf(bizB)) === "EXEMPT_DEALER", fill);
-    const noBiz = await seedSignupBusinessKind(2_000_000_000, "LTD_COMPANY");
-    ok("a business that does not exist is never created by the seed (failed, contained)", noBiz === "failed" &&
-      (await owner.businessProfile.count({ where: { businessId: 2_000_000_000 } })) === 0, noBiz);
-    await owner.businessProfile.update({ where: { businessId: bizB }, data: { billingBusinessKind: "AUTHORIZED_DEALER" } });
+    const pA = await profileOf(bizA);
+    ok("signup wrote the legal identity into the new business's profile (real route, account transaction)",
+      pA?.billingBusinessKind === "AUTHORIZED_DEALER" && pA?.billingLegalName === "דנה כהן" && pA?.billingTaxId === "000000018"
+        && pA?.billingAddress === "הרצל 1, תל אביב" && pA?.billingPhone === "0501234567" && pA?.billingEmail === "biz@lab.invalid",
+      JSON.stringify(pA));
+    ok("...confirmed at signup (legalIdentitySource SIGNUP)", pA?.legalIdentitySource === "SIGNUP" && pA?.legalIdentityConfirmedAt instanceof Date);
+    const pB = await profileOf(bizB);
+    ok("...and the other new business has its own confirmed profile", pB?.legalIdentitySource === "SIGNUP" && bizA !== bizB);
+    const shown = await owner.business.findUnique({ where: { id: bizA }, select: { name: true } });
+    ok("the trade name (legacy businessName) is the name the app shows", shown?.name === "עסק א", String(shown?.name));
+    // An invalid identity never reaches the database and leaves no account behind.
+    const badEmail = `bad-identity-${Date.now()}@lab.invalid`;
+    const bad = await registerRoute.POST(new Request("https://lab.invalid/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": `198.51.100.${++ipSeq}` },
+      body: JSON.stringify({ email: badEmail, password: PASSWORD, name: "בעלת עסק", businessKind: "AUTHORIZED_DEALER",
+        legalName: "דנה כהן", taxId: "123456789", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", acceptTerms: true }),
+    }));
+    const badBody = (await bad.json()) as { field?: string };
+    ok("an invalid tax id is 400 on taxId and leaves no account", bad.status === 400 && badBody.field === "taxId"
+      && (await owner.user.count({ where: { email: badEmail } })) === 0);
   }
 
   const tokenA = bodyA.token ?? "";
@@ -779,7 +807,7 @@ async function main() {
       new Request("https://lab.invalid/api/auth/register", {
         method: "POST",
         headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.250" },
-        body: JSON.stringify({ email: `noconsent-${Date.now()}@lab.invalid`, password: PASSWORD, name: "x y", businessName: "עסק", businessKind: "AUTHORIZED_DEALER" }),
+        body: JSON.stringify({ email: `noconsent-${Date.now()}@lab.invalid`, password: PASSWORD, name: "x y", businessName: "עסק", businessKind: "AUTHORIZED_DEALER", legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid" }),
       })
     );
     ok("no consent → 400 and nothing created", noConsent.status === 400 && (await businessCount()) === before);
