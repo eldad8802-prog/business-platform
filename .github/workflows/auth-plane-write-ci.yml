@@ -52,6 +52,9 @@ on:
       - "app/(shell)/setup/**"
       - "app/register/**"
       - ".authfix/**"
+      - "scripts/qa/auth/**"
+      - "lib/native/**"
+      - "android/app/src/main/java/**"
       - ".github/workflows/auth-plane-write-ci.yml"
   workflow_dispatch:
 
@@ -167,6 +170,67 @@ jobs:
       - name: Persistent login — refresh telemetry, closed vocabulary
         run: npx tsx lib/auth/refresh-telemetry.test.ts
 
+      # Several tabs, one cookie jar: without a lock, overlapping refreshes leave
+      # the jar holding a secret that dies with its grace (the control proves it
+      # happens); under Web Locks and under the localStorage lease, seeded
+      # interleavings make exactly one rotation and leave the jar current. Lost
+      # responses are recovered inside the 120 s grace, never by widening it, and
+      # nothing on the client ever revokes.
+      - name: Persistent login — cross-tab lock, lost responses, retry schedule
+        run: npx tsx lib/auth/refresh-client.concurrency.test.ts
+
+      # One decision for a refused session: refreshable → stay (a read retried
+      # once, a write never); ended by the server → cleared, hidden, /login;
+      # network / 429 / 5xx → nothing cleared. And the source lock that keeps
+      # every authenticated screen under the coordinator and the token's removal
+      # inside the auth modules.
+      - name: Session guard — refused sessions, coverage of every authenticated screen
+        run: |
+          npx tsx lib/auth/session-guard.test.ts
+          npx tsx lib/auth/session-guard-coverage.test.ts
+
+      # Android: the cookie jar is persisted after every RECEIVED auth response
+      # (the device proof — kill 3 s after sign-in / refresh / sign-out — is the
+      # emulator QA); the helper is a no-op outside the app.
+      - name: Android cookie persistence — requested once per received auth response
+        run: npx tsx lib/native/auth-cookies.test.ts
+
+      # The device bug PR-E fixes, as two one-line regressions the suite must catch.
+      - name: negative proof — a refused session that stays on screen / a chrome without the coordinator
+        run: |
+          mutate () {
+            F="$1"; cp "$F" "$F.bak"
+            node -e "const fs=require('fs');const f=process.argv[1];const s=fs.readFileSync(f,'utf8');const m=s.replace(process.argv[2],process.argv[3]);if (m === s) process.exit(9);fs.writeFileSync(f,m)" "$F" "$2" "$3" \
+              || { mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED: $4"; exit 1; }
+            if ! node scripts/ci/expect-red.mjs --id "auth-plane-write-ci.yml:session-guard-$4" --expect "$5" -- npx tsx "$6"; then
+              mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: $4"; exit 1
+            fi
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS: $4"
+          }
+          mutate lib/auth/session-guard.ts 'window.location.replace(`${window.location.origin}/login`);' '/* stays */' stays-on-screen 'FAIL  - ...and replaced by /login' lib/auth/session-guard.test.ts
+          mutate lib/auth/session-guard.ts 'if (rejectedToken === null && signOutPending()) {' 'if (false) {' pending-signout-resumed 'FAIL  - PENDING SIGN-OUT, no token' lib/auth/session-guard.test.ts
+          mutate components/navigation/shell-chrome.tsx '<RefreshCoordinator>' '<>' no-coordinator 'FAIL  - the coordinator is mounted by ShellChrome' lib/auth/session-guard-coverage.test.ts
+          git diff --exit-code
+
+      # Each of these is a one-line regression that would quietly bring back
+      # concurrent rotations. The suite must go red for each, for the right reason.
+      - name: negative proof — refresh lock bypassed / adopt check removed / no heartbeat
+        run: |
+          F=lib/auth/refresh-client.ts
+          mutate () {
+            cp "$F" "$F.bak"
+            node -e "const fs=require('fs');const f=process.argv[1];const s=fs.readFileSync(f,'utf8');const m=s.replace(process.argv[2],process.argv[3]);if (m === s) process.exit(9);fs.writeFileSync(f,m)" "$F" "$1" "$2" \
+              || { mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED: $3"; exit 1; }
+            if ! node scripts/ci/expect-red.mjs --id "auth-plane-write-ci.yml:refresh-$3" --expect "$4" -- npx tsx lib/auth/refresh-client.concurrency.test.ts; then
+              mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: $3"; exit 1
+            fi
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS: $3"
+          }
+          mutate 'return locks.request(REFRESH_LOCK_NAME, { mode: "exclusive" }, fn);' 'return fn();' lock-bypassed 'FAIL  - WEB LOCKS, 2 tabs'
+          mutate 'if (replacedSince(startToken)) return "refreshed";' '' adopt-removed 'FAIL  - LEASE FALLBACK, 2 tabs'
+          mutate '}, LEASE_HEARTBEAT_MS);' '}, 10 * 60_000);' no-heartbeat 'FAIL  - ...the waiter sent ZERO requests while the holder was still retrying'
+          git diff --exit-code
+
       # The device label is built from a header the caller controls, so the thing
       # under test is not "does it recognise Chrome". It is whether a hostile
       # User-Agent can ever put text of its choosing on the owner's screen.
@@ -239,3 +303,23 @@ jobs:
         env:
           OWNER_URL: ${{ env.OWNER_URL }}
         run: npx tsx prisma/migrations/20260913120000_authsession_user_agent/grant-delta.test.ts
+
+  # The three properties the unit model cannot prove, because the browser decides
+  # them: the real Web Locks API, the real cookie jar's ordering under HttpOnly
+  # Set-Cookie, and a keepalive response landing after navigation. No database,
+  # no secrets: a local server on 127.0.0.1 implements the engine's rotation and
+  # grace rules.
+  refresh-multitab-browser:
+    name: persistent login — multi-tab refresh in a real browser (Chromium)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Multi-tab refresh — Web Locks, lease fallback, lost responses, navigation
+        run: node scripts/qa/auth/refresh-multitab.browser.mjs
