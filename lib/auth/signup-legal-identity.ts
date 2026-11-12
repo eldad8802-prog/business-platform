@@ -20,7 +20,7 @@
 import { authoritativeTaxId } from "@/lib/identity/tax-id";
 
 export const LEGAL_NAME_MIN = 2;
-export const LEGAL_NAME_MAX = 200;
+export const LEGAL_NAME_MAX = 120; // = the issuer declaration bound (#1117): a locked name it cannot carry would be stuck
 export const TRADE_NAME_MAX = 120; // = MAX_BUSINESS_NAME_LENGTH: the trade name becomes Business.name
 export const ADDRESS_MIN = 2;
 export const ADDRESS_MAX = 300;
@@ -75,7 +75,7 @@ const collapse = (s: string) => s.trim().replace(/\s+/g, " ");
 
 export function normalizePhone(raw: string): string | null {
   const compact = raw.trim().replace(/[\s\-().]/g, "");
-  return /^\+?\d{7,15}$/.test(compact) ? compact : null;
+  return /^\+?\d{9,15}$/.test(compact) ? compact : null;
 }
 
 const FIELD_ORDER: readonly LegalIdentityField[] = ["legalName", "taxId", "tradeName", "address", "phone", "businessEmail"];
