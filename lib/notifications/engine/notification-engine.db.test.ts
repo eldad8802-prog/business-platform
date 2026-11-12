@@ -130,6 +130,12 @@ async function main() {
     businessId, category: "inventory.critical_stock" as const, entity: { type: "inventory_item", id: Math.floor(Math.random() * 1e9) },
     title: "יוסי כהן — 3 יחידות", summary: "ספק: יוסי כהן", href: "/inventory", now: NOW, ...over,
   });
+  // Earlier sections' pushes count against the per-user rate limit (4 / hour); a section that is not about the limit
+  // starts as if a day had passed since them (the rows stay, only their send time moves back).
+  const ageSends = () => owner.notificationDelivery.updateMany({
+    where: { channel: "PUSH", status: "SENT", subscriptionId: { not: null }, attemptedAt: { gt: at(NOW, -2 * 24 * 60) } },
+    data: { attemptedAt: at(NOW, -2 * 24 * 60) },
+  });
   const notifyIn = (businessId: number, over: Record<string, unknown> = {}) =>
     tenantTx(businessId, (tx) => notify(tx, event(businessId, over) as Parameters<typeof notify>[1]));
 
@@ -177,6 +183,7 @@ async function main() {
     ok("…and is retried once the lease has run out", (await run(at(NOW, 3), A)).devicesSent === 1);
 
     console.log("transient retry");
+    await ageSends();
     behaviour.set(tA1, "unavailable");
     const tr = await notifyIn(A, { userId: a1 });
     await run(NOW, A);
@@ -198,6 +205,7 @@ async function main() {
     behaviour.set(tA1, "ok");
 
     console.log("invalid token");
+    await ageSends();
     const sGone = await session(a1);
     const tGone = tok("gone");
     const goneDev = await register(A, a1, sGone, tGone);
@@ -209,19 +217,37 @@ async function main() {
     ok("UNREGISTERED ⇒ the device is revoked 'gone'", goneRow.revokedAt !== null && goneRow.revokedReason === "gone", goneRow);
     ok("…while the other device still received it", (await owed(A, gn.notificationId)).some((d) => d.status === "SENT" && d.subscriptionId !== null));
 
+    console.log("rate limit");
+    await ageSends();
+    const rl: number[] = [];
+    for (let i = 0; i < 5; i++) rl.push((await notifyIn(A, { userId: a1 })).notificationId);
+    for (const id of rl) { void id; }
+    await run(NOW, A);
+    const rlStates = await Promise.all(rl.map(async (id) => (await owed(A, id)).find((d) => d.subscriptionId === null)!));
+    ok("4 pushes in an hour go out, the 5th is held: SUPPRESSED rate_limited", rlStates.filter((d) => d.status === "SENT").length === 4 && rlStates.filter((d) => d.error === "rate_limited").length === 1, rlStates.map((d) => d.error ?? d.status));
+    const exempt = await tenantTx(A, (tx) => notify(tx, { businessId: A, category: "tasks.reminder", entity: { type: "task", id: 78 }, title: "x", href: "/tasks", userId: a1, now: NOW }));
+    await run(NOW, A);
+    ok("…a user-set reminder is exempt and still goes out", (await owed(A, exempt.notificationId)).some((d) => d.status === "SENT" && d.subscriptionId !== null));
+
     console.log("quiet hours");
-    const q = await notifyIn(A, { userId: a1, now: NIGHT });
+    await ageSends();
+    // billing.failure: TTL 12 h, so the end of the night is before the expiry (a 6 h TTL would be held for the digest).
+    const q = await notifyIn(A, { userId: a1, now: NIGHT, category: "billing.failure", entity: { type: "billing_document", id: 31 }, href: "/billing/31" });
     await run(NIGHT, A);
     const qOwed = (await owed(A, q.notificationId))[0];
     ok("23:00 ⇒ deferred to 07:00 Jerusalem (05:00Z), nothing sent", qOwed.status === "PENDING" && qOwed.nextAttemptAt?.toISOString() === "2026-12-02T05:00:00.000Z", qOwed);
     ok("…not due at 06:59", (await run(new Date("2026-12-02T04:59:00Z"), A)).claimed === 0);
     await run(new Date("2026-12-02T05:00:30Z"), A);
     ok("…sent at 07:00", (await owed(A, q.notificationId)).some((d) => d.status === "SENT" && d.subscriptionId !== null));
+    const qShort = await notifyIn(A, { userId: a1, now: NIGHT });
+    await run(NIGHT, A);
+    ok("a 6 h TTL ending before 07:00: held for the digest (SUPPRESSED quiet)", (await owed(A, qShort.notificationId))[0].error === "quiet");
     const rem = await tenantTx(A, (tx) => notify(tx, { businessId: A, category: "tasks.reminder", entity: { type: "task", id: 77 }, title: "להתקשר", href: "/tasks?task=77", userId: a1, now: NIGHT }));
     await run(NIGHT, A);
     ok("a user-set reminder bypasses quiet hours", (await owed(A, rem.notificationId)).some((d) => d.status === "SENT" && d.subscriptionId !== null));
 
     console.log("settings");
+    await ageSends();
     const actorA1 = { businessId: A, userId: a1 };
     await store.putPreference(actorA1, "category:inventory.critical_stock", { inApp: null, push: false, delivery: null }, NOW);
     const p1 = await notifyIn(A, { userId: a1 });
@@ -245,6 +271,7 @@ async function main() {
     await store.resetPreferences(actorA1);
 
     console.log("feature off");
+    await ageSends();
     await store.putPreference(actorA1, "domain:inventory", { inApp: null, push: true, delivery: null }, NOW);
     await owner.$executeRawUnsafe(`UPDATE "BusinessFeatureAccess" SET "state" = 'DISABLED' WHERE "businessId" = $1 AND "featureKey" = 'inventory'`, A);
     const f1 = await notifyIn(A, { userId: a1 });
@@ -255,6 +282,7 @@ async function main() {
     await store.resetPreferences(actorA1);
 
     console.log("two users, one business");
+    await ageSends();
     const sA2 = await session(a2);
     const tA2 = tok("a2");
     await register(A, a2, sA2, tA2);
@@ -268,6 +296,7 @@ async function main() {
     ok("each user's own device only", JSON.stringify(tokens) === JSON.stringify([tA1, tA2].sort()), tokens);
 
     console.log("sessions");
+    await ageSends();
     await dev.revokeSessionDevicesBestEffort(A, sA1, "logout", a1);
     const lo = await owner.pushSubscription.findFirstOrThrow({ where: { businessId: A, endpoint: `fcm:${tA1}` } });
     ok("device logout ⇒ the session's device revoked 'logout'", lo.revokedAt !== null && lo.revokedReason === "logout");
@@ -329,6 +358,7 @@ async function main() {
     ok("a token-version bump: no session of the user is live, nothing sent", (await owed(A, bump.notificationId))[0].error === "no_device");
 
     console.log("two businesses, engine OFF, historical rows");
+    await ageSends();
     const sC1 = await session(c1);
     const tC1 = tok("c1");
     await owner.pushSubscription.create({ data: { businessId: C, userId: c1, endpoint: `fcm:${tC1}`, provider: "FCM", p256dh: "", auth: "", platform: "android", authSessionId: sC1 } });
@@ -364,6 +394,7 @@ async function main() {
     ok("the snapshot writer's owed PUSH row carries expiresAt = now + 6 h (userId NULL)", wPush?.status === "PENDING" && wPush.expiresAt?.getTime() === at(NOW, 360).getTime() && wPush.userId === null, wPush);
 
     console.log("digest");
+    await ageSends();
     const sD1 = await session(d1); const tD1 = tok("d1"); await register(D, d1, sD1, tD1);
     const sD2 = await session(d2); const tD2 = tok("d2"); await register(D, d2, sD2, tD2);
     await store.putPreference({ businessId: D, userId: d1 }, "domain:billing", { inApp: null, push: null, delivery: "digest" }, NOW);
