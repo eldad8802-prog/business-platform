@@ -293,7 +293,52 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
-      - name: Confirm the tree is byte-identical after both mutations
+      # Per-device logout: the laptop that signs out ends its own session and the
+      # phone stays signed in, while "every device", a sid-less token and any
+      # generation bump still end everything — and a device revocation that
+      # cannot be written is reported as a failure, never as a sign-out.
+      - name: Logout scope — per device by default, everywhere on request (PG17)
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .authfix/logout-scope-battery.ts
+
+      # Turning the default back into a global logout must be noticed: that is
+      # exactly the regression that signed phones out on every account switch.
+      - name: negative proof — a default logout that ends every device
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: |
+          F=app/api/auth/logout/route.ts
+          cp "$F" "$F.bak"
+          node -e "const fs=require('fs');const f=process.argv[1];const s=fs.readFileSync(f,'utf8');const m=s.replace('const effective: LogoutScope = scope === \"device\" && sessionId !== null ? \"device\" : \"all\";','const effective: LogoutScope = \"all\";');if (m === s) process.exit(9);fs.writeFileSync(f,m)" "$F" \
+            || { mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; }
+          if ! node scripts/ci/expect-red.mjs --id "auth-plane-write-ci.yml:logout-scope-default" --expect 'FAIL  - PHONE (Android WebView) still authenticates' -- npx tsx .authfix/logout-scope-battery.ts; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a global default logout would go unnoticed"
+            exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      # Cookie logout accepts a rotated secret only inside its grace. Dropping the
+      # time bound would be a longer replay window by another name.
+      - name: negative proof — cookie logout that accepts a secret past its grace
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: |
+          F=lib/auth/refresh-session.ts
+          cp "$F" "$F.bak"
+          node -e "const fs=require('fs');const f=process.argv[1];const s=fs.readFileSync(f,'utf8');const m=s.replace('proven = historic !== null && input.now <= historic.graceUntil;','proven = historic !== null;');if (m === s) process.exit(9);fs.writeFileSync(f,m)" "$F" \
+            || { mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; }
+          if ! node scripts/ci/expect-red.mjs --id "auth-plane-write-ci.yml:cookie-logout-grace" --expect 'FAIL  - COOKIE (rotated secret, PAST grace): revoked=false' -- npx tsx .authfix/logout-scope-battery.ts; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: cookie logout would accept an expired grace"
+            exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after every mutation
         run: git diff --exit-code
 
       # The migration's own grant delta, kept as a standing check: the new column
@@ -323,3 +368,34 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Multi-tab refresh — Web Locks, lease fallback, lost responses, navigation
         run: node scripts/qa/auth/refresh-multitab.browser.mjs
+
+  # Honest sign-out, in the browser that decides it: a 500 or no network keeps
+  # the device signed in and says so; "clear anyway" stores only a session-id
+  # marker and finishes later with the HttpOnly cookie as proof (attached by the
+  # browser, invisible to scripts); a sign-in in between is never ended by it.
+  logout-honest-browser:
+    name: honest sign-out — client outcomes and pending revoke (Chromium)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Honest sign-out — 500, offline, clear anyway, pending revoke, re-sign-in, expired token
+        run: node scripts/qa/auth/logout-honest.browser.mjs
+      # The regression this exists to prevent: clearing local state although the
+      # server did not end the session. The suite must go red, for that reason.
+      - name: negative proof — clearing local state on a failed sign-out
+        run: |
+          F=lib/client-session.ts
+          cp "$F" "$F.bak"
+          node -e "const fs=require('fs');const f=process.argv[1];const s=fs.readFileSync(f,'utf8');const a='    console.error(\"signOut: server did not revoke the session\", res.status);\n    return \"server_failed\";';const m=s.replace(a,'    clearClientSession();\n    return \"server_failed\";');if (m === s) process.exit(9);fs.writeFileSync(f,m)" "$F" \
+            || { mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; }
+          if ! node scripts/ci/expect-red.mjs --id "auth-plane-write-ci.yml:logout-honest" --expect 'FAIL  - ...the local session is KEPT' -- node scripts/qa/auth/logout-honest.browser.mjs; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a false sign-out would go unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"; git diff --exit-code; echo "NEGATIVE-PROOF PASS"
