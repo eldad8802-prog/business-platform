@@ -205,19 +205,19 @@ async function main() {
   await unlinkByKeyQuiet(v1Key);
   const app2 = await restore(m3, true);
   const r2after = await call(m3);
-  const t2 = await pdfText(r2after.buffer);
+  const text2 = await pdfText(r2after.buffer);
   ok("R2 restore reproduces the pre-#1108 original with the frozen template (exact bytes)",
     app2.verdict === "VERIFIED_BY_RERENDER" && r2after.buffer.equals(v1bytes), JSON.stringify(app2));
   ok("R2 the restored PDF is the OLD template (RECEIPT, no קבלה) — today's template is never presented as the original",
-    t2.includes("RECEIPT") && !t2.includes("קבלה"));
+    text2.includes("RECEIPT") && !text2.includes("קבלה"));
 
   // R3 a hash nothing can reproduce (the synthetic old-template bytes of N5)
   await unlinkByKeyQuiet(legacyKey);
   const objsR3 = storedObjects();
-  const r3 = await restore(m.id, true);
+  const res3 = await restore(m.id, true);
   ok("R3 NOT_VERIFIED: nothing written, no audit event, the receipt stays refused",
-    r3.verdict === "NOT_VERIFIED" && r3.applied === false && storedObjects() === objsR3
-      && (await restoredEvents(m.id)) === 0 && (await refused(m.id))?.code === "RECEIPT_STORED_PDF_UNAVAILABLE", JSON.stringify(r3));
+    res3.verdict === "NOT_VERIFIED" && res3.applied === false && storedObjects() === objsR3
+      && (await restoredEvents(m.id)) === 0 && (await refused(m.id))?.code === "RECEIPT_STORED_PDF_UNAVAILABLE", JSON.stringify(res3));
 
   // R4 a sealed accountant package holds the exact bytes
   const m4 = await newReceipt("90.00");
@@ -241,9 +241,9 @@ async function main() {
   // R5 no produced PDF
   const m5 = await newReceipt("10.00");
   const objsR5 = storedObjects();
-  const r5 = await restore(m5, true);
+  const res5 = await restore(m5, true);
   ok("R5 a receipt with no produced PDF → NOT_A_PRODUCED_RECEIPT_PDF, nothing written",
-    r5.verdict === "NOT_A_PRODUCED_RECEIPT_PDF" && r5.applied === false && storedObjects() === objsR5 && (await row(m5)).pdfRenderStatus !== "RENDERED");
+    res5.verdict === "NOT_A_PRODUCED_RECEIPT_PDF" && res5.applied === false && storedObjects() === objsR5 && (await row(m5)).pdfRenderStatus !== "RENDERED");
 
   // R6 altered bytes
   await writeAtomic(m2row.pdfStorageKey!, Buffer.from("%PDF-1.4\n% altered\n%%EOF\n"));
