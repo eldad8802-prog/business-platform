@@ -195,6 +195,13 @@ jobs:
       - name: Android cookie persistence — requested once per received auth response
         run: npx tsx lib/native/auth-cookies.test.ts
 
+      # Android push (FCM): the permission is never requested at start-up, the
+      # device re-registers only when already permitted, the token goes to the
+      # server with the app's Bearer and never to a log, and a tapped
+      # notification opens only an internal path under an allowed section.
+      - name: Android push client — permission on demand, token upload, safe deep links
+        run: npx tsx lib/native/push-notifications.test.ts
+
       # The device bug PR-E fixes, as two one-line regressions the suite must catch.
       - name: negative proof — a refused session that stays on screen / a chrome without the coordinator
         run: |
