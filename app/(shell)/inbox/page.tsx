@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useEntryState } from "@/hooks/useEntryState";
 import { useFlowStep } from "@/hooks/useFlowStep";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ConversationList, type InboxListPhase } from "@/components/inbox/ConversationList";
 import { ConversationView } from "@/components/inbox/ConversationView";
 import { useGoBack } from "@/components/ui/back-button";
@@ -33,6 +33,7 @@ import {
 } from "@/lib/inbox-view/work-category";
 import { sortInboxConversationRows } from "@/lib/inbox-view/inbox-queue-order";
 import { buildSmartInboxCategoryRows } from "@/lib/inbox-view/inbox-category-presentation";
+import { redirectToLogin } from "@/lib/client-session";
 
 /**
  * Consumer-selected DS breakpoint step for the Inbox WorkspaceLayout adoption.
@@ -215,7 +216,6 @@ function newSendToken(): string {
 function InboxPageContent() {
   const { t } = useI18n();
   const stageLabel = (stage: string | null | undefined) => getStageLabel(stage, t);
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const goBackFromConversation = useGoBack("/inbox");
@@ -387,9 +387,7 @@ function InboxPageContent() {
       });
 
       if (res.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        router.replace("/login");
+        redirectToLogin();
         return;
       }
 
@@ -480,9 +478,7 @@ function InboxPageContent() {
       });
 
       if (res.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        router.replace("/login");
+        redirectToLogin();
         return;
       }
 

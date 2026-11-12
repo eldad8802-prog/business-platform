@@ -224,8 +224,17 @@ async function main() {
 
   // client default VAT — the new-line default the document screen uses (static: lib/billing/document-view-model.ts)
   const vm = readFileSync("lib/billing/document-view-model.ts", "utf8");
-  const def = /export function newEmptyLocalLine[\s\S]*?vatRatePercent:\s*"(\d+)"/.exec(vm)?.[1];
-  check("D3.VAT.DEFAULT", "DEFECT", "STATIC", "the document screen's new-line VAT default is 17% (no per-date rate; 18% since 1.1.2025)", def === "17", { default: def }, { legal: "VAT rate 18% from 1.1.2025 — confirm against the official order" });
+  // #1111: was DEFECT "the new-line VAT default is 17% (no per-date rate; 18% since 1.1.2025)". Now: today's dated
+  // standard rate, 0 for an exempt dealer, and the screen passes the kind it read from the server. Behaviour is
+  // proven in the browser by U6 (ui.e2e.mts); this is the structural half.
+  const pageSrc = readFileSync("app/billing/[id]/page.tsx", "utf8");
+  const def = {
+    dated: /vatRatePercent:\s*options\.businessKind === "EXEMPT_DEALER" \? "0" : standardVatRatePercent\(/.test(vm),
+    hardCoded: /export function newEmptyLocalLine[\s\S]*?vatRatePercent:\s*"(\d+)"/.test(vm),
+    screenPassesKind: pageSrc.includes("newEmptyLocalLine({ businessKind })") && !pageSrc.includes("newEmptyLocalLine()"),
+    kindFromServer: pageSrc.includes('"/api/billing/invoice-profile"') && pageSrc.includes("j?.profile?.billingBusinessKind"),
+  };
+  check("D3.VAT.DEFAULT", "OK", "STATIC", "the new-line VAT default is the dated standard rate, 0 for an exempt dealer, and the screen passes the business kind it read from the server", def.dated && !def.hardCoded && def.screenPassesKind && def.kindFromServer, def, { legal: "VAT rate 18% from 1.1.2025 — confirm against the official order" });
 
   // ================================================================== 2. exempt dealer (API)
   console.log("\n— 2. exempt dealer");
