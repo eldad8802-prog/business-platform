@@ -502,7 +502,7 @@ async function main() {
       migrationPath.join(process.cwd(), "prisma/migrations/20261201090000_service_desk_loans/migration.sql"),
       "utf8",
     );
-    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public.service_loan_erase_business()[sS]*?$fn$;/);
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_loan_erase_business\(\)[\s\S]*?\$fn\$;/);
     if (!fn) throw new Error("service_loan_erase_business() not found in migration 20261201090000");
     await owner.$executeRawUnsafe(fn[0]);
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_loan_erase_business() FROM PUBLIC`);

@@ -167,7 +167,7 @@ jobs:
             // Service Desk loans (20261201090000): the same for service_loan_erase_business() (its tables from db push; it
             // calls no other function of the migration, so nothing else is mirrored).
             const lm = require("fs").readFileSync("prisma/migrations/20261201090000_service_desk_loans/migration.sql", "utf8");
-            const lf = lm.match(/CREATE OR REPLACE FUNCTION public.service_loan_erase_business()[sS]*?$fn$;/);
+            const lf = lm.match(/CREATE OR REPLACE FUNCTION public\.service_loan_erase_business\(\)[\s\S]*?\$fn\$;/);
             if (!lf) { console.error("service_loan_erase_business() not found in the migration"); process.exit(1); }
             console.log(lf[0]);
             console.log("REVOKE ALL ON FUNCTION public.service_loan_erase_business() FROM PUBLIC;");
