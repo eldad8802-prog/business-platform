@@ -60,6 +60,10 @@ async function main() {
 
   installBrowser(fakeToken(Math.floor(NOW / 1000) + 3600));
   const mod = await import("@/lib/auth/refresh-client");
+  // Transient failures are retried on a 77 s schedule; these cases are about the
+  // verdict, not the clock. lib/auth/refresh-client.concurrency.test.ts owns
+  // the schedule and the cross-tab lock.
+  mod.__testing.useEnv({ sleep: async () => {} });
 
   // ---- pure helpers -------------------------------------------------------
   {
