@@ -39,6 +39,16 @@ export function clearClientSession(): void {
  * than silently swallowed, because it leaves a token alive on the server that
  * the owner believes is dead.
  */
+/** The native cookie-jar persistence (Android app only), loaded on demand. Never throws. */
+async function persistCookieJar(): Promise<void> {
+  try {
+    const { flushAuthCookies } = await import("@/lib/native/auth-cookies");
+    await flushAuthCookies();
+  } catch {
+    /* best effort */
+  }
+}
+
 export async function signOut(): Promise<void> {
   if (typeof window === "undefined") return;
 
@@ -50,6 +60,9 @@ export async function signOut(): Promise<void> {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
+      // Android app: the response cleared the refresh cookie in the jar; put the
+      // cleared jar on disk so a quick kill cannot bring the old cookie back.
+      await persistCookieJar();
       if (!res.ok) {
         console.error("signOut: server did not revoke the session", res.status);
       }

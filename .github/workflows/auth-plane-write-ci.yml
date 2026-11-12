@@ -53,6 +53,8 @@ on:
       - "app/register/**"
       - ".authfix/**"
       - "scripts/qa/auth/**"
+      - "lib/native/**"
+      - "android/app/src/main/java/**"
       - ".github/workflows/auth-plane-write-ci.yml"
   workflow_dispatch:
 
@@ -186,6 +188,12 @@ jobs:
         run: |
           npx tsx lib/auth/session-guard.test.ts
           npx tsx lib/auth/session-guard-coverage.test.ts
+
+      # Android: the cookie jar is persisted after every RECEIVED auth response
+      # (the device proof — kill 3 s after sign-in / refresh / sign-out — is the
+      # emulator QA); the helper is a no-op outside the app.
+      - name: Android cookie persistence — requested once per received auth response
+        run: npx tsx lib/native/auth-cookies.test.ts
 
       # The device bug PR-E fixes, as two one-line regressions the suite must catch.
       - name: negative proof — a refused session that stays on screen / a chrome without the coordinator
