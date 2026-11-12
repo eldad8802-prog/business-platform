@@ -501,10 +501,10 @@ export const billingEn: Widen<typeof billingHe> = {
     close: "Close",
     group: { tax: "Tax documents", sales: "Sales", general: "General", purchasing: "Purchasing" },
     option: {
-      TAX_INVOICE: { title: "Tax invoice", help: "For a sale or a service. It gets a number only when it is issued." },
-      QUOTE: { title: "Quote", help: "Before a deal. It can become an invoice once the customer accepts." },
-      LETTER: { title: "Letter", help: "A letter to a customer or anyone else, saved with a PDF." },
-      SUPPLIER_ORDER: { title: "Supplier order", help: "Order goods from a supplier, in inventory. A copy can be saved there." },
+      TAX_INVOICE: { title: "Tax invoice", help: "Record a sale or a service" },
+      QUOTE: { title: "Quote", help: "An offer before the customer accepts" },
+      LETTER: { title: "Letter", help: "A document for a customer or anyone else" },
+      SUPPLIER_ORDER: { title: "Supplier order", help: "Order products from a supplier" },
     },
   },
 };
