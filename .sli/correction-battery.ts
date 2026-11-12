@@ -261,10 +261,13 @@ async function main() {
   await owner.$executeRawUnsafe(`UPDATE "Business" SET "deletionRequestedAt" = now() WHERE id = $1`, race.businessId);
   const n14 = (await asTenant(race.businessId, (tx) => tx.$queryRawUnsafe(`SELECT public.legal_identity_correction_erase() AS n`))) as Rows;
   const left = (await owner.$queryRawUnsafe(
-    `SELECT count(*) FILTER (WHERE "currentTaxId" <> '000000000' OR "requestedTaxId" <> '000000000' OR "anonymisedAt" IS NULL)::int AS bad,
+    `SELECT count(*) FILTER (WHERE "currentLegalName" IS NOT NULL OR "currentTaxId" IS NOT NULL OR "requestedLegalName" IS NOT NULL
+                               OR "requestedTaxId" IS NOT NULL OR "reason" IS NOT NULL OR "decisionNote" IS NOT NULL
+                               OR "anonymisedAt" IS NULL)::int AS bad,
             count(*) FILTER (WHERE "status" = 'PENDING')::int AS open, count(*)::int AS n
        FROM "LegalIdentityCorrectionRequest" WHERE "businessId" = $1`, race.businessId)) as Rows;
-  ok("C14 anonymises every request of a business in deletion", Number(n14[0].n) >= 1 && Number(left[0].bad) === 0 && Number(left[0].open) === 0, JSON.stringify(left[0]));
+  ok("C14 anonymises every request of a business in deletion: names, numbers, reason and note are NULL",
+     Number(n14[0].n) >= 1 && Number(left[0].bad) === 0 && Number(left[0].open) === 0, JSON.stringify(left[0]));
 
   console.log("C16 a kind change with the same number");
   const k = await business({ kind: "EXEMPT_DEALER" });

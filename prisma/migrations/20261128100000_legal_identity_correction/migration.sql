@@ -17,7 +17,8 @@
 --                                       business. Approve applies the requested values IF the profile still holds the
 --                                       snapshot (else STALE, nothing changes); reject needs a note. GRANTED TO NOBODY
 --                                       here: the approver plane and verification policy are an owner decision.
---   legal_identity_correction_erase     account deletion: anonymises the requests of a business being deleted.
+--   legal_identity_correction_erase     account deletion: anonymises the requests of a business being deleted (the
+--                                       five personal columns and the note become NULL).
 --
 -- Issued documents are never touched: they carry their own frozen issuer snapshot. Applying a correction runs as the
 -- table owner, so it passes BusinessProfile_legal_identity_lock (20261128090000) and the issuer-declaration lock
@@ -32,12 +33,13 @@ CREATE TABLE "LegalIdentityCorrectionRequest" (
   "requestedByUserId"     INTEGER NOT NULL,
   "kind"                  TEXT NOT NULL CHECK ("kind" IN ('TYPO_CORRECTION', 'BUSINESS_KIND_CHANGE')),
   "currentBusinessKind"   TEXT NOT NULL,
-  "currentLegalName"      TEXT NOT NULL,
-  "currentTaxId"          TEXT NOT NULL,
+  -- The five personal columns are NULL once anonymised (the erasure contract: cleared = NULL, never a placeholder).
+  "currentLegalName"      TEXT NULL CHECK ("anonymisedAt" IS NOT NULL OR "currentLegalName" IS NOT NULL),
+  "currentTaxId"          TEXT NULL CHECK ("anonymisedAt" IS NOT NULL OR "currentTaxId" IS NOT NULL),
   "requestedBusinessKind" TEXT NOT NULL CHECK ("requestedBusinessKind" IN ('EXEMPT_DEALER', 'AUTHORIZED_DEALER', 'LTD_COMPANY')),
-  "requestedLegalName"    TEXT NOT NULL CHECK (length(btrim("requestedLegalName")) BETWEEN 2 AND 120),
-  "requestedTaxId"        TEXT NOT NULL CHECK ("requestedTaxId" ~ '^[0-9]{9}$'),
-  "reason"                TEXT NOT NULL CHECK (length(btrim("reason")) BETWEEN 10 AND 1000),
+  "requestedLegalName"    TEXT NULL CHECK ("anonymisedAt" IS NOT NULL OR ("requestedLegalName" IS NOT NULL AND length(btrim("requestedLegalName")) BETWEEN 2 AND 120)),
+  "requestedTaxId"        TEXT NULL CHECK ("anonymisedAt" IS NOT NULL OR ("requestedTaxId" IS NOT NULL AND "requestedTaxId" ~ '^[0-9]{9}$')),
+  "reason"                TEXT NULL CHECK ("anonymisedAt" IS NOT NULL OR ("reason" IS NOT NULL AND length(btrim("reason")) BETWEEN 10 AND 1000)),
   "sameLegalEntity"       BOOLEAN NOT NULL CHECK ("sameLegalEntity"),
   "verificationMethod"    TEXT NOT NULL CHECK ("verificationMethod" IN ('PASSWORD', 'RECENT_SIGN_IN')),
   "verifiedAt"            TIMESTAMPTZ NOT NULL,
@@ -227,7 +229,8 @@ $fn$;
 REVOKE ALL ON FUNCTION public.legal_identity_correction_decide(integer, integer, boolean, text) FROM PUBLIC;
 
 -- ---------------------------------------------------------------- erase (account deletion, tenant runtime)
--- Anonymises (never deletes) the requests of the tenant business, only while it is being deleted. Returns the count.
+-- Anonymises (never deletes) the requests of the tenant business, only while it is being deleted: names, numbers, the
+-- reason and the note become NULL; status, decision author and times stay. Returns the count.
 CREATE OR REPLACE FUNCTION public.legal_identity_correction_erase()
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE v_business integer := NULLIF(current_setting('app.current_business_id', true), '')::integer; n integer;
@@ -236,8 +239,8 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'DZC01', MESSAGE = 'LEGAL_IDENTITY_CORRECTION_ERASE_NOT_DELETING';
   END IF;
   UPDATE public."LegalIdentityCorrectionRequest"
-     SET "currentLegalName" = '—', "currentTaxId" = '000000000', "requestedLegalName" = '——',
-         "requestedTaxId" = '000000000', "reason" = 'anonymised on account deletion',
+     SET "currentLegalName" = NULL, "currentTaxId" = NULL, "requestedLegalName" = NULL,
+         "requestedTaxId" = NULL, "reason" = NULL,
          "decisionNote" = NULL, "status" = CASE WHEN "status" = 'PENDING' THEN 'CANCELLED' ELSE "status" END,
          "decidedAt" = COALESCE("decidedAt", now()), "anonymisedAt" = now()
    WHERE "businessId" = v_business AND "anonymisedAt" IS NULL;
