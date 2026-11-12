@@ -98,7 +98,7 @@ export type BillingInvoiceProfileResult = {
   identityComplete: boolean;
   /**
    * The business's legal identity was confirmed (at signup, or by the controlled completion): kind, legal name
-   * and tax id are locked (lib/billing/legal-identity-lock.ts). The form shows them read-only.
+   * and tax id are locked (lib/legal-identity/lock.ts). The form shows them read-only.
    */
   legalIdentityLocked: boolean;
 };

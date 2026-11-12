@@ -1,6 +1,6 @@
 /**
- * Verify — the legal-identity lock as the billing profile route applies it (lib/billing/legal-identity-lock.ts).
- * Run: npx tsx lib/billing/legal-identity-lock.test.ts
+ * Verify — the legal-identity lock as the billing profile route applies it (lib/legal-identity/lock.ts).
+ * Run: npx tsx lib/legal-identity/lock.test.ts
  *
  * Pure: no database (the database trigger BusinessProfile_legal_identity_lock is proved in .sli/battery.ts).
  */
@@ -13,7 +13,7 @@ import {
   LegalIdentityLockedError,
   applyLegalIdentityLock,
   isLegalIdentityLockDbError,
-} from "@/lib/billing/legal-identity-lock";
+} from "@/lib/legal-identity/lock";
 
 let checks = 0;
 function check(label: string, fn: () => void) {
@@ -112,7 +112,7 @@ function main() {
     assert.equal(isLegalIdentityLockDbError(undefined), false);
   });
 
-  console.log(`legal-identity-lock.test.ts: ok (${checks} checks)`);
+  console.log(`lock.test.ts: ok (${checks} checks)`);
 }
 
 main();

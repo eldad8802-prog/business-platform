@@ -23,7 +23,7 @@ import {
   LegalIdentityLockedError,
   applyLegalIdentityLock,
   isLegalIdentityLockDbError,
-} from "@/lib/billing/legal-identity-lock";
+} from "@/lib/legal-identity/lock";
 
 const MAX_LOGO_CHARS = 500_000;
 
