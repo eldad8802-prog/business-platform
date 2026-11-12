@@ -23,7 +23,8 @@
  */
 import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
-import { sendWebPush, type PushPayload } from "@/lib/push/web-push-sender";
+import type { PushPayload } from "@/lib/push/web-push-sender";
+import { deliverLegacyPush } from "@/lib/notifications/push/push-sender";
 import { clockLabel } from "./task-schedule";
 import { dbDateToDayKey } from "./task-core";
 import { dailyTasksEnabled } from "./tasks-http";
@@ -82,8 +83,9 @@ export async function dispatchReminder(due: DueReminder, now: Date): Promise<Dis
       data: { businessId: due.businessId, notificationId: notification.id, channel: "IN_APP", status: "SENT", attemptedAt: now, createdAt: now },
     });
     const userId = task.assigneeUserId ?? task.createdByUserId;
+    // Web push devices only: an Android app device (FCM, notification engine) is reached by the engine's worker.
     const subscriptions = await tx.pushSubscription.findMany({
-      where: { businessId: due.businessId, revokedAt: null, ...(userId ? { userId } : {}) },
+      where: { businessId: due.businessId, revokedAt: null, provider: "WEB_PUSH", ...(userId ? { userId } : {}) },
       select: { id: true, endpoint: true, p256dh: true, auth: true },
       take: 20,
     });
@@ -101,26 +103,9 @@ export async function dispatchReminder(due: DueReminder, now: Date): Promise<Dis
     tag: `task-${claimed.task.id}`,
     taskId: claimed.task.id,
   };
-  const results = await Promise.all(claimed.subscriptions.map(async (s) => ({ s, out: await sendWebPush(s, payload) })));
-  await tenantTx(due.businessId, async (tx) => {
-    for (const { s, out } of results) {
-      await tx.notificationDelivery.create({
-        data: {
-          businessId: due.businessId, notificationId: claimed.notificationId, channel: "PUSH",
-          status: out.ok ? "SENT" : "FAILED", attemptedAt: now, createdAt: now,
-          error: out.ok ? null : `push_${out.status ?? "error"}`,
-        },
-      });
-      await tx.pushSubscription.updateMany({
-        where: { id: s.id, businessId: due.businessId },
-        data: out.ok
-          ? { lastSuccessAt: now, failureCount: 0 }
-          : { lastFailureAt: now, failureCount: { increment: 1 }, ...(out.gone ? { revokedAt: now } : {}) },
-      });
-    }
-  });
-  const pushed = results.filter((r) => r.out.ok).length;
-  return { taskId: due.taskId, result: "sent", pushed, pushFailed: results.length - pushed };
+  // The shared sender (lib/notifications/push/push-sender.ts): the same send, the same delivery rows and bookkeeping.
+  const out = await deliverLegacyPush(due.businessId, claimed.notificationId, claimed.subscriptions, payload, now);
+  return { taskId: due.taskId, result: "sent", pushed: out.pushed, pushFailed: out.failed };
 }
 
 /** One dispatcher pass: every due reminder (bounded), optionally for one business only (the in-app poll). */

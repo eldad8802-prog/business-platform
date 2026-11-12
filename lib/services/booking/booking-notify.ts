@@ -15,8 +15,8 @@
  */
 import type { Prisma } from "@prisma/client";
 
-import { sendWebPush, type PushPayload } from "@/lib/push/web-push-sender";
-import { tenantTx } from "@/lib/tenant/tenant-tx";
+import type { PushPayload } from "@/lib/push/web-push-sender";
+import { deliverLegacyPush } from "@/lib/notifications/push/push-sender";
 
 import { cancelNoticeTitle } from "./booking.core";
 
@@ -95,7 +95,8 @@ export async function claimReminder(tx: Tx, businessId: number, f: RequestFacts,
     data: { businessId, notificationId: row.id, channel: "IN_APP", status: "SENT", attemptedAt: now, createdAt: now },
   });
   const subscriptions = await tx.pushSubscription.findMany({
-    where: { businessId, revokedAt: null },
+    // Web push devices only: an Android app device (FCM, notification engine) is reached by the engine's worker.
+    where: { businessId, revokedAt: null, provider: "WEB_PUSH" },
     select: { id: true, endpoint: true, p256dh: true, auth: true },
     take: 20,
   });
@@ -116,24 +117,6 @@ export async function claimReminder(tx: Tx, businessId: number, f: RequestFacts,
 /** After commit: send the claimed reminder to the business's live subscriptions and record each delivery. */
 export async function pushReminder(businessId: number, claim: ReminderClaim, now: Date): Promise<{ pushed: number; failed: number }> {
   if (claim.subscriptions.length === 0) return { pushed: 0, failed: 0 };
-  const results = await Promise.all(claim.subscriptions.map(async (s) => ({ s, out: await sendWebPush(s, claim.payload) })));
-  await tenantTx(businessId, async (tx) => {
-    for (const { s, out } of results) {
-      await tx.notificationDelivery.create({
-        data: {
-          businessId, notificationId: claim.notificationId, channel: "PUSH",
-          status: out.ok ? "SENT" : "FAILED", attemptedAt: now, createdAt: now,
-          error: out.ok ? null : `push_${out.status ?? "error"}`,
-        },
-      });
-      await tx.pushSubscription.updateMany({
-        where: { id: s.id, businessId },
-        data: out.ok
-          ? { lastSuccessAt: now, failureCount: 0 }
-          : { lastFailureAt: now, failureCount: { increment: 1 }, ...(out.gone ? { revokedAt: now } : {}) },
-      });
-    }
-  });
-  const pushed = results.filter((r) => r.out.ok).length;
-  return { pushed, failed: results.length - pushed };
+  // The shared sender (lib/notifications/push/push-sender.ts): the same send, the same delivery rows and bookkeeping.
+  return deliverLegacyPush(businessId, claim.notificationId, claim.subscriptions, claim.payload, now);
 }
