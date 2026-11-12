@@ -480,6 +480,25 @@
       "risk": "SAFE",
       "reason": "SAFE by construction: the non-register (otherSources) figures are added into other(row.currency, kind) — the CurrencyView of THAT row`s currency, keyed by source kind; nothing adds two currencies, and a single figure over a mixed view throws CurrencyMismatchError (requireSingleCurrency). Proven by lib/revenue-truth/read-model.test.ts sections 8 and S.",
       "lineAtBaseline": 453
+    },
+    {
+      "file": "lib/services/billing/settlement/read-documents-settlement.ts",
+      "rule": "JS_FOLD",
+      "column": "allocatedAmount",
+      "match": ".reduce((s, a) => s.plus(a.allocatedAmount), new Prisma.Decimal(0));",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: readDocumentsSettlement (#1102) folds only rows of ONE ISSUED ILS document — usable() keeps currency === \"ILS\" (anything else is flagged NOT_ILS and never summed). Allocations of one ILS invoice (line 167) or one ILS receipt (line 186): allocation currency is forced to the invoice currency (billing-receipt-allocation.rules.ts \"Allocation currency must match the invoice currency\").",
+      "lineAtBaseline": 167,
+      "count": 2
+    },
+    {
+      "file": "lib/services/billing/settlement/read-documents-settlement.ts",
+      "rule": "JS_FOLD",
+      "column": "totalAmount",
+      "match": ".reduce((s, c) => s.plus(c.totalAmount), new Prisma.Decimal(0));",
+      "risk": "SAFE",
+      "reason": "SAFE by construction: readDocumentsSettlement (#1102) folds only rows of ONE ISSUED ILS document — usable() keeps currency === \"ILS\" (anything else is flagged NOT_ILS and never summed). Credit notes referencing one ILS invoice: a credit note takes the source invoice currency (billing-credit-reversal.service.ts throws \"Credit note currency must match source invoice\").",
+      "lineAtBaseline": 169
     }
   ]
 }

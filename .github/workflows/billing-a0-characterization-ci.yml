@@ -38,6 +38,7 @@ on:
       - "scripts/ci/billing-protected-paths-guard.mjs"
       - "scripts/ci/test-coverage/billing-a0.json"
       - ".github/workflows/billing-a0-characterization-ci.yml"
+      - ".tax-classification-lab/vat-default-regression.test.ts"
   workflow_dispatch:
 
 permissions:
@@ -58,6 +59,19 @@ jobs:
 
       - name: Golden characterization
         run: npx tsx .billing-a0/golden.test.ts
+
+      # New-line VAT default: the standard rate in force today (18% from 1.1.2025), 0 for an exempt dealer.
+      - name: VAT default of a new draft line (pure)
+        run: npx tsx lib/billing/document-view-model.vat-default.test.ts
+
+      # #1111 regression proof: kind from the session business, exempt refusal before numbering, no issued path
+      # imports the client view model, server issues from stored rates (the client default is only a default).
+      - name: VAT default regression boundaries (pure + structural)
+        run: npx tsx .tax-classification-lab/vat-default-regression.test.ts
+
+      # Credit note → source invoice (D110 1256 / 1257) from the existing referenceDocumentId; no schema change.
+      - name: Uniform credit note base document (pure)
+        run: npx tsx lib/services/billing/uniform/uniform-credit-base-document.test.ts
 
       # Field 1260: a newline in a line description must never reach a D110 record; plain text stays byte-identical
       # (the golden above proves the existing files did not change).

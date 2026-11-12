@@ -200,6 +200,29 @@ export default function BillingDocumentWorkspacePage() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [customerInput, setCustomerInput] = useState<string>("");
   const [linesDraft, setLinesDraft] = useState<LocalLine[]>([]);
+  // #1111: the VAT default of a NEW line depends on the business kind as the server holds it for the signed-in
+  // business (GET /api/billing/invoice-profile — never a value from the URL or the form). Loaded once, only for a
+  // DRAFT. A failed read gives null → the standard rate (an exempt default is never inferred). Saved lines and
+  // issued documents are never touched: this only shapes the line "+ add line" creates.
+  const newLineKindRef = useRef<Promise<string | null> | null>(null);
+  const loadNewLineBusinessKind = useCallback((): Promise<string | null> => {
+    newLineKindRef.current ??= fetch("/api/billing/invoice-profile", {
+      headers: { Authorization: `Bearer ${getAuthToken()}` },
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const k: unknown = j?.profile?.billingBusinessKind;
+        return typeof k === "string" && k.length > 0 ? k : null;
+      })
+      .catch(() => null);
+    return newLineKindRef.current;
+  }, []);
+  const addNewLine = useCallback(() => {
+    void loadNewLineBusinessKind().then((businessKind) =>
+      setLinesDraft((prev) => [...prev, newEmptyLocalLine({ businessKind })])
+    );
+  }, [loadNewLineBusinessKind]);
   const [patchStatus, setPatchStatus] = useState<PatchSaveStatus>("idle");
   const [patchError, setPatchError] = useState<string | null>(null);
   const [linesSaving, setLinesSaving] = useState<boolean>(false);
@@ -763,6 +786,11 @@ export default function BillingDocumentWorkspacePage() {
     return () => window.clearTimeout(timer);
   }, [lifecycleSuccess]);
 
+  const draftLoaded = state.kind === "ready" && state.doc.status === "DRAFT";
+  useEffect(() => {
+    if (draftLoaded) void loadNewLineBusinessKind();
+  }, [draftLoaded, loadNewLineBusinessKind]);
+
   const fetchProfileForWarning = useCallback(async () => {
     if (profileTaxId !== undefined) return;
     try {
@@ -1028,6 +1056,7 @@ export default function BillingDocumentWorkspacePage() {
             patchError={patchError}
             linesDraft={linesDraft}
             onLinesChange={setLinesDraft}
+            onAddLine={addNewLine}
             onSaveLines={() => void handleSaveLines()}
             linesSaving={linesSaving}
             linesError={linesError}
@@ -1105,6 +1134,7 @@ function DocumentBody({
   patchError,
   linesDraft,
   onLinesChange,
+  onAddLine,
   onSaveLines,
   linesSaving,
   linesError,
@@ -1137,6 +1167,8 @@ function DocumentBody({
   patchError: string | null;
   linesDraft: LocalLine[];
   onLinesChange: Dispatch<SetStateAction<LocalLine[]>>;
+  /** #1111: appends a new line whose VAT default follows the server-held business kind. */
+  onAddLine: () => void;
   onSaveLines: () => void;
   linesSaving: boolean;
   linesError: string | null;
@@ -1187,7 +1219,7 @@ function DocumentBody({
   }
 
   function addLine() {
-    onLinesChange((prev) => [...prev, newEmptyLocalLine()]);
+    onAddLine();
   }
 
   const customerDirty =
