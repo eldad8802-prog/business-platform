@@ -4,7 +4,7 @@
  * P3 — the base QA checklists (pure): three templates, one per kind; QA completes only when every required item is
  * PASS; a failed or missing required item keeps it open; optional items never block; unknown keys / values refused.
  */
-import { QA_TEMPLATES, evaluateQa } from "./qa-templates";
+import { QA_TEMPLATES, TRACK_QA_TEMPLATES, evaluateQa } from "./qa-templates";
 
 let pass = 0;
 const failures: string[] = [];
@@ -38,6 +38,18 @@ ok("T8 no results / an array / null → refused", !evaluateQa("IN_SHOP", {}).ok 
 ok("T9 a FIELD key is not valid on an IN_SHOP case", !evaluateQa("IN_SHOP", { site_left_clean: "PASS" }).ok);
 const full = evaluateQa("IN_SHOP", all("IN_SHOP"));
 ok("T10 the stored checklist is tokens only and small", full.ok && JSON.stringify(full.checklist).length < 1024 && Object.values(full.checklist.results).every((v) => v === "PASS" || v === "FAIL"));
+
+// Owner decisions 2026-11-11 / 2026-11-12: the four SUGGESTED templates (vehicle, installations, remote service,
+// exchanges) — 17 checks — are recommendations only: every check optional, so none can block QA.
+const suggested = [QA_TEMPLATES.REMOTE, ...Object.values(TRACK_QA_TEMPLATES)];
+const suggestedItems = suggested.flatMap((t) => t.items);
+ok("T11 the four suggested templates hold exactly 17 checks", suggested.length === 4 && suggestedItems.length === 17, `${suggested.length} templates, ${suggestedItems.length} checks`);
+ok("T12 every suggested check is optional (required: false)", suggestedItems.every((i) => i.required === false));
+ok("T13 a suggested template is complete with any single recorded result (nothing required)",
+  suggested.every((t) => { const e = evaluateQa(t.kind, { [t.items[0].key]: "FAIL" }, t.id === "REMOTE.v1" ? null : t.id); return e.ok && e.completed && e.counts.requiredFailed === 0 && e.counts.requiredMissing === 0; }));
+ok("T14 the two reworded checks: replaced parts are documented, the remote health check is recorded (no customer confirmation)",
+  TRACK_QA_TEMPLATES["VEHICLE.v1"].items.some((i) => i.key === "replaced_parts_handled") && !TRACK_QA_TEMPLATES["VEHICLE.v1"].items.some((i) => i.key === "replaced_parts_kept")
+  && QA_TEMPLATES.REMOTE.items.some((i) => i.key === "health_check_recorded") && !QA_TEMPLATES.REMOTE.items.some((i) => i.key === "customer_confirmed_working"));
 
 console.log(`\nqa-templates: ${pass} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
