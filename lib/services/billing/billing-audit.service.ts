@@ -56,6 +56,8 @@ export const BILLING_AUDIT_EVENT_TYPES = [
   "BILLING_CREDIT_NOTE_DRAFT_CREATED",
   "BILLING_PDF_RENDERED",
   "BILLING_PDF_RENDER_FAILED",
+  // an issued receipt PDF put back from a verified original (hash match) — controlled restore, never automatic
+  "BILLING_PDF_RESTORED",
   "BILLING_QUOTE_PDF_RENDERED",
   ...BILLING_AUTHORITY_AUDIT_EVENT_TYPES,
 ] as const;
