@@ -28,6 +28,7 @@ import { clockLabel } from "./task-schedule";
 import { dbDateToDayKey } from "./task-core";
 import { dailyTasksEnabled } from "./tasks-http";
 import { withConnectionRetry } from "@/lib/db/transient-retry";
+import { evictDeadConnections } from "@/lib/db/connection-recovery";
 
 export const REMINDER_DOMAIN = "tasks";
 export const REMINDER_CATEGORY = "task_reminder";
@@ -123,11 +124,44 @@ export async function dispatchReminder(due: DueReminder, now: Date): Promise<Dis
   return { taskId: due.taskId, result: "sent", pushed, pushFailed: results.length - pushed };
 }
 
+/**
+ * The caller's OWN business's due reminders (the in-app poll), read inside its tenant transaction — RLS sees only that
+ * business, so another business's reminders can neither crowd it out nor leak in. Same conditions as
+ * task_reminders_due(); the business is live by construction (the session gate refuses a business in deletion).
+ */
+export async function dueRemindersForBusiness(businessId: number, now: Date, limit = BATCH): Promise<DueReminder[]> {
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.task.findMany({
+      where: { businessId, status: "OPEN", remindAt: { not: null, lte: now }, reminderSentAt: null, erasedAt: null },
+      orderBy: [{ remindAt: "asc" }, { id: "asc" }],
+      take: limit,
+      select: { id: true, businessId: true, remindAt: true },
+    }),
+  );
+  return rows.map((r) => ({ businessId: r.businessId, taskId: r.id, remindAt: r.remindAt! }));
+}
+
+/**
+ * The backstop's lag: it only picks up reminders already this late, so while QStash (an exact-moment message per
+ * reminder + a 5-minute schedule) is healthy the backstop finds nothing to do. Must stay above the schedule's cadence.
+ */
+export const BACKSTOP_LAG_MINUTES = 7;
+
+export type DispatchPassOptions = { onlyBusinessId?: number; minLagMinutes?: number };
+
 /** One dispatcher pass: every due reminder (bounded), optionally for one business only (the in-app poll). */
-export async function dispatchDueReminders(now: Date, onlyBusinessId?: number): Promise<{ due: number; sent: number; skipped: number; pushed: number; pushFailed: number }> {
-  // A dropped pooled connection fails this first read now and then; it only lists identifiers (nothing is claimed or
-  // written), so reading again is safe. The claim below stays the one guard against a double send.
-  const due = (await withConnectionRetry(() => dueReminders(now), { label: "task-reminders.due" })).filter((d) => onlyBusinessId === undefined || d.businessId === onlyBusinessId);
+export async function dispatchDueReminders(now: Date, onlyBusinessIdOrOptions?: number | DispatchPassOptions): Promise<{ due: number; sent: number; skipped: number; pushed: number; pushFailed: number }> {
+  const opts: DispatchPassOptions = typeof onlyBusinessIdOrOptions === "number" ? { onlyBusinessId: onlyBusinessIdOrOptions } : onlyBusinessIdOrOptions ?? {};
+  const lagMs = Math.max(0, Math.floor(opts.minLagMinutes ?? 0)) * 60_000;
+  const cutoff = new Date(now.getTime() - lagMs);
+  // A dropped pooled connection fails this first read now and then — several pooled connections can be dead at once
+  // after an idle stretch, so the retry first evicts them (connection-recovery.ts) and waits a little longer. The read
+  // only lists identifiers (nothing is claimed or written), so reading again is safe. The claim below stays the one
+  // guard against a double send. If every attempt fails, nothing was claimed: every reminder stays due for the next pass.
+  const due = await withConnectionRetry(
+    () => (opts.onlyBusinessId !== undefined ? dueRemindersForBusiness(opts.onlyBusinessId, cutoff) : dueReminders(cutoff)),
+    { label: "task-reminders.due", attempts: 3, delayMs: 500, beforeRetry: () => evictDeadConnections(prisma) },
+  );
   let sent = 0, skipped = 0, pushed = 0, pushFailed = 0;
   for (const d of due) {
     try {
