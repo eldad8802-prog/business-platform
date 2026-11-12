@@ -95,8 +95,10 @@ super "DROP DATABASE ${DB}_fault"
 
 echo "P — the premise: the handover record (20261130090000) must be in place"
 super "DROP DATABASE IF EXISTS ${DB}_prem"; super "CREATE DATABASE ${DB}_prem TEMPLATE $DB OWNER lab_owner"
-# (copy only) the version-2 seed rows would make the handover-record rollback refuse: remove them first, triggers off
+# (copy only) version-2 handovers — the seed's, or any an earlier battery on the lab wrote — make the handover-record
+# rollback refuse: remove them first, triggers off (this throwaway copy only proves the premise)
 super "SET session_replication_role = replica;
+  DELETE FROM \"ServiceHandover\" WHERE \"recordVersion\" <> 1 OR \"overpaidAgorot\" IS NOT NULL;
   DELETE FROM \"ServiceHandover\" WHERE \"businessId\" IN (SELECT id FROM \"Business\" WHERE name = 'loan-pre-v2');
   DELETE FROM \"ServiceCaseEvent\" WHERE \"businessId\" IN (SELECT id FROM \"Business\" WHERE name = 'loan-pre-v2');
   DELETE FROM \"ServiceCase\" WHERE \"businessId\" IN (SELECT id FROM \"Business\" WHERE name = 'loan-pre-v2');
