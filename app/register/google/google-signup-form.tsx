@@ -2,8 +2,10 @@
 
 /**
  * The Google completion form. Prefilled from the ticket (the provider-verified address, shown read-only, and
- * the name Google gave, editable); asks for what signup always asks: the business name and the consent.
- * No password field: an account opened with Google has none until its owner sets one.
+ * the name Google gave, editable); asks for what signup always asks: the business kind and its legal details
+ * (./legal-identity-step.tsx, shared with the password form), then a review with the consent. Google is step 1;
+ * this form is steps 2 and 3. Nothing is sent before the review: the account and its legal identity are created
+ * together, in one transaction. No password field: an account opened with Google has none until its owner sets one.
  *
  * Built from the signup form's own stylesheet, so it inherits its layout at every width (desktop two
  * columns, tablet and phone one) and its RTL. Hebrew only (owner decision, 22.10.2026).
@@ -18,10 +20,20 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import { SIGNUP_HONEYPOT_FIELD } from "@/lib/auth/signup-honeypot";
 
+import {
+  LEGAL_IDENTITY_FIELDS,
+  LegalIdentityFields,
+  LegalIdentityReview,
+  emptyLegalIdentity,
+  legalIdentityBody,
+  validateLegalIdentityStep,
+  type LegalIdentityErrors,
+  type LegalIdentityValues,
+} from "../legal-identity-step";
 import styles from "../register.module.css";
 
 type View = { email: string; name: string | null };
-type Errors = { name?: string; businessName?: string; businessKind?: string; acceptTerms?: string; form?: string };
+type Errors = LegalIdentityErrors & { name?: string; acceptTerms?: string; form?: string };
 
 export default function GoogleSignupForm() {
   const router = useRouter();
@@ -30,8 +42,9 @@ export default function GoogleSignupForm() {
   const [view, setView] = useState<View | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "expired" | "completed">("loading");
   const [name, setName] = useState("");
-  const [businessName, setBusinessName] = useState("");
-  const [businessKind, setBusinessKind] = useState("");
+  const [step, setStep] = useState<2 | 3>(2);
+  const [identity, setIdentity] = useState<LegalIdentityValues>(emptyLegalIdentity());
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
@@ -50,6 +63,8 @@ export default function GoogleSignupForm() {
         const body = (await res.json()) as View;
         setView(body);
         setName(body.name ?? "");
+        // The business email starts as the Google address; the owner may change it.
+        setIdentity((prev) => ({ ...prev, businessEmail: prev.businessEmail || body.email }));
         setState("ready");
       } catch {
         if (alive) setState("expired");
@@ -84,15 +99,32 @@ export default function GoogleSignupForm() {
     }
   };
 
+  const stepErrors = (): Errors => {
+    const next: Errors = { ...validateLegalIdentityStep(identity, "יש לבחור את סוג העסק") };
+    if (name.trim().length < 2) next.name = "יש להזין שם מלא";
+    return next;
+  };
+
+  const goTo = (next: 2 | 3) => {
+    setStep(next);
+    window.scrollTo({ top: 0 });
+  };
+
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const next: Errors = {};
-    if (name.trim().length < 2) next.name = "יש להזין שם מלא";
-    if (businessName.trim().length < 2) next.businessName = "יש להזין שם עסק";
-    if (!businessKind) next.businessKind = "יש לבחור את סוג העסק";
+    const next = stepErrors();
+    if (step === 2) {
+      setTouched((p) => ({ ...p, name: true, ...Object.fromEntries(LEGAL_IDENTITY_FIELDS.map((f) => [f, true])) }));
+      setErrors(next);
+      if (Object.keys(next).length === 0) goTo(3);
+      return;
+    }
     if (!acceptTerms) next.acceptTerms = "יש לאשר את תנאי השימוש ומדיניות הפרטיות";
     setErrors(next);
-    if (Object.keys(next).length > 0) return;
+    if (Object.keys(next).length > 0) {
+      if (Object.keys(next).some((k) => k !== "acceptTerms")) goTo(2);
+      return;
+    }
 
     setBusy(true);
     try {
@@ -102,8 +134,7 @@ export default function GoogleSignupForm() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          businessName: businessName.trim(),
-          businessKind,
+          ...legalIdentityBody(identity),
           acceptTerms,
           [SIGNUP_HONEYPOT_FIELD]: honeypotRef.current?.value ?? "",
         }),
@@ -114,8 +145,11 @@ export default function GoogleSignupForm() {
           setState("expired");
           return;
         }
-        if (body.field === "name" || body.field === "businessName" || body.field === "businessKind" || body.field === "acceptTerms") {
-          setErrors({ [body.field]: body.error });
+        if (typeof body.field === "string") {
+          const field = body.field === "businessName" ? "tradeName" : body.field;
+          setErrors({ [field]: body.error });
+          setTouched((p) => ({ ...p, [field]: true }));
+          if (field !== "acceptTerms") goTo(2);
           return;
         }
         setErrors({ form: body.message || body.error || "ההרשמה לא הושלמה. אפשר לנסות שוב." });
@@ -202,102 +236,113 @@ export default function GoogleSignupForm() {
 
       <div className={styles.head}>
         <h1 className={styles.title}>עוד רגע מסיימים</h1>
-        <p className={styles.loginLine}>Google אישרה את הכתובת שלך. כדי לפתוח את החשבון בדוביז נשארו פרטי העסק ואישור התנאים.</p>
+        <p className={styles.stepper} data-testid="signup-step">
+          {t("account.auth.register.legal.stepOf", { step })} · {t(step === 2 ? "account.auth.register.legal.stepBusiness" : "account.auth.register.legal.stepReview")}
+        </p>
+        {step === 2 ? (
+          <p className={styles.loginLine}>Google אישרה את הכתובת שלך. כדי לפתוח את החשבון בדוביז נשארו פרטי העסק ואישור התנאים.</p>
+        ) : null}
       </div>
 
-      <div className={styles.field} style={{ marginBottom: 16 }}>
-        <span className={styles.label}>אימייל (מאומת על ידי Google)</span>
-        <div
-          className={`${styles.input} ${styles.ltr}`}
-          dir="ltr"
-          data-testid="google-email"
-          aria-readonly="true"
-          style={{ display: "flex", alignItems: "center", height: "auto", minHeight: 48, padding: "12px 14px", overflowWrap: "anywhere", background: "var(--dz-surface-muted)" }}
-        >
-          {view.email}
-        </div>
-      </div>
+      {step === 2 ? (
+        <>
+          <div className={styles.field} style={{ marginBottom: 16 }}>
+            <span className={styles.label}>אימייל (מאומת על ידי Google)</span>
+            <div
+              className={`${styles.input} ${styles.ltr}`}
+              dir="ltr"
+              data-testid="google-email"
+              aria-readonly="true"
+              style={{ display: "flex", alignItems: "center", height: "auto", minHeight: 48, padding: "12px 14px", overflowWrap: "anywhere", background: "var(--dz-surface-muted)" }}
+            >
+              {view.email}
+            </div>
+          </div>
 
-      <div className={styles.grid}>
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor="g-name">שם מלא</label>
-          <input
-            id="g-name"
-            className={`${styles.input} ${errors.name ? styles.invalid : ""}`}
-            autoComplete="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            aria-invalid={!!errors.name}
-            aria-describedby={errors.name ? "g-name-msg" : undefined}
+          <div className={styles.field} style={{ marginBottom: 14 }}>
+            <label className={styles.label} htmlFor="g-name">שם מלא</label>
+            <input
+              id="g-name"
+              className={`${styles.input} ${errors.name && touched.name ? styles.invalid : ""}`}
+              autoComplete="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => setTouched((p) => ({ ...p, name: true }))}
+              aria-invalid={!!(errors.name && touched.name)}
+              aria-describedby={errors.name && touched.name ? "g-name-msg" : undefined}
+            />
+            {errors.name && touched.name ? <p id="g-name-msg" role="alert" className={styles.error}>{errors.name}</p> : null}
+          </div>
+
+          <LegalIdentityFields
+            idPrefix="g"
+            values={identity}
+            onChange={setIdentity}
+            errors={errors}
+            touched={touched}
+            onBlurField={(field) => {
+              setTouched((p) => ({ ...p, [field]: true }));
+              const all = validateLegalIdentityStep(identity, "יש לבחור את סוג העסק");
+              setErrors((p) => ({ ...p, [field]: all[field] }));
+            }}
           />
-          {errors.name ? <p id="g-name-msg" role="alert" className={styles.error}>{errors.name}</p> : null}
-        </div>
-
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor="g-business">שם העסק</label>
-          <input
-            id="g-business"
-            className={`${styles.input} ${errors.businessName ? styles.invalid : ""}`}
-            autoComplete="organization"
-            value={businessName}
-            onChange={(e) => setBusinessName(e.target.value)}
-            aria-invalid={!!errors.businessName}
-            aria-describedby={errors.businessName ? "g-business-msg" : undefined}
+        </>
+      ) : (
+        <>
+          <LegalIdentityReview
+            values={identity}
+            account={[
+              { label: "שם מלא", value: name.trim() },
+              { label: t("account.auth.register.legal.googleAccount"), value: view.email },
+            ]}
+            onEdit={() => goTo(2)}
           />
-          {errors.businessName ? <p id="g-business-msg" role="alert" className={styles.error}>{errors.businessName}</p> : null}
-        </div>
 
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor="g-business-kind">סוג העסק</label>
-          <select
-            id="g-business-kind"
-            name="businessKind"
-            className={`${styles.input} ${errors.businessKind ? styles.invalid : ""}`}
-            value={businessKind}
-            onChange={(e) => setBusinessKind(e.target.value)}
-            aria-invalid={!!errors.businessKind}
-            aria-describedby={errors.businessKind ? "g-business-kind-msg" : undefined}
-            data-testid="signup-business-kind"
-          >
-            <option value="" disabled>בחירת סוג העסק</option>
-            <option value="EXEMPT_DEALER">עוסק פטור</option>
-            <option value="AUTHORIZED_DEALER">עוסק מורשה</option>
-            <option value="LTD_COMPANY">חברה בע״מ</option>
-          </select>
-          {errors.businessKind ? <p id="g-business-kind-msg" role="alert" className={styles.error}>{errors.businessKind}</p> : null}
-        </div>
-      </div>
-
-      <label className={termsClass} htmlFor="g-terms">
-        <input
-          id="g-terms"
-          type="checkbox"
-          checked={acceptTerms}
-          aria-invalid={!!errors.acceptTerms}
-          aria-describedby={errors.acceptTerms ? "g-terms-msg" : undefined}
-          onChange={(e) => {
-            setAcceptTerms(e.target.checked);
-            if (e.target.checked) setErrors((p) => ({ ...p, acceptTerms: undefined }));
-          }}
-        />
-        <span className={styles.termsText}>
-          {/* The very wording signup shows for the same consent (CURRENT_TERMS_VERSION). */}
-          <span>
-            {t("account.auth.register.terms.prefix")}{" "}
-            <Link href="/terms" target="_blank" rel="noopener noreferrer">{t("account.auth.register.terms.termsLink")}</Link>{" "}
-            {t("account.auth.register.terms.join")}{" "}
-            <Link href="/privacy" target="_blank" rel="noopener noreferrer">{t("account.auth.register.terms.privacyLink")}</Link>
-          </span>
-          {errors.acceptTerms ? <span id="g-terms-msg" role="alert" className={styles.termsError}>{t("account.auth.register.terms.error")}</span> : null}
-        </span>
-      </label>
+          <label className={termsClass} htmlFor="g-terms">
+            <input
+              id="g-terms"
+              type="checkbox"
+              checked={acceptTerms}
+              aria-invalid={!!errors.acceptTerms}
+              aria-describedby={errors.acceptTerms ? "g-terms-msg" : undefined}
+              onChange={(e) => {
+                setAcceptTerms(e.target.checked);
+                if (e.target.checked) setErrors((p) => ({ ...p, acceptTerms: undefined }));
+              }}
+            />
+            <span className={styles.termsText}>
+              {/* The very wording signup shows for the same consent (CURRENT_TERMS_VERSION). */}
+              <span>
+                {t("account.auth.register.terms.prefix")}{" "}
+                <Link href="/terms" target="_blank" rel="noopener noreferrer">{t("account.auth.register.terms.termsLink")}</Link>{" "}
+                {t("account.auth.register.terms.join")}{" "}
+                <Link href="/privacy" target="_blank" rel="noopener noreferrer">{t("account.auth.register.terms.privacyLink")}</Link>
+              </span>
+              {errors.acceptTerms ? <span id="g-terms-msg" role="alert" className={styles.termsError}>{t("account.auth.register.terms.error")}</span> : null}
+            </span>
+          </label>
+        </>
+      )}
 
       {errors.form ? <p role="alert" aria-live="assertive" className={styles.formError} data-testid="google-signup-form-error">{errors.form}</p> : null}
 
       <div className={styles.actions} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <button type="submit" className={styles.submit} disabled={busy || cancelling} data-testid="google-signup-submit">
-          {busy ? "פותחים את החשבון…" : "פתיחת החשבון"}
-        </button>
+        <div className={styles.actionsRow} style={{ marginTop: 0, paddingTop: 0 }}>
+          {step === 3 ? (
+            <button type="button" className={styles.back} onClick={() => goTo(2)} disabled={busy || cancelling} data-testid="signup-back">
+              {t("account.auth.register.legal.back")}
+            </button>
+          ) : null}
+          {step === 2 ? (
+            <button type="submit" className={styles.submit} disabled={cancelling} data-testid="signup-next">
+              {t("account.auth.register.legal.next")}
+            </button>
+          ) : (
+            <button type="submit" className={styles.submit} disabled={busy || cancelling} data-testid="google-signup-submit">
+              {busy ? "פותחים את החשבון…" : "פתיחת החשבון"}
+            </button>
+          )}
+        </div>
         <button type="button" className={styles.link} onClick={cancel} disabled={busy || cancelling} data-testid="google-signup-cancel" style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
           {cancelling ? "מבטלים…" : "ביטול וחזרה להתחברות"}
         </button>

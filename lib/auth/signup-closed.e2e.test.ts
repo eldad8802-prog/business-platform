@@ -153,6 +153,7 @@ async function main() {
         password: "Newcomer-Pass-1",
         name: "נרשם חדש",
         businessName: `${TAG}-should-never-exist`, businessKind: "AUTHORIZED_DEALER",
+        legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid",
         acceptTerms: true,
       })
     );
@@ -192,6 +193,7 @@ async function main() {
         password: "Newcomer-Pass-1",
         name: "נרשם חדש",
         businessName: `${TAG}-newcomer-business`, businessKind: "AUTHORIZED_DEALER",
+        legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid",
         // Signup requires accepting the terms (M1); the gate is what is tested.
         acceptTerms: true,
       })
@@ -221,6 +223,7 @@ async function main() {
         password: "Newcomer-Pass-2",
         name: "נרשם נוסף",
         businessName: `${TAG}-second-should-never-exist`, businessKind: "AUTHORIZED_DEALER",
+        legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid",
         acceptTerms: true,
       })
     );
