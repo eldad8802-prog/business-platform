@@ -129,6 +129,9 @@ jobs:
             [[ "$n" != "20261126090000_service_desk_case_charge" ]] || continue
             [[ "$n" != "20261127090000_service_desk_tracks" ]] || continue
             [[ "$n" != "20261130090000_service_handover_debt_record" ]] || continue
+            # Service Desk loans (20261201090000): composite FKs to ServiceCase, a deferred case-exit trigger on ServiceCase, a
+            # loan guard on ServiceHandover, the shared same-business / truncate guards (it replaces none of them).
+            [[ "$n" != "20261201090000_service_desk_loans" ]] || continue
             if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"Service(CaseNumberSequence|Device|Case|CaseIntake|Quote|CaseEvent|Handover)"|service_(erase_business|case_guard|case_opening_guard|quote_guard|event_|handover_guard|intake_guard|device_guard|user_same_business|journal_truncate)'; then
               echo "$n names a service desk object"; exit 1
             fi

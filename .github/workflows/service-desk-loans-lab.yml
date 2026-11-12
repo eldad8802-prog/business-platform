@@ -1,0 +1,132 @@
+name: service desk loans — lending, return, double-loan, case exit lab (ephemeral PG17)
+
+# Migration 20261201090000_service_desk_loans (DRAFT — never applied without a separate owner approval): a temporary
+# replacement item lent during service (any business), its append-only journal, the double-loan partial UNIQUE index,
+# the case exit guard (CANCEL / ABANDON / DELIVER only with an approval while a loan is OUT; never CLOSED with one out),
+# its erase function. The evidence files are SELECT-only and guard-clean; the migration names only its own objects and
+# the tables it builds on; the application chain (#1096 → #1104 → M1 → 20261130090000 → this, via prisma migrate deploy):
+# fault + recovery, premise, second-apply refusal, rollback; the preflight on the chain before it and the proof after it;
+# then the database rules AS the runtime role, and the mutation run (every key guard, weakened, is caught). Synthetic
+# only; no secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261130090000_service_handover_debt_record/**"
+      - "prisma/migrations/20261201090000_service_desk_loans/**"
+      - "ops/evidence/service-desk-loans-*.sql"
+      - ".sdloan/**"
+      - ".sdhov/chain.sh"
+      - ".sdhov/rollback.sql"
+      - ".sdm1/chain.sh"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - "prisma/schema.prisma"
+      - ".github/workflows/service-desk-loans-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk loans (PG17, runtime role, 20261201090000 applied over the handover-record chain)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdloan_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdloan_ci_synthetic_super_pw
+      LAB_PASSWORD: sdloan_ci_synthetic_role_pw
+      MIG_FILE: prisma/migrations/20261201090000_service_desk_loans/migration.sql
+      PREFLIGHT: ops/evidence/service-desk-loans-preflight.sql
+      EVIDENCE: ops/evidence/service-desk-loans-production-evidence.sql
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: 0. Evidence files are SELECT-only and selectable; the migration names only its own objects
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "^          - '$f'$" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+            if grep -inE '(default_)?transaction_read_only|read[[:space:]]+write|session[[:space:]]+characteristics|reset[[:space:]]+all|session[[:space:]]+authorization' "$f"; then
+              echo "$f touches the read-only boundary"; exit 1
+            fi
+          done
+          listed=$(grep -cE "^          - 'ops/evidence/service-desk-loans-[^']*'$" .github/workflows/prod-readonly-evidence.yml)
+          test "$listed" = "2" || { echo "expected exactly 2 selectable service-desk-loans evidence files, found $listed"; exit 1; }
+          # its own objects (ServiceLoan*, service_loan_*) and the tables / types it builds on — nothing else
+          prefix='^"(ServiceLoan|ServiceLoanEvent|ServiceCase|ServiceHandover)_[A-Za-z_]+"$'
+          own='"ServiceLoan"|"ServiceLoanEvent"|"ServiceLoanState"|"ServiceLoanCondition"|"ServiceLoanCloseReason"|"ServiceLoanEventKind"|"ServiceLoanApprovalKind"'
+          base='"Business"|"User"|"InventoryItem"|"ServiceCase"|"ServiceCaseEvent"|"ServiceHandover"|"ServiceActor"|"ServiceCaseAction"'
+          others=$(sed 's/--.*$//' "$MIG_FILE" | grep -oE '"[A-Z][A-Za-z_]*"' | sort -u | grep -vE "$prefix" | grep -vxE "$own|$base" || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          # it replaces no existing function: every CREATE OR REPLACE FUNCTION names a service_loan_* function
+          if sed 's/--.*$//' "$MIG_FILE" | grep -oE 'FUNCTION public\.[a-z_]+\(' | sort -u | grep -vE 'FUNCTION public\.service_loan_[a-z_]+\(|public\.service_(user_same_business|journal_truncate_guard|ui_business_writable)\('; then
+            echo "the migration names a function outside its own"; exit 1
+          fi
+          if sed 's/--.*$//' "$MIG_FILE" | grep -nE 'CREATE OR REPLACE FUNCTION public\.' | grep -vE 'public\.service_loan_'; then echo "it replaces a function it does not own"; exit 1; fi
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            [[ "$n" != "20261201090000_service_desk_loans" ]] || continue
+            if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"ServiceLoan(Event|State|Condition|CloseReason|EventKind|ApprovalKind)?"|service_loan_|ServiceCase_loan_exit_guard|ServiceHandover_loan_guard'; then
+              echo "$n names a service desk loan object"; exit 1
+            fi
+          done
+          echo "evidence SELECT-only and selectable; the migration names only its own objects and the tables it builds on; no other migration names its objects"
+      - name: The chain, the preflight before and the proof after, then the rules as the runtime role
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdloan >/dev/null
+          bash .sd3p4/lab.sh sdloan --deploy-only >/dev/null
+          bash .sdm1/chain.sh sdloan | tee /tmp/m1.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/m1.out || { echo "the M1 chain is not green"; exit 1; }
+          bash .sdhov/chain.sh sdloan | tee /tmp/hov.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/hov.out || { echo "the handover-record chain is not green"; exit 1; }
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdloan"
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdloan"
+          psql -X -v ON_ERROR_STOP=1 "$A" -f "$PREFLIGHT" | tee /tmp/pre.out
+          ! grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || { echo "the preflight fails on the chain before the migration"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "13" || { echo "expected 13 preflight PASS"; exit 1; }
+          if psql -X -v ON_ERROR_STOP=1 "$A" -f "$EVIDENCE" 2>/dev/null | grep -qE '^ +1 \| PASS'; then echo "the proof passed before the migration"; exit 1; fi
+          bash .sdloan/chain.sh sdloan | tee /tmp/chain.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/chain.out || { echo "the loans chain is not green"; exit 1; }
+          psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d postgres -c "CREATE DATABASE sdloan_tpl TEMPLATE sdloan OWNER lab_owner"
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" npx tsx .sdloan/battery.ts | tee /tmp/sdloan.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdloan.out || { echo "the loans battery is not green"; exit 1; }
+          psql -X -v ON_ERROR_STOP=1 "$A" -f "$EVIDENCE" | tee /tmp/ev.out
+          ! grep -E '^ +[0-9]+ \| FAIL' /tmp/ev.out || { echo "the proof fails after the migration (and the battery's rows)"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "18" || { echo "expected 18 proof PASS"; exit 1; }
+          # the earlier batteries on the same database stay green with the loan guards in place
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" npx tsx .sdhov/battery.ts | tee /tmp/hovb.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/hovb.out || { echo "the handover-record battery is not green with the loans applied"; exit 1; }
+      - name: Mutations — each key guard weakened must turn the battery red
+        run: |
+          set -euo pipefail
+          node .sdloan/mutate.mjs sdloan_tpl | tee /tmp/mut.out
+          grep -qE '^MUTATIONS: [0-9]+ killed, 0 survived$' /tmp/mut.out || { echo "a mutation survived"; exit 1; }
