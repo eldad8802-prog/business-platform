@@ -28,7 +28,7 @@
     },
     "lib/services/service-desk/qa-templates.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "pure (no DB/network/clock): Service Desk P3 base QA checklists — one template per kind (IN_SHOP / FIELD / MAINTENANCE) with token keys; QA completes only when every required item is PASS; a failed or missing required item keeps it open; optional items never block; unknown keys, other kinds’ keys and values other than PASS / FAIL refused; the stored checklist is tokens only; run on pull_request by service-desk-ci.yml"
+      "reason": "pure (no DB/network/clock): Service Desk built-in QA checklists — owner 2026-11-12: all 7 built-in templates (30 checks) are suggestions, every check optional, complete only when every check is recorded (PASS or FAIL); the evaluator REQUIRED semantics (a failed or missing required check keeps QA open; optional checks never block) on a synthetic template and the frozen retired v1 templates (10 required checks kept for history, never offered, a v1 snapshot judged by its v2 successor); unknown keys, other kinds’ keys, unknown template ids and values other than PASS / FAIL refused; the stored checklist is tokens only; run on pull_request by service-desk-ci.yml"
     },
     "features/service-desk/settings-model.test.ts": {
       "class": "PRODUCT_REQUIRED",
