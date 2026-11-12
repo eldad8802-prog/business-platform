@@ -36,6 +36,8 @@ on:
       - "lib/services/integrations/gmail/gmail-auth.service.ts"
       - "lib/services/integrations/gmail/gmail-discovery.service.ts"
       - "lib/services/integrations/whatsapp/connection.service.ts"
+      - "lib/business-status/**"
+      - "lib/services/crm/lead-attention-queue.ts"
       - "app/api/integrations/gmail/callback/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20261210090000_notification_engine_foundation/**"
@@ -100,6 +102,7 @@ jobs:
           npx tsx lib/notifications/engine/worker-decision.test.ts
           npx tsx lib/notifications/engine/engine-boundary.test.ts
           npx tsx lib/notifications/producers/producers.test.ts
+          npx tsx lib/notifications/producers/status-sweep.test.ts
 
       - name: 2. Touched suites — task reminders (pure), cron authority registry, erasure contract
         run: |
@@ -117,6 +120,16 @@ jobs:
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_engine?$TZ_OPT" \
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/nte_engine" \
             npx tsx lib/notifications/engine/notification-engine.db.test.ts
+
+      - name: 3b. The status sweep as the restricted runtime (session in Asia/Jerusalem)
+        run: |
+          set -euo pipefail
+          bash .nte/lab.sh nte_sweep --with-nte
+          TZ_OPT="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_sweep?$TZ_OPT&pool_timeout=30" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_sweep?$TZ_OPT&pool_timeout=30" \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/nte_sweep" \
+            npx tsx lib/notifications/producers/status-sweep.db.test.ts
 
       - name: 4. Task reminders on the same migration — the shared sender changes nothing
         run: |

@@ -139,7 +139,7 @@ const CATEGORY_LIST = [
     domain: "billing",
     featureKey: PLATFORM_FEATURE_KEYS.BILLING,
     importance: "normal",
-    defaults: { inApp: true, push: false, delivery: "instant" },
+    defaults: { inApp: true, push: false, delivery: "digest" },
     quietBypass: false,
     rateExempt: false,
     userMutable: { inApp: true, push: true, delivery: true },
@@ -223,7 +223,7 @@ const CATEGORY_LIST = [
     domain: "suppliers",
     featureKey: PLATFORM_FEATURE_KEYS.INVENTORY,
     importance: "low",
-    defaults: { inApp: true, push: false, delivery: "instant" },
+    defaults: { inApp: true, push: false, delivery: "digest" },
     quietBypass: false,
     rateExempt: false,
     userMutable: { inApp: true, push: true, delivery: true },
@@ -340,7 +340,9 @@ export const LEGACY_CLASSIFICATION_RULES: readonly ClassificationRule[] = [
   // lib/services/booking/booking-notify.ts (BOOKING_DOMAIN / BOOKING_ENTITY).
   { category: "booking.request_waiting", domain: "appointments", entityTypes: ["booking_request"] },
   // lib/accountant/notify.ts — rides the documents domain.
-  { category: "accountant.send_failed", domain: "documents", entityTypes: ["accountant_period_send_failed"] },
+  // …and a recipient's complaint (spam report) about the package (lib/accountant/notify.ts COMPLAINT_ENTITY_TYPE):
+  // the accountant did not really receive the month either.
+  { category: "accountant.send_failed", domain: "documents", entityTypes: ["accountant_period_send_failed", "accountant_delivery_complained"] },
   { category: "accountant.month_close", domain: "documents", entityTypes: ACCOUNTANT_MONTH_ENTITY_TYPES },
   // lib/notifications/documents-review-queue-notifications.ts and the documents translator.
   { category: "documents.review", domain: "documents", entityTypes: ["documents_review_queue", "document"] },
