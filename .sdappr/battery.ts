@@ -74,7 +74,7 @@ async function ready(z: Biz): Promise<number> {
   const w = await walk(z, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }]);
   if (w !== "OK") throw new Error(`T1 path: ${w}`);
   v = await version(z, c.id);
-  await recordQa(z.p, c.id, { results: Object.fromEntries(QA_TEMPLATE_BY_ID["IN_SHOP.v1"].items.map((i) => [i.key, "PASS"])), expectedVersion: v }, { idempotencyKey: key() });
+  await recordQa(z.p, c.id, { results: Object.fromEntries(QA_TEMPLATE_BY_ID["IN_SHOP.v2"].items.map((i) => [i.key, "PASS"])), expectedVersion: v }, { idempotencyKey: key() });
   const p = await walk(z, c.id, [{ type: "PASS_QA", outcome: "REPAIRED" }]);
   if (p !== "OK") throw new Error(`PASS_QA: ${p}`);
   return c.id;
