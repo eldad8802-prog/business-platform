@@ -83,7 +83,7 @@ async function inRepair(z: Biz): Promise<number> {
 async function toReady(z: Biz, id: number): Promise<void> {
   const w = await walk(z, id, [{ type: "FINISH_REPAIR" }]);
   if (w !== "OK") throw new Error(`FINISH_REPAIR: ${w}`);
-  await recordQa(z.p, id, { results: Object.fromEntries(QA_TEMPLATE_BY_ID["IN_SHOP.v1"].items.map((i) => [i.key, "PASS"])), expectedVersion: await version(z, id) }, { idempotencyKey: key() });
+  await recordQa(z.p, id, { results: Object.fromEntries(QA_TEMPLATE_BY_ID["IN_SHOP.v2"].items.map((i) => [i.key, "PASS"])), expectedVersion: await version(z, id) }, { idempotencyKey: key() });
   const p = await walk(z, id, [{ type: "PASS_QA", outcome: "REPAIRED" }]);
   if (p !== "OK") throw new Error(`PASS_QA: ${p}`);
   await recordCharge(z.p, id, { mode: "NO_CHARGE", reason: "באחריות", expectedVersion: await version(z, id) }, { idempotencyKey: key() });
