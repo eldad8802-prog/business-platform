@@ -177,6 +177,8 @@ on:
           - 'ops/evidence/auth-issuer-declaration-link-production-evidence.sql'
           - 'ops/evidence/notification-engine-foundation-preflight.sql'
           - 'ops/evidence/notification-engine-foundation-production-evidence.sql'
+          - 'ops/evidence/notification-engine-followup-preflight.sql'
+          - 'ops/evidence/notification-engine-followup-production-evidence.sql'
 
 permissions:
   contents: read
