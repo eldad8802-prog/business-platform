@@ -263,6 +263,8 @@ model Business {
   notifications                 Notification[]
   pushSubscriptions             PushSubscription[]
   notificationDeliveries        NotificationDelivery[]
+  notificationSettings          NotificationSettings[]
+  notificationPreferences       NotificationPreference[]
   whatsappConnection            WhatsAppConnection?
   purchaseOrders                PurchaseOrder[]
   receivingSessions             ReceivingSession[]
@@ -380,6 +382,10 @@ model User {
   userIdentities                             UserIdentity[]
   oauthSignupTicketsConsumed                 OAuthSignupTicket[]
   pushSubscriptions                          PushSubscription[]
+  notifications                              Notification[]
+  notificationDeliveries                     NotificationDelivery[]
+  notificationSettings                       NotificationSettings[]
+  notificationPreferences                    NotificationPreference[]
 }
 
 /// CASA 3.3.1 — second authentication factor for PLATFORM-LEVEL administrators.
@@ -4621,10 +4627,15 @@ model Notification {
   dismissedAt DateTime?
   resolvedAt  DateTime?
 
+  /// Migration 20261210090000: NULL = the whole business (every row written before the engine), set = one user
+  /// only (a digest, a reminder for its assignee). Same-business trigger in the migration.
+  userId Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   business   Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user       User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   deliveries NotificationDelivery[]
 
   /// The memory. The database is the arbiter of "have we already told them" —
@@ -4637,6 +4648,7 @@ model Notification {
   @@unique([id, businessId])
   @@index([businessId, readAt])
   @@index([businessId, lastSurfacedAt])
+  @@index([businessId, userId, lastSurfacedAt])
 }
 
 /// One row per delivery ATTEMPT. Append-only history.
@@ -4657,9 +4669,23 @@ model NotificationDelivery {
   /// Provider-side failure text. Never a secret, never a token.
   error       String?
 
+  /// Migration 20261210090000 — the push worker's columns. An OWED push is a PENDING PUSH row with no
+  /// subscriptionId (userId NULL = the whole business, fanned out by the worker); a per-device result is a SENT /
+  /// FAILED row naming the device. attempts 0..50 (CHECK); the worker's two partial indexes live in the migration.
+  userId         Int?
+  subscriptionId Int?
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime?
+  leaseUntil     DateTime?
+  expiresAt      DateTime?
+  completedAt    DateTime?
+
   createdAt DateTime @default(now())
 
-  business     Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business     Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user         User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// COMPOSITE, like the notification key: a delivery can never name another business's device.
+  subscription PushSubscription? @relation(fields: [subscriptionId, businessId], references: [id, businessId], onDelete: Cascade, map: "NotificationDelivery_subscription_fkey")
   /// COMPOSITE, not a plain notificationId FK. A single-column FK plus a
   /// separate RLS policy would still permit a row in tenant A that points at a
   /// notification in tenant B: RLS constrains visibility, never referential
@@ -7596,10 +7622,64 @@ model PushSubscription {
   revokedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  /// Migration 20261210090000. 'WEB_PUSH' | 'FCM' (CHECK). An FCM registration token is kept in `endpoint` as
+  /// `fcm:<token>` (p256dh / auth empty), so (businessId, endpoint) uniqueness and the in-place erasure hold for both.
+  provider      String    @default("WEB_PUSH")
+  /// The device's login session (AuthSession.id). Its FK (ON DELETE SET NULL) lives in the migration only: the auth
+  /// plane's models stay exactly the shipped auth DDL (auth-plane-write-ci schema parity). A device whose session is
+  /// not live (auth_sessions_live) is never pushed to.
+  authSessionId String?   @db.Uuid
+  /// ^[a-z_]{1,32}$ (CHECK): gone | replaced | logout | logout_all | session_ended | unsubscribed
+  revokedReason String?
+  lastSeenAt    DateTime?
+  appVersion    String?   @db.VarChar(32)
   business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries    NotificationDelivery[]
 
   @@unique([businessId, endpoint])
+  @@unique([id, businessId])
+}
+
+/// Per-user notification settings (migration 20261210090000). Every column NULL = the product default
+/// (lib/notifications/preferences.ts); a row records only what the user changed. "Restore defaults" deletes it.
+/// Tenant table under FORCE RLS; the minute CHECKs and the same-business trigger live in the migration.
+model NotificationSettings {
+  id                Int      @id @default(autoincrement())
+  businessId        Int
+  userId            Int
+  pushEnabled       Boolean?
+  quietHoursEnabled Boolean?
+  quietStartMinute  Int?     @db.SmallInt
+  quietEndMinute    Int?     @db.SmallInt
+  digestEnabled     Boolean?
+  digestMinute      Int?     @db.SmallInt
+  lockScreenDetails Boolean?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId])
+}
+
+/// One override per user per domain (`domain:<d>`) or category (`category:<c>`) (migration 20261210090000).
+/// NULL in a column = no override for that aspect. The key shape and delivery CHECKs live in the migration.
+model NotificationPreference {
+  id         Int      @id @default(autoincrement())
+  businessId Int
+  userId     Int
+  key        String   @db.VarChar(80)
+  inApp      Boolean?
+  push       Boolean?
+  /// 'instant' | 'digest' | NULL
+  delivery   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId, key])
 }
 
 /// Monthly accountant workflow (migration 20261027090000). One row per business per Israeli calendar
