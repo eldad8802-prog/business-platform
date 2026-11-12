@@ -113,6 +113,14 @@ jobs:
           for d in prisma/migrations/*/; do
             n=$(basename "$d")
             [[ "$n" != "20261102090000_oauth_identity_link" ]] || continue
+            if [[ "$n" == "20261126090000_auth_issuer_declaration_link" ]]; then
+              # The issuer-declaration link re-states the purpose check with LINK_GOOGLE kept — that one statement only
+              # (comments aside); anything else naming an identity-link object fails as for any other migration.
+              hits=$(sed 's/--.*$//' "$d/migration.sql" | grep -nE 'oauthTicketId|LINK_GOOGLE|auth_oauth_link_email|auth_oauth_identity_(link|status|unlink)' \
+                | grep -vF "CHECK (\"purpose\" IN ('EMAIL_VERIFY', 'PASSWORD_RESET', 'LINK_GOOGLE', 'ISSUER_DECLARATION'));" || true)
+              if [ -n "$hits" ]; then echo "$hits"; echo "$n names an identity link object beyond the purpose check"; exit 1; fi
+              continue
+            fi
             if grep -nE 'oauthTicketId|LINK_GOOGLE|auth_oauth_link_email|auth_oauth_identity_(link|status|unlink)' "$d/migration.sql"; then echo "$n names an identity link object"; exit 1; fi
           done
           echo "the migration names only AuthEmailToken, OAuthSignupTicket, UserIdentity, User and Business; no other migration names its objects"
