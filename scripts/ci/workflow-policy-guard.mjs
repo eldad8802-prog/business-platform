@@ -27,6 +27,12 @@
  *         and no job-level permissions, no secret, every checkout with `persist-credentials: false`,
  *         no step run inside the PR's checkout (`working-directory: pr`), and the job named exactly
  *         security/gate-trusted.
+ *   WP-8  the billing trusted guard (2026-11-13), same idea as WP-7. The check name `billing/guard-trusted` is
+ *         reserved for billing-protected-paths-guard-trusted.yml, which runs MAIN's billing guard and exception list
+ *         on pull_request_target. That file: pull_request_target only, top-level `permissions: contents: read` and
+ *         no job-level permissions, no secret, every checkout with `persist-credentials: false`, no checkout of the
+ *         pull request's head (it is fetched as data only), no `npm ci` / `npm install`, and the job named exactly
+ *         billing/guard-trusted.
  *
  * EXEMPT lists are exact (a stale entry fails) and carry a reason. Peer-owned files are
  * exempted ONLY for the rules the peer must fix in its own PR; they are reported as residual.
@@ -261,6 +267,7 @@ function triggers(text) {
 }
 
 export const TRUSTED_GATE_FILE = "security-gate-trusted.yml";
+export const BILLING_TRUSTED_FILE = "billing-protected-paths-guard-trusted.yml";
 
 export function checkWorkflowText(file, raw) {
   let doc;
@@ -310,6 +317,19 @@ export function checkWorkflowText(file, raw) {
     if (checkouts !== (text.match(/persist-credentials:\s*false/g) || []).length) out.push(["WP-7", "every checkout in the trusted gate needs persist-credentials: false"]);
     if (/working-directory:\s*\.?\/?pr\b/.test(text)) out.push(["WP-7", "the trusted gate runs a step inside the PR's checkout"]);
     if (!/^\s+name:\s*security\/gate-trusted\s*$/m.test(text)) out.push(["WP-7", "the trusted gate's job must be named security/gate-trusted"]);
+  }
+  // WP-8 — the billing trusted guard: the reserved name, and the shape that keeps it running main's code only.
+  if (file !== BILLING_TRUSTED_FILE && /billing\/guard-trusted/.test(text)) out.push(["WP-8", `names the reserved check billing/guard-trusted (only ${BILLING_TRUSTED_FILE} may publish it)`]);
+  if (file === BILLING_TRUSTED_FILE) {
+    if (!trig.has("pull_request_target") || trig.size !== 1) out.push(["WP-8", "the billing trusted guard must be triggered by pull_request_target only"]);
+    const perms = (text.match(/^permissions:[ \t]*\n((?:[ \t]+\S.*\n?)*)/m) || [])[1] ?? "";
+    if (perms.trim().replace(/\s+/g, " ") !== "contents: read" || /^\s{4,}permissions:/m.test(text)) out.push(["WP-8", "the billing trusted guard must hold exactly top-level permissions: contents: read, and no job-level permissions"]);
+    if (/\bsecrets\./.test(text)) out.push(["WP-8", "the billing trusted guard references a secret"]);
+    const checkouts = (text.match(/uses:\s*actions\/checkout@/g) || []).length;
+    if (checkouts !== (text.match(/persist-credentials:\s*false/g) || []).length) out.push(["WP-8", "every checkout in the billing trusted guard needs persist-credentials: false"]);
+    if (/ref:\s*\$\{\{\s*github\.event\.pull_request\.head\./.test(text)) out.push(["WP-8", "the billing trusted guard checks out the pull request's head (it may only fetch it as data)"]);
+    if (/\bnpm\s+(ci|install|i)\b/.test(text)) out.push(["WP-8", "the billing trusted guard installs packages"]);
+    if (!/^\s+name:\s*billing\/guard-trusted\s*$/m.test(text)) out.push(["WP-8", "the billing trusted guard's job must be named billing/guard-trusted"]);
   }
   if (/\bgit push\b/.test(text)) out.push(["WP-5", "runs git push"]);
   return out;
@@ -381,6 +401,22 @@ function selfTest() {
     ["WP-7: a step run inside the PR's checkout", T, trusted.replace("      - run: node", "      - working-directory: pr\n        run: npm ci\n      - run: node"), "WP-7"],
     ["WP-7: the job renamed", T, trusted.replace("name: security/gate-trusted", "name: security/gate"), "WP-7"],
   ];
+  // WP-8 — the billing trusted guard (the real file is checked against these rules in the normal scan too).
+  const B = BILLING_TRUSTED_FILE;
+  const billing = `on:\n  pull_request_target:\n    branches: [main]\npermissions:\n  contents: read\njobs:\n  guard:\n    name: billing/guard-trusted\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@${SHA} # v4\n        with:\n          ref: \${{ github.event.pull_request.base.sha }}\n          fetch-depth: 0\n          persist-credentials: false\n      - run: git fetch --no-tags origin "+refs/pull/1/head:refs/remotes/pr/head"\n      - run: node scripts/ci/billing-protected-paths-guard.mjs --head refs/remotes/pr/head --list-from main\n`;
+  trustedCases.push(
+    ["WP-8: the compliant billing trusted guard", B, billing, null],
+    ["WP-8: another workflow names billing/guard-trusted (a lookalike check)", "spoof3.yml", billing.replace("pull_request_target", "pull_request"), "WP-8"],
+    ["WP-8: a status context billing/guard-trusted posted from another workflow", "spoof4.yml", good.replace("run: echo", "run: gh api -f context=billing/guard-trusted"), "WP-8"],
+    ["WP-8: the billing trusted guard on pull_request (would run the PR's version)", B, billing.replace("pull_request_target", "pull_request"), "WP-8"],
+    ["WP-8: a second trigger", B, billing.replace("    branches: [main]\n", "    branches: [main]\n  workflow_dispatch:\n"), "WP-8"],
+    ["WP-8: write permissions", B, billing.replace("  contents: read\n", "  contents: read\n  statuses: write\n"), "WP-8"],
+    ["WP-8: a secret", B, billing.replace("--list-from main\n", "--list-from main\n        env:\n          K: ${{ secrets.ANY_KEY }}\n"), "WP-8"],
+    ["WP-8: a checkout that keeps credentials", B, billing.replace("          persist-credentials: false\n", ""), "WP-8"],
+    ["WP-8: checking out the PR head", B, billing.replace("pull_request.base.sha", "pull_request.head.sha"), "WP-8"],
+    ["WP-8: installing packages", B, billing.replace("      - run: git fetch", "      - run: npm ci\n      - run: git fetch"), "WP-8"],
+    ["WP-8: the job renamed", B, billing.replace("name: billing/guard-trusted", "name: billing/guard"), "WP-8"],
+  );
   let ok = true;
   for (const [name, file, text, rule] of trustedCases) {
     const got = checkWorkflowText(file, text);
