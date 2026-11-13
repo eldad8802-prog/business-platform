@@ -10,6 +10,7 @@ import { customersHe } from "./areas/customers";
 import { tasksHe } from "./areas/tasks";
 import { accountHe } from "./areas/account";
 import { contentHe } from "./areas/content";
+import { notificationsHe } from "./areas/notifications";
 
 /**
  * Hebrew — the SOURCE dictionary. Every other language must provide exactly these keys
@@ -128,4 +129,5 @@ export const he = {
   api: apiHe,
   insights: insightsHe,
   system: systemHe,
+  notifications: notificationsHe,
 } as const;

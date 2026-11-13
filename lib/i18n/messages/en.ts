@@ -11,6 +11,7 @@ import { customersEn } from "./areas/customers.en";
 import { tasksEn } from "./areas/tasks.en";
 import { accountEn } from "./areas/account.en";
 import { contentEn } from "./areas/content.en";
+import { notificationsEn } from "./areas/notifications.en";
 
 /** English. Must provide every key of the Hebrew source dictionary (the type enforces it). */
 export const en: Messages = {
@@ -126,4 +127,5 @@ export const en: Messages = {
   api: apiEn,
   insights: insightsEn,
   system: systemEn,
+  notifications: notificationsEn,
 };

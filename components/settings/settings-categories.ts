@@ -1,5 +1,6 @@
 import { he } from "@/lib/i18n/messages/he";
 import { createTranslator, type MessageKey } from "@/lib/i18n/translate";
+import { PLATFORM_FEATURE_KEYS, type PlatformFeatureKey } from "@/lib/services/feature-access/platform-feature-catalog";
 
 import { IMPORT_EXPORT_SETTINGS_CATEGORY } from "./import-export/import-export-release";
 
@@ -21,6 +22,11 @@ export type SettingsCategory = {
   /** The existing colourful Dubiz icon for this area. Keep it — owner decision. */
   icon: string;
   group: SettingsGroupKey;
+  /**
+   * A per-business platform feature the area needs. Listed in the hub and the rail only once the business's
+   * capabilities say it is ON (fail-closed: hidden while unknown); its page also says so itself, from its API.
+   */
+  featureKey?: PlatformFeatureKey;
 };
 
 /** Hebrew text comes from the dictionary, so a category's `title` and its `titleKey` can never disagree. */
@@ -68,6 +74,17 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     icon: "🌍",
     group: "preferences",
   }),
+  // The notification engine's own settings (owner-approved design, Gate B 2026-11-13): listed only for a business
+  // where notifications_engine is ON; every control writes a real field of the engine's settings.
+  category({
+    key: "notifications",
+    href: "/settings/notifications",
+    titleKey: "notifications.category.title",
+    descriptionKey: "notifications.category.description",
+    icon: "🔔",
+    group: "preferences",
+    featureKey: PLATFORM_FEATURE_KEYS.NOTIFICATIONS_ENGINE,
+  }),
   // Listed now that it shows real information and allows a real action: the
   // devices signed in to this account, and ending any one of them.
   category({
@@ -95,6 +112,11 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     group: "connections",
   }),
 ];
+
+/** Is the category listed, given which per-business features are on? Fail-closed for gated categories. */
+export function isCategoryListed(c: SettingsCategory, featureOn: (key: PlatformFeatureKey) => boolean): boolean {
+  return !c.featureKey || featureOn(c.featureKey);
+}
 
 export const SETTINGS_GROUP_TITLE_KEYS: Record<SettingsGroupKey, MessageKey> = {
   account: "account.settings.groups.account",
