@@ -37,6 +37,17 @@ case "$MODE" in
   *) echo "LAB READY: $DB (through 20261126090000; signup legal identity pending)"; exit 0 ;;
 esac
 
+# The platform-admin read plane, as Production has it: NOLOGIN app_admin (NOBYPASSRLS; reads through its p7adm_read
+# policies) + a LOGIN member for the battery. Created before the correction migration so its role-guarded block runs.
+if [[ "$MODE" == --*-correction ]]; then
+  psql_owner -c "DO \$\$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_admin') THEN CREATE ROLE app_admin NOLOGIN NOBYPASSRLS; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lic_admin_login') THEN
+      CREATE ROLE lic_admin_login LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '${LAB_PASSWORD:-}' IN ROLE app_admin; END IF;
+  END \$\$;"
+  psql_owner -c "GRANT USAGE ON SCHEMA public TO app_admin"
+fi
+
 # The migrations directory = exactly the lab ledger + the migration(s) under test, so `migrate deploy` applies only them.
 TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
 cp "$ROOT/prisma/schema.prisma" "$TMP/prisma/schema.prisma"
