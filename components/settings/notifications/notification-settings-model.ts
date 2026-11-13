@@ -58,6 +58,8 @@ export const DOMAIN_ORDER = [
   "inventory",
   "suppliers",
   "billing",
+  "payments",
+  "obligations",
   "documents",
   "accountant",
   "connections",
@@ -71,6 +73,8 @@ export const DOMAIN_LABEL_KEYS: Readonly<Record<(typeof DOMAIN_ORDER)[number], M
   inventory: "notifications.types.domains.inventory",
   suppliers: "notifications.types.domains.suppliers",
   billing: "notifications.types.domains.billing",
+  payments: "notifications.types.domains.payments",
+  obligations: "notifications.types.domains.obligations",
   documents: "notifications.types.domains.documents",
   accountant: "notifications.types.domains.accountant",
   connections: "notifications.types.domains.connections",
@@ -91,6 +95,11 @@ export const CATEGORY_LABEL_KEYS: Readonly<Record<string, MessageKey>> = {
   "accountant.month_close": "notifications.types.categories.accountantMonthClose",
   "connections.disconnected": "notifications.types.categories.connectionsDisconnected",
   "connections.account_disconnected": "notifications.types.categories.accountDisconnected",
+  "obligations.due": "notifications.types.categories.obligationsDue",
+  "payments.request_failed": "notifications.types.categories.paymentsRequestFailed",
+  "billing.allocation_failed": "notifications.types.categories.billingAllocationFailed",
+  "documents.processing_failed": "notifications.types.categories.documentsProcessingFailed",
+  "appointments.upcoming": "notifications.types.categories.appointmentsUpcoming",
 };
 
 /** Every catalog category the types screen lists (catalog order). */
