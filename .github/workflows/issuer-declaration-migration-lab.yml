@@ -117,6 +117,12 @@ jobs:
           if ! grep -q "FAIL  S4a " neg2.log; then echo "::error::NEGATIVE-PROOF FAIL: S4a stayed green without the opening trigger"; grep -E "(PASS|FAIL)  S4a" neg2.log || true; exit 1; fi
           echo "negative proofs OK — the race is caught without the lock; opening 459 is caught without the trigger"
 
+      # Stage 3 of docs/issuer-declaration-release-runbook.md, rehearsed on a fresh database built like Production:
+      # the read-only preflight (11 PASS) → apply → the read-only production evidence (12 PASS, inert), plus the
+      # order guard: with #1105 (20261126090000) recorded first, preflight check 3 FAILS.
+      - name: Release scripts — preflight 11/11, apply, production evidence 12/12, order guard refuses #1105 first
+        run: bash scripts/ci/issuer-declaration/evidence-lab.sh "$OWNER_URL" dubiz_decl_release
+
   account-deletion:
     name: Account deletion with the migration applied (real purge, Production-topology lab, PG17)
     runs-on: ubuntu-latest
