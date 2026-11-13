@@ -21,6 +21,7 @@ const BG_PARTY_CARD = "#f8fafc";
 const DOCUMENT_TYPE_LABELS_HE: Record<string, string> = {
   TAX_INVOICE: "חשבונית מס",
   QUOTE: "הצעת מחיר",
+  RECEIPT: "קבלה",
 };
 
 function parseNumber(value: string): number {
@@ -127,9 +128,59 @@ function dyn(value: string, ctx: PdfDynamicTextContext): string {
   return renderDynamicPdfText(value, ctx);
 }
 
+/** A receipt's payment line as printed (from BillingReceiptPayment, immutable once the receipt is issued). */
+export type PdfReceiptPayment = {
+  method: string;
+  amount: string;
+  currency: string;
+  paymentDate: string;
+  bankName: string | null;
+  bankBranch: string | null;
+  bankAccountNumber: string | null;
+  checkNumber: string | null;
+  checkDueDate: string | null;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  reference: string | null;
+};
+
+const PAYMENT_METHOD_LABELS_HE: Record<string, string> = {
+  CASH: "מזומן",
+  BANK_TRANSFER: "העברה בנקאית",
+  CHECK: "שיק",
+  CREDIT_CARD: "כרטיס אשראי",
+  BIT: "ביט",
+  PAYBOX: "פייבוקס",
+  DIRECT_DEBIT: "הוראת קבע",
+  STANDING_ORDER: "הוראת קבע",
+  OTHER: "אחר",
+};
+
+/** One readable line of payment details, from the fields this method actually uses. */
+function receiptPaymentDetails(p: PdfReceiptPayment, tz: string): string {
+  const parts: string[] = [];
+  if (p.method === "CHECK") {
+    if (p.checkNumber) parts.push(`שיק ${p.checkNumber}`);
+    if (p.bankName) parts.push(`בנק ${p.bankName}`);
+    if (p.bankBranch) parts.push(`סניף ${p.bankBranch}`);
+    if (p.bankAccountNumber) parts.push(`חשבון ${p.bankAccountNumber}`);
+    if (p.checkDueDate) parts.push(`לפירעון ${formatIssuedAt(p.checkDueDate, tz)}`);
+  } else if (p.method === "BANK_TRANSFER") {
+    if (p.bankName) parts.push(`בנק ${p.bankName}`);
+    if (p.bankBranch) parts.push(`סניף ${p.bankBranch}`);
+    if (p.bankAccountNumber) parts.push(`חשבון ${p.bankAccountNumber}`);
+  } else if (p.method === "CREDIT_CARD") {
+    if (p.cardBrand) parts.push(p.cardBrand);
+    if (p.cardLast4) parts.push(`מסתיים ב־${p.cardLast4}`);
+  }
+  if (p.reference) parts.push(`אסמכתה ${p.reference}`);
+  return parts.join(" · ");
+}
+
 export function buildBillingInvoiceHtml(
   snapshot: BillingIssuedSnapshotV1,
-  fontDataUri: string
+  fontDataUri: string,
+  receiptPayments: PdfReceiptPayment[] = []
 ): string {
   const pdfStyle = parseBillingPdfTemplateStyle(
     typeof snapshot.pdfTemplateStyle === "string"
@@ -146,6 +197,11 @@ export function buildBillingInvoiceHtml(
   const { document, issuer, customer, lines, totals, metadata } = snapshot;
   const currency = document.currency || snapshot.tax.currency || "ILS";
   const documentTypeLabel = getDocumentTypeLabel(document.type);
+  const isReceipt = document.type === "RECEIPT";
+  const isExemptIssuer =
+    !!snapshot.extensions &&
+    typeof snapshot.extensions === "object" &&
+    (snapshot.extensions as { billingBusinessKind?: unknown }).billingBusinessKind === "EXEMPT_DEALER";
   const tz = metadata.timezone || "Asia/Jerusalem";
   const issuedAtFormatted = formatIssuedAt(snapshot.issuedAt, tz);
   let quoteValidUntilFormatted = "";
@@ -184,7 +240,10 @@ export function buildBillingInvoiceHtml(
       ctx: "numeric",
     });
   }
-  if (issuer.vatRegistration) {
+  if (isExemptIssuer) {
+    // an exempt dealer is never presented as "עוסק מורשה" (VAT law s.47(a)); its own number states its status
+    issuerLines.push({ label: "עוסק פטור", value: issuer.taxId ?? "", ctx: "numeric" });
+  } else if (issuer.vatRegistration) {
     issuerLines.push({
       label: "עוסק מורשה",
       value: issuer.vatRegistration,
@@ -775,7 +834,7 @@ export function buildBillingInvoiceHtml(
     </div>
   </div>
 
-  <div class="section-title">${dyn("פירוט פריטים", "label")}</div>
+  ${isReceipt && lines.length === 0 ? "" : `<div class="section-title">${dyn("פירוט פריטים", "label")}</div>
 
   <table class="lines" aria-label="פירוט פריטים">
     <thead>
@@ -791,33 +850,44 @@ export function buildBillingInvoiceHtml(
     <tbody>
       ${tableRows}
     </tbody>
-  </table>
+  </table>`}
 
   <div class="totals-wrap">
     <table class="totals">
-      <tr>
+      ${isReceipt ? "" : `<tr>
         <td class="lbl">${dyn('סה"כ לפני מע"מ', "label")}</td>
         <td class="amt">${dyn(formatMoney(totals.subtotal, currency), "numeric")}</td>
       </tr>
       <tr>
         <td class="lbl vat-label-cell">${vatRowLabelHtml}</td>
         <td class="amt">${dyn(formatMoney(totals.vat, currency), "numeric")}</td>
-      </tr>
+      </tr>`}
       <tr class="total-row">
-        <td class="lbl">${dyn('סה"כ לתשלום', "label")}</td>
+        <td class="lbl">${dyn(isReceipt ? 'סה"כ התקבל' : 'סה"כ לתשלום', "label")}</td>
         <td class="amt">${dyn(formatMoney(totals.total, currency), "numeric")}</td>
       </tr>
     </table>
   </div>
 
-  <div class="payment-block" style="margin-top:18px;text-align:right;direction:rtl;">
+  ${isReceipt
+    ? `<div class="payment-block" style="margin-top:18px;text-align:right;direction:rtl;">
+    <div style="font-size:12px;font-weight:700;color:${BRAND_DARK};margin-bottom:8px;">${dyn("אמצעי תשלום", "label")}</div>
+    ${receiptPayments.length > 0
+      ? `<table class="totals" style="width:100%;">${receiptPayments.map((p) => `<tr>
+        <td class="lbl">${dyn(PAYMENT_METHOD_LABELS_HE[p.method] ?? p.method, "label")}${receiptPaymentDetails(p, tz) ? ` <span style="color:${BRAND_MUTED};font-size:9px;">${dyn(receiptPaymentDetails(p, tz), "freeText")}</span>` : ""}</td>
+        <td class="lbl" style="white-space:nowrap;">${dyn(formatIssuedAt(p.paymentDate, tz), "numeric")}</td>
+        <td class="amt" style="white-space:nowrap;">${dyn(formatMoney(p.amount, p.currency || currency), "numeric")}</td>
+      </tr>`).join("")}</table>`
+      : `<div style="font-size:10px;color:${BRAND_MUTED};">${dyn("אמצעי התשלום לא נשמרו במסמך", "label")}</div>`}
+  </div>`
+    : `<div class="payment-block" style="margin-top:18px;text-align:right;direction:rtl;">
     <div style="font-size:12px;font-weight:700;color:${BRAND_DARK};margin-bottom:8px;">${dyn("פרטי תשלום", "label")}</div>
     <div style="font-size:10px;color:${BRAND_MUTED};line-height:1.35;">
       ${typeof issuer.bankDetails === "string" && issuer.bankDetails.trim().length > 0
         ? dyn(issuer.bankDetails.trim(), "freeText")
         : `<span style="font-style:italic;color:#94a3b8;">לא הוגדרו פרטי תשלום</span>`}
     </div>
-  </div>
+  </div>`}
 
   ${
     // Business VISUAL signature/stamp (presentation only — never a cryptographic
