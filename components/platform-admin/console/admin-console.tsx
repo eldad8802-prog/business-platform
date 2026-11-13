@@ -34,6 +34,9 @@ const TOOLS: NavEntry[] = [
   { href: "/admin/accountant-ops", label: "ניטור חבילת רו״ח", icon: "tools" },
 ];
 
+/** Shown only to an admin the session marks as a legal-identity approver (the server still enforces it per route). */
+const LEGAL_IDENTITY_TOOL: NavEntry = { href: "/admin/legal-identity-corrections", label: "תיקוני זהות עסקית", icon: "shield" };
+
 function isActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false;
   if (href === "/admin") return pathname === "/admin";
@@ -169,7 +172,7 @@ export function AdminConsole({ title, backHref, children }: AdminConsoleProps) {
               </Link>
             ))}
             <div className={styles.navGroup}>כלים</div>
-            {TOOLS.map((item) => (
+            {[...TOOLS, ...(session.capabilities?.legalIdentityCorrections ? [LEGAL_IDENTITY_TOOL] : [])].map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

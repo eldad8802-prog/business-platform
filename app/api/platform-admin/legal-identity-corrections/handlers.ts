@@ -70,6 +70,16 @@ export const ADMIN_CORRECTION_MESSAGES: Record<string, string> = {
   REQUESTED: "הבקשה הוחזרה לבעל העסק לקבלת מידע נוסף.",
 };
 
+/** 200 for a decision taken; otherwise the same body plus error/code, which the console fetch surfaces as is. */
+function outcomeResponse(outcome: DecideOutcome | RequestInfoOutcome): NextResponse {
+  const status = statusForOutcome(outcome);
+  const message = ADMIN_CORRECTION_MESSAGES[outcome] ?? outcome;
+  return NextResponse.json(
+    status === 200 ? { outcome, message } : { outcome, message, error: message, code: outcome },
+    { status, headers: noStore }
+  );
+}
+
 const notFound = () => NextResponse.json({ error: "Not Found" }, { status: 404, headers: noStore });
 
 function positiveId(raw: string): number | null {
@@ -228,10 +238,7 @@ export async function handleDecision(req: Request, admin: PlatformAdminUser, raw
     internalNote: notes.internalNote,
   });
   await auditOutcome(req, admin, id, detail.businessId, outcome, deps, approve ? "APPROVE" : "REJECT");
-  return NextResponse.json(
-    { outcome, message: ADMIN_CORRECTION_MESSAGES[outcome] ?? outcome },
-    { status: statusForOutcome(outcome), headers: noStore }
-  );
+  return outcomeResponse(outcome);
 }
 
 /** POST /[id]/request-info — body { note }. The request stays open; the business sees the note. */
@@ -249,8 +256,5 @@ export async function handleRequestInfo(req: Request, admin: PlatformAdminUser, 
   if (!detail) return NextResponse.json({ error: ADMIN_CORRECTION_MESSAGES.NOT_FOUND, code: "NOT_FOUND" }, { status: 404, headers: noStore });
   const outcome = await deps.requestInfo({ businessId: detail.businessId, requestId: id, approverUserId: admin.id, note });
   await auditOutcome(req, admin, id, detail.businessId, outcome, deps, "REQUEST_INFO");
-  return NextResponse.json(
-    { outcome, message: ADMIN_CORRECTION_MESSAGES[outcome] ?? outcome },
-    { status: statusForOutcome(outcome), headers: noStore }
-  );
+  return outcomeResponse(outcome);
 }

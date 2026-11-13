@@ -1,0 +1,15 @@
+{
+  "note": "Legal identity corrections — the admin approval side (owner decision 2026-11-13: only a Dubiz admin holding the dedicated permission may view, approve or reject). Pure suites, executed by security-gate.yml straight from this manifest (lab pure). The database half (LegalIdentityApprover row, four eyes, snapshot re-check) is .sli/correction-battery.ts in legal-identity-correction-lab.yml.",
+  "tests": {
+    "lib/auth/legal-identity-approver.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the dedicated approver permission needs PLATFORM_ADMIN + PLATFORM_ADMIN_EMAILS + PLATFORM_ADMIN_LEGAL_IDENTITY_APPROVERS and fails closed; list masking; both decision notes required and bounded; outcome → status"
+    },
+    "app/api/platform-admin/legal-identity-corrections/handlers.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): flag off → 404; admin without the dedicated permission → 403; decisions need a fresh MFA step-up, both notes and an explicit review confirmation; the approver and business ids are the session's / the request's, never the body's; every view and decision audited with ids only; route files call the admin guard as the first await"
+    }
+  }
+}

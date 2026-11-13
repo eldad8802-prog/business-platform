@@ -35,7 +35,7 @@ function parseApproverEmails(raw: string | undefined): Set<string> {
  */
 export function isLegalIdentityApprover(
   user: { role: UserRole; email: string } | null,
-  env: { PLATFORM_ADMIN_LEGAL_IDENTITY_APPROVERS?: string } = process.env
+  env: Record<string, string | undefined> = process.env
 ): boolean {
   try {
     assertPlatformAdminAccess(user);
