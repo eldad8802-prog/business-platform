@@ -5,12 +5,15 @@ import { decideCronAuth } from "@/lib/services/billing/settlement/settlement-rec
 
 /**
  * The notification status sweep (notifications track, coverage) — state-based notifications for facts that have a
- * policy rule but no producer (billing PDF failures / review, lead follow-ups, supplier purchases), plus a catch-up
- * of the inventory and documents-queue reconcilers. lib/notifications/producers/status-sweep.ts.
+ * policy rule but no producer (billing PDF failures / review, lead follow-ups, supplier purchases), a catch-up of the
+ * inventory and documents-queue reconcilers, and the state producers A–E (obligations due / overdue, payment requests
+ * failed / expired, ITA allocation problems, document processing failures, upcoming appointments).
+ * lib/notifications/producers/status-sweep.ts, state-producers.ts. The appointment reminders need a cadence of at most
+ * 30 minutes (docs/notifications/feature-coverage.md §0).
  *
  * Authority: CRON_SECRET through decideCronAuth — never a user session, never a tenant from the caller. Only
  * businesses where notifications_engine is ON, each in its own tenant context; reads derived state and writes
- * Notification rows through the existing writer only. Bounded: a time budget under maxDuration; when it ends the
+ * Notification rows through the existing writer and the engine's notify() only. Bounded: a time budget under maxDuration; when it ends the
  * pass the answer carries `nextAfter` — call again with ?after=<nextAfter>. Counts only in the answer and the log.
  *
  * NOT scheduled in vercel.json: scheduling it is a separate owner decision.

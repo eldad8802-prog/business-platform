@@ -37,11 +37,15 @@ import type { BusinessGates } from "../engine/engine-gate";
 import { buildDedupeKey, decideNotification } from "../notification-policy";
 import { buildPushMessage } from "../push/push-content";
 import {
+  STATE_PRODUCER_CATEGORIES,
   STATUS_SWEEP_CATEGORIES,
   STATUS_SWEEP_SCOPES,
+  cappedIsComplete,
   presentKeysOf,
   runStatusSweep,
+  sweepConcurrency,
   type StatusSweepDeps,
+  type SweepScopeId,
 } from "./status-sweep";
 
 let passed = 0;
@@ -93,33 +97,41 @@ const SNAPSHOT: BusinessStatusItem[] = [...pending, ...pdfFailed, ...leads, ...s
 
 /* ── fakes ─────────────────────────────────────────────────────────────────────────────────────────────────── */
 type Calls = {
-  snapshot: number[]; persist: { b: number; keys: string[]; now: Date }[]; resolve: { b: number; scope: string; keys: readonly string[] }[];
-  reconcile: string[]; tenant: number[];
+  snapshot: number[]; scopes: SweepScopeId[][]; persist: { b: number; keys: string[]; now: Date }[]; resolve: { b: number; scope: string; keys: readonly string[] }[];
+  reconcile: string[]; tenant: number[]; producers: number[]; kicked: number[];
 };
 function gatesOf(engineOn: boolean, off: string[] = []): BusinessGates {
-  return { engineOn, categoryAvailable: (c: CategoryDefinition) => !(c.featureKey && off.includes(c.featureKey)) };
+  return { engineOn, cutoverAt: null, categoryAvailable: (c: CategoryDefinition) => !(c.featureKey && off.includes(c.featureKey)) };
 }
-function fakes(opts: { engineOn?: boolean; off?: string[]; leadsComplete?: boolean; snapshot?: BusinessStatusItem[]; failFor?: number } = {}) {
-  const calls: Calls = { snapshot: [], persist: [], resolve: [], reconcile: [], tenant: [] };
+function fakes(opts: { engineOn?: boolean; off?: string[]; leadsComplete?: boolean; snapshot?: BusinessStatusItem[]; failFor?: number; producerPush?: boolean; writerPush?: boolean } = {}) {
+  const calls: Calls = { snapshot: [], scopes: [], persist: [], resolve: [], reconcile: [], tenant: [], producers: [], kicked: [] };
   let inTenant = 0;
   const deps: Partial<StatusSweepDeps> = {
     gates: async () => gatesOf(opts.engineOn ?? true, opts.off ?? []),
     inTenant: async (b, fn) => { calls.tenant.push(b); inTenant = b; try { return await fn(); } finally { inTenant = 0; } },
-    snapshot: async (b) => {
-      if (inTenant !== b) throw new Error("snapshot outside its tenant");
+    ownedFacts: async (b, scopes) => {
+      if (inTenant !== b) throw new Error("owned facts outside its tenant");
       if (opts.failFor === b) throw new Error("boom");
-      calls.snapshot.push(b); return opts.snapshot ?? SNAPSHOT;
+      calls.snapshot.push(b);
+      calls.scopes.push([...scopes]);
+      const ids = { pendingReview: [101], pdfFailed: [102], leads: [201], supplierPending: [301] };
+      const present: Partial<Record<SweepScopeId, { keys: string[]; complete: boolean }>> = {};
+      for (const sc of scopes) present[sc] = { keys: presentKeysOf(b, sc, ids), complete: sc === "leads" ? (opts.leadsComplete ?? true) : true };
+      // The fake hands back foreign items too: the sweep must still filter to its owned, available scopes.
+      return { items: opts.snapshot ?? SNAPSHOT, present };
     },
     persist: async (b, items, now) => {
       calls.persist.push({ b, keys: items.map((i) => buildDedupeKey(b, i)), now });
-      return items.map((i) => ({ dedupeKey: buildDedupeKey(b, i), notificationId: 1, created: true, notified: true, reopened: false, withinCooldown: false, channels: [] }));
+      return items.map((i) => ({ dedupeKey: buildDedupeKey(b, i), notificationId: 1, created: true, notified: true, reopened: false, withinCooldown: false, channels: opts.writerPush ? ["IN_APP", "PUSH"] : ["IN_APP"] })) as never;
     },
-    presentKeys: async (b, scope) => ({
-      keys: presentKeysOf(b, scope, { pendingReview: [101], pdfFailed: [102], leads: [201], supplierPending: [301] }),
-      complete: scope === "leads" ? (opts.leadsComplete ?? true) : true,
-    }),
     resolveAbsent: async (b, scope, present) => { calls.resolve.push({ b, scope: `${scope.domain}|${scope.entityTypes.join(",")}`, keys: present.keys }); return 0; },
     reconcile: async (id) => { calls.reconcile.push(id); return { ok: true }; },
+    stateProducers: async (b) => {
+      if (inTenant !== b) throw new Error("producers outside its tenant");
+      calls.producers.push(b);
+      return { leaseBusy: false, ran: 4, unavailable: 1, incomplete: 0, failed: 0, events: 2, notified: 2, owedPush: opts.producerPush ? 1 : 0, resolved: 0 };
+    },
+    kick: (b) => { calls.kicked.push(b); },
   };
   return { calls, deps };
 }
@@ -131,8 +143,8 @@ async function main() {
   {
     const { calls, deps } = fakes({ engineOn: false });
     const r = await run(deps);
-    ok("engine OFF: no tenant work, no snapshot, no write, no resolve, no reconcile",
-      calls.tenant.length === 0 && calls.snapshot.length === 0 && calls.persist.length === 0 && calls.resolve.length === 0 && calls.reconcile.length === 0, calls);
+    ok("engine OFF: no tenant work, no read, no write, no resolve, no reconcile, no state producer, no kick",
+      calls.tenant.length === 0 && calls.snapshot.length === 0 && calls.persist.length === 0 && calls.resolve.length === 0 && calls.reconcile.length === 0 && calls.producers.length === 0 && calls.kicked.length === 0, calls);
     ok("engine OFF: counted", r.engineOff === 1 && r.swept === 0, r);
     const throwing: Partial<StatusSweepDeps> = { ...deps, gates: async () => { throw new Error("caps"); } };
     const r2 = await run(throwing);
@@ -209,6 +221,7 @@ async function main() {
     await run(deps);
     ok("nothing available but leads (no feature key): nothing written, only leads resolved",
       calls.persist.length === 0 && calls.resolve.map((c) => c.scope).join() === "leads|lead", calls);
+    ok("…and only the leads scope was read (no billing / supplier query at all)", JSON.stringify(calls.scopes) === JSON.stringify([["leads"]]), calls.scopes);
   }
 
   console.log("4. identity pins");
@@ -223,12 +236,19 @@ async function main() {
     ok("pending-review predicate = loadBillingPendingReview's", /status: BillingDocumentStatus\.PENDING_REVIEW,\s*\},\s*orderBy: \[\{ createdAt: "desc" \}/.test(loaders) && /where: \{ businessId, status: "PENDING_REVIEW" \}, select: \{ id: true \} \}\),\s*\);\s*return rows\.map\(\(r\) => r\.id\);\s*\}\s*export async function loadAllBillingPdfFailedIds/.test(facts));
     ok("pdf-failed predicate = loadBillingPdfFailed's", /pdfRenderStatus: BillingPdfRenderStatus\.FAILED,/.test(loaders) && /where: \{ businessId, pdfRenderStatus: "FAILED" \}, select: \{ id: true \}/.test(facts));
     ok("supplier predicate = loadSupplierPurchasesPending's", /status: SupplierPurchaseDraftStatus\.PENDING_REVIEW,/.test(loaders) && /supplierPurchaseDraft\.findMany\(\{ where: \{ businessId, status: "PENDING_REVIEW" \}, select: \{ id: true \} \}\)/.test(facts));
-    ok("the uncapped selectors have no take / limit / orderBy", !/take:|orderBy:|\.slice\(/.test(facts.slice(facts.indexOf("loadAllBillingPendingReviewIds"))));
+    ok("the uncapped selectors have no take / limit / orderBy", !/take:|orderBy:|\.slice\(/.test(facts.slice(facts.indexOf("loadAllBillingPendingReviewIds"), facts.indexOf("loadLeadAttentionForSweep"))));
+    ok("the sweep's single lead read: the loader's display slice, the queue's own completeness", /queue\.items\.slice\(0, displayCap\)/.test(facts) && /ids: queue\.items\.map/.test(facts) && /BS_LEADS_CAP \* 3/.test(code("lib/notifications/producers/status-sweep.ts")) && /slice\(0, BS_LEADS_CAP \* 3\)/.test(loaders));
+    ok("a capped loader below its cap is complete; at its cap the uncapped selector is read", cappedIsComplete(7, 8) && !cappedIsComplete(8, 8));
+    const sweepCode = code("lib/notifications/producers/status-sweep.ts");
+    ok("the narrow reads use the home snapshot's own loaders, translators and finalize for the owned domains (not the 14-loader snapshot)",
+      /loadBillingPendingReview\(businessId\)/.test(sweepCode) && /loadBillingPdfFailed\(businessId\)/.test(sweepCode) && /loadSupplierPurchasesPending\(businessId\)/.test(sweepCode) &&
+      /translateBillingPendingReview\(pending, STATUS_HE_T, "he"\)/.test(sweepCode) && /map\(finalizeBusinessStatusItem\)/.test(sweepCode) && !/getBusinessStatusSnapshot/.test(sweepCode));
     ok("leads: the shared queue, complete only without overflow", /loadLeadAttentionQueue\(db, businessId, now\)/.test(facts) && /complete: !queue\.overflow/.test(facts));
   }
 
   console.log("5. push privacy");
-  for (const key of STATUS_SWEEP_CATEGORIES) {
+  ok("the sweep's categories include the five state producers", STATE_PRODUCER_CATEGORIES.every((k) => STATUS_SWEEP_CATEGORIES.includes(k)));
+  for (const key of STATUS_SWEEP_CATEGORIES.filter((k) => !STATE_PRODUCER_CATEGORIES.includes(k))) {
     const cat = getCategory(key);
     ok(`${key}: a catalog category`, cat !== null);
     if (!cat) continue;
@@ -258,7 +278,7 @@ async function main() {
   }
   ok("the policy has the 11 known rules (a new rule must be catalogued)", rules === 11, rules);
   ok("only explicitly urgent, action-required facts push by default among the sweep's categories",
-    JSON.stringify(STATUS_SWEEP_CATEGORIES.filter((k) => getCategory(k)!.defaults.push).sort()) === JSON.stringify(["billing.failure", "inventory.critical_stock"]));
+    JSON.stringify(STATUS_SWEEP_CATEGORIES.filter((k) => getCategory(k)!.defaults.push).sort()) === JSON.stringify(["appointments.upcoming", "billing.allocation_failed", "billing.failure", "inventory.critical_stock", "payments.request_failed"]));
   ok("no sweep category bypasses quiet hours or the rate limit", STATUS_SWEEP_CATEGORIES.every((k) => !getCategory(k)!.quietBypass && !getCategory(k)!.rateExempt));
   ok("slow-moving standing states go to the digest by default (billing review, supplier purchases)",
     getCategory("billing.review")!.defaults.delivery === "digest" && getCategory("suppliers.purchase_pending")!.defaults.delivery === "digest");
@@ -289,8 +309,60 @@ async function main() {
   }
   {
     const f = fakes({ failFor: 2 });
-    const r = await runStatusSweep(DAY, { businessIds: [1, 2, 3], deps: f.deps, quiet: true });
+    const r = await runStatusSweep(DAY, { businessIds: [1, 2, 3], deps: f.deps, quiet: true, concurrency: 1 });
     ok("one failing business is counted, the others are swept", r.errors === 1 && r.swept === 2 && f.calls.persist.map((p) => p.b).join() === "1,3", r);
+  }
+
+  console.log("7b. pool, dedupe, kick");
+  {
+    ok("pool size: default 2, env, option, clamped 1..8", sweepConcurrency(undefined, undefined) === 2 && sweepConcurrency(undefined, "4") === 4 && sweepConcurrency(undefined, "x") === 2 &&
+      sweepConcurrency(0) === 1 && sweepConcurrency(50) === 8 && sweepConcurrency(3, "6") === 3);
+    let inFlight = 0;
+    let peak = 0;
+    const seen: number[] = [];
+    const f = fakes();
+    const slow: Partial<StatusSweepDeps> = {
+      ...f.deps,
+      gates: async (b) => { inFlight += 1; peak = Math.max(peak, inFlight); seen.push(b); await new Promise((r) => setTimeout(r, 5)); inFlight -= 1; return gatesOf(false); },
+    };
+    const r = await runStatusSweep(DAY, { businessIds: [1, 2, 3, 2, 4, 5, 1], deps: slow, quiet: true, concurrency: 3 });
+    ok("never more businesses in flight than the pool", peak <= 3 && peak >= 2, peak);
+    ok("a business listed twice is swept once per pass", r.businesses === 5 && new Set(seen).size === seen.length, seen);
+    const all = Array.from({ length: 10 }, (_, i) => i + 1);
+    let t = 0;
+    const bounded: Partial<StatusSweepDeps> = { ...f.deps, liveBusinesses: async (after, limit) => all.filter((b) => b > after).slice(0, limit), gates: async () => { t += 10; return gatesOf(false); }, clock: () => t };
+    const rb = await runStatusSweep(DAY, { deps: bounded, budgetMs: 35, quiet: true, concurrency: 3 });
+    ok("pooled continuation: nextAfter is the last id of the last finished chunk (6 after two chunks of 3)", rb.nextAfter === 6 && rb.businesses === 6, rb);
+    const done = new Set<number>();
+    t = 0;
+    const cont: Partial<StatusSweepDeps> = { ...bounded, gates: async (b) => { done.add(b); return gatesOf(false); } };
+    await runStatusSweep(DAY, { deps: cont, after: rb.nextAfter!, quiet: true, concurrency: 3 });
+    ok("…and the continuation sweeps exactly the rest (7..10), none skipped, none repeated", [...done].join() === "7,8,9,10", [...done]);
+  }
+  {
+    // Counters under the pool: two businesses resolving at once must both be counted (no `x += await` race).
+    const f = fakes();
+    const pooled: Partial<StatusSweepDeps> = {
+      ...f.deps,
+      inTenant: async (_b, fn) => fn(),
+      ownedFacts: async (_b, scopes) => ({ items: [], present: Object.fromEntries(scopes.map((sc) => [sc, { keys: [], complete: true }])) }),
+      resolveAbsent: async () => { await new Promise((r) => setTimeout(r, 3)); return 1; },
+      stateProducers: async () => { await new Promise((r) => setTimeout(r, 2)); return { leaseBusy: false, ran: 1, unavailable: 0, incomplete: 0, failed: 0, events: 1, notified: 1, owedPush: 0, resolved: 1 }; },
+    };
+    const r = await runStatusSweep(DAY, { businessIds: [1, 2, 3, 4], deps: pooled, quiet: true, concurrency: 4 });
+    ok("pooled counters add up (4 businesses × 3 scopes resolved, 4 producer runs)", r.resolved === 12 && r.producersRan === 4 && r.producerResolved === 4, r);
+  }
+  {
+    const quiet = fakes();
+    await run(quiet.deps);
+    ok("no push owed: the worker is not kicked", quiet.calls.kicked.length === 0);
+    const owed = fakes({ producerPush: true });
+    const ro = await run(owed.deps);
+    ok("a state producer owed a push: the worker is kicked once for that business", owed.calls.kicked.join() === String(B) && ro.kicked === 1, owed.calls.kicked);
+    const writer = fakes({ writerPush: true });
+    await run(writer.deps);
+    ok("the existing writer notified with PUSH (billing failure): kicked too", writer.calls.kicked.join() === String(B));
+    ok("the state producers run inside the business's tenant, after the owned scopes", owed.calls.producers.join() === String(B));
   }
 
   console.log("8. static");
@@ -299,6 +371,7 @@ async function main() {
   ok("route: never reads CRON_SECRET itself, never a session, no business / user id from the request",
     !/process\.env\.CRON_SECRET|getAuthContext|getCurrentUser|businessId|userId/.test(route));
   ok("route: maxDuration 60 and a budget under it", /maxDuration = 60/.test(route) && /BUDGET_MS = 45_000/.test(route));
+  ok("sweep: the state producers and the kick are wired (default deps)", /stateProducers: \(businessId, gates, now\) => runStateProducers\(businessId, gates, now\)/.test(code("lib/notifications/producers/status-sweep.ts")) && /kick: kickPushWorkerAfterResponse/.test(code("lib/notifications/producers/status-sweep.ts")));
   const vercel = fs.existsSync(path.join(root, "vercel.json")) ? read("vercel.json") : "";
   ok("route: not scheduled in vercel.json", !vercel.includes("/api/notifications/status-sweep"));
   const sweep = code("lib/notifications/producers/status-sweep.ts");

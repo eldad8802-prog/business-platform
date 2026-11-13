@@ -5,8 +5,12 @@ events / state only; never change business logic, money calculations, amounts, s
 numbering, invoice / receipt behaviour or payment mechanisms; never bypass a guard. Features that are OFF stay OFF.
 
 Branch stack (Draft, not merged, nothing applied): #1143 migration (`notify/2-engine-migration`), #1146 engine
-(`notify/3-engine`), #1147 producers (`notify/5-producers`), **this branch `notify/6-coverage`** (status sweep + this
-document). Everything here is inert until `notifications_engine` (catalog default OFF) is enabled for a business.
+(`notify/3-engine`), #1147 producers (`notify/5-producers`), **this branch `notify/6-coverage`** (status sweep, the
+state producers A–E of the owner decisions of 2026-11-13, this document, `sweep-performance.md`). Everything here is
+inert until `notifications_engine` (catalog default OFF) is enabled for a business.
+
+**The owner's final table is [§0 below](#0-final-coverage-table-owner-2026-11-13).** The per-domain sections after it
+keep the detailed source lines.
 
 Paths are relative to the repository root; line numbers are as of `notify/6-coverage`.
 
@@ -46,17 +50,84 @@ Everything else is in-app or digest. Every push shows only the catalog's generic
 | Direct upserts | task reminders `lib/services/tasks/task-reminders.service.ts:71`, public booking `lib/services/booking/booking-notify.ts:34` | tasks.reminder, booking.request_waiting |
 | Push worker / digest | `engine/push-worker.ts`, `engine/digest.ts` (#1146) | delivery of owed pushes; 08:00 summary |
 | **Status sweep (this PR)** | `lib/notifications/producers/status-sweep.ts`, route `app/api/notifications/status-sweep` | billing review / failure, lead follow-ups, supplier drafts; catch-up of the inventory and documents-queue consumers |
+| **State producers A–E (this PR)** | `lib/notifications/producers/state-producers.ts` (reads + runner), `state-facts.ts` (pure), run by the sweep per business | obligations due / overdue, payment requests failed / expired unpaid, ITA allocation problems, document processing failures, upcoming appointments — through the engine's `notify()` |
 
 ### The status sweep in one paragraph
 
 Per live business (`notification_live_businesses`, the digest's walk) where `notifications_engine` is ON, inside that
-business's tenant context: `getBusinessStatusSnapshot` → keep the items of the sweep's OWN scopes whose category's
-feature is available → the existing `decideForSnapshot` → the existing `persistSnapshotNotifications` →
-`resolveAbsentNotifications` per owned scope against UNCAPPED identifier sets (`lib/notifications/exhaustive-facts.ts`
-— never the capped snapshot; an incomplete lead read resolves nothing) → the existing inventory and documents-queue
-reconcilers as a catch-up. Owned scopes: `billing|billing_document`, `leads|lead`, `supplier|supplier_purchase_draft`.
-CRON_SECRET route, not scheduled in `vercel.json` (owner decision), 45 s budget under `maxDuration = 60`, keyset
-continuation (`?after=<nextAfter>`), counts-only logs. Zero domain-code changes.
+business's tenant context: the home snapshot's own loaders / translators for the sweep's OWN scopes only, one read at a
+time (`loadOwnedFacts`) → keep the items whose category's feature is available → the existing `decideForSnapshot` →
+the existing `persistSnapshotNotifications` → `resolveAbsentNotifications` per owned scope against UNCAPPED identifier
+sets (`lib/notifications/exhaustive-facts.ts` — never a capped list; an incomplete lead read resolves nothing) → the
+existing inventory and documents-queue reconcilers as a catch-up → the state producers A–E (one tenant transaction
+behind a per-business advisory lock) → a worker kick when a push is owed. Owned scopes: `billing|billing_document`,
+`leads|lead`, `supplier|supplier_purchase_draft`. CRON_SECRET route, not scheduled in `vercel.json` (owner decision),
+45 s budget under `maxDuration = 60`, businesses in a pool of 2 (`NOTIFICATIONS_SWEEP_CONCURRENCY`), keyset
+continuation (`?after=<nextAfter>`), counts-only logs. Zero domain-code changes. Measurements:
+[`sweep-performance.md`](sweep-performance.md).
+
+## 0. Final coverage table (owner, 2026-11-13)
+
+Legend — **Default**: push = owed push on the lock screen (generic text), in-app = bell only, digest = in-app + the
+08:00 daily summary (`engine/digest.ts`), never a separate push. **Quiet hours**: "deferred" = the worker holds the push
+until the user's quiet end (`engine/worker-decision.ts`), the TTL drops it if that is too late; "bypass" only for a
+user-set reminder and the security alert. **Summary?**: whether an unresolved row reaches the daily summary (digest
+mode, or a push held back by quiet hours / rate limit). **Resolved?**: closed automatically once the fact is no longer
+true (handled). Tests are under `lib/notifications/` unless a path is given.
+
+| Feature (default) | Detectable events | Wired to the engine | Category | Default | Quiet hours | Summary? | Resolved? | Tests |
+|---|---|---|---|---|---|---|---|---|
+| Tasks (`daily_tasks`, ON) | reminder due; overdue / due today | reminder due | `tasks.reminder` | push | **bypass** (user-set time) | if held | yes (task done) | `services/tasks/task-reminders.test.ts`, `task-reminders.db.test.ts`, `catalog.test.ts` |
+| Appointments (`appointments`, ON) | confirmed appointment starts soon; created / moved / cancelled | **upcoming (60 min before)** — new | `appointments.upcoming` | push (TTL 30 min) | deferred, dropped after the start | if held | yes (cancelled, moved, started) | `producers/state-producers.test.ts`, `producers/state-producers.db.test.ts` |
+| Public booking (`public_booking`, OFF) | request pending / auto-confirmed / cancelled / expired | pending, cancelled; resolve on settle | `booking.request_waiting` | push | deferred | if held | yes | `catalog.test.ts`, `producers/producers.test.ts` |
+| Obligations / secretary / payables (no flag) | due today, overdue, postponed, paid / handled / released | **due day + overdue stages 1, 3, 7, weekly** — new | `obligations.due` | **digest** (no push) | n/a (no push) | yes | yes (MET, released, postponed, paid in the ledger) | `producers/state-producers.test.ts`, `.db.test.ts` |
+| Payments / collection (no flag) | request FAILED, expired unpaid, PAID, anomalies | **FAILED on a sent link; expired > 24 h unpaid** — new | `payments.request_failed` | push | deferred | if held | yes (paid by any path, re-asked, cancelled) | `producers/state-producers.test.ts`, `.db.test.ts` |
+| Billing (`billing`, ON) | PDF failed; review pending; stale drafts / links; **ITA allocation failed / rejected / uncertain / HELD / stuck** | PDF failed, review, **ITA (only with the PRODUCTION pilot on)** — new | `billing.failure`, `billing.review`, `billing.allocation_failed` | push / digest / push | deferred | review: yes; others if held | yes | `producers/status-sweep.test.ts`, `.db.test.ts`, `producers/state-producers.test.ts`, `.db.test.ts` |
+| Documents (`documents`, ON) | review backlog; per-document review; **processing failed**; stuck in processing | backlog (queue), **processing failed** — new | `documents.review`, `documents.processing_failed` | in-app / **digest** | n/a | failed: yes | yes (queue empty; retried / succeeded) | `documents-review-queue-notifications.verify.test.ts`, `.integration.test.ts`, `producers/state-producers.*` |
+| Accountant (`accountant_*`, ON) | period ready / attention / failed / changed; send failed / bounce / complaint | all | `accountant.month_close`, `accountant.send_failed` | in-app | n/a | no | yes | `producers/producers.test.ts`, `catalog.test.ts` |
+| Inventory (`inventory`, ON) | critical / low stock, unmatched POS, supplier draft pending | critical stock, supplier draft | `inventory.critical_stock`, `suppliers.purchase_pending` | push / digest | deferred | supplier: yes | yes | `inventory-alert-notifications.integration.test.ts`, `producers/status-sweep.*` |
+| Inbox (`inbox`, ON) | customer waiting for a reply | waiting | `inbox.customer_waiting` | in-app | n/a | no | yes (answered) | `inbox-waiting-notifications.verify.test.ts`, `.integration.test.ts` |
+| Leads (no flag) | follow-up overdue / due, called / wrote, new untouched | HIGH / MEDIUM reasons | `leads.follow_up` | in-app | n/a | no | yes (complete read only) | `producers/status-sweep.*` |
+| Connections (Gmail / WhatsApp, ON) | token revoked; intake paused / failed | revoked (+ restore resolves); intake (`intake_status_visibility`, OFF) | `connections.account_disconnected`, `connections.disconnected` | in-app | n/a | no | yes | `producers/producers.test.ts`, `intake-notifications.verify.test.ts` |
+| Security | new device, password reset | not wired (session track owns the auth plane) | `security.new_device` (reserved) | — | — | — | — | `catalog.test.ts` |
+| System | daily summary, test push | both | `digest.daily`, `system.test` | push | deferred / bypass (test) | — | — | `engine/notification-engine.db.test.ts` |
+| content, pricing, revenue, reports, starter_bot (ON) | no owner-facing action-required event | — | — | — | — | — | — | — |
+| OFF features (acquisition, commerce, telephony, POS, bank file, knowledge, recommendations, business documents, service desk) | — | nothing until enabled; categories gated on their flag | — | — | — | — | — | — |
+
+### The five owner decisions (A–E) in detail
+
+All five are produced by the status sweep (no domain code changed, no protected-path hook) through
+`lib/notifications/producers/state-producers.ts` (reads + runner) and `state-facts.ts` (pure decisions), as one
+whole-business notification per fact (userId NULL) via the engine's `notify()`; deep links are internal paths checked
+against the category's prefixes (`catalog.ts` `safeHref`). Catalog entries: `lib/notifications/catalog.ts:259-342`.
+
+| | Source (read-only) | Fires when | Never fires when | Dedupe key (stage) | Resolved when | Catalog |
+|---|---|---|---|---|---|---|
+| **A** obligations | the secretary's REAL store per `SECRETARY_LEDGER_STORE` (`obligations.deps.ts:40`): legacy `obligation-store.prisma.ts:139` or ledger `obligation-store.ledger.ts:393` with the DERIVED state of `toObligationRecord` (:98 — paid / handled / released ⇒ not OPEN); in legacy mode also the ledger's own commitments (`legacyObligationId` NULL; backfilled copies are not read twice). Reader `state-producers.ts:68`, decision `state-facts.ts:65` | OPEN and its due DAY (business time zone) is today, or it is overdue: stage `due`, `late1` (days 1–2), `late3` (3–6), `late7`, then `late14`, `late21`, … | not yet due; MET / RELEASED; postponed (followUpAt in the future) | `st:obligations.due:<type>:<id>:<dueDay>:<stage>` — a stage is told once (cooldown 7 days ≥ the longest stage) | the obligation is handled / paid / released / postponed, or moves to its next stage (the previous stage row resolves) | normal, **in-app + digest, no push**, cooldown 168 h, TTL 12 h, href `/secretary` (ledger-own: `/payables`) |
+| **B** payments | `PaymentRequest` + `PaymentTransaction` statuses, the other requests of the same billing document / customer, `BillingPaymentAllocation` (`state-producers.ts:95`, `state-facts.ts:119`) | TERMINAL only: FAILED on a link that was really sent (`paymentUrl`), or the link's lifetime ended > 24 h ago with no verification PENDING | PAID (status or a PAID transaction); another request of the same document PAID; a receipt allocation covers the document; the owner already re-asked (newer PENDING request) or CANCELLED; link-creation failure (the owner saw it on screen); expiry inside the 24 h grace | `st:payments.request_failed:payment_request:<id>:<failed\|expired>` | paid by any path, re-asked, cancelled. A request terminal for more than 7 days is never announced (only kept resolvable) | high, **push**, cooldown 72 h, TTL 12 h, href `/payments/<id>` |
+| **C** ITA allocation | `BillingAuthoritySubmission` + the authority's own `isAuthorityOutcomeUncertainErrorCode` (`state-producers.ts:142`, `state-facts.ts:191`) | FAILED, REJECTED, SUBMITTED with the outcome-uncertain code, HELD without a reported decision, or READY / PENDING / SUBMITTED with no movement for **60 min** (`ALLOCATION_STUCK_MS` = 4 × the execution service's own 15-min in-flight staleness) | integration off: `BILLING_AUTHORITY_RUNTIME_ENVIRONMENT` ≠ PRODUCTION, or the pilot (`BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS` / `_OPERATIONS`) does not admit the business for `approval` (`state-producers.ts:131`) — then nothing is read and nothing resolved; a request moving within the last 60 min | `st:billing.allocation_failed:billing_authority_submission:<id>:<problem>` | APPROVED / NOT_REQUIRED / HELD decision reported (stuck → failed is a new key) | high, **push**, cooldown 24 h, TTL 12 h, href `/billing/<documentId>` |
+| **D** document processing | `Document.status = 'failed'` (`state-producers.ts:156`) — the pipeline (`process-document-pipeline.service.ts:236`) never retries on its own; only the "retry" action (`app/api/documents/[id]/process`) re-runs it | status `failed` | `processing`, `needs_review` (OCR failure lands there and is the review queue's) | `st:documents.processing_failed:document_processing:<id>` | retried (processing), succeeded, deleted | normal, **in-app + digest**, cooldown 72 h, TTL 12 h, href `/documents/review/<id>` |
+| **E** appointments | `Appointment` CONFIRMED, not BLOCK, not erased (`state-producers.ts:166`, `state-facts.ts:269`); time zone `BookingSettings.timeZone` else Asia/Jerusalem (`preferences-store.ts` `businessTimeZone`) | starts within the lead (catalog default **60 min**); created only while ≥ 30 min remain (start − TTL), so the owed push can never outlive the start | cancelled / completed / no-show / proposed; started; BLOCK | `st:appointments.upcoming:appointment:<id>:<startsAt ISO>` — a move is a new key | cancelled, moved (old key), started | high, **push**, cooldown 24 h, **TTL 30 min**, href `/calendar` |
+
+**Timing precision of E.** The reminder is created by the first sweep pass inside [start − 60 min, start − 30 min],
+so with a sweep cadence C ≤ 30 min it is created between 60 and 60 − C minutes before the start, and the sweep kicks
+the push worker for that business right after its response (`trigger.ts`), so delivery does not wait for the worker
+route. With C > 30 min a reminder can be missed. The sweep is NOT scheduled (owner decision); the owner chooses C.
+**Follow-up (needs a migration, not done):** a per-user lead time needs a column (e.g.
+`NotificationSettings.appointmentLeadMinutes`).
+
+### Where a notification meets the secretary / home / badges — duplicate or not
+
+| Fact | Already shown by | Notification default | Why this is not an unnecessary duplicate |
+|---|---|---|---|
+| Obligation due / overdue | secretary briefing (`obligation.service.ts:461`), agenda `supplier_payment` (`lib/services/tasks/sources.ts`), payables badge (`nav-signals.ts:86-90`), Attention payables items | **in-app + digest, never push** | The secretary is a screen the owner opens; the notification adds exactly ONE outside touch a day — the 08:00 summary — and only on the due day and at the overdue stages (1, 3, 7, weekly), never daily. It is never pushed on its own, so the owner is not told twice the same day. Same store, same state as the secretary (`getBriefing` reads the same `obligationServiceDeps` store), so the two cannot disagree. |
+| Payment request failed / expired | payments nav dot (`nav-signals.ts:83`), collection "attention" bucket (`collection-view.ts:45`) | push | The dot is visible only inside the app; a failed customer payment is money the owner must chase now. No task/agenda item exists for it. |
+| ITA allocation problem | the document screen only (`lib/billing/authority-document-state-display.ts`) | push | Nothing else surfaces it; the invoice cannot be delivered until a person acts. |
+| Document processing failed | the documents inbox row status; NOT in Attention or the agenda (the agenda `documents_queue` counts `needs_review` only) | in-app + digest | No other surface outside the documents screen; low urgency, so no push. Distinct from the review-queue row (that one counts `needs_review`; a `failed` document is not in it). |
+| Upcoming appointment | the calendar and the secretary's today view (`secretary-hub-data.ts` lists appointments) | push | Different job: the views list the day; the reminder is time-triggered, once per appointment start. |
+| Billing review, supplier drafts | Attention, agenda `invoice_review` | digest | as before (§6 / §8) |
+| Lead follow-ups | Attention, leads badge, agenda `lead` | in-app | as before (§1): the bell is the history, the badge is a count |
+| Critical stock | inventory "קריטי" label, agenda `stock` | push | as before (§8) |
 
 ## 1. לידים ולקוחות — Leads & customers
 
@@ -73,7 +144,7 @@ continuation (`?after=<nextAfter>`), counts-only logs. Zero domain-code changes.
 | Public booking request pending / auto-confirmed — `lib/services/booking/public-booking.service.ts:440-441` | yes | push + in-app | `booking-notify.ts:52/57`, reminder push every 2 h `booking-sweep.service.ts:71` | booking pending count `booking-admin.service.ts:223` | pending: yes | `booking.request_waiting` [public_booking, OFF] | existing (#1146 routes its push through the shared sender) |
 | Customer cancelled — `public-booking.service.ts:544` | yes | in-app | `notifyCustomerCancelled` | — | no | (booking domain row) | existing |
 | Request expired / declined / approved — `public-booking.service.ts:292`, `booking-settle.ts:26`, `booking-admin.service.ts:275` | resolve only | — | resolves the notification | — | — | — | existing |
-| Ordinary appointment upcoming / changed — `lib/services/appointment/*` | later | — | none | calendar screen | — | — | **not wired**: no producer exists and no policy rule; an appointment reminder is a new product decision (time-based, like task reminders) — owner decision required |
+| Ordinary appointment upcoming (CONFIRMED, not BLOCK) — `Appointment.startsAt`, reader `lib/notifications/producers/state-producers.ts:166` | yes | push (TTL 30 min; quiet hours deferred, dropped after the start) | none | calendar, secretary today view | attend | `appointments.upcoming` [appointments, ON] | **state producer E (this PR)**: 60 min before (catalog default), cancelled / moved / started ⇒ resolved; a move is a new key (start time in the key) |
 
 ## 3. משימות ותזכורות — Tasks & reminders (`daily_tasks`, ON)
 
@@ -91,7 +162,7 @@ deliberately silent) in its own domain section. Notifying from the agenda as wel
 
 | Fact | Needs? | Channel | Existing | Overlap | Action | Catalog key | Wired by |
 |---|---|---|---|---|---|---|---|
-| Obligation due / overdue / postponed — `lib/services/obligations/obligation.service.ts:461`, `sources.ts:73` | digest candidate | (digest) | agenda, payables badge | the secretary IS the surface | yes | — | **not wired**: payables have no policy rule (see §7) |
+| Obligation due / overdue / postponed — `lib/services/obligations/obligation.service.ts:461`, `sources.ts:73` | yes | **in-app + digest** (no push: the secretary already shows it — see §0 overlap) | agenda, payables badge | the secretary IS the surface; one 08:00 summary touch only on the due day and at the overdue stages | yes | `obligations.due` (no flag) | **state producer A (this PR)**: the secretary's real store, stages due / 1 / 3 / 7 / weekly; postponed, MET, released ⇒ resolved |
 | invoice_review / documents_queue / stock / lead / conversation sources | — | — | — | — | — | — | covered in §6 / §5 / §8 / §1 / §12 |
 | quote_validity / quote_followup — `sources.ts:176/217` | — | — | agenda | — | yes | — | not wired: `business_documents` is OFF by default |
 
@@ -102,7 +173,7 @@ deliberately silent) in its own domain section. Notifying from the agenda as wel
 | Review backlog ≥ `PAPERWORK_PENDING_MIN` — `lib/services/documents/process-document-pipeline.service.ts:157` | yes | in-app (72 h) | queue consumer from the pipeline (:278), approve route, WhatsApp intake (`documents-intake.service.ts:432`) | documents AttentionBand, agenda documents_queue | yes | `documents.review` [documents] | existing consumer; **status sweep** re-runs it as a catch-up for paths without a hook (deletion, bulk) |
 | Per-document "needs review" | no | — | Attention | — | — | `documents.review` | deliberately not wired: the queue is the identity (one row, not twenty — `documents-review-queue-notifications.ts:8`) |
 | OCR / extraction failed — `process-document-pipeline.service.ts:148-151` | covered | in-app | lands in needs_review → the queue | — | yes | `documents.review` | covered by the queue |
-| Pipeline fatal error, status `failed` — `process-document-pipeline.service.ts:236` | yes (later) | in-app | **none** (not in Attention either) | — | yes (retry) | — | **not wired**: no business-status fact and no policy rule; needs a translator + rule (owner decision); no protected path involved |
+| Pipeline fatal error, status `failed` — `process-document-pipeline.service.ts:236` (no automatic retry: only `app/api/documents/[id]/process`) | yes | in-app + digest | documents inbox row | — | yes (retry) | `documents.processing_failed` [documents] | **state producer D (this PR)**; retried / succeeded ⇒ resolved. A document **stuck in `processing`** (Phase 2 killed) is NOT wired: `Document` has no `updatedAt` / processing-start column, so a just-retried old document cannot be told apart from a stuck one — needs a column (migration), follow-up |
 
 ## 6. חשבוניות, קבלות והצעות מחיר — Invoices / receipts / quotes (`billing`, ON) — PROTECTED DOMAIN
 
@@ -111,7 +182,7 @@ deliberately silent) in its own domain section. Notifying from the agenda as wel
 | PDF render failed — `lib/services/billing/billing-pdf.service.ts:356`, `quote-pdf.service.ts:304`; loader `lib/business-status/loaders.ts:473` | yes | **push** (12 h) + in-app; in-app only in quiet hours (policy) | Attention only | — | yes | `billing.failure` [billing] | **status sweep** (read-only; no billing file changes) |
 | Billing document PENDING_REVIEW — `loaders.ts:459` | yes | in-app + **digest** (48 h) | Attention, agenda invoice_review (`sources.ts:148`) | agenda | yes | `billing.review` [billing] | **status sweep** |
 | Stale drafts / stale payment links (14 days) — `loaders.ts:649/683` | no | — | Attention (WARNING) | — | soft | — | not wired: policy silent ("forgotten money" is not an interruption) |
-| ITA allocation number submission FAILED / REJECTED / HELD — `lib/services/billing/authority/billing-authority-submission-execution.service.ts:407-411` | yes (HELD needs a decision) | in-app | in-document display only (`lib/billing/authority-document-state-display.ts:64`) | — | HELD: yes | — | **not wired**: no business-status fact, no policy rule; state-sweepable later with a read-only translator + rule (owner decision) — NO protected hook needed |
+| ITA allocation number: FAILED / REJECTED / outcome uncertain / HELD undecided / stuck > 60 min — `BillingAuthoritySubmission`, `billing-authority-submission-execution.service.ts:385-411`, threshold `state-facts.ts` `ALLOCATION_STUCK_MS` | yes | push | in-document display only (`lib/billing/authority-document-state-display.ts:64`) | — | yes | `billing.allocation_failed` [billing] | **state producer C (this PR)**, read-only, ONLY when `BILLING_AUTHORITY_RUNTIME_ENVIRONMENT=PRODUCTION` and the pilot admits the business for `approval`; APPROVED / decision reported ⇒ resolved. No authority file changed |
 | Quote accepted / declined — `quote-share-state.ts:50` | no | — | — | — | — | — | not an event for the owner (the owner records it) |
 
 ## 7. תשלומים והתחייבויות — Payments & obligations — PROTECTED DOMAIN (payments / settlement)
@@ -119,9 +190,9 @@ deliberately silent) in its own domain section. Notifying from the agenda as wel
 | Fact | Needs? | Channel | Existing | Overlap | Action | Catalog key | Wired by |
 |---|---|---|---|---|---|---|---|
 | Payment verified PAID — `lib/services/payments/payment-verification.service.ts:388` | no | — | collection "paid" bucket | — | no | — | not wired: good news, no action; never "all money" |
-| Payment request FAILED / EXPIRED — `lib/services/payments/collection-view.ts:44/46` | digest candidate | (digest) | payments nav dot (`nav-signals.ts:80`) | badge | yes | — | **not wired**: no business-status fact / policy rule; state-sweepable read-only later (owner decision) |
-| Payment anomalies (accounting paused, refund unresolved, verification anomaly, disabled provider) — `payment-attention.service.ts:18-26` | yes (operator) | in-app | `/api/payments/attention` screen | — | yes | — | **not wired**: same; read-only sweep possible later, no protected hook |
-| Payables installment OVERDUE / DUE — `lib/services/payables/payables-core.ts:223/228`, `loaders.ts:605/619` | digest candidate | (digest) | Attention, payables badge (`nav-signals.ts:86`), agenda supplier_payment | secretary | yes | — | **not wired**: the policy has no `payables` rule (silent by design — "never all money"); adding a digest-only rule is an owner decision |
+| Payment request FAILED (on a sent link) / expired > 24 h unpaid — `PaymentRequest`, `PaymentTransaction`, `BillingPaymentAllocation`; `collection-view.ts:44/46` | yes | push | payments nav dot (`nav-signals.ts:83`) | badge (in-app only) | yes | `payments.request_failed` (no flag) | **state producer B (this PR)**: never when paid by any path (transaction, sibling request, receipt allocation), re-asked or cancelled; a link-creation failure is not announced (seen on screen) |
+| Payment anomalies (accounting paused, refund unresolved, verification anomaly, disabled provider) — `payment-attention.service.ts:18-26` | yes (operator) | in-app | `/api/payments/attention` screen | — | yes | — | **not wired** (outside A–E): read-only sweep possible later, no protected hook |
+| Payables installment OVERDUE / DUE — `lib/services/payables/payables-core.ts:223/228`, `loaders.ts:605/619` | yes | in-app + digest | Attention, payables badge (`nav-signals.ts:86`), agenda supplier_payment | secretary | yes | `obligations.due` | **state producer A (this PR)** through the secretary's store: in ledger mode every installment (derived paid / handled state); in legacy mode the ledger's OWN commitments (`legacyObligationId` NULL) — backfilled copies are the secretary's obligations and are not read twice. The `payables` business-status items stay silent in the policy (unchanged) |
 | Customer debt — `sources.ts:116` | no separate | — | agenda | — | yes | — | not wired (agenda is the surface) |
 
 ## 8. מלאי וספקים — Inventory & suppliers (`inventory`, ON)
@@ -178,16 +249,19 @@ disconnects are silent in a business without it even when the engine is ON. Movi
 | Status | Facts |
 |---|---|
 | **Wired before this PR** | task reminders; booking requests (OFF); inbox waiting; documents review queue; critical stock; accountant month close / send failed; lead intake (OFF); Gmail / WhatsApp disconnected (#1147, gated OFF) |
-| **Wired by this PR (status sweep)** | billing PDF failed (push); billing review (in-app + digest); lead follow-ups (in-app); supplier drafts (in-app + digest); catch-up of the inventory and documents-queue consumers; classification of the accountant complaint |
+| **Wired by this PR (status sweep)** | billing PDF failed (push); billing review (in-app + digest); lead follow-ups (in-app); supplier drafts (in-app + digest); catch-up of the inventory and documents-queue consumers; classification of the accountant complaint; **state producers A–E**: obligations due / overdue (digest), payment request failed / expired unpaid (push), ITA allocation problems (push, PRODUCTION pilot only), document processing failed (digest), appointment reminders (push) |
 | **Digest-only** | billing review, supplier drafts (catalog default `digest`); anything a user switches to digest, or whose push was held back (quiet / rate limit) |
-| **Not wired — owner decision** | payables overdue / due (policy silent by design); payment request failed / expired and payment anomalies; ITA allocation HELD / FAILED; document pipeline `failed`; appointment reminders; new-device / password-reset security notices (session track) — each is state-sweepable read-only with a new translator + policy rule, no protected-path hook |
+| **Not wired — needs a decision or a column** | payment anomalies; document stuck in `processing` (needs `Document.updatedAt`); per-user appointment lead time (needs a settings column); new-device / password-reset security notices (session track) |
 | **Not wired — deliberately** | per-document review items, stale drafts / payment links, LOW lead reasons, inventory WARNING, task overdue (duplicates), payment PAID (no action) |
 
 ## Protected paths
 
-No protected-path hook is proposed. Every billing / payment fact listed above is a STATE (a status column, a render
-status, a derived due date) that the read-only sweep observes within one sweep interval; none needs sub-minute
-latency, and the push-worthy one (PDF failure) is not lost by waiting a sweep. Therefore no `notify/7-protected-hooks`
-branch was created. The only protected file this branch touches is the cron authority registry test
-`lib/services/billing/settlement/settlement-recovery-auth.test.ts` (one route added to `CRON_ROUTES` and
-`DECISION_CALLERS`, the same pattern `notify/3-engine` uses) — that edit needs the owner's approval.
+No protected-path hook is proposed, so no `notify/7-protected-hooks` branch was created. A–E are all STATES (a status
+column, a due date, a start time) that the read-only sweep observes within one sweep interval; none needs an event
+hook. The new code lives under `lib/notifications/` and only IMPORTS read-only helpers from protected directories
+(`billing-authority-send-certainty.ts` `isAuthorityOutcomeUncertainErrorCode`,
+`billing-authority-production-pilot.ts` `isAuthorityProductionOperationAllowedForBusiness`); it reads
+`PaymentRequest` / `PaymentTransaction` / `BillingPaymentAllocation` / `BillingAuthoritySubmission` through the
+tenant transaction and writes none of them. The only protected file this branch touches is the cron authority
+registry test `lib/services/billing/settlement/settlement-recovery-auth.test.ts` (one route added to `CRON_ROUTES`
+and `DECISION_CALLERS`, the same pattern `notify/3-engine` uses) — that edit needs the owner's approval.

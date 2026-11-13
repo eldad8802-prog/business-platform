@@ -41,7 +41,7 @@
 import { prisma } from "@/lib/prisma";
 import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
-import { loadLeadAttentionQueue } from "@/lib/services/crm/lead-attention-queue";
+import { loadLeadAttentionQueue, type LeadAttentionRaw } from "@/lib/services/crm/lead-attention-queue";
 
 declare const EXHAUSTIVE: unique symbol;
 
@@ -154,4 +154,23 @@ export async function loadAllSupplierPurchasePendingIds(businessId: number): Pro
 export async function loadAllLeadAttentionIds(businessId: number, now: Date): Promise<{ ids: number[]; complete: boolean }> {
   const queue = await dbStep((db) => loadLeadAttentionQueue(db, businessId, now));
   return { ids: queue.items.map((i) => i.row.id), complete: !queue.overflow };
+}
+
+/**
+ * The lead attention queue read ONCE for the status sweep: the display rows (exactly what loadLeadsNeedingAttention
+ * hands the translator — the first BS_LEADS_CAP * 3 of the urgency-ordered queue) AND the uncapped identifier set
+ * with its completeness, from the same single read. The sweep used to run the queue twice per business (the snapshot
+ * loader and loadAllLeadAttentionIds); the predicate and the ordering are the queue's own, unchanged.
+ */
+export async function loadLeadAttentionForSweep(
+  businessId: number,
+  now: Date,
+  displayCap: number,
+): Promise<{ rows: LeadAttentionRaw[]; ids: number[]; complete: boolean }> {
+  const queue = await dbStep((db) => loadLeadAttentionQueue(db, businessId, now));
+  return {
+    rows: queue.items.slice(0, displayCap).map((i) => i.row),
+    ids: queue.items.map((i) => i.row.id),
+    complete: !queue.overflow,
+  };
 }
