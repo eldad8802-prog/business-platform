@@ -181,6 +181,8 @@ on:
           - 'ops/evidence/notification-engine-followup-production-evidence.sql'
           - 'ops/evidence/notification-engine-activation-preflight.sql'
           - 'ops/evidence/notification-engine-activation-production-evidence.sql'
+          - 'ops/evidence/notification-docs-appointments-preflight.sql'
+          - 'ops/evidence/notification-docs-appointments-production-evidence.sql'
 
 permissions:
   contents: read
