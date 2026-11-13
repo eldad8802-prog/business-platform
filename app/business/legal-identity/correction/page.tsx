@@ -22,19 +22,28 @@ type RequestRow = {
   current: { businessKind: string; legalName: string | null; taxId: string | null };
   requested: { businessKind: string; legalName: string | null; taxId: string | null };
   reason: string | null;
-  decisionNote: string | null;
+  /** The decision note meant for the business. The internal note and the approver are never sent here. */
+  publicNote: string | null;
+  infoRequestedAt: string | null;
+  infoRequestNote: string | null;
   createdAt: string;
+  attachments: { id: number; mimeType: string; sizeBytes: number; createdAt: string }[];
 };
 type State = { identity: Identity | null; verification: "PASSWORD" | "RECENT_SIGN_IN"; requests: RequestRow[] };
 
 const KIND_LABEL: Record<string, string> = { EXEMPT_DEALER: "עוסק פטור", AUTHORIZED_DEALER: "עוסק מורשה", LTD_COMPANY: "חברה בע״מ" };
 const STATUS_LABEL: Record<RequestRow["status"], string> = {
-  PENDING: "ממתינה להחלטה",
-  APPLIED: "אושרה ובוצעה",
-  REJECTED: "נדחתה",
-  CANCELLED: "בוטלה",
-  STALE: "לא בוצעה — הפרטים השתנו בינתיים",
+  PENDING: "ממתין לבדיקה",
+  APPLIED: "אושר ובוצע",
+  REJECTED: "נדחה",
+  CANCELLED: "בוטל",
+  STALE: "לא בוצע — הפרטים השתנו",
 };
+/** A PENDING request returned for more information reads as such. */
+const statusLabel = (r: RequestRow) => (r.status === "PENDING" && r.infoRequestedAt ? "התבקש מידע נוסף" : STATUS_LABEL[r.status]);
+const MAX_ATTACHMENTS = 5;
+const FILE_LABEL: Record<string, string> = { "application/pdf": "PDF", "image/jpeg": "JPG", "image/png": "PNG" };
+const sizeLabel = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`);
 const REQUEST_KIND_LABEL: Record<RequestRow["kind"], string> = { TYPO_CORRECTION: "תיקון טעות", BUSINESS_KIND_CHANGE: "שינוי סוג עסק" };
 
 function token(): string {
@@ -63,6 +72,7 @@ export default function LegalIdentityCorrectionPage() {
   const [busy, setBusy] = useState(false);
   const [fieldError, setFieldError] = useState<{ field?: string; message: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -127,6 +137,51 @@ export default function LegalIdentityCorrectionPage() {
     }
   }
 
+  async function uploadFile(requestId: number, file: File) {
+    setBusy(true);
+    setAttachmentError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`/api/business/legal-identity/corrections/${requestId}/attachments`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token()}` },
+        body: fd,
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setAttachmentError(j.error || "הקובץ לא צורף. אפשר לנסות שוב.");
+        return;
+      }
+      await load();
+    } catch {
+      setAttachmentError("הקובץ לא צורף. אפשר לנסות שוב.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // The API needs the session's Bearer token, so a plain link cannot fetch it: fetch, then save the blob.
+  async function downloadFile(requestId: number, attachmentId: number) {
+    setAttachmentError(null);
+    try {
+      const res = await fetch(`/api/business/legal-identity/corrections/${requestId}/attachments/${attachmentId}`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      if (!res.ok) return setAttachmentError("לא ניתן להוריד את הקובץ כרגע.");
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? `correction-${attachmentId}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setAttachmentError("לא ניתן להוריד את הקובץ כרגע.");
+    }
+  }
+
   const errFor = (f: string) => (fieldError?.field === f ? <p role="alert" style={errorText}>{fieldError.message}</p> : null);
   const pending = state?.requests.find((r) => r.status === "PENDING") ?? null;
 
@@ -167,9 +222,55 @@ export default function LegalIdentityCorrectionPage() {
             {notice ? <p role="status" style={{ ...card, margin: 0, color: "var(--dz-text-primary)" }}>{notice}</p> : null}
 
             {pending ? (
-              <section style={card} data-testid="correction-pending">
-                <p style={{ margin: 0 }}>יש בקשה פתוחה ({REQUEST_KIND_LABEL[pending.kind]}) שממתינה להחלטה. אפשר לבטל אותה כדי להגיש בקשה אחרת.</p>
-                <button type="button" onClick={() => cancel(pending.id)} disabled={busy} style={{ ...input, width: "auto", marginTop: 10, cursor: "pointer", fontWeight: 600 }}>
+              <section style={{ ...card, display: "grid", gap: 12 }} data-testid="correction-pending">
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 16 }}>הבקשה הפתוחה · {REQUEST_KIND_LABEL[pending.kind]}</h2>
+                  <p style={{ margin: "4px 0 0", fontWeight: 600 }} data-testid="correction-status">{statusLabel(pending)}</p>
+                </div>
+                {pending.infoRequestedAt ? (
+                  <div role="status" data-testid="correction-info-request" style={{ padding: 12, borderRadius: 12, background: "var(--dz-warning-bg-soft)", border: "1px solid var(--dz-warning-border)", lineHeight: 1.5 }}>
+                    <strong>התבקש מידע נוסף.</strong>
+                    {pending.infoRequestNote ? <div style={{ marginTop: 4 }}>{pending.infoRequestNote}</div> : null}
+                    <div style={{ marginTop: 4, fontSize: 13 }}>אפשר לצרף מסמכים כאן. הבקשה נשארת פתוחה עד להחלטה.</div>
+                  </div>
+                ) : null}
+
+                <div data-testid="correction-attachments">
+                  <h3 style={{ margin: "0 0 6px", fontSize: 14 }}>מסמכים מצורפים ({pending.attachments.length}/{MAX_ATTACHMENTS})</h3>
+                  {pending.attachments.length > 0 ? (
+                    <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 6 }}>
+                      {pending.attachments.map((a, i) => (
+                        <li key={a.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                          <span>מסמך {i + 1} · {FILE_LABEL[a.mimeType] ?? "קובץ"} · <span dir="ltr">{sizeLabel(a.sizeBytes)}</span></span>
+                          <button type="button" onClick={() => downloadFile(pending.id, a.id)} style={{ background: "none", border: 0, color: "var(--dz-brand)", fontWeight: 600, cursor: "pointer", font: "inherit" }}>
+                            הורדה
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p style={{ margin: 0, fontSize: 13, color: "var(--dz-text-muted)" }}>אפשר לצרף מסמכים שמאמתים את הבקשה (למשל תעודת עוסק או תעודת התאגדות).</p>
+                  )}
+                  {pending.attachments.length < MAX_ATTACHMENTS ? (
+                    <label style={{ ...label, marginTop: 10 }}>
+                      צירוף מסמך (PDF, JPG או PNG, עד 10MB)
+                      <input
+                        type="file"
+                        accept="application/pdf,image/jpeg,image/png"
+                        disabled={busy}
+                        data-testid="correction-attach-input"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          e.target.value = "";
+                          if (f) void uploadFile(pending.id, f);
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                  {attachmentError ? <p role="alert" style={{ ...errorText, marginTop: 6 }}>{attachmentError}</p> : null}
+                </div>
+
+                <button type="button" onClick={() => cancel(pending.id)} disabled={busy} style={{ ...input, width: "auto", cursor: "pointer", fontWeight: 600 }}>
                   ביטול הבקשה
                 </button>
               </section>
@@ -225,9 +326,9 @@ export default function LegalIdentityCorrectionPage() {
                 <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
                   {state.requests.map((r) => (
                     <li key={r.id} style={{ borderTop: "1px solid var(--dz-border)", paddingTop: 10 }}>
-                      <div style={{ fontWeight: 600 }}>{REQUEST_KIND_LABEL[r.kind]} · {STATUS_LABEL[r.status]}</div>
+                      <div style={{ fontWeight: 600 }}>{REQUEST_KIND_LABEL[r.kind]} · {statusLabel(r)}</div>
                       <div style={{ fontSize: 13, color: "var(--dz-text-muted)" }}>{new Date(r.createdAt).toLocaleDateString("he-IL")}</div>
-                      {r.decisionNote ? <div style={{ fontSize: 13 }}>הערת ההחלטה: {r.decisionNote}</div> : null}
+                      {r.publicNote ? <div style={{ fontSize: 13 }}>הערת ההחלטה: {r.publicNote}</div> : null}
                     </li>
                   ))}
                 </ul>

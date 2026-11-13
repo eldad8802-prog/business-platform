@@ -6,7 +6,9 @@ import assert from "node:assert/strict";
 
 import { CorrectionError, type CorrectionState } from "@/lib/services/account/legal-identity-correction.service";
 
-import { handleDelete, handleGet, handlePost, type CorrectionDeps } from "./handlers";
+import { AttachmentInputError } from "@/lib/services/legal-identity/correction-attachment-storage";
+
+import { handleDelete, handleDownload, handleGet, handlePost, handleUpload, type CorrectionDeps } from "./handlers";
 
 let n = 0;
 async function check(name: string, fn: () => Promise<void>) {
@@ -27,9 +29,9 @@ const confirmed: CorrectionState = {
   requests: [],
 };
 
-type Calls = { verify: unknown[]; submit: unknown[]; cancel: unknown[]; rate: string[] };
+type Calls = { verify: unknown[]; submit: unknown[]; cancel: unknown[]; rate: string[]; upload: unknown[]; download: unknown[] };
 function deps(over: Partial<CorrectionDeps> = {}, state: CorrectionState = confirmed): { d: CorrectionDeps; calls: Calls } {
-  const calls: Calls = { verify: [], submit: [], cancel: [], rate: [] };
+  const calls: Calls = { verify: [], submit: [], cancel: [], rate: [], upload: [], download: [] };
   const d: CorrectionDeps = {
     enabled: () => true,
     auth: async () => ({ user: { id: 7, businessId: 3 }, sessionId: "s-1" }),
@@ -38,6 +40,8 @@ function deps(over: Partial<CorrectionDeps> = {}, state: CorrectionState = confi
     verify: async (...a) => { calls.verify.push(a); return { method: "PASSWORD", verifiedAt: new Date() }; },
     submit: async (...a) => { calls.submit.push(a); return 41; },
     cancel: async (...a) => { calls.cancel.push(a); return "CANCELLED"; },
+    upload: async (...a) => { calls.upload.push(a); return 5; },
+    download: async (...a) => { calls.download.push(a); return { body: Buffer.from("%PDF-1.7 x"), mimeType: "application/pdf" }; },
     ...over,
   };
   return { d, calls };
@@ -143,6 +147,73 @@ async function main() {
     const { d, calls } = deps();
     assert.equal((await handleDelete(del(), "abc", d)).status, 404);
     assert.equal(calls.cancel.length, 0);
+  });
+  // ---- attachments
+  const PDF = Buffer.from("%PDF-1.7 " + "x".repeat(50));
+  const upload = (file?: Blob, name = "doc.pdf", headers: Record<string, string> = {}) => {
+    const fd = new FormData();
+    if (file) fd.append("file", file, name);
+    return new Request("http://x/api/business/legal-identity/corrections/41/attachments", { method: "POST", body: fd, headers });
+  };
+  const dl = () => new Request("http://x/api/business/legal-identity/corrections/41/attachments/5");
+  await check("attachments OFF → 404 for upload and download, nothing read", async () => {
+    const { d, calls } = deps({ enabled: () => false });
+    assert.equal((await handleUpload(upload(new Blob([PDF], { type: "application/pdf" })), "41", d)).status, 404);
+    assert.equal((await handleDownload(dl(), "41", "5", d)).status, 404);
+    assert.equal(calls.upload.length + calls.download.length, 0);
+  });
+  await check("attachments without a session → 401", async () => {
+    const { d } = deps({ auth: async () => null });
+    assert.equal((await handleUpload(upload(new Blob([PDF], { type: "application/pdf" })), "41", d)).status, 401);
+    assert.equal((await handleDownload(dl(), "41", "5", d)).status, 401);
+  });
+  await check("upload → 201; the session business and user, the real bytes and the declared type reach the service", async () => {
+    const { d, calls } = deps();
+    const res = await handleUpload(upload(new Blob([PDF], { type: "application/pdf" })), "41", d);
+    assert.equal(res.status, 201);
+    const [businessId, userId, requestId, file] = calls.upload[0] as [number, number, number, { mimeType: string; body: Buffer }];
+    assert.deepEqual([businessId, userId, requestId], [3, 7, 41]);
+    assert.equal(file.mimeType, "application/pdf");
+    assert.ok(file.body.equals(PDF));
+    assert.ok(calls.rate.includes("legal-identity-attachment:7"), "uploads have their own rate-limit key");
+  });
+  await check("upload: bad request id → 404; no file → 400; rate limited → 429", async () => {
+    assert.equal((await handleUpload(upload(new Blob([PDF])), "x", deps().d)).status, 404);
+    assert.equal((await handleUpload(upload(), "41", deps().d)).status, 400);
+    assert.equal((await handleUpload(upload(new Blob([PDF])), "41", deps({ rateLimit: async () => ({ allowed: false }) }).d)).status, 429);
+  });
+  await check("upload: a declared body over the limit is refused unread (413)", async () => {
+    const { d, calls } = deps();
+    const res = await handleUpload(upload(new Blob([PDF]), "doc.pdf", { "content-length": String(11 * 1024 * 1024) }), "41", d);
+    assert.equal(res.status, 413);
+    assert.equal(calls.upload.length, 0);
+  });
+  await check("upload: invalid content → 400 / too large → 413 / limit → 409 / not pending → 409", async () => {
+    const mk = (e: Error) => deps({ upload: async () => { throw e; } }).d;
+    const file = () => upload(new Blob([PDF], { type: "application/pdf" }));
+    assert.equal((await handleUpload(file(), "41", mk(new AttachmentInputError("CONTENT_MISMATCH", "x")))).status, 400);
+    assert.equal((await handleUpload(file(), "41", mk(new AttachmentInputError("TOO_LARGE", "x")))).status, 413);
+    const lim = await handleUpload(file(), "41", mk(new CorrectionError("ATTACHMENT_LIMIT", 409)));
+    assert.equal(lim.status, 409);
+    assert.equal((await lim.json()).code, "ATTACHMENT_LIMIT");
+    assert.equal((await handleUpload(file(), "41", mk(new CorrectionError("NOT_PENDING", 409)))).status, 409);
+  });
+  await check("download: always an attachment, nosniff, sandboxed, no-store; the session business is the scope", async () => {
+    const { d, calls } = deps();
+    const res = await handleDownload(dl(), "41", "5", d);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-disposition") ?? "", /^attachment; filename="correction-41-5.pdf"$/);
+    assert.equal(res.headers.get("x-content-type-options"), "nosniff");
+    assert.match(res.headers.get("content-security-policy") ?? "", /sandbox/);
+    assert.equal(res.headers.get("cache-control"), "no-store");
+    assert.equal(res.headers.get("content-type"), "application/pdf");
+    assert.deepEqual(calls.download[0], [3, 41, 5]);
+  });
+  await check("download: unknown or foreign attachment → 404; bad ids → 404 without a lookup", async () => {
+    assert.equal((await handleDownload(dl(), "41", "5", deps({ download: async () => null }).d)).status, 404);
+    const { d, calls } = deps();
+    assert.equal((await handleDownload(dl(), "41", "-1", d)).status, 404);
+    assert.equal(calls.download.length, 0);
   });
   console.log(`handlers.test.ts: ok (${n} checks)`);
 }

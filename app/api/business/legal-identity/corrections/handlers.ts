@@ -24,6 +24,10 @@ import {
   type CorrectionState,
   type VerificationMethod,
 } from "@/lib/services/account/legal-identity-correction.service";
+import {
+  AttachmentInputError,
+  MAX_CORRECTION_ATTACHMENT_BYTES,
+} from "@/lib/services/legal-identity/correction-attachment-storage";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -35,6 +39,8 @@ export type CorrectionDeps = {
   verify: (userId: number, sessionId: string | null, password: unknown) => Promise<{ method: VerificationMethod; verifiedAt: Date }>;
   submit: (businessId: number, userId: number, c: NormalizedCorrection, v: { method: VerificationMethod; verifiedAt: Date }) => Promise<number>;
   cancel: (businessId: number, userId: number, id: number) => Promise<"CANCELLED" | "NOT_FOUND" | "NOT_PENDING">;
+  upload: (businessId: number, userId: number, requestId: number, file: { mimeType: unknown; body: Buffer }) => Promise<number>;
+  download: (businessId: number, requestId: number, attachmentId: number) => Promise<{ body: Buffer; mimeType: string } | null>;
 };
 
 /** Hebrew messages for the stable codes. None carries a value. */
@@ -52,6 +58,11 @@ export const CORRECTION_MESSAGES: Record<string, string> = {
   RATE_LIMITED: "נעשו יותר מדי ניסיונות. אפשר לנסות שוב מאוחר יותר.",
   NOT_FOUND: "הבקשה לא נמצאה.",
   NOT_PENDING: "הבקשה כבר אינה פתוחה.",
+  ATTACHMENT_LIMIT: "אפשר לצרף עד 5 קבצים לבקשה.",
+  ATTACHMENT_INVALID: "הקובץ אינו תקין. אפשר לצרף PDF, JPG או PNG עד 10MB.",
+  ATTACHMENT_TOO_LARGE: "הקובץ גדול מדי (עד 10MB).",
+  ATTACHMENT_MISSING: "לא נבחר קובץ.",
+  ATTACHMENT_RETRY: "הצירוף לא נשמר. אפשר לנסות שוב.",
 };
 
 const notFound = () => NextResponse.json({ error: "Not Found" }, { status: 404, headers: noStore });
@@ -111,4 +122,72 @@ export async function handleDelete(req: Request, rawId: string, deps: Correction
   const r = await deps.cancel(ctx.user.businessId, ctx.user.id, id);
   if (r === "CANCELLED") return NextResponse.json({ id, status: "CANCELLED" }, { headers: noStore });
   return coded(r, r === "NOT_FOUND" ? 404 : 409);
+}
+
+const positiveId = (raw: string): number | null => {
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
+
+/** POST /[id]/attachments — multipart, field "file". The requester only, while the request is PENDING. */
+export async function handleUpload(req: Request, rawId: string, deps: CorrectionDeps): Promise<NextResponse> {
+  if (!deps.enabled()) return notFound();
+  const ctx = await deps.auth(req);
+  if (!ctx) return unauthorized();
+  const requestId = positiveId(rawId);
+  if (requestId === null) return coded("NOT_FOUND", 404);
+  if (!(await deps.rateLimit(`legal-identity-attachment:${ctx.user.id}`)).allowed) return coded("RATE_LIMITED", 429);
+  // Bounded BEFORE the body is buffered: a declared length over the limit is refused unread.
+  const declared = Number(req.headers.get("content-length") ?? "0");
+  if (declared > MAX_CORRECTION_ATTACHMENT_BYTES + 64 * 1024) return coded("ATTACHMENT_TOO_LARGE", 413);
+  let file: File | null = null;
+  try {
+    const form = await req.formData();
+    const f = form.get("file");
+    file = f instanceof File ? f : null;
+  } catch {
+    return coded("ATTACHMENT_INVALID", 400);
+  }
+  if (!file) return coded("ATTACHMENT_MISSING", 400);
+  if (file.size > MAX_CORRECTION_ATTACHMENT_BYTES) return coded("ATTACHMENT_TOO_LARGE", 413);
+  try {
+    const body = Buffer.from(await file.arrayBuffer());
+    const id = await deps.upload(ctx.user.businessId, ctx.user.id, requestId, { mimeType: file.type, body });
+    return NextResponse.json({ id }, { status: 201, headers: noStore });
+  } catch (error) {
+    if (error instanceof AttachmentInputError) {
+      return NextResponse.json(
+        { code: "ATTACHMENT_INVALID", error: error.message },
+        { status: error.code === "TOO_LARGE" ? 413 : 400, headers: noStore }
+      );
+    }
+    if (error instanceof CorrectionError) return coded(error.code, error.status);
+    console.error("LEGAL_IDENTITY_ATTACHMENT_ERROR:", error instanceof Error ? error.name : "unknown");
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500, headers: noStore });
+  }
+}
+
+const DOWNLOAD_EXT: Record<string, string> = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png" };
+
+/** GET /[id]/attachments/[attachmentId] — a file of the session's own business, always downloaded, never rendered. */
+export async function handleDownload(req: Request, rawId: string, rawAttachmentId: string, deps: CorrectionDeps): Promise<Response> {
+  if (!deps.enabled()) return notFound();
+  const ctx = await deps.auth(req);
+  if (!ctx) return unauthorized();
+  const requestId = positiveId(rawId);
+  const attachmentId = positiveId(rawAttachmentId);
+  if (requestId === null || attachmentId === null) return coded("NOT_FOUND", 404);
+  const file = await deps.download(ctx.user.businessId, requestId, attachmentId);
+  if (!file) return coded("NOT_FOUND", 404);
+  const ext = DOWNLOAD_EXT[file.mimeType];
+  return new Response(new Uint8Array(file.body), {
+    status: 200,
+    headers: {
+      "Content-Type": ext ? file.mimeType : "application/octet-stream",
+      "Content-Disposition": `attachment; filename="correction-${requestId}-${attachmentId}.${ext ?? "bin"}"`,
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "no-store",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+    },
+  });
 }

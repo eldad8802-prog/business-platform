@@ -22,6 +22,7 @@ import bcrypt from "bcrypt";
 import { readAccountCredentials } from "@/lib/auth/google-link";
 import { listSessions } from "@/lib/auth/session-directory";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
+import { readCorrectionAttachment, storeCorrectionAttachment } from "@/lib/services/legal-identity/correction-attachment-storage";
 import {
   correctionCodeFromDbError,
   type CorrectionKind,
@@ -44,10 +45,37 @@ export type CorrectionRequestView = {
   current: { businessKind: string; legalName: string | null; taxId: string | null };
   requested: { businessKind: string; legalName: string | null; taxId: string | null };
   reason: string | null;
-  decisionNote: string | null;
+  /** "Returned for more information" (the status stays PENDING), with the note the business sees. */
+  infoRequestedAt: string | null;
+  infoRequestNote: string | null;
+  /** The decision note the business sees. The internal note and the approver are never read here. */
+  publicNote: string | null;
   createdAt: string;
   decidedAt: string | null;
+  attachments: { id: number; mimeType: string; sizeBytes: number; createdAt: string }[];
 };
+
+/**
+ * Every column the runtime may read. The database grants the runtime NO SELECT on internalNote or decidedByUserId:
+ * a query that names them (or selects all) fails. Never widen this list.
+ */
+export const OWNER_REQUEST_SELECT = {
+  id: true,
+  kind: true,
+  status: true,
+  currentBusinessKind: true,
+  currentLegalName: true,
+  currentTaxId: true,
+  requestedBusinessKind: true,
+  requestedLegalName: true,
+  requestedTaxId: true,
+  reason: true,
+  infoRequestedAt: true,
+  infoRequestNote: true,
+  publicNote: true,
+  createdAt: true,
+  decidedAt: true,
+} as const;
 
 export type CorrectionState = {
   /** The confirmed identity, or null when the business has none confirmed (then it edits its details directly). */
@@ -85,6 +113,14 @@ export async function readCorrectionState(businessId: number, userId: number): P
         where: { businessId },
         orderBy: { createdAt: "desc" },
         take: 50,
+        select: {
+          ...OWNER_REQUEST_SELECT,
+          attachments: {
+            where: { anonymisedAt: null },
+            orderBy: { createdAt: "asc" },
+            select: { id: true, mimeType: true, sizeBytes: true, createdAt: true },
+          },
+        },
       }),
     })),
   ]);
@@ -103,9 +139,12 @@ export async function readCorrectionState(businessId: number, userId: number): P
       current: { businessKind: r.currentBusinessKind, legalName: r.currentLegalName, taxId: r.currentTaxId },
       requested: { businessKind: r.requestedBusinessKind, legalName: r.requestedLegalName, taxId: r.requestedTaxId },
       reason: r.reason,
-      decisionNote: r.decisionNote,
+      infoRequestedAt: r.infoRequestedAt ? r.infoRequestedAt.toISOString() : null,
+      infoRequestNote: r.infoRequestNote,
+      publicNote: r.publicNote,
       createdAt: r.createdAt.toISOString(),
       decidedAt: r.decidedAt ? r.decidedAt.toISOString() : null,
+      attachments: r.attachments.map((a) => ({ id: a.id, mimeType: a.mimeType, sizeBytes: a.sizeBytes, createdAt: a.createdAt.toISOString() })),
     })),
   };
 }
@@ -129,7 +168,7 @@ export async function verifyRequester(
     return { method: "PASSWORD", verifiedAt: now };
   }
   if (!sessionId) throw new CorrectionError("SIGN_IN_AGAIN", 403);
-  // THIS session (the user own list — another account session can never match), active, signed in recently.
+  // THIS session (the user's own list — another account's session can never match), active, signed in recently.
   const sessions = await listSessions({ userId, currentSessionId: sessionId, now });
   const s = sessions.find((x) => x.current);
   if (!s || s.status !== "active" || now.getTime() - new Date(s.createdAt).getTime() > RECENT_SIGN_IN_MINUTES * 60_000) {
@@ -167,4 +206,64 @@ export async function cancelCorrection(businessId: number, userId: number, reque
     const r = rows[0]?.r;
     return r === "CANCELLED" || r === "NOT_PENDING" ? r : "NOT_FOUND";
   });
+}
+
+// ---------------------------------------------------------------- attachments (the requester, while PENDING)
+
+/** Database refusal of an attachment → a stable code + HTTP status. Never carries a value. */
+export function attachmentErrorFromDb(error: unknown): CorrectionError | null {
+  const text = error instanceof Error ? error.message : "";
+  if (/DZC08/.test(text)) return new CorrectionError("ATTACHMENT_LIMIT", 409);
+  if (/DZC09/.test(text)) return new CorrectionError("NOT_PENDING", 409);
+  if (/DZC04/.test(text)) return new CorrectionError("ATTACHMENT_INVALID", 400);
+  if (/DZC01/.test(text)) return new CorrectionError("NOT_ALLOWED", 403);
+  if (/23505|unique constraint/i.test(text)) return new CorrectionError("ATTACHMENT_RETRY", 409);
+  return null;
+}
+
+/**
+ * Store one supporting document for the user's own PENDING request: the bytes first (create-once, private), then
+ * legal_identity_correction_attach in the business's tenant transaction — the database decides who may attach and
+ * how many; if it refuses, the object is deleted (lib/services/legal-identity/correction-attachment-storage.ts).
+ */
+export async function uploadAttachment(
+  businessId: number,
+  userId: number,
+  requestId: number,
+  file: { mimeType: unknown; body: Buffer }
+): Promise<number> {
+  try {
+    return await storeCorrectionAttachment(
+      { businessId, requestId, mimeType: file.mimeType, body: file.body },
+      {
+        attach: (doc) =>
+          tenantTx(businessId, async (tx) => {
+            const rows = await tx.$queryRaw<{ id: number }[]>`SELECT public.legal_identity_correction_attach(
+              ${userId}::integer, ${requestId}::integer, ${doc.storageKey}, ${doc.mimeType}, ${doc.sizeBytes}::integer, ${doc.sha256}) AS id`;
+            return Number(rows[0]?.id);
+          }),
+      }
+    );
+  } catch (error) {
+    const mapped = attachmentErrorFromDb(error);
+    if (mapped) throw mapped;
+    throw error;
+  }
+}
+
+/** The business's own attachment, by id: tenant-scoped read, then only a key under its own prefix. */
+export async function downloadAttachment(
+  businessId: number,
+  requestId: number,
+  attachmentId: number
+): Promise<{ body: Buffer; mimeType: string } | null> {
+  const row = await tenantTx(businessId, (tx) =>
+    tx.legalIdentityCorrectionAttachment.findFirst({
+      where: { id: attachmentId, requestId, businessId, anonymisedAt: null },
+      select: { storageKey: true, mimeType: true },
+    })
+  );
+  if (!row?.storageKey) return null;
+  const file = await readCorrectionAttachment({ businessId, storageKey: row.storageKey });
+  return { body: file.body, mimeType: row.mimeType };
 }

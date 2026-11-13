@@ -545,13 +545,22 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
     models: [
       {
         model: "LegalIdentityCorrectionRequest",
-        cleared: ["currentLegalName", "currentTaxId", "requestedLegalName", "requestedTaxId", "reason", "decisionNote"],
+        cleared: ["currentLegalName", "currentTaxId", "requestedLegalName", "requestedTaxId", "reason", "infoRequestNote", "publicNote", "internalNote"],
         kept: {
           kind: "TYPO_CORRECTION | BUSINESS_KIND_CHANGE (CHECK) — a fixed vocabulary, not the person",
           currentBusinessKind: "EXEMPT_DEALER | AUTHORIZED_DEALER | LTD_COMPANY — a fixed vocabulary, not the person",
           requestedBusinessKind: "EXEMPT_DEALER | AUTHORIZED_DEALER | LTD_COMPANY (CHECK) — a fixed vocabulary, not the person",
           verificationMethod: "PASSWORD | RECENT_SIGN_IN (CHECK) — how the requester was re-verified, not the person",
           status: "PENDING | APPLIED | REJECTED | CANCELLED | STALE (CHECK) — how the request ended, not the person",
+        },
+      },
+      {
+        // The objects themselves go with the biz/{id}/legal-identity/ prefix after commit (OBJECT_SURFACES,
+        // legal-identity-storage-erasure.ts); the purge transaction clears the key and the hash in place.
+        model: "LegalIdentityCorrectionAttachment",
+        cleared: ["storageKey", "sha256"],
+        kept: {
+          mimeType: "application/pdf | image/jpeg | image/png (CHECK) — the file type, not the person",
         },
       },
     ],

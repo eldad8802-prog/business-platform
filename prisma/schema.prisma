@@ -374,6 +374,7 @@ model User {
   crmNotesCreated                            CrmNote[]
   crmAttachmentsUploaded                     CrmAttachment[]
   platformAdminMfa                           PlatformAdminMfa?
+  legalIdentityApprover                      LegalIdentityApprover?
   platformAdminPasskeys                      PlatformAdminPasskey[]
   authSessions                               AuthSession[]
   transactionalEmails                        TransactionalEmail[]
@@ -9113,10 +9114,11 @@ model BusinessDocumentErasure {
 }
 
 /// Legal identity correction requests (migration 20261128100000_legal_identity_correction). The business asks;
-/// an authorized party that is not the requester decides (legal_identity_correction_decide — granted to nobody
-/// until the owner approves the approver and the verification policy); an approved request is applied atomically.
-/// Written ONLY by the definer functions (the runtime holds SELECT under RLS); rows are never deleted or rewritten —
-/// they are the history. The five identity/reason columns are NULL only after account-deletion anonymisation.
+/// an authorized Dubiz admin holding the DEDICATED approver permission (LegalIdentityApprover + the
+/// PLATFORM_ADMIN_LEGAL_IDENTITY_APPROVERS list) who is not the requester and not of the business decides; an
+/// approved request is applied atomically. Written ONLY by the definer functions; rows are never deleted or rewritten —
+/// they are the history. The identity/reason columns are NULL only after account-deletion anonymisation.
+/// THE RUNTIME MAY NOT READ internalNote OR decidedByUserId (column-level grant): always `select` named columns.
 model LegalIdentityCorrectionRequest {
   id                    Int       @id @default(autoincrement())
   businessId            Int
@@ -9136,12 +9138,49 @@ model LegalIdentityCorrectionRequest {
   verifiedAt            DateTime  @db.Timestamptz(6)
   /// PENDING | APPLIED | REJECTED | CANCELLED | STALE
   status                String    @default("PENDING")
+  /// "Returned for more information": the status stays PENDING; the note is shown to the business.
+  infoRequestedAt       DateTime? @db.Timestamptz(6)
+  infoRequestNote       String?
+  /// Admin only — the runtime holds no SELECT on it.
   decidedByUserId       Int?
   decidedAt             DateTime? @db.Timestamptz(6)
-  decisionNote          String?
+  /// Shown to the business.
+  publicNote            String?
+  /// Admin only — the runtime holds no SELECT on it.
+  internalNote          String?
   anonymisedAt          DateTime? @db.Timestamptz(6)
   createdAt             DateTime  @default(now()) @db.Timestamptz(6)
   business              Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  attachments           LegalIdentityCorrectionAttachment[]
 
   @@index([businessId, createdAt], map: "LegalIdentityCorrection_business_created")
+}
+
+/// Supporting documents of a correction request (≤ 5 per request, PDF / JPEG / PNG, ≤ 10 MB), stored privately under
+/// biz/{businessId}/legal-identity/{requestId}/ in the create-once "legal-identity" domain. Written ONLY by
+/// legal_identity_correction_attach (the requester, while PENDING) and the erase function; storageKey and sha256 are
+/// NULL only after account-deletion anonymisation (the objects go with the prefix after commit).
+model LegalIdentityCorrectionAttachment {
+  id               Int                            @id @default(autoincrement())
+  requestId        Int
+  businessId       Int
+  storageKey       String?                        @unique
+  /// application/pdf | image/jpeg | image/png
+  mimeType         String
+  sizeBytes        Int
+  sha256           String?                        @db.Char(64)
+  uploadedByUserId Int
+  createdAt        DateTime                       @default(now()) @db.Timestamptz(6)
+  anonymisedAt     DateTime?                      @db.Timestamptz(6)
+  request          LegalIdentityCorrectionRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+}
+
+/// The DEDICATED approver permission for legal identity corrections (2026-11-13). A platform table: no application
+/// role may read or write it (FORCE RLS, no policy); rows are added only by the table owner through a reviewed manual
+/// step. A row is required — together with User.role = PLATFORM_ADMIN and the server's approver email list.
+model LegalIdentityApprover {
+  userId    Int      @id
+  grantedAt DateTime @default(now()) @db.Timestamptz(6)
+  note      String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
