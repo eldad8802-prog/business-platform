@@ -1977,6 +1977,11 @@ model Document {
   /// Original file size in bytes as validated at intake.
   sizeBytes                 Int?
   createdAt                 DateTime                      @default(now())
+  /// When the document entered its current status (UTC). Written ONLY by the database trigger
+  /// "Document_status_changed_at" (migration 20261213090000): on insert, on a real status change and on a
+  /// write of status "processing" (the retry starts a new attempt). NULL on rows older than the migration —
+  /// such a row is never treated as stuck. Never written by the application.
+  statusChangedAt           DateTime?
   business                  Business                      @relation(fields: [businessId], references: [id], onDelete: Cascade)
   emailImport               EmailAttachmentImport?
   whatsappImport            WhatsAppAttachmentImport?
@@ -7646,20 +7651,23 @@ model PushSubscription {
 /// (lib/notifications/preferences.ts); a row records only what the user changed. "Restore defaults" deletes it.
 /// Tenant table under FORCE RLS; the minute CHECKs and the same-business trigger live in the migration.
 model NotificationSettings {
-  id                Int      @id @default(autoincrement())
-  businessId        Int
-  userId            Int
-  pushEnabled       Boolean?
-  quietHoursEnabled Boolean?
-  quietStartMinute  Int?     @db.SmallInt
-  quietEndMinute    Int?     @db.SmallInt
-  digestEnabled     Boolean?
-  digestMinute      Int?     @db.SmallInt
-  lockScreenDetails Boolean?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                         Int      @id @default(autoincrement())
+  businessId                 Int
+  userId                     Int
+  pushEnabled                Boolean?
+  quietHoursEnabled          Boolean?
+  quietStartMinute           Int?     @db.SmallInt
+  quietEndMinute             Int?     @db.SmallInt
+  digestEnabled              Boolean?
+  digestMinute               Int?     @db.SmallInt
+  lockScreenDetails          Boolean?
+  /// The user's appointment reminder lead time in minutes: 30, 60, 120 or 1440 (the day before); NULL = 60.
+  /// CHECK "NotificationSettings_appointment_reminder" (migration 20261213090000).
+  appointmentReminderMinutes Int?     @db.SmallInt
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+  business                   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, userId])
 }

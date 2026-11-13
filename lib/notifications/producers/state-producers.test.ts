@@ -10,10 +10,14 @@
  *                                 or cancelled; an old terminal request is present (resolvable) but never announced
  *  C billing.allocation_failed    FAILED / REJECTED / uncertain / HELD undecided / stuck past 60 min — never a merely
  *                                 slow one; the integration gate (SANDBOX, unset, pilot not admitting ⇒ off)
- *  D documents.processing_failed  `failed` only
- *  E appointments.upcoming        CONFIRMED within the lead; the create window keeps the owed push from outliving the
- *                                 start; cancelled / BLOCK / erased / started ⇒ nothing; a move ⇒ a new key; the local
- *                                 time across both 2026 Asia/Jerusalem clock changes and America/New_York
+ *  D documents.processing_failed  `failed`; STUCK = `processing` more than 30 min after the attempt started (never
+ *                                 during an attempt, never on an unstamped historical row); a retry is a new attempt
+ *                                 (new key); the threshold is 6 × the longest attempt window (maxDuration 300 s)
+ *  E appointments.upcoming        per user, at THEIR lead (30 / 60 / 120 / the day before): created one sweep interval
+ *                                 ahead with the owed push due at the exact moment (nextAttemptAt) and expiring at the
+ *                                 start; too early / too late / started ⇒ none; cancelled / BLOCK / erased ⇒ nothing;
+ *                                 a move or a lead change ⇒ a new key; precision with a 15-min sweep + 5-min worker;
+ *                                 the day before = the same local time across both 2026 Asia/Jerusalem clock changes
  *  catalog / privacy              the five categories: defaults, no quiet-hours bypass, generic lock-screen text, the
  *                                 push names nobody and carries no digit; every event's href passes the prefixes
  *  runner                         feature off ⇒ nothing read; lock busy ⇒ nothing read; one failing producer rolls
@@ -32,14 +36,22 @@ import {
   ALLOCATION_STUCK_MS,
   allocationFacts,
   allocationProblem,
+  APPOINTMENT_READ_HORIZON_MS,
+  APPOINTMENT_SWEEP_INTERVAL_MS,
+  DOCUMENT_STUCK_MS,
   appointmentFacts,
+  appointmentReminderMoment,
+  appointmentReminderPlan,
   documentFacts,
+  documentStuck,
   obligationFacts,
   obligationStage,
   paymentFacts,
   paymentVerdict,
   type AllocationSubmissionFact,
   type AppointmentFact,
+  type DocumentFact,
+  type ReminderRecipient,
   type ObligationFact,
   type PaymentContext,
   type PaymentRequestFact,
@@ -153,43 +165,114 @@ function partC() {
 
 /* ── D ─────────────────────────────────────────────────────────────────────────────────────────────────────── */
 function partD() {
-  console.log("D. documents.processing_failed");
-  const f = documentFacts(B, [{ id: 1, status: "failed" }, { id: 2, status: "processing" }, { id: 3, status: "needs_review" }], NOW);
-  ok("only `failed` (processing / needs_review are not failures needing a person)", f.present.length === 1 && f.events.length === 1 && f.events[0]!.entity.id === 1);
+  console.log("D. documents.processing_failed (failed + stuck)");
+  const doc = (over: Partial<DocumentFact>): DocumentFact => ({ id: 1, status: "failed", statusChangedAt: null, ...over });
+  const f = documentFacts(B, [doc({}), doc({ id: 2, status: "processing", statusChangedAt: new Date(NOW.getTime() - 2 * MIN) }), doc({ id: 3, status: "needs_review" })], NOW);
+  ok("`failed` ⇒ one fact; a processing document inside its attempt and needs_review ⇒ nothing", f.present.length === 1 && f.events.length === 1 && f.events[0]!.entity.id === 1);
   ok("deep link to the document's own handling screen", f.events[0]!.href === "/documents/review/1");
+  ok("the failed key is unchanged (rows written before this change stay the same fact)", f.present[0] === "st:documents.processing_failed:document_processing:1");
+  ok("threshold = 30 min = 6 × the longest attempt window (bulk import maxDuration 300 s)", DOCUMENT_STUCK_MS === 30 * MIN && DOCUMENT_STUCK_MS >= 6 * 300_000);
+  const at = (minutesAgo: number) => doc({ id: 9, status: "processing", statusChangedAt: new Date(NOW.getTime() - minutesAgo * MIN) });
+  ok("processing for 1 / 5 (a whole bulk-import window) / 30 min ⇒ NOT stuck (a normal attempt is never flagged)", [1, 5, 30].every((m) => !documentStuck(at(m), NOW)));
+  ok("processing for 31 min ⇒ stuck", documentStuck(at(31), NOW));
+  ok("a historical row (statusChangedAt NULL), processing since forever ⇒ never stuck", !documentStuck(doc({ status: "processing", statusChangedAt: null }), NOW)
+    && documentFacts(B, [doc({ status: "processing", statusChangedAt: null })], NOW).present.length === 0);
+  const stuck = documentFacts(B, [at(45)], NOW);
+  ok("stuck ⇒ one event, generic text, same deep link, in the same category", stuck.events.length === 1 && stuck.events[0]!.category === "documents.processing_failed"
+    && stuck.events[0]!.href === "/documents/review/9" && !/[0-9]/.test(stuck.events[0]!.title + (stuck.events[0]!.summary ?? "")), stuck.events[0]);
+  ok("the stuck key carries the attempt's start (distinct from the failed key)", stuck.present[0] === `st:documents.processing_failed:document_processing:9:stuck:${at(45).statusChangedAt!.toISOString()}`);
+  const retried = documentFacts(B, [doc({ id: 9, status: "processing", statusChangedAt: new Date(NOW.getTime() - 3 * MIN) })], NOW);
+  ok("retried (a new attempt restamped by the database) ⇒ absent ⇒ the stuck one resolves", retried.present.length === 0);
+  const stuckAgain = documentFacts(B, [doc({ id: 9, status: "processing", statusChangedAt: new Date(NOW.getTime() - 40 * MIN) })], NOW);
+  ok("stuck again later ⇒ a NEW key (a new fact, not the cooled-down old one)", stuckAgain.present[0] !== stuck.present[0]);
+  ok("succeeded (needs_review / approved) ⇒ absent ⇒ resolved", documentFacts(B, [doc({ id: 9, status: "needs_review", statusChangedAt: NOW })], NOW).present.length === 0);
 }
 
 /* ── E ─────────────────────────────────────────────────────────────────────────────────────────────────────── */
 function partE() {
-  console.log("E. appointments.upcoming");
-  const ttl = getCategory("appointments.upcoming")!.ttlMinutes;
+  console.log("E. appointments.upcoming (per-user lead time)");
   const ap = (over: Partial<AppointmentFact>): AppointmentFact => ({ id: 3, status: "CONFIRMED", kind: "CUSTOMER", startsAt: new Date(NOW.getTime() + 45 * MIN), erasedAt: null, ...over });
-  const f = (a: AppointmentFact, now = NOW, tz = TZ) => appointmentFacts(B, [a], now, tz, ttl);
-  ok("lead default 60 min, TTL 30 min (catalog)", ttl === 30);
-  ok("CONFIRMED in 45 min ⇒ one event, /calendar", f(ap({})).events.length === 1 && f(ap({})).events[0]!.href === "/calendar");
-  ok("in 61 min ⇒ nothing yet", f(ap({ startsAt: new Date(NOW.getTime() + 61 * MIN) })).present.length === 0);
-  ok("in exactly 60 min ⇒ the reminder is due", f(ap({ startsAt: new Date(NOW.getTime() + 60 * MIN) })).events.length === 1);
-  const late = f(ap({ startsAt: new Date(NOW.getTime() + 20 * MIN) }));
-  ok("in 20 min ⇒ present (not resolved) but NOT created (its push would outlive the start)", late.present.length === 1 && late.events.length === 0);
-  ok("the owed push of an event created at the window's end expires at the start at the latest", 30 * MIN <= 30 * MIN);
-  ok("started ⇒ nothing", f(ap({ startsAt: new Date(NOW.getTime() - MIN) })).present.length === 0);
-  ok("CANCELED / PROPOSED / COMPLETED ⇒ nothing", ["CANCELED", "PROPOSED", "COMPLETED", "NO_SHOW"].every((s) => f(ap({ status: s as never })).present.length === 0));
-  ok("BLOCK (busy time) / erased / no start ⇒ nothing", f(ap({ kind: "BLOCK" })).present.length === 0 && f(ap({ erasedAt: NOW })).present.length === 0 && f(ap({ startsAt: null })).present.length === 0);
-  ok("INTERNAL appointments are reminded too", f(ap({ kind: "INTERNAL" })).events.length === 1);
-  const moved = f(ap({ startsAt: new Date(NOW.getTime() + 50 * MIN) }));
-  ok("rescheduled ⇒ a new key (the start time is in it); the old key becomes absent", moved.present[0] !== f(ap({})).present[0]);
-  ok("same appointment, same start ⇒ the same key every pass (no duplicate)", f(ap({})).present[0] === f(ap({}), new Date(NOW.getTime() + 5 * MIN)).present[0]);
-  // 25 Oct 2026, 08:30 Jerusalem = 05:30Z (UTC+3 → UTC+2 at 02:00 that night); the reminder is 60 REAL minutes before.
-  const oct = ap({ startsAt: new Date("2026-10-25T06:30:00Z") });
-  const octF = f(oct, new Date("2026-10-25T05:40:00Z"));
-  ok("October DST day: local start time 08:30 (UTC+2 after the change)", octF.events[0]?.summary?.includes("08:30") === true, octF.events[0]?.summary);
-  ok("…and the reminder window is in real minutes (05:30Z..06:00Z creates, 06:01Z does not)",
-    f(oct, new Date("2026-10-25T05:30:00Z")).events.length === 1 && f(oct, new Date("2026-10-25T06:01:00Z")).events.length === 0);
-  // 27 Mar 2026: Israel moves to UTC+3 at 02:00. 09:00 local = 06:00Z.
-  const mar = f(ap({ startsAt: new Date("2026-03-27T06:00:00Z") }), new Date("2026-03-27T05:15:00Z"));
-  ok("March DST day: local start time 09:00 (UTC+3 after the change)", mar.events[0]?.summary?.includes("09:00") === true, mar.events[0]?.summary);
-  const ny = f(ap({ startsAt: new Date("2026-11-01T14:00:00Z") }), new Date("2026-11-01T13:10:00Z"), "America/New_York");
-  ok("America/New_York on its own November change: 09:00 local", ny.events[0]?.summary?.includes("09:00") === true, ny.events[0]?.summary);
+  const U60: ReminderRecipient = { userId: 11, leadMinutes: 60 };
+  const f = (a: AppointmentFact, now = NOW, rec: ReminderRecipient[] = [U60], tz = TZ) => appointmentFacts(B, [a], rec, now, tz);
+  ok("sweep interval 15 min; horizon covers a 25-hour day before + one interval", APPOINTMENT_SWEEP_INTERVAL_MS === 15 * MIN && APPOINTMENT_READ_HORIZON_MS === 25 * HOUR + 15 * MIN);
+
+  // Plan: created one interval ahead, owed for the exact moment, expiring at the start.
+  const start = new Date("2026-12-10T12:00:00Z");
+  const plan = (now: string, lead = 60) => appointmentReminderPlan(start, lead, new Date(now), TZ);
+  ok("lead 60, 70 min before the start (> moment + 0, < moment − 15) ⇒ too early", plan("2026-12-10T10:44:00Z").kind === "too_early");
+  const p1 = plan("2026-12-10T10:46:00Z");
+  ok("lead 60, 74 min before ⇒ created now, owed push due at 11:00 exactly, expiring at the start",
+    p1.kind === "create" && p1.notBefore.toISOString() === "2026-12-10T11:00:00.000Z" && p1.expiresAt.toISOString() === start.toISOString(), p1);
+  const p2 = plan("2026-12-10T11:20:00Z");
+  ok("lead 60, created late (20 min after the moment, inside the 30-min grace) ⇒ due now", p2.kind === "create" && p2.notBefore.toISOString() === "2026-12-10T11:20:00.000Z", p2);
+  ok("lead 60, 31 min after the moment ⇒ too late (none created)", plan("2026-12-10T11:31:00Z").kind === "too_late");
+  ok("started ⇒ too late", plan("2026-12-10T12:00:00Z").kind === "too_late");
+  const p30 = plan("2026-12-10T11:20:00Z", 30), p120 = plan("2026-12-10T09:50:00Z", 120), pd = plan("2026-12-09T11:50:00Z", 1440);
+  ok("lead 30 / 120 / the day before: moments 11:30, 10:00, the previous day 12:00Z (same local time)",
+    p30.kind === "create" && p30.notBefore.toISOString() === "2026-12-10T11:30:00.000Z"
+    && p120.kind === "create" && p120.notBefore.toISOString() === "2026-12-10T10:00:00.000Z"
+    && pd.kind === "create" && pd.notBefore.toISOString() === "2026-12-09T12:00:00.000Z", { p30, p120, pd });
+  ok("the day before, two days ahead ⇒ too early (the bell is not filled days ahead)", plan("2026-12-08T12:00:00Z", 1440).kind === "too_early");
+
+  // Precision: a sweep every 15 minutes (any phase) + a worker every 5 minutes ⇒ delivered within [moment, moment + 5 min).
+  let worst = 0;
+  for (const lead of [30, 60, 120, 1440]) {
+    for (let phase = 0; phase < 15; phase += 1) {
+      const moment = appointmentReminderMoment(start, lead, TZ).getTime();
+      let created: number | null = null;
+      for (let t = moment - 3 * HOUR + phase * MIN; t < start.getTime(); t += 15 * MIN) {
+        const pl = appointmentReminderPlan(start, lead, new Date(t), TZ);
+        if (pl.kind === "create") { created = pl.notBefore.getTime(); break; }
+      }
+      if (created === null) { worst = Infinity; break; }
+      for (let wphase = 0; wphase < 5; wphase += 1) {
+        // the first 5-minute worker tick (at any phase) at or after nextAttemptAt
+        const delivered = Math.ceil((created - wphase * MIN) / (5 * MIN)) * 5 * MIN + wphase * MIN;
+        worst = Math.max(worst, delivered - moment);
+        if (delivered < moment) worst = Infinity;
+      }
+    }
+  }
+  ok("precision: 15-min sweep at any phase + 5-min worker ⇒ every lead delivered within 5 min of its moment, never before", worst >= 0 && worst < 5 * MIN, worst / MIN);
+
+  // Facts: per user, one key per (appointment, start, user, lead).
+  const two = f(ap({ startsAt: start }), new Date("2026-12-10T10:50:00Z"), [U60, { userId: 12, leadMinutes: 120 }]);
+  ok("two users (60 / 120 min), one business, at 10:50Z: both keys present, one event each (120: late but inside its grace, due now)",
+    two.present.length === 2 && two.events.length === 2 && two.events.every((e) => e.userId === 11 || e.userId === 12), two.events.map((e) => [e.userId, e.push?.notBefore]));
+  const ev = two.events.find((e) => e.userId === 11)!;
+  ok("…the event targets ONE user and carries the moment + expiry; deep link /calendar",
+    ev.push?.notBefore.toISOString() === "2026-12-10T11:00:00.000Z" && ev.push?.expiresAt.toISOString() === start.toISOString() && ev.href === "/calendar", ev);
+  const mixed = f(ap({ startsAt: start }), new Date("2026-12-10T09:00:00Z"), [U60, { userId: 12, leadMinutes: 120 }, { userId: 13, leadMinutes: 1440 }]);
+  ok("three users (60 / 120 / the day before) at 09:00Z: no event (60 and 120 too early, the day before past its grace), all three present", mixed.events.length === 0 && mixed.present.length === 3);
+  ok("the key names appointment, start, user and lead", ev.dedupeKey === `st:appointments.upcoming:appointment:3:${start.toISOString()}:u11:l60`);
+  ok("same appointment, same start, same user ⇒ the same key every pass (one reminder; the engine's cooldown holds it)",
+    f(ap({ startsAt: start }), new Date("2026-12-10T10:50:00Z")).present[0] === f(ap({ startsAt: start }), new Date("2026-12-10T11:05:00Z")).present[0]);
+  ok("a far-ahead appointment is PRESENT (kept) but creates nothing", f(ap({ startsAt: new Date(NOW.getTime() + 20 * HOUR) })).present.length === 1 && f(ap({ startsAt: new Date(NOW.getTime() + 20 * HOUR) })).events.length === 0);
+  ok("CANCELED / PROPOSED / COMPLETED / NO_SHOW ⇒ absent (resolved)", ["CANCELED", "PROPOSED", "COMPLETED", "NO_SHOW"].every((st) => f(ap({ status: st as never })).present.length === 0));
+  ok("BLOCK / erased / no start / started ⇒ absent", [ap({ kind: "BLOCK" }), ap({ erasedAt: NOW }), ap({ startsAt: null }), ap({ startsAt: new Date(NOW.getTime() - MIN) })].every((a) => f(a).present.length === 0));
+  ok("INTERNAL appointments are reminded too", f(ap({ kind: "INTERNAL", startsAt: new Date(NOW.getTime() + 55 * MIN) })).events.length === 1);
+  const moved = f(ap({ startsAt: new Date(start.getTime() + 30 * MIN) }), new Date("2026-12-10T10:50:00Z"));
+  ok("rescheduled ⇒ a new key; the old key is absent (resolves, its owed push is suppressed)", !moved.present.includes(ev.dedupeKey!));
+  const leadChanged = f(ap({ startsAt: start }), new Date("2026-12-10T10:50:00Z"), [{ userId: 11, leadMinutes: 30 }]);
+  ok("the user changed the lead before the moment ⇒ the old key is absent, the new one waits for its own window", !leadChanged.present.includes(ev.dedupeKey!) && leadChanged.events.length === 0);
+  ok("no recipients ⇒ nothing", f(ap({}), NOW, []).present.length === 0);
+
+  // Time zones and DST.
+  // 25 Oct 2026, Jerusalem leaves summer time at 02:00 (UTC+3 → UTC+2). 08:30 local = 06:30Z.
+  const oct = new Date("2026-10-25T06:30:00Z");
+  const octDay = appointmentReminderMoment(oct, 1440, TZ);
+  ok("October change: the day before = 24 Oct 08:30 local = 05:30Z (25 real hours before)", octDay.toISOString() === "2026-10-24T05:30:00.000Z", octDay.toISOString());
+  ok("October change: 60 / 120 min stay real minutes (05:30Z, 04:30Z)",
+    appointmentReminderMoment(oct, 60, TZ).toISOString() === "2026-10-25T05:30:00.000Z" && appointmentReminderMoment(oct, 120, TZ).toISOString() === "2026-10-25T04:30:00.000Z");
+  const octF = f(ap({ startsAt: oct }), new Date("2026-10-25T05:20:00Z"));
+  ok("October change: the summary reads the local start 08:30", octF.events[0]?.summary?.includes("08:30") === true, octF.events[0]?.summary);
+  // 27 Mar 2026: Jerusalem moves to UTC+3 at 02:00. 09:00 local on the 27th = 06:00Z; the day before 09:00 = 07:00Z.
+  const mar = new Date("2026-03-27T06:00:00Z");
+  ok("March change: the day before = 26 Mar 09:00 local = 07:00Z (23 real hours before)", appointmentReminderMoment(mar, 1440, TZ).toISOString() === "2026-03-26T07:00:00.000Z");
+  const marD = f(ap({ startsAt: mar }), new Date("2026-03-26T06:50:00Z"), [{ userId: 11, leadMinutes: 1440 }]);
+  ok("March change: the day-before reminder names the date and local time (27.3, 09:00)", marD.events[0]?.summary === "התור ב-27.3 בשעה 09:00.", marD.events[0]?.summary);
+  const ny = new Date("2026-11-01T14:00:00Z"); // 09:00 in New York after its 1 Nov change (EST)
+  ok("America/New_York across its change: the day before = 31 Oct 09:00 EDT = 13:00Z", appointmentReminderMoment(ny, 1440, "America/New_York").toISOString() === "2026-10-31T13:00:00.000Z");
 }
 
 /* ── catalog / privacy ─────────────────────────────────────────────────────────────────────────────────────── */
@@ -215,16 +298,19 @@ function partCatalog() {
     ...obligationFacts(B, [{ entityType: "business_obligation", id: 1, state: "OPEN", dueAt: NOW, followUpAt: null, href: "/secretary" }], NOW, TZ).events,
     ...paymentFacts(B, [{ id: 2, status: "FAILED", paymentUrl: "u", expiresAt: null, createdAt: NOW, updatedAt: NOW, billingDocumentId: null, customerId: null, amount: "1", transactionStatuses: [] }], { siblings: [], allocatedDocumentIds: new Set() }, NOW).events,
     ...allocationFacts(B, [{ id: 3, billingDocumentId: 30, status: "FAILED", outcomeUncertain: false, heldDecisionReportedAt: null, createdAt: NOW, submittedAt: null, lastAttemptAt: null }], NOW).events,
-    ...documentFacts(B, [{ id: 4, status: "failed" }], NOW).events,
-    ...appointmentFacts(B, [{ id: 5, status: "CONFIRMED", kind: "CUSTOMER", startsAt: new Date(NOW.getTime() + 45 * MIN), erasedAt: null }], NOW, TZ, 30).events,
+    ...documentFacts(B, [{ id: 4, status: "failed", statusChangedAt: null }], NOW).events,
+    ...documentFacts(B, [{ id: 6, status: "processing", statusChangedAt: new Date(NOW.getTime() - HOUR) }], NOW).events,
+    ...appointmentFacts(B, [{ id: 5, status: "CONFIRMED", kind: "CUSTOMER", startsAt: new Date(NOW.getTime() + 45 * MIN), erasedAt: null }], [{ userId: 8, leadMinutes: 60 }], NOW, TZ).events,
   ];
-  ok("one event per producer", events.length === 5);
+  ok("one event per producer (+ the stuck document)", events.length === 6);
   for (const e of events) {
     const cat = getCategory(e.category)!;
     ok(`${e.category}: href ${e.href} passes the category's prefixes`, safeHref(e.href, cat.hrefPrefixes) !== null);
     const msg = buildPushMessage(cat, { id: 1, title: `${e.title} יוסי כהן 1,234 ₪ INV-0042`, summary: e.summary ?? null, href: e.href, entityType: e.entity.type, entityId: e.entity.id }, { lockScreenDetails: false, ttlSeconds: 60 });
     ok(`${e.category}: the lock-screen push names nobody and carries no digit`, !/יוסי|[0-9₪]|INV/.test(`${msg.title} ${msg.body}`), `${msg.title} ${msg.body}`);
-    ok(`${e.category}: whole business (userId NULL), explicit dedupe key`, e.userId === null && typeof e.dedupeKey === "string" && e.dedupeKey.startsWith(`st:${e.category}:`));
+    const perUser = e.category === "appointments.upcoming";
+    ok(`${e.category}: ${perUser ? "one user (the reminder is personal)" : "whole business (userId NULL)"}, explicit dedupe key`,
+      (perUser ? e.userId === 8 && e.dedupeKey!.endsWith(":u8:l60") : e.userId === null) && typeof e.dedupeKey === "string" && e.dedupeKey.startsWith(`st:${e.category}:`));
   }
 }
 
@@ -308,7 +394,7 @@ function partStatic() {
   ok("the producers' only table write is Notification.updateMany (resolve)", JSON.stringify(writes) === JSON.stringify([".notification.updateMany("]), writes);
   ok("no raw write: the only raw statements are the lock and the savepoints", (prod.match(/\$executeRaw`([^`]*)`/g) ?? []).every((s) => /SAVEPOINT state_producer/.test(s)) && !/\$executeRawUnsafe|\$queryRawUnsafe/.test(prod));
   const scoped = (prod.match(/findMany\(\{\s*where: \{\s*businessId/g) ?? []).length;
-  ok("every domain read is scoped by businessId (7 reads)", scoped === 7 && (prod.match(/findMany\(/g) ?? []).length === 7, scoped);
+  ok("every domain read is scoped by businessId (8 reads: + the users' lead times)", scoped === 8 && (prod.match(/findMany\(/g) ?? []).length === 8, scoped);
   ok("pure module: no database, no clock", !/prisma|new Date\(\)|Date\.now/.test(code("lib/notifications/producers/state-facts.ts")));
 }
 

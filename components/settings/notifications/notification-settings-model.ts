@@ -22,8 +22,10 @@
  */
 import { NOTIFICATION_CATEGORIES, getCategory, type CategoryDefinition } from "@/lib/notifications/catalog";
 import {
+  APPOINTMENT_REMINDER_CHOICES,
   categoryPreferenceKey,
   resolveCategory,
+  type AppointmentReminderMinutes,
   type EffectiveSettings,
   type PreferenceBody,
   type StoredPreference,
@@ -248,7 +250,34 @@ export const SETTINGS_CONTROLS = {
   quietFrom: "quietStartMinute",
   quietTo: "quietEndMinute",
   lockScreenDetails: "lockScreenDetails",
+  appointmentLead: "appointmentReminderMinutes",
 } as const satisfies Record<string, keyof EffectiveSettings>;
+
+/* ───────────────────────────────────────────── the appointment reminder lead ── */
+
+/** The four lead-time choices (the backend's APPOINTMENT_REMINDER_CHOICES, in that order) and their labels. */
+export const APPOINTMENT_LEAD_LABEL_KEYS: Readonly<Record<AppointmentReminderMinutes, MessageKey>> = {
+  30: "notifications.types.appointmentLead.m30",
+  60: "notifications.types.appointmentLead.h1",
+  120: "notifications.types.appointmentLead.h2",
+  1440: "notifications.types.appointmentLead.day",
+};
+
+export type AppointmentLeadView = {
+  /** Shown only when the appointment reminder is available to the business (the appointments feature is on). */
+  shown: boolean;
+  options: { minutes: AppointmentReminderMinutes; labelKey: MessageKey; pressed: boolean }[];
+};
+
+/** The lead-time choice in the appointments area: the user's effective value (default 60) pressed. */
+export function appointmentLeadView(view: SettingsView): AppointmentLeadView {
+  const shown = view.categories.some((c) => c.key === "appointments.upcoming" && c.available);
+  const current = view.settings.appointmentReminderMinutes;
+  return {
+    shown,
+    options: APPOINTMENT_REMINDER_CHOICES.map((minutes) => ({ minutes, labelKey: APPOINTMENT_LEAD_LABEL_KEYS[minutes], pressed: minutes === current })),
+  };
+}
 
 export function minuteToTime(m: number): string {
   const v = Math.max(0, Math.min(1439, Math.floor(m)));

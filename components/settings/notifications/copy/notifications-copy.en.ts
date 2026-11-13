@@ -88,6 +88,14 @@ export const notificationsEn: Widen<typeof notificationsHe> = {
     phoneOffNote: "Phone notifications are off, so “On phone” can't be chosen.",
     digestOffNote: "The daily summary is off, so “In daily summary” can't be chosen.",
     choicesAria: "{name}: where to receive",
+    appointmentLead: {
+      title: "When to remind me before an appointment",
+      help: "The reminder arrives at the time you choose, before every confirmed appointment.",
+      m30: "30 minutes before",
+      h1: "An hour before",
+      h2: "Two hours before",
+      day: "A day before",
+    },
     domains: {
       tasks: "Tasks and reminders",
       appointments: "Calendar and appointments",
