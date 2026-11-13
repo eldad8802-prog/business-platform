@@ -17,7 +17,11 @@
 #   4. Battery (.nte2c/battery.ts) as the real roles: backfill, catalog, RLS + privileges in action, the override
 #      trigger (written by the control plane), the policy trigger (re-saves move nothing; the kill switch), the
 #      worker's observation (own tenant only, global-only first activation once, contradicted claims refused),
-#      CHECKs, erasure cascade, backward compatibility.
+#      CHECKs, erasure cascade, backward compatibility; and the owner's conditions (2026-11-13): other feature keys
+#      untouched (1,000-row bulk vs the trigger disabled, the admin mutation service itself), policy edits never move
+#      a first activation, the cutover rule on real records, two-session races (no lost transition; the one deadlock
+#      shape resolved by 40P01), failure injection (only the engine's own switches can fail), PR #959's function and
+#      PR #918's rows. SUPER_URL is used for lab-side DDL only (the trap; #959's function as a fixture).
 #   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
 #
 # Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
@@ -169,6 +173,7 @@ jobs:
           CTL_URL="postgresql://nte2c_ctl_login:$LAB_PASSWORD@localhost:5432/nte2c_post" \
           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte2c_post" \
           AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/nte2c_post" \
+          SUPER_URL="postgresql://lab_super:$PGPASSWORD@localhost:5432/nte2c_post" \
             npx tsx .nte2c/battery.ts
 
       - name: 5. Atomicity — the migration failing on its last statement leaves nothing of it behind

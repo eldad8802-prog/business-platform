@@ -36,6 +36,15 @@
 --   3. notification_engine_observe(business, on, at) — the push worker, in the business's own tenant transaction:
 --      records the first moment it sees the engine ON for a business enabled only through the global policy (and
 --      ON → OFF it sees the same way). It refuses a claim that contradicts what SQL can decide by itself.
+--   SERIALIZED. The three writers decide from state another transaction may be changing at the same moment (the
+--   override trigger reads the policy, the policy trigger reads the overrides, observe reads both). Each takes a
+--   transaction-scoped advisory lock BEFORE it reads (namespace hashtext('notification_engine_activation')): key 0
+--   SHARED for the override trigger and observe, EXCLUSIVE for the policy trigger (only on a real change); plus the
+--   business's own key EXCLUSIVE for the override trigger and observe. Under READ COMMITTED (every writer's level) the
+--   read after the lock sees the other side's committed write, so no transition is lost and no stale claim lands.
+--   Overrides of different businesses never wait for each other; nothing else in the platform takes these keys.
+--   The only possible deadlock is one transaction writing BOTH tables against another doing the reverse (no code path
+--   does); Postgres detects it and rolls one back whole (40P01), which the writer retries.
 --   The effective state SQL can decide (notification_engine_effective) mirrors resolveFeatureAccessFromInputs():
 --   emergency → OFF; override DISABLED → OFF; override ENABLED → ON; globalEnabled false → OFF; otherwise it
 --   depends on the catalog default (code) → UNKNOWN, left to the worker's observation. A trigger never guesses.
@@ -188,6 +197,10 @@ DECLARE
   v_on boolean;
   v_at timestamp(3) := (statement_timestamp() AT TIME ZONE 'UTC')::timestamp(3);
 BEGIN
+  -- Serialized against the policy trigger (key 0) and the worker's observation of this business (its key), BEFORE
+  -- the policy is read: a concurrent kill-switch change is seen committed, never half-way.
+  PERFORM pg_advisory_xact_lock_shared(hashtext('notification_engine_activation'), 0);
+  PERFORM pg_advisory_xact_lock(hashtext('notification_engine_activation'), NEW."businessId");
   SELECT public.notification_engine_effective(NEW."state"::text, p."globalEnabled", p."emergencyDisabled")
     INTO v_on
     FROM (SELECT 1) AS one
@@ -236,6 +249,8 @@ BEGIN
   ELSE
     v_at := coalesce(NEW."updatedAt", v_at);
   END IF;
+  -- Exclusive against every override trigger and observation in flight, BEFORE the overrides are read.
+  PERFORM pg_advisory_xact_lock(hashtext('notification_engine_activation'), 0);
   FOR b IN
     SELECT a."businessId", a."state"::text AS "state"
       FROM "BusinessFeatureAccess" a
@@ -279,6 +294,10 @@ BEGIN
   IF p_business IS NULL OR p_business IS DISTINCT FROM NULLIF(current_setting('app.current_business_id', true), '')::int THEN
     RAISE EXCEPTION 'notification_engine_observe: only the business of this tenant context' USING ERRCODE = '42501';
   END IF;
+  -- Serialized against the policy trigger (key 0) and this business's override trigger (its key), BEFORE the
+  -- override and the policy are read: a claim decided before a concurrent switch is refused, never recorded.
+  PERFORM pg_advisory_xact_lock_shared(hashtext('notification_engine_activation'), 0);
+  PERFORM pg_advisory_xact_lock(hashtext('notification_engine_activation'), p_business);
   SELECT public.notification_engine_effective(a."state"::text, p."globalEnabled", p."emergencyDisabled")
     INTO v_sql
     FROM (SELECT 1) AS one

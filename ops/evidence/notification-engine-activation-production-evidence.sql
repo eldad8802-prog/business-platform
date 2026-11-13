@@ -105,7 +105,7 @@ checks(n, ok, observed_count) AS (
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) = 0,
                       (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 3, EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261212090000_notification_engine_activation'
-                        AND checksum = '49c21b567573a1da5f204faa93ee31971ad43d3c2052f3b7daa66f4dc40bdd07'), 1
+                        AND checksum = 'f6330ad9d5d7a7096c46352812f39f20eb2ce94c4a55a291e4d90955d41fcc9c'), 1
   UNION ALL SELECT 4, (SELECT count(*) FROM t WHERE relrowsecurity AND relforcerowsecurity) = 1
                       AND (SELECT count(*) FROM pol) = 1
                       AND (SELECT count(*) FROM pol WHERE polcmd = 'r' AND q LIKE '%app.current_business_id%') = 1,
