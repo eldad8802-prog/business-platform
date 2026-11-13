@@ -128,7 +128,7 @@ async function duePlan(businessId: number, now: Date): Promise<DuePlan> {
     if (ids.length === 0) return { timeZone, users: [], checked: 0 };
     const stored = await tx.notificationSettings.findMany({
       where: { businessId, userId: { in: ids } },
-      select: { userId: true, pushEnabled: true, quietHoursEnabled: true, quietStartMinute: true, quietEndMinute: true, digestEnabled: true, digestMinute: true, lockScreenDetails: true },
+      select: { userId: true, pushEnabled: true, quietHoursEnabled: true, quietStartMinute: true, quietEndMinute: true, digestEnabled: true, digestMinute: true, lockScreenDetails: true, appointmentReminderMinutes: true },
     });
     const byUser = new Map(stored.map(({ userId, ...rest }) => [userId, rest]));
     const candidates = ids.filter((u) => {
