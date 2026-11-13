@@ -17,7 +17,10 @@
 
 import bcrypt from "bcrypt";
 
-import { authDb } from "@/lib/prisma-auth";
+// The auth plane is reached ONLY through modules already on its approved surface (CI-2a / AST-4): the password hash
+// as login reads it (google-link.ts readAccountCredentials) and the session list (session-directory.ts listSessions).
+import { readAccountCredentials } from "@/lib/auth/google-link";
+import { listSessions } from "@/lib/auth/session-directory";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import {
   correctionCodeFromDbError,
@@ -66,7 +69,7 @@ export class CorrectionError extends Error {
 
 /** Which re-verification this user needs: a password account re-enters it; a Google-only account signs in again. */
 export async function verificationMethodFor(userId: number): Promise<VerificationMethod> {
-  const u = await authDb().user.findUnique({ where: { id: userId }, select: { password: true } });
+  const u = await readAccountCredentials(userId);
   return u?.password ? "PASSWORD" : "RECENT_SIGN_IN";
 }
 
@@ -118,7 +121,7 @@ export async function verifyRequester(
   password: unknown,
   now: Date = new Date()
 ): Promise<{ method: VerificationMethod; verifiedAt: Date }> {
-  const u = await authDb().user.findUnique({ where: { id: userId }, select: { password: true } });
+  const u = await readAccountCredentials(userId);
   if (!u) throw new CorrectionError("NOT_ALLOWED", 403);
   if (u.password) {
     if (typeof password !== "string" || password.length === 0) throw new CorrectionError("PASSWORD_REQUIRED", 400);
@@ -126,8 +129,10 @@ export async function verifyRequester(
     return { method: "PASSWORD", verifiedAt: now };
   }
   if (!sessionId) throw new CorrectionError("SIGN_IN_AGAIN", 403);
-  const s = await authDb().authSession.findUnique({ where: { id: sessionId }, select: { userId: true, createdAt: true, revokedAt: true } });
-  if (!s || s.userId !== userId || s.revokedAt !== null || now.getTime() - s.createdAt.getTime() > RECENT_SIGN_IN_MINUTES * 60_000) {
+  // THIS session (the user own list — another account session can never match), active, signed in recently.
+  const sessions = await listSessions({ userId, currentSessionId: sessionId, now });
+  const s = sessions.find((x) => x.current);
+  if (!s || s.status !== "active" || now.getTime() - new Date(s.createdAt).getTime() > RECENT_SIGN_IN_MINUTES * 60_000) {
     throw new CorrectionError("SIGN_IN_AGAIN", 403);
   }
   return { method: "RECENT_SIGN_IN", verifiedAt: now };
