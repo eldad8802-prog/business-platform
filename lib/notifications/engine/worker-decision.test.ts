@@ -12,16 +12,17 @@
  *  4. Retries: 1 m, 5 m, 15 m, 1 h, then the 5th failure ends it.
  *  5. Devices: FCM only with a live session; session-bound web push only while live; legacy web push (no session)
  *     allowed; unconfigured providers skipped; unknown providers never.
- *  6. Clean-start cutover: the activation moment (the later of the override's and the policy's last change), rows
- *     before it closed 'pre_cutover', toggling OFF → ON moves it forward; the dry run's arithmetic.
+ *  6. Clean-start cutover — the activation record (migration 20261212090000): first activation stable; nothing
+ *     created before it or while OFF is pushable; one OFF → ON carries the previous ON period (quiet-hours
+ *     deferrals), two toggles do not; moments only move forward; unreadable record ⇒ held; the dry run's arithmetic.
  *  7. Digest window: from the previous actual digest (24 h for the first, 7 days at most); push rows count only for
  *     the item's current surfacing.
  */
 import { getCategory } from "../catalog";
 import { effectiveSettings, resolveCategory } from "../preferences";
 import {
-  MAX_ATTEMPTS, PRE_CUTOVER, classifyOwedForActivation, cutoverFrom, decideOwed, digestWindowStart, effectiveExpiry, eligibleDevices,
-  forThisSurfacing, isPreCutover, rateLimited, retryAfter, type OwedFacts,
+  MAX_ATTEMPTS, PRE_CUTOVER, activationState, classifyOwedForActivation, decideOwed, digestWindowStart, effectiveExpiry, eligibleDevices,
+  forThisSurfacing, projectActivation, pushableCreatedAt, rateLimited, recordedOn, retryAfter, type OwedFacts,
 } from "./worker-decision";
 
 let passed = 0;
@@ -118,30 +119,61 @@ ok("no live session ⇒ only legacy web push", JSON.stringify(eligibleDevices(de
 ok("FCM not configured ⇒ skipped", JSON.stringify(eligibleDevices(devs, live, (p) => p === "WEB_PUSH").map((d) => d.id)) === JSON.stringify([4, 6]));
 ok("nothing configured ⇒ nothing", eligibleDevices(devs, live, () => false).length === 0);
 
-// ── 6. clean-start cutover (owner decision 2026-11-13) ──
+// ── 6. clean-start cutover: the activation record (owner decisions 2026-11-13, migration 20261212090000) ──
 {
   const T = new Date("2026-12-20T10:00:00Z");
-  ok("cutover: no timestamps ⇒ none (TTL only)", cutoverFrom({ override: null, policy: null }) === null);
-  ok("cutover: the override's last state change", cutoverFrom({ override: { updatedAt: T }, policy: null })?.getTime() === T.getTime());
-  ok("cutover: the later of override and policy (lifting the kill switch moves it forward)",
-    cutoverFrom({ override: { updatedAt: T }, policy: { updatedAt: min(T, 30) } })?.getTime() === min(T, 30).getTime() &&
-    cutoverFrom({ override: { updatedAt: min(T, 30) }, policy: { updatedAt: T } })?.getTime() === min(T, 30).getTime());
-  ok("pre-cutover: a row created before the moment", isPreCutover(min(T, -1), T));
-  ok("pre-cutover: a row created at / after the moment is not", !isPreCutover(T, T) && !isPreCutover(min(T, 1), T));
-  ok("pre-cutover: no moment ⇒ never", !isPreCutover(new Date(0), null));
-  // OFF at T+10, ON again at T+30: the override's updatedAt moves to T+30, so a row written while OFF is pre-cutover.
-  const reOn = cutoverFrom({ override: { updatedAt: min(T, 30) }, policy: { updatedAt: min(T, -10_000) } });
-  ok("toggle OFF → ON: a row created while OFF (T+20) is pre-cutover; one after (T+31) is not", isPreCutover(min(T, 20), reOn) && !isPreCutover(min(T, 31), reOn));
-  ok("the error code", PRE_CUTOVER === "pre_cutover");
   const inv = getCategory("inventory.critical_stock")!;
+  ok("the error code", PRE_CUTOVER === "pre_cutover");
+  // initial activation at T
+  const first = projectActivation(null, true, T)!;
+  ok("first activation: first = last = prior = T, never deactivated, ON", first.firstActivatedAt.getTime() === T.getTime() &&
+    first.lastActivatedAt.getTime() === T.getTime() && first.priorActivatedAt.getTime() === T.getTime() && first.lastDeactivatedAt === null && recordedOn(first));
+  ok("never seen ON + seen OFF ⇒ no record", projectActivation(null, false, T) === null);
+  ok("initial activation: nothing created before it is pushable", !pushableCreatedAt(min(T, -1), first) && !pushableCreatedAt(min(T, -7 * 24 * 60), first));
+  ok("initial activation: created at / after it is pushable", pushableCreatedAt(T, first) && pushableCreatedAt(min(T, 1), first));
+  // a global policy edit that changes no state: the record is not touched (idempotent observation)
+  ok("seen ON again (a later policy edit, another pass): the record does not move", projectActivation(first, true, min(T, 600)) === first);
+  // OFF at T+10, ON at T+30
+  const off = projectActivation(first, false, min(T, 10))!;
+  ok("ON → OFF: recorded OFF at T+10, first unchanged", !recordedOn(off) && off.lastDeactivatedAt!.getTime() === min(T, 10).getTime() && off.firstActivatedAt.getTime() === T.getTime());
+  ok("while recorded OFF nothing is pushable", !pushableCreatedAt(min(T, 5), off) && !pushableCreatedAt(min(T, 20), off));
+  ok("seen OFF again: no change", projectActivation(off, false, min(T, 15)) === off);
+  const re = projectActivation(off, true, min(T, 30))!;
+  ok("OFF → ON: last = T+30, prior = T (the period T+10 ended), first unchanged", re.lastActivatedAt.getTime() === min(T, 30).getTime() &&
+    re.priorActivatedAt.getTime() === T.getTime() && re.firstActivatedAt.getTime() === T.getTime() && recordedOn(re));
+  ok("OFF → ON: a row created while OFF (T+20) is NOT pushable (no wave)", !pushableCreatedAt(min(T, 20), re) && !pushableCreatedAt(min(T, 10), re));
+  ok("OFF → ON: a row of the previous ON period (a quiet-hours deferral, T+5) stays pushable", pushableCreatedAt(min(T, 5), re) && pushableCreatedAt(T, re));
+  ok("OFF → ON: before the first activation still never", !pushableCreatedAt(min(T, -1), re));
+  ok("OFF → ON: created after the re-activation is pushable", pushableCreatedAt(min(T, 30), re) && pushableCreatedAt(min(T, 31), re));
+  // a second toggle: OFF at T+40, ON at T+50 — only the period [T+30, T+40) carries; [T, T+10) is history now
+  const re2 = projectActivation(projectActivation(re, false, min(T, 40)), true, min(T, 50))!;
+  ok("two toggles: only the last ON period carries over (T+35 yes, T+5 no, T+45 no)",
+    pushableCreatedAt(min(T, 35), re2) && !pushableCreatedAt(min(T, 5), re2) && !pushableCreatedAt(min(T, 45), re2) && !pushableCreatedAt(min(T, 20), re2));
+  // moments only move forward
+  const sameMs = projectActivation(off, true, min(T, 10))!;
+  ok("a re-activation at the deactivation instant lands 1 ms after it (recorded ON, the OFF instant not pushable)",
+    recordedOn(sameMs) && sameMs.lastActivatedAt.getTime() === min(T, 10).getTime() + 1 && !pushableCreatedAt(min(T, 10), sameMs));
+  ok("a deactivation 'before' the activation is clamped to it", projectActivation(first, false, min(T, -5))!.lastDeactivatedAt!.getTime() === T.getTime());
+  // the worker's view
+  ok("activation state: engine ON + record ON ⇒ on", activationState(true, first).kind === "on");
+  ok("activation state: no record / record OFF / engine OFF ⇒ unavailable (held, fail safe)",
+    activationState(true, null).kind === "unavailable" && activationState(true, off).kind === "unavailable" && activationState(false, first).kind === "unavailable");
+  // dry run arithmetic
   const counts = classifyOwedForActivation([
-    { createdAt: min(T, -60), expiresAt: min(T, 300), category: inv },   // before the moment
+    { createdAt: min(T, -60), expiresAt: min(T, 300), category: inv },   // before the first activation
     { createdAt: min(T, 5), expiresAt: min(T, 6), category: inv },       // after, but past its TTL at T+10
     { createdAt: min(T, 5), expiresAt: min(T, 300), category: inv },     // after, alive
-  ], T, min(T, 10));
-  ok("dry run: 1 pre-cutover, 1 expired, 1 proceeds", JSON.stringify(counts) === JSON.stringify({ owed: 3, wouldExpirePreCutover: 1, wouldExpireTtl: 1, wouldProceed: 1 }), counts);
-  const off = classifyOwedForActivation([{ createdAt: min(T, -1), expiresAt: null, category: inv }, { createdAt: min(T, -500), expiresAt: null, category: inv }], T, T);
-  ok("dry run: activation NOW (engine OFF) ⇒ every owed row is pre-cutover, none sent", off.wouldExpirePreCutover === 2 && off.wouldProceed === 0);
+  ], first, min(T, 10));
+  ok("dry run: 1 pre-cutover, 1 expired, 1 proceeds", JSON.stringify(counts) === JSON.stringify({ owed: 3, wouldExpirePreCutover: 1, wouldExpireTtl: 1, wouldProceed: 1, wouldHold: 0 }), counts);
+  const now = projectActivation(null, true, T);
+  const offNow = classifyOwedForActivation([{ createdAt: min(T, -1), expiresAt: null, category: inv }, { createdAt: min(T, -500), expiresAt: null, category: inv }], now, T);
+  ok("dry run: never activated, activation NOW ⇒ every owed row is pre-cutover, none sent", offNow.wouldExpirePreCutover === 2 && offNow.wouldProceed === 0);
+  const toggled = classifyOwedForActivation([
+    { createdAt: min(T, 5), expiresAt: min(T, 600), category: inv }, { createdAt: min(T, 20), expiresAt: min(T, 600), category: inv },
+  ], re, min(T, 31));
+  ok("dry run after OFF → ON: the deferral proceeds, the OFF-period row is pre-cutover", toggled.wouldProceed === 1 && toggled.wouldExpirePreCutover === 1, toggled);
+  const held = classifyOwedForActivation([{ createdAt: min(T, 5), expiresAt: min(T, 600), category: inv }], null, min(T, 31));
+  ok("dry run with the record unreadable (table missing) ⇒ held, nothing proceeds or closes", held.wouldHold === 1 && held.wouldProceed === 0 && held.wouldExpirePreCutover === 0, held);
 }
 
 // ── 7. digest window (owner decision 2026-11-13: an item in exactly ONE digest per user) ──

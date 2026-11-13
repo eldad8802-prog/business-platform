@@ -1,7 +1,7 @@
 /**
  * The notification engine on a real database, AS THE RESTRICTED RUNTIME (NOSUPERUSER NOBYPASSRLS, a member of
- * app_runtime), over the real migration 20261210090000_notification_engine_foundation (built by
- * `.nte/lab.sh <db> --with-nte`). Push providers are FAKES (a fake fetch for FCM, a fake web push sender): no
+ * app_runtime), over the real migrations 20261210090000_notification_engine_foundation, 20261211090000 (follow-up) and
+ * 20261212090000 (activation) (built by `.nte2c/lab.sh <db> --with-nte2c`, branch notify/2c-engine-activation). Push providers are FAKES (a fake fetch for FCM, a fake web push sender): no
  * network, no real key, no real device.
  *
  *   create → deliver   notify() writes one owed push; the worker sends it to the user's live device and records a
@@ -21,9 +21,13 @@
  *                      writer's historical PENDING pushes expire (never sent), in an ON business too.
  *   writer             the snapshot writer's owed PUSH row now carries expiresAt.
  *   digest             08:00 business time, once a day, none when empty, never repeating what was pushed.
- *   clean start        an owed push created before the engine's activation moment is closed FAILED pre_cutover (never
- *                      sent), one created after it is sent; OFF → ON moves the moment (nothing written while OFF is
- *                      pushed); the read-only dry run counts it beforehand; the health output reports it; no deletion.
+ *   clean start        the activation record (migration 20261212090000): the override trigger records the initial
+ *                      activation; a row created before it is closed FAILED pre_cutover (never sent), one after it is
+ *                      sent; a GLOBAL policy edit moves nothing; quiet-hours deferrals survive the policy edit and a
+ *                      kill-switch toggle and go out at 07:00 while the row written during the kill switch is closed;
+ *                      the business's own OFF → ON pushes nothing written while OFF; global-only enablement: the
+ *                      worker records the first moment it sees it ON, once; a contradicted claim is refused (held);
+ *                      the table missing ⇒ held, no crash; the read-only dry run matches the worker each time.
  *   digest windows     an item is in exactly one digest per user (window from the previous ACTUAL digest): no repeat
  *                      on consecutive days, an item between digests once, a day without a digest loses nothing, a
  *                      reopened item again — once.
@@ -98,9 +102,15 @@ async function main() {
   // ── fixtures (owner) ────────────────────────────────────────────────────────────────────────────────────────
   await owner.$executeRawUnsafe(`INSERT INTO "PlatformFeatureDefinition" ("key", "displayName", "category", "description", "defaultEnabled", "mutable")
     VALUES ('notifications_engine', 'מנוע התראות', 'integrations', 'lab', false, true) ON CONFLICT ("key") DO NOTHING`);
+  await owner.$executeRawUnsafe(`INSERT INTO "PlatformFeaturePolicy" ("featureKey", "globalEnabled", "emergencyDisabled", "updatedAt")
+    VALUES ('notifications_engine', false, false, now()) ON CONFLICT ("featureKey") DO NOTHING`);
   const biz = async (name: string, engine: boolean) => {
     const b = await owner.business.create({ data: { name } });
-    if (engine) await owner.businessFeatureAccess.create({ data: { businessId: b.id, featureKey: "notifications_engine", state: "ENABLED" } });
+    // Switched ON on a fixed early date (the trigger records it as the first activation), before every simulated time.
+    if (engine) {
+      await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt")
+        VALUES ($1, 'notifications_engine', 'ENABLED', TIMESTAMP '2026-11-01 00:00:00')`, b.id);
+    }
     return b.id;
   };
   const A = await biz("nte3-A", true);
@@ -444,53 +454,165 @@ async function main() {
     ok("…a1's count excludes the hidden category, a2's excludes a1's personal row", !u1.includes(attn.notificationId) && u2.includes(attn.notificationId) && !u2.includes(personal.notificationId));
     ok("without a viewer the business-wide predicate is unchanged", (await read.listNotifications(A, { limit: 50, cursor: null, unreadOnly: false })).notifications.some((n) => n.id === personal.notificationId));
 
-    console.log("clean start: no push for what was created before the engine's activation");
+    console.log("clean start: the activation record (no push for what was created before activation or while OFF)");
     await ageSends();
     const CT = new Date("2026-12-20T10:00:00.000Z"); // 12:00 Jerusalem
-    const F = await biz("nte3-F", true);
-    await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt")
-      SELECT $1, 'inventory', 'ENABLED', now() WHERE EXISTS (SELECT 1 FROM "PlatformFeatureDefinition" WHERE "key" = 'inventory') ON CONFLICT DO NOTHING`, F);
+    const F = await biz("nte3-F", false);
+    for (const k of ["inventory", "billing"]) {
+      await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt")
+        SELECT $1, $2, 'ENABLED', now() WHERE EXISTS (SELECT 1 FROM "PlatformFeatureDefinition" WHERE "key" = $2) ON CONFLICT DO NOTHING`, F, k);
+    }
     const fUser = await user(F, "fUser");
     const sF1 = await session(fUser); const tF1 = tok("fUser"); await register(F, fUser, sF1, tF1);
-    // The admin mutation stamps updatedAt on each state change; the lab sets the moments explicitly.
-    const setEngine = (state: "ENABLED" | "DISABLED", moment: Date) => owner.$executeRawUnsafe(
-      `UPDATE "BusinessFeatureAccess" SET "state" = $1::"BusinessFeatureAccessState", "updatedAt" = ($2::timestamptz AT TIME ZONE 'UTC') WHERE "businessId" = $3 AND "featureKey" = 'notifications_engine'`,
-      state, moment.toISOString(), F);
-    await setEngine("ENABLED", at(CT, -60));
-    const preEv = await notifyIn(F, { userId: fUser, now: at(CT, -90) }); // written before the activation, still inside its TTL
+    // The platform admin's switch: the mutation stamps updatedAt on each state change; the lab sets the moments. The
+    // database trigger records the transition at that moment.
+    const setEngine = (b: number, state: "ENABLED" | "DISABLED", moment: Date) => owner.$executeRawUnsafe(
+      `INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt")
+       VALUES ($3, 'notifications_engine', $1::"BusinessFeatureAccessState", ($2::timestamptz AT TIME ZONE 'UTC'))
+       ON CONFLICT ("businessId", "featureKey") DO UPDATE SET "state" = EXCLUDED."state", "updatedAt" = EXCLUDED."updatedAt"`,
+      state, moment.toISOString(), b);
+    const setPolicy = (sets: string, moment: Date) => owner.$executeRawUnsafe(
+      `UPDATE "PlatformFeaturePolicy" SET ${sets}, "updatedAt" = ($1::timestamptz AT TIME ZONE 'UTC') WHERE "featureKey" = 'notifications_engine'`, moment.toISOString());
+    const record = (b: number) => owner.notificationEngineActivation.findUnique({ where: { businessId: b } });
+    const ms = (d: Date | null | undefined) => (d ? d.getTime() : null);
+
+    const preEv = await notifyIn(F, { userId: fUser, now: at(CT, -90) }); // written while the engine was OFF, still inside its TTL
+    await setEngine(F, "ENABLED", at(CT, -60));
+    const rec0 = await record(F);
+    ok("initial activation: the trigger records first = last = prior = the switch's moment (source override)",
+      ms(rec0?.firstActivatedAt) === at(CT, -60).getTime() && ms(rec0?.lastActivatedAt) === at(CT, -60).getTime() &&
+      ms(rec0?.priorActivatedAt) === at(CT, -60).getTime() && rec0?.lastDeactivatedAt === null && rec0?.lastSource === "override", rec0);
     const dry = await cutoverDryRun(CT, { businessIds: [F, C] });
     const dryF = dry.rows.find((r) => r.businessId === F);
     const dryC = dry.rows.find((r) => r.businessId === C);
     ok("dry run (engine ON): the owed push written before activation would be closed pre_cutover, none sent",
-      dryF?.engineOn === true && dryF.owed === 1 && dryF.wouldExpirePreCutover === 1 && dryF.wouldProceed === 0 && dryF.activationAt === at(CT, -60).toISOString(), dry);
-    ok("dry run (engine OFF): an activation now would close every owed push already there — none sent",
-      dryC?.engineOn === false && dryC.owed >= 1 && dryC.wouldExpirePreCutover === dryC.owed && dryC.wouldProceed === 0, dryC);
+      dryF?.engineOn === true && dryF.owed === 1 && dryF.wouldExpirePreCutover === 1 && dryF.wouldProceed === 0 &&
+      dryF.activationAt === at(CT, -60).toISOString() && dryF.firstActivatedAt === at(CT, -60).toISOString(), dry);
+    ok("dry run (engine OFF, never activated): an activation now would close every owed push already there — none sent",
+      dryC?.engineOn === false && dryC.owed >= 1 && dryC.wouldExpirePreCutover === dryC.owed && dryC.wouldProceed === 0 && dryC.wouldHold === 0, dryC);
     const preRowAfterDry = (await owed(F, preEv.notificationId))[0];
-    ok("dry run is read-only: the owed row is untouched (PENDING, no lease, no attempt)", preRowAfterDry.status === "PENDING" && preRowAfterDry.leaseUntil === null && preRowAfterDry.nextAttemptAt === null, preRowAfterDry);
+    ok("dry run is read-only: the owed row is untouched (PENDING, no lease, no attempt) and no record was written for C",
+      preRowAfterDry.status === "PENDING" && preRowAfterDry.leaseUntil === null && preRowAfterDry.nextAttemptAt === null && (await record(C)) === null, preRowAfterDry);
     const postEv = await notifyIn(F, { userId: fUser, now: CT });
     const n5s = fcmSends.length;
     const rc = await run(CT, F);
     const preRow = (await owed(F, preEv.notificationId))[0];
     const postRows = await owed(F, postEv.notificationId);
-    ok("a row created before the cutover is never sent: FAILED pre_cutover", preRow.status === "FAILED" && preRow.error === "pre_cutover" && preRow.completedAt !== null &&
+    ok("initial activation: a row created before it is never sent: FAILED pre_cutover", preRow.status === "FAILED" && preRow.error === "pre_cutover" && preRow.completedAt !== null &&
       !(await owed(F, preEv.notificationId)).some((d) => d.subscriptionId !== null), preRow);
-    ok("a row created after the cutover is sent", postRows.some((d) => d.status === "SENT" && d.subscriptionId !== null) && fcmSends.slice(n5s).length === 1 &&
+    ok("…a row created after it is sent", postRows.some((d) => d.status === "SENT" && d.subscriptionId !== null) && fcmSends.slice(n5s).length === 1 &&
       fcmSends.slice(n5s)[0].data.notificationId === String(postEv.notificationId), { postRows, sends: fcmSends.slice(n5s) });
-    ok("health output reports it: preCutover 1, not counted as a failure", rc.preCutover === 1 && rc.failed === 0 && workerHealth(rc).preCutover === 1 && "expired" in workerHealth(rc), rc);
+    ok("health output reports it: preCutover 1, not counted as a failure", rc.preCutover === 1 && rc.failed === 0 && workerHealth(rc).preCutover === 1 && "activationUnavailable" in workerHealth(rc), rc);
     ok("no data deletion: the pre-cutover notification is still there (the center may show it)", (await owner.notification.count({ where: { id: preEv.notificationId } })) === 1);
-    // OFF, then ON again: the moment moves forward — what was written while OFF is never pushed.
-    await setEngine("DISABLED", at(CT, 10));
-    const offEv = await notifyIn(F, { userId: fUser, now: at(CT, 20) });
+    ok("the worker's observation of an override-switched business changes nothing (the trigger already recorded it)",
+      JSON.stringify(await record(F)) === JSON.stringify(rec0));
+
+    // ── quiet hours across policy edits and the kill switch ──
+    const NF = new Date("2026-12-20T21:00:00.000Z"); // 23:00 Jerusalem
+    const billF = (when: Date, id: number) => notifyIn(F, { userId: fUser, now: when, category: "billing.failure", entity: { type: "billing_document", id }, href: `/billing/${id}` });
+    const q1 = await billF(NF, 9101);
+    const q2 = await billF(at(NF, 30), 9102);
+    await run(NF, F); await run(at(NF, 30), F);
+    const deferredTo = "2026-12-21T05:00:00.000Z";
+    ok("quiet hours: two pushes deferred to 07:00 Jerusalem", (await owed(F, q1.notificationId))[0].nextAttemptAt?.toISOString() === deferredTo &&
+      (await owed(F, q2.notificationId))[0].nextAttemptAt?.toISOString() === deferredTo);
+    // an admin edit of the GLOBAL policy row (updatedAt moves, globalEnabled flips and back): nobody's effective state changes
+    await setPolicy(`"globalEnabled" = true`, at(NF, 60));
+    await setPolicy(`"globalEnabled" = false`, at(NF, 61));
+    await setPolicy(`"globalEnabled" = false`, at(NF, 62)); // a pure re-save
+    ok("a global policy edit does NOT move an activated business's record", JSON.stringify(await record(F)) === JSON.stringify(rec0), await record(F));
+    // the kill switch: OFF at 01:00, a row written while OFF, ON at 02:00
+    await setPolicy(`"emergencyDisabled" = true`, at(NF, 120));
+    const recK = await record(F);
+    ok("kill switch ON: the policy trigger records the deactivation at its moment (first unchanged)",
+      ms(recK?.lastDeactivatedAt) === at(NF, 120).getTime() && ms(recK?.firstActivatedAt) === at(CT, -60).getTime() && recK?.lastSource === "policy", recK);
+    const q3 = await billF(at(NF, 150), 9103);
+    const rK = await run(at(NF, 155), F);
+    ok("while the kill switch is on: nothing claimed or sent (held)", rK.engineOff === 1 && rK.claimed === 0, rK);
+    await setPolicy(`"emergencyDisabled" = false`, at(NF, 180));
+    const recK2 = await record(F);
+    ok("kill switch lifted: re-activation recorded (last = 02:00, prior = the first activation, first unchanged)",
+      ms(recK2?.lastActivatedAt) === at(NF, 180).getTime() && ms(recK2?.priorActivatedAt) === at(CT, -60).getTime() && ms(recK2?.firstActivatedAt) === at(CT, -60).getTime(), recK2);
+    const atQuietEnd = new Date("2026-12-21T05:00:30.000Z");
+    const dryQ = await cutoverDryRun(atQuietEnd, { businessIds: [F] });
+    const n7s = fcmSends.length;
+    const rQ = await run(atQuietEnd, F);
+    const [o1, o2, o3] = [(await owed(F, q1.notificationId)), (await owed(F, q2.notificationId)), (await owed(F, q3.notificationId))];
+    ok("quiet-hours deferrals survive the policy edit AND the kill switch toggle: both sent at 07:00",
+      o1.some((d) => d.status === "SENT" && d.subscriptionId !== null) && o2.some((d) => d.status === "SENT" && d.subscriptionId !== null) && fcmSends.length === n7s + 2, { o1, o2 });
+    ok("…the row written while the kill switch was on is closed pre_cutover, never sent (no wave)", o3[0].status === "FAILED" && o3[0].error === "pre_cutover" && rQ.preCutover === 1, o3);
+    ok("dry run matched the worker: 2 proceed, 1 pre_cutover", dryQ.rows[0]?.wouldProceed === 2 && dryQ.rows[0]?.wouldExpirePreCutover === 1 && rQ.sent === 2, { dryQ, rQ });
+
+    // ── the business's own switch OFF → ON ──
+    await ageSends();
+    const D2 = new Date("2026-12-21T10:00:00.000Z");
+    await setEngine(F, "DISABLED", at(D2, 10));
+    const offEv = await notifyIn(F, { userId: fUser, now: at(D2, 20) });
     const n6s = fcmSends.length;
-    const rOff = await run(at(CT, 25), F);
-    ok("while OFF: nothing claimed or sent (held)", rOff.engineOff === 1 && fcmSends.length === n6s, rOff);
-    await setEngine("ENABLED", at(CT, 30));
-    const rOn = await run(at(CT, 56), F);
+    const rOff = await run(at(D2, 25), F);
+    ok("override OFF: nothing claimed or sent (held); deactivation recorded", rOff.engineOff === 1 && fcmSends.length === n6s && ms((await record(F))?.lastDeactivatedAt) === at(D2, 10).getTime(), rOff);
+    await setEngine(F, "ENABLED", at(D2, 30));
+    const dryOn = await cutoverDryRun(at(D2, 56), { businessIds: [F] });
+    const rOn = await run(at(D2, 56), F);
     const offRow = (await owed(F, offEv.notificationId))[0];
-    ok("toggle OFF → ON: the row written while OFF is closed pre_cutover, never pushed", offRow.status === "FAILED" && offRow.error === "pre_cutover" && rOn.preCutover === 1 && fcmSends.length === n6s, { offRow, rOn });
-    const lateEv = await notifyIn(F, { userId: fUser, now: at(CT, 57) });
-    await run(at(CT, 58), F);
-    ok("…and a row written after the new moment is sent", (await owed(F, lateEv.notificationId)).some((d) => d.status === "SENT" && d.subscriptionId !== null) && fcmSends.length === n6s + 1);
+    ok("override OFF → ON: the row written while OFF is closed pre_cutover, never pushed (no wave)", offRow.status === "FAILED" && offRow.error === "pre_cutover" && rOn.preCutover === 1 && fcmSends.length === n6s, { offRow, rOn });
+    ok("…the dry run said so beforehand", dryOn.rows[0]?.wouldExpirePreCutover === 1 && dryOn.rows[0]?.wouldProceed === 0, dryOn);
+    const recOn = await record(F);
+    ok("…first activation still the initial one; prior = the period the deactivation ended (02:00)",
+      ms(recOn?.firstActivatedAt) === at(CT, -60).getTime() && ms(recOn?.priorActivatedAt) === at(NF, 180).getTime() && ms(recOn?.lastActivatedAt) === at(D2, 30).getTime(), recOn);
+    const lateEv = await notifyIn(F, { userId: fUser, now: at(D2, 57) });
+    await run(at(D2, 58), F);
+    ok("…and a row written after the re-activation is sent", (await owed(F, lateEv.notificationId)).some((d) => d.status === "SENT" && d.subscriptionId !== null) && fcmSends.length === n6s + 1);
+
+    // ── enabled through the global policy only (no override): the worker records the first moment it sees it ON ──
+    const G = await biz("nte3-G", false);
+    await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt")
+      SELECT $1, 'inventory', 'ENABLED', now() WHERE EXISTS (SELECT 1 FROM "PlatformFeatureDefinition" WHERE "key" = 'inventory') ON CONFLICT DO NOTHING`, G);
+    const gUser = await user(G, "gUser");
+    const sG1 = await session(gUser); const tG1 = tok("gUser"); await register(G, gUser, sG1, tG1);
+    await setPolicy(`"globalEnabled" = true`, at(D2, 100));
+    ok("global ON: SQL cannot decide a business with no override (catalog default) — no record by the trigger", (await record(G)) === null);
+    // The catalog default of notifications_engine is OFF in code, so "ON through the policy alone" is simulated with
+    // the gates seam (as a catalog default flipped ON would resolve).
+    const globalOn = { gates: async () => ({ engineOn: true, categoryAvailable: () => true }) };
+    const gOld = await notifyIn(G, { userId: gUser, now: at(D2, 110) });
+    const dryG = await cutoverDryRun(at(D2, 120), { businessIds: [G], gates: globalOn.gates });
+    const n8s = fcmSends.length;
+    const rG1 = await run(at(D2, 120), G, globalOn);
+    const recG = await record(G);
+    ok("global-only: the first moment the worker sees it ON is recorded once (source worker)",
+      ms(recG?.firstActivatedAt) === at(D2, 120).getTime() && recG?.lastSource === "worker" && recG?.lastDeactivatedAt === null, recG);
+    ok("global-only: the row created before that moment is closed pre_cutover (dry run said so)",
+      (await owed(G, gOld.notificationId))[0].error === "pre_cutover" && rG1.preCutover === 1 && fcmSends.length === n8s &&
+      dryG.rows[0]?.wouldExpirePreCutover === 1 && dryG.rows[0]?.firstActivatedAt === at(D2, 120).toISOString(), { rG1, dryG });
+    await setPolicy(`"emergencyDisabled" = false`, at(D2, 125)); // a re-save: no change of state
+    const gNew = await notifyIn(G, { userId: gUser, now: at(D2, 130) });
+    await run(at(D2, 131), G, globalOn);
+    ok("global-only: later passes and policy re-saves do not move it; a newer row is sent",
+      JSON.stringify(await record(G)) === JSON.stringify(recG) && (await owed(G, gNew.notificationId)).some((d) => d.status === "SENT" && d.subscriptionId !== null));
+    // a claim the override contradicts is refused by the database: held, never sent
+    await setEngine(G, "DISABLED", at(D2, 140));
+    const gRef = await notifyIn(G, { userId: gUser, now: at(D2, 141) });
+    const rRef = await run(at(D2, 142), G, globalOn);
+    ok("a worker claim of ON that the override contradicts is refused: activation unavailable ⇒ held, nothing sent",
+      rRef.activationUnavailable === 1 && rRef.claimed === 0 && (await owed(G, gRef.notificationId))[0].status === "PENDING", rRef);
+    await setPolicy(`"globalEnabled" = false`, at(D2, 150));
+
+    // ── fail safe: the table missing (code deployed before migration 20261212090000) ──
+    const fsEv = await notifyIn(F, { userId: fUser, now: at(D2, 200) });
+    await owner.$executeRawUnsafe(`ALTER TABLE "NotificationEngineActivation" RENAME TO "NotificationEngineActivation_lab_hidden"`);
+    let rMissing: Awaited<ReturnType<typeof run>> | string;
+    let dryMissing: Awaited<ReturnType<typeof cutoverDryRun>> | string;
+    const n9s = fcmSends.length;
+    try {
+      rMissing = await run(at(D2, 201), F);
+      dryMissing = await cutoverDryRun(at(D2, 201), { businessIds: [F] });
+    } catch (e) { rMissing = dryMissing = e instanceof Error ? e.message : "ERR"; }
+    finally { await owner.$executeRawUnsafe(`ALTER TABLE "NotificationEngineActivation_lab_hidden" RENAME TO "NotificationEngineActivation"`); }
+    ok("table missing: no crash, nothing claimed or sent, the row held (activationUnavailable), not closed",
+      typeof rMissing !== "string" && rMissing.activationUnavailable === 1 && rMissing.claimed === 0 && rMissing.errors === 0 && fcmSends.length === n9s &&
+      (await owed(F, fsEv.notificationId))[0].status === "PENDING", rMissing);
+    ok("table missing: the dry run counts it held", typeof dryMissing !== "string" && dryMissing.rows[0]?.wouldHold === 1 && dryMissing.rows[0]?.activationAt === null, dryMissing);
 
     console.log("digest windows: each item in exactly one digest per user");
     const E = await biz("nte3-E", true);

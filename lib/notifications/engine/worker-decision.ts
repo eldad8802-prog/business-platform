@@ -20,40 +20,101 @@ export function effectiveExpiry(row: { expiresAt: Date | null; createdAt: Date }
 
 /* ──────────────────────────────────────────────── clean-start cutover ── */
 
-/** The error of an owed push closed because it was created before the business's engine activation moment. */
+/** The error of an owed push closed because it was not created while the engine was ON for the business. */
 export const PRE_CUTOVER = "pre_cutover";
 
 /**
- * The cutover rule (owner decision 2026-11-13: when the engine is enabled, NO push for an event created before that
- * moment). The engine can be ON for a business only through its BusinessFeatureAccess override (state ENABLED — the
- * catalog default is OFF, so the global policy alone cannot turn it on), written by the platform admin's
- * feature-access mutation, which refuses a no-op and stamps `updatedAt` (Prisma @updatedAt) on every state change.
- * So the latest OFF→ON moment is that row's updatedAt. The global policy row's updatedAt is folded in too: lifting
- * the emergency kill switch is also an OFF→ON moment for every business. The later of the two wins — which can only
- * move the cutover FORWARD (fewer pushes, never more): nothing created while the engine was OFF is pushed later.
+ * The business's engine activation record ("NotificationEngineActivation", migration 20261212090000 — owner decisions
+ * 2026-11-13). Written ONLY when the engine's effective state for that business changes: by the database itself (a
+ * trigger on the per-business override; a trigger on the global policy that fires only when globalEnabled /
+ * emergencyDisabled really change) or by the worker's observation (notification_engine_observe — a business enabled
+ * through the global policy alone). An admin edit of the global policy row that changes nobody's state writes nothing.
+ *
+ *   firstActivatedAt   the first moment the engine was effectively ON. STABLE: never moves again.
+ *   lastActivatedAt    the start of the current (or last) ON period.
+ *   lastDeactivatedAt  the end of the last ON period; null = never turned OFF since the first activation.
+ *   priorActivatedAt   the start of the ON period lastDeactivatedAt ended (= firstActivatedAt until a re-activation).
+ * Recorded OFF ⇔ lastDeactivatedAt ≥ lastActivatedAt.
  */
-export function cutoverFrom(input: { override: { updatedAt: Date } | null; policy: { updatedAt: Date } | null }): Date | null {
-  const times = [input.override?.updatedAt, input.policy?.updatedAt].filter((d): d is Date => d instanceof Date);
-  if (times.length === 0) return null;
-  return new Date(Math.max(...times.map((d) => d.getTime())));
+export type ActivationRecord = {
+  firstActivatedAt: Date;
+  lastActivatedAt: Date;
+  priorActivatedAt: Date;
+  lastDeactivatedAt: Date | null;
+};
+
+/** Does the record say the engine is ON right now? */
+export function recordedOn(r: ActivationRecord): boolean {
+  return r.lastDeactivatedAt === null || r.lastDeactivatedAt.getTime() < r.lastActivatedAt.getTime();
 }
 
-/** Was this owed row created before the engine's activation moment? (null moment = no cutover, TTL only.) */
-export function isPreCutover(createdAt: Date, cutoverAt: Date | null): boolean {
-  return cutoverAt !== null && createdAt.getTime() < cutoverAt.getTime();
+/**
+ * THE CUTOVER RULE (owner decisions 2026-11-13). While the engine is ON, an owed push may be sent only if it was
+ * created in the CURRENT ON period [lastActivatedAt, ∞) or in the ON period right before it
+ * [priorActivatedAt, lastDeactivatedAt) — and, as always, before its TTL (effectiveExpiry). Consequences:
+ *   - initial activation: nothing created before firstActivatedAt is ever pushed (historical rows stay, unsent);
+ *   - OFF → ON (the business's switch, or the kill switch lifted): nothing created while OFF is ever pushed — no
+ *     wave; a push the last ON period deferred to the end of quiet hours survives ONE toggle and is delivered then
+ *     if still inside its TTL; anything from an older ON period is dropped (two toggles back is history);
+ *   - an edit of the global policy that does not change the business's effective state moves nothing, so a quiet-
+ *     hours deferral is never lost to it;
+ *   - engine enabled globally (no override): firstActivatedAt is the first moment the worker sees it ON for the
+ *     business; later policy edits do not move it.
+ * Why one previous period and not "every ON period ever": the record keeps exactly two recorded transitions around
+ * the carried period, which is what proves a carried row was created while ON; with any coarser memory an
+ * OFF-period row could slip through. Losing a two-toggles-old deferral is the safe side of that trade.
+ */
+export function pushableCreatedAt(createdAt: Date, r: ActivationRecord): boolean {
+  if (!recordedOn(r)) return false;
+  const t = createdAt.getTime();
+  if (t >= r.lastActivatedAt.getTime()) return true;
+  return r.lastDeactivatedAt !== null && t >= r.priorActivatedAt.getTime() && t < r.lastDeactivatedAt.getTime();
 }
 
-export type ActivationCounts = { owed: number; wouldExpirePreCutover: number; wouldExpireTtl: number; wouldProceed: number };
+/**
+ * What the database records when the engine is seen ON / OFF at `at` (notification_engine_record, migration
+ * 20261212090000), mirrored for the read-only dry run: a first activation; OFF → ON lands strictly after the recorded
+ * deactivation and makes the period that deactivation ended the "prior" one; ON → OFF at or after the activation.
+ */
+export function projectActivation(r: ActivationRecord | null, on: boolean, at: Date): ActivationRecord | null {
+  if (r === null) return on ? { firstActivatedAt: at, lastActivatedAt: at, priorActivatedAt: at, lastDeactivatedAt: null } : null;
+  if (!recordedOn(r)) {
+    if (!on) return r;
+    const t = Math.max(at.getTime(), r.lastDeactivatedAt!.getTime() + 1);
+    return { ...r, priorActivatedAt: r.lastActivatedAt, lastActivatedAt: new Date(t) };
+  }
+  if (on) return r;
+  return { ...r, lastDeactivatedAt: new Date(Math.max(at.getTime(), r.lastActivatedAt.getTime())) };
+}
 
-/** The dry run's arithmetic: what an activation at `activationAt` would do with these owed rows at `now`. */
+/**
+ * The activation as the worker uses it: the record (after its observation) when the engine is ON and the record
+ * agrees; otherwise "unavailable" — the table missing (code deployed before migration 20261212090000), a read error,
+ * or a record that still says OFF — and the worker HOLDS every owed row (no claim, no send, TTL expiry only): never a
+ * wave, never a crash, and nothing closed that a later, readable record could still allow.
+ */
+export type ActivationState = { kind: "on"; record: ActivationRecord } | { kind: "unavailable" };
+
+export function activationState(engineOn: boolean, r: ActivationRecord | null): ActivationState {
+  if (!engineOn || r === null || !recordedOn(r)) return { kind: "unavailable" };
+  return { kind: "on", record: r };
+}
+
+export type ActivationCounts = { owed: number; wouldExpirePreCutover: number; wouldExpireTtl: number; wouldProceed: number; wouldHold: number };
+
+/**
+ * The dry run's arithmetic: what the worker would do at `now` with these owed rows under this activation record
+ * (null, or a record that says OFF ⇒ unavailable ⇒ every row held).
+ */
 export function classifyOwedForActivation(
   rows: readonly { createdAt: Date; expiresAt: Date | null; category: CategoryDefinition | null }[],
-  activationAt: Date | null,
+  activation: ActivationRecord | null,
   now: Date,
 ): ActivationCounts {
-  const out: ActivationCounts = { owed: rows.length, wouldExpirePreCutover: 0, wouldExpireTtl: 0, wouldProceed: 0 };
+  const out: ActivationCounts = { owed: rows.length, wouldExpirePreCutover: 0, wouldExpireTtl: 0, wouldProceed: 0, wouldHold: 0 };
   for (const r of rows) {
-    if (isPreCutover(r.createdAt, activationAt)) out.wouldExpirePreCutover += 1;
+    if (activation === null || !recordedOn(activation)) out.wouldHold += 1;
+    else if (!pushableCreatedAt(r.createdAt, activation)) out.wouldExpirePreCutover += 1;
     else if (effectiveExpiry(r, r.category).getTime() <= now.getTime()) out.wouldExpireTtl += 1;
     else out.wouldProceed += 1;
   }

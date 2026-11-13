@@ -265,6 +265,7 @@ model Business {
   notificationDeliveries        NotificationDelivery[]
   notificationSettings          NotificationSettings[]
   notificationPreferences       NotificationPreference[]
+  notificationEngineActivation  NotificationEngineActivation?
   whatsappConnection            WhatsAppConnection?
   purchaseOrders                PurchaseOrder[]
   receivingSessions             ReceivingSession[]
@@ -7680,6 +7681,22 @@ model NotificationPreference {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, userId, key])
+}
+
+/// The notification engine's activation record of one business (migration 20261212090000; the rule:
+/// lib/notifications/engine/worker-decision.ts pushableCreatedAt). Written ONLY by the database: triggers on
+/// BusinessFeatureAccess / PlatformFeaturePolicy (key notifications_engine) and notification_engine_observe() (the
+/// worker, SECURITY DEFINER). The runtime holds SELECT only (RLS: its own business). The CHECKs (moment order, source
+/// tokens 'override' | 'policy' | 'worker' | 'migration') live in the migration.
+model NotificationEngineActivation {
+  businessId        Int       @id
+  firstActivatedAt  DateTime
+  lastActivatedAt   DateTime
+  priorActivatedAt  DateTime
+  lastDeactivatedAt DateTime?
+  lastSource        String
+  updatedAt         DateTime  @default(now())
+  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }
 
 /// Monthly accountant workflow (migration 20261027090000). One row per business per Israeli calendar

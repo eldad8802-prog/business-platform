@@ -433,6 +433,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // tenant transaction (the runtime holds no UPDATE on the table). The payload can hold no text (DB CHECK).
   AccountantWorkflowEvent: operational("append-only accountant workflow trail: event type, actor role, times, ids and short tokens (no text by DB CHECK); the acting user is erased with the account by accountant_erase_business()"),
   TaskPreferences: operational("which task sources a business turned off, the morning-summary hour and sync bookkeeping"),
+  // Notification engine activation (migration 20261212090000): a business id, four times and a closed source token
+  // (DB CHECK: override | policy | worker | migration). Written only by the database (triggers + a SECURITY DEFINER
+  // function); the runtime holds SELECT only. It goes with the business (FK ON DELETE CASCADE).
+  NotificationEngineActivation: operational("when the notification engine was first / last switched on and off for the business: four times and a closed source token (no text by DB CHECK); cascades with the business"),
   // G5 milestone 1 (migration 20261107090000): the monitor's alert about one business — a finding code, a subject (a
   // month key or a delivery id), a severity, times and counts (closed detail by DB CHECK); no address, link or text.
   // It goes with the business (FK ON DELETE CASCADE); nothing in it identifies a person.
