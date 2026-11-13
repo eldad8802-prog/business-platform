@@ -12,8 +12,8 @@
 \echo ' 1 20261128090000_signup_legal_identity is finished (observed = finished rows)'
 \echo ' 2 20261128100000 is not in the ledger (observed = rows)'
 \echo ' 3 the ledger is clean: no unfinished and no rolled-back migration (observed = such rows)'
-\echo ' 4 LegalIdentityCorrectionRequest is absent (observed = tables)'
-\echo ' 5 none of its five functions exists yet (observed = of 5)'
+\echo ' 4 none of its three tables exists yet: LegalIdentityApprover, LegalIdentityCorrectionRequest, LegalIdentityCorrectionAttachment (observed = tables)'
+\echo ' 5 none of its eight functions exists yet (observed = of 8)'
 \echo ' 6 the roles exist: app_auth, app_runtime (observed = of 2)'
 \echo ' 7 the helpers it calls exist: legal_identity_tax_id_ok, legal_identity_business_is_being_deleted (observed = of 2)'
 \echo ' 8 the columns it reads exist: User.role, User.businessId, BusinessProfile.legalIdentityConfirmedAt (observed = of 3)'
@@ -25,9 +25,11 @@ WITH
 pub AS (SELECT oid FROM pg_namespace WHERE nspname = 'public'),
 usr AS (SELECT c.oid FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname = 'User' AND c.relkind = 'r'),
 bp  AS (SELECT c.oid FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname = 'BusinessProfile' AND c.relkind = 'r'),
-tbl AS (SELECT count(*) AS n FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub) AND c.relname = 'LegalIdentityCorrectionRequest'),
+tbl AS (SELECT count(*) AS n FROM pg_class c WHERE c.relnamespace = (SELECT oid FROM pub)
+           AND c.relname IN ('LegalIdentityApprover', 'LegalIdentityCorrectionRequest', 'LegalIdentityCorrectionAttachment')),
 fns AS (SELECT count(*) AS n FROM pg_proc p WHERE p.pronamespace = (SELECT oid FROM pub) AND p.proname IN
-         ('legal_identity_correction_guard', 'legal_identity_correction_request', 'legal_identity_correction_cancel',
+         ('legal_identity_correction_guard', 'legal_identity_correction_is_approver', 'legal_identity_correction_request',
+          'legal_identity_correction_cancel', 'legal_identity_correction_attach', 'legal_identity_correction_request_info',
           'legal_identity_correction_decide', 'legal_identity_correction_erase')),
 helpers AS (SELECT count(*) AS n FROM pg_proc p WHERE p.pronamespace = (SELECT oid FROM pub)
               AND p.proname IN ('legal_identity_tax_id_ok', 'legal_identity_business_is_being_deleted')),
