@@ -118,6 +118,7 @@ export const notificationsEn: Widen<typeof notificationsHe> = {
       accountantSendFailed: "Sending to the accountant did not complete",
       accountantMonthClose: "Month-close updates",
       connectionsDisconnected: "A connection that needs checking",
+      accountDisconnected: "A Gmail or WhatsApp account that disconnected",
     },
   },
   privacy: {

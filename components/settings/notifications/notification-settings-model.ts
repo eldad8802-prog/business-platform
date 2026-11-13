@@ -90,6 +90,7 @@ export const CATEGORY_LABEL_KEYS: Readonly<Record<string, MessageKey>> = {
   "accountant.send_failed": "notifications.types.categories.accountantSendFailed",
   "accountant.month_close": "notifications.types.categories.accountantMonthClose",
   "connections.disconnected": "notifications.types.categories.connectionsDisconnected",
+  "connections.account_disconnected": "notifications.types.categories.accountDisconnected",
 };
 
 /** Every catalog category the types screen lists (catalog order). */

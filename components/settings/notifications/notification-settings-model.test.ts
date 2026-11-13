@@ -152,7 +152,7 @@ check("every listed type is a catalog category; every catalog category is listed
 
 check("no security type is offered (nothing produces one today, and there is no security email)", () => {
   assert.ok(visibleCategories().every((c) => c.domain !== "security"));
-  assert.ok(!HE.some(([, v]) => /אבטחה|מייל|אימייל/.test(v)), "the screen must not promise security alerts or email");
+  assert.ok(!HE.some(([, v]) => /אבטחה|אימייל/.test(v) || /מייל/.test(v.replace(/ג׳ימייל/g, ""))), "the screen must not promise security alerts or email");
 });
 
 check("every listed type and area has a Hebrew label", () => {

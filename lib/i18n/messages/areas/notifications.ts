@@ -123,7 +123,8 @@ export const notificationsHe = {
       documentsReview: "מסמכים שמחכים לבדיקה",
       accountantSendFailed: "השליחה לרואה החשבון לא הושלמה",
       accountantMonthClose: "עדכונים על סגירת החודש",
-      connectionsDisconnected: "חיבור שדורש בדיקה",
+      connectionsDisconnected: "מקור לידים שדורש בדיקה",
+      accountDisconnected: "חשבון ג׳ימייל או וואטסאפ שהתנתק",
     },
   },
   privacy: {
