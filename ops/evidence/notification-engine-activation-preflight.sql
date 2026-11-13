@@ -12,6 +12,8 @@
 --     and the two triggers need it);
 --   * every name it introduces is free: the table, its constraints, its policy, the five functions, the two
 --     triggers;
+--   * the evidence (migration) role is a superuser or has BYPASSRLS: the definer functions it will own write the
+--     new FORCE-RLS table, which has no write policy — without it the admin's per-business switch would fail;
 --   * INFO: how many notifications_engine overrides are ENABLED (the rows the backfill will write) — a count, never
 --     a failure.
 --
@@ -26,7 +28,8 @@
 \echo ' 4 the policy row of notifications_engine exists and the role app_runtime exists (observed = of 2)'
 \echo ' 5 none of the new names is taken: table, constraints, policy, five functions, two triggers (observed = taken)'
 \echo ' 6 the evidence role owns Business, BusinessFeatureAccess, PlatformFeaturePolicy (observed = of 3)'
-\echo ' 7 INFO: notifications_engine overrides in state ENABLED (rows the backfill writes)'
+\echo ' 7 the evidence role is a superuser or has BYPASSRLS (the definer functions write the FORCE-RLS table) (observed = 1)'
+\echo ' 8 INFO: notifications_engine overrides in state ENABLED (rows the backfill writes)'
 
 SET statement_timeout = '30s';
 SET default_transaction_read_only = on;
@@ -70,9 +73,10 @@ checks(n, ok, observed_count) AS (
                          AND relowner = (SELECT oid FROM me)) = 3,
                       (SELECT count(*) FROM rel WHERE nm IN ('Business', 'BusinessFeatureAccess', 'PlatformFeaturePolicy')
                          AND relowner = (SELECT oid FROM me))
-  UNION ALL SELECT 7, true, (SELECT count(*) FROM "BusinessFeatureAccess" WHERE "featureKey" = 'notifications_engine' AND "state" = 'ENABLED')
+  UNION ALL SELECT 7, (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user) IS TRUE, 1
+  UNION ALL SELECT 8, true, (SELECT count(*) FROM "BusinessFeatureAccess" WHERE "featureKey" = 'notifications_engine' AND "state" = 'ENABLED')
 )
-SELECT n, CASE WHEN n = 7 THEN 'INFO' WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
+SELECT n, CASE WHEN n = 8 THEN 'INFO' WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, observed_count
 FROM checks ORDER BY n;
 
 ROLLBACK;

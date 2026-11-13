@@ -10,7 +10,7 @@
 #   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256; the
 #      migration names only its own table and what it builds on; expand-only (ALTER TABLE / UPDATE only on its own
 #      new table, nothing dropped, deleted or truncated).
-#   1. Baseline (follow-up applied, activation pending): the PREFLIGHT passes (7 is INFO); the proof refuses.
+#   1. Baseline (follow-up applied, activation pending): the PREFLIGHT passes (8 is INFO); the proof refuses.
 #   2. `prisma migrate deploy` applies it (with overrides written before the release, NTE2C_SEED): proof 14/14
 #      (12 + the two visibility checks); the preflight then fails exactly its "not there yet" checks.
 #   3. Faults: each injected defect is caught by the proof check meant for it.
@@ -107,7 +107,7 @@ jobs:
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d nte2c_pre -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$PREFLIGHT" | tee /tmp/pre.out
           if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the baseline"; exit 1; fi
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "6" || { echo "expected 6 PASS"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "7" || { echo "expected 7 PASS"; exit 1; }
           test "$(grep -cE '^ +[0-9]+ \| INFO' /tmp/pre.out)" = "1" || { echo "expected 1 INFO"; exit 1; }
           if lab -f "$EVIDENCE" 2>/dev/null | grep -qE '^ +1 \| PASS'; then echo "the proof passed before the migration"; exit 1; fi
           echo "the proof refuses on the baseline"
