@@ -14,7 +14,10 @@ import { decideCronAuth } from "@/lib/services/billing/settlement/settlement-rec
  * racing pass loses the claim. Counts only in the answer and the log (with a `health` block: the unhealthy signal,
  * expired and pre_cutover counts). GET ?dryRun=cutover answers the READ-ONLY clean-start dry run instead.
  *
- * NOT scheduled in vercel.json: scheduling it is a separate owner decision.
+ * Scheduled by vercel.json every 5 min (notify/10-schedule — the ONE branch that activates scheduling;
+ * docs/notifications/scheduling.md). A run cannot outlive its interval (maxDuration 60 s < 5 min) and the claim's 2 min
+ * lease outlives any run, so overlapping passes (a duplicate cron delivery, the after() trigger, the digest's pass)
+ * never send one row twice.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -48,6 +48,8 @@ on:
       - "lib/services/billing/authority/billing-authority-send-certainty.ts"
       - "lib/services/billing/authority/billing-authority-production-pilot.ts"
       - "scripts/notifications/**"
+      - "vercel.json"
+      - "docs/notifications/scheduling.md"
       - "app/api/integrations/gmail/callback/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20261210090000_notification_engine_foundation/**"
@@ -113,6 +115,7 @@ jobs:
           npx tsx lib/notifications/push/push.test.ts
           npx tsx lib/notifications/engine/worker-decision.test.ts
           npx tsx lib/notifications/engine/engine-boundary.test.ts
+          npx tsx lib/notifications/engine/schedule.test.ts
           npx tsx lib/notifications/producers/producers.test.ts
           npx tsx lib/notifications/producers/status-sweep.test.ts
           npx tsx lib/notifications/producers/state-producers.test.ts
@@ -134,6 +137,13 @@ jobs:
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_engine?$TZ_OPT" \
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/nte_engine" \
             npx tsx lib/notifications/engine/notification-engine.db.test.ts
+
+      - name: 3a. Scheduling overlap — racing digest / worker / rotation-sweep passes (own lab database)
+        run: |
+          set -euo pipefail
+          bash .nte2d/lab.sh nte_sched --with-nte2d
+          TZ_OPT="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_sched?$TZ_OPT"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_sched?$TZ_OPT"           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/nte_sched"             npx tsx lib/notifications/engine/scheduling-overlap.db.test.ts
 
       - name: 3b. The status sweep, the state producers A–E, stuck documents and per-user reminders as the restricted runtime (session in Asia/Jerusalem)
         run: |

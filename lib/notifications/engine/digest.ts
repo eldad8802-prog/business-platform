@@ -26,6 +26,7 @@ import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 import { classifyNotification } from "../catalog";
+import { rotationOrder } from "./schedule";
 import { digestMoment } from "../notification-time";
 import { effectiveSettings, resolveCategory } from "../preferences";
 import { businessTimeZone, readUserPreferences } from "../preferences-store";
@@ -37,7 +38,13 @@ import { digestWindowStart, forThisSurfacing } from "./worker-decision";
 const PAGE = 200;
 const HELD_FOR_DIGEST = ["to_digest", "rate_limited", "quiet"];
 
-export type DigestReport = { businesses: number; engineOff: number; usersChecked: number; due: number; digests: number; empty: number; errors: number };
+export type DigestReport = {
+  businesses: number; engineOff: number; usersChecked: number; due: number; digests: number; empty: number; errors: number;
+  /** Businesses with no user due this pass (one read, no per-user transaction, no gate). */
+  notDue?: number;
+  /** The scheduled pass (opts.rotation — the cron): live businesses, groups, the group it started at, covered before the budget. */
+  rotation?: { total: number; parts: number; startSlice: number; covered: number } | null;
+};
 
 export const digestDedupeKey = (userId: number, dayKey: string) => `digest:u${userId}:${dayKey}`;
 export const digestSummary = (count: number) => `סיכום יומי: ${count} עניינים מחכים לך`;
@@ -57,22 +64,49 @@ export async function walkLiveBusinesses(visit: (businessId: number) => Promise<
 
 export async function runDailyDigest(
   now: Date = new Date(),
-  opts: { businessIds?: number[]; gates?: (businessId: number) => Promise<BusinessGates>; quiet?: boolean } = {},
+  opts: {
+    businessIds?: number[]; gates?: (businessId: number) => Promise<BusinessGates>; quiet?: boolean;
+    /**
+     * The scheduled (cron) pass: the stateless rotation over every live business (status-sweep.ts rotationOrder),
+     * stopped by `budgetMs` before maxDuration. A business not reached this pass is reached by a later one the same
+     * morning — "due" means the local clock has REACHED the digest minute, and the dedupe key is the local day.
+     */
+    rotation?: { cadenceMs: number; slice?: number };
+    budgetMs?: number;
+    clock?: () => number;
+  } = {},
 ): Promise<DigestReport> {
-  const report: DigestReport = { businesses: 0, engineOff: 0, usersChecked: 0, due: 0, digests: 0, empty: 0, errors: 0 };
+  const report: DigestReport = { businesses: 0, engineOff: 0, usersChecked: 0, due: 0, digests: 0, empty: 0, errors: 0, notDue: 0, rotation: null };
   const gatesOf = opts.gates ?? businessGates;
+  const clock = opts.clock ?? (() => Date.now());
+  const started = clock();
+  const overBudget = () => opts.budgetMs !== undefined && clock() - started >= opts.budgetMs;
   const visit = async (businessId: number) => {
     report.businesses += 1;
     try {
+      // Cheap first: one read decides whether ANY user of the business is due (local time vs digest minute, digest
+      // not yet written today) — most passes of the day stop here, before the gate and any per-user transaction.
+      const plan = await duePlan(businessId, now);
+      if (plan.users.length === 0) { report.notDue = (report.notDue ?? 0) + 1; report.usersChecked += plan.checked; return; }
       const gates = await gatesOf(businessId);
       if (!gates.engineOn) { report.engineOff += 1; return; }
-      await digestBusiness(businessId, now, gates, report);
+      await digestBusiness(businessId, now, gates, report, plan);
     } catch {
       report.errors += 1;
     }
   };
   if (opts.businessIds) {
-    for (const b of opts.businessIds) await visit(b);
+    for (const b of opts.businessIds) { if (overBudget()) break; await visit(b); }
+  } else if (opts.rotation) {
+    const live: number[] = [];
+    await walkLiveBusinesses(async (b) => { live.push(b); });
+    const { order, parts, startSlice } = rotationOrder(live, now, opts.rotation.cadenceMs, opts.rotation.slice);
+    report.rotation = { total: live.length, parts, startSlice, covered: 0 };
+    for (const b of order) {
+      if (overBudget()) break;
+      await visit(b);
+      report.rotation.covered += 1;
+    }
   } else {
     await walkLiveBusinesses(visit);
   }
@@ -80,11 +114,37 @@ export async function runDailyDigest(
   return report;
 }
 
-async function digestBusiness(businessId: number, now: Date, gates: BusinessGates, report: DigestReport): Promise<void> {
-  const users = await tenantTx(businessId, async (tx) => ({
-    timeZone: await businessTimeZone(tx, businessId),
-    ids: await recipientUsers(tx, businessId, null, null),
-  }));
+type DuePlan = { timeZone: string; users: number[]; checked: number };
+
+/**
+ * One tenant transaction: the business's time zone, its recipient users, their stored digest settings and today's
+ * digests already written — the users whose local clock has reached their digest minute and who have no digest yet
+ * this local day. The per-user transaction below re-checks both (it is the authority); this only skips work.
+ */
+async function duePlan(businessId: number, now: Date): Promise<DuePlan> {
+  return tenantTx(businessId, async (tx) => {
+    const timeZone = await businessTimeZone(tx, businessId);
+    const ids = await recipientUsers(tx, businessId, null, null);
+    if (ids.length === 0) return { timeZone, users: [], checked: 0 };
+    const stored = await tx.notificationSettings.findMany({
+      where: { businessId, userId: { in: ids } },
+      select: { userId: true, pushEnabled: true, quietHoursEnabled: true, quietStartMinute: true, quietEndMinute: true, digestEnabled: true, digestMinute: true, lockScreenDetails: true },
+    });
+    const byUser = new Map(stored.map(({ userId, ...rest }) => [userId, rest]));
+    const candidates = ids.filter((u) => {
+      const s = effectiveSettings(byUser.get(u) ?? null);
+      return s.digestEnabled && digestMoment(now, timeZone, s.digestMinute).due;
+    });
+    if (candidates.length === 0) return { timeZone, users: [], checked: ids.length };
+    const keys = candidates.map((u) => digestDedupeKey(u, digestMoment(now, timeZone, effectiveSettings(byUser.get(u) ?? null).digestMinute).dayKey));
+    const done = new Set((await tx.notification.findMany({ where: { businessId, dedupeKey: { in: keys } }, select: { dedupeKey: true } })).map((r) => r.dedupeKey));
+    return { timeZone, users: candidates.filter((_u, i) => !done.has(keys[i]!)), checked: ids.length };
+  });
+}
+
+async function digestBusiness(businessId: number, now: Date, gates: BusinessGates, report: DigestReport, plan: DuePlan): Promise<void> {
+  const users = { timeZone: plan.timeZone, ids: plan.users };
+  report.usersChecked += plan.checked - plan.users.length;
   for (const userId of users.ids) {
     report.usersChecked += 1;
     try {
