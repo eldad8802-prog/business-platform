@@ -3,9 +3,10 @@ import { isLegalIdentityApprover } from "@/lib/auth/legal-identity-approver";
 import { freshStepUpRefusal } from "@/lib/auth/platform-admin";
 import {
   decideCorrection,
-  readCorrectionAttachment,
   requestCorrectionInfo,
 } from "@/lib/services/account/legal-identity-correction-admin.service";
+// The approver reads the very same private prefix the owner wrote: biz/{businessId}/legal-identity/ only.
+import { readCorrectionAttachment } from "@/lib/services/legal-identity/correction-attachment-storage";
 import { isLegalIdentityCorrectionEnabled } from "@/lib/services/account/legal-identity-correction.service";
 import {
   getCorrectionAttachmentForAdmin,

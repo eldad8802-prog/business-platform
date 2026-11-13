@@ -1,6 +1,6 @@
 /**
  * Legal identity corrections — the approver's ACTIONS (owner decision 2026-11-13): approve, reject, request more
- * information, and read a supporting document. Called only from the platform-admin routes, AFTER the platform-admin
+ * information. Called only from the platform-admin routes, AFTER the platform-admin
  * guard, the dedicated approver check and (for decisions) a fresh MFA step-up.
  *
  * Every action runs in the TARGET business's own tenant transaction on the runtime — the same pattern as the manual
@@ -15,8 +15,6 @@
  * Values never reach a log; results carry codes only.
  */
 
-import { getStorageService, type StorageService } from "@/lib/storage";
-import { assertSafeStorageKey } from "@/lib/storage/key-validation";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 export type DecideOutcome =
@@ -106,19 +104,4 @@ export async function requestCorrectionInfo(
   )) as { r: string }[];
   const r = rows[0]?.r;
   return (REQUEST_INFO as readonly string[]).includes(r ?? "") ? (r as RequestInfoOutcome) : "NOT_ALLOWED";
-}
-
-/**
- * Read one supporting document for the approver. The key must sit under THIS business's private legal-identity
- * prefix (the database pinned it at attach time; checked again here) — a key elsewhere is refused.
- */
-export async function readCorrectionAttachment(
-  input: { businessId: number; storageKey: string },
-  storage: Pick<StorageService, "getObject"> = getStorageService()
-): Promise<{ body: Buffer; contentType: string }> {
-  if (!input.storageKey.startsWith(`biz/${input.businessId}/legal-identity/`)) {
-    throw new Error("legal_identity_attachment_key_outside_business");
-  }
-  const result = await storage.getObject(assertSafeStorageKey(input.storageKey));
-  return { body: result.body, contentType: result.metadata.contentType };
 }
