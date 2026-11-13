@@ -18,7 +18,8 @@
     "approval": {
       "approvedBy": "",
       "approvedAt": "",
-      "reference": ""
+      "reference": "",
+      "entrySha256": ""
     }
   }
 ]
