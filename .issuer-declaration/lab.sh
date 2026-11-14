@@ -73,6 +73,8 @@ if [ "$MODE" != "--deploy-only" ]; then
   # Production on 2026-11-14: #1105 applied alone (release-migrate 43617171163), before this migration; any migration
   # still pending that sorts before this one is applied before it too (release-migrate's first-pending rule).
   deploy_before_me >/dev/null
+  # The code PR models the declaration tables: drop what db push built, so the migration builds them (no-op otherwise).
+  psql -X -q -v ON_ERROR_STOP=1 "$OWNER_URL" -f "$ROOT/.issuer-declaration/drop-pushed.sql" >/dev/null 2>&1
   [ "$(psql -X -At "$OWNER_URL" -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '$ME'")" = "0" ] \
     || { echo "$ME is already recorded"; exit 1; }
   echo "LAB READY: $DB (P4 applied, erasure prerequisites in place, $LINK + every earlier migration applied; $ME pending)"

@@ -1,0 +1,23 @@
+{
+  "note": "Issuer declaration code (#1081): issuer details completion, the canonical statement, the confirmation flow, the identity lock and the issuance gate (enforcement acts only when the owner-approved row exists). The database flow (D3, and session 23's coordination checks (a)-(d)) runs in issuer-declaration-migration-lab.yml as .issuer-declaration/declaration-flow.battery.mts.",
+  "tests": {
+    "lib/billing/issuer-declaration/details.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "issuer-declaration-migration-lab.yml",
+      "reason": "D1 — pure: per track (exempt / authorized / company) the required fields, 9-digit numbers with the Israeli check digit, VAT number required for authorized and company and refused for exempt, length bounds; a complete profile is always insertable as a declaration; run on pull_request by issuer-declaration-migration-lab.yml"
+    },
+    "lib/billing/issuer-declaration/statement.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "issuer-declaration-migration-lab.yml",
+      "reason": "D2 — pure: the statement the link is bound to keeps the key order agreed with session 23, absent fields are null, input order does not change the bytes, the digest is lowercase hex64 accepted by the link library and pinned against an independently computed value; any field change changes it; run on pull_request by issuer-declaration-migration-lab.yml"
+    },
+    "lib/services/billing/issuer-declaration/issuer-declaration-gates.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "issuer-declaration-migration-lab.yml",
+      "reason": "D4 — pure: enforcement OFF reads only the empty enforcement table and refuses nothing (today's behaviour); ON refuses a governed document without complete details or a declaration; the identity lock refuses each declared identity field after a declaration and nothing before; the gate sits in issueBillingDocumentTx after the business-kind check and before numbering; no application code writes the enforcement row; run on pull_request by issuer-declaration-migration-lab.yml"
+    }
+  }
+}
