@@ -1,0 +1,93 @@
+name: service desk quotes + close — quote commands, charge on approval, cancel effects lab (ephemeral PG17)
+
+# Service Desk 1.3c: quote.service (send / revise / decide, the frozen sent copy), the case-command effects (a cancel
+# withdraws the SENT quote and releases RESERVED parts in its own transaction) and CLOSE — AS the runtime role, on the P4
+# lab with 20261125090000 (#1096) and 20261126090000 (case charge, DRAFT — never applied to Production without the owner's
+# separate approval) applied by psql as the lab owner, as service-desk-case-charge-lab.yml does. The first send also runs
+# the billing module's real quote renderer (getOrRenderQuotePdf → Chromium, the Playwright browser), the rest a stub.
+# Synthetic only; no secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/service-desk/quote*.ts"
+      - "lib/services/service-desk/part-release.ts"
+      - "lib/services/service-desk/service-case.service.ts"
+      - "lib/services/service-desk/service-case.core.ts"
+      - "lib/services/service-desk/parts.core.ts"
+      - "lib/services/billing/quote-pdf.service.ts"
+      - "app/api/service-desk/**"
+      - "prisma/migrations/20261125090000_service_desk_handover_owner_confirmed/**"
+      - "prisma/migrations/20261126090000_service_desk_case_charge/**"
+      - ".sdquote/**"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - "prisma/schema.prisma"
+      - ".sdf/code-prereq.sh"
+      - "prisma/migrations/20261122090000_service_desk_audit_journal/**"
+      - "prisma/migrations/20261127090000_service_desk_tracks/**"
+      - ".github/workflows/service-desk-quote-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk quotes + close (PG17, runtime role, P4 + 1.3c + charge applied)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdquote_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdquote_ci_synthetic_super_pw
+      LAB_PASSWORD: sdquote_ci_synthetic_role_pw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      # The first send renders through the billing quote renderer (lib/pdf/chromium): the Playwright Chromium is used.
+      - run: npx playwright install --with-deps chromium
+      - name: Quotes, the charge on approval, the cancel effects and close as the runtime role
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdquote >/dev/null
+          bash .sd3p4/lab.sh sdquote --deploy-only >/dev/null
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdquote"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdquote"
+          # the application plan's order: #1096, then the charge migration — each in one transaction, as the owner role
+          psql -X -q -v ON_ERROR_STOP=1 -1 "$A" -f prisma/migrations/20261125090000_service_desk_handover_owner_confirmed/migration.sql
+          psql -X -q -v ON_ERROR_STOP=1 -1 "$A" -f prisma/migrations/20261126090000_service_desk_case_charge/migration.sql
+          # The code of this checkout reads / writes the M1 columns (openCase writes them on every case). Release order is
+          # migration-first, so before the code: P4, #1096, the charge and M1, each verbatim and once, in order (whichever is
+          # missing) — .sdf/code-prereq.sh. Nothing above this line changed.
+          bash .sdf/code-prereq.sh sdquote
+          mkdir -p "$RUNNER_TEMP/sdquote-storage"
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdquote-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdquote-ci \
+          AUTH_TOKEN_SECRET=sdquote-ci-synthetic-auth-secret-0123456789abcdef \
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/sdquote-storage" SDQUOTE_RENDER=billing \
+            npx tsx .sdquote/battery.ts | tee /tmp/sdquote.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdquote.out || { echo "the quote battery is not green"; exit 1; }
