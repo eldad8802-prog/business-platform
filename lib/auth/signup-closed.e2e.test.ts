@@ -37,6 +37,88 @@ if (!process.env.AUTH_TOKEN_SECRET?.trim()) {
 }
 
 import bcrypt from "bcrypt";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const LEGAL_IDENTITY_MIGRATION = fileURLToPath(
+  new URL("../../prisma/migrations/20261128090000_signup_legal_identity/migration.sql", import.meta.url)
+);
+
+/** Split a migration into top-level statements (dollar quotes, strings and comments respected). */
+function splitSqlStatements(sql: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i];
+    if (ch === "-" && sql[i + 1] === "-") {
+      const end = sql.indexOf("\n", i);
+      i = end === -1 ? sql.length : end + 1;
+      cur += "\n";
+      continue;
+    }
+    if (ch === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      i = end === -1 ? sql.length : end + 2;
+      continue;
+    }
+    if (ch === "'") {
+      let j = i + 1;
+      while (j < sql.length && !(sql[j] === "'" && sql[j + 1] !== "'")) j += sql[j] === "'" ? 2 : 1;
+      cur += sql.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    if (ch === "$") {
+      const tag = /^\$[A-Za-z_]*\$/.exec(sql.slice(i))?.[0];
+      if (tag) {
+        const end = sql.indexOf(tag, i + tag.length);
+        const stop = end === -1 ? sql.length : end + tag.length;
+        cur += sql.slice(i, stop);
+        i = stop;
+        continue;
+      }
+    }
+    if (ch === ";") {
+      if (cur.trim()) out.push(cur.trim());
+      cur = "";
+      i += 1;
+      continue;
+    }
+    cur += ch;
+    i += 1;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/**
+ * Signup seeds the legal identity through signup_legal_identity_seed (migration 20261128090000). The security-gate
+ * test-db lab builds its schema with `prisma db push`: tables and columns only, none of a migration's functions,
+ * triggers or CHECKs. When the function is absent, replay that migration's exact SQL (after dropping the two columns
+ * db push already created) so registration runs against the shipped DDL. Where migrations were applied: no-op.
+ */
+async function ensureLegalIdentityDdl(prisma: {
+  $queryRawUnsafe<T>(q: string): Promise<T>;
+  $executeRawUnsafe(q: string): Promise<number>;
+}): Promise<void> {
+  const [{ present }] = await prisma.$queryRawUnsafe<{ present: boolean }[]>(
+    `SELECT to_regprocedure('public.signup_legal_identity_seed(integer,text,text,text,text,text,text)') IS NOT NULL AS present`
+  );
+  if (present) return;
+  // The migration REVOKEs from / GRANTs to the application roles; a db-push lab may not have them.
+  for (const role of ["app_runtime", "app_auth"]) {
+    await prisma.$executeRawUnsafe(
+      `DO $r$ BEGIN CREATE ROLE ${role} NOLOGIN NOSUPERUSER NOBYPASSRLS; EXCEPTION WHEN duplicate_object THEN NULL; END $r$`
+    );
+  }
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE "BusinessProfile" DROP COLUMN IF EXISTS "legalIdentityConfirmedAt", DROP COLUMN IF EXISTS "legalIdentitySource"`
+  );
+  for (const statement of splitSqlStatements(readFileSync(LEGAL_IDENTITY_MIGRATION, "utf8"))) {
+    await prisma.$executeRawUnsafe(statement);
+  }
+}
 
 let failed = 0;
 function ok(name: string, cond: boolean): void {
@@ -82,6 +164,8 @@ async function main() {
   const { POST: registerPost } = await import("@/app/api/auth/register/route");
   const { GET: meGet } = await import("@/app/api/auth/me/route");
   const { SIGNUP_DISABLED_CODE } = await import("@/lib/auth/signup-gate");
+
+  await ensureLegalIdentityDdl(prisma);
 
   const createdBusinessIds: number[] = [];
 
@@ -153,6 +237,7 @@ async function main() {
         password: "Newcomer-Pass-1",
         name: "נרשם חדש",
         businessName: `${TAG}-should-never-exist`, businessKind: "AUTHORIZED_DEALER",
+        legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid",
         acceptTerms: true,
       })
     );
@@ -192,6 +277,7 @@ async function main() {
         password: "Newcomer-Pass-1",
         name: "נרשם חדש",
         businessName: `${TAG}-newcomer-business`, businessKind: "AUTHORIZED_DEALER",
+        legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid",
         // Signup requires accepting the terms (M1); the gate is what is tested.
         acceptTerms: true,
       })
@@ -221,6 +307,7 @@ async function main() {
         password: "Newcomer-Pass-2",
         name: "נרשם נוסף",
         businessName: `${TAG}-second-should-never-exist`, businessKind: "AUTHORIZED_DEALER",
+        legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid",
         acceptTerms: true,
       })
     );

@@ -223,6 +223,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/tools/[category]", parent: "/app", parentLabelKey: "toHome" },
   { pattern: "/business", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/business/identity", parent: "/business", parentLabelKey: "toBusinessProfile" },
+  { pattern: "/business/legal-identity/correction", parent: "/business", parentLabelKey: "toBusinessProfile" },
   { pattern: "/business/landing-strategy", parent: "/business/identity", parentLabelKey: "toDigitalPresence" },
   // P3-E: ?strategy= (a fresh composition) and ?version= (a saved version) are different screens.
   { pattern: "/business/landing-preview", parent: "/business/landing-strategy", parentLabelKey: "toLandingDirections", identityParams: ["strategy", "version"] },

@@ -93,6 +93,7 @@ export default function BusinessProfilePage() {
   const [savedOk, setSavedOk] = useState(false);
   const [form, setForm] = useState<FullProfile>(emptyFull);
   const [identityComplete, setIdentityComplete] = useState(false);
+  const [legalIdentityLocked, setLegalIdentityLocked] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,6 +123,7 @@ export default function BusinessProfilePage() {
         billingFooterNote: p.billingFooterNote ?? null,
       });
       setIdentityComplete(!!data?.identityComplete);
+      setLegalIdentityLocked(data?.legalIdentityLocked === true);
     } catch {
       setError(t("content.identity.profile.loadError"));
     } finally {
@@ -248,6 +250,7 @@ export default function BusinessProfilePage() {
               <div className={desk.identity}>
                 <BusinessIdentitySetupForm
                   form={identitySlice}
+                  legalIdentityLocked={legalIdentityLocked}
                   onChange={(next) =>
                     setForm((prev) => ({
                       ...prev,

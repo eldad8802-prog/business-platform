@@ -31,6 +31,8 @@ on:
       - "app/api/transactional-email/**"
       - "app/api/auth/register/**"
       - "lib/auth/signup.ts"
+      - "prisma/migrations/20261128090000_signup_legal_identity/**"
+      - "lib/auth/signup-legal-identity*.ts"
       # The battery rebuilds the email-token functions from their migration and verifies through them.
       - "lib/auth/email-tokens.ts"
       - "prisma/migrations/20261017090000_auth_email_tokens/**"

@@ -1,0 +1,25 @@
+{
+  "note": "Legal identity correction requests (owner decision 2026-11-13): the business asks, an authorized party decides (not built — owner decision), nothing is edited directly. Pure suites, executed by security-gate.yml straight from this manifest (lab pure). The database half is .sli/correction-battery.ts in legal-identity-correction-lab.yml.",
+  "tests": {
+    "lib/legal-identity/correction.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the kind of request is derived, an individual/company switch is another legal entity, the same-entity confirmation is required, a kind change keeps the number, and no message repeats the typed number"
+    },
+    "app/api/business/legal-identity/corrections/handlers.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (injected deps): OFF answers 404 for every method, the tenant and user are the session own, password attempts and uploads are rate limited per user, re-verification happens before anything is stored, an oversized upload is refused unread, downloads are always attachments with nosniff and a sandbox CSP, refusals carry codes without values"
+    },
+    "lib/services/legal-identity/correction-attachment-storage.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (storage double): PDF/JPEG/PNG only by their real bytes, at most 10 MB, a server-built key under the business and request prefix, create-once in the private legal-identity domain, the object deleted when the database refuses, reads only under the business own prefix, no key in a leak report"
+    },
+    "lib/services/legal-identity/legal-identity-storage-erasure.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (storage double): account erasure empties exactly biz/{id}/legal-identity/ of a business being deleted and verifies by re-listing, never touches a live business, another business or another domain, and reports fixed codes without keys"
+    }
+  }
+}
