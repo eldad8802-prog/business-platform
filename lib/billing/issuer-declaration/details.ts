@@ -4,7 +4,7 @@
  *
  * Signup collects the business kind only (owner decision 2026-11-11). Everything else is completed here, from the
  * billing identity on BusinessProfile, and checked in the shape the declaration table accepts
- * (prisma/migrations/20261123090000_issuer_declaration: track shape, 9-digit numbers, length bounds) so a complete
+ * (prisma/migrations/20261126100000_issuer_declaration: track shape, 9-digit numbers, length bounds) so a complete
  * profile always yields an insertable declaration.
  *
  * Law vs product:

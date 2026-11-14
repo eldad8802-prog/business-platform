@@ -30,19 +30,19 @@ if [ -f "$P4" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.
   PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$P4"
   echo "ERASURE PREREQ: P4 audit journal applied verbatim from 20261122090000"
 fi
-# Issuer declaration (#1081, migration 20261123090000): the purge also calls issuer_declaration_erase(). Where the lab has
+# Issuer declaration (#1081, migration 20261126100000): the purge also calls issuer_declaration_erase(). Where the lab has
 # no declaration table, the migration is applied VERBATIM; where `db push` already built the table (schema.prisma models
 # it), only the function is taken verbatim from the migration and granted as the migration grants it.
-ID="$ROOT/prisma/migrations/20261123090000_issuer_declaration/migration.sql"
+ID="$ROOT/prisma/migrations/20261126100000_issuer_declaration/migration.sql"
 if [ -f "$ID" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regprocedure('public.issuer_declaration_erase()') IS NULL")" = "t" ]; then
   if [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.\"BusinessIssuerDeclaration\"') IS NULL")" = "t" ]; then
     PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$ID"
-    echo "ERASURE PREREQ: issuer declaration applied verbatim from 20261123090000"
+    echo "ERASURE PREREQ: issuer declaration applied verbatim from 20261126100000"
   else
     IDFN="$(sed -n '/^CREATE OR REPLACE FUNCTION public\.issuer_declaration_erase()/,/^REVOKE ALL ON FUNCTION public\.issuer_declaration_erase() FROM PUBLIC;$/p' "$ID")"
     [ -n "$IDFN" ] || { echo "issuer_declaration_erase() not found in $ID"; exit 1; }
     { echo "$IDFN"; echo "GRANT EXECUTE ON FUNCTION public.issuer_declaration_erase() TO app_runtime;"; }       | PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL"
-    echo "ERASURE PREREQ: issuer_declaration_erase() taken verbatim from 20261123090000"
+    echo "ERASURE PREREQ: issuer_declaration_erase() taken verbatim from 20261126100000"
   fi
 fi
 echo "ERASURE PREREQ READY: $DB (document_supplier_link_erase_business from 20261103090000, business_documents_erase from 20261114090000, verbatim)"

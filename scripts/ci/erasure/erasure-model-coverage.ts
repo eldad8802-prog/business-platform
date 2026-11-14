@@ -325,7 +325,7 @@ const RETAINED: Record<string, ModelCoverage> = {
     reason: "policy-lineage substrate; inert, no consumers",
     basis: "PRODUCT",
   },
-  // Issuer declaration (#1081, migration 20261123090000): the declared opening number of a numbering series.
+  // Issuer declaration (#1081, migration 20261126100000): the declared opening number of a numbering series.
   BillingSeriesOpening: FISCAL("the declared opening number of a document numbering series, the previous tool's name and last number, and who declared it — numbering integrity"),
 };
 
@@ -406,7 +406,7 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   ),
   InboundEmailAddress: unmanaged("localPartPreview, label, and the encrypted local part with its key id"),
   InboundEmailAttachmentImport: unmanaged("filename, plus the link to the message and the document"),
-  // Issuer declaration (#1081, migration 20261123090000). issuer_declaration_erase() exists (anonymises a declaration
+  // Issuer declaration (#1081, migration 20261126100000). issuer_declaration_erase() exists (anonymises a declaration
   // nothing was issued under; keeps the others, LEGAL/FISCAL) but the purge does not call it yet, and the
   // DB-function contract only knows NULL / '' clearing — the table's CHECKs force placeholders. Recorded as debt.
   BusinessIssuerDeclaration: unmanaged(

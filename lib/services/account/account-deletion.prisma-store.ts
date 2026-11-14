@@ -514,7 +514,7 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // after every database stage committed (eraseStoredObjects, then the sweep). It refuses unless the business
           // in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.business_documents_erase() AS n`;
-          // Issuer declarations (#1081, migration 20261123090000). Anonymises in place (placeholders — the table's CHECKs
+          // Issuer declarations (#1081, migration 20261126100000). Anonymises in place (placeholders — the table's CHECKs
           // refuse NULL / '') every declaration NO fiscal document was issued under, and keeps the others unchanged
           // (RETAINED_BY_DESIGN, legal/fiscal: the documents issued under them name that issuer). Never deletes a row;
           // the declaring users are anonymised above, so the RESTRICT foreign keys hold. It refuses unless the business in

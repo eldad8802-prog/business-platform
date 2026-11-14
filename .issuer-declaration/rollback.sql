@@ -1,4 +1,4 @@
--- Rollback of 20261123090000_issuer_declaration — run as the migration owner, ONLY with owner approval.
+-- Rollback of 20261126100000_issuer_declaration — run as the migration owner, ONLY with owner approval.
 -- Order matters: the triggers on the EXISTING tables ("BillingDocument", "BusinessProfile") go first, otherwise
 -- every issue (status -> ISSUED) and every identity-column write would fail on a missing relation.
 -- Refuses when any declaration, opening or enforcement row exists (history is never silently dropped).
@@ -30,5 +30,5 @@ BEGIN
 END $$;
 DROP TYPE IF EXISTS "IssuerTrack", "IssuerLegalForm", "IssuerVatStatus", "IssuerIdType", "IssuerDeclarationKind",
   "IssuerAuthorityBasis", "IssuerReauthMethod", "SeriesOpeningSource";
-DELETE FROM "_prisma_migrations" WHERE migration_name = '20261123090000_issuer_declaration';
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261126100000_issuer_declaration';
 COMMIT;

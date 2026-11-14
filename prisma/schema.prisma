@@ -9104,7 +9104,7 @@ model BusinessDocumentErasure {
   completedAt DateTime?                    @db.Timestamptz(3)
 }
 
-// ── Issuer declaration (#1081, migration 20261123090000_issuer_declaration) ──────────────────────────────
+// ── Issuer declaration (#1081, migration 20261126100000_issuer_declaration) ──────────────────────────────
 // The declared issuer identity of a business, append-only. Foreign keys, CHECK shapes, the partial unique index
 // and every guard (chain, designation origin, series-unused, issuance, profile lock, erase) live in the migration
 // SQL; the runtime may only SELECT and INSERT.

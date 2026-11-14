@@ -1,7 +1,7 @@
 /**
  * Issuer declaration (#1081) — the declaration FLOW against a lab with both migrations: session 23's link
  * (20261126090000, via `.agl/lab.sh <db> --with-issuer`, Production auth topology) and billing's declaration
- * (20261123090000, applied after it as the owner — session 23's order (a)). Real planes: the link is requested on
+ * (20261126100000, applied after it as the owner — session 23's order (a)). Real planes: the link is requested on
  * the auth plane (app_auth), confirmed in billing's tenant transaction as app_runtime_prod (NOBYPASSRLS).
  *
  *   D3  confirm-transaction outcomes: SENT / VALID / CONFIRMED (row fields + digest) / ALREADY_DECLARED / INVALID
