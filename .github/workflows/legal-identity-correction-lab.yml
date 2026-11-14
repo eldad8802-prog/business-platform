@@ -74,7 +74,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: 0. Evidence files are SELECT-only and selectable; the proof pins the checksum; no #1091 object named
+      - name: 0. Evidence files are SELECT-only and selectable; the proof pins the checksum; no #1091 object named beyond the one reviewed read
         run: |
           set -euo pipefail
           FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
@@ -84,8 +84,19 @@ jobs:
           done
           sum=$(sha256sum "$MIGRATION" | cut -d' ' -f1)
           grep -q "'$sum'" "$EVIDENCE" || { echo "::error::the proof pins a different checksum (migration is $sum)"; exit 1; }
-          if grep -vE '^\s*--' "$MIGRATION" | grep -nE 'Issuer|issuer_|SeriesOpening|AuthEmailToken'; then
-            echo "::error::the migration names an object of the issuer declaration (#1091 / #1105)"; exit 1
+          # Exactly one read of the issuer declaration is allowed, in this exact shape: decide() checks whether the LATEST
+          # declaration version is live (20261126100000) and refuses with DECLARATION_ACTIVE. Read-only, behind
+          # to_regclass. Any other #1091 / #1105 object, or any other use of the declaration table, is refused.
+          grep -vE '^\s*--' "$MIGRATION" > /tmp/code.sql
+          cat > /tmp/allowed.txt <<'ALLOWED'
+            IF to_regclass('public."BusinessIssuerDeclaration"') IS NOT NULL THEN
+              EXECUTE 'SELECT coalesce((SELECT d."anonymisedAt" IS NULL FROM public."BusinessIssuerDeclaration" d
+          ALLOWED
+          while IFS= read -r line; do
+            [ "$(grep -cxF -- "$line" /tmp/code.sql)" = 1 ] || { echo "::error::the DECLARATION_ACTIVE read is not in its reviewed shape"; exit 1; }
+          done < /tmp/allowed.txt
+          if grep -vxF -f /tmp/allowed.txt /tmp/code.sql | grep -nE 'Issuer|issuer_|SeriesOpening|AuthEmailToken'; then
+            echo "::error::the migration names an object of the issuer declaration (#1091 / #1105) beyond the one reviewed read"; exit 1
           fi
           echo "guard OK; migration checksum $sum"
 
