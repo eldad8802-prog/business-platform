@@ -67,6 +67,7 @@ import {
 import { syncInventoryAlertNotifications } from "../inventory-alert-notifications";
 import { buildDedupeKey, decideForSnapshot } from "../notification-policy";
 import { persistSnapshotNotifications, resolveAbsentNotifications, type WriteOutcome } from "../notification-writer";
+import { rotationOrder } from "../engine/schedule";
 import { runStateProducers, type StateProducersReport } from "./state-producers";
 
 /* ─────────────────────────────────────────────────────────────── scopes ── */
@@ -288,12 +289,19 @@ export type StatusSweepReport = {
   errors: number;
   /** Set when the time budget ended the pass: call again with ?after=<nextAfter>. */
   nextAfter: number | null;
+  /**
+   * The scheduled pass (opts.rotation — the cron): live businesses, slices of STATUS_SWEEP_SLICE, the slice this pass
+   * STARTED at, and how many it covered before the budget (wrapping around). null for a keyset / explicit pass.
+   */
+  rotation: { total: number; parts: number; startSlice: number; covered: number } | null;
 };
 
 const PAGE = 100;
 export const STATUS_SWEEP_DEFAULT_BUDGET_MS = 45_000;
 export const STATUS_SWEEP_DEFAULT_CONCURRENCY = 2;
 export const STATUS_SWEEP_MAX_CONCURRENCY = 8;
+
+export { rotationOrder, STATUS_SWEEP_SLICE } from "../engine/schedule";
 
 /** Pure: the pool size — the option, else NOTIFICATIONS_SWEEP_CONCURRENCY, else 2; clamped to 1..8. */
 export function sweepConcurrency(option: number | undefined, env: string | undefined = process.env.NOTIFICATIONS_SWEEP_CONCURRENCY): number {
@@ -374,14 +382,18 @@ export async function sweepBusiness(businessId: number, now: Date, deps: StatusS
  */
 export async function runStatusSweep(
   now: Date = new Date(),
-  opts: { after?: number; budgetMs?: number; businessIds?: number[]; deps?: Partial<StatusSweepDeps>; quiet?: boolean; concurrency?: number } = {},
+  opts: {
+    after?: number; budgetMs?: number; businessIds?: number[]; deps?: Partial<StatusSweepDeps>; quiet?: boolean; concurrency?: number;
+    /** The scheduled (cron) pass: the stateless rotation over every live business (rotationOrder), under the budget. */
+    rotation?: { cadenceMs: number; slice?: number };
+  } = {},
 ): Promise<StatusSweepReport> {
   const deps: StatusSweepDeps = { ...defaultStatusSweepDeps, ...opts.deps };
   const report: StatusSweepReport = {
     businesses: 0, engineOff: 0, swept: 0, candidates: 0, decided: 0, written: 0, notified: 0, resolved: 0,
     scopesUnavailable: 0, scopesIncomplete: 0, reconciled: 0, reconcileFailed: 0,
     producersRan: 0, producerEvents: 0, producerNotified: 0, producerResolved: 0, producersFailed: 0, leaseBusy: 0, kicked: 0,
-    errors: 0, nextAfter: null,
+    errors: 0, nextAfter: null, rotation: null,
   };
   const started = deps.clock();
   const budget = opts.budgetMs ?? STATUS_SWEEP_DEFAULT_BUDGET_MS;
@@ -391,7 +403,24 @@ export async function runStatusSweep(
     await Promise.all(ids.map((b) => sweepBusiness(b, now, deps, report)));
   };
 
-  if (opts.businessIds) {
+  if (opts.rotation && !opts.businessIds) {
+    const live: number[] = [];
+    for (let after = 0; ;) {
+      const page = await deps.liveBusinesses(after, PAGE);
+      live.push(...page);
+      if (page.length < PAGE) break;
+      after = page[page.length - 1]!;
+    }
+    const ids = [...new Set(live)];
+    const { order, parts, startSlice } = rotationOrder(ids, now, opts.rotation.cadenceMs, opts.rotation.slice);
+    report.rotation = { total: ids.length, parts, startSlice, covered: 0 };
+    for (let i = 0; i < order.length; i += pool) {
+      if (overBudget()) break;
+      const part = order.slice(i, i + pool);
+      await chunk(part);
+      report.rotation.covered += part.length;
+    }
+  } else if (opts.businessIds) {
     // The same business never twice in one pass (and so never concurrently with itself).
     const ids = [...new Set(opts.businessIds)];
     for (let i = 0; i < ids.length; i += pool) await chunk(ids.slice(i, i + pool));

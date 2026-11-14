@@ -3,8 +3,8 @@
  *
  *   npx tsx lib/notifications/engine/engine-boundary.test.ts
  *
- *  1. The worker and digest routes authenticate through decideCronAuth only (CRON_SECRET) and are NOT scheduled
- *     in vercel.json.
+ *  1. The worker and digest routes authenticate through decideCronAuth only (CRON_SECRET) and are scheduled in
+ *     vercel.json exactly as lib/notifications/engine/schedule.ts says (notify/10-schedule activates scheduling).
  *  2. Every session route of the engine (settings, overrides, reset, test push, device registration) takes the actor
  *     from the session (engineActor → getAuthContext) and is behind notifications_engine; none reads a user or a
  *     business id from the request.
@@ -17,6 +17,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+
+import { NOTIFICATION_SCHEDULES } from "./schedule";
 
 let passed = 0;
 let failed = 0;
@@ -34,7 +36,10 @@ for (const r of ["app/api/notifications/worker/route.ts", "app/api/notifications
   const c = code(r);
   ok(`${r}: decideCronAuth`, /decideCronAuth\(req\.headers\.get\("authorization"\)\)/.test(c));
   ok(`${r}: never reads CRON_SECRET itself, never a session`, !/process\.env\.CRON_SECRET|getAuthContext|getCurrentUser/.test(c));
-  ok(`${r}: not scheduled in vercel.json`, !vercel.includes(r.replace(/^app/, "").replace(/\/route\.ts$/, "")));
+  const cronPath = r.replace(/^app/, "").replace(/\/route\.ts$/, "");
+  const entries = ((JSON.parse(vercel || "{}") as { crons?: { path: string; schedule: string }[] }).crons ?? []).filter((c) => c.path.startsWith(cronPath));
+  const want = NOTIFICATION_SCHEDULES.find((x) => x.path === cronPath);
+  ok(`${r}: scheduled in vercel.json exactly once, as schedule.ts says`, entries.length === 1 && entries[0]!.path === cronPath && entries[0]!.schedule === want?.schedule, entries);
 }
 
 console.log("2. session routes");
