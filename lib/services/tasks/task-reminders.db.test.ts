@@ -83,7 +83,7 @@ async function main() {
     const at1 = t1.remindAt!;
     ok("not due a minute before its moment", !(await dueIds(plus(at1, -1))).includes(t1.id));
     ok("due at its moment", (await dueIds(plus(at1, 1))).includes(t1.id));
-    await owner.pushSubscription.create({ data: { businessId: A.businessId, userId: A.userId, endpoint: "https://fcm.googleapis.com/fcm/send/trp-lab", p256dh: "BPk_lab", auth: "au_lab", platform: "android", updatedAt: NOW } });
+    await owner.pushSubscription.create({ data: { businessId: A.businessId, userId: A.userId, endpoint: "https://fcm.googleapis.com/fcm/send/trp-lab", p256dh: "BPk_lab", auth: "au_lab", platform: "android", updatedAt: NOW }, select: { id: true } });
     const due1 = (await rem.dueReminders(plus(at1, 1), 500)).find((d) => d.taskId === t1.id)!;
     const [a, b] = await Promise.all([rem.dispatchReminder(due1, plus(at1, 1)), rem.dispatchReminder(due1, plus(at1, 1))]);
     const sentCount = [a, b].filter((x) => x.result === "sent").length;

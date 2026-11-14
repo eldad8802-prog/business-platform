@@ -158,7 +158,8 @@ export const ANONYMIZE_MODELS = [
   { model: "taskSeries", fields: { title: "blank", note: "null", erasedAt: "now" } },
   // Web Push subscriptions (migration 20261022090000): the browser's push address and keys are blanked in place
   // (endpoint = 'erased:<id>', keys empty) and the row is revoked — the runtime holds no DELETE on the table, and
-  // with no address and no keys nothing can ever be sent to that device again.
+  // with no address and no keys nothing can ever be sent to that device again. The Android app's FCM devices
+  // (migration 20261210090000, endpoint `fcm:<token>`) are rows of the same table and are erased the same way.
   { model: "pushSubscription", fields: { endpoint: "erased-id", p256dh: "blank", auth: "blank", revokedAt: "now" } },
   // Monthly accountant workflow. The recipient snapshot of every send is erased in place (the delivery's
   // approval columns are immutable and its outcome is the business's history) and every download link is
@@ -296,6 +297,10 @@ export const DELETE_MODELS = [
   // The accountant recipient of the monthly package (a third person's name and address). Deleted under the
   // tenant context through its tenant-scoped DELETE policy (accountant_recipient_runtime_delete).
   "accountantRecipient",
+  // Notification engine (migration 20261210090000): each user's notification settings and per-domain / category
+  // overrides. Deleted under the tenant context through their tenant-scoped DELETE policies.
+  "notificationSettings",
+  "notificationPreference",
 ] as const;
 
 /** The two shapes of a Bucket-C entry, as types rather than as a convention.

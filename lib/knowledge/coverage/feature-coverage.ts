@@ -281,7 +281,9 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     key: "notifications", name: "Notifications", coverage: "NOT_LEARNING_RELEVANT",
     reason: "Decided in SENSOR_COVERAGE.md (Notification read = NOT_LEARNING_RELEVANT): alerts are Dubiz talking to the owner, and their read/dismiss timing describes the inbox, not the business. The underlying domains learn from their own ledgers.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
-    models: ["Notification", "NotificationDelivery"], sensors: [], legacyEvents: [], routes: ["api/notifications", "page/notifications"],
+    // NotificationSettings / NotificationPreference: a user's delivery overrides; NotificationEngineActivation: the
+    // per-business cutover record (engine bookkeeping). Neither describes the business.
+    models: ["Notification", "NotificationDelivery", "NotificationSettings", "NotificationPreference", "NotificationEngineActivation"], sensors: [], legacyEvents: [], routes: ["api/notifications", "page/notifications"],
     target: { coverage: "LEARNS", plan: "Owner behaviour (observable only): responsiveness to alerts — first surfaced → read/resolved, per domain." },
     outcome: { observableAction: true, observableOutcome: false, ownerDecisionRelevant: false, recommendationPotential: "NONE" },
   },

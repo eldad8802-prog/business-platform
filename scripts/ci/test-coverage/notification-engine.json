@@ -1,0 +1,39 @@
+{
+  "note": "Notification engine (notifications track PR 3; migration 20261210090000_notification_engine_foundation): catalog, preferences, quiet hours / digest time, the unified push sender (web push + FCM HTTP v1), notify(), the push worker, the daily digest, devices and the logout hooks — behind notifications_engine (OFF by default).",
+  "tests": {
+    "lib/notifications/catalog.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure: every category fully specified with generic lock-screen text naming nobody; quiet-hours bypass only for user-set reminders and explicitly urgent categories (never money); rate exemption bounded; security in-app not mutable; the existing writers' vocabulary maps to exactly one category, unknown rows never push; deep links internal and under the category prefix only (no scheme, //, .., encoded traversal); run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/preferences.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure: defaults ← domain ← category ← settings (the push master switch), non-mutable aspects never overridden, an unavailable feature makes a category inactive while its overrides are kept, unknown categories in-app only, strict validation (unknown fields, user / business ids, ranges, keys) of the self-service settings API; run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/notification-time.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (Intl only): quiet hours and the digest moment in the business time zone across the Asia/Jerusalem March / October 2026 clock changes and America/New_York; the skipped and repeated hours; run on pull_request by notification-engine-ci.yml"
+    },
+    "lib/notifications/push/push.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure, fake fetch, a key generated in the test: FCM configuration from env only (missing ⇒ not_configured, no request), the RS256 service-account assertion verified, the cached access token, messages:send (PRIVATE Android notification, channel, data exactly notificationId / href / category), gone / transient / permanent classification, payload privacy (generic lock-screen text unless the user opted in, href fallback), web push through the unified sender (endpoint allowlist kept); run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/engine/worker-decision.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: the worker's decision table in the spec's order (resolved, expired — historical rows without expiresAt expire their TTL —, unknown, feature, preference, digest, quiet defer / bypass, rate limit), the 4/hour 15/day limit, the retry backoff and its end, device eligibility (FCM only with a live session), the clean-start cutover on the activation record (first activation stable, nothing created before it or while OFF pushable, one OFF→ON carries the previous ON period's quiet-hours deferrals and two toggles do not, moments only forward, unreadable record ⇒ held, the dry-run arithmetic) and the digest window (from the previous actual digest, 24 h first, 7 days cap, push rows for the current surfacing only); run on pull_request by notification-engine-ci.yml"
+    },
+    "lib/notifications/engine/engine-boundary.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "static: worker / digest routes on CRON_SECRET via decideCronAuth and not scheduled; every self-service route takes the actor from the session behind notifications_engine and reads no user / business id from the request; no token, endpoint or text in a log; the logout / cookie-revoke / session-directory hooks run after the auth action through never-throwing wrappers writing PushSubscription via tenantTx only; the existing reminder loops go through the shared sender; run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/engine/notification-engine.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "notification-engine-ci.yml",
+      "reason": "AS the restricted runtime on the real migrations 20261210090000 + 20261211090000 + 20261212090000 (fake push providers): create → deliver, dedupe, claim / lease under racing workers, transient retry and its end, invalid-token revoke, quiet defer and bypass, settings and restore defaults, feature off with overrides kept, whole-business fan-out to each user's own devices, device logout / all devices / ended session / token-version bump / account switch (same and across businesses) / rotation, two businesses and the engine kill switch, historical PENDING pushes expiring unsent, the writer's expiresAt, the daily digest (08:00, once, never empty, never repeating a push), clean start on the activation record (the override trigger's initial activation, pre-activation rows FAILED pre_cutover never sent, a global policy edit moves nothing, quiet-hours deferrals survive the policy edit and a kill-switch toggle while the kill-switch-period row is closed, the business's OFF→ON pushes nothing written while OFF, global-only enablement recorded once by the worker, a contradicted claim held, the table missing ⇒ held without a crash, the read-only dry run matching the worker, health counts, no deletion), digest windows (no repeat on consecutive days, between-digest item once, skipped day no loss, reopened item again once), the read side per viewer, cross-business isolation of settings; run on pull_request by notification-engine-ci.yml"
+    }
+  }
+}
