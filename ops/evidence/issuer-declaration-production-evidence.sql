@@ -1,7 +1,7 @@
 -- ============================================================================
 -- issuer-declaration-production-evidence.sql
 --
--- Read-only EVIDENCE right after migration 20261123090000_issuer_declaration is applied (release-migrate).
+-- Read-only EVIDENCE right after migration 20261126100000_issuer_declaration is applied (release-migrate).
 -- Proves the objects are there exactly as designed AND that nothing is active yet:
 --   * recorded and finished; three tables; FORCE row-level security on the two tenant tables;
 --   * the 12 functions exist; every SECURITY DEFINER one pins search_path; none is executable by PUBLIC;
@@ -9,14 +9,14 @@
 --   * privileges: the runtime may only read/add declarations and openings, read the enforcement switch, run the erase;
 --     it holds no other privilege on the three tables and may not execute a designation; app_admin may execute both;
 --   * INERT: the enforcement table is empty; no declaration and no opening exists → issuing, profile saves and
---     numbering behave exactly as before (compare 12/13 with the preflight's 12/13).
+--     numbering behave exactly as before (compare 13/14 with the preflight's 13/14).
 --
 -- OUTPUT (redaction-friendly): n | result | observed_count + an \echo legend.
 -- PRIVACY: catalog, ledger and counts only. Guard-clean: no write keyword anywhere, prose included.
 -- ============================================================================
 
 \echo '== issuer declaration production evidence: legend (n -> check) =='
-\echo ' 1 20261123090000_issuer_declaration recorded and finished'
+\echo ' 1 20261126100000_issuer_declaration recorded and finished'
 \echo ' 2 the three tables exist'
 \echo ' 3 FORCE row-level security on BusinessIssuerDeclaration and BillingSeriesOpening (of 2)'
 \echo ' 4 the 12 functions exist'
@@ -28,9 +28,9 @@
 \echo '10 app_admin may execute both designation functions (of 2)'
 \echo '11 enforcement rows (must be 0 — enforcement is a separate decision)'
 \echo '12 declarations + openings (must be 0 — nothing writes them before the code release)'
-\echo '13 issued fiscal documents (informational — equal to the preflight value 12)'
-\echo '14 number counters (informational — equal to the preflight value 13)'
-\echo '15 20261126090000_auth_issuer_declaration_link recorded (informational — the same run applies it after this one)'
+\echo '13 issued fiscal documents (informational — equal to the preflight value 13)'
+\echo '14 number counters (informational — equal to the preflight value 14)'
+\echo '15 20261126090000_auth_issuer_declaration_link recorded (informational — applied before this one on 2026-11-14; expect 1)'
 
 WITH fns(name) AS (VALUES ('issuer_records_append_only_guard'), ('issuer_declaration_chain_guard'), ('issuer_designation_origin_guard'),
       ('issuer_designate_authorized_user'), ('issuer_designate_initial'), ('series_opening_unused_guard'), ('series_opening_apply'),
@@ -38,7 +38,7 @@ WITH fns(name) AS (VALUES ('issuer_records_append_only_guard'), ('issuer_declara
       ('issuer_profile_identity_lock'), ('issuer_declaration_erase')),
 p AS (SELECT pr.* FROM pg_proc pr JOIN fns ON fns.name = pr.proname WHERE pr.pronamespace = 'public'::regnamespace),
 c AS (
-  SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261123090000_issuer_declaration'
+  SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261126100000_issuer_declaration'
                     AND finished_at IS NOT NULL AND rolled_back_at IS NULL) AS observed, 1 AS want
   UNION ALL SELECT 2, (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace
       AND relname IN ('BusinessIssuerDeclaration', 'BillingSeriesOpening', 'IssuerDeclarationEnforcement')), 3

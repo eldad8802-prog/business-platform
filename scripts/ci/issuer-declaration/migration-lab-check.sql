@@ -1,5 +1,5 @@
 -- ============================================================================
--- LAB CHECK for prisma/migrations/20261123090000_issuer_declaration — synthetic, throwaway DB.
+-- LAB CHECK for prisma/migrations/20261126100000_issuer_declaration — synthetic, throwaway DB.
 -- Derived from the revision-2 draft check (40 checks) + E0/E6 (erase only while deleting) + N1–N5 (designation origin).
 -- Fixtures by the OWNER; checks as decl_lab_rt (NOSUPERUSER NOBYPASSRLS, member of app_runtime).
 -- Each check prints PASS/FAIL; a FAIL is a design defect.

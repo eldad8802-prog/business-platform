@@ -1,4 +1,4 @@
-# Issuer declaration (#1081): the migration 20261123090000_issuer_declaration applied on top of the current schema,
+# Issuer declaration (#1081): the migration 20261126100000_issuer_declaration applied on top of the current schema,
 # then the lab check (49 checks: chain, authority, designation origin, series opening, enforcement, profile lock,
 # erase, RLS) as a NOSUPERUSER NOBYPASSRLS runtime member. Negative proof: without the designation-origin trigger
 # the runtime forges a platform designation, and the check must catch it (N1).
@@ -14,7 +14,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "prisma/migrations/20261123090000_issuer_declaration/**"
+      - "prisma/migrations/20261126100000_issuer_declaration/**"
       - "scripts/ci/issuer-declaration/**"
       - ".issuer-declaration/**"
       - "lib/services/account/**"
@@ -48,7 +48,7 @@ jobs:
     env:
       OWNER_URL: postgresql://decl_owner:decl_ci_synthetic_owner_pw@localhost:5432/dubiz_decl
       NEG_URL: postgresql://decl_owner:decl_ci_synthetic_owner_pw@localhost:5432/dubiz_decl_neg
-      MIGRATION: prisma/migrations/20261123090000_issuer_declaration/migration.sql
+      MIGRATION: prisma/migrations/20261126100000_issuer_declaration/migration.sql
       CHECK: scripts/ci/issuer-declaration/migration-lab-check.sql
       SECF: prisma/migrations/20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events/migration.sql
 
@@ -117,10 +117,11 @@ jobs:
           if ! grep -q "FAIL  S4a " neg2.log; then echo "::error::NEGATIVE-PROOF FAIL: S4a stayed green without the opening trigger"; grep -E "(PASS|FAIL)  S4a" neg2.log || true; exit 1; fi
           echo "negative proofs OK — the race is caught without the lock; opening 459 is caught without the trigger"
 
-      # Stage 3 of docs/issuer-declaration-release-runbook.md, rehearsed on a fresh database built like Production:
-      # the read-only preflight (11 PASS) → apply → the read-only production evidence (12 PASS, inert), plus the
-      # order guard: with #1105 (20261126090000) recorded first, preflight check 3 FAILS.
-      - name: Release scripts — preflight 11/11, apply, production evidence 12/12, order guard refuses #1105 first
+      # Stage B of docs/issuer-declaration-release-runbook.md, rehearsed on a fresh database whose ledger is Production's
+      # (#1105 20261126090000 applied alone on 2026-11-14): the read-only preflight (12 PASS) → apply → the read-only
+      # production evidence (12 PASS, inert), plus the order guard's negatives: a later migration finished first (check 3),
+      # #1105 missing (check 12), this migration already recorded (check 2).
+      - name: Release scripts — preflight 12/12 after #1105, apply, production evidence 12/12, order-guard negatives
         run: bash scripts/ci/issuer-declaration/evidence-lab.sh "$OWNER_URL" dubiz_decl_release
 
   account-deletion:
@@ -161,7 +162,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: Lab (P4 + purge prerequisites) → migrate deploy 20261123090000 → today's account deletion
+      - name: Lab (P4 + purge prerequisites + #1105 alone) → migrate deploy 20261126100000 → today's account deletion
         run: |
           set -euo pipefail
           bash .issuer-declaration/lab.sh decl

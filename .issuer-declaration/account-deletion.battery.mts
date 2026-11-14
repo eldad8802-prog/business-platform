@@ -1,6 +1,6 @@
 /**
  * Issuer declaration (#1081) in ACCOUNT DELETION — the real flow (deleteOwnBusinessAccount + prismaAccountDeletionStore)
- * AS the runtime role, on the Production-topology lab with migration 20261123090000 applied by `prisma migrate deploy`
+ * AS the runtime role, on the Production-topology lab with migration 20261126100000 applied by `prisma migrate deploy`
  * (.issuer-declaration/lab.sh). The purge code is TODAY's: it does not call issuer_declaration_erase() yet — exactly the
  * window between applying the migration and deploying the #1081 code.
  *
@@ -124,7 +124,7 @@ async function main() {
   ok("C6 a second erase of B2 changes nothing (0 rows)", (await eraseAsRuntime(B2.b)) === "0");
 
   console.log("N — negative proof: the profile lock as it was before this fix");
-  const mig = readFileSync("prisma/migrations/20261123090000_issuer_declaration/migration.sql", "utf8");
+  const mig = readFileSync("prisma/migrations/20261126100000_issuer_declaration/migration.sql", "utf8");
   const start = mig.indexOf("CREATE OR REPLACE FUNCTION public.issuer_profile_identity_lock()");
   const end = mig.indexOf("REVOKE ALL ON FUNCTION public.issuer_profile_identity_lock() FROM PUBLIC;");
   const fixed = mig.slice(start, end);
