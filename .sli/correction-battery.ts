@@ -36,6 +36,7 @@
  *   C22 app_admin reads requests (internal note included) and attachments, writes nothing, executes nothing
  *   C23 a live issuer declaration (20261126100000) blocks the apply: DECLARATION_ACTIVE, nothing applied, still PENDING;
  *       an anonymised one does not block; rejecting is still possible
+ *   C24 a declaration being confirmed concurrently (advisory key held, uncommitted) is waited for, then seen
  *
  * Synthetic only. ZERO secrets. ZERO network.
  *   OWNER_URL=… AUTH_URL=… RUNTIME_URL=… ADMIN_URL=… npx tsx .sli/correction-battery.ts
@@ -354,6 +355,33 @@ async function main() {
   const r23b = await request(d2.businessId, d2.userId, { legalName: "שם נדחה" });
   await owner.$executeRawUnsafe(`INSERT INTO public."BusinessIssuerDeclaration" ("businessId", "version", "anonymisedAt") VALUES ($1, 1, NULL)`, d2.businessId);
   ok("C23 rejecting is still possible with a live declaration → REJECTED", (await decide(d2.businessId, r23b, approver, false)) === "REJECTED");
+
+  console.log("C24 a declaration being confirmed right now is waited for, then seen (no race past the check)");
+  // T1 plays the declaration confirm: it takes the declaration's advisory key, inserts a live declaration and holds
+  // its transaction open. decide (T2) must wait on that key, then see the committed declaration → DECLARATION_ACTIVE.
+  const e24 = await business();
+  const r24 = await request(e24.businessId, e24.userId, { legalName: "שם במרוץ" });
+  const name24 = (await profile(e24.businessId))?.billingLegalName;
+  let release!: () => void;
+  const gate = new Promise<void>((res) => { release = res; });
+  let inserted!: () => void;
+  const t1Ready = new Promise<void>((res) => { inserted = res; });
+  const t1 = owner.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe(`SELECT pg_advisory_xact_lock(hashtextextended('issuer_declaration:' || $1::int, 0))::text`, e24.businessId);
+    await tx.$executeRawUnsafe(`INSERT INTO public."BusinessIssuerDeclaration" ("businessId", "version", "anonymisedAt") VALUES ($1, 1, NULL)`, e24.businessId);
+    inserted();
+    await gate;
+  }, { timeout: 30_000, maxWait: 10_000 });
+  await t1Ready;
+  let t2Done = false;
+  const t2 = decide(e24.businessId, r24, approver, true).finally(() => { t2Done = true; });
+  await new Promise((res) => setTimeout(res, 1500));
+  ok("C24 decide waits while the declaration is uncommitted", t2Done === false);
+  release();
+  await t1;
+  ok("C24 after the declaration commits, decide → DECLARATION_ACTIVE", (await t2) === "DECLARATION_ACTIVE");
+  ok("C24 the profile is unchanged and the request stays PENDING",
+    (await profile(e24.businessId))?.billingLegalName === name24 && (await reqRow(r24))?.status === "PENDING");
   if (standIn) await owner.$executeRawUnsafe(`DROP TABLE public."BusinessIssuerDeclaration"`);
 
   console.log("C13 privileges");
