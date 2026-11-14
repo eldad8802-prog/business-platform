@@ -8246,6 +8246,10 @@ enum ServiceCaseAction {
   RECORD_INTAKE
   RECORD_COVERAGE
   RECORD_QA
+  // migration 20261126090000: the case charge and its billing links — status-preserving records.
+  RECORD_CHARGE
+  LINK_BILLING_DOCUMENT
+  UNLINK_BILLING_DOCUMENT
 }
 
 enum ServiceEventType {
@@ -8276,6 +8280,10 @@ enum ServiceEventType {
   intake_recorded             @map("intake.recorded")
   coverage_recorded           @map("coverage.recorded")
   qa_recorded                 @map("qa.recorded")
+  // migration 20261126090000: the case charge and its billing links — status-preserving records.
+  charge_recorded             @map("charge.recorded")
+  billing_linked              @map("billing.linked")
+  billing_unlinked            @map("billing.unlinked")
 }
 
 model ServiceCaseNumberSequence {
@@ -8772,6 +8780,65 @@ model ServiceSettingsEvent {
   @@unique([businessId, idempotencyKey])
   @@unique([businessId, settingsVersion])
   @@index([businessId, occurredAt])
+}
+
+/// Service Desk — the charge history of a service case (migration 20261126090000): append-only, gap-free seq per case;
+/// the current charge is the last record. CHARGEABLE (positive ILS agorot, from an approved quote or entered by the
+/// owner) or NO_CHARGE (with a reason). Any change after the first record carries a reason unless it is a quote approval.
+model ServiceCaseCharge {
+  id           Int                  @id @default(autoincrement())
+  businessId   Int
+  caseId       Int
+  seq          Int
+  mode         ServiceChargeMode
+  amountAgorot Int?
+  currency     String               @default("ILS") @db.Char(3)
+  source       ServiceChargeSource?
+  quoteVersion Int?
+  reason       String? // cleared by service_case_charge_erase_business()
+  actor        ServiceActor
+  actorUserId  Int? // cleared by service_case_charge_erase_business()
+  createdAt    DateTime             @default(now())
+  erasedAt     DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, seq])
+}
+
+/// Service Desk — billing documents that belong to a service case (migration 20261126090000). CHARGE: a tax invoice or a
+/// tax invoice / receipt; STANDALONE_PAYMENT: a receipt with no invoice, linked by the owner. A document is actively
+/// linked to at most one case (partial UNIQUE). An unlink happens once, with who and why; the row stays.
+model ServiceCaseBillingLink {
+  id                Int                    @id @default(autoincrement())
+  businessId        Int
+  caseId            Int
+  billingDocumentId Int
+  role              ServiceBillingLinkRole
+  linkedAt          DateTime               @default(now())
+  linkedByUserId    Int? // cleared by service_case_charge_erase_business()
+  unlinkedAt        DateTime?
+  unlinkedByUserId  Int? // cleared by service_case_charge_erase_business()
+  unlinkReason      String? // cleared by service_case_charge_erase_business()
+  erasedAt          DateTime?
+
+  @@unique([businessId, id])
+  @@index([businessId, caseId])
+}
+
+enum ServiceChargeMode {
+  CHARGEABLE
+  NO_CHARGE
+}
+
+enum ServiceChargeSource {
+  APPROVED_QUOTE
+  OWNER_ENTERED
+}
+
+enum ServiceBillingLinkRole {
+  CHARGE
+  STANDALONE_PAYMENT
+  AFTER_SALE_CREDIT // an issued credit note — the record of a T7 credit; never part of the balance
 }
 
 model ServiceSettings {

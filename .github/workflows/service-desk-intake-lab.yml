@@ -66,6 +66,8 @@ jobs:
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sd13b"
           A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sd13b"
           S="postgresql://lab_super:$PGPASSWORD@localhost:5432/sd13b"
+          # 1.3c (#1096, Draft — not applied anywhere real): the handover CHECKs relaxed, applied here as the owner role
+          psql -X -q -v ON_ERROR_STOP=1 "$A" -f prisma/migrations/20261125090000_service_desk_handover_owner_confirmed/migration.sql
           OWNER_URL="$A" SUPER_URL="$S" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
           TASK_REQUEST_HMAC_KEY=sd13b-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sd13b-ci \
           AUTH_TOKEN_SECRET=sd13b-ci-synthetic-auth-secret-0123456789abcdef \

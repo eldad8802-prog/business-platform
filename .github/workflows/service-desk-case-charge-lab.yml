@@ -1,0 +1,95 @@
+name: service desk case charge — charge history + billing links lab (ephemeral PG17)
+
+# Migration 20261126090000_service_desk_case_charge (DRAFT — owner approval 2026-11-11 to prepare, never applied without a
+# separate approval): the charge history and the billing links, their guards AS the runtime role, on the P4 lab with
+# 20261125090000 (#1096) and 20261126090000 applied by psql as the lab owner (the order of the application plan).
+# Synthetic only; no secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261125090000_service_desk_handover_owner_confirmed/**"
+      - "prisma/migrations/20261126090000_service_desk_case_charge/**"
+      - "lib/services/service-desk/service-case.service.ts"
+      - "lib/services/service-desk/case-charge.service.ts"
+      - "lib/services/service-desk/case-charge.core.ts"
+      - "lib/services/service-desk/case-settlement-reader.ts"
+      - "lib/services/service-desk/case-balance.ts"
+      - "lib/services/billing/settlement/read-documents-settlement.ts"
+      - ".sdcharge/**"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - "prisma/schema.prisma"
+      - ".github/workflows/service-desk-case-charge-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk case charge (PG17, runtime role, P4 + 1.3c + charge applied)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdcharge_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdcharge_ci_synthetic_super_pw
+      LAB_PASSWORD: sdcharge_ci_synthetic_role_pw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: The charge history and billing links as the runtime role
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdcharge >/dev/null
+          bash .sd3p4/lab.sh sdcharge --deploy-only >/dev/null
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdcharge"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdcharge"
+          # the application chain the way release-migrate applies it (prisma migrate deploy over the approved prefix):
+          # a failure inside the migration leaves nothing + the recovery procedure; #1096 then this, in order; the
+          # rollback scripts on a copy. (#1061 is not on this branch; locally the chain was proven with it first.)
+          bash .sdcharge/chain.sh sdcharge | tee /tmp/chain.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/chain.out || { echo "the application chain is not green"; exit 1; }
+          # a second application by hand is refused and changes nothing (the types exist)
+          if psql -X -q -v ON_ERROR_STOP=1 -1 "$A" -f prisma/migrations/20261126090000_service_desk_case_charge/migration.sql 2>/dev/null; then
+            echo "a second application must be refused"; exit 1
+          fi
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdcharge-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdcharge-ci \
+          AUTH_TOKEN_SECRET=sdcharge-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdcharge/battery.ts | tee /tmp/sdcharge.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdcharge.out || { echo "the case charge battery is not green"; exit 1; }
+      - name: The charge commands end to end as the runtime role (record, link, unlink, the real handover reader)
+        run: |
+          set -euo pipefail
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdcharge"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdcharge"
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdcharge-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdcharge-ci \
+          AUTH_TOKEN_SECRET=sdcharge-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdcharge/commands-battery.ts | tee /tmp/sdcharge-commands.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdcharge-commands.out || { echo "the case charge commands battery is not green"; exit 1; }

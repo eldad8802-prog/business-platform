@@ -507,6 +507,12 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // record — version, changed field names and time, never values. The case journal's P4 records are blanked by
           // service_erase_business() above. It refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.service_settings_journal_erase_business() AS n`;
+          // Service Desk case charge (migration 20261126090000). Who acted and the free-text reasons of the charge
+          // history and of the billing links are blanked in place by this SECURITY DEFINER function (both tables are
+          // append-only: their guards refuse that change from the runtime itself). Amounts, modes, document ids and
+          // times stay as the business's financial record. It refuses unless the business in this tenant context is
+          // being deleted.
+          await tx.$queryRaw`SELECT public.service_case_charge_erase_business() AS n`;
           // Business documents (migration 20261114090000). Quote share copies and their events, saved letters and
           // idempotency keys are deleted, and every stored file is marked DELETING with its object key kept, by this
           // SECURITY DEFINER function — it also writes the durable erasure job, in THIS transaction, so a failed purge
