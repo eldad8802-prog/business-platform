@@ -315,13 +315,14 @@ $fn$;
 REVOKE ALL ON FUNCTION public.legal_identity_correction_request_info(integer, integer, text) FROM PUBLIC;
 
 -- ---------------------------------------------------------------- decide (approver, tenant tx)
--- Answers: APPLIED | REJECTED | STALE | NOT_PENDING | NOT_FOUND | NOT_ALLOWED | NOTE_REQUIRED.
+-- Answers: APPLIED | REJECTED | STALE | NOT_PENDING | NOT_FOUND | NOT_ALLOWED | NOTE_REQUIRED | DECLARATION_ACTIVE.
 CREATE OR REPLACE FUNCTION public.legal_identity_correction_decide(
   p_request_id integer, p_approver_user_id integer, p_approve boolean, p_public_note text, p_internal_note text)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE
   r public."LegalIdentityCorrectionRequest";
   p public."BusinessProfile";
+  v_declared boolean;
 BEGIN
   SELECT * INTO r FROM public."LegalIdentityCorrectionRequest" WHERE "id" = p_request_id;
   IF r."id" IS NULL THEN RETURN 'NOT_FOUND'; END IF;
@@ -357,7 +358,16 @@ BEGIN
      WHERE "id" = r."id";
     RETURN 'STALE';
   END IF;
-  -- As the table owner: passes the legal identity lock and the issuer-declaration lock. Issued documents untouched.
+  -- A live issuer declaration (20261126100000_issuer_declaration): the profile's identity is a projection of it and
+  -- its lock refuses any other value. This function runs as the table owner and would pass that lock, so it refuses
+  -- here instead: nothing is applied, the request stays PENDING. No silent divergence between profile and declaration.
+  -- Read dynamically, so this function does not depend on that table existing.
+  IF to_regclass('public."BusinessIssuerDeclaration"') IS NOT NULL THEN
+    EXECUTE 'SELECT EXISTS (SELECT 1 FROM public."BusinessIssuerDeclaration" WHERE "businessId" = $1 AND "anonymisedAt" IS NULL)'
+      INTO v_declared USING r."businessId";
+    IF v_declared THEN RETURN 'DECLARATION_ACTIVE'; END IF;
+  END IF;
+  -- As the table owner: passes the legal identity lock (DZL04). Issued documents untouched.
   UPDATE public."BusinessProfile"
      SET "billingBusinessKind" = r."requestedBusinessKind", "billingLegalName" = r."requestedLegalName",
          "billingTaxId" = r."requestedTaxId", "updatedAt" = now()
