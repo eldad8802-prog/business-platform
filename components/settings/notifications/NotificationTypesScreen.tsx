@@ -79,7 +79,7 @@ function TypeRow({ row, api }: { row: CategoryRow; api: NotificationSettingsApi 
 
 /** The appointment reminder lead time: four chips, one pressed (the existing chip control, single choice). */
 function AppointmentLead({ api }: { api: NotificationSettingsApi }) {
-  const { t } = useI18n();
+  const t = useNotificationT();
   const lead = appointmentLeadView(api.view!);
   if (!lead.shown) return null;
   const labelId = "notif-appointment-lead";

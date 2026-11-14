@@ -230,7 +230,7 @@ check("every settings control writes a real settings field the backend accepts",
 check("appointment lead time: the four choices in order, labelled verbatim, default an hour, each accepted by the backend", () => {
   assert.deepEqual([...APPOINTMENT_REMINDER_CHOICES], [30, 60, 120, 1440]);
   assert.deepEqual(
-    APPOINTMENT_REMINDER_CHOICES.map((m) => translate(he, APPOINTMENT_LEAD_LABEL_KEYS[m])),
+    APPOINTMENT_REMINDER_CHOICES.map((m) => trHe(APPOINTMENT_LEAD_LABEL_KEYS[m])),
     ["30 דקות לפני", "שעה לפני", "שעתיים לפני", "יום לפני"],
   );
   assert.equal(notificationsHe.types.appointmentLead.title, "מתי להזכיר לפני תור");

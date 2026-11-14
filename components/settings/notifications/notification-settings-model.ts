@@ -256,7 +256,7 @@ export const SETTINGS_CONTROLS = {
 /* ───────────────────────────────────────────── the appointment reminder lead ── */
 
 /** The four lead-time choices (the backend's APPOINTMENT_REMINDER_CHOICES, in that order) and their labels. */
-export const APPOINTMENT_LEAD_LABEL_KEYS: Readonly<Record<AppointmentReminderMinutes, MessageKey>> = {
+export const APPOINTMENT_LEAD_LABEL_KEYS: Readonly<Record<AppointmentReminderMinutes, NotificationKey>> = {
   30: "notifications.types.appointmentLead.m30",
   60: "notifications.types.appointmentLead.h1",
   120: "notifications.types.appointmentLead.h2",
@@ -266,7 +266,7 @@ export const APPOINTMENT_LEAD_LABEL_KEYS: Readonly<Record<AppointmentReminderMin
 export type AppointmentLeadView = {
   /** Shown only when the appointment reminder is available to the business (the appointments feature is on). */
   shown: boolean;
-  options: { minutes: AppointmentReminderMinutes; labelKey: MessageKey; pressed: boolean }[];
+  options: { minutes: AppointmentReminderMinutes; labelKey: NotificationKey; pressed: boolean }[];
 };
 
 /** The lead-time choice in the appointments area: the user's effective value (default 60) pressed. */
