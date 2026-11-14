@@ -82,7 +82,7 @@ const works = (caseId: number) => n(`SELECT count(*)::int AS n FROM "ServiceExte
 
 async function main() {
   const A = await business("a"), B = await business("b");
-  ok("setup: the external-work routes are closed in code (EXTERNAL_WORK_OPEN = false)", EXTERNAL_WORK_OPEN === false);
+  ok("setup: the external-work routes are open in code (EXTERNAL_WORK_OPEN = true — the unlock PR)", EXTERNAL_WORK_OPEN === true);
 
   console.log("X — send");
   const c1 = await diagnosing(A, A.device);
@@ -257,8 +257,13 @@ async function main() {
   const before = await snap();
   const full = await calls(tokenA);
   const bodies = await Promise.all(full.map((r) => r.json()));
-  ok("L1 FULL access: every external-work route → 422 ACTION_NOT_IN_SCOPE (external_work, until 1.3b)", full.every((r) => r.status === 422) && bodies.every((b) => b.error === "ACTION_NOT_IN_SCOPE" && b.details?.capability === "external_work"), JSON.stringify(full.map((r) => r.status)));
-  ok("L2 … and nothing was written", (await snap()) === before);
+  ok("L1 FULL access: the external-work routes reach the service (no ACTION_NOT_IN_SCOPE lock answer)", bodies.every((b) => !(b?.error === "ACTION_NOT_IN_SCOPE" && b?.details?.capability === "external_work")), JSON.stringify(full.map((r) => r.status)));
+  {
+    const b = JSON.parse(before) as [number, number, number]; const a = JSON.parse(await snap()) as [number, number, number];
+    const newWorks = a[0] - b[0];
+    ok("L2 … and every write through the open routes is journaled (a new external work comes with its case and work events)",
+      newWorks <= 0 || (a[1] > b[1] && a[2] > b[2]), `works ${b[0]}→${a[0]}, case events ${b[1]}→${a[1]}, work events ${b[2]}→${a[2]}`);
+  }
   const viaCase = await routes.caseAction.POST(http("POST", { action: { type: "SEND_TO_EXTERNAL", supplierId: A.supplier }, expectedVersion: c7.v }, tokenA), { params: Promise.resolve({ id: String(c7.id) }) });
   ok("L3 the generic case action route still refuses SEND_TO_EXTERNAL (ACTION_NOT_IN_SCOPE)", viaCase.status === 422 && (await viaCase.json()).error === "ACTION_NOT_IN_SCOPE");
   ok("L4 no session → 401", (await calls(null)).every((r) => r.status === 401));

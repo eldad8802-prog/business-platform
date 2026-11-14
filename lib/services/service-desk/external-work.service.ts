@@ -62,7 +62,9 @@ import { ServiceDeskError } from "./service-desk-errors";
  * Owner decision 2026-11-10: users cannot reach these actions before the intake confirmation path (1.3b, owner-confirmed, no customer signature) is done.
  * A code constant, not a flag: opening it is a reviewed change in a later PR. Every external-work route checks it first.
  */
-export const EXTERNAL_WORK_OPEN = false;
+// OPENED (this PR, for the owner's explicit approval): the 1.3b intake confirmation path is merged (#1088, #1094).
+// Merging this PR is the decision.
+export const EXTERNAL_WORK_OPEN = true;
 
 export function assertExternalWorkOpen(): void {
   if (!EXTERNAL_WORK_OPEN) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { capability: "external_work", until: "intake_confirmation_1_3b" });
@@ -245,10 +247,11 @@ export async function sendToExternal(
     await verifyWorkChecks(tx, b, [...new Set([...kase.serverChecks, ...work.serverChecks] as ExternalServerCheck[])],
       { supplierId: input.supplierId, deviceId: facts.deviceId === null ? null : Number(facts.deviceId), caseId, staffId: null });
 
-    // 1. the case moves to EXTERNAL (the work's insert guard requires it in the same transaction)
+    // 1. the case moves to EXTERNAL (the work's insert guard requires it in the same transaction). The hold is the core's
+    //    holdReasonAfter (null: a hold exists only in IN_REPAIR, CHECK ServiceCase_hold_only_in_repair) — as the event says.
     const next = context.version + 1;
     const updated = await tx.$executeRaw`
-      UPDATE "ServiceCase" SET status = ${kase.to}::"ServiceCaseStatus", version = ${next}::int, "updatedAt" = now()
+      UPDATE "ServiceCase" SET status = ${kase.to}::"ServiceCaseStatus", "holdReason" = ${kase.holdReason}::"ServiceHoldReason", version = ${next}::int, "updatedAt" = now()
        WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${context.version}::int`;
     if (updated !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
     await appendEvent(tx, b, caseId, next, kase.event, p.userId, prepared);
@@ -390,7 +393,8 @@ export async function returnFromExternal(
   if (!isPositiveInt(workId)) throw new ServiceDeskError("NOT_FOUND");
   if (!isPositiveInt(body.expectedVersion)) throw new ServiceDeskError("INVALID_INPUT", { field: "expectedVersion" });
   if (!isNonNegativeInt(body.caseExpectedVersion)) throw new ServiceDeskError("INVALID_INPUT", { field: "caseExpectedVersion" });
-  if (!["IN_REPAIR", "QA", "READY"].includes(body.next as string)) throw new ServiceDeskError("INVALID_INPUT", { field: "next" });
+  // M1: WORK_DONE on a track that hands nothing back (the case machine refuses it on any other case, and READY there).
+  if (!["IN_REPAIR", "QA", "READY", "WORK_DONE"].includes(body.next as string)) throw new ServiceDeskError("INVALID_INPUT", { field: "next" });
   // REPLACED needs the replacement device link (LINK_REPLACEMENT_DEVICE, 1.3c) — out of scope here.
   if (body.outcome === "REPLACED") throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { action: "RETURN_FROM_EXTERNAL:REPLACED" });
   if (body.outcome !== undefined && body.outcome !== null && body.outcome !== "REPAIRED" && body.outcome !== "NOT_REPAIRED") throw new ServiceDeskError("INVALID_INPUT", { field: "outcome" });
@@ -456,7 +460,9 @@ export async function returnFromExternal(
     const u = await tx.$executeRaw`
       UPDATE "ServiceCase" SET status = ${kase.to}::"ServiceCaseStatus", outcome = ${kase.outcome}::"ServiceOutcome",
              "cancellationRequested" = ${kase.cancellationRequestedAfter}::boolean, version = ${next}::int, "updatedAt" = now(),
-             "readyAt" = CASE WHEN ${st.ready}::boolean THEN now() ELSE "readyAt" END
+             "readyAt" = CASE WHEN ${st.ready}::boolean THEN now() ELSE "readyAt" END,
+             -- back into QA is a new QA round (as commitTransition): a stamp of an earlier checklist never lets PASS_QA through
+             "qaCompletedAt" = CASE WHEN ${kase.statusChanged && kase.to === "QA"}::boolean THEN NULL ELSE "qaCompletedAt" END
        WHERE id = ${caseId}::int AND "businessId" = ${b}::int AND version = ${context.version}::int`;
     if (u !== 1) throw new ServiceDeskError("VERSION_CONFLICT");
     await appendEvent(tx, b, caseId, next, kase.event, p.userId, prepared);
