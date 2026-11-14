@@ -437,6 +437,7 @@ export const billingHe = {
       LTD_COMPANY: "חברה בע\"מ",
     },
     legalNameLabel: "שם העסק במסמך",
+    lockedNote: "סוג העסק, השם המשפטי ומספר העוסק / ח״פ אושרו בהרשמה וננעלו. לתיקון פרטים חוקיים יש לפנות לתמיכה.",
     kindLabel: "סוג עסק",
     choose: "בחרו…",
     taxIdLabel: "ע.מ. / ח.פ.",

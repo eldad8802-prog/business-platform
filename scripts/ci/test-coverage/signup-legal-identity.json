@@ -1,0 +1,15 @@
+{
+  "note": "Signup legal identity (owner decision 2026-11-12): the legal identity required at signup and the server-side lock after confirmation. Pure suites, executed by security-gate.yml straight from this manifest (lab pure). The database half is .sli/battery.ts in signup-legal-identity-lab.yml.",
+  "tests": {
+    "lib/auth/signup-legal-identity.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): every identity field validated and normalised per kind, canonical tax id (check digit), every field error at once, and no error message ever carries the typed value"
+    },
+    "lib/legal-identity/lock.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): after confirmation kind / legal name / tax id cannot change through the billing profile route (409 LEGAL_IDENTITY_LOCKED), unchanged re-sends are dropped, other fields untouched, database refusals recognised"
+    }
+  }
+}
