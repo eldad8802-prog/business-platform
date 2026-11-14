@@ -361,9 +361,12 @@ BEGIN
   -- A live issuer declaration (20261126100000_issuer_declaration): the profile's identity is a projection of it and
   -- its lock refuses any other value. This function runs as the table owner and would pass that lock, so it refuses
   -- here instead: nothing is applied, the request stays PENDING. No silent divergence between profile and declaration.
+  -- "Live" exactly as issuer_profile_identity_lock() reads it: the LATEST version, not anonymised. The lock applies
+  -- from the first declaration (not only once enforcement is on), so this refusal does too.
   -- Read dynamically, so this function does not depend on that table existing.
   IF to_regclass('public."BusinessIssuerDeclaration"') IS NOT NULL THEN
-    EXECUTE 'SELECT EXISTS (SELECT 1 FROM public."BusinessIssuerDeclaration" WHERE "businessId" = $1 AND "anonymisedAt" IS NULL)'
+    EXECUTE 'SELECT coalesce((SELECT d."anonymisedAt" IS NULL FROM public."BusinessIssuerDeclaration" d
+                               WHERE d."businessId" = $1 ORDER BY d."version" DESC LIMIT 1), false)'
       INTO v_declared USING r."businessId";
     IF v_declared THEN RETURN 'DECLARATION_ACTIVE'; END IF;
   END IF;

@@ -41,7 +41,7 @@ allp AS (SELECT p FROM writes UNION ALL SELECT 'SELECT'),
 approles AS (SELECT oid, rolname FROM pg_roles WHERE rolname IN ('app_runtime', 'app_auth', 'app_admin')),
 ledger AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name = '20261128100000_legal_identity_correction'
              AND finished_at IS NOT NULL AND rolled_back_at IS NULL
-             AND checksum = '2d2b983dde993abc64811fcc98e4eb82b3245b84e79573f0194e36bd7f42dfd4'),
+             AND checksum = '38b8938a2aa139ae13a86b43daccea18d2e20c557660bcfa84cc8a5a75cd9024'),
 tenant_pol AS (SELECT count(*) AS n FROM pg_policy pl
                  WHERE pl.polcmd = 'r' AND (
                    (pl.polrelid = (SELECT oid FROM req) AND pl.polname = 'lic_tenant_read')
