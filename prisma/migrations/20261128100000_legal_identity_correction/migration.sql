@@ -334,6 +334,10 @@ BEGIN
     RETURN 'NOTE_REQUIRED';
   END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('legal_identity:' || r."businessId", 0));
+  -- The issuer declaration's own key (its chain trigger and the declaration confirm take it). A declaration being
+  -- confirmed right now holds it until commit, so this waits, and the DECLARATION_ACTIVE read below (a new statement,
+  -- a new snapshot) sees it. Order is always legal_identity -> issuer_declaration; the confirm never takes legal_identity.
+  PERFORM pg_advisory_xact_lock(hashtextextended('issuer_declaration:' || r."businessId", 0));
   SELECT * INTO r FROM public."LegalIdentityCorrectionRequest" WHERE "id" = p_request_id FOR UPDATE;
   IF r."status" <> 'PENDING' THEN RETURN 'NOT_PENDING'; END IF;
   IF NOT p_approve THEN

@@ -5,7 +5,7 @@
 #   1. baseline (20261128090000 applied, this one pending): PREFLIGHT 9/9; the proof refuses;
 #   2. one `prisma migrate deploy` applies 20261128090000 then this one: proof 14/14; #1140's proof still 12/12;
 #      PREFLIGHT now fails exactly 2, 4, 5;
-#   3. batteries with the real roles: the correction battery C1–C23 (dedicated approver permission, notes, info
+#   3. batteries with the real roles: the correction battery C1–C24 (dedicated approver permission, notes, info
 #      requests, attachments, app_admin read plane), and #1140's battery L1–L13 still whole;
 #   4. atomicity: this migration failing on its last statement leaves nothing of it behind (#1140's stays applied);
 #   5. rollback (.sli/correction-rollback.sql): reverts whole — PREFLIGHT 9/9 again, the proof refuses, #1140 intact.
@@ -86,9 +86,12 @@ jobs:
           grep -q "'$sum'" "$EVIDENCE" || { echo "::error::the proof pins a different checksum (migration is $sum)"; exit 1; }
           # Exactly one read of the issuer declaration is allowed, in this exact shape: decide() checks whether the LATEST
           # declaration version is live (20261126100000) and refuses with DECLARATION_ACTIVE. Read-only, behind
-          # to_regclass. Any other #1091 / #1105 object, or any other use of the declaration table, is refused.
+          # to_regclass. Before it, decide() takes the declaration's advisory key (the same key its chain trigger and the
+          # confirm take), so an in-flight declaration is waited for and then seen. Any other #1091 / #1105 object, or any
+          # other use of the declaration table, is refused.
           grep -vE '^\s*--' "$MIGRATION" > /tmp/code.sql
           cat > /tmp/allowed.txt <<'ALLOWED'
+            PERFORM pg_advisory_xact_lock(hashtextextended('issuer_declaration:' || r."businessId", 0));
             IF to_regclass('public."BusinessIssuerDeclaration"') IS NOT NULL THEN
               EXECUTE 'SELECT coalesce((SELECT d."anonymisedAt" IS NULL FROM public."BusinessIssuerDeclaration" d
           ALLOWED
@@ -125,7 +128,7 @@ jobs:
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test "$fails" = "2 4 5 " || { echo "::error::preflight after the migration fails '$fails', expected '2 4 5 '"; exit 1; }
 
-      - name: 3. Batteries — correction C1–C23 and #1140 L1–L13 (real roles, app_admin read plane)
+      - name: 3. Batteries — correction C1–C24 and #1140 L1–L13 (real roles, app_admin read plane)
         run: |
           set -euo pipefail
           export OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/lic_post"
