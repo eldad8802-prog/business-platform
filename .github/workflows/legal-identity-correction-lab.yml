@@ -3,7 +3,7 @@
 #   0. the evidence files are SELECT-only and selectable in Production; the proof pins the migration's checksum;
 #      the migration names none of #1091's objects;
 #   1. baseline (20261128090000 applied, this one pending): PREFLIGHT 9/9; the proof refuses;
-#   2. one `prisma migrate deploy` applies 20261128090000 then this one: proof 12/12; #1140's proof still 12/12;
+#   2. one `prisma migrate deploy` applies 20261128090000 then this one: proof 14/14; #1140's proof still 12/12;
 #      PREFLIGHT now fails exactly 2, 4, 5;
 #   3. batteries with the real roles: the correction battery C1–C22 (dedicated approver permission, notes, info
 #      requests, attachments, app_admin read plane), and #1140's battery L1–L13 still whole;
@@ -101,14 +101,14 @@ jobs:
           fi
           echo "the proof refuses before the migration"
 
-      - name: 2. One migrate deploy applies both — proof 12/12; #1140 proof 12/12; preflight fails exactly 2 4 5
+      - name: 2. One migrate deploy applies both — proof 14/14; #1140 proof 12/12; preflight fails exactly 2 4 5
         run: |
           set -euo pipefail
           bash .sli/lab.sh lic_post --with-correction | tee /tmp/post.log
           grep -q "20261128100000_legal_identity_correction" /tmp/post.log || { echo "::error::the migration was not applied"; exit 1; }
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d lic_post -v ON_ERROR_STOP=1 "$@"; }
           lab -f "$EVIDENCE" | tee /tmp/ev.out
-          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "12" || { echo "::error::the proof is not 12/12"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "14" || { echo "::error::the proof is not 14/14"; exit 1; }
           got=$(lab -f "$SLI_EVIDENCE" | { grep -cE '^ +[0-9]+ \| PASS' || true; })
           test "$got" = "12" || { echo "::error::#1140's proof is $got/12 after this migration"; exit 1; }
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
