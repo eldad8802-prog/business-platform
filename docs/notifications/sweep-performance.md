@@ -10,13 +10,13 @@ business twice at once; keep partial failure safe; stay well under Vercel's `max
   (`bash .nte/lab.sh <db> --with-nte`, PostgreSQL 18 on the local Windows lab, loopback). The sweep runs **as the
   restricted runtime** (`app_runtime_prod`, NOSUPERUSER NOBYPASSRLS, session time zone Asia/Jerusalem), exactly as the
   DB tests do. Prisma 6.19.3, default connection pool (15 on this machine).
-- **Data** (`scripts/notifications/sweep-perf.ts seed <N> <tag>`): N engine-ON businesses, each with a realistic,
+- **Data** (`.nte/sweep-perf.ts seed <N> <tag>`): N engine-ON businesses, each with a realistic,
   modest mix of every fact the sweep reads — 3 billing documents (waiting for review, PDF failed, issued), 1 supplier
   draft, 3 leads (one overdue follow-up), 2 stock items with 1 critical alert, 4 documents (2 in the review queue,
   1 failed processing, 1 approved), 3 obligations (due today, 3 days overdue, in 20 days), 2 payment requests,
   3 appointments (in 45 min, tomorrow, cancelled), 1 user. N = 1, 50, 500; separate but identical datasets for
   "before" and "after", so neither run meets the other's notifications.
-- **Measurement** (`scripts/notifications/sweep-perf.ts run <tag> <passes>`): the sweep over exactly those businesses
+- **Measurement** (`.nte/sweep-perf.ts run <tag> <passes>`): the sweep over exactly those businesses
   (`opts.businessIds` — the same per-business path the live walk takes), timed per pass. Every SQL statement is
   counted through Prisma `query` events on the client `lib/prisma` picks up (the harness installs it as
   `globalThis.prisma` before the sweep loads) — **queries** include `BEGIN`, `set_config` (tenant GUC), `COMMIT` and

@@ -1,9 +1,10 @@
 /**
- * Status sweep performance harness (docs/notifications/sweep-performance.md). LAB ONLY — synthetic data, never a
+ * Status sweep performance harness (docs/notifications/sweep-performance.md). LAB ONLY (kept under .nte/, outside the
+ * erasure contract's app/lib/scripts write-site scan: it seeds synthetic fixtures with the owner client) — synthetic data, never a
  * Production / Preview database.
  *
- *   seed:  OWNER_URL=… npx tsx scripts/notifications/sweep-perf.ts seed <N> <tag>
- *   run:   DATABASE_URL=<runtime> OWNER_URL=… npx tsx scripts/notifications/sweep-perf.ts run <tag> [passes]
+ *   seed:  OWNER_URL=… npx tsx .nte/sweep-perf.ts seed <N> <tag>
+ *   run:   DATABASE_URL=<runtime> OWNER_URL=… npx tsx .nte/sweep-perf.ts run <tag> [passes]
  *          (SWEEP_PERF_MODULE=<module path> measures another revision of the sweep, e.g. the previous head copied aside)
  *
  * `seed` creates N engine-ON businesses (tag in the name) with a realistic, modest mix of the facts every sweep scope
