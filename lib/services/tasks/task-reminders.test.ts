@@ -11,8 +11,11 @@
  *     three variables and a mailto:/https: subject.
  *  5. The dispatcher's door (QStash only): no signature → 401; a signature with no keys → 503; a forged,
  *     wrongly-addressed or wrong-body signature → 401; a valid one for THIS url → accepted.
+ *  6. Reliability (static): the in-app poll reads only its own business inside its tenant tx.
  */
 import { createHash, createHmac } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 import { isAllowedPushEndpoint, vapidConfig } from "@/lib/push/web-push-sender";
 
@@ -131,7 +134,82 @@ async function door() {
   ok("failure facts: a signing key pasted as the token is named", publishFailureFacts("sig_abc", "sig_abc", "x", new Error("401")).looksLikeSigningKey === true);
 }
 
-door().then(() => {
+// ── 6. reliability: the per-business poll (static — the db suite proves behaviour) ──
+{
+  const root = process.cwd();
+  const strip = (p: string) => fs.readFileSync(path.join(root, p), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  const service = strip("lib/services/tasks/task-reminders.service.ts");
+  const poll = strip("app/api/tasks/reminders/pending/route.ts");
+  ok("poll: the in-app poll dispatches only the caller's own business", /dispatchDueReminders\(now, actor\.businessId\)/.test(poll));
+  ok("poll: its due list is read inside that business's tenant tx (no global top-100 then filter)",
+    /dueRemindersForBusiness\(opts\.onlyBusinessId, cutoff\)/.test(service) && /export async function dueRemindersForBusiness[\s\S]*?tenantTx\(businessId, \(tx\) =>\s*tx\.task\.findMany\(/.test(service) && !/\.filter\(\(d\) => onlyBusinessId/.test(service));
+  ok("poll: same due conditions as task_reminders_due()", /status: "OPEN", remindAt: \{ not: null, lte: now \}, reminderSentAt: null, erasedAt: null/.test(service));
+  ok("claim: still the one guard against a double send", /reminderSentAt: null, remindAt: due\.remindAt/.test(service));
+}
+
+// ── 7. starvation: flag-off businesses never fill the GLOBAL batch (pure: a fake read + a fake flag) ──
+async function starvation() {
+  const { collectDueSkippingOff } = await import("./task-reminders.service");
+  const at = new Date("2026-11-13T08:00:00.000Z");
+  // The "database": 150 due reminders of business 1 (daily_tasks OFF), all earlier than business 2's one (ON).
+  const all = [
+    ...Array.from({ length: 150 }, (_, i) => ({ businessId: 1, taskId: 1000 + i, remindAt: new Date(at.getTime() - 3_600_000) })),
+    { businessId: 2, taskId: 7, remindAt: new Date(at.getTime() - 60_000) },
+  ];
+  const reads: number[][] = [];
+  const read = async (exclude: number[]) => {
+    reads.push(exclude);
+    return all.filter((r) => !exclude.includes(r.businessId)).slice(0, 100);
+  };
+  const flagCalls: number[] = [];
+  const isOn = async (b: number) => {
+    flagCalls.push(b);
+    return b !== 1;
+  };
+  const out = await collectDueSkippingOff(read, isOn, { limit: 100 });
+  ok("starvation: the flag-on business's reminder is in the batch despite 150 earlier flag-off ones", out.due.some((d) => d.taskId === 7), out.due);
+  ok("starvation: nothing of the flag-off business is returned (never claimed, never sent)", out.due.every((d) => d.businessId !== 1));
+  ok("starvation: two reads — the plain one, then one leaving business 1 out", reads.length === 2 && reads[0].length === 0 && JSON.stringify(reads[1]) === "[1]", reads);
+  ok("starvation: each business's flag is read once per pass", flagCalls.filter((b) => b === 1).length === 1, flagCalls);
+
+  const r2: number[][] = [];
+  const quiet = await collectDueSkippingOff(async (e) => { r2.push(e); return all.slice(150); }, async () => true, { limit: 100 });
+  ok("no noise: a single read", r2.length === 1 && quiet.due.length === 1);
+
+  const r3: number[][] = [];
+  await collectDueSkippingOff(async (e) => { r3.push(e); return [all[0], all[150]]; }, isOn, { limit: 100 });
+  ok("short batch (fewer than the limit = nothing more due): no re-read", r3.length === 1);
+
+  let n = 0;
+  const endless = await collectDueSkippingOff(
+    async () => { n += 1; return Array.from({ length: 100 }, (_, i) => ({ businessId: 100 + n, taskId: n * 1000 + i, remindAt: at })); },
+    async () => false, { limit: 100, maxRounds: 4 });
+  ok("bounded: at most maxRounds reads", n === 4 && endless.rounds === 4 && endless.due.length === 0, { n, rounds: endless.rounds });
+  const capped = await collectDueSkippingOff(
+    async (e) => Array.from({ length: 100 }, (_, i) => ({ businessId: 500 + e.length + i, taskId: i, remindAt: at })),
+    async () => false, { limit: 100, maxRounds: 10, maxExcluded: 150 });
+  ok("bounded: the excluded list never exceeds its cap", capped.excluded.length <= 150, capped.excluded.length);
+
+  const fallback = await collectDueSkippingOff(
+    async (e) => { if (e.length) throw new Error("function does not exist"); return [...all.slice(0, 99), all[150]]; }, isOn, { limit: 100 });
+  ok("re-read failure (function not there yet): the first round's flag-on reminders are kept", fallback.due.length === 1 && fallback.due[0].taskId === 7, fallback.due);
+  let threw = false;
+  try {
+    await collectDueSkippingOff(async () => { throw new Error("connection"); }, isOn, { limit: 100 });
+  } catch {
+    threw = true;
+  }
+  ok("first-read failure propagates (the pass's connection retry handles it)", threw);
+  const failClosed = await collectDueSkippingOff(async () => [all[150]], async () => { throw new Error("x"); }, { limit: 100 });
+  ok("flag read failure: fail closed (nothing returned)", failClosed.due.length === 0);
+
+  const service = fs.readFileSync(path.join(process.cwd(), "lib/services/tasks/task-reminders.service.ts"), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  ok("wiring: the global pass reads through collectDueSkippingOff; the per-business poll does not",
+    /opts\.onlyBusinessId !== undefined\s*\?\s*first\s*:\s*\(await collectDueSkippingOff\(/.test(service));
+  ok("wiring: the re-read uses task_reminders_due_excluding (identifiers only)", /public\.task_reminders_due_excluding\(/.test(service));
+}
+
+starvation().then(door).then(() => {
   console.log(`\ntask reminders: ${failed ? `${failed} of ${passed + failed} FAILED` : `${passed} checks passed`}`);
   if (failed) process.exit(1);
 });
