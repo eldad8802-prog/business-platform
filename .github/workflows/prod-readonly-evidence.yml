@@ -184,6 +184,8 @@ on:
           - 'ops/evidence/service-desk-no-signature-counts.sql'
           - 'ops/evidence/auth-issuer-declaration-link-preflight.sql'
           - 'ops/evidence/auth-issuer-declaration-link-production-evidence.sql'
+          - 'ops/evidence/service-desk-ui-erasure-text-preflight.sql'
+          - 'ops/evidence/service-desk-ui-erasure-text-production-evidence.sql'
 
 permissions:
   contents: read
