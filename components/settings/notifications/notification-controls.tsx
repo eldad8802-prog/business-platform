@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { useNotificationT } from "./copy/notification-copy";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 
 import type { NotificationSettingsApi } from "./use-notification-settings";
@@ -54,7 +55,7 @@ export function SwitchRow({
 
 /** The polite save line: "שומרים…" / "נשמר" / the error with what to do next. */
 export function SaveStatus({ note }: { note: NotificationSettingsApi["note"] }) {
-  const { t } = useI18n();
+  const t = useNotificationT();
   const text =
     note === "saving"
       ? t("notifications.state.saving")
@@ -78,11 +79,12 @@ export function SaveStatus({ note }: { note: NotificationSettingsApi["note"] }) 
 
 /** Loading / not available yet / load error — the same calm states on every notification settings screen. */
 export function LoadGate({ api, children }: { api: NotificationSettingsApi; children: ReactNode }) {
-  const { t } = useI18n();
+  const { t: tGlobal } = useI18n();
+  const t = useNotificationT();
   if (api.state === "loading") {
     return (
       <p role="status" className="px-4 py-6 text-sm text-[var(--dz-text-secondary)]">
-        {t("common.loading")}
+        {tGlobal("common.loading")}
       </p>
     );
   }

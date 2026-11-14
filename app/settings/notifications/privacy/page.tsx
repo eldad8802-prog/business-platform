@@ -1,11 +1,12 @@
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
 import { NotificationPrivacyScreen } from "@/components/settings/notifications/NotificationPrivacyScreen";
-import { getServerI18n } from "@/lib/i18n/server";
+import { NotificationCopyProvider } from "@/components/settings/notifications/copy/notification-copy";
+import { getNotificationCopy } from "@/components/settings/notifications/copy/notification-copy-server";
 import styles from "../../settings-desk.module.css";
 
 /** הגדרות ← התראות ← פרטיות ושחזור הגדרות. Gated like the notifications page (the API answers 404 while off). */
 export default async function SettingsNotificationPrivacyPage() {
-  const { t } = await getServerI18n();
+  const { copy, t } = await getNotificationCopy();
   return (
     <div className={styles.focused}>
       <SettingsSubPageHeader
@@ -13,7 +14,9 @@ export default async function SettingsNotificationPrivacyPage() {
         subtitle={t("notifications.privacy.subtitle")}
         backHref="/settings/notifications"
       />
-      <NotificationPrivacyScreen />
+      <NotificationCopyProvider copy={copy}>
+        <NotificationPrivacyScreen />
+      </NotificationCopyProvider>
     </div>
   );
 }

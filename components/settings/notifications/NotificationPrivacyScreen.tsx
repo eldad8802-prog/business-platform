@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useI18n } from "@/components/i18n/I18nProvider";
+import { useNotificationT } from "./copy/notification-copy";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { useAccessibleDialog } from "@/components/ui/accessibility/use-accessible-dialog";
 import { getCategory } from "@/lib/notifications/catalog";
@@ -27,7 +27,7 @@ import s from "./notification-settings.module.css";
 const PREVIEW = getCategory("tasks.reminder")!.lockScreen;
 
 function ResetDialog({ open, busy, onCancel, onConfirm }: { open: boolean; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
-  const { t } = useI18n();
+  const t = useNotificationT();
   const { dialogProps, backdropProps } = useAccessibleDialog<HTMLDivElement>({
     open,
     onClose: onCancel,
@@ -62,7 +62,7 @@ function ResetDialog({ open, busy, onCancel, onConfirm }: { open: boolean; busy:
 }
 
 function PrivacyBody({ api }: { api: NotificationSettingsApi }) {
-  const { t } = useI18n();
+  const t = useNotificationT();
   const v = api.view!.settings;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);

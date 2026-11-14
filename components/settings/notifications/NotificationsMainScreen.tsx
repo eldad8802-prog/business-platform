@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { useI18n } from "@/components/i18n/I18nProvider";
+import { useNotificationT } from "./copy/notification-copy";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { buildClientAuthHeaders } from "@/lib/client-session";
@@ -86,7 +86,7 @@ function TimeInput({
 }
 
 function TestButton({ disabled }: { disabled: boolean }) {
-  const { t } = useI18n();
+  const t = useNotificationT();
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<TestOutcome | null>(null);
   async function run() {
@@ -132,7 +132,7 @@ export function NotificationsMainScreen() {
 }
 
 function MainBody({ api }: { api: NotificationSettingsApi }) {
-  const { t } = useI18n();
+  const t = useNotificationT();
   const v = api.view!.settings;
   return (
     <div className={s.stack} data-testid="notif-main">

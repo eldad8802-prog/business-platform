@@ -36,13 +36,20 @@ const VIEWPORTS = [
   { name: "desktop-1440", width: 1440, height: 900, isMobile: false, hasTouch: false },
 ];
 
+// Every category of lib/notifications/catalog.ts, as GET /api/notifications/settings lists them. The mock must be the
+// whole catalog: the screen lists the catalog and greys any category the API does not offer.
 const CATEGORY_KEYS = [
   ["tasks.reminder", "tasks"], ["booking.request_waiting", "appointments"], ["inbox.customer_waiting", "inbox"],
   ["inventory.critical_stock", "inventory"], ["inventory.attention", "inventory"], ["billing.failure", "billing"],
   ["billing.review", "billing"], ["documents.review", "documents"], ["accountant.send_failed", "accountant"],
-  ["accountant.month_close", "accountant"], ["connections.disconnected", "connections"], ["leads.follow_up", "leads"],
-  ["suppliers.purchase_pending", "suppliers"], ["security.new_device", "security"], ["digest.daily", "system"], ["system.test", "system"],
+  ["accountant.month_close", "accountant"], ["connections.disconnected", "connections"], ["connections.account_disconnected", "connections"],
+  ["leads.follow_up", "leads"], ["suppliers.purchase_pending", "suppliers"], ["obligations.due", "obligations"],
+  ["payments.request_failed", "payments"], ["billing.allocation_failed", "billing"], ["documents.processing_failed", "documents"],
+  ["appointments.upcoming", "appointments"],
+  ["security.new_device", "security"], ["digest.daily", "system"], ["system.test", "system"],
 ];
+const HIDDEN = /^(security|digest|system)\./;
+const LISTED = CATEGORY_KEYS.map(([k]) => k).filter((k) => !HIDDEN.test(k));
 
 const results = [];
 const check = (vp, name, cond, detail = "") => {
@@ -246,7 +253,7 @@ for (const vp of VIEWPORTS) {
     await audit(p, vp, "types");
     await p.screenshot({ path: path.join(OUT, `${vp.name}-types.png`), fullPage: true });
     const keys = await p.locator('[data-testid="notif-type"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-key")));
-    check(vp.name, "types: only catalog categories, no security / system types", keys.length === 13 && !keys.some((k) => /^(security|digest|system)\./.test(k)), JSON.stringify(keys));
+    check(vp.name, "types: only catalog categories, no security / system types", JSON.stringify([...keys].sort()) === JSON.stringify([...LISTED].sort()) && !keys.some((k) => HIDDEN.test(k)), JSON.stringify(keys));
     const inbox = p.locator('[data-testid="notif-type"][data-key="inbox.customer_waiting"]');
     const phone = inbox.locator('button[data-choice="phone"]');
     check(vp.name, "types: chips are buttons with aria-pressed", (await phone.getAttribute("aria-pressed")) === "false");

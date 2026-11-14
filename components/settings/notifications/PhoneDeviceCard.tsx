@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 
-import { useI18n } from "@/components/i18n/I18nProvider";
+import { useNotificationT } from "./copy/notification-copy";
 import {
   PUSH_STATUS_EVENT,
   REGISTER_TIMEOUT_MS,
@@ -70,7 +70,7 @@ function registrationOf(status: PushRegistrationStatus): Registration | "not_con
 }
 
 export function PhoneDeviceCard() {
-  const { t } = useI18n();
+  const t = useNotificationT();
   const [inputs, setInputs] = useState<DeviceInputs | null>(null);
   const [busy, setBusy] = useState(false);
   const [browserFailed, setBrowserFailed] = useState(false);

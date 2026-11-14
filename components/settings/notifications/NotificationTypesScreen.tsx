@@ -6,7 +6,7 @@
  * whose feature is not available to the business is greyed with "לא זמין בחשבון שלכם" and its stored choices are
  * kept (the backend never deletes them).
  */
-import { useI18n } from "@/components/i18n/I18nProvider";
+import { useNotificationT } from "./copy/notification-copy";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { getCategory } from "@/lib/notifications/catalog";
 
@@ -22,7 +22,7 @@ const CHOICE_LABEL = {
 } as const;
 
 function TypeRow({ row, api }: { row: CategoryRow; api: NotificationSettingsApi }) {
-  const { t } = useI18n();
+  const t = useNotificationT();
   const name = t(row.labelKey);
   const labelId = `notif-type-${row.key.replace(/[^a-z0-9]/gi, "-")}`;
   const hintId = `${labelId}-hint`;
@@ -69,7 +69,7 @@ function TypeRow({ row, api }: { row: CategoryRow; api: NotificationSettingsApi 
 }
 
 function TypesBody({ api }: { api: NotificationSettingsApi }) {
-  const { t } = useI18n();
+  const t = useNotificationT();
   const view = api.view!;
   const groups = buildTypeGroups(view);
   return (

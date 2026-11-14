@@ -1,6 +1,7 @@
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
 import { NotificationsMainScreen } from "@/components/settings/notifications/NotificationsMainScreen";
-import { getServerI18n } from "@/lib/i18n/server";
+import { NotificationCopyProvider } from "@/components/settings/notifications/copy/notification-copy";
+import { getNotificationCopy } from "@/components/settings/notifications/copy/notification-copy-server";
 import styles from "../settings-desk.module.css";
 
 /**
@@ -12,11 +13,13 @@ import styles from "../settings-desk.module.css";
  * (components/settings/settings-categories.ts featureKey).
  */
 export default async function SettingsNotificationsPage() {
-  const { t } = await getServerI18n();
+  const { copy, t } = await getNotificationCopy();
   return (
     <div className={styles.focused}>
       <SettingsSubPageHeader title={t("notifications.page.title")} subtitle={t("notifications.page.subtitle")} />
-      <NotificationsMainScreen />
+      <NotificationCopyProvider copy={copy}>
+        <NotificationsMainScreen />
+      </NotificationCopyProvider>
     </div>
   );
 }

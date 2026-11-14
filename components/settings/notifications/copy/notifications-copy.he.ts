@@ -1,7 +1,11 @@
 /**
- * i18n area: notifications. Hebrew (source; English in ./notifications.en.ts) for the notification settings
- * screens only (Settings → התראות: app/settings/notifications/**, components/settings/notifications/**).
- * Registered in ../he.ts and ../en.ts.
+ * The notification settings screens copy — Hebrew (source; English in ./notifications-copy.en.ts). Used by
+ * Settings → התראות only (app/settings/notifications/**, components/settings/notifications/**).
+ *
+ * Route-scoped on purpose: it is NOT in the global dictionary (lib/i18n/messages/he.ts), which every page ships in
+ * its Hebrew client JS. Each settings page (a server component) picks the copy of the request locale and hands it
+ * to the screens (./notification-copy.tsx), so neither language reaches any client bundle. The Settings hub row
+ * (title + description) is the only notification text in the global dictionary (areas/notifications-hub.ts).
  *
  * Owner rule (Gate B, 2026-11-13): plain everyday Hebrew that any business owner understands — no technical
  * words, one term per concept, plural "אתם" everywhere. The glossary is enforced by
@@ -12,10 +16,6 @@
  */
 
 export const notificationsHe = {
-  category: {
-    title: "התראות",
-    description: "התראות לטלפון, סיכום יומי ושעות שקטות",
-  },
   page: {
     title: "התראות",
     subtitle: "הגדרות התראות: מה לקבל, מתי ואיפה",

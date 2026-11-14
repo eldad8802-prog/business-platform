@@ -1,11 +1,12 @@
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
 import { NotificationTypesScreen } from "@/components/settings/notifications/NotificationTypesScreen";
-import { getServerI18n } from "@/lib/i18n/server";
+import { NotificationCopyProvider } from "@/components/settings/notifications/copy/notification-copy";
+import { getNotificationCopy } from "@/components/settings/notifications/copy/notification-copy-server";
 import styles from "../../settings-desk.module.css";
 
 /** הגדרות ← התראות ← סוגי התראות. Gated like the notifications page (the API answers 404 while the feature is off). */
 export default async function SettingsNotificationTypesPage() {
-  const { t } = await getServerI18n();
+  const { copy, t } = await getNotificationCopy();
   return (
     <div className={styles.focused}>
       <SettingsSubPageHeader
@@ -13,7 +14,9 @@ export default async function SettingsNotificationTypesPage() {
         subtitle={t("notifications.types.subtitle")}
         backHref="/settings/notifications"
       />
-      <NotificationTypesScreen />
+      <NotificationCopyProvider copy={copy}>
+        <NotificationTypesScreen />
+      </NotificationCopyProvider>
     </div>
   );
 }

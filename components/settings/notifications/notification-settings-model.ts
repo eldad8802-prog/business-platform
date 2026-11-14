@@ -28,7 +28,7 @@ import {
   type PreferenceBody,
   type StoredPreference,
 } from "@/lib/notifications/preferences";
-import type { MessageKey } from "@/lib/i18n/translate";
+import type { NotificationKey } from "./copy/notification-copy-core";
 
 /* ─────────────────────────────────────────────────────────── the wire ── */
 
@@ -65,7 +65,7 @@ export const DOMAIN_ORDER = [
   "connections",
 ] as const;
 
-export const DOMAIN_LABEL_KEYS: Readonly<Record<(typeof DOMAIN_ORDER)[number], MessageKey>> = {
+export const DOMAIN_LABEL_KEYS: Readonly<Record<(typeof DOMAIN_ORDER)[number], NotificationKey>> = {
   tasks: "notifications.types.domains.tasks",
   appointments: "notifications.types.domains.appointments",
   inbox: "notifications.types.domains.inbox",
@@ -80,7 +80,7 @@ export const DOMAIN_LABEL_KEYS: Readonly<Record<(typeof DOMAIN_ORDER)[number], M
   connections: "notifications.types.domains.connections",
 };
 
-export const CATEGORY_LABEL_KEYS: Readonly<Record<string, MessageKey>> = {
+export const CATEGORY_LABEL_KEYS: Readonly<Record<string, NotificationKey>> = {
   "tasks.reminder": "notifications.types.categories.tasksReminder",
   "booking.request_waiting": "notifications.types.categories.bookingRequestWaiting",
   "inbox.customer_waiting": "notifications.types.categories.inboxCustomerWaiting",
@@ -123,7 +123,7 @@ export type ChoiceView = {
 export type CategoryRow = {
   key: string;
   domain: string;
-  labelKey: MessageKey;
+  labelKey: NotificationKey;
   available: boolean;
   quietBypass: boolean;
   choices: Record<Choice, ChoiceView>;
@@ -165,7 +165,7 @@ export function categoryRow(
   };
 }
 
-export type DomainGroup = { domain: string; labelKey: MessageKey; rows: CategoryRow[] };
+export type DomainGroup = { domain: string; labelKey: NotificationKey; rows: CategoryRow[] };
 
 export function buildTypeGroups(view: SettingsView): DomainGroup[] {
   const availability = new Map(view.categories.map((c) => [c.key, c.available]));
@@ -313,7 +313,7 @@ export function deviceState(i: DeviceInputs): DeviceState {
 
 export type TestOutcome = "sent" | "no_device" | "rate_limited" | "failed" | "offline";
 
-export const TEST_MESSAGE_KEYS: Readonly<Record<TestOutcome, MessageKey>> = {
+export const TEST_MESSAGE_KEYS: Readonly<Record<TestOutcome, NotificationKey>> = {
   sent: "notifications.phone.testSent",
   no_device: "notifications.phone.testNoDevice",
   rate_limited: "notifications.phone.testRateLimited",

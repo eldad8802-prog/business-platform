@@ -31,9 +31,15 @@ import {
   type StoredPreference,
 } from "@/lib/notifications/preferences";
 import { he } from "@/lib/i18n/messages/he";
-import { notificationsHe } from "@/lib/i18n/messages/areas/notifications";
-import { notificationsEn } from "@/lib/i18n/messages/areas/notifications.en";
-import { translate } from "@/lib/i18n/translate";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { notificationsHe } from "./copy/notifications-copy.he";
+import { notificationsEn } from "./copy/notifications-copy.en";
+import { notificationsHubHe } from "@/lib/i18n/messages/areas/notifications-hub";
+import { notificationsHubEn } from "@/lib/i18n/messages/areas/notifications-hub.en";
+import { createNotificationT } from "./copy/notification-copy-core";
+import { notificationCopyFor } from "./copy/notification-copy-server";
+const trHe = createNotificationT(notificationsHe) as (key: string) => string;
 import { SETTINGS_CATEGORIES } from "@/components/settings/settings-categories";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 
@@ -76,8 +82,9 @@ function leaves(o: unknown, path: string[] = []): [string, string][] {
   if (!o || typeof o !== "object") return [];
   return Object.entries(o).flatMap(([k, v]) => leaves(v, [...path, k]));
 }
-const HE = leaves(notificationsHe);
-const EN = leaves(notificationsEn);
+// The screens' copy and the one Settings hub row in the global dictionary, checked as one text.
+const HE = [...leaves(notificationsHe), ...leaves(notificationsHubHe).map(([k, v]) => [`hub.${k}`, v] as [string, string])];
+const EN = [...leaves(notificationsEn), ...leaves(notificationsHubEn).map(([k, v]) => [`hub.${k}`, v] as [string, string])];
 
 /* ════════════════════════════════════════════════════════ 1. wording ═══ */
 
@@ -133,8 +140,42 @@ check("English and Hebrew areas have exactly the same keys, none empty", () => {
   for (const [k, v] of [...HE, ...EN]) assert.ok(v.trim().length > 0, k);
 });
 
-check("the area is registered in the dictionary", () => {
-  assert.equal((he as unknown as { notifications: unknown }).notifications, notificationsHe);
+check("the global dictionary carries only the Settings hub row (every page ships it in its client JS)", () => {
+  assert.equal((he as unknown as { notifications: unknown }).notifications, notificationsHubHe);
+  assert.deepEqual(Object.keys(notificationsHubHe), ["category"]);
+  assert.ok(!("category" in notificationsHe), "the hub row is not duplicated in the screens' copy");
+});
+
+check("the screens' copy is reached only through the server picker (no client module imports its text)", () => {
+  const offenders: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+      const f = join(dir, e.name);
+      if (e.isDirectory()) walk(f);
+      else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
+        const src = readFileSync(f, "utf8");
+        // a value import of either copy file (a `import type` adds no text)
+        if (/^import (?!type )[^;]*from "[^"]*notifications-copy\.(he|en)"/m.test(src)) offenders.push(f.replace(/\\/g, "/"));
+      }
+    }
+  };
+  for (const root of ["app", "components", "features", "lib"]) walk(root);
+  const allowed = ["components/settings/notifications/copy/notification-copy-server.ts", "components/settings/notifications/copy/notifications-copy.en.ts"];
+  assert.deepEqual(offenders.filter((f) => !allowed.includes(f)), []);
+  const server = readFileSync("components/settings/notifications/copy/notification-copy-server.ts", "utf8");
+  assert.ok(!/^["']use client["']/m.test(server), "the picker is a server module");
+});
+
+check("the route translator: same keys, interpolation, the request's language, a missing key never renders undefined", () => {
+  const tHe = createNotificationT(notificationCopyFor("he"));
+  const tEn = createNotificationT(notificationCopyFor("en"));
+  assert.equal(tHe("notifications.page.title"), notificationsHe.page.title);
+  assert.equal(tEn("notifications.page.title"), notificationsEn.page.title);
+  assert.equal(notificationCopyFor("fr"), notificationsHe);
+  assert.equal(tHe("notifications.types.choicesAria", { name: "X" }), notificationsHe.types.choicesAria.replace("{name}", "X"));
+  assert.equal((tHe as (k: string) => string)("notifications.nope.missing"), "notifications.nope.missing");
+  assert.equal((tHe as (k: string) => string)("common.loading"), "common.loading");
 });
 
 /* ═══════════════════════════════════════════════════ 2. truthfulness ═══ */
@@ -159,10 +200,10 @@ check("every listed type and area has a Hebrew label", () => {
   for (const c of visibleCategories()) {
     const key = CATEGORY_LABEL_KEYS[c.key];
     assert.ok(key, `${c.key} has no label key`);
-    assert.notEqual(translate(he, key), key, `${c.key} label missing`);
+    assert.notEqual(trHe(key), key, `${c.key} label missing`);
     const dk = DOMAIN_LABEL_KEYS[c.domain as keyof typeof DOMAIN_LABEL_KEYS];
     assert.ok(dk, `${c.domain} has no area label`);
-    assert.notEqual(translate(he, dk), dk);
+    assert.notEqual(trHe(dk), dk);
   }
   for (const k of Object.keys(CATEGORY_LABEL_KEYS)) assert.ok(visibleCategories().some((c) => c.key === k), `label for unlisted ${k}`);
 });
@@ -309,7 +350,7 @@ check("test button answers", () => {
   assert.equal(testOutcome(429, { error: "RATE_LIMITED" }), "rate_limited");
   assert.equal(testOutcome(500, null), "failed");
   assert.equal(testOutcome(null, null), "offline");
-  for (const k of Object.values(TEST_MESSAGE_KEYS)) assert.notEqual(translate(he, k), k);
+  for (const k of Object.values(TEST_MESSAGE_KEYS)) assert.notEqual(trHe(k), k);
 });
 
 check("page state: 404 (engine off for the business) ⇒ calm 'not available yet'; other failures ⇒ retry", () => {
@@ -366,7 +407,7 @@ check("the Settings row is gated by notifications_engine and points to the page"
   assert.equal(c.href, "/settings/notifications");
   for (const p of ["app/settings/notifications/page.tsx", "app/settings/notifications/types/page.tsx", "app/settings/notifications/privacy/page.tsx"]) {
     assert.ok(fs.existsSync(p), p);
-    assert.ok(read(p).includes("getServerI18n"), `${p} uses getServerI18n`);
+    assert.ok(read(p).includes("getNotificationCopy") && read(p).includes("<NotificationCopyProvider copy={copy}>"), `${p} picks the copy on the server and hands it to the screen`);
   }
 });
 

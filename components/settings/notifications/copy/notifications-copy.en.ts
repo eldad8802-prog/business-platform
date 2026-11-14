@@ -1,15 +1,11 @@
 /**
- * i18n area: notifications — English. Reached only from ../en.ts (the English dictionary chunk and the server), so
- * the Hebrew client bundle never carries English. The types come from the Hebrew source.
+ * The notification settings screens copy — English. Read only on the server, by the settings pages, for a request
+ * whose locale is English (./notification-copy-server.ts); the types come from the Hebrew source.
  */
-import type { Widen } from "../types";
-import type { notificationsHe } from "./notifications";
+import type { Widen } from "@/lib/i18n/messages/types";
+import type { notificationsHe } from "./notifications-copy.he";
 
 export const notificationsEn: Widen<typeof notificationsHe> = {
-  category: {
-    title: "Notifications",
-    description: "Phone notifications, daily summary and quiet hours",
-  },
   page: {
     title: "Notifications",
     subtitle: "Notification settings: what to get, when and where",
