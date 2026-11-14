@@ -139,11 +139,9 @@ export function hashSignupPassword(plain: string): Promise<string> {
 export async function createAccount(
   input: CreateAccountInput
 ): Promise<CreatedAccount> {
-  // The identity seed is the auth plane's (app_auth executes it; the runtime does not). Fail closed rather than
-  // open an account whose identity could not be written.
-  if (input.legalIdentity && !isAuthPlaneActive()) {
-    throw new Error("legal_identity_requires_auth_plane");
-  }
+  // The identity seed is the auth plane's: EXECUTE on signup_legal_identity_seed is granted to app_auth only. On any
+  // other application connection the database refuses the call and this whole transaction rolls back, so an account
+  // without its identity cannot be opened (fail closed by the grant, not by an application check).
   try {
     return await authDb().$transaction(async (tx) => {
       // Both creates name their columns for the same reason the login stamp
