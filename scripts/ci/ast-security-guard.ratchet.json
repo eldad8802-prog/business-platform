@@ -15,6 +15,26 @@
     "app/api/health/db/route.ts::GET.runtime::raw:$queryRaw": {
       "count": 1,
       "reason": "Production DB availability probe (docs/ops/PROD-DB-HEALTH-MONITOR.md): a literal SELECT 1 with no table, no parameter and no write, reached only with HEALTH_MONITOR_SECRET. It names no tenant and reads no row, so there is no tenant context to set; the tenant transaction would add a write of the GUC for nothing. The probe exists to see the runtime connection exactly as tenant traffic uses it."
+    },
+    "lib/notifications/engine/push-worker.ts::dueIds::raw:$queryRaw": {
+      "count": 1,
+      "reason": "Notification engine (migration 20261210090000): the push worker runs with no session and no tenant, so it asks the SECURITY DEFINER function notification_push_due(p_now, p_limit) (pinned search_path, REVOKE ALL FROM PUBLIC, EXECUTE for app_runtime alone) for IDENTIFIERS (businessId, deliveryId) of owed pushes only — no table is read by this query, and each owed push is then claimed, read and sent inside its own business's tenantTx. The same DB-scoped definer-lookup shape as task_reminders_due (dueReminders): listed for the same reason (the timestamp(3) signature and the ::timestamp(3) / ::int casts).",
+      "pendingPr": 1146
+    },
+    "lib/notifications/engine/digest.ts::walkLiveBusinesses::raw:$queryRaw": {
+      "count": 1,
+      "reason": "Notification engine (migration 20261210090000): the daily digest (and the read-only clean-start dry run) run with no session and no tenant, so walkLiveBusinesses pages the SECURITY DEFINER function notification_live_businesses(p_after, p_limit) (pinned search_path, REVOKE ALL FROM PUBLIC, EXECUTE for app_runtime alone) for business IDENTIFIERS only — no table is read by this query, and each business is then read inside its own tenantTx. Same definer-lookup shape as dueReminders; listed because the call needs explicit ::int casts for function resolution.",
+      "pendingPr": 1146
+    },
+    "lib/services/tasks/task-reminders.service.ts::dueRemindersExcluding::raw:$queryRaw": {
+      "count": 1,
+      "reason": "Reminder starvation fix (owner decision 2026-11-13; migration 20261211090000): the GLOBAL dispatcher pass re-asks the SECURITY DEFINER function task_reminders_due_excluding(p_now, p_limit, p_exclude) (task_reminders_due's conditions, pinned search_path, REVOKE ALL FROM PUBLIC, EXECUTE for app_runtime alone) for IDENTIFIERS of due reminders with the flag-off businesses left out — no table is read by this query, and each reminder is then claimed and read inside its own business's tenantTx. Same definer-lookup shape as dueReminders, listed for the same reason (the timestamp(3) / int[] signature and the explicit casts).",
+      "pendingPr": 1150
+    },
+    "lib/notifications/producers/status-sweep.ts::defaultStatusSweepDeps.liveBusinesses::raw:$queryRaw": {
+      "count": 1,
+      "reason": "Notification status sweep (notifications PR 6): runs with no session and no tenant, so it pages the SECURITY DEFINER function notification_live_businesses(p_after, p_limit) — identifiers only (business ids of live businesses), EXECUTE for app_runtime alone; every business is then read and written inside its own tenant context. Same pattern as the digest's walkLiveBusinesses and dueReminders.",
+      "pendingPr": 1151
     }
   },
   "note": "EXACT-SET ratchet of known tenant-client debt (AST-2 fallback/alias of the canonical prisma, AST-3 bare FORCE-RLS/raw access). Every entry is a site that runs WITHOUT tenant context when no transaction is supplied. It may only SHRINK: new sites fail CI, removed sites fail until their entry is removed. Regenerate only as a reviewed decision: node scripts/ci/ast-security-guard.mjs --write-ratchet",
