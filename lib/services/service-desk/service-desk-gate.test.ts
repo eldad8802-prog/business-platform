@@ -98,8 +98,12 @@ async function main() {
   const walk = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name === "route.ts") files.push(p); } };
   walk(root);
   // UI 1.3a added one read: GET /api/service-desk/staff (the technician pickers); 1d-A added three external-work routes and
-  // 1d-B two parts routes (closed until 1.3b); 1.3b added six intake routes (terms, photos, one photo, sign, signature, slip).
-  ok("R1 twenty-two route files (the staff read, three external-work, two parts and six intake routes incl. the slip)", files.length === 22 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
+  // 1d-B two parts routes (closed until 1.3b); 1.3b added six intake routes (terms, photos, one photo, sign, signature, slip);
+  // the case charge added three (charges, billing-links, billing-links/unlink); 1.3c added four quote routes (list + send,
+  // revise, one version's decision, one version's stored PDF); M1 added one (the T7 after-sale resolution); the per-business
+  // QA lists added four (qa-lists: list + create, one list + revise, its archive; the case's list choice — the case's QA
+  // route gained its GET read); the QA track defaults added two (qa-track-defaults: the seven tracks read; one track's set).
+  ok("R1 thirty-six route files (the staff read, three external-work, two parts, six intake, three charge, four quote, the after-sale, four QA-list and two QA track default routes)", files.length === 36 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
   let allGuarded = true, kindsRight = true;
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");
@@ -126,6 +130,49 @@ async function main() {
       const put = /export async function PUT\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
       return /serviceDeskRoute\(req, "write"/.test(put) && /const key = idempotencyKeyOf\(req\);/.test(put) && call.test(put);
     }));
+  // the case charge (migration 20261126090000): GET the read model; three POST writes, each with an Idempotency-Key, each
+  // calling its journaled service function (which answers NOT_AVAILABLE_UNTIL_MIGRATION before the migration).
+  const chargeWrites: [string, RegExp][] = [
+    ["cases/[id]/charges/route.ts", /recordCharge\(principal, id, \{ mode: b\.mode, amountAgorot: b\.amountAgorot, reason: b\.reason, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+    ["cases/[id]/billing-links/route.ts", /linkBillingDocument\(principal, id, \{ billingDocumentId: b\.billingDocumentId, role: b\.role, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+    ["cases/[id]/billing-links/unlink/route.ts", /unlinkBillingDocument\(principal, id, \{ billingDocumentId: b\.billingDocumentId, reason: b\.reason, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+  ];
+  ok("R6 POST charges / billing-links / unlink: writes through the edge, an Idempotency-Key required, the journaled service called; GET charges is a read of getCaseCharges",
+    chargeWrites.every(([r, call]) => {
+      const post = /export async function POST\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
+      return /serviceDeskRoute\(req, "write"/.test(post) && /const key = idempotencyKeyOf\(req\);/.test(post) && call.test(post);
+    }) && /serviceDeskRoute\(req, "read", async \(\{ principal \}\) => json\(await getCaseCharges\(principal\.businessId,/.test(fs.readFileSync(path.join(root, "cases/[id]/charges/route.ts"), "utf8")));
+  // the per-business QA lists (migration 20261129090000): reads of the lists, one list and the case's QA; four writes, each
+  // with an Idempotency-Key, each calling its journaled service function (NOT_AVAILABLE_UNTIL_MIGRATION before the migration).
+  const qaWrites: [string, string, RegExp][] = [
+    ["qa-lists/route.ts", "POST", /createQaList\(principal, \{ name: b\.name, items: b\.items, fromTemplate: b\.fromTemplate \}, \{ idempotencyKey: key \}\)/],
+    ["qa-lists/[listId]/route.ts", "PUT", /reviseQaList\(principal, id, \{ expectedRevision: b\.expectedRevision, name: b\.name, items: b\.items \}, \{ idempotencyKey: key \}\)/],
+    ["qa-lists/[listId]/archive/route.ts", "PUT", /setQaListArchived\(principal, id, \{ expectedRevision: b\.expectedRevision, archived: b\.archived \}, \{ idempotencyKey: key \}\)/],
+    ["cases/[id]/qa/list/route.ts", "PUT", /chooseCaseQaList\(principal, id, \{ listId: b\.listId, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+  ];
+  const qaReads: [string, RegExp][] = [
+    ["qa-lists/route.ts", /listQaLists\(principal\.businessId,/],
+    ["qa-lists/[listId]/route.ts", /getQaList\(principal\.businessId, id,/],
+    ["cases/[id]/qa/route.ts", /getCaseQa\(principal\.businessId, positiveId\(/],
+  ];
+  ok("R7 QA lists: POST / PUT writes through the edge, an Idempotency-Key required, the journaled service called; GET reads of listQaLists / getQaList / getCaseQa with the session's business",
+    qaWrites.every(([r, m, call]) => {
+      const fn = new RegExp(`export async function ${m}\\([\\s\\S]*?\\n}\\n`).exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
+      return /serviceDeskRoute\(req, "write"/.test(fn) && /const key = idempotencyKeyOf\(req\);/.test(fn) && call.test(fn);
+    }) && qaReads.every(([r, call]) => {
+      const fn = /export async function GET\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
+      return /serviceDeskRoute\(req, "read"/.test(fn) && call.test(fn);
+    }));
+  // QA track defaults (migration 20261130100000): GET the seven tracks (the session's business); PUT one track's default with
+  // an Idempotency-Key through the journaled service; the case opening passes qaListId through to openCase (validated there).
+  const defaultsPut = /export async function PUT\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, "qa-track-defaults/[track]/route.ts"), "utf8"))?.[0] ?? "";
+  const defaultsGet = /export async function GET\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, "qa-track-defaults/route.ts"), "utf8"))?.[0] ?? "";
+  const openPost = /export async function POST\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, "cases/route.ts"), "utf8"))?.[0] ?? "";
+  ok("R8 QA track defaults: PUT a write with an Idempotency-Key calling setQaTrackDefault(principal, track, { listId, expectedRevision }); GET a read of getQaTrackDefaults(principal.businessId); POST /cases passes qaListId",
+    /serviceDeskRoute\(req, "write"/.test(defaultsPut) && /const key = idempotencyKeyOf\(req\);/.test(defaultsPut)
+      && /setQaTrackDefault\(principal, track, \{ listId: b\.listId, expectedRevision: b\.expectedRevision \}, \{ idempotencyKey: key \}\)/.test(defaultsPut)
+      && /serviceDeskRoute\(req, "read", async \(\{ principal \}\) => json\(await getQaTrackDefaults\(principal\.businessId\)\)\)/.test(defaultsGet)
+      && /openCase\(principal, \{[\s\S]*qaListId: b\.qaListId,[\s\S]*\}, \{ idempotencyKey: key \}\)/.test(openPost));
   const saved = { db: process.env.DATABASE_URL, direct: process.env.DIRECT_URL };
   delete process.env.DATABASE_URL;
   delete process.env.DIRECT_URL;

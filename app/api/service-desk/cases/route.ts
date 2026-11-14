@@ -11,12 +11,19 @@ export async function GET(req: Request) {
   });
 }
 
-/** POST { kind, customerId, deviceId?, parentCaseId?, problemDescription? } + Idempotency-Key — open a case. */
+/** POST { kind, customerId, deviceId?, parentCaseId?, problemDescription?, track…, qaListId? } + Idempotency-Key — open a case. */
 export async function POST(req: Request) {
   return serviceDeskRoute(req, "write", async ({ principal }) => {
     const key = idempotencyKeyOf(req);
     const b = await jsonBody(req);
-    const r = await openCase(principal, { kind: b.kind, customerId: b.customerId, deviceId: b.deviceId, parentCaseId: b.parentCaseId, problemDescription: b.problemDescription }, { idempotencyKey: key });
+    const r = await openCase(principal, {
+      kind: b.kind, customerId: b.customerId, deviceId: b.deviceId, parentCaseId: b.parentCaseId, problemDescription: b.problemDescription,
+      // M1: opening on a track (the server takes the profile snapshot; the request cannot name requirements)
+      track: b.track, serviceLocation: b.serviceLocation, siteAddress: b.siteAddress, siteNotes: b.siteNotes,
+      returnReason: b.returnReason, originalSaleRef: b.originalSaleRef, subject: b.subject,
+      // QA track defaults: absent → the track's default list; null → none; an id → that list (validated by the server)
+      qaListId: b.qaListId,
+    }, { idempotencyKey: key });
     return json(r, r.replayed ? 200 : 201);
   });
 }
