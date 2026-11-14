@@ -28,11 +28,20 @@ claim it (`service_desk_tracks`).
 
 The release is now **one migration, alone**: `release-migrate` with exactly `20261126100000_issuer_declaration`.
 
+**Dependency (another session's migration):** on 2026-11-14 main also gained `20261124090000_service_user_same_business_fix`
+(#1131, Service Desk), not applied in Production. It sorts before this migration, so while it is pending it is the first
+pending migration and `release-migrate` will not apply this one alone. This migration can be released alone only after
+#1131's own release (its own preflight, approval record and run; its preflight treats later finished migrations as
+informational only). The two are independent: #1131 replaces the body of `service_user_same_business()` only; this
+migration names no Service Desk object. The lab applies every earlier migration first, #1131 included.
+
 ## Stages
 
 ### Stage A — merge #1091 (migration-only PR)
 - Before: #1091 CI green except the expected A0 guard (G4, the migration file only); `issuer-declaration-migration-lab`
   PASS (lab 73/73, S1, negatives, release scripts 12/12 + 12/12 + order-guard negatives).
+- Precondition for stage B, not for stage A: `20261124090000_service_user_same_business_fix` (#1131) applied by its own
+  release — until then it is the first pending migration (see "Ledger order").
 - After: Vercel deploy of main succeeds (no code change; the build runs `prisma generate && next build` only). Nothing in
   Production changes. `20261126100000_issuer_declaration` is then the first (and only) pending migration on main.
 - Stop: revert the merge commit (no data, no migration applied).
@@ -74,7 +83,7 @@ The release is now **one migration, alone**: `release-migrate` with exactly `202
 
 ## Other sessions' pending migrations
 
-After stage A, `20261126100000_issuer_declaration` is the first pending migration on main, so `release-migrate` can apply
+After stage A and #1131's release, `20261126100000_issuer_declaration` is the first pending migration on main, so `release-migrate` can apply
 a migration that sorts after it only after stage B (as in every earlier release). Drafts that sort **before** it
 (Service Desk `20261121…`–`20261126090000_service_desk_case_charge`) already sort before the applied #1105 and need
 their own re-timestamp regardless of this change.

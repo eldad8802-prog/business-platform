@@ -162,7 +162,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
-      - name: Lab (P4 + purge prerequisites + #1105 alone) → migrate deploy 20261126100000 → today's account deletion
+      - name: Lab (P4 + purge prerequisites + every earlier migration, #1105 incl.) → migrate deploy 20261126100000 → today's account deletion
         run: |
           set -euo pipefail
           bash .issuer-declaration/lab.sh decl
