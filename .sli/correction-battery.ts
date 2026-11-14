@@ -340,10 +340,11 @@ async function main() {
   // The lab ledger does not include 20261126100000_issuer_declaration; decide reads the table dynamically, so a
   // stand-in with the two columns it reads is enough. Created only if absent; dropped again at the end of this case.
   const standIn = ((await owner.$queryRawUnsafe(`SELECT to_regclass('public."BusinessIssuerDeclaration"') IS NULL AS absent`)) as Rows)[0].absent === true;
-  if (standIn) await owner.$executeRawUnsafe(`CREATE TABLE public."BusinessIssuerDeclaration" ("businessId" integer NOT NULL, "anonymisedAt" timestamptz NULL)`);
+  if (standIn) await owner.$executeRawUnsafe(`CREATE TABLE public."BusinessIssuerDeclaration" ("businessId" integer NOT NULL, "version" integer NOT NULL, "anonymisedAt" timestamptz NULL)`);
   const d = await business();
   const r23 = await request(d.businessId, d.userId, { legalName: "שם מתוקן" });
-  await owner.$executeRawUnsafe(`INSERT INTO public."BusinessIssuerDeclaration" ("businessId", "anonymisedAt") VALUES ($1, NULL)`, d.businessId);
+  // An older anonymised version and a newer live one: the LATEST decides (as the issuer lock reads it).
+  await owner.$executeRawUnsafe(`INSERT INTO public."BusinessIssuerDeclaration" ("businessId", "version", "anonymisedAt") VALUES ($1, 1, now()), ($1, 2, NULL)`, d.businessId);
   const nameBefore = (await profile(d.businessId))?.billingLegalName;
   ok("C23 approve with a live declaration → DECLARATION_ACTIVE", (await decide(d.businessId, r23, approver, true)) === "DECLARATION_ACTIVE");
   ok("C23 nothing applied, the request stays PENDING", (await profile(d.businessId))?.billingLegalName === nameBefore && (await reqRow(r23))?.status === "PENDING");
@@ -351,7 +352,7 @@ async function main() {
   ok("C23 an anonymised declaration does not block → APPLIED", (await decide(d.businessId, r23, approver, true)) === "APPLIED");
   const d2 = await business();
   const r23b = await request(d2.businessId, d2.userId, { legalName: "שם נדחה" });
-  await owner.$executeRawUnsafe(`INSERT INTO public."BusinessIssuerDeclaration" ("businessId", "anonymisedAt") VALUES ($1, NULL)`, d2.businessId);
+  await owner.$executeRawUnsafe(`INSERT INTO public."BusinessIssuerDeclaration" ("businessId", "version", "anonymisedAt") VALUES ($1, 1, NULL)`, d2.businessId);
   ok("C23 rejecting is still possible with a live declaration → REJECTED", (await decide(d2.businessId, r23b, approver, false)) === "REJECTED");
   if (standIn) await owner.$executeRawUnsafe(`DROP TABLE public."BusinessIssuerDeclaration"`);
 
