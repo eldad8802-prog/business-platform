@@ -149,7 +149,11 @@ async function audit(p, vp, label) {
     // Touch targets.
     out.small = [...scope.querySelectorAll("button, input, a[href]")].filter(visible).map((el) => { const b = el.getBoundingClientRect(); return { t: (el.textContent || el.id || el.tagName).trim().slice(0, 30), h: Math.round(b.height), w: Math.round(b.width) }; }).filter((x) => x.h < 44 || x.w < 44);
     // Clipped text.
-    out.clipped = [...scope.querySelectorAll("h1, h2, p, label, button, span")].filter(visible).filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflow !== "visible").map((el) => el.textContent.trim().slice(0, 40));
+    // The shared SettingsSubPageHeader title truncates by design (h1.truncate in components/settings/SettingsSubPageHeader.tsx,
+    // the same on every settings sub-page): not this screen's text, so it is reported separately and not failed here.
+    const sharedTitle = (el) => el.tagName === "H1" && el.classList.contains("truncate") && el.closest("header") !== null;
+    out.clipped = [...scope.querySelectorAll("h1, h2, p, label, button, span")].filter(visible).filter((el) => !sharedTitle(el)).filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflow !== "visible").map((el) => el.textContent.trim().slice(0, 40));
+    out.sharedTitleTruncated = [...scope.querySelectorAll("header h1.truncate")].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent.trim().slice(0, 40));
     out.offscreen = [...scope.querySelectorAll("h2, p, label, button")].filter(visible).filter((el) => { const b = el.getBoundingClientRect(); return b.left < -1 || b.right > window.innerWidth + 1; }).map((el) => el.textContent.trim().slice(0, 40));
     // Contrast of text (disabled controls are exempt, WCAG 1.4.3).
     const parse = (c) => { const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return null; const [r, g, b, a = "1"] = m[1].split(/[,\s/]+/).filter(Boolean); return [+r, +g, +b, +a]; };
@@ -171,6 +175,7 @@ async function audit(p, vp, label) {
   check(vp.name, `${label}: RTL`, r.dir === "rtl", r.dir);
   check(vp.name, `${label}: no horizontal scroll`, !r.overflow);
   check(vp.name, `${label}: no clipped / off-screen text`, r.clipped.length === 0 && r.offscreen.length === 0, JSON.stringify([...r.clipped, ...r.offscreen]));
+  if (r.sharedTitleTruncated.length) console.log(`INFO  [${vp.name}] ${label}: the shared page header truncates its title — ${JSON.stringify(r.sharedTitleTruncated)}`);
   check(vp.name, `${label}: touch targets ≥ 44px`, r.small.length === 0, JSON.stringify(r.small));
   check(vp.name, `${label}: text contrast ≥ 4.5:1`, r.lowContrast.length === 0, JSON.stringify(r.lowContrast));
   check(vp.name, `${label}: switches are labelled checkboxes with role=switch, aria-checked, aria-describedby`,
