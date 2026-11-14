@@ -41,6 +41,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # The TypeScript check inside next build needs more than Node's default ~4 GB heap (same setting as #1162).
+  NODE_OPTIONS: --max-old-space-size=6144
+
 jobs:
   pure:
     name: notification settings — view model, wording, wiring (pure)
