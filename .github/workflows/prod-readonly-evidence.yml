@@ -105,6 +105,7 @@ on:
           - 'ops/evidence/accountant-g2-business-9-postcheck.sql'
           - 'ops/evidence/accountant-g2-business-9-details.sql'
           - 'ops/evidence/billing-pdf-render-state.sql'
+          - 'ops/evidence/receipt-pdf-state-counts.sql'
           - 'ops/evidence/accountant-source-documents-history.sql'
           - 'ops/evidence/accountant-link-events-preflight.sql'
           - 'ops/evidence/accountant-link-events-production-evidence.sql'
@@ -183,6 +184,8 @@ on:
           - 'ops/evidence/notification-engine-activation-production-evidence.sql'
           - 'ops/evidence/notification-docs-appointments-preflight.sql'
           - 'ops/evidence/notification-docs-appointments-production-evidence.sql'
+          - 'ops/evidence/service-desk-ui-erasure-text-preflight.sql'
+          - 'ops/evidence/service-desk-ui-erasure-text-production-evidence.sql'
 
 permissions:
   contents: read

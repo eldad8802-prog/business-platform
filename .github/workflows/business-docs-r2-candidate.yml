@@ -38,6 +38,11 @@ concurrency:
   group: business-docs-r2-test
   cancel-in-progress: false
 
+env:
+  # The TypeScript check (tsc / next build) needs more than Node's default ~4 GB heap on this codebase: main alone sits at
+  # the limit (clean build, Node 22). The runner has 16 GB. Measured 2026-11-14 on CI preview #1160.
+  NODE_OPTIONS: --max-old-space-size=6144
+
 jobs:
   guard:
     name: Guard — main only, the exact PR head, the protected Environment exists (no secrets)
