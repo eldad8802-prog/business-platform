@@ -4,8 +4,8 @@
 #   1. Pure: the catalog, the preference resolver, quiet hours / digest time across the clock changes, the unified
 #      push sender with a fake fetch (FCM HTTP v1 + web push), the worker's decision table, the static boundaries.
 #   2. The suites this PR touched: task reminders (pure), the cron authority registry, the erasure contract.
-#   3. The engine AS app_runtime_prod (NOSUPERUSER NOBYPASSRLS) on `.nte2c/lab.sh <db> --with-nte2c` (the foundation,
-#      the follow-up 20261211090000 and the activation record 20261212090000 — this PR depends on all three being on the
+#   3. The engine AS app_runtime_prod (NOSUPERUSER NOBYPASSRLS) on `.nte2d/lab.sh <db> --with-nte2d` (the foundation,
+#      the follow-up 20261211090000, the activation record 20261212090000 and 20261213090000 — this PR depends on all four being on the
 #      branch, migration-first), the database session in Asia/Jerusalem: create → deliver, claim / lease, retry, quiet
 #      hours, settings, feature off, fan-out, sessions / logout / account switch, two businesses and the kill switch,
 #      historical rows, digest, the activation record (initial activation, policy edits, kill switch, OFF → ON,
@@ -127,7 +127,8 @@ jobs:
       - name: 3. The engine as the restricted runtime (session in Asia/Jerusalem)
         run: |
           set -euo pipefail
-          bash .nte2c/lab.sh nte_engine --with-nte2c
+          # On .nte2d (+ 20261213090000): the preferences the engine reads now carry the personal appointment lead time.
+          bash .nte2d/lab.sh nte_engine --with-nte2d
           TZ_OPT="options=-c%20TimeZone%3DAsia%2FJerusalem"
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_engine?$TZ_OPT" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_engine?$TZ_OPT" \
