@@ -1,0 +1,88 @@
+name: service desk approvals — actor / approver through the real service (ephemeral PG17)
+
+# The code of the actor / approver split (lib/services/service-desk/approvals.ts) and the version-2 handover record, on
+# the chain #1096 → #1104 → M1 → 20261130090000 (DRAFT migrations — never applied without a separate owner approval):
+# the seven tracks (.sdm1code) and the M1 guards (.sdm1) stay green with the new record, the handover-record rules hold
+# (.sdhov), and the real service stores actor and approver from the session only (.sdappr). Synthetic only; no secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261127090000_service_desk_tracks/**"
+      - "prisma/migrations/20261130090000_service_handover_debt_record/**"
+      - "lib/services/service-desk/**"
+      - ".sdappr/**"
+      - ".sdhov/**"
+      - ".sdm1/**"
+      - ".sdm1code/**"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - "prisma/schema.prisma"
+      - ".github/workflows/service-desk-approvals-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk approvals (PG17, runtime role, M1 + 20261130090000 applied)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdappr_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdappr_ci_synthetic_super_pw
+      LAB_PASSWORD: sdappr_ci_synthetic_role_pw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: The chain, then every battery on it as the runtime role
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdappr >/dev/null
+          bash .sd3p4/lab.sh sdappr --deploy-only >/dev/null
+          bash .sdm1/chain.sh sdappr | tee /tmp/m1.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/m1.out || { echo "the M1 chain is not green"; exit 1; }
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdappr"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdappr"
+          export OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+            TASK_REQUEST_HMAC_KEY=sdappr-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdappr-ci \
+            AUTH_TOKEN_SECRET=sdappr-ci-synthetic-auth-secret-0123456789abcdef
+          # BEFORE 20261130090000 (M1 alone), with THIS code: the M1 guards and the seven tracks — the legacy handover path.
+          # (.sdm1/battery.ts O16h closes a debt approved by a SECOND user: M1 allows it, 20261130090000 refuses it
+          # (approver = actor) — so it runs before the migration; .sdhov P7 proves the refusal after it.)
+          for b in .sdm1/battery.ts .sdm1code/battery.ts; do
+            npx tsx "$b" | tee /tmp/b.out
+            grep -qE '^[0-9]+ passed, 0 failed$' /tmp/b.out || { echo "$b (before the migration) is not green"; exit 1; }
+          done
+          bash .sdhov/chain.sh sdappr | tee /tmp/hov.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/hov.out || { echo "the handover-record chain is not green"; exit 1; }
+          # AFTER it: the seven tracks write version-2 handovers; the record rules; actor / approver through the service
+          for b in .sdm1code/battery.ts .sdhov/battery.ts .sdappr/battery.ts; do
+            npx tsx "$b" | tee /tmp/b.out
+            grep -qE '^[0-9]+ passed, 0 failed$' /tmp/b.out || { echo "$b is not green"; exit 1; }
+          done

@@ -98,8 +98,11 @@ async function main() {
   const walk = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name === "route.ts") files.push(p); } };
   walk(root);
   // UI 1.3a added one read: GET /api/service-desk/staff (the technician pickers); 1d-A added three external-work routes and
-  // 1d-B two parts routes (closed until 1.3b); 1.3b added six intake routes (terms, photos, one photo, sign, signature, slip).
-  ok("R1 twenty-two route files (the staff read, three external-work, two parts and six intake routes incl. the slip)", files.length === 22 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
+  // 1d-B two parts routes (closed until 1.3b); 1.3b added six intake routes (terms, photos, one photo, sign, signature, slip);
+  // the case charge added three (charges, billing-links, billing-links/unlink); 1.3c added four quote routes (list + send,
+  // revise, one version's decision, one version's stored PDF); M1 added one (the T7 after-sale resolution); the loans
+  // (migration 20261201090000) added three (a case's loans list + lend, one loan's actions, the business's loans list).
+  ok("R1 thirty-three route files (the staff read, three external-work, two parts, six intake, three charge, four quote, the after-sale and three loan routes)", files.length === 33 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
   let allGuarded = true, kindsRight = true;
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");
@@ -126,6 +129,31 @@ async function main() {
       const put = /export async function PUT\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
       return /serviceDeskRoute\(req, "write"/.test(put) && /const key = idempotencyKeyOf\(req\);/.test(put) && call.test(put);
     }));
+  // the case charge (migration 20261126090000): GET the read model; three POST writes, each with an Idempotency-Key, each
+  // calling its journaled service function (which answers NOT_AVAILABLE_UNTIL_MIGRATION before the migration).
+  const chargeWrites: [string, RegExp][] = [
+    ["cases/[id]/charges/route.ts", /recordCharge\(principal, id, \{ mode: b\.mode, amountAgorot: b\.amountAgorot, reason: b\.reason, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+    ["cases/[id]/billing-links/route.ts", /linkBillingDocument\(principal, id, \{ billingDocumentId: b\.billingDocumentId, role: b\.role, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+    ["cases/[id]/billing-links/unlink/route.ts", /unlinkBillingDocument\(principal, id, \{ billingDocumentId: b\.billingDocumentId, reason: b\.reason, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+  ];
+  ok("R6 POST charges / billing-links / unlink: writes through the edge, an Idempotency-Key required, the journaled service called; GET charges is a read of getCaseCharges",
+    chargeWrites.every(([r, call]) => {
+      const post = /export async function POST\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
+      return /serviceDeskRoute\(req, "write"/.test(post) && /const key = idempotencyKeyOf\(req\);/.test(post) && call.test(post);
+    }) && /serviceDeskRoute\(req, "read", async \(\{ principal \}\) => json\(await getCaseCharges\(principal\.businessId,/.test(fs.readFileSync(path.join(root, "cases/[id]/charges/route.ts"), "utf8")));
+  // loans (migration 20261201090000): GET lists are reads; the two POST writes take an Idempotency-Key and call their
+  // journaled service function (which answers NOT_AVAILABLE_UNTIL_MIGRATION before the migration); the identity of the actor
+  // and the approver comes from the session only.
+  const loanWrites: [string, RegExp][] = [
+    ["cases/[id]/loans/route.ts", /lendLoaner\(principal, id, \{[\s\S]*exceptionReason: b\.exceptionReason,?\s*\}, \{ idempotencyKey: key \}\)/],
+    ["cases/[id]/loans/[loanId]/actions/route.ts", /runLoanAction\(principal, id, loanId, \{ action: b\.action, expectedVersion: b\.expectedVersion \}, \{ idempotencyKey: key \}\)/],
+  ];
+  ok("R7 POST loans / loan actions: writes through the edge, an Idempotency-Key required, the journaled service called; the GET lists are reads",
+    loanWrites.every(([r, call]) => {
+      const post = /export async function POST\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
+      return /serviceDeskRoute\(req, "write"/.test(post) && /const key = idempotencyKeyOf\(req\);/.test(post) && call.test(post);
+    }) && /serviceDeskRoute\(req, "read", async \(\{ principal \}\) => json\(await listCaseLoans\(principal\.businessId,/.test(fs.readFileSync(path.join(root, "cases/[id]/loans/route.ts"), "utf8"))
+      && /serviceDeskRoute\(req, "read"/.test(fs.readFileSync(path.join(root, "loans/route.ts"), "utf8")));
   const saved = { db: process.env.DATABASE_URL, direct: process.env.DIRECT_URL };
   delete process.env.DATABASE_URL;
   delete process.env.DIRECT_URL;

@@ -1,0 +1,108 @@
+name: service desk loans — lending, return, case exit through the real service (ephemeral PG17)
+
+# The code of the loans (lib/services/service-desk/loans.*, loan-exit.ts, the case machine's OPEN_LOANER / exit approvals,
+# the real openLoaner read under the case lock) on the chain #1096 → #1104 → M1 → 20261130090000 → 20261201090000 (DRAFT
+# migrations — never applied without a separate owner approval): the seven tracks (.sdm1code), the handover record
+# (.sdhov) and the approvals (.sdappr) stay green with the loans in place; the loan rules hold in the database (.sdloan)
+# and through the real service (.sdloancode); every key code guard, weakened, is caught (pure + service mutations).
+# Synthetic only; no secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261130090000_service_handover_debt_record/**"
+      - "prisma/migrations/20261201090000_service_desk_loans/**"
+      - "lib/services/service-desk/**"
+      - "app/api/service-desk/**"
+      - ".sdloan/**"
+      - ".sdloancode/**"
+      - ".sdappr/**"
+      - ".sdhov/**"
+      - ".sdm1/**"
+      - ".sdm1code/**"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - "prisma/schema.prisma"
+      - ".github/workflows/service-desk-loans-code-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk loans code (PG17, runtime role, M1 + 20261130090000 + 20261201090000 applied)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdloanc_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdloanc_ci_synthetic_super_pw
+      LAB_PASSWORD: sdloanc_ci_synthetic_role_pw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Pure proofs and the pure mutations
+        run: |
+          set -euo pipefail
+          npx tsx lib/services/service-desk/loans-core.test.ts
+          npx tsx lib/services/service-desk/service-case-core.test.ts
+          npx tsx lib/services/service-desk/approvals.test.ts
+          node .sdloancode/mutate.mjs | tee /tmp/pmut.out
+          grep -qE '^MUTATIONS: [0-9]+ killed, 0 survived$' /tmp/pmut.out || { echo "a pure mutation survived"; exit 1; }
+      - name: The chain, then every battery on it as the runtime role
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdloanc >/dev/null
+          bash .sd3p4/lab.sh sdloanc --deploy-only >/dev/null
+          bash .sdm1/chain.sh sdloanc | tee /tmp/m1.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/m1.out || { echo "the M1 chain is not green"; exit 1; }
+          bash .sdhov/chain.sh sdloanc | tee /tmp/hov.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/hov.out || { echo "the handover-record chain is not green"; exit 1; }
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdloanc"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdloanc"
+          export OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+            TASK_REQUEST_HMAC_KEY=sdloanc-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdloanc-ci \
+            AUTH_TOKEN_SECRET=sdloanc-ci-synthetic-auth-secret-0123456789abcdef
+          # before the loans migration: the code answers as before (openLoaner false, no loan table read)
+          for b in .sdm1code/battery.ts .sdappr/battery.ts; do
+            npx tsx "$b" | tee /tmp/b.out
+            grep -qE '^[0-9]+ passed, 0 failed$' /tmp/b.out || { echo "$b (before the loans migration) is not green"; exit 1; }
+          done
+          bash .sdloan/chain.sh sdloanc | tee /tmp/loan.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/loan.out || { echo "the loans chain is not green"; exit 1; }
+          psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d postgres -c "CREATE DATABASE sdloanc_tpl TEMPLATE sdloanc OWNER lab_owner"
+          for b in .sdm1code/battery.ts .sdhov/battery.ts .sdappr/battery.ts .sdloan/battery.ts .sdloancode/battery.ts; do
+            npx tsx "$b" | tee /tmp/b.out
+            grep -qE '^[0-9]+ passed, 0 failed$' /tmp/b.out || { echo "$b is not green"; exit 1; }
+          done
+      - name: Service mutations — each key service guard weakened must turn the code battery red
+        run: |
+          set -euo pipefail
+          export TASK_REQUEST_HMAC_KEY=sdloanc-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdloanc-ci \
+            AUTH_TOKEN_SECRET=sdloanc-ci-synthetic-auth-secret-0123456789abcdef AUTH_PLANE_ENABLED=true
+          node .sdloancode/mutate.mjs sdloanc_tpl | tee /tmp/smut.out
+          grep -qE '^MUTATIONS: [0-9]+ killed, 0 survived$' /tmp/smut.out || { echo "a mutation survived"; exit 1; }
