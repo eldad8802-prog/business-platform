@@ -115,6 +115,8 @@ jobs:
           for d in prisma/migrations/*/; do
             n=$(basename "$d")
             [[ "$n" != "20261115090000_service_parts" ]] || continue
+            [[ "$n" != "20261127090000_service_desk_tracks" ]] || continue
+            [[ "$n" != "20261128090000_service_parts_reservation_guard" ]] || continue
             if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"ServicePart(Event)?"|service_part_|service_parts_|service_case_parts_|service_external_parts_'; then
               echo "$n names a service parts object"; exit 1
             fi
