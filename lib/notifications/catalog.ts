@@ -139,7 +139,7 @@ const CATEGORY_LIST = [
     domain: "billing",
     featureKey: PLATFORM_FEATURE_KEYS.BILLING,
     importance: "normal",
-    defaults: { inApp: true, push: false, delivery: "instant" },
+    defaults: { inApp: true, push: false, delivery: "digest" },
     quietBypass: false,
     rateExempt: false,
     userMutable: { inApp: true, push: true, delivery: true },
@@ -205,6 +205,23 @@ const CATEGORY_LIST = [
     hrefPrefixes: ["/settings/connections"],
   },
   {
+    // A connected Gmail / WhatsApp account stopped working on the provider's side (token revoked or expired). No
+    // feature key: the event can only happen to a business that HAS such a connection (unlike the lead-intake
+    // connections above, which stay behind intake_status_visibility).
+    key: "connections.account_disconnected",
+    domain: "connections",
+    featureKey: null,
+    importance: "normal",
+    defaults: { inApp: true, push: false, delivery: "instant" },
+    quietBypass: false,
+    rateExempt: false,
+    userMutable: { inApp: true, push: true, delivery: true },
+    cooldownHours: 24,
+    ttlMinutes: 12 * 60,
+    lockScreen: { title: GENERIC_PUSH_TITLE, body: "יש חיבור שדורש בדיקה" },
+    hrefPrefixes: ["/settings/connections"],
+  },
+  {
     key: "leads.follow_up",
     domain: "leads",
     featureKey: null,
@@ -223,7 +240,7 @@ const CATEGORY_LIST = [
     domain: "suppliers",
     featureKey: PLATFORM_FEATURE_KEYS.INVENTORY,
     importance: "low",
-    defaults: { inApp: true, push: false, delivery: "instant" },
+    defaults: { inApp: true, push: false, delivery: "digest" },
     quietBypass: false,
     rateExempt: false,
     userMutable: { inApp: true, push: true, delivery: true },
@@ -231,6 +248,95 @@ const CATEGORY_LIST = [
     ttlMinutes: 12 * 60,
     lockScreen: { title: GENERIC_PUSH_TITLE, body: "יש רכש מספק שממתין" },
     hrefPrefixes: ["/inventory/supplier-purchases"],
+  },
+  /* ── State producers (lib/notifications/producers/state-producers.ts — owner decisions 2026-11-13, A–E) ───────── */
+  {
+    // A. An obligation / future payment is due today, or is overdue (measured stages: day 1, 3, 7, then weekly — each
+    // stage its own dedupe key). The secretary already shows it, so by default it is NOT an interruption: in-app and
+    // the 08:00 daily summary only (one touch a day, never the secretary AND a push on the same day). No feature key:
+    // the secretary / payables are always on, and the fact exists only where the owner recorded an obligation.
+    // Cooldown 7 days: a stage key is told at most once while it lasts (the longest stage is a week).
+    key: "obligations.due",
+    domain: "obligations",
+    featureKey: null,
+    importance: "normal",
+    defaults: { inApp: true, push: false, delivery: "digest" },
+    quietBypass: false,
+    rateExempt: false,
+    userMutable: { inApp: true, push: true, delivery: true },
+    cooldownHours: 7 * 24,
+    ttlMinutes: 12 * 60,
+    lockScreen: { title: GENERIC_PUSH_TITLE, body: "יש תשלום שמחכה לטיפול" },
+    hrefPrefixes: ["/secretary", "/payables"],
+  },
+  {
+    // B. A payment request the customer did not complete: the provider verified FAILED (on a link that was really
+    // sent), or the link's lifetime ended more than a day ago with no payment and no verification pending — and the
+    // money did not arrive by another path. The owner must act (resend / call the customer): push by default. Not
+    // urgent enough to break quiet hours (nothing is lost overnight; the worker defers it to the quiet end).
+    key: "payments.request_failed",
+    domain: "payments",
+    featureKey: null,
+    importance: "high",
+    defaults: { inApp: true, push: true, delivery: "instant" },
+    quietBypass: false,
+    rateExempt: false,
+    userMutable: { inApp: true, push: true, delivery: true },
+    cooldownHours: 72,
+    ttlMinutes: 12 * 60,
+    lockScreen: { title: GENERIC_PUSH_TITLE, body: "בקשת תשלום לא הושלמה" },
+    hrefPrefixes: ["/payments", "/collection"],
+  },
+  {
+    // C. An issued invoice that needs an ITA allocation number and cannot get one without a person: the request
+    // failed / was rejected / its outcome is uncertain, the authority withheld it pending a decision, or it is stuck
+    // beyond the documented threshold. Only while the PRODUCTION integration is really on for the business. The
+    // invoice cannot be delivered: push by default; quiet hours respected (the worker defers to the quiet end).
+    key: "billing.allocation_failed",
+    domain: "billing",
+    featureKey: PLATFORM_FEATURE_KEYS.BILLING,
+    importance: "high",
+    defaults: { inApp: true, push: true, delivery: "instant" },
+    quietBypass: false,
+    rateExempt: false,
+    userMutable: { inApp: true, push: true, delivery: true },
+    cooldownHours: 24,
+    ttlMinutes: 12 * 60,
+    lockScreen: { title: GENERIC_PUSH_TITLE, body: "יש חשבונית שממתינה למספר הקצאה" },
+    hrefPrefixes: ["/billing"],
+  },
+  {
+    // D. A document whose processing failed (status `failed`): the pipeline never retries on its own — only a person
+    // pressing "retry" re-runs it. Backlog, never an interruption: in-app + daily summary.
+    key: "documents.processing_failed",
+    domain: "documents",
+    featureKey: PLATFORM_FEATURE_KEYS.DOCUMENTS,
+    importance: "normal",
+    defaults: { inApp: true, push: false, delivery: "digest" },
+    quietBypass: false,
+    rateExempt: false,
+    userMutable: { inApp: true, push: true, delivery: true },
+    cooldownHours: 72,
+    ttlMinutes: 12 * 60,
+    lockScreen: { title: GENERIC_PUSH_TITLE, body: "יש מסמך שהעיבוד שלו לא הצליח" },
+    hrefPrefixes: ["/documents"],
+  },
+  {
+    // E. A confirmed appointment starts within the lead time (catalog default: 60 minutes before). A reminder is only
+    // worth anything on the device: push by default. NOT a quiet-hours bypass (the time was not set by the user as a
+    // reminder): the worker defers it to the quiet end, and the 30-minute TTL drops it if that is after the start.
+    key: "appointments.upcoming",
+    domain: "appointments",
+    featureKey: PLATFORM_FEATURE_KEYS.APPOINTMENTS,
+    importance: "high",
+    defaults: { inApp: true, push: true, delivery: "instant" },
+    quietBypass: false,
+    rateExempt: false,
+    userMutable: { inApp: true, push: true, delivery: true },
+    cooldownHours: 24,
+    ttlMinutes: 30,
+    lockScreen: { title: GENERIC_PUSH_TITLE, body: "יש לך תור בקרוב" },
+    hrefPrefixes: ["/calendar"],
   },
   {
     key: "security.new_device",
@@ -340,7 +446,9 @@ export const LEGACY_CLASSIFICATION_RULES: readonly ClassificationRule[] = [
   // lib/services/booking/booking-notify.ts (BOOKING_DOMAIN / BOOKING_ENTITY).
   { category: "booking.request_waiting", domain: "appointments", entityTypes: ["booking_request"] },
   // lib/accountant/notify.ts — rides the documents domain.
-  { category: "accountant.send_failed", domain: "documents", entityTypes: ["accountant_period_send_failed"] },
+  // …and a recipient's complaint (spam report) about the package (lib/accountant/notify.ts COMPLAINT_ENTITY_TYPE):
+  // the accountant did not really receive the month either.
+  { category: "accountant.send_failed", domain: "documents", entityTypes: ["accountant_period_send_failed", "accountant_delivery_complained"] },
   { category: "accountant.month_close", domain: "documents", entityTypes: ACCOUNTANT_MONTH_ENTITY_TYPES },
   // lib/notifications/documents-review-queue-notifications.ts and the documents translator.
   { category: "documents.review", domain: "documents", entityTypes: ["documents_review_queue", "document"] },

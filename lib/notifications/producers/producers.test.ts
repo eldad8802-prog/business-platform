@@ -89,7 +89,7 @@ async function main() {
   const cat = getCategory(CONNECTION_CATEGORY)!;
   for (const ref of [GMAIL, WA]) {
     const e = connectionDisconnectedEvent(ref, NOW);
-    ok(`${ref.provider}: category connections.disconnected`, e.category === "connections.disconnected");
+    ok(`${ref.provider}: category connections.account_disconnected`, e.category === "connections.account_disconnected");
     ok(`${ref.provider}: dedupe per connection`, e.dedupeKey === `conn:${ref.provider}:${ref.connectionId}` && e.dedupeKey === connectionDedupeKey(ref));
     ok(`${ref.provider}: entity = the connection`, e.entity.type === `${ref.provider}_connection` && e.entity.id === ref.connectionId);
     ok(`${ref.provider}: whole business, the catalog cooldown (24 h)`, e.userId === null && e.cooldownHours === undefined && cat.cooldownHours === 24);
@@ -97,12 +97,12 @@ async function main() {
     const text = `${e.title} ${e.summary ?? ""}`;
     ok(`${ref.provider}: text names nobody (no digits, no @, no phone)`, !/[0-9@+]/.test(text), text);
     const row: ClassifiableRow = { domain: cat.domain, semanticCategory: e.category, severity: "MEDIUM", entityType: e.entity.type };
-    ok(`${ref.provider}: the stored row classifies back to its category`, classifyNotification(row)?.key === "connections.disconnected");
+    ok(`${ref.provider}: the stored row classifies back to its category`, classifyNotification(row)?.key === "connections.account_disconnected");
     const push = buildPushMessage(cat, { id: 1, title: e.title, summary: e.summary ?? null, href: e.href, entityType: e.entity.type, entityId: e.entity.id }, { lockScreenDetails: false, ttlSeconds: 60 });
     ok(`${ref.provider}: push = generic lock-screen text (no stored title / summary)`, push.title === cat.lockScreen.title && push.body === cat.lockScreen.body);
   }
   ok("gmail and whatsapp keys never collide", connectionDedupeKey(GMAIL) !== connectionDedupeKey({ provider: "whatsapp", connectionId: 31 }));
-  ok("connections.disconnected: in-app by default, push only if a user opts in", cat.defaults.inApp && !cat.defaults.push && categoryMayPush(cat));
+  ok("connections.account_disconnected: in-app by default, no feature gate (only businesses with such a connection), push only if a user opts in", cat.featureKey === null && cat.defaults.inApp && !cat.defaults.push && categoryMayPush(cat)); ok("connections.disconnected (lead intake): still behind intake_status_visibility", getCategory("connections.disconnected")?.featureKey === "intake_status_visibility");
 
   console.log("2. record");
   {
