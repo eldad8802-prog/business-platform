@@ -39,6 +39,7 @@ on:
       - "public/sw.js"
       - ".appt/ui-*"
       - ".bkg/lab.sh"
+      - ".nte/lab.sh"
       - ".appt/b-followups-battery.ts"
       - ".appt/open-all-*"
       - "prisma/migrations/20261115100000_appointments_open_all/**"
@@ -50,6 +51,11 @@ on:
 
 permissions:
   contents: read
+
+env:
+  # The TypeScript check (tsc / next build) needs more than Node's default ~4 GB heap on this codebase: main alone sits at
+  # the limit (clean build, Node 22). The runner has 16 GB. Measured 2026-11-14 on CI preview #1160.
+  NODE_OPTIONS: --max-old-space-size=6144
 
 jobs:
   unit:
@@ -143,6 +149,9 @@ jobs:
         run: |
           set -euo pipefail
           bash .bkg/lab.sh appt_ui --with-bkg
+          # The notification engine foundation (20261210090000) onto it: the lab rebuilds "PushSubscription" from the
+          # task reminders migration, and the schema models the columns 20261210090000 adds.
+          NTE_ONTO=1 bash .nte/lab.sh appt_ui --with-nte
 
       - name: Seed — through the real services AS the runtime role
         run: npx tsx .appt/ui-seed.ts

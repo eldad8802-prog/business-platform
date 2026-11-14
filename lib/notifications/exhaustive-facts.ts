@@ -41,6 +41,7 @@
 import { prisma } from "@/lib/prisma";
 import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { loadLeadAttentionQueue, type LeadAttentionRaw } from "@/lib/services/crm/lead-attention-queue";
 
 declare const EXHAUSTIVE: unique symbol;
 
@@ -109,4 +110,67 @@ export async function loadAllUnresolvedInventoryAlertIdentities(
       select: { id: true, type: true, itemId: true },
     }),
   );
+}
+
+/* ── status sweep (lib/notifications/producers/status-sweep.ts) ─────────────────────────────────────────────────
+ *
+ * The same predicates the business-status loaders use (lib/business-status/loaders.ts loadBillingPendingReview,
+ * loadBillingPdfFailed, loadSupplierPurchasesPending), minus their `take` / ordering and minus every rendering
+ * column: identifiers only, read-only, inside the caller's tenant transaction. The sweep resolves an open
+ * notification of these scopes only when its entity is absent from THESE sets — never from the capped snapshot.
+ * The status-sweep test pins each predicate against its loader so the two cannot drift apart.
+ */
+
+/** EVERY billing document of the business waiting for review (status PENDING_REVIEW). No cap. */
+export async function loadAllBillingPendingReviewIds(businessId: number): Promise<number[]> {
+  const rows = await dbStep((db) =>
+    db.billingDocument.findMany({ where: { businessId, status: "PENDING_REVIEW" }, select: { id: true } }),
+  );
+  return rows.map((r) => r.id);
+}
+
+/** EVERY billing document of the business whose PDF failed to render (pdfRenderStatus FAILED). No cap. */
+export async function loadAllBillingPdfFailedIds(businessId: number): Promise<number[]> {
+  const rows = await dbStep((db) =>
+    db.billingDocument.findMany({ where: { businessId, pdfRenderStatus: "FAILED" }, select: { id: true } }),
+  );
+  return rows.map((r) => r.id);
+}
+
+/** EVERY supplier purchase draft of the business waiting for review (status PENDING_REVIEW). No cap. */
+export async function loadAllSupplierPurchasePendingIds(businessId: number): Promise<number[]> {
+  const rows = await dbStep((db) =>
+    db.supplierPurchaseDraft.findMany({ where: { businessId, status: "PENDING_REVIEW" }, select: { id: true } }),
+  );
+  return rows.map((r) => r.id);
+}
+
+/**
+ * EVERY open lead the shared attention queue (lib/services/crm/lead-attention-queue.ts — the contract Attention, the
+ * leads badge and the agenda read) says wants the owner, with whether that read was COMPLETE. Above the queue's
+ * candidate cap it is a best-effort slice (`overflow`): then `complete` is false and the caller must not resolve
+ * anything from absence.
+ */
+export async function loadAllLeadAttentionIds(businessId: number, now: Date): Promise<{ ids: number[]; complete: boolean }> {
+  const queue = await dbStep((db) => loadLeadAttentionQueue(db, businessId, now));
+  return { ids: queue.items.map((i) => i.row.id), complete: !queue.overflow };
+}
+
+/**
+ * The lead attention queue read ONCE for the status sweep: the display rows (exactly what loadLeadsNeedingAttention
+ * hands the translator — the first BS_LEADS_CAP * 3 of the urgency-ordered queue) AND the uncapped identifier set
+ * with its completeness, from the same single read. The sweep used to run the queue twice per business (the snapshot
+ * loader and loadAllLeadAttentionIds); the predicate and the ordering are the queue's own, unchanged.
+ */
+export async function loadLeadAttentionForSweep(
+  businessId: number,
+  now: Date,
+  displayCap: number,
+): Promise<{ rows: LeadAttentionRaw[]; ids: number[]; complete: boolean }> {
+  const queue = await dbStep((db) => loadLeadAttentionQueue(db, businessId, now));
+  return {
+    rows: queue.items.slice(0, displayCap).map((i) => i.row),
+    ids: queue.items.map((i) => i.row.id),
+    complete: !queue.overflow,
+  };
 }

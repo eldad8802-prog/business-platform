@@ -33,7 +33,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid notification id" }, { status: 400 });
     }
 
-    const result = await markNotificationRead(user.businessId, notificationId, new Date());
+    const result = await markNotificationRead(user.businessId, notificationId, new Date(), { userId: user.id });
 
     // An id that is not this tenant's is indistinguishable from one that does
     // not exist. That is deliberate: a 403 here would confirm the row exists.

@@ -1,0 +1,182 @@
+# Notifications: stuck documents + personal appointment lead time / migration
+# 20261213090000_notification_docs_stuck_appointment_lead — proof on PostgreSQL BEFORE it reaches Production (ephemeral
+# PG17). DEPENDS ON 20261212090000_notification_engine_activation (PR 2c) → 20261211090000 (PR 2b) → 20261210090000
+# (PR #1143): the lab chains the activation lab, so this migration meets exactly what it builds on ("Document" with its
+# FORCE RLS and policies, "NotificationSettings" of the foundation, the role topology).
+#
+# .nte2d/lab.sh chains .nte2c/lab.sh --with-nte2c (→ .nte2 → .nte: Production's role topology, the owner's DEFAULT
+# PRIVILEGES, FORCE RLS, the three notification migrations applied by `prisma migrate deploy`).
+#
+#   0. Evidence files are SELECT-only and selectable in Production; the proof pins migration.sql's sha256; the
+#      migration names only "Document" and "NotificationSettings"; expand-only (ALTER TABLE only ADD COLUMN / ADD
+#      CONSTRAINT, no UPDATE / DELETE / DROP / TRUNCATE / ALTER FUNCTION).
+#   1. Baseline (activation applied, this migration pending): the PREFLIGHT passes (8, 9 are INFO); the proof refuses.
+#   2. `prisma migrate deploy` applies it (with rows written before the release, NTE2D_SEED): proof 15/15 (13 + the two
+#      visibility checks); the preflight then fails exactly its "not there yet" checks.
+#   3. Faults: each injected defect is caught by the proof check meant for it.
+#   4. Battery (.nte2d/battery.ts) as the real roles: history unstamped, catalog, the trigger through the
+#      application's own statements (upload, pipeline, retry, approve, source missing), RLS unchanged, the lead-time
+#      CHECK, erasure cascade, backward compatibility.
+#   5. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: notifications — docs + appointments migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261213090000_notification_docs_stuck_appointment_lead/**"
+      - "ops/evidence/notification-docs-appointments-*.sql"
+      - ".nte2d/**"
+      - ".github/workflows/notification-docs-appointments-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: notifications docs + appointments (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: nte2d_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: nte2d_ci_synthetic_super_pw
+      LAB_PASSWORD: nte2d_ci_synthetic_role_pw
+      CHECKPOINT_DISABLE: "1"
+      PREFLIGHT: ops/evidence/notification-docs-appointments-preflight.sql
+      EVIDENCE: ops/evidence/notification-docs-appointments-production-evidence.sql
+      NTE2D: prisma/migrations/20261213090000_notification_docs_stuck_appointment_lead/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable in Production; checksum pinned; the migration names only Document and NotificationSettings; expand-only
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          node scripts/ci/evidence-output-guard.mjs   # assert-shaped output only (public logs)
+          sum=$(sha256sum "$NTE2D" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum ($sum)"; exit 1; }
+          echo "$NTE2D sha256 $sum (pinned)"
+          body=$(grep -vE '^\s*--' "$NTE2D")
+          others=$(echo "$body" | grep -oE '"[A-Z][A-Za-z_]*"' | sort -u | grep -vxE '"Document"|"NotificationSettings"|"Document_status_changed_at"|"NotificationSettings_appointment_reminder"' || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          echo "the migration names only Document and NotificationSettings (and its own trigger / check)"
+          if echo "$body" | grep -qiE '^\s*(DROP|ALTER FUNCTION|DELETE|TRUNCATE|UPDATE|INSERT)\b'; then echo "not expand-only"; exit 1; fi
+          if echo "$body" | grep -iE '^\s*ALTER TABLE\b' | grep -qviE 'ADD (COLUMN|CONSTRAINT)'; then echo "ALTER TABLE other than ADD COLUMN / ADD CONSTRAINT"; exit 1; fi
+          if echo "$body" | grep -iE 'ADD COLUMN' | grep -qiE 'NOT NULL|DEFAULT'; then echo "a new column with NOT NULL / DEFAULT (rewrite or narrowing)"; exit 1; fi
+          echo "expand-only: two nullable columns without default, one CHECK, one trigger function, one trigger"
+
+      - name: 1. Baseline (activation applied, this migration pending) — PREFLIGHT passes; the proof refuses
+        run: |
+          set -euo pipefail
+          bash .nte2d/lab.sh nte2d_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d nte2d_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/pre.out; then echo "preflight FAILS on the baseline"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "7" || { echo "expected 7 PASS"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| INFO' /tmp/pre.out)" = "2" || { echo "expected 2 INFO"; exit 1; }
+          if lab -f "$EVIDENCE" 2>/dev/null | grep -qE '^ +1 \| PASS'; then echo "the proof passed before the migration"; exit 1; fi
+          echo "the proof refuses on the baseline"
+
+      - name: 2. prisma migrate deploy applies it — proof 15/15; preflight fails exactly its "not there yet" checks
+        run: |
+          set -euo pipefail
+          NTE_SEED=.nte/seed.sql NTE2C_SEED=.nte2c/seed.sql NTE2D_SEED=.nte2d/seed.sql bash .nte2d/lab.sh nte2d_post --with-nte2d | tee /tmp/post.log
+          grep -q 'Applying migration `20261213090000_notification_docs_stuck_appointment_lead`' /tmp/post.log
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d nte2d_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "15" || { echo "expected 15 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "1 5 " || { echo "after the release: expected '1 5 ', got: $fails"; exit 1; }
+
+      - name: 3. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d nte2d_post -v ON_ERROR_STOP=1 "$@"; }
+          su() { psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d nte2d_post -c "$1"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test "$(failing)" = "" || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            su "$3"; got=$(failing); su "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          D='"Document"'; NS='"NotificationSettings"'; TG='"Document_status_changed_at"'
+          FN='public.document_status_changed_at()'
+          CHK='"NotificationSettings_appointment_reminder"'
+          CHKDEF='CHECK ("appointmentReminderMinutes" IS NULL OR "appointmentReminderMinutes" IN (30, 60, 120, 1440))'
+          fault "a default on the new column" "4 " "ALTER TABLE $D ALTER COLUMN \"statusChangedAt\" SET DEFAULT now()" "ALTER TABLE $D ALTER COLUMN \"statusChangedAt\" DROP DEFAULT"
+          fault "the check not validated" "5 " "ALTER TABLE $NS DROP CONSTRAINT $CHK; ALTER TABLE $NS ADD CONSTRAINT $CHK $CHKDEF NOT VALID" "ALTER TABLE $NS DROP CONSTRAINT $CHK; ALTER TABLE $NS ADD CONSTRAINT $CHK $CHKDEF"
+          fault "the check widened" "5 " "ALTER TABLE $NS DROP CONSTRAINT $CHK; ALTER TABLE $NS ADD CONSTRAINT $CHK CHECK (\"appointmentReminderMinutes\" IS NULL OR \"appointmentReminderMinutes\" > 0)" "ALTER TABLE $NS DROP CONSTRAINT $CHK; ALTER TABLE $NS ADD CONSTRAINT $CHK $CHKDEF"
+          fault "function SECURITY DEFINER" "6 " "ALTER FUNCTION $FN SECURITY DEFINER" "ALTER FUNCTION $FN SECURITY INVOKER"
+          fault "function search_path not pinned" "6 " "ALTER FUNCTION $FN RESET search_path" "ALTER FUNCTION $FN SET search_path = pg_catalog, public, pg_temp"
+          fault "EXECUTE for PUBLIC" "7 " "GRANT EXECUTE ON FUNCTION $FN TO PUBLIC" "REVOKE EXECUTE ON FUNCTION $FN FROM PUBLIC"
+          fault "the trigger disabled" "8 " "ALTER TABLE $D DISABLE TRIGGER $TG" "ALTER TABLE $D ENABLE TRIGGER $TG"
+          fault "the trigger narrowed to status only" "8 " \
+            "DROP TRIGGER $TG ON $D; CREATE TRIGGER $TG BEFORE INSERT OR UPDATE OF \"status\" ON $D FOR EACH ROW EXECUTE FUNCTION $FN" \
+            "DROP TRIGGER $TG ON $D; CREATE TRIGGER $TG BEFORE INSERT OR UPDATE OF \"status\", \"statusChangedAt\" ON $D FOR EACH ROW EXECUTE FUNCTION $FN"
+          fault "Document RLS not forced" "9 " "ALTER TABLE $D NO FORCE ROW LEVEL SECURITY" "ALTER TABLE $D FORCE ROW LEVEL SECURITY"
+          fault "an extra policy on Document" "9 " "CREATE POLICY lab_extra ON $D FOR SELECT USING (true)" "DROP POLICY lab_extra ON $D"
+          fault "the admin reads the new column" "10 " "GRANT SELECT (\"statusChangedAt\") ON $D TO app_admin" "REVOKE SELECT (\"statusChangedAt\") ON $D FROM app_admin"
+          fault "NotificationSettings RLS not forced" "11 " "ALTER TABLE $NS NO FORCE ROW LEVEL SECURITY" "ALTER TABLE $NS FORCE ROW LEVEL SECURITY"
+          fault "a stamp older than the release" "13 " \
+            "ALTER TABLE $D DISABLE TRIGGER $TG; UPDATE $D SET \"statusChangedAt\" = '2026-01-01' WHERE \"id\" = (SELECT min(\"id\") FROM $D); ALTER TABLE $D ENABLE TRIGGER $TG" \
+            "ALTER TABLE $D DISABLE TRIGGER $TG; UPDATE $D SET \"statusChangedAt\" = NULL WHERE \"id\" = (SELECT min(\"id\") FROM $D); ALTER TABLE $D ENABLE TRIGGER $TG"
+          test "$(failing)" = "" || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 4. Battery — history, catalog, the trigger through the application's statements, RLS, the CHECK (real roles)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/nte2d_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte2d_post" \
+            npx tsx .nte2d/battery.ts
+
+      - name: 5. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .nte2d/lab.sh nte2d_broken --broken-nte2d
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d nte2d_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -c "SELECT (SELECT count(*) FROM pg_attribute WHERE attrelid = '\"Document\"'::regclass AND attname = 'statusChangedAt' AND NOT attisdropped)
+            + (SELECT count(*) FROM pg_attribute WHERE attrelid = '\"NotificationSettings\"'::regclass AND attname = 'appointmentReminderMinutes' AND NOT attisdropped)
+            + (SELECT count(*) FROM pg_proc WHERE proname = 'document_status_changed_at')
+            + (SELECT count(*) FROM pg_trigger WHERE tgname = 'Document_status_changed_at')
+            + (SELECT count(*) FROM pg_constraint WHERE conname = 'NotificationSettings_appointment_reminder')")
+          led=$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261213090000_notification_docs_stuck_appointment_lead' AND finished_at IS NULL")
+          found=$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261212090000_notification_engine_activation' AND finished_at IS NOT NULL")
+          echo "objects left=$left unfinished ledger rows=$led activation applied=$found"
+          test "$left" = "0" && test "$led" = "1" && test "$found" = "1" || { echo "NOT atomic"; exit 1; }

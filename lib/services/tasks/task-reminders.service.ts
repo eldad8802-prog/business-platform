@@ -23,11 +23,13 @@
  */
 import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
-import { sendWebPush, type PushPayload } from "@/lib/push/web-push-sender";
+import type { PushPayload } from "@/lib/push/web-push-sender";
+import { deliverLegacyPush } from "@/lib/notifications/push/push-sender";
 import { clockLabel } from "./task-schedule";
 import { dbDateToDayKey } from "./task-core";
 import { dailyTasksEnabled } from "./tasks-http";
 import { withConnectionRetry } from "@/lib/db/transient-retry";
+import { evictDeadConnections } from "@/lib/db/connection-recovery";
 
 export const REMINDER_DOMAIN = "tasks";
 export const REMINDER_CATEGORY = "task_reminder";
@@ -47,6 +49,75 @@ export async function dueReminders(now: Date, limit = BATCH): Promise<DueReminde
   const rows = await prisma.$queryRaw<{ businessId: number; taskId: number; remindAt: Date }[]>`
     SELECT "businessId", "taskId", "remindAt" FROM public.task_reminders_due(${toUtcTimestamp(now)}::timestamp(3), ${limit}::int)`;
   return rows.map((r) => ({ businessId: Number(r.businessId), taskId: Number(r.taskId), remindAt: fromUtcTimestamp(r.remindAt) }));
+}
+
+/**
+ * The same due reminders with some businesses left out (task_reminders_due_excluding, migration
+ * 20261211090000_notification_engine_followup). DEPLOY ORDER: this code ships only after that migration is applied;
+ * if the function is missing anyway, the global pass keeps its first read's flag-on reminders (collectDueSkippingOff).
+ */
+export async function dueRemindersExcluding(now: Date, limit: number, exclude: number[]): Promise<DueReminder[]> {
+  const rows = await prisma.$queryRaw<{ businessId: number; taskId: number; remindAt: Date }[]>`
+    SELECT "businessId", "taskId", "remindAt"
+      FROM public.task_reminders_due_excluding(${toUtcTimestamp(now)}::timestamp(3), ${limit}::int, ${exclude}::int[])`;
+  return rows.map((r) => ({ businessId: Number(r.businessId), taskId: Number(r.taskId), remindAt: fromUtcTimestamp(r.remindAt) }));
+}
+
+/** At most this many reads per global pass, and at most this many businesses left out of one read. */
+export const STARVATION_MAX_ROUNDS = 5;
+export const STARVATION_MAX_EXCLUDED = 1000;
+
+/**
+ * The GLOBAL pass's read, without starvation: a business whose `daily_tasks` is OFF keeps its reminders due forever
+ * (never claimed — correct), and in the global top-N by remindAt they would fill the batch ahead of every other
+ * business. So: read; if the batch holds flag-off businesses, read again with them left out (bounded rounds);
+ * return only reminders of flag-on businesses. Nothing is sent to, claimed in or written for a flag-off business,
+ * and their reminders' data is not touched. Pure over its two seams (the read and the flag).
+ */
+export async function collectDueSkippingOff(
+  read: (exclude: number[]) => Promise<DueReminder[]>,
+  isOn: (businessId: number) => Promise<boolean>,
+  opts: { limit: number; maxRounds?: number; maxExcluded?: number },
+): Promise<{ due: DueReminder[]; rounds: number; excluded: number[] }> {
+  const maxRounds = Math.max(1, opts.maxRounds ?? STARVATION_MAX_ROUNDS);
+  const maxExcluded = Math.max(0, opts.maxExcluded ?? STARVATION_MAX_EXCLUDED);
+  const flag = new Map<number, boolean>();
+  const on = async (b: number) => {
+    if (!flag.has(b)) {
+      let v = false;
+      try {
+        v = await isOn(b);
+      } catch {
+        v = false; // fail closed: an unreadable flag counts as OFF for this pass
+      }
+      flag.set(b, v);
+    }
+    return flag.get(b)!;
+  };
+  const excluded: number[] = [];
+  let kept: DueReminder[] = [];
+  let rounds = 0;
+  while (rounds < maxRounds) {
+    let rows: DueReminder[];
+    try {
+      rows = await read([...excluded]);
+    } catch (error) {
+      if (rounds === 0) throw error; // the first read is the plain one: its failure is the caller's (retry) concern
+      break; // a re-read failed (e.g. the function is not there yet): keep what the previous round found
+    }
+    rounds += 1;
+    const offs: number[] = [];
+    kept = [];
+    for (const r of rows) {
+      if (await on(r.businessId)) kept.push(r);
+      else if (!offs.includes(r.businessId)) offs.push(r.businessId);
+    }
+    if (offs.length === 0 || rows.length < opts.limit) break; // no flag-off noise, or nothing more is due
+    const room = maxExcluded - excluded.length;
+    if (room <= 0) break;
+    excluded.push(...offs.slice(0, room));
+  }
+  return { due: kept, rounds, excluded };
 }
 
 /** Claim, record and push one reminder. Safe to call twice and concurrently: only one call sends. */
@@ -82,8 +153,10 @@ export async function dispatchReminder(due: DueReminder, now: Date): Promise<Dis
       data: { businessId: due.businessId, notificationId: notification.id, channel: "IN_APP", status: "SENT", attemptedAt: now, createdAt: now },
     });
     const userId = task.assigneeUserId ?? task.createdByUserId;
+    // Web push devices only (an https endpoint — every row that exists today): an Android app device (FCM,
+    // endpoint fcm:<token>, notification engine) is reached by the engine's worker, never by this loop.
     const subscriptions = await tx.pushSubscription.findMany({
-      where: { businessId: due.businessId, revokedAt: null, ...(userId ? { userId } : {}) },
+      where: { businessId: due.businessId, revokedAt: null, endpoint: { startsWith: "https://" }, ...(userId ? { userId } : {}) },
       select: { id: true, endpoint: true, p256dh: true, auth: true },
       take: 20,
     });
@@ -101,33 +174,58 @@ export async function dispatchReminder(due: DueReminder, now: Date): Promise<Dis
     tag: `task-${claimed.task.id}`,
     taskId: claimed.task.id,
   };
-  const results = await Promise.all(claimed.subscriptions.map(async (s) => ({ s, out: await sendWebPush(s, payload) })));
-  await tenantTx(due.businessId, async (tx) => {
-    for (const { s, out } of results) {
-      await tx.notificationDelivery.create({
-        data: {
-          businessId: due.businessId, notificationId: claimed.notificationId, channel: "PUSH",
-          status: out.ok ? "SENT" : "FAILED", attemptedAt: now, createdAt: now,
-          error: out.ok ? null : `push_${out.status ?? "error"}`,
-        },
-      });
-      await tx.pushSubscription.updateMany({
-        where: { id: s.id, businessId: due.businessId },
-        data: out.ok
-          ? { lastSuccessAt: now, failureCount: 0 }
-          : { lastFailureAt: now, failureCount: { increment: 1 }, ...(out.gone ? { revokedAt: now } : {}) },
-      });
-    }
-  });
-  const pushed = results.filter((r) => r.out.ok).length;
-  return { taskId: due.taskId, result: "sent", pushed, pushFailed: results.length - pushed };
+  // The shared sender (lib/notifications/push/push-sender.ts): the same send, the same delivery rows and bookkeeping.
+  const out = await deliverLegacyPush(due.businessId, claimed.notificationId, claimed.subscriptions, payload, now);
+  return { taskId: due.taskId, result: "sent", pushed: out.pushed, pushFailed: out.failed };
 }
 
+/**
+ * The caller's OWN business's due reminders (the in-app poll), read inside its tenant transaction — RLS sees only that
+ * business, so another business's reminders can neither crowd it out nor leak in. Same conditions as
+ * task_reminders_due(); the business is live by construction (the session gate refuses a business in deletion).
+ */
+export async function dueRemindersForBusiness(businessId: number, now: Date, limit = BATCH): Promise<DueReminder[]> {
+  const rows = await tenantTx(businessId, (tx) =>
+    tx.task.findMany({
+      where: { businessId, status: "OPEN", remindAt: { not: null, lte: now }, reminderSentAt: null, erasedAt: null },
+      orderBy: [{ remindAt: "asc" }, { id: "asc" }],
+      take: limit,
+      select: { id: true, businessId: true, remindAt: true },
+    }),
+  );
+  return rows.map((r) => ({ businessId: r.businessId, taskId: r.id, remindAt: r.remindAt! }));
+}
+
+/**
+ * The backstop's lag: it only picks up reminders already this late, so while QStash (an exact-moment message per
+ * reminder + a 5-minute schedule) is healthy the backstop finds nothing to do. Must stay above the schedule's cadence.
+ */
+export const BACKSTOP_LAG_MINUTES = 7;
+
+export type DispatchPassOptions = { onlyBusinessId?: number; minLagMinutes?: number };
+
 /** One dispatcher pass: every due reminder (bounded), optionally for one business only (the in-app poll). */
-export async function dispatchDueReminders(now: Date, onlyBusinessId?: number): Promise<{ due: number; sent: number; skipped: number; pushed: number; pushFailed: number }> {
-  // A dropped pooled connection fails this first read now and then; it only lists identifiers (nothing is claimed or
-  // written), so reading again is safe. The claim below stays the one guard against a double send.
-  const due = (await withConnectionRetry(() => dueReminders(now), { label: "task-reminders.due" })).filter((d) => onlyBusinessId === undefined || d.businessId === onlyBusinessId);
+export async function dispatchDueReminders(now: Date, onlyBusinessIdOrOptions?: number | DispatchPassOptions): Promise<{ due: number; sent: number; skipped: number; pushed: number; pushFailed: number }> {
+  const opts: DispatchPassOptions = typeof onlyBusinessIdOrOptions === "number" ? { onlyBusinessId: onlyBusinessIdOrOptions } : onlyBusinessIdOrOptions ?? {};
+  const lagMs = Math.max(0, Math.floor(opts.minLagMinutes ?? 0)) * 60_000;
+  const cutoff = new Date(now.getTime() - lagMs);
+  // A dropped pooled connection fails this first read now and then — several pooled connections can be dead at once
+  // after an idle stretch, so the retry first evicts them (connection-recovery.ts) and waits a little longer. The read
+  // only lists identifiers (nothing is claimed or written), so reading again is safe. The claim below stays the one
+  // guard against a double send. If every attempt fails, nothing was claimed: every reminder stays due for the next pass.
+  const first = await withConnectionRetry(
+    () => (opts.onlyBusinessId !== undefined ? dueRemindersForBusiness(opts.onlyBusinessId, cutoff) : dueReminders(cutoff)),
+    { label: "task-reminders.due", attempts: 3, delayMs: 500, beforeRetry: () => evictDeadConnections(() => (opts.onlyBusinessId !== undefined ? dueRemindersForBusiness(opts.onlyBusinessId, cutoff, 1) : dueReminders(cutoff, 1))) },
+  );
+  // The global pass leaves flag-off businesses out (re-reading without them) so they cannot starve the others. The
+  // per-business poll reads one business only and needs none of this.
+  const due = opts.onlyBusinessId !== undefined
+    ? first
+    : (await collectDueSkippingOff(
+        (exclude) => (exclude.length === 0 ? Promise.resolve(first) : dueRemindersExcluding(cutoff, BATCH, exclude)),
+        (b) => dailyTasksEnabled(b),
+        { limit: BATCH },
+      )).due;
   let sent = 0, skipped = 0, pushed = 0, pushFailed = 0;
   for (const d of due) {
     try {

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useI18n } from "@/components/i18n/I18nProvider";
-import { SETTINGS_CATEGORIES, SETTINGS_GROUP_ORDER, SETTINGS_GROUP_TITLE_KEYS } from "./settings-categories";
+import { isCategoryListed, SETTINGS_CATEGORIES, SETTINGS_GROUP_ORDER, SETTINGS_GROUP_TITLE_KEYS } from "./settings-categories";
+import { useSettingsFeatures } from "./use-settings-features";
 import styles from "../../app/settings/settings-desk.module.css";
 
 /**
@@ -15,6 +16,7 @@ import styles from "../../app/settings/settings-desk.module.css";
 export function SettingsRail() {
   const path = usePathname() || "";
   const { t } = useI18n();
+  const featureOn = useSettingsFeatures();
   const hubOn = path === "/settings";
   return (
     <nav aria-label={t("account.settings.rail.ariaLabel")} className={styles.rail}>
@@ -29,7 +31,7 @@ export function SettingsRail() {
       {SETTINGS_GROUP_ORDER.map((group) => (
         <div key={group} className={styles.railGroup}>
           <p className={styles.railHeading}>{t(SETTINGS_GROUP_TITLE_KEYS[group])}</p>
-          {SETTINGS_CATEGORIES.filter((item) => item.group === group).map((item) => {
+          {SETTINGS_CATEGORIES.filter((item) => item.group === group && isCategoryListed(item, featureOn)).map((item) => {
             const on = path === item.href || path.startsWith(`${item.href}/`);
             return (
               <Link

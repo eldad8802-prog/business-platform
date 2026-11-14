@@ -1,0 +1,83 @@
+{
+  "note": "Notification engine (notifications track PR 3; migration 20261210090000_notification_engine_foundation): catalog, preferences, quiet hours / digest time, the unified push sender (web push + FCM HTTP v1), notify(), the push worker, the daily digest, devices and the logout hooks — behind notifications_engine (OFF by default).",
+  "tests": {
+    "lib/notifications/catalog.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure: every category fully specified with generic lock-screen text naming nobody; quiet-hours bypass only for user-set reminders and explicitly urgent categories (never money); rate exemption bounded; security in-app not mutable; the existing writers' vocabulary maps to exactly one category, unknown rows never push; deep links internal and under the category prefix only (no scheme, //, .., encoded traversal); run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/preferences.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure: defaults ← domain ← category ← settings (the push master switch), non-mutable aspects never overridden, an unavailable feature makes a category inactive while its overrides are kept, unknown categories in-app only, strict validation (unknown fields, user / business ids, ranges, keys) of the self-service settings API; the appointment reminder lead time (30 / 60 / 120 / 1440 only, NULL = 60, a stored stray value reads as the default); run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/notification-time.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (Intl only): quiet hours and the digest moment in the business time zone across the Asia/Jerusalem March / October 2026 clock changes and America/New_York; the skipped and repeated hours; run on pull_request by notification-engine-ci.yml"
+    },
+    "lib/notifications/push/push.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure, fake fetch, a key generated in the test: FCM configuration from env only (missing ⇒ not_configured, no request), the RS256 service-account assertion verified, the cached access token, messages:send (PRIVATE Android notification, channel, data exactly notificationId / href / category), gone / transient / permanent classification, payload privacy (generic lock-screen text unless the user opted in, href fallback), web push through the unified sender (endpoint allowlist kept); run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/engine/worker-decision.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: the worker's decision table in the spec's order (resolved, expired — historical rows without expiresAt expire their TTL —, unknown, feature, preference, digest, quiet defer / bypass, rate limit), the 4/hour 15/day limit, the retry backoff and its end, device eligibility (FCM only with a live session), the clean-start cutover on the activation record (first activation stable, nothing created before it or while OFF pushable, one OFF→ON carries the previous ON period's quiet-hours deferrals and two toggles do not, moments only forward, unreadable record ⇒ held, the dry-run arithmetic) and the digest window (from the previous actual digest, 24 h first, 7 days cap, push rows for the current surfacing only); run on pull_request by notification-engine-ci.yml"
+    },
+    "lib/notifications/engine/engine-boundary.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "static: worker / digest routes on CRON_SECRET via decideCronAuth and scheduled exactly as schedule.ts declares; every self-service route takes the actor from the session behind notifications_engine and reads no user / business id from the request; no token, endpoint or text in a log; the logout / cookie-revoke / session-directory hooks run after the auth action through never-throwing wrappers writing PushSubscription via tenantTx only; the existing reminder loops go through the shared sender; run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/engine/schedule.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "static + pure (simulated clock): vercel.json schedules exactly the status sweep (every 15 min, off the quarter hour, rotation mode), the push worker (every 5 min) and the digest (every 15 min) as schedule.ts declares, the seven existing crons unchanged; overlap by construction — every scheduled route's maxDuration (60 s) shorter than its interval, CRON_SECRET via decideCronAuth, the worker's claim lease outliving any run, the sweep's per-business try-lock and budget, the digest's per-user-per-day dedupe key, no new client or session lock; the sweep's stateless rotation reaching every business within its group count (and within two cycles under churn); the digest exactly once at 08:00 local on the Israeli March / October 2026 clock-change days and a normal day for Asia/Jerusalem and Europe/London at a 15-minute cadence, skipped / repeated hours and an off-quarter minute; run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/producers/producers.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (fakes for the gate / tenant tx / notify / kick, stubbed fetch, static call-site checks): connections.disconnected (Gmail invalid_grant, WhatsApp REVOKED_BY_META) — engine OFF writes nothing, ON calls notify() once with the catalog category, per-connection dedupe, internal href and generic text (no address / phone / digits), the worker kick only for an owed push, failures swallowed with an error class only; the Gmail hook fires on invalid_grant only and never changes the thrown error; every call site schedules AFTER the domain write and returns nothing new; reconnect resolves only that connection; security.new_device is not produced; the existing writer-based notifiers (inbox, documents queue, inventory, intake, accountant) classify to catalog keys and under default preferences only inventory critical stock may reach a device; run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/engine/notification-engine.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "notification-engine-ci.yml",
+      "reason": "AS the restricted runtime on the real migrations 20261210090000 + 20261211090000 + 20261212090000 (fake push providers): create → deliver, dedupe, claim / lease under racing workers, transient retry and its end, invalid-token revoke, quiet defer and bypass, settings and restore defaults, feature off with overrides kept, whole-business fan-out to each user's own devices, device logout / all devices / ended session / token-version bump / account switch (same and across businesses) / rotation, two businesses and the engine kill switch, historical PENDING pushes expiring unsent, the writer's expiresAt, the daily digest (08:00, once, never empty, never repeating a push), clean start on the activation record (the override trigger's initial activation, pre-activation rows FAILED pre_cutover never sent, a global policy edit moves nothing, quiet-hours deferrals survive the policy edit and a kill-switch toggle while the kill-switch-period row is closed, the business's OFF→ON pushes nothing written while OFF, global-only enablement recorded once by the worker, a contradicted claim held, the table missing ⇒ held without a crash, the read-only dry run matching the worker, health counts, no deletion), digest windows (no repeat on consecutive days, between-digest item once, skipped day no loss, reopened item again once), the read side per viewer, cross-business isolation of settings; run on pull_request by notification-engine-ci.yml"
+    },
+    "lib/notifications/engine/scheduling-overlap.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "notification-engine-ci.yml",
+      "reason": "AS the restricted runtime on the real migrations 20261210090000 + 20261211090000 + 20261212090000 (fake providers): overlapping runs of the scheduled routes never double-send or double-write — three digest passes of the same tick ⇒ one digest per user with one owed push, the next tick nothing; three racing worker passes ⇒ each owed push claimed once; two concurrent rotation sweeps ⇒ one notification and one owed push for the fact, no error; run on pull_request by notification-engine-ci.yml (own lab database)"
+    },
+    "lib/notifications/producers/status-sweep.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (fakes for the gate / tenant / snapshot / writer / resolver / reconcilers): notifications_engine OFF ⇒ nothing; only the sweep's owned scopes (billing documents, leads, supplier drafts) with an available feature reach the existing writer and only where the existing policy grants a channel; resolution for exactly the three owned (domain, entityType) scopes from uncapped identifier sets (an incomplete lead read resolves nothing); present keys pinned to the real translators' dedupe keys and the loaders' predicates; every swept category has generic lock-screen text and the real push builder hides names / amounts / numbers; every policy rule maps to a catalog category (push iff the rule pushes); bounded run with keyset continuation; the narrow owned-scope reads (home snapshot loaders, no duplicate scan, one lead-queue read), the business pool (clamped, never above its size, a repeated id once, pooled continuation never skipping, exact counters), the worker kick only for an owed push; the CRON_SECRET route via decideCronAuth, scheduled once in rotation mode, counts-only logs; run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/producers/status-sweep.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "notification-engine-ci.yml",
+      "reason": "AS the restricted runtime on the real migration 20261210090000: the status sweep writes one whole-business notification per owned fact through the existing writer (only the billing failure owes a PUSH, with the catalog TTL), two businesses isolated (RLS), two users of one business see the same rows, a second pass inside the cooldown writes no delivery, approved / re-rendered facts resolve and nothing else, a returning fact reopens without a new delivery, billing DISABLED ⇒ no billing row and no billing resolution, engine OFF ⇒ nothing, the definer walk and the time budget; run on pull_request by notification-engine-ci.yml"
+    },
+    "lib/notifications/producers/state-producers.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (fakes for the tenant tx / notify): the state producers A–E — obligations due / overdue with measured stage keys (due, 1, 3, 7, weekly) in the business time zone incl. the October DST change, MET / released / postponed never; payment requests only in a terminal state (FAILED on a sent link, expired > 24 h with no verification pending) and never when paid by any path, re-asked or cancelled; ITA allocation problems (failed / rejected / uncertain / HELD undecided / stuck > 60 min, never a merely slow request) only with the PRODUCTION pilot on; document processing `failed`, or stuck in `processing` > 30 min after the attempt started (never inside an attempt, never an unstamped historical row; a retry is a new attempt); appointment reminders per user at THEIR lead (30 / 60 / 120 / the day before), created one 15-min sweep interval ahead with the owed push due at the exact moment and expiring at the start, precision ≤ 5 min with a 5-min worker at any phase, cancel / move / lead change / BLOCK, the day before = the same local time across both 2026 Asia/Jerusalem clock changes and New York; catalog defaults, no quiet-hours bypass, generic lock-screen push naming nobody, internal deep links; the runner: feature or integration off reads nothing, lock busy reads nothing, a failing producer rolls back to its savepoint, an incomplete read resolves nothing, resolution only within its own category; no domain write; run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "lib/notifications/producers/state-producers.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "notification-engine-ci.yml",
+      "reason": "AS the restricted runtime on the real migrations 20261210090000 … 20261213090000 (.nte2d lab): the sweep's state producers write one whole-business row per real fact (obligation due / overdue incl. a ledger commitment of its own and not the backfilled copy, failed / expired payment requests, failed document, appointment in 45 min — a personal row for the business's user, owed push due now and expiring at the start) and none for link-creation failures, requests paid by another request, grace-period links, processing documents, cancelled / later appointments, MET obligations; owed pushes with the catalog TTL; two businesses isolated (RLS); no new row or delivery on a second pass; resolve after handling (MET, paid elsewhere, retried, cancelled, rescheduled, next overdue stage); ITA only with the PRODUCTION pilot (SANDBOX / not admitted ⇒ nothing), FAILED and stuck but not fresh, APPROVED resolves; feature off and engine OFF ⇒ nothing; the per-business advisory lock skips without loss; BookingSettings time zone and the Asia/Jerusalem October DST day; the narrow owned-scope reads equal the full home snapshot's owned items; run on pull_request by notification-engine-ci.yml"
+    },
+    "lib/notifications/producers/docs-appointments.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "notification-engine-ci.yml",
+      "reason": "AS the restricted runtime on migration 20261213090000 (.nte2d lab: Document.statusChangedAt stamped by the trigger, NotificationSettings.appointmentReminderMinutes): stuck documents — never flagged inside an attempt (4 / 29 min), flagged once past 30 min with a deep link to the document, in-app only by default (the owed push ends pref_off, nothing sent), an unstamped historical row never, the retry (the app's own statement, restamped) resolves and is not flagged while it runs, stuck again ⇒ a new row, success resolves; per-user lead times (30 / the day before / default 60) in one business with the real sweep every 15 min and the real worker every 5 min (fake FCM): exactly one push per user, never before the moment, ≤ 5 min after, nothing created earlier than one interval ahead; cancel ⇒ resolved and suppressed at the moment; reschedule ⇒ old resolved / nothing sent, new start sent at its moment; the March 2027 Asia/Jerusalem change (day before = same local time, 23 real hours); settings round-trip through the session-actor store, another user's row untouched, another business cannot read / change it (RLS), a forged actor refused by the same-business trigger, the database CHECK refuses 45; run on pull_request by notification-engine-ci.yml"
+    }
+  }
+}
