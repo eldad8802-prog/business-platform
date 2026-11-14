@@ -172,6 +172,23 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   // Service Desk P4 audit journal (migration 20261122090000): who acted and the request digest are erased in place by
   // service_settings_journal_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
   ServiceSettingsEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk case charge (migration 20261126090000): who acted and the reasons are erased in place by
+  // service_case_charge_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceCaseCharge: { disposition: "ERASURE_MANAGED" },
+  ServiceCaseBillingLink: { disposition: "ERASURE_MANAGED" },
+  // Service Desk tracks (migration 20261127090000): the completion's confirmer / note / actor and the details changes'
+  // reasons / addresses / actor are erased in place by service_tracks_erase_business(), declared in
+  // DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceCompletion: { disposition: "ERASURE_MANAGED" },
+  ServiceCaseDetailChange: { disposition: "ERASURE_MANAGED" },
+  // Service Desk QA lists (migration 20261129090000): list names, check labels, result notes and who acted are erased in
+  // place by service_qa_lists_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  // The list head (ServiceQaList) is NON_PERSONAL_OPERATIONAL below.
+  ServiceQaListVersion: { disposition: "ERASURE_MANAGED" },
+  ServiceQaListItem: { disposition: "ERASURE_MANAGED" },
+  ServiceQaListEvent: { disposition: "ERASURE_MANAGED" },
+  ServiceCaseQaRecord: { disposition: "ERASURE_MANAGED" },
+  ServiceCaseQaItemResult: { disposition: "ERASURE_MANAGED" },
   ServicePhoneReminder: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
@@ -462,6 +479,7 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
     evidence: { textualSurface: ["lastError"], writeSites: [] },
   },
   BusinessDocumentErasure: operational("the durable job record of an account erasure of the business-documents tables: a state and two times"),
+  ServiceQaList: operational("the head of a business's QA list: ids, the current version and revision counters, the archive time and the built-in template it was copied from (a code token, CHECK-limited) — no text of a person; its versions' names and labels are erased with the account by service_qa_lists_erase_business()"),
   ServiceCaseEvent: operational("append-only service case journal: event type, action, statuses, ids, times and a closed payload of short tokens and numbers (no text by DB CHECK); the acting user and the request digest are erased with the account by service_erase_business()"),
   ServiceQuote: operational("one sent quote version: ids, an integer total, ILS, content hashes and the private PDF object key (CHECK-limited to the business's service prefix), state and times — no text; the sending and deciding users are erased with the account by service_erase_business()"),
   StaffServiceAssignment: operational("which staff member performs which catalog service, and an optional length in minutes"),

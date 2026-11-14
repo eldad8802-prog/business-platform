@@ -31,8 +31,19 @@ bash "$ROOT/.bkg/lab.sh" "$DB" --with-bkg >/dev/null
 # 20261113090000, which sorts after this one and is not this lab's): they use "ServiceActor", so they go first.
 # And for the spare-parts tables (M2, migration 20261115090000, not this lab's either): they use "ServiceActor" too.
 # And for the UI foundation tables (1.3-0, migration 20261120090000, not this lab's either), and P4's settings journal
-# (migration 20261122090000, which uses "ServiceActor").
+# (migration 20261122090000, which uses "ServiceActor"). And for the case charge tables (migration 20261126090000, not
+# this lab's either): they use "ServiceActor" too, so they go first. And for M1's tables (migration 20261127090000, not
+# this lab's either): they reference ServiceCase and its enums, so they go first; M1's own enums go last, once the case,
+# device and settings tables that use them are gone. And for the QA lists' tables (migration 20261129090000, not this
+# lab's either): they reference ServiceCase and use "ServiceActor", so they go first, dependents before their parents;
+# their own enums with them.
 psql_owner <<'SQL'
+DROP TABLE IF EXISTS "ServiceCaseQaItemResult", "ServiceCaseQaRecord", "ServiceQaListEvent", "ServiceQaListItem",
+  "ServiceQaListVersion", "ServiceQaList" CASCADE;
+DROP TYPE IF EXISTS "ServiceQaResult", "ServiceQaListAction";
+DROP TABLE IF EXISTS "ServiceCaseDetailChange", "ServiceCompletion" CASCADE;
+DROP TABLE IF EXISTS "ServiceCaseBillingLink", "ServiceCaseCharge" CASCADE;
+DROP TYPE IF EXISTS "ServiceBillingLinkRole", "ServiceChargeSource", "ServiceChargeMode";
 DROP TABLE IF EXISTS "ServiceSettingsEvent" CASCADE;
 DROP TABLE IF EXISTS "ServiceStorageErasure", "ServicePhoneReminder", "ServiceShareEvent", "ServiceIntakePhoto",
   "ServiceWarrantyOffer", "ServiceIntakeTermsSnapshot", "ServiceSettings", "ServiceTextVersion" CASCADE;
@@ -50,6 +61,8 @@ DROP TABLE IF EXISTS "ServiceHandover", "ServiceCaseEvent", "ServiceQuote", "Ser
 DROP TYPE IF EXISTS "ServiceEventType", "ServiceCaseAction", "ServiceActor", "ServiceQuoteApprovalMethod",
   "ServiceQuoteState", "ServiceCoverageDecision", "ServiceCoverageSource", "ServiceOutcome", "ServiceHoldReason",
   "ServiceCaseStatus", "ServiceCaseKind";
+DROP TYPE IF EXISTS "ServiceWorkType", "ServiceLocationKind", "ServiceSubjectKind", "ServiceCompletionType",
+  "ServiceReturnReason", "ServiceAfterSaleResolution";
 SQL
 psql_owner -f "$ROOT/.sdf/prereq.sql"
 

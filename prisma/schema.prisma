@@ -8155,6 +8155,7 @@ enum ServiceCaseKind {
   IN_SHOP
   FIELD
   MAINTENANCE
+  REMOTE // M1 (migration 20261127090000): remote work — serviceLocation REMOTE
 }
 
 enum ServiceCaseStatus {
@@ -8171,6 +8172,7 @@ enum ServiceCaseStatus {
   CLOSED
   CANCELLED
   ABANDONED
+  WORK_DONE // M1: the work is finished where nothing is handed back; COMPLETE closes it
 }
 
 enum ServiceHoldReason {
@@ -8184,6 +8186,7 @@ enum ServiceOutcome {
   REPLACED
   QUOTE_REJECTED
   CANCELLED
+  COMPLETED // M1: work that is not a repair (CHECK ServiceCase_completed_not_repair)
 }
 
 enum ServiceCoverageSource {
@@ -8246,6 +8249,16 @@ enum ServiceCaseAction {
   RECORD_INTAKE
   RECORD_COVERAGE
   RECORD_QA
+  // migration 20261126090000: the case charge and its billing links — status-preserving records.
+  RECORD_CHARGE
+  LINK_BILLING_DOCUMENT
+  UNLINK_BILLING_DOCUMENT
+  // M1 (migration 20261127090000): RESCHEDULE in place, COMPLETE = WORK_DONE → CLOSED, CHANGE_DETAILS (D3).
+  RESCHEDULE
+  COMPLETE
+  CHANGE_DETAILS
+  // migration 20261129090000: the case names a QA list version (or none) — a status-preserving record.
+  CHOOSE_QA_LIST
 }
 
 enum ServiceEventType {
@@ -8276,6 +8289,64 @@ enum ServiceEventType {
   intake_recorded             @map("intake.recorded")
   coverage_recorded           @map("coverage.recorded")
   qa_recorded                 @map("qa.recorded")
+  // migration 20261126090000: the case charge and its billing links — status-preserving records.
+  charge_recorded             @map("charge.recorded")
+  billing_linked              @map("billing.linked")
+  billing_unlinked            @map("billing.unlinked")
+  // M1 (migration 20261127090000)
+  case_rescheduled            @map("case.rescheduled")
+  case_completed              @map("case.completed")
+  case_details_changed        @map("case.details_changed")
+  // migration 20261129090000
+  qa_list_chosen              @map("qa.list_chosen")
+}
+
+// M1 (migration 20261127090000) — the universal service model. NULL work type / place on a case = derived from kind.
+enum ServiceWorkType {
+  REPAIR
+  MAINTENANCE
+  INSTALLATION
+  INSPECTION
+  PROFESSIONAL
+  REMOTE_SUPPORT
+  AFTER_SALE
+}
+
+enum ServiceLocationKind {
+  AT_BUSINESS
+  AT_CUSTOMER
+  FIELD_SITE
+  REMOTE
+}
+
+enum ServiceSubjectKind {
+  ITEM
+  VEHICLE
+  SYSTEM
+  NONE
+}
+
+/// Always the owner's confirmation, never a customer signature (owner decision 2026-11-11); the value names the place.
+enum ServiceCompletionType {
+  OWNER_CONFIRMED_ON_SITE
+  OWNER_CONFIRMED_REMOTE
+  OWNER_CONFIRMED_AT_BUSINESS
+}
+
+enum ServiceReturnReason {
+  DEFECT
+  NOT_AS_DESCRIBED
+  WRONG_ITEM
+  CHANGE_OF_MIND
+  LEGAL_CANCELLATION
+  OTHER
+}
+
+enum ServiceAfterSaleResolution {
+  REPAIR
+  EXCHANGE
+  CREDIT
+  RETURN_ORIGINAL
 }
 
 model ServiceCaseNumberSequence {
@@ -8294,6 +8365,9 @@ model ServiceDevice {
   serialNumber     String?
   serialNormalized String?
   description      String?
+  subjectKind      ServiceSubjectKind @default(ITEM) // M1
+  displayName      String? // M1 — cleared by service_tracks_erase_business()
+  attributes       Json? // M1 — cleared by service_tracks_erase_business()
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @default(now()) @updatedAt
   erasedAt         DateTime?
@@ -8338,6 +8412,23 @@ model ServiceCase {
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @default(now()) @updatedAt
   erasedAt              DateTime?
+  // M1 (migration 20261127090000). NULL work type / place = derived from kind (legacy rules).
+  workType              ServiceWorkType?
+  serviceLocation       ServiceLocationKind?
+  appointmentId         Int? // composite tenant FK (appointmentId, businessId) → Appointment in the migration
+  siteAddress           String? // cleared by service_tracks_erase_business()
+  siteNotes             String? // cleared by service_tracks_erase_business()
+  completionType        ServiceCompletionType?
+  completedAt           DateTime?
+  profileKey            String?
+  profileSnapshot       Json? // D14: fixed at the opening
+  returnReason          ServiceReturnReason?
+  afterSaleResolution   ServiceAfterSaleResolution?
+  originalSaleRef       String? // cleared by service_tracks_erase_business()
+  // migration 20261129090000: the QA list VERSION the case is checked against (NULL = its built-in template); composite
+  // tenant FK (businessId, qaListId, qaListVersion) → ServiceQaListVersion in the migration; changed only by CHOOSE_QA_LIST.
+  qaListId              Int?
+  qaListVersion         Int?
 
   @@unique([businessId, id])
   @@unique([businessId, caseNumber])
@@ -8774,6 +8865,243 @@ model ServiceSettingsEvent {
   @@index([businessId, occurredAt])
 }
 
+/// Service Desk — the charge history of a service case (migration 20261126090000): append-only, gap-free seq per case;
+/// the current charge is the last record. CHARGEABLE (positive ILS agorot, from an approved quote or entered by the
+/// owner) or NO_CHARGE (with a reason). Any change after the first record carries a reason unless it is a quote approval.
+model ServiceCaseCharge {
+  id           Int                  @id @default(autoincrement())
+  businessId   Int
+  caseId       Int
+  seq          Int
+  mode         ServiceChargeMode
+  amountAgorot Int?
+  currency     String               @default("ILS") @db.Char(3)
+  source       ServiceChargeSource?
+  quoteVersion Int?
+  reason       String? // cleared by service_case_charge_erase_business()
+  actor        ServiceActor
+  actorUserId  Int? // cleared by service_case_charge_erase_business()
+  createdAt    DateTime             @default(now())
+  erasedAt     DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, seq])
+}
+
+/// Service Desk — billing documents that belong to a service case (migration 20261126090000). CHARGE: a tax invoice or a
+/// tax invoice / receipt; STANDALONE_PAYMENT: a receipt with no invoice, linked by the owner. A document is actively
+/// linked to at most one case (partial UNIQUE). An unlink happens once, with who and why; the row stays.
+model ServiceCaseBillingLink {
+  id                Int                    @id @default(autoincrement())
+  businessId        Int
+  caseId            Int
+  billingDocumentId Int
+  role              ServiceBillingLinkRole
+  linkedAt          DateTime               @default(now())
+  linkedByUserId    Int? // cleared by service_case_charge_erase_business()
+  unlinkedAt        DateTime?
+  unlinkedByUserId  Int? // cleared by service_case_charge_erase_business()
+  unlinkReason      String? // cleared by service_case_charge_erase_business()
+  erasedAt          DateTime?
+
+  @@unique([businessId, id])
+  @@index([businessId, caseId])
+}
+
+/// Service Desk M1 (migration 20261127090000) — the owner's confirmation that the work of a case without a handover is
+/// done (COMPLETE, WORK_DONE → CLOSED). One per case, immutable; NO signature columns (owner decision 2026-11-11).
+model ServiceCompletion {
+  id              Int                   @id @default(autoincrement())
+  businessId      Int
+  caseId          Int
+  completionType  ServiceCompletionType
+  confirmedByName String? // cleared by service_tracks_erase_business()
+  note            String? // cleared by service_tracks_erase_business()
+  /// the KNOWN balance when the owner confirmed (agorot, >= 0, no default — an unknown balance has no representation;
+  /// CHECK ServiceCompletion_balance: never a debt and an overpayment together)
+  openBalanceAgorot    Int
+  overpaidAgorot       Int
+  /// closing with a debt = the owner's explicit approval: reason + approving user (same business) + time
+  /// (CHECK ServiceCompletion_debt_decided; the approver is required at INSERT by service_completion_guard)
+  debtOverrideReason   String? // cleared by service_tracks_erase_business()
+  debtApprovedByUserId Int? // cleared by service_tracks_erase_business()
+  debtApprovedAt       DateTime?
+  actorUserId     Int? // cleared by service_tracks_erase_business()
+  completedAt     DateTime              @default(now())
+  createdAt       DateTime              @default(now())
+  erasedAt        DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId])
+}
+
+/// Service Desk M1 (D11) — one row per CHANGE_DETAILS, at the journal event's seq; append-only. Before / after values
+/// (the address too) live here, never in the journal payload.
+/// Service Desk QA lists (migration 20261129090000) — a business's own QA list: its head. The content lives in immutable
+/// versions; every change bumps `revision` and is journaled in ServiceQaListEvent at that revision.
+model ServiceQaList {
+  id               Int       @id @default(autoincrement())
+  businessId       Int
+  currentVersion   Int
+  revision         Int
+  sourceTemplateId String? // the built-in template it was started from (a code token, e.g. VEHICLE.v1) — copied, never linked
+  archivedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now())
+
+  @@unique([businessId, id])
+}
+
+/// An immutable content version of a QA list: its name and how many checks (REQUIRED among them) it holds.
+model ServiceQaListVersion {
+  id              Int       @id @default(autoincrement())
+  businessId      Int
+  listId          Int
+  version         Int
+  name            String? // cleared by service_qa_lists_erase_business()
+  itemCount       Int
+  requiredCount   Int
+  createdByUserId Int? // cleared by service_qa_lists_erase_business()
+  createdAt       DateTime  @default(now())
+  erasedAt        DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, listId, version])
+}
+
+/// An immutable check of one version: a stable key (token), its label, REQUIRED or optional, its position.
+model ServiceQaListItem {
+  id          Int       @id @default(autoincrement())
+  businessId  Int
+  listId      Int
+  listVersion Int
+  position    Int
+  itemKey     String
+  label       String? // cleared by service_qa_lists_erase_business()
+  required    Boolean
+  erasedAt    DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, listId, listVersion, itemKey])
+  @@unique([businessId, listId, listVersion, position])
+}
+
+/// The QA lists' journal and idempotency ledger: CREATE / REVISE / ARCHIVE / RESTORE — counts and tokens, never text.
+model ServiceQaListEvent {
+  id             Int                 @id @default(autoincrement())
+  businessId     Int
+  listId         Int
+  revision       Int
+  action         ServiceQaListAction
+  listVersion    Int
+  itemCount      Int
+  requiredCount  Int
+  actor          ServiceActor
+  actorUserId    Int? // cleared by service_qa_lists_erase_business()
+  occurredAt     DateTime            @default(now())
+  idempotencyKey String
+  requestDigest  String? // cleared by service_qa_lists_erase_business()
+  digestKeyId    String? // cleared by service_qa_lists_erase_business()
+
+  @@unique([businessId, idempotencyKey])
+  @@unique([businessId, listId, revision])
+}
+
+/// One QA record per RECORD_QA journal event of a case (caseVersion = the event's seq): which checklist it was judged
+/// against (a list version, or a built-in template id) and the counts — re-derived from the rows at COMMIT.
+model ServiceCaseQaRecord {
+  id              Int       @id @default(autoincrement())
+  businessId      Int
+  caseId          Int
+  caseVersion     Int
+  listId          Int?
+  listVersion     Int?
+  templateId      String? // a built-in template id (code token) when the case names no list
+  itemCount       Int
+  resultCount     Int
+  passCount       Int
+  failCount       Int
+  requiredMissing Int
+  requiredFailed  Int
+  completed       Boolean
+  actorUserId     Int? // cleared by service_qa_lists_erase_business()
+  recordedAt      DateTime  @default(now())
+  erasedAt        DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, caseVersion])
+}
+
+/// The result of one check in a QA record: PASS / FAIL, the check's REQUIRED flag as it was in that version, a note.
+model ServiceCaseQaItemResult {
+  id          Int             @id @default(autoincrement())
+  businessId  Int
+  recordId    Int
+  listId      Int?
+  listVersion Int?
+  itemKey     String
+  required    Boolean
+  result      ServiceQaResult
+  note        String? // cleared by service_qa_lists_erase_business()
+  erasedAt    DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, recordId, itemKey])
+}
+
+enum ServiceQaResult {
+  PASS
+  FAIL
+}
+
+enum ServiceQaListAction {
+  CREATE
+  REVISE
+  ARCHIVE
+  RESTORE
+}
+
+model ServiceCaseDetailChange {
+  id                    Int                  @id @default(autoincrement())
+  businessId            Int
+  caseId                Int
+  caseVersion           Int
+  changedFields         String[]
+  kindBefore            ServiceCaseKind
+  kindAfter             ServiceCaseKind
+  workTypeBefore        ServiceWorkType?
+  workTypeAfter         ServiceWorkType?
+  serviceLocationBefore ServiceLocationKind?
+  serviceLocationAfter  ServiceLocationKind?
+  returnReasonBefore    ServiceReturnReason?
+  returnReasonAfter     ServiceReturnReason?
+  siteAddressBefore     String? // cleared by service_tracks_erase_business()
+  siteAddressAfter      String? // cleared by service_tracks_erase_business()
+  reason                String? // cleared by service_tracks_erase_business()
+  actorUserId           Int? // cleared by service_tracks_erase_business()
+  occurredAt            DateTime             @default(now())
+  erasedAt              DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, caseVersion])
+}
+
+enum ServiceChargeMode {
+  CHARGEABLE
+  NO_CHARGE
+}
+
+enum ServiceChargeSource {
+  APPROVED_QUOTE
+  OWNER_ENTERED
+}
+
+enum ServiceBillingLinkRole {
+  CHARGE
+  STANDALONE_PAYMENT
+  AFTER_SALE_CREDIT // an issued credit note — the record of a T7 credit; never part of the balance
+}
+
 model ServiceSettings {
   businessId                     Int                  @id
   defaultStaffMemberId           Int?
@@ -8783,6 +9111,8 @@ model ServiceSettings {
   warrantyTemplateExclusions     String?
   activeTermsVersionId           Int?
   activeStatutoryNoticeVersionId Int?
+  serviceProfileKey              String? // M1: one of SERVICE_PROFILE_KEYS; NULL = resolved from the category
+  profileOverrides               Json? // M1: bounded by validateOverrides
   version                        Int                  @default(1)
   createdAt                      DateTime             @default(now())
   updatedAt                      DateTime             @updatedAt

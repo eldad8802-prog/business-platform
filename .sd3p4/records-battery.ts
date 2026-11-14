@@ -7,11 +7,16 @@
  *      the event insert failing → the change rolled back (no partial success).
  *   I  intake data: created / changed (field-change flags, never the text in the journal); no change; not IN_SHOP;
  *      after check-in; event failure → rolled back.
- *   Q  QA: a required item failed or missing → stored, journaled, NOT completed, PASS_QA still refused; all required PASS
- *      → completed, PASS_QA passes; not in QA / unknown key → refused, nothing written.
+ *   Q  QA (owner 2026-11-12: the built-in IN_SHOP.v2 checklist is a suggestion — no check required; it completes when it
+ *      was performed): a check left unrecorded → stored, journaled, NOT completed, PASS_QA still refused; every check
+ *      recorded with one FAILED → completed; every check PASS → completed, PASS_QA passes; not in QA / unknown key →
+ *      refused, nothing written. (A REQUIRED check that fails keeps QA open — the business lists battery, .sdqacode.)
  *   S  settings: first save + ServiceSettingsEvent (field names only); replay; stale; no change; two at once → one;
  *      the journal insert failing → the settings unchanged.
  *   A  without the P4 journal (the 1.3-0-only lab): every record write → NOT_AVAILABLE_UNTIL_AUDIT, nothing written.
+ *      With M1's code (it writes M1's columns; M1 needs the case charge, which needs P4) that lab can never carry the
+ *      code: AR1–AR4 then prove it — journal absent, the charge and M1 refuse there and change nothing, and on the P4 lab
+ *      (which carries M1) the code's journal probes are true (.sd3p4/absent-refusal-checks.ts).
  *   D  account deletion through the real deleteOwnBusinessAccount: a failure later in the purge transaction rolls the new
  *      erase back too; the rerun completes: settings events blanked and kept, the case journal's records blanked, the
  *      business's other data per the existing contract; a second deletion is "already_deleted".
@@ -30,6 +35,7 @@ import {
 } from "../lib/services/service-desk/service-case.service";
 import { deleteOwnBusinessAccount } from "../lib/services/account/account-deletion.service";
 import { prismaAccountDeletionStore } from "../lib/services/account/account-deletion.prisma-store";
+import { AUDIT_JOURNAL_READY_SQL, CHARGE, CHARGE_LEDGER_READY_SQL, CHARGE_REFUSAL, M1, M1_PREMISE_MISSING_SQL, M1_REFUSAL, psqlAt, refusedUnchanged } from "./absent-refusal-checks";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 let pass = 0;
@@ -125,21 +131,25 @@ async function main() {
   await x(`UPDATE "ServiceCase" SET "coverageSource" = 'STORE', "coverageDecision" = 'APPROVED' WHERE id = $1`, s1); // lab: a cover (1.3c records it)
   for (const action of [{ type: "START_REPAIR" }, { type: "FINISH_REPAIR" }]) v = (await runCaseAction(A.p, s1, { action, expectedVersion: v }, { idempotencyKey: key() })).case.version;
   ok("Q0 the case is in QA", (await q(`SELECT status::text s FROM "ServiceCase" WHERE id = $1`, s1))[0].s === "QA");
-  const req = QA_TEMPLATES.IN_SHOP.items.filter((i) => i.required).map((i) => i.key);
-  const partial = Object.fromEntries(req.map((k, i) => [k, i === 0 ? "FAIL" : "PASS"]));
-  const qa1 = await recordQa(A.p, s1, { results: partial, expectedVersion: v }, { idempotencyKey: key() });
+  const req = QA_TEMPLATES.IN_SHOP.items.map((i) => i.key);
+  ok("Q0b the IN_SHOP checklist is the suggested IN_SHOP.v2 — no check required (owner 2026-11-12)", QA_TEMPLATES.IN_SHOP.id === "IN_SHOP.v2" && QA_TEMPLATES.IN_SHOP.items.every((i) => !i.required) && req.length === 5);
+  const missing = Object.fromEntries(req.slice(1).map((k) => [k, "PASS"]));
+  const qa1 = await recordQa(A.p, s1, { results: missing, expectedVersion: v }, { idempotencyKey: key() });
   const qe = await lastEvent(s1);
-  ok("Q1 a required item FAILED → stored and journaled, NOT completed (qaCompletedAt NULL)", qa1.qa?.completed === false
-    && (await q(`SELECT "qaCompletedAt" IS NULL x FROM "ServiceCase" WHERE id = $1`, s1))[0].x === true && qe.t === "qa.recorded" && String(qe.p).includes('"completed": false') && String(qe.p).includes('"requiredFailed": 1'));
+  ok("Q1 a check left unrecorded → stored and journaled, NOT completed (qaCompletedAt NULL)", qa1.qa?.completed === false && qa1.qa?.template === "IN_SHOP.v2"
+    && (await q(`SELECT "qaCompletedAt" IS NULL x FROM "ServiceCase" WHERE id = $1`, s1))[0].x === true && qe.t === "qa.recorded" && String(qe.p).includes('"completed": false')
+    && String(qe.p).includes('"recorded": 4') && String(qe.p).includes('"requiredMissing": 1') && String(qe.p).includes('"requiredFailed": 0'));
   v = qa1.case.version;
   ok("Q2 … and PASS_QA is still refused (QA_INCOMPLETE)", (await code(() => runCaseAction(A.p, s1, { action: { type: "PASS_QA", outcome: "REPAIRED" }, expectedVersion: v }, { idempotencyKey: key() }))).includes("QA_INCOMPLETE"));
-  const missing = Object.fromEntries(req.slice(1).map((k) => [k, "PASS"]));
-  const qa2 = await recordQa(A.p, s1, { results: missing, expectedVersion: v }, { idempotencyKey: key() });
-  ok("Q3 a required item not recorded → NOT completed", qa2.qa?.completed === false && String((await lastEvent(s1)).p).includes('"requiredMissing": 1'));
+  const oneFailed = Object.fromEntries(req.map((k, i) => [k, i === 0 ? "FAIL" : "PASS"]));
+  const qa2 = await recordQa(A.p, s1, { results: oneFailed, expectedVersion: v }, { idempotencyKey: key() });
+  const qe2 = String((await lastEvent(s1)).p);
+  ok("Q3 every check recorded, one FAILED → completed (no built-in check must PASS), journaled failed 1 / requiredFailed 0",
+    qa2.qa?.completed === true && qe2.includes('"failed": 1') && qe2.includes('"requiredFailed": 0') && qe2.includes('"completed": true'));
   v = qa2.case.version;
   ok("Q4 an unknown key → INVALID_INPUT, nothing written", (await code(() => recordQa(A.p, s1, { results: { ...missing, hacked: "PASS" }, expectedVersion: v }, { idempotencyKey: key() }))).startsWith("INVALID_INPUT") && (await ver(s1)) === v);
   const qa3 = await recordQa(A.p, s1, { results: Object.fromEntries(req.map((k) => [k, "PASS"])), expectedVersion: v }, { idempotencyKey: key() });
-  ok("Q5 every required item PASS → completed (qaCompletedAt set)", qa3.qa?.completed === true && (await q(`SELECT "qaCompletedAt" IS NOT NULL x FROM "ServiceCase" WHERE id = $1`, s1))[0].x === true);
+  ok("Q5 every check PASS → completed (qaCompletedAt set)", qa3.qa?.completed === true && (await q(`SELECT "qaCompletedAt" IS NOT NULL x FROM "ServiceCase" WHERE id = $1`, s1))[0].x === true);
   const pq = await runCaseAction(A.p, s1, { action: { type: "PASS_QA", outcome: "REPAIRED" }, expectedVersion: qa3.case.version }, { idempotencyKey: key() });
   ok("Q6 … and PASS_QA passes → READY / REPAIRED", pq.case.status === "READY" && pq.case.outcome === "REPAIRED");
   ok("Q7 outside QA → REFUSED QA_ONLY_IN_QA", (await code(() => recordQa(A.p, s1, { results: { [req[0]]: "PASS" }, expectedVersion: pq.case.version }, { idempotencyKey: key() }))).includes("QA_ONLY_IN_QA"));
@@ -163,7 +173,27 @@ async function main() {
   ok("S5 the journal insert fails → the settings change is rolled back (version unchanged)", faultS !== "OK" && (await getSettings(A.b)).version === before, faultS);
 
   console.log("A — without the P4 journal (1.3-0-only lab)");
-  if (process.env.ABSENT_OWNER_URL && process.env.ABSENT_RUNTIME_URL) {
+  // M1 (20261127090000): this code writes M1's columns (openCase, on every case); M1 refuses without the case charge
+  // (20261126090000), which refuses without P4 — so a database without the journal can never carry this code (release
+  // order is migration-first). Where the 1.3-0-only lab lacks M1 the child could not even open a case there (42703), so
+  // the record-write refusals A1/A2 are REPLACED by explicit, counted refusals on that same lab (owner decision
+  // 2026-11-12, option A): the charge and M1 refuse there and change nothing, and where this code can run (this P4 lab,
+  // which carries M1) the code's journal probes are true — NOT_AVAILABLE_UNTIL_AUDIT is unreachable.
+  const absentCarriesCode = !!process.env.ABSENT_OWNER_URL
+    && psqlAt(process.env.ABSENT_OWNER_URL, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ServiceCase' AND column_name = 'workType')::text`) === "true";
+  if (process.env.ABSENT_OWNER_URL && process.env.ABSENT_RUNTIME_URL && !absentCarriesCode) {
+    const url = process.env.ABSENT_OWNER_URL;
+    ok("AR1 the 1.3-0-only lab has no audit journal (the code's auditJournalReady probe is false there)", psqlAt(url, AUDIT_JOURNAL_READY_SQL) === "false");
+    const chargeR = refusedUnchanged(url, CHARGE, CHARGE_REFUSAL);
+    ok("AR2 without the journal the case charge (M1's premise), applied verbatim, refuses — the P4 audit journal is not applied — and nothing changed", chargeR.ok, chargeR.detail);
+    const m1Missing = psqlAt(url, M1_PREMISE_MISSING_SQL);
+    const m1R = refusedUnchanged(url, M1, M1_REFUSAL);
+    ok("AR3 without the journal M1, applied verbatim, refuses (P4's ServiceSettingsEvent missing) and nothing changed: this code cannot be deployed there",
+      m1R.ok && m1Missing === "ServiceSettingsEvent", `missing=${m1Missing} ${m1R.detail}`);
+    ok("AR4 where this code runs (this lab carries M1) the code's journal and charge probes are true: NOT_AVAILABLE_UNTIL_AUDIT is unreachable",
+      psqlAt(process.env.OWNER_URL!, AUDIT_JOURNAL_READY_SQL) === "true" && psqlAt(process.env.OWNER_URL!, CHARGE_LEDGER_READY_SQL) === "true"
+      && psqlAt(process.env.OWNER_URL!, `SELECT (to_regclass('public."ServiceCompletion"') IS NOT NULL)::text`) === "true");
+  } else if (process.env.ABSENT_OWNER_URL && process.env.ABSENT_RUNTIME_URL) {
     const env = { ...process.env, OWNER_URL: process.env.ABSENT_OWNER_URL, DATABASE_URL: process.env.ABSENT_RUNTIME_URL, DIRECT_URL: process.env.ABSENT_RUNTIME_URL, P4R_ABSENT_CHILD: "1" };
     const r = spawnSync(process.execPath, [...process.execArgv, process.argv[1]], { env, encoding: "utf8" });
     const out = `${r.stdout}`;
