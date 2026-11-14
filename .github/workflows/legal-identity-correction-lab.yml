@@ -5,7 +5,7 @@
 #   1. baseline (20261128090000 applied, this one pending): PREFLIGHT 9/9; the proof refuses;
 #   2. one `prisma migrate deploy` applies 20261128090000 then this one: proof 14/14; #1140's proof still 12/12;
 #      PREFLIGHT now fails exactly 2, 4, 5;
-#   3. batteries with the real roles: the correction battery C1–C22 (dedicated approver permission, notes, info
+#   3. batteries with the real roles: the correction battery C1–C23 (dedicated approver permission, notes, info
 #      requests, attachments, app_admin read plane), and #1140's battery L1–L13 still whole;
 #   4. atomicity: this migration failing on its last statement leaves nothing of it behind (#1140's stays applied);
 #   5. rollback (.sli/correction-rollback.sql): reverts whole — PREFLIGHT 9/9 again, the proof refuses, #1140 intact.
@@ -114,7 +114,7 @@ jobs:
           fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
           test "$fails" = "2 4 5 " || { echo "::error::preflight after the migration fails '$fails', expected '2 4 5 '"; exit 1; }
 
-      - name: 3. Batteries — correction C1–C22 and #1140 L1–L13 (real roles, app_admin read plane)
+      - name: 3. Batteries — correction C1–C23 and #1140 L1–L13 (real roles, app_admin read plane)
         run: |
           set -euo pipefail
           export OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/lic_post"

@@ -34,6 +34,8 @@
  *       requester only and own tenant (DZC01); not after the request closed (DZC09); one row per key (23505)
  *   C21 LegalIdentityApprover is unreadable and unwritable for every application role
  *   C22 app_admin reads requests (internal note included) and attachments, writes nothing, executes nothing
+ *   C23 a live issuer declaration (20261126100000) blocks the apply: DECLARATION_ACTIVE, nothing applied, still PENDING;
+ *       an anonymised one does not block; rejecting is still possible
  *
  * Synthetic only. ZERO secrets. ZERO network.
  *   OWNER_URL=… AUTH_URL=… RUNTIME_URL=… ADMIN_URL=… npx tsx .sli/correction-battery.ts
@@ -333,6 +335,25 @@ async function main() {
   await owner.$executeRawUnsafe(`UPDATE "BusinessProfile" SET "billingLegalName" = 'שם אחר' WHERE "businessId" = $1`, s.businessId);
   ok("C12 the identity moved → STALE", (await decide(s.businessId, r12, approver, true)) === "STALE");
   ok("C12 nothing applied", (await profile(s.businessId))?.billingLegalName === "שם אחר" && (await reqRow(r12))?.status === "STALE");
+
+  console.log("C23 a live issuer declaration blocks the apply (no bypass of its lock)");
+  // The lab ledger does not include 20261126100000_issuer_declaration; decide reads the table dynamically, so a
+  // stand-in with the two columns it reads is enough. Created only if absent; dropped again at the end of this case.
+  const standIn = ((await owner.$queryRawUnsafe(`SELECT to_regclass('public."BusinessIssuerDeclaration"') IS NULL AS absent`)) as Rows)[0].absent === true;
+  if (standIn) await owner.$executeRawUnsafe(`CREATE TABLE public."BusinessIssuerDeclaration" ("businessId" integer NOT NULL, "anonymisedAt" timestamptz NULL)`);
+  const d = await business();
+  const r23 = await request(d.businessId, d.userId, { legalName: "שם מתוקן" });
+  await owner.$executeRawUnsafe(`INSERT INTO public."BusinessIssuerDeclaration" ("businessId", "anonymisedAt") VALUES ($1, NULL)`, d.businessId);
+  const nameBefore = (await profile(d.businessId))?.billingLegalName;
+  ok("C23 approve with a live declaration → DECLARATION_ACTIVE", (await decide(d.businessId, r23, approver, true)) === "DECLARATION_ACTIVE");
+  ok("C23 nothing applied, the request stays PENDING", (await profile(d.businessId))?.billingLegalName === nameBefore && (await reqRow(r23))?.status === "PENDING");
+  await owner.$executeRawUnsafe(`UPDATE public."BusinessIssuerDeclaration" SET "anonymisedAt" = now() WHERE "businessId" = $1`, d.businessId);
+  ok("C23 an anonymised declaration does not block → APPLIED", (await decide(d.businessId, r23, approver, true)) === "APPLIED");
+  const d2 = await business();
+  const r23b = await request(d2.businessId, d2.userId, { legalName: "שם נדחה" });
+  await owner.$executeRawUnsafe(`INSERT INTO public."BusinessIssuerDeclaration" ("businessId", "anonymisedAt") VALUES ($1, NULL)`, d2.businessId);
+  ok("C23 rejecting is still possible with a live declaration → REJECTED", (await decide(d2.businessId, r23b, approver, false)) === "REJECTED");
+  if (standIn) await owner.$executeRawUnsafe(`DROP TABLE public."BusinessIssuerDeclaration"`);
 
   console.log("C13 privileges");
   for (const [label, sql] of [
