@@ -517,7 +517,14 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // Legal identity correction requests (migration 20261128100000): the names, numbers, reason and decision note
           // are cleared in place and an open request is closed; never deletes a row. Refuses unless the business in
           // this tenant context is being deleted.
-          await tx.$queryRaw`SELECT public.legal_identity_correction_erase() AS n`;
+          // Called whenever the request table exists — and then a missing function fails the purge loudly, as every
+          // stage above. Only a database without the table at all (an environment built before 20261128100000, such as
+          // another module's migration lab) skips it: with no table there is nothing personal to clear.
+          const [lic] = await tx.$queryRaw<Array<{ present: boolean }>>`
+            SELECT to_regclass('public."LegalIdentityCorrectionRequest"') IS NOT NULL AS present`;
+          if (lic?.present === true) {
+            await tx.$queryRaw`SELECT public.legal_identity_correction_erase() AS n`;
+          }
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //
