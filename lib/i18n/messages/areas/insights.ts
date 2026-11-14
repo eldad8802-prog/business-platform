@@ -502,6 +502,7 @@ export const insightsHe = {
     toMyCoupons: "לקופונים שלי",
     toBusinessDetails: "לפרטי העסק",
     toBusinessList: "לרשימת העסקים",
+    toLegalIdentityCorrections: "לבקשות לתיקון זהות",
     toSecurityTools: "לאבטחה וכלים",
     toBusinessProfile: "לפרופיל העסק",
     toOrderBasket: "לסל ההזמנה",

@@ -303,6 +303,7 @@ model Business {
   paymentRequests               PaymentRequest[]
   businessObligations           BusinessObligation[]
   businessObligationOrientation BusinessObligationOrientation?
+  legalIdentityCorrections      LegalIdentityCorrectionRequest[]
   payees                        Payee[]
   commitments                   Commitment[]
   installments                  Installment[]
@@ -373,6 +374,7 @@ model User {
   crmNotesCreated                            CrmNote[]
   crmAttachmentsUploaded                     CrmAttachment[]
   platformAdminMfa                           PlatformAdminMfa?
+  legalIdentityApprover                      LegalIdentityApprover?
   platformAdminPasskeys                      PlatformAdminPasskey[]
   authSessions                               AuthSession[]
   transactionalEmails                        TransactionalEmail[]
@@ -641,6 +643,13 @@ model BusinessProfile {
   /// OWNER_SELECTED | DEFAULTED (CHECK-constrained). A default is never recorded
   /// as the owner's choice.
   onboardingGoalSource    String?
+  /// Signup legal identity (migration 20261128090000_signup_legal_identity). Both NULL = not confirmed: every
+  /// business that existed before it, editable as before. Set together, only by the definer functions
+  /// signup_legal_identity_seed (SIGNUP, in the account transaction) and legal_identity_confirm_existing
+  /// (OWNER_CONFIRMED). Once set, billingBusinessKind / billingLegalName / billingTaxId are locked by the
+  /// BusinessProfile_legal_identity_lock trigger. The application never writes these two columns.
+  legalIdentityConfirmedAt DateTime?
+  legalIdentitySource      String?
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
   business                Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -9102,4 +9111,76 @@ model BusinessDocumentErasure {
   state       BusinessDocumentErasureState @default(PURGING_OBJECTS)
   startedAt   DateTime                     @default(now()) @db.Timestamptz(3)
   completedAt DateTime?                    @db.Timestamptz(3)
+}
+
+/// Legal identity correction requests (migration 20261128100000_legal_identity_correction). The business asks;
+/// an authorized Dubiz admin holding the DEDICATED approver permission (LegalIdentityApprover + the
+/// PLATFORM_ADMIN_LEGAL_IDENTITY_APPROVERS list) who is not the requester and not of the business decides; an
+/// approved request is applied atomically. Written ONLY by the definer functions; rows are never deleted or rewritten —
+/// they are the history. The identity/reason columns are NULL only after account-deletion anonymisation.
+/// THE RUNTIME MAY NOT READ internalNote OR decidedByUserId (column-level grant): always `select` named columns.
+model LegalIdentityCorrectionRequest {
+  id                    Int       @id @default(autoincrement())
+  businessId            Int
+  requestedByUserId     Int
+  /// TYPO_CORRECTION | BUSINESS_KIND_CHANGE (derived from what changes, never chosen by the client)
+  kind                  String
+  currentBusinessKind   String
+  currentLegalName      String?
+  currentTaxId          String?
+  requestedBusinessKind String
+  requestedLegalName    String?
+  requestedTaxId        String?
+  reason                String?
+  sameLegalEntity       Boolean
+  /// PASSWORD | RECENT_SIGN_IN
+  verificationMethod    String
+  verifiedAt            DateTime  @db.Timestamptz(6)
+  /// PENDING | APPLIED | REJECTED | CANCELLED | STALE
+  status                String    @default("PENDING")
+  /// "Returned for more information": the status stays PENDING; the note is shown to the business.
+  infoRequestedAt       DateTime? @db.Timestamptz(6)
+  infoRequestNote       String?
+  /// Admin only — the runtime holds no SELECT on it.
+  decidedByUserId       Int?
+  decidedAt             DateTime? @db.Timestamptz(6)
+  /// Shown to the business.
+  publicNote            String?
+  /// Admin only — the runtime holds no SELECT on it.
+  internalNote          String?
+  anonymisedAt          DateTime? @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @db.Timestamptz(6)
+  business              Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  attachments           LegalIdentityCorrectionAttachment[]
+
+  @@index([businessId, createdAt], map: "LegalIdentityCorrection_business_created")
+}
+
+/// Supporting documents of a correction request (≤ 5 per request, PDF / JPEG / PNG, ≤ 10 MB), stored privately under
+/// biz/{businessId}/legal-identity/{requestId}/ in the create-once "legal-identity" domain. Written ONLY by
+/// legal_identity_correction_attach (the requester, while PENDING) and the erase function; storageKey and sha256 are
+/// NULL only after account-deletion anonymisation (the objects go with the prefix after commit).
+model LegalIdentityCorrectionAttachment {
+  id               Int                            @id @default(autoincrement())
+  requestId        Int
+  businessId       Int
+  storageKey       String?                        @unique
+  /// application/pdf | image/jpeg | image/png
+  mimeType         String
+  sizeBytes        Int
+  sha256           String?                        @db.Char(64)
+  uploadedByUserId Int
+  createdAt        DateTime                       @default(now()) @db.Timestamptz(6)
+  anonymisedAt     DateTime?                      @db.Timestamptz(6)
+  request          LegalIdentityCorrectionRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+}
+
+/// The DEDICATED approver permission for legal identity corrections (2026-11-13). A platform table: no application
+/// role may read or write it (FORCE RLS, no policy); rows are added only by the table owner through a reviewed manual
+/// step. A row is required — together with User.role = PLATFORM_ADMIN and the server's approver email list.
+model LegalIdentityApprover {
+  userId    Int      @id
+  grantedAt DateTime @default(now()) @db.Timestamptz(6)
+  note      String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

@@ -4,7 +4,7 @@
 # Screenshots are uploaded as an artifact.
 # Synthetic only; ZERO secrets; ZERO Production; no email is sent.
 
-name: signup business kind — browser (Chromium, Android WebView + desktop)
+name: signup legal identity — browser (Chromium, Android WebView + iPhone-size + desktop)
 
 on:
   pull_request:
@@ -12,6 +12,8 @@ on:
     paths:
       - "app/register/**"
       - "lib/auth/signup-identity.ts"
+      - "lib/auth/signup-legal-identity.ts"
+      - "lib/identity/tax-id.ts"
       - "lib/i18n/messages/areas/account*.ts"
       - "scripts/qa/auth/signup-business-kind.browser.mjs"
       - ".github/workflows/signup-business-kind-browser.yml"
@@ -22,7 +24,7 @@ permissions:
 
 jobs:
   browser:
-    name: signup business kind — browser (390 WebView + 1440 desktop)
+    name: signup legal identity — browser (390 WebView + 390 iPhone UA + 1440 desktop)
     runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
     timeout-minutes: 30
     steps:

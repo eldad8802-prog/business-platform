@@ -46,6 +46,8 @@ on:
       - "lib/auth/oauth-ticket*.ts"
       - "lib/auth/google-*.ts"
       - "lib/auth/signup*.ts"
+      - "prisma/migrations/20261128090000_signup_legal_identity/**"
+      - ".sli/apply-in-lab.sh"
       - "app/api/auth/**"
       - "app/login/**"
       - "app/register/**"
@@ -201,6 +203,7 @@ jobs:
         run: |
           set -euo pipefail
           bash .agl/lab.sh agl_m2 --with-link >/dev/null
+          bash .sli/apply-in-lab.sh agl_m2
           U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_m2"
           OWNER_URL="$U" DIRECT_URL="$U" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_m2" \
@@ -214,6 +217,7 @@ jobs:
         run: |
           set -euo pipefail
           bash .agl/lab.sh agl_cancel --with-link >/dev/null
+          bash .sli/apply-in-lab.sh agl_cancel
           U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_cancel"
           OWNER_URL="$U" DIRECT_URL="$U" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_cancel" \
@@ -227,6 +231,7 @@ jobs:
         run: |
           set -euo pipefail
           bash .agl/lab.sh agl_m3 --with-link >/dev/null
+          bash .sli/apply-in-lab.sh agl_m3
           U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_m3"
           OWNER_URL="$U" DIRECT_URL="$U" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_m3" \
@@ -240,6 +245,7 @@ jobs:
         run: |
           set -euo pipefail
           bash .agl/lab.sh agl_pilot --with-link >/dev/null
+          bash .sli/apply-in-lab.sh agl_pilot
           U="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/agl_pilot"
           OWNER_URL="$U" DIRECT_URL="$U" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/agl_pilot" \
@@ -355,7 +361,10 @@ jobs:
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
       - name: Lab database (the three oauth migrations applied, consent + session grants as in Production)
-        run: bash .agl/lab.sh agl_web --with-link
+        run: |
+          bash .agl/lab.sh agl_web --with-link
+          # The Google completion writes the legal identity in the account transaction (20261128090000).
+          bash .sli/apply-in-lab.sh agl_web
 
       # Built before the Chromium install (see i18n-multicurrency-ci.yml: the font resolution after
       # `playwright install --with-deps`). The flag is read at request time, so one build serves ON and OFF.

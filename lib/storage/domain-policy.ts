@@ -12,6 +12,7 @@ const DOMAIN_DEFAULT_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
   exports: "private",
   "business-docs": "private",
   service: "private",
+  "legal-identity": "private",
 };
 
 const DOMAIN_REQUIRED_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
@@ -25,6 +26,7 @@ const DOMAIN_REQUIRED_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
   exports: "private",
   "business-docs": "private",
   service: "private",
+  "legal-identity": "private",
 };
 
 export function getDefaultVisibility(domain: StorageDomain): StorageVisibility {
@@ -49,7 +51,7 @@ export function validatePutObjectMetadata(metadata: PutObjectMetadataInput): voi
 }
 
 /** Domains whose objects may only be created with putObjectIfAbsent — never overwritten by a plain put. */
-const CONDITIONAL_ONLY_DOMAINS: ReadonlySet<StorageDomain> = new Set<StorageDomain>(["business-docs", "service"]);
+const CONDITIONAL_ONLY_DOMAINS: ReadonlySet<StorageDomain> = new Set<StorageDomain>(["business-docs", "service", "legal-identity"]);
 
 export function isConditionalOnlyDomain(domain: StorageDomain): boolean {
   return CONDITIONAL_ONLY_DOMAINS.has(domain);

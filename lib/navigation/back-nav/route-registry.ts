@@ -86,6 +86,9 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/admin/authority-pilot-gate", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
   { pattern: "/admin/businesses/[id]", parent: "/admin/businesses", parentLabelKey: "toBusinessList" },
   { pattern: "/admin/businesses/[id]/features", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
+  // Legal identity corrections (dedicated approvers only): a tool beside the others; a request goes back to the queue.
+  { pattern: "/admin/legal-identity-corrections", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
+  { pattern: "/admin/legal-identity-corrections/[id]", parent: "/admin/legal-identity-corrections", parentLabelKey: "toLegalIdentityCorrections" },
 
   // ---- screens reached from Home (not in the main navigation) ------------
   { pattern: "/pricing", parent: "/app", parentLabelKey: "toHome", identityParams: ["step"] },
@@ -223,6 +226,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/tools/[category]", parent: "/app", parentLabelKey: "toHome" },
   { pattern: "/business", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/business/identity", parent: "/business", parentLabelKey: "toBusinessProfile" },
+  { pattern: "/business/legal-identity/correction", parent: "/business", parentLabelKey: "toBusinessProfile" },
   { pattern: "/business/landing-strategy", parent: "/business/identity", parentLabelKey: "toDigitalPresence" },
   // P3-E: ?strategy= (a fresh composition) and ?version= (a saved version) are different screens.
   { pattern: "/business/landing-preview", parent: "/business/landing-strategy", parentLabelKey: "toLandingDirections", identityParams: ["strategy", "version"] },

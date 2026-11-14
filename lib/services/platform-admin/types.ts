@@ -90,6 +90,12 @@ export type PlatformAdminSessionResponse = {
     /** Passkey step-up: switched on here, and how many this admin holds. */
     passkeys: { available: boolean; count: number };
   };
+  /**
+   * Console sections this admin may open beyond the common ones. Navigation only — every route enforces its own
+   * permission again on the server. legalIdentityCorrections = the feature is on AND the admin holds the dedicated
+   * approver permission (PLATFORM_ADMIN_LEGAL_IDENTITY_APPROVERS).
+   */
+  capabilities?: { legalIdentityCorrections: boolean };
 };
 
 export type PlatformAttentionSeverity =

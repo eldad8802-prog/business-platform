@@ -15,6 +15,8 @@ import {
 import { handleError } from "@/lib/handle-error";
 import { logPlatformAdminAreaEnteredIfDue } from "@/lib/services/platform-admin/platform-audit.service";
 import type { PlatformAdminSessionResponse } from "@/lib/services/platform-admin/types";
+import { isLegalIdentityApprover } from "@/lib/auth/legal-identity-approver";
+import { isLegalIdentityCorrectionEnabled } from "@/lib/services/account/legal-identity-correction.service";
 
 export async function GET(req: NextRequest) {
   try {
@@ -61,6 +63,9 @@ export async function GET(req: NextRequest) {
           : process.env.VERCEL_ENV === "preview"
             ? "preview"
             : "local",
+      capabilities: {
+        legalIdentityCorrections: isLegalIdentityCorrectionEnabled() && isLegalIdentityApprover(auth),
+      },
     };
 
     return NextResponse.json(body, { status: 200 });

@@ -74,7 +74,7 @@ async function main() {
 
   const reg = await api("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name: "QA Noise", businessName: TAG, businessKind: "AUTHORIZED_DEALER", acceptTerms: true }),
+    body: JSON.stringify({ email, password, name: "QA Noise", businessName: TAG, businessKind: "AUTHORIZED_DEALER", legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "qa-biz@example.com", acceptTerms: true }),
   });
   if (![200, 201].includes(reg.status)) {
     console.error(`register failed: ${reg.status} ${JSON.stringify(reg.body).slice(0, 140)}`);

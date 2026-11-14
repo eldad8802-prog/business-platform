@@ -143,6 +143,13 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceDevice: { disposition: "ERASURE_MANAGED" },
   ServiceCaseIntake: { disposition: "ERASURE_MANAGED" },
   ServiceHandover: { disposition: "ERASURE_MANAGED" },
+  // Legal identity correction requests (migration 20261128100000). Names, dealer numbers / ח"פ, the reason and the
+  // decision note are cleared in place by legal_identity_correction_erase(), which the adapter calls in the purge
+  // transaction — declared in DB_FUNCTION_ERASURES (account-erasure-manifest.ts) and proven by the same contract.
+  LegalIdentityCorrectionRequest: { disposition: "ERASURE_MANAGED" },
+  // Its supporting documents: the key and the hash are cleared in place by the same function; the objects go with
+  // the biz/{id}/legal-identity/ prefix after commit (OBJECT_SURFACES, the "legal-identity" storage erasure module).
+  LegalIdentityCorrectionAttachment: { disposition: "ERASURE_MANAGED" },
   // Business documents (migration 20261114090000). Customer and recipient names, the owner's notes, letter bodies:
   // their rows are DELETED by business_documents_erase(), which the adapter calls in the purge transaction —
   // declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C26, rows deleted). The stored PDFs are the
@@ -648,6 +655,7 @@ const internal = (reason: string): ModelCoverage => ({ disposition: "SYSTEM_INTE
 
 const INTERNAL: Record<string, ModelCoverage> = {
   PlatformAdminMfa: internal("platform-admin MFA secret; belongs to the operator, not to a tenant"),
+  LegalIdentityApprover: internal("the dedicated permission of a Dubiz admin to decide legal identity corrections (user id, grant time, an operator note); belongs to the operator, not to a tenant; no application role reads or writes it; cascades with the User row"),
   OAuthSignupTicket: internal("auth plane: a single-use Google signup ticket for a person who has NO account yet (address + name from Google, sha256 of the secret); belongs to no business, no role but the migration role reads it, it lives at most 30 minutes and auth_oauth_ticket_purge removes it once expired; a spent ticket names its user only until then (SET NULL with the User row)"),
   PlatformAdminPasskey: internal("platform-admin passkey public keys (WebAuthn); belong to the operator, not to a tenant; cascade with the User row"),
   PlatformAuditEvent: internal("platform-operator audit trail"),
