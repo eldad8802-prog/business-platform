@@ -30,6 +30,7 @@ import {
 } from "@/lib/services/email-import/rejected-types";
 import { GMAIL_ROOT_PART_ID } from "@/lib/services/email-import/attachment-key";
 import { GmailReauthRequiredError, GmailScanConnectionMismatchError } from "./gmail-errors";
+import { scheduleConnectionDisconnected } from "@/lib/notifications/producers/connection-notifications";
 import {
   collectAttachmentParts,
   type GmailMessagePart,
@@ -260,6 +261,9 @@ export async function loadGmailAccess(params: {
       clientId: requireEnv("GOOGLE_OAUTH_CLIENT_ID"),
       clientSecret: requireEnv("GOOGLE_OAUTH_CLIENT_SECRET"),
       refreshToken,
+      // Notifications side effect only (after the response, engine-gated); the refresh outcome is unchanged.
+      onRevoked: () =>
+        scheduleConnectionDisconnected({ businessId: params.businessId, provider: "gmail", connectionId: connection.id }),
     });
 
     const enc = encryptToken(refreshed.access_token);

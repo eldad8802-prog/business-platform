@@ -20,6 +20,10 @@ import {
   decryptAccessToken,
   encryptAccessToken,
 } from "./token-crypto.service";
+import {
+  scheduleConnectionDisconnected,
+  scheduleConnectionRestored,
+} from "@/lib/notifications/producers/connection-notifications";
 
 /**
  * The shape returned by every public read API. Never includes the encrypted
@@ -218,7 +222,7 @@ export async function manualSeedConnection(
 
   const encrypted = encryptAccessToken(input.accessToken, input.businessId);
 
-  return prisma.whatsAppConnection.upsert({
+  const connection = await prisma.whatsAppConnection.upsert({
     where: { businessId: input.businessId },
     create: {
       businessId: input.businessId,
@@ -249,6 +253,10 @@ export async function manualSeedConnection(
     },
     select: PUBLIC_SELECT,
   });
+  // Notifications side effect only, AFTER the write: a (re)connect closes an open "disconnected" notification
+  // (scheduled after the response, engine-gated, never throws).
+  scheduleConnectionRestored({ businessId: input.businessId, provider: "whatsapp", connectionId: input.businessId });
+  return connection;
 }
 
 /**
@@ -340,7 +348,7 @@ export async function markRevokedByMeta(
   reason: { code: string; message: string }
 ): Promise<void> {
   if (!Number.isInteger(businessId) || businessId <= 0) return;
-  await prisma.whatsAppConnection.updateMany({
+  const res = await prisma.whatsAppConnection.updateMany({
     where: { businessId, status: { not: "DISCONNECTED" } },
     data: {
       status: "REVOKED_BY_META",
@@ -352,6 +360,11 @@ export async function markRevokedByMeta(
       lastErrorMessage: reason.message.slice(0, 500),
     },
   });
+  // Notifications side effect only, AFTER the write (scheduled after the response, engine-gated, never throws).
+  // One connection per business, so the business id names it.
+  if (res.count > 0) {
+    scheduleConnectionDisconnected({ businessId, provider: "whatsapp", connectionId: businessId });
+  }
 }
 
 /**
