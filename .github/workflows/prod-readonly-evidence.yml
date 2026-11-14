@@ -185,6 +185,8 @@ on:
           - 'ops/evidence/legal-identity-correction-production-evidence.sql'
           - 'ops/evidence/service-desk-ui-erasure-text-preflight.sql'
           - 'ops/evidence/service-desk-ui-erasure-text-production-evidence.sql'
+          - 'ops/evidence/issuer-declaration-preflight.sql'
+          - 'ops/evidence/issuer-declaration-production-evidence.sql'
 
 permissions:
   contents: read
