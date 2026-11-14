@@ -180,6 +180,9 @@ for (const [dir, fn, tables, [sampleTable, sampleColumn]] of [
   ["20261115090000_service_parts", "service_parts_erase_business", ["ServicePart", "ServicePartEvent"], ["ServicePartEvent", "reason"]],
   ["20261120090000_service_desk_ui_foundation", "service_desk_ui_erase_business", ["ServiceTextVersion", "ServiceIntakeTermsSnapshot", "ServiceWarrantyOffer", "ServiceIntakePhoto", "ServiceShareEvent", "ServicePhoneReminder"], ["ServicePhoneReminder", "note"]],
   ["20261122090000_service_desk_audit_journal", "service_settings_journal_erase_business", ["ServiceSettingsEvent"], ["ServiceSettingsEvent", "actorUserId"]],
+  ["20261126090000_service_desk_case_charge", "service_case_charge_erase_business", ["ServiceCaseCharge", "ServiceCaseBillingLink"], ["ServiceCaseCharge", "reason"]],
+  ["20261127090000_service_desk_tracks", "service_tracks_erase_business", ["ServiceCase", "ServiceDevice", "ServiceCompletion", "ServiceCaseDetailChange"], ["ServiceCompletion", "confirmedByName"]],
+  ["20261130090000_service_handover_debt_record", "service_handover_record_erase_business", ["ServiceHandover"], ["ServiceHandover", "debtApprovedByUserId"]],
 ] as const) {
   const file = path.join(MIG, dir, "migration.sql");
   if (!fs.existsSync(file)) { check(`${fn}: migration present`, false, file); continue; }

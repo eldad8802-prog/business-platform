@@ -17,6 +17,7 @@ on:
       - "scripts/ci/test-coverage/service-desk-external-work.json"
       - "scripts/ci/test-coverage/service-desk-parts.json"
       - "scripts/ci/test-coverage/service-desk-intake.json"
+      - "scripts/ci/test-coverage/service-desk-idempotency-key.json"
       - ".github/workflows/service-desk-ci.yml"
   workflow_dispatch:
 
@@ -42,8 +43,17 @@ jobs:
       - run: npx tsx lib/services/service-desk/service-desk-access.test.ts
       - run: npx tsx lib/services/service-desk/service-desk-gate.test.ts
       - run: npx tsx lib/services/service-desk/service-profiles.test.ts
+      - run: npx tsx lib/services/service-desk/tracks-core.test.ts
+      - run: npx tsx lib/services/service-desk/idempotency-key.test.ts
+      - run: npx tsx lib/services/service-desk/approvals.test.ts
+        env:
+          AUTH_TOKEN_SECRET: sd-ci-synthetic-auth-secret-0123456789abcdef
       - run: npx tsx lib/services/service-desk/external-work-lock.test.ts
       - run: npx tsx lib/services/service-desk/cancel-stamp.test.ts
+      - run: npx tsx lib/services/service-desk/settlement.test.ts
+      - run: npx tsx lib/services/service-desk/case-balance.test.ts
+      - run: npx tsx lib/services/service-desk/case-charge-core.test.ts
+      - run: npx tsx lib/services/service-desk/quote-core.test.ts
       - run: npx tsx lib/services/service-desk/parts-lock.test.ts
       - run: npx tsx lib/services/service-desk/intake-core.test.ts
       - run: npx tsx lib/services/service-desk/legal-approval-guard.test.ts

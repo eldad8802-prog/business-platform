@@ -16,7 +16,12 @@ export async function POST(req: Request) {
   return serviceDeskRoute(req, "write", async ({ principal }) => {
     const key = idempotencyKeyOf(req);
     const b = await jsonBody(req);
-    const r = await openCase(principal, { kind: b.kind, customerId: b.customerId, deviceId: b.deviceId, parentCaseId: b.parentCaseId, problemDescription: b.problemDescription }, { idempotencyKey: key });
+    const r = await openCase(principal, {
+      kind: b.kind, customerId: b.customerId, deviceId: b.deviceId, parentCaseId: b.parentCaseId, problemDescription: b.problemDescription,
+      // M1: opening on a track (the server takes the profile snapshot; the request cannot name requirements)
+      track: b.track, serviceLocation: b.serviceLocation, siteAddress: b.siteAddress, siteNotes: b.siteNotes,
+      returnReason: b.returnReason, originalSaleRef: b.originalSaleRef, subject: b.subject,
+    }, { idempotencyKey: key });
     return json(r, r.replayed ? 200 : 201);
   });
 }

@@ -228,7 +228,9 @@ function walk(dir: string, out: string[] = []): string[] {
 const ROOT = path.resolve(__dirname, "../../..");
 const importers = ["lib", "app", "features", "components"].flatMap((d) => (fs.existsSync(path.join(ROOT, d)) ? walk(path.join(ROOT, d)) : []))
   .filter((f) => !/service-profiles(\.test)?\.ts$/.test(f) && /service-profiles["']/.test(fs.readFileSync(f, "utf8")));
-ok("P11 stage 1: not wired — no product file imports the catalog yet", importers.length === 0, importers.join(", "));
+// Expectation changed by M1 (stage 3, PR-B): the catalog is wired — but only inside the Service Desk module.
+const outside = importers.filter((f) => !path.relative(ROOT, f).split(path.sep).join("/").startsWith("lib/services/service-desk/"));
+ok("P11 stage 3: wired only inside lib/services/service-desk (no other product file imports the catalog)", importers.length > 0 && outside.length === 0, outside.join(", "));
 
 console.log(`\n${pass} passed, ${failures.length} failed`);
 if (failures.length > 0) {
