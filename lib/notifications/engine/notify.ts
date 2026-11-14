@@ -8,7 +8,8 @@
  *      same atomic SQL the snapshot writer uses (one winner under a race; within the cooldown nothing is written);
  *   2. on a win, records the in-app delivery (SENT — the row existing IS the in-app delivery) and, when the category
  *      may push, ONE owed PUSH delivery: PENDING, userId = the target user (NULL = the whole business), expiresAt =
- *      now + the category's TTL. The worker (push-worker.ts) does the rest.
+ *      now + the category's TTL — or, for a push owed at a later moment (event.push: appointment reminders), due at
+ *      notBefore and expiring at expiresAt. The worker (push-worker.ts) does the rest.
  *
  * The engine's rows carry the catalog key in `semanticCategory` and the catalog domain in `domain`, so the
  * classifier reads them back exactly; severity is derived from the category's importance.
@@ -35,6 +36,13 @@ export type NotifyEvent = {
   cooldownHours?: number;
   reason?: string;
   now: Date;
+  /**
+   * A push owed for a LATER moment (appointment reminders): the owed row gets nextAttemptAt = notBefore (the worker
+   * claims nothing before it — notification_push_due and the claim both require nextAttemptAt <= now) and
+   * expiresAt = expiresAt (never sent after it). Absent: due now, expiring after the category TTL.
+   * notBefore must not be in the past (the producer passes max(moment, now)); expiresAt must be after notBefore.
+   */
+  push?: { notBefore: Date; expiresAt: Date };
 };
 
 export type NotifyOutcome = {
@@ -67,6 +75,7 @@ export async function notify(tx: Tx, event: NotifyEvent): Promise<NotifyOutcome>
   if (!Number.isInteger(event.businessId) || event.businessId <= 0 || !Number.isInteger(event.entity.id)) {
     throw new NotifyRefusedError("INVALID_EVENT");
   }
+  if (event.push && !(event.push.expiresAt.getTime() > event.push.notBefore.getTime())) throw new NotifyRefusedError("INVALID_EVENT");
   const href = safeHref(event.href, cat.hrefPrefixes);
   if (href === null) throw new NotifyRefusedError("INVALID_HREF");
   const now = event.now;
@@ -127,7 +136,8 @@ export async function notify(tx: Tx, event: NotifyEvent): Promise<NotifyOutcome>
         status: "PENDING",
         userId,
         attempts: 0,
-        expiresAt: new Date(now.getTime() + cat.ttlMinutes * 60_000),
+        nextAttemptAt: event.push ? event.push.notBefore : null,
+        expiresAt: event.push ? event.push.expiresAt : new Date(now.getTime() + cat.ttlMinutes * 60_000),
         attemptedAt: now,
         createdAt: now,
       },

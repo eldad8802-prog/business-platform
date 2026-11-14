@@ -4,14 +4,23 @@
  * הגדרות ← התראות ← סוגי התראות (approved design, screen 2 and screen 4 state ה): for each type the three
  * choices "בתוך דוביז" / "בטלפון" / "בסיכום היומי", grouped by area. Only catalog categories are listed; a type
  * whose feature is not available to the business is greyed with "לא זמין בחשבון שלכם" and its stored choices are
- * kept (the backend never deletes them).
+ * kept (the backend never deletes them). In the appointments area, when the appointment reminder is available: the
+ * user's own lead time ("מתי להזכיר לפני תור": 30 דקות / שעה / שעתיים / יום לפני), saved to the caller's own
+ * settings (PATCH appointmentReminderMinutes).
  */
 import { useNotificationT } from "./copy/notification-copy";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { getCategory } from "@/lib/notifications/catalog";
 
 import { LoadGate, SaveStatus } from "./notification-controls";
-import { CHOICES, buildTypeGroups, type CategoryRow, type Choice } from "./notification-settings-model";
+import {
+  CHOICES,
+  SETTINGS_CONTROLS,
+  appointmentLeadView,
+  buildTypeGroups,
+  type CategoryRow,
+  type Choice,
+} from "./notification-settings-model";
 import { useNotificationSettings, type NotificationSettingsApi } from "./use-notification-settings";
 import s from "./notification-settings.module.css";
 
@@ -68,6 +77,40 @@ function TypeRow({ row, api }: { row: CategoryRow; api: NotificationSettingsApi 
   );
 }
 
+/** The appointment reminder lead time: four chips, one pressed (the existing chip control, single choice). */
+function AppointmentLead({ api }: { api: NotificationSettingsApi }) {
+  const t = useNotificationT();
+  const lead = appointmentLeadView(api.view!);
+  if (!lead.shown) return null;
+  const labelId = "notif-appointment-lead";
+  return (
+    <div className={s.typeRow} data-testid="notif-appointment-lead">
+      <p id={labelId} className="text-sm font-bold text-[var(--dz-text-primary)]">
+        {t("notifications.types.appointmentLead.title")}
+      </p>
+      <p id={`${labelId}-help`} className="mt-1 text-xs leading-5 text-[var(--dz-text-secondary)]">
+        {t("notifications.types.appointmentLead.help")}
+      </p>
+      <div className={s.choices} role="group" aria-labelledby={labelId} aria-describedby={`${labelId}-help`}>
+        {lead.options.map((o) => (
+          <button
+            key={o.minutes}
+            type="button"
+            className={s.chip}
+            aria-pressed={o.pressed}
+            data-minutes={o.minutes}
+            onClick={() => {
+              if (!o.pressed) void api.patchSettings({ [SETTINGS_CONTROLS.appointmentLead]: o.minutes });
+            }}
+          >
+            {t(o.labelKey)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TypesBody({ api }: { api: NotificationSettingsApi }) {
   const t = useNotificationT();
   const view = api.view!;
@@ -84,6 +127,7 @@ function TypesBody({ api }: { api: NotificationSettingsApi }) {
           {g.rows.map((row) => (
             <TypeRow key={row.key} row={row} api={api} />
           ))}
+          {g.domain === "appointments" ? <AppointmentLead api={api} /> : null}
         </SettingsSection>
       ))}
       <SaveStatus note={api.note} />
