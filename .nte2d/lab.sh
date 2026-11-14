@@ -41,6 +41,15 @@ psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_ST
 # admin read plane's column grant on "Document" taken from 20261024090000 itself (that migration as a whole is not
 # re-runnable: it makes a table `db push` already made), so the proof can show the admin's grants do not reach the
 # new column.
+# Production has the platform admin read role (app_admin, NOLOGIN, created out of band as in .acct/ops-lab.sh); the
+# documents RLS migration grants it p7adm_read. Roles are cluster-wide, so a fresh CI cluster needs it made here.
+PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres <<SQL
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_admin') THEN
+    CREATE ROLE app_admin NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+  END IF;
+END \$\$;
+SQL
 psql_owner -f "$ROOT/prisma/migrations/20260827090000_d2_p7_w4d_documents_tenant_rls/migration.sql"
 ADMIN_DOC_GRANT="$(sed -n '/GRANT SELECT ("id", "businessId", "status", "source", "createdAt")/,/ON "Document" TO app_admin;/p' \
   "$ROOT/prisma/migrations/20261024090000_platform_admin_a1/migration.sql")"
