@@ -466,6 +466,7 @@ export const insightsEn: Widen<typeof insightsHe> = {
     toDocuments: "To Documents",
     toInventory: "To Inventory",
     toImportExport: "To Import & export",
+    toNotificationSettings: "To Notifications",
     toCollection: "To Collection",
     toAllPayables: "To all commitments",
     toCalendar: "To the calendar",

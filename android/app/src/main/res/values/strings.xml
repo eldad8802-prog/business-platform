@@ -11,4 +11,9 @@
       handle_all_urls, no App Links). translatable=false: a URL, never localised.
     -->
     <string name="asset_statements" translatable="false">[{\"include\": \"https://promaxgroup.co.il/.well-known/assetlinks.json\"}]</string>
+    <!-- Push notification channels (NotificationChannels.java), shown in the system notification settings. -->
+    <string name="notification_channel_default_name">התראות דוביז</string>
+    <string name="notification_channel_default_description">תזכורות ועדכונים שוטפים</string>
+    <string name="notification_channel_urgent_name">התראות דחופות</string>
+    <string name="notification_channel_urgent_description">עניינים שדורשים טיפול מיידי</string>
 </resources>
