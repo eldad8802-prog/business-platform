@@ -1,0 +1,24 @@
+[
+  {
+    "file": "prisma/migrations/20261126090000_service_desk_case_charge/migration.sql",
+    "name": "BillingDocument",
+    "reason": "Service Desk case charge (#1104): line 1 is the premise probe that the billing table exists (to_regclass); line 2 is the link guard reading a linked document's type and status (SELECT … INTO, no lock) to accept only an issued document of the right role. No write, DDL, FK, trigger, policy or grant on any billing object; the billing module is not changed.",
+    "lines": [
+      {
+        "sha256": "5954073cee5fe502aefc21fafa5776e9f9ed202458d7a86a0d5a062e8e6253fe",
+        "text": "OR to_regclass('public.\"BillingDocument\"') IS NULL THEN",
+        "readOnly": true
+      },
+      {
+        "sha256": "ab0b90f3a964fedbd8abff4c9bb4250dc8a55b9d4399c7814b62c45b7b3e8939",
+        "text": "SELECT d.\"documentType\"::text, d.\"status\"::text INTO v_type, v_status FROM public.\"BillingDocument\" d",
+        "readOnly": true
+      }
+    ],
+    "approval": {
+      "approvedBy": "",
+      "approvedAt": "",
+      "reference": ""
+    }
+  }
+]
