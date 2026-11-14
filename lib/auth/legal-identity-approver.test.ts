@@ -65,6 +65,7 @@ check("outcome → HTTP status", () => {
   assert.equal(statusForOutcome("REQUESTED"), 200);
   assert.equal(statusForOutcome("STALE"), 409);
   assert.equal(statusForOutcome("NOT_PENDING"), 409);
+  assert.equal(statusForOutcome("DECLARATION_ACTIVE"), 409);
   assert.equal(statusForOutcome("NOT_ALLOWED"), 403);
   assert.equal(statusForOutcome("NOT_FOUND"), 404);
   assert.equal(statusForOutcome("NOTE_REQUIRED"), 400);

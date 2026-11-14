@@ -8,7 +8,8 @@
  * under the business's advisory lock and FOR UPDATE, that the approver holds a "LegalIdentityApprover" row, is a
  * platform admin, is neither the requester nor a user of that business, that the request is still PENDING, that the
  * profile still holds the snapshot the request was made against (else STALE: nothing applied), that the business is
- * not being deleted, and that the change stays within the same legal entity. Approving updates the profile as the
+ * not being deleted, that the change stays within the same legal entity, and that the business has no live issuer
+ * declaration (else DECLARATION_ACTIVE: its identity lock stands, nothing applied, the request stays open). Approving updates the profile as the
  * table owner in that one transaction; issued documents are never touched (they keep their own frozen snapshot).
  *
  * Lives outside lib/services/platform-admin on purpose: that folder must not touch the tenant runtime (CI-4).
@@ -24,10 +25,12 @@ export type DecideOutcome =
   | "NOT_PENDING"
   | "NOT_FOUND"
   | "NOT_ALLOWED"
-  | "NOTE_REQUIRED";
+  | "NOTE_REQUIRED"
+  /** The business has a live issuer declaration: its identity lock stands, nothing is applied, the request stays open. */
+  | "DECLARATION_ACTIVE";
 export type RequestInfoOutcome = "REQUESTED" | "NOT_PENDING" | "NOT_FOUND" | "NOT_ALLOWED" | "NOTE_REQUIRED";
 
-const DECIDE: readonly DecideOutcome[] = ["APPLIED", "REJECTED", "STALE", "NOT_PENDING", "NOT_FOUND", "NOT_ALLOWED", "NOTE_REQUIRED"];
+const DECIDE: readonly DecideOutcome[] = ["APPLIED", "REJECTED", "STALE", "NOT_PENDING", "NOT_FOUND", "NOT_ALLOWED", "NOTE_REQUIRED", "DECLARATION_ACTIVE"];
 const REQUEST_INFO: readonly RequestInfoOutcome[] = ["REQUESTED", "NOT_PENDING", "NOT_FOUND", "NOT_ALLOWED", "NOTE_REQUIRED"];
 
 export const PUBLIC_NOTE_MIN = 5;
@@ -44,6 +47,7 @@ export function statusForOutcome(outcome: DecideOutcome | RequestInfoOutcome): n
       return 200;
     case "STALE":
     case "NOT_PENDING":
+    case "DECLARATION_ACTIVE":
       return 409;
     case "NOT_FOUND":
       return 404;
