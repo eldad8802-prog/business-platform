@@ -520,15 +520,21 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // Called whenever the function exists (Production once 20261128100000 is applied). Without it — an environment
           // built before that migration, such as another module's lab — it is skipped only when the business has no
           // correction request at all (nothing personal to clear); a request with no way to erase it fails the purge
-          // loudly, as every stage above.
-          const [lic] = await tx.$queryRaw<Array<{ fn: boolean; tbl: boolean }>>`
+          // loudly, as every stage above. A table this role cannot read (a lab that built it from schema.prisma with no
+          // grant) is one it cannot have written either, unless it holds INSERT — that case fails loudly too.
+          const [lic] = await tx.$queryRaw<Array<{ fn: boolean; tbl: boolean; sel: boolean; ins: boolean }>>`
             SELECT to_regprocedure('public.legal_identity_correction_erase()') IS NOT NULL AS fn,
-                   to_regclass('public."LegalIdentityCorrectionRequest"') IS NOT NULL AS tbl`;
+                   x.t IS NOT NULL AS tbl,
+                   coalesce(has_table_privilege(x.t, 'SELECT'), false) AS sel,
+                   coalesce(has_table_privilege(x.t, 'INSERT'), false) AS ins
+            FROM (SELECT to_regclass('public."LegalIdentityCorrectionRequest"')::oid AS t) x`;
           if (lic?.fn === true) {
             await tx.$queryRaw`SELECT public.legal_identity_correction_erase() AS n`;
-          } else if (lic?.tbl === true) {
+          } else if (lic?.tbl === true && lic.sel === true) {
             const pending = await tx.legalIdentityCorrectionRequest.findFirst({ where: { businessId }, select: { id: true } });
             if (pending) throw new Error("legal_identity_correction_erase_missing");
+          } else if (lic?.tbl === true && lic.ins === true) {
+            throw new Error("legal_identity_correction_erase_missing");
           }
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
