@@ -48,6 +48,8 @@ jobs:
         env:
           DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
           DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          # /settings/inbound-email is decided at build time too (its page has no request-time input); this CI build only.
+          INBOUND_EMAIL_ENABLED: "true"
         run: npm run build
 
       - name: Install Chromium
