@@ -61,7 +61,12 @@ async function serviceData(b: Awaited<ReturnType<typeof business>>, tag: string)
     await tx.$executeRawUnsafe(`UPDATE "ServiceCaseIntake" SET "customerSigned" = true, "signedAt" = now(), "signatureKey" = $2 WHERE "caseId" = $1`, kase, `biz/${b.biz}/service/sig/${kase}.png`);
     await tx.$executeRawUnsafe(`INSERT INTO "ServiceQuote" ("businessId", "caseId", version, "billingDocumentId", "totalAgorot", "docHash", "sentPdfKey", "sentPdfSha256", "sentByUserId")
       VALUES ($1, $2, 1, $3, 45000, $4, $5, $6, $7)`, b.biz, kase, b.doc, H("1"), `biz/${b.biz}/service/quotes/${kase}.pdf`, H("f"), b.user);
-    await tx.$executeRawUnsafe(`INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "signatureKey", "openBalanceAgorot", "debtOverrideReason", "actorUserId")
+    // With the handover record (migration 20261130090000) in place a new handover is a version-2 record: the full balance
+    // (no overpayment) and the open debt's approver, who today is the acting user. Without it, the legacy shape as before.
+    const v2 = Number(((await tx.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_attribute WHERE attrelid = '"ServiceHandover"'::regclass AND attname = 'recordVersion' AND NOT attisdropped`)) as Rows)[0].n) === 1;
+    if (v2) await tx.$executeRawUnsafe(`INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "signatureKey", "openBalanceAgorot", "debtOverrideReason", "actorUserId", "recordVersion", "overpaidAgorot", "debtApprovedByUserId", "debtApprovedAt")
+      VALUES ($1, $2, 'ישראל ישראלי', true, $3, 500, 'ישלם מחר', $4, 2, 0, $4, now())`, b.biz, kase, `biz/${b.biz}/service/sig/h${kase}.png`, b.user);
+    else await tx.$executeRawUnsafe(`INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "signatureKey", "openBalanceAgorot", "debtOverrideReason", "actorUserId")
       VALUES ($1, $2, 'ישראל ישראלי', true, $3, 500, 'ישלם מחר', $4)`, b.biz, kase, `biz/${b.biz}/service/sig/h${kase}.png`, b.user);
     return { dev, kase };
   });

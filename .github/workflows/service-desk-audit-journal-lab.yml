@@ -8,7 +8,12 @@
 #   4. Regression on a fresh lab with P4 applied: the 1.3-0 battery (.sd3/battery.ts) and the 1.3a service battery
 #      (.sd3a/battery.ts) stay green.
 #   5. P4 PR-2: the journaled record commands (technician, intake, QA, settings) and account deletion on the P4 lab, the
-#      refusal on a 1.3-0-only lab (.sd3p4/records-battery.ts), and the 1.3a battery with the journal absent.
+#      refusal on a 1.3-0-only lab (.sd3p4/records-battery.ts), and the journal-absent mode on a second 1.3-0-only lab.
+#   M1 (20261127090000): the code of this checkout writes M1's columns, so the batteries that run it (4, 5) get the
+#   migrations it needs first (.sdf/code-prereq.sh: P4, #1096, the charge, M1), after what 1–3 prove about P4.
+#   A database without the journal can never carry that code (M1 refuses without the charge, the charge without P4), so
+#   the journal-absent runs of step 5 are explicit, counted refusal checks on the same 1.3-0-only labs (owner decision
+#   2026-11-12, option A): records battery AR1–AR4 (p4abs) and .sd3p4/absent-refusal.ts J1–J7 (p4abs2).
 #
 # Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
 
@@ -28,6 +33,10 @@ on:
       - "app/api/service-desk/**"
       - "lib/services/account/**"
       - "prisma/schema.prisma"
+      - ".sdf/code-prereq.sh"
+      - "prisma/migrations/20261125090000_service_desk_handover_owner_confirmed/**"
+      - "prisma/migrations/20261126090000_service_desk_case_charge/**"
+      - "prisma/migrations/20261127090000_service_desk_tracks/**"
       - ".github/workflows/service-desk-audit-journal-lab.yml"
   workflow_dispatch:
 
@@ -97,6 +106,10 @@ jobs:
           R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/p4reg"
           OWNER_URL="$O" RUNTIME_URL="$R" npx tsx .sd3/battery.ts | tee /tmp/reg13.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/reg13.out || { echo "the 1.3-0 battery regressed"; exit 1; }
+          # The code of this checkout reads / writes the M1 columns (openCase writes them on every case). Release order is
+          # migration-first, so before the code: P4, #1096, the charge and M1, each verbatim and once, in order (whichever is
+          # missing) — .sdf/code-prereq.sh. Nothing above this line changed.
+          bash .sdf/code-prereq.sh p4reg
           OWNER_URL="$O" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$O" AUTH_PLANE_ENABLED=true \
           STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/p4-store" \
           TASK_REQUEST_HMAC_KEY=p4-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=p4-ci \
@@ -108,9 +121,14 @@ jobs:
         run: |
           set -euo pipefail
           # The P4 lab (1.3-0 + 20261122090000 by migrate deploy) with the purge's prerequisites, and a 1.3-0-only lab
-          # without the journal: there technician / intake / QA / settings must refuse NOT_AVAILABLE_UNTIL_AUDIT, no write.
+          # without the journal: there the charge and M1 must refuse and change nothing (records battery AR1–AR4: that lab can
+          # never carry this code, so its record writes — technician / intake / QA / settings — cannot be reached there).
           bash .sd3p4/lab.sh p4rec
           bash .sd3p4/lab.sh p4rec --deploy-only
+          # The code of this checkout reads / writes the M1 columns (openCase writes them on every case). Release order is
+          # migration-first, so before the code: P4, #1096, the charge and M1, each verbatim and once, in order (whichever is
+          # missing) — .sdf/code-prereq.sh. Nothing above this line changed.
+          bash .sdf/code-prereq.sh p4rec
           bash .sdf/erasure-prereq.sh p4rec
           bash .sd3/lab.sh p4abs --with-sd3 >/dev/null
           O="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p4rec"
@@ -123,13 +141,13 @@ jobs:
           AUTH_TOKEN_SECRET=p4r-ci-synthetic-auth-secret-0123456789abcdef \
             npx tsx .sd3p4/records-battery.ts | tee /tmp/p4rec.out
           grep -qE '^[0-9]+ passed, 0 failed$' /tmp/p4rec.out || { echo "the records battery is not green"; exit 1; }
-          # The 1.3a battery on the journal-less lab: every journaled command refused with no write (P4 lab: step 4).
+          # The journal-absent mode on the journal-less lab. Until M1 the 1.3a battery ran here (every journaled command
+          # refused with no write; P4 lab: step 4). This code writes M1's columns and M1 → the charge → P4, so that lab can
+          # never carry it (openCase fails with 42703 before any refusal). In its place (owner decision 2026-11-12, option
+          # A), on the same lab, explicit counted refusals: journal absent (the code's probe), the charge and M1 applied
+          # verbatim refuse and change nothing, the migrate-deploy order, the premise chain in the migrations, and the
+          # code's probes true on the P4 lab above (which carries M1) — NOT_AVAILABLE_UNTIL_AUDIT unreachable there.
           bash .sd3/lab.sh p4abs2 --with-sd3 >/dev/null
           A2="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/p4abs2"
-          R2="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/p4abs2"
-          OWNER_URL="$A2" DATABASE_URL="$R2?connection_limit=20" DIRECT_URL="$R2" AUTH_DATABASE_URL="$A2" AUTH_PLANE_ENABLED=true \
-          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/p4abs-store" \
-          TASK_REQUEST_HMAC_KEY=p4r-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=p4r-ci \
-          AUTH_TOKEN_SECRET=p4r-ci-synthetic-auth-secret-0123456789abcdef \
-            npx tsx .sd3a/battery.ts | tee /tmp/abs13a.out
-          grep -q '^audit journal (P4) absent$' /tmp/abs13a.out && grep -qE '^[0-9]+ passed, 0 failed$' /tmp/abs13a.out || { echo "the 1.3a battery (journal absent) is not green"; exit 1; }
+          ABSENT_OWNER_URL="$A2" CARRIER_OWNER_URL="$O" npx tsx .sd3p4/absent-refusal.ts | tee /tmp/abs13a.out
+          grep -q '^audit journal (P4) absent$' /tmp/abs13a.out && grep -qE '^7 passed, 0 failed$' /tmp/abs13a.out || { echo "the journal-absent refusals are not green"; exit 1; }

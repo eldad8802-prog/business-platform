@@ -8155,6 +8155,7 @@ enum ServiceCaseKind {
   IN_SHOP
   FIELD
   MAINTENANCE
+  REMOTE // M1 (migration 20261127090000): remote work — serviceLocation REMOTE
 }
 
 enum ServiceCaseStatus {
@@ -8171,6 +8172,7 @@ enum ServiceCaseStatus {
   CLOSED
   CANCELLED
   ABANDONED
+  WORK_DONE // M1: the work is finished where nothing is handed back; COMPLETE closes it
 }
 
 enum ServiceHoldReason {
@@ -8184,6 +8186,7 @@ enum ServiceOutcome {
   REPLACED
   QUOTE_REJECTED
   CANCELLED
+  COMPLETED // M1: work that is not a repair (CHECK ServiceCase_completed_not_repair)
 }
 
 enum ServiceCoverageSource {
@@ -8246,6 +8249,14 @@ enum ServiceCaseAction {
   RECORD_INTAKE
   RECORD_COVERAGE
   RECORD_QA
+  // migration 20261126090000: the case charge and its billing links — status-preserving records.
+  RECORD_CHARGE
+  LINK_BILLING_DOCUMENT
+  UNLINK_BILLING_DOCUMENT
+  // M1 (migration 20261127090000): RESCHEDULE in place, COMPLETE = WORK_DONE → CLOSED, CHANGE_DETAILS (D3).
+  RESCHEDULE
+  COMPLETE
+  CHANGE_DETAILS
 }
 
 enum ServiceEventType {
@@ -8276,6 +8287,62 @@ enum ServiceEventType {
   intake_recorded             @map("intake.recorded")
   coverage_recorded           @map("coverage.recorded")
   qa_recorded                 @map("qa.recorded")
+  // migration 20261126090000: the case charge and its billing links — status-preserving records.
+  charge_recorded             @map("charge.recorded")
+  billing_linked              @map("billing.linked")
+  billing_unlinked            @map("billing.unlinked")
+  // M1 (migration 20261127090000)
+  case_rescheduled            @map("case.rescheduled")
+  case_completed              @map("case.completed")
+  case_details_changed        @map("case.details_changed")
+}
+
+// M1 (migration 20261127090000) — the universal service model. NULL work type / place on a case = derived from kind.
+enum ServiceWorkType {
+  REPAIR
+  MAINTENANCE
+  INSTALLATION
+  INSPECTION
+  PROFESSIONAL
+  REMOTE_SUPPORT
+  AFTER_SALE
+}
+
+enum ServiceLocationKind {
+  AT_BUSINESS
+  AT_CUSTOMER
+  FIELD_SITE
+  REMOTE
+}
+
+enum ServiceSubjectKind {
+  ITEM
+  VEHICLE
+  SYSTEM
+  NONE
+}
+
+/// Always the owner's confirmation, never a customer signature (owner decision 2026-11-11); the value names the place.
+enum ServiceCompletionType {
+  OWNER_CONFIRMED_ON_SITE
+  OWNER_CONFIRMED_REMOTE
+  OWNER_CONFIRMED_AT_BUSINESS
+}
+
+enum ServiceReturnReason {
+  DEFECT
+  NOT_AS_DESCRIBED
+  WRONG_ITEM
+  CHANGE_OF_MIND
+  LEGAL_CANCELLATION
+  OTHER
+}
+
+enum ServiceAfterSaleResolution {
+  REPAIR
+  EXCHANGE
+  CREDIT
+  RETURN_ORIGINAL
 }
 
 model ServiceCaseNumberSequence {
@@ -8294,6 +8361,9 @@ model ServiceDevice {
   serialNumber     String?
   serialNormalized String?
   description      String?
+  subjectKind      ServiceSubjectKind @default(ITEM) // M1
+  displayName      String? // M1 — cleared by service_tracks_erase_business()
+  attributes       Json? // M1 — cleared by service_tracks_erase_business()
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @default(now()) @updatedAt
   erasedAt         DateTime?
@@ -8338,6 +8408,19 @@ model ServiceCase {
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @default(now()) @updatedAt
   erasedAt              DateTime?
+  // M1 (migration 20261127090000). NULL work type / place = derived from kind (legacy rules).
+  workType              ServiceWorkType?
+  serviceLocation       ServiceLocationKind?
+  appointmentId         Int? // composite tenant FK (appointmentId, businessId) → Appointment in the migration
+  siteAddress           String? // cleared by service_tracks_erase_business()
+  siteNotes             String? // cleared by service_tracks_erase_business()
+  completionType        ServiceCompletionType?
+  completedAt           DateTime?
+  profileKey            String?
+  profileSnapshot       Json? // D14: fixed at the opening
+  returnReason          ServiceReturnReason?
+  afterSaleResolution   ServiceAfterSaleResolution?
+  originalSaleRef       String? // cleared by service_tracks_erase_business()
 
   @@unique([businessId, id])
   @@unique([businessId, caseNumber])
@@ -8439,6 +8522,17 @@ model ServiceHandover {
   actorUserId          Int?
   createdAt            DateTime  @default(now())
   erasedAt             DateTime?
+  /// Migration 20261130090000: 1 = a handover written before it (legacy shape, the new fields NULL); 2 = the full balance
+  /// record — the only version a new handover may have (service_handover_record_guard). CHECKs live in the migration.
+  recordVersion          Int       @default(1) @db.SmallInt
+  /// v2: the overpayment at the handover (>= 0, never with a debt). NULL only on a version-1 row.
+  overpaidAgorot         Int?
+  /// v2: who approved handing over with an open debt (today = the acting user; FK SET NULL; erased with the account).
+  debtApprovedByUserId   Int?
+  debtApprovedAt         DateTime?
+  /// v2: who approved handing over while the temporary item is still out (same rules).
+  loanerApprovedByUserId Int?
+  loanerApprovedAt       DateTime?
 
   @@unique([businessId, id])
   @@unique([businessId, caseId])
@@ -8774,6 +8868,119 @@ model ServiceSettingsEvent {
   @@index([businessId, occurredAt])
 }
 
+/// Service Desk — the charge history of a service case (migration 20261126090000): append-only, gap-free seq per case;
+/// the current charge is the last record. CHARGEABLE (positive ILS agorot, from an approved quote or entered by the
+/// owner) or NO_CHARGE (with a reason). Any change after the first record carries a reason unless it is a quote approval.
+model ServiceCaseCharge {
+  id           Int                  @id @default(autoincrement())
+  businessId   Int
+  caseId       Int
+  seq          Int
+  mode         ServiceChargeMode
+  amountAgorot Int?
+  currency     String               @default("ILS") @db.Char(3)
+  source       ServiceChargeSource?
+  quoteVersion Int?
+  reason       String? // cleared by service_case_charge_erase_business()
+  actor        ServiceActor
+  actorUserId  Int? // cleared by service_case_charge_erase_business()
+  createdAt    DateTime             @default(now())
+  erasedAt     DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, seq])
+}
+
+/// Service Desk — billing documents that belong to a service case (migration 20261126090000). CHARGE: a tax invoice or a
+/// tax invoice / receipt; STANDALONE_PAYMENT: a receipt with no invoice, linked by the owner. A document is actively
+/// linked to at most one case (partial UNIQUE). An unlink happens once, with who and why; the row stays.
+model ServiceCaseBillingLink {
+  id                Int                    @id @default(autoincrement())
+  businessId        Int
+  caseId            Int
+  billingDocumentId Int
+  role              ServiceBillingLinkRole
+  linkedAt          DateTime               @default(now())
+  linkedByUserId    Int? // cleared by service_case_charge_erase_business()
+  unlinkedAt        DateTime?
+  unlinkedByUserId  Int? // cleared by service_case_charge_erase_business()
+  unlinkReason      String? // cleared by service_case_charge_erase_business()
+  erasedAt          DateTime?
+
+  @@unique([businessId, id])
+  @@index([businessId, caseId])
+}
+
+/// Service Desk M1 (migration 20261127090000) — the owner's confirmation that the work of a case without a handover is
+/// done (COMPLETE, WORK_DONE → CLOSED). One per case, immutable; NO signature columns (owner decision 2026-11-11).
+model ServiceCompletion {
+  id              Int                   @id @default(autoincrement())
+  businessId      Int
+  caseId          Int
+  completionType  ServiceCompletionType
+  confirmedByName String? // cleared by service_tracks_erase_business()
+  note            String? // cleared by service_tracks_erase_business()
+  /// the KNOWN balance when the owner confirmed (agorot, >= 0, no default — an unknown balance has no representation;
+  /// CHECK ServiceCompletion_balance: never a debt and an overpayment together)
+  openBalanceAgorot    Int
+  overpaidAgorot       Int
+  /// closing with a debt = the owner's explicit approval: reason + approving user (same business) + time
+  /// (CHECK ServiceCompletion_debt_decided; the approver is required at INSERT by service_completion_guard)
+  debtOverrideReason   String? // cleared by service_tracks_erase_business()
+  debtApprovedByUserId Int? // cleared by service_tracks_erase_business()
+  debtApprovedAt       DateTime?
+  actorUserId     Int? // cleared by service_tracks_erase_business()
+  completedAt     DateTime              @default(now())
+  createdAt       DateTime              @default(now())
+  erasedAt        DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId])
+}
+
+/// Service Desk M1 (D11) — one row per CHANGE_DETAILS, at the journal event's seq; append-only. Before / after values
+/// (the address too) live here, never in the journal payload.
+model ServiceCaseDetailChange {
+  id                    Int                  @id @default(autoincrement())
+  businessId            Int
+  caseId                Int
+  caseVersion           Int
+  changedFields         String[]
+  kindBefore            ServiceCaseKind
+  kindAfter             ServiceCaseKind
+  workTypeBefore        ServiceWorkType?
+  workTypeAfter         ServiceWorkType?
+  serviceLocationBefore ServiceLocationKind?
+  serviceLocationAfter  ServiceLocationKind?
+  returnReasonBefore    ServiceReturnReason?
+  returnReasonAfter     ServiceReturnReason?
+  siteAddressBefore     String? // cleared by service_tracks_erase_business()
+  siteAddressAfter      String? // cleared by service_tracks_erase_business()
+  reason                String? // cleared by service_tracks_erase_business()
+  actorUserId           Int? // cleared by service_tracks_erase_business()
+  occurredAt            DateTime             @default(now())
+  erasedAt              DateTime?
+
+  @@unique([businessId, id])
+  @@unique([businessId, caseId, caseVersion])
+}
+
+enum ServiceChargeMode {
+  CHARGEABLE
+  NO_CHARGE
+}
+
+enum ServiceChargeSource {
+  APPROVED_QUOTE
+  OWNER_ENTERED
+}
+
+enum ServiceBillingLinkRole {
+  CHARGE
+  STANDALONE_PAYMENT
+  AFTER_SALE_CREDIT // an issued credit note — the record of a T7 credit; never part of the balance
+}
+
 model ServiceSettings {
   businessId                     Int                  @id
   defaultStaffMemberId           Int?
@@ -8783,6 +8990,8 @@ model ServiceSettings {
   warrantyTemplateExclusions     String?
   activeTermsVersionId           Int?
   activeStatutoryNoticeVersionId Int?
+  serviceProfileKey              String? // M1: one of SERVICE_PROFILE_KEYS; NULL = resolved from the category
+  profileOverrides               Json? // M1: bounded by validateOverrides
   version                        Int                  @default(1)
   createdAt                      DateTime             @default(now())
   updatedAt                      DateTime             @updatedAt
@@ -9102,4 +9311,114 @@ model BusinessDocumentErasure {
   state       BusinessDocumentErasureState @default(PURGING_OBJECTS)
   startedAt   DateTime                     @default(now()) @db.Timestamptz(3)
   completedAt DateTime?                    @db.Timestamptz(3)
+}
+
+// ─── Service Desk — loans: a temporary replacement item lent during service ─────────────────────────────────────
+// Tables, checks, triggers, RLS and grants are built by migration 20261201090000_service_desk_loans. References to
+// existing models are scalar on purpose (composite tenant FKs live in the migration); no existing model gains a field.
+// The partial UNIQUE index (one OUT loan per normalized identifier), the CHECKs and the triggers are not expressible
+// here. inventoryItemId is a READ-ONLY reference: a loan never moves stock (the inventory movement contract is not ready).
+
+enum ServiceLoanState {
+  OUT
+  RETURNED
+  CLOSED
+}
+
+enum ServiceLoanCondition {
+  GOOD
+  WORN
+  DAMAGED
+  NOT_WORKING
+}
+
+enum ServiceLoanCloseReason {
+  LOST
+  KEPT_BY_CUSTOMER
+  WRITTEN_OFF
+}
+
+enum ServiceLoanEventKind {
+  LENT
+  EXPECTED_RETURN_CHANGED
+  RETURNED
+  CLOSED
+  CASE_EXIT_APPROVED
+}
+
+enum ServiceLoanApprovalKind {
+  LEND_OUTSIDE_WORK
+  LOAN_CLOSE_UNRETURNED
+  CANCEL_OPEN_LOANER
+  ABANDON_OPEN_LOANER
+}
+
+/// One lent item. state OUT → RETURNED | CLOSED (final). Times are stamped by the database; free texts and users are
+/// cleared by service_loan_erase_business().
+model ServiceLoan {
+  id                       Int                     @id @default(autoincrement())
+  businessId               Int
+  caseId                   Int
+  itemName                 String? // NULL only after the erasure
+  itemIdentifier           String?
+  itemIdentifierNormalized String? // set by the insert guard
+  inventoryItemId          Int? // READ-ONLY reference (composite tenant FK in the migration)
+  state                    ServiceLoanState        @default(OUT)
+  lastEventKind            ServiceLoanEventKind    @default(LENT)
+  version                  Int                     @default(1)
+  lentAt                   DateTime                @default(now())
+  lentByUserId             Int?
+  conditionAtLend          ServiceLoanCondition
+  lendNote                 String?
+  expectedReturnOn         DateTime?               @db.Date
+  lendExceptionReason      String?
+  lendApprovedByUserId     Int?
+  lendApprovedAt           DateTime?
+  returnedAt               DateTime?
+  returnedByUserId         Int?
+  conditionAtReturn        ServiceLoanCondition?
+  returnNote               String?
+  closedAt                 DateTime?
+  closedByUserId           Int?
+  closeReason              ServiceLoanCloseReason?
+  closeNote                String?
+  closeApprovedByUserId    Int?
+  closeApprovedAt          DateTime?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @default(now()) @updatedAt
+  erasedAt                 DateTime?
+
+  @@unique([businessId, id])
+  @@index([businessId, caseId])
+}
+
+/// The append-only journal of a loan: seq = the loan's version after the change; an approval (kind, approver = the actor
+/// today, reason, the case seq of a case exit) lives on the event that made it.
+model ServiceLoanEvent {
+  id               Int                      @id @default(autoincrement())
+  businessId       Int
+  loanId           Int
+  caseId           Int
+  seq              Int
+  kind             ServiceLoanEventKind
+  stateAfter       ServiceLoanState
+  expectedReturnOn DateTime?                @db.Date
+  condition        ServiceLoanCondition?
+  approvalKind     ServiceLoanApprovalKind?
+  approvedByUserId Int? // cleared by service_loan_erase_business()
+  reason           String? // cleared by service_loan_erase_business()
+  caseSeq          Int?
+  actor            ServiceActor
+  actorUserId      Int? // cleared by service_loan_erase_business()
+  occurredAt       DateTime                 @default(now())
+  payload          Json                     @default("{}")
+  idempotencyKey   String
+  requestDigest    String?
+  digestKeyId      String?
+  erasedAt         DateTime?
+
+  @@unique([businessId, loanId, seq])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, caseId])
+  @@index([businessId, occurredAt])
 }

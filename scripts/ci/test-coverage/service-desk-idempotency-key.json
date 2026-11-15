@@ -1,0 +1,10 @@
+{
+  "note": "Service Desk — the idempotency key of a derived journal row (lib/services/service-desk/idempotency-key.ts): the after-sale resolution's later transitions, the part releases of a case cancel, the QA list event of an opening. The DB half (a 200-character key is refused cleanly, a replay is answered with no second effect) is proven by .sdm1/battery.ts in service-desk-tracks-lab.yml.",
+  "tests": {
+    "lib/services/service-desk/idempotency-key.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network/clock): replay detection of derived keys — client key lengths 1, 7, 8, 36, 196–201, 500 always within the column CHECK ^[A-Za-z0-9:_#-]{8,200}$ (plain `${key}#${step}` while it fits, h:+sha256 base64url beyond), today's UUIDv7 keys unchanged, deterministic (a replay finds its row), distinct across keys, steps and both forms, never equal to a valid client key, invalid steps refused, and no call site in the module concatenates a derived key by hand; run on pull_request by service-desk-ci.yml and security-gate (pure lab)"
+    }
+  }
+}

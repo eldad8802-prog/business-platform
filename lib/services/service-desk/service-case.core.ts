@@ -37,6 +37,18 @@
  * Free text (ט-1 A): reasons travel in `decision.texts` for the business columns, never in `event.payload`, which holds
  * only short tokens, numbers, booleans and nulls (the journal CHECK's alphabet).
  *
+ * M1 TRACKS (migration 20261127090000; tracks.core.ts). A case opened with a track carries ServiceTrackFacts, judged
+ * ONLY from its own profile snapshot (D14). A case without one keeps every rule above exactly. On a track:
+ *   - CHECK_IN needs the owner-confirmed intake when the track's requirement says so (not by kind);
+ *   - START_REPAIR and an authorized finish follow D15 (workApproval ALWAYS | BY_D15 | NONE);
+ *   - QA is REQUIRED / OPTIONAL (FINISH_REPAIR qa: true) / OFF per the track;
+ *   - a track that hands nothing back finishes at WORK_DONE instead of READY:
+ *       DIAGNOSING | QUOTE_PENDING | IN_REPAIR | EXTERNAL | QA → WORK_DONE → CLOSED (COMPLETE: owner-confirmed, no
+ *       customer signature; the completion type is the place of the work; a T7 credit needs its linked credit note;
+ *       the balance is judged exactly as at a handover).
+ * Any case: RESCHEDULE (SCHEDULED in place) and CHANGE_DETAILS (D3: OPEN / SCHEDULED in place, or SCHEDULED → OPEN
+ * when the owner unschedules, D13 — the only way back in the machine).
+ *
  * OPEN (1.1c): a case is created only by `openServiceCase` — status OPEN, version 1, and the journal's one
  * `case.opened` event at seq 1 with no "from" status. OPEN is not a transition: `evaluateTransition` refuses it on
  * every existing case, so a case can never be opened twice. Every transition after it is seq = the version it sets.
@@ -49,6 +61,7 @@ import {
   TERMINAL_STATUSES,
   SERVICE_HOLD_REASONS,
   SERVICE_REASON_MAX_LENGTH,
+  type OwnerOverride,
   type RepeatCaseDecision,
   type RepeatCaseInput,
   type ServiceCaseAction,
@@ -59,6 +72,8 @@ import {
   type ServiceCaseOpenDecision,
   type ServiceCaseOpenInput,
   type ServiceDecisionTexts,
+  type ServiceApprovalKind,
+  type ServiceHandoverRecord,
   type ServiceCaseEffect,
   type ServiceCaseEventType,
   type ServiceCaseKind,
@@ -73,18 +88,29 @@ import {
   type ServiceQuoteSnapshot,
   type ServiceServerCheck,
   type ServiceTransitionDecision,
+  type ServiceCaseDetails,
+  type ServiceCompletionRecord,
+  type ServiceDetailChange,
+  type ServiceDetailField,
+  type ServiceTrackFacts,
+  SERVICE_DETAIL_FIELDS,
 } from "./contracts";
+import { completionTypeFor, effectiveLocation, isLocation, isReturnReason, isWorkType, TRACK_TEXT_LIMITS } from "./tracks.core";
+import { SERVICE_TRACKS } from "./service-profiles";
 
 export const TRANSITION_GRAPH: Readonly<Record<ServiceCaseStatus, readonly ServiceCaseStatus[]>> = {
   OPEN: ["SCHEDULED", "CHECKED_IN", "CANCELLED"],
-  SCHEDULED: ["CHECKED_IN", "CANCELLED"],
+  // M1: SCHEDULED → OPEN only by CHANGE_DETAILS with UNSCHEDULE (D13).
+  SCHEDULED: ["CHECKED_IN", "CANCELLED", "OPEN"],
   CHECKED_IN: ["DIAGNOSING", "READY", "CANCELLED"],
-  DIAGNOSING: ["QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "READY", "CANCELLED"],
-  QUOTE_PENDING: ["IN_REPAIR", "READY", "CANCELLED"],
-  IN_REPAIR: ["QA", "EXTERNAL", "QUOTE_PENDING", "READY", "CANCELLED"],
-  EXTERNAL: ["IN_REPAIR", "QA", "READY"],
-  QA: ["READY", "IN_REPAIR"],
+  DIAGNOSING: ["QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "READY", "WORK_DONE", "CANCELLED"],
+  QUOTE_PENDING: ["IN_REPAIR", "READY", "WORK_DONE", "CANCELLED"],
+  IN_REPAIR: ["QA", "EXTERNAL", "QUOTE_PENDING", "READY", "WORK_DONE", "CANCELLED"],
+  EXTERNAL: ["IN_REPAIR", "QA", "READY", "WORK_DONE"],
+  QA: ["READY", "WORK_DONE", "IN_REPAIR"],
   READY: ["DELIVERED", "ABANDONED", "CANCELLED"],
+  // M1: only on a track that hands nothing back; only the owner-confirmed COMPLETE leaves it.
+  WORK_DONE: ["CLOSED"],
   DELIVERED: ["CLOSED"],
   CLOSED: [],
   CANCELLED: [],
@@ -113,6 +139,9 @@ export const ACTION_FROM: Readonly<Record<ServiceCaseActionType, readonly Servic
   CLOSE: ["DELIVERED", "ABANDONED"],
   CANCEL: ["OPEN", "SCHEDULED", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "QA", "READY"],
   ABANDON: ["READY"],
+  RESCHEDULE: ["SCHEDULED"],
+  COMPLETE: ["WORK_DONE"],
+  CHANGE_DETAILS: ["OPEN", "SCHEDULED"],
 };
 
 const EVENT_TYPE: Readonly<Record<ServiceCaseActionType, ServiceCaseEventType>> = {
@@ -136,6 +165,9 @@ const EVENT_TYPE: Readonly<Record<ServiceCaseActionType, ServiceCaseEventType>> 
   CLOSE: "case.closed",
   CANCEL: "case.cancelled",
   ABANDON: "case.abandoned",
+  RESCHEDULE: "case.rescheduled",
+  COMPLETE: "case.completed",
+  CHANGE_DETAILS: "case.details_changed",
 };
 
 /** A customer acts only on a quote, through the M2 link; the system only auto-closes. */
@@ -143,13 +175,13 @@ const CUSTOMER_ACTIONS: readonly ServiceCaseActionType[] = ["APPROVE_QUOTE", "RE
 const SYSTEM_ACTIONS: readonly ServiceCaseActionType[] = ["CLOSE"];
 
 /** Statuses in which an outcome exists (it is decided on entering READY, or by a cancel). */
-const OUTCOME_STATUSES: readonly ServiceCaseStatus[] = ["READY", "DELIVERED", "CLOSED", "ABANDONED", "CANCELLED"];
+const OUTCOME_STATUSES: readonly ServiceCaseStatus[] = ["READY", "WORK_DONE", "DELIVERED", "CLOSED", "ABANDONED", "CANCELLED"];
 
 /**
  * Actions that may leave the status unchanged: holds, a cancel at EXTERNAL (requested) or of a held READY item, and
  * a quote revision (QUOTE_PENDING stays QUOTE_PENDING).
  */
-const IN_PLACE_ACTIONS: readonly ServiceCaseActionType[] = ["SET_HOLD", "CLEAR_HOLD", "CANCEL", "REVISE_QUOTE"];
+const IN_PLACE_ACTIONS: readonly ServiceCaseActionType[] = ["SET_HOLD", "CLEAR_HOLD", "CANCEL", "REVISE_QUOTE", "RESCHEDULE", "CHANGE_DETAILS"];
 
 export function isTerminal(status: ServiceCaseStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
@@ -188,6 +220,11 @@ interface Resolution {
   serverChecks: ServiceServerCheck[];
   payload: Record<string, ServiceEventPayloadValue>;
   violations: ServiceCaseViolation[];
+  detailChange: ServiceDetailChange | null;
+  completion: ServiceCompletionRecord | null;
+  /** 20261130090000: the exceptions this decision admits only with an approval (the approver is resolved by the service). */
+  approvals: ServiceApprovalKind[];
+  handover: ServiceHandoverRecord | null;
 }
 
 function violation(code: ServiceCaseViolationCode, detail: string): ServiceCaseViolation {
@@ -318,6 +355,19 @@ export function evaluateTransition(
       actor: { ...actor },
       payload: { ...r.payload },
     },
+    ...(r.detailChange
+      ? {
+          detailChange: {
+            ...r.detailChange,
+            before: { ...r.detailChange.before },
+            after: { ...r.detailChange.after },
+            changedFields: [...r.detailChange.changedFields],
+          },
+        }
+      : {}),
+    ...(r.completion ? { completion: { ...r.completion } } : {}),
+    ...(r.handover ? { handover: { ...r.handover } } : {}),
+    approvals: [...r.approvals],
   };
 }
 
@@ -336,6 +386,10 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     serverChecks: [],
     payload: {},
     violations: [],
+    detailChange: null,
+    completion: null,
+    approvals: [],
+    handover: null,
   };
   const fail = (code: ServiceCaseViolationCode, detail: string) => r.violations.push(violation(code, detail));
   /**
@@ -350,7 +404,112 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     }
     return text;
   };
-  const onSite = context.kind !== "IN_SHOP";
+  /**
+   * 20261201090000: a case exit (CANCEL / ABANDON) while a lent item is OUT. Without the owner's override → OPEN_LOANER;
+   * with it → its reason (texts.loanerOverrideReason), the approval kind, and the effect that records the approval on
+   * every OUT loan (bound to this event). An override with no loan out is ignored (nothing to approve). false = refused.
+   */
+  const loanerExit = (override: OwnerOverride | undefined, kind: "CANCEL_OPEN_LOANER" | "ABANDON_OPEN_LOANER"): boolean => {
+    if (!context.openLoaner) return true;
+    if (!override) {
+      fail("OPEN_LOANER", "a temporary replacement item is still with the customer; approve the exit with a reason, or record its return first");
+      return false;
+    }
+    const reason = takeReason(override.reason, "loanerOverride.reason");
+    if (reason === null) {
+      fail("OVERRIDE_REASON_REQUIRED", "loaner decision reason");
+      return false;
+    }
+    r.texts.loanerOverrideReason = reason;
+    r.payload.loanerOverride = true;
+    r.approvals.push(kind);
+    r.effects.push("RECORD_LOANER_EXIT_APPROVAL");
+    return true;
+  };
+  // M1: a case opened with a track is judged by its own snapshot's requirements; without one, by its kind (today).
+  const t: ServiceTrackFacts | null = context.track ?? null;
+  const onSite = t ? t.location === "AT_CUSTOMER" || t.location === "FIELD_SITE" || t.location === "REMOTE" : context.kind !== "IN_SHOP";
+  /** The owner-confirmed intake applies: by the track's requirement, or (no track) to every IN_SHOP case. */
+  const needsIntake = t ? t.requirements.intakeConfirmation === "OWNER" : context.kind === "IN_SHOP";
+  /** QA: REQUIRED / OPTIONAL / OFF by the track; without one IN_SHOP always has it and on-site never. */
+  const qaMode = t ? t.requirements.qa.mode : context.kind === "IN_SHOP" ? "REQUIRED" : "OFF";
+  /** Where finished work goes: READY (an owner-confirmed handover follows) or WORK_DONE (an owner-confirmed COMPLETE). */
+  const finished: ServiceCaseStatus = !t || t.requirements.handoverByOwner ? "READY" : "WORK_DONE";
+  /** D15 (owner decision): ALWAYS = today's rule; BY_D15 = only once a quote or a money commitment exists; NONE = never. */
+  const approvalNeeded = !t || t.requirements.workApproval === "ALWAYS" || (t.requirements.workApproval === "BY_D15" && t.moneyCommitment);
+  if (t) r.payload.track = t.track;
+  /**
+   * The outcome finished work may carry. COMPLETED is for work that is not a repair (CHECK
+   * ServiceCase_completed_not_repair), so only a track case with a non-REPAIR work type can carry it.
+   */
+  const finishOutcome = (outcome: unknown, what: string): boolean => {
+    if (outcome === "COMPLETED") {
+      if (!t) fail("TRACK_REQUIRED", "COMPLETED belongs to a case opened with a track");
+      else if (t.workType === "REPAIR") fail("OUTCOME_REQUIRED", `${what}: a repair ends with REPAIRED or REPLACED`);
+      else return true;
+      return false;
+    }
+    if (outcome !== "REPAIRED" && outcome !== "REPLACED") {
+      fail("OUTCOME_REQUIRED", `${what} ends with ${t && t.workType !== "REPAIR" ? "COMPLETED, " : ""}REPAIRED or REPLACED`);
+      return false;
+    }
+    return true;
+  };
+  /**
+   * The balance rule of a handover (owner decisions 3, 4, ש4), shared by DELIVER and COMPLETE: UNKNOWN blocks; an open
+   * balance needs the owner's explicit decision with a reason; an overpayment is shown and journaled.
+   */
+  const judgeSettlement = (debtOverride: { reason?: unknown } | undefined): { openBalanceAgorot: number; overpaidAgorot: number; debtApproved: boolean } | null => {
+    const s = context.settlement;
+    if (!s || !s.known) {
+      fail("BALANCE_UNKNOWN", "the balance could not be established — the case waits for it");
+      return null;
+    }
+    // A known balance is a debt (>= 0) and an overpayment (>= 0), never both: anything else is malformed — refuse.
+    const over = s.overpaidAgorot ?? 0;
+    if (!Number.isSafeInteger(s.openBalanceAgorot) || s.openBalanceAgorot < 0) {
+      fail("INVALID_INPUT", "openBalanceAgorot");
+      return null;
+    }
+    if (!Number.isSafeInteger(over) || over < 0 || (over > 0 && s.openBalanceAgorot > 0)) {
+      fail("INVALID_INPUT", "overpaidAgorot");
+      return null;
+    }
+    r.payload.openBalanceAgorot = s.openBalanceAgorot;
+    if (s.basis) r.payload.chargeBasis = s.basis;
+    if (over > 0) r.payload.overpaidAgorot = over;
+    let debtApproved = false;
+    if (s.openBalanceAgorot > 0) {
+      if (!debtOverride) fail("OPEN_BALANCE_NEEDS_OWNER_DECISION", "an open balance needs the owner's decision");
+      else {
+        const reason = takeReason(debtOverride.reason, "debtOverride.reason");
+        if (reason === null) fail("OVERRIDE_REASON_REQUIRED", "debt decision reason");
+        else {
+          r.texts.debtOverrideReason = reason;
+          r.payload.debtOverride = true;
+          debtApproved = true;
+        }
+      }
+    }
+    r.serverChecks.push("SETTLEMENT_READ_IN_SAME_TRANSACTION");
+    return { openBalanceAgorot: s.openBalanceAgorot, overpaidAgorot: over, debtApproved };
+  };
+  /** Optional free text as stored: trimmed, null when absent or blank; over the column limit → INVALID_INPUT (never cut). */
+  const textOrNull = (raw: unknown, max: number, field: string): string | null => {
+    if (raw === undefined || raw === null) return null;
+    if (typeof raw !== "string") {
+      fail("INVALID_INPUT", field);
+      return null;
+    }
+    const text = raw.trim();
+    if (text.length === 0) return null;
+    if (reasonLength(text) > max) {
+      fail("INVALID_INPUT", `${field} exceeds ${max} characters`);
+      return null;
+    }
+    return text;
+  };
+  const takeDetailReason = (raw: unknown) => takeReason(raw, "reason");
   /**
    * Owner decisions 2–3 (1.3a, 2026-11-09): a technician is optional. With none assigned the signed-in owner handles
    * the case (diagnosis, repair, an on-site visit) — the journal names the acting user on every event. An assigned
@@ -378,6 +537,10 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     r.payload.replacementDeviceId = deviceId;
   };
   const requireRepairAuthorization = () => {
+    if (!approvalNeeded) {
+      r.payload.workApproval = "NOT_REQUIRED";
+      return;
+    }
     if (!isRepairAuthorized(context)) {
       fail("REPAIR_NOT_AUTHORIZED", "no approved current quote and no approved cover");
     }
@@ -389,16 +552,40 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       if (!isPositiveInt(action.appointmentId)) fail("INVALID_INPUT", "appointmentId");
       else r.payload.appointmentId = action.appointmentId;
       r.serverChecks.push("APPOINTMENT_BELONGS_TO_CASE");
-      if (onSite) {
+      if (t && t.location === "REMOTE") {
+        technician(); // a remote session has no site
+      } else if (t && onSite) {
+        // M1: a track case names its site by the case's own address, or by a customer site.
+        technician();
+        if (isPositiveInt(context.siteId)) r.serverChecks.push("SITE_BELONGS_TO_CUSTOMER");
+        else if (!t.siteAddressSet) fail("SITE_REQUIRED", "an on-site visit needs the site address or the customer site");
+      } else if (onSite) {
         technician();
         if (!isPositiveInt(context.siteId)) fail("SITE_REQUIRED", "an on-site visit needs the customer site");
         else r.serverChecks.push("SITE_BELONGS_TO_CUSTOMER");
       }
       break;
     }
+    case "RESCHEDULE": {
+      // M1: the scheduled visit moves to another appointment of the same business and customer; the case stays SCHEDULED.
+      r.to = "SCHEDULED";
+      if (!isPositiveInt(action.appointmentId)) {
+        fail("INVALID_INPUT", "appointmentId");
+        break;
+      }
+      if (context.appointmentId === action.appointmentId) {
+        fail("NO_CHANGE", "the case already names this appointment");
+        break;
+      }
+      r.payload.appointmentId = action.appointmentId;
+      r.payload.previousAppointmentId = isPositiveInt(context.appointmentId) ? context.appointmentId : null;
+      r.serverChecks.push("APPOINTMENT_BELONGS_TO_CASE");
+      r.effects.push("LINK_APPOINTMENT");
+      break;
+    }
     case "CHECK_IN": {
       r.to = "CHECKED_IN";
-      if (onSite) {
+      if (!needsIntake) {
         technician();
       } else {
         // Owner decision 2026-11-11: no customer signature. The intake is documented (condition; accessories — "none
@@ -516,7 +703,8 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       break;
     }
     case "REJECT_QUOTE": {
-      r.to = "READY";
+      // M1: on a track that hands nothing back the visit still ends with the owner's COMPLETE (WORK_DONE).
+      r.to = finished;
       r.outcome = "QUOTE_REJECTED";
       const q = context.currentQuote;
       if (q?.state === "WITHDRAWN") fail("QUOTE_WITHDRAWN", `version ${q.version} was withdrawn`);
@@ -528,10 +716,13 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     }
     case "START_REPAIR": {
       r.to = "IN_REPAIR";
-      if (context.coverage?.decision !== "APPROVED") {
+      if (context.coverage?.decision === "APPROVED") {
+        r.payload.coverageSource = context.coverage.source;
+      } else if (approvalNeeded) {
         fail("COVERAGE_NOT_APPROVED", "starting without a quote needs an approved warranty or contract cover");
       } else {
-        r.payload.coverageSource = context.coverage.source;
+        // M1 D15: this track needs no approval now (no quote and no money commitment, or a path with no approval).
+        r.payload.workApproval = "NOT_REQUIRED";
       }
       break;
     }
@@ -579,9 +770,14 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
         r.payload.cancellationCompleted = true;
         break;
       }
-      if (action.next === "READY") {
+      if (action.next === "READY" || action.next === "WORK_DONE") {
+        // M1: finished work goes to READY when the track hands the item back, to WORK_DONE when it does not.
+        if (action.next !== finished) {
+          fail("INVALID_INPUT", `next: finished work on this case goes to ${finished}`);
+          break;
+        }
         if (!action.outcome) {
-          fail("OUTCOME_REQUIRED", "READY needs the outcome of the external work");
+          fail("OUTCOME_REQUIRED", `${finished} needs the outcome of the external work`);
           break;
         }
         r.outcome = action.outcome;
@@ -590,36 +786,41 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
         requireReplacement(action.outcome, action.replacementDeviceId);
         break;
       }
-      if (action.outcome !== undefined) fail("OUTCOME_NOT_ALLOWED", "the outcome is decided on entering READY");
-      if (action.next === "QA" && onSite) fail("QA_NOT_FOR_KIND", "QA is an IN_SHOP step");
+      if (action.outcome !== undefined) fail("OUTCOME_NOT_ALLOWED", `the outcome is decided on entering ${finished}`);
+      if (action.next === "QA" && qaMode === "OFF") fail("QA_NOT_FOR_KIND", t ? "this track has no QA" : "QA is an IN_SHOP step");
       if (action.next !== "IN_REPAIR" && action.next !== "QA") fail("INVALID_INPUT", "next");
       else requireRepairAuthorization();
       break;
     }
     case "FINISH_REPAIR": {
-      if (!onSite) {
+      if (action.qa !== undefined && typeof action.qa !== "boolean") {
+        fail("INVALID_INPUT", "qa");
+        break;
+      }
+      const viaQa = qaMode === "REQUIRED" || (qaMode === "OPTIONAL" && action.qa === true);
+      if (qaMode === "OFF" && action.qa === true) {
+        fail("QA_NOT_FOR_KIND", t ? "this track has no QA" : "QA is an IN_SHOP step");
+        break;
+      }
+      if (viaQa) {
         r.to = "QA";
-        if (action.outcome !== undefined) fail("OUTCOME_NOT_ALLOWED", "IN_SHOP decides the outcome at QA");
+        if (action.outcome !== undefined) fail("OUTCOME_NOT_ALLOWED", "the outcome is decided at QA");
+        if (t) r.payload.qa = qaMode;
         break;
       }
-      // FIELD / MAINTENANCE skip QA: the visit closes the repair and the case is READY for the on-site handover.
-      r.to = "READY";
-      if (action.outcome !== "REPAIRED" && action.outcome !== "REPLACED") {
-        fail("OUTCOME_REQUIRED", "an on-site repair ends with REPAIRED or REPLACED");
-        break;
-      }
-      r.outcome = action.outcome;
-      r.payload.outcome = action.outcome;
-      requireReplacement(action.outcome, action.replacementDeviceId);
+      // No QA (on-site without a track; a track with QA OFF, or OPTIONAL and skipped): finished now.
+      r.to = finished;
+      if (!finishOutcome(action.outcome, "the work")) break;
+      r.outcome = action.outcome as ServiceOutcome;
+      r.payload.outcome = action.outcome as ServiceOutcome;
+      if (t && qaMode === "OPTIONAL") r.payload.qa = "SKIPPED";
+      requireReplacement(r.outcome, action.replacementDeviceId);
       break;
     }
     case "PASS_QA": {
-      r.to = "READY";
+      r.to = finished;
       if (!context.qaChecklistCompleted) fail("QA_INCOMPLETE", "complete the QA checklist");
-      if (action.outcome !== "REPAIRED" && action.outcome !== "REPLACED") {
-        fail("OUTCOME_REQUIRED", "QA passes with REPAIRED or REPLACED");
-        break;
-      }
+      if (!finishOutcome(action.outcome, "QA")) break;
       r.outcome = action.outcome;
       r.payload.outcome = action.outcome;
       requireReplacement(action.outcome, action.replacementDeviceId);
@@ -630,38 +831,23 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       break;
     }
     case "MARK_NOT_REPAIRABLE": {
-      r.to = "READY";
+      r.to = finished;
       r.outcome = "NOT_REPAIRED";
       break;
     }
     case "DELIVER": {
       r.to = "DELIVERED";
+      // Owner decision 2026-11-11: no customer signature. The acting owner confirms the handover; the receiver's name
+      // is optional (when given: non-blank, at most 200 characters — the column CHECK).
       const receipt = action.receipt;
-      if (!receipt || !hasText(receipt.receivedByName) || receipt.signatureCaptured !== true) {
-        fail("RECEIPT_INCOMPLETE", "the receiver's name and signature are required");
-      }
-      r.payload.receiptSigned = receipt?.signatureCaptured === true;
-      const s = context.settlement;
-      if (!s.known) {
-        fail("BALANCE_UNKNOWN", "the balance could not be established — delivery waits for it");
-      } else if (!Number.isInteger(s.openBalanceAgorot)) {
-        fail("INVALID_INPUT", "openBalanceAgorot");
-      } else {
-        r.payload.openBalanceAgorot = s.openBalanceAgorot;
-        if (s.openBalanceAgorot > 0) {
-          // Owner decision ש4: allowed only as the owner's explicit decision, with a reason. The debt itself stays.
-          if (!action.debtOverride) fail("OPEN_BALANCE_NEEDS_OWNER_DECISION", "an open balance needs the owner's decision");
-          else {
-            const reason = takeReason(action.debtOverride.reason, "debtOverride.reason");
-            if (reason === null) fail("OVERRIDE_REASON_REQUIRED", "debt decision reason");
-            else {
-              r.texts.debtOverrideReason = reason;
-              r.payload.debtOverride = true;
-            }
-          }
-        }
-        r.serverChecks.push("SETTLEMENT_READ_IN_SAME_TRANSACTION");
-      }
+      if (!receipt || receipt.handoverConfirmed !== true) fail("HANDOVER_NOT_CONFIRMED", "the owner confirms the handover");
+      const named = receipt?.receivedByName;
+      if (named !== undefined && named !== null && (!hasText(named) || named.trim().length > 200)) fail("INVALID_INPUT", "receipt.receivedByName");
+      r.payload.handoverConfirmed = receipt?.handoverConfirmed === true;
+      r.payload.receiverNamed = hasText(named);
+      // Owner decision ש4: an open balance only as the owner's explicit decision, with a reason. The debt itself stays.
+      const balance = judgeSettlement(action.debtOverride);
+      let loanerApproved = false;
       if (context.openLoaner) {
         if (!action.loanerOverride) fail("OPEN_LOANER", "the temporary replacement item has not been returned");
         else {
@@ -670,14 +856,23 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
           else {
             r.texts.loanerOverrideReason = reason;
             r.payload.loanerOverride = true;
+            loanerApproved = true;
           }
         }
       }
+      // 20261130090000: the handover record states the judged balance; each exception needs its approval.
+      if (balance) {
+        r.handover = { ...balance, loanerApproved };
+        if (balance.debtApproved) r.approvals.push("HANDOVER_OPEN_DEBT");
+      }
+      if (loanerApproved) r.approvals.push("HANDOVER_OPEN_LOANER");
       r.effects.push("ATTEMPT_AUTO_CLOSE");
       break;
     }
     case "CLOSE": {
       r.to = "CLOSED";
+      // 20261201090000: a case never closes while a lent item is still out (return it, or close the loan with approval)
+      if (context.openLoaner) fail("OPEN_LOANER", "the temporary replacement item has not been returned or closed");
       if (!isNonNegativeInt(context.openPartReservations)) fail("INVALID_INPUT", "openPartReservations");
       else if (context.openPartReservations > 0) {
         fail("OPEN_PART_RESERVATIONS", `${context.openPartReservations} reserved part(s) still open`);
@@ -688,7 +883,8 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
     }
     case "CANCEL": {
       const atSupplier = context.status === "EXTERNAL";
-      const held = itemHeldByBusiness(context.kind, context.status);
+      // M1: on a track the item is held only where the track keeps it (T1 / T2 / T7), e.g. never on T5 at the business.
+      const held = (!t || t.itemAtBusiness) && itemHeldByBusiness(context.kind, context.status);
       if (context.outcome === "CANCELLED" || context.cancellationRequested) {
         fail("ALREADY_CANCELLED", "this case is already cancelled");
         break;
@@ -701,6 +897,9 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
       // One reason column for the case, whether the cancel completes now or (at a supplier) on the item's return.
       r.texts.cancelReason = reason;
       r.payload.reasonRecorded = reason !== null;
+      // 20261201090000: never lose track of a lent item — with a loan OUT the cancel needs the owner's approval with a
+      // reason; the loan stays OUT (nothing released), its journal records the approval bound to this event
+      if (!loanerExit(action.loanerOverride, "CANCEL_OPEN_LOANER")) break;
       r.payload.itemHeldByBusiness = held;
       r.payload.itemAtSupplier = atSupplier;
       r.payload.quoteStateAtCancel = context.currentQuote?.state ?? null;
@@ -734,11 +933,58 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
         r.texts.abandonReason = reason;
         r.payload.reasonRecorded = true;
       }
+      loanerExit(action.loanerOverride, "ABANDON_OPEN_LOANER");
       if (!isNonNegativeInt(context.pickupRemindersSent) || context.pickupRemindersSent < 1) {
         fail("PICKUP_REMINDERS_REQUIRED", "at least one documented pickup reminder must precede it");
       } else {
         r.payload.pickupRemindersSent = context.pickupRemindersSent;
       }
+      break;
+    }
+    case "COMPLETE": {
+      // M1 (section ב rule 4): WORK_DONE → CLOSED on the owner's explicit confirmation — never a customer signature.
+      r.to = "CLOSED";
+      if (!t) {
+        fail("TRACK_REQUIRED", "only a case opened with a track completes without a handover");
+        break;
+      }
+      const c = action.completion;
+      if (!c || typeof c !== "object") {
+        fail("INVALID_INPUT", "completion");
+        break;
+      }
+      if (c.ownerConfirmed !== true) fail("COMPLETION_NOT_CONFIRMED", "the owner confirms the work is done");
+      const expected = completionTypeFor(t.location);
+      if (c.completionType !== expected) fail("COMPLETION_TYPE_MISMATCH", `the work was done ${t.location}: ${expected}`);
+      const name = textOrNull(c.confirmedByName, TRACK_TEXT_LIMITS.confirmedByName, "completion.confirmedByName");
+      const note = textOrNull(c.note, TRACK_TEXT_LIMITS.completionNote, "completion.note");
+      if (t.requirements.completion === "OWNER_WITH_CREDIT_DOCUMENT") {
+        // A T7 credit: billing issued the credit note; the service only links it (AFTER_SALE_CREDIT). Never in the balance.
+        if (!t.creditDocumentLinked) fail("CREDIT_DOCUMENT_REQUIRED", "link the issued credit note first");
+        else r.serverChecks.push("CREDIT_DOCUMENT_LINKED");
+      }
+      // Closing = CLOSE's rules: nothing still reserved, no quote awaiting a decision, no lent item still out.
+      if (context.openLoaner) fail("OPEN_LOANER", "the temporary replacement item has not been returned or closed");
+      if (!isNonNegativeInt(context.openPartReservations)) fail("INVALID_INPUT", "openPartReservations");
+      else if (context.openPartReservations > 0) {
+        fail("OPEN_PART_RESERVATIONS", `${context.openPartReservations} reserved part(s) still open`);
+      }
+      if (context.currentQuote?.state === "SENT") fail("OPEN_QUOTE", "a sent quote still awaits a decision");
+      r.serverChecks.push("PART_RESERVATIONS_COUNTED_UNDER_LOCK");
+      // The balance is judged exactly as at a handover (owner decisions 3, 4, ש4); the record stores what was judged
+      // (owner decision 2026-11-11: the balance, the overpayment, the approval — never an unknown balance).
+      const balance = judgeSettlement(action.debtOverride);
+      r.payload.completionType = expected;
+      r.payload.confirmerNamed = name !== null;
+      r.payload.noteRecorded = note !== null;
+      if (!balance) break;
+      r.effects.push("RECORD_COMPLETION");
+      r.completion = { completionType: expected, confirmedByName: name, note, ...balance };
+      if (balance.debtApproved) r.approvals.push("COMPLETION_OPEN_DEBT");
+      break;
+    }
+    case "CHANGE_DETAILS": {
+      changeDetails(context, action, r, fail, takeDetailReason);
       break;
     }
     default: {
@@ -749,6 +995,119 @@ function resolve(context: ServiceCaseContext, action: ServiceCaseAction, actor: 
   }
 
   return r;
+}
+
+// ── M1: CHANGE_DETAILS (D3 / D11 / D12 / D13, section ט) ──────────────────────────────────────────────────
+
+/**
+ * The details of a case (kind, work type, place, site address, T7 return reason) change only while it is OPEN or
+ * SCHEDULED and before any binding action — the same rule the database guard enforces (service_case_guard (a)), plus
+ * blocker 11 (an appointment that already took place), which only the server can see (D16). Every change is journaled:
+ * the event names the changed fields (tokens only); before / after values go to ServiceCaseDetailChange.
+ *   - a case opened without a track changes only its kind among today's kinds (it never becomes a track case here);
+ *   - a track case keeps a work type and place; an after-sale case stays after-sale with its return reason;
+ *   - a scheduled visit whose place or address changes needs the owner's choice: KEEP_TIME (stays SCHEDULED) or
+ *     UNSCHEDULE (→ OPEN, the appointment is no longer named — D13).
+ */
+function changeDetails(
+  context: ServiceCaseContext,
+  action: Extract<ServiceCaseAction, { type: "CHANGE_DETAILS" }>,
+  r: Resolution,
+  fail: (code: ServiceCaseViolationCode, detail: string) => void,
+  takeReason: (raw: unknown) => string | null,
+): void {
+  const cur = context.details ?? null;
+  const blockers = context.detailBlockers ?? null;
+  if (!cur || !blockers) {
+    fail("INCONSISTENT_CASE_STATE", "the details and their blockers are counted by the service under the case lock");
+    return;
+  }
+  r.serverChecks.push("DETAIL_BLOCKERS_COUNTED_UNDER_LOCK");
+  const n = action.next;
+  if (!n || typeof n !== "object") {
+    fail("INVALID_INPUT", "next");
+    return;
+  }
+  const before = r.violations.length;
+  if (!SERVICE_CASE_KINDS.includes(n.kind)) fail("INVALID_INPUT", "next.kind");
+  if (n.workType !== null && !isWorkType(n.workType)) fail("INVALID_INPUT", "next.workType");
+  if (n.serviceLocation !== null && !isLocation(n.serviceLocation)) fail("INVALID_INPUT", "next.serviceLocation");
+  if (n.returnReason !== null && !isReturnReason(n.returnReason)) fail("INVALID_INPUT", "next.returnReason");
+  let address: string | null = null;
+  if (n.siteAddress !== null && n.siteAddress !== undefined) {
+    if (typeof n.siteAddress !== "string") fail("INVALID_INPUT", "next.siteAddress");
+    else {
+      address = n.siteAddress.trim() || null;
+      if (address !== null && reasonLength(address) > TRACK_TEXT_LIMITS.siteAddress) fail("INVALID_INPUT", "next.siteAddress exceeds 500 characters");
+    }
+  }
+  if (r.violations.length > before) return;
+
+  const t = context.track ?? null;
+  const place = effectiveLocation(n.kind, n.serviceLocation);
+  // CHECK ServiceCase_location_matches_kind
+  if (n.serviceLocation !== null && ((place === "AT_BUSINESS") !== (n.kind === "IN_SHOP") || (place === "REMOTE") !== (n.kind === "REMOTE"))) {
+    fail("INVALID_INPUT", "next.kind must follow the place (AT_BUSINESS ⇔ IN_SHOP, REMOTE ⇔ REMOTE)");
+  }
+  if (!t) {
+    if (n.kind === "REMOTE" || n.workType !== null || n.serviceLocation !== null || n.returnReason !== null || address !== null) {
+      fail("TRACK_REQUIRED", "a case opened without a track changes only its kind (IN_SHOP / FIELD / MAINTENANCE)");
+    }
+  } else {
+    if (n.workType === null || n.serviceLocation === null) fail("INVALID_INPUT", "a track case names its work type and place");
+    const wasAfterSale = cur.workType === "AFTER_SALE";
+    const isAfterSale = n.workType === "AFTER_SALE";
+    if (wasAfterSale !== isAfterSale) fail("AFTER_SALE_FIELDS", "an after-sale case stays after-sale, and no other case becomes one");
+    else if (isAfterSale && n.returnReason === null) fail("AFTER_SALE_FIELDS", "an after-sale case keeps its return reason");
+    else if (!isAfterSale && n.returnReason !== null) fail("AFTER_SALE_FIELDS", "a return reason belongs to an after-sale case");
+    r.serverChecks.push("SUBJECT_FITS_TRACK");
+  }
+  const onSiteNext = place === "AT_CUSTOMER" || place === "FIELD_SITE";
+  if (!onSiteNext && address !== null) fail("INVALID_INPUT", "next.siteAddress: only work on site has a site address");
+
+  // D3 blockers (the database guard re-checks 1–10 on the same locked row).
+  if (blockers.binding || context.cancellationRequested || context.coverage !== null) {
+    fail("DETAILS_FIXED", "a binding action (intake, quote, part, supplier work, cover, handover, completion) fixes the details");
+  }
+  const curPlace = effectiveLocation(cur.kind, cur.serviceLocation);
+  if (blockers.intakeStarted && curPlace === "AT_BUSINESS" && place !== "AT_BUSINESS") {
+    fail("INTAKE_STARTED_AT_BUSINESS", "an intake was started at the business: the case stays there (D12)");
+  }
+  if (context.status === "SCHEDULED" && blockers.appointmentStarted) {
+    fail("APPOINTMENT_ALREADY_STARTED", "the scheduled visit already started (D16: the server's check)");
+  }
+
+  const after: ServiceCaseDetails = { kind: n.kind, workType: n.workType, serviceLocation: n.serviceLocation, siteAddress: address, returnReason: n.returnReason };
+  const changed = SERVICE_DETAIL_FIELDS.filter((f) => (cur[f] ?? null) !== (after[f] ?? null));
+  if (changed.length === 0) {
+    fail("NO_CHANGE", "nothing in the details changes");
+    return;
+  }
+  const visitMoves = changed.includes("kind") || changed.includes("serviceLocation") || changed.includes("siteAddress");
+  const impact = action.appointmentImpact;
+  if (context.status === "SCHEDULED" && visitMoves) {
+    if (impact === "UNSCHEDULE") {
+      r.to = "OPEN";
+      r.effects.push("UNLINK_APPOINTMENT");
+      r.payload.appointmentImpact = "UNSCHEDULE";
+    } else if (impact === "KEEP_TIME") {
+      r.to = "SCHEDULED";
+      r.payload.appointmentImpact = "KEEP_TIME";
+      if (onSiteNext && address === null && !(typeof context.siteId === "number" && context.siteId > 0)) {
+        fail("SITE_REQUIRED", "a visit kept on site needs the site address or the customer site");
+      }
+    } else {
+      fail("APPOINTMENT_IMPACT_REQUIRED", "the scheduled visit moves: keep its time or unschedule it");
+    }
+  } else {
+    r.to = context.status;
+    if (impact !== undefined && impact !== null) fail("INVALID_INPUT", "appointmentImpact: only when a scheduled visit's place or address changes");
+  }
+  const reason = takeReason(action.reason);
+  r.payload.changedFields = changed.join(":");
+  r.payload.reasonRecorded = reason !== null;
+  r.effects.push("RECORD_DETAIL_CHANGE");
+  r.detailChange = { before: { ...cur }, after, changedFields: changed as ServiceDetailField[], reason };
 }
 
 // ── Opening a case (1.1c) ──────────────────────────────────────────────────────────────────────────────────
@@ -764,6 +1123,10 @@ export function openServiceCase(input: ServiceCaseOpenInput, actor: ServiceCaseA
     violations.push(violation("ACTOR_NOT_ALLOWED", `${String(actor?.kind)} may not OPEN`));
   }
   if (!input || !SERVICE_CASE_KINDS.includes(input.kind)) violations.push(violation("INVALID_INPUT", "kind"));
+  const track = input?.track ?? null;
+  if (track !== null && !(SERVICE_TRACKS as readonly string[]).includes(track)) violations.push(violation("INVALID_INPUT", "track"));
+  // M1: REMOTE exists only on a case opened with a track (T6, or T5 done remotely).
+  if (input?.kind === "REMOTE" && track === null) violations.push(violation("TRACK_REQUIRED", "a remote case is opened with a track"));
   if (!isPositiveInt(input?.customerId)) violations.push(violation("INVALID_INPUT", "customerId"));
   if (input?.deviceId !== null && !isPositiveInt(input?.deviceId)) violations.push(violation("INVALID_INPUT", "deviceId"));
   if (input?.parentCaseId !== null && !isPositiveInt(input?.parentCaseId)) {
@@ -800,6 +1163,7 @@ export function openServiceCase(input: ServiceCaseOpenInput, actor: ServiceCaseA
         customerId: input.customerId,
         deviceId: input.deviceId,
         parentCaseId: input.parentCaseId,
+        ...(track !== null ? { track } : {}),
       },
     },
   };

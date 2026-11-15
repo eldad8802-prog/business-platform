@@ -141,6 +141,37 @@ jobs:
             console.log(k[0]);
             console.log("REVOKE ALL ON FUNCTION public.service_settings_journal_erase_business() FROM PUBLIC;");
             console.log("GRANT EXECUTE ON FUNCTION public.service_settings_journal_erase_business() TO app_runtime;");
+            // Service Desk case charge (20261126090000): the same for service_case_charge_erase_business().
+            const c = require("fs").readFileSync("prisma/migrations/20261126090000_service_desk_case_charge/migration.sql", "utf8");
+            const cf = c.match(/CREATE OR REPLACE FUNCTION public\.service_case_charge_erase_business\(\)[\s\S]*?\$fn\$;/);
+            if (!cf) { console.error("service_case_charge_erase_business() not found in the migration"); process.exit(1); }
+            console.log(cf[0]);
+            console.log("REVOKE ALL ON FUNCTION public.service_case_charge_erase_business() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.service_case_charge_erase_business() TO app_runtime;");
+            // Service Desk M1 tracks (20261127090000): the same for service_tracks_erase_business() (its tables and columns
+            // from db push; it calls no other function of the migration, so nothing else is mirrored).
+            const t = require("fs").readFileSync("prisma/migrations/20261127090000_service_desk_tracks/migration.sql", "utf8");
+            const tf = t.match(/CREATE OR REPLACE FUNCTION public\.service_tracks_erase_business\(\)[\s\S]*?\$fn\$;/);
+            if (!tf) { console.error("service_tracks_erase_business() not found in the migration"); process.exit(1); }
+            console.log(tf[0]);
+            console.log("REVOKE ALL ON FUNCTION public.service_tracks_erase_business() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.service_tracks_erase_business() TO app_runtime;");
+            // Service Desk handover record (20261130090000): the same for service_handover_record_erase_business() (its
+            // columns from db push; it calls no other function of the migration, so nothing else is mirrored).
+            const hr = require("fs").readFileSync("prisma/migrations/20261130090000_service_handover_debt_record/migration.sql", "utf8");
+            const hf = hr.match(/CREATE OR REPLACE FUNCTION public\.service_handover_record_erase_business\(\)[\s\S]*?\$fn\$;/);
+            if (!hf) { console.error("service_handover_record_erase_business() not found in the migration"); process.exit(1); }
+            console.log(hf[0]);
+            console.log("REVOKE ALL ON FUNCTION public.service_handover_record_erase_business() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.service_handover_record_erase_business() TO app_runtime;");
+            // Service Desk loans (20261201090000): the same for service_loan_erase_business() (its tables from db push; it
+            // calls no other function of the migration, so nothing else is mirrored).
+            const lm = require("fs").readFileSync("prisma/migrations/20261201090000_service_desk_loans/migration.sql", "utf8");
+            const lf = lm.match(/CREATE OR REPLACE FUNCTION public\.service_loan_erase_business\(\)[\s\S]*?\$fn\$;/);
+            if (!lf) { console.error("service_loan_erase_business() not found in the migration"); process.exit(1); }
+            console.log(lf[0]);
+            console.log("REVOKE ALL ON FUNCTION public.service_loan_erase_business() FROM PUBLIC;");
+            console.log("GRANT EXECUTE ON FUNCTION public.service_loan_erase_business() TO app_runtime;");
           ' | PGPASSWORD="$LAB_PASSWORD" psql -X -v ON_ERROR_STOP=1 -q "postgresql://lab_owner@localhost:5432/dta"
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/dta" \

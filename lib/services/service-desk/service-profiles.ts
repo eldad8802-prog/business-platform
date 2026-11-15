@@ -170,11 +170,11 @@ export const PROFILES: Readonly<Record<ServiceProfileKey, ProfileDefinition>> = 
 function trackBase(track: ServiceTrack): Requirements {
   switch (track) {
     case "T1":
-      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
+      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v2" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
     case "T2":
       return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "VEHICLE.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
     case "T3":
-      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "FIELD.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
+      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "FIELD.v2" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T4":
       return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "INSTALLATION.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T5":
@@ -183,7 +183,7 @@ function trackBase(track: ServiceTrack): Requirements {
       return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "REMOTE.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T7":
       // T7 has one row per resolution; this base is the repair row (afterSaleRequirements gives the others).
-      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
+      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v2" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
   }
 }
 
