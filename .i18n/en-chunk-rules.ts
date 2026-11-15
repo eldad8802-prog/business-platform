@@ -56,7 +56,9 @@ export function selectDictionaryChunks(files: readonly LoadedFile[], hebrewUrls:
  *   - that is the split push-client chunk: exactly one small chunk (≤ 8 KB) on the BRANCH carries the push-client
  *     sentinel, and MAIN has no such split chunk — so once this change is on main, MAIN has it too and the exception
  *     can never apply again (it does not add up with later changes);
- *   - the JavaScript the page loads does not grow (sum of every referenced chunk, raw and brotli).
+ *   - the JavaScript unique to /tasks is at most 300 raw bytes (owner 2026-11-15, second round): the growth of the
+ *     JavaScript /tasks loads (sum of every referenced chunk) minus the growth measured on /app in the same build
+ *     (the notification stack every page shares; never counted below zero). Brotli bytes are reported, not gated.
  * The general rule (englishHtmlNotLarger in the proof) is unchanged.
  */
 export const APPROVED_TASKS_PUSH_CHUNK_EXCEPTION = Object.freeze({
@@ -65,6 +67,9 @@ export const APPROVED_TASKS_PUSH_CHUNK_EXCEPTION = Object.freeze({
   /** A string literal of lib/push/push-client.ts that survives minification. */
   pushClientSentinel: "ios-needs-install",
   maxPushChunkBytes: 8192,
+  /** Raw JS bytes /tasks may grow beyond the shared growth measured on sharedBaselineRoute. */
+  maxUniqueJsRawBytes: 300,
+  sharedBaselineRoute: "/app",
   approved: "owner 2026-11-15",
 });
 
@@ -80,23 +85,27 @@ export function chunkPathsInHtml(html: string): string[] {
 export type MeasuredChunk = { path: string; bytes: number; brBytes: number; body: string };
 export type MeasuredPage = { htmlBytes: number; chunks: readonly MeasuredChunk[] };
 
-export function tasksPushChunkExceptionVerdict(route: string, main: MeasuredPage, branch: MeasuredPage) {
+export function tasksPushChunkExceptionVerdict(route: string, main: MeasuredPage, branch: MeasuredPage, shared: { main: MeasuredPage; branch: MeasuredPage }) {
   const x = APPROVED_TASKS_PUSH_CHUNK_EXCEPTION;
   const split = (p: MeasuredPage) => p.chunks.filter((c) => c.bytes <= x.maxPushChunkBytes && c.body.includes(x.pushClientSentinel));
   const sum = (p: MeasuredPage, f: "bytes" | "brBytes") => p.chunks.reduce((n, c) => n + c[f], 0);
   const growth = branch.htmlBytes - main.htmlBytes;
+  const sharedRaw = Math.max(0, sum(shared.branch, "bytes") - sum(shared.main, "bytes"));
+  const sharedBr = Math.max(0, sum(shared.branch, "brBytes") - sum(shared.main, "brBytes"));
+  const uniqueRaw = sum(branch, "bytes") - sum(main, "bytes") - sharedRaw;
+  const uniqueBr = sum(branch, "brBytes") - sum(main, "brBytes") - sharedBr;
   const conditions = {
     route: route === x.route,
     growthWithinApproval: growth > 0 && growth <= x.maxExtraBytes,
     exactlyOneMoreChunk: branch.chunks.length === main.chunks.length + 1,
     theExtraChunkIsThePushClient: split(branch).length === 1 && split(main).length === 0,
-    noMoreJavaScript: sum(branch, "bytes") <= sum(main, "bytes") && sum(branch, "brBytes") <= sum(main, "brBytes"),
+    uniqueJavaScriptWithinApproval: uniqueRaw <= x.maxUniqueJsRawBytes,
   };
   return {
     ok: Object.values(conditions).every(Boolean),
     conditions,
     growth,
-    js: { mainRaw: sum(main, "bytes"), branchRaw: sum(branch, "bytes"), mainBr: sum(main, "brBytes"), branchBr: sum(branch, "brBytes") },
+    js: { mainRaw: sum(main, "bytes"), branchRaw: sum(branch, "bytes"), mainBr: sum(main, "brBytes"), branchBr: sum(branch, "brBytes"), sharedRaw, sharedBr, uniqueRaw, uniqueBr },
   };
 }
 
