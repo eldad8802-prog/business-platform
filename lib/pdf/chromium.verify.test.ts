@@ -45,7 +45,8 @@ for (const opt of [
   `headerTemplate: "<div></div>"`,
   `footerTemplate: buildFooterTemplate(fontDataUri, snapshot.issuer.name)`,
   `bottom: "52px"`,
-  `const html = buildBillingInvoiceHtml(snapshot, fontDataUri);`,
+  // #1108: a receipt's payment lines are passed to the template (empty for every other type; golden proves them unchanged).
+  `const html = buildBillingInvoiceHtml(snapshot, fontDataUri, receiptPayments);`,
 ]) ok(`billing page option unchanged: ${opt}`, renderer.includes(opt));
 
 const launcherUsers = ["lib/accountant/package-report-pdf.ts", "lib/services/billing/pdf/billing-pdf-html-renderer.ts"];
