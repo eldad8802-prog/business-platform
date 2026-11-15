@@ -33,9 +33,15 @@ function parseBillingDocumentId(value: string): number {
   return num;
 }
 
-function buildContentDisposition(documentNumberFormatted: string): string {
-  const asciiName = `invoice-${documentNumberFormatted}.pdf`;
-  const utf8Name = encodeURIComponent(`חשבונית-${documentNumberFormatted}.pdf`);
+/** The download name says what the document is: a receipt is never named "invoice". */
+const DOWNLOAD_NAMES: Partial<Record<BillingDocumentType, { ascii: string; he: string }>> = {
+  RECEIPT: { ascii: "receipt", he: "קבלה" },
+};
+
+function buildContentDisposition(documentNumberFormatted: string, documentType: BillingDocumentType): string {
+  const name = DOWNLOAD_NAMES[documentType] ?? { ascii: "invoice", he: "חשבונית" };
+  const asciiName = `${name.ascii}-${documentNumberFormatted}.pdf`;
+  const utf8Name = encodeURIComponent(`${name.he}-${documentNumberFormatted}.pdf`);
   // RFC 5987: filename* fallback for non-ASCII (Hebrew) names. Browsers that
   // understand it use it, others use the ASCII filename.
   return `inline; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`;
@@ -117,7 +123,7 @@ export async function GET(
     const contentDisposition =
       meta.documentType === BillingDocumentType.QUOTE
         ? buildQuoteContentDisposition(documentNumberFormatted)
-        : buildContentDisposition(documentNumberFormatted);
+        : buildContentDisposition(documentNumberFormatted, meta.documentType);
 
     const headers = new Headers({
       "Content-Type": "application/pdf",
