@@ -451,6 +451,63 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_settings_journal_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_settings_journal_erase_business() TO ${RT_ROLE}`);
   }
+  // Service Desk case charge — migration 20261126090000_service_desk_case_charge. The same, for
+  // service_case_charge_erase_business() (it blanks who acted and the free-text reasons of the charge history and the
+  // billing links; tables from db push).
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261126090000_service_desk_case_charge/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_case_charge_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_case_charge_erase_business() not found in migration 20261126090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_case_charge_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_case_charge_erase_business() TO ${RT_ROLE}`);
+  }
+  // Service Desk M1 tracks — migration 20261127090000_service_desk_tracks. The same, for service_tracks_erase_business()
+  // (it blanks the site / sale texts of the case, the subject's name and attributes, and the completion and
+  // details-change records; tables and columns from db push). It calls no other function of the migration (its guards'
+  // helper service_tracks_in_erasure() is used only by triggers this lab does not create), so only it is mirrored.
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261127090000_service_desk_tracks/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_tracks_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_tracks_erase_business() not found in migration 20261127090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_tracks_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_tracks_erase_business() TO ${RT_ROLE}`);
+  }
+  // Service Desk QA lists — migration 20261129090000_service_desk_qa_lists. The same, for service_qa_lists_erase_business()
+  // (it blanks the list names, check labels, result notes and who acted; tables from db push). It calls no other function
+  // of the migration (its guards' helper service_qa_in_erasure() is used only by triggers this lab does not create).
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261129090000_service_desk_qa_lists/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_qa_lists_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_qa_lists_erase_business() not found in migration 20261129090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_qa_lists_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_qa_lists_erase_business() TO ${RT_ROLE}`);
+  }
+  // Service Desk QA track defaults — migration 20261130100000_service_qa_track_defaults. The same, for
+  // service_qa_track_defaults_erase_business() (it blanks who chose a track's default QA list and the request digest; the
+  // table from db push). It calls no other function of the migration.
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261130100000_service_qa_track_defaults/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_qa_track_defaults_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_qa_track_defaults_erase_business() not found in migration 20261130100000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_qa_track_defaults_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_qa_track_defaults_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //
