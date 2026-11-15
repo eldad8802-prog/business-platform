@@ -21,7 +21,7 @@ export function SettingsSubPageHeader({
         <BackButton fallback={backHref} />
 
         <div className="min-w-0 flex-1 text-center">
-          <h1 className="truncate text-base font-bold text-[var(--dz-text-primary)]">{title}</h1>
+          <h1 className="line-clamp-2 text-balance break-words text-base font-bold leading-snug text-[var(--dz-text-primary)]" data-testid="settings-subpage-title">{title}</h1>
           {subtitle ? (
             <p className="mt-1 text-xs text-[var(--dz-text-muted)]">{subtitle}</p>
           ) : (
