@@ -132,6 +132,9 @@ jobs:
             # Service Desk loans (20261201090000): composite FKs to ServiceCase, a deferred case-exit trigger on ServiceCase, a
             # loan guard on ServiceHandover, the shared same-business / truncate guards (it replaces none of them).
             [[ "$n" != "20261201090000_service_desk_loans" ]] || continue
+            # The deleted-user fix: replaces the body of service_user_same_business() in place, nothing else; its own lab
+            # (service-user-same-business-fix-lab.yml) proves what it does.
+            [[ "$n" != "20261124090000_service_user_same_business_fix" ]] || continue
             if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"Service(CaseNumberSequence|Device|Case|CaseIntake|Quote|CaseEvent|Handover)"|service_(erase_business|case_guard|case_opening_guard|quote_guard|event_|handover_guard|intake_guard|device_guard|user_same_business|journal_truncate)'; then
               echo "$n names a service desk object"; exit 1
             fi
