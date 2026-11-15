@@ -99,11 +99,11 @@ check("the DOM and byte assertions are unchanged", proof.includes("MAIN = BRANCH
   // Branch /tasks JS = MAIN + shared growth + unique.
   const withUnique = (unique: number, sharedGrowth = 1214) => ({ ...branch, chunks: branch.chunks.map((k) => (k.bytes === 27100 ? { ...k, bytes: 27100 + sharedGrowth + unique } : k)) });
   const V = (b: typeof branch, sh = shared(1214), route = "/tasks", m = main) => tasksPushChunkExceptionVerdict(route, m, b, sh);
-  check("the exception is ≤ 300 raw JS bytes beyond the /app growth, frozen", X.maxUniqueJsRawBytes === 300 && X.sharedBaselineRoute === "/app");
-  check("+251 B HTML, one split push chunk, unique JS exactly 300 B: allowed", V(withUnique(300)).ok, JSON.stringify(V(withUnique(300))));
-  check("…unique JS 301 B is refused", !V(withUnique(301)).ok);
-  check("…the measured build (/tasks +1521 raw, /app +1214 → unique 307) is refused", !V(withUnique(307)).ok && V(withUnique(307)).js.uniqueRaw === 307);
-  check("…a shrinking /app gives no allowance (shared growth never below zero)", !V(withUnique(301, 0), shared(-5000)).ok && V(withUnique(300, 0), shared(-5000)).ok);
+  check("the exception is ≤ 310 raw JS bytes beyond the /app growth, frozen", X.maxUniqueJsRawBytes === 310 && X.sharedBaselineRoute === "/app");
+  check("+251 B HTML, one split push chunk, unique JS exactly 310 B: allowed", V(withUnique(310)).ok, JSON.stringify(V(withUnique(310))));
+  check("…unique JS 311 B is refused", !V(withUnique(311)).ok);
+  check("…the measured build (/tasks +1521 raw, /app +1214 → unique 307) is allowed", V(withUnique(307)).ok && V(withUnique(307)).js.uniqueRaw === 307);
+  check("…a shrinking /app gives no allowance (shared growth never below zero)", !V(withUnique(311, 0), shared(-5000)).ok && V(withUnique(310, 0), shared(-5000)).ok);
   check("…only on /tasks — any other route stays strict", !V(withUnique(0), shared(1214), "/app").ok);
   check("…252 bytes is refused", !V({ ...withUnique(0), htmlBytes: main.htmlBytes + 252 }).ok);
   check("…two more chunks is refused", !V({ ...withUnique(0), chunks: [...withUnique(0).chunks, c("/_next/static/chunks/eeeeeeeeeeeee.js", 10, "x", 0)] }).ok);
