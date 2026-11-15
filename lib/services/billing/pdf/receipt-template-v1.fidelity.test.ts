@@ -5,7 +5,8 @@
  *
  * F1  the frozen file is byte-identical to the template on main before #1108 (sha256 pinned; last changed in #225)
  * F2  it reproduces EVERY recorded A0 golden HTML observation (pdf.html.*.sha256 / .length) — the exact HTML main
- *     produced — so a receipt restored with it is the original template, not today's
+ *     produced — so a receipt restored with it is the original template, not today's. Since the A0 baseline records
+ *     today's receipt (#1108, merged in #1130), the four pre-#1108 RECEIPT values are pinned below, unchanged
  * V1  version → template mapping: only the two recorded versions are reproducible; anything else is not
  * V2  window match: the right CreationDate/ModDate second reproduces the recorded hash; a wrong window, a content
  *     change, or a single altered byte never does (no "close enough")
@@ -37,7 +38,18 @@ const frozen = readFileSync(path.join("lib/services/billing/pdf/billing-pdf-html
 ok("F1 receipt-v1 is byte-identical to the pre-#1108 template (origin/main, #225)", sha(frozen) === FROZEN_SHA256, sha(frozen));
 
 // F2 — the same computation as .billing-a0/golden-observations.ts (FONT_SENTINEL, asV1, + allocation variants)
-const golden = JSON.parse(readFileSync(".billing-a0/baseline/golden.json", "utf8")).observations as Record<string, string>;
+// The pre-#1108 receipt HTML, exactly as the A0 baseline recorded it from unmodified code (bf2d3a53, #963) until the
+// #1108 receipt template was re-recorded there. Values copied unchanged; the frozen template must keep producing them.
+const PRE_1108_RECEIPT_HTML: Record<string, string> = {
+  "pdf.html.RECEIPT.classic.sha256": "aec7644371ffb38e5b007b3c68d9624ffdde407505535a26435b4c6d4497dd74",
+  "pdf.html.RECEIPT.classic.length": "18290",
+  "pdf.html.RECEIPT.unapplied.sha256": "a20fb4317c754c5bb54e6e6d43e5b61e20495ebf72a8a336cb12d4f371ef0389",
+  "pdf.html.RECEIPT.unapplied.length": "18290",
+};
+const golden = {
+  ...(JSON.parse(readFileSync(".billing-a0/baseline/golden.json", "utf8")).observations as Record<string, string>),
+  ...PRE_1108_RECEIPT_HTML,
+};
 const sentinel = FONT_SENTINEL;
 const cases = buildCases();
 const withAlloc = cases.filter((c) => c.key === "TAX_INVOICE.large")
@@ -54,6 +66,8 @@ for (const c of [...cases, ...withAlloc]) {
 ok(`F2 receipt-v1 reproduces every recorded golden HTML observation (${compared} cases, RECEIPT included)`,
   compared >= 10 && mismatches.length === 0, { compared, mismatches });
 ok("F2 the recorded receipts are among them", "pdf.html.RECEIPT.classic.sha256" in golden && "pdf.html.RECEIPT.unapplied.sha256" in golden);
+ok("F2 receipt-v1 reproduces the pinned pre-#1108 receipts (classic + unapplied)",
+  compared >= 10 && !mismatches.includes("RECEIPT.classic") && !mismatches.includes("RECEIPT.unapplied"), { mismatches });
 
 // V1
 ok("V1 'billing-v1-html' → receipt-v1", receiptHtmlTemplateForVersion(RECEIPT_V1_HTML_TEMPLATE_VERSION) === "receipt-v1");
