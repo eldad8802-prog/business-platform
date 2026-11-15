@@ -11,7 +11,7 @@
  */
 import { readFileSync } from "fs";
 import { join } from "path";
-import { MAX_DICTIONARY_FILES, MIN_SENTINELS_PER_FILE, dictionaryChunkVerdict, isHashedChunkPath, selectDictionaryChunks } from "./en-chunk-rules";
+import { APPROVED_TASKS_PUSH_CHUNK_EXCEPTION, MAX_DICTIONARY_FILES, MIN_SENTINELS_PER_FILE, chunkPathsInHtml, dictionaryChunkVerdict, isHashedChunkPath, selectDictionaryChunks, tasksPushChunkExceptionVerdict } from "./en-chunk-rules";
 
 let pass = 0;
 let fail = 0;
@@ -83,6 +83,34 @@ check("the proof selects the dictionary with selectDictionaryChunks", /selectDic
 check("the proof asserts both verdicts", /verdict\.coverageOk/.test(proof) && /verdict\.countOk/.test(proof));
 check("the old inline name rule is gone", !proof.includes("[0-9a-z]{8,}"));
 check("the DOM and byte assertions are unchanged", proof.includes("MAIN = BRANCH (meta, text, DOM)") && proof.includes("const englishHtmlNotLarger = (mainBytes: number, branchBytes: number) => branchBytes <= mainBytes;") && proof.includes("<= 2048"));
+
+// ── 5 · the one owner-approved /tasks exception (2026-11-15) ────────────
+{
+  const X = APPROVED_TASKS_PUSH_CHUNK_EXCEPTION;
+  check("the exception is exactly /tasks, ≤ 251 bytes, frozen", X.route === "/tasks" && X.maxExtraBytes === 251 && Object.isFrozen(X));
+  const c = (path: string, bytes: number, body = "x", brBytes = Math.round(bytes / 3)) => ({ path, bytes, brBytes, body });
+  const S = X.pushClientSentinel;
+  // MAIN: the push client inside the large task-centre chunk. BRANCH: the same code split into a small chunk.
+  const main = { htmlBytes: 18158, chunks: [c("/_next/static/chunks/aaaaaaaaaaaaa.js", 40000), c("/_next/static/chunks/bbbbbbbbbbbbb.js", 30000, `..."${S}"...`, 10000)] };
+  const branch = { htmlBytes: 18409, chunks: [c("/_next/static/chunks/aaaaaaaaaaaaa.js", 40000), c("/_next/static/chunks/ccccccccccccc.js", 27100, "...", 9050), c("/_next/static/chunks/ddddddddddddd.js", 2900, `"${S}"`, 950)] };
+  const v = tasksPushChunkExceptionVerdict("/tasks", main, branch);
+  check("the measured case (+251 B, one split push chunk, no more JS) is allowed", v.ok, JSON.stringify(v));
+  check("…only on /tasks — any other route stays strict", !tasksPushChunkExceptionVerdict("/app", main, branch).ok);
+  check("…252 bytes is refused", !tasksPushChunkExceptionVerdict("/tasks", main, { ...branch, htmlBytes: main.htmlBytes + 252 }).ok);
+  check("…two more chunks is refused", !tasksPushChunkExceptionVerdict("/tasks", main, { ...branch, chunks: [...branch.chunks, c("/_next/static/chunks/eeeeeeeeeeeee.js", 10, "x", 0)] }).ok);
+  check("…an extra chunk that is not the push client is refused", !tasksPushChunkExceptionVerdict("/tasks", main, { ...branch, chunks: branch.chunks.map((k) => (k.bytes === 2900 ? { ...k, body: "other" } : k)) }).ok);
+  const raw1 = { ...branch, chunks: branch.chunks.map((k) => (k.bytes === 27100 ? { ...k, bytes: 30000 - 2900 + 1 } : k)) };
+  check("…one more byte of JavaScript (raw) is refused", !tasksPushChunkExceptionVerdict("/tasks", main, raw1).ok);
+  const br1 = { ...branch, chunks: branch.chunks.map((k) => (k.bytes === 27100 ? { ...k, brBytes: 10000 - 950 + 1 } : k)) };
+  check("…one more byte of JavaScript (brotli) is refused", !tasksPushChunkExceptionVerdict("/tasks", main, br1).ok);
+  // Not cumulative: once the change is on main, MAIN already has the split chunk, so a later growth is strict again.
+  const later = { ...branch, htmlBytes: branch.htmlBytes + 100, chunks: [...branch.chunks, c("/_next/static/chunks/fffffffffffff.js", 10, `"${S}"`, 1)] };
+  check("not cumulative — with the split chunk already on MAIN, the exception never applies again", !tasksPushChunkExceptionVerdict("/tasks", branch, later).ok);
+  check("no growth is not an exception (the strict rule passes on its own)", !tasksPushChunkExceptionVerdict("/tasks", main, { ...branch, htmlBytes: main.htmlBytes }).ok);
+  const html = `<script src="/_next/static/chunks/ddddddddddddd.js" async></script>…"/_next/static/chunks/ddddddddddddd.js"…/_next/static/chunks/main-app.js…/_next/static/css/aaaaaaaaaaaaa.css`;
+  check("chunk paths: distinct, hashed JS only", JSON.stringify(chunkPathsInHtml(html)) === JSON.stringify(["/_next/static/chunks/ddddddddddddd.js"]), JSON.stringify(chunkPathsInHtml(html)));
+  check("the proof applies the exception only for its route and keeps the strict rule for every other", proof.includes("row.route === APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.route") && /tasksPushChunkExceptionVerdict\(row\.route, await measurePage\(B\.mainOn/.test(proof) && proof.includes("BRANCH English HTML not larger than MAIN"));
+}
 
 console.log(`\n${pass}/${pass + fail} passed`);
 if (fail > 0) process.exit(1);
