@@ -1,0 +1,230 @@
+# Service Desk — migration 20261128090000_service_parts_reservation_guard (DRAFT — never applied without a separate owner
+# approval): a cancelled case holds no part reservation (deferred check at COMMIT), no stock is taken for a cancelled
+# case, and one quantity on hand is reserved once (immediate check under the parts module's per-item advisory key).
+# Proof on PostgreSQL BEFORE it reaches Production (ephemeral PG17). Synthetic credentials; ZERO secrets; ZERO network.
+#
+#   0. Evidence files are SELECT-only and pass the output guard; the proof pins migration.sql's sha256; the migration
+#      names only its own objects and the tables it builds on; no other migration names its objects.
+#   1. Baseline (pending, on the M1 lab): the preflight passes whole; the proof refuses; preflight check 8 is live, and
+#      the migration itself refuses (nothing changed) over a cancelled case that still holds a reservation.
+#   2. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   3. `prisma migrate deploy` applies exactly it: proof 9/9; the preflight then fails exactly its "not there yet"
+#      checks; a second application by hand is refused.
+#   4. Faults: each injected defect is caught by the proof check meant for it.
+#   5. Battery (.sdresv/battery.ts) AS the runtime role: cancel with reservations, consumed parts, after a cancel, the
+#      quantity rule, races on two connections, repeats, journal, isolation.
+#   5b. Regressions on copies with the guard: the 1d-B parts data service battery, the M1 battery.
+#   6. Mutation test (.sdresv/mutate.sh): every weakened copy of the guard is caught by the battery.
+#   7. Rollback (.sdresv/rollback.sql, on a copy): removes everything and its ledger row; the preflight is whole again;
+#      a plain deploy re-applies it and the proof is whole.
+
+name: service parts reservation guard — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261128090000_service_parts_reservation_guard/**"
+      - "prisma/migrations/20261115090000_service_parts/**"
+      - "prisma/migrations/20261125090000_service_desk_handover_owner_confirmed/**"
+      - "prisma/migrations/20261126090000_service_desk_case_charge/**"
+      - "prisma/migrations/20261127090000_service_desk_tracks/**"
+      - "ops/evidence/service-parts-reservation-guard-*.sql"
+      - ".sdresv/**"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - ".sdp/lab.sh"
+      - ".sdparts/**"
+      - ".sdm1/battery.ts"
+      - "lib/services/service-desk/**"
+      - "prisma/schema.prisma"
+      - ".github/workflows/service-parts-reservation-guard-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service parts reservation guard (PG17, runtime role, P4 + #1096 + #1104 + M1 + this migration)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdresv_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdresv_ci_synthetic_super_pw
+      LAB_PASSWORD: sdresv_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/service-parts-reservation-guard-preflight.sql
+      EVIDENCE: ops/evidence/service-parts-reservation-guard-production-evidence.sql
+      RESV: prisma/migrations/20261128090000_service_parts_reservation_guard/migration.sql
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only; checksum pinned; the migration names only its own objects
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            if grep -inE '(default_)?transaction_read_only|read[[:space:]]+write|session[[:space:]]+characteristics|reset[[:space:]]+all|session[[:space:]]+authorization' "$f"; then
+              echo "$f touches the read-only boundary"; exit 1
+            fi
+          done
+          node scripts/ci/evidence-output-guard.mjs
+          sum=$(sha256sum "$RESV" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          echo "$RESV sha256 $sum (pinned)"
+          prefix='^"(ServicePart|ServiceCase)_[A-Za-z_]+"$'
+          base='"ServiceCase"|"ServicePart"|"ServicePartEvent"|"InventoryItem"'
+          others=$(sed 's/--.*$//' "$RESV" | grep -oE '"[A-Z][A-Za-z_]*"' | sort -u | grep -vE "$prefix" | grep -vxE "$base" || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          if sed 's/--.*$//' "$RESV" | grep -nE '"Billing|"Payment|"FinancialEvent'; then echo "a billing table is named"; exit 1; fi
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            [[ "$n" != "20261128090000_service_parts_reservation_guard" ]] || continue
+            if sed 's/--.*$//' "$d/migration.sql" | grep -nE 'service_part_takes_stock_guard|service_case_parts_released_on_cancel|ServicePart_takes_stock_on_live_case|ServiceCase_parts_released_on_cancel'; then
+              echo "$n names a reservation guard object"; exit 1
+            fi
+          done
+          echo "the migration names only its own objects and the tables it builds on; no other migration names its objects"
+
+      - name: 1. Baseline (pending) — preflight whole; the proof refuses; check 8 and the migration's premise are live
+        run: |
+          set -euo pipefail
+          bash .sdresv/lab.sh resv
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          super() { psql -X -q -v ON_ERROR_STOP=1 -d postgres -U "$SUPER" -c "$1"; }
+          lab resv -f "$PREFLIGHT" | tee /tmp/pre.out
+          fails=$({ grep -E '^ +[0-9]+ \| FAIL' /tmp/pre.out || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test -z "$fails" || { echo "baseline: expected no preflight failure, got: $fails"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "10" || { echo "expected 10 PASS"; exit 1; }
+          lab resv -f "$EVIDENCE" | grep -qE '^ +[0-9]+ \| FAIL' || { echo "the proof passed before the migration"; exit 1; }
+          super "DROP DATABASE IF EXISTS resv_stranded"; super "CREATE DATABASE resv_stranded TEMPLATE resv OWNER lab_owner"
+          lab resv_stranded -q -f .sdresv/stranded.sql
+          c8=$(lab resv_stranded -f "$PREFLIGHT" | grep -E '^ +8 \|' | tr -d ' ')
+          test "$c8" = "8|FAIL|1" || { echo "check 8 did not see the stranded reservation: $c8"; exit 1; }
+          if lab resv_stranded -q -1 -f "$RESV" 2>/tmp/stranded.err; then echo "the migration applied over a stranded reservation"; exit 1; fi
+          grep -q "still RESERVED; release them first; nothing was changed" /tmp/stranded.err || { cat /tmp/stranded.err; exit 1; }
+          test "$(lab resv_stranded -At -c "SELECT count(*) FROM pg_proc WHERE proname IN ('service_part_takes_stock_guard', 'service_case_parts_released_on_cancel')")" = "0"
+          super "DROP DATABASE resv_stranded"
+          echo "baseline whole; check 8 and the premise refuse a stranded reservation, nothing changed"
+
+      - name: 2. Atomicity — failing on its last statement leaves nothing behind
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 -d postgres -U "$SUPER" -c "DROP DATABASE IF EXISTS resv_broken" -c "CREATE DATABASE resv_broken TEMPLATE resv OWNER lab_owner"
+          bash .sdresv/lab.sh resv_broken --broken-deploy-only
+          left=$(PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d resv_broken -c "SELECT (SELECT count(*) FROM pg_proc WHERE proname IN ('service_part_takes_stock_guard', 'service_case_parts_released_on_cancel'))
+            + (SELECT count(*) FROM pg_trigger WHERE tgname IN ('ServicePart_takes_stock_on_live_case', 'ServiceCase_parts_released_on_cancel'))")
+          test "$left" = "0" || { echo "NOT atomic: $left object(s) left"; exit 1; }
+          psql -X -q -d postgres -U "$SUPER" -c "DROP DATABASE resv_broken"
+          echo "atomic"
+
+      - name: 3. prisma migrate deploy applies exactly it — proof 9/9; preflight fails exactly 2 5 6; a second application is refused
+        run: |
+          set -euo pipefail
+          bash .sdresv/lab.sh resv --deploy-only
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d resv -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "9" || { echo "expected 9 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 5 6 " || { echo "after the release: expected '2 5 6 ', got: $fails"; exit 1; }
+          if lab -q -1 -f "$RESV" 2>/tmp/again.err; then echo "a second application must be refused"; exit 1; fi
+          grep -q "already applied" /tmp/again.err || { cat /tmp/again.err; exit 1; }
+
+      - name: 4. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d resv -v ON_ERROR_STOP=1 "$@"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test -z "$(failing)" || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            lab -q -c "$3"; got=$(failing); lab -q -c "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          sum=$(sha256sum "$RESV" | cut -d' ' -f1)
+          fault "a ledger checksum that is not the reviewed file" "2 " \
+            "UPDATE \"_prisma_migrations\" SET checksum = repeat('0', 64) WHERE migration_name = '20261128090000_service_parts_reservation_guard'" \
+            "UPDATE \"_prisma_migrations\" SET checksum = '$sum' WHERE migration_name = '20261128090000_service_parts_reservation_guard'"
+          fault "SECURITY DEFINER guard" "3 " 'ALTER FUNCTION public.service_part_takes_stock_guard() SECURITY DEFINER' 'ALTER FUNCTION public.service_part_takes_stock_guard() SECURITY INVOKER'
+          fault "search_path without pg_temp last" "3 " \
+            'ALTER FUNCTION public.service_case_parts_released_on_cancel() SET search_path = pg_catalog, public' \
+            'ALTER FUNCTION public.service_case_parts_released_on_cancel() SET search_path = pg_catalog, public, pg_temp'
+          fault "PUBLIC EXECUTE" "4 " 'GRANT EXECUTE ON FUNCTION public.service_part_takes_stock_guard() TO PUBLIC' 'REVOKE EXECUTE ON FUNCTION public.service_part_takes_stock_guard() FROM PUBLIC'
+          fault "G1 disabled" "5 " 'ALTER TABLE "ServiceCase" DISABLE TRIGGER "ServiceCase_parts_released_on_cancel"' 'ALTER TABLE "ServiceCase" ENABLE TRIGGER "ServiceCase_parts_released_on_cancel"'
+          fault "G2 disabled" "6 " 'ALTER TABLE "ServicePart" DISABLE TRIGGER "ServicePart_takes_stock_on_live_case"' 'ALTER TABLE "ServicePart" ENABLE TRIGGER "ServicePart_takes_stock_on_live_case"'
+          fault "an M2 guard disabled" "7 " 'ALTER TABLE "ServicePart" DISABLE TRIGGER "ServicePart_guard"' 'ALTER TABLE "ServicePart" ENABLE TRIGGER "ServicePart_guard"'
+          test -z "$(failing)" || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 5. Battery as the runtime role
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/resv" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/resv" \
+            npx tsx .sdresv/battery.ts | tee /tmp/battery.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/battery.out || { echo "the battery is not green"; exit 1; }
+
+      - name: 5b. Regressions with the guard applied (on copies) — the parts data service (1d-B) and the M1 battery
+        run: |
+          set -euo pipefail
+          for d in resv_rg1 resv_rg2; do psql -X -q -v ON_ERROR_STOP=1 -d postgres -U "$SUPER" -c "DROP DATABASE IF EXISTS $d" -c "CREATE DATABASE $d TEMPLATE resv OWNER lab_owner"; done
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/resv_rg1"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/resv_rg1"
+          S="postgresql://lab_super:$PGPASSWORD@localhost:5432/resv_rg1"
+          OWNER_URL="$A" SUPER_URL="$S" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdresv-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdresv-ci \
+          AUTH_TOKEN_SECRET=sdresv-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdparts/battery.ts | tee /tmp/sdparts.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdparts.out || { echo "the 1d-B battery is not green with the guard"; exit 1; }
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/resv_rg2"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/resv_rg2"
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdresv-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdresv-ci \
+          AUTH_TOKEN_SECRET=sdresv-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdm1/battery.ts | tee /tmp/sdm1.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdm1.out || { echo "the M1 battery is not green with the guard"; exit 1; }
+          for d in resv_rg1 resv_rg2; do psql -X -q -d postgres -U "$SUPER" -c "DROP DATABASE $d"; done
+
+      - name: 6. Mutation test — every weakened guard is caught
+        run: |
+          set -euo pipefail
+          TSX="npx tsx" bash .sdresv/mutate.sh resv | tee /tmp/mutate.out
+          grep -qE '^[0-9]+ killed, 0 survived$' /tmp/mutate.out || { echo "a mutant survived"; exit 1; }
+
+      - name: 7. Rollback (on a copy) — whole, ledger row gone, preflight whole again; a plain deploy re-applies it
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 -d postgres -U "$SUPER" -c "DROP DATABASE IF EXISTS resv_rb" -c "CREATE DATABASE resv_rb TEMPLATE resv OWNER lab_owner"
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d resv_rb -v ON_ERROR_STOP=1 "$@"; }
+          lab -q -f .sdresv/rollback.sql
+          lab -q -f .sdresv/rollback.sql
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test -z "$fails" || { echo "after rollback the preflight is not whole: $fails"; exit 1; }
+          bash .sdresv/lab.sh resv_rb --deploy-only
+          test -z "$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; })" || { echo "re-apply after rollback is not whole"; exit 1; }
+          echo "rollback whole (twice: idempotent); the release re-applies cleanly"
