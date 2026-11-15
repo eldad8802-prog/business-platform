@@ -1,0 +1,177 @@
+# Issuer declaration (#1081): the migration 20261126100000_issuer_declaration applied on top of the current schema,
+# then the lab check (49 checks: chain, authority, designation origin, series opening, enforcement, profile lock,
+# erase, RLS) as a NOSUPERUSER NOBYPASSRLS runtime member. Negative proof: without the designation-origin trigger
+# the runtime forges a platform designation, and the check must catch it (N1).
+#
+# Synthetic data only; ZERO secrets; no network beyond the service container.
+#
+# Job 2 runs TODAY's account deletion (deleteOwnBusinessAccount) on the Production-topology lab with the migration applied
+# by `prisma migrate deploy` — the window between the migration and the #1081 code (.issuer-declaration/).
+
+name: issuer declaration migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261126100000_issuer_declaration/**"
+      - "scripts/ci/issuer-declaration/**"
+      - ".issuer-declaration/**"
+      - "lib/services/account/**"
+      - ".github/workflows/issuer-declaration-migration-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: Issuer declaration migration (PG17, NOBYPASSRLS runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: decl_owner
+          POSTGRES_PASSWORD: decl_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_decl
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U decl_owner -d dubiz_decl"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://decl_owner:decl_ci_synthetic_owner_pw@localhost:5432/dubiz_decl
+      NEG_URL: postgresql://decl_owner:decl_ci_synthetic_owner_pw@localhost:5432/dubiz_decl_neg
+      MIGRATION: prisma/migrations/20261126100000_issuer_declaration/migration.sql
+      CHECK: scripts/ci/issuer-declaration/migration-lab-check.sql
+      SECF: prisma/migrations/20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      # Migration-only PR (migration-first guard): schema.prisma does not model the new tables yet, so db push
+      # builds today's schema and the migration creates the tables, exactly as it will in Production.
+      - name: Base schema (db push), roles, fiscal-immutability replay — for both databases
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE dubiz_decl_neg"
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "CREATE ROLE app_admin NOLOGIN NOSUPERUSER NOBYPASSRLS;"
+          for url in "$OWNER_URL" "$NEG_URL"; do
+            DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db push --skip-generate
+            psql "$url" -q -f "$SECF" > /dev/null
+          done
+
+      - name: Apply the migration
+        run: psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f "$MIGRATION"
+
+      - name: Lab check — every check passes
+        run: |
+          set -uo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -f "$CHECK" 2>&1 | tee lab.log
+          pass=$(grep -c "PASS  " lab.log || true); fail=$(grep -c "FAIL  " lab.log || true)
+          echo "PASS=$pass FAIL=$fail"
+          grep "FAIL  " lab.log || true
+          if [ "$fail" -ne 0 ] || [ "$pass" -lt 73 ]; then echo "::error::lab check: $pass passed, $fail failed (expected 73/0)"; exit 1; fi
+          if grep -q "ERROR:" lab.log; then echo "::error::the lab check itself raised an error"; exit 1; fi
+
+      - name: Negative proof — without the designation-origin trigger, N1 is caught
+        run: |
+          set -uo pipefail
+          psql "$NEG_URL" -v ON_ERROR_STOP=1 -q -f "$MIGRATION"
+          psql "$NEG_URL" -v ON_ERROR_STOP=1 -q -c 'DROP TRIGGER "BusinessIssuerDeclaration_designation_origin" ON "BusinessIssuerDeclaration";'
+          psql "$NEG_URL" -f "$CHECK" > neg.log 2>&1 || true
+          if ! grep -q "FAIL  N1 " neg.log; then echo "::error::NEGATIVE-PROOF FAIL: N1 stayed green without the trigger"; grep -E "(PASS|FAIL)  N1" neg.log || true; exit 1; fi
+          echo "negative proof OK — a forged designation is caught by N1"
+
+      # S1 (owner 2026-11-12): two real sessions — a user joins while the sole user declares.
+      - name: S1 concurrency — a user joining mid-declaration cannot leave a "sole user" declaration behind
+        run: bash scripts/ci/issuer-declaration/concurrency-s1.sh "$OWNER_URL" 910777 REFUSED
+
+      - name: Negative proof — without the business-row lock S1 is caught; without the opening trigger S4a is caught
+        run: |
+          set -uo pipefail
+          NEG2="postgresql://decl_owner:decl_ci_synthetic_owner_pw@localhost:5432/dubiz_decl_neg2"
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE dubiz_decl_neg2"
+          DATABASE_URL="$NEG2" DIRECT_URL="$NEG2" npx prisma db push --skip-generate
+          psql "$NEG2" -q -f "$SECF" > /dev/null
+          grep -v 'PERFORM 1 FROM public."Business" b WHERE b."id" = NEW."businessId" FOR UPDATE;' "$MIGRATION" > /tmp/mig-neg2.sql
+          if cmp -s /tmp/mig-neg2.sql "$MIGRATION"; then echo "::error::the lock line was not found — the negative proof would prove nothing"; exit 1; fi
+          psql "$NEG2" -v ON_ERROR_STOP=1 -q -f /tmp/mig-neg2.sql
+          bash scripts/ci/issuer-declaration/concurrency-s1.sh "$NEG2" 910777 ACCEPTED || { echo "::error::NEGATIVE-PROOF FAIL: S1 was not caught without the lock"; exit 1; }
+          psql "$NEG2" -v ON_ERROR_STOP=1 -q -c 'DROP TRIGGER "BillingDocumentNumberSequence_series_opening" ON "BillingDocumentNumberSequence";'
+          psql "$NEG2" -f "$CHECK" > neg2.log 2>&1 || true
+          if ! grep -q "FAIL  S4a " neg2.log; then echo "::error::NEGATIVE-PROOF FAIL: S4a stayed green without the opening trigger"; grep -E "(PASS|FAIL)  S4a" neg2.log || true; exit 1; fi
+          echo "negative proofs OK — the race is caught without the lock; opening 459 is caught without the trigger"
+
+      # Stage B of docs/issuer-declaration-release-runbook.md, rehearsed on a fresh database whose ledger is Production's
+      # (#1105 20261126090000 applied alone on 2026-11-14): the read-only preflight (12 PASS) → apply → the read-only
+      # production evidence (12 PASS, inert), plus the order guard's negatives: a later migration finished first (check 3),
+      # #1105 missing (check 12), this migration already recorded (check 2).
+      - name: Release scripts — preflight 12/12 after #1105, apply, production evidence 12/12, order-guard negatives
+        run: bash scripts/ci/issuer-declaration/evidence-lab.sh "$OWNER_URL" dubiz_decl_release
+
+  account-deletion:
+    name: Account deletion with the migration applied (real purge, Production-topology lab, PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: decl_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: decl_ci_synthetic_super_pw
+      LAB_PASSWORD: decl_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Lab (P4 + purge prerequisites + every earlier migration, #1105 incl.) → migrate deploy 20261126100000 → today's account deletion
+        run: |
+          set -euo pipefail
+          bash .issuer-declaration/lab.sh decl
+          bash .issuer-declaration/lab.sh decl --deploy-only
+          O="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/decl"
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/decl"
+          OWNER_URL="$O" DATABASE_URL="$R?connection_limit=20" DIRECT_URL="$R" AUTH_DATABASE_URL="$O" AUTH_PLANE_ENABLED=true \
+          STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT="$RUNNER_TEMP/decl-store" \
+          TASK_REQUEST_HMAC_KEY=decl-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=decl-ci \
+          AUTH_TOKEN_SECRET=decl-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .issuer-declaration/account-deletion.battery.mts | tee /tmp/decl-del.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/decl-del.out || { echo "the account-deletion battery is not green"; exit 1; }

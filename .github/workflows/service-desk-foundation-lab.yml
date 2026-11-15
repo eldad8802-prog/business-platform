@@ -125,6 +125,9 @@ jobs:
             [[ "$n" != "20261115090000_service_parts" ]] || continue
             [[ "$n" != "20261120090000_service_desk_ui_foundation" ]] || continue
             [[ "$n" != "20261122090000_service_desk_audit_journal" ]] || continue
+            # The deleted-user fix: replaces the body of service_user_same_business() in place, nothing else; its own lab
+            # (service-user-same-business-fix-lab.yml) proves what it does.
+            [[ "$n" != "20261124090000_service_user_same_business_fix" ]] || continue
             if sed 's/--.*$//' "$d/migration.sql" | grep -nE '"Service(CaseNumberSequence|Device|Case|CaseIntake|Quote|CaseEvent|Handover)"|service_(erase_business|case_guard|case_opening_guard|quote_guard|event_|handover_guard|intake_guard|device_guard|user_same_business|journal_truncate)'; then
               echo "$n names a service desk object"; exit 1
             fi
