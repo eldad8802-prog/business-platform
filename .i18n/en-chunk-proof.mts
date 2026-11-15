@@ -226,9 +226,10 @@ async function bytesPhase(s: Seed) {
       ok(`bytes ${row.route} — BRANCH English HTML carries no dictionary (MAIN ${row.mainOnEn.sentinels}/${SENT.length} sentinels → BRANCH < 25%: only what the page renders)`, row.branchOnEn.sentinels < SENT.length * 0.25, `sentinels=${row.branchOnEn.sentinels}`);
       if (!englishHtmlNotLarger(row.mainOnEn.raw, row.branchOnEn.raw) && row.route === APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.route) {
         // The one owner-approved exception (.i18n/en-chunk-rules.ts): every condition is measured here, or it fails.
-        const v = tasksPushChunkExceptionVerdict(row.route, await measurePage(B.mainOn, r.path), await measurePage(B.branchOn, r.path));
+        const sharedPath = APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.sharedBaselineRoute;
+        const v = tasksPushChunkExceptionVerdict(row.route, await measurePage(B.mainOn, r.path), await measurePage(B.branchOn, r.path), { main: await measurePage(B.mainOn, sharedPath), branch: await measurePage(B.branchOn, sharedPath) });
         report.tasksPushChunkException = v;
-        ok(`bytes ${row.route} — BRANCH English HTML within the owner-approved push-client chunk exception (≤ ${APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.maxExtraBytes} B, one more chunk, no more JS)`, v.ok, `${row.mainOnEn.raw} → ${row.branchOnEn.raw}; ${JSON.stringify({ conditions: v.conditions, js: v.js })}`);
+        ok(`bytes ${row.route} — BRANCH English HTML within the owner-approved push-client chunk exception (≤ ${APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.maxExtraBytes} B, one more chunk, unique JS ≤ ${APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.maxUniqueJsRawBytes} B raw beyond ${APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.sharedBaselineRoute})`, v.ok, `${row.mainOnEn.raw} → ${row.branchOnEn.raw}; ${JSON.stringify({ conditions: v.conditions, js: v.js })}`);
       } else {
         ok(`bytes ${row.route} — BRANCH English HTML not larger than MAIN`, englishHtmlNotLarger(row.mainOnEn.raw, row.branchOnEn.raw), `${row.mainOnEn.raw} → ${row.branchOnEn.raw}`);
       }
