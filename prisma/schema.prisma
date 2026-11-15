@@ -8439,6 +8439,17 @@ model ServiceHandover {
   actorUserId          Int?
   createdAt            DateTime  @default(now())
   erasedAt             DateTime?
+  /// Migration 20261130090000: 1 = a handover written before it (legacy shape, the new fields NULL); 2 = the full balance
+  /// record — the only version a new handover may have (service_handover_record_guard). CHECKs live in the migration.
+  recordVersion          Int       @default(1) @db.SmallInt
+  /// v2: the overpayment at the handover (>= 0, never with a debt). NULL only on a version-1 row.
+  overpaidAgorot         Int?
+  /// v2: who approved handing over with an open debt (today = the acting user; FK SET NULL; erased with the account).
+  debtApprovedByUserId   Int?
+  debtApprovedAt         DateTime?
+  /// v2: who approved handing over while the temporary item is still out (same rules).
+  loanerApprovedByUserId Int?
+  loanerApprovedAt       DateTime?
 
   @@unique([businessId, id])
   @@unique([businessId, caseId])
