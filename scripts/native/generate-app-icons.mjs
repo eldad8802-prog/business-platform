@@ -87,8 +87,40 @@ async function monochrome(size, ratio) {
     .toBuffer();
 }
 
+// Status-bar notification icon (owner 2026-11-15: the official Dubiz mark, not a generic bell). 24dp per density.
+const STATUS_BAR = [
+  ["drawable-mdpi", 24],
+  ["drawable-hdpi", 36],
+  ["drawable-xhdpi", 48],
+  ["drawable-xxhdpi", 72],
+  ["drawable-xxxhdpi", 96],
+];
+
+/**
+ * White silhouette of the mark on transparency. Android draws status-bar and shade icons from the alpha channel
+ * only (any opaque pixel becomes the tint), so every pixel is white and the mark's own anti-aliased edge is kept
+ * as alpha; the background stays fully transparent, which is what keeps the icon from showing as a white square.
+ * The mark fills 22 of the 24dp (Material's 1dp optical padding).
+ */
+async function statusBar(size) {
+  const { data, info } = await sharp(await markAt(size, 22 / 24)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 255; data[i + 1] = 255; data[i + 2] = 255;
+  }
+  const solid = await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
+  return sharp({ create: { width: size, height: size, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([{ input: solid, gravity: "centre" }])
+    .png()
+    .toBuffer();
+}
+
 async function main() {
   const res = "android/app/src/main/res";
+
+  for (const [dir, size] of STATUS_BAR) {
+    await mkdir(path.join(res, dir), { recursive: true });
+    await writeFile(path.join(res, dir, "ic_stat_dubiz.png"), await statusBar(size));
+  }
 
   for (const [dir, size] of ANDROID) {
     await mkdir(path.join(res, dir), { recursive: true });

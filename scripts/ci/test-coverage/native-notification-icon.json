@@ -1,0 +1,10 @@
+{
+  "note": "Notifications engine — Android notification icon (owner 2026-11-15: the official Dubiz mark, not a generic bell; final visual approval before the Play build).",
+  "tests": {
+    "lib/native/notification-icon.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (files only): the manifest names @drawable/ic_stat_dubiz and the brand teal as FCM defaults; one 24dp PNG per density; every visible pixel white and the 1dp padding transparent, so Android can never draw it as a white square; the silhouette's alpha matches public/dubiz-mark.png; the bell placeholder is gone."
+    }
+  }
+}

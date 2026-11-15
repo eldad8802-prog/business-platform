@@ -55,6 +55,9 @@ on:
       - "scripts/qa/auth/**"
       - "lib/native/**"
       - "android/app/src/main/java/**"
+      - "android/app/src/main/AndroidManifest.xml"
+      - "android/app/src/main/res/drawable*/ic_stat_dubiz*"
+      - "scripts/native/generate-app-icons.mjs"
       - ".github/workflows/auth-plane-write-ci.yml"
   workflow_dispatch:
 
@@ -201,6 +204,11 @@ jobs:
       # notification opens only an internal path under an allowed section.
       - name: Android push client — permission on demand, token upload, safe deep links
         run: npx tsx lib/native/push-notifications.test.ts
+
+      # The notification icon is the official Dubiz mark as Android needs it: white on transparency (never a white
+      # square), one file per density, the brand teal in the shade (owner 2026-11-15).
+      - name: Android notification icon — official Dubiz mark, alpha-only, every density
+        run: npx tsx lib/native/notification-icon.test.ts
 
       # The device bug PR-E fixes, as two one-line regressions the suite must catch.
       - name: negative proof — a refused session that stays on screen / a chrome without the coordinator
