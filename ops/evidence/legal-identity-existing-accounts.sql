@@ -6,8 +6,19 @@
 -- Valid before and after 20261128090000 (it reads no column that migration adds).
 -- "tax id passes" = the same rule as lib/identity/tax-id.ts: separators removed, 8 digits left-padded, not all one
 -- digit, Israeli check digit. A local FORMAT check — never a confirmation against any registry.
--- OUTPUT: bucket | businesses. Guard-clean: SELECT only.
+-- OUTPUT: n | businesses_count (the legend below names each n; the public log redacts any text cell). Guard-clean: SELECT only.
 -- ============================================================================
+\echo '== legal identity of existing live businesses: legend (n -> bucket) =='
+\echo ' 1 live businesses'
+\echo ' 2 no BusinessProfile row'
+\echo ' 3 business kind missing'
+\echo ' 4 kind EXEMPT_DEALER'
+\echo ' 5 kind AUTHORIZED_DEALER'
+\echo ' 6 kind LTD_COMPANY'
+\echo ' 7 legal identity incomplete (any of the 6 fields missing)'
+\echo ' 8 complete, tax id passes the local format check'
+\echo ' 9 complete, tax id FAILS the local format check'
+\echo '10 tax id passes but is not stored as 9 plain digits (completion would normalise it)'
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '15s';
 
@@ -32,7 +43,7 @@ graded AS (
           AND n.address IS NOT NULL AND n.phone IS NOT NULL AND n.email IS NOT NULL AND n.tax <> '', false) AS complete
     FROM norm n
 )
-SELECT bucket, businesses FROM (
+SELECT o AS n, businesses AS businesses_count FROM (
             SELECT 1 AS o, 'live businesses' AS bucket, count(*) AS businesses FROM graded
   UNION ALL SELECT 2, 'no BusinessProfile row', count(*) FROM graded WHERE pid IS NULL
   UNION ALL SELECT 3, 'business kind missing', count(*) FROM graded WHERE pid IS NOT NULL AND kind IS NULL
