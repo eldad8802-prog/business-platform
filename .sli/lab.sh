@@ -30,7 +30,7 @@ psql_owner -f "$ROOT/prisma/migrations/20260915120000_businessprofile_runtime_gr
 # If schema.prisma models the columns / the table (the application PRs), `db push` built them without the
 # migrations' constraints, policies and triggers: remove them so the migrations build them the way Production will.
 psql_owner -c 'ALTER TABLE "BusinessProfile" DROP COLUMN IF EXISTS "legalIdentityConfirmedAt", DROP COLUMN IF EXISTS "legalIdentitySource"'
-psql_owner -c 'DROP TABLE IF EXISTS "LegalIdentityCorrectionRequest" CASCADE'
+psql_owner -c 'DROP TABLE IF EXISTS "LegalIdentityCorrectionAttachment", "LegalIdentityCorrectionRequest", "LegalIdentityApprover" CASCADE'
 
 case "$MODE" in
   --with-sli|--broken-sli|--with-correction|--broken-correction) ;;
