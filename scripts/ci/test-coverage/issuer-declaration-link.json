@@ -1,0 +1,10 @@
+{
+  "note": "The issuer-declaration link (#1081; migration 20261126090000): a single-use emailed link bound to the account, its business and the declaration digest, spent in billing's tenant transaction. The database rules are proved by the migration lab (.aid/battery.ts, .aid/library-battery.ts in auth-issuer-declaration-link-lab.yml).",
+  "tests": {
+    "lib/auth/issuer-declaration-link.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the ISSUER_DECLARATION purpose derives its own link secrets (another purpose's secret never passes) and points at billing's confirmation page; consume refuses garbage, another purpose's secret, a malformed digest or no account BEFORE the database and maps only the function's own statuses; request refuses a malformed digest before the database; the email payload is exactly tokenId / firstName / legalName / legalForm (an ID, VAT / dealer / company number, address or phone is refused), the rendered email shows only the legal name and form, the 30-minute single-use limit and the fragment link, escapes the name, and carries none of a fixture's identifiers; the registry kind lives 30 minutes inside the provider window"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "note": "New draft line VAT default: the standard rate in force on the day (dated table, Israel time; 18% from 1.1.2025) instead of a hard-coded 17%, and 0 for an exempt dealer. Prepared for focused A0 review, 2026-11-11. Run by billing-a0-characterization-ci.yml.",
+  "tests": {
+    "lib/billing/document-view-model.vat-default.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: rate by date at the Israel-time boundary of 1.1.2025, default call, exempt → 0, company → standard"
+    },
+    ".tax-classification-lab/vat-default-regression.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure + structural regression proof for #1111: kind read from the session business (invoice-profile GET), exempt dealer still refused a tax invoice before numbering, no server/issued path imports the client view model, server accepts 0..100 and issues from stored rates; run by billing-a0-characterization-ci.yml"
+    }
+  }
+}

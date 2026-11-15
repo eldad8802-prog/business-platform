@@ -1,0 +1,10 @@
+{
+  "note": "Session stability PR-C (owner-approved 2026-11-09): cross-tab refresh lock (Web Locks + heartbeat lease fallback), keepalive, lost-response recovery strictly inside the server's fixed 120 s grace.",
+  "tests": {
+    "lib/auth/refresh-client.concurrency.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (virtual time, no DB/network): a model of the refresh engine (rotate, fixed grace, revoke only on evidence) and a last-arrival-wins cookie jar; a no-lock control reproduces the stale-jar hazard while Web Locks and the lease, 2 and 5 tabs x 200 seeded interleavings, make exactly one rotation and leave the jar current; lost responses recovered inside the grace, never by widening it, with zero revocations; 401/403 never retried; dead/live/hung lease holders; also run by auth-plane-write-ci.yml with three negative proofs"
+    }
+  }
+}

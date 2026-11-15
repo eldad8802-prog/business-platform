@@ -30,7 +30,6 @@ import {
 } from "../lib/services/service-desk/service-case.service";
 import { deleteOwnBusinessAccount } from "../lib/services/account/account-deletion.service";
 import { prismaAccountDeletionStore } from "../lib/services/account/account-deletion.prisma-store";
-import { getStorageService } from "../lib/storage/storage.factory";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 let pass = 0;
@@ -118,11 +117,10 @@ async function main() {
   ok("I5 the event insert fails → the intake data is rolled back", faultI !== "OK" && (await q(`SELECT "conditionNote" c FROM "ServiceCaseIntake" WHERE "caseId" = $1`, s1))[0].c === "שריטה — דנה 050" && (await ver(s1)) === 3);
 
   console.log("Q — QA");
-  const sigKey = `biz/${A.b}/service/cases/${s1}/intake/signature.png`;
-  await x(`UPDATE "ServiceCaseIntake" SET "accessoriesRecorded" = true, "customerSigned" = true, "signedAt" = now(), "signatureKey" = $2 WHERE "caseId" = $1`, s1, sigKey);
-  await getStorageService().putObjectIfAbsent({ key: sigKey, body: Buffer.from("png"), contentType: "image/png", metadata: { businessId: A.b, domain: "service", visibility: "private" } });
+  // Owner decision 2026-11-11: no customer signature — the owner confirms the documented intake.
+  await x(`UPDATE "ServiceCaseIntake" SET "accessoriesRecorded" = true WHERE "caseId" = $1`, s1);
   let v = await ver(s1);
-  for (const action of [{ type: "CHECK_IN" }, { type: "START_DIAGNOSIS" }]) v = (await runCaseAction(A.p, s1, { action, expectedVersion: v }, { idempotencyKey: key() })).case.version;
+  for (const action of [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }]) v = (await runCaseAction(A.p, s1, { action, expectedVersion: v }, { idempotencyKey: key() })).case.version;
   ok("I6 after check-in the intake is closed to edits (REFUSED)", (await code(() => recordIntake(A.p, s1, { conditionNote: null, accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedVersion: v }, { idempotencyKey: key() }))).startsWith("REFUSED"));
   await x(`UPDATE "ServiceCase" SET "coverageSource" = 'STORE', "coverageDecision" = 'APPROVED' WHERE id = $1`, s1); // lab: a cover (1.3c records it)
   for (const action of [{ type: "START_REPAIR" }, { type: "FINISH_REPAIR" }]) v = (await runCaseAction(A.p, s1, { action, expectedVersion: v }, { idempotencyKey: key() })).case.version;

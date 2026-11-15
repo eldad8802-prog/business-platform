@@ -26,6 +26,12 @@ on:
       - "app/api/preferences/**"
       - "docs/i18n-multicurrency/**"
       - ".i18n/**"
+      # R6 (account emails follow the stored locale) reads these routes: a change to any of them runs it.
+      - "app/api/auth/register/route.ts"
+      - "app/api/auth/password/forgot/route.ts"
+      - "app/api/auth/email/resend/route.ts"
+      - "app/api/auth/email/verify/route.ts"
+      - "app/api/auth/google/complete/route.ts"
       - ".github/workflows/i18n-multicurrency-ci.yml"
   workflow_dispatch:
 

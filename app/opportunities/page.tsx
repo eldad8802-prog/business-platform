@@ -7,6 +7,7 @@ import BackButton from "@/components/ui/back-button";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { DEALS_ERROR, resolveDealsOutcome, type DealsCall } from "./deals-fetch-contract";
+import { redirectToLogin } from "@/lib/client-session";
 
 // The contract's Hebrew messages stay the stored/tested values; the screen shows them in the active language.
 const DEALS_ERROR_KEYS: Record<DealsCall, MessageKey> = {
@@ -62,11 +63,6 @@ export default function OpportunitiesPage() {
     }
   };
 
-  const redirectToLogin = () => {
-    if (typeof window !== "undefined") {
-      window.location.replace(`${window.location.origin}/login`);
-    }
-  };
 
   const sortedDeals = useMemo(() => {
     return [...deals].sort((a, b) => {

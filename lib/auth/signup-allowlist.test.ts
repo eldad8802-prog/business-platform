@@ -70,7 +70,7 @@ for (const [raw, why] of [
 
 // ── normalisation parity: the allowlist compares exactly what createAccount will store ──────
 {
-  const input = normalizeSignupInput({ email: "  Dana.Cohen@Example.CO.IL ", password: "sup3rsecret", name: "דנה", businessName: "עסק", acceptTerms: true } as never);
+  const input = normalizeSignupInput({ email: "  Dana.Cohen@Example.CO.IL ", password: "sup3rsecret", name: "דנה", businessName: "עסק", businessKind: "AUTHORIZED_DEALER", acceptTerms: true } as never);
   const l = parseSignupAllowlist("dana.cohen@example.co.il");
   ok("the address signup stores is the address the allowlist matches", input.email === normalizeEmail("dana.cohen@example.co.il") && l.has(input.email));
   const src = fs.readFileSync(path.join(process.cwd(), "lib/auth/signup-allowlist.ts"), "utf8");

@@ -222,7 +222,7 @@ function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
   let body;
   if (w.state === "loading") {
     body = (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap }}>
+      <div className="dzh-fit-row" style={{ gap }}>
         <SkeletonBlock h={176} r={tablet ? 20 : 18} />
         <SkeletonBlock h={176} r={tablet ? 20 : 18} />
         <SkeletonBlock h={176} r={tablet ? 20 : 18} />
@@ -232,7 +232,7 @@ function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
     body = <Note>{t("home.layout.waitingFailed")}</Note>;
   } else if (w.value.items.length === 0 && identityPromptDue(view)) {
     body = (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap }}>
+      <div className="dzh-fit-row" style={{ gap }}>
         <IdentityPromptCard tablet={tablet} />
       </div>
     );
@@ -244,7 +244,7 @@ function WaitingGrid({ view, tablet }: { view: HomeView; tablet?: boolean }) {
     );
   } else {
     body = (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap }}>
+      <div className="dzh-fit-row" style={{ gap }}>
         {w.value.items.slice(0, 3).map((item) => (
           <WaitingCard key={item.id} item={item} tablet={tablet} />
         ))}
@@ -305,23 +305,32 @@ function RoundIconLink({ href, label, children, dot }: { href: string; label: st
   );
 }
 
+/**
+ * Greeting + business name. The name is shown whole — never cut with an ellipsis. A name that fits beside the
+ * round buttons stays there (the block's basis is the name's own width); a longer one takes the full row and wraps,
+ * and the buttons move to the next row, at its end. The greeting line (GREETING_STYLE) does not count toward that
+ * width — it wraps on its own.
+ */
+const NAME_BLOCK_STYLE: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 2, flex: "1 1 auto", minWidth: 0 };
+const GREETING_STYLE: React.CSSProperties = { fontSize: 13, color: MUTED, contain: "inline-size" };
+
 /* --------------------------------------------------------------- mobile -- */
 
 function MobileHome({ view }: { view: HomeView }) {
   const { t } = useI18n();
   return (
     <main style={{ display: "flex", flexDirection: "column", paddingBottom: 24 }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 20px 8px 20px", gap: 12 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-          <div style={{ fontSize: 13, color: MUTED }}>
+      <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", padding: "20px 20px 8px 20px", gap: 12 }}>
+        <div style={NAME_BLOCK_STYLE}>
+          <div style={GREETING_STYLE}>
             {view.greeting} · {view.dateLine}
           </div>
           {/* TODO(future): business switcher — one business per user today. */}
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: -0.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: -0.2, overflowWrap: "break-word" }}>
             {view.businessName}
           </h1>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginInlineStart: "auto" }}>
           <AccessibilityTrigger label={t("home.layout.a11ySettings")} style={ROUND_ICON_STYLE} />
           <RoundIconLink href="/notifications" label={t("home.layout.notifications")} dot={view.hasUnread}>
             <IconBell size={20} />
@@ -360,17 +369,17 @@ function MobileHome({ view }: { view: HomeView }) {
 function TabletHome({ view }: { view: HomeView }) {
   return (
     <main style={{ boxSizing: "border-box", padding: 28, display: "flex", flexDirection: "column", gap: 22 }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-          <div style={{ fontSize: 13, color: MUTED }}>
+      <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+        <div style={NAME_BLOCK_STYLE}>
+          <div style={GREETING_STYLE}>
             {view.greeting} · {view.dateLine}
           </div>
           {/* TODO(future): business switcher — one business per user today. */}
-          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 600, letterSpacing: -0.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 600, letterSpacing: -0.3, overflowWrap: "break-word" }}>
             {view.businessName}
           </h1>
         </div>
-        <span dir="ltr" aria-hidden style={{ fontSize: 24, fontWeight: 600, color: "#246966", letterSpacing: -0.5 }}>
+        <span dir="ltr" aria-hidden style={{ fontSize: 24, fontWeight: 600, color: "#246966", letterSpacing: -0.5, marginInlineStart: "auto" }}>
           dubiz
         </span>
       </header>

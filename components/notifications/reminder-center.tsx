@@ -12,7 +12,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { buildClientAuthHeaders } from "@/lib/client-session";
+import { buildClientAuthHeaders, redirectToLogin } from "@/lib/client-session";
 import {
   fetchPendingReminders,
   markReminderSeen,
@@ -64,6 +64,10 @@ export function ReminderCenter() {
       setCurrent((prev) => (prev && next && prev.id === next.id ? prev : next));
     } catch (e) {
       if (e instanceof TasksApiError && (e.status === 401 || e.status === 404)) stopped.current = true;
+      // A background poll is often the FIRST request to learn that the session
+      // was ended elsewhere. It goes through the one decision instead of going
+      // quiet: refreshable → nothing changes; ended → the screen leaves for /login.
+      if (e instanceof TasksApiError && e.status === 401) redirectToLogin();
     }
   }, [stepAside]);
 

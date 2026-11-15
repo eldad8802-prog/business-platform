@@ -14,6 +14,7 @@ import { useMediaQuery } from "@/lib/ui/use-breakpoint";
 // field the API was returning, and nothing caught it because the duplicate
 // type-checked happily against itself.
 import type { HomeResponse } from "@/features/home/types/home.types";
+import { redirectToLogin, clearClientSession } from "@/lib/client-session";
 
 /**
  * Home (`/app`) — the session/auth boundary for HOME v3.
@@ -170,9 +171,8 @@ function HomePage() {
       const json = await res.json();
 
       if (res.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        window.location.replace(`${window.location.origin}/login`);
+        // Refreshable → stays (the next load succeeds); ended by the server → /login.
+        redirectToLogin();
         return;
       }
 
@@ -229,12 +229,8 @@ function HomePage() {
   };
 
   const goReLogin = () => {
-    try {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-    } catch {
-      /* ignore */
-    }
+    // The person asked to sign in again: a deliberate local clear.
+    clearClientSession();
     window.location.href = `${window.location.origin}/login`;
   };
 

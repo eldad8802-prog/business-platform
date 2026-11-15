@@ -105,6 +105,7 @@ async function main() {
     await p4.getByTestId("google-signup-form").waitFor({ state: "visible" });
     ok("4 a listed new person → the completion form; no account yet", (await owner.user.count({ where: { email: LISTED_NEW } })) === 0);
     await p4.locator("#g-business").fill(`עסק פיילוט ${stamp}`);
+    await p4.locator("#g-business-kind").selectOption("AUTHORIZED_DEALER");
     await p4.locator("#g-terms").check();
     await shot(p4, "pilot-phone-form");
     await p4.getByTestId("google-signup-submit").click();

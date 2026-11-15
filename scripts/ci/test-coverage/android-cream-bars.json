@@ -1,0 +1,10 @@
+{
+  "note": "Consolidated Android release, stage 1: cream (#FEF8F2) window, status and navigation bars with dark icons in light and dark mode. Native theme (styles.xml / colors.xml); StatusBar overlaysWebView=false + cream and SystemBars style LIGHT in capacitor.config.ts, added only for an Android cap build (iOS honours those keys too); the web shell paints the same only on builds with versionCode >= 2 (App.getInfo().build) and keeps today's behaviour on the installed Play build.",
+  "tests": {
+    "lib/native/android-cream-bars.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "system-bar colours and icon style of the Android shell only; no data, auth, session or permission path",
+      "reason": "pure: the build gate (versionCode 1 → old path; 2, 3, 10, max → cream; empty / zero / versionName / garbage / throwing plugin → old path), the cream path (Light style, overlay off, cream colour, no dark-mode repaint), the shell wiring (old builds and iOS keep the exact previous calls and colours), one cream across colors.xml / config / native-shell / WebView background, the theme items (window / status / navigation bar colour, light status and navigation bars, tools:targetApi 27, no values-night override, splash hands over to it), the Android-only config gate (sync/copy/run/update android → yes; ios, bare sync, both, next build → no), server.url unchanged; premises in the installed plugins (StatusBar reads overlaysWebView from config; SystemBars reads its style from config and re-applies it on configuration changes; App.getInfo().build is the versionCode)"
+    }
+  }
+}

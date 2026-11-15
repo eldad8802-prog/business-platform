@@ -40,7 +40,7 @@
 \echo ' 6 no catch-all (*) policy and no removal (d) policy except app_runtime (observed = such policies)'
 \echo ' 7 foreign keys: User and Business, both cascading (+ OAuthSignupTicket, cascading, once 20261102090000 is finished) (observed = keys)'
 \echo ' 8 indexes: unique tokenHash + userId/purpose/createdAt + businessId (observed = of 3)'
-\echo ' 9 check constraints (observed = check constraints; expected 5, or 6 once 20261102090000 is finished)'
+\echo ' 9 check constraints (observed = check constraints; expected 5, +1 once 20261102090000 is finished, +1 once 20261126090000 is finished)'
 \echo '10 app_runtime table privileges are exactly d'
 \echo '11 app_runtime column read: exactly id and businessId; no other column privilege (observed = column grants)'
 \echo '12 app_auth holds nothing on the table, at table or column level (observed = privileges)'
@@ -87,6 +87,9 @@ verified_col AS (SELECT a.attnum, a.atttypid, a.atttypmod, a.attnotnull FROM pg_
 -- 20261102090000_oauth_identity_link (Google M3) widens this table by one key and one check when it is finished.
 link AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name = '20261102090000_oauth_identity_link'
          AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
+-- 20261126090000_auth_issuer_declaration_link (issuer-declaration link) widens this table by one check when finished.
+issuer AS (SELECT count(*) AS n FROM "_prisma_migrations" WHERE migration_name = '20261126090000_auth_issuer_declaration_link'
+           AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
 -- The migration's own finish, as the UTC wall-clock the timestamp(3) columns hold.
 aet_done AS (SELECT timezone('UTC', finished_at) AS at FROM "_prisma_migrations"
              WHERE migration_name = '20261017090000_auth_email_tokens' AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
@@ -114,7 +117,7 @@ checks(n, ok, observed_count) AS (
                          JOIN pg_index x ON x.indexrelid = i.oid WHERE x.indrelid = (SELECT oid FROM tbl) AND x.indisunique = idx.uniq) = 3,
                       (SELECT count(*) FROM idx JOIN pg_class i ON i.relname = idx.nm AND i.relnamespace = (SELECT oid FROM pub)
                          JOIN pg_index x ON x.indexrelid = i.oid WHERE x.indrelid = (SELECT oid FROM tbl) AND x.indisunique = idx.uniq)
-  UNION ALL SELECT 9, (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM tbl) AND k.contype = 'c') = 5 + (SELECT n FROM link),
+  UNION ALL SELECT 9, (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM tbl) AND k.contype = 'c') = 5 + (SELECT n FROM link) + (SELECT n FROM issuer),
                       (SELECT count(*) FROM pg_constraint k WHERE k.conrelid = (SELECT oid FROM tbl) AND k.contype = 'c')
   UNION ALL SELECT 10, EXISTS (SELECT 1 FROM tbl_letters WHERE grantee = (SELECT oid FROM rt) AND letters = 'd'), 1
   UNION ALL SELECT 11, NOT EXISTS (SELECT col FROM col_priv WHERE grantee = (SELECT oid FROM rt) AND l = 'r' EXCEPT SELECT col FROM expected_rt_read)

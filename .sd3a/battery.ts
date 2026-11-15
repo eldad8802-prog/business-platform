@@ -34,7 +34,6 @@ import {
   assignTechnician, getCase, getSettings, listCaseEvents, listCases, openCase, recordIntake, runCaseAction, updateSettings,
   type ServiceDeskPrincipal,
 } from "../lib/services/service-desk/service-case.service";
-import { getStorageService } from "../lib/storage/storage.factory";
 
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 let pass = 0;
@@ -146,13 +145,13 @@ async function main() {
     && (await q(`SELECT count(*)::int n FROM "ServiceCaseIntake" WHERE "caseId" = $1`, s1.case.id))[0].n === 0
     && (await events(A.b, s1.case.id)) === 1);
   await x(`INSERT INTO "ServiceCaseIntake" ("businessId", "caseId", "conditionNote", "accessoriesNote", "conditionRecorded", "accessoriesRecorded", "updatedAt") VALUES ($1, $2, 'שריטה בפינה', 'מטען', true, true, now())`, A.b, s1.case.id);
-  ok("T12 IN_SHOP check-in without a signature → REFUSED INTAKE_INCOMPLETE", (await code(() => act(A, s1.case.id, { type: "CHECK_IN" }, 1))).includes("INTAKE_INCOMPLETE"));
-  const sigKey = `biz/${A.b}/service/cases/${s1.case.id}/intake/signature.png`;
-  await x(`UPDATE "ServiceCaseIntake" SET "customerSigned" = true, "signedAt" = now(), "signatureKey" = $2 WHERE "caseId" = $1`, s1.case.id, sigKey);
-  ok("T13 a signature row whose object is NOT stored → SERVER_CHECK_FAILED INTAKE_ARTIFACTS_STORED", (await code(() => act(A, s1.case.id, { type: "CHECK_IN" }, 1))).includes("INTAKE_ARTIFACTS_STORED"));
-  await getStorageService().putObjectIfAbsent({ key: sigKey, body: Buffer.from("png"), contentType: "image/png", metadata: { businessId: A.b, domain: "service", visibility: "private" } });
-  const sci = await act(A, s1.case.id, { type: "CHECK_IN" }, 1);
-  ok("T14 … once the signature object exists → CHECKED_IN", sci.case.status === "CHECKED_IN");
+  // Owner decision 2026-11-11: no customer signature. The documented intake checks in on the owner's explicit confirmation.
+  ok("T12 IN_SHOP check-in without the owner's confirmation → REFUSED INTAKE_NOT_CONFIRMED", (await code(() => act(A, s1.case.id, { type: "CHECK_IN" }, 1))).includes("INTAKE_NOT_CONFIRMED"));
+  const sci = await act(A, s1.case.id, { type: "CHECK_IN", intakeConfirmed: true }, 1);
+  const sciEv = (await q(`SELECT payload->>'intakeConfirmed' c, "actorUserId" a, "fromStatus"::text f, "toStatus"::text t FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND seq = 2`, s1.case.id))[0];
+  ok("T13 no signature, no stored object: the owner's confirmation checks the documented intake in → CHECKED_IN",
+    sci.case.status === "CHECKED_IN" && (await q(`SELECT "signedAt" s FROM "ServiceCaseIntake" WHERE "caseId" = $1`, s1.case.id))[0].s === null);
+  ok("T14 … the journal names the confirmation, the acting user and the status change", sciEv.c === "true" && Number(sciEv.a) === A.u && sciEv.f === "OPEN" && sciEv.t === "CHECKED_IN");
   await absent("T15 without the audit journal: intake after check-in → still NOT_AVAILABLE_UNTIL_AUDIT (no write attempted)", async () => (await code(() => recordIntake(A.p, s1.case.id, { conditionNote: "אחר", accessoriesNote: null, conditionRecorded: true, accessoriesRecorded: true, expectedVersion: sci.case.version }, { idempotencyKey: key() }))) === "NOT_AVAILABLE_UNTIL_AUDIT");
   await x(`UPDATE "ServiceCase" SET "coverageSource" = 'STORE', "coverageDecision" = 'APPROVED' WHERE id = $1`, s1.case.id);
   const sdg = await act(A, s1.case.id, { type: "START_DIAGNOSIS" }, 2);
@@ -295,6 +294,7 @@ async function main() {
     settings: await import("../app/api/service-desk/settings/route"),
     actions: await import("../app/api/service-desk/cases/[id]/actions/route"),
     case: await import("../app/api/service-desk/cases/[id]/route"),
+    staff: await import("../app/api/service-desk/staff/route"),
   };
   const http = (method: string, body: unknown, token: string | null, extra: Record<string, string> = {}) =>
     new Request("https://lab.test/api/service-desk/x", { method, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", ...extra }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -328,6 +328,18 @@ async function main() {
   ok("H5 READ_ONLY → 403 READ_ONLY on the closed routes, before the closure", (await Promise.all((await closedCalls(tokenA)).map(async (r) => r.status === 403 && (await r.json()).error === "READ_ONLY"))).every(Boolean));
   const settingsRead = await routes.settings.GET(http("GET", undefined, tokenA));
   ok("H6 READ_ONLY still reads (GET settings, GET case)", settingsRead.status === 200 && (await routes.case.GET(http("GET", undefined, tokenA), params(hCase.case.id))).status === 200);
+  // UI 1.3a: GET /api/service-desk/staff — the technician pickers' list, under the Service Desk gate (not appointments).
+  const inactive = Number((await q(`INSERT INTO "StaffMember" ("businessId", "displayName", active, "updatedAt") VALUES ($1, 'לא פעיל', false, now()) RETURNING id`, A.b))[0].id);
+  const erased = Number((await q(`INSERT INTO "StaffMember" ("businessId", "displayName", "erasedAt", "updatedAt") VALUES ($1, '', now(), now()) RETURNING id`, A.b))[0].id);
+  const staffRes = await routes.staff.GET(http("GET", undefined, tokenA));
+  const staffIds = staffRes.status === 200 ? ((await staffRes.json()).staff as { id: number; displayName: string }[]).map((m) => m.id) : [];
+  ok("HS1 GET staff (READ_ONLY reads): this business's active staff only — not inactive, not erased, never another business's",
+    staffRes.status === 200 && staffIds.includes(A.staff) && !staffIds.includes(inactive) && !staffIds.includes(erased) && !staffIds.includes(B.staff));
+  ok("HS2 GET staff: no session → 401", (await routes.staff.GET(http("GET", undefined, null))).status === 401);
+  await setOverride(A.b, null); await setPolicy(false);
+  ok("HS3 GET staff: NONE (not open) → 404, like every Service Desk route", (await routes.staff.GET(http("GET", undefined, tokenA))).status === 404);
+  await q(`DELETE FROM "StaffMember" WHERE id = ANY($1::int[])`, [inactive, erased]);
+  await setPolicy(true); await setOverride(A.b, "DISABLED");
   ok("H7 still nothing written after every refusal", (await snap()) === beforeH);
   await setPolicy(false); await setOverride(A.b, "ENABLED");
   const hk = key();

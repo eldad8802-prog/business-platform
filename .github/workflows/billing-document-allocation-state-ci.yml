@@ -1,0 +1,60 @@
+# Document screen: the stored allocation state, decided by the same delivery rule as the
+# PDF route, so the screen never offers "ready to share" for a document whose final PDF
+# is refused, never claims a request was sent or a number received beyond what is
+# stored, and never offers "try again" (there is no retry path).
+#
+# Pure; ZERO secrets, ZERO DB, ZERO network.
+
+name: billing document allocation state
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/billing/authority-document-state-display.ts"
+      - "lib/billing/authority-document-state-display.test.ts"
+      - "lib/billing/authority-issue-display.ts"
+      - "lib/services/billing/authority/billing-authority-document-state.ts"
+      - "lib/services/billing/authority/billing-authority-delivery.rules.ts"
+      - "app/api/billing/documents/**"
+      - "app/billing/**"
+      - "components/billing/document/**"
+      - ".github/workflows/billing-document-allocation-state-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  state:
+    name: Allocation state on the document screen (pure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: State and wording (pure)
+        run: npx tsx lib/billing/authority-document-state-display.test.ts
+
+      # A READY (never-sent) invoice is presented as deliverable — exactly the defect — and
+      # the suite must go red.
+      - name: Negative proof — a never-sent invoice shown as ready is caught
+        run: |
+          set -uo pipefail
+          prove() {
+            local file=lib/billing/authority-document-state-display.ts
+            cp "$file" "$file.bak"
+            perl -0pi -e 's/    case "READY":\n      return blocked\(/    case "READY":\n      return state.deliverable ? hidden : hidden ?? blocked(/' "$file"
+            if cmp -s "$file" "$file.bak"; then mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply"; return 1; fi
+            npx tsx lib/billing/authority-document-state-display.test.ts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then echo "::error::NEGATIVE-PROOF FAIL: suite stayed green"; return 1; fi
+            if ! grep -q "FAIL  - READY" np.log; then echo "::error::NEGATIVE-PROOF FAIL: failed, but not on READY"; tail -20 np.log; return 1; fi
+            echo "negative proof OK — READY shown as deliverable fails"
+          }
+          prove || exit 1

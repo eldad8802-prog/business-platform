@@ -97,6 +97,57 @@ export const BUSINESS_CATEGORY_OPTIONS: BusinessCategoryOption[] = [
       { value: "Accessories", label: HE_T("insights.categories.retail.accessories"), labelKey: "insights.categories.retail.accessories" },
       { value: "Home Design", label: HE_T("insights.categories.retail.homeDesign"), labelKey: "insights.categories.retail.homeDesign" },
       { value: "Online Store", label: HE_T("insights.categories.retail.onlineStore"), labelKey: "insights.categories.retail.onlineStore" },
+      { value: "Jewelry", label: HE_T("insights.categories.retail.jewelry"), labelKey: "insights.categories.retail.jewelry" },
+    ],
+  },
+  // Service businesses (owner decision D6, 2026-11-10): added after the existing categories; no existing value changed.
+  {
+    value: "Automotive",
+    label: HE_T("insights.categories.automotive.label"),
+    labelKey: "insights.categories.automotive.label",
+    subCategories: [
+      { value: "Garage", label: HE_T("insights.categories.automotive.garage"), labelKey: "insights.categories.automotive.garage" },
+      { value: "Body Shop", label: HE_T("insights.categories.automotive.bodyShop"), labelKey: "insights.categories.automotive.bodyShop" },
+      { value: "Tires", label: HE_T("insights.categories.automotive.tires"), labelKey: "insights.categories.automotive.tires" },
+      { value: "Auto Electric", label: HE_T("insights.categories.automotive.autoElectric"), labelKey: "insights.categories.automotive.autoElectric" },
+    ],
+  },
+  {
+    value: "Device Repair",
+    label: HE_T("insights.categories.deviceRepair.label"),
+    labelKey: "insights.categories.deviceRepair.label",
+    subCategories: [
+      { value: "Mobile Phones", label: HE_T("insights.categories.deviceRepair.mobilePhones"), labelKey: "insights.categories.deviceRepair.mobilePhones" },
+      { value: "Computers", label: HE_T("insights.categories.deviceRepair.computers"), labelKey: "insights.categories.deviceRepair.computers" },
+      { value: "Electronics", label: HE_T("insights.categories.deviceRepair.electronics"), labelKey: "insights.categories.deviceRepair.electronics" },
+    ],
+  },
+  {
+    value: "Installations",
+    label: HE_T("insights.categories.installations.label"),
+    labelKey: "insights.categories.installations.label",
+    subCategories: [
+      { value: "Security Cameras", label: HE_T("insights.categories.installations.securityCameras"), labelKey: "insights.categories.installations.securityCameras" },
+      { value: "Furniture Assembly", label: HE_T("insights.categories.installations.furnitureAssembly"), labelKey: "insights.categories.installations.furnitureAssembly" },
+      { value: "Solar", label: HE_T("insights.categories.installations.solar"), labelKey: "insights.categories.installations.solar" },
+    ],
+  },
+  {
+    value: "IT Services",
+    label: HE_T("insights.categories.itServices.label"),
+    labelKey: "insights.categories.itServices.label",
+    subCategories: [
+      { value: "Tech Support", label: HE_T("insights.categories.itServices.techSupport"), labelKey: "insights.categories.itServices.techSupport" },
+      { value: "Networks", label: HE_T("insights.categories.itServices.networks"), labelKey: "insights.categories.itServices.networks" },
+    ],
+  },
+  {
+    value: "Professional Services",
+    label: HE_T("insights.categories.professionalServices.label"),
+    labelKey: "insights.categories.professionalServices.label",
+    subCategories: [
+      { value: "Consulting", label: HE_T("insights.categories.professionalServices.consulting"), labelKey: "insights.categories.professionalServices.consulting" },
+      { value: "Training", label: HE_T("insights.categories.professionalServices.training"), labelKey: "insights.categories.professionalServices.training" },
     ],
   },
   {

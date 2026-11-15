@@ -20,6 +20,7 @@ import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import { hubCss, hubShellStyle } from "@/components/documents/home/hub-styles";
 import DocumentsDesktopTable from "@/components/documents/home/DocumentsDesktopTable";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
+import { redirectToLogin } from "@/lib/client-session";
 import {
   DOCUMENT_CAMERA_ACCEPT,
   DOCUMENT_CAMERA_CAPTURE,
@@ -89,9 +90,7 @@ export default function DocumentsHome() {
     } catch (e) {
       const message = errorMessage(e, t("documents.hub.loadError"));
       if (message === "Unauthorized") {
-        window.localStorage.removeItem("token");
-        window.localStorage.removeItem("user");
-        router.replace("/login");
+        redirectToLogin();
         return;
       }
       setState({ status: "error", message });

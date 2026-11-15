@@ -88,7 +88,7 @@ function Header({ now }: { now: Date }) {
 
 function Actions({ tasksOn }: { tasksOn: boolean }) {
   return (
-    <nav className={cx(s.actions, !tasksOn && s.actionsOne)} aria-label="פעולות ראשיות">
+    <nav className={s.actions} aria-label="פעולות ראשיות">
       {/* The one way to create a commitment: the P3 flow, from its first step. */}
       <Link href={HREF.bank} className={cx(s.action, s.actionSand)}>
         <PlusIcon />
@@ -186,7 +186,7 @@ function Stations({ tasksOn }: { tasksOn: boolean }) {
   return (
     <section className={s.stationsWrap} aria-labelledby="sec-stations-title">
       <h2 id="sec-stations-title" className={s.secTitle}>תחנות ניהול</h2>
-      <ul className={cx(s.notes, items.length === 2 && s.notesTwo)}>
+      <ul className={s.notes}>
         {items.map((it) => (
           <li key={it.key} className={s.noteSlot}>
             <Link href={it.href} className={cx(s.note, NOTE_CLASS[it.kind])} aria-label={`${it.title} — ${it.sub}`}>

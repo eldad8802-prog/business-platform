@@ -8,6 +8,7 @@ import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
+import { redirectToLogin } from "@/lib/client-session";
 
 type ContentFlow = {
   mode?: "ai" | "camera" | "voice";
@@ -214,8 +215,7 @@ export default function AiAssetsPage() {
           if (!cancelled) {
             setError("content.studioFlow.aiAssets.errors.sessionExpired");
             try {
-              localStorage.removeItem("token");
-              localStorage.removeItem("user");
+              redirectToLogin();
             } catch {
               /* ignore */
             }

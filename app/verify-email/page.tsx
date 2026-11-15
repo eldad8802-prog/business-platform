@@ -51,6 +51,7 @@ export default function VerifyEmailPage() {
     return (
       <AuthCard title={t("account.auth.verify.verifiedTitle")} lede={phase.message}>
         <p className={s.success} role="status" data-testid="verify-done">{t("account.auth.verify.verifiedBody")}</p>
+        <p className={s.info}>{t("account.auth.verify.returnToApp")}</p>
         <PrimaryCta href="/app" block>{t("account.auth.verify.enterApp")}</PrimaryCta>
       </AuthCard>
     );

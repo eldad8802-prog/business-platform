@@ -238,7 +238,14 @@ check("category: one shared map; sub-category label first; 'Other' is not shown 
   assert.equal(businessCategoryLabel("Other", "General"), null);
   assert.equal(businessCategoryLabel(null, null), null);
   assert.equal(businessCategoryLabel("Legacy free text", null), "Legacy free text");
-  assert.ok(BUSINESS_CATEGORY_OPTIONS.length === 7);
+  // D6 (2026-11-10): five service categories added after the existing seven; "Other" stays last.
+  assert.ok(BUSINESS_CATEGORY_OPTIONS.length === 12);
+  assert.deepEqual(
+    BUSINESS_CATEGORY_OPTIONS.slice(0, 6).map((c) => c.value),
+    ["Beauty", "Food", "Fitness", "Home Services", "Events", "Retail"],
+    "the existing categories keep their values and order",
+  );
+  assert.equal(BUSINESS_CATEGORY_OPTIONS[BUSINESS_CATEGORY_OPTIONS.length - 1].value, "Other");
   const onboarding = read("app/onboarding/page.tsx");
   assert.ok(onboarding.includes("@/lib/business/business-categories"), "onboarding must import the shared map");
   assert.ok(!onboarding.includes('label: "יופי וטיפוח"'), "onboarding still keeps its own copy");

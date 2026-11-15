@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="referrer" content="no-referrer" />
     <title>Dubiz</title>
     <style>
       :root { color-scheme: light; }
@@ -19,52 +20,161 @@
         text-align: center; gap: 14px;
       }
       .brand { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; color: #0f172a; }
+      .title { font-size: 20px; font-weight: 700; color: #0f172a; }
       .msg { font-size: 16px; line-height: 1.6; color: #475569; max-width: 320px; }
+      .actions { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 320px; margin-top: 8px; }
       button {
-        margin-top: 8px; min-height: 48px; padding: 0 24px;
+        min-height: 48px; padding: 0 24px;
         border: none; border-radius: 14px; cursor: pointer;
         font-family: inherit; font-size: 16px; font-weight: 700;
         background: #0f766e; color: #fff;
       }
+      button.secondary { background: #e7e5df; color: #0f172a; }
+      [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <!--
-      Capacitor offline / load-error fallback (Milestone A). Shown by the native
-      shell (config server.errorPath) when the remote server.url cannot be
-      reached, instead of a blank white WebView. This is NOT offline product
-      functionality — just a branded reconnect screen.
+      Capacitor load-error fallback (config server.errorPath), bundled in the app.
+
+      WHEN CAPACITOR SHOWS IT (Capacitor 8.5 BridgeWebViewClient): for a main-frame (whole page) load that
+        - fails at the network level (onReceivedError: no connection, DNS, timeout, TLS), OR
+        - answers any HTTP status >= 400 (onReceivedHttpError: 404, 500, 502, 401 …).
+      Requests a page makes itself (fetch / API calls) never bring it up. Capacitor does not tell this page
+      which of the two happened, so the page gathers its own evidence before it says anything specific:
+
+        online   navigator.onLine — "false" is good evidence there is no network; "true" proves nothing
+                 (a connected Wi-Fi with no internet, a captive portal, a VPN all report true).
+        server   a no-cors GET to <server>/api/health. It resolves for ANY HTTP answer (even an error — the
+                 response is opaque) and rejects only when nothing answered within the timeout. So it tells
+                 "the server can be reached now", not "the server is healthy".
+        internet a no-cors GET to Google's connectivity check (connectivitycheck.gstatic.com/generate_204, the
+                 endpoint Android itself uses). Same limits: a captive portal can answer it.
+
+      VERDICTS (lib/native/android-error-page.test.ts pins every row):
+        page      the server answers now → the load most likely failed on the page itself (404 / 500 …) or on
+                  a moment that has passed. Says "the page did not load", offers back / home / retry.
+        server    the internet answers but the server does not → "the system is not available right now".
+        offline   navigator.onLine is false AND neither answers → "no internet connection".
+        unknown   anything else (both silent while onLine is true, or no evidence yet) → a careful message
+                  that names both possibilities and claims neither.
+      The careful message is what shows first, before any evidence; the page never navigates by itself (no
+      reload loop), and it checks again when the device reports it is back online.
+
+      ACTIONS work with or without navigation history. Capacitor gives this page no failed URL, and the
+      emulator showed WebView versions disagree on whether the failed entry stays in history (Android 14-16
+      keep it under this page, 17 replaces it), so nothing depends on guessing the stack:
+        retry  open the app's start page (`/` → sign-in or the business home). Deterministic; never
+               location.reload(), which would only re-render this local file — a dead end.
+        back   to the page before the failure: history.go(-2) when the failed entry sits under this page
+               (more than two entries), history.back() when it was replaced (two). Hidden with no history.
+        home   the app's home (/app; it sends a signed-out user to sign-in).
+      The SERVER ORIGIN is Production's (the release build's server.url): Capacitor does not inject
+      WEBVIEW_SERVER_URL into this local page (proven on the emulator); if it ever does, that value wins.
     -->
     <div class="wrap">
       <div class="brand">Dubiz</div>
-      <div class="msg">אין כרגע חיבור למערכת. בדקו את החיבור לאינטרנט ונסו שוב.</div>
-      <button id="retry" type="button">נסה שוב</button>
+      <div id="title" class="title">לא הצלחנו לטעון את הדף</div>
+      <div id="msg" class="msg" role="status" aria-live="polite">ייתכן שיש בעיה בחיבור לאינטרנט או במערכת. בדקו את החיבור ונסו שוב.</div>
+      <div class="actions">
+        <button id="retry" type="button">נסה שוב</button>
+        <button id="back" class="secondary" type="button" hidden>חזרה</button>
+        <button id="home" class="secondary" type="button">למסך הבית</button>
+      </div>
     </div>
     <script>
-      // Recovery + history hygiene (W7 finding).
-      //
-      // Capacitor shows this page via BridgeWebViewClient.onReceivedError ->
-      // webView.loadUrl(errorPath), and loadUrl PUSHES a history entry. Two
-      // consequences were proven on the emulator:
-      //   1. location.reload() only re-rendered THIS local file — the page
-      //      lives on the Capacitor local server, not on the app origin, so
-      //      the user could never get back to the app: a dead end.
-      //   2. once the app did load, this page stayed BEHIND it in history, so
-      //      an in-app back landed the user on "no connection".
-      //
-      // history.back() fixes both: it re-requests the failed app URL (the
-      // entry Capacitor pushed this page on top of), and it leaves this page
-      // FORWARD in history rather than behind the app. If the load fails
-      // again Capacitor simply pushes this page over the same entry, so the
-      // stack cannot grow. With no previous entry there is nothing to return
-      // to, and reload is the only honest fallback.
-      document.getElementById("retry").addEventListener("click", function () {
-        if (history.length > 1) {
-          history.back();
-        } else {
-          location.reload();
+      (function () {
+        "use strict";
+        var PRODUCTION_ORIGIN = "https://promaxgroup.co.il";
+        var CONNECTIVITY_URL = "https://connectivitycheck.gstatic.com/generate_204";
+        var PROBE_TIMEOUT_MS = 4000;
+
+        var COPY = {
+          page: { title: "הדף לא נטען", msg: "ייתכן שהקישור אינו תקין או שהדף אינו זמין כרגע. אפשר לחזור, לעבור למסך הבית או לנסות שוב." },
+          server: { title: "המערכת לא זמינה כרגע", msg: "החיבור לאינטרנט פועל, אבל המערכת לא הגיבה. נסו שוב בעוד כמה רגעים." },
+          offline: { title: "אין חיבור לאינטרנט", msg: "בדקו את החיבור לאינטרנט ונסו שוב." },
+          unknown: { title: "לא הצלחנו לטעון את הדף", msg: "ייתכן שיש בעיה בחיבור לאינטרנט או במערכת. בדקו את החיבור ונסו שוב." }
+        };
+
+        /** The verdict from the evidence — pure, so every row is testable. */
+        function classify(e) {
+          if (e.server === true) return "page";
+          if (e.server === false && e.internet === true) return "server";
+          if (e.server === false && e.internet === false && e.online === false) return "offline";
+          return "unknown";
         }
-      });
+
+        /**
+         * The app's origin: Production's (the release build's server.url). Capacitor does not inject
+         * WEBVIEW_SERVER_URL into this local page; should a future version do so, a well-formed value that is
+         * not the app's own local origin is used instead.
+         */
+        function serverOrigin(win) {
+          var injected = typeof win.WEBVIEW_SERVER_URL === "string" ? win.WEBVIEW_SERVER_URL : "";
+          var shaped = /^https?:\/\/[A-Za-z0-9.-]+(:\d+)?$/.test(injected);
+          var local = /^https?:\/\/localhost$/.test(injected);
+          return shaped && !local ? injected : PRODUCTION_ORIGIN;
+        }
+
+        /** true = something answered within the timeout, false = nothing did. Never throws. */
+        function probe(win, url) {
+          return new Promise(function (resolve) {
+            var done = false;
+            var finish = function (v) { if (!done) { done = true; resolve(v); } };
+            var timer = win.setTimeout(function () { finish(false); }, PROBE_TIMEOUT_MS);
+            try {
+              win.fetch(url + "?t=" + Date.now(), { mode: "no-cors", cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" })
+                .then(function () { win.clearTimeout(timer); finish(true); }, function () { win.clearTimeout(timer); finish(false); });
+            } catch (err) {
+              win.clearTimeout(timer);
+              finish(false);
+            }
+          });
+        }
+
+        function gather(win) {
+          var origin = serverOrigin(win);
+          return Promise.all([probe(win, origin + "/api/health"), probe(win, CONNECTIVITY_URL)]).then(function (r) {
+            var online = win.navigator.onLine === false ? false : win.navigator.onLine === true ? true : null;
+            return { online: online, server: r[0], internet: r[1] };
+          });
+        }
+
+        function show(doc, kind) {
+          doc.getElementById("title").textContent = COPY[kind].title;
+          doc.getElementById("msg").textContent = COPY[kind].msg;
+        }
+
+        function wire(win, doc) {
+          var origin = serverOrigin(win);
+          doc.getElementById("back").hidden = win.history.length < 2;
+          doc.getElementById("retry").addEventListener("click", function () {
+            win.location.replace(origin + "/");
+          });
+          doc.getElementById("back").addEventListener("click", function () {
+            var n = win.history.length;
+            if (n > 2) win.history.go(-2);
+            else if (n === 2) win.history.back();
+            else win.location.replace(origin + "/app");
+          });
+          doc.getElementById("home").addEventListener("click", function () {
+            win.location.replace(origin + "/app");
+          });
+          var checking = false;
+          var check = function () {
+            if (checking) return;
+            checking = true;
+            gather(win).then(function (e) { show(doc, classify(e)); checking = false; }, function () { checking = false; });
+          };
+          // The device reports a connectivity change: look again — and only update the words, never navigate.
+          win.addEventListener("online", check);
+          win.addEventListener("offline", check);
+          check();
+        }
+
+        window.DubizErrorPage = { classify: classify, serverOrigin: serverOrigin, probe: probe, gather: gather, COPY: COPY, PROBE_TIMEOUT_MS: PROBE_TIMEOUT_MS };
+        if (document.getElementById("retry")) wire(window, document);
+      })();
     </script>
   </body>
 </html>

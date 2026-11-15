@@ -76,3 +76,38 @@ export function positiveId(raw: string): number {
 }
 
 export const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: NO_STORE });
+
+/**
+ * The request body, read with a running byte cap: past `max` the stream is cancelled and null returned. Content-Length is
+ * never trusted alone (a chunked body has none), so nothing past the cap is ever buffered.
+ */
+export async function readBodyCapped(req: Request, max: number): Promise<Uint8Array | null> {
+  const declared = req.headers.get("content-length");
+  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > max)) return null;
+  if (!req.body) return new Uint8Array(0);
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.byteLength; }
+  return out;
+}
+
+/** Headers for serving a stored private image: never cached, never sniffed, never run as a document. */
+export const PRIVATE_IMAGE_HEADERS = {
+  "Cache-Control": "private, no-store",
+  "X-Content-Type-Options": "nosniff",
+  "Content-Disposition": "inline",
+  "Content-Security-Policy": "sandbox; default-src 'none'",
+} as const;

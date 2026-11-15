@@ -1,0 +1,68 @@
+# Email verification in Settings → Security, in a real browser (#1065): this build under `next start`, every
+# /api/** request answered by the script (scripts/qa/auth/email-verification-settings.browser.mjs). Android
+# WebView UA at 390 px and desktop at 1440 px: no banner on the shell, status + resend outcomes in Settings,
+# back from Chrome → verified without a reload. Screenshots are uploaded as an artifact.
+# Synthetic only; ZERO secrets; ZERO Production; no email is sent.
+
+name: email verification settings — browser (Chromium, Android WebView + desktop)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/(shell)/layout.tsx"
+      - "app/settings/security/**"
+      - "app/verify-email/**"
+      - "components/settings/security/email-verification-status.tsx"
+      - "lib/auth/email-verification-client.ts"
+      - "scripts/qa/auth/email-verification-settings.browser.mjs"
+      - ".github/workflows/email-verification-settings-browser.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    name: email verification settings — browser (390 WebView + 1440 desktop)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      # Built before the Chromium install (see i18n-multicurrency-ci.yml: the font resolution after
+      # `playwright install --with-deps`).
+      - name: Build
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser check
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          AUTH_TOKEN_SECRET: evb_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef
+          RATE_LIMIT_BACKEND: memory
+        run: |
+          set -euo pipefail
+          (nohup npx next start -p 3621 > "$RUNNER_TEMP/next.log" 2>&1 &)
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3621/login && break; sleep 2; done
+          BASE=http://localhost:3621 OUT="$GITHUB_WORKSPACE/email-verification-shots" \
+            node scripts/qa/auth/email-verification-settings.browser.mjs || { tail -50 "$RUNNER_TEMP/next.log"; exit 1; }
+
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: email-verification-shots
+          path: email-verification-shots/
+          retention-days: 7

@@ -14,6 +14,7 @@ import { useSyncExternalStore } from "react";
 
 import { GOOGLE_NOTICES } from "@/lib/auth/google-notices";
 import { readToken, refreshAccessToken } from "@/lib/auth/refresh-client";
+import { clearPendingRevoke } from "@/lib/client-session";
 import { isNative } from "@/lib/native/native-shell";
 
 function GoogleMark() {
@@ -107,6 +108,9 @@ export async function establishSessionFromCookie(): Promise<boolean> {
   if ((await refreshAccessToken()) !== "refreshed") return false;
   const token = readToken();
   if (!token) return false;
+  // The Google callback set a new refresh cookie, replacing the one an older
+  // pending sign-out (lib/client-session.ts) was about: that marker is moot now.
+  clearPendingRevoke();
   try {
     const res = await fetch("/api/auth/me", { headers: { authorization: `Bearer ${token}` }, cache: "no-store" });
     if (res.ok) {

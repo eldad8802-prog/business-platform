@@ -17,6 +17,16 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!--
+          Credential sharing with the website (password manager). Declares the
+          site statement in @string/asset_statements; the matching
+          /.well-known/assetlinks.json on promaxgroup.co.il completes the pair.
+          Grants nothing by itself and opens no links in the app.
+        -->
+        <meta-data
+            android:name="asset_statements"
+            android:resource="@string/asset_statements" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"

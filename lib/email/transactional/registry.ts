@@ -26,6 +26,11 @@ import {
   type GoogleNoticePayload,
 } from "./templates/google-link";
 import {
+  parseIssuerDeclarationPayload,
+  renderIssuerDeclaration,
+  type IssuerDeclarationPayload,
+} from "./templates/issuer-declaration";
+import {
   parseWelcomePayload,
   renderWelcome,
   type RenderedEmail,
@@ -54,6 +59,8 @@ export const EMAIL_VERIFY_TTL_MS = 12 * 60 * 60 * 1000;
 export const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 /** A Google link proof lives at most 30 minutes (and never beyond its ticket): later it is a dead link. */
 export const LINK_GOOGLE_TTL_MS = 30 * 60 * 1000;
+/** The issuer-declaration link lives 30 minutes (migration 20261126090000); its email no longer. */
+export const ISSUER_DECLARATION_TTL_MS = 30 * 60 * 1000;
 /** A security notice is worth sending for a day. */
 export const GOOGLE_NOTICE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -89,6 +96,12 @@ export const EMAIL_KINDS = {
     parse: parseGoogleNoticePayload,
     render: renderGoogleUnlinked,
   } satisfies EmailKindSpec<GoogleNoticePayload>,
+  // The issuer-declaration confirmation (lib/auth/issuer-declaration-link.ts, #1081). Hebrew only.
+  ISSUER_DECLARATION: {
+    ttlMs: ISSUER_DECLARATION_TTL_MS,
+    parse: parseIssuerDeclarationPayload,
+    render: renderIssuerDeclaration,
+  } satisfies EmailKindSpec<IssuerDeclarationPayload>,
 } as const;
 
 export type EmailKind = keyof typeof EMAIL_KINDS;
@@ -106,6 +119,11 @@ export function welcomeDedupeKey(userId: number): string {
 export function accountLinkDedupeKey(kind: "EMAIL_VERIFY" | "PASSWORD_RESET" | "LINK_GOOGLE", tokenId: string): string {
   const prefix = kind === "EMAIL_VERIFY" ? "email_verify" : kind === "PASSWORD_RESET" ? "password_reset" : "link_google";
   return `${prefix}:token:${tokenId}`;
+}
+
+/** One email per issued issuer-declaration link: the token id names the act. */
+export function issuerDeclarationDedupeKey(tokenId: string): string {
+  return `issuer_declaration:token:${tokenId}`;
 }
 
 /** One notice per link and one per unlink: the identity row names the act (a later re-link is a new row). */

@@ -26,6 +26,11 @@ import {
   type PaymentRequestStatus,
 } from "@/lib/billing/collections-visibility";
 import { describeAuthorityIssueOutcome } from "@/lib/billing/authority-issue-display";
+import {
+  describeAuthorityDocumentState,
+  isDocumentDeliverable,
+  type AuthorityDocumentStateDisplay,
+} from "@/lib/billing/authority-document-state-display";
 import type { AuthorityIssueOutcome } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
 import {
   DOCUMENT_TYPE_LABEL,
@@ -195,6 +200,29 @@ export default function BillingDocumentWorkspacePage() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [customerInput, setCustomerInput] = useState<string>("");
   const [linesDraft, setLinesDraft] = useState<LocalLine[]>([]);
+  // #1111: the VAT default of a NEW line depends on the business kind as the server holds it for the signed-in
+  // business (GET /api/billing/invoice-profile — never a value from the URL or the form). Loaded once, only for a
+  // DRAFT. A failed read gives null → the standard rate (an exempt default is never inferred). Saved lines and
+  // issued documents are never touched: this only shapes the line "+ add line" creates.
+  const newLineKindRef = useRef<Promise<string | null> | null>(null);
+  const loadNewLineBusinessKind = useCallback((): Promise<string | null> => {
+    newLineKindRef.current ??= fetch("/api/billing/invoice-profile", {
+      headers: { Authorization: `Bearer ${getAuthToken()}` },
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const k: unknown = j?.profile?.billingBusinessKind;
+        return typeof k === "string" && k.length > 0 ? k : null;
+      })
+      .catch(() => null);
+    return newLineKindRef.current;
+  }, []);
+  const addNewLine = useCallback(() => {
+    void loadNewLineBusinessKind().then((businessKind) =>
+      setLinesDraft((prev) => [...prev, newEmptyLocalLine({ businessKind })])
+    );
+  }, [loadNewLineBusinessKind]);
   const [patchStatus, setPatchStatus] = useState<PatchSaveStatus>("idle");
   const [patchError, setPatchError] = useState<string | null>(null);
   const [linesSaving, setLinesSaving] = useState<boolean>(false);
@@ -641,6 +669,27 @@ export default function BillingDocumentWorkspacePage() {
     }
   }
 
+  /**
+   * Re-reads the document without the loading state, so the stored allocation
+   * state (which the issue response does not carry) is on screen right after
+   * issuing — the same state a reload shows.
+   */
+  const refreshDocumentQuietly = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/billing/documents/${id}`, {
+        headers: { Authorization: `Bearer ${getAuthToken()}` },
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const fresh: BillingDocumentDetail | undefined = data?.document;
+      if (!fresh || typeof fresh.id !== "number") return;
+      setState((prev) => (prev.kind === "ready" && prev.doc.id === fresh.id ? { kind: "ready", doc: fresh } : prev));
+    } catch {
+      // The next load shows it.
+    }
+  }, [id]);
+
   const runLifecycle = useCallback(
     async (path: string, action: LifecycleAction) => {
       setLifecycleBusy(action);
@@ -720,6 +769,7 @@ export default function BillingDocumentWorkspacePage() {
             setLifecycleSuccess(t("billing.detail.issued"));
           }
           setIssueConfirmOpen(false);
+          void refreshDocumentQuietly();
         }
       } catch {
         setLifecycleError(t("billing.detail.connectError"));
@@ -727,7 +777,7 @@ export default function BillingDocumentWorkspacePage() {
         setLifecycleBusy(null);
       }
     },
-    [id, load, t]
+    [id, load, t, refreshDocumentQuietly]
   );
 
   useEffect(() => {
@@ -735,6 +785,11 @@ export default function BillingDocumentWorkspacePage() {
     const timer = window.setTimeout(() => setLifecycleSuccess(null), 4000);
     return () => window.clearTimeout(timer);
   }, [lifecycleSuccess]);
+
+  const draftLoaded = state.kind === "ready" && state.doc.status === "DRAFT";
+  useEffect(() => {
+    if (draftLoaded) void loadNewLineBusinessKind();
+  }, [draftLoaded, loadNewLineBusinessKind]);
 
   const fetchProfileForWarning = useCallback(async () => {
     if (profileTaxId !== undefined) return;
@@ -1001,6 +1056,7 @@ export default function BillingDocumentWorkspacePage() {
             patchError={patchError}
             linesDraft={linesDraft}
             onLinesChange={setLinesDraft}
+            onAddLine={addNewLine}
             onSaveLines={() => void handleSaveLines()}
             linesSaving={linesSaving}
             linesError={linesError}
@@ -1078,6 +1134,7 @@ function DocumentBody({
   patchError,
   linesDraft,
   onLinesChange,
+  onAddLine,
   onSaveLines,
   linesSaving,
   linesError,
@@ -1110,6 +1167,8 @@ function DocumentBody({
   patchError: string | null;
   linesDraft: LocalLine[];
   onLinesChange: Dispatch<SetStateAction<LocalLine[]>>;
+  /** #1111: appends a new line whose VAT default follows the server-held business kind. */
+  onAddLine: () => void;
   onSaveLines: () => void;
   linesSaving: boolean;
   linesError: string | null;
@@ -1160,7 +1219,7 @@ function DocumentBody({
   }
 
   function addLine() {
-    onLinesChange((prev) => [...prev, newEmptyLocalLine()]);
+    onAddLine();
   }
 
   const customerDirty =
@@ -1268,7 +1327,14 @@ function DocumentBody({
           label: t("billing.detail.reviewActions"),
         }
       : stage === "issued"
-      ? { kind: "scroll", targetId: "billing-issued-actions", label: t("billing.detail.shareDocument") }
+      ? {
+          kind: "scroll",
+          targetId: "billing-issued-actions",
+          // "שיתוף המסמך" only when the final PDF may be delivered.
+          label: isDocumentDeliverable(doc.authorityState)
+            ? t("billing.detail.shareDocument")
+            : t("billing.detail.allocationStatus"),
+        }
       : { kind: "none" };
 
   useEffect(() => {
@@ -1755,6 +1821,8 @@ function StageAwarePanel({
   const tone =
     stage === "draft_missing"
       ? { bg: TOKEN.semantic.attention.bg, border: TOKEN.semantic.attention.border, fg: TOKEN.semantic.attention.ink }
+      : stage === "issued" && !isDocumentDeliverable(doc.authorityState)
+      ? { bg: TOKEN.semantic.attention.bg, border: TOKEN.semantic.attention.border, fg: TOKEN.semantic.attention.ink }
       : stage === "issued"
       ? { bg: TOKEN.semantic.success.bg, border: TOKEN.semantic.success.border, fg: TOKEN.semantic.success.ink }
       : isQuote
@@ -1788,7 +1856,9 @@ function StageAwarePanel({
               : stage === "pending_review"
               ? t("billing.detail.stagePendingHelp")
               : stage === "issued"
-              ? t("billing.detail.stageIssuedHelp")
+              ? isDocumentDeliverable(doc.authorityState)
+                ? t("billing.detail.stageIssuedHelp")
+                : t("billing.detail.stageIssuedBlockedHelp")
               : t("billing.detail.stageMissingHelp")}
           </div>
         </div>
@@ -3410,6 +3480,13 @@ function QuoteDraftHero({
   );
 }
 
+const AUTHORITY_TONE: Record<AuthorityDocumentStateDisplay["tone"], { bg: string; border: string; ink: string }> = {
+  success: { bg: TOKEN.semantic.success.bg, border: TOKEN.semantic.success.border, ink: TOKEN.semantic.success.ink },
+  info: { bg: TOKEN.semantic.info.bg, border: TOKEN.semantic.info.border, ink: TOKEN.semantic.info.ink },
+  warning: { bg: TOKEN.semantic.attention.bg, border: TOKEN.semantic.attention.border, ink: TOKEN.semantic.attention.ink },
+  danger: { bg: TOKEN.semantic.urgent.bg, border: TOKEN.semantic.urgent.border, ink: TOKEN.semantic.urgent.ink },
+};
+
 function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
   const { t, locale } = useI18n();
   const issuedDate = formatDateTime(doc.issuedAt, locale);
@@ -3423,6 +3500,8 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const authorityView = describeAuthorityDocumentState(doc.authorityState);
+  const deliverable = isDocumentDeliverable(doc.authorityState);
 
   async function fetchPdfBlob(): Promise<Blob> {
     const token = getAuthToken();
@@ -3571,9 +3650,10 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
     <section
       id="billing-issued-actions"
       style={{
-        background:
-          `linear-gradient(135deg, ${TOKEN.semantic.success.bg} 0%, ${TOKEN.semantic.success.bg} 50%, ${TOKEN.surface.card} 100%)`,
-        border: `1px solid ${TOKEN.semantic.success.border}`,
+        background: deliverable
+          ? `linear-gradient(135deg, ${TOKEN.semantic.success.bg} 0%, ${TOKEN.semantic.success.bg} 50%, ${TOKEN.surface.card} 100%)`
+          : TOKEN.surface.card,
+        border: `1px solid ${deliverable ? TOKEN.semantic.success.border : TOKEN.semantic.attention.border}`,
         borderRadius: 16,
         padding: 18,
         display: "flex",
@@ -3643,6 +3723,30 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
         </div>
       ) : null}
 
+      {authorityView.show ? (
+        <div
+          role="status"
+          data-billing-authority-state={doc.authorityState?.submissionStatus ?? "NONE"}
+          style={{
+            background: AUTHORITY_TONE[authorityView.tone].bg,
+            border: `1px solid ${AUTHORITY_TONE[authorityView.tone].border}`,
+            color: AUTHORITY_TONE[authorityView.tone].ink,
+            borderRadius: 10,
+            padding: "10px 12px",
+            fontSize: 13,
+            lineHeight: 1.55,
+            display: "grid",
+            gap: 2,
+          }}
+        >
+          <strong style={{ fontWeight: 600 }}>{authorityView.title}</strong>
+          <span>{authorityView.detail}</span>
+        </div>
+      ) : null}
+
+      {/* Delivery actions only when the delivery rule allows the final PDF —
+          the same rule the PDF route enforces. */}
+      {deliverable ? (
       <button
         type="button"
         onClick={() => setShareOpen((v) => !v)}
@@ -3657,8 +3761,9 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
       >
         {loadingAction ? t("billing.detail.preparing") : t("billing.detail.share")}
       </button>
+      ) : null}
 
-      {shareOpen ? (
+      {deliverable && shareOpen ? (
         <div
           style={{
             border: `1px solid ${TOKEN.border.DEFAULT}`,

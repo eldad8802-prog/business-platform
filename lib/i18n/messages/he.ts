@@ -68,6 +68,7 @@ export const he = {
     leads: "לידים",
     tasks: "משימות",
     calendar: "יומן ותורים",
+    serviceDesk: "שירות ואחריות",
     secretary: "המזכירה שלי",
     payables: "התחייבויות",
     inventory: "מלאי",

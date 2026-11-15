@@ -1,0 +1,9 @@
+{
+  "note": "Issued receipt PDF stays exactly as issued (owner decision 2026-11-12): the pre-#1108 HTML template frozen byte-for-byte for controlled restore, and the restore verification. Run by billing-a0-characterization-ci.yml (DB lab: .billing-receipt-pdf/no-rerender.battery.mts).",
+  "tests": {
+    "lib/services/billing/pdf/receipt-template-v1.fidelity.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: frozen template byte-identical to pre-#1108 main and reproduces every recorded A0 golden HTML observation; version→template mapping; restore accepts only an exact hash match (window, content change, one altered byte)"
+    }
+  }
+}

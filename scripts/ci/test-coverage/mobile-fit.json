@@ -1,0 +1,10 @@
+{
+  "note": "Layouts that fit every phone width, text size and font state: secretary notes / create actions wrap by content (no mid-word breaks), week strip keeps seven columns only while a day fits (em-based), the floating accessibility button publishes --dz-fab-clearance and the shell content reserves it, home cashflow header wraps (per-width patches removed), whole business name, home three-card rows wrap by content.",
+  "tests": {
+    "components/navigation/mobile-fit.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "presentation and layout only (CSS rules and a CSS variable for bottom padding); no data, auth, session or permission path",
+      "reason": "pure source checks pinning the content-driven layout rules: notes/actions equal flex items that never shrink below their min-content (no min-width:0, no overflow-wrap:anywhere), page column minmax(0,1fr), week grid auto-fit with an em minimum, FAB clearance variable set/cleared and observed, shell paddings max() with the variable on mobile/tablet/chrome-off, cashflow header wraps at every width, no 360/390 width patches, business name not ellipsized, home rows use dzh-fit-row instead of fixed three columns"
+    }
+  }
+}

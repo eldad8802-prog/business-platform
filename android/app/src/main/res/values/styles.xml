@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Base application theme. -->
     <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
@@ -9,10 +9,26 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <!--
+      Cream behind everything the system draws around the WebView, in light AND dark mode (the web app is
+      light-only), with dark icons on it:
+        windowBackground      Android 15+ draws edge-to-edge; the strips behind the status and navigation
+                              bars are this window background (Capacitor pads the WebView below/above them).
+        statusBarColor /      Android 14 and older paint the bars themselves. With the overlay off
+        navigationBarColor    (capacitor.config.ts StatusBar.overlaysWebView=false, Android builds only)
+                              the status bar is this colour from the first frame.
+        windowLight*Bar       dark icons from the first frame; the StatusBar / SystemBars plugins are
+                              configured to keep them dark (capacitor.config.ts, Android builds only).
+    -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <item name="android:windowBackground">@color/dubizAppBackground</item>
+        <item name="android:statusBarColor">@color/dubizAppBackground</item>
+        <item name="android:navigationBarColor">@color/dubizAppBackground</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
     </style>
 
 

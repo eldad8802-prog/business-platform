@@ -108,6 +108,7 @@ const completeDeps: CompleteDeps = {
   createAccount: createAccountFromGoogle,
   recordUsage: recordProductUsageEvent,
   scheduleWelcome: () => {},
+  seedBusinessKind: async () => "seeded" as const, // the business-kind seed is proved in .authfix (real tenant runtime on BusinessProfile)
 };
 const browserHeaders = (ticket: string | null) => ({
   origin: "https://app.dubiz.test", host: "app.dubiz.test", "sec-fetch-site": "same-origin", "x-forwarded-for": ip(), "user-agent": "agl-cancel",
@@ -117,7 +118,7 @@ async function complete(ticket: string, businessName: string, deps: CompleteDeps
   const res = await handleGoogleComplete(new Request("https://app.dubiz.test/api/auth/google/complete", {
     method: "POST",
     headers: { "content-type": "application/json", ...browserHeaders(ticket) },
-    body: JSON.stringify({ name: "דנה כהן", businessName, acceptTerms: true }),
+    body: JSON.stringify({ name: "דנה כהן", businessName, businessKind: "AUTHORIZED_DEALER", acceptTerms: true }),
   }), deps);
   return { status: res.status, body: (await res.json().catch(() => ({}))) as Record<string, unknown> };
 }

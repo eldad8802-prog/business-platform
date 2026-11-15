@@ -26,12 +26,20 @@
  * nothing here can produce a hydration mismatch.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   bootstrapDecision,
   bootstrapRefresh,
   startRefreshCoordinator,
 } from "@/lib/auth/refresh-client";
+import { endSessionLocally } from "@/lib/auth/session-guard";
+
+/**
+ * Set by the outermost coordinator. It is mounted by ShellChrome, which some
+ * pages also render inside a layout that already has one; a nested instance
+ * must not start a second timer or hold the screen a second time.
+ */
+const CoordinatorActive = createContext(false);
 
 /**
  * A refresh that never answers must not wedge the app behind a blank screen.
@@ -43,6 +51,12 @@ const MAX_HOLD_MS = 5000;
 const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 export function RefreshCoordinator({ children }: { children: ReactNode }) {
+  const nested = useContext(CoordinatorActive);
+  if (nested) return <>{children}</>;
+  return <OutermostRefreshCoordinator>{children}</OutermostRefreshCoordinator>;
+}
+
+function OutermostRefreshCoordinator({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const started = useRef(false);
 
@@ -61,12 +75,21 @@ export function RefreshCoordinator({ children }: { children: ReactNode }) {
     }
 
     const safety = setTimeout(release, MAX_HOLD_MS);
-    void bootstrapRefresh().finally(() => {
-      clearTimeout(safety);
-      release();
-    });
+    void bootstrapRefresh()
+      .then((outcome) => {
+        // The server has said this session is over: leave, and never open the
+        // gate onto screens that would render with no session.
+        if (outcome === "unauthenticated") endSessionLocally();
+        else release();
+      })
+      .catch(() => release())
+      .finally(() => clearTimeout(safety));
 
-    const handle = startRefreshCoordinator({ skipBoot: true });
+    // A definitive refusal later on (timer, or return from background) ends
+    // the session the same way: local state goes and the page becomes /login,
+    // so nothing already rendered stays on screen. A transient failure never
+    // reaches this callback.
+    const handle = startRefreshCoordinator({ skipBoot: true, onUnauthenticated: endSessionLocally });
 
     return () => {
       cancelled = true;
@@ -79,5 +102,5 @@ export function RefreshCoordinator({ children }: { children: ReactNode }) {
   // frames or one request long, and painting a login here would flash it at
   // someone who is perfectly well signed in.
   if (!open) return null;
-  return <>{children}</>;
+  return <CoordinatorActive.Provider value={true}>{children}</CoordinatorActive.Provider>;
 }

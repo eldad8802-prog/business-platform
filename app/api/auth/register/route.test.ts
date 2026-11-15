@@ -40,6 +40,7 @@ type Calls = {
   bodyReads: number;
   scheduled: number[];
   usage: number;
+  seeded: Array<[number, string]>;
 };
 
 const FAKE_SESSION = {
@@ -58,6 +59,7 @@ function makeDeps(
     hash: 0,
     signToken: 0,
     bodyReads: 0,
+    seeded: [],
     scheduled: [],
     usage: 0,
   };
@@ -91,8 +93,8 @@ function makeDeps(
         businessName: input.businessName,
         tokenVersion: 0,
         session: FAKE_SESSION,
-        // As createAccount records them: a verification link replaces the signup WELCOME.
-        welcomeEmailId: input.sendVerification ? null : 501,
+        // As createAccount records them: the WELCOME always, the verification link only when asked for.
+        welcomeEmailId: 501,
         verificationEmailId: input.sendVerification ? 502 : null,
       };
     },
@@ -110,6 +112,10 @@ function makeDeps(
     scheduleWelcome: (id) => {
       calls.scheduled.push(id);
     },
+    seedBusinessKind: async (businessId, kind) => {
+      calls.seeded.push([businessId, kind]);
+      return "seeded";
+    },
     ...overrides,
   };
 
@@ -120,7 +126,7 @@ const VALID = {
   email: "new-owner@example.test",
   password: "sup3rsecret",
   name: "בעל עסק חדש",
-  businessName: "עסק חדש",
+  businessName: "עסק חדש", businessKind: "AUTHORIZED_DEALER",
   acceptTerms: true,
 };
 
@@ -531,8 +537,8 @@ async function main() {
   {
     const { deps, calls } = makeDeps(true, { isVerificationEnabled: () => true });
     const res = await handleRegister(req(), deps);
-    ok("verify -> ON: ONLY the verification email is scheduled after the response (the WELCOME follows the verification)",
-      res.status === 200 && JSON.stringify(calls.scheduled) === JSON.stringify([502]), JSON.stringify(calls.scheduled));
+    ok("verify -> ON: BOTH emails are scheduled after the response — the verification link and the WELCOME (it does not wait for verification)",
+      res.status === 200 && JSON.stringify(calls.scheduled) === JSON.stringify([502, 501]), JSON.stringify(calls.scheduled));
   }
   // ── honeypot ──
   {
@@ -570,6 +576,53 @@ async function main() {
     const { deps, calls } = makeDeps(false);
     await handleRegister(req(), deps);
     ok("welcome -> closed signup schedules nothing", calls.scheduled.length === 0);
+  }
+
+  // ── business kind at signup (owner decision 2026-11-11): required, seeded after the account commits ──
+  {
+    const { deps, calls } = makeDeps(true);
+    const res = await handleRegister(req(), deps);
+    ok("kind -> the chosen kind is seeded once, for the new business, after the account was created",
+      res.status === 200 && JSON.stringify(calls.seeded) === JSON.stringify([[4242, "AUTHORIZED_DEALER"]]) && calls.createAccount === 1, JSON.stringify(calls.seeded));
+  }
+  for (const kind of ["EXEMPT_DEALER", "LTD_COMPANY"]) {
+    const { deps, calls } = makeDeps(true);
+    const res = await handleRegister(req({ ...VALID, businessKind: kind }), deps);
+    ok(`kind -> ${kind} is accepted and seeded as chosen`, res.status === 200 && calls.seeded[0]?.[1] === kind);
+  }
+  for (const [label, body] of [
+    ["missing", { ...VALID, businessKind: undefined }],
+    ["empty", { ...VALID, businessKind: "" }],
+    ["unknown value", { ...VALID, businessKind: "VAT_FREE" }],
+    ["wrong type", { ...VALID, businessKind: 1 }],
+    ["lower case", { ...VALID, businessKind: "ltd_company" }],
+  ] as const) {
+    const { deps, calls } = makeDeps(true);
+    const res = await handleRegister(req(body), deps);
+    const b = await res.json();
+    ok(`kind -> ${label}: 400 field businessKind, nothing hashed, created or seeded`,
+      res.status === 400 && b.field === "businessKind" && typeof b.error === "string" && calls.hash === 0 && calls.createAccount === 0 && calls.seeded.length === 0, JSON.stringify(b));
+  }
+  {
+    const { deps } = makeDeps(true, { seedBusinessKind: async () => { throw new Error("seed exploded"); } });
+    const res = await handleRegister(req(), deps);
+    const body = await res.json();
+    ok("kind -> a seed that throws does NOT fail the signup (200, token issued)", res.status === 200 && body.success === true && typeof body.token === "string");
+  }
+  {
+    const { deps, calls } = makeDeps(true, { seedBusinessKind: async () => "failed" });
+    const res = await handleRegister(req(), deps);
+    ok("kind -> a failed seed does NOT fail the signup, and the emails are still scheduled", res.status === 200 && calls.scheduled.length > 0);
+  }
+  {
+    const { deps, calls } = makeDeps(true, { createAccount: async () => { throw new EmailAlreadyRegisteredError(); } });
+    await handleRegister(req(), deps);
+    ok("kind -> a duplicate signup (409) seeds nothing", calls.seeded.length === 0);
+  }
+  {
+    const { deps, calls } = makeDeps(false);
+    await handleRegister(req(), deps);
+    ok("kind -> a closed signup seeds nothing", calls.seeded.length === 0);
   }
 
   console.log(failed === 0 ? "\nPASS" : `\nFAIL (${failed})`);

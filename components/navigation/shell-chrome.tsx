@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { BottomBar } from "./bottom-bar";
 import { NavRail, NavSidebar } from "./side-nav";
 import { useShellChromeHidden } from "./shell-chrome-visibility";
+import { RefreshCoordinator } from "@/components/auth/refresh-coordinator";
 
 type ShellChromeProps = {
   children: ReactNode;
@@ -35,14 +36,16 @@ const WARM_GROUND_PATHS = new Set(["/profile", "/settings", "/business/identity"
  * the offsets via `data-chrome="off"` — the existing contract, now centralized.
  */
 const shellCss = `
-[data-shell-root] .shell-content { padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)); }
+/* Bottom padding: the bar (or the edge), and never less than the strip the floating accessibility button
+   occupies (--dz-fab-clearance, measured by accessibility-fab), so the end of a screen scrolls above it. */
+[data-shell-root] .shell-content { padding-bottom: max(calc(100px + env(safe-area-inset-bottom, 0px)), var(--dz-fab-clearance, 0px)); }
 @media (min-width: 768px) {
-  [data-shell-root][data-chrome="on"] .shell-content { padding-bottom: 32px; padding-inline-start: 100px; }
+  [data-shell-root][data-chrome="on"] .shell-content { padding-bottom: max(32px, var(--dz-fab-clearance, 0px)); padding-inline-start: 100px; }
 }
 @media (min-width: 1280px) {
   [data-shell-root][data-chrome="on"] .shell-content { padding-inline-start: 264px; }
 }
-[data-shell-root][data-chrome="off"] .shell-content { padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); padding-inline-start: 0; }
+[data-shell-root][data-chrome="off"] .shell-content { padding-bottom: max(calc(8px + env(safe-area-inset-bottom, 0px)), var(--dz-fab-clearance, 0px)); padding-inline-start: 0; }
 
 /* Mutually-exclusive nav visibility — pure CSS, no JS, no hydration branch. */
 [data-shell-root] .shell-nav-mobile { display: block; }
@@ -211,8 +214,15 @@ export function ShellChrome({ children, topSlot = null }: ShellChromeProps) {
         className="shell-content min-h-0 min-w-0 flex-1 overflow-x-hidden"
         style={{ position: "relative", zIndex: 1 }}
       >
-        {chromeHidden ? null : topSlot}
-        {children}
+        {/* Every authenticated screen that draws the chrome — inside (shell) and
+            outside it (settings, business, billing, offers, …) — keeps its
+            session fresh and leaves for /login when the server ends it. Nested
+            instances (a page that draws ShellChrome inside a layout that also
+            does) defer to the outer one. */}
+        <RefreshCoordinator>
+          {chromeHidden ? null : topSlot}
+          {children}
+        </RefreshCoordinator>
       </div>
 
       {chromeHidden ? null : (

@@ -30,6 +30,9 @@ on:
       - "app/reset-password/**"
       - "app/verify-email/**"
       - "components/auth/**"
+      - "components/settings/security/email-verification-status.tsx"
+      - "app/settings/security/**"
+      - "app/(shell)/layout.tsx"
       - "lib/auth/**"
       - "lib/auth.ts"
       - "lib/email/transactional/**"
@@ -106,6 +109,9 @@ jobs:
 
       - name: 1. Pure suite
         run: npx tsx lib/auth/account-recovery.test.ts
+
+      - name: 1a. Email verification in Settings → Security (status, resend, expired link, back from Chrome)
+        run: npx tsx lib/auth/email-verification-client.test.ts
 
       - name: 1b. Auth limits while Redis is unreachable (local fallback, recovery, bursts) + safe auth logs
         run: |

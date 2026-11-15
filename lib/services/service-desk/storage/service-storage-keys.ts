@@ -53,3 +53,17 @@ export function intakePhotoKey(input: { businessId: number; caseId: number; sha2
   if (!isIntakePhotoMime(input.mimeType)) throw new RangeError("mimeType must be image/jpeg, image/png or image/webp");
   return `${serviceBusinessPrefix(input.businessId)}cases/${caseId}/intake/photos/${input.sha256}.${INTAKE_PHOTO_EXTENSION[input.mimeType]}`;
 }
+
+/** The customer's intake signature (1.3b): one PNG, content-addressed — biz/{b}/service/cases/{c}/intake/signature/{sha256}.png. */
+export function intakeSignatureKey(input: { businessId: number; caseId: number; sha256: string }): string {
+  const caseId = positiveId(input.caseId, "caseId");
+  if (!SHA256.test(input.sha256)) throw new RangeError("sha256 must be 64 lowercase hex characters");
+  return `${serviceBusinessPrefix(input.businessId)}cases/${caseId}/intake/signature/${input.sha256}.png`;
+}
+
+/** The intake slip PDF (1.3b): content-addressed — biz/{b}/service/cases/{c}/intake/slip/{sha256}.pdf. */
+export function intakeSlipKey(input: { businessId: number; caseId: number; sha256: string }): string {
+  const caseId = positiveId(input.caseId, "caseId");
+  if (!SHA256.test(input.sha256)) throw new RangeError("sha256 must be 64 lowercase hex characters");
+  return `${serviceBusinessPrefix(input.businessId)}cases/${caseId}/intake/slip/${input.sha256}.pdf`;
+}

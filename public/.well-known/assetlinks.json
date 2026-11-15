@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.get_login_creds"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "il.co.promaxgroup.dubiz",
+      "sha256_cert_fingerprints": [
+        "B5:42:26:A9:6F:46:A4:53:33:B1:6E:E9:48:9D:92:D9:52:C5:90:83:1F:93:A1:18:16:4E:C6:82:1E:34:98:0B"
+      ]
+    }
+  }
+]

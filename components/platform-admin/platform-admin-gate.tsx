@@ -10,6 +10,7 @@ import {
 import type { PlatformAdminSessionResponse } from "@/lib/services/platform-admin/types";
 import { PA } from "./platform-admin-styles";
 import { PlatformAdminSkeleton } from "./platform-admin-skeleton";
+import { redirectToLogin } from "@/lib/client-session";
 
 type GateState =
   | { kind: "loading" }
@@ -47,8 +48,7 @@ export function PlatformAdminGate({ children }: PlatformAdminGateProps) {
         if (cancelled) return;
         if (error instanceof PlatformAdminFetchError) {
           if (error.status === 401) {
-            window.localStorage.removeItem("token");
-            router.replace("/login");
+            redirectToLogin();
             return;
           }
           if (error.status === 403) {

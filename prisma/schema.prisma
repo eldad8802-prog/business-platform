@@ -8908,6 +8908,7 @@ model ServiceStorageErasure {
 enum BusinessDocumentFilePurpose {
   QUOTE_SHARE_COPY
   LETTER
+  PURCHASE_ORDER_SHEET
 }
 
 enum BusinessDocumentFileState {
@@ -8921,6 +8922,7 @@ enum BusinessDocumentOperation {
   QUOTE_SHARE_COPY
   QUOTE_SHARE_EVENT
   LETTER_SAVE
+  PURCHASE_ORDER_SHEET
 }
 
 enum BusinessDocumentRequestState {
@@ -9066,6 +9068,32 @@ model BusinessLetter {
   @@unique([businessId, id])
   @@unique([businessId, fileId])
   @@index([businessId, createdAt])
+}
+
+/// A SAVED COPY of the supplier order document the send screen produces ("שמירת עותק"), with the number printed on
+/// it — the supplier order draft's id — and the external number when there is one. It records WHEN it was saved,
+/// never that it was sent. Snapshots are frozen at saving; append-only for the runtime (migration 20261121090000).
+/// supplierPurchaseDraftId is enforced to the same business by a database guard; no foreign key (inventory untouched).
+model PurchaseOrderSheet {
+  id                      Int      @id @default(autoincrement())
+  businessId              Int
+  supplierPurchaseDraftId Int
+  fileId                  Int
+  sha256                  String   @db.Char(64)
+  contentHash             String   @db.Char(64)
+  displayedNumberSnapshot String
+  externalNumberSnapshot  String?
+  supplierNameSnapshot    String?
+  documentSnapshot        Json
+  locale                  String
+  headerTitleSnapshot     String
+  displayDateSnapshot     String
+  createdByUserId         Int?
+  createdAt               DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([businessId, id])
+  @@unique([businessId, fileId])
+  @@index([businessId, supplierPurchaseDraftId, createdAt], map: "PurchaseOrderSheet_businessId_draft_createdAt_idx")
 }
 
 /// Durable job record of an account erasure of the business-documents tables.

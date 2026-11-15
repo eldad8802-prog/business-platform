@@ -4,4 +4,11 @@
     <string name="title_activity_main">Dubiz</string>
     <string name="package_name">il.co.promaxgroup.dubiz</string>
     <string name="custom_url_scheme">il.co.promaxgroup.dubiz</string>
+    <!--
+      Digital Asset Links, app side: points at the site statement that lets the
+      device password manager share saved sign-ins between promaxgroup.co.il and
+      this app (relation delegate_permission/common.get_login_creds only — no
+      handle_all_urls, no App Links). translatable=false: a URL, never localised.
+    -->
+    <string name="asset_statements" translatable="false">[{\"include\": \"https://promaxgroup.co.il/.well-known/assetlinks.json\"}]</string>
 </resources>

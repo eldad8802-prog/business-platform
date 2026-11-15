@@ -1,0 +1,15 @@
+{
+  "note": "Issuance: an invoice that needs an allocation number is refused before numbering while the Approval is known to be refused (Production pilot gate). Owner-approved under A0, 2026-11-10 (focused: issue-time block + document-screen state). Run by billing-issue-allocation-gate-ci.yml with a negative proof.",
+  "tests": {
+    "lib/services/billing/authority/billing-authority-issue-gate.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the issue-time allocation gate over the existing readiness rule and the REAL Production pilot gate (non-pilot refused, OAUTH_ONLY refused, SANDBOX open); run by billing-issue-allocation-gate-ci.yml"
+    },
+    "lib/services/billing/billing-issue-allocation-gate.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: replays every repository RLS statement, runs as a NOSUPERUSER NOBYPASSRLS login and refuses otherwise; Approval stubbed, global fetch throws; 14/14 locally on PG18; without the gate G1-G3 fail (the invoice is issued with a number and its submission stays READY)"
+    }
+  }
+}

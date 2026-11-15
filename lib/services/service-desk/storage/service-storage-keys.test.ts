@@ -12,6 +12,8 @@ import {
   INTAKE_PHOTOS_PER_CASE,
   SERVICE_STORAGE_DOMAIN,
   intakePhotoKey,
+  intakeSignatureKey,
+  intakeSlipKey,
   isServiceKeyOfBusiness,
   serviceBusinessPrefix,
 } from "./service-storage-keys";
@@ -58,6 +60,16 @@ const sql = fs.readFileSync(path.join(process.cwd(), "prisma/migrations/20261120
 check("CHECK ServiceIntakePhoto_size = 1..10485760", sql.includes(`"byteSize" BETWEEN 1 AND ${INTAKE_PHOTO_MAX_BYTES}`));
 check("the key CHECK maps jpeg/png/else→webp", sql.includes(`WHEN 'image/jpeg' THEN '.jpg' WHEN 'image/png' THEN '.png' ELSE '.webp'`));
 check(`the guard caps photos per case at ${INTAKE_PHOTOS_PER_CASE}`, new RegExp(`>=\\s*${INTAKE_PHOTOS_PER_CASE}\\b`).test(sql));
+
+console.log("— 1.3b: the intake signature and slip");
+check("signature key: biz/{b}/service/cases/{c}/intake/signature/{sha}.png", intakeSignatureKey({ businessId: 7, caseId: 3, sha256: SHA }) === `biz/7/service/cases/3/intake/signature/${SHA}.png`);
+check("slip key: biz/{b}/service/cases/{c}/intake/slip/{sha}.pdf", intakeSlipKey({ businessId: 7, caseId: 3, sha256: SHA }) === `biz/7/service/cases/3/intake/slip/${SHA}.pdf`);
+check("signature / slip keys are this business's service keys (the intake object-key CHECK prefix), never another's",
+  isServiceKeyOfBusiness(intakeSignatureKey({ businessId: 7, caseId: 3, sha256: SHA }), 7) && isServiceKeyOfBusiness(intakeSlipKey({ businessId: 7, caseId: 3, sha256: SHA }), 7)
+    && !isServiceKeyOfBusiness(intakeSlipKey({ businessId: 7, caseId: 3, sha256: SHA }), 70));
+check("signature / slip keys refuse a bad hash or id",
+  throws(() => intakeSignatureKey({ businessId: 7, caseId: 3, sha256: "A".repeat(64) })) && throws(() => intakeSlipKey({ businessId: 7, caseId: 0, sha256: SHA }))
+    && throws(() => intakeSignatureKey({ businessId: 0, caseId: 3, sha256: SHA })));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

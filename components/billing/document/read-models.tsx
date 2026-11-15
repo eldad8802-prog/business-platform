@@ -13,6 +13,7 @@
 import type { ReactNode } from "react";
 import { TOKEN } from "@/lib/design/billing-theme";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { isDocumentDeliverable } from "@/lib/billing/authority-document-state-display";
 import {
   STATUS_STYLE,
   formatDate,
@@ -135,7 +136,9 @@ export function ReviewSummaryCard({ doc }: { doc: BillingDocumentDetail }) {
         {isQuote
           ? t("billing.doc.reviewQuoteNote")
           : doc.status === "ISSUED"
-          ? t("billing.doc.reviewIssuedNote")
+          ? isDocumentDeliverable(doc.authorityState)
+            ? t("billing.doc.reviewIssuedNote")
+            : t("billing.doc.reviewIssuedBlockedNote")
           : t("billing.doc.reviewDraftNote")}
       </div>
     </section>

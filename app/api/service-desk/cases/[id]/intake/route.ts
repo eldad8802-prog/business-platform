@@ -1,4 +1,5 @@
 import { idempotencyKeyOf, json, jsonBody, positiveId, serviceDeskRoute } from "@/lib/services/service-desk/service-desk-http";
+import { getIntake } from "@/lib/services/service-desk/intake.service";
 import { recordIntake } from "@/lib/services/service-desk/service-case.service";
 
 /**
@@ -15,5 +16,13 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
       conditionNote: b.conditionNote, accessoriesNote: b.accessoriesNote, conditionRecorded: b.conditionRecorded,
       accessoriesRecorded: b.accessoriesRecorded, expectedVersion: b.expectedVersion,
     }, { idempotencyKey: key }));
+  });
+}
+
+/** GET — the intake view (1.3b): data, the frozen approved texts, photos (metadata) and the intake journal steps. */
+export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
+  return serviceDeskRoute(req, "read", async ({ principal }) => {
+    const id = positiveId((await context.params).id);
+    return json(await getIntake(principal.businessId, id));
   });
 }

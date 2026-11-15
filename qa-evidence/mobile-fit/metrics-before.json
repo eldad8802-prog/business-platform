@@ -1,0 +1,1089 @@
+[
+ {
+  "w": 320,
+  "font": "loaded",
+  "sec": {
+   "vw": 320,
+   "notesW": null,
+   "slots": [],
+   "rowsOfNotes": 0,
+   "handFace": [],
+   "titles": []
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 936,
+   "weekCellsUnderFab": 4,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 280,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 142,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 344,
+  "font": "loaded",
+  "sec": {
+   "vw": 344,
+   "notesW": 312,
+   "slots": [
+    95,
+    95,
+    95
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 2,
+     "w": 80,
+     "need": 79,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 50,
+     "need": 50,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 62,
+     "need": 61,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 304,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 142,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 360,
+  "font": "loaded",
+  "sec": {
+   "vw": 360,
+   "notesW": 328,
+   "slots": [
+    100,
+    100,
+    100
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 83,
+     "need": 82,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 50,
+     "need": 50,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 62,
+     "need": 61,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 320,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 142,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 375,
+  "font": "loaded",
+  "sec": {
+   "vw": 375,
+   "notesW": 343,
+   "slots": [
+    105,
+    105,
+    105
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 83,
+     "need": 82,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 50,
+     "need": 50,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 62,
+     "need": 61,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 335,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 142,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 384,
+  "font": "loaded",
+  "sec": {
+   "vw": 384,
+   "notesW": 352,
+   "slots": [
+    108,
+    108,
+    108
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21.504px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 85,
+     "need": 84,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 51,
+     "need": 51,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 63,
+     "need": 63,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 344,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 142,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 390,
+  "font": "loaded",
+  "sec": {
+   "vw": 390,
+   "notesW": 358,
+   "slots": [
+    110,
+    110,
+    110
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21.84px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 86,
+     "need": 85,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 52,
+     "need": 52,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 64,
+     "need": 64,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 350,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 166,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 393,
+  "font": "loaded",
+  "sec": {
+   "vw": 393,
+   "notesW": 361,
+   "slots": [
+    111,
+    111,
+    111
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "22.008px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 87,
+     "need": 86,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 52,
+     "need": 52,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 65,
+     "need": 64,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 353,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 166,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 412,
+  "font": "loaded",
+  "sec": {
+   "vw": 412,
+   "notesW": 380,
+   "slots": [
+    117,
+    117,
+    117
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "23.072px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 91,
+     "need": 90,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 55,
+     "need": 54,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 68,
+     "need": 67,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 372,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 166,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 430,
+  "font": "loaded",
+  "sec": {
+   "vw": 430,
+   "notesW": 398,
+   "slots": [
+    123,
+    123,
+    123
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "24.08px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 95,
+     "need": 94,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 57,
+     "need": 57,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 71,
+     "need": 70,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 695,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 390,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 166,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 320,
+  "font": "fallback",
+  "sec": {
+   "vw": 320,
+   "notesW": 288,
+   "slots": [
+    87,
+    87,
+    87
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 2,
+     "w": 72,
+     "need": 71,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 64,
+     "need": 64,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 68,
+     "need": 68,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 280,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 140,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 344,
+  "font": "fallback",
+  "sec": {
+   "vw": 344,
+   "notesW": 312,
+   "slots": [
+    95,
+    95,
+    95
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 2,
+     "w": 80,
+     "need": 79,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 64,
+     "need": 64,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 68,
+     "need": 68,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 304,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 140,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 360,
+  "font": "fallback",
+  "sec": {
+   "vw": 360,
+   "notesW": 328,
+   "slots": [
+    100,
+    100,
+    100
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 2,
+     "w": 85,
+     "need": 84,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 64,
+     "need": 64,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 68,
+     "need": 68,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 320,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 140,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 375,
+  "font": "fallback",
+  "sec": {
+   "vw": 375,
+   "notesW": 343,
+   "slots": [
+    105,
+    105,
+    105
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 2,
+     "w": 90,
+     "need": 89,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 64,
+     "need": 64,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 68,
+     "need": 68,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 335,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 140,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 384,
+  "font": "fallback",
+  "sec": {
+   "vw": 384,
+   "notesW": 352,
+   "slots": [
+    108,
+    108,
+    108
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21.504px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 92,
+     "need": 92,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 65,
+     "need": 65,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 70,
+     "need": 70,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 344,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 140,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 390,
+  "font": "fallback",
+  "sec": {
+   "vw": 390,
+   "notesW": 358,
+   "slots": [
+    110,
+    110,
+    110
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "21.84px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 94,
+     "need": 93,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 66,
+     "need": 66,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 71,
+     "need": 71,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 350,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 164,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 393,
+  "font": "fallback",
+  "sec": {
+   "vw": 393,
+   "notesW": 361,
+   "slots": [
+    111,
+    111,
+    111
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "22.008px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 94,
+     "need": 94,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 67,
+     "need": 67,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 72,
+     "need": 71,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 353,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 164,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 412,
+  "font": "fallback",
+  "sec": {
+   "vw": 412,
+   "notesW": 380,
+   "slots": [
+    117,
+    117,
+    117
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "23.072px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 99,
+     "need": 98,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 70,
+     "need": 70,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 75,
+     "need": 75,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 697,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 372,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 164,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ },
+ {
+  "w": 430,
+  "font": "fallback",
+  "sec": {
+   "vw": 430,
+   "notesW": 398,
+   "slots": [
+    123,
+    123,
+    123
+   ],
+   "rowsOfNotes": 1,
+   "titleFont": "\"Gveret Levin\"",
+   "titlePx": "24.08px",
+   "wrap": "anywhere",
+   "handFace": [],
+   "titles": [
+    {
+     "text": "התחייבויות",
+     "lines": 1,
+     "w": 103,
+     "need": 102,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "משימות",
+     "lines": 1,
+     "w": 73,
+     "need": 73,
+     "outOfNotePx": 0
+    },
+    {
+     "text": "לוח שנה",
+     "lines": 1,
+     "w": 78,
+     "need": 78,
+     "outOfNotePx": 0
+    }
+   ]
+  },
+  "secEnd": {
+   "fabTop": 694,
+   "lastContent": 695,
+   "weekCellsUnderFab": 0,
+   "padBottom": "100px",
+   "clearance": "(none)"
+  },
+  "home": {
+   "cardW": 390,
+   "cardPad": "20px/20px",
+   "cardOverflow": "visible",
+   "switchW": 164,
+   "switchOutOfCardPx": 0,
+   "hiddenButtons": [],
+   "headerRows": 1,
+   "titleFont": "Rubik",
+   "h1": {
+    "text": "מספרת ועיצוב שיער של משפחת בן־אברהם והבנים בע״מ",
+    "ellipsis": true
+   }
+  }
+ }
+]

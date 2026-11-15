@@ -29,6 +29,10 @@
     "lib/services/service-desk/qa-templates.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): Service Desk P3 base QA checklists — one template per kind (IN_SHOP / FIELD / MAINTENANCE) with token keys; QA completes only when every required item is PASS; a failed or missing required item keeps it open; optional items never block; unknown keys, other kinds’ keys and values other than PASS / FAIL refused; the stored checklist is tokens only; run on pull_request by service-desk-ci.yml"
+    },
+    "features/service-desk/settings-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): Service Desk UI 1.3a settings screen — the form from the server's view (owner = no default technician, no default warranty, מ3), validation mirroring updateSettings' limits (1–3650 days / 1–120 months, scope required and ≤ 2000 characters counted as code points, exclusions optional), the request body (trimmed, empty exclusions → null, the loaded version as expectedVersion), the dirty check on what is actually sent, and the Hebrew wording of every refusal (VERSION_CONFLICT → reload, inactive technician → pick again, NOT_AVAILABLE_UNTIL_AUDIT → nothing saved; internal codes never shown); run on pull_request by service-desk-ci.yml"
     }
   }
 }

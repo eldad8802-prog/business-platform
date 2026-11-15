@@ -152,7 +152,7 @@ async function main() {
         email: NEW_EMAIL,
         password: "Newcomer-Pass-1",
         name: "נרשם חדש",
-        businessName: `${TAG}-should-never-exist`,
+        businessName: `${TAG}-should-never-exist`, businessKind: "AUTHORIZED_DEALER",
         acceptTerms: true,
       })
     );
@@ -191,7 +191,7 @@ async function main() {
         email: NEW_EMAIL,
         password: "Newcomer-Pass-1",
         name: "נרשם חדש",
-        businessName: `${TAG}-newcomer-business`,
+        businessName: `${TAG}-newcomer-business`, businessKind: "AUTHORIZED_DEALER",
         // Signup requires accepting the terms (M1); the gate is what is tested.
         acceptTerms: true,
       })
@@ -220,7 +220,7 @@ async function main() {
         email: SECOND_EMAIL,
         password: "Newcomer-Pass-2",
         name: "נרשם נוסף",
-        businessName: `${TAG}-second-should-never-exist`,
+        businessName: `${TAG}-second-should-never-exist`, businessKind: "AUTHORIZED_DEALER",
         acceptTerms: true,
       })
     );

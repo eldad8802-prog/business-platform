@@ -33,6 +33,7 @@ import { categoryLabel } from "@/lib/documents/category-label";
 import { TOKEN } from "@/lib/design/documents-theme";
 import DocumentsDashboardSkeleton from "@/components/documents/skeletons/DocumentsDashboardSkeleton";
 import DubizDateField from "@/components/documents/DubizDateField";
+import { redirectToLogin } from "@/lib/client-session";
 
 type Report = {
   totalIncome: number;
@@ -198,11 +199,7 @@ export default function Dashboard() {
       });
 
       if (res.status === 401) {
-        if (typeof window !== "undefined") {
-          window.localStorage.removeItem("token");
-          window.localStorage.removeItem("user");
-        }
-        router.replace("/login");
+        redirectToLogin();
         return;
       }
 

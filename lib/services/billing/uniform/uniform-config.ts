@@ -41,11 +41,16 @@ export type UniformSoftwareConfig = {
 };
 
 /**
- * SIMULATOR-ONLY frozen config — the exact identity used in the official
- * simulator run of 2026-07-02 ("תקינה"). DO NOT update these values to the
- * official registration number: they exist to keep that historical run
- * deterministically reproducible (see the certification doc). The live identity
- * is `DUBIZ_SOFTWARE_CONFIG` below.
+ * SIMULATOR-ONLY config — NOT the production identity, and NOT byte-for-byte the identity of the 2026-07-02 run.
+ *
+ * The official simulator report of 2026-07-02 ("תקינה", docs/compliance/tax-authority/simulator-report-2026-07-02.pdf)
+ * prints registration "00000001", software "DUBIZ , 1.0" and vendor 515000123 "DUBIZ" — the values of this config at
+ * the certification commit 39b74f05. Commit 98fef0fa (2026-07-17) later changed 1007 / 1010 to the values below, so
+ * regenerating the package today yields a different INI.TXT (BKMVDATA is unchanged). Reproducing the 2026-07-02 run
+ * exactly needs 1007 = "DUBIZ" and 1010 = "DUBIZ". Whether to restore them here is an owner decision; until then the
+ * values stay as they are (this comment does not change the export).
+ *
+ * Never set these to the official registration number. The live identity is `DUBIZ_SOFTWARE_CONFIG` below.
  * (The simulator's own example uses registration number "00000001".)
  */
 export const SIMULATOR_SOFTWARE_CONFIG: UniformSoftwareConfig = {

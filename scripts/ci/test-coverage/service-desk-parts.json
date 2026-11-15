@@ -1,0 +1,10 @@
+{
+  "note": "Service Desk stage 1, 1d-B: the parts data service WITHOUT stock movements and its two routes, closed to users until 1.3b (PARTS_API_OPEN). The data service itself is proven by the PG17 lab .sdparts/battery.ts (service-desk-parts-lab.yml).",
+  "tests": {
+    "lib/services/service-desk/parts-lock.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB): owner rule 2026-11-10 — the parts API stays closed until the intake and signature path (1.3b): PARTS_API_OPEN is false, every handler of the two routes calls assertPartsApiOpen() first, the closed answer is ACTION_NOT_IN_SCOPE, only those routes import the service; exactly RESERVE / RELEASE / SET_PRICE / CANCEL in scope and every other part action refused with a reason; the service never calls the inventory writer, never writes an inventory table, never links a stock movement; run by service-desk-ci.yml and security-gate (pure lab)"
+    }
+  }
+}

@@ -150,6 +150,7 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   QuoteShareCopy: { disposition: "ERASURE_MANAGED" },
   QuoteShareEvent: { disposition: "ERASURE_MANAGED" },
   BusinessLetter: { disposition: "ERASURE_MANAGED" },
+  PurchaseOrderSheet: { disposition: "ERASURE_MANAGED" },
   // Service Desk 1.2b (migration 20261113090000). Both carry personal text — the work its six free texts and the
   // supplier reference, the journal the correction reason — and are erased in place by
   // service_external_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
