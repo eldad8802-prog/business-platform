@@ -20,6 +20,11 @@ on:
       - ".sd3a/**"
       - ".sd3/lab.sh"
       - "prisma/schema.prisma"
+      - ".sdf/code-prereq.sh"
+      - "prisma/migrations/20261122090000_service_desk_audit_journal/**"
+      - "prisma/migrations/20261125090000_service_desk_handover_owner_confirmed/**"
+      - "prisma/migrations/20261126090000_service_desk_case_charge/**"
+      - "prisma/migrations/20261127090000_service_desk_tracks/**"
       - ".github/workflows/service-desk-1-3a-lab.yml"
   workflow_dispatch:
 
@@ -69,6 +74,10 @@ jobs:
         run: |
           set -euo pipefail
           bash .sd3/lab.sh sd3a --with-sd3 >/dev/null
+          # The code of this checkout reads / writes the M1 columns (openCase writes them on every case). Release order is
+          # migration-first, so before the code: P4, #1096, the charge and M1, each verbatim and once, in order (whichever is
+          # missing) — .sdf/code-prereq.sh. Nothing above this line changed.
+          bash .sdf/code-prereq.sh sd3a
           # The auth plane (session lookup only) reads User through the lab owner: this lab chain records the auth-plane
           # privilege migrations without running them, so app_auth holds no grants here. Every Service Desk query still
           # runs as app_runtime_prod (DATABASE_URL) — authentication is not what this lab tests; the edge after it is.

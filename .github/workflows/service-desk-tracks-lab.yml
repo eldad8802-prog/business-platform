@@ -1,0 +1,90 @@
+name: service desk tracks — M1 universal service model lab (ephemeral PG17)
+
+# Migration 20261127090000_service_desk_tracks (DRAFT — never applied without a separate owner approval): work type /
+# place / subject, WORK_DONE → CLOSED completion without a customer signature, details changes before work starts (D3 /
+# D11), the profile snapshot (D14), the after-sale fields (T7). The application chain (#1096 → #1104 → M1 via prisma
+# migrate deploy, fault + recovery, rollback script) and the guards AS the runtime role, on the P4 lab. Synthetic only;
+# no secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261125090000_service_desk_handover_owner_confirmed/**"
+      - "prisma/migrations/20261126090000_service_desk_case_charge/**"
+      - "prisma/migrations/20261127090000_service_desk_tracks/**"
+      - "lib/services/service-desk/service-case.service.ts"
+      - ".sdm1/**"
+      - ".sdm1code/**"
+      - "lib/services/service-desk/**"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - "prisma/schema.prisma"
+      - ".github/workflows/service-desk-tracks-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk tracks (PG17, runtime role, P4 + 1.3c + charge + M1 applied)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdm1_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdm1_ci_synthetic_super_pw
+      LAB_PASSWORD: sdm1_ci_synthetic_role_pw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: The M1 chain and its guards as the runtime role
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdm1 >/dev/null
+          bash .sd3p4/lab.sh sdm1 --deploy-only >/dev/null
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdm1"
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdm1"
+          # the application chain the way release-migrate applies it (prisma migrate deploy over the approved prefix):
+          # a failure inside M1 leaves nothing + the recovery procedure; #1096, #1104, M1 in order; the rollback script
+          # (refusal with data, clean removal + ledger row, re-deploy) on copies. (#1061 is not on this branch.)
+          bash .sdm1/chain.sh sdm1 | tee /tmp/chain.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/chain.out || { echo "the application chain is not green"; exit 1; }
+          # a second application by hand is refused and changes nothing (the types exist)
+          if psql -X -q -v ON_ERROR_STOP=1 -1 "$A" -f prisma/migrations/20261127090000_service_desk_tracks/migration.sql 2>/dev/null; then
+            echo "a second application must be refused"; exit 1
+          fi
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdm1-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdm1-ci \
+          AUTH_TOKEN_SECRET=sdm1-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdm1/battery.ts | tee /tmp/sdm1.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdm1.out || { echo "the M1 battery is not green"; exit 1; }
+          # M1 CODE: the seven tracks end to end through the real service, on the same chain
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" AUTH_DATABASE_URL="$A" AUTH_PLANE_ENABLED=true \
+          TASK_REQUEST_HMAC_KEY=sdm1-ci-synthetic-hmac-key-0123456789abcdef TASK_REQUEST_HMAC_KEY_ID=sdm1-ci \
+          AUTH_TOKEN_SECRET=sdm1-ci-synthetic-auth-secret-0123456789abcdef \
+            npx tsx .sdm1code/battery.ts | tee /tmp/sdm1code.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdm1code.out || { echo "the M1 code battery is not green"; exit 1; }

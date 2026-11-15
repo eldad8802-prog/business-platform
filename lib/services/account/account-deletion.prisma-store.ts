@@ -507,6 +507,24 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // record — version, changed field names and time, never values. The case journal's P4 records are blanked by
           // service_erase_business() above. It refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.service_settings_journal_erase_business() AS n`;
+          // Service Desk case charge (migration 20261126090000). Who acted and the free-text reasons of the charge
+          // history and of the billing links are blanked in place by this SECURITY DEFINER function (both tables are
+          // append-only: their guards refuse that change from the runtime itself). Amounts, modes, document ids and
+          // times stay as the business's financial record. It refuses unless the business in this tenant context is
+          // being deleted.
+          await tx.$queryRaw`SELECT public.service_case_charge_erase_business() AS n`;
+          // Service Desk tracks (migration 20261127090000). The site address and notes and the original sale reference of
+          // a case, the subject's display name and attributes, the completion's confirmer name and note, and the details
+          // changes' reasons and addresses are blanked in place by this SECURITY DEFINER function (service_erase_business
+          // blanks the case by a fixed column list that cannot know these; the completion and the details changes are
+          // append-only). Who acted is cleared too. It refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_tracks_erase_business() AS n`;
+          // Service Desk QA lists (migration 20261129090000). The business's QA list names and check labels, the notes of
+          // recorded checks and who acted (version author, list journal user and request digest, QA record author) are
+          // blanked in place by this SECURITY DEFINER function (every one of these tables is append-only: their guards refuse
+          // that change from the runtime itself). The structure stays — versions, check keys, REQUIRED flags, PASS / FAIL,
+          // counts and times — as the cases' QA history. It refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_qa_lists_erase_business() AS n`;
           // Business documents (migration 20261114090000). Quote share copies and their events, saved letters and
           // idempotency keys are deleted, and every stored file is marked DELETING with its object key kept, by this
           // SECURITY DEFINER function — it also writes the durable erasure job, in THIS transaction, so a failed purge
