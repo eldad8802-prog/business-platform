@@ -30,15 +30,17 @@
         <!--
           Push (FCM): notifications the system draws while the app is in the
           background land on the app's own channel (created at start-up by
-          NotificationChannels.java) with the monochrome status-bar icon, instead
-          of FCM's fallback channel and the launcher icon.
+          NotificationChannels.java) with the app's existing monochrome Dubiz logo
+          (the Android 13+ themed-icon layer, owner 2026-11-16) as the status-bar
+          icon, instead of FCM's fallback channel and the launcher icon (whose
+          opaque ground would show as a white blob).
         -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="dubiz_default" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@drawable/ic_stat_dubiz" />
+            android:resource="@mipmap/ic_launcher_monochrome" />
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
