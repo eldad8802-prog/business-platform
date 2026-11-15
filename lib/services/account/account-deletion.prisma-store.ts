@@ -517,13 +517,18 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // Legal identity correction requests (migration 20261128100000): the names, numbers, reason and decision note
           // are cleared in place and an open request is closed; never deletes a row. Refuses unless the business in
           // this tenant context is being deleted.
-          // Called whenever the request table exists — and then a missing function fails the purge loudly, as every
-          // stage above. Only a database without the table at all (an environment built before 20261128100000, such as
-          // another module's migration lab) skips it: with no table there is nothing personal to clear.
-          const [lic] = await tx.$queryRaw<Array<{ present: boolean }>>`
-            SELECT to_regclass('public."LegalIdentityCorrectionRequest"') IS NOT NULL AS present`;
-          if (lic?.present === true) {
+          // Called whenever the function exists (Production once 20261128100000 is applied). Without it — an environment
+          // built before that migration, such as another module's lab — it is skipped only when the business has no
+          // correction request at all (nothing personal to clear); a request with no way to erase it fails the purge
+          // loudly, as every stage above.
+          const [lic] = await tx.$queryRaw<Array<{ fn: boolean; tbl: boolean }>>`
+            SELECT to_regprocedure('public.legal_identity_correction_erase()') IS NOT NULL AS fn,
+                   to_regclass('public."LegalIdentityCorrectionRequest"') IS NOT NULL AS tbl`;
+          if (lic?.fn === true) {
             await tx.$queryRaw`SELECT public.legal_identity_correction_erase() AS n`;
+          } else if (lic?.tbl === true) {
+            const pending = await tx.legalIdentityCorrectionRequest.findFirst({ where: { businessId }, select: { id: true } });
+            if (pending) throw new Error("legal_identity_correction_erase_missing");
           }
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
