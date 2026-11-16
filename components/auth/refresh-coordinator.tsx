@@ -33,6 +33,7 @@ import {
   startRefreshCoordinator,
 } from "@/lib/auth/refresh-client";
 import { endSessionLocally } from "@/lib/auth/session-guard";
+import { NativePushBootstrap } from "@/components/native/NativePushBootstrap";
 
 /**
  * Set by the outermost coordinator. It is mounted by ShellChrome, which some
@@ -102,5 +103,11 @@ function OutermostRefreshCoordinator({ children }: { children: ReactNode }) {
   // frames or one request long, and painting a login here would flash it at
   // someone who is perfectly well signed in.
   if (!open) return null;
-  return <CoordinatorActive.Provider value={true}>{children}</CoordinatorActive.Provider>;
+  return (
+    <CoordinatorActive.Provider value={true}>
+      {children}
+      {/* Android app only: push listeners + re-register if already permitted. Renders nothing; a no-op on the web. */}
+      <NativePushBootstrap />
+    </CoordinatorActive.Provider>
+  );
 }
