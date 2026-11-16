@@ -15,6 +15,9 @@
  *   Flag:      a business without daily_tasks is never claimed.
  *   Isolation: a due record naming another business claims nothing; B never sees A's reminders.
  *   Personal:  the personal agenda has only the owner's tasks (no business items) and reaches beyond a week.
+ *   Reliability: the in-app poll reads its own business in its tenant tx (another business's 101 earlier reminders
+ *              cannot crowd it out); the lagged backstop picks up only reminders already 7+ minutes late; QStash,
+ *              the backstop and the poll racing on one reminder still produce one bell row and one delivery.
  *
  * env: DATABASE_URL / DIRECT_URL = the runtime login (app_runtime_prod), OWNER_URL = the migration role (fixtures
  * only). VAPID is NOT configured here: push attempts are recorded as FAILED without any network call. Synthetic
@@ -202,6 +205,43 @@ async function main() {
     const full = await as(A.businessId, () => getAgenda(A.businessId, NOW));
     ok("the full agenda still stops at a week", !full.buckets.flatMap((x) => x.rows).some((r) => r.type === "TASK" && r.task.title === "בעוד חודש"));
     ok("personal rows carry the time and the reminder", prow.some((r) => r.type === "TASK" && r.task.dueMinute != null && r.task.remindOffsetMinutes != null));
+
+    console.log("reliability: per-business poll, the lagged backstop, and racing paths");
+    // 101 due reminders in B, all EARLIER than A's: the old poll read the global top 100 and filtered afterwards, so
+    // A's own reminder could be crowded out by another business's.
+    const early = plus(NOW, -60);
+    await owner.task.createMany({ data: Array.from({ length: 101 }, (_, i) => ({ businessId: B.businessId, title: `noise-${i}`, status: "OPEN" as const, remindAt: early })) });
+    const aDue = await owner.task.create({ data: { businessId: A.businessId, title: "A due now", status: "OPEN", remindAt: plus(NOW, -2) } });
+    const globalTop = (await rem.dueReminders(NOW, 100)).map((d) => d.taskId);
+    ok("(the old gap, reproduced) the global top 100 does not contain A's reminder", !globalTop.includes(aDue.id));
+    const own = await rem.dueRemindersForBusiness(A.businessId, NOW);
+    ok("per-business read: A's reminder is found despite 101 earlier ones in B", own.some((d) => d.taskId === aDue.id));
+    ok("per-business read: never another business's reminder", own.every((d) => d.businessId === A.businessId));
+    const pollPass = await rem.dispatchDueReminders(NOW, A.businessId);
+    ok("the in-app poll pass sends A's reminder", pollPass.sent >= 1 && (await owner.task.findUnique({ where: { id: aDue.id } }))!.reminderSentAt !== null, pollPass);
+    ok("…and claims nothing in B", (await owner.task.count({ where: { businessId: B.businessId, title: { startsWith: "noise-" }, reminderSentAt: { not: null } } })) === 0);
+
+    // The noise has done its job; a business with daily_tasks OFF keeps its reminders due (never claimed), and in the
+    // GLOBAL pass they would fill the batch ahead of A's — a known limit of the global batch, reported separately.
+    await owner.task.updateMany({ where: { businessId: B.businessId, title: { startsWith: "noise-" } }, data: { reminderSentAt: NOW } });
+    const recent = await owner.task.create({ data: { businessId: A.businessId, title: "A due 2 min ago", status: "OPEN", remindAt: plus(NOW, -2) } });
+    const late = await owner.task.create({ data: { businessId: A.businessId, title: "A due 10 min ago", status: "OPEN", remindAt: plus(NOW, -10) } });
+    await rem.dispatchDueReminders(NOW, { minLagMinutes: rem.BACKSTOP_LAG_MINUTES });
+    const recentAfter = (await owner.task.findUnique({ where: { id: recent.id } }))!;
+    const lateAfter = (await owner.task.findUnique({ where: { id: late.id } }))!;
+    ok("backstop (lag 7 min): a reminder 10 minutes late is picked up", lateAfter.reminderSentAt !== null);
+    ok("backstop (lag 7 min): a reminder 2 minutes old is left to QStash", recentAfter.reminderSentAt === null);
+
+    const raced = await owner.task.create({ data: { businessId: A.businessId, title: "A raced", status: "OPEN", remindAt: plus(NOW, -9) } });
+    await Promise.all([
+      rem.dispatchDueReminders(NOW),
+      rem.dispatchDueReminders(NOW, { minLagMinutes: rem.BACKSTOP_LAG_MINUTES }),
+      rem.dispatchDueReminders(NOW, A.businessId),
+    ]);
+    const raceKey = rem.reminderDedupeKey(raced.id, raced.remindAt!);
+    const raceNotes = await owner.notification.findMany({ where: { businessId: A.businessId, dedupeKey: raceKey }, select: { id: true } });
+    const inApp = raceNotes.length === 1 ? await owner.notificationDelivery.count({ where: { notificationId: raceNotes[0].id, channel: "IN_APP" } }) : -1;
+    ok("QStash + backstop + poll racing on one reminder: one bell row, one delivery (one claim winner)", raceNotes.length === 1 && inApp === 1, { notes: raceNotes.length, inApp });
   } finally {
     await owner.$disconnect();
   }
