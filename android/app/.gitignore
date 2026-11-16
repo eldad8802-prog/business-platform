@@ -1,2 +1,5 @@
 /build/*
 !/build/.npmkeep
+
+# Firebase config for push (FCM). Supplied at build time, never committed.
+google-services.json
