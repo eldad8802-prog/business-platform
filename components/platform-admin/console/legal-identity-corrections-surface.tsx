@@ -23,6 +23,7 @@ import {
 } from "@/lib/platform-admin/fetch-platform-admin";
 import type { CorrectionDetail, CorrectionListItem } from "@/lib/services/platform-admin/legal-identity-corrections.service";
 
+import { SignedInAs } from "@/components/legal-identity/signed-in-as";
 import { EmptyBlock, ErrorBlock, LoadingBlock, describeAdminError } from "./console-states";
 import { useAdminLoad } from "./use-admin-load";
 import styles from "./admin-console.module.css";
@@ -148,6 +149,8 @@ export function CorrectionDetailSurface({ id }: { id: number }) {
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  /** Another tab switched the browser's account: no decision is sent until a reload. */
+  const [switched, setSwitched] = useState(false);
 
   if (load.loading) return <LoadingBlock label="טוען בקשה…" />;
   if (load.error) return <ErrorBlock error={load.error} onRetry={load.reload} />;
@@ -156,6 +159,7 @@ export function CorrectionDetailSurface({ id }: { id: number }) {
   const open = r.status === "PENDING";
 
   async function run(action: () => Promise<{ message: string }>) {
+    if (switched) return;
     setBusy(true);
     setResult(null);
     try {
@@ -192,6 +196,7 @@ export function CorrectionDetailSurface({ id }: { id: number }) {
 
   return (
     <div style={{ display: "grid", gap: 14 }} data-testid="lic-detail">
+      <SignedInAs onSwitched={setSwitched} />
       <section className={styles.card}>
         <div className={styles.cardHead}>
           <h2>
@@ -296,7 +301,7 @@ export function CorrectionDetailSurface({ id }: { id: number }) {
               <button
                 type="button"
                 className={`${styles.btn} ${styles.btnPrimary}`}
-                disabled={busy || infoNote.trim().length < 5}
+                disabled={busy || switched || infoNote.trim().length < 5}
                 onClick={() => void run(() => requestLegalIdentityCorrectionInfo(r.id, infoNote.trim()))}
               >
                 החזרה לבעל העסק
@@ -324,7 +329,7 @@ export function CorrectionDetailSurface({ id }: { id: number }) {
               <button
                 type="button"
                 className={`${styles.btn} ${styles.btnPrimary}`}
-                disabled={busy || !notesOk || !confirmed}
+                disabled={busy || switched || !notesOk || !confirmed}
                 onClick={() =>
                   void run(() => decideLegalIdentityCorrection(r.id, { approve: true, publicNote: publicNote.trim(), internalNote: internalNote.trim(), confirmedReview: true }))
                 }
@@ -334,7 +339,7 @@ export function CorrectionDetailSurface({ id }: { id: number }) {
               <button
                 type="button"
                 className={`${styles.btn} ${styles.btnDanger}`}
-                disabled={busy || !notesOk}
+                disabled={busy || switched || !notesOk}
                 onClick={() =>
                   void run(() => decideLegalIdentityCorrection(r.id, { approve: false, publicNote: publicNote.trim(), internalNote: internalNote.trim(), confirmedReview: false }))
                 }
