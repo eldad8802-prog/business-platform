@@ -1,0 +1,48 @@
+# A0 — the billing protected-paths guard, run from MAIN (not from the pull request).
+#
+# Why a second workflow: billing-protected-paths-guard.yml runs on `pull_request`, so GitHub uses the pull request's
+# own copy of the workflow, of scripts/ci/billing-protected-paths-guard.mjs and of its exception list. A pull request
+# could edit any of them and pass. This workflow runs on `pull_request_target`: GitHub takes the workflow from main,
+# the checkout below is main, the guard and the exception list are main's, and the pull request's head is fetched
+# only as git DATA (diff / show). It is never checked out, never installed, never executed.
+#
+# Shape (same rules as the trusted gate, security-gate-trusted.yml): top-level `contents: read`, no job-level
+# permissions, no secret, persist-credentials: false, no `npm ci`, no step that runs pull-request code.
+#
+# Reporting only: it is NOT a required status check. Making `billing/guard-trusted` required is the owner's
+# decision (branch protection), as is code-owner review for scripts/ci/**.
+
+name: billing — protected paths guard (trusted, from main)
+
+on:
+  pull_request_target:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: billing/guard-trusted
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out MAIN (the trusted guard and its exception list)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch the pull request head as data only (never checked out or executed)
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head"
+          test "$(git rev-parse refs/remotes/pr/head)" = "${PR_HEAD}"
+      - name: Self-test (main's guard)
+        run: node scripts/ci/billing-protected-paths-guard.mjs --self-test
+      - name: Check the pull request with main's guard and main's exception list
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/ci/billing-protected-paths-guard.mjs --base "${BASE_SHA}" --head refs/remotes/pr/head --list-from "${BASE_SHA}"
