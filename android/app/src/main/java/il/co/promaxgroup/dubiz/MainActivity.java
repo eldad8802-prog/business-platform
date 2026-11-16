@@ -10,7 +10,11 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         // Local plugins are registered before the bridge is created by super.onCreate.
         registerPlugin(AuthCookiesPlugin.class);
+        registerPlugin(PushSupportPlugin.class);
         super.onCreate(savedInstanceState);
+        // Push channels (dubiz_default / dubiz_urgent). Creates channels only — it
+        // never asks for the notification permission (the web app asks on demand).
+        NotificationChannels.ensure(this);
         // Replaces the BridgeWebChromeClient that Bridge.initWebView installed (its
         // only call site; nothing else holds it). The subclass is built the same
         // way — super(bridge) registers the same launchers, still before STARTED —
