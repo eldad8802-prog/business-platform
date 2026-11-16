@@ -768,6 +768,8 @@ async function main() {
       PUBLIC_BOOKING_SUBMIT_BUSINESS: "closed", PUBLIC_BOOKING_READ: "closed", PUBLIC_BOOKING_MANAGE: "closed",
       GMAIL_SCAN: "closed", DOCUMENTS_API: "open", WHATSAPP_INTAKE: "open", CRM_ATTACHMENT_UPLOAD: "closed",
       DATA_TRANSFER_IMPORT_EXECUTE: "closed", DATA_TRANSFER_DOCUMENTS_IMPORT: "closed", LANDING_COMPOSE: "closed",
+      // Service Desk #1116 hardening: parts + external-work writes fail closed, their reads fail open.
+      SERVICE_DESK_PARTS_WRITE: "closed", SERVICE_DESK_PARTS_READ: "open",
     };
     const actual = Object.fromEntries(Object.entries(BUCKETS).map(([k, v]) => [k, v.failMode]));
     assert.deepEqual(actual, expected);

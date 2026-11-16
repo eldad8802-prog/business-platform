@@ -18,12 +18,10 @@ function ok(name: string, cond: boolean, detail = "") {
   if (cond) { pass++; console.log(`OK: ${name}`); } else { failures.push(name); console.log(`FAIL: ${name}${detail ? " — " + detail : ""}`); }
 }
 
-ok("L1 EXTERNAL_WORK_OPEN is false", EXTERNAL_WORK_OPEN === false);
+ok("L1 EXTERNAL_WORK_OPEN is true (opened by the owner's decision — this PR)", EXTERNAL_WORK_OPEN === true);
 let thrown: unknown = null;
 try { assertExternalWorkOpen(); } catch (e) { thrown = e; }
-ok("L2 the closed answer is ACTION_NOT_IN_SCOPE (422) naming the capability and what it waits for",
-  thrown instanceof ServiceDeskError && thrown.code === "ACTION_NOT_IN_SCOPE" && thrown.status === 422
-    && thrown.details.capability === "external_work" && thrown.details.until === "intake_confirmation_1_3b");
+ok("L2 the lock no longer refuses (the routes still call it first; feature gate + tenant checks unchanged)", thrown === null && !(thrown instanceof ServiceDeskError));
 
 const ROOT = process.cwd();
 const ROUTES = [

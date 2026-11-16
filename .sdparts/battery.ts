@@ -67,7 +67,7 @@ const itemRow = async (id: number) => JSON.stringify((await q(`SELECT "currentQu
 
 async function main() {
   const A = await business("a"), B = await business("b");
-  ok("setup: the parts routes are closed in code (PARTS_API_OPEN = false)", PARTS_API_OPEN === false);
+  ok("setup: the parts routes are open in code (PARTS_API_OPEN = true — the unlock PR)", PARTS_API_OPEN === true);
   const itemBefore = await itemRow(A.item);
   const movBefore = await movements(A.b);
 
@@ -194,8 +194,11 @@ async function main() {
   const beforeL = await snap();
   const full = await calls(tokenA);
   const bodies = await Promise.all(full.map((r) => r.json()));
-  ok("L1 FULL access: both parts routes → 422 ACTION_NOT_IN_SCOPE (parts, until 1.3b)", full.every((r) => r.status === 422) && bodies.every((b) => b.error === "ACTION_NOT_IN_SCOPE" && b.details?.capability === "parts"), JSON.stringify(full.map((r) => r.status)));
-  ok("L2 … and nothing was written", (await snap()) === beforeL);
+  ok("L1 FULL access: the parts routes reach the service (no ACTION_NOT_IN_SCOPE lock answer)", bodies.every((b) => !(b?.error === "ACTION_NOT_IN_SCOPE" && b?.details?.capability === "parts")), JSON.stringify(full.map((r) => r.status)));
+  {
+    const [p0, e0] = JSON.parse(beforeL) as number[]; const [p1, e1] = JSON.parse(await snap()) as number[];
+    ok("L2 … and every write through the open routes is journaled (a new part line comes with its event)", p1 - p0 <= e1 - e0 && e1 >= e0, `${beforeL} → ${p1},${e1}`);
+  }
   ok("L3 no session → 401", (await calls(null)).every((r) => r.status === 401));
   await setOverride(A.b, null);
   ok("L4 module NONE (not launched) → 404 before the lock", (await calls(tokenA)).every((r) => r.status === 404));

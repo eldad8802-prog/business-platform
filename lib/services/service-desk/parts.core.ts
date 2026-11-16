@@ -20,7 +20,7 @@
  * `summarizeCaseParts(...).openCount`, so CLOSE stays refused while any part is open, and its CANCEL effect
  * RELEASE_PART_RESERVATIONS is planned per part by `planPartsForCaseCancel`.
  */
-import type { ServiceCaseActor, ServiceCaseStatus, ServiceEventPayloadValue } from "./contracts";
+import { isServiceAgorotAmount, SERVICE_AMOUNT_MAX_AGOROT, type ServiceCaseActor, type ServiceCaseStatus, type ServiceEventPayloadValue } from "./contracts";
 import {
   COUNTED_UNIT_TYPES,
   EXTERNAL_PART_RESOLUTIONS,
@@ -31,6 +31,7 @@ import {
   PART_STATES,
   PART_TEXT_MAX_LENGTH,
   PART_UNIT_TYPES,
+  PART_QUANTITY_MAX,
   QUANTITY_EPSILON,
   WRITE_OFF_REASONS,
   type AddPartInput,
@@ -86,6 +87,11 @@ export function isValidPartQuantity(quantity: unknown, unitType: PartUnitType | 
   if (!isFiniteNumber(quantity) || quantity <= QUANTITY_EPSILON) return false;
   if (unitType !== null && COUNTED_UNIT_TYPES.includes(unitType) && !Number.isInteger(quantity)) return false;
   return true;
+}
+
+/** A quantity a request may put on a NEW line: a valid quantity and at most PART_QUANTITY_MAX. */
+export function isRequestPartQuantity(quantity: unknown, unitType: PartUnitType | null): quantity is number {
+  return isValidPartQuantity(quantity, unitType) && quantity <= PART_QUANTITY_MAX;
 }
 
 /** On hand minus what OTHER part lines reserved. Soft: the till and other inventory flows do not see it. */
@@ -242,7 +248,7 @@ function captureCost(p: ServicePartSnapshot, rawChoice: IssueCostChoice | undefi
       return { unitCostAgorot: value, costSource: choice.source };
     }
     case "MANUAL":
-      if (!isNonNegativeInt(choice.unitCostAgorot)) { out.push(v("INVALID_INPUT", "unitCostAgorot is an integer ≥ 0")); return null; }
+      if (!isServiceAgorotAmount(choice.unitCostAgorot)) { out.push(v("INVALID_INPUT", `unitCostAgorot is an integer 0..${SERVICE_AMOUNT_MAX_AGOROT}`)); return null; }
       return { unitCostAgorot: choice.unitCostAgorot, costSource: "MANUAL" };
     case "NONE":
       warnings.push("COST_UNKNOWN");
@@ -296,7 +302,7 @@ export function addPart(input: AddPartInput, facts: { case: PartCaseFacts; stock
   const unitType = input.unitType ?? null;
   if (unitType !== null && !PART_UNIT_TYPES.includes(unitType)) out.push(v("INVALID_INPUT", "unitType"));
   const price = input.customerUnitPriceAgorot ?? null;
-  if (price !== null && !isNonNegativeInt(price)) out.push(v("INVALID_INPUT", "customerUnitPriceAgorot is an integer ≥ 0"));
+  if (price !== null && !isServiceAgorotAmount(price)) out.push(v("INVALID_INPUT", `customerUnitPriceAgorot is an integer 0..${SERVICE_AMOUNT_MAX_AGOROT}`));
   const checks: PartServerCheck[] = [];
   let itemId: number | null = null;
   if (input.source === "STOCK") {
@@ -312,7 +318,7 @@ export function addPart(input: AddPartInput, facts: { case: PartCaseFacts; stock
     out.push(v("INVALID_INPUT", "a NON_STOCK part has no inventory item"));
   }
   const effectiveUnit: PartUnitType | null = input.source === "STOCK" && validStock(facts.stock) ? (unitType ?? facts.stock.itemUnitType) : unitType;
-  if (!isValidPartQuantity(input.quantity, effectiveUnit)) out.push(v("QUANTITY_INVALID", "a quantity > 0, whole for UNIT / BOX"));
+  if (!isRequestPartQuantity(input.quantity, effectiveUnit)) out.push(v("QUANTITY_INVALID", `a quantity > 0 and ≤ ${PART_QUANTITY_MAX}, whole for UNIT / BOX`));
   if (out.length > 0) return refuse(out);
 
   const part: ServicePartSnapshot = {
@@ -344,11 +350,11 @@ export function recordSupplierPart(input: SupplierPartInput, facts: { case: Part
   if (texts.name === null && !out.some((x) => x.code === "TEXT_TOO_LONG")) out.push(v("INVALID_INPUT", "name is required"));
   const unitType = input?.unitType ?? null;
   if (unitType !== null && !PART_UNIT_TYPES.includes(unitType)) out.push(v("INVALID_INPUT", "unitType"));
-  if (!isValidPartQuantity(input?.quantity, unitType)) out.push(v("QUANTITY_INVALID", "a quantity > 0, whole for UNIT / BOX"));
+  if (!isRequestPartQuantity(input?.quantity, unitType)) out.push(v("QUANTITY_INVALID", `a quantity > 0 and ≤ ${PART_QUANTITY_MAX}, whole for UNIT / BOX`));
   if (typeof input?.costIncludedInExternal !== "boolean" || typeof input?.underWarranty !== "boolean") out.push(v("INVALID_INPUT", "costIncludedInExternal / underWarranty"));
   const cost = input?.unitCostAgorot ?? null;
   const price = input?.customerUnitPriceAgorot ?? null;
-  if (price !== null && !isNonNegativeInt(price)) out.push(v("INVALID_INPUT", "customerUnitPriceAgorot"));
+  if (price !== null && !isServiceAgorotAmount(price)) out.push(v("INVALID_INPUT", `customerUnitPriceAgorot is an integer 0..${SERVICE_AMOUNT_MAX_AGOROT}`));
   let unitCostAgorot: number | null = null;
   let costSource: PartCostSource | null = null;
   let included = false;
@@ -359,7 +365,7 @@ export function recordSupplierPart(input: SupplierPartInput, facts: { case: Part
     if (cost !== null) out.push(v("INVALID_INPUT", "a part inside the supplier's cost has no cost of its own (no double count)"));
     included = true;
   } else if (input?.costIncludedInExternal === false) {
-    if (!isNonNegativeInt(cost)) out.push(v("INVALID_INPUT", "a part billed separately needs unitCostAgorot (integer ≥ 0)"));
+    if (!isServiceAgorotAmount(cost)) out.push(v("INVALID_INPUT", `a part billed separately needs unitCostAgorot (integer 0..${SERVICE_AMOUNT_MAX_AGOROT})`));
     unitCostAgorot = cost; costSource = "MANUAL";
   }
   if (out.length > 0) return refuse(out);
@@ -493,7 +499,7 @@ export function evaluatePartAction(part: ServicePartSnapshot, action: PartAction
       requireLiveCase(facts.case, out);
       if (["CANCELLED", "RETURNED", "WRITTEN_OFF"].includes(part.state)) out.push(v("TRANSITION_NOT_ALLOWED", `${part.state} is not charged`));
       const price = action.customerUnitPriceAgorot;
-      if (price !== null && !isNonNegativeInt(price)) out.push(v("INVALID_INPUT", "customerUnitPriceAgorot is an integer ≥ 0 or null"));
+      if (price !== null && !isServiceAgorotAmount(price)) out.push(v("INVALID_INPUT", `customerUnitPriceAgorot is an integer 0..${SERVICE_AMOUNT_MAX_AGOROT} or null`));
       else if (price === part.customerUnitPriceAgorot) out.push(v("PRICE_UNCHANGED", "same price"));
       if (out.length > 0) return refuse(out);
       next.customerUnitPriceAgorot = price;
@@ -514,7 +520,7 @@ export function evaluatePartAction(part: ServicePartSnapshot, action: PartAction
     case "CORRECT_COST": {
       // History is kept: a NEW event with the previous value and the reason; the issue event stays as it was.
       if (part.costSource === null || part.costIncludedInExternal) out.push(v("COST_NOT_CAPTURED", "no cost was captured for this part"));
-      if (!isNonNegativeInt(action.unitCostAgorot)) out.push(v("INVALID_INPUT", "unitCostAgorot is an integer ≥ 0"));
+      if (!isServiceAgorotAmount(action.unitCostAgorot)) out.push(v("INVALID_INPUT", `unitCostAgorot is an integer 0..${SERVICE_AMOUNT_MAX_AGOROT}`));
       else if (action.unitCostAgorot === part.unitCostAgorot) out.push(v("CORRECTION_UNCHANGED", "the corrected value equals the current one"));
       const texts = emptyTexts();
       texts.reason = takeText(action.reason, "reason", PART_REASON_MAX_LENGTH, out);

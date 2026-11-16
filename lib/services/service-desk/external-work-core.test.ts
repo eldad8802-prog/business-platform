@@ -7,7 +7,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ServiceCaseActor, ServiceCaseContext, ServiceEventPayloadValue } from "./contracts";
+import { SERVICE_AMOUNT_MAX_AGOROT, type ServiceCaseActor, type ServiceCaseContext, type ServiceEventPayloadValue } from "./contracts";
 import {
   EXTERNAL_PROGRESS_STAGES,
   EXTERNAL_RETURN_RESULTS,
@@ -137,6 +137,8 @@ console.log("— 4. supplier costs (documentation only)");
   const e2 = keep(evaluateExternalWork(work({ estimatedCostAgorot: 30_000, version: 2 }), { type: "RECORD_COST", kind: "ESTIMATED", amountAgorot: 34_000 }, OWNER));
   check("a revised estimate keeps the previous value in its event (history, never overwritten)", e2.ok && e2.event.previousAmountAgorot === 30_000 && e2.event.payload.previousAgorot === 30_000);
   check("an approved cost", keep(evaluateExternalWork(work(), { type: "RECORD_COST", kind: "APPROVED", amountAgorot: 32_000 }, OWNER)).ok);
+  refused("a cost above SERVICE_AMOUNT_MAX_AGOROT (#1116 hardening)", evaluateExternalWork(work(), { type: "RECORD_COST", kind: "ESTIMATED", amountAgorot: SERVICE_AMOUNT_MAX_AGOROT + 1 }, OWNER), "INVALID_INPUT");
+  check("a cost exactly SERVICE_AMOUNT_MAX_AGOROT", keep(evaluateExternalWork(work(), { type: "RECORD_COST", kind: "ESTIMATED", amountAgorot: SERVICE_AMOUNT_MAX_AGOROT }, OWNER)).ok);
   const f = keep(evaluateExternalWork(work(), { type: "RECORD_COST", kind: "FINAL", amountAgorot: 31_500 }, OWNER));
   check("a final cost while away", f.ok && f.work.finalCostAgorot === 31_500 && f.event.kind === "COST_FINAL");
   check("a final cost after the return", keep(evaluateExternalWork(work({ state: "RETURNED", returnResult: "REPAIRED" }), { type: "RECORD_COST", kind: "FINAL", amountAgorot: 31_500 }, OWNER)).ok);
@@ -213,7 +215,7 @@ console.log("— 7. cancel at the supplier");
   const repairedAnyway = planReturnFromExternal(ctx({ status: "EXTERNAL", cancellationRequested: true, version: 7 }), { type: "RETURN_FROM_EXTERNAL", next: "READY" }, w,
     { result: "REPAIRED", followUpRequired: false }, OWNER);
   check("the supplier may have repaired it before the cancel: still READY / CANCELLED", repairedAnyway.ok && repairedAnyway.case.ok && repairedAnyway.case.outcome === "CANCELLED");
-  const deliverAway = evaluateTransition(ext, { type: "DELIVER", receipt: { receivedByName: "ישראל", signatureCaptured: true } }, OWNER);
+  const deliverAway = evaluateTransition(ext, { type: "DELIVER", receipt: { handoverConfirmed: true, receivedByName: "ישראל" } }, OWNER);
   check("no delivery while the item is away (case refuses DELIVER at EXTERNAL)", !deliverAway.ok);
   check("no second send while away (case refuses SEND_TO_EXTERNAL at EXTERNAL)", !planSendToExternal(ext, SEND, FACTS, OWNER).ok);
 }

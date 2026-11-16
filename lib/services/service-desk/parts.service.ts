@@ -61,11 +61,15 @@ import { ServiceDeskError } from "./service-desk-errors";
  *
  * BINDING BLOCKER (owner, 2026-11-10) — do not open before BOTH are done and tested:
  *   1. 1.3b intake confirmation path (owner-confirmed, no customer signature) complete and tested.
- *   2. Case CANCEL with open part reservations: the core emits RELEASE_PART_RESERVATIONS and runCaseAction refuses any
- *      effect (ACTION_NOT_IN_SCOPE), so once parts can be RESERVED a case with reservations cannot be cancelled. The
- *      release must run in the cancel's transaction (each RESERVED line → RELEASED with its event), with lab tests.
+ *   2. Case CANCEL with open part reservations — IMPLEMENTED (1.3c, branch feat/service-desk-quotes-close): the core's
+ *      RELEASE_PART_RESERVATIONS effect is applied by runCaseAction inside the cancel's transaction (part-release.ts: each
+ *      RESERVED line → NEEDED with its RELEASED event, the parts.core RELEASE decision); proven AS the runtime role by
+ *      .sdquote/battery.ts X2 ("cancel with RESERVED parts → released in the same transaction"). The lock stays false
+ *      until a reviewed PR opens it (condition 1 and the owner's decision).
  */
-export const PARTS_API_OPEN = false;
+// OPENED (this PR, for the owner's explicit approval): both binding conditions are met — 1.3b intake confirmation
+// merged (#1088, #1094) and the cancel releases reservations (condition 2 above). Merging this PR is the decision.
+export const PARTS_API_OPEN = true;
 
 export function assertPartsApiOpen(): void {
   if (!PARTS_API_OPEN) throw new ServiceDeskError("ACTION_NOT_IN_SCOPE", { capability: "parts", until: "intake_confirmation_1_3b" });
@@ -349,7 +353,9 @@ export async function runPartAction(
     const prior = await findPriorPartEvent(tx, b, prepared);
     if (prior) {
       if (prior.partId !== partId) throw new ServiceDeskError("IDEMPOTENCY_KEY_REUSED");
-      return { part: await partOf(tx, b, partId), replayed: true, warnings: [] };
+      // A replayed answer about a RESERVED line still says the reservation is SOFT: never a guarantee against the till.
+      const replayedPart = await partOf(tx, b, partId);
+      return { part: replayedPart, replayed: true, warnings: replayedPart.state === "RESERVED" ? ["RESERVATION_IS_SOFT"] : [] };
     }
     const verdict = checkIdempotencyKey(prepared.key, prepared.now);
     if (!verdict.ok) throw new ServiceDeskError(verdict.code);

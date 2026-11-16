@@ -20,12 +20,10 @@ function ok(name: string, cond: boolean, detail = "") {
   if (cond) { pass++; console.log(`OK: ${name}`); } else { failures.push(name); console.log(`FAIL: ${name}${detail ? " — " + detail : ""}`); }
 }
 
-ok("P1 PARTS_API_OPEN is false", PARTS_API_OPEN === false);
+ok("P1 PARTS_API_OPEN is true (opened by the owner's decision — this PR)", PARTS_API_OPEN === true);
 let thrown: unknown = null;
 try { assertPartsApiOpen(); } catch (e) { thrown = e; }
-ok("P2 the closed answer is ACTION_NOT_IN_SCOPE (422) naming the capability and what it waits for",
-  thrown instanceof ServiceDeskError && thrown.code === "ACTION_NOT_IN_SCOPE" && thrown.status === 422
-    && thrown.details.capability === "parts" && thrown.details.until === "intake_confirmation_1_3b");
+ok("P2 the lock no longer refuses (the routes still call it first; feature gate + tenant checks unchanged)", thrown === null && !(thrown instanceof ServiceDeskError));
 
 const ROOT = process.cwd();
 const ROUTES = ["app/api/service-desk/cases/[id]/parts/route.ts", "app/api/service-desk/parts/[partId]/actions/route.ts"];

@@ -451,6 +451,35 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_settings_journal_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_settings_journal_erase_business() TO ${RT_ROLE}`);
   }
+  // Service Desk case charge — migration 20261126090000_service_desk_case_charge. The same, for
+  // service_case_charge_erase_business() (it blanks who acted and the free-text reasons of the charge history and the
+  // billing links; tables from db push).
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261126090000_service_desk_case_charge/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_case_charge_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_case_charge_erase_business() not found in migration 20261126090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_case_charge_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_case_charge_erase_business() TO ${RT_ROLE}`);
+  }
+  // Service Desk M1 tracks — migration 20261127090000_service_desk_tracks. The same, for service_tracks_erase_business()
+  // (it blanks the site / sale texts of the case, the subject's name and attributes, and the completion and
+  // details-change records; tables and columns from db push). It calls no other function of the migration (its guards'
+  // helper service_tracks_in_erasure() is used only by triggers this lab does not create), so only it is mirrored.
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261127090000_service_desk_tracks/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_tracks_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_tracks_erase_business() not found in migration 20261127090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_tracks_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_tracks_erase_business() TO ${RT_ROLE}`);
+  }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
   //
