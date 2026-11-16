@@ -238,6 +238,17 @@ export interface OwnerOverride {
 export const SERVICE_REASON_MAX_LENGTH = 1000;
 
 /**
+ * Upper bound for any agorot amount a Service Desk request carries (unit price, unit cost, supplier cost):
+ * ₪1,000,000. Far below the INTEGER column limit (2,147,483,647), so an oversized value is refused as INVALID_INPUT
+ * instead of failing in the database as a generic 500.
+ */
+export const SERVICE_AMOUNT_MAX_AGOROT = 100_000_000;
+
+/** An agorot amount a request may carry: an integer in [0, SERVICE_AMOUNT_MAX_AGOROT]. */
+export const isServiceAgorotAmount = (n: unknown): n is number =>
+  typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= SERVICE_AMOUNT_MAX_AGOROT;
+
+/**
  * The free text a successful decision carries for the service layer to store in its business columns
  * (ServiceCase.cancelReason / abandonReason, ServiceHandover.debtOverrideReason / loanerOverrideReason).
  * All four are always present; a reason the action does not carry is null.

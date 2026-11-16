@@ -10,7 +10,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ServiceCaseActor, ServiceCaseContext, ServiceEventPayloadValue } from "./contracts";
+import { SERVICE_AMOUNT_MAX_AGOROT, type ServiceCaseActor, type ServiceCaseContext, type ServiceEventPayloadValue } from "./contracts";
 import {
   OPEN_PART_STATES,
   PART_EVENT_KINDS,
@@ -25,6 +25,7 @@ import {
   type ServicePartSnapshot,
   type StockFacts,
   type SupplierPartInput,
+  PART_QUANTITY_MAX,
 } from "./parts.contracts";
 import {
   addPart,
@@ -98,6 +99,13 @@ console.log("\n== 1. adding a part ==");
   refused("stock part without item id", addPart({ ...SCREEN, inventoryItemId: null }, { case: LIVE, stock: stock() }, OWNER), "INVALID_INPUT");
   refused("stock part without stock facts", addPart(SCREEN, { case: LIVE }, OWNER), "INVALID_INPUT");
   refused("inactive item", addPart(SCREEN, { case: LIVE, stock: stock({ itemActive: false }) }, OWNER), "ITEM_INACTIVE");
+  // hardening (#1116): request bounds on quantity and amounts
+  refused("quantity above PART_QUANTITY_MAX", addPart({ source: "NON_STOCK", name: "x", quantity: PART_QUANTITY_MAX + 1 }, { case: LIVE }, OWNER), "QUANTITY_INVALID");
+  allowed("quantity exactly PART_QUANTITY_MAX", addPart({ source: "NON_STOCK", name: "x", quantity: PART_QUANTITY_MAX }, { case: LIVE }, OWNER), (x) => x.part.quantity === PART_QUANTITY_MAX);
+  refused("Infinity quantity", addPart({ source: "NON_STOCK", name: "x", quantity: Number.POSITIVE_INFINITY }, { case: LIVE }, OWNER), "QUANTITY_INVALID");
+  refused("customer price above SERVICE_AMOUNT_MAX_AGOROT", addPart({ source: "NON_STOCK", name: "x", quantity: 1, customerUnitPriceAgorot: SERVICE_AMOUNT_MAX_AGOROT + 1 }, { case: LIVE }, OWNER), "INVALID_INPUT");
+  refused("customer price beyond INTEGER (2^31)", addPart({ source: "NON_STOCK", name: "x", quantity: 1, customerUnitPriceAgorot: 2 ** 31 }, { case: LIVE }, OWNER), "INVALID_INPUT");
+  allowed("customer price exactly SERVICE_AMOUNT_MAX_AGOROT", addPart({ source: "NON_STOCK", name: "x", quantity: 1, customerUnitPriceAgorot: SERVICE_AMOUNT_MAX_AGOROT }, { case: LIVE }, OWNER), (x) => x.part.customerUnitPriceAgorot === SERVICE_AMOUNT_MAX_AGOROT);
   refused("unit mismatch with the item", addPart({ ...SCREEN, unitType: "ML" }, { case: LIVE, stock: stock() }, OWNER), "UNIT_MISMATCH");
   refused("zero quantity", addPart({ ...SCREEN, quantity: 0 }, { case: LIVE, stock: stock() }, OWNER), "QUANTITY_INVALID");
   refused("negative quantity", addPart({ ...SCREEN, quantity: -1 }, { case: LIVE, stock: stock() }, OWNER), "QUANTITY_INVALID");
@@ -379,6 +387,8 @@ console.log("\n== 12. price and quote ==");
   allowed("set the customer price", act(part(), { type: "SET_PRICE", customerUnitPriceAgorot: 50_000 }), (x) => x.part.customerUnitPriceAgorot === 50_000 && x.event.previousAmountAgorot === 45_000);
   allowed("price change after the part was quoted warns: a new quote version is needed", act(part({ quotedInVersion: 2 }), { type: "SET_PRICE", customerUnitPriceAgorot: 50_000 }), (x) => x.warnings.includes("PRICE_DIFFERS_FROM_QUOTE"));
   refused("same price", act(part(), { type: "SET_PRICE", customerUnitPriceAgorot: 45_000 }), "PRICE_UNCHANGED");
+  refused("price above SERVICE_AMOUNT_MAX_AGOROT (#1116 hardening)", act(part(), { type: "SET_PRICE", customerUnitPriceAgorot: SERVICE_AMOUNT_MAX_AGOROT + 1 }), "INVALID_INPUT");
+  allowed("price exactly SERVICE_AMOUNT_MAX_AGOROT", act(part(), { type: "SET_PRICE", customerUnitPriceAgorot: SERVICE_AMOUNT_MAX_AGOROT }), (x) => x.part.customerUnitPriceAgorot === SERVICE_AMOUNT_MAX_AGOROT);
   refused("negative price", act(part(), { type: "SET_PRICE", customerUnitPriceAgorot: -1 }), "INVALID_INPUT");
   refused("price on a returned part", act(issued({ state: "RETURNED" }), { type: "SET_PRICE", customerUnitPriceAgorot: 1 }), "TRANSITION_NOT_ALLOWED");
   allowed("price cleared (null)", act(part(), { type: "SET_PRICE", customerUnitPriceAgorot: null }));

@@ -107,6 +107,8 @@ export const PART_TEXT_MAX_LENGTH = 200; // name / sku snapshot
 export const PART_REASON_MAX_LENGTH = 1000;
 /** Quantities are DOUBLE PRECISION in the inventory; two quantities closer than this are equal. */
 export const QUANTITY_EPSILON = 1e-9;
+/** Upper bound for the quantity of a new part line (a request). Existing lines are not re-judged. */
+export const PART_QUANTITY_MAX = 100_000;
 
 /** A part line as the service layer loads it (under the case lock). Amounts are integer agorot. */
 export interface ServicePartSnapshot {

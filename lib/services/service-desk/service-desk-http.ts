@@ -11,6 +11,8 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
+import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import { runWithTenantContext } from "@/lib/tenant/context";
 
 import { resolveServiceDeskMode, type ServiceDeskMode } from "./service-desk-gate";
@@ -58,9 +60,22 @@ export function idempotencyKeyOf(req: Request): string {
   return key;
 }
 
-export async function jsonBody(req: Request): Promise<Record<string, unknown>> {
+/** Default body cap for a Service Desk JSON command: commands carry short texts and numbers only. */
+export const SERVICE_DESK_JSON_BODY_MAX_BYTES = 16 * 1024;
+
+/**
+ * The JSON object body of a command. With `maxBytes`, the body is read with a running byte cap (readBodyCapped) and a
+ * larger body is refused as PAYLOAD_TOO_LARGE before it is parsed; without it, the behaviour is unchanged.
+ */
+export async function jsonBody(req: Request, maxBytes?: number): Promise<Record<string, unknown>> {
+  let text: string | null = null;
+  if (maxBytes !== undefined) {
+    const raw = await readBodyCapped(req, maxBytes);
+    if (raw === null) throw new ServiceDeskError("PAYLOAD_TOO_LARGE", { maxBytes });
+    text = new TextDecoder("utf-8", { fatal: false }).decode(raw);
+  }
   try {
-    const body = await req.json();
+    const body = text === null ? await req.json() : JSON.parse(text);
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error();
     return body as Record<string, unknown>;
   } catch {
@@ -111,3 +126,15 @@ export const PRIVATE_IMAGE_HEADERS = {
   "Content-Disposition": "inline",
   "Content-Security-Policy": "sandbox; default-src 'none'",
 } as const;
+
+/**
+ * Abuse limit for a Service Desk route family, keyed by the signed-in user AND the business (never by a request
+ * field). Returns the 429 / 503 response to send, or null when the call may proceed.
+ */
+export async function serviceDeskRateLimit(
+  bucket: "SERVICE_DESK_PARTS_WRITE" | "SERVICE_DESK_PARTS_READ",
+  principal: ServiceDeskPrincipal,
+): Promise<Response | null> {
+  const decision = await checkRateLimit({ bucket, user: principal.userId, business: principal.businessId });
+  return decision.allowed ? null : buildRateLimitResponse(decision);
+}

@@ -219,4 +219,24 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "global", limit: 600, windowSeconds: 60 * 60 },
     ],
   },
+  // Service Desk parts + external-work commands (reserve, release, price, supplier send / cost / return). Owner-only
+  // (one signed-in owner per business); a person at a counter does a few per minute. Fail-CLOSED like every write
+  // bucket: a limiter outage answers 503, never unbounded writes.
+  SERVICE_DESK_PARTS_WRITE: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 30, windowSeconds: 60 },
+      { scope: "business", limit: 60, windowSeconds: 60 },
+      { scope: "business", limit: 2000, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
+  // Their reads (part lines, supplier works and journals). Fail-OPEN like DOCUMENTS_API: a limiter blip must not hide
+  // a case's parts; the degradation is logged by the limiter.
+  SERVICE_DESK_PARTS_READ: {
+    failMode: "open",
+    rules: [
+      { scope: "user", limit: 120, windowSeconds: 60 },
+      { scope: "business", limit: 240, windowSeconds: 60 },
+    ],
+  },
 };

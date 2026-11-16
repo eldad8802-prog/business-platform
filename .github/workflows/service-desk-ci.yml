@@ -52,6 +52,7 @@ jobs:
       - run: npx tsx lib/services/service-desk/case-charge-core.test.ts
       - run: npx tsx lib/services/service-desk/quote-core.test.ts
       - run: npx tsx lib/services/service-desk/parts-lock.test.ts
+      - run: npx tsx lib/services/service-desk/parts-http-hardening.test.ts
       - run: npx tsx lib/services/service-desk/intake-core.test.ts
       - run: npx tsx lib/services/service-desk/legal-approval-guard.test.ts
       - run: npx tsx lib/services/service-desk/intake-slip-html.test.ts

@@ -10,7 +10,7 @@
  * Owner decisions ח‑1 … ח‑9 (2026-11-05): see external-work.contracts.ts.
  */
 import { evaluateTransition } from "./service-case.core";
-import type { ServiceCaseAction, ServiceCaseActor, ServiceCaseContext, ServiceEventPayloadValue, ServiceTransitionDecision } from "./contracts";
+import { isServiceAgorotAmount, SERVICE_AMOUNT_MAX_AGOROT, type ServiceCaseAction, type ServiceCaseActor, type ServiceCaseContext, type ServiceEventPayloadValue, type ServiceTransitionDecision } from "./contracts";
 import {
   EXTERNAL_PROGRESS_STAGES,
   EXTERNAL_REASON_MAX_LENGTH,
@@ -189,7 +189,7 @@ export function evaluateExternalWork(work: ExternalWorkSnapshot, action: Externa
       return decision(next, "EXPECTED_BACK_CHANGED", actor, { previous: work.expectedBackOn, expectedBackOn: d });
     }
     case "RECORD_COST": {
-      if (!isNonNegativeInt(action.amountAgorot)) out.push(v("INVALID_INPUT", "amountAgorot is an integer ≥ 0"));
+      if (!isServiceAgorotAmount(action.amountAgorot)) out.push(v("INVALID_INPUT", `amountAgorot is an integer 0..${SERVICE_AMOUNT_MAX_AGOROT}`));
       if (action.kind === "FINAL") {
         if (work.finalCostAgorot !== null) out.push(v("FINAL_COST_ALREADY_RECORDED", "correct it with CORRECT_FINAL_COST"));
       } else if (action.kind === "ESTIMATED" || action.kind === "APPROVED") {
@@ -207,7 +207,7 @@ export function evaluateExternalWork(work: ExternalWorkSnapshot, action: Externa
       // Correction 1: a mistaken final cost is corrected by a NEW event that keeps the previous value, the new value,
       // the reason and the user; the original event stays. It is never a charge, a refund or an accounting change.
       if (work.finalCostAgorot === null) out.push(v("FINAL_COST_NOT_RECORDED", "there is no final cost to correct"));
-      if (!isNonNegativeInt(action.amountAgorot)) out.push(v("INVALID_INPUT", "amountAgorot is an integer ≥ 0"));
+      if (!isServiceAgorotAmount(action.amountAgorot)) out.push(v("INVALID_INPUT", `amountAgorot is an integer 0..${SERVICE_AMOUNT_MAX_AGOROT}`));
       else if (action.amountAgorot === work.finalCostAgorot) out.push(v("CORRECTION_UNCHANGED", "the corrected value equals the current one"));
       const texts = emptyTexts();
       texts.correctionReason = takeText(action.reason, "reason", EXTERNAL_REASON_MAX_LENGTH, out);
@@ -234,7 +234,7 @@ export function closeExternalWork(work: ExternalWorkSnapshot, input: ExternalRet
   if (typeof input?.followUpRequired !== "boolean") out.push(v("INVALID_INPUT", "followUpRequired"));
   const final = input?.finalCostAgorot ?? null;
   if (final !== null) {
-    if (!isNonNegativeInt(final)) out.push(v("INVALID_INPUT", "finalCostAgorot"));
+    if (!isServiceAgorotAmount(final)) out.push(v("INVALID_INPUT", `finalCostAgorot is an integer 0..${SERVICE_AMOUNT_MAX_AGOROT}`));
     else if (work?.finalCostAgorot !== null && work?.finalCostAgorot !== undefined) out.push(v("FINAL_COST_ALREADY_RECORDED", "correct it with CORRECT_FINAL_COST"));
   }
   const staff = input?.receivedByStaffMemberId ?? null;

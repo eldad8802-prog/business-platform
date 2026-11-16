@@ -8,6 +8,8 @@ export type ServiceDeskErrorCode =
   | "NOT_FOUND"
   | "READ_ONLY"
   | "INVALID_INPUT"
+  /** The request body is larger than the route accepts (nothing was read past the cap). */
+  | "PAYLOAD_TOO_LARGE"
   | "VERSION_CONFLICT"
   | "STALE_STATE"
   | "IDEMPOTENCY_KEY_INVALID"
@@ -42,6 +44,7 @@ const STATUS: Record<ServiceDeskErrorCode, number> = {
   NOT_FOUND: 404,
   READ_ONLY: 403,
   INVALID_INPUT: 400,
+  PAYLOAD_TOO_LARGE: 413,
   VERSION_CONFLICT: 409,
   STALE_STATE: 409,
   IDEMPOTENCY_KEY_INVALID: 400,
