@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import PageHeader from "@/components/ui/page-header";
+import { SignedInAs } from "@/components/legal-identity/signed-in-as";
 
 type Identity = { businessKind: string; legalName: string; taxId: string };
 type RequestRow = {
@@ -70,6 +71,8 @@ export default function LegalIdentityCorrectionPage() {
   const [sameEntity, setSameEntity] = useState(false);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  /** Another tab switched the browser's account: nothing is submitted, cancelled or uploaded until a reload. */
+  const [switched, setSwitched] = useState(false);
   const [fieldError, setFieldError] = useState<{ field?: string; message: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -98,6 +101,7 @@ export default function LegalIdentityCorrectionPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (switched) return;
     setBusy(true);
     setFieldError(null);
     setNotice(null);
@@ -128,6 +132,7 @@ export default function LegalIdentityCorrectionPage() {
   }
 
   async function cancel(id: number) {
+    if (switched) return;
     setBusy(true);
     try {
       await fetch(`/api/business/legal-identity/corrections/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token()}` } });
@@ -138,6 +143,7 @@ export default function LegalIdentityCorrectionPage() {
   }
 
   async function uploadFile(requestId: number, file: File) {
+    if (switched) return;
     setBusy(true);
     setAttachmentError(null);
     try {
@@ -189,6 +195,7 @@ export default function LegalIdentityCorrectionPage() {
     <div dir="rtl" style={{ minHeight: "100dvh", background: "var(--dz-surface-muted)" }}>
       <PageHeader title="בקשת תיקון פרטים חוקיים" showBack />
       <main style={{ maxWidth: 640, margin: "0 auto", padding: "16px", display: "grid", gap: 16 }}>
+        <SignedInAs onSwitched={setSwitched} />
         {view === "loading" ? <p aria-busy="true" style={{ color: "var(--dz-text-muted)" }}>טוען…</p> : null}
         {view === "off" ? (
           <section style={card} data-testid="correction-off">
@@ -257,7 +264,7 @@ export default function LegalIdentityCorrectionPage() {
                       <input
                         type="file"
                         accept="application/pdf,image/jpeg,image/png"
-                        disabled={busy}
+                        disabled={busy || switched}
                         data-testid="correction-attach-input"
                         onChange={(e) => {
                           const f = e.target.files?.[0];
@@ -270,7 +277,7 @@ export default function LegalIdentityCorrectionPage() {
                   {attachmentError ? <p role="alert" style={{ ...errorText, marginTop: 6 }}>{attachmentError}</p> : null}
                 </div>
 
-                <button type="button" onClick={() => cancel(pending.id)} disabled={busy} style={{ ...input, width: "auto", cursor: "pointer", fontWeight: 600 }}>
+                <button type="button" onClick={() => cancel(pending.id)} disabled={busy || switched} style={{ ...input, width: "auto", cursor: "pointer", fontWeight: 600 }}>
                   ביטול הבקשה
                 </button>
               </section>
@@ -314,7 +321,7 @@ export default function LegalIdentityCorrectionPage() {
                 )}
                 {fieldError && !fieldError.field ? <p role="alert" style={errorText}>{fieldError.message}</p> : null}
                 {fieldError?.field === "noChange" ? <p role="alert" style={errorText}>{fieldError.message}</p> : null}
-                <button type="submit" disabled={busy} style={{ height: 50, borderRadius: 14, border: 0, background: "var(--dz-brand-gradient)", color: "var(--dz-text-on-brand)", font: "inherit", fontWeight: 600, cursor: "pointer" }}>
+                <button type="submit" disabled={busy || switched} style={{ height: 50, borderRadius: 14, border: 0, background: "var(--dz-brand-gradient)", color: "var(--dz-text-on-brand)", font: "inherit", fontWeight: 600, cursor: "pointer" }}>
                   {busy ? "שולחים…" : "שליחת בקשת תיקון"}
                 </button>
               </form>

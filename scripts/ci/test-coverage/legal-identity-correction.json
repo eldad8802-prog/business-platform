@@ -20,6 +20,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "pure (storage double): account erasure empties exactly biz/{id}/legal-identity/ of a business being deleted and verifies by re-listing, never touches a live business, another business or another domain, and reports fixed codes without keys"
+    },
+    "lib/legal-identity/signed-in-as.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure: the correction screens show the account and business they act for, and stop acting when another tab switched the browser account (any token change re-checks; a different user or business blocks)"
     }
   }
 }
