@@ -1,0 +1,9 @@
+{
+  "note": "Receipt PDF (HTML renderer): title קבלה, 'סה\"כ התקבל', payment lines from the immutable BillingReceiptPayment rows instead of the issuer's bank details, exempt dealer stated as עוסק פטור; download named קבלה-N. Prepared for focused A0 review, 2026-11-11. Run by billing-a0-characterization-ci.yml.",
+  "tests": {
+    "lib/services/billing/pdf/billing-pdf-receipt.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure: exempt receipt with bank-transfer + cheque lines → title, received total, method/details/amounts, no placeholder, עוסק פטור and never עוסק מורשה; no stored lines → stated, not invented; a tax invoice unchanged"
+    }
+  }
+}
