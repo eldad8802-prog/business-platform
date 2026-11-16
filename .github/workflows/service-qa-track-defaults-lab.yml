@@ -1,0 +1,92 @@
+name: service desk QA track defaults — per-business default QA list per track lab (ephemeral PG17)
+
+# Migration 20261130100000_service_qa_track_defaults (DRAFT — never applied without a separate owner approval): the
+# business's own default QA list per service track (one append-only table, the journal IS the state), its guard, its
+# erase function. On the QA lists lab (P4 lab → #1096 → #1104 → M1 → QA lists, via .sdm1/chain.sh and .sdqa/chain.sh): the
+# preflight, the application of this migration (premise, fault + recovery, rollback script), the production evidence and
+# its guards AS the runtime role. Synthetic only; no secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261129090000_service_desk_qa_lists/**"
+      - "prisma/migrations/20261130100000_service_qa_track_defaults/**"
+      - ".sdqad/**"
+      - ".sdqadcode/**"
+      - ".sdqa/chain.sh"
+      - ".sdqa/rollback.sql"
+      - "lib/services/service-desk/qa-track-defaults*.ts"
+      - "lib/services/service-desk/qa-lists*.ts"
+      - "lib/services/service-desk/service-case.service.ts"
+      - "ops/evidence/service-qa-track-defaults-*.sql"
+      - ".sdm1/chain.sh"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - "prisma/schema.prisma"
+      - ".github/workflows/service-qa-track-defaults-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk QA track defaults (PG17, runtime role, QA lists + defaults applied)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdqad_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdqad_ci_synthetic_super_pw
+      LAB_PASSWORD: sdqad_ci_synthetic_role_pw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: The QA track defaults migration on the QA lists lab, and its guards as the runtime role
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdqad >/dev/null
+          bash .sd3p4/lab.sh sdqad --deploy-only >/dev/null
+          bash .sdm1/chain.sh sdqad > /tmp/m1-chain.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/m1-chain.out || { cat /tmp/m1-chain.out; echo "the M1 chain is not green"; exit 1; }
+          bash .sdqa/chain.sh sdqad > /tmp/qa-chain.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/qa-chain.out || { cat /tmp/qa-chain.out; echo "the QA lists chain is not green"; exit 1; }
+          A="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sdqad"
+          R="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sdqad"
+          # the read-only preflight on the QA lists lab: every check PASS (or INFO)
+          psql -X -v ON_ERROR_STOP=1 -At -F "|" "$A" -f ops/evidence/service-qa-track-defaults-preflight.sql | tee /tmp/pre.out
+          ! grep -q "|FAIL|" /tmp/pre.out || { echo "the preflight is not green"; exit 1; }
+          test "$(grep -c "|PASS|" /tmp/pre.out)" = "10" || { echo "the preflight did not report its 10 checks"; exit 1; }
+          # premise, fault + recovery, the application, the rollback script on copies
+          bash .sdqad/chain.sh sdqad | tee /tmp/chain.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/chain.out || { echo "the QA track defaults chain is not green"; exit 1; }
+          # the read-only production evidence after the application: every check PASS (or INFO)
+          psql -X -v ON_ERROR_STOP=1 -At -F "|" "$A" -f ops/evidence/service-qa-track-defaults-production-evidence.sql | tee /tmp/ev.out
+          ! grep -q "|FAIL|" /tmp/ev.out || { echo "the evidence is not green"; exit 1; }
+          test "$(grep -c "|PASS|" /tmp/ev.out)" = "13" || { echo "the evidence did not report its 13 checks"; exit 1; }
+          OWNER_URL="$A" DATABASE_URL="$R?connection_limit=10" DIRECT_URL="$R" \
+            npx tsx .sdqad/battery.ts | tee /tmp/sdqad.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sdqad.out || { echo "the QA track defaults battery is not green"; exit 1; }
