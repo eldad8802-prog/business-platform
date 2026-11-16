@@ -353,7 +353,9 @@ export async function runPartAction(
     const prior = await findPriorPartEvent(tx, b, prepared);
     if (prior) {
       if (prior.partId !== partId) throw new ServiceDeskError("IDEMPOTENCY_KEY_REUSED");
-      return { part: await partOf(tx, b, partId), replayed: true, warnings: [] };
+      // A replayed answer about a RESERVED line still says the reservation is SOFT: never a guarantee against the till.
+      const replayedPart = await partOf(tx, b, partId);
+      return { part: replayedPart, replayed: true, warnings: replayedPart.state === "RESERVED" ? ["RESERVATION_IS_SOFT"] : [] };
     }
     const verdict = checkIdempotencyKey(prepared.key, prepared.now);
     if (!verdict.ok) throw new ServiceDeskError(verdict.code);

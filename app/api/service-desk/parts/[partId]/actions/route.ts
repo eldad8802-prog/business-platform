@@ -3,7 +3,12 @@ import {
 } from "@/lib/services/service-desk/service-desk-http";
 import { assertPartsApiOpen, runPartAction } from "@/lib/services/service-desk/parts.service";
 
-/** POST { action: { type: RESERVE | RELEASE | SET_PRICE | CANCEL, … }, expectedVersion } + Idempotency-Key. No stock moves. Closed until 1.3b. */
+/**
+ * POST { action: { type: RESERVE | RELEASE | SET_PRICE | CANCEL, … }, expectedVersion } + Idempotency-Key. No stock moves.
+ * A RESERVE is a SOFT, logical hold among Service Desk cases only (two cases cannot reserve the same units); it is NOT a
+ * guarantee of availability: the till and other inventory flows do not see it and can still take the units. A fresh RESERVE answer
+ * that leaves a line RESERVED, and its replay, carries the warning RESERVATION_IS_SOFT. Closed until 1.3b.
+ */
 export async function POST(req: Request, context: { params: Promise<{ partId: string }> }) {
   return serviceDeskRoute(req, "write", async ({ principal }) => {
     assertPartsApiOpen();

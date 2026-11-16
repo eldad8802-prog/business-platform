@@ -81,6 +81,25 @@ for (const rel of ["lib/services/service-desk/parts.service.ts", "lib/services/s
   check(`${rel}: writes run in the tenant transaction`, /tenantTx|runWithTenantContext/.test(src));
 }
 
+console.log("— H6 a reservation is never presented as guaranteed availability");
+{
+  const svc = fs.readFileSync(path.join(ROOT, "lib/services/service-desk/parts.service.ts"), "utf8");
+  const core = fs.readFileSync(path.join(ROOT, "lib/services/service-desk/parts.core.ts"), "utf8");
+  const route = fs.readFileSync(path.join(ROOT, "app/api/service-desk/parts/[partId]/actions/route.ts"), "utf8");
+  check("RESERVE answers carry RESERVATION_IS_SOFT (core)", core.includes('warnings: ["RESERVATION_IS_SOFT"]'));
+  check("a replayed answer about a RESERVED line keeps RESERVATION_IS_SOFT (service)",
+    svc.includes('replayedPart.state === "RESERVED" ? ["RESERVATION_IS_SOFT"] : []'));
+  const flat = route.replace(/\s*\n\s*\*\s*/g, " ");
+  check("the route documents the reservation as SOFT and NOT a guarantee of availability against the till",
+    flat.includes("SOFT, logical hold") && flat.includes("NOT a guarantee of availability") && flat.includes("till"));
+  // Only negated mentions are allowed ("never guarantees", "NOT a guarantee"); a positive claim fails.
+  const text = [svc, core, route].join("\n").replace(/\s*\n\s*(\*|\/\/)?\s*/g, " ");
+  const claims = [...text.matchAll(/guarantee[sd]?\s+(of\s+)?(the\s+)?(availability|units|stock)/gi)]
+    .filter((m) => !/\b(never|not|no)\b(\s+a)?\s*$/i.test(text.slice(Math.max(0, (m.index ?? 0) - 12), m.index)))
+    .map((m) => m[0]);
+  check("no parts text positively claims a guarantee of availability", claims.length === 0, claims.join(" | "));
+}
+
 async function main(): Promise<void> {
   console.log("— H3 the byte cap");
   const big = JSON.stringify({ name: "x".repeat(SERVICE_DESK_JSON_BODY_MAX_BYTES) });
