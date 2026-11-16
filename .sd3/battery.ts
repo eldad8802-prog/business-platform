@@ -112,8 +112,17 @@ const intake = (b: B, c: number) => x(runtime, b.biz, `INSERT INTO "ServiceCaseI
   VALUES ($1, $2, '{"brand":"Samsung"}', 'שריטה', true, true, now())`, b.biz, c);
 const sign = (b: B, c: number) => x(runtime, b.biz, `UPDATE "ServiceCaseIntake" SET "customerSigned" = true, "signedAt" = now(), "signatureKey" = $2 WHERE "caseId" = $1`,
   c, `biz/${b.biz}/service/cases/${c}/intake/signature.png`);
-const handover = (b: B, c: number) => x(runtime, b.biz, `INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "actorUserId")
+// With the handover record (migration 20261130090000) in place a new handover is a version-2 record (the full balance: zero
+// open, zero overpaid); without it, the legacy shape as before.
+let handoverV2: boolean | undefined;
+const handover = async (b: B, c: number) => {
+  handoverV2 ??= Number(((await owner.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_attribute WHERE attrelid = '"ServiceHandover"'::regclass AND attname = 'recordVersion' AND NOT attisdropped`)) as { n: number }[])[0].n) === 1;
+  return handoverV2
+    ? x(runtime, b.biz, `INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "actorUserId", "recordVersion", "overpaidAgorot")
+  VALUES ($1, $2, 'דנה כהן', true, 0, $3, 2, 0)`, b.biz, c, b.user)
+    : x(runtime, b.biz, `INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "actorUserId")
   VALUES ($1, $2, 'דנה כהן', true, 0, $3)`, b.biz, c, b.user);
+};
 
 async function text(b: B, kind: "TERMS" | "STATUTORY_NOTICE", body: string, o: { version?: number; sha?: string; status?: string } = {}) {
   return q(runtime, b.biz, `INSERT INTO "ServiceTextVersion" ("businessId", kind, version, body, "bodySha256", "legalStatus", "createdByUserId")

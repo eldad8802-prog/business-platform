@@ -61,7 +61,11 @@ async function main() {
       biz, k, `biz/${biz}/service/quotes/${k}.pdf`, H("3"), user, `sd3-purge-share-${biz}-01`);
     await tx.$executeRawUnsafe(`INSERT INTO "ServiceWarrantyOffer" ("businessId", "caseId", seq, state, source, "durationValue", "durationUnit", "scopeText", "statutoryNoticeVersionId", "contentSha256", "presentedAt", "presentedByUserId", "createdByUserId", "updatedAt")
       VALUES ($1, $2, 1, 'PRESENTED', 'INTAKE', 3, 'MONTHS', 'חלקים ועבודה', $3, $4, now(), $5, $5, now())`, biz, k, notice, H("4"), user);
-    await tx.$executeRawUnsafe(`INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "actorUserId") VALUES ($1, $2, 'ישראל', true, 0, $3)`, biz, k, user);
+    // With the handover record (migration 20261130090000) in place a new handover is a version-2 record (here: nothing
+    // open, nothing overpaid, so no approver); without it, the legacy shape as before.
+    const v2 = Number(((await tx.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_attribute WHERE attrelid = '"ServiceHandover"'::regclass AND attname = 'recordVersion' AND NOT attisdropped`)) as Rows)[0].n) === 1;
+    if (v2) await tx.$executeRawUnsafe(`INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "actorUserId", "recordVersion", "overpaidAgorot") VALUES ($1, $2, 'ישראל', true, 0, $3, 2, 0)`, biz, k, user);
+    else await tx.$executeRawUnsafe(`INSERT INTO "ServiceHandover" ("businessId", "caseId", "receivedByName", "signatureCaptured", "openBalanceAgorot", "actorUserId") VALUES ($1, $2, 'ישראל', true, 0, $3)`, biz, k, user);
     return k;
   }, { timeout: 60_000 });
 

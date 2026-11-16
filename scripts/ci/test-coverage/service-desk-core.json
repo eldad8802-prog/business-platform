@@ -28,11 +28,35 @@
     },
     "lib/services/service-desk/qa-templates.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "pure (no DB/network/clock): Service Desk P3 base QA checklists — one template per kind (IN_SHOP / FIELD / MAINTENANCE) with token keys; QA completes only when every required item is PASS; a failed or missing required item keeps it open; optional items never block; unknown keys, other kinds’ keys and values other than PASS / FAIL refused; the stored checklist is tokens only; run on pull_request by service-desk-ci.yml"
+      "reason": "pure (no DB/network/clock): Service Desk built-in QA checklists — owner 2026-11-12: all 7 built-in templates (30 checks) are suggestions, every check optional, complete only when every check is recorded (PASS or FAIL); the evaluator REQUIRED semantics (a failed or missing required check keeps QA open; optional checks never block) on a synthetic template and the frozen retired v1 templates (10 required checks kept for history, never offered, a v1 snapshot judged by its v2 successor); unknown keys, other kinds’ keys, unknown template ids and values other than PASS / FAIL refused; the stored checklist is tokens only; run on pull_request by service-desk-ci.yml"
     },
     "features/service-desk/settings-model.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network): Service Desk UI 1.3a settings screen — the form from the server's view (owner = no default technician, no default warranty, מ3), validation mirroring updateSettings' limits (1–3650 days / 1–120 months, scope required and ≤ 2000 characters counted as code points, exclusions optional), the request body (trimmed, empty exclusions → null, the loaded version as expectedVersion), the dirty check on what is actually sent, and the Hebrew wording of every refusal (VERSION_CONFLICT → reload, inactive technician → pick again, NOT_AVAILABLE_UNTIL_AUDIT → nothing saved; internal codes never shown); run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/settlement.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB): 1.3c — the balance a handover reads (contract v2): NO_CHARGE (explicit) and SETTLED are 0, an overpayment is carried; OPEN and CHARGE_NOT_DOCUMENTED carry the debt; UNKNOWN (any reason) keeps the handover blocked and is never read as 0; today's only reader answers UNKNOWN / NOT_LINKED; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/case-balance.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/clock): the balance of a service case from its charge, active billing links and billing's settlement facts (#1102 shape) — the five handover cases, exempt dealer, overpayment shown never zeroed, another business's / vanished / draft / foreign / wrong-type document → UNKNOWN, a double link → UNKNOWN, no double count of allocated receipts / tax invoice-receipts / credits, partial payments and one receipt over several invoices, documented above the charge → UNKNOWN, and charge changes against issued documents; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/case-charge-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): the case charge and its billing links (migration 20261126090000) — input parsing (modes, positive integer agorot ≤ int4, reasons 1–1000 characters trimmed, link roles, unlink reason required), decisions (CLOSED / CANCELLED final, NO_CHARGE and every change need a reason, an identical record is NO_CHANGE, seq last + 1, OWNER_ENTERED only, closed payload with no reason text, no link to a NO_CHARGE case, a correction after DELIVERED allowed), the link guard refusals and the one-active-link UNIQUE mapped to stable codes, and the real settlement reader over a fake transaction (no migration → NOT_LINKED, no charge → NO_CHARGE_DECISION, exempt dealer settled by a standalone receipt, overpayment carried, billing read error → READ_ERROR, draft → DRAFT_PENDING, vanished document → CONFLICT); run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/quote-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk 1.3c quotes — the canonical quote content (\"sdq1\" array) and its docHash: exact, deterministic, line-order and decimal-scale independent, changed by every content field and by nothing else; exact agorot from decimal text (never a float, int4 bound); the billing document check (another business = not found, not a QUOTE, not ILS, another customer, no lines, converted, issued); the owner's decision (APPROVE / REJECT by PHONE / IN_PERSON, LINK refused, the approval names the row's exact version / total / docHash, superseded / withdrawn rows named by their state); the approval's charge = the approved total, none for ₪0; the frozen-copy key under the business's service prefix; fit with the unchanged case core; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/tracks-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk M1 tracks — universal track opening (never reads the business category), subject fits track, track facts from the case snapshot (work approval, QA REQUIRED/OPTIONAL/OFF, handover by owner), after-sale resolutions (exchange blocked), completion with an open debt only with approval + reason and never on an UNKNOWN balance, overpayment kept; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/approvals.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk actor / approver (migration 20261130090000) — the core names every exception needing an approval (handover open debt, handover loaner out, completion open debt) and the handover record it judged (debt and overpayment apart, never both, UNKNOWN never recorded); resolveApproval grants only to the session principal with the owner authority, frozen and branded — a plain / JSON / copied grant, another business or another actor is refused; the HTTP edge refuses approverId / approvedBy / actorUserId / businessId at any depth (400 IDENTITY_NOT_ACCEPTED) and keeps legitimate ids and names; the sensitive-action inventory; run on pull_request by service-desk-ci.yml"
     }
   }
 }

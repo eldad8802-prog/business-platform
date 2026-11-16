@@ -14,6 +14,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 
 import { resolveServiceDeskMode, type ServiceDeskMode } from "./service-desk-gate";
+import { assertNoClientIdentity } from "./approvals";
 import { ServiceDeskError } from "./service-desk-errors";
 import type { ServiceDeskPrincipal } from "./service-case.service";
 
@@ -58,14 +59,21 @@ export function idempotencyKeyOf(req: Request): string {
   return key;
 }
 
+/**
+ * The JSON body of a Service Desk write. Identities come from the session only (actor = the signed-in user; an approver is
+ * resolved server-side, approvals.ts): a body that names a user, a business or an approver at any depth is refused —
+ * 400 IDENTITY_NOT_ACCEPTED — before any work (never silently ignored).
+ */
 export async function jsonBody(req: Request): Promise<Record<string, unknown>> {
+  let body: unknown;
   try {
-    const body = await req.json();
+    body = await req.json();
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error();
-    return body as Record<string, unknown>;
   } catch {
     throw new ServiceDeskError("INVALID_INPUT", { field: "body" });
   }
+  assertNoClientIdentity(body);
+  return body as Record<string, unknown>;
 }
 
 /** A route id: a positive integer, or 404 (never a hint about another business's ids). */
