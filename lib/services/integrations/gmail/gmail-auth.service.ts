@@ -22,6 +22,7 @@ import {
 } from "./token-crypto.placeholder";
 import { refreshGoogleAccessToken } from "./oauth-refresh.service";
 import { GmailReauthRequiredError } from "./gmail-errors";
+import { scheduleConnectionDisconnected } from "@/lib/notifications/producers/connection-notifications";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -78,6 +79,9 @@ export async function getGmailAccessTokenForBusiness(params: {
     clientId: requireEnv("GOOGLE_OAUTH_CLIENT_ID"),
     clientSecret: requireEnv("GOOGLE_OAUTH_CLIENT_SECRET"),
     refreshToken,
+    // Notifications side effect only (after the response, engine-gated); the refresh outcome is unchanged.
+    onRevoked: () =>
+      scheduleConnectionDisconnected({ businessId: params.businessId, provider: "gmail", connectionId: connection.id }),
   });
 
   const enc = encryptToken(refreshed.access_token);

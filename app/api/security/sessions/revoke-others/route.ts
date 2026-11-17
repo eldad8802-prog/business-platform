@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { authRequiredResponse, getAuthContext } from "@/lib/auth";
 import { revokeOtherSessions } from "@/lib/auth/session-directory";
+import { revokeUserDevicesBestEffort } from "@/lib/notifications/engine/devices";
 
 export async function POST(req: Request) {
   try {
@@ -43,6 +44,10 @@ export async function POST(req: Request) {
         JSON.stringify({ event: "sessions_revoked_by_user", userId: context.user.id, revoked })
       );
     }
+    // The ended sessions' push devices go with them (notification engine; best effort, never throws).
+    await revokeUserDevicesBestEffort(context.user.businessId, context.user.id, "session_ended", {
+      exceptSessionId: context.sessionId,
+    });
 
     return NextResponse.json(
       { success: true, revoked },

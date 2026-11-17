@@ -60,6 +60,7 @@ import type { ExhaustiveFactKeys } from "./exhaustive-facts";
 import { getTenantContextOrThrow } from "@/lib/tenant/context";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 
+import { classifyNotification } from "./catalog";
 import {
   decideForSnapshot,
   type NotificationChannel,
@@ -100,6 +101,17 @@ const HOUR_MS = 3_600_000;
  */
 function utc(instant: Date) {
   return Prisma.sql`${instant.toISOString()}::timestamptz AT TIME ZONE 'UTC'`;
+}
+
+/** An owed push of this fact expires after its catalog category's TTL (unknown category: 60 minutes). */
+export function pushExpiryOf(item: BusinessStatusItem, now: Date): Date {
+  const cat = classifyNotification({
+    domain: item.domain,
+    semanticCategory: item.semanticCategory,
+    severity: item.severity,
+    entityType: item.entityRef.type,
+  });
+  return new Date(now.getTime() + (cat?.ttlMinutes ?? 60) * 60_000);
 }
 
 /**
@@ -232,16 +244,20 @@ async function persistOne(
   const notified = claimed === 1;
 
   if (notified && channels.length > 0) {
+    // The owed push expires with its category's TTL (lib/notifications/catalog.ts): the notification engine's
+    // worker never sends a push that waited longer than that — and nothing else ever sends it.
+    const pushExpiresAt = pushExpiryOf(item, now);
     await tx.notificationDelivery.createMany({
       data: channels.map((channel) => ({
         businessId,
         notificationId: row.id,
         channel,
         // IN_APP is delivered by the row existing: the list reads Notification
-        // directly, so there is no later act to wait for. PUSH is owed an
-        // external attempt that nothing in this phase performs, so it stays
-        // PENDING — this module never sends anything.
+        // directly, so there is no later act to wait for. PUSH is OWED: it stays
+        // PENDING (userId NULL = the whole business) until the notification
+        // engine's worker attempts it — this module never sends anything.
         status: channel === "IN_APP" ? "SENT" : "PENDING",
+        ...(channel === "PUSH" ? { expiresAt: pushExpiresAt } : {}),
         attemptedAt: now,
         createdAt: now,
       })),
