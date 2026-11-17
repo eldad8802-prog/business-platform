@@ -110,6 +110,10 @@ const MODEL_LEVEL: DebtEntry[] = [
   // trader, even though it is stored only as ciphertext + last4 + a keyed
   // fingerprint) and the cheques written from it take the same E2 position.
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBankAccount", why: "E2" },
+  // Issuer declaration (#1081, schema Draft). issuer_declaration_erase() exists in the migration, but the purge does
+  // not call it until the #1081 code PR, and the DB-function contract must first learn placeholder anonymisation
+  // (the table's CHECKs refuse NULL / '') and conditional retention (a declaration documents were issued under stays).
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessIssuerDeclaration", why: "#1081 code PR" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Cheque", why: "E2" },
   // Payables Phases 4–6: destinations, prepared payments, bank lines, their
   // rejections, and outbound executions take the same E2 position as the rest
