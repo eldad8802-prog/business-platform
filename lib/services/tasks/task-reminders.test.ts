@@ -11,8 +11,12 @@
  *     three variables and a mailto:/https: subject.
  *  5. The dispatcher's door (QStash only): no signature → 401; a signature with no keys → 503; a forged,
  *     wrongly-addressed or wrong-body signature → 401; a valid one for THIS url → accepted.
+ *  6. Reliability (static): the lagged CRON_SECRET backstop (same dispatcher, not scheduled), and the in-app poll
+ *     reading only its own business inside its tenant tx.
  */
 import { createHash, createHmac } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 import { isAllowedPushEndpoint, vapidConfig } from "@/lib/push/web-push-sender";
 
@@ -129,6 +133,28 @@ async function door() {
   ok("failure facts: never the token", !logged.includes(tok) && !logged.includes(tok.slice(0, 12)), logged);
   ok("failure facts: shape only", facts.tokenLength === tok.length && facts.decodesToUserId === true && facts.rawWasCleaned === true && facts.looksLikeSigningKey === false);
   ok("failure facts: a signing key pasted as the token is named", publishFailureFacts("sig_abc", "sig_abc", "x", new Error("401")).looksLikeSigningKey === true);
+}
+
+// ── 6. reliability: the backstop path and the per-business poll (static — the db suite proves behaviour) ──
+{
+  const root = process.cwd();
+  const strip = (p: string) => fs.readFileSync(path.join(root, p), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  const backstop = strip("app/api/task-reminders/backstop/route.ts");
+  const service = strip("lib/services/tasks/task-reminders.service.ts");
+  const poll = strip("app/api/tasks/reminders/pending/route.ts");
+  ok("backstop: authority only through decideCronAuth (CRON_SECRET), 503 unconfigured, 401 otherwise",
+    /decideCronAuth\(req\.headers\.get\("authorization"\)\)/.test(backstop) && /NOT_CONFIGURED[\s\S]*503/.test(backstop) && /401/.test(backstop) && !/process\.env/.test(backstop));
+  ok("backstop: runs the same dispatcher with the lag, never a caller-supplied business",
+    /dispatchDueReminders\(new Date\(\), \{ minLagMinutes: BACKSTOP_LAG_MINUTES \}\)/.test(backstop) && !/businessId|searchParams|await req\.json/.test(backstop));
+  const lag = Number((service.match(/BACKSTOP_LAG_MINUTES = (\d+)/) ?? [])[1]);
+  ok("backstop: the lag is above QStash's 5-minute schedule (idle while QStash is healthy) and bounded", lag > 5 && lag <= 15, lag);
+  const vercel = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8")) as { crons?: { path: string }[] };
+  ok("backstop: NOT scheduled in vercel.json (scheduling is a separate owner decision)", !(vercel.crons ?? []).some((c) => c.path.startsWith("/api/task-reminders")));
+  ok("poll: the in-app poll dispatches only the caller's own business", /dispatchDueReminders\(now, actor\.businessId\)/.test(poll));
+  ok("poll: its due list is read inside that business's tenant tx (no global top-100 then filter)",
+    /dueRemindersForBusiness\(opts\.onlyBusinessId, cutoff\)/.test(service) && /export async function dueRemindersForBusiness[\s\S]*?tenantTx\(businessId, \(tx\) =>\s*tx\.task\.findMany\(/.test(service) && !/\.filter\(\(d\) => onlyBusinessId/.test(service));
+  ok("poll: same due conditions as task_reminders_due()", /status: "OPEN", remindAt: \{ not: null, lte: now \}, reminderSentAt: null, erasedAt: null/.test(service));
+  ok("claim: still the one guard against a double send", /reminderSentAt: null, remindAt: due\.remindAt/.test(service));
 }
 
 door().then(() => {

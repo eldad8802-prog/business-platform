@@ -219,6 +219,14 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
       purpose: "as onboardingGoal — OWNER_SELECTED | DEFAULTED",
       basis: "PRODUCT",
     },
+    // Signup legal identity (20261128090000): when the identity was confirmed and how (SIGNUP | OWNER_CONFIRMED).
+    // A timestamp and a fixed vocabulary that name nobody; the identity values themselves are erased above.
+    legalIdentityConfirmedAt: { disposition: "STRUCTURAL" },
+    legalIdentitySource: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "a fixed vocabulary (SIGNUP | OWNER_CONFIRMED) recording how the identity was confirmed, naming nobody",
+      basis: "PRODUCT",
+    },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },

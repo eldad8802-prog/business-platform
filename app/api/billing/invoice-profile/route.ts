@@ -20,6 +20,11 @@ import {
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import { assertIssuerIdentityEditableTx } from "@/lib/services/billing/issuer-declaration/issuer-declaration-gates";
 import { recordSensor } from "@/lib/sensors/record-sensor";
+import {
+  LegalIdentityLockedError,
+  applyLegalIdentityLock,
+  isLegalIdentityLockDbError,
+} from "@/lib/legal-identity/lock";
 
 const MAX_LOGO_CHARS = 500_000;
 
@@ -205,6 +210,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const persist = normalizeProfilePayloadForDb(data);
+    let legalIdentityLocked = false;
 
     // The write, under the tenant transaction. `BusinessProfile` is FORCE-RLS'd
     // and the runtime is NOBYPASSRLS, so without `app.current_business_id` the
@@ -219,23 +225,35 @@ export async function PATCH(req: NextRequest) {
         select: BILLING_INVOICE_PROFILE_SELECT,
       });
 
+      // Signup legal identity: once confirmed, kind / legal name / tax id are locked. A locked field re-sent
+      // unchanged is dropped; a changed one refuses the request (409 LEGAL_IDENTITY_LOCKED). The database
+      // trigger BusinessProfile_legal_identity_lock is the backstop.
+      const lockState = await tx.businessProfile.findUnique({
+        where: { businessId: user.businessId },
+        select: { legalIdentityConfirmedAt: true },
+      });
+      legalIdentityLocked = lockState?.legalIdentityConfirmedAt != null;
+      const allowed = applyLegalIdentityLock(lockState?.legalIdentityConfirmedAt, before, persist);
+
       // #1081: once the business has a live issuer declaration, its declared identity is locked — refused here
       // with a clear message (the database trigger BusinessProfile_issuer_identity_lock is the backstop).
-      await assertIssuerIdentityEditableTx(tx, user.businessId, before, persist);
+      // Checked AFTER the legal-identity lock and on what it allows, so a legal-identity refusal is never
+      // masked by a declaration refusal, and a locked field re-sent unchanged is not mistaken for a change.
+      await assertIssuerIdentityEditableTx(tx, user.businessId, before, allowed);
 
       const saved = await tx.businessProfile.upsert({
         where: { businessId: user.businessId },
         create: {
           businessId: user.businessId,
-          ...persist,
+          ...allowed,
         } as Prisma.BusinessProfileUncheckedCreateInput,
-        update: persist as Prisma.BusinessProfileUncheckedUpdateInput,
+        update: allowed as Prisma.BusinessProfileUncheckedUpdateInput,
         select: BILLING_INVOICE_PROFILE_SELECT,
       });
 
       // Only the fields this request actually wrote are compared; values never leave this scope —
       // the sensor carries field NAMES, the VAT status as an enum, and identifiers as flags only.
-      const written = Object.keys(persist) as (keyof typeof BILLING_INVOICE_PROFILE_SELECT)[];
+      const written = Object.keys(allowed) as (keyof typeof BILLING_INVOICE_PROFILE_SELECT)[];
       const fields = written
         .filter((k) => (before?.[k] ?? null) !== (saved[k] ?? null))
         .sort();
@@ -279,10 +297,15 @@ export async function PATCH(req: NextRequest) {
           ),
         },
         identityComplete: isBillingIdentityComplete(profile),
+        legalIdentityLocked,
       },
       { status: 200 }
     );
   } catch (error) {
+    // The database backstop refused (the app check was raced): the same 409, never a 500.
+    if (!(error instanceof LegalIdentityLockedError) && isLegalIdentityLockDbError(error)) {
+      return handleError(new LegalIdentityLockedError([]));
+    }
     return handleError(error);
   }
 }
