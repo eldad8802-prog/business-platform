@@ -16,7 +16,6 @@
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 
-import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { ConflictError, ValidationError } from "@/lib/errors";
 import { validateIssuerDetails, type IssuerDetailProblem, type IssuerDetailsInput } from "@/lib/billing/issuer-declaration/details";
 import {
@@ -234,12 +233,14 @@ export type DesignationWriter = (plan: DesignationPlan, ctx: { businessId: numbe
 
 type RawQueryClient = { $queryRaw: PrismaClient["$queryRaw"] };
 
-/** The writer over a given client (the lab passes its own); production uses the platform-admin client. */
+/**
+ * The writer over a given client. Production binds it to the platform-admin client in the approved admin surface
+ * (lib/services/platform-admin/issuer-designation-writer.ts); the lab passes its own. This module never imports a
+ * privileged client.
+ */
 export function designationWriterFor(getDb: () => RawQueryClient): DesignationWriter {
   return (plan, ctx) => runDesignationSql(getDb(), plan, ctx);
 }
-
-export const writeDesignationAsPlatformAdmin: DesignationWriter = designationWriterFor(getPrismaAdmin);
 
 async function runDesignationSql(db: RawQueryClient, plan: DesignationPlan, ctx: { businessId: number; adminUserId: number }): Promise<number> {
   if (plan.mode === "INITIAL") {
@@ -264,12 +265,12 @@ export function isDesignationDbRefusal(error: unknown): boolean {
 
 export async function designateIssuerAuthority(
   input: DesignationInput,
-  deps: { load?: typeof loadIssuerDesignationContext; write?: DesignationWriter } = {}
+  deps: { load?: typeof loadIssuerDesignationContext; write: DesignationWriter }
 ): Promise<{ declarationId: number; mode: "INITIAL" | "TRANSFER" }> {
   const ctx = await (deps.load ?? loadIssuerDesignationContext)(input.businessId);
   const plan = planIssuerDesignation(input, ctx);
   try {
-    const declarationId = await (deps.write ?? writeDesignationAsPlatformAdmin)(plan, { businessId: input.businessId, adminUserId: input.admin.id });
+    const declarationId = await deps.write(plan, { businessId: input.businessId, adminUserId: input.admin.id });
     return { declarationId, mode: plan.mode };
   } catch (error) {
     if (isDesignationDbRefusal(error)) throw new ConflictError("ISSUER_DESIGNATION_REFUSED", DESIGNATION_MESSAGES.DB_REFUSED);

@@ -155,6 +155,9 @@ ok("incomplete issuer details → 409, no declaration",
   const svc = readFileSync("lib/services/billing/issuer-declaration/issuer-designation.service.ts", "utf8");
   ok("service: the only write is the migration's definer functions", /issuer_designate_initial\(/.test(svc) && /issuer_designate_authorized_user\(/.test(svc)
     && !/businessIssuerDeclaration\.(create|update|upsert|delete)/.test(svc));
+  ok("service: never imports a privileged client (the admin binding lives in lib/services/platform-admin)",
+    !/lib\/prisma-(admin|auth|control-plane)/.test(svc));
+  ok("route: the write is the platform-admin binding, passed explicitly", src.includes("{ write: writeDesignationAsPlatformAdmin }"));
 }
 
 console.log(failed ? `\nD6: ${passed} passed, ${failed} FAILED` : `\nD6: ${passed}/${passed} passed`);

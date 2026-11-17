@@ -9,6 +9,7 @@ import {
   designateIssuerAuthority,
   loadIssuerDesignationContext,
 } from "@/lib/services/billing/issuer-declaration/issuer-designation.service";
+import { writeDesignationAsPlatformAdmin } from "@/lib/services/platform-admin/issuer-designation-writer";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       authorizedUserId: body.authorizedUserId,
       evidenceRef: body.evidenceRef,
       reason: body.reason,
-    });
+    }, { write: writeDesignationAsPlatformAdmin });
     return NextResponse.json(result, { status: 200, headers: NO_STORE });
   } catch (error) {
     return handleError(error);

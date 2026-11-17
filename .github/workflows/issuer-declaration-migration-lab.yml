@@ -264,7 +264,7 @@ jobs:
       - name: D7 platform designation (the application path → the migration definer function; runtime context, binding record, refusals)
         run: |
           set -euo pipefail
-          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idc" RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idc" \n            npx tsx .issuer-declaration/designation.battery.mts | tee /tmp/idc-d7.out
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idc" RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idc" npx tsx .issuer-declaration/designation.battery.mts | tee /tmp/idc-d7.out
           grep -qx "ALL PASS" /tmp/idc-d7.out || { echo "::error::the designation battery is not green"; exit 1; }
 
       - name: Negative proof — the spend in its own transaction must fail (a)
