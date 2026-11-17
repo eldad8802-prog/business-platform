@@ -82,11 +82,10 @@ function networkCode(e: unknown): string {
 
 type TokenOutcome = { ok: true; accessToken: string } | { ok: false; result: PushResult };
 
-async function accessToken(cfg: FcmConfig, fetchImpl: FetchLike, nowMs: number): Promise<TokenOutcome> {
-  const key = `${cfg.projectId}|${cfg.clientEmail}`;
-  if (cached && cached.key === key && cached.expiresAtMs - TOKEN_EARLY_REFRESH_MS > nowMs) {
-    return { ok: true, accessToken: cached.accessToken };
-  }
+type ExchangeOutcome = { ok: true; accessToken: string; ttlSeconds: number } | { ok: false; result: PushResult };
+
+/** One service-account → access-token exchange at Google. Never throws; never touches the cache. */
+async function exchangeToken(cfg: FcmConfig, fetchImpl: FetchLike, nowMs: number): Promise<ExchangeOutcome> {
   let assertion: string;
   try {
     assertion = buildAssertion(cfg, nowMs);
@@ -108,12 +107,44 @@ async function accessToken(cfg: FcmConfig, fetchImpl: FetchLike, nowMs: number):
     if (typeof body.access_token !== "string" || body.access_token.length === 0) {
       return { ok: false, result: { kind: "transient", code: "oauth_malformed" } };
     }
-    const ttl = typeof body.expires_in === "number" && body.expires_in > 0 ? body.expires_in : 3600;
-    cached = { key, accessToken: body.access_token, expiresAtMs: nowMs + ttl * 1000 };
-    return { ok: true, accessToken: body.access_token };
+    const ttlSeconds = typeof body.expires_in === "number" && body.expires_in > 0 ? body.expires_in : 3600;
+    return { ok: true, accessToken: body.access_token, ttlSeconds };
   } catch (e) {
     return { ok: false, result: { kind: "transient", code: `oauth_${networkCode(e)}` } };
   }
+}
+
+async function accessToken(cfg: FcmConfig, fetchImpl: FetchLike, nowMs: number): Promise<TokenOutcome> {
+  const key = `${cfg.projectId}|${cfg.clientEmail}`;
+  if (cached && cached.key === key && cached.expiresAtMs - TOKEN_EARLY_REFRESH_MS > nowMs) {
+    return { ok: true, accessToken: cached.accessToken };
+  }
+  const ex = await exchangeToken(cfg, fetchImpl, nowMs);
+  if (!ex.ok) return ex;
+  cached = { key, accessToken: ex.accessToken, expiresAtMs: nowMs + ex.ttlSeconds * 1000 };
+  return { ok: true, accessToken: ex.accessToken };
+}
+
+/**
+ * The owner's credential check (platform-admin route only, never scheduled): ONE fresh token exchange with the
+ * configured service account — the cache is neither read nor written, nothing is sent to any device, and the
+ * access token is dropped on the spot. Only the class comes back:
+ *   configured             Google issued an access token for this account and key (this does NOT prove the
+ *                          cloudmessaging.messages.create permission — the first real send in the pilot does);
+ *   authentication_failed  the key does not sign, or Google refused the assertion (4xx: wrong key / account,
+ *                          deleted or disabled key);
+ *   not_configured         a variable is missing or malformed (no request made);
+ *   unavailable            Google answered 429 / 5xx / malformed, or the network failed / timed out.
+ */
+export type FcmAuthCheckResult = "configured" | "authentication_failed" | "not_configured" | "unavailable";
+
+export async function checkFcmAuth(deps: { env?: Env; fetch?: FetchLike; nowMs?: number } = {}): Promise<FcmAuthCheckResult> {
+  const cfg = fcmConfig(deps.env ?? process.env);
+  if (!cfg) return "not_configured";
+  const fetchImpl = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
+  const ex = await exchangeToken(cfg, fetchImpl, deps.nowMs ?? Date.now());
+  if (ex.ok) return "configured";
+  return ex.result.kind === "permanent" ? "authentication_failed" : "unavailable";
 }
 
 /** The messages:send body (exported for the payload-privacy test). */
