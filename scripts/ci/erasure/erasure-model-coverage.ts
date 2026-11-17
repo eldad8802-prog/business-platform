@@ -169,6 +169,9 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceWarrantyOffer: { disposition: "ERASURE_MANAGED" },
   ServiceIntakePhoto: { disposition: "ERASURE_MANAGED" },
   ServiceShareEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk 1.3-0 erasure texts (migration 20261123090000, ex-#1026): the business's settings row is DELETED by
+  // service_desk_ui_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceSettings: { disposition: "ERASURE_MANAGED" },
   // Service Desk P4 audit journal (migration 20261122090000): who acted and the request digest are erased in place by
   // service_settings_journal_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
   ServiceSettingsEvent: { disposition: "ERASURE_MANAGED" },
@@ -325,6 +328,8 @@ const RETAINED: Record<string, ModelCoverage> = {
     reason: "policy-lineage substrate; inert, no consumers",
     basis: "PRODUCT",
   },
+  // Issuer declaration (#1081, migration 20261126100000): the declared opening number of a numbering series.
+  BillingSeriesOpening: FISCAL("the declared opening number of a document numbering series, the previous tool's name and last number, and who declared it — numbering integrity"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -404,6 +409,13 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   ),
   InboundEmailAddress: unmanaged("localPartPreview, label, and the encrypted local part with its key id"),
   InboundEmailAttachmentImport: unmanaged("filename, plus the link to the message and the document"),
+  // Issuer declaration (#1081, migration 20261126100000). issuer_declaration_erase() exists (anonymises a declaration
+  // nothing was issued under; keeps the others, LEGAL/FISCAL) but the purge does not call it yet, and the
+  // DB-function contract only knows NULL / '' clearing — the table's CHECKs force placeholders. Recorded as debt.
+  BusinessIssuerDeclaration: unmanaged(
+    "legalName, tradeName, idNumber, vatRegistrationNumber, address, phone, email, declarantName, declarantCapacity",
+    "the purge calls issuer_declaration_erase() (#1117, proven by the account-deletion lab W8/C); still debt until the DB-function contract learns placeholder anonymisation and conditional retention"
+  ),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -658,6 +670,7 @@ const INTERNAL: Record<string, ModelCoverage> = {
   BillingAuthorityApp: internal("Dubiz's own OAuth client credentials with the tax authority"),
   DerivationPolicy: internal("policy definitions in the inert derivation substrate"),
   DerivationPolicyVersion: internal("versions of the same"),
+  IssuerDeclarationEnforcement: internal("the platform-wide one-way switch of issuer-declaration enforcement: a time and the approval reference; names no business"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -674,13 +687,6 @@ const decide = (question: string, target = "E2"): ModelCoverage => ({
 });
 
 const DECIDE: Record<string, ModelCoverage> = {
-  // Service Desk 1.3-0 — not decided by default (owner, 1.3-0 PR-2 ש-3: no automatic retention). No writer exists yet.
-  ServiceSettings: decide(
-    "the business's warranty template scope / exclusions are owner free text and defaultStaffMemberId names a staff " +
-      "member; service_desk_ui_erase_business() does not touch the row and the table guard refuses runtime writes once " +
-      "the business is being deleted — keep (with a basis), or scrub through a NEW database function (a migration)?",
-    "SD-1.3a"
-  ),
   Business: decide(
     "Business.name survives. For a sole trader it IS the owner's name — but retained invoices " +
       "name the same business by legal necessity, so anonymising it may be incoherent. Product decision."
