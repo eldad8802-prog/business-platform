@@ -247,6 +247,14 @@ run_guard() {
   # and the only DELETE caller is erasure Stage 2 (no route deletes a recipient). Every
   # other accountant table has no DELETE policy and no DELETE grant.
   #
+  #   notification_settings_tenant_delete    NotificationSettings    the user's own "restore defaults" + account erasure
+  #   notification_preference_tenant_delete  NotificationPreference  the user's own "restore defaults" + account erasure
+  #
+  # Per-user notification overrides (migration 20261210090000). A row only records what the user changed; deleting it
+  # IS "restore defaults" (the product default applies again), done by the session user for THEIR OWN rows under
+  # app.current_business_id, and by erasure for the whole business. Nothing else deletes them; no business data lives
+  # in them (booleans and minutes only).
+  #
   #   user_identity_runtime_delete  UserIdentity  account erasure ONLY
   #
   # The link between a Dubiz user and a Google subject (the subject and the address it
@@ -255,7 +263,7 @@ run_guard() {
   # deletes exactly the erased business's identities. app_auth holds nothing on the table
   # (it reaches it only through SECURITY DEFINER functions); the single-use signup tickets
   # belong to no business and have no DELETE policy at all.
-  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete|transactional_email_runtime_delete|auth_email_token_runtime_delete|task_request_ledger_runtime_delete|accountant_recipient_runtime_delete|user_identity_runtime_delete'
+  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete|transactional_email_runtime_delete|auth_email_token_runtime_delete|task_request_ledger_runtime_delete|accountant_recipient_runtime_delete|user_identity_runtime_delete|notification_settings_tenant_delete|notification_preference_tenant_delete'
   local ci13
   ci13="$(
     grep -rniE 'CREATE POLICY[^;]*FOR DELETE' prisma/migrations 2>/dev/null \
