@@ -14,6 +14,8 @@
  * declaration. Self-designation is refused here and the route requires MFA elevation.
  */
 
+import { createHash } from "node:crypto";
+
 import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { ConflictError, ValidationError } from "@/lib/errors";
@@ -104,6 +106,24 @@ export async function loadIssuerDesignationContextTx(tx: Tx, businessId: number)
   };
 }
 
+/**
+ * A digest of exactly what the admin reviews on the designation screen: the business's stored issuer details, its
+ * users and its current declaration. The screen sends back the digest it was shown; a POST whose digest no longer
+ * matches the stored state is refused (409), so the admin never designates over details they did not see (e.g. the
+ * owner edited the profile after the screen loaded).
+ */
+export function designationDetailsDigest(ctx: DesignationContext): string {
+  const d = ctx.details;
+  const c = ctx.current;
+  const canonical = JSON.stringify({
+    businessId: ctx.businessId,
+    details: [d.billingBusinessKind, d.billingLegalName, d.billingTaxId, d.billingVatNumber, d.billingAddress, d.billingPhone, d.billingEmail],
+    users: ctx.users.map((u) => u.id),
+    current: c ? [c.id, c.version, c.authorizedUserId] : null,
+  });
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
 export function loadIssuerDesignationContext(businessId: number): Promise<DesignationContext> {
   return billingTenantTx(businessId, (tx) => loadIssuerDesignationContextTx(tx, businessId));
 }
@@ -114,6 +134,8 @@ export type DesignationInput = {
   authorizedUserId: unknown;
   evidenceRef: unknown;
   reason: unknown;
+  /** The digest the screen was shown (GET `detailsDigest`); must match the stored state at write time. */
+  expectedDigest: unknown;
 };
 
 export type DesignationPlan =
@@ -148,6 +170,7 @@ export const DESIGNATION_MESSAGES = {
   SAME_USER: "המשתמש שנבחר כבר מוגדר כמורשה להצהיר.",
   ADMIN_NAME: "לחשבון המנהל אין שם מלא, והוא נדרש כדי להופיע כמי שמינה.",
   DB_REFUSED: "מסד הנתונים סירב לרשום את המינוי, ושום דבר לא נשמר.",
+  STALE: "פרטי העסק, המשתמשים או ההצהרה השתנו מאז שהמסך נטען. שום דבר לא נשמר — יש לרענן, לבדוק שוב ולמנות.",
 } as const;
 
 /**
@@ -165,6 +188,10 @@ export function planIssuerDesignation(input: DesignationInput, ctx: DesignationC
   if (reason.length < 5 || reason.length > 1000) throw new ValidationError(DESIGNATION_MESSAGES.REASON_REQUIRED);
   const adminName = (input.admin.name ?? "").trim().slice(0, 120);
   if (!adminName) throw new ValidationError(DESIGNATION_MESSAGES.ADMIN_NAME);
+  // What the admin reviewed must still be what is stored; otherwise nothing is planned (so nothing written).
+  if (typeof input.expectedDigest !== "string" || input.expectedDigest !== designationDetailsDigest(ctx)) {
+    throw new ConflictError("ISSUER_DESIGNATION_STALE", DESIGNATION_MESSAGES.STALE);
+  }
 
   if (!ctx.current) {
     if (ctx.problems.length > 0) throw new ConflictError("ISSUER_DESIGNATION_INCOMPLETE", DESIGNATION_MESSAGES.INCOMPLETE);

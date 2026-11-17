@@ -42,17 +42,32 @@ export function IssuerDesignationSurface({ businessId }: { businessId: number })
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
-    setLoadError(null);
     try {
-      setData(await fetchIssuerDesignation(businessId));
+      const view = await fetchIssuerDesignation(businessId);
+      setLoadError(null);
+      setData(view);
     } catch (e) {
       setLoadError(errorText(e));
     }
   }, [businessId]);
 
   useEffect(() => {
-    if (Number.isInteger(businessId) && businessId > 0) void load();
-  }, [businessId, load]);
+    if (!Number.isInteger(businessId) || businessId <= 0) return;
+    let alive = true;
+    fetchIssuerDesignation(businessId).then(
+      (view) => {
+        if (!alive) return;
+        setLoadError(null);
+        setData(view);
+      },
+      (e) => {
+        if (alive) setLoadError(errorText(e));
+      }
+    );
+    return () => {
+      alive = false;
+    };
+  }, [businessId]);
 
   const submit = async () => {
     if (userId === null) {
@@ -62,7 +77,7 @@ export function IssuerDesignationSurface({ businessId }: { businessId: number })
     setBusy(true);
     setResult(null);
     try {
-      const r = await postIssuerDesignation(businessId, { authorizedUserId: userId, evidenceRef, reason });
+      const r = await postIssuerDesignation(businessId, { authorizedUserId: userId, evidenceRef, reason, expectedDigest: data?.detailsDigest ?? "" });
       setResult({ ok: true, text: r.mode === "INITIAL" ? "המינוי וההצהרה נרשמו." : "העברת ההרשאה נרשמה." });
       setEvidenceRef("");
       setReason("");

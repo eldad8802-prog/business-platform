@@ -12,6 +12,7 @@ import { issuerStatementSha256 } from "@/lib/billing/issuer-declaration/statemen
 import { issuerFieldAccess } from "@/lib/services/billing/issuer-declaration/issuer-declaration.service";
 import {
   designateIssuerAuthority,
+  designationDetailsDigest,
   DESIGNATION_MESSAGES,
   planIssuerDesignation,
   PLATFORM_DECLARANT_CAPACITY,
@@ -58,7 +59,8 @@ const company: DesignationContext = {
   issuedCount: 0,
 };
 const admin = { id: 900, name: "מנהל בדיקה", email: "admin@dubiz.example" };
-const good = { admin, businessId: 77, authorizedUserId: 12, evidenceRef: "פרוטוקול 2026-11-01", reason: "שני משתמשים — נבחרה יוסי לפי הפרוטוקול" };
+const good = { admin, businessId: 77, authorizedUserId: 12, evidenceRef: "פרוטוקול 2026-11-01", reason: "שני משתמשים — נבחרה יוסי לפי הפרוטוקול",
+  expectedDigest: designationDetailsDigest(company) };
 
 // ── validation: nothing is planned (so nothing written) on any of these ─────
 ok("no user chosen → refused", throwsOf(() => planIssuerDesignation({ ...good, authorizedUserId: undefined }, company)) instanceof ValidationError);
@@ -69,7 +71,16 @@ ok("evidence over 200 chars → refused", (throwsOf(() => planIssuerDesignation(
 ok("reason too short → refused", (throwsOf(() => planIssuerDesignation({ ...good, reason: "abc" }, company)) as Error)?.message === DESIGNATION_MESSAGES.REASON_REQUIRED);
 ok("an admin without a name → refused", (throwsOf(() => planIssuerDesignation({ ...good, admin: { ...admin, name: null } }, company)) as Error)?.message === DESIGNATION_MESSAGES.ADMIN_NAME);
 ok("incomplete issuer details → 409, no declaration",
-  throwsOf(() => planIssuerDesignation(good, { ...company, problems: [{ field: "billingVatNumber", code: "MISSING", message: "x" }] })) instanceof ConflictError);
+  (throwsOf(() => planIssuerDesignation(good, { ...company, problems: [{ field: "billingVatNumber", code: "MISSING", message: "x" }] })) as Error)?.message === DESIGNATION_MESSAGES.INCOMPLETE);
+
+// ── the screen the admin reviewed must still be what is stored ──────────────
+ok("digest: a hex sha-256, stable for the same state", /^[0-9a-f]{64}$/.test(good.expectedDigest) && designationDetailsDigest({ ...company }) === good.expectedDigest);
+ok("no digest sent → 409 stale, nothing planned", (throwsOf(() => planIssuerDesignation({ ...good, expectedDigest: undefined }, company)) as Error)?.message === DESIGNATION_MESSAGES.STALE);
+ok("a forged digest → 409 stale", (throwsOf(() => planIssuerDesignation({ ...good, expectedDigest: "0".repeat(64) }, company)) as Error)?.message === DESIGNATION_MESSAGES.STALE);
+ok("the owner changed the VAT number after the screen loaded → 409 stale",
+  (throwsOf(() => planIssuerDesignation(good, { ...company, details: { ...company.details, billingVatNumber: "516179158" } })) as Error)?.message === DESIGNATION_MESSAGES.STALE);
+ok("a user was added after the screen loaded → 409 stale",
+  (throwsOf(() => planIssuerDesignation(good, { ...company, users: [...company.users, { id: 13, name: "רון", email: "ron@example.co.il" }] })) as Error)?.message === DESIGNATION_MESSAGES.STALE);
 
 // ── INITIAL: a multi-user business's first declaration ──────────────────────
 {
@@ -97,11 +108,13 @@ ok("incomplete issuer details → 409, no declaration",
       effectiveFrom: new Date("2026-11-01T10:00:00Z"), authorizedUserId: 11, createdAt: new Date("2026-11-01T10:00:00Z"),
     },
   };
-  const p = planIssuerDesignation(good, declared);
+  const onDeclared = { ...good, expectedDigest: designationDetailsDigest(declared) };
+  ok("a declaration recorded after the screen loaded → 409 stale", (throwsOf(() => planIssuerDesignation(good, declared)) as Error)?.message === DESIGNATION_MESSAGES.STALE);
+  const p = planIssuerDesignation(onDeclared, declared);
   ok("TRANSFER when a declaration exists", p.mode === "TRANSFER");
   ok("TRANSFER statement copies the current issuer and supersedes its version",
     p.statement.kind === "AUTHORITY_TRANSFER" && p.statement.supersedesVersion === 1 && p.statement.legalName === "דוגמה בע״מ" && p.statement.authorizedUserId === 12);
-  ok("re-designating the current authorized user → 409", throwsOf(() => planIssuerDesignation({ ...good, authorizedUserId: 11 }, declared)) instanceof ConflictError);
+  ok("re-designating the current authorized user → 409", (throwsOf(() => planIssuerDesignation({ ...onDeclared, authorizedUserId: 11 }, declared)) as Error)?.message === DESIGNATION_MESSAGES.SAME_USER);
 }
 
 // ── the write: the injected writer gets the business and the admin; DB refusals become 409 ──
@@ -123,6 +136,12 @@ ok("incomplete issuer details → 409, no declaration",
     write: async () => { throw new Error('ERROR: ISSUER_DESIGNATION_REQUIRES_PLATFORM_ADMIN (SQLSTATE DZD33)'); },
   }).catch((e) => e);
   ok("write: a database refusal is a 409 with a Hebrew message", dbRefused instanceof ConflictError && (dbRefused as Error).message === DESIGNATION_MESSAGES.DB_REFUSED);
+  let wroteStale = false;
+  const stale = await designateIssuerAuthority(good, {
+    load: async () => ({ ...company, details: { ...company.details, billingAddress: "אחר 2, חיפה" } }),
+    write: async () => { wroteStale = true; return 1; },
+  }).catch((e) => e);
+  ok("write: never called when the stored details changed since the screen loaded", stale instanceof ConflictError && (stale as Error).message === DESIGNATION_MESSAGES.STALE && !wroteStale);
 
 // ── the declaration screen's field access ───────────────────────────────────
 {
@@ -158,6 +177,8 @@ ok("incomplete issuer details → 409, no declaration",
   ok("service: never imports a privileged client (the admin binding lives in lib/services/platform-admin)",
     !/lib\/prisma-(admin|auth|control-plane)/.test(svc));
   ok("route: the write is the platform-admin binding, passed explicitly", src.includes("{ write: writeDesignationAsPlatformAdmin }"));
+  ok("route: GET shows the digest, POST sends back the one the screen was shown",
+    src.includes("detailsDigest: designationDetailsDigest(ctx)") && src.includes("expectedDigest: body.expectedDigest"));
 }
 
 console.log(failed ? `\nD6: ${passed} passed, ${failed} FAILED` : `\nD6: ${passed}/${passed} passed`);

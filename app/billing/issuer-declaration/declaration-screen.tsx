@@ -118,6 +118,17 @@ function IdentityCard({ state }: { state: State }) {
   );
 }
 
+/** The screen's state from the server; never throws (any failure is "error"). */
+async function fetchDeclarationState(): Promise<State | "error"> {
+  try {
+    const res = await fetch("/api/billing/issuer-declaration", { headers: authHeaders(), credentials: "same-origin", cache: "no-store" });
+    if (!res.ok) return "error";
+    return (await res.json()) as State;
+  } catch {
+    return "error";
+  }
+}
+
 export default function DeclarationScreen() {
   const [state, setState] = useState<State | "loading" | "error">("loading");
   const [values, setValues] = useState<Partial<Record<IssuerDetailField, string>>>({});
@@ -125,26 +136,25 @@ export default function DeclarationScreen() {
   const [notice, setNotice] = useState<{ tone: "success" | "urgent" | "attention"; text: string } | null>(null);
   const [sent, setSent] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch("/api/billing/issuer-declaration", { headers: authHeaders(), credentials: "same-origin", cache: "no-store" });
-      const body = (await res.json()) as State;
-      if (!res.ok) {
-        setState("error");
-        return;
-      }
-      setState(body);
-      const next: Partial<Record<IssuerDetailField, string>> = {};
-      for (const f of body.editableFields ?? []) next[f] = body.details[f] ?? "";
-      setValues(next);
-    } catch {
-      setState("error");
-    }
+  const apply = useCallback((body: State | "error") => {
+    setState(body);
+    if (body === "error") return;
+    const next: Partial<Record<IssuerDetailField, string>> = {};
+    for (const f of body.editableFields ?? []) next[f] = body.details[f] ?? "";
+    setValues(next);
   }, []);
 
+  const load = useCallback(async () => apply(await fetchDeclarationState()), [apply]);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    let alive = true;
+    void fetchDeclarationState().then((body) => {
+      if (alive) apply(body);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [apply]);
 
   const saveMissing = async () => {
     if (state === "loading" || state === "error") return;

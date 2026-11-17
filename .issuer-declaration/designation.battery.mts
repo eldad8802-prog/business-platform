@@ -70,7 +70,8 @@ async function main() {
 
   // INITIAL — the application's plan, the function's write
   const input = { admin: { id: adminId, name: "מנהל בדיקה", email: "a@lab.invalid" }, businessId: two.businessId,
-    authorizedUserId: two.users[1], evidenceRef: "פרוטוקול דירקטוריון 2026-11-01", reason: "שני משתמשים; המורשה לפי הפרוטוקול" };
+    authorizedUserId: two.users[1], evidenceRef: "פרוטוקול דירקטוריון 2026-11-01", reason: "שני משתמשים; המורשה לפי הפרוטוקול",
+    expectedDigest: des.designationDetailsDigest(ctx) };
   const r1 = await des.designateIssuerAuthority(input, { load, write: ownerWriter });
   const rows1 = await decls(two.businessId);
   const plan1 = des.planIssuerDesignation(input, ctx);
@@ -86,7 +87,12 @@ async function main() {
       && d1.legalName === "דוגמה בע״מ", d1);
 
   // TRANSFER — the authority moves to the other user; the issuer does not change
-  const r2 = await des.designateIssuerAuthority({ ...input, authorizedUserId: two.users[0], evidenceRef: "ייפוי כוח 2026-11-10" }, { load, write: ownerWriter });
+  // the screen loaded before the first designation is now stale: refused, nothing written
+  const staleTry = await des.designateIssuerAuthority({ ...input, authorizedUserId: two.users[0] }, { load, write: ownerWriter }).catch((e) => e);
+  ok("a stale screen (the declaration changed since it loaded) is refused (409), nothing written",
+    staleTry instanceof ConflictError && (await decls(two.businessId)).length === 1, errText(staleTry));
+  const r2 = await des.designateIssuerAuthority({ ...input, authorizedUserId: two.users[0], evidenceRef: "ייפוי כוח 2026-11-10",
+    expectedDigest: des.designationDetailsDigest(await load(two.businessId)) }, { load, write: ownerWriter });
   const rows2 = await decls(two.businessId);
   const d2 = rows2[1] ?? {};
   ok("TRANSFER: version 2 supersedes version 1, kind AUTHORITY_TRANSFER, the issuer unchanged",
@@ -95,11 +101,12 @@ async function main() {
 
   // the database's own refusals hold, through the application path
   const three = await business("not-admin-try", 2);
-  const notAdmin = await des.designateIssuerAuthority({ ...input, admin: { id: notAdminId, name: "לא מנהל", email: "x@lab.invalid" }, businessId: three.businessId, authorizedUserId: three.users[0] },
+  const threeDigest = des.designationDetailsDigest(await load(three.businessId));
+  const notAdmin = await des.designateIssuerAuthority({ ...input, admin: { id: notAdminId, name: "לא מנהל", email: "x@lab.invalid" }, businessId: three.businessId, authorizedUserId: three.users[0], expectedDigest: threeDigest },
     { load, write: ownerWriter }).catch((e) => e);
   ok("a non-admin user id is refused by the database (409), nothing written",
     notAdmin instanceof ConflictError && (await decls(three.businessId)).length === 0, errText(notAdmin));
-  const outsider = await des.designateIssuerAuthority({ ...input, businessId: three.businessId, authorizedUserId: two.users[0] }, { load, write: ownerWriter }).catch((e) => e);
+  const outsider = await des.designateIssuerAuthority({ ...input, businessId: three.businessId, authorizedUserId: two.users[0], expectedDigest: threeDigest }, { load, write: ownerWriter }).catch((e) => e);
   ok("a user of another business is refused before any write", outsider instanceof Error && (await decls(three.businessId)).length === 0, errText(outsider));
   const forged = await q(`SELECT 1`).then(async () => {
     try {

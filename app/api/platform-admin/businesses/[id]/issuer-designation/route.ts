@@ -7,6 +7,7 @@ import { ValidationError } from "@/lib/errors";
 import { handleError } from "@/lib/handle-error";
 import {
   designateIssuerAuthority,
+  designationDetailsDigest,
   loadIssuerDesignationContext,
 } from "@/lib/services/billing/issuer-declaration/issuer-designation.service";
 import { writeDesignationAsPlatformAdmin } from "@/lib/services/platform-admin/issuer-designation-writer";
@@ -64,6 +65,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
             }
           : null,
         adminUserId: admin.id,
+        detailsDigest: designationDetailsDigest(ctx),
       },
       { status: 200, headers: NO_STORE }
     );
@@ -85,6 +87,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       authorizedUserId: body.authorizedUserId,
       evidenceRef: body.evidenceRef,
       reason: body.reason,
+      expectedDigest: body.expectedDigest,
     }, { write: writeDesignationAsPlatformAdmin });
     return NextResponse.json(result, { status: 200, headers: NO_STORE });
   } catch (error) {

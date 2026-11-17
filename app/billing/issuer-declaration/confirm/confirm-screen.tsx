@@ -10,6 +10,7 @@
  * opened while signed out explains why and how to continue — it does not keep the token across a sign-in.
  */
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { SUPPORT_EMAIL } from "@/components/settings/settings-hub";
@@ -177,9 +178,9 @@ export default function ConfirmScreen() {
       <PrimaryButton onClick={confirm} disabled={busy} testId="issuer-confirm-submit">
         {busy ? "מאשרים…" : "אני מאשר/ת את ההצהרה"}
       </PrimaryButton>
-      <a href="/billing/issuer-declaration" style={{ textAlign: "center", fontSize: 14, color: TOKEN.brand.mid }}>
+      <Link href="/billing/issuer-declaration" style={{ textAlign: "center", fontSize: 14, color: TOKEN.brand.mid }}>
         משהו לא נכון? חזרה לפרטים
-      </a>
+      </Link>
     </Page>
   );
 }

@@ -433,6 +433,8 @@ export type IssuerDesignationView = {
   users: { id: number; name: string | null; email: string }[];
   current: { version: number; kind: string; track: string; legalName: string; authorizedUserId: number; createdAt: string } | null;
   adminUserId: number;
+  /** What this screen shows, digested; sent back on POST so a stale screen cannot designate. */
+  detailsDigest: string;
 };
 
 export function fetchIssuerDesignation(businessId: number) {
@@ -442,7 +444,7 @@ export function fetchIssuerDesignation(businessId: number) {
 /** Records the designation (and, for a first declaration, the declaration itself). Through the canonical core: MFA step-up applies. */
 export async function postIssuerDesignation(
   businessId: number,
-  body: { authorizedUserId: number; evidenceRef: string; reason: string }
+  body: { authorizedUserId: number; evidenceRef: string; reason: string; expectedDigest: string }
 ): Promise<{ declarationId: number; mode: "INITIAL" | "TRANSFER" }> {
   const { data } = await adminRequest<{ declarationId: number; mode: "INITIAL" | "TRANSFER" }>(
     `/api/platform-admin/businesses/${businessId}/issuer-designation`,
