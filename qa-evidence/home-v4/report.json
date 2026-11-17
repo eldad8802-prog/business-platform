@@ -1,0 +1,657 @@
+{
+  "01-hero": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי",
+      "בשבילך"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z",
+      "/api/service-desk/cases?limit=100",
+      "/api/business-documents/quotes"
+    ]
+  },
+  "01-hero-full": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי",
+      "בשבילך"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z",
+      "/api/service-desk/cases?limit=100",
+      "/api/business-documents/quotes"
+    ]
+  },
+  "02-state-A": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי",
+      "בשבילך"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z"
+    ]
+  },
+  "02-state-B": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/documents/inbox?limit=30"
+    ]
+  },
+  "02-state-C": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z",
+      "/api/service-desk/cases?limit=100",
+      "/api/business-documents/quotes"
+    ]
+  },
+  "02-state-D": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי",
+      "בשבילך"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z",
+      "/api/business-documents/quotes"
+    ]
+  },
+  "02-state-E": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי",
+      "בשבילך"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z",
+      "/api/service-desk/cases?limit=100",
+      "/api/business-documents/quotes",
+      "/api/outcomes/recommendations"
+    ]
+  },
+  "02-state-F": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z"
+    ]
+  },
+  "02-state-G": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z"
+    ]
+  },
+  "02-state-H": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z"
+    ]
+  },
+  "02-state-loading": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי",
+      "בשבילך"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count"
+    ]
+  },
+  "02-state-capsfail": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count"
+    ]
+  },
+  "03-tools-limited": {
+    "cards": [],
+    "errors": [],
+    "requests": [
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count"
+    ]
+  },
+  "03-tools-broad": {
+    "cards": [],
+    "errors": [],
+    "requests": [
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count"
+    ]
+  },
+  "03-more-limited": {
+    "cards": [],
+    "errors": [],
+    "requests": [
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count"
+    ]
+  },
+  "04-size-320": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי",
+      "בשבילך"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z",
+      "/api/service-desk/cases?limit=100",
+      "/api/business-documents/quotes"
+    ]
+  },
+  "04-size-430": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי",
+      "בשבילך"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z",
+      "/api/service-desk/cases?limit=100",
+      "/api/business-documents/quotes"
+    ]
+  },
+  "04-size-tablet-820": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי",
+      "בשבילך"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/notifications/unread-count",
+      "/api/home/collection?period=today",
+      "/api/collection/inbox",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z",
+      "/api/service-desk/cases?limit=100",
+      "/api/business-documents/quotes"
+    ]
+  },
+  "04-size-desktop-1440": {
+    "cards": [
+      "תמונת מצב",
+      "המזכירה שלי",
+      "היום שלי",
+      "בשבילך"
+    ],
+    "errors": [],
+    "requests": [
+      "/api/obligations/briefing",
+      "/api/business-status",
+      "/api/leads?status=NEW&limit=20",
+      "/api/insights",
+      "/api/business-cost/summary",
+      "/api/home/history",
+      "/api/business/setup",
+      "/api/notifications/unread-count",
+      "/api/business/profile",
+      "/api/business/capabilities",
+      "/api/notifications/unread-count",
+      "/api/notifications/unread-count",
+      "/api/inbox/attention?limit=50",
+      "/api/collection/inbox",
+      "/api/payables/commitments?scope=open",
+      "/api/inventory/alerts?type=CRITICAL_STOCK&isResolved=false",
+      "/api/auth/me",
+      "/api/home/collection?period=today",
+      "/api/documents/inbox?limit=30",
+      "/api/tasks/agenda",
+      "/api/appointments?from=2026-11-17T22%3A00%3A00.000Z&to=2026-11-18T22%3A00%3A00.000Z",
+      "/api/service-desk/cases?limit=100",
+      "/api/business-documents/quotes",
+      "/api/tasks/agenda?scope=personal"
+    ]
+  },
+  "floatingBar": {
+    "top": {
+      "scrollY": 0,
+      "docHeight": 995,
+      "vh": 844,
+      "vw": 390,
+      "bar": {
+        "top": 770,
+        "bottom": 834,
+        "left": 12,
+        "right": 378,
+        "height": 64,
+        "gapBottom": 10,
+        "gapLeft": 12,
+        "gapRight": 12
+      },
+      "plus": {
+        "cx": 195.015625,
+        "cy": 802,
+        "top": 778,
+        "bottom": 826,
+        "size": 48
+      },
+      "barCenter": {
+        "cx": 195,
+        "cy": 802
+      },
+      "itemsTopMin": 776,
+      "labelsInDomOrder": [
+        "בית",
+        "יומן",
+        "עדכוניםיש התראות שלא נקראו",
+        "כלים"
+      ],
+      "rightToLeft": "303 > 232 > 91 > 21",
+      "contentPaddingBottom": "100px",
+      "barPosition": "fixed"
+    },
+    "mid": {
+      "scrollY": 151,
+      "docHeight": 995,
+      "vh": 844,
+      "vw": 390,
+      "bar": {
+        "top": 770,
+        "bottom": 834,
+        "left": 12,
+        "right": 378,
+        "height": 64,
+        "gapBottom": 10,
+        "gapLeft": 12,
+        "gapRight": 12
+      },
+      "plus": {
+        "cx": 195.015625,
+        "cy": 802,
+        "top": 778,
+        "bottom": 826,
+        "size": 48
+      },
+      "barCenter": {
+        "cx": 195,
+        "cy": 802
+      },
+      "itemsTopMin": 776,
+      "labelsInDomOrder": [
+        "בית",
+        "יומן",
+        "עדכוניםיש התראות שלא נקראו",
+        "כלים"
+      ],
+      "rightToLeft": "303 > 232 > 91 > 21",
+      "contentPaddingBottom": "100px",
+      "barPosition": "fixed"
+    },
+    "bottom": {
+      "scrollY": 151,
+      "docHeight": 995,
+      "vh": 844,
+      "vw": 390,
+      "bar": {
+        "top": 770,
+        "bottom": 834,
+        "left": 12,
+        "right": 378,
+        "height": 64,
+        "gapBottom": 10,
+        "gapLeft": 12,
+        "gapRight": 12
+      },
+      "plus": {
+        "cx": 195.015625,
+        "cy": 802,
+        "top": 778,
+        "bottom": 826,
+        "size": 48
+      },
+      "barCenter": {
+        "cx": 195,
+        "cy": 802
+      },
+      "itemsTopMin": 776,
+      "labelsInDomOrder": [
+        "בית",
+        "יומן",
+        "עדכוניםיש התראות שלא נקראו",
+        "כלים"
+      ],
+      "rightToLeft": "303 > 232 > 91 > 21",
+      "contentPaddingBottom": "100px",
+      "barPosition": "fixed"
+    },
+    "up": {
+      "scrollY": 0,
+      "docHeight": 995,
+      "vh": 844,
+      "vw": 390,
+      "bar": {
+        "top": 770,
+        "bottom": 834,
+        "left": 12,
+        "right": 378,
+        "height": 64,
+        "gapBottom": 10,
+        "gapLeft": 12,
+        "gapRight": 12
+      },
+      "plus": {
+        "cx": 195.015625,
+        "cy": 802,
+        "top": 778,
+        "bottom": 826,
+        "size": 48
+      },
+      "barCenter": {
+        "cx": 195,
+        "cy": 802
+      },
+      "itemsTopMin": 776,
+      "labelsInDomOrder": [
+        "בית",
+        "יומן",
+        "עדכוניםיש התראות שלא נקראו",
+        "כלים"
+      ],
+      "rightToLeft": "303 > 232 > 91 > 21",
+      "contentPaddingBottom": "100px",
+      "barPosition": "fixed"
+    },
+    "lastCardBottom": 736.09375,
+    "lastCardClearsBar": true
+  },
+  "createSheet": {
+    "scrollBefore": 151,
+    "scrollAfter": 151,
+    "preserved": true,
+    "actions": [
+      "משימה חדשה",
+      "חשבונית חדשה",
+      "בקשת תשלום",
+      "לקוח חדש",
+      "קביעת תור",
+      "ליד חדש",
+      "העלאת מסמך",
+      "התחייבות חדשה",
+      "מוצר חדש",
+      "סגירה"
+    ]
+  },
+  "06-create-sheet-limited": [
+    "העלאת מסמך",
+    "ליד חדש",
+    "לקוח חדש",
+    "התחייבות חדשה",
+    "סגירה"
+  ],
+  "06-create-sheet-booking": [
+    "קביעת תור",
+    "חשבונית חדשה",
+    "בקשת תשלום",
+    "לקוח חדש",
+    "משימה חדשה",
+    "ליד חדש",
+    "העלאת מסמך",
+    "התחייבות חדשה",
+    "מוצר חדש",
+    "סגירה"
+  ],
+  "secretaryDismiss": {
+    "beforeTitle": "2 פניות ממתינות למענה",
+    "afterTitle": "בקשת תשלום אחת ממתינה"
+  }
+}

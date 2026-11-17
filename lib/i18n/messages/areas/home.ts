@@ -1,3 +1,5 @@
+import { homeV4He } from "./home-v4";
+
 /**
  * i18n area: home. Hebrew (source; English in ./home.en.ts) for this product area only — each area owns its own
  * file so areas can be translated independently. Registered in ../he.ts and ../en.ts.
@@ -401,4 +403,5 @@ export const homeHe = {
     loading: "טוען",
     hereNow: "כאן עכשיו",
   },
+  v4: homeV4He,
 } as const;
