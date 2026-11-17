@@ -113,6 +113,7 @@ jobs:
           npx tsx lib/notifications/preferences.test.ts
           npx tsx lib/notifications/notification-time.test.ts
           npx tsx lib/notifications/push/push.test.ts
+          npx tsx app/api/platform-admin/notifications/fcm-auth-check/route.test.ts
           npx tsx lib/notifications/engine/worker-decision.test.ts
           npx tsx lib/notifications/engine/engine-boundary.test.ts
           npx tsx lib/notifications/engine/schedule.test.ts
