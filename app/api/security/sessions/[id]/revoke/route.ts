@@ -20,6 +20,7 @@ import { NextResponse } from "next/server";
 import { authRequiredResponse, getAuthContext } from "@/lib/auth";
 import { clearRefreshCookie } from "@/lib/auth/refresh-cookie";
 import { revokeSession } from "@/lib/auth/session-directory";
+import { revokeSessionDevicesBestEffort } from "@/lib/notifications/engine/devices";
 
 /** `<uuid>` and nothing else, so a malformed id never reaches a query. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -52,6 +53,10 @@ export async function POST(
         { status: 404, headers: { "cache-control": "no-store" } }
       );
     }
+
+    // The ended session's push devices go with it (notification engine; best effort, never throws). Scoped to
+    // this user's own devices: the session is theirs (revokeSession proved it above).
+    await revokeSessionDevicesBestEffort(context.user.businessId, id, "session_ended", context.user.id);
 
     const res = NextResponse.json(
       {
