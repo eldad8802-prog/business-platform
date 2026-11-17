@@ -7,7 +7,11 @@
 import type { Prisma } from "@prisma/client";
 
 import { ISSUER_IDENTITY_FIELDS, validateIssuerDetails, type IssuerDetailsInput } from "@/lib/billing/issuer-declaration/details";
-import { ISSUER_DECLARATION_REQUIRED_MESSAGE, ISSUER_IDENTITY_LOCKED_MESSAGE } from "@/lib/billing/issuer-declaration/messages";
+import {
+  ISSUER_DECLARATION_REQUIRED_MESSAGE,
+  ISSUER_IDENTITY_LOCKED_CODE,
+  ISSUER_IDENTITY_LOCKED_MESSAGE,
+} from "@/lib/billing/issuer-declaration/messages";
 import { ConflictError, ValidationError } from "@/lib/errors";
 
 type Tx = Prisma.TransactionClient;
@@ -34,7 +38,22 @@ export async function assertIssuerIdentityEditableTx(
     where: { businessId, anonymisedAt: null },
     select: { id: true },
   });
-  if (declared) throw new ConflictError(ISSUER_IDENTITY_LOCKED_MESSAGE);
+  if (declared) throw new ConflictError(ISSUER_IDENTITY_LOCKED_CODE, ISSUER_IDENTITY_LOCKED_MESSAGE);
+}
+
+/**
+ * The database backstop of the identity lock refused (BusinessProfile_issuer_identity_lock raises DZD35
+ * ISSUER_PROFILE_IDENTITY_LOCKED): the application check was raced by a concurrent confirmation. The caller answers
+ * with the same 409 as the application check — never a 500.
+ */
+export function isIssuerIdentityLockDbError(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : "";
+  return /DZD35|ISSUER_PROFILE_IDENTITY_LOCKED/.test(text);
+}
+
+/** The same refusal the application check gives, for the database backstop. */
+export function issuerIdentityLockedError(): ConflictError {
+  return new ConflictError(ISSUER_IDENTITY_LOCKED_CODE, ISSUER_IDENTITY_LOCKED_MESSAGE);
 }
 
 /**

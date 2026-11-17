@@ -18,7 +18,11 @@ import {
   loadBillingInvoiceProfile,
 } from "@/lib/services/billing/billing-invoice-profile.service";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
-import { assertIssuerIdentityEditableTx } from "@/lib/services/billing/issuer-declaration/issuer-declaration-gates";
+import {
+  assertIssuerIdentityEditableTx,
+  isIssuerIdentityLockDbError,
+  issuerIdentityLockedError,
+} from "@/lib/services/billing/issuer-declaration/issuer-declaration-gates";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import {
   LegalIdentityLockedError,
@@ -305,6 +309,11 @@ export async function PATCH(req: NextRequest) {
     // The database backstop refused (the app check was raced): the same 409, never a 500.
     if (!(error instanceof LegalIdentityLockedError) && isLegalIdentityLockDbError(error)) {
       return handleError(new LegalIdentityLockedError([]));
+    }
+    // The issuer-declaration backstop refused (a concurrent confirmation raced the app check): the same 409 the
+    // app check gives, never a 500. Checked after the legal-identity mapping, which keeps precedence.
+    if (isIssuerIdentityLockDbError(error)) {
+      return handleError(issuerIdentityLockedError());
     }
     return handleError(error);
   }

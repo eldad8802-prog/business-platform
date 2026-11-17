@@ -11,6 +11,8 @@ import { ConflictError, ValidationError } from "@/lib/errors";
 import {
   assertIssuerDeclarationForIssueTx,
   assertIssuerIdentityEditableTx,
+  isIssuerIdentityLockDbError,
+  issuerIdentityLockedError,
 } from "@/lib/services/billing/issuer-declaration/issuer-declaration-gates";
 
 let failed = 0;
@@ -127,6 +129,26 @@ const todayOnly = { ...complete, billingVatNumber: null };
   ok("no application code writes the enforcement row", !/issuerDeclarationEnforcement\.(create|upsert|createMany)|INSERT INTO "IssuerDeclarationEnforcement"/.test(
     ["lib/services/billing/issuer-declaration/issuer-declaration.service.ts", "lib/services/billing/issuer-declaration/issuer-declaration-gates.ts"].map((p) => readFileSync(p, "utf8")).join("\n")
   ));
+
+  // The database backstop (BusinessProfile_issuer_identity_lock, DZD35) maps to the app check's 409 — never a 500 —
+  // and does not claim the legal-identity backstop's errors (DZL03/DZL04 keep their own 409, mapped first).
+  ok("backstop: DZD35 is recognised", isIssuerIdentityLockDbError(new Error('ERROR: ISSUER_PROFILE_IDENTITY_LOCKED (SQLSTATE DZD35)')));
+  ok("backstop: legal-identity lock errors are not claimed", !isIssuerIdentityLockDbError(new Error("ERROR: LEGAL_IDENTITY_LOCKED (SQLSTATE DZL03)")));
+  ok("backstop: an unrelated error is not claimed", !isIssuerIdentityLockDbError(new Error("connection reset")) && !isIssuerIdentityLockDbError("DZD35"));
+  const mapped = issuerIdentityLockedError();
+  ok("backstop: answers 409 ISSUER_IDENTITY_LOCKED with the app check's message",
+    mapped instanceof ConflictError && mapped.statusCode === 409 && mapped.code === "ISSUER_IDENTITY_LOCKED" && mapped.message.includes("הצהרת המנפיק"));
+  {
+    const route = readFileSync("app/api/billing/invoice-profile/route.ts", "utf8");
+    const lockAt = route.indexOf("applyLegalIdentityLock(");
+    const gateAt = route.indexOf("await assertIssuerIdentityEditableTx(tx, user.businessId, before, allowed)");
+    const upsertAt = route.indexOf("tx.businessProfile.upsert(");
+    const legalMapAt = route.indexOf("isLegalIdentityLockDbError(error)");
+    const issuerMapAt = route.indexOf("isIssuerIdentityLockDbError(error)");
+    ok("route: the legal-identity lock runs before the declaration gate", lockAt > 0 && gateAt > lockAt);
+    ok("route: the declaration gate checks what the lock allows, before the write", gateAt > 0 && upsertAt > gateAt);
+    ok("route: the legal-identity backstop is mapped before the declaration backstop", legalMapAt > 0 && issuerMapAt > legalMapAt);
+  }
 
   console.log(failed ? `\nD4: ${passed} passed, ${failed} FAILED` : `\nD4: ${passed}/${passed} passed`);
   if (failed) process.exit(1);

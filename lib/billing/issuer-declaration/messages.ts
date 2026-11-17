@@ -41,6 +41,9 @@ export const CHECK_MESSAGES: Record<Exclude<IssuerDeclarationLinkStatus, "VALID"
 
 export const SIGN_IN_REQUIRED_MESSAGE = "יש להתחבר לחשבון שאליו נשלח הקישור, ואז לפתוח את הקישור שוב.";
 
+/** The stable machine code of the identity-lock refusal (409), alongside LEGAL_IDENTITY_LOCKED. */
+export const ISSUER_IDENTITY_LOCKED_CODE = "ISSUER_IDENTITY_LOCKED";
+
 export const ISSUER_IDENTITY_LOCKED_MESSAGE =
   "פרטי הזהות של העסק (סוג העסק, השם הרשמי, מספר הזהות או החברה ומספר עוסק מורשה) נעולים לפי הצהרת המנפיק. שינוי שלהם דורש הליך נפרד.";
 
