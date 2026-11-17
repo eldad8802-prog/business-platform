@@ -139,6 +139,10 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
 
   // ---- billing / payables / collection -----------------------------------
   { pattern: "/billing/[id]", parent: "/billing", parentLabelKey: "toInvoiceList" },
+  // Issuer declaration (#1081, switch ISSUER_DECLARATION_ENABLED): the screen, and the emailed link's page. The link
+  // page carries a one-time token in its fragment, so it is never a back destination.
+  { pattern: "/billing/issuer-declaration", parent: "/billing", parentLabelKey: "toInvoiceList" },
+  { pattern: "/billing/issuer-declaration/confirm", transient: true, parent: "/billing", parentLabelKey: "toInvoiceList" },
   // Business documents (business_documents): additions next to the invoices, never inside them.
   { pattern: "/business-documents", parent: "/billing", parentLabelKey: "toInvoiceList" },
   { pattern: "/business-documents/letters", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
