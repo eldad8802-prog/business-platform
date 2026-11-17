@@ -536,6 +536,12 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           } else if (lic?.tbl === true && lic.ins === true) {
             throw new Error("legal_identity_correction_erase_missing");
           }
+          // Issuer declarations (#1081, migration 20261126100000). Anonymises in place (placeholders — the table's CHECKs
+          // refuse NULL / '') every declaration NO fiscal document was issued under, and keeps the others unchanged
+          // (RETAINED_BY_DESIGN, legal/fiscal: the documents issued under them name that issuer). Never deletes a row;
+          // the declaring users are anonymised above, so the RESTRICT foreign keys hold. It refuses unless the business in
+          // this tenant context is being deleted. Requires the migration — the #1117 code ships only after it is applied.
+          await tx.$queryRaw`SELECT public.issuer_declaration_erase() AS n`;
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //
