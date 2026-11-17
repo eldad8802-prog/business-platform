@@ -187,6 +187,7 @@ on:
           - 'ops/evidence/service-desk-ui-erasure-text-production-evidence.sql'
           - 'ops/evidence/issuer-declaration-preflight.sql'
           - 'ops/evidence/issuer-declaration-production-evidence.sql'
+          - 'ops/evidence/issuer-declaration-readiness-counts.sql'
 
 permissions:
   contents: read
