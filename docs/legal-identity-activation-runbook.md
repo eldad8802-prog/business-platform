@@ -1,15 +1,15 @@
 # Legal identity — Production activation runbook
 
-Status: **proposal; nothing here has been run in Production.** Each stage needs its own owner approval. Session dd
-(legal identity track), 2026-11-17.
+Status (2026-11-17): stages 1–2 are **done in Production** (owner-approved); stages 3–5 and everything below are a
+**proposal, not run**. Each stage needs its own owner approval. Session dd (legal identity track).
 
 ## 0. What ships, and in what order
 
 | # | Change | Production effect | Needs |
 |---|---|---|---|
-| 1 | migration `20261128090000_signup_legal_identity` (#1140, merged) | two columns + lock/seed/confirm functions + triggers. **No existing business is confirmed or locked.** | approval record, preflight 11/11, release-migrate, evidence 12/12 |
-| 2 | #1142 (signup + lock code) | **the only customer-facing change**: a new signup saves kind / legal name / number in the account transaction and they are locked from then on; `/business` shows them read-only for confirmed businesses | merge after 1 |
-| 3 | migration `20261128100000_legal_identity_correction` (#1148) | correction tables + functions, append-only, four-eyes. **No approver exists → nobody can decide.** | merge, approval record, preflight 9/9, release, evidence 14/14 |
+| 1 ✅ | migration `20261128090000_signup_legal_identity` (#1140) — APPLIED 11-17, ledger 218, evidence 12/12 | two columns + lock/seed/confirm functions + triggers. **No existing business is confirmed or locked.** | approval record, preflight 11/11, release-migrate, evidence 12/12 |
+| 2 ✅ | #1142 (signup + lock code) — MERGED 7a17e70e, live 11-17 | **the only customer-facing change**: a new signup saves kind / legal name / number in the account transaction and they are locked from then on; `/business` shows them read-only for confirmed businesses | merge after 1 |
+| 3 | migration `20261128100000_legal_identity_correction` (#1148; its preflight/evidence files reach main first via #1179) | correction tables + functions, append-only, four-eyes. **No approver exists → nobody can decide.** | merge, approval record, preflight 9/9, release, evidence 14/14 |
 | 4 | #1152 (correction screens for the business) | none while `LEGAL_IDENTITY_CORRECTION_ENABLED` is unset (routes answer 404) | merge after 3 |
 | 5 | #1154 (approver console) | none while the flag is unset | merge after 4 |
 
@@ -64,7 +64,7 @@ requests already filed stay in the database untouched and are decided after re-e
 | Situation | What happens |
 |---|---|
 | the identity changed since the request | the decision answers STALE; nothing applied; the business files a new request |
-| a live issuer declaration exists (#1117) | approve refuses (DECLARATION_ACTIVE); reject is still possible |
+| a live issuer declaration exists (#1117) | approve refuses (DECLARATION_ACTIVE); reject is still possible. A later migration (direction approved in principle, not written) lets an approved correction of a declared business write a CORRECTION declaration version in the same transaction: only the authorized user may request, PASSWORD re-verification, VAT number included |
 | the requester cancels | CANCELLED; it can no longer be decided |
 | the account is deleted | open requests are anonymised with it (`legal_identity_correction_erase`) |
 | the flag is turned off with requests open | they stay PENDING; nothing expires |
@@ -85,7 +85,7 @@ CONFIRMED / INCOMPLETE / INVALID_TAX_ID / LEGAL_NAME_TOO_LONG. From CONFIRMED on
 Proposed plan (each step separately approved):
 1. **Notice, no blocking:** a dismissible prompt on `/business` for unconfirmed businesses: "השלימו את פרטי העסק
    החוקיים" — fill the kind, legal name and number in the existing form (still editable for them), then "אישור הפרטים".
-   (UI not built yet: a small change on top of #1142, behind the same flag.)
+   (Built, not opened as a PR: branch `feat/legal-identity-completion-prompt` — renders nothing while the flag is off.)
 2. **Enable completion** (`LEGAL_IDENTITY_COMPLETION_ENABLED=true`): each owner confirms their own details; staff never
    confirm for them.
 3. **The one business with an invalid number:** the confirm answers INVALID_TAX_ID; the owner corrects the number in the
