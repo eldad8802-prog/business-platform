@@ -442,7 +442,9 @@ async function main() {
     const n2 = (await docRow(open.json.document.id)).documentNumber;
     check("K5.numbering", "OBSERVED", "API", "changing back to licensed: the same draft issues and the TAX_INVOICE series simply continues", back.status === 200 && r2.status === 200 && (n2 ?? 0) > 1, { back: back.status, issue: r2.status, n: n2 }, { ...tags, docType: "TAX_INVOICE", legal: "series on a status change — open" });
     const audit = await owner.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*)::bigint AS n FROM information_schema.tables WHERE table_name ILIKE '%declaration%'`);
-    check("K6.trail", "OBSERVED", "STATIC", "no declaration history table; the change leaves only a sensor event", Number(audit[0]?.n ?? 0) === 0, audit, tags);
+    // #1091/#1117: the declaration tables exist (history kept, never updated in place). Before them this check was
+    // OBSERVED "no declaration history table; the change leaves only a sensor event" (count 0).
+    check("K6.trail", "OK", "STATIC", "issuer-declaration history tables exist (#1091) — a confirmed declaration is a kept record, not only a sensor event", Number(audit[0]?.n ?? 0) >= 1, audit, tags);
   }
 
   // ================================================================== 6. allocation (API with Production pilot settings; SERVICE with a fake ITA)
