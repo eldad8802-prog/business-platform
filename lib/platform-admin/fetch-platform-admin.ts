@@ -425,5 +425,31 @@ export function fetchPlatformAdminAuthorityPilotGate(businessId: number, userId:
   return platformAdminFetch<AuthorityPilotGateReport>(`/api/platform-admin/authority/pilot-gate?${q.toString()}`);
 }
 
+/** Issuer declaration — designation of the authorized declarant for a business with more than one user (#1081). */
+export type IssuerDesignationView = {
+  businessId: number;
+  details: Record<string, string | null>;
+  problems: { field: string; code: string; message: string }[];
+  users: { id: number; name: string | null; email: string }[];
+  current: { version: number; kind: string; track: string; legalName: string; authorizedUserId: number; createdAt: string } | null;
+  adminUserId: number;
+};
+
+export function fetchIssuerDesignation(businessId: number) {
+  return platformAdminFetch<IssuerDesignationView>(`/api/platform-admin/businesses/${businessId}/issuer-designation`);
+}
+
+/** Records the designation (and, for a first declaration, the declaration itself). Through the canonical core: MFA step-up applies. */
+export async function postIssuerDesignation(
+  businessId: number,
+  body: { authorizedUserId: number; evidenceRef: string; reason: string }
+): Promise<{ declarationId: number; mode: "INITIAL" | "TRANSFER" }> {
+  const { data } = await adminRequest<{ declarationId: number; mode: "INITIAL" | "TRANSFER" }>(
+    `/api/platform-admin/businesses/${businessId}/issuer-designation`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+  return data;
+}
+
 /** Test seam — exercises the request core directly. Not used by the console. */
 export const __testing = { adminRequest };

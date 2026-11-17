@@ -28,6 +28,9 @@ on:
       - "app/api/billing/issuer-declaration/**"
       - "app/api/billing/invoice-profile/**"
       - "app/billing/issuer-declaration/**"
+      - "app/api/platform-admin/businesses/*/issuer-designation/**"
+      - "components/billing/IssuerDeclarationNotice.tsx"
+      - "components/platform-admin/issuer-designation-surface.tsx"
       - ".github/workflows/issuer-declaration-migration-lab.yml"
   workflow_dispatch:
 
@@ -235,6 +238,10 @@ jobs:
         run: npx tsx lib/billing/issuer-declaration/statement.test.ts
       - name: D4 issuance gate OFF/ON and identity lock (pure)
         run: npx tsx lib/services/billing/issuer-declaration/issuer-declaration-gates.test.ts
+      - name: D5 screens view model, billing notice, confirm-page security (pure)
+        run: npx tsx lib/billing/issuer-declaration/screen-model.test.ts
+      - name: D6 platform designation of the authorized declarant + screen field access (pure)
+        run: npx tsx lib/services/billing/issuer-declaration/issuer-designation.test.ts
 
       - name: Lab — link migration (migrate deploy) → drop db-push copies → declaration migration (owner)
         run: |
@@ -253,6 +260,12 @@ jobs:
           set -euo pipefail
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idc"           RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idc"           AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/idc"             npx tsx .issuer-declaration/declaration-flow.battery.mts | tee /tmp/idc.out
           grep -qx "ALL PASS" /tmp/idc.out || { echo "::error::the declaration flow battery is not green"; exit 1; }
+
+      - name: D7 platform designation (the application path → the migration definer function; runtime context, binding record, refusals)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/idc" RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/idc" \n            npx tsx .issuer-declaration/designation.battery.mts | tee /tmp/idc-d7.out
+          grep -qx "ALL PASS" /tmp/idc-d7.out || { echo "::error::the designation battery is not green"; exit 1; }
 
       - name: Negative proof — the spend in its own transaction must fail (a)
         run: |

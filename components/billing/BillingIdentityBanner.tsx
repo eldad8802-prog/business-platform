@@ -49,6 +49,7 @@ function rowToForm(p: Partial<ProfileRow>): InvoiceProfileFormState {
     billingPhone: p.billingPhone ?? null,
     billingEmail: p.billingEmail ?? null,
     billingAddress: p.billingAddress ?? null,
+    billingVatNumber: p.billingVatNumber ?? null,
     billingPdfTemplateStyle: parseBillingPdfTemplateStyle(
       typeof p.billingPdfTemplateStyle === "string"
         ? p.billingPdfTemplateStyle
@@ -124,7 +125,12 @@ export function BillingIdentityBanner({
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(form),
+        // The VAT dealer number is sent only for the kinds that carry one, so a save never touches it otherwise.
+        body: JSON.stringify(
+          form.billingBusinessKind === "AUTHORIZED_DEALER" || form.billingBusinessKind === "LTD_COMPANY"
+            ? form
+            : { ...form, billingVatNumber: undefined }
+        ),
       });
       if (!res.ok) {
         let msg = t("billing.identity.saveFailed");
@@ -316,7 +322,7 @@ export function BillingIdentityBanner({
       </div>
 
       <div style={{ padding: 16, display: "grid", gap: 14 }}>
-        <BusinessIdentitySetupForm form={form} onChange={setForm} />
+        <BusinessIdentitySetupForm form={form} onChange={setForm} showVatNumber />
 
         {error ? (
           <div
