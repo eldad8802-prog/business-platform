@@ -641,6 +641,13 @@ model BusinessProfile {
   /// OWNER_SELECTED | DEFAULTED (CHECK-constrained). A default is never recorded
   /// as the owner's choice.
   onboardingGoalSource    String?
+  /// Signup legal identity (migration 20261128090000_signup_legal_identity). Both NULL = not confirmed: every
+  /// business that existed before it, editable as before. Set together, only by the definer functions
+  /// signup_legal_identity_seed (SIGNUP, in the account transaction) and legal_identity_confirm_existing
+  /// (OWNER_CONFIRMED). Once set, billingBusinessKind / billingLegalName / billingTaxId are locked by the
+  /// BusinessProfile_legal_identity_lock trigger. The application never writes these two columns.
+  legalIdentityConfirmedAt DateTime?
+  legalIdentitySource      String?
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
   business                Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
