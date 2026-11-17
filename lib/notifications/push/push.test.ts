@@ -19,6 +19,9 @@
  *     result code.
  *  7. Web push through the unified sender: not configured ⇒ not_configured; a refused endpoint ⇒ permanent
  *     (no send); 404 / 410 ⇒ gone; 429 / 5xx / network ⇒ transient; the web payload carries title / body / url / tag.
+ *  8. The owner credential check (checkFcmAuth): one FRESH token exchange, nothing sent, the send cache neither read
+ *     nor written; 200 ⇒ configured; a key that does not sign / OAuth 4xx ⇒ authentication_failed; missing or malformed
+ *     variables ⇒ not_configured (no request); 429 / 5xx / malformed / network / timeout ⇒ unavailable.
  */
 import { createVerify, generateKeyPairSync } from "node:crypto";
 
@@ -27,6 +30,7 @@ import {
   FCM_SCOPE,
   OAUTH_TOKEN_URL,
   buildAssertion,
+  checkFcmAuth,
   classifyFcmError,
   fcmConfig,
   fcmMessageBody,
@@ -206,6 +210,46 @@ async function main() {
   ok("an FCM row without fcm: ⇒ permanent", (await sendToDevice({ ...web, provider: "FCM" }, msg(), { env: ENV })).kind === "permanent");
   ok("an unknown provider ⇒ permanent", (await sendToDevice({ ...web, provider: "APNS" }, msg(), { env: VAPID })).kind === "permanent");
   ok("webPushPayloadOf keeps the service worker's fields", JSON.stringify(Object.keys(webPushPayloadOf(msg())).sort()) === JSON.stringify(["body", "category", "notificationId", "tag", "title", "url"]));
+
+  console.log("8. the owner's credential check");
+  {
+    resetFcmTokenCache();
+    const c = fakeFetch([tokenOk]);
+    const r = await checkFcmAuth({ env: ENV, fetch: c.f, nowMs: NOW });
+    ok("200 ⇒ configured", r === "configured", r);
+    ok("…with exactly one request, to the token URL, and no messages:send", c.calls.length === 1 && c.calls[0].url === OAUTH_TOKEN_URL);
+    ok("the result is only the class (no token in it)", typeof r === "string" && !String(r).includes("ya29"));
+    // The check never fills the send cache: the next send still exchanges its own token.
+    const s1 = fakeFetch([tokenOk, sendOk]);
+    await sendFcm(TOKEN, msg(), { env: ENV, fetch: s1.f, nowMs: NOW });
+    ok("the check did not fill the send cache", s1.calls.filter((x) => x.url === OAUTH_TOKEN_URL).length === 1);
+    // …and never reads it: with a warm cache, the check still asks Google.
+    const c2 = fakeFetch([() => ({ status: 401, body: "{}" })]);
+    ok("a warm send cache is ignored (401 at Google ⇒ authentication_failed)", (await checkFcmAuth({ env: ENV, fetch: c2.f, nowMs: NOW + 1000 })) === "authentication_failed" && c2.calls.length === 1);
+    const s2 = fakeFetch([sendOk]);
+    await sendFcm(TOKEN, msg(), { env: ENV, fetch: s2.f, nowMs: NOW + 2000 });
+    ok("the check did not drop the send cache", s2.calls.every((x) => x.url !== OAUTH_TOKEN_URL));
+    resetFcmTokenCache();
+    ok("OAuth 400 (invalid_grant) ⇒ authentication_failed", (await checkFcmAuth({ env: ENV, fetch: fakeFetch([() => ({ status: 400, body: '{"error":"invalid_grant"}' })]).f, nowMs: NOW })) === "authentication_failed");
+    ok("OAuth 403 ⇒ authentication_failed", (await checkFcmAuth({ env: ENV, fetch: fakeFetch([() => ({ status: 403, body: "{}" })]).f, nowMs: NOW })) === "authentication_failed");
+    const notPem = "-----BEGIN PRIVATE KEY-----\nnot-a-key\n-----END PRIVATE KEY-----";
+    const bad = fakeFetch([tokenOk]);
+    ok("a key that does not sign ⇒ authentication_failed, no request", (await checkFcmAuth({ env: { ...ENV, FCM_PRIVATE_KEY: notPem }, fetch: bad.f, nowMs: NOW })) === "authentication_failed" && bad.calls.length === 0);
+    for (const missing of ["FCM_PROJECT_ID", "FCM_CLIENT_EMAIL", "FCM_PRIVATE_KEY"] as const) {
+      const n = fakeFetch([tokenOk]);
+      const env: Record<string, string | undefined> = { ...ENV };
+      delete env[missing];
+      ok(`no ${missing} ⇒ not_configured, no request`, (await checkFcmAuth({ env, fetch: n.f, nowMs: NOW })) === "not_configured" && n.calls.length === 0);
+    }
+    ok("a malformed project id ⇒ not_configured", (await checkFcmAuth({ env: { ...ENV, FCM_PROJECT_ID: "Bad Id" }, fetch: fakeFetch([tokenOk]).f, nowMs: NOW })) === "not_configured");
+    ok("OAuth 503 ⇒ unavailable", (await checkFcmAuth({ env: ENV, fetch: fakeFetch([() => ({ status: 503, body: "" })]).f, nowMs: NOW })) === "unavailable");
+    ok("OAuth 429 ⇒ unavailable", (await checkFcmAuth({ env: ENV, fetch: fakeFetch([() => ({ status: 429, body: "" })]).f, nowMs: NOW })) === "unavailable");
+    ok("a 200 without access_token ⇒ unavailable", (await checkFcmAuth({ env: ENV, fetch: fakeFetch([() => ({ status: 200, body: "{}" })]).f, nowMs: NOW })) === "unavailable");
+    ok("network error ⇒ unavailable", (await checkFcmAuth({ env: ENV, fetch: fakeFetch([() => new TypeError("fetch failed")]).f, nowMs: NOW })) === "unavailable");
+    const abort = Object.assign(new Error("aborted"), { name: "AbortError" });
+    ok("timeout ⇒ unavailable", (await checkFcmAuth({ env: ENV, fetch: fakeFetch([() => abort]).f, nowMs: NOW })) === "unavailable");
+    resetFcmTokenCache();
+  }
 
   console.log(`\n[push] PASS=${passed} FAIL=${failed}`);
   if (failed > 0) process.exit(1);

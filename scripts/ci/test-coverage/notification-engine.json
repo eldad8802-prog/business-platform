@@ -18,7 +18,12 @@
     "lib/notifications/push/push.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
-      "reason": "pure, fake fetch, a key generated in the test: FCM configuration from env only (missing ⇒ not_configured, no request), the RS256 service-account assertion verified, the cached access token, messages:send (PRIVATE Android notification, channel, data exactly notificationId / href / category), gone / transient / permanent classification, payload privacy (generic lock-screen text unless the user opted in, href fallback), web push through the unified sender (endpoint allowlist kept); run by security-gate (lab pure) and notification-engine-ci.yml"
+      "reason": "pure, fake fetch, a key generated in the test: FCM configuration from env only (missing ⇒ not_configured, no request), the RS256 service-account assertion verified, the cached access token, messages:send (PRIVATE Android notification, channel, data exactly notificationId / href / category), gone / transient / permanent classification, payload privacy (generic lock-screen text unless the user opted in, href fallback), web push through the unified sender (endpoint allowlist kept), the owner credential check (one fresh token exchange, nothing sent, cache untouched, class only: configured / authentication_failed / not_configured / unavailable); run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
+    "app/api/platform-admin/notifications/fcm-auth-check/route.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure, injected deps: the FCM credential check route answers 401/403 from the canonical platform-admin guard (incl. MFA) before anything runs; fail-closed rate limit (3 per admin per 10 min, 20 per day) ⇒ 429 / 503 with no check; an admin gets 200 { result } only, no-store, one audit with the class only; errors ⇒ 500 with the error name only in the log; static: POST only, no env / key / token in the route; run by security-gate (lab pure) and notification-engine-ci.yml"
     },
     "lib/notifications/engine/worker-decision.test.ts": {
       "class": "PRODUCT_REQUIRED",

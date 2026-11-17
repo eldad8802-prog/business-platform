@@ -219,4 +219,14 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "global", limit: 600, windowSeconds: 60 * 60 },
     ],
   },
+  // The owner's FCM credential check (POST /api/platform-admin/notifications/fcm-auth-check): each admitted request
+  // is one token exchange at Google. Platform-admin + MFA only; fail-CLOSED so a limiter outage never means unbounded
+  // calls with the service-account key.
+  FCM_AUTH_CHECK: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 3, windowSeconds: 10 * 60 },
+      { scope: "global", limit: 20, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
 };
