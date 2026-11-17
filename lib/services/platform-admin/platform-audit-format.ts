@@ -21,6 +21,7 @@ const ACTION_LABELS: Record<string, string> = {
   [PLATFORM_AUDIT_ACTIONS.PASSKEY_REGISTERED]: "מפתח גישה נוסף",
   [PLATFORM_AUDIT_ACTIONS.PASSKEY_REVOKED]: "מפתח גישה הוסר",
   [PLATFORM_AUDIT_ACTIONS.AUTHORITY_PRODUCTION_APP_REGISTRATION]: "רישום אפליקציית רשות המסים (ייצור)",
+  [PLATFORM_AUDIT_ACTIONS.FCM_AUTH_CHECKED]: "בדיקת הזדהות FCM",
 };
 
 /** Page views — read-only; everything else changed something or proved a factor. */
