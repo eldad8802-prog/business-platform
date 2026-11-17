@@ -1,0 +1,111 @@
+# Lab for prisma/migrations/20261220090000_issuer_declaration_forward_correction (DRAFT — owner approval before merge or
+# apply). Ephemeral PG17, synthetic data, no secrets, no network beyond package install.
+#
+#   1. base schema (db push), roles, fiscal-immutability replay; 20261126100000 (applied in Production) then this one;
+#   2. the forward-correction check — technical fix after issuance allowed forward; legal change / backdating refused;
+#      issued documents unchanged; the profile lock follows the current declaration;
+#   3. the ORIGINAL declaration check (73) still passes on top of this migration (nothing else regressed);
+#   4. negative proof — WITHOUT this migration the forward check fails exactly on the old refusal.
+name: issuer declaration forward-correction lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261220090000_issuer_declaration_forward_correction/**"
+      - "scripts/ci/issuer-declaration/forward-correction-lab-check.sql"
+      - ".github/workflows/issuer-declaration-forward-correction-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: Issuer declaration forward correction (PG17, NOBYPASSRLS runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: decl_owner
+          POSTGRES_PASSWORD: decl_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_fwd
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U decl_owner -d dubiz_fwd"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://decl_owner:decl_ci_synthetic_owner_pw@localhost:5432/dubiz_fwd
+      ORIG_URL: postgresql://decl_owner:decl_ci_synthetic_owner_pw@localhost:5432/dubiz_fwd_orig
+      NEG_URL: postgresql://decl_owner:decl_ci_synthetic_owner_pw@localhost:5432/dubiz_fwd_neg
+      BASE_MIGRATION: prisma/migrations/20261126100000_issuer_declaration/migration.sql
+      MIGRATION: prisma/migrations/20261220090000_issuer_declaration_forward_correction/migration.sql
+      CHECK: scripts/ci/issuer-declaration/forward-correction-lab-check.sql
+      ORIG_CHECK: scripts/ci/issuer-declaration/migration-lab-check.sql
+      SECF: prisma/migrations/20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Base schema (db push), roles, fiscal-immutability replay, 20261126100000 — for all three databases
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE dubiz_fwd_orig" -c "CREATE DATABASE dubiz_fwd_neg"
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "CREATE ROLE app_admin NOLOGIN NOSUPERUSER NOBYPASSRLS;"
+          for url in "$OWNER_URL" "$ORIG_URL" "$NEG_URL"; do
+            DATABASE_URL="$url" DIRECT_URL="$url" npx prisma db push --skip-generate
+            psql "$url" -q -f "$SECF" > /dev/null
+            psql "$url" -v ON_ERROR_STOP=1 -q -f .issuer-declaration/drop-pushed.sql > /dev/null 2>&1
+            psql "$url" -v ON_ERROR_STOP=1 -q -f "$BASE_MIGRATION"
+          done
+
+      - name: Apply this migration (not on the negative-proof database)
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q -f "$MIGRATION"
+          psql "$ORIG_URL" -v ON_ERROR_STOP=1 -q -f "$MIGRATION"
+
+      - name: Forward-correction check — every check passes
+        run: |
+          set -uo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -f "$CHECK" 2>&1 | tee fwd.log
+          pass=$(grep -c "PASS  " fwd.log || true); fail=$(grep -c "FAIL  " fwd.log || true)
+          echo "PASS=$pass FAIL=$fail"
+          grep "FAIL  " fwd.log || true
+          [ "$fail" = "0" ] && [ "$pass" = "16" ] || { echo "::error::forward-correction check: expected 16/0, got $pass/$fail"; exit 1; }
+
+      - name: Original declaration check still passes on top of this migration
+        run: |
+          set -uo pipefail
+          psql "$ORIG_URL" -v ON_ERROR_STOP=1 -f "$ORIG_CHECK" > orig.log 2>&1 || true
+          pass=$(grep -c "PASS  " orig.log || true); fail=$(grep -c "FAIL  " orig.log || true)
+          echo "PASS=$pass FAIL=$fail"
+          grep "FAIL  " orig.log || true
+          [ "$fail" = "0" ] && [ "$pass" -ge 73 ] || { echo "::error::the original declaration check regressed"; exit 1; }
+
+      - name: Negative proof — without this migration the forward check fails on the old refusal
+        run: |
+          set -uo pipefail
+          psql "$NEG_URL" -v ON_ERROR_STOP=1 -f "$CHECK" > neg.log 2>&1 || true
+          if grep -q "FAIL  F2 .*ISSUER_CORRECTION_AFTER_ISSUANCE_REFUSED" neg.log; then
+            echo "negative proof OK — without 20261220090000, a technical correction after issuance is refused (F2)"
+          else
+            echo "::error::NEGATIVE-PROOF FAIL: the forward check did not detect the missing migration"; grep -E "PASS  |FAIL  " neg.log || true; exit 1
+          fi
