@@ -19,7 +19,7 @@
  *     translators' hrefs pass the category's deep-link prefixes.
  *  7. Bounded run: the time budget ends a pass with nextAfter (keyset continuation); one failing business is
  *     counted and the pass continues.
- *  8. Static: the route authenticates through decideCronAuth only, is not scheduled, logs counts only.
+ *  8. Static: the route authenticates through decideCronAuth only, is scheduled once (rotation mode), logs counts only.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -373,7 +373,12 @@ async function main() {
   ok("route: maxDuration 60 and a budget under it", /maxDuration = 60/.test(route) && /BUDGET_MS = 45_000/.test(route));
   ok("sweep: the state producers and the kick are wired (default deps)", /stateProducers: \(businessId, gates, now\) => runStateProducers\(businessId, gates, now\)/.test(code("lib/notifications/producers/status-sweep.ts")) && /kick: kickPushWorkerAfterResponse/.test(code("lib/notifications/producers/status-sweep.ts")));
   const vercel = fs.existsSync(path.join(root, "vercel.json")) ? read("vercel.json") : "";
-  ok("route: not scheduled in vercel.json", !vercel.includes("/api/notifications/status-sweep"));
+  const sweepCrons = ((JSON.parse(vercel || "{}") as { crons?: { path: string; schedule: string }[] }).crons ?? []).filter((c) => c.path.startsWith("/api/notifications/status-sweep"));
+  ok("route: scheduled in vercel.json exactly once, every 15 min off the quarter hour, no query (the rotation mode)",
+    sweepCrons.length === 1 && sweepCrons[0]!.path === "/api/notifications/status-sweep" && sweepCrons[0]!.schedule === "7,22,37,52 * * * *", sweepCrons);
+  ok("route: the cron call (no after) runs the rotation; ?after keeps the keyset continuation",
+    /rawAfter === null\s*\?\s*await runStatusSweep\(new Date\(\), \{ budgetMs: BUDGET_MS, rotation: \{ cadenceMs: STATUS_SWEEP_CADENCE_MS \} \}\)/.test(route) &&
+    /await runStatusSweep\(new Date\(\), \{ after, budgetMs: BUDGET_MS \}\)/.test(route));
   const sweep = code("lib/notifications/producers/status-sweep.ts");
   const logs = sweep.match(/console\.\w+\([^;]*;/g) ?? [];
   ok("sweep: one log line, counts only", logs.length === 1 && /JSON\.stringify\(report\)/.test(logs[0]!), logs);

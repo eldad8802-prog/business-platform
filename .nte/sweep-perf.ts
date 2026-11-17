@@ -4,6 +4,10 @@
  * Production / Preview database.
  *
  *   seed:  OWNER_URL=… npx tsx .nte/sweep-perf.ts seed <N> <tag>
+ *   schedule: DATABASE_URL=<runtime> OWNER_URL=… npx tsx .nte/sweep-perf.ts schedule <tag>
+ *          one pass of each SCHEDULED route as cron would run it (docs/notifications/scheduling.md): the status sweep in
+ *          rotation mode (45 s budget, the whole lab), the digest at a not-due tick (07:00 local) and at the due tick
+ *          (08:00 local, the next morning), and one push worker pass (limit 100) — the same metrics as `run`.
  *   run:   DATABASE_URL=<runtime> OWNER_URL=… npx tsx .nte/sweep-perf.ts run <tag> [passes]
  *          (SWEEP_PERF_MODULE=<module path> measures another revision of the sweep, e.g. the previous head copied aside)
  *
@@ -162,8 +166,64 @@ async function run(tag: string, passes: number): Promise<void> {
   await owner.$disconnect();
 }
 
+async function schedule(tag: string): Promise<void> {
+  const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
+  const runtime = new PrismaClient({ log: [{ emit: "event", level: "query" }] });
+  let queries = 0;
+  let begins = 0;
+  runtime.$on("query", (e) => { queries += 1; if (/^s*BEGIN/i.test(e.query)) begins += 1; });
+  (globalThis as unknown as { prisma: PrismaClient }).prisma = runtime;
+  const { runStatusSweep } = await import("@/lib/notifications/producers/status-sweep");
+  const { runDailyDigest } = await import("@/lib/notifications/engine/digest");
+  const { runPushWorker } = await import("@/lib/notifications/engine/push-worker");
+  const { STATUS_SWEEP_CADENCE_MS } = await import("@/lib/notifications/engine/schedule");
+  const ids = (await owner.business.findMany({ where: { name: { startsWith: `${tag}-` } }, select: { id: true }, orderBy: { id: "asc" } })).map((b) => b.id);
+  const db = (await owner.$queryRaw<{ d: string }[]>`SELECT current_database() AS d`)[0]!.d;
+  const sampler = new PrismaClient({ datasourceUrl: process.env.SAMPLER_URL ?? process.env.OWNER_URL! });
+  const fake = { fetch: async () => ({ status: 200, text: async () => "{}" }), webPush: async () => ({ ok: true as const, status: 201 }) };
+  const measure = async (name: string, fn: () => Promise<unknown>) => {
+    queries = 0; begins = 0;
+    let peak = 0, peakConn = 0, sampling = true;
+    const s$ = (async () => {
+      while (sampling) {
+        const r = await sampler.$queryRaw<{ tx: bigint; conn: bigint }[]>`
+          SELECT count(*) FILTER (WHERE xact_start IS NOT NULL)::bigint AS tx, count(*)::bigint AS conn FROM pg_stat_activity
+           WHERE datname = ${db} AND pid <> pg_backend_pid() AND usename <> 'lab_owner'`;
+        peak = Math.max(peak, Number(r[0]!.tx)); peakConn = Math.max(peakConn, Number(r[0]!.conn));
+        await new Promise((res) => setTimeout(res, 5));
+      }
+    })();
+    const t0 = Date.now();
+    const report = await fn();
+    const wallMs = Date.now() - t0;
+    sampling = false; await s$;
+    console.log(JSON.stringify({ route: name, businesses: ids.length, wallMs, msPerBusiness: +(wallMs / ids.length).toFixed(1), queries, queriesPerBusiness: +(queries / ids.length).toFixed(1), tx: begins, peakOpenTx: peak, peakConnections: peakConn, report }));
+  };
+  const now = new Date();
+  // the next 07:00 / 08:00 in Asia/Jerusalem after now (UTC+2 in winter, +3 in summer: probe both and keep the right one)
+  const localTick = (h: number) => {
+    for (let d = 0; d < 3; d++) for (const off of [2, 3]) {
+      const t = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + d, h - off, 0, 0));
+      const hh = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jerusalem", hour: "2-digit", hour12: false }).format(t));
+      if (t > now && hh === h) return t;
+    }
+    throw new Error("no tick");
+  };
+  await measure("status-sweep (rotation, 45 s budget)", async () => {
+    const r = await runStatusSweep(now, { budgetMs: 45_000, quiet: true, rotation: { cadenceMs: STATUS_SWEEP_CADENCE_MS } });
+    return { swept: r.swept, errors: r.errors, rotation: r.rotation, written: r.written };
+  });
+  await measure("digest (not due, 07:00 local)", async () => runDailyDigest(localTick(7), { businessIds: ids, quiet: true }));
+  await measure("digest (due, 08:00 local)", async () => runDailyDigest(localTick(8), { businessIds: ids, quiet: true }));
+  await measure("push worker (one pass, limit 100)", async () => {
+    const r = await runPushWorker(now, { deps: fake as never, quiet: true });
+    return { owed: r.owed, claimed: r.claimed, fannedOut: r.fannedOut, suppressed: r.suppressed, errors: r.errors };
+  });
+  await sampler.$disconnect(); await runtime.$disconnect(); await owner.$disconnect();
+}
+
 const [cmd, a, b] = process.argv.slice(2);
-(cmd === "seed" ? seed(Number(a), b!) : cmd === "run" ? run(a!, Number(b ?? 2)) : Promise.reject(new Error("usage: seed <N> <tag> | run <tag> [passes]")))
+(cmd === "seed" ? seed(Number(a), b!) : cmd === "run" ? run(a!, Number(b ?? 2)) : cmd === "schedule" ? schedule(a!) : Promise.reject(new Error("usage: seed <N> <tag> | run <tag> [passes] | schedule <tag>")))
   .catch((e) => {
     console.error(e instanceof Error ? e.message : e);
     process.exit(1);
