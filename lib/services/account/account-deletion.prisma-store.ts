@@ -514,6 +514,28 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // after every database stage committed (eraseStoredObjects, then the sweep). It refuses unless the business
           // in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.business_documents_erase() AS n`;
+          // Legal identity correction requests (migration 20261128100000): the names, numbers, reason and decision note
+          // are cleared in place and an open request is closed; never deletes a row. Refuses unless the business in
+          // this tenant context is being deleted.
+          // Called whenever the function exists (Production once 20261128100000 is applied). Without it — an environment
+          // built before that migration, such as another module's lab — it is skipped only when the business has no
+          // correction request at all (nothing personal to clear); a request with no way to erase it fails the purge
+          // loudly, as every stage above. A table this role cannot read (a lab that built it from schema.prisma with no
+          // grant) is one it cannot have written either, unless it holds INSERT — that case fails loudly too.
+          const [lic] = await tx.$queryRaw<Array<{ fn: boolean; tbl: boolean; sel: boolean; ins: boolean }>>`
+            SELECT to_regprocedure('public.legal_identity_correction_erase()') IS NOT NULL AS fn,
+                   x.t IS NOT NULL AS tbl,
+                   coalesce(has_table_privilege(x.t, 'SELECT'), false) AS sel,
+                   coalesce(has_table_privilege(x.t, 'INSERT'), false) AS ins
+            FROM (SELECT to_regclass('public."LegalIdentityCorrectionRequest"')::oid AS t) x`;
+          if (lic?.fn === true) {
+            await tx.$queryRaw`SELECT public.legal_identity_correction_erase() AS n`;
+          } else if (lic?.tbl === true && lic.sel === true) {
+            const pending = await tx.legalIdentityCorrectionRequest.findFirst({ where: { businessId }, select: { id: true } });
+            if (pending) throw new Error("legal_identity_correction_erase_missing");
+          } else if (lic?.tbl === true && lic.ins === true) {
+            throw new Error("legal_identity_correction_erase_missing");
+          }
           // Issuer declarations (#1081, migration 20261126100000). Anonymises in place (placeholders — the table's CHECKs
           // refuse NULL / '') every declaration NO fiscal document was issued under, and keeps the others unchanged
           // (RETAINED_BY_DESIGN, legal/fiscal: the documents issued under them name that issuer). Never deletes a row;

@@ -20,6 +20,13 @@ export const STORAGE_DOMAINS = [
    * overwrite an object. Account erasure deletes the whole prefix after commit (service-storage-erasure.ts).
    */
   "service",
+  /**
+   * Legal identity correction requests (2026-11-13) — PRIVATE. Keys biz/{id}/legal-identity/{requestId}/… (CHECK-limited
+   * in LegalIdentityCorrectionAttachment): supporting documents the owner attaches to a correction request. Conditional
+   * writes only: no write here can overwrite an object. Account erasure deletes the whole prefix after commit
+   * (lib/services/legal-identity/legal-identity-storage-erasure.ts).
+   */
+  "legal-identity",
 ] as const;
 
 export type StorageDomain = (typeof STORAGE_DOMAINS)[number];

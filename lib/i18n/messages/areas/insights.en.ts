@@ -493,6 +493,7 @@ export const insightsEn: Widen<typeof insightsHe> = {
     toMyCoupons: "To my coupons",
     toBusinessDetails: "To business details",
     toBusinessList: "To the business list",
+    toLegalIdentityCorrections: "To identity corrections",
     toSecurityTools: "To security & tools",
     toBusinessProfile: "To the business profile",
     toOrderBasket: "To the order basket",

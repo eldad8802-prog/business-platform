@@ -28,6 +28,7 @@
 import { prisma } from "@/lib/prisma";
 import { continueBusinessDocumentsErasure } from "@/lib/services/business-documents/erasure/business-docs-erasure";
 import { continueServiceStorageErasure } from "@/lib/services/service-desk/erasure/service-storage-erasure";
+import { continueLegalIdentityStorageErasure } from "@/lib/services/legal-identity/legal-identity-storage-erasure";
 
 export type StorageErasureModule = {
   module: string;
@@ -41,6 +42,9 @@ export const ACCOUNT_STORAGE_ERASURES: readonly StorageErasureModule[] = [
   // biz/{id}/service/, verifies with a fresh listing and records the pass. The job closes (DONE) only on a pass at
   // least one hour after the deletion request — so the post-commit pass deletes, and a later sweep closes.
   { module: "service-desk", resume: (businessId) => continueServiceStorageErasure(businessId) },
+  // Legal identity corrections: legal_identity_correction_erase() clears the attachment keys in the purge transaction;
+  // this deletes biz/{id}/legal-identity/ and verifies with a fresh listing. Done when nothing is left.
+  { module: "legal-identity", resume: (businessId) => continueLegalIdentityStorageErasure(businessId) },
 ];
 
 export type StorageErasureOutcome = { module: string; done: boolean; error?: string };

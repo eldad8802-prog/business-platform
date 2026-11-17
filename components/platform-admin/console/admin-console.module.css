@@ -864,3 +864,72 @@ a.kpi:hover {
     grid-template-columns: 100px minmax(0, 1fr) 36px;
   }
 }
+
+/* ---------------- legal identity corrections (review) ---------------- */
+.field textarea {
+  font: inherit;
+  font-size: 14px;
+  min-height: 72px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--dz-border-strong, var(--dz-border));
+  background: var(--dz-surface-raised-flat);
+  color: var(--dz-text-primary);
+  resize: vertical;
+}
+.compare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+.compareCol {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--dz-border);
+}
+.compareCol h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dz-text-muted);
+}
+.kvRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+.kvRow dt {
+  font-size: 12px;
+  color: var(--dz-text-muted);
+}
+.kvRow dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.changed {
+  background: var(--dz-warning-bg-soft, var(--dz-brand-soft));
+  border-radius: 6px;
+  padding: 0 4px;
+}
+.confirmRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.actionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+@media (max-width: 760px) {
+  .compare {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

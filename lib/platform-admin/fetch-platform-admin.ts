@@ -30,6 +30,10 @@ import type { PlatformUsageOverviewResponse } from "@/lib/services/platform-admi
 import type { PlatformAdminBusinessDetailResponse } from "@/lib/services/platform-admin/platform-business-detail.types";
 import type { PlatformAdminAuditResponse } from "@/lib/services/platform-admin/platform-audit-list.types";
 import type { AccountantOpsResponse } from "@/lib/services/platform-admin/accountant-ops.service";
+import type {
+  CorrectionDetail,
+  CorrectionListItem,
+} from "@/lib/services/platform-admin/legal-identity-corrections.service";
 import type { AuthorityPilotGateReport } from "@/lib/services/billing/authority/billing-authority-pilot-gate-report";
 import type {
   BusinessFeatureOverrideState,
@@ -427,3 +431,55 @@ export function fetchPlatformAdminAuthorityPilotGate(businessId: number, userId:
 
 /** Test seam — exercises the request core directly. Not used by the console. */
 export const __testing = { adminRequest };
+
+// ---------------------------------------------------------------- legal identity corrections (dedicated approvers)
+
+export function fetchLegalIdentityCorrections(filter: "open" | "all" = "open") {
+  return platformAdminFetch<{ items: CorrectionListItem[] }>(
+    `/api/platform-admin/legal-identity-corrections${filter === "all" ? "?filter=all" : ""}`
+  );
+}
+
+export function fetchLegalIdentityCorrection(id: number) {
+  return platformAdminFetch<{ request: CorrectionDetail }>(`/api/platform-admin/legal-identity-corrections/${id}`);
+}
+
+export type CorrectionDecisionOutcome = { outcome: string; message: string };
+
+/** Approve or reject. The server requires a fresh step-up; the step-up dialog answers it and the call is retried once. */
+export async function decideLegalIdentityCorrection(
+  id: number,
+  body: { approve: boolean; publicNote: string; internalNote: string; confirmedReview: boolean }
+): Promise<CorrectionDecisionOutcome> {
+  const { data } = await adminRequest<CorrectionDecisionOutcome>(
+    `/api/platform-admin/legal-identity-corrections/${id}/decision`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+  return data;
+}
+
+export async function requestLegalIdentityCorrectionInfo(id: number, note: string): Promise<CorrectionDecisionOutcome> {
+  const { data } = await adminRequest<CorrectionDecisionOutcome>(
+    `/api/platform-admin/legal-identity-corrections/${id}/request-info`,
+    { method: "POST", body: JSON.stringify({ note }) }
+  );
+  return data;
+}
+
+/** One supporting document as a Blob (the server answers it as an attachment). */
+export async function downloadLegalIdentityCorrectionAttachment(id: number, attachmentId: number): Promise<Blob> {
+  const token = getToken();
+  if (!token) throw new PlatformAdminFetchError("Unauthorized", 401);
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  const elevation = getAdminElevation();
+  if (elevation) headers[ADMIN_ELEVATION_HEADER] = elevation;
+  const res = await fetch(`/api/platform-admin/legal-identity-corrections/${id}/attachments/${attachmentId}`, {
+    headers,
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const { message, code } = await readError(res);
+    throw new PlatformAdminFetchError(message, res.status, code);
+  }
+  return res.blob();
+}
