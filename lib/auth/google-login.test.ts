@@ -111,13 +111,18 @@ async function main() {
   ok("an unknown reason is never echoed", googleNoticeFor("<script>") === null && googleNoticeFor("toString") === null);
 
   // ── completion input ──────────────────────────────────────────────────────
-  const valid = normalizeGoogleSignupInput({ name: "  דנה כהן ", businessName: " מאפיית דנה ", businessKind: "AUTHORIZED_DEALER", acceptTerms: true });
+  const valid = normalizeGoogleSignupInput({ name: "  דנה כהן ", businessName: " מאפיית דנה ", businessKind: "AUTHORIZED_DEALER", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid" });
   ok("completion input: the signup rules, trimmed", valid.name === "דנה כהן" && valid.businessName === "מאפיית דנה");
   for (const [label, input, field] of [
-    ["no business name", { name: "דנה", businessName: "", businessKind: "AUTHORIZED_DEALER", acceptTerms: true }, "businessName"],
-    ["no name", { name: "", businessName: "עסק", businessKind: "AUTHORIZED_DEALER", acceptTerms: true }, "name"],
-    ["consent not given", { name: "דנה", businessName: "עסק", businessKind: "AUTHORIZED_DEALER", acceptTerms: false }, "acceptTerms"],
-    ['consent as the string "true"', { name: "דנה", businessName: "עסק", businessKind: "AUTHORIZED_DEALER", acceptTerms: "true" }, "acceptTerms"],
+    ["no legal name", { name: "דנה", businessName: "", businessKind: "AUTHORIZED_DEALER", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", legalName: "" }, "legalName"],
+    ["no tax id", { name: "דנה", businessKind: "AUTHORIZED_DEALER", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", taxId: undefined }, "taxId"],
+    ["bad tax id", { name: "דנה", businessKind: "AUTHORIZED_DEALER", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", taxId: "123456789" }, "taxId"],
+    ["no address", { name: "דנה", businessKind: "AUTHORIZED_DEALER", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", address: "" }, "address"],
+    ["no phone", { name: "דנה", businessKind: "AUTHORIZED_DEALER", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", phone: "x" }, "phone"],
+    ["no business email", { name: "דנה", businessKind: "AUTHORIZED_DEALER", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", businessEmail: "" }, "businessEmail"],
+    ["no name", { name: "", businessName: "עסק", businessKind: "AUTHORIZED_DEALER", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid" }, "name"],
+    ["consent not given", { name: "דנה", businessName: "עסק", businessKind: "AUTHORIZED_DEALER", acceptTerms: false, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid" }, "acceptTerms"],
+    ['consent as the string "true"', { name: "דנה", businessName: "עסק", businessKind: "AUTHORIZED_DEALER", acceptTerms: "true", legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid" }, "acceptTerms"],
   ] as const) {
     let got = "";
     try { normalizeGoogleSignupInput(input as never); } catch (e) { got = e instanceof SignupValidationError ? e.field : "other"; }
@@ -136,7 +141,7 @@ async function main() {
     && offCancels === 0);
 
   let created = 0;
-  let seeded: Array<[number, string]> = [];
+  let identities: Array<Record<string, unknown> | undefined> = [];
   const account: CreatedGoogleAccount = {
     userId: 7, businessId: 9, email: "a@b.co", name: "דנה", businessName: "עסק", tokenVersion: 0,
     session: { sessionId: "s", credential: "sid.secret", absoluteExpiresAt: new Date(Date.now() + 86_400_000) },
@@ -146,8 +151,7 @@ async function main() {
     config: () => config, isSignupEnabled: () => true,
     signupAllowlist: () => ({ configured: false, size: 0, error: null, has: () => false }) as never,
     readTicket: async () => ({ email: "a@b.co", name: "דנה", expiresAt: new Date() }),
-    rateLimit: allow, createAccount: async () => { created++; return account; }, recordUsage: noUsage, scheduleWelcome: () => {},
-    seedBusinessKind: async (businessId, kind) => { seeded.push([businessId, kind]); return "seeded" as const; },
+    rateLimit: allow, createAccount: async (input) => { created++; identities.push(input.legalIdentity as Record<string, unknown> | undefined); return account; }, recordUsage: noUsage, scheduleWelcome: () => {},
     ...over,
   });
   const post = (b: unknown, extra: Record<string, string> = {}) => new Request("https://app.dubiz.test/api/auth/google/complete", {
@@ -155,7 +159,7 @@ async function main() {
     headers: { "content-type": "application/json", origin: "https://app.dubiz.test", host: "app.dubiz.test", "sec-fetch-site": "same-origin", cookie: `${GOOGLE_TICKET_COOKIE}=${"T".repeat(43)}`, ...extra },
     body: JSON.stringify(b),
   });
-  const form = { name: "דנה כהן", businessName: "מאפיית דנה", businessKind: "AUTHORIZED_DEALER", acceptTerms: true };
+  const form = { name: "דנה כהן", businessName: "מאפיית דנה", businessKind: "AUTHORIZED_DEALER", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid" };
   ok("OFF: complete → 404, nothing created", (await handleGoogleComplete(post(form), completeDeps({ config: OFF }))).status === 404 && created === 0);
 
   // ── start ─────────────────────────────────────────────────────────────────
@@ -221,22 +225,29 @@ async function main() {
   ok("rate limited (the register route's key) → 429, nothing created", (await handleGoogleComplete(post(form), completeDeps({ rateLimit: deny }))).status === 429 && created === 0);
   const noTerms = await handleGoogleComplete(post({ ...form, acceptTerms: false }), completeDeps());
   ok("consent missing → 400 on acceptTerms, nothing created", noTerms.status === 400 && (await noTerms.json()).field === "acceptTerms" && created === 0);
-  ok("no business name → 400, nothing created", (await handleGoogleComplete(post({ ...form, businessName: " " }), completeDeps())).status === 400 && created === 0);
-  // Business kind at signup (owner decision 2026-11-11): required in the Google completion too, seeded after the account.
-  seeded = [];
+  for (const field of ["legalName", "taxId", "address", "phone", "businessEmail"]) {
+    const r = await handleGoogleComplete(post({ ...form, [field]: undefined }), completeDeps());
+    ok(`no ${field} → 400 naming it, nothing created`, r.status === 400 && (await r.json()).field === field && created === 0);
+  }
+  // Business kind + legal identity at signup (owner decisions 2026-11-11 / 11-12): required in the Google completion
+  // too, and handed to the account transaction (written there, not after).
+  identities = [];
   for (const [label, kind] of [["missing", undefined], ["unknown", "VAT_FREE"], ["empty", ""]] as const) {
     const r = await handleGoogleComplete(post({ ...form, businessKind: kind }), completeDeps());
-    ok(`kind ${label} → 400 on businessKind, nothing created or seeded`, r.status === 400 && (await r.json()).field === "businessKind" && created === 0 && seeded.length === 0);
+    ok(`kind ${label} → 400 on businessKind, nothing created`, r.status === 400 && (await r.json()).field === "businessKind" && created === 0 && identities.length === 0);
   }
-  const kindDone = await handleGoogleComplete(post({ ...form, businessKind: "EXEMPT_DEALER" }), completeDeps());
-  ok("the chosen kind is seeded once for the new business (Google)", kindDone.status === 200 && JSON.stringify(seeded) === JSON.stringify([[9, "EXEMPT_DEALER"]]), JSON.stringify(seeded));
-  created = 0;
-  const seedThrows = await handleGoogleComplete(post(form), completeDeps({ seedBusinessKind: async () => { throw new Error("boom"); } }));
-  ok("a seed that throws does NOT fail the Google signup (200, session cookie set)", seedThrows.status === 200 && cookieOf(seedThrows, "dubiz_rt").startsWith("dubiz_rt=sid.secret"));
-  created = 0;
-  seeded = [];
-  await handleGoogleComplete(post(form), completeDeps({ createAccount: async () => { throw new SignupTicketRefusedError(); } }));
-  ok("a refused ticket seeds nothing", seeded.length === 0);
+  const kindDone = await handleGoogleComplete(post({ ...form, businessKind: "EXEMPT_DEALER", taxId: "0-000001-8" }), completeDeps());
+  ok("the chosen kind and the normalised identity reach the account transaction (Google)",
+    kindDone.status === 200 && identities.length === 1 && identities[0]?.kind === "EXEMPT_DEALER" && identities[0]?.taxId === "000000018"
+      && identities[0]?.businessEmail === "biz@lab.invalid", JSON.stringify(identities));
+  {
+    const { LegalIdentityRejectedError } = await import("@/lib/auth/signup-legal-identity-seed");
+    created = 0;
+    const r = await handleGoogleComplete(post(form), completeDeps({ createAccount: async () => { throw new LegalIdentityRejectedError("address"); } }));
+    const j = await r.json();
+    ok("the database backstop's refusal → 400 LEGAL_IDENTITY_INVALID naming the field, no session cookie",
+      r.status === 400 && j.code === "LEGAL_IDENTITY_INVALID" && j.field === "address" && cookieOf(r, "dubiz_rt") === "", JSON.stringify(j));
+  }
   ok("honeypot filled → 400, nothing created", (await handleGoogleComplete(post({ ...form, dz_confirm_field: "x" }), completeDeps())).status === 400 && created === 0);
   const refused = await handleGoogleComplete(post(form), completeDeps({ createAccount: async () => { throw new SignupTicketRefusedError(); } }));
   ok("spent / expired ticket → 409 TICKET_REFUSED, cookie cleared, no session cookie",
