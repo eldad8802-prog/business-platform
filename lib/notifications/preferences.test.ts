@@ -16,6 +16,7 @@
  */
 import { getCategory, NOTIFICATION_CATEGORIES } from "./catalog";
 import {
+  APPOINTMENT_REMINDER_CHOICES,
   DEFAULT_SETTINGS,
   EMPTY_SETTINGS,
   effectiveSettings,
@@ -107,6 +108,18 @@ ok("empty refused", !vb({}).ok);
 ok("security in-app: NOT_MUTABLE", (() => { const r = vb({ inApp: false }, "category:security.new_device"); return !r.ok && r.error === "NOT_MUTABLE"; })());
 ok("security push: allowed", vb({ push: false }, "category:security.new_device").ok);
 ok("system.test push: NOT_MUTABLE", (() => { const r = vb({ push: false }, "category:system.test"); return !r.ok && r.error === "NOT_MUTABLE"; })());
+
+// Appointment reminder lead time (migration 20261213090000: CHECK IN (30, 60, 120, 1440); NULL = 60).
+ok("lead time: default 60 when unset", effectiveSettings(null).appointmentReminderMinutes === 60 && DEFAULT_SETTINGS.appointmentReminderMinutes === 60);
+ok("lead time: each of the four choices round-trips", APPOINTMENT_REMINDER_CHOICES.every((m) => validateSettingsPatch({ appointmentReminderMinutes: m }).ok
+  && effectiveSettings({ ...EMPTY_SETTINGS, appointmentReminderMinutes: m }).appointmentReminderMinutes === m));
+ok("lead time: anything else refused with INVALID_LEAD_TIME", [0, 15, 45, 90, 1441, -60, 60.5, "60", true].every((v) => {
+  const r = validateSettingsPatch({ appointmentReminderMinutes: v });
+  return !r.ok && r.error === "INVALID_LEAD_TIME";
+}));
+ok("lead time: null = back to the default", validateSettingsPatch({ appointmentReminderMinutes: null }).ok);
+ok("lead time: a stored value outside the choices reads as the default (never a wrong lead)", effectiveSettings({ ...EMPTY_SETTINGS, appointmentReminderMinutes: 45 }).appointmentReminderMinutes === 60);
+ok("settings patch: a user id in the body is refused (the actor is the session's)", !validateSettingsPatch({ appointmentReminderMinutes: 30, userId: 9 }).ok);
 
 console.log(`\n[preferences] PASS=${passed} FAIL=${failed}`);
 if (failed > 0) process.exit(1);

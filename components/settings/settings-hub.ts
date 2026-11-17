@@ -15,14 +15,17 @@
  *   support         the real support channel: the support mailbox.
  *
  * Not here, because Dubiz has no such capability: business management /
- * switching, team & permissions, notification preferences, connected-app
+ * switching, team & permissions, connected-app
  * grants, a help center, password change / 2FA, data-retention controls.
  */
 import type { WarmTone } from "@/components/ui/warm-surface/warm-surface";
 import { he } from "@/lib/i18n/messages/he";
 import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate";
 
+import type { PlatformFeatureKey } from "@/lib/services/feature-access/platform-feature-catalog";
+
 import {
+  isCategoryListed,
   SETTINGS_CATEGORIES,
   SETTINGS_GROUP_ORDER,
   SETTINGS_GROUP_TITLE_KEYS,
@@ -106,8 +109,15 @@ const EXTRA_ROWS: Partial<Record<HubGroupKey, ExtraRow[]>> = {
   ],
 };
 
-/** Without a translator the hub is Hebrew (tests, and the pre-i18n output). Screens pass useI18n().t. */
-export function buildSettingsHub(t: Translator = createTranslator(he)): HubGroup[] {
+/**
+ * Without a translator the hub is Hebrew (tests, and the pre-i18n output). Screens pass useI18n().t.
+ * `featureOn` says which per-business features are ON; a category that needs one is listed only then
+ * (default: none — fail-closed).
+ */
+export function buildSettingsHub(
+  t: Translator = createTranslator(he),
+  featureOn: (key: PlatformFeatureKey) => boolean = () => false,
+): HubGroup[] {
   const extra = (key: HubGroupKey): HubRow[] =>
     (EXTRA_ROWS[key] ?? []).map(({ titleKey, subtitleKey, subtitle, ...row }) => ({
       ...row,
@@ -119,7 +129,7 @@ export function buildSettingsHub(t: Translator = createTranslator(he)): HubGroup
     title: t(SETTINGS_GROUP_TITLE_KEYS[key]),
     tone: GROUP_TONE[key],
     rows: [
-      ...SETTINGS_CATEGORIES.filter((c) => c.group === key).map<HubRow>((c) => ({
+      ...SETTINGS_CATEGORIES.filter((c) => c.group === key && isCategoryListed(c, featureOn)).map<HubRow>((c) => ({
         key: c.key,
         title: t(c.titleKey),
         subtitle: t(c.descriptionKey),
