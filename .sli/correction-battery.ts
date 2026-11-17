@@ -338,10 +338,13 @@ async function main() {
   ok("C12 nothing applied", (await profile(s.businessId))?.billingLegalName === "שם אחר" && (await reqRow(r12))?.status === "STALE");
 
   console.log("C23 a live issuer declaration blocks the apply (no bypass of its lock)");
-  // The lab ledger does not include 20261126100000_issuer_declaration; decide reads the table dynamically, so a
-  // stand-in with the two columns it reads is enough. Created only if absent; dropped again at the end of this case.
-  const standIn = ((await owner.$queryRawUnsafe(`SELECT to_regclass('public."BusinessIssuerDeclaration"') IS NULL AS absent`)) as Rows)[0].absent === true;
-  if (standIn) await owner.$executeRawUnsafe(`CREATE TABLE public."BusinessIssuerDeclaration" ("businessId" integer NOT NULL, "version" integer NOT NULL, "anonymisedAt" timestamptz NULL)`);
+  // The lab ledger does not include 20261126100000_issuer_declaration; decide reads the table dynamically and only
+  // its "businessId" / "version" / "anonymisedAt", so a stand-in with those three columns is enough. Since #1117 the
+  // schema the lab is built from carries the real table (many NOT NULL columns, none of its guards): it is moved aside
+  // for this case and restored at its end, so the stand-in is what decide reads either way.
+  const realTable = ((await owner.$queryRawUnsafe(`SELECT to_regclass('public."BusinessIssuerDeclaration"') IS NOT NULL AS present`)) as Rows)[0].present === true;
+  if (realTable) await owner.$executeRawUnsafe(`ALTER TABLE public."BusinessIssuerDeclaration" RENAME TO "BusinessIssuerDeclaration_labAside"`);
+  await owner.$executeRawUnsafe(`CREATE TABLE public."BusinessIssuerDeclaration" ("businessId" integer NOT NULL, "version" integer NOT NULL, "anonymisedAt" timestamptz NULL)`);
   const d = await business();
   const r23 = await request(d.businessId, d.userId, { legalName: "שם מתוקן" });
   // An older anonymised version and a newer live one: the LATEST decides (as the issuer lock reads it).
@@ -382,7 +385,8 @@ async function main() {
   ok("C24 after the declaration commits, decide → DECLARATION_ACTIVE", (await t2) === "DECLARATION_ACTIVE");
   ok("C24 the profile is unchanged and the request stays PENDING",
     (await profile(e24.businessId))?.billingLegalName === name24 && (await reqRow(r24))?.status === "PENDING");
-  if (standIn) await owner.$executeRawUnsafe(`DROP TABLE public."BusinessIssuerDeclaration"`);
+  await owner.$executeRawUnsafe(`DROP TABLE public."BusinessIssuerDeclaration"`);
+  if (realTable) await owner.$executeRawUnsafe(`ALTER TABLE public."BusinessIssuerDeclaration_labAside" RENAME TO "BusinessIssuerDeclaration"`);
 
   console.log("C13 privileges");
   for (const [label, sql] of [
