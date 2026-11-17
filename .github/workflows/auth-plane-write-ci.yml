@@ -52,6 +52,8 @@ on:
       - "app/(shell)/setup/**"
       - "app/register/**"
       - ".authfix/**"
+      - "prisma/migrations/20261128090000_signup_legal_identity/**"
+      - "lib/auth/signup-legal-identity*.ts"
       - "scripts/qa/auth/**"
       - "lib/native/**"
       - "android/app/src/main/java/**"
