@@ -10,6 +10,11 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "pure (no DB/network): after confirmation kind / legal name / tax id cannot change through the billing profile route (409 LEGAL_IDENTITY_LOCKED), unchanged re-sends are dropped, other fields untouched, database refusals recognised"
+    },
+    "lib/legal-identity/completion-prompt.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the existing-business completion prompt is offered only while the completion flag is on and the business is unconfirmed and not dismissed; every confirm result maps to a message, only CONFIRMED/ALREADY_CONFIRMED count as done, and no message carries a number"
     }
   }
 }

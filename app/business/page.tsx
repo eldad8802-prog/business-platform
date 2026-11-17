@@ -13,6 +13,7 @@ import {
 } from "@/components/billing/BusinessIdentitySetupForm";
 import { BillingSignatureField } from "@/components/billing/BillingSignatureField";
 import { BusinessNameEditor } from "@/components/business/BusinessNameEditor";
+import { ConfirmExistingPrompt } from "@/components/legal-identity/confirm-existing-prompt";
 import desk from "./business-desk.module.css";
 
 function getAuthToken(): string {
@@ -235,6 +236,7 @@ export default function BusinessProfilePage() {
               >
                 {t("content.identity.profile.identityTitle")}
               </h2>
+              <ConfirmExistingPrompt locked={legalIdentityLocked} onConfirmed={() => void load()} />
               {!identityComplete ? (
                 <p
                   style={{

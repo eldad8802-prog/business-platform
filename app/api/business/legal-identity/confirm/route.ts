@@ -19,6 +19,20 @@ export const dynamic = "force-dynamic";
 
 const noStore = { "Cache-Control": "no-store" };
 
+/**
+ * GET — is the completion offered? 404 while LEGAL_IDENTITY_COMPLETION_ENABLED is off (same as POST), 401 without a
+ * session, otherwise 200 { enabled: true }. Reads nothing and writes nothing: the /business prompt only asks it whether
+ * to show itself (the page already knows from the invoice profile whether the business is confirmed).
+ */
+export async function GET(req: Request) {
+  if (!isLegalIdentityCompletionEnabled()) {
+    return NextResponse.json({ error: "Not Found" }, { status: 404, headers: noStore });
+  }
+  const user = await getCurrentUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStore });
+  return NextResponse.json({ enabled: true }, { status: 200, headers: noStore });
+}
+
 export async function POST(req: Request) {
   if (!isLegalIdentityCompletionEnabled()) {
     return NextResponse.json({ error: "Not Found" }, { status: 404, headers: noStore });
