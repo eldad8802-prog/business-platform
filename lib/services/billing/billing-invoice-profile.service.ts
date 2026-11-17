@@ -96,6 +96,11 @@ const EMPTY_PROFILE: BillingInvoiceProfile = {
 export type BillingInvoiceProfileResult = {
   profile: BillingInvoiceProfile;
   identityComplete: boolean;
+  /**
+   * The business's legal identity was confirmed (at signup, or by the controlled completion): kind, legal name
+   * and tax id are locked (lib/legal-identity/lock.ts). The form shows them read-only.
+   */
+  legalIdentityLocked: boolean;
 };
 
 /**
@@ -108,14 +113,19 @@ export type BillingInvoiceProfileResult = {
 export async function loadBillingInvoiceProfile(
   businessId: number
 ): Promise<BillingInvoiceProfileResult> {
-  const row = await billingTenantTx(businessId, (tx) =>
-    tx.businessProfile.findUnique({
+  const { row, lock } = await billingTenantTx(businessId, async (tx) => ({
+    row: await tx.businessProfile.findUnique({
       where: { businessId },
       select: BILLING_INVOICE_PROFILE_SELECT,
-    })
-  );
+    }),
+    lock: await tx.businessProfile.findUnique({
+      where: { businessId },
+      select: { legalIdentityConfirmedAt: true },
+    }),
+  }));
 
   return {
+    legalIdentityLocked: lock?.legalIdentityConfirmedAt != null,
     profile: {
       ...EMPTY_PROFILE,
       ...(row ?? {}),
