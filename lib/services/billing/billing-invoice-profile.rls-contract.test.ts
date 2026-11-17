@@ -184,7 +184,10 @@ async function main(): Promise<void> {
       "billingLogoDataUrl"        text,
       "billingSignatureDataUrl"   text,
       "billingPdfTemplateStyle"   text NOT NULL DEFAULT 'CLASSIC',
-      "createdAt"                 timestamp(3) NOT NULL DEFAULT now(),
+      -- 20261128090000_signup_legal_identity: the read model reads whether the legal identity is confirmed.
+      "legalIdentityConfirmedAt"  timestamp(3),
+      "legalIdentitySource"       text,
+      "createdAt"                timestamp(3) NOT NULL DEFAULT now(),
       "updatedAt"                 timestamp(3) NOT NULL DEFAULT now()
     )`);
   for (const stmt of statements(rlsSql)) await owner.$executeRawUnsafe(stmt);
