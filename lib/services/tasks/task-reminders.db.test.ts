@@ -18,6 +18,9 @@
  *   Reliability: the in-app poll reads its own business in its tenant tx (another business's 101 earlier reminders
  *              cannot crowd it out); the lagged backstop picks up only reminders already 7+ minutes late; QStash,
  *              the backstop and the poll racing on one reminder still produce one bell row and one delivery.
+ *   Starvation: 150 due reminders of a business with daily_tasks OFF (all earlier) do not delay another business's
+ *              reminder in the GLOBAL pass (re-read through task_reminders_due_excluding, migration 20261211090000);
+ *              the flag-off business's reminders are not claimed, not written and stay due.
  *
  * env: DATABASE_URL / DIRECT_URL = the runtime login (app_runtime_prod), OWNER_URL = the migration role (fixtures
  * only). VAPID is NOT configured here: push attempts are recorded as FAILED without any network call. Synthetic
@@ -242,6 +245,39 @@ async function main() {
     const raceNotes = await owner.notification.findMany({ where: { businessId: A.businessId, dedupeKey: raceKey }, select: { id: true } });
     const inApp = raceNotes.length === 1 ? await owner.notificationDelivery.count({ where: { notificationId: raceNotes[0].id, channel: "IN_APP" } }) : -1;
     ok("QStash + backstop + poll racing on one reminder: one bell row, one delivery (one claim winner)", raceNotes.length === 1 && inApp === 1, { notes: raceNotes.length, inApp });
+
+    console.log("starvation: a flag-off business cannot fill the GLOBAL batch (owner decision 2026-11-13)");
+    // The global re-read needs task_reminders_due_excluding (migration 20261211090000_notification_engine_followup).
+    // The lab (.trp) applies only the migrations its chain names: when the follow-up is in the repository, its
+    // function section is applied here as the owner; when it is not, the check below FAILS — this code must not ship
+    // before that migration.
+    const hasFn = async () => Number((await owner.$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*) AS n FROM pg_proc WHERE proname = 'task_reminders_due_excluding'`))[0].n) === 1;
+    if (!(await hasFn())) {
+      const fs = await import("node:fs");
+      const file = "prisma/migrations/20261211090000_notification_engine_followup/migration.sql";
+      if (fs.existsSync(file)) {
+        const sql = fs.readFileSync(file, "utf8");
+        const section = sql.slice(sql.indexOf("CREATE OR REPLACE FUNCTION public.task_reminders_due_excluding"), sql.indexOf("-- ── 2."));
+        for (const stmt of section.split(/;\s*\n(?=CREATE|REVOKE|DO|GRANT)/)) if (stmt.trim()) await owner.$executeRawUnsafe(stmt.trim().replace(/;\s*$/, ""));
+      }
+    }
+    ok("task_reminders_due_excluding exists (migration 20261211090000 applied)", await hasFn());
+    const bizOff = await owner.business.create({ data: { name: "trp-OFF" } });
+    const old = plus(NOW, -120);
+    await owner.task.createMany({ data: Array.from({ length: 150 }, (_, i) => ({ businessId: bizOff.id, title: `off-${i}`, status: "OPEN" as const, remindAt: old })) });
+    const offBefore = await owner.task.findMany({ where: { businessId: bizOff.id }, select: { id: true, updatedAt: true, reminderSentAt: true }, orderBy: { id: "asc" } });
+    const aStarved = await owner.task.create({ data: { businessId: A.businessId, title: "A behind 150 flag-off reminders", status: "OPEN", remindAt: plus(NOW, -1) } });
+    const top = (await rem.dueReminders(NOW, 100)).map((d) => d.businessId);
+    ok("(the gap, reproduced) the plain global top 100 is all flag-off reminders", top.length === 100 && top.every((b) => b === bizOff.id));
+    const excl = await rem.dueRemindersExcluding(NOW, 100, [bizOff.id]);
+    ok("the definer re-read without the flag-off business finds A's reminder (identifiers only)", excl.some((d) => d.taskId === aStarved.id) && excl.every((d) => d.businessId !== bizOff.id));
+    const globalPass = await rem.dispatchDueReminders(NOW);
+    ok("the GLOBAL pass sends A's reminder despite 150 earlier flag-off ones", (await owner.task.findUnique({ where: { id: aStarved.id } }))!.reminderSentAt !== null, globalPass);
+    const offAfter = await owner.task.findMany({ where: { businessId: bizOff.id }, select: { id: true, updatedAt: true, reminderSentAt: true }, orderBy: { id: "asc" } });
+    ok("the flag-off business: nothing claimed, its reminders' data untouched", JSON.stringify(offAfter) === JSON.stringify(offBefore) && offAfter.every((t) => t.reminderSentAt === null));
+    ok("the flag-off business: no bell row, no delivery", (await owner.notification.count({ where: { businessId: bizOff.id } })) === 0 && (await owner.notificationDelivery.count({ where: { businessId: bizOff.id } })) === 0);
+    ok("its reminders stay due (they are sent if the flag is turned on later)", (await rem.dueReminders(NOW, 500)).filter((d) => d.businessId === bizOff.id).length === 150);
+    await owner.task.updateMany({ where: { businessId: bizOff.id }, data: { reminderSentAt: NOW } }); // leave the lab quiet
   } finally {
     await owner.$disconnect();
   }
