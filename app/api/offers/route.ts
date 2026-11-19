@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getCurrentUser } from "@/lib/auth";
 import { getOffersByBusiness } from "@/lib/services/offer.service";
 import { handleError } from "@/lib/handle-error";
 
 export async function GET(req: NextRequest) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.REVENUE);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
 

@@ -1,10 +1,14 @@
 import { runWithTenantContext } from "@/lib/tenant/context";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getOpenPendingMatches } from "@/lib/services/inventory/pending-match.service";
 
 export async function GET(request: Request) {
+  const featureDenied = await guardFeature(request, PLATFORM_FEATURE_KEYS.INVENTORY);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(request);
 

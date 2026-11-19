@@ -26,6 +26,8 @@
  */
 
 import { NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getCurrentUser } from "@/lib/auth";
 import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";
 import {
@@ -36,6 +38,8 @@ import {
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.WHATSAPP);
+  if (featureDenied) return featureDenied;
   const user = await getCurrentUser(req);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -46,6 +50,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.WHATSAPP);
+  if (featureDenied) return featureDenied;
   // ── Gate 1: env flag ────────────────────────────────────────────────
   if (process.env.WHATSAPP_MANUAL_SEED_ENABLED !== "1") {
     return NextResponse.json(

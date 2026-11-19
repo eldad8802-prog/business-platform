@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getCurrentUser } from "@/lib/auth";
 import { buildGmailAuthorizeUrl } from "@/lib/services/integrations/gmail/oauth-url.service";
 import { createPkcePair } from "@/lib/services/integrations/gmail/pkce-cookie.service";
@@ -30,6 +32,8 @@ function cookieOptions(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.GMAIL_IMPORT);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
 

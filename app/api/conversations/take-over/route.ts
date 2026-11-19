@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { recordSensor } from "@/lib/sensors/record-sensor";
@@ -9,6 +11,8 @@ import { HUMAN_TAKEOVER_OUTCOME_REASON } from "@/lib/features/conversation/bot-c
 const PENDING_BOT_DRAFT_STATUSES = ["GENERATED", "SHOWN", "SELECTED"] as const;
 
 export async function POST(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.INBOX);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) {

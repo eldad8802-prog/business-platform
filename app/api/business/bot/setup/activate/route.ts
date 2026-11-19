@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { Prisma } from "@prisma/client";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -37,6 +39,8 @@ function sameSettingValue(a: unknown, b: unknown): boolean {
  * no longer REVIEW_READY).
  */
 export async function POST(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.STARTER_BOT);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);

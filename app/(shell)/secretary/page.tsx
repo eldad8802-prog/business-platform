@@ -635,8 +635,11 @@ function parseSecretaryScreen(value: string | null): SecretaryScreenName | null 
     "loops",
     "remind",
     "watching",
-    "notify",
   ];
+  // The old "notify" screen showed reminder settings and a sample push that nothing behind it ever sent (it saved
+  // nothing). It is retired until proactive reminders exist; an old link to it lands on "watching" — what the
+  // secretary really keeps an eye on.
+  if (value === "notify") return "watching";
   return screens.includes(value as SecretaryScreenName)
     ? (value as SecretaryScreenName)
     : null;

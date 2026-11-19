@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getInventoryAuthenticatedUser as getAuthenticatedUser } from "@/lib/auth/inventory-auth";
 import {
   InventoryError,
@@ -56,6 +58,8 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const featureDenied = await guardFeature(request, PLATFORM_FEATURE_KEYS.INVENTORY);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getAuthenticatedUser(request);
     const params = await context.params;

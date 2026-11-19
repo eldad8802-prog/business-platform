@@ -17,6 +17,8 @@ import {
   type LinkMethod,
   type SuggestionReason,
 } from "@/lib/services/documents/supplier-link/supplier-link.service";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { invalid, positiveInt, supplierLinkRoute } from "@/lib/services/documents/supplier-link/http";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -30,6 +32,8 @@ export async function GET(req: Request, context: Ctx) {
 }
 
 export async function POST(req: Request, context: Ctx) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.DOCUMENTS);
+  if (featureDenied) return featureDenied;
   const { id } = await context.params;
   return supplierLinkRoute(req, async ({ businessId, userId }) => {
     const documentId = positiveInt(id) ?? invalid();

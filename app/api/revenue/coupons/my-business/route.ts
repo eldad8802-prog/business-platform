@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { getCouponBusinessIdentity } from "@/lib/services/revenue/coupon-business-identity.service";
@@ -9,6 +11,8 @@ import { getCouponBusinessIdentity } from "@/lib/services/revenue/coupon-busines
  * new source of truth, and the business id comes from the session only.
  */
 export async function GET(req: NextRequest) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.REVENUE);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
 

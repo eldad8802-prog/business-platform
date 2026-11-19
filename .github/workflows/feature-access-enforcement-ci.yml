@@ -1,0 +1,37 @@
+name: feature access enforcement
+
+# Subscriptions phase 1 — the eleven core features are guarded on the server, not only hidden in the interface.
+# Pure checks (no database, no network):
+#   - lib/services/feature-access/feature-guard.ts: modes (off / shadow = default / enforce), the decision, fail-closed
+#     in enforce, unauthenticated requests untouched, background-step answers, the per-business cache;
+#   - lib/services/feature-access/route-feature-map.ts: EVERY API route of those features is guarded as its first
+#     statement, or exempt for a written reason (a new route in scope fails here until it is classified).
+
+on:
+  pull_request:
+    paths:
+      - "app/api/**"
+      - "lib/services/feature-access/**"
+      - "lib/services/conversation/inbound-message-pipeline.service.ts"
+      - "lib/intake/whatsapp/whatsapp-intake.ts"
+      - ".github/workflows/feature-access-enforcement-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  feature-access-enforcement:
+    name: Feature access enforcement (pure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx lib/services/feature-access/feature-guard.test.ts
+      - run: npx tsx lib/services/feature-access/route-feature-map.test.ts
+      - run: npx tsx lib/services/feature-access/owner-gated-features.test.ts

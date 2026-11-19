@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { GOAL_CATALOG, GOAL_CATALOG_VERSION } from "@/lib/features/bot";
 
@@ -7,6 +9,8 @@ import { GOAL_CATALOG, GOAL_CATALOG_VERSION } from "@/lib/features/bot";
  * Never read by the response-planner or the conversation pipeline.
  */
 export async function GET(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.STARTER_BOT);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);

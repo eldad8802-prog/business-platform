@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getServerI18n } from "@/lib/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
@@ -84,6 +86,8 @@ async function recordUploadThrottle(input: {
  * See processDocumentPipeline.
  */
 export async function POST(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.DOCUMENTS);
+  if (featureDenied) return featureDenied;
   const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(req);

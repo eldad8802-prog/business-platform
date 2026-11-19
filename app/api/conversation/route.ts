@@ -1,9 +1,13 @@
 import { tenantTx } from "@/lib/tenant/tenant-tx";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 
 export async function GET(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.INBOX);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
 
@@ -51,6 +55,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.INBOX);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
 

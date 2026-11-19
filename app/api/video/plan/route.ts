@@ -1,4 +1,6 @@
 import { buildVideoPlan } from "@/lib/services/video-plan.service";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getServerI18n } from "@/lib/i18n/server";
 import {
   runContentDecisionEngine,
@@ -68,6 +70,8 @@ function validateBody(body: VideoPlanRequestBody) {
 }
 
 export async function POST(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.CONTENT);
+  if (featureDenied) return featureDenied;
   const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) {

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { handleError } from "@/lib/handle-error";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -17,6 +19,8 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.REVENUE);
+  if (featureDenied) return featureDenied;
   try {
     const { id } = await context.params;
     const publicId = id;

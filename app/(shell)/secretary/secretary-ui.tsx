@@ -36,8 +36,7 @@ export type SecretaryScreenName =
   | "capture"
   | "loops"
   | "remind"
-  | "watching"
-  | "notify";
+  | "watching";
 
 type CaptureKind = "regular" | "installments" | "postdated-check" | "net-terms";
 
@@ -1052,7 +1051,6 @@ export function SecretaryFlowScreen({ screen, obligations, selectedId, loopMode,
     case "loops": return <LoopsScreen obligation={selected} initialMode={loopMode ?? "met"} />;
     case "remind": return <RemindScreen obligation={selected} onSnooze={onSnooze} />;
     case "watching": return <WatchingScreen obligations={openItems} />;
-    case "notify": return <NotifyScreen obligations={openItems} />;
   }
 }
 
@@ -2128,19 +2126,8 @@ function WatchingScreen({ obligations }: { obligations: ObligationApi[] }) {
   return <SecretaryScreen title={t("tasks.secretary.watching.title")} backHref="/secretary"><Say>{allQuiet ? t("tasks.secretary.watching.sayQuiet") : t("tasks.secretary.watching.sayBusy")}</Say>{allQuiet ? <section className={styles.allQuiet}><div>✓</div><h2>{t("tasks.secretary.watching.quietTitle")}</h2><p>{t("tasks.secretary.watching.quietBody", { count: obligations.length })}</p><b>{t("tasks.secretary.watching.quietFoot")}</b></section> : <><section className={styles.watchPeace}><div className={styles.watchRing}><strong>{obligations.length}</strong><span>{t("tasks.secretary.watching.tracking")}</span></div><p>{t("tasks.secretary.watching.peace")}</p></section><div className={styles.watchHorizons}><Horizon title={t("tasks.secretary.watching.weekTitle")} subtitle={t("tasks.secretary.watching.weekSubtitle")} count={String(week)} /><Horizon title={t("tasks.secretary.watching.monthTitle")} subtitle={t("tasks.secretary.watching.monthSubtitle")} count={String(month)} /><Horizon title={t("tasks.secretary.watching.farTitle")} subtitle={t("tasks.secretary.watching.farSubtitle")} count={String(far)} /></div></>}<section className={styles.reassurePanel}><p>{t("tasks.secretary.watching.reassure")}</p><GhostLink href={screenHref("all")}>{t("tasks.secretary.watching.seeAll")}</GhostLink></section></SecretaryScreen>;
 }
 
-function NotifyScreen({ obligations }: { obligations: ObligationApi[] }) {
-  const f = useFmt();
-  const { t } = f;
-  const [enabled, setEnabled] = useState(true);
-  const [morning, setMorning] = useState(true);
-  const [quiet, setQuiet] = useState(false);
-  const sample = obligations[0] ?? null;
-  return <SecretaryScreen title={t("tasks.secretary.notify.title")} backHref="/secretary"><section className={styles.notifyLock}><div className={styles.lockTime}>09:41</div><div className={styles.notificationCard}><span><PersonIcon /></span><div><strong>{t("tasks.secretary.yourSecretary")}</strong><p>{sample ? t("tasks.secretary.notify.sample", { name: obligationTitle(sample) }) : t("tasks.secretary.notify.noSample")}</p></div></div><div className={styles.notificationCardFaded} /></section><Say>{t("tasks.secretary.notify.say")}</Say><section className={styles.settingsGroup}><SettingRow title={t("tasks.secretary.notify.enabledTitle")} detail={t("tasks.secretary.notify.enabledDetail")} on={enabled} onClick={() => setEnabled((value) => !value)} /><SettingRow title={t("tasks.secretary.notify.morningTitle")} detail={t("tasks.secretary.notify.morningDetail")} on={morning} onClick={() => setMorning((value) => !value)} /><SettingRow title={t("tasks.secretary.notify.quietTitle")} detail={t("tasks.secretary.notify.quietDetail")} on={quiet} onClick={() => setQuiet((value) => !value)} /></section><section className={styles.feedCard}><div className={styles.smallTitle}>{t("tasks.secretary.notify.feedTitle")}</div>{obligations.slice(0, 3).map((item) => <div className={styles.feedRow} key={item.id}><span>{emojiForObligation(item)}</span><div><strong>{obligationTitle(item)}</strong><em>{t("tasks.secretary.notify.remindBefore", { date: formatDateValue(item.dueAt, f) })}</em></div><small>{t("tasks.secretary.notify.inTime")}</small></div>)}{obligations.length === 0 ? <p className={styles.emptyText}>{t("tasks.secretary.notify.empty")}</p> : null}</section></SecretaryScreen>;
-}
 
 function Horizon({ title, subtitle, count }: { title: string; subtitle: string; count: string }) { return <div className={styles.horizon}><EyeIcon /><span><strong>{title}</strong><em>{subtitle}</em></span><b>{count}</b></div>; }
-function SettingRow({ title, detail, on, onClick }: { title: string; detail: string; on?: boolean; onClick?: () => void }) { return <button type="button" className={styles.settingRow} onClick={onClick}><BellIcon /><span><strong>{title}</strong><em>{detail}</em></span><b className={on ? styles.toggleOn : ""} /></button>; }
-
 export const TODAY_DEMO_MODELS: Record<TodayState, TodayModel> = {
   critical: {
     state: "critical",
@@ -2242,14 +2229,6 @@ function ChevronLeftIcon() {
   return (
     <svg className={styles.fwdIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M15 6l-6 6 6 6" />
-    </svg>
-  );
-}
-function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
     </svg>
   );
 }

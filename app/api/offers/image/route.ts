@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
@@ -11,6 +13,8 @@ import { StorageConfigError } from "@/lib/storage/storage.errors";
 const MAX_BYTES = 5 * 1024 * 1024; // 5MB
 
 export async function POST(req: NextRequest) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.REVENUE);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) {

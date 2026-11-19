@@ -13,6 +13,8 @@
  */
 
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import {
   loadUniformExportInput,
@@ -39,6 +41,8 @@ function json(body: unknown, status: number): Response {
 }
 
 export async function GET(req: Request): Promise<Response> {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.REPORTS);
+  if (featureDenied) return featureDenied;
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
 

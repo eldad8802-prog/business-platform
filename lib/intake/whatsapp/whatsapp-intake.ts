@@ -41,6 +41,8 @@ import { ingestInboundCustomerMessage } from "@/lib/services/conversation/inboun
 import { runInboundMessagePipeline } from "@/lib/services/conversation/inbound-message-pipeline.service";
 import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
 import { processWhatsAppDocumentsIntake } from "@/lib/services/integrations/whatsapp/documents-intake.service";
+import { featureAllowedForBusiness } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import type { RoutingDecision } from "@/lib/services/integrations/whatsapp/routing.types";
 import type {
   WhatsAppReferralSummary,
@@ -335,6 +337,11 @@ export const whatsAppIntakeAdapter: IntakeAdapter = {
       }
 
       case "DOCUMENTS": {
+        // Subscriptions phase 1: a document sent over WhatsApp is scanned (OCR) only when the business has the
+        // `documents` feature (feature-guard.ts). Shadow (the default) only logs; enforce leaves it unscanned, visibly.
+        if (!(await featureAllowedForBusiness(businessId, PLATFORM_FEATURE_KEYS.DOCUMENTS, "whatsapp-intake:documents"))) {
+          return { kind: "ignored", code: "feature_not_available:documents" };
+        }
         const gate = await checkRateLimit({ bucket: "WHATSAPP_INTAKE", business: businessId });
         if (!gate.allowed) {
           // Deferred, not dropped (M1 W11): the receipt waits and is retried.

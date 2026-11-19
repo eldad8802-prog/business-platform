@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import BackButton from "@/components/ui/back-button";
+import { buildClientAuthHeaders } from "@/lib/client-session";
 import {
   PieChart,
   Pie,
@@ -29,6 +30,12 @@ export default function Dashboard() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportFailed, setExportFailed] = useState(false);
+
+  // Both calls carry the session's Bearer token. A plain link (<a href="/api/reports/export">) is a page
+  // navigation, which never sends it — the server answered 401 (fix series issue 5).
   const fetchData = async () => {
     const params = new URLSearchParams();
 
@@ -36,17 +43,45 @@ export default function Dashboard() {
     if (from) params.append("from", from);
     if (to) params.append("to", to);
 
-    const res = await fetch(`/api/reports/summary?${params.toString()}`);
-    const result = await res.json();
+    try {
+      const res = await fetch(`/api/reports/summary?${params.toString()}`, { headers: buildClientAuthHeaders() });
+      if (!res.ok) {
+        setLoadFailed(true);
+        return;
+      }
+      const result = await res.json();
+      setLoadFailed(false);
+      setData(result);
+    } catch {
+      setLoadFailed(true);
+    }
+  };
 
-    setData(result);
+  const exportCsv = async () => {
+    setExporting(true);
+    setExportFailed(false);
+    try {
+      const res = await fetch("/api/reports/export", { headers: buildClientAuthHeaders() });
+      if (!res.ok) throw new Error(String(res.status));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "financial-records.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportFailed(true);
+    } finally {
+      setExporting(false);
+    }
   };
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  if (!data) return <div>Loading...</div>;
+  if (!data) return <div>{loadFailed ? "Could not load the report." : "Loading..."}</div>;
 
   const categoryData = Object.entries(data.categories).map(
     ([name, value]) => ({
@@ -93,11 +128,15 @@ export default function Dashboard() {
       </div>
 
       {/* Export */}
-      <a href="/api/reports/export">
-        <button style={{ width: "100%", padding: 10, marginBottom: 20 }}>
-          📤 Export CSV
-        </button>
-      </a>
+      <button
+        type="button"
+        style={{ width: "100%", padding: 10, marginBottom: exportFailed ? 8 : 20 }}
+        onClick={exportCsv}
+        disabled={exporting}
+      >
+        📤 Export CSV
+      </button>
+      {exportFailed && <p style={{ marginTop: 0, marginBottom: 20 }}>Export failed. Try again.</p>}
 
       {/* Summary */}
       <h2>💰 Profit: {data.profit}</h2>

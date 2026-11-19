@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
@@ -10,6 +12,8 @@ type RouteContext = {
 };
 
 export async function POST(req: Request, context: RouteContext) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.INBOX);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
 
