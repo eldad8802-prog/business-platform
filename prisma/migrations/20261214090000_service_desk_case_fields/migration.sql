@@ -30,8 +30,7 @@ $do$;
 ALTER TABLE "ServiceCase"
   ADD COLUMN "estimatedReadyOn" DATE,
   ADD COLUMN "itemLocationNote" TEXT;
--- (The case keeps its rows on erasure; "itemLocationNote" joins the case texts the M1 tracks erasure blanks when the
--- code that writes it lands — until then nothing writes it.)
+-- (The case keeps its rows on erasure; "itemLocationNote" is blanked by service_case_fields_erase_business() below.)
 ALTER TABLE "ServiceCase" ADD CONSTRAINT "ServiceCase_item_location_note" CHECK (
   "itemLocationNote" IS NULL OR (btrim("itemLocationNote") <> '' AND char_length("itemLocationNote") <= 120)
 );
@@ -137,9 +136,10 @@ REVOKE ALL ON FUNCTION public.service_case_loaner_guard() FROM PUBLIC;
 CREATE TRIGGER "ServiceCaseLoaner_guard" BEFORE INSERT OR UPDATE OR DELETE ON "ServiceCaseLoaner"
   FOR EACH ROW EXECUTE FUNCTION public.service_case_loaner_guard();
 
--- Erasure (account deletion): the loan's free texts are blanked; the dates stay (the same shape as the charge erasure).
+-- Erasure (account deletion): the loan's free texts and the case's item location are blanked; the dates stay (the same
+-- shape as the charge erasure).
 -- Called by the purge once the code wiring lands with the screens that write loans.
-CREATE OR REPLACE FUNCTION public.service_case_loaner_erase_business()
+CREATE OR REPLACE FUNCTION public.service_case_fields_erase_business()
 RETURNS integer
 LANGUAGE plpgsql
 VOLATILE
@@ -162,11 +162,14 @@ BEGIN
    WHERE "businessId" = v_business AND "erasedAt" IS NULL;
   GET DIAGNOSTICS v_n = ROW_COUNT;
   PERFORM set_config('dubiz.service_loaner_erasure', 'off', true);
+  -- The item location is free text the owner typed (it may name a person or a place): blanked with the case's other
+  -- texts. service_case_guard restricts no change of this column, so the owner (this function) sets it to NULL directly.
+  UPDATE public."ServiceCase" SET "itemLocationNote" = NULL WHERE "businessId" = v_business AND "itemLocationNote" IS NOT NULL;
   RETURN v_n;
 END
 $fn$;
-REVOKE ALL ON FUNCTION public.service_case_loaner_erase_business() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.service_case_loaner_erase_business() TO app_runtime;
+REVOKE ALL ON FUNCTION public.service_case_fields_erase_business() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.service_case_fields_erase_business() TO app_runtime;
 
 -- 3. Task → case link (decision 7): same business enforced by the composite key. If a case row is ever removed (the
 -- business purge), only the link is cleared — the task and its business stay (PG ≥ 15: SET NULL of one column).

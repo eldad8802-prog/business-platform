@@ -58,13 +58,22 @@ async function main() {
   ok("L9 a loan is never born erased", (await attempt(() => asRuntime(A.b, `INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", "erasedAt") VALUES ($1, $2, 'x', now()) RETURNING id`, A.b, A.c))).includes("SERVICE_LOANER_ERASED_ON_WRITE"));
   ok("L10 no trigger blocks a handover: the guard is on the loan table only", Number((await q(`SELECT count(*)::int n FROM pg_trigger WHERE tgname ILIKE '%loaner%' AND tgrelid <> '"ServiceCaseLoaner"'::regclass`))[0].n) === 0);
 
+  // ── the light fields from the runtime (the app writes them on its own case; another tenant reaches nothing) ──
+  ok("F4 the runtime sets the item location and the estimated date on its own case", (await attempt(() => asRuntime(A.b, `UPDATE "ServiceCase" SET "itemLocationNote" = 'מדף 3', "estimatedReadyOn" = DATE '2026-12-01' WHERE id = $1 RETURNING id`, A.c))) === "OK");
+  ok("F5 another business cannot change that case (RLS: no row)", (await asRuntime(B.b, `UPDATE "ServiceCase" SET "itemLocationNote" = 'x' WHERE id = $1 RETURNING id`, A.c)).length === 0);
+  ok("F6 a blank location is refused by the CHECK", (await attempt(() => asRuntime(A.b, `UPDATE "ServiceCase" SET "itemLocationNote" = '   ' WHERE id = $1 RETURNING id`, A.c))) !== "OK");
+  await asRuntime(B.b, `UPDATE "ServiceCase" SET "itemLocationNote" = 'ארון B' WHERE id = $1 RETURNING id`, B.c);
+
   // ── erasure ──
-  ok("E1 the erasure is refused while the business is not being deleted", (await attempt(() => asRuntime(A.b, `SELECT public.service_case_loaner_erase_business() n`))).includes("SERVICE_LOANER_ERASURE_NOT_DELETING"));
+  ok("E1 the erasure is refused while the business is not being deleted", (await attempt(() => asRuntime(A.b, `SELECT public.service_case_fields_erase_business() n`))).includes("SERVICE_LOANER_ERASURE_NOT_DELETING"));
   await q(`UPDATE "Business" SET "deletionRequestedAt" = now() WHERE id = $1 RETURNING id`, A.b);
   ok("E2 a business being deleted cannot lend any more", (await attempt(() => lend(A))).includes("SERVICE_UI_BUSINESS_DELETING"));
-  const er = await attempt(() => asRuntime(A.b, `SELECT public.service_case_loaner_erase_business() n`));
+  const er = await attempt(() => asRuntime(A.b, `SELECT public.service_case_fields_erase_business() n`));
   const after = (await asOwner(A.b, `SELECT "itemName" i, note, "erasedAt" IS NOT NULL e FROM "ServiceCaseLoaner" WHERE id = $1`, loanId))[0];
   ok("E3 the erasure blanks the loan's texts and keeps the dates", er === "OK" && after.i === "נמחק" && after.note === null && after.e === true, `${er} ${JSON.stringify(after)}`);
+  const cf = (await asOwner(A.b, `SELECT "itemLocationNote" n, to_char("estimatedReadyOn", 'YYYY-MM-DD') d FROM "ServiceCase" WHERE id = $1`, A.c))[0];
+  ok("E5 the erasure blanks the item location and keeps the estimated date", cf?.n === null && cf?.d === "2026-12-01", JSON.stringify(cf));
+  ok("E6 another business keeps its item location", (await asOwner(B.b, `SELECT "itemLocationNote" n FROM "ServiceCase" WHERE id = $1`, B.c))[0]?.n === "ארון B");
   ok("E4 an erased loan is not changed again", (await attempt(() => asOwner(A.b, `UPDATE "ServiceCaseLoaner" SET note = 'x' WHERE id = $1 RETURNING id`, loanId))).includes("SERVICE_LOANER_ERASED"));
 
   // ── task link ──

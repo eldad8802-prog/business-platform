@@ -27,7 +27,7 @@ WITH c AS (
   UNION ALL SELECT 8, (SELECT count(*) FROM pg_class WHERE relname = 'ServiceCase_businessId_id_key'), 1
   UNION ALL SELECT 9, (SELECT count(*) FROM pg_roles WHERE rolname = 'app_runtime'), 1
   UNION ALL SELECT 10, (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace
-                          AND proname IN ('service_case_loaner_in_erasure', 'service_case_loaner_guard', 'service_case_loaner_erase_business')), 0
+                          AND proname IN ('service_case_loaner_in_erasure', 'service_case_loaner_guard', 'service_case_fields_erase_business')), 0
   UNION ALL SELECT 11, (SELECT count(*) FROM "Task"), NULL
 )
 SELECT n,

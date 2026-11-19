@@ -11,7 +11,7 @@
 \echo ' 5 ServiceCaseLoaner exists with RLS enabled and forced'
 \echo ' 6 ServiceCaseLoaner has exactly its three tenant policies (read, add, change)'
 \echo ' 7 the guard trigger ServiceCaseLoaner_guard exists and is enabled'
-\echo ' 8 service_case_loaner_erase_business is SECURITY DEFINER with a pinned search_path'
+\echo ' 8 service_case_fields_erase_business is SECURITY DEFINER with a pinned search_path'
 \echo ' 9 app_runtime holds exactly arw (read, add, change) on ServiceCaseLoaner, and no other role holds anything'
 \echo '10 Task.serviceCaseId exists (nullable) with the composite FK to ServiceCase'
 \echo '11 loans recorded (informational)'
@@ -30,7 +30,7 @@ c AS (
                             OR (y.polname = 'service_case_loaner_tenant_update' AND y.polcmd = 'w'))
                      + (SELECT 10 * (count(*) - 3) FROM pg_policy y JOIN t ON y.polrelid = t.oid), 3
   UNION ALL SELECT 7, (SELECT count(*) FROM pg_trigger g JOIN t ON g.tgrelid = t.oid WHERE g.tgname = 'ServiceCaseLoaner_guard' AND g.tgenabled = 'O'), 1
-  UNION ALL SELECT 8, (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'service_case_loaner_erase_business' AND prosecdef
+  UNION ALL SELECT 8, (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'service_case_fields_erase_business' AND prosecdef
                          AND array_to_string(proconfig, ',') LIKE '%search_path=%'), 1
   UNION ALL SELECT 9, (SELECT count(*) FROM pg_class k WHERE k.relnamespace = 'public'::regnamespace AND k.relname = 'ServiceCaseLoaner'
                          AND k.relacl::text LIKE '%app_runtime=arw/%')
