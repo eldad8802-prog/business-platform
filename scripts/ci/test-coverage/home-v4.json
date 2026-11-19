@@ -1,0 +1,9 @@
+{
+  "note": "feat/home-v4-design (HOME v4): the redesigned Home's view-model test. Product behaviour of the Home screen, not a security control.",
+  "tests": {
+    "features/home/v4/home-v4-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure (no DB/network, no I/O): HOME v4 layering (plan capabilities / business kind / person scope), no invented numbers, real zero vs failure, one item per area, calm only when proven, '+' and tools limited to active capabilities; run with npx tsx; not yet wired into CI (product-test debt, like its sibling features/home/v3/home-v3-model.test.ts)"
+    }
+  }
+}

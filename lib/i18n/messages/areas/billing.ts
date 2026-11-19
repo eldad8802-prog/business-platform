@@ -441,6 +441,8 @@ export const billingHe = {
     kindLabel: "סוג עסק",
     choose: "בחרו…",
     taxIdLabel: "ע.מ. / ח.פ.",
+    vatNumberLabel: "מספר עוסק מורשה",
+    vatNumberHint: "9 ספרות. בעוסק מורשה בדרך כלל זהה למספר הזהות, ובחברה — למספר החברה.",
     addressLabel: "כתובת",
     phoneLabel: "טלפון",
     emailLabel: "דוא\"ל",

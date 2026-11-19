@@ -9,3 +9,13 @@
 export function isIssuerDeclarationEnabled(): boolean {
   return process.env.ISSUER_DECLARATION_ENABLED === "true";
 }
+
+/**
+ * Whether the controlled legal-identity correction flow (the legal-identity session's request screen) is live, so
+ * the declared-status screen may link to it. SERVER ONLY, the same exact-"true" test that flow uses for its own
+ * switch (LEGAL_IDENTITY_CORRECTION_ENABLED); while it is off every correction route answers 404, so the screen
+ * shows a "contact Dubiz" line instead of a link. Never decided on the client.
+ */
+export function isLegalIdentityCorrectionAvailable(): boolean {
+  return process.env.LEGAL_IDENTITY_CORRECTION_ENABLED === "true";
+}

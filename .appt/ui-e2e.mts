@@ -18,7 +18,7 @@
  *       404, the navigation, the Secretary and the customer card show nothing of it, and B cannot read A.
  *   OPEN FOR EVERYONE (business C, existing, no override; business D, signed up after the release through the real
  *       signup — $OPEN_OUT from .appt/open-all-battery.ts): on the phone (the width the Android app shows) "+" offers
- *       קביעת תור, ניהול העסק lists יומן ותורים, the Secretary has its תורים היום card, the calendar opens; on the
+ *       קביעת תור, the sidebar's fixed יומן leads to the calendar, the Secretary has its תורים היום card, the calendar opens; on the
  *       desktop the sidebar lists it; external booking stays OFF.
  *
  * Every step leaves a screenshot in $OUT; the result table goes to $OUT/report.md. Exit 1 on any failed check.
@@ -138,7 +138,8 @@ async function main() {
     for (const word of ["פנוי", "מחוץ לשעות", "סגור", "חסום", "ממתין לאישור", "התקיים", "לא הגיע", "בוטל"]) await legend.getByText(word, { exact: true }).first().waitFor();
     await shot(p, "02-desktop-week");
   });
-  await check("D5 ניהול העסק in the sidebar lists יומן ותורים", async () => p.getByRole("link", { name: "יומן ותורים" }).first().waitFor({ timeout: 15_000 }));
+  // HOME v4 (owner 11-19): the calendar is a fixed sidebar action ("יומן", top section), leading to /calendar when ON.
+  await check("D5 the desktop sidebar's fixed יומן action leads to the calendar", async () => p.locator('.dz-sidebar a[href="/calendar"]', { hasText: "יומן" }).first().waitFor({ timeout: 15_000 }));
 
   await check("D6 details: state, call / WhatsApp links, the actions of the state, history", async () => {
     await p.goto(`/calendar?day=${seed.today}&appointment=${seed.ids.todayNoa}`);
@@ -583,7 +584,11 @@ async function main() {
   });
   type Cover = { button: { top: number; bottom: number } | null; navTop: number | null; underNav: boolean };
   const COVER_PROBE = `(() => {
-    const nav = [...document.querySelectorAll("nav")].map((e) => e.getBoundingClientRect()).find((r) => r.bottom >= innerHeight - 2 && r.height < 140) || null;
+    // HOME v4: the shell bar FLOATS (lifted off the edge), so find it by its marker, not by touching the bottom.
+    // Above 767px the bar is in the DOM but hidden (the rail replaces it): a zero box is no bar.
+    const navEl = document.querySelector('[data-component="shell-bottom-bar"]');
+    const navBox = navEl ? navEl.getBoundingClientRect() : null;
+    const nav = navBox && navBox.height > 0 ? navBox : null;
     const el = [...document.querySelectorAll("main button")].find((x) => (x.textContent || "").trim() === "קביעת תור");
     const b = el ? el.getBoundingClientRect() : null;
     return { button: b && { top: b.top, bottom: b.bottom }, navTop: nav ? nav.top : null, underNav: !!b && !!nav && b.bottom > nav.top };
@@ -592,7 +597,7 @@ async function main() {
     await m.goto(`/calendar?day=${seed.today}`);
     await m.locator(`[data-appointment="${seed.ids.todayNoa}"]`).waitFor({ timeout: 20_000 });
     const c = (await m.evaluate(COVER_PROBE)) as Cover;
-    if (!c.button || c.underNav || c.button.bottom > 844) throw new Error(JSON.stringify(c));
+    if (!c.button || c.navTop === null || c.underNav || c.button.bottom > 844) throw new Error(JSON.stringify(c));
   });
   await check("M9 the active view tab is marked and looks different", async () => {
     const tab = m.getByRole("tab", { name: "יום", exact: true });
@@ -601,10 +606,46 @@ async function main() {
     if ((await color("יום")) === (await color("שבוע"))) throw new Error("active and inactive tabs look alike");
   });
   await check("M10 \"+\" offers קביעת תור where the calendar is open", async () => {
+    const scrollBefore = await m.evaluate(() => window.scrollY);
     await m.getByRole("button", { name: "פעולה חדשה" }).first().click();
-    await m.getByText("קביעת תור", { exact: true }).last().waitFor({ timeout: 10_000 });
+    // The sheet itself (not the calendar's own "קביעת תור" button behind it), after its 240ms entrance.
+    const sheet = m.locator('[data-component="create-sheet"] [role="dialog"]');
+    await sheet.getByText("קביעת תור", { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+    await m.waitForTimeout(400);
     await shot(m, "m08-phone-plus-sheet");
     await m.keyboard.press("Escape");
+    await m.locator('[data-component="create-sheet"]').waitFor({ state: "detached", timeout: 5_000 });
+    const scrollAfter = await m.evaluate(() => window.scrollY);
+    if (scrollAfter !== scrollBefore) throw new Error(`closing "+" moved the page: ${scrollBefore} → ${scrollAfter}`);
+  });
+  await check("M10b HOME v4 in the real app on the phone: the fixed areas, the floating bar, nothing sideways", async () => {
+    // The lab business never finished onboarding, so /app would send it to /setup (main's existing gate, which hides
+    // the bar). Only that one answer is changed, in this browser: the real response with needsSetup=false. Every
+    // other read on the screen is the real server against the seeded lab database.
+    await m.route("**/api/business/setup", async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      await route.fulfill({ response: res, json: { ...body, needsSetup: false } });
+    });
+    await m.goto("/app");
+    for (const title of ["תמונת מצב", "המזכירה שלי", "היום שלי"]) {
+      await m.getByRole("heading", { name: title }).first().waitFor({ timeout: 20_000 });
+    }
+    await m.waitForTimeout(800); // let the area loaders settle before the picture
+    await shot(m, "m00-phone-home");
+    await shot(m, "m00-phone-home-full", true);
+    const state = await m.evaluate(() => {
+      const bars = [...document.querySelectorAll('[data-component="shell-bottom-bar"]')].map((e) => {
+        const r = e.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, height: r.height };
+      });
+      return { url: location.pathname + location.search, chrome: document.querySelector("[data-shell-root]")?.getAttribute("data-chrome") ?? null, bars, vh: innerHeight };
+    });
+    if (state.url !== "/app") throw new Error(`/app did not stay on Home: ${JSON.stringify(state)}`);
+    const bar = state.bars.find((b) => b.height > 0);
+    if (!bar || bar.bottom > state.vh - 8) throw new Error(`the floating bar is missing or not lifted off the edge: ${JSON.stringify(state)}`);
+    await noSideScroll(m, 390);
+    await m.unroute("**/api/business/setup");
   });
   await check("M11 the management centre and its pages on the phone", async () => {
     await m.goto("/calendar/manage");
@@ -673,10 +714,11 @@ async function main() {
     await seen(o, "היומן עדיין לא פעיל לעסק שלך");
   });
   await check("O2 OFF: the API answers 404 for the signed-in owner", async () => (await api(seed.tokenB, `/api/appointments?from=${encodeURIComponent(new Date().toISOString())}&to=${encodeURIComponent(new Date(Date.now() + 864e5).toISOString())}`)).status === 404);
-  await check("O3 OFF: the sidebar does not list the calendar", async () => {
+  await check("O3 OFF: the sidebar never links to /calendar; its fixed יומן opens the Secretary calendar (owner decision 18.11)", async () => {
     await o.goto("/secretary");
     await o.waitForLoadState("networkidle");
-    return (await o.getByRole("link", { name: "יומן ותורים" }).count()) === 0;
+    await o.locator('.dz-sidebar a[href="/secretary?screen=calendar"]', { hasText: "יומן" }).first().waitFor({ timeout: 20_000 });
+    return (await o.locator('.dz-sidebar a[href^="/calendar"]').count()) === 0 && (await o.getByRole("link", { name: "יומן ותורים" }).count()) === 0;
   });
   await check("O4 OFF: the Secretary has no תורים היום card", async () => {
     await o.getByText("תחנות ניהול").first().waitFor({ timeout: 20_000 });
@@ -733,9 +775,9 @@ async function main() {
   const dcC = await ctx(browser, seed.tokenC, DESKTOP);
   const dpC = await dcC.newPage();
   current = dpC;
-  await check("N6 C: the desktop sidebar lists יומן ותורים", async () => {
+  await check("N6 C: the desktop sidebar's fixed יומן leads to the calendar", async () => {
     await dpC.goto("/secretary");
-    await dpC.getByRole("link", { name: "יומן ותורים" }).first().waitFor({ timeout: 20_000 });
+    await dpC.locator('.dz-sidebar a[href="/calendar"]', { hasText: "יומן" }).first().waitFor({ timeout: 20_000 });
     await shot(dpC, "n05-c-desktop-sidebar");
   });
   await dcC.close();

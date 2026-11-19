@@ -27,8 +27,10 @@ import {
 } from "@/lib/auth/issuer-declaration-link";
 import { parseBillingBusinessKind, type BillingBusinessKind } from "@/lib/billing/business-identity";
 import {
+  ISSUER_IDENTITY_FIELDS,
   TRACK_BY_KIND,
   validateIssuerDetails,
+  type IssuerDetailField,
   type IssuerDetailProblem,
   type IssuerDetailsInput,
 } from "@/lib/billing/issuer-declaration/details";
@@ -90,7 +92,80 @@ export type IssuerDeclarationContext = {
   statement: IssuerStatement | null;
   statementSha256: string | null;
   precondition: IssuerDeclarationPrecondition | null;
+  /**
+   * The signed-in account has no name to sign as (an individual falls back to the legal name, a company cannot).
+   * Kept apart from `problems`: it is an account detail, not a business detail, and the screen says so.
+   */
+  declarantNameMissing: boolean;
+  /** Identity fields the owner cannot change here: confirmed at signup and/or declared. */
+  lockedFields: IssuerDetailField[];
+  /** The problem fields the owner may complete on the declaration screen (problems minus locked fields). */
+  editableFields: IssuerDetailField[];
+  /** Where the confirmation link goes — the signed-in account's own address (never one from the request). */
+  accountEmail: string | null;
 };
+
+/** The legal-identity lock (signup confirmation) — the fields it holds, by the database trigger's own list. */
+const SIGNUP_LOCKED_FIELDS: readonly IssuerDetailField[] = ["billingBusinessKind", "billingLegalName", "billingTaxId"];
+
+/**
+ * Which identity fields are locked, and which problem fields the owner may still complete on the declaration screen.
+ * Pure. A declaration locks every declared identity field; a confirmed signup identity locks kind, name and number.
+ * A problem on a locked field is never offered for editing — it goes through the controlled correction path.
+ */
+export function issuerFieldAccess(input: {
+  problems: readonly IssuerDetailProblem[];
+  legalIdentityConfirmed: boolean;
+  declared: boolean;
+}): { lockedFields: IssuerDetailField[]; editableFields: IssuerDetailField[] } {
+  const locked = new Set<IssuerDetailField>();
+  if (input.legalIdentityConfirmed) for (const f of SIGNUP_LOCKED_FIELDS) locked.add(f);
+  if (input.declared) for (const f of ISSUER_IDENTITY_FIELDS) locked.add(f);
+  const editable: IssuerDetailField[] = [];
+  for (const p of input.problems) {
+    if (!locked.has(p.field) && p.field !== "billingBusinessKind" && !editable.includes(p.field)) editable.push(p.field);
+  }
+  return { lockedFields: [...locked], editableFields: editable };
+}
+
+/**
+ * The canonical statement for a business's stored details — one builder for the owner's own declaration and for a
+ * platform designation, so both record exactly the same issuer fields. Returns null while anything is missing.
+ */
+export function issuerStatementForDetails(input: {
+  businessId: number;
+  details: IssuerDetailsInput;
+  issuedCount: number;
+  authorizedUserId: number;
+  declarantName: string;
+  declarantCapacity: string;
+}): IssuerStatement | null {
+  const kind = parseBillingBusinessKind(input.details.billingBusinessKind);
+  const declarantName = input.declarantName.trim();
+  if (!kind || validateIssuerDetails(input.details).length > 0 || !declarantName) return null;
+  const shape = TRACK_BY_KIND[kind];
+  return buildIssuerStatement({
+    businessId: input.businessId,
+    // A business that already issued confirms its existing identity; a new one makes its initial declaration.
+    kind: input.issuedCount > 0 ? "EXISTING_CONFIRMATION" : "INITIAL",
+    track: shape.track,
+    legalForm: shape.legalForm,
+    vatStatus: shape.vatStatus,
+    legalName: (input.details.billingLegalName ?? "").trim(),
+    tradeName: null,
+    idType: shape.idType,
+    idNumber: input.details.billingTaxId,
+    vatRegistrationNumber: shape.vatStatus === "AUTHORIZED" ? input.details.billingVatNumber : null,
+    address: (input.details.billingAddress ?? "").trim(),
+    phone: (input.details.billingPhone ?? "").trim(),
+    email: (input.details.billingEmail ?? "").trim(),
+    effectiveFrom: null,
+    authorizedUserId: input.authorizedUserId,
+    declarantName: declarantName.slice(0, 120),
+    declarantCapacity: input.declarantCapacity,
+    supersedesVersion: null,
+  });
+}
 
 /**
  * Everything the screens and both POSTs need, read inside the caller's tenant transaction. The statement is built
@@ -102,7 +177,10 @@ export async function loadIssuerDeclarationContextTx(
   userId: number
 ): Promise<IssuerDeclarationContext> {
   const [profile, current, usersInBusiness, user, issuedCount] = await Promise.all([
-    tx.businessProfile.findUnique({ where: { businessId }, select: ISSUER_DETAILS_SELECT }),
+    tx.businessProfile.findUnique({
+      where: { businessId },
+      select: { ...ISSUER_DETAILS_SELECT, legalIdentityConfirmedAt: true },
+    }),
     tx.businessIssuerDeclaration.findFirst({
       where: { businessId, anonymisedAt: null },
       orderBy: { version: "desc" },
@@ -112,7 +190,7 @@ export async function loadIssuerDeclarationContextTx(
       },
     }),
     tx.user.count({ where: { businessId } }),
-    tx.user.findFirst({ where: { id: userId, businessId }, select: { name: true } }),
+    tx.user.findFirst({ where: { id: userId, businessId }, select: { name: true, email: true } }),
     tx.billingDocument.count({
       where: { businessId, status: "ISSUED", documentType: { in: [...DECLARATION_GOVERNED_DOCUMENT_TYPES] } },
     }),
@@ -133,43 +211,32 @@ export async function loadIssuerDeclarationContextTx(
   // An individual's declarant is the dealer; without a profile name, the legal name is that person's name.
   const declarantName =
     (user?.name ?? "").trim() || (kind && TRACK_BY_KIND[kind].legalForm === "INDIVIDUAL" ? legalName : "");
-  if (problems.length === 0 && !declarantName) {
-    problems.push({ field: "billingLegalName", code: "MISSING", message: "יש להוסיף את שמך המלא בפרופיל החשבון, כדי שיופיע כמצהיר." });
-  }
+  const declarantNameMissing = problems.length === 0 && !declarantName;
 
-  let statement: IssuerStatement | null = null;
-  if (problems.length === 0 && kind) {
-    const shape = TRACK_BY_KIND[kind];
-    statement = buildIssuerStatement({
-      businessId,
-      // A business that already issued confirms its existing identity; a new one makes its initial declaration.
-      kind: issuedCount > 0 ? "EXISTING_CONFIRMATION" : "INITIAL",
-      track: shape.track,
-      legalForm: shape.legalForm,
-      vatStatus: shape.vatStatus,
-      legalName,
-      tradeName: null,
-      idType: shape.idType,
-      idNumber: details.billingTaxId,
-      vatRegistrationNumber: shape.vatStatus === "AUTHORIZED" ? details.billingVatNumber : null,
-      address: (details.billingAddress ?? "").trim(),
-      phone: (details.billingPhone ?? "").trim(),
-      email: (details.billingEmail ?? "").trim(),
-      effectiveFrom: null,
-      authorizedUserId: userId,
-      declarantName: declarantName.slice(0, 120),
-      declarantCapacity: DECLARANT_CAPACITY_BY_KIND[kind],
-      supersedesVersion: null,
-    });
-  }
+  const statement: IssuerStatement | null = kind
+    ? issuerStatementForDetails({
+        businessId,
+        details,
+        issuedCount,
+        authorizedUserId: userId,
+        declarantName,
+        declarantCapacity: DECLARANT_CAPACITY_BY_KIND[kind],
+      })
+    : null;
 
   const precondition: IssuerDeclarationPrecondition | null = current
     ? "ALREADY_DECLARED"
-    : problems.length > 0
+    : problems.length > 0 || declarantNameMissing
       ? "INCOMPLETE"
       : usersInBusiness !== 1
         ? "NEEDS_DESIGNATION"
         : null;
+
+  const { lockedFields, editableFields } = issuerFieldAccess({
+    problems,
+    legalIdentityConfirmed: profile?.legalIdentityConfirmedAt != null,
+    declared: current !== null,
+  });
 
   return {
     details,
@@ -179,6 +246,10 @@ export async function loadIssuerDeclarationContextTx(
     statement,
     statementSha256: statement ? issuerStatementSha256(statement) : null,
     precondition,
+    declarantNameMissing,
+    lockedFields,
+    editableFields,
+    accountEmail: user?.email ?? null,
   };
 }
 
