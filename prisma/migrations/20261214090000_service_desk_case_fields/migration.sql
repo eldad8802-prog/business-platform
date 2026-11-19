@@ -174,6 +174,9 @@ END
 $fn$;
 REVOKE ALL ON FUNCTION public.service_case_fields_erase_business() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.service_case_fields_erase_business() TO app_runtime;
+-- The loan guard runs as the caller (app_runtime) and asks this helper whether the erasure marker is set (as the
+-- charge and tracks migrations grant theirs).
+GRANT EXECUTE ON FUNCTION public.service_case_loaner_in_erasure(oid) TO app_runtime;
 
 -- 3. Task → case link (decision 7): same business enforced by the composite key. If a case row is ever removed (the
 -- business purge), only the link is cleared — the task and its business stay (PG ≥ 15: SET NULL of one column).
