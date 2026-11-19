@@ -7,6 +7,7 @@ import Link from "next/link";
 import BackButton from "@/components/ui/back-button";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
 import { BillingIdentityBanner } from "@/components/billing/BillingIdentityBanner";
+import { IssuerDeclarationNotice } from "@/components/billing/IssuerDeclarationNotice";
 import {
   BusinessIdentitySetupForm,
   emptyInvoiceIdentityForm,
@@ -526,6 +527,8 @@ export default function BillingHubPage() {
             <ContinueDraftCard doc={latestDraft} />
           </section>
         ) : null}
+
+        <IssuerDeclarationNotice />
 
         {billingIdentityOk !== true ? (
           <BillingIdentityBanner onIdentityResolved={setBillingIdentityOk} />

@@ -88,6 +88,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/admin/authority-pilot-gate", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
   { pattern: "/admin/businesses/[id]", parent: "/admin/businesses", parentLabelKey: "toBusinessList" },
   { pattern: "/admin/businesses/[id]/features", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
+  { pattern: "/admin/businesses/[id]/issuer-declaration", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
 
   // ---- screens reached from Home (not in the main navigation) ------------
   { pattern: "/pricing", parent: "/app", parentLabelKey: "toHome", identityParams: ["step"] },

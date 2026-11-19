@@ -405,12 +405,18 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // Web Push subscriptions: the push address and keys go and the row is revoked (no DELETE for the
           // runtime). erased:<id> satisfies PushSubscription_endpoint_shape and keeps (businessId, endpoint)
           // unique; a business has a handful of these rows (one per browser that accepted push).
+          // The Android app's FCM devices (notification engine, endpoint fcm:<token>) are rows of the same table:
+          // the token goes the same way.
           for (const sub of await tx.pushSubscription.findMany({ where: { businessId }, select: { id: true } })) {
             await tx.pushSubscription.updateMany({
               where: { id: sub.id, businessId },
               data: { endpoint: `erased:${sub.id}`, p256dh: "", auth: "", revokedAt: new Date() },
             });
           }
+          // Notification engine (migration 20261210090000): every user's notification settings and overrides.
+          // The runtime holds DELETE on both, bound by RLS to this business.
+          await tx.notificationSettings.deleteMany({ where: { businessId } });
+          await tx.notificationPreference.deleteMany({ where: { businessId } });
 
           // ── Monthly accountant workflow ─────────────────────────────────────
           //
