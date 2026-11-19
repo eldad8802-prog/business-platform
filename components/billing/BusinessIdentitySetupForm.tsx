@@ -20,7 +20,17 @@ export type InvoiceProfileFormState = {
   billingEmail: string | null;
   billingAddress: string | null;
   billingPdfTemplateStyle: BillingPdfTemplateStyle;
+  /**
+   * The VAT dealer number (מספר עוסק מורשה) — distinct from the ID / company number. Optional in the state: only the
+   * forms that pass `showVatNumber` edit it (the billing area); /business keeps its own field.
+   */
+  billingVatNumber?: string | null;
 };
+
+/** The kinds that carry a VAT dealer number (an exempt dealer has none). */
+function kindHasVatNumber(kind: string | null): boolean {
+  return kind === "AUTHORIZED_DEALER" || kind === "LTD_COMPANY";
+}
 
 export const emptyInvoiceIdentityForm: InvoiceProfileFormState = {
   billingLegalName: null,
@@ -99,11 +109,14 @@ export function BusinessIdentitySetupForm({
   form,
   onChange,
   legalIdentityLocked = false,
+  showVatNumber = false,
 }: {
   form: InvoiceProfileFormState;
   onChange: (next: InvoiceProfileFormState) => void;
   /** From GET /api/billing/invoice-profile: kind, legal name and tax id are confirmed and read-only. */
   legalIdentityLocked?: boolean;
+  /** Show the VAT dealer number field for an authorized dealer or a company (the billing area's completion flow). */
+  showVatNumber?: boolean;
 }) {
   function patch<K extends keyof InvoiceProfileFormState>(
     key: K,
@@ -175,6 +188,16 @@ export function BusinessIdentitySetupForm({
         ltr
         readOnly={legalIdentityLocked}
       />
+
+      {showVatNumber && kindHasVatNumber(form.billingBusinessKind) ? (
+        <Field
+          label={t("billing.identity.vatNumberLabel")}
+          value={form.billingVatNumber ?? null}
+          onChange={(v) => patch("billingVatNumber", v)}
+          ltr
+          hint={t("billing.identity.vatNumberHint")}
+        />
+      ) : null}
 
       <div style={{ gridColumn: "1 / -1" }}>
         <Field

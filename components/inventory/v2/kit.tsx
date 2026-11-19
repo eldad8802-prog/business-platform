@@ -72,7 +72,10 @@ function useShellBarHeight(): number {
     const measure = () => {
       const bar = document.querySelector<HTMLElement>('[data-component="shell-bottom-bar"]');
       // A fixed element has no offsetParent, so visibility is read from its boxes.
-      const visible = bar && bar.getClientRects().length > 0 && getComputedStyle(bar).display !== "none" ? bar.offsetHeight : 0;
+      // HOME v4: the bar FLOATS (lifted 10px + the safe area), so what it covers is measured from the window's bottom
+      // edge to the bar's top — not its own height, which would dock the footer behind it.
+      const shown = bar && bar.getClientRects().length > 0 && getComputedStyle(bar).display !== "none";
+      const visible = shown ? Math.max(0, Math.ceil(window.innerHeight - bar.getBoundingClientRect().top)) : 0;
       setH((cur) => (cur === visible ? cur : visible));
     };
     measure();
