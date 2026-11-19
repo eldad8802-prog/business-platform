@@ -159,11 +159,15 @@ export function rlsFacts(sqlNorm, table) {
  * tables (`GRANT SELECT ON "A", "B" TO app_runtime;`, as 20261120090000 does); only quoted names, commas and spaces
  * may stand between ON and TO, so the match never crosses a statement. ON SEQUENCE / FUNCTION is not a table grant,
  * and a look-alike role (app_runtime_prod, app_runtimex) is not app_runtime.
+ * A privilege may carry a column list (`GRANT SELECT ("id", "businessId") ON "A" TO app_runtime;`, as
+ * 20261128100000 does to keep an internal note unreadable); the list holds only quoted names, commas and spaces, so
+ * it can't cross a statement either.
  */
 export function grantedToRuntime(sqlNorm, table) {
   const name = `"[A-Za-z0-9_]+"`;
+  const cols = `\\( ?${name}( ?, ?${name})* ?\\)`;
   return new RegExp(
-    `GRANT [A-Z, ]+ ON (TABLE )?(${name} ?, ?)*"${esc(table)}"( ?, ?${name})* TO app_runtime(?![A-Za-z0-9_])`,
+    `GRANT [A-Z, ]+(${cols}[A-Z, ]*)* ON (TABLE )?(${name} ?, ?)*"${esc(table)}"( ?, ?${name})* TO app_runtime(?![A-Za-z0-9_])`,
     "i",
   ).test(sqlNorm);
 }
@@ -442,6 +446,27 @@ CREATE POLICY p_${t} ON "${t}" FOR SELECT USING (${pred});`;
     {
       name: "multi-table GRANT that does not include the table fails R2",
       input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ON "Other", "Another" TO app_runtime;` }], exempt: {} },
+      expect: 1,
+    },
+    // A column-level GRANT (20261128100000_legal_identity_correction).
+    {
+      name: "column-level GRANT (one or several privileges with column lists) passes R2",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ("id", "businessId",\n  "note") ON "Widget" TO app_runtime;` }], exempt: {} },
+      expect: 0,
+    },
+    {
+      name: "column-level GRANT with two privileges passes R2",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ("id"), UPDATE ("note") ON "Widget" TO app_runtime;` }], exempt: {} },
+      expect: 0,
+    },
+    {
+      name: "column-level GRANT to another role fails R2",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ("id") ON "Widget" TO app_admin;` }], exempt: {} },
+      expect: 1,
+    },
+    {
+      name: "a column list never spans two statements",
+      input: { schemaSrc: schema(), migrations: [{ dir: "20260930000000_new", sql: `CREATE TABLE "Widget" (id int);${rlsOnly("Widget")} GRANT SELECT ("id"); GRANT SELECT ("x") ON "Widget" TO app_admin; SELECT ("y") ON "Widget" TO app_runtime;` }], exempt: {} },
       expect: 1,
     },
     {

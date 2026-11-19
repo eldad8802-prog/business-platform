@@ -297,6 +297,21 @@ export const OBJECT_SURFACES: readonly ObjectSurface[] = [
       "the stored copy a share event points at — the same object as ServiceQuote.sentPdfKey or ServiceCaseIntake.slipPdfKey (guard). The row keeps the key; the object goes with the biz/{id}/service/ prefix after commit",
     erasedAfterCommit: { jobFn: "service_desk_ui_erase_business", objectFn: "runAccountStorageErasure", keyDelegate: "serviceShareEvent" },
   },
+  // Legal identity correction requests (migration 20261128100000). Private objects under biz/{id}/legal-identity/
+  // (CHECK-limited in LegalIdentityCorrectionAttachment; the "legal-identity" domain is create-once). In the purge
+  // transaction legal_identity_correction_erase() clears each row's key and hash and closes every open request (so no
+  // attach can follow); after commit runAccountStorageErasure → legal-identity-storage-erasure.ts deletes the whole
+  // prefix and verifies with a fresh listing. The adapter itself never writes these rows.
+  {
+    model: "LegalIdentityCorrectionAttachment",
+    field: "storageKey",
+    kind: "STORAGE_KEY",
+    domain: "legal-identity",
+    state: "ERASED",
+    reason:
+      "a supporting document the owner attached to a legal identity correction request (≤ 5 per request, PDF/JPEG/PNG ≤ 10 MB by CHECK). The purge clears the key in place; the object goes with the biz/{id}/legal-identity/ prefix after commit",
+    erasedAfterCommit: { jobFn: "legal_identity_correction_erase", objectFn: "runAccountStorageErasure", keyDelegate: "legalIdentityCorrectionAttachment" },
+  },
   // Business documents (migration 20261114090000). Private objects under biz/{id}/business-docs/ (CHECK-limited),
   // written only by create-once puts. Erased AFTER COMMIT: business_documents_erase() in the purge transaction writes
   // the durable job and keeps every key (files DELETING); the account-deletion adapter's post-commit stage

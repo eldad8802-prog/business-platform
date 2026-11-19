@@ -423,7 +423,9 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     reason: "Owner-confirmed identity statements/facts reach the BKS as OWNER_DECISION context; profile changes are an interpretation boundary, not a behaviour.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
     // P3-E: the owner's saved / approved landing versions belong to the same identity surface (an owner decision).
-    models: ["BusinessProfile", "BusinessIdentityStatement", "BusinessIdentityFactAuthority", "BusinessTrustClaim", "LandingPage", "LandingPageVersion"],
+    // Legal identity corrections (20261128100000): the owner's request to fix kind / legal name / tax id and its
+    // attachments; a platform approver decides. An owner decision about identity, not a behaviour to learn.
+    models: ["BusinessProfile", "BusinessIdentityStatement", "BusinessIdentityFactAuthority", "BusinessTrustClaim", "LandingPage", "LandingPageVersion", "LegalIdentityCorrectionRequest", "LegalIdentityCorrectionAttachment"],
     sensors: ["BUSINESS_PROFILE_CHANGED", "BILLING_IDENTITY_CHANGED", "LANDING_VERSION_CREATED", "LANDING_VERSION_APPROVED", "LANDING_VERSION_SUPERSEDED", "LANDING_ROLLBACK_CREATED", "LANDING_VERSION_RETIRED"], legacyEvents: [], routes: ["api/business", "api/profile", "page/business", "page/onboarding", "page/profile", "page/setup"],
     outcome: NO_OUTCOME,
   },
