@@ -74,6 +74,8 @@ for (const p of PROFILES) {
       position: getComputedStyle(barEl).position,
       lastCardBottom: cards.length ? cards[cards.length - 1].getBoundingClientRect().bottom : null,
       sideScroll: document.documentElement.scrollWidth > innerWidth + 1,
+      // The floating accessibility button (hidden rail/sidebar triggers share aria-controls: take the one on screen).
+      fab: (() => { const f = [...document.querySelectorAll('[aria-controls="dubiz-a11y-panel"]')].find((e) => e.getBoundingClientRect().height > 0); if (!f) return null; const r = f.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height }; })(),
     };
   });
 
@@ -122,6 +124,9 @@ for (const p of PROFILES) {
     plusNotRaised: !top.plusRaised,
     lastCardClearsBar: bottom.lastCardBottom !== null && bottom.lastCardBottom <= bottom.bar.top,
     noSideScroll: !top.sideScroll,
+    // The floating accessibility button sits wholly above the bar (it used to measure the bar's own height and, with a
+    // safe area, overlapped the floating bar).
+    accessibilityButtonClearsBar: Boolean(top.fab && top.fab.height > 0) && top.fab.bottom <= top.bar.top - 4,
     sheetOpens: Boolean(sheet && sheet.actions > 0),
     sheetLastActionOnScreen: Boolean(sheet && sheet.lastButtonBottom !== null && sheet.lastButtonBottom <= sheet.vh - (top.insetBottom || 0)),
     sheetClosesKeepingScroll: closed && before === after,

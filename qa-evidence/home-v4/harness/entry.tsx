@@ -6,6 +6,7 @@
 import { createRoot } from "react-dom/client";
 
 import { ShellChrome } from "@/components/navigation/shell-chrome";
+import { AccessibilityFab } from "@/components/ui/accessibility/accessibility-fab";
 import { HomeV4 } from "@/features/home/v4/home-v4";
 import { useHomeV4Data } from "@/features/home/v4/use-home-v4-data";
 import { MyToolsScreen } from "@/features/tools/my-tools-screen";
@@ -173,9 +174,13 @@ function HomeHarness() {
 
 function App() {
   return (
-    <ShellChrome>
-      {SCREEN === "tools" ? <MyToolsScreen /> : SCREEN === "more" ? <MoreCapabilitiesScreen /> : <HomeHarness />}
-    </ShellChrome>
+    <>
+      <ShellChrome>
+        {SCREEN === "tools" ? <MyToolsScreen /> : SCREEN === "more" ? <MoreCapabilitiesScreen /> : <HomeHarness />}
+      </ShellChrome>
+      {/* As in app/layout.tsx: the floating accessibility button, which keeps itself clear of the bar. */}
+      <AccessibilityFab />
+    </>
   );
 }
 

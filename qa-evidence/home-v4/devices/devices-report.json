@@ -14,6 +14,7 @@
       "plusNotRaised": true,
       "lastCardClearsBar": true,
       "noSideScroll": true,
+      "accessibilityButtonClearsBar": true,
       "sheetOpens": true,
       "sheetLastActionOnScreen": true,
       "sheetClosesKeepingScroll": true,
@@ -38,12 +39,17 @@
       "plusRaised": false,
       "position": "fixed",
       "lastCardBottom": 933.484375,
-      "sideScroll": false
+      "sideScroll": false,
+      "fab": {
+        "top": 527,
+        "bottom": 581,
+        "height": 54
+      }
     },
     "bottom": {
       "vw": 375,
       "vh": 667,
-      "scrollY": 374,
+      "scrollY": 426,
       "insetBottom": 0,
       "bar": {
         "top": 593,
@@ -58,8 +64,13 @@
       "plusOffCentreY": 0,
       "plusRaised": false,
       "position": "fixed",
-      "lastCardBottom": 559.484375,
-      "sideScroll": false
+      "lastCardBottom": 507.484375,
+      "sideScroll": false,
+      "fab": {
+        "top": 527,
+        "bottom": 581,
+        "height": 54
+      }
     },
     "sheet": {
       "top": 133.40625,
@@ -89,6 +100,7 @@
       "plusNotRaised": true,
       "lastCardClearsBar": true,
       "noSideScroll": true,
+      "accessibilityButtonClearsBar": true,
       "sheetOpens": true,
       "sheetLastActionOnScreen": true,
       "sheetClosesKeepingScroll": true,
@@ -113,12 +125,17 @@
       "plusRaised": false,
       "position": "fixed",
       "lastCardBottom": 845.09375,
-      "sideScroll": false
+      "sideScroll": false,
+      "fab": {
+        "top": 599,
+        "bottom": 653,
+        "height": 54
+      }
     },
     "bottom": {
       "vw": 430,
       "vh": 739,
-      "scrollY": 214,
+      "scrollY": 266,
       "insetBottom": 0,
       "bar": {
         "top": 665,
@@ -133,8 +150,13 @@
       "plusOffCentreY": 0,
       "plusRaised": false,
       "position": "fixed",
-      "lastCardBottom": 631.09375,
-      "sideScroll": false
+      "lastCardBottom": 579.09375,
+      "sideScroll": false,
+      "fab": {
+        "top": 599,
+        "bottom": 653,
+        "height": 54
+      }
     },
     "sheet": {
       "top": 201,
@@ -144,8 +166,8 @@
       "vh": 739
     },
     "scroll": {
-      "before": 214,
-      "after": 214
+      "before": 266,
+      "after": 266
     },
     "errors": []
   },
@@ -167,6 +189,7 @@
       "plusNotRaised": true,
       "lastCardClearsBar": true,
       "noSideScroll": true,
+      "accessibilityButtonClearsBar": true,
       "sheetOpens": true,
       "sheetLastActionOnScreen": true,
       "sheetClosesKeepingScroll": true,
@@ -191,12 +214,17 @@
       "plusRaised": false,
       "position": "fixed",
       "lastCardBottom": 845.09375,
-      "sideScroll": false
+      "sideScroll": false,
+      "fab": {
+        "top": 675,
+        "bottom": 729,
+        "height": 54
+      }
     },
     "bottom": {
       "vw": 412,
       "vh": 839,
-      "scrollY": 138,
+      "scrollY": 190,
       "insetBottom": 24,
       "bar": {
         "top": 741,
@@ -211,19 +239,24 @@
       "plusOffCentreY": 0,
       "plusRaised": false,
       "position": "fixed",
-      "lastCardBottom": 707.09375,
-      "sideScroll": false
+      "lastCardBottom": 655.09375,
+      "sideScroll": false,
+      "fab": {
+        "top": 675,
+        "bottom": 729,
+        "height": 54
+      }
     },
     "sheet": {
-      "top": 278.87725830078125,
-      "bottom": 840.8772583007812,
+      "top": 278.8699951171875,
+      "bottom": 840.8699951171875,
       "actions": 10,
-      "lastButtonBottom": 798.8772583007812,
+      "lastButtonBottom": 798.8699951171875,
       "vh": 839
     },
     "scroll": {
-      "before": 138,
-      "after": 138
+      "before": 190,
+      "after": 190
     },
     "errors": []
   },
@@ -245,6 +278,7 @@
       "plusNotRaised": true,
       "lastCardClearsBar": true,
       "noSideScroll": true,
+      "accessibilityButtonClearsBar": true,
       "sheetOpens": true,
       "sheetLastActionOnScreen": true,
       "sheetClosesKeepingScroll": true,
@@ -269,12 +303,17 @@
       "plusRaised": false,
       "position": "fixed",
       "lastCardBottom": 983.078125,
-      "sideScroll": false
+      "sideScroll": false,
+      "fab": {
+        "top": 518,
+        "bottom": 572,
+        "height": 54
+      }
     },
     "bottom": {
       "vw": 320,
       "vh": 658,
-      "scrollY": 433,
+      "scrollY": 485,
       "insetBottom": 0,
       "bar": {
         "top": 584,
@@ -289,14 +328,19 @@
       "plusOffCentreY": 0,
       "plusRaised": false,
       "position": "fixed",
-      "lastCardBottom": 550.078125,
-      "sideScroll": false
+      "lastCardBottom": 498.078125,
+      "sideScroll": false,
+      "fab": {
+        "top": 518,
+        "bottom": 572,
+        "height": 54
+      }
     },
     "sheet": {
-      "top": 133.3587646484375,
-      "bottom": 659.7493896484375,
+      "top": 133.3612518310547,
+      "bottom": 659.7518768310547,
       "actions": 10,
-      "lastButtonBottom": 653.3587646484375,
+      "lastButtonBottom": 653.3612670898438,
       "vh": 658
     },
     "scroll": {
@@ -323,6 +367,7 @@
       "plusNotRaised": true,
       "lastCardClearsBar": true,
       "noSideScroll": true,
+      "accessibilityButtonClearsBar": true,
       "sheetOpens": true,
       "sheetLastActionOnScreen": true,
       "sheetClosesKeepingScroll": true,
@@ -347,12 +392,17 @@
       "plusRaised": false,
       "position": "fixed",
       "lastCardBottom": 845.09375,
-      "sideScroll": false
+      "sideScroll": false,
+      "fab": {
+        "top": 565,
+        "bottom": 619,
+        "height": 54
+      }
     },
     "bottom": {
       "vw": 430,
       "vh": 739,
-      "scrollY": 248,
+      "scrollY": 300,
       "insetBottom": 34,
       "bar": {
         "top": 631,
@@ -367,19 +417,24 @@
       "plusOffCentreY": 0,
       "plusRaised": false,
       "position": "fixed",
-      "lastCardBottom": 597.09375,
-      "sideScroll": false
+      "lastCardBottom": 545.09375,
+      "sideScroll": false,
+      "fab": {
+        "top": 565,
+        "bottom": 619,
+        "height": 54
+      }
     },
     "sheet": {
-      "top": 168.90086364746094,
-      "bottom": 740.9008636474609,
+      "top": 167.59678649902344,
+      "bottom": 739.5967864990234,
       "actions": 10,
-      "lastButtonBottom": 688.90087890625,
+      "lastButtonBottom": 687.5968017578125,
       "vh": 739
     },
     "scroll": {
-      "before": 248,
-      "after": 248
+      "before": 300,
+      "after": 300
     },
     "errors": []
   }

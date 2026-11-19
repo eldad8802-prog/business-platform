@@ -97,3 +97,16 @@ The four areas, their order and their content are the same at every width; only 
   - a live resize 390 → 1920 → 390: the nav swaps at 768 and 1280, the columns change at 900 and 1280, and the area order stays the same;
   - no sideways scroll and 0 console errors anywhere;
   - keyboard Tab order at 1440: the header, then תמונת מצב, המזכירה שלי, היום שלי, בשבילך, then the navigation.
+
+## Fixed 11-19: two screens measured the old bar's height
+
+The floating bar is lifted 10px plus the safe area, so its own height (64px) is less than the space it covers (74px + safe area). The old bar's height already included the safe area. Two existing components used the bar's own height:
+
+| Component | Effect with the old measurement | Fix |
+|---|---|---|
+| **The accessibility button** (`components/ui/accessibility/accessibility-fab.tsx`) | It sat at 64 + 12 = 76px. With a 34px home-indicator inset the bar spans 44–108px, so the button **overlapped the bar by about 32px** (iPhone, Android gesture navigation). | Both now measure from the window's bottom edge to the bar's top. |
+| **The inventory action footer** (`components/inventory/v2/kit.tsx`) | It docked at 64px and slid 10px + the safe area behind the bar. | Same measurement. |
+
+The device pass now checks `accessibilityButtonClearsBar` on every profile. The button sits 12px above the bar with 0, 24 and 34px insets. The harness mounts the real button, as `app/layout.tsx` does.
+
+The same CI artifact (the i18n proof) showed `--i2-nav-h: 84px → 64px` on /inventory. That is how this was found.

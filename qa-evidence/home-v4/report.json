@@ -485,7 +485,7 @@
   "floatingBar": {
     "top": {
       "scrollY": 0,
-      "docHeight": 999,
+      "docHeight": 1051,
       "vh": 844,
       "vw": 390,
       "bar": {
@@ -517,12 +517,12 @@
         "כלים"
       ],
       "rightToLeft": "303 > 232 > 91 > 21",
-      "contentPaddingBottom": "100px",
+      "contentPaddingBottom": "152px",
       "barPosition": "fixed"
     },
     "mid": {
-      "scrollY": 155,
-      "docHeight": 999,
+      "scrollY": 207,
+      "docHeight": 1051,
       "vh": 844,
       "vw": 390,
       "bar": {
@@ -554,12 +554,12 @@
         "כלים"
       ],
       "rightToLeft": "303 > 232 > 91 > 21",
-      "contentPaddingBottom": "100px",
+      "contentPaddingBottom": "152px",
       "barPosition": "fixed"
     },
     "bottom": {
-      "scrollY": 155,
-      "docHeight": 999,
+      "scrollY": 207,
+      "docHeight": 1051,
       "vh": 844,
       "vw": 390,
       "bar": {
@@ -591,12 +591,12 @@
         "כלים"
       ],
       "rightToLeft": "303 > 232 > 91 > 21",
-      "contentPaddingBottom": "100px",
+      "contentPaddingBottom": "152px",
       "barPosition": "fixed"
     },
     "up": {
       "scrollY": 0,
-      "docHeight": 999,
+      "docHeight": 1051,
       "vh": 844,
       "vw": 390,
       "bar": {
@@ -628,15 +628,15 @@
         "כלים"
       ],
       "rightToLeft": "303 > 232 > 91 > 21",
-      "contentPaddingBottom": "100px",
+      "contentPaddingBottom": "152px",
       "barPosition": "fixed"
     },
-    "lastCardBottom": 736.09375,
+    "lastCardBottom": 684.09375,
     "lastCardClearsBar": true
   },
   "createSheet": {
-    "scrollBefore": 155,
-    "scrollAfter": 155,
+    "scrollBefore": 207,
+    "scrollAfter": 207,
     "preserved": true,
     "actions": [
       "משימה חדשה",
