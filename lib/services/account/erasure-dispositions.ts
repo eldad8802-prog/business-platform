@@ -219,6 +219,14 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
       purpose: "as onboardingGoal — OWNER_SELECTED | DEFAULTED",
       basis: "PRODUCT",
     },
+    // Signup legal identity (20261128090000): when the identity was confirmed and how (SIGNUP | OWNER_CONFIRMED).
+    // A timestamp and a fixed vocabulary that name nobody; the identity values themselves are erased above.
+    legalIdentityConfirmedAt: { disposition: "STRUCTURAL" },
+    legalIdentitySource: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "a fixed vocabulary (SIGNUP | OWNER_CONFIRMED) recording how the identity was confirmed, naming nobody",
+      basis: "PRODUCT",
+    },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },
@@ -336,6 +344,14 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     readAt: { disposition: "STRUCTURAL" },
     dismissedAt: { disposition: "STRUCTURAL" },
     resolvedAt: { disposition: "STRUCTURAL" },
+    // Notification engine (migration 20261210090000): NULL = the whole business, else the one user a digest /
+    // test push is for. An id into a User row whose email, name and password the same erasure destroys.
+    userId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "which user of the business a personal notification (digest, test push) is for — a pointer, not an identity",
+      basis: "PRODUCT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },

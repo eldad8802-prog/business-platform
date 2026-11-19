@@ -34,6 +34,8 @@ export const RETAIN_MODELS = [
   "billingReceiptPayment",
   "billingAuditEvent",
   "billingDocumentNumberSequence",
+  // issuer declaration (#1081): the declared opening number of a series — numbering integrity, like the sequence
+  "billingSeriesOpening",
   "billingPaymentAllocation",
   "financialEvent",
   "billingAuthoritySubmission",
@@ -158,7 +160,8 @@ export const ANONYMIZE_MODELS = [
   { model: "taskSeries", fields: { title: "blank", note: "null", erasedAt: "now" } },
   // Web Push subscriptions (migration 20261022090000): the browser's push address and keys are blanked in place
   // (endpoint = 'erased:<id>', keys empty) and the row is revoked — the runtime holds no DELETE on the table, and
-  // with no address and no keys nothing can ever be sent to that device again.
+  // with no address and no keys nothing can ever be sent to that device again. The Android app's FCM devices
+  // (migration 20261210090000, endpoint `fcm:<token>`) are rows of the same table and are erased the same way.
   { model: "pushSubscription", fields: { endpoint: "erased-id", p256dh: "blank", auth: "blank", revokedAt: "now" } },
   // Monthly accountant workflow. The recipient snapshot of every send is erased in place (the delivery's
   // approval columns are immutable and its outcome is the business's history) and every download link is
@@ -296,6 +299,10 @@ export const DELETE_MODELS = [
   // The accountant recipient of the monthly package (a third person's name and address). Deleted under the
   // tenant context through its tenant-scoped DELETE policy (accountant_recipient_runtime_delete).
   "accountantRecipient",
+  // Notification engine (migration 20261210090000): each user's notification settings and per-domain / category
+  // overrides. Deleted under the tenant context through their tenant-scoped DELETE policies.
+  "notificationSettings",
+  "notificationPreference",
 ] as const;
 
 /** The two shapes of a Bucket-C entry, as types rather than as a convention.
@@ -441,7 +448,9 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
   // biz/{id}/service/ go after commit (OBJECT_SURFACES, service-storage-erasure.ts).
   {
     fn: "service_desk_ui_erase_business",
-    migration: "20261120090000_service_desk_ui_foundation",
+    // Its current text: 20261123090000 (ex-#1026, owner option A 2026-11-09) replaced the 1.3-0 version — it also deletes
+    // the business's ServiceSettings row and replaces the warranty offers' free texts by a fixed placeholder.
+    migration: "20261123090000_service_desk_ui_erasure_text",
     models: [
       {
         model: "ServiceTextVersion",
@@ -461,13 +470,14 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
       {
         model: "ServiceWarrantyOffer",
-        cleared: ["changeReason", "presentedByUserId", "createdByUserId"],
+        cleared: ["changeReason", "presentedByUserId", "createdByUserId", "exclusionsText"],
         kept: {
-          scopeText: "the commercial warranty scope offered for the repair — kept by the applied function as the case's consumer record; per-case owner free text, so scrubbing it is an OPEN owner decision (privacy mapping, 1.3-0 PR-2)",
-          exclusionsText: "the commercial warranty exclusions offered for the repair — kept by the applied function, same open owner decision as scopeText",
+          scopeText: "replaced by the fixed placeholder '[נמחק]' (NOT NULL column; owner option A 2026-11-09) — no owner free text remains, only that constant",
           contentSha256: "the hash of the offer's content, not the person",
         },
       },
+      // The business's Service Desk settings (warranty template texts, default staff member): deleted with the account.
+      { model: "ServiceSettings", deleted: true, cleared: [], kept: {} },
       {
         model: "ServiceIntakePhoto",
         cleared: ["createdByUserId"],

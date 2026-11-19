@@ -1,0 +1,10 @@
+{
+  "note": "Notifications engine PR 4 — Android push client (owner-approved 2026-11-12): FCM registration only with an already-granted permission, permission requested only from an explicit user action, token upload with the app's Bearer, safe deep links on tap.",
+  "tests": {
+    "lib/native/push-notifications.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (mocked Capacitor plugin): no permission prompt at start-up; re-register once per page lifetime and only when granted; POST /api/push/devices body {provider,token,platform,appVersion} with the Bearer header, nothing sent without a session; rotation dedupe; registrationError / register() throwing (no google-services.json) / FCM timeout end as registration_error; tap href validation incl. scheme, //, backslash, .., percent-encoded traversal and unknown sections → /notifications; foreground event carries only notificationId/href/category; tokens never logged; every function a no-op off the Android app."
+    }
+  }
+}

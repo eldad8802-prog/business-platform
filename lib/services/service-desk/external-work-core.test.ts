@@ -213,7 +213,7 @@ console.log("— 7. cancel at the supplier");
   const repairedAnyway = planReturnFromExternal(ctx({ status: "EXTERNAL", cancellationRequested: true, version: 7 }), { type: "RETURN_FROM_EXTERNAL", next: "READY" }, w,
     { result: "REPAIRED", followUpRequired: false }, OWNER);
   check("the supplier may have repaired it before the cancel: still READY / CANCELLED", repairedAnyway.ok && repairedAnyway.case.ok && repairedAnyway.case.outcome === "CANCELLED");
-  const deliverAway = evaluateTransition(ext, { type: "DELIVER", receipt: { receivedByName: "ישראל", signatureCaptured: true } }, OWNER);
+  const deliverAway = evaluateTransition(ext, { type: "DELIVER", receipt: { handoverConfirmed: true, receivedByName: "ישראל" } }, OWNER);
   check("no delivery while the item is away (case refuses DELIVER at EXTERNAL)", !deliverAway.ok);
   check("no second send while away (case refuses SEND_TO_EXTERNAL at EXTERNAL)", !planSendToExternal(ext, SEND, FACTS, OWNER).ok);
 }

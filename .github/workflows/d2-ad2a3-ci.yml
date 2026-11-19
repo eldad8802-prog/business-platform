@@ -33,6 +33,11 @@ concurrency:
   group: d2-ad2a3-ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # The TypeScript check (tsc / next build) needs more than Node's default ~4 GB heap on this codebase: main alone sits at
+  # the limit (clean build, Node 22). The runner has 16 GB. Measured 2026-11-14 on CI preview #1160.
+  NODE_OPTIONS: --max-old-space-size=6144
+
 jobs:
   ad2a3-battery:
     name: AD-2A.3 structural battery (PG17)

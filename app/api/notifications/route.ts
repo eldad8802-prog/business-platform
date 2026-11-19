@@ -42,6 +42,8 @@ export async function GET(request: NextRequest) {
       limit,
       cursor,
       unreadOnly: searchParams.get("unreadOnly") === "true",
+      // The reader: their own notifications and the business's, minus the categories they switched off in-app.
+      viewer: { userId: user.id },
     });
 
     return NextResponse.json(page);

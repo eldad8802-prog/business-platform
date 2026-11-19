@@ -33,6 +33,10 @@
     "features/service-desk/settings-model.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network): Service Desk UI 1.3a settings screen — the form from the server's view (owner = no default technician, no default warranty, מ3), validation mirroring updateSettings' limits (1–3650 days / 1–120 months, scope required and ≤ 2000 characters counted as code points, exclusions optional), the request body (trimmed, empty exclusions → null, the loaded version as expectedVersion), the dirty check on what is actually sent, and the Hebrew wording of every refusal (VERSION_CONFLICT → reload, inactive technician → pick again, NOT_AVAILABLE_UNTIL_AUDIT → nothing saved; internal codes never shown); run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/settlement.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB): 1.3c — the balance a handover reads: only SETTLED and OPEN (integer agorot > 0) are known; UNKNOWN (any reason) and NO_CHARGE_DOCUMENT keep the handover blocked and are never read as 0; today's only reader answers UNKNOWN / NOT_LINKED (no billing link yet, no inference); run on pull_request by service-desk-ci.yml"
     }
   }
 }

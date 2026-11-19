@@ -1,10 +1,10 @@
 {
-  "note": "One bounded retry for a dropped database connection (P1001/P1002/P1017/P2024) on the reminder dispatcher's identifier read and the intake sweeper (tenant list + one business). Owner request 2026-11-03.",
+  "note": "One bounded retry for a dropped database connection (P1001/P1002/P1017/P2024) on the reminder dispatcher identifier read and the intake sweeper (tenant list + one business). Owner request 2026-11-03. 2026-11-12: the reminder read retries up to 3 times and first evicts dead pooled connections with bounded SELECT 1 probes (lib/db/connection-recovery.ts; Production showed several dead at once).",
   "tests": {
     "lib/db/transient-retry.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
-      "reason": "pure (no DB/network/clock): only connection errors are retried (never a constraint, a transaction timeout or a bug), bounded to one retry with the last error surfacing so the routes still answer 500, the log carries class+code only (never the host), the reminder dispatcher retries only dueReminders (never the claim, bell row or push), the intake sweep skips provider calls on the retry and never retries once the health read began; run by security-gate (lab pure)"
+      "reason": "pure (no DB/network/clock): only connection errors are retried (never a constraint, a transaction timeout or a bug), bounded (attempts clamped 1..3) with the last error surfacing so the routes still answer 500, the log carries class+code only (never the host), beforeRetry runs once per retry and its failure is ignored, evictDeadConnections probes until a live connection answers, is bounded by MAX_PROBES, never throws and stops at a non-connection error, the reminder dispatcher retries only its due read (global identifiers or its own business in a tenant tx — never the claim, bell row or push), the intake sweep skips provider calls on the retry and never retries once the health read began; connection-recovery has no Prisma import and never disconnects the shared client; run by security-gate (lab pure)"
     }
   }
 }
