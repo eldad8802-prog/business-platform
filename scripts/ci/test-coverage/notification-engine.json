@@ -20,6 +20,11 @@
       "lab": "pure",
       "reason": "pure, fake fetch, a key generated in the test: FCM configuration from env only (missing ⇒ not_configured, no request), the RS256 service-account assertion verified, the cached access token, messages:send (PRIVATE Android notification, channel, data exactly notificationId / href / category), gone / transient / permanent classification, payload privacy (generic lock-screen text unless the user opted in, href fallback), web push through the unified sender (endpoint allowlist kept), the owner credential check (one fresh token exchange, nothing sent, cache untouched, class only: configured / authentication_failed / not_configured / unavailable); run by security-gate (lab pure) and notification-engine-ci.yml"
     },
+    "components/platform-admin/fcm-auth-check-logic.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure, mocked requests: the FCM check button accepts only the four result classes and copies nothing else from the body (no key/token/Google text reaches the UI); errors map to status-only Hebrew messages (401/403/429/503/500/network); one request in flight per click; static: section uses the canonical postPlatformAdminFcmAuthCheck (Bearer + MFA step-up), no storage, no direct fetch; run by security-gate (lab pure) and notification-engine-ci.yml"
+    },
     "app/api/platform-admin/notifications/fcm-auth-check/route.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
