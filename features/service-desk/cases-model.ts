@@ -19,6 +19,8 @@ export type CaseKind = "IN_SHOP" | "FIELD" | "REMOTE" | string;
 export type CaseRowData = {
   id: number;
   caseNumber: number;
+  /** Optimistic concurrency: every write sends the version it saw. */
+  version?: number;
   kind: CaseKind;
   status: CaseStatus;
   holdReason: string | null;

@@ -9,6 +9,7 @@
  */
 import type { ReactNode } from "react";
 
+import type { CaseActionDef } from "./case-actions-model";
 import {
   caseNoun, caseSections, eventLabel, formatShortDate, historyItems, nextActionLabel, statusLabel, statusTone,
   type CaseCardData, type JournalItem, type SectionKey,
@@ -20,8 +21,11 @@ export type CaseViewProps = {
   events: readonly JournalItem[];
   now: Date;
   back: ReactNode;
-  /** Actions arrive in the next step; until then the main button is visible but not active. */
-  actionsEnabled?: boolean;
+  /** The actions the model offers for this case (primary first). Empty / absent = view only (read-only mode). */
+  actions?: readonly CaseActionDef[];
+  onAction?: (def: CaseActionDef) => void;
+  busyId?: string | null;
+  message?: { tone: "error" | "ok"; text: string } | null;
 };
 
 function Caret() {
@@ -100,7 +104,7 @@ function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalI
   }
 }
 
-export function CaseView({ card, events, now, back, actionsEnabled }: CaseViewProps) {
+export function CaseView({ card, events, now, back, actions = [], onAction, busyId = null, message = null }: CaseViewProps) {
   const noun = caseNoun(card.kind);
   const tone = statusTone(card.status, card.holdReason);
   const next = nextActionLabel(card.status, card.kind);
@@ -132,13 +136,19 @@ export function CaseView({ card, events, now, back, actionsEnabled }: CaseViewPr
               </>
             ) : <p className={s.nextText} style={{ marginTop: 12 }}>ה{noun} סגור</p>}
           </div>
-          {next ? (
+          {actions.length ? (
             <div className={s.statusActions}>
-              <button type="button" className={s.primary} disabled={!actionsEnabled} aria-disabled={actionsEnabled ? undefined : true}
-                title={actionsEnabled ? undefined : "הפעולות יתווספו בשלב הבא"}>{next}</button>
+              {actions.filter((a) => a.tone !== "danger").map((a) =>
+                a.target.endpoint === "link" ? (
+                  <a key={a.id} className={a.tone === "primary" ? s.primary : s.secondary} href={a.target.href}>{a.label}</a>
+                ) : (
+                  <button key={a.id} type="button" className={a.tone === "primary" ? s.primary : s.secondary} disabled={busyId !== null}
+                    onClick={() => onAction?.(a)}>{busyId === a.id ? "שומר…" : a.label}</button>
+                ))}
             </div>
           ) : null}
         </section>
+        {message ? <p className={s.msg} data-tone={message.tone} role={message.tone === "error" ? "alert" : "status"}>{message.text}</p> : null}
 
         <div className={s.columns}>
           <div className={s.mainCol}>
@@ -160,6 +170,13 @@ export function CaseView({ card, events, now, back, actionsEnabled }: CaseViewPr
               <p className={s.infoTitle}>לקוח</p>
               <p className={s.infoMain}>{card.customerName ?? "לקוח ללא שם"}</p>
             </div>
+            {actions.some((a) => a.tone === "danger") ? (
+              <div className={s.infoCard}>
+                {actions.filter((a) => a.tone === "danger").map((a) => (
+                  <button key={a.id} type="button" className={s.dangerLink} disabled={busyId !== null} onClick={() => onAction?.(a)}>{a.label}</button>
+                ))}
+              </div>
+            ) : null}
             {history ? (() => {
               const { hint, body } = sectionBody("history", card, events, now);
               return (

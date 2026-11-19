@@ -1,0 +1,102 @@
+name: service desk — UI end to end (cases list, case screen, actions)
+
+# The real app (next dev) on the Service Desk M1 lab, in Chromium, phone and desktop, Hebrew. service_desk is switched
+# ON only for the lab's synthetic business A, inside this job's own database; business B keeps the default (OFF).
+# Synthetic only: no Production, no Preview, no secrets.
+
+on:
+  pull_request:
+    paths:
+      - "features/service-desk/**"
+      - "app/(shell)/service-desk/**"
+      - "app/api/service-desk/**"
+      - "lib/services/service-desk/**"
+      - ".sdui/**"
+      - ".github/workflows/service-desk-ui-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Service desk UI in a browser — list, case, actions, refusals, module OFF (PG17 lab)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdui_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdui_ci_synthetic_super_pw
+      LAB_PASSWORD: sdui_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: sdui-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: sdui-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      CRON_SECRET: sdui_ci_cron_secret_synthetic_at_least_32
+      AUTH_PLANE_ENABLED: "true"
+      RATE_LIMIT_BACKEND: memory
+      STORAGE_PROVIDER: local
+      LOCAL_STORAGE_ROOT: /tmp/sdui-store
+      NEXT_TELEMETRY_DISABLED: "1"
+      OUT: /tmp/sdui
+      SEED_OUT: /tmp/sdui-seed.json
+      E2E_BASE: http://localhost:3740
+      OWNER_URL: postgresql://lab_owner:sdui_ci_synthetic_role_pw@localhost:5432/sdui
+      DATABASE_URL: postgresql://app_runtime_prod:sdui_ci_synthetic_role_pw@localhost:5432/sdui?connection_limit=20
+      DIRECT_URL: postgresql://app_runtime_prod:sdui_ci_synthetic_role_pw@localhost:5432/sdui
+      AUTH_DATABASE_URL: postgresql://lab_owner:sdui_ci_synthetic_role_pw@localhost:5432/sdui
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab — the Service Desk chain through M1 (P4 → handover → charge → tracks), Production role topology
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdui >/dev/null
+          bash .sd3p4/lab.sh sdui --deploy-only >/dev/null
+          bash .sdm1/chain.sh sdui | tail -n 3
+      - name: Seed — business A (service_desk ON in this lab only) with four cases; business B (default OFF)
+        run: mkdir -p "$LOCAL_STORAGE_ROOT" && npx tsx .sdui/seed.mts
+      - run: npx playwright install --with-deps chromium
+      - name: Start the app (next dev)
+        shell: bash
+        run: |
+          mkdir -p "$OUT"
+          (nohup npx next dev -p 3740 > "$OUT/server.log" 2>&1 &)
+          for i in $(seq 1 150); do curl -sf -o /dev/null http://localhost:3740/login && break; sleep 2; done
+          curl -sf -o /dev/null http://localhost:3740/login
+      - name: End to end — the list, a repair from intake to closed, a refused handover, a quote answer, API refusals, module OFF
+        run: npx tsx .sdui/e2e.mts
+      - name: Server log (on failure)
+        if: failure()
+        run: grep -vE "auth_sidless_token_accepted" "$OUT/server.log" | tail -n 150 || true
+      - name: Result table
+        if: always()
+        run: '[ -f "$OUT/report.md" ] && cat "$OUT/report.md" >> "$GITHUB_STEP_SUMMARY" || true'
+      - name: Screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: service-desk-ui-e2e
+          path: /tmp/sdui
+          retention-days: 14

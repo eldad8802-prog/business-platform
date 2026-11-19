@@ -32,7 +32,7 @@ export class ServiceDeskApiError extends Error {
   }
 }
 
-async function call<T>(method: "GET" | "PUT", url: string, body?: unknown, key?: string, timeoutMs = 15000): Promise<T> {
+async function call<T>(method: "GET" | "PUT" | "POST", url: string, body?: unknown, key?: string, timeoutMs = 15000): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
@@ -117,4 +117,48 @@ export function getCase(id: number): Promise<import("./cases-model").CaseCardDat
 export async function listCaseEvents(id: number): Promise<import("./cases-model").JournalItem[]> {
   const r = await call<{ events?: import("./cases-model").JournalItem[] } | import("./cases-model").JournalItem[]>("GET", `/api/service-desk/cases/${id}/events`);
   return Array.isArray(r) ? r : Array.isArray(r.events) ? r.events : [];
+}
+
+// ── UI 1.3: case actions (writes; the server decides what is legal) ─────────────────────────────────
+
+/**
+ * One state-machine action on the case. The server runs the real case machine (legality, approval, QA, balance,
+ * permissions, version); the screen only offers what the action model allows. One key per intent: a retry of the same
+ * action at the same version reuses it, so a lost answer never acts twice.
+ */
+export async function runCaseAction(caseId: number, action: Record<string, unknown>, expectedVersion: number): Promise<{ case: import("./cases-model").CaseRowData }> {
+  const intent = `service-desk/cases/${caseId}:action:${expectedVersion}:${JSON.stringify(action)}`;
+  const key = keyFor(intent);
+  try {
+    const r = await call<{ case: import("./cases-model").CaseRowData }>("POST", `/api/service-desk/cases/${caseId}/actions`, { action, expectedVersion }, key);
+    settleKey(intent);
+    return r;
+  } catch (e) {
+    if (e instanceof ServiceDeskApiError && e.status !== null) settleKey(intent);
+    throw e;
+  }
+}
+
+export type QuoteSummary = { version: number; state: string; totalAgorot: number | null };
+
+/** GET /api/service-desk/cases/:id/quotes — the case's quote versions. */
+export async function listQuotes(caseId: number): Promise<QuoteSummary[]> {
+  const r = await call<{ quotes?: Array<Record<string, unknown>> }>("GET", `/api/service-desk/cases/${caseId}/quotes`);
+  return (Array.isArray(r.quotes) ? r.quotes : []).map((q) => ({
+    version: Number(q.version), state: String(q.state ?? ""), totalAgorot: typeof q.totalAgorot === "number" ? q.totalAgorot : null,
+  }));
+}
+
+/** The owner records the customer's answer to a quote (by phone or in person). */
+export async function decideQuote(caseId: number, version: number, decision: "APPROVE" | "REJECT", method: "PHONE" | "IN_PERSON", expectedVersion: number): Promise<unknown> {
+  const intent = `service-desk/cases/${caseId}:quote:${version}:${decision}:${expectedVersion}`;
+  const key = keyFor(intent);
+  try {
+    const r = await call<unknown>("POST", `/api/service-desk/cases/${caseId}/quotes/${version}/decision`, { decision, method, expectedVersion }, key);
+    settleKey(intent);
+    return r;
+  } catch (e) {
+    if (e instanceof ServiceDeskApiError && e.status !== null) settleKey(intent);
+    throw e;
+  }
 }
