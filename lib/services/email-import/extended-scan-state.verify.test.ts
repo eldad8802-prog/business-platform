@@ -386,10 +386,15 @@ check("W4 import itself is unchanged; it uses the account the results came from"
 
 check("W5 the phone bar sits above the shell's bottom navigation, and the page leaves room under the last card", () => {
   const bar = read("components/navigation/bottom-bar.tsx");
-  const h = Number(bar.match(/const BAR_HEIGHT = (\d+);/)?.[1]);
-  assert.ok(h > 0);
+  // HOME v4: the shell bar FLOATS — BAR_HEIGHT tall, lifted `bottom: calc(Npx + safe area)` off the edge — so the
+  // space it covers is lift + height. The email bar must clear that top edge (it may leave a gap above it).
+  const barH = Number(bar.match(/const BAR_HEIGHT = (\d+);/)?.[1]);
+  const lift = Number(bar.match(/bottom: "calc\((\d+)px \+ env\(safe-area-inset-bottom, 0px\)\)"/)?.[1] ?? 0);
+  const covered = barH + lift;
+  assert.ok(barH > 0);
   const layout = read("app/(shell)/documents/layout.tsx");
-  assert.ok(layout.includes(`.dz-email-bottom { bottom: calc(${h}px + env(safe-area-inset-bottom, 0px)); }`), "offset = the shell bar height");
+  const h = Number(layout.match(/\.dz-email-bottom \{ bottom: calc\((\d+)px \+ env\(safe-area-inset-bottom, 0px\)\); \}/)?.[1]);
+  assert.ok(h >= covered, `offset ${h}px clears the shell bar (${covered}px)`);
   assert.match(layout, /@media \(max-width: 767px\) \{\n\s+\.dz-email-bottom/);
   assert.ok(layout.includes(`.dz-email-page { padding-bottom: calc(${h}px + 150px + env(safe-area-inset-bottom, 0px)); }`));
   assert.match(src, /className="dz-email-bottom" style=\{bottomBarStyle\}/);

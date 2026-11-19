@@ -461,6 +461,7 @@ export const insightsEn: Widen<typeof insightsHe> = {
   backNav: {
     back: "Back",
     toHome: "To Home",
+    toTools: "To my tools",
     toSettings: "To Settings",
     toOrderCenter: "To the order center",
     toDocuments: "To Documents",

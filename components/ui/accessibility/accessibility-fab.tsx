@@ -155,7 +155,9 @@ export function AccessibilityFab() {
         if (bar) ro.observe(bar);
         observedBar = bar;
       }
-      const barH = bar?.offsetHeight ?? 0;
+      // HOME v4: the bar FLOATS (lifted 10px + the safe area), so what it covers runs from the window's bottom edge to
+      // its top. Its own height alone would put the button over the bar wherever there is a safe area (iPhone, gesture nav).
+      const barH = bar && bar.offsetHeight > 0 ? Math.max(0, Math.ceil(window.innerHeight - bar.getBoundingClientRect().top)) : 0;
       const inset = barH > 0 ? barH + 12 : BASE_BOTTOM;
       const isDocked = hasVisibleDockedTrigger(document);
       setBottomInset(inset);
