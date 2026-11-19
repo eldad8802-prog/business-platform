@@ -365,6 +365,30 @@ export const PUSH_OPT_IN_KEY = "dubiz.push.optedIn";
 
 const PushSupport = registerPlugin<{ status(): Promise<{ configured?: boolean }> }>("PushSupport");
 
+/**
+ * Is this app build configured for push (Firebase)? False off the Android app, in an older build without the
+ * PushSupport plugin, and in a build made without google-services.json. Read-only: never asks for anything.
+ * The settings screen uses it to never offer enabling where it cannot work.
+ */
+export async function isPushConfigured(): Promise<boolean> {
+  try {
+    if (!Capacitor.isPluginAvailable("PushSupport")) return false;
+    const r = await PushSupport.status();
+    return r?.configured === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Did the person turn push on from this device (the device-local marker; never a token)? */
+export function isPushOptedIn(): boolean {
+  try {
+    return localStorage.getItem(PUSH_OPT_IN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 let navigateImpl:((href: string) => void) | null = null;
 let queuedHref: string | null = null;
 
@@ -397,18 +421,8 @@ const client = createPushClient({
     else queuedHref = href;
   },
   setTimeout: (fn, ms) => setTimeout(fn, ms),
-  firebaseConfigured: async () => {
-    if (!Capacitor.isPluginAvailable("PushSupport")) return false;
-    const r = await PushSupport.status();
-    return r?.configured === true;
-  },
-  optedIn: () => {
-    try {
-      return localStorage.getItem(PUSH_OPT_IN_KEY) === "1";
-    } catch {
-      return false;
-    }
-  },
+  firebaseConfigured: () => isPushConfigured(),
+  optedIn: () => isPushOptedIn(),
   setOptedIn: () => {
     try {
       localStorage.setItem(PUSH_OPT_IN_KEY, "1");
