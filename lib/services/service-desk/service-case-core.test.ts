@@ -105,7 +105,7 @@ function sentQuote(version = 1, totalAgorot = 45_000, docHash = "h1"): ServiceQu
 function approvedQuote(version = 1, totalAgorot = 45_000, docHash = "h1"): ServiceQuoteSnapshot {
   return { version, totalAgorot, docHash, state: "APPROVED", approval: { version, totalAgorot, docHash, method: "PHONE" } };
 }
-const RECEIPT = { receivedByName: "ישראל ישראלי", signatureCaptured: true };
+const RECEIPT = { handoverConfirmed: true, receivedByName: "ישראל ישראלי" };
 // Every decision any test produces is kept, so §8 can prove the journal payload rule over all of them.
 type OkDecision = Extract<ServiceTransitionDecision, { ok: true }>;
 const OK_DECISIONS: OkDecision[] = [];
@@ -321,8 +321,16 @@ refusedWith("open balance: owner decision without a reason", ev(ready({ settleme
   check("  …and no effect touches the debt", d.ok && d.effects.every((e) => e === "ATTEMPT_AUTO_CLOSE"));
 }
 refusedWith("unknown balance: delivery refuses (fail closed)", ev(ready({ settlement: { known: false } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "x" } }, OWNER), "BALANCE_UNKNOWN");
-refusedWith("delivery needs the receiver's signature", ev(ready(), { type: "DELIVER", receipt: { receivedByName: "דנה", signatureCaptured: false } }, OWNER), "RECEIPT_INCOMPLETE");
-refusedWith("delivery needs the receiver's name", ev(ready(), { type: "DELIVER", receipt: { receivedByName: "", signatureCaptured: true } }, OWNER), "RECEIPT_INCOMPLETE");
+refusedWith("delivery needs the owner's confirmation (no customer signature — owner decision 2026-11-11)", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: false, receivedByName: "דנה" } }, OWNER), "HANDOVER_NOT_CONFIRMED");
+allowedTo("delivery without a receiver's name, on the owner's confirmation", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: true } }, OWNER), "DELIVERED");
+refusedWith("a receiver's name over 200 characters is refused", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: true, receivedByName: "א".repeat(201) } }, OWNER), "INVALID_INPUT");
+{
+  const d = ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: true } }, OWNER);
+  check("  …the event records the confirmation and that no name was given; no signature field anywhere",
+    d.ok && (d.event.payload as Record<string, unknown>).handoverConfirmed === true && (d.event.payload as Record<string, unknown>).receiverNamed === false
+      && !JSON.stringify(d.event.payload).includes("ign"));
+}
+refusedWith("a blank receiver's name is not a name (send none instead)", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: true, receivedByName: "  " } }, OWNER), "INVALID_INPUT");
 refusedWith("the customer link may not deliver", ev(ready(), { type: "DELIVER", receipt: RECEIPT }, CUSTOMER), "ACTOR_NOT_ALLOWED");
 {
   const d = ev(ready(), { type: "DELIVER", receipt: RECEIPT }, OWNER);
@@ -499,7 +507,7 @@ console.log("  4.5a cancel from every stage before handover (owner decision 11-0
   // after a cancel the handover rules are the normal ones
   const cancelledReady = ready({ outcome: "CANCELLED", settlement: { known: true, openBalanceAgorot: 12_000 } });
   refusedWith("cancelled + open balance: delivery still needs the owner's decision", ev(cancelledReady, { type: "DELIVER", receipt: RECEIPT }, OWNER), "OPEN_BALANCE_NEEDS_OWNER_DECISION");
-  refusedWith("cancelled: delivery still needs the receiver's signature", ev(ready({ outcome: "CANCELLED" }), { type: "DELIVER", receipt: { receivedByName: "x", signatureCaptured: false } }, OWNER), "RECEIPT_INCOMPLETE");
+  refusedWith("cancelled: delivery still needs the owner's confirmation", ev(ready({ outcome: "CANCELLED" }), { type: "DELIVER", receipt: { handoverConfirmed: false, receivedByName: "x" } }, OWNER), "HANDOVER_NOT_CONFIRMED");
   allowedTo("cancelled: handed back with the owner's decision on the balance", ev(cancelledReady, { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "יקוזז" } }, OWNER), "DELIVERED");
   const balCancel = ev(ctx({ status: "IN_REPAIR", settlement: { known: true, openBalanceAgorot: 12_000 } }), { type: "CANCEL", reason: "x" }, OWNER);
   check("cancel with an open balance is not blocked and changes no money", balCancel.ok && balCancel.effects.length === 0);
@@ -547,7 +555,7 @@ console.log("  4.5c the cancel request is an explicit part of every decision (co
 
   // state 3: the normal handover still applies
   const done = ready({ outcome: "CANCELLED" });
-  refusedWith("after the completed cancel, delivery still needs the signature", ev(done, { type: "DELIVER", receipt: { receivedByName: "x", signatureCaptured: false } }, OWNER), "RECEIPT_INCOMPLETE");
+  refusedWith("after the completed cancel, delivery still needs the owner's confirmation", ev(done, { type: "DELIVER", receipt: { handoverConfirmed: false, receivedByName: "x" } }, OWNER), "HANDOVER_NOT_CONFIRMED");
   const delivered3 = ev(done, { type: "DELIVER", receipt: RECEIPT }, OWNER);
   check("after the completed cancel, the normal delivery → DELIVERED, request stays false", delivered3.ok && delivered3.to === "DELIVERED" && delivered3.cancellationRequestedAfter === false);
 
