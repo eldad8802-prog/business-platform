@@ -28,6 +28,7 @@ export type CasesListViewProps = {
   readOnly?: boolean;
   /** The opening form is not approved yet: the button is shown but not active. */
   openCaseEnabled?: boolean;
+  newCaseHref?: string;
 };
 
 function SearchIcon() {
@@ -99,9 +100,10 @@ export function CasesListView(p: CasesListViewProps) {
               onChange={(e) => p.onQuery(e.target.value)}
             />
           </label>
-          {p.readOnly ? null : (
-            <button type="button" className={s.primary} aria-disabled={p.openCaseEnabled ? undefined : true} disabled={!p.openCaseEnabled}
-              title={p.openCaseEnabled ? undefined : "טופס הפתיחה יתווסף אחרי אישור העיצוב"}>
+          {p.readOnly ? null : p.openCaseEnabled ? (
+            <a className={s.primary} href={p.newCaseHref ?? "/service-desk/new"}><span aria-hidden="true">+</span> תיק חדש</a>
+          ) : (
+            <button type="button" className={s.primary} aria-disabled={true} disabled title="טופס הפתיחה יתווסף אחרי אישור העיצוב">
               <span aria-hidden="true">+</span> תיק חדש
             </button>
           )}

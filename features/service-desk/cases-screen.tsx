@@ -58,7 +58,8 @@ export function CasesScreen() {
       caseHref={(id) => `/service-desk/cases/${id}`}
       settingsHref="/service-desk/settings"
       readOnly={access.mode === "READ_ONLY"}
-      openCaseEnabled={false}
+      openCaseEnabled={access.mode === "FULL"}
+      newCaseHref="/service-desk/new"
     />
   );
 }

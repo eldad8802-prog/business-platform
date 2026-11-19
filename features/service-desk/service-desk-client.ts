@@ -16,6 +16,8 @@ export type ServiceSettings = {
   warrantyTemplate: WarrantyTemplate | null;
   activeTermsVersionId: number | null;
   activeStatutoryNoticeVersionId: number | null;
+  /** UI 1.3: the profile's activity types (what the opening form offers first). */
+  profile?: { key: string; defaultTracks: string[]; enabledTracks: string[] };
 };
 export type StaffMember = { id: number; displayName: string };
 
@@ -155,6 +157,37 @@ export async function decideQuote(caseId: number, version: number, decision: "AP
   const key = keyFor(intent);
   try {
     const r = await call<unknown>("POST", `/api/service-desk/cases/${caseId}/quotes/${version}/decision`, { decision, method, expectedVersion }, key);
+    settleKey(intent);
+    return r;
+  } catch (e) {
+    if (e instanceof ServiceDeskApiError && e.status !== null) settleKey(intent);
+    throw e;
+  }
+}
+
+// ── UI 1.3: opening a case ─────────────────────────────────────────────────────────────────────
+
+export type CustomerHit = { id: number; name: string; phone: string | null };
+
+/** GET /api/customers?q= — the business's customers by name or phone (the canonical customers list). */
+export async function searchCustomers(q: string): Promise<CustomerHit[]> {
+  const r = await call<{ customers?: Array<Record<string, unknown>> }>("GET", `/api/customers?q=${encodeURIComponent(q)}&limit=8`);
+  return (Array.isArray(r.customers) ? r.customers : []).map((c) => ({ id: Number(c.id), name: String(c.name ?? ""), phone: (c.phone as string) ?? null }));
+}
+
+/** POST /api/customers — a new customer from the opening form (name, optional phone). */
+export async function createCustomer(name: string, phone: string | null): Promise<CustomerHit> {
+  const r = await call<Record<string, unknown>>("POST", "/api/customers", { name, ...(phone ? { phone } : {}) });
+  const c = (r.customer && typeof r.customer === "object" ? r.customer : r) as Record<string, unknown>;
+  return { id: Number(c.id), name: String(c.name ?? name), phone: (c.phone as string) ?? phone };
+}
+
+/** POST /api/service-desk/cases — open a case on a track (the server snapshots the profile). One key per intent. */
+export async function openServiceCase(body: Record<string, unknown>): Promise<{ case: import("./cases-model").CaseRowData }> {
+  const intent = `service-desk/cases:open:${JSON.stringify(body)}`;
+  const key = keyFor(intent);
+  try {
+    const r = await call<{ case: import("./cases-model").CaseRowData }>("POST", "/api/service-desk/cases", body, key);
     settleKey(intent);
     return r;
   } catch (e) {

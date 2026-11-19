@@ -1000,7 +1000,21 @@ export type ServiceSettingsView = {
   version: number | null; defaultStaffMemberId: number | null;
   warrantyTemplate: { value: number; unit: "DAYS" | "MONTHS"; scope: string; exclusions: string | null } | null;
   activeTermsVersionId: number | null; activeStatutoryNoticeVersionId: number | null;
+  /** UI 1.3 (read only): the business's profile and its activity types — what the opening form offers first. */
+  profile?: { key: string; defaultTracks: string[]; enabledTracks: string[] };
 };
+
+/** The profile the opening would snapshot now (tracks.service planOpening), for the form to offer its tracks first. */
+async function readProfile(tx: Tx, businessId: number): Promise<{ key: string; defaultTracks: string[]; enabledTracks: string[] }> {
+  const { buildProfileSnapshot, isServiceProfileKey } = await import("./service-profiles");
+  const s = (await tx.$queryRaw<{ key: string | null; overrides: unknown }[]>`
+    SELECT "serviceProfileKey" AS key, "profileOverrides" AS overrides FROM "ServiceSettings" WHERE "businessId" = ${businessId}::int`)[0];
+  const chosen = typeof s?.key === "string" ? s.key.trim() : "";
+  const key = isServiceProfileKey(chosen) ? chosen : "general";
+  const built = buildProfileSnapshot(key, (s?.overrides ?? null) as never);
+  if (!built.ok) return { key, defaultTracks: [], enabledTracks: [] };
+  return { key, defaultTracks: [...built.snapshot.defaultTracks], enabledTracks: [...built.snapshot.enabledTracks] };
+}
 
 async function readSettings(tx: Tx, businessId: number): Promise<ServiceSettingsView> {
   const s = (await tx.$queryRaw<Record<string, unknown>[]>`
@@ -1020,7 +1034,7 @@ async function readSettings(tx: Tx, businessId: number): Promise<ServiceSettings
 }
 
 export async function getSettings(businessId: number): Promise<ServiceSettingsView> {
-  return tenantTx(businessId, (tx) => readSettings(tx, businessId));
+  return tenantTx(businessId, async (tx) => ({ ...(await readSettings(tx, businessId)), profile: await readProfile(tx, businessId) }));
 }
 
 export type ServiceStaffMember = { id: number; displayName: string };

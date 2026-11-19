@@ -61,6 +61,10 @@
     "features/service-desk/case-actions-model.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): Service Desk UI 1.3 case actions — exactly what the case screen offers per status and kind (intake link or owner-confirmed check-in, diagnosis, repair, hold set / clear, finish, QA pass / fail, the customer quote answer through the quote endpoint, handover, complete, close; cancel with a required reason once the item is held; nothing on a closed case), and the exact request bodies the server contract expects (DELIVER with an owner-confirmed handover and optional receiver name, the open-balance reason, COMPLETE with the owner-confirmed completion type of the place, CANCEL reason trimmed); the server stays the authority; run on pull_request by service-desk-ui-e2e.yml"
+    },
+    "features/service-desk/open-case-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk UI 1.3 case-opening form — the business profile tracks offered first (defaults before enabled, the rest on request), fields per activity (an item and fault for a repair, the work and a required address for on-site work, no item for a service call), held items continue to intake, missing / over-long field checks in screen order, the exact POST body (no requirement ever set by the client, the accepted parent link), the warranty-link suggestion (same item, handed back inside the warranty, newest first, none without a warranty); run on pull_request by service-desk-ui-e2e.yml"
     }
   }
 }

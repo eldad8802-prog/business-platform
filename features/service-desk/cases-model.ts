@@ -24,6 +24,7 @@ export type CaseRowData = {
   kind: CaseKind;
   status: CaseStatus;
   holdReason: string | null;
+  customerId?: number;
   customerName: string | null;
   problemExcerpt?: string | null;
   subjectName?: string | null;
