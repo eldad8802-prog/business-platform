@@ -110,7 +110,7 @@ console.log("— 1. buildTrackFacts");
 {
   check("T1: device lab, item at the business, QA required, handover", (() => { const f = facts(T1); return f.track === "T1" && f.itemAtBusiness && f.requirements.qa.mode === "REQUIRED" && f.requirements.handoverByOwner && f.requirements.workApproval === "BY_D15"; })());
   check("T2: a vehicle at the business derives T2 (garage: approval ALWAYS)", (() => { const f = facts(T2); return f.track === "T2" && f.requirements.qa.template === "VEHICLE.v1" && f.requirements.workApproval === "ALWAYS"; })());
-  check("T3: on site, no intake, QA optional, no handover", (() => { const f = facts(T3); return f.track === "T3" && !f.itemAtBusiness && f.requirements.intakeConfirmation === "NONE" && f.requirements.qa.mode === "OPTIONAL" && !f.requirements.handoverByOwner; })());
+  check("T3: on site, no intake, QA OFF by default (owner decision 2026-11-19), no handover", (() => { const f = facts(T3); return f.track === "T3" && !f.itemAtBusiness && f.requirements.intakeConfirmation === "NONE" && f.requirements.qa.mode === "OFF" && !f.requirements.handoverByOwner; })());
   check("T4: installation, QA required, no handover", (() => { const f = facts(T4); return f.track === "T4" && f.requirements.qa.mode === "REQUIRED" && !f.requirements.handoverByOwner; })());
   check("T5: professional at the business — no intake, QA off, nothing held", (() => { const f = facts(T5); return f.track === "T5" && f.location === "AT_BUSINESS" && !f.itemAtBusiness && f.requirements.qa.mode === "OFF" && f.requirements.intakeConfirmation === "NONE"; })());
   check("T6: remote kind derives T6 and place REMOTE", (() => { const f = facts(T6); return f.track === "T6" && f.location === "REMOTE"; })());
@@ -162,14 +162,17 @@ console.log("— 2. the seven tracks, end to end");
     check("T3: START_REPAIR without approval journals workApproval NOT_REQUIRED", d.ok && d.event.payload.workApproval === "NOT_REQUIRED" && d.event.payload.track === "T3");
   }
   refused("T3 D15: a money commitment (customer-priced part) → the cover / approved quote is required", evaluateTransition(ctx({ kind: "FIELD", status: "DIAGNOSING", track: facts(T3, { moneyCommitment: true }) }), { type: "START_REPAIR" }, OWNER), "COVERAGE_NOT_APPROVED");
-  walk("T3: OPTIONAL QA chosen (qa: true) → QA → WORK_DONE", ctx({ kind: "FIELD", status: "IN_REPAIR", track: facts(T3) }), [
+  // T3 with the owner's FIELD.v2 checklist turned on as OPTIONAL (default OFF since 2026-11-19).
+  const T3opt = { ...T3, snapshot: snap("home_technician", { requirements: { T3: { qaMode: "OPTIONAL" } } }) };
+  walk("T3 (owner made QA optional): QA chosen (qa: true) → QA → WORK_DONE", ctx({ kind: "FIELD", status: "IN_REPAIR", track: facts(T3opt) }), [
     { a: { type: "FINISH_REPAIR", qa: true } },
     { a: { type: "PASS_QA", outcome: "REPAIRED" } },
   ], ["IN_REPAIR", "QA", "WORK_DONE"]);
   {
-    const d = evaluateTransition(ctx({ kind: "FIELD", status: "IN_REPAIR", track: facts(T3) }), { type: "FINISH_REPAIR", outcome: "REPAIRED" }, OWNER);
-    check("T3: skipping the optional QA is journaled (qa SKIPPED)", d.ok && d.event.payload.qa === "SKIPPED");
+    const d = evaluateTransition(ctx({ kind: "FIELD", status: "IN_REPAIR", track: facts(T3opt) }), { type: "FINISH_REPAIR", outcome: "REPAIRED" }, OWNER);
+    check("T3 (owner made QA optional): skipping it is journaled (qa SKIPPED)", d.ok && d.event.payload.qa === "SKIPPED");
   }
+  check("T3 default (QA OFF): asking for QA is refused", !evaluateTransition(ctx({ kind: "FIELD", status: "IN_REPAIR", track: facts(T3) }), { type: "FINISH_REPAIR", qa: true }, OWNER).ok);
   allowed("T3: a rejected quote ends the visit at WORK_DONE (COMPLETE follows)", evaluateTransition(ctx({ kind: "FIELD", status: "QUOTE_PENDING", currentQuote: SENT, track: facts(T3) }), { type: "REJECT_QUOTE", version: 1 }, CUSTOMER), "WORK_DONE");
   allowed("T3: not repairable on site → WORK_DONE (nothing to hand back)", evaluateTransition(ctx({ kind: "FIELD", status: "DIAGNOSING", track: facts(T3) }), { type: "MARK_NOT_REPAIRABLE" }, OWNER), "WORK_DONE");
   allowed("T3: a cancel on site → CANCELLED (nothing held)", evaluateTransition(ctx({ kind: "FIELD", status: "IN_REPAIR", track: facts(T3) }), { type: "CANCEL" }, OWNER), "CANCELLED");

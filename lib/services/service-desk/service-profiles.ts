@@ -180,7 +180,8 @@ function trackBase(track: ServiceTrack): Requirements {
       // Decision 3 + garage regulations: no vehicle work without an approved written quote (LOCKED, see LEGAL_APPROVAL_TRACKS).
       return { intakeConfirmation: "OWNER", workApproval: "ALWAYS", qa: { mode: "REQUIRED", template: "VEHICLE.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
     case "T3":
-      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "FIELD.v2" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
+      // Owner decision 2026-11-19: repair at the customer (T3) defaults to QA OFF; the owner may turn FIELD.v2 on.
+      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OFF", template: "FIELD.v2" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T4":
       return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "INSTALLATION.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T5":
