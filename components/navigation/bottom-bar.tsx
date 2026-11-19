@@ -8,22 +8,25 @@ import { ActionSheet } from "./action-sheet";
 import { useShellChromeHidden } from "./shell-chrome-visibility";
 import { PRIMARY_DESTINATIONS, isNavActive, type NavDestination } from "./nav-destinations";
 import { IconPlus } from "./nav-icons";
+import { isResolvedActive, useLocationSearch, useNavHref } from "./use-nav-href";
 import { useI18n } from "@/components/i18n/I18nProvider";
 
 /** Below in-app modals (~200); shell content is z-index 1 - bar stays above page for the strip only. */
 export const BOTTOM_BAR_Z_INDEX = 100;
 
-/** Space for the fixed bar + the raised "+" + the safe area. */
+/** Space for the floating bar (64 + 10 gap) + breathing room + the safe area. */
 export const SHELL_SCROLL_BOTTOM_PADDING =
   "calc(100px + env(safe-area-inset-bottom, 0px))";
 
-/** The approved mobile reference: an 84px bar, five equal columns. */
-const BAR_HEIGHT = 84;
+/** HOME v4 reference: a 64px floating bar, 12px from the sides, 10px above the safe area. */
+const BAR_HEIGHT = 64;
 
 /**
- * Mobile bottom navigation (<768), drawn from the approved mobile reference:
- * בית · שיחות · [+] · מסמכים · התראות, the active tab marked by a pill behind
- * its icon, and a raised 58px "+" in the middle that opens the quick actions.
+ * Mobile bottom navigation (<768) — HOME v4 (owner-approved reference): a FLOATING bar (light, very round, soft
+ * shadow, inset from the screen edges) that stays visible while scrolling in either direction:
+ * בית · יומן · [+] · עדכונים · כלים — the same five for every business and plan. The "+" sits exactly in the
+ * centre of the bar, horizontally and vertically, and never rises above the other items. The content area
+ * reserves the bar height + the safe area (shell-chrome), so nothing at the end of a screen hides under it.
  *
  * The tabs come from the single nav source (nav-destinations), so the list is
  * never duplicated with the rail or the sidebar.
@@ -46,27 +49,32 @@ export function BottomBar() {
       <nav
         data-component="shell-bottom-bar"
         aria-label={t("nav.a11y.bottomNav")}
+        className="dz-bottom"
         style={{
           position: "fixed",
-          left: 0,
-          right: 0,
-          bottom: 0,
+          left: "max(12px, env(safe-area-inset-left, 0px))",
+          right: "max(12px, env(safe-area-inset-right, 0px))",
+          bottom: "calc(10px + env(safe-area-inset-bottom, 0px))",
           zIndex: BOTTOM_BAR_Z_INDEX,
           boxSizing: "border-box",
-          height: `calc(${BAR_HEIGHT}px + env(safe-area-inset-bottom, 0px))`,
+          height: BAR_HEIGHT,
+          maxWidth: 560,
+          marginInline: "auto",
           display: "grid",
           gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
           alignItems: "center",
-          padding: "0 8px calc(12px + env(safe-area-inset-bottom, 0px)) 8px",
-          background: "#FFFDFA",
-          borderTop: "1px solid #F0E3D3",
+          padding: "0 6px",
+          borderRadius: 32,
+          background: "rgba(255, 253, 248, 0.97)",
+          border: "1px solid rgba(227, 229, 221, 0.9)",
+          boxShadow: "0 10px 30px -12px rgba(35, 48, 43, 0.28), 0 2px 6px rgba(35, 48, 43, 0.05)",
           fontFamily: "var(--font-rubik), 'Heebo', system-ui, sans-serif",
           WebkitTapHighlightColor: "transparent",
         }}
       >
         <BarLink dest={tabs[0]} active={isNavActive(pathname, tabs[0].href)} unread={hasUnread && tabs[0].key === "notifications"} />
         <BarLink dest={tabs[1]} active={isNavActive(pathname, tabs[1].href)} unread={hasUnread && tabs[1].key === "notifications"} />
-        <div style={{ display: "flex", justifyContent: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
           <button
             type="button"
             aria-label={t("nav.a11y.newAction")}
@@ -128,12 +136,16 @@ function useUnreadNotifications(pathname: string): boolean {
   return hasUnread;
 }
 
-function BarLink({ dest, active, unread }: { dest: NavDestination; active: boolean; unread: boolean }) {
+function BarLink({ dest, unread }: { dest: NavDestination; active?: boolean; unread: boolean }) {
   const Icon = dest.icon;
   const { t } = useI18n();
+  const pathname = usePathname() || "/";
+  const search = useLocationSearch();
+  const href = useNavHref(dest);
+  const active = isResolvedActive(pathname, search, href, isNavActive);
   return (
     <Link
-      href={dest.href}
+      href={href}
       prefetch={false}
       aria-current={active ? "page" : undefined}
       className="dz-bottom__item"
@@ -143,7 +155,7 @@ function BarLink({ dest, active, unread }: { dest: NavDestination; active: boole
         <Icon size={20} strokeWidth={active ? 2 : 1.8} />
         {unread ? <span className="dz-bottom__dot" aria-hidden /> : null}
       </span>
-      {t(dest.labelKey)}
+      <span className="dz-bottom__label">{t(dest.barLabelKey ?? dest.labelKey)}</span>
       {unread ? <span className="sr-only">{t("nav.a11y.unreadNotifications")}</span> : null}
     </Link>
   );

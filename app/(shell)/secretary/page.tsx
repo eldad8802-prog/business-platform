@@ -391,7 +391,9 @@ function SecretaryPageInner() {
   // the user can move to other sections of the app.
   // The "שילמת?" sheet now also opens from the main screen, where the fixed bottom bar would cover its
   // lower buttons ("ביטול"); hide the chrome while it is open, as the inner screens already do.
-  useHideShellChrome(Boolean(route.screen) || route.showToday || route.calendarView || paidPrompt !== null);
+  // The full calendar keeps the chrome (HOME v4): it is the "יומן" tab for a business without appointments, and it
+  // has no bottom action for the bar to cover.
+  useHideShellChrome(Boolean(route.screen) || route.showToday || paidPrompt !== null);
 
   if (state.status === "ready") {
     const focus = state.briefing.attention[0]?.obligation ?? null;
