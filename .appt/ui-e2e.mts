@@ -18,7 +18,7 @@
  *       404, the navigation, the Secretary and the customer card show nothing of it, and B cannot read A.
  *   OPEN FOR EVERYONE (business C, existing, no override; business D, signed up after the release through the real
  *       signup — $OPEN_OUT from .appt/open-all-battery.ts): on the phone (the width the Android app shows) "+" offers
- *       קביעת תור, ניהול העסק lists יומן ותורים, the Secretary has its תורים היום card, the calendar opens; on the
+ *       קביעת תור, the sidebar's fixed יומן leads to the calendar, the Secretary has its תורים היום card, the calendar opens; on the
  *       desktop the sidebar lists it; external booking stays OFF.
  *
  * Every step leaves a screenshot in $OUT; the result table goes to $OUT/report.md. Exit 1 on any failed check.
@@ -138,7 +138,8 @@ async function main() {
     for (const word of ["פנוי", "מחוץ לשעות", "סגור", "חסום", "ממתין לאישור", "התקיים", "לא הגיע", "בוטל"]) await legend.getByText(word, { exact: true }).first().waitFor();
     await shot(p, "02-desktop-week");
   });
-  await check("D5 ניהול העסק in the sidebar lists יומן ותורים", async () => p.getByRole("link", { name: "יומן ותורים" }).first().waitFor({ timeout: 15_000 }));
+  // HOME v4 (owner 11-19): the calendar is a fixed sidebar action ("יומן", top section), leading to /calendar when ON.
+  await check("D5 the desktop sidebar's fixed יומן action leads to the calendar", async () => p.locator('.dz-sidebar a[href="/calendar"]', { hasText: "יומן" }).first().waitFor({ timeout: 15_000 }));
 
   await check("D6 details: state, call / WhatsApp links, the actions of the state, history", async () => {
     await p.goto(`/calendar?day=${seed.today}&appointment=${seed.ids.todayNoa}`);
@@ -713,10 +714,11 @@ async function main() {
     await seen(o, "היומן עדיין לא פעיל לעסק שלך");
   });
   await check("O2 OFF: the API answers 404 for the signed-in owner", async () => (await api(seed.tokenB, `/api/appointments?from=${encodeURIComponent(new Date().toISOString())}&to=${encodeURIComponent(new Date(Date.now() + 864e5).toISOString())}`)).status === 404);
-  await check("O3 OFF: the sidebar does not list the calendar", async () => {
+  await check("O3 OFF: the sidebar never links to /calendar; its fixed יומן opens the Secretary calendar (owner decision 18.11)", async () => {
     await o.goto("/secretary");
     await o.waitForLoadState("networkidle");
-    return (await o.getByRole("link", { name: "יומן ותורים" }).count()) === 0;
+    await o.locator('.dz-sidebar a[href="/secretary?screen=calendar"]', { hasText: "יומן" }).first().waitFor({ timeout: 20_000 });
+    return (await o.locator('.dz-sidebar a[href^="/calendar"]').count()) === 0 && (await o.getByRole("link", { name: "יומן ותורים" }).count()) === 0;
   });
   await check("O4 OFF: the Secretary has no תורים היום card", async () => {
     await o.getByText("תחנות ניהול").first().waitFor({ timeout: 20_000 });
@@ -773,9 +775,9 @@ async function main() {
   const dcC = await ctx(browser, seed.tokenC, DESKTOP);
   const dpC = await dcC.newPage();
   current = dpC;
-  await check("N6 C: the desktop sidebar lists יומן ותורים", async () => {
+  await check("N6 C: the desktop sidebar's fixed יומן leads to the calendar", async () => {
     await dpC.goto("/secretary");
-    await dpC.getByRole("link", { name: "יומן ותורים" }).first().waitFor({ timeout: 20_000 });
+    await dpC.locator('.dz-sidebar a[href="/calendar"]', { hasText: "יומן" }).first().waitFor({ timeout: 20_000 });
     await shot(dpC, "n05-c-desktop-sidebar");
   });
   await dcC.close();
