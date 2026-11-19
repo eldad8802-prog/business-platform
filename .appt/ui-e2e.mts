@@ -584,8 +584,10 @@ async function main() {
   type Cover = { button: { top: number; bottom: number } | null; navTop: number | null; underNav: boolean };
   const COVER_PROBE = `(() => {
     // HOME v4: the shell bar FLOATS (lifted off the edge), so find it by its marker, not by touching the bottom.
+    // Above 767px the bar is in the DOM but hidden (the rail replaces it): a zero box is no bar.
     const navEl = document.querySelector('[data-component="shell-bottom-bar"]');
-    const nav = navEl ? navEl.getBoundingClientRect() : null;
+    const navBox = navEl ? navEl.getBoundingClientRect() : null;
+    const nav = navBox && navBox.height > 0 ? navBox : null;
     const el = [...document.querySelectorAll("main button")].find((x) => (x.textContent || "").trim() === "קביעת תור");
     const b = el ? el.getBoundingClientRect() : null;
     return { button: b && { top: b.top, bottom: b.bottom }, navTop: nav ? nav.top : null, underNav: !!b && !!nav && b.bottom > nav.top };
@@ -621,11 +623,19 @@ async function main() {
       await m.getByRole("heading", { name: title }).first().waitFor({ timeout: 20_000 });
     }
     await m.waitForTimeout(800); // let the area loaders settle before the picture
-    await noSideScroll(m, 390);
-    const bar = await m.locator('[data-component="shell-bottom-bar"]').boundingBox();
-    if (!bar || bar.y + bar.height > 844 - 8) throw new Error(`the floating bar is not lifted off the edge: ${JSON.stringify(bar)}`);
     await shot(m, "m00-phone-home");
     await shot(m, "m00-phone-home-full", true);
+    const state = await m.evaluate(() => {
+      const bars = [...document.querySelectorAll('[data-component="shell-bottom-bar"]')].map((e) => {
+        const r = e.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, height: r.height };
+      });
+      return { url: location.pathname + location.search, chrome: document.querySelector("[data-shell-root]")?.getAttribute("data-chrome") ?? null, bars, vh: innerHeight };
+    });
+    if (state.url !== "/app") throw new Error(`/app did not stay on Home: ${JSON.stringify(state)}`);
+    const bar = state.bars.find((b) => b.height > 0);
+    if (!bar || bar.bottom > state.vh - 8) throw new Error(`the floating bar is missing or not lifted off the edge: ${JSON.stringify(state)}`);
+    await noSideScroll(m, 390);
   });
   await check("M11 the management centre and its pages on the phone", async () => {
     await m.goto("/calendar/manage");
