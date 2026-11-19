@@ -34,6 +34,8 @@ export const PLATFORM_AUDIT_ACTIONS = {
    * Kept after the tool is removed so the audit viewer still labels its rows.
    */
   AUTHORITY_PRODUCTION_APP_REGISTRATION: "PLATFORM_AUTHORITY_PRODUCTION_APP_REGISTRATION",
+  /** The FCM credential check ran (metadata.result: configured / authentication_failed / not_configured / unavailable). */
+  FCM_AUTH_CHECKED: "PLATFORM_ADMIN_FCM_AUTH_CHECKED",
 } as const;
 
 /** Throttle window for AREA_ENTERED per admin (minutes). */

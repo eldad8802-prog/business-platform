@@ -440,6 +440,8 @@ export const billingEn: Widen<typeof billingHe> = {
     kindLabel: "Business type",
     choose: "Choose…",
     taxIdLabel: "Business / company ID",
+    vatNumberLabel: "VAT dealer number",
+    vatNumberHint: "9 digits. For an authorized dealer it is usually the ID number; for a company, the company number.",
     addressLabel: "Address",
     phoneLabel: "Phone",
     emailLabel: "Email",

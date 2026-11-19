@@ -16,10 +16,10 @@
       }
     ],
     "approval": {
-      "approvedBy": "",
-      "approvedAt": "",
-      "reference": "",
-      "entrySha256": ""
+      "approvedBy": "eldad8802-prog (repository owner)",
+      "approvedAt": "2026-11-16T21:21:09Z",
+      "reference": "https://github.com/eldad8802-prog/business-platform/pull/1175#issuecomment-6929732002",
+      "entrySha256": "0bc3b39c99bfa94dcff1738937966c230a727be3eeb9fc34145cfcbd9f07a3c0"
     }
   }
 ]
