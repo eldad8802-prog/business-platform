@@ -32,7 +32,7 @@ async function main() {
     const u = Number((await q(`INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ($1, $2, now()) RETURNING id`, `sda7-${tag}-${t}@lab.invalid`, b))[0].id);
     const cust = Number((await asOwner(b, `INSERT INTO "Customer" ("businessId", name, "updatedAt") VALUES ($1, 'לקוח סינתטי', now()) RETURNING id`, b))[0].id);
     const c = await runWithTenantContext({ businessId: b }, async () =>
-      (await openCase({ businessId: b, userId: u } as never, { customerId: cust, problemDescription: "בדיקה", track: "T1", subject: { displayName: "מכשיר" } } as never, { idempotencyKey: uuidV7(new Date()) })).case.id);
+      (await openCase({ businessId: b, userId: u } as never, { kind: "IN_SHOP", customerId: cust, problemDescription: "בדיקה" } as never, { idempotencyKey: uuidV7(new Date()) })).case.id);
     return { b, u, c };
   };
   const A = await biz("A");

@@ -67,6 +67,28 @@ CREATE POLICY service_case_loaner_tenant_insert ON "ServiceCaseLoaner" FOR INSER
 CREATE POLICY service_case_loaner_tenant_update ON "ServiceCaseLoaner" FOR UPDATE
   USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)
   WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
+-- Grant hygiene (as the charge migration): default privileges may have granted more; keep exactly what the app needs.
+REVOKE ALL ON "ServiceCaseLoaner" FROM PUBLIC;
+REVOKE ALL ON SEQUENCE "ServiceCaseLoaner_id_seq" FROM PUBLIC;
+DO $do$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT DISTINCT c.oid::regclass::text AS rel, pg_get_userbyid(x.grantee) AS grantee, c.relkind
+      FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) x
+     WHERE c.relname IN ('ServiceCaseLoaner', 'ServiceCaseLoaner_id_seq')
+       AND c.relnamespace = 'public'::regnamespace
+       AND x.grantee <> c.relowner AND x.grantee <> 0
+  LOOP
+    IF r.relkind = 'S' THEN
+      EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM %I', r.rel, r.grantee);
+    ELSE
+      EXECUTE format('REVOKE ALL ON TABLE %s FROM %I', r.rel, r.grantee);
+    END IF;
+  END LOOP;
+END
+$do$;
 GRANT SELECT, INSERT, UPDATE ON "ServiceCaseLoaner" TO app_runtime;
 GRANT USAGE, SELECT ON SEQUENCE "ServiceCaseLoaner_id_seq" TO app_runtime;
 
