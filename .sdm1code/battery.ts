@@ -188,7 +188,12 @@ async function main() {
   {
     // T2 — a vehicle at the business: VEHICLE.v1 checklist
     const c = await open(A, { track: "T2", subject: { displayName: "רכב סינתטי", attributes: { plate: "12-345-67", km: 120000 } } });
-    const path = [await intake(A, c.id), await walk(A, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }])];
+    const path = [await intake(A, c.id), await walk(A, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }])];
+    // Decision 3 + garage regulations (2026-11-19): T2 approval is ALWAYS and locked — no vehicle work without an approved
+    // quote or cover, even with no money commitment.
+    ok("E2 T2: START_REPAIR without an approved quote or cover is refused (LOCKED ALWAYS)", (await act(A, c.id, { type: "START_REPAIR" })).includes("COVERAGE_NOT_APPROVED"));
+    await own(A.b, `UPDATE "ServiceCase" SET "coverageSource" = 'MANUFACTURER', "coverageDecision" = 'APPROVED' WHERE id = $1 RETURNING id`, c.id); // lab: a cover
+    path.push(await walk(A, c.id, [{ type: "START_REPAIR" }, { type: "FINISH_REPAIR" }]));
     ok("E2 T2: QA with the IN_SHOP checklist is refused (the track's template is VEHICLE.v1)", (await qa(A, c.id, "IN_SHOP.v2")).startsWith("INVALID_INPUT"));
     path.push(await qa(A, c.id, "VEHICLE.v1"), await walk(A, c.id, [{ type: "PASS_QA", outcome: "REPAIRED" }]));
     const sub = (await own(A.b, `SELECT "subjectKind"::text k, attributes FROM "ServiceDevice" WHERE id = (SELECT "deviceId" FROM "ServiceCase" WHERE id = $1)`, c.id))[0];
