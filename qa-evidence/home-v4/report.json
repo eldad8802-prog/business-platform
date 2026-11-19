@@ -6,6 +6,7 @@
       "היום שלי",
       "בשבילך"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -35,6 +36,7 @@
       "היום שלי",
       "בשבילך"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -64,6 +66,7 @@
       "היום שלי",
       "בשבילך"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -87,8 +90,10 @@
   "02-state-B": {
     "cards": [
       "תמונת מצב",
-      "המזכירה שלי"
+      "המזכירה שלי",
+      "היום שלי"
     ],
+    "calendarTabHref": "/secretary?screen=calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -111,6 +116,7 @@
       "המזכירה שלי",
       "היום שלי"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -140,6 +146,7 @@
       "היום שלי",
       "בשבילך"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -168,6 +175,7 @@
       "היום שלי",
       "בשבילך"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -197,6 +205,7 @@
       "המזכירה שלי",
       "היום שלי"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -223,6 +232,7 @@
       "המזכירה שלי",
       "היום שלי"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -249,6 +259,7 @@
       "המזכירה שלי",
       "היום שלי"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -276,6 +287,7 @@
       "היום שלי",
       "בשבילך"
     ],
+    "calendarTabHref": "/secretary?screen=calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -297,6 +309,7 @@
       "המזכירה שלי",
       "היום שלי"
     ],
+    "calendarTabHref": "/secretary?screen=calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -314,6 +327,7 @@
   },
   "03-tools-limited": {
     "cards": [],
+    "calendarTabHref": "/secretary?screen=calendar",
     "errors": [],
     "requests": [
       "/api/business/profile",
@@ -323,6 +337,7 @@
   },
   "03-tools-broad": {
     "cards": [],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/business/profile",
@@ -332,6 +347,7 @@
   },
   "03-more-limited": {
     "cards": [],
+    "calendarTabHref": "/secretary?screen=calendar",
     "errors": [],
     "requests": [
       "/api/business/profile",
@@ -346,6 +362,7 @@
       "היום שלי",
       "בשבילך"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -375,6 +392,7 @@
       "היום שלי",
       "בשבילך"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -404,6 +422,7 @@
       "היום שלי",
       "בשבילך"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -434,6 +453,7 @@
       "היום שלי",
       "בשבילך"
     ],
+    "calendarTabHref": "/calendar",
     "errors": [],
     "requests": [
       "/api/obligations/briefing",
@@ -465,7 +485,7 @@
   "floatingBar": {
     "top": {
       "scrollY": 0,
-      "docHeight": 995,
+      "docHeight": 999,
       "vh": 844,
       "vw": 390,
       "bar": {
@@ -501,8 +521,8 @@
       "barPosition": "fixed"
     },
     "mid": {
-      "scrollY": 151,
-      "docHeight": 995,
+      "scrollY": 155,
+      "docHeight": 999,
       "vh": 844,
       "vw": 390,
       "bar": {
@@ -538,8 +558,8 @@
       "barPosition": "fixed"
     },
     "bottom": {
-      "scrollY": 151,
-      "docHeight": 995,
+      "scrollY": 155,
+      "docHeight": 999,
       "vh": 844,
       "vw": 390,
       "bar": {
@@ -576,7 +596,7 @@
     },
     "up": {
       "scrollY": 0,
-      "docHeight": 995,
+      "docHeight": 999,
       "vh": 844,
       "vw": 390,
       "bar": {
@@ -615,8 +635,8 @@
     "lastCardClearsBar": true
   },
   "createSheet": {
-    "scrollBefore": 151,
-    "scrollAfter": 151,
+    "scrollBefore": 155,
+    "scrollAfter": 155,
     "preserved": true,
     "actions": [
       "משימה חדשה",

@@ -268,7 +268,8 @@ export type TodayEntry = {
 };
 
 export type TodayView =
-  | { state: "hidden" }
+  /** Neither appointments nor tasks are active: the area stays and points at the Secretary calendar (owner 18.11). */
+  | { state: "calendarOnly" }
   | { state: "loading" }
   | { state: "failed" }
   | {
@@ -305,7 +306,7 @@ export function buildToday(input: {
 }): TodayView {
   const { appointments, tasks, now, t } = input;
   const sources = [appointments, tasks];
-  if (sources.every((s) => s.state === "off")) return { state: "hidden" };
+  if (sources.every((s) => s.state === "off")) return { state: "calendarOnly" };
   const on = sources.filter((s) => s.state !== "off");
   if (on.some((s) => s.state === "loading")) return { state: "loading" };
   if (on.every((s) => s.state === "failed")) return { state: "failed" };

@@ -5,6 +5,7 @@ import { useId, useMemo, useState } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { AdaptiveOverlay } from "@/components/ui/adaptive-overlay";
+import { DAY_CALENDAR_FALLBACK } from "@/components/navigation/use-nav-href";
 import { greetingForHour } from "@/features/home/lib/home-model";
 import type { MessageKey } from "@/lib/i18n/translate";
 
@@ -587,11 +588,20 @@ function TodayCard({ data, retry, now }: { data: HomeV4Data; retry: () => void; 
     });
   }, [data, now, t]);
 
-  // Neither a calendar nor tasks are active for this business: the area is absent, never an empty card.
-  if (view.state === "hidden") return null;
-
+  // Neither a calendar nor tasks are active (owner decision 18.11): the area keeps its place and leads to the
+  // Secretary calendar — tasks, payments and due dates every business has. It claims nothing about the day itself.
   let body: React.ReactNode;
-  if (view.state === "loading") body = <div style={{ marginTop: 10 }}><Skeleton h={68} r={18} /></div>;
+  if (view.state === "calendarOnly") {
+    body = (
+      <Link href={DAY_CALENDAR_FALLBACK} prefetch={false} className="h4-quiet" style={{ textDecoration: "none" }}>
+        <IconCalendarCheck size={20} />
+        <span style={{ flex: 1 }}>
+          <strong>{t("home.v4.today.calendarOnly")}</strong> · {t("home.v4.today.calendarOnlyBody")}
+        </span>
+        <IconChevronForward size={20} />
+      </Link>
+    );
+  } else if (view.state === "loading") body = <div style={{ marginTop: 10 }}><Skeleton h={68} r={18} /></div>;
   else if (view.state === "failed") body = <FailedNote text={t("home.v4.today.failed")} onRetry={retry} />;
   else if (!view.next) {
     body = (

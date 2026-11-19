@@ -135,7 +135,7 @@ ok("state E (lots waiting): still ONE recommendation; the chip counts every visi
 
 /* ------------------------------------------------------------- today -- */
 const appt = (id: number, iso: string, extra: Record<string, unknown> = {}) => ({ id, status: "CONFIRMED", kind: "CUSTOMER", startsAt: iso, endsAt: new Date(new Date(iso).getTime() + 3600_000).toISOString(), title: "פגישה עם לקוח", ...extra });
-ok("hidden when neither calendar nor tasks are active (state B: no empty card)", buildToday({ appointments: { state: "off" }, tasks: { state: "off" }, now: NOW, t }).state === "hidden");
+ok("decision 1: neither calendar nor tasks active → the area stays and leads to the Secretary calendar (no claim about the day)", buildToday({ appointments: { state: "off" }, tasks: { state: "off" }, now: NOW, t }).state === "calendarOnly");
 ok("next = earliest upcoming; rest = 2 meetings and 3 tasks", (() => {
   const v = buildToday({
     appointments: ready([appt(1, "2026-11-18T09:30:00Z"), appt(2, "2026-11-18T12:00:00Z"), appt(3, "2026-11-18T14:00:00Z"), appt(4, "2026-11-18T05:00:00Z")]),

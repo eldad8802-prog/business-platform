@@ -80,6 +80,8 @@ export const homeV4En: Widen<typeof homeV4He> = {
     restNone: "Nothing else planned for today",
     empty: "Nothing planned for today",
     emptyBody: "A free day — you can plan something new.",
+    calendarOnly: "The Secretary's calendar",
+    calendarOnlyBody: "Tasks, payments and due dates in one place",
     failed: "We couldn't load your day",
     partial: "Part of the day didn't load",
     retry: "Try again",
