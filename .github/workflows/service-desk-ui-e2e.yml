@@ -82,6 +82,15 @@ jobs:
           bash .sd3p4/lab.sh sdui >/dev/null
           bash .sd3p4/lab.sh sdui --deploy-only >/dev/null
           bash .sdm1/chain.sh sdui | tail -n 3
+      - name: Lab only — A7 (Draft, NOT applied anywhere) from its own branch, so loans / task link / case fields run for real
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The migration lives in #1193 (db/service-desk-a7-case-fields). This lab database is synthetic and thrown away.
+          git fetch --no-tags --depth=1 origin db/service-desk-a7-case-fields
+          git show FETCH_HEAD:prisma/migrations/20261214090000_service_desk_case_fields/migration.sql > /tmp/a7.sql
+          psql "$OWNER_URL" -X -q -v ON_ERROR_STOP=1 -1 -f /tmp/a7.sql
+          psql "$OWNER_URL" -X -tA -c "SELECT to_regclass('public.\"ServiceCaseLoaner\"') IS NOT NULL"
       - name: Seed — business A (service_desk ON in this lab only) with four cases; business B (default OFF)
         run: mkdir -p "$LOCAL_STORAGE_ROOT" && npx tsx .sdui/seed.mts
       - run: npx playwright install --with-deps chromium
@@ -92,7 +101,7 @@ jobs:
           (nohup npx next dev -p 3740 > "$OUT/server.log" 2>&1 &)
           for i in $(seq 1 150); do curl -sf -o /dev/null http://localhost:3740/login && break; sleep 2; done
           curl -sf -o /dev/null http://localhost:3740/login
-      - name: End to end — the list, a repair from intake to closed, a refused handover, a quote answer, API refusals, module OFF
+      - name: End to end — list, repair to closed, refused handover, quote answer + send, activation, opening form, QA, pickup calls, loans, tasks, fields, API refusals, module OFF
         run: npx tsx .sdui/e2e.mts
       - name: Server log (on failure)
         if: failure()

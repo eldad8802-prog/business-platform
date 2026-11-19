@@ -13,6 +13,15 @@
  *   X1 an illegal action sent straight to the API (PASS_QA on an OPEN case) → 409, nothing changes
  *   X2 a write with a stale version → refused (VERSION_CONFLICT), nothing changes
  *   N1 business B (module OFF): the screen says it is not open; its API answers 404
+ *   S1 business C (garage, never set up): the list banner leads to the activation; "garage" is pre-selected from the
+ *      category; the owner adds "service" by hand; saved + journaled; the banner is gone
+ *   O1 the opening form: a repair for an existing customer → the case exists with its track; the screen goes to intake
+ *   QA1 c5 (QA REQUIRED): the checklist is recorded in the panel → qaCompletedAt; "QA passed" → READY
+ *   Q2 c6: the customer's billing quote is sent from the case → QUOTE_PENDING, one ServiceQuote row, the document unchanged
+ *   P1 c3 (READY): a pickup call "no answer" → one ServicePhoneReminder row, the counter 1, the header summary
+ *   LN1 a replacement item lent on c3 → the handover reminder in the header (never a block); returned → returnedAt
+ *   TK1 an open task linked to c4 and unlinked (Task.serviceCaseId)      F1 c4: item location + estimated date saved
+ *   X3 another business (C) cannot read A's loans / tasks / fields / pickup calls / QA (404)
  *
  * env: E2E_BASE, SEED_OUT, OUT, OWNER_URL, DATABASE_URL, STORAGE_PROVIDER=local, LOCAL_STORAGE_ROOT.
  */
@@ -23,7 +32,15 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 
 const BASE = process.env.E2E_BASE ?? "http://localhost:3740";
 const OUT = process.env.OUT ?? "/tmp/sdui";
-const seed = JSON.parse(readFileSync(process.env.SEED_OUT!, "utf8")) as { tokenA: string; tokenB: string; bizA: number; bizB: number; userA: number; c1: number; c2: number; c3: number; c4: number };
+const seed = JSON.parse(readFileSync(process.env.SEED_OUT!, "utf8")) as {
+  tokenA: string; tokenB: string; tokenC: string; bizA: number; bizB: number; bizC: number; userA: number;
+  c1: number; c2: number; c3: number; c4: number; c5: number; c6: number; quoteC6: number; taskA: number;
+};
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function until(f: () => Promise<boolean>, what: string) {
+  for (let i = 0; i < 60; i++) { if (await f()) return true; await sleep(250); }
+  throw new Error(what);
+}
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 mkdirSync(OUT, { recursive: true });
 
@@ -214,6 +231,163 @@ async function main() {
       if (r < 400) throw new Error(`answered ${r}`);
       if ((await versionOf(seed.c4)) !== before) throw new Error("the case changed");
     });
+
+    // ── activation (decision 1), business C ──
+    for (const [size, tag] of [[PHONE, "phone"], [DESKTOP, "desktop"]] as const) {
+      const cc = await ctx(browser, seed.tokenC, size);
+      const pc = await cc.newPage();
+      current = pc;
+      await check(`S1-${tag} activation: banner → garage pre-selected from the category${tag === "desktop" ? " → service added by hand → saved, journaled, banner gone" : ""}`, async () => {
+        await pc.goto("/service-desk");
+        await pc.locator("[data-setup-banner]").waitFor({ timeout: 180_000 });
+        await shot(pc, `real-list-setup-banner-${tag}`);
+        await pc.locator("[data-setup-banner]").click();
+        const garage = pc.getByRole("radio", { name: /מוסך/ });
+        await garage.waitFor({ timeout: 120_000 });
+        if ((await garage.getAttribute("aria-checked")) !== "true") throw new Error("garage not pre-selected");
+        await pc.getByText("מוצע לפי התחום").first().waitFor();
+        if (!(await pc.getByRole("checkbox", { name: /תיקון רכב/ }).isChecked())) throw new Error("T2 not pre-checked");
+        await shot(pc, `real-setup-${tag}`);
+        if (tag === "phone") return;
+        await pc.getByRole("checkbox", { name: /^שירות/ }).check();
+        await pc.getByRole("button", { name: /לשמור ולהתחיל/ }).click();
+        await pc.getByRole("heading", { name: "תיקי שירות" }).waitFor({ timeout: 60_000 });
+        await until(async () => {
+          const s = (await own(seed.bizC, `SELECT "serviceProfileKey" k, "profileOverrides" o FROM "ServiceSettings" WHERE "businessId" = $1`, seed.bizC))[0] as { k?: string; o?: { offeredTracks?: string[] } } | undefined;
+          return s?.k === "garage" && !!s.o?.offeredTracks?.includes("T5");
+        }, "settings not saved");
+        const ev = Number((await own(seed.bizC, `SELECT count(*)::int n FROM "ServiceSettingsEvent" WHERE "businessId" = $1`, seed.bizC))[0].n);
+        if (ev < 1) throw new Error("not journaled");
+        await pc.reload();
+        await pc.getByRole("heading", { name: "תיקי שירות" }).waitFor();
+        await sleep(1500);
+        if (await pc.locator("[data-setup-banner]").count()) throw new Error("banner still shown");
+      });
+      await cc.close();
+    }
+
+    // ── QA panel, business C, desktop ──
+    {
+      const cc = await ctx(browser, seed.tokenC, DESKTOP);
+      const pc = await cc.newPage();
+      current = pc;
+      await check("QA1 c5: the checklist is recorded in the panel; QA passed → READY", async () => {
+        await openCase(pc, seed.c5);
+        const panel = pc.locator("[data-panel=qa]");
+        await panel.waitFor({ timeout: 60_000 });
+        const pass = panel.getByRole("button", { name: "עבר", exact: true });
+        const n = await pass.count();
+        if (n < 3) throw new Error(`only ${n} checks`);
+        for (let i = 0; i < n; i++) await pass.nth(i).click();
+        await shot(pc, "real-case-qa-desktop");
+        await panel.getByRole("button", { name: "לשמור את הבדיקות" }).click();
+        await until(async () => (await own(seed.bizC, `SELECT "qaCompletedAt" IS NOT NULL ok FROM "ServiceCase" WHERE id = $1`, seed.c5))[0].ok === true, "qaCompletedAt not set");
+        await pc.locator("section[aria-label='מצב ופעולה הבאה']").getByRole("button", { name: "הבדיקות עברו", exact: true }).waitFor();
+        await clickAction(pc, "הבדיקות עברו");
+        await until(async () => String((await own(seed.bizC, `SELECT status::text s FROM "ServiceCase" WHERE id = $1`, seed.c5))[0].s) === "READY", "not READY");
+      });
+      await check("X3 another business cannot read A's case panels (404)", async () => {
+        const codes = await pc.evaluate(async (id) => {
+          const h = { Authorization: `Bearer ${localStorage.getItem("token")}` };
+          const out: number[] = [];
+          for (const p of ["loans", "tasks", "fields", "pickup-reminders", "qa"]) out.push((await fetch(`/api/service-desk/cases/${id}/${p}`, { headers: h })).status);
+          return out;
+        }, seed.c4);
+        if (codes.some((c) => c !== 404)) throw new Error(codes.join(","));
+      });
+      await cc.close();
+    }
+
+    // ── A: the opening form, a quote from the case, tasks, fields (desktop) ──
+    {
+      const ca = await ctx(browser, seed.tokenA, DESKTOP);
+      const pa = await ca.newPage();
+      current = pa;
+      await check("O1 the opening form: a repair for an existing customer → the case with its track; on to the intake", async () => {
+        const before = Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceCase" WHERE "businessId" = $1`, seed.bizA))[0].n);
+        await pa.goto("/service-desk/new");
+        await pa.getByRole("button", { name: "תיקון במעבדה" }).waitFor({ timeout: 120_000 });
+        await shot(pa, "real-open-start-desktop");
+        await pa.getByRole("button", { name: "תיקון במעבדה" }).click();
+        await pa.locator("#sd-open-customer").fill("דנה");
+        await pa.getByRole("button", { name: /דנה כהן/ }).first().click({ timeout: 30_000 });
+        await pa.locator("#sd-open-subject").fill("iPad Air");
+        await pa.locator("#sd-open-problem").fill("לא נדלק אחרי עדכון");
+        await shot(pa, "real-open-repair-desktop");
+        await pa.getByRole("button", { name: "לפתוח ולעבור לקליטה" }).click();
+        await pa.waitForURL(/\/service-desk\/cases\/\d+\/intake/, { timeout: 60_000 });
+        const after = (await own(seed.bizA, `SELECT count(*)::int n, max(id) m FROM "ServiceCase" WHERE "businessId" = $1`, seed.bizA))[0] as { n: number; m: number };
+        if (Number(after.n) !== before + 1) throw new Error("no new case");
+        const snap = (await own(seed.bizA, `SELECT "profileKey" k, "workType"::text w FROM "ServiceCase" WHERE id = $1`, after.m))[0] as { k: string; w: string };
+        if (snap.k !== "device_lab" || snap.w !== "REPAIR") throw new Error(JSON.stringify(snap));
+      });
+      await check("Q2 c6: the customer's billing quote is sent from the case → QUOTE_PENDING; the billing document is not changed", async () => {
+        const docBefore = JSON.stringify((await own(seed.bizA, `SELECT status::text s, "totalAmount"::text t, "updatedAt" u FROM "BillingDocument" WHERE id = $1`, seed.quoteC6))[0]);
+        await openCase(pa, seed.c6);
+        const panel = pa.locator("[data-panel=quote]");
+        await panel.waitFor({ timeout: 60_000 });
+        await shot(pa, "real-case-quote-send-desktop");
+        await panel.getByRole("button", { name: "לשלוח ללקוח" }).first().click();
+        await waitStatus(seed.c6, "QUOTE_PENDING");
+        const n = Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceQuote" WHERE "caseId" = $1 AND "billingDocumentId" = $2`, seed.c6, seed.quoteC6))[0].n);
+        if (n !== 1) throw new Error(`quote rows ${n}`);
+        const docAfter = JSON.stringify((await own(seed.bizA, `SELECT status::text s, "totalAmount"::text t, "updatedAt" u FROM "BillingDocument" WHERE id = $1`, seed.quoteC6))[0]);
+        if (docAfter !== docBefore) throw new Error(`the billing document changed: ${docBefore} → ${docAfter}`);
+      });
+      await check("TK1 an open task is linked to c4 and unlinked", async () => {
+        await openCase(pa, seed.c4);
+        const panel = pa.locator("[data-panel=tasks]");
+        await panel.locator("#sd-task-pick").waitFor({ timeout: 60_000 });
+        await panel.locator("#sd-task-pick").selectOption(String(seed.taskA));
+        await panel.getByRole("button", { name: "לקשר" }).click();
+        await until(async () => Number((await own(seed.bizA, `SELECT coalesce("serviceCaseId", 0) v FROM "Task" WHERE id = $1`, seed.taskA))[0].v) === seed.c4, "not linked");
+        await panel.getByText("להזמין מקלדת מהספק").waitFor();
+        await panel.getByRole("button", { name: "להסיר" }).click();
+        await until(async () => (await own(seed.bizA, `SELECT "serviceCaseId" v FROM "Task" WHERE id = $1`, seed.taskA))[0].v === null, "not unlinked");
+      });
+      await check("F1 c4: the item location and the estimated date are saved", async () => {
+        const panel = pa.locator("[data-panel=fields]");
+        await panel.locator("#sd-item-location").fill("מדף 3");
+        await panel.locator("#sd-estimated").fill("2026-12-01");
+        await panel.getByRole("button", { name: "לשמור" }).click();
+        await until(async () => {
+          const r = (await own(seed.bizA, `SELECT "itemLocationNote" l, to_char("estimatedReadyOn", 'YYYY-MM-DD') d FROM "ServiceCase" WHERE id = $1`, seed.c4))[0] as { l: string | null; d: string | null };
+          return r.l === "מדף 3" && r.d === "2026-12-01";
+        }, "not saved");
+        await shot(pa, "real-case-panels-desktop");
+      });
+      await ca.close();
+    }
+
+    // ── A: pickup calls and a replacement item (phone) ──
+    {
+      const cp = await ctx(browser, seed.tokenA, PHONE);
+      const pp = await cp.newPage();
+      current = pp;
+      await check("P1 c3 (READY): a pickup call 'no answer' → one reminder row, the counter 1, the header summary", async () => {
+        await openCase(pp, seed.c3);
+        const panel = pp.locator("[data-panel=pickup]");
+        await panel.waitFor({ timeout: 60_000 });
+        await panel.getByRole("button", { name: "אין מענה" }).click();
+        await until(async () => {
+          const r = (await own(seed.bizA, `SELECT (SELECT count(*)::int FROM "ServicePhoneReminder" WHERE "caseId" = $1) n, "pickupRemindersSent" c FROM "ServiceCase" WHERE id = $1`, seed.c3))[0] as { n: number; c: number };
+          return Number(r.n) === 1 && Number(r.c) === 1;
+        }, "reminder not recorded");
+        await pp.getByText(/תזכורת אחת · אחרונה היום/).waitFor({ timeout: 30_000 });
+      });
+      await check("LN1 a replacement item on c3 → the handover reminder (never a block); returned → returnedAt", async () => {
+        const panel = pp.locator("[data-panel=loans]");
+        await panel.getByRole("button", { name: "+ ציוד חלופי" }).click();
+        await panel.locator("#sd-loan-name").fill("טלפון חלופי");
+        await panel.getByRole("button", { name: "לרשום" }).click();
+        await pp.getByText("לפני המסירה: לקבל בחזרה את טלפון חלופי").waitFor({ timeout: 30_000 });
+        await shot(pp, "real-case-pickup-loan-phone");
+        if (!(await pp.locator("section[aria-label='מצב ופעולה הבאה']").getByRole("button", { name: "למסור ללקוח", exact: true }).isEnabled())) throw new Error("the handover is blocked");
+        await pp.locator("[data-panel=loans]").getByRole("button", { name: "הוחזר" }).click();
+        await until(async () => Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceCaseLoaner" WHERE "caseId" = $1 AND "returnedAt" IS NOT NULL`, seed.c3))[0].n) === 1, "not returned");
+      });
+      await cp.close();
+    }
 
     // ── business B: the module is off ──
     const b = await ctx(browser, seed.tokenB, PHONE);

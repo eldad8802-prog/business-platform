@@ -6,7 +6,10 @@
  *   c1  T1 repair at the business, intake recorded, OPEN            → the UI walks it to CLOSED
  *   c2  T3 repair at the customer, a quote SENT (QUOTE_PENDING)      → the UI records the customer's approval
  *   c3  T1 READY (QA turned off by the owner, decision 4)            → the list's "ready, not collected" row
- *   c4  T1 IN_REPAIR on hold for parts                               → a list row with its reason
+ *   c4  T1 IN_REPAIR on hold for parts                               → a list row with its reason; loans, task link, fields
+ *   c6  T1 DIAGNOSING, the customer has a billing QUOTE draft         → the UI sends the quote from the case
+ * Business C (garage by its sub-category, service_desk ENABLED, never set up) — decision 1 activation:
+ *   c5  T1 (general snapshot: QA REQUIRED) in QA                       → the UI records the checklist and passes QA
  * A's profile is device_lab with T1 QA OFF (decision 4: the owner may turn QA off), so a repair finishes to READY.
  *
  * env: OWNER_URL, AUTH_TOKEN_SECRET, SEED_OUT, STORAGE_PROVIDER=local, LOCAL_STORAGE_ROOT.
@@ -74,6 +77,21 @@ async function main() {
     await own(bizA, `INSERT INTO "BillingDocumentLine" ("billingDocumentId", "lineIndex", description, quantity, "unitPrice", "vatRatePercent", "lineSubtotal", "vatAmount", "lineTotal", "updatedAt")
       VALUES ($1, $2, $3, $4::numeric, $5::numeric, 18, $6::numeric / 100, $7::numeric / 100, $8::numeric / 100, now()) RETURNING id`, doc, i++, desc, n, u, ls, lv, ls + lv);
   }
+  const quoteDoc = async (b: number, cust: number, name: string, items: [string, string, string][]) => {
+    const s2 = items.reduce((s, [, n, u]) => s + Math.round(Number(n) * Number(u) * 100), 0);
+    const v2 = Math.round(s2 * 0.18);
+    const id = Number((await own(b, `INSERT INTO "BillingDocument" ("businessId", "documentType", status, "customerId", "customerNameSnapshot", "validUntil",
+        "subtotalAmount", "vatAmount", "totalAmount", currency, "updatedAt")
+      VALUES ($1, 'QUOTE'::"BillingDocumentType", 'DRAFT', $2, $3, '2026-12-31', $4::numeric / 100, $5::numeric / 100, $6::numeric / 100, 'ILS', now()) RETURNING id`,
+      b, cust, name, s2, v2, s2 + v2))[0].id);
+    let j = 0;
+    for (const [desc, n, u] of items) {
+      const ls = Math.round(Number(n) * Number(u) * 100), lv = Math.round(ls * 0.18);
+      await own(b, `INSERT INTO "BillingDocumentLine" ("billingDocumentId", "lineIndex", description, quantity, "unitPrice", "vatRatePercent", "lineSubtotal", "vatAmount", "lineTotal", "updatedAt")
+        VALUES ($1, $2, $3, $4::numeric, $5::numeric, 18, $6::numeric / 100, $7::numeric / 100, $8::numeric / 100, now()) RETURNING id`, id, j++, desc, n, u, ls, lv, ls + lv);
+    }
+    return id;
+  };
   const stubRender = async (x: { businessId: number; billingDocumentId: number }) =>
     ({ buffer: Buffer.from(`%PDF-1.4\n% sdui synthetic quote ${x.businessId}/${x.billingDocumentId} ${Date.now()}\n%%EOF\n`, "latin1") });
   await sendQuote(p as never, c2, { billingDocumentId: doc, expectedVersion: await version(c2) }, { idempotencyKey: key() }, { render: stubRender as never, storage: getStorageService() });
@@ -88,9 +106,31 @@ async function main() {
   await intake(c4);
   for (const a of [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "SET_HOLD", reason: "PARTS" }]) await act(c4, a);
 
-  const out = { tokenA: signAuthToken(userA, 0), tokenB: signAuthToken(userB, 0), bizA, bizB, userA, c1, c2, c3, c4 };
+  // c6 — T1 DIAGNOSING; the customer has a billing QUOTE draft (the UI sends it from the case)
+  const yossi = await customer("יוסי לוי");
+  const c6 = await open(yossi, { track: "T1", problemDescription: "סוללה מתרוקנת מהר", subject: { displayName: "iPad Pro 11" } });
+  await intake(c6);
+  for (const a of [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }]) await act(c6, a);
+  const quoteC6 = await quoteDoc(bizA, yossi, "יוסי לוי", [["החלפת סוללה", "1", "450.00"]]);
+  // an open task of A (the UI links it to a case)
+  const taskA = Number((await own(bizA, `INSERT INTO "Task" ("businessId", title, "updatedAt") VALUES ($1, 'להזמין מקלדת מהספק', now()) RETURNING id`, bizA))[0].id);
+
+  // Business C — a garage by its sub-category, never set up (decision 1: the activation pre-selects "garage")
+  const bizC = Number((await q(`INSERT INTO "Business" (name, "updatedAt") VALUES ('מוסך בדיקה', now()) RETURNING id`))[0].id);
+  const userC = Number((await q(`INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ($1, $2, now()) RETURNING id`, `sdui-c-${t}@lab.invalid`, bizC))[0].id);
+  await owner.businessFeatureAccess.create({ data: { businessId: bizC, featureKey: "service_desk", state: "ENABLED", reason: "lab: service desk UI e2e (activation)" } });
+  await q(`INSERT INTO "BusinessProfile" ("businessId", category, "subCategory", "updatedAt") VALUES ($1, 'Auto Services', 'Garage', now()) RETURNING id`, bizC);
+  const pC = { businessId: bizC, userId: userC };
+  const custC = Number((await own(bizC, `INSERT INTO "Customer" ("businessId", name, "updatedAt") VALUES ($1, 'רון דוד', now()) RETURNING id`, bizC))[0].id);
+  const versionC = async (id: number) => Number((await own(bizC, `SELECT version FROM "ServiceCase" WHERE id = $1`, id))[0].version);
+  const c5 = (await openCase(pC as never, { customerId: custC, track: "T1", problemDescription: "החלפת מסך", subject: { displayName: "Pixel 8" } } as never, { idempotencyKey: key() })).case.id;
+  await recordIntake(pC as never, c5, { conditionNote: "תקין", accessoriesNote: "ללא", conditionRecorded: true, accessoriesRecorded: true, expectedVersion: await versionC(c5) }, { idempotencyKey: key() });
+  for (const a of [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR", outcome: "REPAIRED" }])
+    await runCaseAction(pC as never, c5, { action: a, expectedVersion: await versionC(c5) }, { idempotencyKey: key() });
+
+  const out = { tokenA: signAuthToken(userA, 0), tokenB: signAuthToken(userB, 0), tokenC: signAuthToken(userC, 0), bizA, bizB, bizC, userA, c1, c2, c3, c4, c5, c6, quoteC6, taskA };
   writeFileSync(process.env.SEED_OUT!, JSON.stringify(out, null, 2));
-  console.log(`seeded: A ${bizA} (service_desk ON, lab only) cases ${c1},${c2},${c3},${c4}; B ${bizB} (default OFF)`);
+  console.log(`seeded: A ${bizA} (service_desk ON, lab only) cases ${c1},${c2},${c3},${c4},${c6}; C ${bizC} (garage, not set up) case ${c5}; B ${bizB} (default OFF)`);
 }
 
 main().catch((e) => { console.error(e); process.exitCode = 1; }).finally(() => owner.$disconnect());
