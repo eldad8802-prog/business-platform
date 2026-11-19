@@ -688,7 +688,7 @@ async function main() {
       ok("engine ON (A): recorded", (await prod.recordConnectionDisconnected(gRef, NOW, pdeps)) === "notified");
       const [gn] = await notes(A, "conn:gmail:9000001");
       ok("…one whole-business row, category + domain from the catalog, generic text",
-        gn?.semanticCategory === "connections.disconnected" && gn.domain === "connections" && gn.userId === null && gn.entityType === "gmail_connection" &&
+        gn?.semanticCategory === "connections.account_disconnected" && gn.domain === "connections" && gn.userId === null && gn.entityType === "gmail_connection" &&
         gn.entityId === 9_000_001 && gn.href === "/settings/connections" && !/[0-9@]/.test(`${gn.title} ${gn.summary}`), gn);
       const gDel = await owner.notificationDelivery.findMany({ where: { businessId: A, notificationId: gn.id }, orderBy: { id: "asc" } });
       ok("…in-app SENT + ONE owed push (PENDING, whole business, expires in 12 h)",
