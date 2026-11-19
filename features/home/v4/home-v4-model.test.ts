@@ -24,11 +24,16 @@ import {
   metricOrder,
   moneyMetric,
   openCasesClaim,
+  favoriteTools,
+  pruneDismissals,
+  simpleToolOrder,
   restOfDayLine,
   waitingQuotes,
 } from "./home-v4-model";
 import { agendaToToday } from "./use-home-v4-data";
 import { TOOLS } from "@/lib/navigation/home-routes";
+import { DAY_CALENDAR_FALLBACK, isResolvedActive } from "@/components/navigation/use-nav-href";
+import { isNavActive } from "@/components/navigation/nav-destinations";
 
 const t = createTranslator(he);
 let failed = 0;
@@ -189,6 +194,22 @@ ok("state E: a broad business gets favourites + search + categories", availableT
 ok("'יכולות נוספות' = exactly the tools not available", (() => {
   const a = access(DEFAULTS);
   return availableTools(TOOLS, a).length + inactiveTools(TOOLS, a).length === TOOLS.length;
+})());
+
+/* ------------------------------------------- owner decisions 18.11 -- */
+ok("decision 1: without appointments the יומן tab opens the Secretary calendar (tasks + due dates), never 'not active'", DAY_CALENDAR_FALLBACK === "/secretary?screen=calendar");
+ok("decision 1: the tab is active on that calendar, and only there", isResolvedActive("/secretary", "?screen=calendar", DAY_CALENDAR_FALLBACK, isNavActive) && !isResolvedActive("/secretary", "", DAY_CALENDAR_FALLBACK, isNavActive));
+ok("decision 1: with appointments the tab is active on /calendar sub-screens", isResolvedActive("/calendar/manage", "", "/calendar", isNavActive));
+ok("decision 3: conversations and documents lead the simple grid", (() => { const o = simpleToolOrder(availableTools(TOOLS, access(["documents", "inbox"]))).map((t) => t.key); return o[0] === "conversations" && o[1] === "documents"; })());
+ok("decision 3: conversations and documents lead the default favourites of every kind", (["service", "booking", "sales", "general"] as const).every((k) => {
+  const f = favoriteTools(availableTools(TOOLS, access(ALL, k)), k, null).map((t) => t.key);
+  return f[0] === "conversations" && f[1] === "documents";
+}));
+ok("decision 3: an OFF inbox is never a favourite", !favoriteTools(availableTools(TOOLS, access(["documents"])), "general", null).some((t) => t.key === "conversations"));
+ok("decision 4: a 'later' from a past day is dropped; 'not relevant' kept; size capped", (() => {
+  const d = pruneDismissals({ a: { mode: "later", day: "2026-11-17" }, b: { mode: "later", day: "2026-11-18" }, c: { mode: "dismiss" } }, "2026-11-18");
+  const big = pruneDismissals(Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, { mode: "dismiss" as const }])), "2026-11-18");
+  return !("a" in d) && "b" in d && "c" in d && Object.keys(big).length === 30 && "k39" in big;
 })());
 
 if (failed > 0) {

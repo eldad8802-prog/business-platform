@@ -9,7 +9,7 @@ import { TOOLS, TOOL_GROUPS, type Tool } from "@/lib/navigation/home-routes";
 import { HOME_V4_CSS } from "@/features/home/v4/home-v4";
 import { useHomePref } from "@/features/home/v4/home-prefs";
 import { IconChevronForward, IconRetry } from "@/features/home/v4/home-v4-icons";
-import { SIMPLE_TOOLS_MAX, availableTools, favoriteTools } from "@/features/home/v4/home-v4-model";
+import { SIMPLE_TOOLS_MAX, availableTools, favoriteTools, simpleToolOrder } from "@/features/home/v4/home-v4-model";
 import { useHomeAccess } from "@/features/home/v4/use-home-access";
 
 const TOOLS_CSS = `
@@ -96,7 +96,7 @@ export function MyToolsScreen() {
       </div>
     );
   } else if (simple) {
-    body = <div className="mt-grid">{available.map(tile)}</div>;
+    body = <div className="mt-grid">{simpleToolOrder(available).map(tile)}</div>;
   } else {
     const groups = TOOL_GROUPS.map((g) => ({ g, tools: available.filter((tool) => tool.group === g.key && matches(tool)) })).filter((x) => x.tools.length > 0);
     body = (
@@ -111,6 +111,7 @@ export function MyToolsScreen() {
               </button>
             </div>
             <div className="mt-grid">{favorites.map(tile)}</div>
+            {editing ? <p className="mt-sub" style={{ fontSize: 12.5, marginTop: 8 }}>{t("home.v4.deviceNote")}</p> : null}
           </section>
         ) : null}
         {groups.map(({ g, tools }) => (

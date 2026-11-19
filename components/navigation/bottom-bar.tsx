@@ -8,6 +8,7 @@ import { ActionSheet } from "./action-sheet";
 import { useShellChromeHidden } from "./shell-chrome-visibility";
 import { PRIMARY_DESTINATIONS, isNavActive, type NavDestination } from "./nav-destinations";
 import { IconPlus } from "./nav-icons";
+import { isResolvedActive, useLocationSearch, useNavHref } from "./use-nav-href";
 import { useI18n } from "@/components/i18n/I18nProvider";
 
 /** Below in-app modals (~200); shell content is z-index 1 - bar stays above page for the strip only. */
@@ -135,12 +136,16 @@ function useUnreadNotifications(pathname: string): boolean {
   return hasUnread;
 }
 
-function BarLink({ dest, active, unread }: { dest: NavDestination; active: boolean; unread: boolean }) {
+function BarLink({ dest, unread }: { dest: NavDestination; active?: boolean; unread: boolean }) {
   const Icon = dest.icon;
   const { t } = useI18n();
+  const pathname = usePathname() || "/";
+  const search = useLocationSearch();
+  const href = useNavHref(dest);
+  const active = isResolvedActive(pathname, search, href, isNavActive);
   return (
     <Link
-      href={dest.href}
+      href={href}
       prefetch={false}
       aria-current={active ? "page" : undefined}
       className="dz-bottom__item"

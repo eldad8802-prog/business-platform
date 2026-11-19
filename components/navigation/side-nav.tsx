@@ -18,6 +18,7 @@ import {
   type NavDestination,
 } from "./nav-destinations";
 import { IconPlus, IconSearch } from "./nav-icons";
+import { isResolvedActive, useLocationSearch, useNavHref } from "./use-nav-href";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { AccessibilityGlyph, AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import {
@@ -92,12 +93,17 @@ export function NavRail() {
   );
 }
 
-function RailItem({ dest, active, dot }: { dest: NavDestination; active: boolean; dot: boolean }) {
+function RailItem({ dest, active: activeByPath, dot }: { dest: NavDestination; active: boolean; dot: boolean }) {
   const Icon = dest.icon;
   const { t } = useI18n();
+  const pathname = usePathname() || "/";
+  const search = useLocationSearch();
+  // The fixed "יומן" tab resolves to what the business has (use-nav-href); every other item is unchanged.
+  const href = useNavHref(dest);
+  const active = href === dest.href ? activeByPath : isResolvedActive(pathname, search, href, isNavActive);
   return (
     <Link
-      href={dest.href}
+      href={href}
       prefetch={false}
       aria-current={active ? "page" : undefined}
       className="dz-rail__item"

@@ -164,6 +164,15 @@ export type SecretaryView =
       dismissMode: "dismiss" | "later";
     };
 
+/**
+ * Keep the stored dismissals small: a "later" from a past day no longer holds, and only the newest "not relevant"
+ * entries are kept (an old one refers to a group of items that has long changed anyway).
+ */
+export function pruneDismissals(d: SecretaryDismissals, today: string, keep = 30): SecretaryDismissals {
+  const entries = Object.entries(d).filter(([, v]) => v.mode === "dismiss" || v.day === today);
+  return Object.fromEntries(entries.slice(-keep));
+}
+
 export function groupKeyOf(kind: WaitingKind, items: WaitingItem[]): string {
   return `${kind}:${items.map((i) => i.id).sort().join(",")}`;
 }
@@ -595,12 +604,24 @@ export function inactiveTools<T extends ToolLite>(tools: readonly T[], access: H
 /** At or below this many tools the screen is one clean grid: no favourites strip, no search, no categories. */
 export const SIMPLE_TOOLS_MAX = 8;
 
+/**
+ * Conversations and documents left the bottom bar (owner decision 18.11), so they lead every business's tools:
+ * first in the default favourites and first in the simple grid. Then what the business kind uses most.
+ */
+export const BAR_LEAVERS = ["conversations", "documents"] as const;
+
 const DEFAULT_FAVORITES: Record<BusinessKind, string[]> = {
-  service: ["service-desk", "invoices", "collection", "customers"],
-  booking: ["calendar", "customers", "invoices", "collection"],
-  sales: ["leads", "customers", "invoices", "conversations"],
-  general: ["invoices", "collection", "documents", "customers"],
+  service: [...BAR_LEAVERS, "service-desk", "invoices", "collection", "customers"],
+  booking: [...BAR_LEAVERS, "calendar", "customers", "invoices", "collection"],
+  sales: [...BAR_LEAVERS, "leads", "customers", "invoices", "collection"],
+  general: [...BAR_LEAVERS, "invoices", "collection", "customers"],
 };
+
+/** The simple grid's order: the tools that left the bar first, then the registry order. */
+export function simpleToolOrder<T extends ToolLite>(available: readonly T[]): T[] {
+  const lead = BAR_LEAVERS.map((k) => available.find((t) => t.key === k)).filter((t): t is T => Boolean(t));
+  return [...lead, ...available.filter((t) => !lead.includes(t))];
+}
 
 export function favoriteTools<T extends ToolLite>(available: readonly T[], kind: BusinessKind, chosen: readonly string[] | null): T[] {
   const keys = chosen ?? DEFAULT_FAVORITES[kind];

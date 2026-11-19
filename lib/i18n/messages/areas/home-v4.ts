@@ -3,6 +3,8 @@
  * screen and the create sheet). Hebrew source; English in ./home-v4.en.ts. Nested under `home.v4`.
  */
 export const homeV4He = {
+  /** Display preferences live in this browser only (owner decision 18.11: no schema change yet). */
+  deviceNote: "הבחירה נשמרת במכשיר הזה בלבד. במכשיר אחר, או אחרי ניקוי נתוני הדפדפן, יוצגו הגדרות ברירת המחדל של העסק.",
   header: {
     profile: "פרופיל",
     updates: "עדכונים",

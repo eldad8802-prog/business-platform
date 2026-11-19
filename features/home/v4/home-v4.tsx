@@ -54,6 +54,7 @@ import {
   METRICS,
   buildForYou,
   cappedText,
+  pruneDismissals,
   buildSecretary,
   buildToday,
   countMetric,
@@ -449,6 +450,7 @@ function MetricCustomizer({ open, onClose, order, primary, label, onChange }: {
       <div className="h4 h4-sheet" style={{ minHeight: 0, background: "transparent" }}>
         <h2 id={titleId}>{t("home.v4.snapshot.customizeTitle")}</h2>
         <p>{t("home.v4.snapshot.customizeHint")}</p>
+        <p style={{ fontSize: 12.5 }}>{t("home.v4.deviceNote")}</p>
         {order.map((k) => (
           <button key={k} type="button" className="h4-opt" aria-pressed={primary.includes(k)} onClick={() => toggle(k)}>
             <span>{label(k)}</span>
@@ -532,7 +534,7 @@ function SecretaryCard({ data, businessId, retry, now }: { data: HomeV4Data; bus
         <button
           type="button"
           className="h4-textbtn"
-          onClick={() => setDismissals({ ...dismissals, [view.groupKey]: view.dismissMode === "later" ? { mode: "later", day: today } : { mode: "dismiss" } })}
+          onClick={() => setDismissals(pruneDismissals({ ...dismissals, [view.groupKey]: view.dismissMode === "later" ? { mode: "later", day: today } : { mode: "dismiss" } }, today))}
         >
           {view.dismissMode === "later" ? t("home.v4.secretary.later") : t("home.v4.secretary.dismiss")}
         </button>
@@ -742,6 +744,7 @@ function ForYouCard({ data, businessId, now }: { data: HomeV4Data; businessId: n
       <AdaptiveOverlay open={customizing} onClose={() => setCustomizing(false)} variant="form" labelledBy={titleId}>
         <div className="h4 h4-sheet" style={{ minHeight: 0, background: "transparent" }}>
           <h2 id={titleId}>{t("home.v4.forYou.customizeTitle")}</h2>
+          <p style={{ fontSize: 12.5 }}>{t("home.v4.deviceNote")}</p>
           <div role="group" aria-labelledby={titleId} style={{ marginTop: 10 }}>
             {FOR_YOU_TYPES.map((type: ForYouType) => {
               const on = !prefs.hiddenTypes.includes(type);

@@ -34,7 +34,9 @@ async function shot(name, state, screen = "home", vp, full = false) {
   await page.screenshot({ path: path.join(OUT, `${name}.png`), fullPage: full });
   const cards = await page.$$eval("main.h4-col > section", (els) => els.map((e) => e.querySelector("h2")?.textContent?.trim()));
   const requests = await page.evaluate(() => window.__requests);
-  report[name] = { cards, errors: errors.filter((e) => !/fonts\.g/.test(e)), requests };
+  // Where the fixed "יומן" tab leads for this business (owner decision 18.11).
+  const calendarTabHref = await page.evaluate(() => document.querySelectorAll('[data-component="shell-bottom-bar"] .dz-bottom__item')[1]?.getAttribute("href") ?? null);
+  report[name] = { cards, calendarTabHref, errors: errors.filter((e) => !/fonts\.g/.test(e)), requests };
   await ctx.close();
 }
 

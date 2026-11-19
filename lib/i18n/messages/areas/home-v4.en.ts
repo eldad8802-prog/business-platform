@@ -3,6 +3,7 @@ import type { Widen } from "../types";
 import type { homeV4He } from "./home-v4";
 
 export const homeV4En: Widen<typeof homeV4He> = {
+  deviceNote: "Saved on this device only. On another device, or after clearing browser data, your business defaults are shown.",
   header: {
     profile: "Profile",
     updates: "Updates",
