@@ -202,3 +202,6 @@
   .dialog { border-radius: 22px; padding: 24px; }
   .dialogActions { flex-direction: row; justify-content: flex-start; }
 }
+
+/* The case header: why it waits (the same explained sentence as the list), between the status and the next action. */
+.statusWait { margin: 10px 0 0; font-size: 14px; font-weight: 500; color: var(--sc-ink-2, #5c5249); }

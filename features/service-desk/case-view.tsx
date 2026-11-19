@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 
 import type { CaseActionDef } from "./case-actions-model";
 import {
-  caseNoun, caseSections, eventLabel, formatShortDate, historyItems, nextActionLabel, statusLabel, statusTone,
+  attentionReason, caseNoun, caseSections, eventLabel, formatShortDate, historyItems, nextActionLabel, statusLabel, statusTone,
   type CaseCardData, type JournalItem, type SectionKey,
 } from "./cases-model";
 import s from "./cases.module.css";
@@ -107,7 +107,8 @@ function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalI
 export function CaseView({ card, events, now, back, actions = [], onAction, busyId = null, message = null }: CaseViewProps) {
   const noun = caseNoun(card.kind);
   const tone = statusTone(card.status, card.holdReason);
-  const next = nextActionLabel(card.status, card.kind);
+  const next = nextActionLabel(card.status, card.kind, card.holdReason);
+  const waiting = attentionReason(card, now);
   const sections = caseSections(card);
   const main = sections.filter((x) => x.key !== "history");
   const history = sections.find((x) => x.key === "history");
@@ -129,6 +130,7 @@ export function CaseView({ card, events, now, back, actions = [], onAction, busy
               <span className={s.pill} data-tone={tone}>{statusLabel(card.status)}</span>
               <span className={s.statusMeta}>עודכן {formatShortDate(card.updatedAt, now)}</span>
             </div>
+            {waiting ? <p className={s.statusWait}>{waiting}</p> : null}
             {next ? (
               <>
                 <p className={s.nextLabel} style={{ marginTop: 12 }}>הפעולה הבאה</p>

@@ -116,7 +116,9 @@ export function attentionReason(c: Pick<CaseRowData, "status" | "holdReason" | "
 }
 
 /** The next step the owner takes, in plain words, for the case screen's top card. */
-export function nextActionLabel(status: CaseStatus, kind: CaseKind): string | null {
+export function nextActionLabel(status: CaseStatus, kind: CaseKind, holdReason: string | null = null): string | null {
+  if (status === "IN_REPAIR" && holdReason === "PARTS") return "כשהחלקים מגיעים — להחזיר לעבודה";
+  if (status === "IN_REPAIR" && holdReason) return "כשהלקוח חוזר — להחזיר לעבודה";
   const field = kind === "FIELD" || kind === "REMOTE";
   switch (status) {
     case "OPEN": return field ? "לתאם ביקור" : "לקלוט את הפריט";

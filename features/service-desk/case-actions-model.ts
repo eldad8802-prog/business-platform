@@ -80,12 +80,16 @@ export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "ho
         { id: "quote-reject", label: "הלקוח דחה את ההצעה", tone: "secondary", input: { kind: "quoteMethod" }, target: { endpoint: "quote", decision: "REJECT" } },
       ];
     case "IN_REPAIR":
+      // On hold, the natural next step is back to work (primary); finishing stays possible (the server clears the hold).
+      if (c.holdReason) return [
+        { id: "clear-hold", label: "להחזיר לעבודה", tone: "primary", input: { kind: "none" }, target: a("CLEAR_HOLD") },
+        { id: "finish", label: field(c) ? "לסיים את העבודה" : "לסיים את התיקון", tone: "secondary", input: { kind: "none" }, target: a("FINISH_REPAIR", { outcome: "REPAIRED" }) },
+        cancelAction(c),
+      ];
       return [
         { id: "finish", label: field(c) ? "לסיים את העבודה" : "לסיים את התיקון", tone: "primary", input: { kind: "none" }, target: a("FINISH_REPAIR", { outcome: "REPAIRED" }) },
-        c.holdReason
-          ? { id: "clear-hold", label: "להחזיר לעבודה", tone: "secondary", input: { kind: "none" }, target: a("CLEAR_HOLD") }
-          : { id: "hold-parts", label: "ממתין לחלקים", tone: "secondary", input: { kind: "none" }, target: a("SET_HOLD", { reason: "PARTS" }) },
-        ...(!c.holdReason ? [{ id: "hold-customer", label: "ממתין ללקוח", tone: "secondary" as const, input: { kind: "none" as const }, target: a("SET_HOLD", { reason: "CUSTOMER" }) }] : []),
+        { id: "hold-parts", label: "ממתין לחלקים", tone: "secondary", input: { kind: "none" }, target: a("SET_HOLD", { reason: "PARTS" }) },
+        { id: "hold-customer", label: "ממתין ללקוח", tone: "secondary", input: { kind: "none" }, target: a("SET_HOLD", { reason: "CUSTOMER" }) },
         cancelAction(c),
       ];
     case "QA":

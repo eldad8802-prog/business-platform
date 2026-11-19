@@ -40,6 +40,7 @@ ok("A6 ordinary work needs nothing", attentionReason(row({ status: "IN_REPAIR" }
 // ── next action ──
 ok("N1 next action follows the activity", nextActionLabel("OPEN", "FIELD") === "לתאם ביקור" && nextActionLabel("OPEN", "IN_SHOP") === "לקלוט את הפריט"
   && nextActionLabel("READY", "IN_SHOP") === "למסור ללקוח" && nextActionLabel("WORK_DONE", "FIELD") === "לסגור את הקריאה");
+ok("N3 on hold, the next action is back to work", nextActionLabel("IN_REPAIR", "IN_SHOP", "PARTS") === "כשהחלקים מגיעים — להחזיר לעבודה" && nextActionLabel("IN_REPAIR", "IN_SHOP", null) === "לסיים את התיקון");
 ok("N2 a closed case has no next action", nextActionLabel("CLOSED", "IN_SHOP") === null && nextActionLabel("DELIVERED", "IN_SHOP") === null);
 
 // ── search and list sections ──

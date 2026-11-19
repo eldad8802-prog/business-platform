@@ -36,5 +36,6 @@ ok("B5 CANCEL body carries the trimmed reason only when given", JSON.stringify(b
   && JSON.stringify(buildActionBody(cancel, base, { reason: "  " })) === JSON.stringify({ type: "CANCEL" }));
 ok("B6 an open-balance refusal asks for the owner's decision", needsDebtDecision(["OPEN_BALANCE_NEEDS_OWNER_DECISION"]) && !needsDebtDecision(["QA_INCOMPLETE"]));
 
+ok("A6b on hold, back to work is the primary action and finishing stays offered", (() => { const a = caseActions({ ...base, status: "IN_REPAIR", holdReason: "PARTS" }); return a[0].id === "clear-hold" && a[0].tone === "primary" && a.some((x) => x.id === "finish" && x.tone === "secondary"); })());
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
