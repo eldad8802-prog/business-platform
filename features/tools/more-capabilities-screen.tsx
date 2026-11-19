@@ -23,7 +23,7 @@ export function MoreCapabilitiesScreen() {
   return (
     <div className="h4">
       <style>{HOME_V4_CSS}</style>
-      <main className="h4-col">
+      <main className="h4-col h4-wide">
         <div style={{ paddingTop: 4 }}>
           <BackButton />
         </div>

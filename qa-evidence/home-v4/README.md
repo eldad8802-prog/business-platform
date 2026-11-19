@@ -75,3 +75,25 @@ From the CI artifact `i18n-en-chunk-proof`, first visit with an empty cache. Wei
 | /login (the whole flow) | 2003.3 KB | 2004.7 KB |
 
 Each route grows by at most one copy of the new home strings (≈8.3 KB raw, ≈2.3 KB br), so there is no double load. Hebrew pages carry 0 English strings. The brotli deltas (+2.6–5.1 KB) are larger than the raw ones because the files are re-chunked differently. The owner accepted this weight on 11-19.
+
+## Tablet and desktop: `widths/` (owner 11-19)
+
+The four areas, their order and their content are the same at every width; only the arrangement changes. A wider screen never shows more information. Reproduce with `node qa-evidence/home-v4/harness/widths.mjs`; the numbers are in `widths/widths-report.json`.
+
+| Width | Navigation (from the shell; exactly one visible) | Home layout |
+|---|---|---|
+| < 768 (phone) | the floating bottom bar | the approved single column, **unchanged** (identical bar, "+", page height and areas to the previous run) |
+| 768–899 (portrait tablet) | the rail: בית · יומן · + · עדכונים · כלים | one wider column (max 680px) |
+| 900–1279 (landscape tablet) | the rail | two columns: תמונת מצב across the top, then המזכירה שלי beside היום שלי, then בשבילך below |
+| ≥ 1280 (desktop) | the sidebar on the right (RTL) | three columns: the main pair holds תמונת מצב over המזכירה שלי; the side column holds היום שלי over בשבילך; max 1480px |
+
+- The sidebar's top section is now the same fixed actions as the bar: בית · יומן · עדכונים · כלים, with "פעולה חדשה" as the "+". It uses the bar's short labels, and יומן resolves as on the phone.
+- שיחות and מסמכים left the sidebar's top section; they lead the tools screen. A primary action is not repeated in the module groups below it.
+- When בשבילך has nothing true to show, the grid closes the gap. On desktop היום שלי then keeps its own height.
+- The widest card: 623px at 1280, 729px at 1440, 932px at 1920. Before this change cards reached 1104–1408px.
+- The tools screens ("הכלים שלי", "יכולות נוספות") use a wider column on ≥1024. The tile grid has 5 columns at 1024 and 7 at 1440/1920; the phone keeps 2.
+- Checked:
+  - states E (busy), A (new), B (few capabilities) at every width; G (no secretary items), H (partial failure) and loading at 1024/1440/1920;
+  - a live resize 390 → 1920 → 390: the nav swaps at 768 and 1280, the columns change at 900 and 1280, and the area order stays the same;
+  - no sideways scroll and 0 console errors anywhere;
+  - keyboard Tab order at 1440: the header, then תמונת מצב, המזכירה שלי, היום שלי, בשבילך, then the navigation.

@@ -172,6 +172,32 @@ export const HOME_V4_CSS = `
 .h4-sheet-foot { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:8px; }
 .h4 a:focus-visible, .h4 button:focus-visible, .h4-sheet button:focus-visible { outline:2px solid var(--h4-teal); outline-offset:2px; }
 @media (min-width: 768px) { .h4-col { padding-top:28px; gap:16px; } .h4-card { padding:20px; } }
+/* Wider screens (owner 11-19): the SAME four areas and order, arranged — never more of them. Phones (<768) keep the
+   approved single column above. Areas: the header, תמונת מצב, המזכירה שלי, היום שלי, בשבילך (absent when it has
+   nothing true to show — the grid then closes the gap). Scoped to .h4-home: the tools screens share .h4-col. The shell supplies the navigation: rail 768–1279, sidebar 1280+. */
+.h4-header { grid-area:head; } .h4-a-snap { grid-area:snap; } .h4-sec { grid-area:sec; } .h4-a-today { grid-area:today; } .h4-a-fy { grid-area:fy; }
+@media (min-width: 768px) {
+  /* Narrow tablet (portrait, beside the rail): one wider column — two would squeeze the secretary under ~300px. */
+  .h4-home { max-width:680px; padding-inline:24px; display:grid; grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"head" "snap" "sec" "today" "fy"; }
+}
+@media (min-width: 900px) {
+  /* Tablet with room (landscape, large portrait): two columns — the secretary and the day side by side, בשבילך below. */
+  .h4-home { max-width:1040px; grid-template-columns:repeat(2, minmax(0,1fr)); grid-template-areas:"head head" "snap snap" "sec today" "fy fy"; }
+}
+@media (min-width: 1280px) {
+  /* Desktop: three columns. The main pair holds תמונת מצב over המזכירה שלי (the secretary stays the visual lead, at a
+     readable width); the side column holds היום שלי over בשבילך. Without בשבילך the day runs the full side column. */
+  .h4-home { max-width:1480px; padding:36px 36px 28px; gap:20px; grid-template-columns:repeat(3, minmax(0,1fr));
+    grid-template-areas:"head head head" "snap snap today" "sec sec fy"; }
+  .h4-home:not(:has(.h4-a-fy)) { grid-template-areas:"head head head" "snap snap today" "sec sec today"; }
+  .h4-home:not(:has(.h4-a-fy)) .h4-a-today { align-self:start; } /* its own height, not an empty tall card */
+  .h4-card { padding:22px 24px; }
+  .h4-name { font-size:32px; }
+}
+/* The tools screens ("הכלים שלי", "יכולות נוספות") on wide screens: a wider column, so the tile grid (auto-fill) gains
+   columns instead of leaving a phone strip; the search stays at a readable width. */
+@media (min-width: 1024px) { .h4-wide { max-width:1180px; padding-inline:32px; } .h4-wide .mt-search { max-width:520px; } }
 @media (prefers-reduced-motion: reduce) { .h4-sk { animation:none; } .h4-more svg { transition:none; } }
 `;
 
@@ -189,7 +215,7 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
       {/* The soft background shapes of the reference. */}
       <div className="h4-blob" aria-hidden style={{ width: 420, height: 300, top: -150, insetInlineEnd: -120, background: "radial-gradient(closest-side, rgba(211,230,220,.85), rgba(211,230,220,0))" }} />
       <div className="h4-blob" aria-hidden style={{ width: 300, height: 240, top: 30, insetInlineStart: -150, background: "radial-gradient(closest-side, rgba(223,234,244,.6), rgba(223,234,244,0))" }} />
-      <main className="h4-col">
+      <main className="h4-col h4-home">
         <header className="h4-header">
           <div className="h4-hello">
             <div className="h4-greet">
@@ -325,7 +351,7 @@ function SnapshotCard({ data, businessId, retry, locale }: { data: HomeV4Data; b
   const meaning = (k: MetricKey) => t(`home.v4.snapshot.metric.${k}.meaning` as MessageKey);
 
   return (
-    <section className="h4-card" aria-labelledby="h4-snapshot-title">
+    <section className="h4-card h4-a-snap" aria-labelledby="h4-snapshot-title">
       <div className="h4-chead">
         <h2 className="h4-ctitle" id="h4-snapshot-title">
           <IconBars size={22} />
@@ -636,7 +662,7 @@ function TodayCard({ data, retry, now }: { data: HomeV4Data; retry: () => void; 
   }
 
   return (
-    <section className="h4-card" aria-labelledby="h4-today-title">
+    <section className="h4-card h4-a-today" aria-labelledby="h4-today-title">
       <div className="h4-chead">
         <h2 className="h4-ctitle" id="h4-today-title">
           <IconCalendar size={22} />
@@ -702,7 +728,7 @@ function ForYouCard({ data, businessId, now }: { data: HomeV4Data; businessId: n
   if (view.state === "none") return null;
 
   return (
-    <section className="h4-card" aria-labelledby="h4-fy-title">
+    <section className="h4-card h4-a-fy" aria-labelledby="h4-fy-title">
       <div className="h4-chead">
         <h2 className="h4-ctitle" id="h4-fy-title">
           <IconLayers size={22} />

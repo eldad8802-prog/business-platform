@@ -128,7 +128,7 @@ export function MyToolsScreen() {
   return (
     <div className="h4">
       <style>{HOME_V4_CSS + TOOLS_CSS}</style>
-      <main className="h4-col">
+      <main className="h4-col h4-wide">
         <header className="h4-header" style={{ flexDirection: "column", alignItems: "stretch", gap: 0 }}>
           <h1 className="h4-name">{t("home.v4.tools.title")}</h1>
           {access.state === "ready" ? (
