@@ -99,3 +99,22 @@ export async function saveSettings(body: SaveSettingsBody): Promise<ServiceSetti
     throw e;
   }
 }
+
+// ── UI 1.3: the cases list and the case screen (reads only) ─────────────────────────────────────────
+
+/** GET /api/service-desk/cases — newest first (one page of up to 100). */
+export async function listCases(): Promise<import("./cases-model").CaseRowData[]> {
+  const r = await call<{ cases?: import("./cases-model").CaseRowData[] }>("GET", "/api/service-desk/cases?limit=100");
+  return Array.isArray(r.cases) ? r.cases : [];
+}
+
+/** GET /api/service-desk/cases/:id — the case card. */
+export function getCase(id: number): Promise<import("./cases-model").CaseCardData> {
+  return call<import("./cases-model").CaseCardData>("GET", `/api/service-desk/cases/${id}`);
+}
+
+/** GET /api/service-desk/cases/:id/events — the journal, oldest first. */
+export async function listCaseEvents(id: number): Promise<import("./cases-model").JournalItem[]> {
+  const r = await call<{ events?: import("./cases-model").JournalItem[] } | import("./cases-model").JournalItem[]>("GET", `/api/service-desk/cases/${id}/events`);
+  return Array.isArray(r) ? r : Array.isArray(r.events) ? r.events : [];
+}

@@ -257,6 +257,8 @@ export type CaseSummary = {
   id: number; caseNumber: number; kind: ServiceCaseKind; status: ServiceCaseStatus; holdReason: string | null; outcome: string | null;
   version: number; customerId: number; customerName: string | null; deviceId: number | null; staffMemberId: number | null;
   openedAt: string; updatedAt: string;
+  /** List only (UI 1.3, read-only): a short excerpt of the problem, the subject's name and the M1 work type. */
+  problemExcerpt?: string | null; subjectName?: string | null; workType?: string | null;
 };
 
 const SUMMARY_COLUMNS = Prisma.sql`c.id, c."caseNumber", c.kind::text AS kind, c.status::text AS status, c."holdReason"::text AS "holdReason",
@@ -283,12 +285,17 @@ export async function listCases(businessId: number, q: { status?: unknown; befor
   if (status !== undefined && !/^[A-Z_]{2,20}$/.test(status)) throw new ServiceDeskError("INVALID_INPUT", { field: "status" });
   return tenantTx(businessId, async (tx) => {
     const rows = await tx.$queryRaw<Record<string, unknown>[]>`
-      SELECT ${SUMMARY_COLUMNS} FROM "ServiceCase" c LEFT JOIN "Customer" cu ON cu.id = c."customerId" AND cu."businessId" = c."businessId"
+      SELECT ${SUMMARY_COLUMNS}, left(c."problemDescription", 140) AS "problemExcerpt", d."displayName" AS "subjectName", c."workType"::text AS "workType"
+        FROM "ServiceCase" c LEFT JOIN "Customer" cu ON cu.id = c."customerId" AND cu."businessId" = c."businessId"
+        LEFT JOIN "ServiceDevice" d ON d.id = c."deviceId" AND d."businessId" = c."businessId"
        WHERE c."businessId" = ${businessId}::int
          ${status !== undefined ? Prisma.sql`AND c.status::text = ${status}::text` : Prisma.empty}
          ${q.beforeId !== undefined ? Prisma.sql`AND c.id < ${q.beforeId as number}::int` : Prisma.empty}
        ORDER BY c.id DESC LIMIT ${limit + 1}::int`;
-    const cases = rows.slice(0, limit).map(toSummary);
+    const cases = rows.slice(0, limit).map((r) => ({
+      ...toSummary(r),
+      problemExcerpt: (r.problemExcerpt as string) ?? null, subjectName: (r.subjectName as string) ?? null, workType: (r.workType as string) ?? null,
+    }));
     return { cases, nextBeforeId: rows.length > limit ? cases[cases.length - 1].id : null };
   });
 }
