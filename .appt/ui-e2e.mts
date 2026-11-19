@@ -618,6 +618,14 @@ async function main() {
     if (scrollAfter !== scrollBefore) throw new Error(`closing "+" moved the page: ${scrollBefore} → ${scrollAfter}`);
   });
   await check("M10b HOME v4 in the real app on the phone: the fixed areas, the floating bar, nothing sideways", async () => {
+    // The lab business never finished onboarding, so /app would send it to /setup (main's existing gate, which hides
+    // the bar). Only that one answer is changed, in this browser: the real response with needsSetup=false. Every
+    // other read on the screen is the real server against the seeded lab database.
+    await m.route("**/api/business/setup", async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      await route.fulfill({ response: res, json: { ...body, needsSetup: false } });
+    });
     await m.goto("/app");
     for (const title of ["תמונת מצב", "המזכירה שלי", "היום שלי"]) {
       await m.getByRole("heading", { name: title }).first().waitFor({ timeout: 20_000 });
@@ -636,6 +644,7 @@ async function main() {
     const bar = state.bars.find((b) => b.height > 0);
     if (!bar || bar.bottom > state.vh - 8) throw new Error(`the floating bar is missing or not lifted off the edge: ${JSON.stringify(state)}`);
     await noSideScroll(m, 390);
+    await m.unroute("**/api/business/setup");
   });
   await check("M11 the management centre and its pages on the phone", async () => {
     await m.goto("/calendar/manage");
