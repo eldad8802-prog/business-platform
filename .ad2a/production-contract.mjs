@@ -369,6 +369,30 @@ export const PRODUCTION_RLS_CONTRACT = [
     policies: [{ name: "notif_delivery_tenant", command: "ALL", using: TENANT, check: TENANT }],
   },
   {
+    table: "NotificationSettings",
+    migration: "20261210090000_notification_engine_foundation",
+    why:
+      "a user's notification settings (quiet hours, daily summary hour, reminder lead time) — the erasure " +
+      "deletes every row of the business; the runtime holds DELETE here (\"restore defaults\" is a delete)",
+    policies: [
+      { name: "notification_settings_tenant_select", command: "SELECT", using: TENANT },
+      { name: "notification_settings_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "notification_settings_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+      { name: "notification_settings_tenant_delete", command: "DELETE", using: TENANT },
+    ],
+  },
+  {
+    table: "NotificationPreference",
+    migration: "20261210090000_notification_engine_foundation",
+    why: "a user's per-type notification overrides — deleted with the settings, same grant",
+    policies: [
+      { name: "notification_preference_tenant_select", command: "SELECT", using: TENANT },
+      { name: "notification_preference_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "notification_preference_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+      { name: "notification_preference_tenant_delete", command: "DELETE", using: TENANT },
+    ],
+  },
+  {
     table: "HistoricalFiscalDocument",
     migration: "20260907120000_i8a_historical_fiscal_documents",
     why: "retained fiscal history; SELECT and INSERT only, so neither UPDATE nor DELETE can reach it even under a correct context",
@@ -769,6 +793,8 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   InboundEmailAuthorizedSender: { verbs: SIUD, basis: "migration 20260916090000 grants app_runtime all four" },
   InboundEmailSenderChallenge: { verbs: SIUD, basis: "migration 20260916090000 grants app_runtime all four" },
   HistoricalFiscalDocument: { verbs: ["SELECT", "INSERT"], basis: "I-8A: SELECT and INSERT only" },
+  NotificationSettings: { verbs: SIUD, basis: "migration 20261210090000_notification_engine_foundation grants app_runtime all four" },
+  NotificationPreference: { verbs: SIUD, basis: "migration 20261210090000_notification_engine_foundation grants app_runtime all four" },
   Notification: { verbs: SIU, basis: "scripts/security/notification-grants.sql — no DELETE" },
   NotificationDelivery: { verbs: SIU, basis: "scripts/security/notification-grants.sql — no DELETE" },
   ReceivingSession: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },

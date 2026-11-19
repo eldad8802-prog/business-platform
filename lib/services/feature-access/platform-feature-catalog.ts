@@ -35,6 +35,7 @@ export const PLATFORM_FEATURE_KEYS = {
   BUSINESS_DOCUMENTS: "business_documents",
   INTAKE_STATUS_VISIBILITY: "intake_status_visibility",
   SERVICE_DESK: "service_desk",
+  NOTIFICATIONS_ENGINE: "notifications_engine",
 } as const;
 
 export type PlatformFeatureKey =
@@ -358,6 +359,18 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "מצב קליטת פניות",
       category: "integrations",
       description: "הצגת מצב קליטת הפניות ממקורות חיצוניים לבעל העסק (ממתינות, לא נקלטו, חיבור לבדיקה) — לקריאה בלבד — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // Notifications track PR 3 — the central notification engine: the push worker (owed pushes → web push / the
+    // Android app through FCM), the daily digest and the device registration. OFF for every business — no policy
+    // row, no override: the resolver falls back to this default, so the worker, the digest and the device routes
+    // are inert. A business override needs the definition row (a seed migration) — a separate owner decision.
+    {
+      key: PLATFORM_FEATURE_KEYS.NOTIFICATIONS_ENGINE,
+      displayName: "מנוע התראות",
+      category: "integrations",
+      description: "שליחת התראות לטלפון ולדפדפן (דחיפה), סיכום יומי ורישום מכשירים — כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },

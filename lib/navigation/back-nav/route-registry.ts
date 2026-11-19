@@ -86,6 +86,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/admin/authority-pilot-gate", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
   { pattern: "/admin/businesses/[id]", parent: "/admin/businesses", parentLabelKey: "toBusinessList" },
   { pattern: "/admin/businesses/[id]/features", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
+  { pattern: "/admin/businesses/[id]/issuer-declaration", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
 
   // ---- screens reached from Home (not in the main navigation) ------------
   { pattern: "/pricing", parent: "/app", parentLabelKey: "toHome", identityParams: ["step"] },
@@ -139,6 +140,10 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
 
   // ---- billing / payables / collection -----------------------------------
   { pattern: "/billing/[id]", parent: "/billing", parentLabelKey: "toInvoiceList" },
+  // Issuer declaration (#1081, switch ISSUER_DECLARATION_ENABLED): the screen, and the emailed link's page. The link
+  // page carries a one-time token in its fragment, so it is never a back destination.
+  { pattern: "/billing/issuer-declaration", parent: "/billing", parentLabelKey: "toInvoiceList" },
+  { pattern: "/billing/issuer-declaration/confirm", transient: true, parent: "/billing", parentLabelKey: "toInvoiceList" },
   // Business documents (business_documents): additions next to the invoices, never inside them.
   { pattern: "/business-documents", parent: "/billing", parentLabelKey: "toInvoiceList" },
   { pattern: "/business-documents/letters", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },

@@ -1,0 +1,79 @@
+# The shared settings page header (components/settings/SettingsSubPageHeader.tsx) — owner 2026-11-15: a title such
+# as "סוגי התראות" is shown in full on a 320 px phone (up to two lines; with a long back label it moves to its own
+# row below the back control). A real browser (Chromium): this build under `next start`, every /api/** answered by
+# the script (scripts/qa/settings/settings-subpage-header.browser.mjs) — EVERY settings page that uses the header
+# (found in app/settings), Android WebView UA at 320 / 390 / 430 px: title in full and ≤ 2 lines, back control
+# visible ≥ 44 px with a name, no overlap, RTL, header inside the screen.
+#
+# Synthetic only; ZERO secrets; ZERO Production; ZERO Neon.
+
+name: settings sub-page header — browser (320 / 390 / 430)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "components/settings/SettingsSubPageHeader.tsx"
+      - "components/ui/back-button.tsx"
+      - "components/ui/back-button.module.css"
+      - "scripts/qa/settings/settings-subpage-header.browser.mjs"
+      - ".github/workflows/settings-subpage-header-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The TypeScript check inside next build needs more than Node's default ~4 GB heap (same setting as #1162).
+  NODE_OPTIONS: --max-old-space-size=6144
+
+jobs:
+  browser:
+    name: settings sub-page header — browser (320 / 390 / 430 WebView)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      # Built before the Chromium install (see i18n-multicurrency-ci.yml: the font resolution after
+      # `playwright install --with-deps`).
+      - name: Build
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          # /settings/inbound-email is decided at build time too (its page has no request-time input); this CI build only.
+          INBOUND_EMAIL_ENABLED: "true"
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser check
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          AUTH_TOKEN_SECRET: ssh_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef
+          RATE_LIMIT_BACKEND: memory
+          # /settings/inbound-email exists only with this server flag; this local CI server only.
+          INBOUND_EMAIL_ENABLED: "true"
+        run: |
+          set -euo pipefail
+          (nohup npx next start -p 3631 > "$RUNNER_TEMP/next.log" 2>&1 &)
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3631/login && break; sleep 2; done
+          BASE=http://localhost:3631 OUT="$GITHUB_WORKSPACE/settings-header-shots" \
+            node scripts/qa/settings/settings-subpage-header.browser.mjs || { tail -50 "$RUNNER_TEMP/next.log"; exit 1; }
+
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: settings-header-shots
+          path: settings-header-shots/
+          retention-days: 7

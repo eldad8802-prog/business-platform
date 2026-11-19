@@ -768,6 +768,8 @@ async function main() {
       PUBLIC_BOOKING_SUBMIT_BUSINESS: "closed", PUBLIC_BOOKING_READ: "closed", PUBLIC_BOOKING_MANAGE: "closed",
       GMAIL_SCAN: "closed", DOCUMENTS_API: "open", WHATSAPP_INTAKE: "open", CRM_ATTACHMENT_UPLOAD: "closed",
       DATA_TRANSFER_IMPORT_EXECUTE: "closed", DATA_TRANSFER_DOCUMENTS_IMPORT: "closed", LANDING_COMPOSE: "closed",
+      // The owner's FCM credential check (notifications #1146): one Google token exchange per admitted call.
+      FCM_AUTH_CHECK: "closed",
     };
     const actual = Object.fromEntries(Object.entries(BUCKETS).map(([k, v]) => [k, v.failMode]));
     assert.deepEqual(actual, expected);

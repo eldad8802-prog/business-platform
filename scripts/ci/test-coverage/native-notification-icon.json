@@ -1,0 +1,10 @@
+{
+  "note": "Notifications engine PR 4 — Android (FCM) notification icon = the app's existing monochrome Dubiz logo (owner 2026-11-16, option A: no new artwork); Web Push unchanged.",
+  "tests": {
+    "lib/native/notification-icon.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (files only): the manifest's FCM default icon is @mipmap/ic_launcher_monochrome; a PNG at every density, never adaptive-icon XML; one colour on transparency with transparent corners (never a white square); the bell placeholder is gone; the service worker keeps icon/badge /icons/dubiz-192.png and the file exists."
+    }
+  }
+}

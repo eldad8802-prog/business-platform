@@ -47,6 +47,8 @@ import { enqueueWelcomeEmail } from "@/lib/email/transactional/store";
 import type { Locale } from "@/lib/i18n/config";
 import { issueAccountLink } from "@/lib/auth/email-tokens";
 import { attachGoogleIdentity, spendSignupTicket } from "@/lib/auth/oauth-ticket";
+import { seedLegalIdentityInAccountTx } from "@/lib/auth/signup-legal-identity-seed";
+import type { NormalizedLegalIdentity } from "@/lib/auth/signup-legal-identity";
 
 import {
   EmailAlreadyRegisteredError,
@@ -90,6 +92,12 @@ export type CreateAccountInput = {
   sendVerification?: boolean;
   /** The interface language of the signup request (getServerI18n) — the language of the account emails. */
   locale?: Locale;
+  /**
+   * The business's legal identity (normalizeLegalIdentity). The signup routes always pass it; it is written in
+   * THIS transaction and confirmed (lib/auth/signup-legal-identity-seed.ts). Optional only so a lab that creates
+   * an account directly, on a database without migration 20261128090000, keeps working.
+   */
+  legalIdentity?: NormalizedLegalIdentity;
 };
 
 export type CreatedAccount = {
@@ -131,6 +139,9 @@ export function hashSignupPassword(plain: string): Promise<string> {
 export async function createAccount(
   input: CreateAccountInput
 ): Promise<CreatedAccount> {
+  // The identity seed is the auth plane's: EXECUTE on signup_legal_identity_seed is granted to app_auth only. On any
+  // other application connection the database refuses the call and this whole transaction rolls back, so an account
+  // without its identity cannot be opened (fail closed by the grant, not by an application check).
   try {
     return await authDb().$transaction(async (tx) => {
       // Both creates name their columns for the same reason the login stamp
@@ -141,6 +152,11 @@ export async function createAccount(
         data: { name: input.businessName },
         select: { id: true, name: true },
       });
+
+      // The legal identity, in the account's own transaction: both exist, or neither.
+      if (input.legalIdentity) {
+        await seedLegalIdentityInAccountTx(tx, business.id, input.legalIdentity);
+      }
 
       const user = await tx.user.create({
         data: {
@@ -231,6 +247,8 @@ export type CreateGoogleAccountInput = {
   userAgent?: string | null;
   attribution?: SignupAttribution | null;
   locale?: Locale;
+  /** As CreateAccountInput.legalIdentity: written and confirmed in this transaction. */
+  legalIdentity?: NormalizedLegalIdentity;
   /**
    * Lab only (.agl/app-battery-m2.ts): runs inside the transaction after every write, so a fault there proves
    * the whole account rolls back. Production never passes it.
@@ -266,6 +284,10 @@ export async function createAccountFromGoogle(input: CreateGoogleAccountInput): 
         data: { name: input.businessName },
         select: { id: true, name: true },
       });
+
+      if (input.legalIdentity) {
+        await seedLegalIdentityInAccountTx(tx, business.id, input.legalIdentity);
+      }
 
       const user = await tx.user.create({
         data: {
