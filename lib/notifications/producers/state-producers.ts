@@ -15,8 +15,12 @@
  *                                  ONLY when the deployment's authority environment is PRODUCTION and the pilot gate
  *                                  admits the business for the "approval" operation (BILLING_AUTHORITY_PRODUCTION_
  *                                  PILOT_BUSINESS_IDS / _OPERATIONS) — otherwise nothing is read and nothing resolved.
- *   D documents.processing_failed  Document.status = 'failed'.
- *   E appointments.upcoming        Appointment CONFIRMED (not BLOCK, not erased) starting within the lead time.
+ *   D documents.processing_failed  Document.status = 'failed', or 'processing' with statusChangedAt (stamped by the
+ *                                  database trigger, migration 20261213090000) older than DOCUMENT_STUCK_MS — a NULL
+ *                                  stamp (history) is never read as stuck.
+ *   E appointments.upcoming        Appointment CONFIRMED (not BLOCK, not erased) starting within the read horizon
+ *                                  (the longest lead + one sweep interval), × the business's users (recipients.ts)
+ *                                  with each one's own lead time (NotificationSettings.appointmentReminderMinutes).
  *
  * One tenant transaction per business for all five (bounded: one connection, a handful of statements), opened with
  * a transaction-level advisory lock on (namespace, businessId): a second sweep of the same business at the same
@@ -27,8 +31,12 @@
 import { getCategory, type CategoryDefinition, type CategoryKey } from "../catalog";
 import type { BusinessGates } from "../engine/engine-gate";
 import { notify, type NotifyEvent, type NotifyOutcome } from "../engine/notify";
+import { recipientUsers } from "../engine/recipients";
+import { EMPTY_SETTINGS, effectiveSettings } from "../preferences";
 import { businessTimeZone } from "../preferences-store";
 import {
+  APPOINTMENT_READ_HORIZON_MS,
+  DOCUMENT_STUCK_MS,
   allocationFacts,
   appointmentFacts,
   documentFacts,
@@ -38,6 +46,7 @@ import {
   type ObligationFact,
   type PaymentContext,
   type PaymentRequestFact,
+  type ReminderRecipient,
   type StateFacts,
 } from "./state-facts";
 import { tenantTx, type TenantTxClient } from "@/lib/tenant/tenant-tx";
@@ -155,22 +164,41 @@ async function readAllocations(tx: Tx, businessId: number, now: Date): Promise<P
 
 async function readDocuments(tx: Tx, businessId: number, now: Date): Promise<ProducerRead> {
   const docs = await tx.document.findMany({
-    where: { businessId, status: "failed" },
-    select: { id: true, status: true },
+    where: {
+      businessId,
+      OR: [{ status: "failed" }, { status: "processing", statusChangedAt: { lt: new Date(now.getTime() - DOCUMENT_STUCK_MS) } }],
+    },
+    select: { id: true, status: true, statusChangedAt: true },
     orderBy: { id: "asc" },
     take: STATE_READ_CAP,
   });
   return { facts: documentFacts(businessId, docs, now), complete: docs.length < STATE_READ_CAP };
 }
 
+/** The business's reminder recipients with their own lead time (no settings row / NULL ⇒ the default 60). */
+export async function readReminderRecipients(tx: Tx, businessId: number, category: CategoryDefinition): Promise<ReminderRecipient[]> {
+  const users = await recipientUsers(tx, businessId, category, null);
+  if (users.length === 0) return [];
+  const rows = await tx.notificationSettings.findMany({
+    where: { businessId, userId: { in: users } },
+    select: { userId: true, appointmentReminderMinutes: true },
+  });
+  const lead = new Map(rows.map((r) => [r.userId, r.appointmentReminderMinutes]));
+  return users.map((userId) => ({
+    userId,
+    leadMinutes: effectiveSettings({ ...EMPTY_SETTINGS, appointmentReminderMinutes: lead.get(userId) ?? null }).appointmentReminderMinutes,
+  }));
+}
+
 async function readAppointments(tx: Tx, businessId: number, now: Date, ctx: { timeZone: string; category: CategoryDefinition }): Promise<ProducerRead> {
   const rows = await tx.appointment.findMany({
-    where: { businessId, status: "CONFIRMED", erasedAt: null, kind: { not: "BLOCK" }, startsAt: { gt: now, lte: new Date(now.getTime() + 60 * 60_000) } },
+    where: { businessId, status: "CONFIRMED", erasedAt: null, kind: { not: "BLOCK" }, startsAt: { gt: now, lte: new Date(now.getTime() + APPOINTMENT_READ_HORIZON_MS) } },
     select: { id: true, status: true, kind: true, startsAt: true, erasedAt: true },
     orderBy: { id: "asc" },
     take: STATE_READ_CAP,
   });
-  return { facts: appointmentFacts(businessId, rows, now, ctx.timeZone, ctx.category.ttlMinutes), complete: rows.length < STATE_READ_CAP };
+  const recipients = rows.length > 0 ? await readReminderRecipients(tx, businessId, ctx.category) : [];
+  return { facts: appointmentFacts(businessId, rows, recipients, now, ctx.timeZone), complete: rows.length < STATE_READ_CAP };
 }
 
 export const STATE_PRODUCERS: readonly StateProducer[] = [

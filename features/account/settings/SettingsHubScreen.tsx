@@ -18,6 +18,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { buildSettingsHub, type HubRow } from "@/components/settings/settings-hub";
+import { useSettingsFeatures } from "@/components/settings/use-settings-features";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { localeNativeName } from "@/lib/i18n/config";
 import { he } from "@/lib/i18n/messages/he";
@@ -51,7 +52,8 @@ export function SettingsHubScreen({ versionLabel }: { versionLabel: string }) {
   const [profile] = useProfileSummary();
   const [connections] = useConnectionsSummary();
   const { locale, t } = useI18n();
-  const hub = useMemo(() => buildSettingsHub(t), [t]);
+  const featureOn = useSettingsFeatures();
+  const hub = useMemo(() => buildSettingsHub(t, featureOn), [t, featureOn]);
 
   const connectionsCount =
     connections.state === "ready" && connections.data.available ? connections.data.active : null;

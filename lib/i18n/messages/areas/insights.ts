@@ -476,6 +476,7 @@ export const insightsHe = {
     toDocuments: "למסמכים",
     toInventory: "למלאי",
     toImportExport: "לייבוא וייצוא",
+    toNotificationSettings: "להתראות",
     toCollection: "לגבייה",
     toAllPayables: "לכל ההתחייבויות",
     toCalendar: "ליומן",

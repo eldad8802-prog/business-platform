@@ -27,6 +27,8 @@ export type StoredSettings = {
   digestEnabled: boolean | null;
   digestMinute: number | null;
   lockScreenDetails: boolean | null;
+  /** Minutes before an appointment for its reminder: one of APPOINTMENT_REMINDER_CHOICES; NULL = the default. */
+  appointmentReminderMinutes: number | null;
 };
 
 export type StoredPreference = { key: string; inApp: boolean | null; push: boolean | null; delivery: string | null };
@@ -39,7 +41,20 @@ export type EffectiveSettings = {
   digestEnabled: boolean;
   digestMinute: number;
   lockScreenDetails: boolean;
+  appointmentReminderMinutes: number;
 };
+
+/**
+ * The appointment reminder lead times a user may choose (migration 20261213090000 CHECKs the same four): 30 minutes,
+ * an hour, two hours, or 1440 = the same local time the day before (business time zone, DST-safe).
+ */
+export const APPOINTMENT_REMINDER_CHOICES = [30, 60, 120, 1440] as const;
+export type AppointmentReminderMinutes = (typeof APPOINTMENT_REMINDER_CHOICES)[number];
+export const DEFAULT_APPOINTMENT_REMINDER_MINUTES: AppointmentReminderMinutes = 60;
+
+export function isAppointmentReminderMinutes(v: unknown): v is AppointmentReminderMinutes {
+  return typeof v === "number" && (APPOINTMENT_REMINDER_CHOICES as readonly number[]).includes(v);
+}
 
 /** The product defaults (every NULL column means this). Quiet hours match the policy's 22:00–07:00. */
 export const DEFAULT_SETTINGS: EffectiveSettings = {
@@ -50,6 +65,7 @@ export const DEFAULT_SETTINGS: EffectiveSettings = {
   digestEnabled: true,
   digestMinute: 8 * 60,
   lockScreenDetails: false,
+  appointmentReminderMinutes: DEFAULT_APPOINTMENT_REMINDER_MINUTES,
 };
 
 export const SETTINGS_FIELDS = [
@@ -60,6 +76,7 @@ export const SETTINGS_FIELDS = [
   "digestEnabled",
   "digestMinute",
   "lockScreenDetails",
+  "appointmentReminderMinutes",
 ] as const satisfies readonly (keyof EffectiveSettings)[];
 
 const MINUTE_FIELDS = new Set<string>(["quietStartMinute", "quietEndMinute", "digestMinute"]);
@@ -72,6 +89,7 @@ export const EMPTY_SETTINGS: StoredSettings = {
   digestEnabled: null,
   digestMinute: null,
   lockScreenDetails: null,
+  appointmentReminderMinutes: null,
 };
 
 export function effectiveSettings(stored: StoredSettings | null): EffectiveSettings {
@@ -84,6 +102,10 @@ export function effectiveSettings(stored: StoredSettings | null): EffectiveSetti
     digestEnabled: s.digestEnabled ?? DEFAULT_SETTINGS.digestEnabled,
     digestMinute: s.digestMinute ?? DEFAULT_SETTINGS.digestMinute,
     lockScreenDetails: s.lockScreenDetails ?? DEFAULT_SETTINGS.lockScreenDetails,
+    // A stored value outside the choices (impossible under the CHECK) reads as the default, never as a wrong lead.
+    appointmentReminderMinutes: isAppointmentReminderMinutes(s.appointmentReminderMinutes)
+      ? s.appointmentReminderMinutes
+      : DEFAULT_SETTINGS.appointmentReminderMinutes,
   };
 }
 
@@ -183,8 +205,9 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * PATCH settings body: a subset of the seven fields, each a value or null (= back to the default). Unknown keys,
- * wrong types and out-of-range minutes are refused; an empty patch is refused.
+ * PATCH settings body: a subset of the eight fields, each a value or null (= back to the default). Unknown keys,
+ * wrong types, out-of-range minutes and a lead time outside APPOINTMENT_REMINDER_CHOICES are refused; an empty patch
+ * is refused.
  */
 export function validateSettingsPatch(body: unknown): ValidationResult<Partial<StoredSettings>> {
   if (!isPlainObject(body)) return { ok: false, error: "INVALID_BODY" };
@@ -198,7 +221,9 @@ export function validateSettingsPatch(body: unknown): ValidationResult<Partial<S
       (out as Record<string, unknown>)[k] = null;
       continue;
     }
-    if (MINUTE_FIELDS.has(k)) {
+    if (k === "appointmentReminderMinutes") {
+      if (!isAppointmentReminderMinutes(v)) return { ok: false, error: "INVALID_LEAD_TIME" };
+    } else if (MINUTE_FIELDS.has(k)) {
       if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 1439) return { ok: false, error: "INVALID_MINUTE" };
     } else if (typeof v !== "boolean") {
       return { ok: false, error: "INVALID_VALUE" };

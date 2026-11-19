@@ -1,0 +1,9 @@
+{
+  "note": "Notifications track — the settings screen (Settings → התראות; owner-approved design, Gate B 2026-11-13). UI over the existing engine routes; no new route, no new data path.",
+  "tests": {
+    "components/settings/notifications/notification-settings-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/browser): owner glossary on the Hebrew area (no Latin letter, no transliteration, plural person, required texts verbatim, he/en key parity); every listed type is a catalog category and the rest are hidden with a reason; every control writes a real settings field accepted by validateSettingsPatch; every choice body is accepted by validatePreferenceBody and resolves (resolveCategory / decideOwed) to what the chip shows; unavailable / master-off / summary-off states; device-card state table (not configured, ask, ask again after refusal, denied, connected, browser); test-button answers; 404 ⇒ not available yet; the permission is requested only from the tap handler; the Settings row is gated by notifications_engine; the appointment reminder lead time (30 דקות / שעה / שעתיים / יום לפני, default an hour) in the appointments area only when the reminder is available, each choice accepted by validateSettingsPatch and read back by effectiveSettings, written through SETTINGS_CONTROLS; run by notification-settings-ui-ci.yml"
+    }
+  }
+}

@@ -109,12 +109,22 @@ against the category's prefixes (`catalog.ts` `safeHref`). Catalog entries: `lib
 | **D** document processing | `Document.status = 'failed'` (`state-producers.ts:156`) — the pipeline (`process-document-pipeline.service.ts:236`) never retries on its own; only the "retry" action (`app/api/documents/[id]/process`) re-runs it | status `failed` | `processing`, `needs_review` (OCR failure lands there and is the review queue's) | `st:documents.processing_failed:document_processing:<id>` | retried (processing), succeeded, deleted | normal, **in-app + digest**, cooldown 72 h, TTL 12 h, href `/documents/review/<id>` |
 | **E** appointments | `Appointment` CONFIRMED, not BLOCK, not erased (`state-producers.ts:166`, `state-facts.ts:269`); time zone `BookingSettings.timeZone` else Asia/Jerusalem (`preferences-store.ts` `businessTimeZone`) | starts within the lead (catalog default **60 min**); created only while ≥ 30 min remain (start − TTL), so the owed push can never outlive the start | cancelled / completed / no-show / proposed; started; BLOCK | `st:appointments.upcoming:appointment:<id>:<startsAt ISO>` — a move is a new key | cancelled, moved (old key), started | high, **push**, cooldown 24 h, **TTL 30 min**, href `/calendar` |
 
-**Timing precision of E.** The reminder is created by the first sweep pass inside [start − 60 min, start − 30 min],
-so with a sweep cadence C ≤ 30 min it is created between 60 and 60 − C minutes before the start, and the sweep kicks
-the push worker for that business right after its response (`trigger.ts`), so delivery does not wait for the worker
-route. With C > 30 min a reminder can be missed. The sweep is NOT scheduled (owner decision); the owner chooses C.
-**Follow-up (needs a migration, not done):** a per-user lead time needs a column (e.g.
-`NotificationSettings.appointmentLeadMinutes`).
+**Timing precision of E (per-user lead, migration 20261213090000).** Each user chooses the lead
+(`NotificationSettings.appointmentReminderMinutes`: 30 / 60 / 120 minutes or 1440 = the same local time the day before;
+NULL = 60; settings screen "מתי להזכיר לפני תור"). The sweep creates ONE reminder per user per appointment start
+(`st:appointments.upcoming:appointment:<id>:<startsAt ISO>:u<user>:l<lead>`) only inside [moment − one sweep interval
+(15 min), moment + half the lead], with its owed push due at the moment (`nextAttemptAt` — the worker's due list and
+claim both require it) and expiring at the start. The 5-minute worker therefore delivers it 0–5 minutes after the
+moment whatever the sweep's phase (`state-producers.test.ts` precision check; `docs-appointments.db.test.ts` with the
+real sweep and worker). Cancel / move / lead change ⇒ the key is absent ⇒ resolved, and the owed push is suppressed
+('resolved') when its moment comes. No quiet-hours bypass (decided conservatively: the time was set by whoever booked,
+not chosen by the user as a reminder): deferred to the quiet end, dropped if that is after the start.
+
+**D — stuck documents.** `Document.statusChangedAt` is stamped by a database trigger (insert, real status change, the
+retry's write of `processing`); a document still `processing` more than 30 minutes after its attempt started is stuck
+(6 × the longest attempt window: the pipeline runs in `after()` of routes with maxDuration 60 s / 300 s and never retries
+by itself). Same category as `failed`, key `…:<id>:stuck:<attempt start ISO>`; in-app + summary, no push by default.
+Rows older than the migration have no stamp and are never flagged.
 
 ### Where a notification meets the secretary / home / badges — duplicate or not
 
