@@ -32,6 +32,7 @@ import {
   type HomeModule,
 } from "./home-access";
 import { openCasesClaim, type QuoteWire, type Source, type TodayAppointment, type TodayTask } from "./home-v4-model";
+import { RECOMMENDATIONS_URL } from "@/features/recommendations/recommendations-client";
 
 /**
  * HOME v4 — the one data read behind the screen.
@@ -223,7 +224,7 @@ export function useHomeV4Data(enabled: boolean): { data: HomeV4Data; retry: () =
   const retry = useCallback(() => {
     for (const url of urlsRequested) invalidateCachedJson(url);
     // Read by the shared v3 loaders (insight / recommendation) outside `get`.
-    for (const url of ["/api/insights", "/api/business-cost/summary", "/api/outcomes/recommendations"]) invalidateCachedJson(url);
+    for (const url of ["/api/insights", "/api/business-cost/summary", RECOMMENDATIONS_URL]) invalidateCachedJson(url);
     urlsRequested.clear();
     setData((prev) => ({ ...INITIAL, unread: prev.unread }));
     setNonce((n) => n + 1);
