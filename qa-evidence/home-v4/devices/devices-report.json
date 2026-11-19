@@ -1,0 +1,386 @@
+{
+  "iphone-se": {
+    "engine": "webkit",
+    "device": "iPhone SE (3rd gen)",
+    "note": null,
+    "insetsRequested": null,
+    "insetsApplied": false,
+    "measuredInsetBottom": 0,
+    "checks": {
+      "barFixed": true,
+      "barVisibleTopAndBottom": true,
+      "liftedAboveSafeArea": true,
+      "plusCentred": true,
+      "plusNotRaised": true,
+      "lastCardClearsBar": true,
+      "noSideScroll": true,
+      "sheetOpens": true,
+      "sheetLastActionOnScreen": true,
+      "sheetClosesKeepingScroll": true,
+      "noConsoleErrors": true
+    },
+    "top": {
+      "vw": 375,
+      "vh": 667,
+      "scrollY": 0,
+      "insetBottom": 0,
+      "bar": {
+        "top": 593,
+        "bottom": 657,
+        "height": 64,
+        "left": 12,
+        "right": 363
+      },
+      "gapBottom": 10,
+      "expectedGap": 10,
+      "plusOffCentreX": 0,
+      "plusOffCentreY": 0,
+      "plusRaised": false,
+      "position": "fixed",
+      "lastCardBottom": 933.484375,
+      "sideScroll": false
+    },
+    "bottom": {
+      "vw": 375,
+      "vh": 667,
+      "scrollY": 374,
+      "insetBottom": 0,
+      "bar": {
+        "top": 593,
+        "bottom": 657,
+        "height": 64,
+        "left": 12,
+        "right": 363
+      },
+      "gapBottom": 10,
+      "expectedGap": 10,
+      "plusOffCentreX": 0,
+      "plusOffCentreY": 0,
+      "plusRaised": false,
+      "position": "fixed",
+      "lastCardBottom": 559.484375,
+      "sideScroll": false
+    },
+    "sheet": {
+      "top": 133.40625,
+      "bottom": 667,
+      "actions": 10,
+      "lastButtonBottom": 653.40625,
+      "vh": 667
+    },
+    "scroll": {
+      "before": 300,
+      "after": 300
+    },
+    "errors": []
+  },
+  "iphone-15-pro-max": {
+    "engine": "webkit",
+    "device": "iPhone 15 Pro Max",
+    "note": null,
+    "insetsRequested": null,
+    "insetsApplied": false,
+    "measuredInsetBottom": 0,
+    "checks": {
+      "barFixed": true,
+      "barVisibleTopAndBottom": true,
+      "liftedAboveSafeArea": true,
+      "plusCentred": true,
+      "plusNotRaised": true,
+      "lastCardClearsBar": true,
+      "noSideScroll": true,
+      "sheetOpens": true,
+      "sheetLastActionOnScreen": true,
+      "sheetClosesKeepingScroll": true,
+      "noConsoleErrors": true
+    },
+    "top": {
+      "vw": 430,
+      "vh": 739,
+      "scrollY": 0,
+      "insetBottom": 0,
+      "bar": {
+        "top": 665,
+        "bottom": 729,
+        "height": 64,
+        "left": 12,
+        "right": 418
+      },
+      "gapBottom": 10,
+      "expectedGap": 10,
+      "plusOffCentreX": 0,
+      "plusOffCentreY": 0,
+      "plusRaised": false,
+      "position": "fixed",
+      "lastCardBottom": 845.09375,
+      "sideScroll": false
+    },
+    "bottom": {
+      "vw": 430,
+      "vh": 739,
+      "scrollY": 214,
+      "insetBottom": 0,
+      "bar": {
+        "top": 665,
+        "bottom": 729,
+        "height": 64,
+        "left": 12,
+        "right": 418
+      },
+      "gapBottom": 10,
+      "expectedGap": 10,
+      "plusOffCentreX": 0,
+      "plusOffCentreY": 0,
+      "plusRaised": false,
+      "position": "fixed",
+      "lastCardBottom": 631.09375,
+      "sideScroll": false
+    },
+    "sheet": {
+      "top": 201,
+      "bottom": 739,
+      "actions": 10,
+      "lastButtonBottom": 721,
+      "vh": 739
+    },
+    "scroll": {
+      "before": 214,
+      "after": 214
+    },
+    "errors": []
+  },
+  "pixel-7-gesture": {
+    "engine": "chromium",
+    "device": "Pixel 7",
+    "note": null,
+    "insetsRequested": {
+      "top": 24,
+      "bottom": 24
+    },
+    "insetsApplied": true,
+    "measuredInsetBottom": 24,
+    "checks": {
+      "barFixed": true,
+      "barVisibleTopAndBottom": true,
+      "liftedAboveSafeArea": true,
+      "plusCentred": true,
+      "plusNotRaised": true,
+      "lastCardClearsBar": true,
+      "noSideScroll": true,
+      "sheetOpens": true,
+      "sheetLastActionOnScreen": true,
+      "sheetClosesKeepingScroll": true,
+      "noConsoleErrors": true
+    },
+    "top": {
+      "vw": 412,
+      "vh": 839,
+      "scrollY": 0,
+      "insetBottom": 24,
+      "bar": {
+        "top": 741,
+        "bottom": 805,
+        "height": 64,
+        "left": 12,
+        "right": 400
+      },
+      "gapBottom": 34,
+      "expectedGap": 34,
+      "plusOffCentreX": 0,
+      "plusOffCentreY": 0,
+      "plusRaised": false,
+      "position": "fixed",
+      "lastCardBottom": 845.09375,
+      "sideScroll": false
+    },
+    "bottom": {
+      "vw": 412,
+      "vh": 839,
+      "scrollY": 138,
+      "insetBottom": 24,
+      "bar": {
+        "top": 741,
+        "bottom": 805,
+        "height": 64,
+        "left": 12,
+        "right": 400
+      },
+      "gapBottom": 34,
+      "expectedGap": 34,
+      "plusOffCentreX": 0,
+      "plusOffCentreY": 0,
+      "plusRaised": false,
+      "position": "fixed",
+      "lastCardBottom": 707.09375,
+      "sideScroll": false
+    },
+    "sheet": {
+      "top": 277.0439453125,
+      "bottom": 839.0439453125,
+      "actions": 10,
+      "lastButtonBottom": 797.0439453125,
+      "vh": 839
+    },
+    "scroll": {
+      "before": 138,
+      "after": 138
+    },
+    "errors": []
+  },
+  "galaxy-s9-buttons": {
+    "engine": "chromium",
+    "device": "Galaxy S9+",
+    "note": null,
+    "insetsRequested": {
+      "top": 24,
+      "bottom": 0
+    },
+    "insetsApplied": true,
+    "measuredInsetBottom": 0,
+    "checks": {
+      "barFixed": true,
+      "barVisibleTopAndBottom": true,
+      "liftedAboveSafeArea": true,
+      "plusCentred": true,
+      "plusNotRaised": true,
+      "lastCardClearsBar": true,
+      "noSideScroll": true,
+      "sheetOpens": true,
+      "sheetLastActionOnScreen": true,
+      "sheetClosesKeepingScroll": true,
+      "noConsoleErrors": true
+    },
+    "top": {
+      "vw": 320,
+      "vh": 658,
+      "scrollY": 0,
+      "insetBottom": 0,
+      "bar": {
+        "top": 584,
+        "bottom": 648,
+        "height": 64,
+        "left": 12,
+        "right": 308
+      },
+      "gapBottom": 10,
+      "expectedGap": 10,
+      "plusOffCentreX": 0,
+      "plusOffCentreY": 0,
+      "plusRaised": false,
+      "position": "fixed",
+      "lastCardBottom": 983.078125,
+      "sideScroll": false
+    },
+    "bottom": {
+      "vw": 320,
+      "vh": 658,
+      "scrollY": 433,
+      "insetBottom": 0,
+      "bar": {
+        "top": 584,
+        "bottom": 648,
+        "height": 64,
+        "left": 12,
+        "right": 308
+      },
+      "gapBottom": 10,
+      "expectedGap": 10,
+      "plusOffCentreX": 0,
+      "plusOffCentreY": 0,
+      "plusRaised": false,
+      "position": "fixed",
+      "lastCardBottom": 550.078125,
+      "sideScroll": false
+    },
+    "sheet": {
+      "top": 131.65072631835938,
+      "bottom": 658.0413513183594,
+      "actions": 10,
+      "lastButtonBottom": 651.6507568359375,
+      "vh": 658
+    },
+    "scroll": {
+      "before": 300,
+      "after": 300
+    },
+    "errors": []
+  },
+  "iphone-notch-sim": {
+    "engine": "chromium",
+    "device": "iPhone 15 Pro Max",
+    "note": "iPhone size + home-indicator inset, rendered by Chromium (WebKit cannot simulate insets)",
+    "insetsRequested": {
+      "top": 59,
+      "bottom": 34
+    },
+    "insetsApplied": true,
+    "measuredInsetBottom": 34,
+    "checks": {
+      "barFixed": true,
+      "barVisibleTopAndBottom": true,
+      "liftedAboveSafeArea": true,
+      "plusCentred": true,
+      "plusNotRaised": true,
+      "lastCardClearsBar": true,
+      "noSideScroll": true,
+      "sheetOpens": true,
+      "sheetLastActionOnScreen": true,
+      "sheetClosesKeepingScroll": true,
+      "noConsoleErrors": true
+    },
+    "top": {
+      "vw": 430,
+      "vh": 739,
+      "scrollY": 0,
+      "insetBottom": 34,
+      "bar": {
+        "top": 631,
+        "bottom": 695,
+        "height": 64,
+        "left": 12,
+        "right": 418
+      },
+      "gapBottom": 44,
+      "expectedGap": 44,
+      "plusOffCentreX": 0,
+      "plusOffCentreY": 0,
+      "plusRaised": false,
+      "position": "fixed",
+      "lastCardBottom": 845.09375,
+      "sideScroll": false
+    },
+    "bottom": {
+      "vw": 430,
+      "vh": 739,
+      "scrollY": 248,
+      "insetBottom": 34,
+      "bar": {
+        "top": 631,
+        "bottom": 695,
+        "height": 64,
+        "left": 12,
+        "right": 418
+      },
+      "gapBottom": 44,
+      "expectedGap": 44,
+      "plusOffCentreX": 0,
+      "plusOffCentreY": 0,
+      "plusRaised": false,
+      "position": "fixed",
+      "lastCardBottom": 597.09375,
+      "sideScroll": false
+    },
+    "sheet": {
+      "top": 167,
+      "bottom": 739,
+      "actions": 10,
+      "lastButtonBottom": 687,
+      "vh": 739
+    },
+    "scroll": {
+      "before": 248,
+      "after": 248
+    },
+    "errors": []
+  }
+}

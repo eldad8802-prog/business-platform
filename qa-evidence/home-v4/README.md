@@ -35,3 +35,43 @@ Floating-bar measurements (`report.json → floatingBar`), identical at every sc
 - The "+" top is at 778 and the bar top at 770, so the "+" does not rise above the bar.
 - The last card ends at 736, above the bar top at 770, so the bar hides nothing.
 - Opening and closing "+" keeps the scroll position (180 → 180).
+
+## Device profiles: `devices/` (emulation, NOT real phones)
+
+Reproduce with `node qa-evidence/home-v4/harness/build.mjs && node qa-evidence/home-v4/harness/devices.mjs`. All checks passed in 3 of 3 runs; per-check values are in `devices/devices-report.json`.
+
+| Profile | Engine | Safe area (bottom) |
+|---|---|---|
+| iPhone SE (3rd gen), 375×667 | WebKit | 0 (WebKit cannot simulate insets) |
+| iPhone 15 Pro Max, 430×739 | WebKit | 0 (WebKit cannot simulate insets) |
+| iPhone 15 Pro Max size, rendered by Chromium | Chromium | 34px home indicator (CDP `setSafeAreaInsetsOverride`) |
+| Pixel 7, gesture navigation | Chromium | 24px |
+| Galaxy S9+, button navigation | Chromium | 0 |
+
+Each profile checks the following:
+- The bar stays fixed and visible at the top and the bottom of the page.
+- The bar is lifted exactly 10px plus the safe area.
+- The "+" is centred within 1px on both axes and does not rise above the bar.
+- The last card clears the bar.
+- There is no sideways scroll.
+- The create sheet opens with its last action above the safe area, and closes without moving the page.
+- The console shows no errors.
+
+## Real app (CI, not the harness)
+
+`.appt/ui-e2e.mts` (workflow "calendar — the real app in a browser") runs `next build` + `next start` against a seeded PG17 lab business. Its artifact `appointments-calendar-screens` holds:
+- `m00-phone-home*.png`: HOME v4 at 390px. The check requires the three fixed areas, a bar lifted off the edge, and no sideways scroll.
+- `m08-phone-plus-sheet.png`: the real "+" sheet, waited for by its own dialog. Closing it must not move the page.
+- `m01-phone-day.png`: the floating bar on /calendar. M8 now finds the bar by `data-component`. It used to look for a nav touching the bottom edge, which a floating bar never does.
+
+## Hebrew dictionary weight
+
+From the CI artifact `i18n-en-chunk-proof`, first visit with an empty cache. Weights are raw JS.
+
+| Route | Before (main) | After (branch) |
+|---|---|---|
+| /app | 1058 KB | 1051.5 KB (the old Home code is gone) |
+| /collection | 1026.9 KB | 1032.9 KB |
+| /login (the whole flow) | 2003.3 KB | 2004.7 KB |
+
+Each route grows by at most one copy of the new home strings (≈8.3 KB raw, ≈2.3 KB br), so there is no double load. Hebrew pages carry 0 English strings. The brotli deltas (+2.6–5.1 KB) are larger than the raw ones because the files are re-chunked differently. The owner accepted this weight on 11-19.

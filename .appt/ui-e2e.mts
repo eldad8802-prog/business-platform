@@ -583,7 +583,9 @@ async function main() {
   });
   type Cover = { button: { top: number; bottom: number } | null; navTop: number | null; underNav: boolean };
   const COVER_PROBE = `(() => {
-    const nav = [...document.querySelectorAll("nav")].map((e) => e.getBoundingClientRect()).find((r) => r.bottom >= innerHeight - 2 && r.height < 140) || null;
+    // HOME v4: the shell bar FLOATS (lifted off the edge), so find it by its marker, not by touching the bottom.
+    const navEl = document.querySelector('[data-component="shell-bottom-bar"]');
+    const nav = navEl ? navEl.getBoundingClientRect() : null;
     const el = [...document.querySelectorAll("main button")].find((x) => (x.textContent || "").trim() === "קביעת תור");
     const b = el ? el.getBoundingClientRect() : null;
     return { button: b && { top: b.top, bottom: b.bottom }, navTop: nav ? nav.top : null, underNav: !!b && !!nav && b.bottom > nav.top };
@@ -592,7 +594,7 @@ async function main() {
     await m.goto(`/calendar?day=${seed.today}`);
     await m.locator(`[data-appointment="${seed.ids.todayNoa}"]`).waitFor({ timeout: 20_000 });
     const c = (await m.evaluate(COVER_PROBE)) as Cover;
-    if (!c.button || c.underNav || c.button.bottom > 844) throw new Error(JSON.stringify(c));
+    if (!c.button || c.navTop === null || c.underNav || c.button.bottom > 844) throw new Error(JSON.stringify(c));
   });
   await check("M9 the active view tab is marked and looks different", async () => {
     const tab = m.getByRole("tab", { name: "יום", exact: true });
@@ -601,10 +603,29 @@ async function main() {
     if ((await color("יום")) === (await color("שבוע"))) throw new Error("active and inactive tabs look alike");
   });
   await check("M10 \"+\" offers קביעת תור where the calendar is open", async () => {
+    const scrollBefore = await m.evaluate(() => window.scrollY);
     await m.getByRole("button", { name: "פעולה חדשה" }).first().click();
-    await m.getByText("קביעת תור", { exact: true }).last().waitFor({ timeout: 10_000 });
+    // The sheet itself (not the calendar's own "קביעת תור" button behind it), after its 240ms entrance.
+    const sheet = m.locator('[data-component="create-sheet"] [role="dialog"]');
+    await sheet.getByText("קביעת תור", { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+    await m.waitForTimeout(400);
     await shot(m, "m08-phone-plus-sheet");
     await m.keyboard.press("Escape");
+    await m.locator('[data-component="create-sheet"]').waitFor({ state: "detached", timeout: 5_000 });
+    const scrollAfter = await m.evaluate(() => window.scrollY);
+    if (scrollAfter !== scrollBefore) throw new Error(`closing "+" moved the page: ${scrollBefore} → ${scrollAfter}`);
+  });
+  await check("M10b HOME v4 in the real app on the phone: the fixed areas, the floating bar, nothing sideways", async () => {
+    await m.goto("/app");
+    for (const title of ["תמונת מצב", "המזכירה שלי", "היום שלי"]) {
+      await m.getByRole("heading", { name: title }).first().waitFor({ timeout: 20_000 });
+    }
+    await m.waitForTimeout(800); // let the area loaders settle before the picture
+    await noSideScroll(m, 390);
+    const bar = await m.locator('[data-component="shell-bottom-bar"]').boundingBox();
+    if (!bar || bar.y + bar.height > 844 - 8) throw new Error(`the floating bar is not lifted off the edge: ${JSON.stringify(bar)}`);
+    await shot(m, "m00-phone-home");
+    await shot(m, "m00-phone-home-full", true);
   });
   await check("M11 the management centre and its pages on the phone", async () => {
     await m.goto("/calendar/manage");
