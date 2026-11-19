@@ -18,6 +18,18 @@
       "lab": "workflow",
       "workflow": "issuer-declaration-migration-lab.yml",
       "reason": "D4 — pure: enforcement OFF reads only the empty enforcement table and refuses nothing (today's behaviour); ON refuses a governed document without complete details or a declaration; the identity lock refuses each declared identity field after a declaration and nothing before; the gate sits in issueBillingDocumentTx after the business-kind check and before numbering; no application code writes the enforcement row; run on pull_request by issuer-declaration-migration-lab.yml"
+    },
+    "lib/billing/issuer-declaration/screen-model.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "issuer-declaration-migration-lab.yml",
+      "reason": "D5 — pure: every declaration state maps to a screen; every emailed-link outcome has a Hebrew title, explanation and a way to continue; only a transient failure keeps the link for a retry; the billing notice is non-blocking, hidden after a declaration and dismissed for one visit only (nothing persisted); the confirm page strips the token from the address bar before any call and never stores it; missing details are saved only through the profile write path; run on pull_request by issuer-declaration-migration-lab.yml"
+    },
+    "lib/services/billing/issuer-declaration/issuer-designation.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "issuer-declaration-migration-lab.yml",
+      "reason": "D6 — pure: platform designation of the authorized declarant — self-designation, a user of another business, missing evidence or reason, an unnamed admin and incomplete issuer details are refused before any write; INITIAL vs AUTHORITY_TRANSFER statements and digests; database refusals become 409; the admin route verifies MFA elevation on every call regardless of the global switch, is 404 while OFF, and takes the business from the route; the only write is the migration definer functions; plus the declaration screen field-lock access; run on pull_request by issuer-declaration-migration-lab.yml"
     }
   }
 }
