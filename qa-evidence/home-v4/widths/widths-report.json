@@ -1,0 +1,2011 @@
+{
+  "320-E": {
+    "tier": "phone",
+    "vw": 320,
+    "nav": {
+      "bottomBar": true,
+      "rail": false,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 320,
+    "columns": 1,
+    "widestCard": 292,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 14,
+        "y": 91,
+        "w": 292,
+        "h": 205
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 14,
+        "y": 308,
+        "w": 292,
+        "h": 264
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 14,
+        "y": 584,
+        "w": 292,
+        "h": 181
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 14,
+        "y": 776,
+        "w": 292,
+        "h": 207
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "320-A": {
+    "tier": "phone",
+    "vw": 320,
+    "nav": {
+      "bottomBar": true,
+      "rail": false,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 320,
+    "columns": 1,
+    "widestCard": 292,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 14,
+        "y": 91,
+        "w": 292,
+        "h": 237
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 14,
+        "y": 340,
+        "w": 292,
+        "h": 238
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 14,
+        "y": 590,
+        "w": 292,
+        "h": 134
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 14,
+        "y": 736,
+        "w": 292,
+        "h": 224
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "320-B": {
+    "tier": "phone",
+    "vw": 320,
+    "nav": {
+      "bottomBar": true,
+      "rail": false,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 320,
+    "columns": 1,
+    "widestCard": 292,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 14,
+        "y": 91,
+        "w": 292,
+        "h": 165
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 14,
+        "y": 268,
+        "w": 292,
+        "h": 264
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 14,
+        "y": 544,
+        "w": 292,
+        "h": 134
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "390-E": {
+    "tier": "phone",
+    "vw": 390,
+    "nav": {
+      "bottomBar": true,
+      "rail": false,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 390,
+    "columns": 1,
+    "widestCard": 362,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 14,
+        "y": 91,
+        "w": 362,
+        "h": 196
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 14,
+        "y": 299,
+        "w": 362,
+        "h": 219
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 14,
+        "y": 530,
+        "w": 362,
+        "h": 164
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 14,
+        "y": 706,
+        "w": 362,
+        "h": 185
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "390-A": {
+    "tier": "phone",
+    "vw": 390,
+    "nav": {
+      "bottomBar": true,
+      "rail": false,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 390,
+    "columns": 1,
+    "widestCard": 362,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 14,
+        "y": 91,
+        "w": 362,
+        "h": 225
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 14,
+        "y": 328,
+        "w": 362,
+        "h": 193
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 14,
+        "y": 533,
+        "w": 362,
+        "h": 134
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 14,
+        "y": 679,
+        "w": 362,
+        "h": 202
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "390-B": {
+    "tier": "phone",
+    "vw": 390,
+    "nav": {
+      "bottomBar": true,
+      "rail": false,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 390,
+    "columns": 1,
+    "widestCard": 362,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 14,
+        "y": 91,
+        "w": 362,
+        "h": 156
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 14,
+        "y": 259,
+        "w": 362,
+        "h": 193
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 14,
+        "y": 464,
+        "w": 362,
+        "h": 134
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "768-E": {
+    "tier": "tablet",
+    "vw": 768,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 668,
+    "columns": 1,
+    "widestCard": 620,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 24,
+        "y": 109,
+        "w": 620,
+        "h": 210
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 24,
+        "y": 335,
+        "w": 620,
+        "h": 187
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 24,
+        "y": 538,
+        "w": 620,
+        "h": 178
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 24,
+        "y": 732,
+        "w": 620,
+        "h": 178
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "768-A": {
+    "tier": "tablet",
+    "vw": 768,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 668,
+    "columns": 1,
+    "widestCard": 620,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 24,
+        "y": 109,
+        "w": 620,
+        "h": 225
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 24,
+        "y": 351,
+        "w": 620,
+        "h": 187
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 24,
+        "y": 553,
+        "w": 620,
+        "h": 130
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 24,
+        "y": 699,
+        "w": 620,
+        "h": 195
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "768-B": {
+    "tier": "tablet",
+    "vw": 768,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 668,
+    "columns": 1,
+    "widestCard": 620,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 24,
+        "y": 109,
+        "w": 620,
+        "h": 170
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 24,
+        "y": 295,
+        "w": 620,
+        "h": 187
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 24,
+        "y": 498,
+        "w": 620,
+        "h": 130
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "820-E": {
+    "tier": "tablet",
+    "vw": 820,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 680,
+    "columns": 1,
+    "widestCard": 632,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 44,
+        "y": 109,
+        "w": 632,
+        "h": 210
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 44,
+        "y": 335,
+        "w": 632,
+        "h": 187
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 44,
+        "y": 538,
+        "w": 632,
+        "h": 178
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 44,
+        "y": 732,
+        "w": 632,
+        "h": 178
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "820-A": {
+    "tier": "tablet",
+    "vw": 820,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 680,
+    "columns": 1,
+    "widestCard": 632,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 44,
+        "y": 109,
+        "w": 632,
+        "h": 225
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 44,
+        "y": 351,
+        "w": 632,
+        "h": 187
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 44,
+        "y": 553,
+        "w": 632,
+        "h": 130
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 44,
+        "y": 699,
+        "w": 632,
+        "h": 195
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "820-B": {
+    "tier": "tablet",
+    "vw": 820,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 680,
+    "columns": 1,
+    "widestCard": 632,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 44,
+        "y": 109,
+        "w": 632,
+        "h": 170
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 44,
+        "y": 295,
+        "w": 632,
+        "h": 187
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 44,
+        "y": 498,
+        "w": 632,
+        "h": 130
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1024-E": {
+    "tier": "tablet",
+    "vw": 1024,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 924,
+    "columns": 2,
+    "widestCard": 876,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 24,
+        "y": 109,
+        "w": 876,
+        "h": 210
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 470,
+        "y": 335,
+        "w": 430,
+        "h": 187
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 24,
+        "y": 335,
+        "w": 430,
+        "h": 187
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 24,
+        "y": 538,
+        "w": 876,
+        "h": 178
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1024-A": {
+    "tier": "tablet",
+    "vw": 1024,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 924,
+    "columns": 2,
+    "widestCard": 876,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 24,
+        "y": 109,
+        "w": 876,
+        "h": 225
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 470,
+        "y": 351,
+        "w": 430,
+        "h": 207
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 24,
+        "y": 351,
+        "w": 430,
+        "h": 207
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 24,
+        "y": 574,
+        "w": 876,
+        "h": 195
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1024-B": {
+    "tier": "tablet",
+    "vw": 1024,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 924,
+    "columns": 2,
+    "widestCard": 876,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 24,
+        "y": 109,
+        "w": 876,
+        "h": 170
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 470,
+        "y": 295,
+        "w": 430,
+        "h": 187
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 24,
+        "y": 295,
+        "w": 430,
+        "h": 187
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1024-G": {
+    "tier": "tablet",
+    "vw": 1024,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 924,
+    "columns": 2,
+    "widestCard": 876,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 24,
+        "y": 109,
+        "w": 876,
+        "h": 225
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 470,
+        "y": 351,
+        "w": 430,
+        "h": 179
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 24,
+        "y": 351,
+        "w": 430,
+        "h": 179
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1024-H": {
+    "tier": "tablet",
+    "vw": 1024,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 924,
+    "columns": 2,
+    "widestCard": 876,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 24,
+        "y": 109,
+        "w": 876,
+        "h": 210
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 470,
+        "y": 335,
+        "w": 430,
+        "h": 215
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 24,
+        "y": 335,
+        "w": 430,
+        "h": 215
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1024-loading": {
+    "tier": "tablet",
+    "vw": 1024,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 924,
+    "columns": 2,
+    "widestCard": 876,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 24,
+        "y": 109,
+        "w": 876,
+        "h": 182
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 470,
+        "y": 307,
+        "w": 430,
+        "h": 190
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 24,
+        "y": 307,
+        "w": 430,
+        "h": 190
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 24,
+        "y": 513,
+        "w": 876,
+        "h": 136
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1180-E": {
+    "tier": "tablet",
+    "vw": 1180,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 1040,
+    "columns": 2,
+    "widestCard": 992,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 44,
+        "y": 109,
+        "w": 992,
+        "h": 210
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 548,
+        "y": 335,
+        "w": 488,
+        "h": 187
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 44,
+        "y": 335,
+        "w": 488,
+        "h": 187
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 44,
+        "y": 538,
+        "w": 992,
+        "h": 178
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1180-A": {
+    "tier": "tablet",
+    "vw": 1180,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 1040,
+    "columns": 2,
+    "widestCard": 992,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 44,
+        "y": 109,
+        "w": 992,
+        "h": 225
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 548,
+        "y": 351,
+        "w": 488,
+        "h": 207
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 44,
+        "y": 351,
+        "w": 488,
+        "h": 207
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 44,
+        "y": 574,
+        "w": 992,
+        "h": 195
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1180-B": {
+    "tier": "tablet",
+    "vw": 1180,
+    "nav": {
+      "bottomBar": false,
+      "rail": true,
+      "sidebar": false
+    },
+    "sidebarOnRight": false,
+    "sidebarLabels": [],
+    "mainWidth": 1040,
+    "columns": 2,
+    "widestCard": 992,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 44,
+        "y": 109,
+        "w": 992,
+        "h": 170
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 548,
+        "y": 295,
+        "w": 488,
+        "h": 187
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 44,
+        "y": 295,
+        "w": 488,
+        "h": 187
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1280-E": {
+    "tier": "desktop",
+    "vw": 1280,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1016,
+    "columns": 2,
+    "widestCard": 623,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 357,
+        "y": 126,
+        "w": 623,
+        "h": 214
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 357,
+        "y": 360,
+        "w": 623,
+        "h": 225
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 36,
+        "y": 126,
+        "w": 301,
+        "h": 214
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 36,
+        "y": 360,
+        "w": 301,
+        "h": 225
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1280-A": {
+    "tier": "desktop",
+    "vw": 1280,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1016,
+    "columns": 2,
+    "widestCard": 623,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 357,
+        "y": 126,
+        "w": 623,
+        "h": 229
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 357,
+        "y": 375,
+        "w": 623,
+        "h": 242
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 36,
+        "y": 126,
+        "w": 301,
+        "h": 229
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 36,
+        "y": 375,
+        "w": 301,
+        "h": 242
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1280-B": {
+    "tier": "desktop",
+    "vw": 1280,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1016,
+    "columns": 2,
+    "widestCard": 623,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 357,
+        "y": 126,
+        "w": 623,
+        "h": 174
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 357,
+        "y": 320,
+        "w": 623,
+        "h": 191
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 36,
+        "y": 126,
+        "w": 301,
+        "h": 152
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1440-E": {
+    "tier": "desktop",
+    "vw": 1440,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1176,
+    "columns": 2,
+    "widestCard": 729,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 411,
+        "y": 126,
+        "w": 729,
+        "h": 214
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 411,
+        "y": 360,
+        "w": 729,
+        "h": 225
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 36,
+        "y": 126,
+        "w": 355,
+        "h": 214
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 36,
+        "y": 360,
+        "w": 355,
+        "h": 225
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1440-A": {
+    "tier": "desktop",
+    "vw": 1440,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1176,
+    "columns": 2,
+    "widestCard": 729,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 411,
+        "y": 126,
+        "w": 729,
+        "h": 229
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 411,
+        "y": 375,
+        "w": 729,
+        "h": 242
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 36,
+        "y": 126,
+        "w": 355,
+        "h": 229
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 36,
+        "y": 375,
+        "w": 355,
+        "h": 242
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1440-B": {
+    "tier": "desktop",
+    "vw": 1440,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1176,
+    "columns": 2,
+    "widestCard": 729,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 411,
+        "y": 126,
+        "w": 729,
+        "h": 174
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 411,
+        "y": 320,
+        "w": 729,
+        "h": 191
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 36,
+        "y": 126,
+        "w": 355,
+        "h": 152
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1440-G": {
+    "tier": "desktop",
+    "vw": 1440,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1176,
+    "columns": 2,
+    "widestCard": 729,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 411,
+        "y": 126,
+        "w": 729,
+        "h": 229
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 411,
+        "y": 375,
+        "w": 729,
+        "h": 183
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 36,
+        "y": 126,
+        "w": 355,
+        "h": 182
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1440-H": {
+    "tier": "desktop",
+    "vw": 1440,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1176,
+    "columns": 2,
+    "widestCard": 729,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 411,
+        "y": 126,
+        "w": 729,
+        "h": 214
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 411,
+        "y": 360,
+        "w": 729,
+        "h": 191
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 36,
+        "y": 126,
+        "w": 355,
+        "h": 219
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1440-loading": {
+    "tier": "desktop",
+    "vw": 1440,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1176,
+    "columns": 2,
+    "widestCard": 729,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 411,
+        "y": 126,
+        "w": 729,
+        "h": 186
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 411,
+        "y": 332,
+        "w": 729,
+        "h": 194
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 36,
+        "y": 126,
+        "w": 355,
+        "h": 186
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 36,
+        "y": 332,
+        "w": 355,
+        "h": 194
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1920-E": {
+    "tier": "desktop",
+    "vw": 1920,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1480,
+    "columns": 2,
+    "widestCard": 932,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 600,
+        "y": 126,
+        "w": 932,
+        "h": 214
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 600,
+        "y": 360,
+        "w": 932,
+        "h": 191
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 124,
+        "y": 126,
+        "w": 456,
+        "h": 214
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 124,
+        "y": 360,
+        "w": 456,
+        "h": 191
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1920-A": {
+    "tier": "desktop",
+    "vw": 1920,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1480,
+    "columns": 2,
+    "widestCard": 932,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 600,
+        "y": 126,
+        "w": 932,
+        "h": 229
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 600,
+        "y": 375,
+        "w": 932,
+        "h": 199
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 124,
+        "y": 126,
+        "w": 456,
+        "h": 229
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 124,
+        "y": 375,
+        "w": 456,
+        "h": 199
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1920-B": {
+    "tier": "desktop",
+    "vw": 1920,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1480,
+    "columns": 2,
+    "widestCard": 932,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 600,
+        "y": 126,
+        "w": 932,
+        "h": 174
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 600,
+        "y": 320,
+        "w": 932,
+        "h": 191
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 124,
+        "y": 126,
+        "w": 456,
+        "h": 152
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1920-G": {
+    "tier": "desktop",
+    "vw": 1920,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1480,
+    "columns": 2,
+    "widestCard": 932,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 600,
+        "y": 126,
+        "w": 932,
+        "h": 229
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 600,
+        "y": 375,
+        "w": 932,
+        "h": 183
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 124,
+        "y": 126,
+        "w": 456,
+        "h": 182
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1920-H": {
+    "tier": "desktop",
+    "vw": 1920,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1480,
+    "columns": 2,
+    "widestCard": 932,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 600,
+        "y": 126,
+        "w": 932,
+        "h": 214
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 600,
+        "y": 360,
+        "w": 932,
+        "h": 191
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 124,
+        "y": 126,
+        "w": 456,
+        "h": 219
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "1920-loading": {
+    "tier": "desktop",
+    "vw": 1920,
+    "nav": {
+      "bottomBar": false,
+      "rail": false,
+      "sidebar": true
+    },
+    "sidebarOnRight": true,
+    "sidebarLabels": [],
+    "mainWidth": 1480,
+    "columns": 2,
+    "widestCard": 932,
+    "cards": [
+      {
+        "area": "a-snap",
+        "title": "תמונת מצב",
+        "x": 600,
+        "y": 126,
+        "w": 932,
+        "h": 186
+      },
+      {
+        "area": "sec",
+        "title": "המזכירה שלי",
+        "x": 600,
+        "y": 332,
+        "w": 932,
+        "h": 194
+      },
+      {
+        "area": "a-today",
+        "title": "היום שלי",
+        "x": 124,
+        "y": 126,
+        "w": 456,
+        "h": 186
+      },
+      {
+        "area": "a-fy",
+        "title": "בשבילך",
+        "x": 124,
+        "y": 332,
+        "w": 456,
+        "h": 194
+      }
+    ],
+    "sideScroll": false,
+    "dir": "rtl",
+    "errors": []
+  },
+  "390-tools": {
+    "tier": "phone",
+    "mainWidth": 390,
+    "display": "flex",
+    "tileColumns": 2,
+    "sideScroll": false,
+    "errors": []
+  },
+  "390-more": {
+    "tier": "phone",
+    "mainWidth": 390,
+    "display": "flex",
+    "tileColumns": null,
+    "sideScroll": false,
+    "errors": []
+  },
+  "1024-tools": {
+    "tier": "tablet",
+    "mainWidth": 924,
+    "display": "flex",
+    "tileColumns": 5,
+    "sideScroll": false,
+    "errors": []
+  },
+  "1024-more": {
+    "tier": "tablet",
+    "mainWidth": 924,
+    "display": "flex",
+    "tileColumns": null,
+    "sideScroll": false,
+    "errors": []
+  },
+  "1440-tools": {
+    "tier": "desktop",
+    "mainWidth": 1176,
+    "display": "flex",
+    "tileColumns": 7,
+    "sideScroll": false,
+    "errors": []
+  },
+  "1440-more": {
+    "tier": "desktop",
+    "mainWidth": 1176,
+    "display": "flex",
+    "tileColumns": null,
+    "sideScroll": false,
+    "errors": []
+  },
+  "1920-tools": {
+    "tier": "desktop",
+    "mainWidth": 1180,
+    "display": "flex",
+    "tileColumns": 7,
+    "sideScroll": false,
+    "errors": []
+  },
+  "1920-more": {
+    "tier": "desktop",
+    "mainWidth": 1180,
+    "display": "flex",
+    "tileColumns": null,
+    "sideScroll": false,
+    "errors": []
+  },
+  "resize": {
+    "steps": [
+      {
+        "w": 390,
+        "nav": {
+          "bottomBar": true,
+          "rail": false,
+          "sidebar": false
+        },
+        "columns": 1,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 767,
+        "nav": {
+          "bottomBar": true,
+          "rail": false,
+          "sidebar": false
+        },
+        "columns": 1,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 768,
+        "nav": {
+          "bottomBar": false,
+          "rail": true,
+          "sidebar": false
+        },
+        "columns": 1,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 899,
+        "nav": {
+          "bottomBar": false,
+          "rail": true,
+          "sidebar": false
+        },
+        "columns": 1,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 900,
+        "nav": {
+          "bottomBar": false,
+          "rail": true,
+          "sidebar": false
+        },
+        "columns": 2,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 1023,
+        "nav": {
+          "bottomBar": false,
+          "rail": true,
+          "sidebar": false
+        },
+        "columns": 2,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 1024,
+        "nav": {
+          "bottomBar": false,
+          "rail": true,
+          "sidebar": false
+        },
+        "columns": 2,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 1279,
+        "nav": {
+          "bottomBar": false,
+          "rail": true,
+          "sidebar": false
+        },
+        "columns": 2,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 1280,
+        "nav": {
+          "bottomBar": false,
+          "rail": false,
+          "sidebar": true
+        },
+        "columns": 2,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 1599,
+        "nav": {
+          "bottomBar": false,
+          "rail": false,
+          "sidebar": true
+        },
+        "columns": 2,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 1600,
+        "nav": {
+          "bottomBar": false,
+          "rail": false,
+          "sidebar": true
+        },
+        "columns": 2,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 1920,
+        "nav": {
+          "bottomBar": false,
+          "rail": false,
+          "sidebar": true
+        },
+        "columns": 2,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      },
+      {
+        "w": 390,
+        "nav": {
+          "bottomBar": true,
+          "rail": false,
+          "sidebar": false
+        },
+        "columns": 1,
+        "sideScroll": false,
+        "order": [
+          "a-snap",
+          "sec",
+          "a-today",
+          "a-fy"
+        ]
+      }
+    ],
+    "errors": []
+  },
+  "keyboard1440": [
+    "a:עדכונים — יש עדכונים שלא",
+    "a:פרופיל",
+    "button:בחירת מדדים",
+    "a:תקבולים החודש: ₪148,230.",
+    "a:קריאות פתוחות: לפחות 100",
+    "button:הצג מדדים נוספים",
+    "a:לכל העדכונים — ⁦38+⁩ עדכ",
+    "a:טיפול בתשלומים",
+    "button:אחר כך",
+    "a:10:00ביקור טכנאי 1לקוח 1",
+    "button:אפשרויות לתוכן",
+    "a:לצפייה בהצעות",
+    "a:Dubiz — בית",
+    "button:פעולה חדשה"
+  ]
+}

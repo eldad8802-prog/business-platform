@@ -107,8 +107,13 @@ console.log("navigation (owner-approved placement)");
   const side = code("components/navigation/side-nav.tsx");
   // Another gated destination may follow daily_tasks in the same filter (appointments, milestone B).
   ok("the sidebar hides a gated destination until the flag is ON", /filter\(\(d\) => !d\.feature \|\| \(d\.feature === "daily_tasks" && tasksOn\)/.test(side));
+  // HOME v4: the "+" list lives in the Home model (createActionsFor) and the sheet renders only what it permits.
   const sheet = code("components/navigation/action-sheet.tsx");
-  ok("\"+\" lists משימה חדשה only with the flag", /feature: "daily_tasks"/.test(sheet) && /filter\(\(a\) => !a\.feature/.test(sheet));
+  const createModel = code("features/home/v4/home-v4-model.ts");
+  ok("\"+\" lists משימה חדשה only with the flag",
+    /\{ key: "task", labelKey: "task", href: "\/tasks\?new=1"[^}]*req: \{ modules: \["daily_tasks"\]/.test(createModel)
+      && /CREATE_ACTIONS\.filter\(\(a\) => allows\(access, a\.req\)\)/.test(createModel)
+      && /access\.state === "ready" \? createActionsFor\(access\.value\) : \[\]/.test(sheet));
   const cat = code("features/tools/category-screen.tsx");
   ok("the family screen hides a gated tool until the flag is ON", /filter\(\s*\(t\) => !t\.feature \|\| \(t\.feature === "daily_tasks" && tasksOn\)/.test(cat));
   const sec = code("app/(shell)/secretary/page.tsx");
