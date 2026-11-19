@@ -39,8 +39,8 @@ const allowed = (name: string, d: ServiceTransitionDecision, to: ServiceCaseStat
 const OWNER: ServiceCaseActor = { kind: "OWNER", userId: 70 };
 const CUSTOMER: ServiceCaseActor = { kind: "CUSTOMER_LINK" };
 
-function snap(key: ServiceProfileKey): ProfileSnapshot {
-  const r = buildProfileSnapshot(key);
+function snap(key: ServiceProfileKey, overrides?: Parameters<typeof buildProfileSnapshot>[1]): ProfileSnapshot {
+  const r = buildProfileSnapshot(key, overrides);
   if (!r.ok) throw new Error(`snapshot ${key}`);
   return r.snapshot;
 }
@@ -108,7 +108,7 @@ const SENT = { ...QUOTE, state: "SENT" as const, approval: null };
 // ── 1. buildTrackFacts reads the case's own snapshot ─────────────────────────────────────────────────────────
 console.log("— 1. buildTrackFacts");
 {
-  check("T1: device lab, item at the business, QA required, handover", (() => { const f = facts(T1); return f.track === "T1" && f.itemAtBusiness && f.requirements.qa.mode === "REQUIRED" && f.requirements.handoverByOwner && f.requirements.workApproval === "ALWAYS"; })());
+  check("T1: device lab, item at the business, QA required, handover", (() => { const f = facts(T1); return f.track === "T1" && f.itemAtBusiness && f.requirements.qa.mode === "REQUIRED" && f.requirements.handoverByOwner && f.requirements.workApproval === "BY_D15"; })());
   check("T2: a vehicle at the business derives T2 (garage: approval ALWAYS)", (() => { const f = facts(T2); return f.track === "T2" && f.requirements.qa.template === "VEHICLE.v1" && f.requirements.workApproval === "ALWAYS"; })());
   check("T3: on site, no intake, QA optional, no handover", (() => { const f = facts(T3); return f.track === "T3" && !f.itemAtBusiness && f.requirements.intakeConfirmation === "NONE" && f.requirements.qa.mode === "OPTIONAL" && !f.requirements.handoverByOwner; })());
   check("T4: installation, QA required, no handover", (() => { const f = facts(T4); return f.track === "T4" && f.requirements.qa.mode === "REQUIRED" && !f.requirements.handoverByOwner; })());
@@ -134,7 +134,8 @@ console.log("— 2. the seven tracks, end to end");
     { a: { type: "DELIVER", receipt: { handoverConfirmed: true } } },
   ], ["OPEN", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "QA", "READY", "DELIVERED"]);
   refused("T1: the intake still needs the owner's confirmation", evaluateTransition(ctx({ track: facts(T1) }), { type: "CHECK_IN" }, OWNER), "INTAKE_NOT_CONFIRMED");
-  refused("T1 (ALWAYS): START_REPAIR without a cover is refused even with no commitment", evaluateTransition(ctx({ status: "DIAGNOSING", track: facts(T1) }), { type: "START_REPAIR" }, OWNER), "COVERAGE_NOT_APPROVED");
+  // Decision 3: a lab defaults to BY_D15; a lab that chose ALWAYS still refuses an unauthorized repair.
+  refused("T1 (lab chose ALWAYS): START_REPAIR without a cover is refused even with no commitment", evaluateTransition(ctx({ status: "DIAGNOSING", track: facts({ ...T1, snapshot: snap("device_lab", { requirements: { T1: { workApproval: "ALWAYS" } } }) }) }), { type: "START_REPAIR" }, OWNER), "COVERAGE_NOT_APPROVED");
   refused("T1: a repair never ends COMPLETED", evaluateTransition(ctx({ status: "QA", track: facts(T1) }), { type: "PASS_QA", outcome: "COMPLETED" }, OWNER), "OUTCOME_REQUIRED");
 
   // T2 — vehicle at the business (garage): cover → repair → QA (VEHICLE.v1) → handover

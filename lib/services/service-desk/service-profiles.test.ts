@@ -78,8 +78,9 @@ for (const k of SERVICE_PROFILE_KEYS) {
 ok("P3 the owner's explicit choice wins over the category", resolveProfileKey({ serviceProfileKey: "garage", category: "Retail", subCategory: "Jewelry" }) === "garage");
 ok("P3 an unknown stored choice falls through, never fails", resolveProfileKey({ serviceProfileKey: "spaceship", subCategory: "Plumbing" }) === "home_technician");
 ok("P3 sub-category before category", resolveProfileKey({ category: "Automotive", subCategory: "Mobile Phones" }) === "device_lab");
-ok("P3 existing values map: Repairs → device_lab, AC / Plumbing / Electrical → home_technician, Jewelry → jewelry",
-  resolveProfileKey({ category: "Home Services", subCategory: "Repairs" }) === "device_lab"
+ok("P3 existing values map (decision 1 fix): Repairs → home_technician, Cleaning / Moving → professional, AC / Plumbing / Electrical → home_technician, Jewelry → jewelry",
+  resolveProfileKey({ category: "Home Services", subCategory: "Repairs" }) === "home_technician"
+    && ["Cleaning", "Moving"].every((s) => resolveProfileKey({ category: "Home Services", subCategory: s }) === "professional")
     && ["Air Conditioning", "Plumbing", "Electrical"].every((s) => resolveProfileKey({ category: "Home Services", subCategory: s }) === "home_technician")
     && resolveProfileKey({ category: "Retail", subCategory: "Jewelry" }) === "jewelry");
 ok("P3 category-level mapping when the sub-category is unknown", resolveProfileKey({ category: "IT Services", subCategory: "Something" }) === "remote_it");
@@ -113,12 +114,12 @@ ok("P4 on site / remote / professional: no intake signature, no handover", SERVI
 ok("P4 every T7 resolution has a row", SERVICE_PROFILE_KEYS.every((k) => AFTER_SALE_RESOLUTIONS.every((r) => requirementsFromSnapshot(snap(k), "T7", r) !== undefined)));
 
 // ── P5 D15 ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-ok("P5 device_lab T1 and garage T2 keep today's rule: approval ALWAYS",
-  requirementsFromSnapshot(snap("device_lab"), "T1").workApproval === "ALWAYS" && requirementsFromSnapshot(snap("garage"), "T2").workApproval === "ALWAYS");
-ok("P5 everywhere else a repair step is BY_D15 (only with a quote or a money commitment)",
+ok("P5 decision 3 defaults: garage T2 ALWAYS, device_lab T1 BY_D15 (only when there is a cost)",
+  requirementsFromSnapshot(snap("garage"), "T2").workApproval === "ALWAYS" && requirementsFromSnapshot(snap("device_lab"), "T1").workApproval === "BY_D15");
+ok("P5 T2 (vehicle) is ALWAYS in every profile (garage regulations); every other repair step is BY_D15",
   SERVICE_PROFILE_KEYS.every((k) => SERVICE_TRACKS.every((t) => {
     const r = requirementsFromSnapshot(snap(k), t).workApproval;
-    return (k === "device_lab" && t === "T1") || (k === "garage" && t === "T2") ? r === "ALWAYS" : r === "BY_D15";
+    return t === "T2" ? r === "ALWAYS" : r === "BY_D15";
   })));
 ok("P5 NONE only where the path has no repair step (credit, returning the original)",
   SERVICE_PROFILE_KEYS.every((k) => requirementsFromSnapshot(snap(k), "T7", "CREDIT").workApproval === "NONE"
@@ -126,9 +127,9 @@ ok("P5 NONE only where the path has no repair step (credit, returning the origin
     && requirementsFromSnapshot(snap(k), "T7", "EXCHANGE").workApproval === "BY_D15"));
 
 // ── P6 overrides refused ───────────────────────────────────────────────────────────────────────────────────────────
-ok("P6 QA cannot be loosened where the item is at the business (T1 / T2 / T7)",
-  (["T1", "T2", "T7"] as const).every((t) => codes("general", { requirements: { [t]: { qaMode: "OPTIONAL" } } }).includes("FIXED_REQUIREMENT")
-    && codes("general", { requirements: { [t]: { qaMode: "OFF" } } }).includes("FIXED_REQUIREMENT")));
+ok("P6 vehicle approval cannot be lowered: T2 BY_D15 is refused as LEGAL_REQUIREMENT (garage regulations)",
+  codes("garage", { requirements: { T2: { workApproval: "BY_D15" } } }).includes("LEGAL_REQUIREMENT")
+    && codes("general", { enabledTracks: ["T2"], requirements: { T2: { workApproval: "BY_D15" } } }).includes("LEGAL_REQUIREMENT"));
 ok("P6 an owner-confirmed handover of a held item cannot be replaced", codes("jewelry", { requirements: { T1: { completion: "OWNER_CONFIRMATION" } } }).includes("FIXED_REQUIREMENT"));
 ok("P6 approval never below D15", codes("home_technician", { requirements: { T3: { workApproval: "NONE" } } }).includes("BELOW_D15"));
 ok("P6 an on-site completion cannot become a handover or a credit document", codes("home_technician", { requirements: { T3: { completion: "OWNER_HANDOVER" } } }).includes("COMPLETION_NOT_ALLOWED")
@@ -147,7 +148,7 @@ ok("P6 terms: blank, padded, over 40 characters or with control characters are r
   ["", "  ", " טכנאי", "א".repeat(41), "טכ\nנאי"].every((t) => codes("general", { terms: { professional: t } }).includes("INVALID_TERM")));
 ok("P6 a malformed overrides object is refused", codes("general", [] as unknown).includes("INVALID_SHAPE") && codes("general", { enabledTracks: "T3" }).includes("INVALID_SHAPE"));
 ok("P6 a refused override builds no snapshot at all", (() => {
-  const r = buildProfileSnapshot("general", { enabledTracks: ["T2"], requirements: { T1: { qaMode: "OFF" } } });
+  const r = buildProfileSnapshot("general", { enabledTracks: ["T2"], requirements: { T1: { workApproval: "NONE" } } });
   return !r.ok && r.violations.length === 1;
 })());
 
@@ -160,8 +161,17 @@ ok("P7 the owner may loosen on-site QA; restating the owner confirmation is acce
     && requirementsFromSnapshot(snap("home_technician", { requirements: { T3: { completion: "OWNER_CONFIRMATION" } } }), "T3").completion === "OWNER_CONFIRMATION");
 ok("P7 no requirement anywhere names a customer signature (owner decision 2026-11-11)",
   !/SIGNATURE|SIGNED|signature/.test(JSON.stringify((["T1", "T2", "T3", "T4", "T5", "T6", "T7"] as const).map((t) => requirementsFromSnapshot(snap("general"), t)))));
-ok("P7 approval ALWAYS may relax to BY_D15, never further",
-  requirementsFromSnapshot(snap("device_lab", { requirements: { T1: { workApproval: "BY_D15" } } }), "T1").workApproval === "BY_D15");
+ok("P7 decision 3: a lab may require approval ALWAYS, and a restated BY_D15 is accepted",
+  requirementsFromSnapshot(snap("device_lab", { requirements: { T1: { workApproval: "ALWAYS" } } }), "T1").workApproval === "ALWAYS"
+    && requirementsFromSnapshot(snap("device_lab", { requirements: { T1: { workApproval: "BY_D15" } } }), "T1").workApproval === "BY_D15");
+ok("P7 decision 4: QA may be turned off (or made optional) where the item is at the business; the default stays REQUIRED",
+  (["T1", "T2", "T7"] as const).every((t) => codes("general", { enabledTracks: ["T2"], requirements: { [t]: { qaMode: "OFF" } } }).length === 0
+    && codes("general", { enabledTracks: ["T2"], requirements: { [t]: { qaMode: "OPTIONAL" } } }).length === 0)
+    && requirementsFromSnapshot(snap("device_lab", { requirements: { T1: { qaMode: "OFF" } } }), "T1").qa.mode === "OFF"
+    && requirementsFromSnapshot(snap("device_lab"), "T1").qa.mode === "REQUIRED");
+ok("P7 decision 4: remote support (T6) defaults to QA OFF and the owner may turn its checklist on",
+  requirementsFromSnapshot(snap("remote_it"), "T6").qa.mode === "OFF"
+    && requirementsFromSnapshot(snap("remote_it", { requirements: { T6: { qaMode: "REQUIRED" } } }), "T6").qa.mode === "REQUIRED");
 ok("P7 the owner can enable any other track; the profile's own tracks stay enabled",
   (() => { const s = snap("jewelry", { enabledTracks: ["T3", "T6"] }); return ["T1", "T7", "T5", "T3", "T6"].every((t) => isTrackEnabled(s, t as ServiceTrack)) && !isTrackEnabled(s, "T2"); })());
 ok("P7 owner wording is kept next to the term id", (() => {
