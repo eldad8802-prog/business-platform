@@ -1,0 +1,97 @@
+name: service desk — A7 case fields lab (migration 20261214090000)
+
+# The A7 migration on the Service Desk M1 lab (PG17, Production role topology): the read-only preflight, the apply the
+# way release-migrate does it (prisma migrate deploy over a staged directory = what the ledger holds + this one), the
+# read-only production evidence, then permissions, guards, erasure and the task link as the runtime role.
+# Synthetic only: no Production, no Preview, no secrets.
+
+on:
+  pull_request:
+    paths:
+      - "prisma/migrations/20261214090000_service_desk_case_fields/**"
+      - "ops/evidence/service-desk-case-fields-*.sql"
+      - ".sda7/**"
+      - ".github/workflows/service-desk-a7-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk A7 (PG17, runtime role, M1 + case fields applied)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sda7_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sda7_ci_synthetic_super_pw
+      LAB_PASSWORD: sda7_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: sda7-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: sda7-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      OWNER_URL: postgresql://lab_owner:sda7_ci_synthetic_role_pw@localhost:5432/sda7
+      DATABASE_URL: postgresql://app_runtime_prod:sda7_ci_synthetic_role_pw@localhost:5432/sda7?connection_limit=10
+      DIRECT_URL: postgresql://app_runtime_prod:sda7_ci_synthetic_role_pw@localhost:5432/sda7
+      AUTH_DATABASE_URL: postgresql://lab_owner:sda7_ci_synthetic_role_pw@localhost:5432/sda7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab — the Service Desk chain through M1
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sda7 >/dev/null
+          bash .sd3p4/lab.sh sda7 --deploy-only >/dev/null
+          bash .sdm1/chain.sh sda7 | tail -n 3
+      - name: Preflight (read-only, as in Production) — every row PASS
+        run: |
+          set -euo pipefail
+          PGOPTIONS="-c default_transaction_read_only=on" psql "$OWNER_URL" --no-psqlrc -v ON_ERROR_STOP=1 -f ops/evidence/service-desk-case-fields-preflight.sql | tee /tmp/pf.out
+          ! grep -E '\| *FAIL *\|' /tmp/pf.out
+          grep -qE '\| *PASS *\|' /tmp/pf.out
+      - name: Apply — prisma migrate deploy over what the ledger holds + 20261214090000 only
+        run: |
+          set -euo pipefail
+          STAGE="$(mktemp -d)"; mkdir -p "$STAGE/prisma/migrations"
+          cp prisma/schema.prisma "$STAGE/prisma/schema.prisma"
+          cp prisma/migrations/migration_lock.toml "$STAGE/prisma/migrations/"
+          for n in $(psql "$OWNER_URL" -At -c 'SELECT migration_name FROM "_prisma_migrations" WHERE finished_at IS NOT NULL'); do
+            [ -d "prisma/migrations/$n" ] && cp -r "prisma/migrations/$n" "$STAGE/prisma/migrations/$n"
+          done
+          cp -r prisma/migrations/20261214090000_service_desk_case_fields "$STAGE/prisma/migrations/"
+          DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" npx prisma migrate deploy --schema "$STAGE/prisma/schema.prisma" | tee /tmp/deploy.out
+          grep -q 'Applying migration `20261214090000_service_desk_case_fields`' /tmp/deploy.out
+          test "$(grep -c 'Applying migration' /tmp/deploy.out)" = "1"
+      - name: Production evidence (read-only) — every row PASS
+        run: |
+          set -euo pipefail
+          PGOPTIONS="-c default_transaction_read_only=on" psql "$OWNER_URL" --no-psqlrc -v ON_ERROR_STOP=1 -f ops/evidence/service-desk-case-fields-production-evidence.sql | tee /tmp/ev.out
+          ! grep -E '\| *FAIL *\|' /tmp/ev.out
+          grep -qE '\| *PASS *\|' /tmp/ev.out
+      - name: Battery — loans, RLS, guards, erasure, task link (runtime role)
+        run: |
+          set -euo pipefail
+          npx tsx .sda7/battery.mts | tee /tmp/a7.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/a7.out
