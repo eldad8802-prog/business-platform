@@ -255,7 +255,7 @@ export function useHomeData(enabled: boolean, desktop: boolean): {
  * The newest recommendation waiting for the owner's answer. Feature off, or nothing waiting → null and the
  * card is not drawn (the Home is exactly as before).
  */
-async function loadRecommendationHome(): Promise<RecommendationHomeView | null> {
+export async function loadRecommendationHome(): Promise<RecommendationHomeView | null> {
   const p = await loadRecommendations();
   if (!p.enabled) return null;
   const waiting = p.items.filter((v) => v.stage === "waiting");
@@ -271,7 +271,7 @@ async function loadRecommendationHome(): Promise<RecommendationHomeView | null> 
  * The newest open Business Insight, else the first cost insight the cost
  * engine raised today, else nothing — in which case the card is not drawn.
  */
-async function loadInsight(): Promise<InsightView | null> {
+export async function loadInsight(): Promise<InsightView | null> {
   const [learned, cost] = await Promise.allSettled([
     fetchJsonCached<InsightsWire>("/api/insights", TTL),
     fetchJsonCached<BusinessCostSummaryApi>("/api/business-cost/summary", TTL),

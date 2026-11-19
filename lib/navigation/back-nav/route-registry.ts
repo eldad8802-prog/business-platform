@@ -57,6 +57,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/inbox", root: true, identityParams: ["conversationId", "list"] },
   { pattern: "/documents", root: true },
   { pattern: "/notifications", root: true },
+  // HOME v4: "כלים" is a bottom-bar tab — a root, like the other tabs.
+  { pattern: "/tools", root: true },
   { pattern: "/search", root: true },
   { pattern: "/inventory", root: true },
   { pattern: "/leads", root: true },
@@ -224,8 +226,9 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/settings/import-export/historical", parent: "/settings/import-export", parentLabelKey: "toImportExport" },
   { pattern: "/settings/import-export/historical/records", parent: "/settings/import-export/historical", parentLabelKey: "toHistoricalData" },
   { pattern: "/settings/import-export/historical/records/[id]", parent: "/settings/import-export/historical/records", parentLabelKey: "toRecordList" },
-  // The /tools catalogue is retired (next.config → /app); each family screen is reached from Home.
-  { pattern: "/tools/[category]", parent: "/app", parentLabelKey: "toHome" },
+  // HOME v4: "הכלים שלי" (/tools) is back; the family screens and "יכולות נוספות" return to it.
+  { pattern: "/tools/more", parent: "/tools", parentLabelKey: "toTools" },
+  { pattern: "/tools/[category]", parent: "/tools", parentLabelKey: "toTools" },
   { pattern: "/business", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/business/identity", parent: "/business", parentLabelKey: "toBusinessProfile" },
   { pattern: "/business/landing-strategy", parent: "/business/identity", parentLabelKey: "toDigitalPresence" },

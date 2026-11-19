@@ -73,6 +73,9 @@ export const he = {
     payables: "התחייבויות",
     inventory: "מלאי",
     settings: "הגדרות",
+    tools: "כלים",
+    /** The floating bottom bar's short labels (home redesign v4). */
+    bar: { calendar: "יומן", updates: "עדכונים", tools: "כלים" },
     a11y: {
       mainNav: "ניווט ראשי",
       bottomNav: "ניווט תחתון",
