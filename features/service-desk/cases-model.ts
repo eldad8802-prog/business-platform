@@ -267,10 +267,18 @@ const EVENT_LABEL: Readonly<Record<string, string>> = {
   "case.cancelled": "בוטל",
   "case.abandoned": "סומן כלא נאסף",
   "case.details_changed": "הפרטים עודכנו",
+  // records (the status stays): named for what was recorded, never "updated: <status>"
+  "case.technician_assigned": "שובץ טכנאי",
+  "intake.recorded": "פרטי הקליטה נרשמו",
+  "qa.recorded": "הבדיקות נרשמו",
+  "charge.recorded": "החיוב נרשם",
+  "billing.linked": "קושר מסמך חיוב",
+  "billing.unlinked": "הוסר קישור למסמך חיוב",
+  "case.cancellation_requested": "התבקש ביטול",
 };
 
 export function eventLabel(e: Pick<JournalItem, "eventType" | "toStatus">): string {
-  return EVENT_LABEL[e.eventType] ?? `עודכן: ${statusLabel(e.toStatus as CaseStatus)}`;
+  return EVENT_LABEL[e.eventType] ?? "עדכון בתיק";
 }
 
 /** Newest first, for the history section. */

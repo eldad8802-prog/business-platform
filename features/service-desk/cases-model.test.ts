@@ -74,7 +74,8 @@ ok("C2 a field call has no intake / handover; QA opens the checks", fieldSection
   && fieldSections.find((s) => s.key === "checks")?.open === true && fieldSections[0].title === "פרטי העבודה");
 ok("C3 history newest first, with Hebrew labels", historyItems([{ seq: 1, eventType: "case.opened", toStatus: "OPEN", occurredAt: daysAgo(3), actor: "OWNER" },
   { seq: 2, eventType: "case.checked_in", toStatus: "CHECKED_IN", occurredAt: daysAgo(2), actor: "OWNER" }]).map((e) => e.seq).join(",") === "2,1"
-  && eventLabel({ eventType: "case.checked_in", toStatus: "CHECKED_IN" }) === "הפריט נקלט" && eventLabel({ eventType: "x.unknown", toStatus: "READY" }) === "עודכן: מוכן למסירה");
+  && eventLabel({ eventType: "case.checked_in", toStatus: "CHECKED_IN" }) === "הפריט נקלט" && eventLabel({ eventType: "x.unknown", toStatus: "READY" }) === "עדכון בתיק");
 
+ok("E9 a record names what was recorded; an unknown event is a plain update", eventLabel({ eventType: "intake.recorded", toStatus: "OPEN" }) === "פרטי הקליטה נרשמו" && eventLabel({ eventType: "x.y", toStatus: "OPEN" }) === "עדכון בתיק");
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
