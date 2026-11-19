@@ -67,3 +67,19 @@ export function intakeSlipKey(input: { businessId: number; caseId: number; sha25
   if (!SHA256.test(input.sha256)) throw new RangeError("sha256 must be 64 lowercase hex characters");
   return `${serviceBusinessPrefix(input.businessId)}cases/${caseId}/intake/slip/${input.sha256}.pdf`;
 }
+
+/**
+ * The frozen copy of a SENT quote version (1.3c): content-addressed — biz/{b}/service/cases/{c}/quotes/{sha256}.pdf. The
+ * billing quote is never issued and is re-rendered on demand, so the service keeps the exact bytes the customer received
+ * (ServiceQuote.sentPdfKey / sentPdfSha256, CHECK ServiceQuote_content: under biz/{b}/service/, ≤ 512).
+ */
+export function quoteSentPdfKey(input: { businessId: number; caseId: number; sha256: string }): string {
+  const caseId = positiveId(input.caseId, "caseId");
+  if (!SHA256.test(input.sha256)) throw new RangeError("sha256 must be 64 lowercase hex characters");
+  return `${serviceBusinessPrefix(input.businessId)}cases/${caseId}/quotes/${input.sha256}.pdf`;
+}
+
+/** The folder of a case's frozen quote copies (a read checks the stored key lies in it). */
+export function quoteSentPdfFolder(input: { businessId: number; caseId: number }): string {
+  return `${serviceBusinessPrefix(input.businessId)}cases/${positiveId(input.caseId, "caseId")}/quotes/`;
+}

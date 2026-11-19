@@ -123,9 +123,11 @@ async function main() {
   const fin = await act(A, id, { type: "FINISH_REPAIR", outcome: "REPAIRED" }, clr.case.version);
   ok("T6 hold cleared; an on-site repair finishes → READY / REPAIRED, readyAt stamped", fin.case.status === "READY" && fin.case.outcome === "REPAIRED"
     && (await q(`SELECT "readyAt" IS NOT NULL r FROM "ServiceCase" WHERE id = $1`, id))[0].r === true);
-  ok("T7 out of scope → ACTION_NOT_IN_SCOPE (SCHEDULE, SEND_QUOTE, REPLACED); DELIVER (1.3c) with no billing link → BALANCE_UNKNOWN",
+  // 1.3c: SEND_QUOTE has its own command (quote.service, POST /cases/[id]/quotes — the frozen copy is prepared first); the
+  // generic action route still refuses it, now naming that route (use: quotes). SCHEDULE and REPLACED stay out of scope.
+  ok("T7 out of scope → ACTION_NOT_IN_SCOPE (SCHEDULE, REPLACED; SEND_QUOTE on the generic route → its own quotes command); DELIVER (1.3c) with no billing link → BALANCE_UNKNOWN",
     (await code(() => act(A, id, { type: "SCHEDULE", appointmentId: 1 }, fin.case.version))).startsWith("ACTION_NOT_IN_SCOPE")
-    && (await code(() => act(A, id, { type: "SEND_QUOTE", quote: { version: 1, totalAgorot: 100, docHash: "h" } }, fin.case.version))).startsWith("ACTION_NOT_IN_SCOPE")
+    && (await code(() => act(A, id, { type: "SEND_QUOTE", quote: { version: 1, totalAgorot: 100, docHash: "h" } }, fin.case.version))).includes('"use":"quotes"')
     && (await code(() => act(A, id, { type: "DELIVER", receipt: { handoverConfirmed: true } }, fin.case.version))).includes("BALANCE_UNKNOWN")
     && (await code(() => act(A, id, { type: "FINISH_REPAIR", outcome: "REPLACED" }, fin.case.version))).startsWith("ACTION_NOT_IN_SCOPE"));
   ok("T8 'not collected' without a documented reminder → REFUSED PICKUP_REMINDERS_REQUIRED", (await code(() => act(A, id, { type: "ABANDON", reason: "לא הגיע" }, fin.case.version))).includes("PICKUP_REMINDERS_REQUIRED"));
