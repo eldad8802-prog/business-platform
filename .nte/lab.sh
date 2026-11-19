@@ -22,6 +22,10 @@
 #   --with-nte:   `prisma migrate deploy` — the release-migrate mechanism — applies it;
 #   --broken-nte: the same with it failing on its last statement (atomicity).
 #
+# NTE_ONTO=1 (optional): <db-name> was already built by a lab that chains the TRP lab (e.g. .bkg/lab.sh, via .appt →
+# .acct → .trp): skip building it, and only bring this migration onto it the same way. Such labs rebuild
+# "PushSubscription" from 20261022090000, which has none of the columns this migration adds; an application whose
+# schema models them cannot write a subscription there until this migration is applied.
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional). Synthetic only. ZERO secrets. ZERO network.
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
@@ -33,7 +37,7 @@ AET="20261017090000_auth_email_tokens"
 DT="20261018090000_daily_tasks_foundation"
 TRP="20261022090000_task_reminders_push"
 NTE="20261210090000_notification_engine_foundation"
-bash "$ROOT/.trp/lab.sh" "$DB" --with-trp >/dev/null
+if [ "${NTE_ONTO:-}" != "1" ]; then bash "$ROOT/.trp/lab.sh" "$DB" --with-trp >/dev/null; fi
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
 
