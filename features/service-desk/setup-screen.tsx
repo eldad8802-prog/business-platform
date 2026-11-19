@@ -46,7 +46,7 @@ export function SetupScreen() {
   }
   return (
     <SetupView back={back} draft={draft} suggestedKey={choice.suggestedKey} firstTime={!choice.chosen} busy={busy} error={error}
-      onProfile={(k) => setDraft(chooseProfile(draft, k))} onTrack={(t) => setDraft(toggleTrack(draft, t))}
+      onProfile={(k) => setDraft(chooseProfile(choice.catalog, draft, k))} onTrack={(t) => setDraft(toggleTrack(draft, t))}
       onSave={async () => {
         setBusy(true); setError(null);
         try {

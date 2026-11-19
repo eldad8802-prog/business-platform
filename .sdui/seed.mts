@@ -125,7 +125,7 @@ async function main() {
   const versionC = async (id: number) => Number((await own(bizC, `SELECT version FROM "ServiceCase" WHERE id = $1`, id))[0].version);
   const c5 = (await openCase(pC as never, { customerId: custC, track: "T1", problemDescription: "החלפת מסך", subject: { displayName: "Pixel 8" } } as never, { idempotencyKey: key() })).case.id;
   await recordIntake(pC as never, c5, { conditionNote: "תקין", accessoriesNote: "ללא", conditionRecorded: true, accessoriesRecorded: true, expectedVersion: await versionC(c5) }, { idempotencyKey: key() });
-  for (const a of [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR", outcome: "REPAIRED" }])
+  for (const a of [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }])
     await runCaseAction(pC as never, c5, { action: a, expectedVersion: await versionC(c5) }, { idempotencyKey: key() });
 
   const out = { tokenA: signAuthToken(userA, 0), tokenB: signAuthToken(userB, 0), tokenC: signAuthToken(userC, 0), bizA, bizB, bizC, userA, c1, c2, c3, c4, c5, c6, quoteC6, taskA };

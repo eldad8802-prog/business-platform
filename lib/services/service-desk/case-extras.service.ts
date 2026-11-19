@@ -16,7 +16,12 @@ import { checkIdempotencyKey } from "@/lib/services/tasks/task-idempotency";
 
 import { ServiceDeskError } from "./service-desk-errors";
 import { guardRefusal, isPositiveInt, prepare, requireAuditJournalFor, type ServiceDeskPrincipal, type WriteRequest } from "./service-case.service";
-import { isServiceProfileKey, resolveProfileKey, SERVICE_TRACKS, validateOverrides, type ProfileOverrides } from "./service-profiles";
+import { isServiceProfileKey, PROFILES, resolveProfileKey, SERVICE_PROFILE_KEYS, SERVICE_TRACKS, validateOverrides, type ProfileOverrides } from "./service-profiles";
+
+/** Each profile's tracks, suggested first then enabled — what the activation screen pre-selects per profile. */
+function profileCatalog(): Record<string, string[]> {
+  return Object.fromEntries(SERVICE_PROFILE_KEYS.map((k) => [k, [...new Set([...PROFILES[k].defaultTracks, ...PROFILES[k].enabledTracks])]]));
+}
 
 type Tx = Parameters<Parameters<typeof tenantTx>[1]>[0];
 const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : v === null || v === undefined ? null : String(v));
@@ -229,6 +234,8 @@ export type ProfileChoice = {
   key: string;
   suggestedKey: string;
   offeredTracks: string[] | null;
+  /** profile key → its tracks (suggested first): the screen's pre-selection when the owner picks a profile. */
+  catalog: Record<string, string[]>;
 };
 
 export async function getProfileChoice(businessId: number): Promise<ProfileChoice> {
@@ -242,7 +249,7 @@ export async function getProfileChoice(businessId: number): Promise<ProfileChoic
     const o = (s?.overrides ?? null) as ProfileOverrides | null;
     return {
       version: s ? Number(s.version) : null, chosen, key: chosen ? (s!.key as string) : suggestedKey, suggestedKey,
-      offeredTracks: Array.isArray(o?.offeredTracks) ? [...o!.offeredTracks] : null,
+      offeredTracks: Array.isArray(o?.offeredTracks) ? [...o!.offeredTracks] : null, catalog: profileCatalog(),
     };
   });
 }
@@ -303,7 +310,7 @@ async function getProfileChoiceTx(tx: Tx, b: number): Promise<ProfileChoice> {
     SELECT version, "serviceProfileKey" AS key, "profileOverrides" AS overrides FROM "ServiceSettings" WHERE "businessId" = ${b}::int`)[0];
   const o = (s?.overrides ?? null) as ProfileOverrides | null;
   const key = isServiceProfileKey(s?.key ?? null) ? (s!.key as string) : "general";
-  return { version: s ? Number(s.version) : null, chosen: isServiceProfileKey(s?.key ?? null), key, suggestedKey: key, offeredTracks: Array.isArray(o?.offeredTracks) ? [...o!.offeredTracks] : null };
+  return { version: s ? Number(s.version) : null, chosen: isServiceProfileKey(s?.key ?? null), key, suggestedKey: key, offeredTracks: Array.isArray(o?.offeredTracks) ? [...o!.offeredTracks] : null, catalog: profileCatalog() };
 }
 
 // ── QA (read): the checklist this case is judged by, and what was recorded ─────────────────────────────────────
@@ -335,7 +342,7 @@ export async function getCaseQa(businessId: number, caseId: unknown): Promise<Ca
       appointmentId: c.appointmentId === null ? null : Number(c.appointmentId), deviceId: c.deviceId === null ? null : Number(c.deviceId),
     } as never);
     const qa = state.track?.requirements.qa ?? null;
-    const mode = (qa?.mode ?? "REQUIRED") as CaseQaView["mode"];
+    const mode = (qa?.mode ?? (c.kind === "IN_SHOP" ? "REQUIRED" : "OFF")) as CaseQaView["mode"];
     const t = mode === "OFF" ? null : qaTemplateFor(c.kind as never, qa?.template ?? null);
     const stored = (c.qaChecklist ?? null) as { results?: Record<string, "PASS" | "FAIL"> } | null;
     return {

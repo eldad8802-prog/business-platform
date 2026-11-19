@@ -45,9 +45,20 @@ function cancelAction(c: Pick<CaseCardData, "kind" | "status">): CaseActionDef {
  * The actions for a case, primary first. `intakeReady` = the intake has its condition and accessories recorded (the
  * check-in then only needs the owner's confirmation).
  */
-export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "holdReason" | "intake">): CaseActionDef[] {
+export type QaModeView = "REQUIRED" | "OPTIONAL" | "OFF";
+
+export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "holdReason" | "intake">, opts: { qaMode?: QaModeView } = {}): CaseActionDef[] {
   const s: CaseStatus = c.status;
   const a = (type: string, extra: Record<string, unknown> = {}) => ({ endpoint: "action" as const, action: { type, ...extra } });
+  // FINISH_REPAIR follows the case's own QA mode (the server refuses an outcome when the case goes through QA):
+  // REQUIRED → to QA, no outcome; OPTIONAL → the owner chooses; OFF / unknown → finished now with the outcome.
+  const finishLabel = field(c) ? "לסיים את העבודה" : "לסיים את התיקון";
+  const finish = (tone: "primary" | "secondary"): CaseActionDef[] => opts.qaMode === "REQUIRED"
+    ? [{ id: "finish", label: "לסיים ולעבור לבדיקות", tone, input: { kind: "none" }, target: a("FINISH_REPAIR") }]
+    : opts.qaMode === "OPTIONAL"
+      ? [{ id: "finish-qa", label: "לסיים ולעבור לבדיקות", tone, input: { kind: "none" }, target: a("FINISH_REPAIR", { qa: true }) },
+         { id: "finish", label: `${finishLabel} בלי בדיקות`, tone: "secondary", input: { kind: "none" }, target: a("FINISH_REPAIR", { outcome: "REPAIRED" }) }]
+      : [{ id: "finish", label: finishLabel, tone, input: { kind: "none" }, target: a("FINISH_REPAIR", { outcome: "REPAIRED" }) }];
   switch (s) {
     case "OPEN":
     case "SCHEDULED": {
@@ -83,11 +94,11 @@ export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "ho
       // On hold, the natural next step is back to work (primary); finishing stays possible (the server clears the hold).
       if (c.holdReason) return [
         { id: "clear-hold", label: "להחזיר לעבודה", tone: "primary", input: { kind: "none" }, target: a("CLEAR_HOLD") },
-        { id: "finish", label: field(c) ? "לסיים את העבודה" : "לסיים את התיקון", tone: "secondary", input: { kind: "none" }, target: a("FINISH_REPAIR", { outcome: "REPAIRED" }) },
+        ...finish("secondary"),
         cancelAction(c),
       ];
       return [
-        { id: "finish", label: field(c) ? "לסיים את העבודה" : "לסיים את התיקון", tone: "primary", input: { kind: "none" }, target: a("FINISH_REPAIR", { outcome: "REPAIRED" }) },
+        ...finish("primary"),
         { id: "hold-parts", label: "ממתין לחלקים", tone: "secondary", input: { kind: "none" }, target: a("SET_HOLD", { reason: "PARTS" }) },
         { id: "hold-customer", label: "ממתין ללקוח", tone: "secondary", input: { kind: "none" }, target: a("SET_HOLD", { reason: "CUSTOMER" }) },
         cancelAction(c),

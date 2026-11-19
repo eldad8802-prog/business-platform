@@ -38,7 +38,7 @@ async function loadExtras(card: CaseCardData): Promise<Extras> {
   const id = card.id;
   const mode = quoteMode(card.status);
   const [qa, quotes, quoteDocs, calls, loans, tasks, fields] = await Promise.all([
-    card.status === "QA" ? soft(getCaseQa(id), null) : Promise.resolve(null),
+    card.status === "QA" || card.status === "IN_REPAIR" ? soft(getCaseQa(id), null) : Promise.resolve(null),
     mode ? soft(listQuotes(id), []) : Promise.resolve([]),
     mode && card.customerId ? soft(listCustomerQuoteDocs(card.customerId), []) : Promise.resolve([]),
     soft(listPickupCalls(id), []),
@@ -135,7 +135,7 @@ export function CaseScreen({ caseId }: { caseId: number }) {
     );
   }
   const full = access.mode === "FULL";
-  const actions = full ? caseActions(data.card) : [];
+  const actions = full ? caseActions(data.card, { qaMode: extras.qa?.mode }) : [];
   const card = data.card;
   const now = new Date();
   const v = card.version ?? 0;
@@ -145,7 +145,7 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const notes = [loanReminder(extras.loans.loans, card.status), card.status === "READY" ? pickupSummary(extras.calls, now) : null].filter((x): x is string => !!x);
   const extraMain = (
     <div key={extrasKey} style={{ display: "contents" }}>
-      {extras.qa && extras.qa.template ? (
+      {card.status === "QA" && extras.qa && extras.qa.template ? (
         <QaPanel qa={extras.qa} editable={full} busy={busy}
           onSave={(r) => void panelWrite("qa", () => recordQa(card.id, qaBody(extras.qa!.template!.items, r), v), "הבדיקות נשמרו.")} />
       ) : null}

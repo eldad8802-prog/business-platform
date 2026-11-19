@@ -1,5 +1,9 @@
 /** Service Desk UI 1.3 — activation and case-panel models. Pure: `npx tsx features/service-desk/case-extras-model.test.ts`. */
-import { canSave, chooseProfile, initialSetup, toggleTrack, tracksOfProfile } from "./setup-model";
+import { canSave, chooseProfile as choose, initialSetup as init, toggleTrack, tracksOfProfile as tracksOf } from "./setup-model";
+const CAT = { general: ["T1", "T3", "T5", "T6", "T7"], device_lab: ["T1", "T7", "T3", "T6"], garage: ["T2", "T7", "T3"] };
+const initialSetup = (c: { key: string; offeredTracks: string[] | null }) => init({ ...c, catalog: CAT });
+const chooseProfile = (d: Parameters<typeof choose>[1], k: Parameters<typeof choose>[2]) => choose(CAT, d, k);
+const tracksOfProfile = (k: Parameters<typeof tracksOf>[1]) => tracksOf(CAT, k);
 import { loanReminder, offerableQuoteDocs, pickupSummary, qaBody, qaProgress, quoteMode } from "./case-extras-model";
 
 let passed = 0, failed = 0;

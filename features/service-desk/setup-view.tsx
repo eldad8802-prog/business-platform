@@ -4,9 +4,7 @@
  */
 import type { ReactNode } from "react";
 
-import { SERVICE_TRACKS, type ServiceProfileKey } from "@/lib/services/service-desk/service-profiles";
-
-import { canSave, PROFILE_ORDER, PROFILE_TEXT, TRACK_TEXT, type SetupDraft } from "./setup-model";
+import { canSave, PROFILE_ORDER, PROFILE_TEXT, SERVICE_TRACKS, TRACK_TEXT, type ServiceProfileKey, type SetupDraft } from "./setup-model";
 import s from "./cases.module.css";
 
 export type SetupViewProps = {

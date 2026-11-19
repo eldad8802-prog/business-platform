@@ -255,7 +255,7 @@ export const getCaseFields = (caseId: number) => call<CaseFields>("GET", `/api/s
 export const setCaseFields = (caseId: number, itemLocationNote: string | null, estimatedReadyOn: string | null) =>
   call<CaseFields>("PUT", `/api/service-desk/cases/${caseId}/fields`, { itemLocationNote, estimatedReadyOn });
 
-export type ProfileChoice = { version: number | null; chosen: boolean; key: string; suggestedKey: string; offeredTracks: string[] | null };
+export type ProfileChoice = { version: number | null; chosen: boolean; key: string; suggestedKey: string; offeredTracks: string[] | null; catalog: Record<string, string[]> };
 export const getProfileChoice = () => call<ProfileChoice>("GET", "/api/service-desk/settings/profile");
 export const saveProfileChoice = (serviceProfileKey: string, offeredTracks: string[], expectedVersion: number | null) =>
   keyed<ProfileChoice>(`service-desk/settings/profile:${expectedVersion}:${serviceProfileKey}:${offeredTracks.join(",")}`, "PUT", "/api/service-desk/settings/profile",

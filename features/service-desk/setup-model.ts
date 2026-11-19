@@ -3,7 +3,12 @@
  * works with, PRE-SELECTED from its category and changeable by hand. Pure. The profile is a template only: the list
  * decides what the opening form offers first; every activity type stays open to every business (decision 2026-11-11).
  */
-import { PROFILES, SERVICE_PROFILE_KEYS, SERVICE_TRACKS, type ServiceProfileKey, type ServiceTrack } from "@/lib/services/service-desk/service-profiles";
+// The catalog itself stays in lib/services/service-desk (stage-3 rule): the server sends each profile's tracks.
+export const SERVICE_TRACKS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7"] as const;
+export type ServiceTrack = (typeof SERVICE_TRACKS)[number];
+export const SERVICE_PROFILE_KEYS = ["general", "device_lab", "garage", "home_technician", "installer", "remote_it", "professional", "jewelry"] as const;
+export type ServiceProfileKey = (typeof SERVICE_PROFILE_KEYS)[number];
+export type ProfileCatalog = Record<string, readonly string[]>;
 
 export const PROFILE_TEXT: Readonly<Record<ServiceProfileKey, { label: string; hint: string }>> = {
   general: { label: "כללי", hint: "כל סוגי השירות, בלי התאמה לתחום" },
@@ -28,26 +33,23 @@ export const TRACK_TEXT: Readonly<Record<ServiceTrack, { label: string; hint: st
 
 export const PROFILE_ORDER: readonly ServiceProfileKey[] = SERVICE_PROFILE_KEYS;
 
-/** The profile's own tracks: suggested first (★), then the ones it enables (✓). */
-export function tracksOfProfile(key: ServiceProfileKey): ServiceTrack[] {
-  const p = PROFILES[key];
-  const out: ServiceTrack[] = [];
-  for (const t of [...p.defaultTracks, ...p.enabledTracks]) if (!out.includes(t)) out.push(t);
-  return out;
+/** The profile's own tracks (suggested first), as the server's catalog lists them. */
+export function tracksOfProfile(catalog: ProfileCatalog, key: ServiceProfileKey): ServiceTrack[] {
+  return (catalog[key] ?? []).filter((t): t is ServiceTrack => (SERVICE_TRACKS as readonly string[]).includes(t));
 }
 
 export type SetupDraft = { key: ServiceProfileKey; tracks: ServiceTrack[]; edited: boolean };
 
 /** What the screen starts with: the stored choice, else the category's suggestion and that profile's tracks. */
-export function initialSetup(choice: { key: string; offeredTracks: string[] | null }): SetupDraft {
+export function initialSetup(choice: { key: string; offeredTracks: string[] | null; catalog: ProfileCatalog }): SetupDraft {
   const key = (SERVICE_PROFILE_KEYS as readonly string[]).includes(choice.key) ? (choice.key as ServiceProfileKey) : "general";
   const stored = (choice.offeredTracks ?? []).filter((t): t is ServiceTrack => (SERVICE_TRACKS as readonly string[]).includes(t));
-  return { key, tracks: stored.length ? stored : tracksOfProfile(key), edited: false };
+  return { key, tracks: stored.length ? stored : tracksOfProfile(choice.catalog, key), edited: false };
 }
 
 /** Choosing another profile replaces the selection with its tracks — unless the owner already edited the list. */
-export function chooseProfile(d: SetupDraft, key: ServiceProfileKey): SetupDraft {
-  return { key, tracks: d.edited ? d.tracks : tracksOfProfile(key), edited: d.edited };
+export function chooseProfile(catalog: ProfileCatalog, d: SetupDraft, key: ServiceProfileKey): SetupDraft {
+  return { key, tracks: d.edited ? d.tracks : tracksOfProfile(catalog, key), edited: d.edited };
 }
 
 /** Toggle one activity type; the list keeps the catalog order (T1…T7). */
