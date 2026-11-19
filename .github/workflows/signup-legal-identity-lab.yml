@@ -1,0 +1,150 @@
+# Migration 20261128090000_signup_legal_identity — signup legal identity + lock, on an ephemeral PG17 with
+# Production's role topology (.sli/lab.sh on top of .agl/lab.sh --with-issuer; BusinessProfile under FORCE RLS
+# with the runtime's real grants):
+#   0. the evidence files are SELECT-only and selectable in Production; the proof pins the migration's checksum;
+#      the migration names none of #1091's objects;
+#   1. baseline (pending): PREFLIGHT 11/11; the existing-accounts counts run; the proof refuses;
+#   2. `prisma migrate deploy` applies it: proof 12/12; PREFLIGHT now fails exactly 2, 3, 4, 5;
+#   3. battery L1–L13 with the real roles (seed in the account transaction, lock, completion, isolation,
+#      concurrency, privileges, check digit = lib/identity/tax-id.ts);
+#   4. atomicity: the migration failing on its last statement leaves nothing of it behind;
+#   5. rollback (.sli/rollback.sql): reverts whole — PREFLIGHT 11/11 again, the proof refuses.
+# Synthetic only. ZERO secrets. ZERO network. ZERO Production.
+
+name: signup legal identity — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261128090000_signup_legal_identity/**"
+      - "prisma/migrations/20260825120000_d2_p7_wave1_businessprofile_rls/**"
+      - "prisma/migrations/20260915120000_businessprofile_runtime_grants/**"
+      - "ops/evidence/signup-legal-identity-*.sql"
+      - "ops/evidence/legal-identity-existing-accounts.sql"
+      - "lib/identity/tax-id.ts"
+      - ".sli/**"
+      - ".agl/lab.sh"
+      - ".github/workflows/signup-legal-identity-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signup-legal-identity-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab:
+    name: signup legal identity (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sli_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sli_ci_synthetic_super_pw
+      LAB_PASSWORD: sli_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/signup-legal-identity-preflight.sql
+      EVIDENCE: ops/evidence/signup-legal-identity-production-evidence.sql
+      COUNTS: ops/evidence/legal-identity-existing-accounts.sql
+      MIGRATION: prisma/migrations/20261128090000_signup_legal_identity/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable; the proof pins the checksum; no #1091 object named
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE" "$COUNTS"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "::error::$f is not SELECT-only"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "::error::$f is not selectable in prod-readonly-evidence.yml"; exit 1; }
+          done
+          sum=$(sha256sum "$MIGRATION" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "::error::the proof pins a different checksum (migration is $sum)"; exit 1; }
+          if grep -vE '^\s*--' "$MIGRATION" | grep -nE 'Issuer|issuer_|SeriesOpening|AuthEmailToken'; then
+            echo "::error::the migration names an object of the issuer declaration (#1091 / #1105)"; exit 1
+          fi
+          echo "guard OK; migration checksum $sum"
+
+      - name: 1. Baseline (pending) — PREFLIGHT 11/11; counts run; the proof refuses
+        run: |
+          set -euo pipefail
+          bash .sli/lab.sh sli_pre
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sli_pre -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$PREFLIGHT" | tee /tmp/pre.out
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "11" || { echo "::error::preflight is not 11/11 before the migration"; exit 1; }
+          lab -f "$COUNTS"
+          if out=$(lab -f "$EVIDENCE" 2>&1); then
+            echo "$out" | grep -qE '^ +[0-9]+ \| FAIL' || { echo "::error::the proof passed before the migration"; exit 1; }
+          fi
+          echo "the proof refuses before the migration"
+
+      - name: 2. prisma migrate deploy applies it — proof 12/12; preflight fails exactly 2 3 4 5
+        run: |
+          set -euo pipefail
+          bash .sli/lab.sh sli_post --with-sli | tee /tmp/post.log
+          grep -q "20261128090000_signup_legal_identity" /tmp/post.log || { echo "::error::the migration was not applied"; exit 1; }
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sli_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "12" || { echo "::error::the proof is not 12/12"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 3 4 5 " || { echo "::error::preflight after the migration fails '$fails', expected '2 3 4 5 '"; exit 1; }
+          lab -f "$COUNTS"
+
+      - name: 3. Battery L1–L13 (real roles)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/sli_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/sli_post" \
+          AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/sli_post" \
+            npx tsx .sli/battery.ts
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .sli/lab.sh sli_broken --broken-sli
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sli_broken -v ON_ERROR_STOP=1 -At "$@"; }
+          left=$(lab -c "SELECT (SELECT count(*) FROM pg_attribute WHERE attrelid = '\"BusinessProfile\"'::regclass AND attname LIKE 'legalIdentity%' AND NOT attisdropped)
+                              + (SELECT count(*) FROM pg_proc WHERE proname LIKE '%legal_identity%')
+                              + (SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'BusinessProfile_legal_identity%')")
+          test "$left" = "0" || { echo "::error::a failed migration left $left objects behind"; exit 1; }
+          done_rows=$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261128090000_signup_legal_identity' AND finished_at IS NOT NULL")
+          test "$done_rows" = "0" || { echo "::error::the failed migration is recorded as finished"; exit 1; }
+          echo "atomic: nothing left behind"
+
+      - name: 5. Rollback — reverts whole; PREFLIGHT 11/11 again; the proof refuses
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d sli_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f .sli/rollback.sql
+          lab -f "$PREFLIGHT" | tee /tmp/rb.out
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/rb.out)" = "11" || { echo "::error::preflight is not 11/11 after the rollback"; exit 1; }
+          if out=$(lab -f "$EVIDENCE" 2>&1); then
+            echo "$out" | grep -qE '^ +[0-9]+ \| FAIL' || { echo "::error::the proof still passes after the rollback"; exit 1; }
+          fi
+          echo "rollback reverts whole"

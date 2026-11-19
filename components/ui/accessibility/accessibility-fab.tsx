@@ -39,6 +39,14 @@ const STORAGE_KEY = "dubiz.a11y.prefs.v1";
 
 // Base distance from the bottom edge when no bottom-nav bar is present.
 const BASE_BOTTOM = 20;
+// The floating button's size, and the space kept clear above it.
+const FAB_SIZE = 54;
+const FAB_CLEAR_GAP = 12;
+/**
+ * The bottom strip the floating button occupies, published for the page content (shell-chrome reads it into
+ * the content's bottom padding) so the end of every screen scrolls above the button instead of under it.
+ */
+const FAB_CLEARANCE_VAR = "--dz-fab-clearance";
 
 // Trigger skin. These are GLOBAL CHROME: the FAB paints on every route,
 // including the excluded Home (/app), so they read freezable --dz-fab-* vars
@@ -135,13 +143,24 @@ export function AccessibilityFab() {
   // it's absent (login, corporate, or a full-screen surface that hides it), the
   // FAB drops to the base offset. Re-measures on resize and on DOM mutations.
   useEffect(() => {
+    // The bar grows with text size (or the reader's own text setting) without any DOM change — watched directly.
+    let observedBar: HTMLElement | null = null;
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => measure());
     const measure = () => {
       const bar = document.querySelector<HTMLElement>(
         '[data-component="shell-bottom-bar"]'
       );
+      if (ro && bar !== observedBar) {
+        if (observedBar) ro.unobserve(observedBar);
+        if (bar) ro.observe(bar);
+        observedBar = bar;
+      }
       const barH = bar?.offsetHeight ?? 0;
-      setBottomInset(barH > 0 ? barH + 12 : BASE_BOTTOM);
-      setDocked(hasVisibleDockedTrigger(document));
+      const inset = barH > 0 ? barH + 12 : BASE_BOTTOM;
+      const isDocked = hasVisibleDockedTrigger(document);
+      setBottomInset(inset);
+      setDocked(isDocked);
+      document.documentElement.style.setProperty(FAB_CLEARANCE_VAR, isDocked ? "0px" : `${inset + FAB_SIZE + FAB_CLEAR_GAP}px`);
     };
     measure();
     window.addEventListener("resize", measure);
@@ -150,6 +169,8 @@ export function AccessibilityFab() {
     return () => {
       window.removeEventListener("resize", measure);
       mo.disconnect();
+      ro?.disconnect();
+      document.documentElement.style.removeProperty(FAB_CLEARANCE_VAR);
     };
   }, []);
 
@@ -281,8 +302,8 @@ export function AccessibilityFab() {
           bottom: bottomInset,
           insetInlineEnd: 20,
           zIndex: 101,
-          width: 54,
-          height: 54,
+          width: FAB_SIZE,
+          height: FAB_SIZE,
           borderRadius: 999,
           border: "1px solid var(--dz-fab-trigger-border)",
           background: TRIGGER_BACKGROUND,

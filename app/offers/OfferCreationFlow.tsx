@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/translate";
+import { redirectToLogin } from "@/lib/client-session";
 
 type OfferType = "DISCOUNT" | "GIFT" | "BUNDLE" | "REFERRAL" | "";
 
@@ -107,9 +108,8 @@ export default function OfferCreationFlow() {
         const data: BusinessProfileResponse = await res.json();
 
         if (res.status === 401) {
-          localStorage.removeItem("token");
-          localStorage.removeItem("user");
           setProfileError("content.commerce.offers.flow.sessionExpired");
+          redirectToLogin();
           return;
         }
 

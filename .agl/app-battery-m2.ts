@@ -116,7 +116,7 @@ async function complete(ticket: string | null, body: Record<string, unknown>, de
   const refresh = res.headers.getSetCookie().find((c) => c.startsWith("dubiz_rt="));
   return { status: res.status, body: (await res.json().catch(() => ({}))) as Record<string, unknown>, refresh: refresh ? decodeURIComponent(refresh.split(";")[0].slice(9)) : null };
 }
-const form = (businessName: string) => ({ name: "דנה כהן", businessName, acceptTerms: true });
+const form = (businessName: string) => ({ name: "דנה כהן", businessName, businessKind: "AUTHORIZED_DEALER", legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", acceptTerms: true });
 
 type Footprint = { users: number; businesses: number; identities: number; sessions: number; welcome: number; verify: number };
 async function footprint(email: string, businessName: string, subject: string): Promise<Footprint> {
@@ -149,9 +149,9 @@ async function main() {
   ok("A2 the ticket is not a refresh credential", (await refreshSession(authDb(), { credential: c1.ticket!, now: new Date() })).kind === "unauthorized");
 
   console.log("\n— C(form). an invalid form spends nothing —");
-  const bad = await complete(c1.ticket, { name: "דנה", businessName: "", acceptTerms: true });
-  ok("C0 no business name → 400 on businessName", bad.status === 400 && bad.body.field === "businessName");
-  const noConsent = await complete(c1.ticket, { name: "דנה", businessName: b1, acceptTerms: false });
+  const bad = await complete(c1.ticket, { name: "דנה", businessName: "", businessKind: "AUTHORIZED_DEALER", legalName: "", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", acceptTerms: true });
+  ok("C0 no legal name → 400 on legalName", bad.status === 400 && bad.body.field === "legalName");
+  const noConsent = await complete(c1.ticket, { name: "דנה", businessName: b1, businessKind: "AUTHORIZED_DEALER", legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", acceptTerms: false });
   ok("C0 no consent → 400 on acceptTerms", noConsent.status === 400 && noConsent.body.field === "acceptTerms");
   ok("C0 …nothing written and the ticket still open", same(await footprint(p1.email, b1, p1.subject), NONE) && (await readSignupTicket(c1.ticket)) !== null);
 

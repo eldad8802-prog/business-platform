@@ -15,6 +15,7 @@ import { isPublicSignupEnabled, SIGNUP_DISABLED_STATUS, signupDisabledBody } fro
 import { readSignupAllowlist } from "@/lib/auth/signup-allowlist";
 import { isHoneypotFilled } from "@/lib/auth/signup-honeypot";
 import { normalizeGoogleSignupInput } from "@/lib/auth/signup-identity";
+import { LegalIdentityRejectedError } from "@/lib/auth/signup-legal-identity-seed";
 import { authMessage } from "@/lib/auth/auth-messages";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
 import { deliverTransactionalEmail } from "@/lib/email/transactional/delivery";
@@ -153,6 +154,8 @@ export async function handleGoogleComplete(req: Request, deps: CompleteDeps = de
       ticketSecret: secret,
       name: input.name,
       businessName: input.businessName,
+      // The legal identity (kind included) is written and confirmed in the account's own transaction.
+      legalIdentity: input.legalIdentity,
       attribution: input.attribution,
       now,
       userAgent: req.headers.get("user-agent"),
@@ -184,6 +187,14 @@ export async function handleGoogleComplete(req: Request, deps: CompleteDeps = de
     if (error instanceof SignupValidationError) {
       await failed(`invalid_${error.field}`);
       return NextResponse.json({ error: error.message, field: error.field }, { status: 400, headers: noStore });
+    }
+    if (error instanceof LegalIdentityRejectedError) {
+      // The database's backstop refused a value the form's rules accepted. Nothing was written. Field only.
+      await failed(`invalid_legal_identity_${error.field ?? "unknown"}`);
+      return NextResponse.json(
+        { error: "חלק מפרטי העסק אינם תקינים. יש לבדוק אותם ולנסות שוב.", field: error.field ?? undefined, code: "LEGAL_IDENTITY_INVALID" },
+        { status: 400, headers: noStore }
+      );
     }
     if (error instanceof SignupTicketRefusedError) {
       await failed("ticket_refused");

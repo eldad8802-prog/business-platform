@@ -59,6 +59,9 @@ const M1_CASEFOLD = MIG("20261011090200_user_email_casefold_unique");
 // Transactional email: signup records the WELCOME it owes in the account transaction, so the
 // signup plane's INSERT on TransactionalEmail is part of the signup contract this lab proves.
 const TE = MIG("20261015090000_transactional_email_foundation");
+// Signup legal identity: the register route writes the business's legal identity INSIDE the account transaction
+// through signup_legal_identity_seed (app_auth EXECUTE only), so the lab carries the shipped file.
+const SLI = MIG("20261128090000_signup_legal_identity");
 
 const RUNTIME_ROLE = "app_runtime_battery";
 const RUNTIME_PW = "authfix_ci_synthetic_runtime_pw";
@@ -191,6 +194,16 @@ async function main() {
   // db push built TransactionalEmail from the model, without the migration's RLS and grants.
   await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS "TransactionalEmail" CASCADE`);
   for (const s of statements(readFileSync(TE, "utf8"))) await owner.$executeRawUnsafe(s);
+  // db push built the two confirmation columns from the model: remove them so the shipped migration builds them
+  // with its checks, its seed function and its lock trigger, exactly as Production will have them.
+  await owner.$executeRawUnsafe(`ALTER TABLE "BusinessProfile" DROP COLUMN IF EXISTS "legalIdentityConfirmedAt", DROP COLUMN IF EXISTS "legalIdentitySource"`);
+  for (const s of statements(readFileSync(SLI, "utf8"))) await owner.$executeRawUnsafe(s);
+  {
+    const fn = await owner.$queryRawUnsafe<Array<{ v: boolean }>>(
+      `SELECT has_function_privilege('app_auth', 'public.signup_legal_identity_seed(integer,text,text,text,text,text,text)', 'EXECUTE') AS v`
+    );
+    ok("signup legal identity migration applied: app_auth executes the seed", fn[0]?.v === true);
+  }
   {
     const te = await owner.$queryRawUnsafe<Array<{ r: boolean; f: boolean }>>(
       `SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE relname = 'TransactionalEmail'`
@@ -338,22 +351,32 @@ async function main() {
         headers: { authorization: `Bearer ${token}` },
       })
     );
-    const body = (await res.json()) as { success?: boolean; error?: string };
+    const body = (await res.json()) as { success?: boolean; scope?: string; error?: string };
     ok("REAL logout route returns 200", res.status === 200, `status ${res.status} ${body.error ?? ""}`);
+    // Ordinary logout is per-device: it ends this session under the shipped
+    // grants and leaves the generation — every other device — alone.
+    ok("REAL logout ends this device only (scope=device)", body.scope === "device", JSON.stringify(body));
     const after = await owner.user.findUnique({
       where: { id: seeded.id },
       select: { tokenVersion: true },
     });
     ok(
-      "logout incremented tokenVersion",
-      (after?.tokenVersion ?? -1) === seeded.tokenVersion + 1,
+      "per-device logout did NOT increment tokenVersion",
+      (after?.tokenVersion ?? -1) === seeded.tokenVersion,
       `was ${seeded.tokenVersion}, now ${after?.tokenVersion}`
+    );
+    ok(
+      "...and the token it ended is refused",
+      (await getAuthContext(
+        new Request("https://lab.invalid/api/auth/me", { headers: { authorization: `Bearer ${token}` } })
+      )) === null
     );
 
     // The property that matters, now created DELIBERATELY instead of by accident.
     //
-    // The increment above has already signed the user out of every device, so a
-    // failure to MARK the rows must not be reported as a failed logout: telling
+    // "Every device" increments the generation, which has already signed the user
+    // out everywhere, so a failure to MARK the rows must not be reported as a
+    // failed logout: telling
     // someone who IS signed out that it did not work is the worst lie this
     // endpoint can tell. This used to be proven incidentally, because the lab
     // happened to grant nothing on the table. Login now needs those privileges to
@@ -377,10 +400,13 @@ async function main() {
       );
       const tok = ((await loginAgain.json()) as { token?: string }).token ?? "";
       await owner.$executeRawUnsafe(`REVOKE UPDATE ON public."AuthSession" FROM app_auth`);
+      // The per-device path has no generation bump to lean on and reports 500
+      // here instead (logout-scope-battery).
       const out = await logoutRoute.POST(
         new Request("https://lab.invalid/api/auth/logout", {
           method: "POST",
-          headers: { authorization: `Bearer ${tok}` },
+          headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" },
+          body: JSON.stringify({ scope: "all" }),
         })
       );
       const bumped = await owner.user.findUnique({
@@ -512,6 +538,8 @@ async function main() {
           password: PASSWORD,
           name: "בעלת עסק",
           businessName,
+          businessKind: "AUTHORIZED_DEALER",
+          legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid",
           acceptTerms: true,
           attribution: { utm_source: "facebook", utm_medium: "<b>", referrer: "https://www.google.com/search?q=private" },
         }),
@@ -527,6 +555,41 @@ async function main() {
   const resB = await register(emailB, "עסק ב");
   const bodyB = (await resB.json()) as RegisterBody;
   ok("a second owner registers too", resB.status === 200, `status ${resB.status} ${bodyB.error ?? ""}`);
+
+  // 3b — the legal identity entered at signup (owner decision 2026-11-12) is written by the REAL route INSIDE the
+  //      account transaction (signup_legal_identity_seed, migration 20261128090000) and confirmed (SIGNUP): read back
+  //      as the owner, it is exactly what was typed (canonical), for that business only, and locked.
+  {
+    const profileOf = async (businessId: number) =>
+      owner.businessProfile.findUnique({
+        where: { businessId },
+        select: { billingBusinessKind: true, billingLegalName: true, billingTaxId: true, billingAddress: true, billingPhone: true,
+                  billingEmail: true, legalIdentitySource: true, legalIdentityConfirmedAt: true },
+      });
+    const bizA = bodyA.user?.businessId ?? -1;
+    const bizB = bodyB.user?.businessId ?? -1;
+    const pA = await profileOf(bizA);
+    ok("signup wrote the legal identity into the new business's profile (real route, account transaction)",
+      pA?.billingBusinessKind === "AUTHORIZED_DEALER" && pA?.billingLegalName === "דנה כהן" && pA?.billingTaxId === "000000018"
+        && pA?.billingAddress === "הרצל 1, תל אביב" && pA?.billingPhone === "0501234567" && pA?.billingEmail === "biz@lab.invalid",
+      JSON.stringify(pA));
+    ok("...confirmed at signup (legalIdentitySource SIGNUP)", pA?.legalIdentitySource === "SIGNUP" && pA?.legalIdentityConfirmedAt instanceof Date);
+    const pB = await profileOf(bizB);
+    ok("...and the other new business has its own confirmed profile", pB?.legalIdentitySource === "SIGNUP" && bizA !== bizB);
+    const shown = await owner.business.findUnique({ where: { id: bizA }, select: { name: true } });
+    ok("the trade name (legacy businessName) is the name the app shows", shown?.name === "עסק א", String(shown?.name));
+    // An invalid identity never reaches the database and leaves no account behind.
+    const badEmail = `bad-identity-${Date.now()}@lab.invalid`;
+    const bad = await registerRoute.POST(new Request("https://lab.invalid/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": `198.51.100.${++ipSeq}` },
+      body: JSON.stringify({ email: badEmail, password: PASSWORD, name: "בעלת עסק", businessKind: "AUTHORIZED_DEALER",
+        legalName: "דנה כהן", taxId: "123456789", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", acceptTerms: true }),
+    }));
+    const badBody = (await bad.json()) as { field?: string };
+    ok("an invalid tax id is 400 on taxId and leaves no account", bad.status === 400 && badBody.field === "taxId"
+      && (await owner.user.count({ where: { email: badEmail } })) === 0);
+  }
 
   const tokenA = bodyA.token ?? "";
   const tokenB = bodyB.token ?? "";
@@ -744,7 +807,7 @@ async function main() {
       new Request("https://lab.invalid/api/auth/register", {
         method: "POST",
         headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.250" },
-        body: JSON.stringify({ email: `noconsent-${Date.now()}@lab.invalid`, password: PASSWORD, name: "x y", businessName: "עסק" }),
+        body: JSON.stringify({ email: `noconsent-${Date.now()}@lab.invalid`, password: PASSWORD, name: "x y", businessName: "עסק", businessKind: "AUTHORIZED_DEALER", legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid" }),
       })
     );
     ok("no consent → 400 and nothing created", noConsent.status === 400 && (await businessCount()) === before);

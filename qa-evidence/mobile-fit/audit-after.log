@@ -1,0 +1,72 @@
+ok   secretary-w320-z100-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w320-z100-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w320-z100-fallback-full  ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w320-z100-fallback-empty ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+FAIL secretary-w320-z200-loaded-full    ox=0 broken=[] clipped=0 spill=["SPAN.vAOGw:לוח שנה (-6…-98) in lLTU0","SPAN.yueP:מועדים ותכנון (-5…-97) in lLTU0","A.2vl52:לוח שנה מלא (-16…-98) in P32J3","A.8YPUf:ג׳10 (-16…-102) in P32J3","SPAN.FDm5Q:10 (-6…-112) in P32J3","A.8YPUf:ו׳13 (-16…-102) in P32J3"] covered=[] reach=ok
+FAIL secretary-w320-z200-loaded-empty   ox=0 broken=[] clipped=0 spill=["SPAN.vAOGw:לוח שנה (-6…-98) in lLTU0","SPAN.yueP:מועדים ותכנון (-5…-97) in lLTU0","A.2vl52:לוח שנה מלא (-16…-98) in P32J3","A.8YPUf:ג׳10 (-16…-102) in P32J3","SPAN.FDm5Q:10 (-6…-112) in P32J3","A.8YPUf:ו׳13 (-16…-102) in P32J3"] covered=[] reach=ok
+FAIL secretary-w320-z200-fallback-full  ox=0 broken=[] clipped=0 spill=["SPAN.vAOGw:לוח שנה (-10…-98) in lLTU0","SPAN.yueP:מועדים ותכנון (-9…-97) in lLTU0","A.2vl52:לוח שנה מלא (-8…-93) in P32J3","A.8YPUf:ג׳10 (-8…-97) in P32J3","A.8YPUf:ו׳13 (-8…-97) in P32J3"] covered=[] reach=ok
+FAIL secretary-w320-z200-fallback-empty ox=0 broken=[] clipped=0 spill=["SPAN.vAOGw:לוח שנה (-10…-98) in lLTU0","SPAN.yueP:מועדים ותכנון (-9…-97) in lLTU0","A.2vl52:לוח שנה מלא (-8…-93) in P32J3","A.8YPUf:ג׳10 (-8…-97) in P32J3","A.8YPUf:ו׳13 (-8…-97) in P32J3"] covered=[] reach=ok
+ok   secretary-w360-z100-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w360-z100-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w360-z100-fallback-full  ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w360-z100-fallback-empty ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w360-z200-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w360-z200-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+FAIL secretary-w360-z200-fallback-full  ox=0 broken=[] clipped=0 spill=["SPAN.vAOGw:לוח שנה (-3…-112) in lLTU0","SPAN.yueP:מועדים ותכנון (-2…-111) in lLTU0"] covered=[] reach=ok
+FAIL secretary-w360-z200-fallback-empty ox=0 broken=[] clipped=0 spill=["SPAN.vAOGw:לוח שנה (-3…-112) in lLTU0","SPAN.yueP:מועדים ותכנון (-2…-111) in lLTU0"] covered=[] reach=ok
+ok   secretary-w375-z100-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w375-z100-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w375-z100-fallback-full  ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w375-z100-fallback-empty ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w375-z200-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w375-z200-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w375-z200-fallback-full  ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w375-z200-fallback-empty ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w390-z100-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w390-z100-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w390-z100-fallback-full  ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w390-z100-fallback-empty ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w390-z200-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w390-z200-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w390-z200-fallback-full  ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w390-z200-fallback-empty ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w412-z100-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w412-z100-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w412-z100-fallback-full  ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w412-z100-fallback-empty ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w412-z200-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w412-z200-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w412-z200-fallback-full  ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w412-z200-fallback-empty ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w430-z100-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w430-z100-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w430-z100-fallback-full  ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w430-z100-fallback-empty ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w430-z200-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w430-z200-loaded-empty   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w430-z200-fallback-full  ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w430-z200-fallback-empty ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w320-z100-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w320-z100-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+FAIL home-w320-z200-loaded-full         ox=0 broken=[] clipped=0 spill=["A.A: (-8…-124) in dzh-root","OFFSCREEN A:","A.dzh-link:הצג הכל (-5…-83) in SECTION"] covered=[] reach=ok
+FAIL home-w320-z200-fallback-full       ox=0 broken=[] clipped=0 spill=["A.A: (-8…-124) in dzh-root","OFFSCREEN A:","A.dzh-link:הצג הכל (-1…-81) in SECTION"] covered=[] reach=ok
+ok   home-w360-z100-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w360-z100-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w360-z200-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w360-z200-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w375-z100-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w375-z100-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w375-z200-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w375-z200-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w390-z100-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w390-z100-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w390-z200-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w390-z200-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w412-z100-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w412-z100-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w412-z200-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w412-z200-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w430-z100-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w430-z100-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w430-z200-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w430-z200-fallback-full       ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok

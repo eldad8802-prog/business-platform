@@ -4,6 +4,8 @@
  *   E  business_documents ON, exempt dealer, complete identity
  *   I  business_documents ON, identity incomplete (the existing identity gate must open)
  *   B  no override (default OFF), complete identity, one customer
+ *   X  no override (default OFF), exempt dealer, complete identity — the tax-invoice entries show a notice
+ *   U  no override (default OFF), kind unknown, identity incomplete — declares itself exempt in the identity gate
  * Writes tokens and ids to $SEED_OUT.  env: OWNER_URL, AUTH_TOKEN_SECRET, SEED_OUT.
  */
 import { writeFileSync } from "node:fs";
@@ -37,6 +39,8 @@ async function main() {
     E: await make("E", { on: true, kind: "EXEMPT_DEALER", complete: true }),
     I: await make("I", { on: true, kind: null, complete: false }),
     B: await make("B", { on: false, kind: "AUTHORIZED_DEALER", complete: true }),
+    X: await make("X", { on: false, kind: "EXEMPT_DEALER", complete: true }),
+    U: await make("U", { on: false, kind: null, complete: false }),
   };
   writeFileSync(process.env.SEED_OUT!, JSON.stringify(out, null, 2));
   console.log(`seeded: ${Object.entries(out).map(([k, v]) => `${k}=${v.businessId}`).join(" ")}`);

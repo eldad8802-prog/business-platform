@@ -13,6 +13,14 @@
  * all is decided earlier, in the route.
  */
 
+import {
+  LegalIdentityValidationError,
+  displayNameFor,
+  normalizeLegalIdentity,
+  type LegalIdentityField,
+  type NormalizedLegalIdentity,
+} from "./signup-legal-identity";
+
 // Applies to NEW passwords only. Login never re-validates length, so an existing
 // owner with a shorter password is not locked out by this rule.
 export const MIN_PASSWORD_LENGTH = 8;
@@ -28,11 +36,28 @@ export const MAX_NAME_LENGTH = 120;
  */
 export const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export type SignupInput = {
+/**
+ * The business's legal identity (./signup-legal-identity.ts), required at signup since 2026-11-12. `tradeName`
+ * is optional; the legacy `businessName` field is read as the trade name when `tradeName` is absent, so a client
+ * cached from before this change gets a precise field error rather than a silent rename.
+ */
+export type SignupLegalIdentityInput = {
+  legalName?: unknown;
+  taxId?: unknown;
+  tradeName?: unknown;
+  address?: unknown;
+  phone?: unknown;
+  businessEmail?: unknown;
+  /** Legacy: the single "business name" field. Read as the trade name. */
+  businessName?: unknown;
+};
+
+export type SignupInput = SignupLegalIdentityInput & {
   email: unknown;
   password: unknown;
   name: unknown;
-  businessName: unknown;
+  /** One of SIGNUP_BUSINESS_KINDS: the owner's choice of עוסק פטור / עוסק מורשה / חברה בע״מ. */
+  businessKind?: unknown;
   /** Must be exactly `true`: the box was ticked. Anything else is refusal. */
   acceptTerms?: unknown;
   /** Whatever the landing page captured; reduced by normalizeSignupAttribution. */
@@ -53,11 +78,23 @@ export type NormalizedSignup = {
   email: string;
   password: string;
   name: string;
+  /** What the app shows (Business.name): the trade name, else the legal name. */
   businessName: string;
+  businessKind: SignupBusinessKind;
+  legalIdentity: NormalizedLegalIdentity;
   attribution: SignupAttribution | null;
 };
 
-export type SignupField = "email" | "password" | "name" | "businessName" | "acceptTerms";
+/**
+ * The business kinds a new owner chooses from at signup (owner decision 2026-11-11). The same three values
+ * as BillingBusinessKind (lib/billing/business-identity.ts) — kept here so this module stays dependency-free;
+ * the signup suite pins the two lists equal. The choice SEEDS BusinessProfile.billingBusinessKind; it is not
+ * the issuer declaration, which billing confirms separately before the first issuance.
+ */
+export const SIGNUP_BUSINESS_KINDS = ["EXEMPT_DEALER", "AUTHORIZED_DEALER", "LTD_COMPANY"] as const;
+export type SignupBusinessKind = (typeof SIGNUP_BUSINESS_KINDS)[number];
+
+export type SignupField = "email" | "password" | "name" | "businessName" | "businessKind" | "acceptTerms" | LegalIdentityField;
 
 export class SignupValidationError extends Error {
   readonly field: SignupField;
@@ -143,18 +180,29 @@ function checkName(name: unknown): asserts name is string {
   }
 }
 
-function checkBusinessName(businessName: unknown): asserts businessName is string {
-  if (
-    typeof businessName !== "string" ||
-    businessName.trim().length < MIN_NAME_LENGTH
-  ) {
-    throw new SignupValidationError("businessName", "יש להזין שם עסק");
+/**
+ * The legal identity for the chosen kind, or a SignupValidationError naming the field (never the value).
+ * Runs after checkBusinessKind: the labels and rules depend on the kind.
+ */
+function checkLegalIdentity(kind: SignupBusinessKind, input: SignupLegalIdentityInput): NormalizedLegalIdentity {
+  try {
+    return normalizeLegalIdentity(kind, {
+      legalName: input.legalName,
+      taxId: input.taxId,
+      tradeName: input.tradeName ?? input.businessName,
+      address: input.address,
+      phone: input.phone,
+      businessEmail: input.businessEmail,
+    });
+  } catch (error) {
+    if (error instanceof LegalIdentityValidationError) throw new SignupValidationError(error.field, error.message);
+    throw error;
   }
-  if (businessName.trim().length > MAX_BUSINESS_NAME_LENGTH) {
-    throw new SignupValidationError(
-      "businessName",
-      `שם העסק ארוך מדי (עד ${MAX_BUSINESS_NAME_LENGTH} תווים)`
-    );
+}
+
+function checkBusinessKind(businessKind: unknown): asserts businessKind is SignupBusinessKind {
+  if (typeof businessKind !== "string" || !(SIGNUP_BUSINESS_KINDS as readonly string[]).includes(businessKind)) {
+    throw new SignupValidationError("businessKind", "יש לבחור את סוג העסק: עוסק פטור, עוסק מורשה או חברה בע״מ");
   }
 }
 
@@ -166,11 +214,12 @@ function checkTerms(acceptTerms: unknown): void {
 }
 
 export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
-  const { email, password, name, businessName, acceptTerms, attribution } =
+  const { email, password, name, businessKind, acceptTerms, attribution } =
     input ?? ({} as SignupInput);
 
   checkName(name);
-  checkBusinessName(businessName);
+  checkBusinessKind(businessKind);
+  const legalIdentity = checkLegalIdentity(businessKind, input);
 
   if (typeof email !== "string" || !EMAIL_SHAPE.test(email.trim())) {
     throw new SignupValidationError("email", "יש להזין כתובת אימייל תקינה");
@@ -192,23 +241,44 @@ export function normalizeSignupInput(input: SignupInput): NormalizedSignup {
     email: normalizeEmail(email),
     password,
     name: name.trim(),
-    businessName: businessName.trim(),
+    businessName: displayNameFor(legalIdentity),
+    businessKind,
+    legalIdentity,
     attribution: normalizeSignupAttribution(attribution),
   };
 }
 
-export type GoogleSignupInput = { name: unknown; businessName: unknown; acceptTerms: unknown; attribution?: unknown };
-export type NormalizedGoogleSignup = { name: string; businessName: string; attribution: SignupAttribution | null };
+export type GoogleSignupInput = SignupLegalIdentityInput & {
+  name: unknown;
+  businessKind?: unknown;
+  acceptTerms: unknown;
+  attribution?: unknown;
+};
+export type NormalizedGoogleSignup = {
+  name: string;
+  businessName: string;
+  businessKind: SignupBusinessKind;
+  legalIdentity: NormalizedLegalIdentity;
+  attribution: SignupAttribution | null;
+};
 
 /**
- * The Google completion form: the same rules as signup for every field it shares (name, business name,
- * consent). There is no address field — the address is the provider-verified one on the ticket — and no
- * password: an account opened with Google has none until its owner sets one.
+ * The Google completion form: the same rules as signup for every field it shares (name, business kind, legal
+ * identity, consent). The LOGIN address is the provider-verified one on the ticket and there is no password —
+ * an account opened with Google has none until its owner sets one. The business email is the business's
+ * contact address (prefilled with the Google address by the form) and is validated like any other.
  */
 export function normalizeGoogleSignupInput(input: GoogleSignupInput): NormalizedGoogleSignup {
-  const { name, businessName, acceptTerms, attribution } = input ?? ({} as GoogleSignupInput);
+  const { name, businessKind, acceptTerms, attribution } = input ?? ({} as GoogleSignupInput);
   checkName(name);
-  checkBusinessName(businessName);
+  checkBusinessKind(businessKind);
+  const legalIdentity = checkLegalIdentity(businessKind, input);
   checkTerms(acceptTerms);
-  return { name: name.trim(), businessName: businessName.trim(), attribution: normalizeSignupAttribution(attribution) };
+  return {
+    name: name.trim(),
+    businessName: displayNameFor(legalIdentity),
+    businessKind,
+    legalIdentity,
+    attribution: normalizeSignupAttribution(attribution),
+  };
 }

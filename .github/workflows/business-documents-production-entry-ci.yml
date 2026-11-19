@@ -11,6 +11,7 @@ on:
       - "app/billing/page.tsx"
       - "components/customers/CustomerCard.tsx"
       - "features/business-documents/document-production-*"
+      - "features/business-documents/use-business-kind.ts"
       - "lib/i18n/messages/areas/billing*.ts"
       - "lib/i18n/messages/areas/customers*.ts"
       - ".business-documents/production-entry-ui-*"

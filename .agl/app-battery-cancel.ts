@@ -117,7 +117,7 @@ async function complete(ticket: string, businessName: string, deps: CompleteDeps
   const res = await handleGoogleComplete(new Request("https://app.dubiz.test/api/auth/google/complete", {
     method: "POST",
     headers: { "content-type": "application/json", ...browserHeaders(ticket) },
-    body: JSON.stringify({ name: "דנה כהן", businessName, acceptTerms: true }),
+    body: JSON.stringify({ name: "דנה כהן", businessName, businessKind: "AUTHORIZED_DEALER", legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", acceptTerms: true }),
   }), deps);
   return { status: res.status, body: (await res.json().catch(() => ({}))) as Record<string, unknown> };
 }

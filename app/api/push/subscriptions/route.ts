@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentUser } from "@/lib/auth";
+import { getAuthContext, getCurrentUser } from "@/lib/auth";
 import { isAllowedPushEndpoint, pushConfigured, vapidConfig } from "@/lib/push/web-push-sender";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { dailyTasksEnabled } from "@/lib/services/tasks/tasks-http";
@@ -16,6 +16,8 @@ const B64URL = /^[A-Za-z0-9_-]+$/;
  * POST — this browser accepted push: store (or revive) its subscription for the session's user and business.
  *   Body: { endpoint, keys: { p256dh, auth }, platform }. The endpoint must be a known browser push service
  *   (no arbitrary host is ever called by the server). The business and the user come from the session only.
+ *   The subscription is bound to the request's login session (authSessionId = the access token's sid; NULL for a
+ *   token without one): the notification engine never pushes to a browser whose session has ended.
  */
 export async function GET(req: Request) {
   const user = await getCurrentUser(req);
@@ -28,8 +30,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const user = await getCurrentUser(req);
+    const ctx = await getAuthContext(req);
+    const user = ctx?.user ?? null;
     if (!user?.businessId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const authSessionId = ctx?.sessionId ?? null;
     // Push serves task reminders only: while daily_tasks is off for the business, it does not exist.
     if (!(await dailyTasksEnabled(user.businessId))) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (!pushConfigured()) return NextResponse.json({ error: "PUSH_NOT_CONFIGURED" }, { status: 503 });
@@ -47,11 +51,11 @@ export async function POST(req: Request) {
       if (existing) {
         return tx.pushSubscription.update({
           where: { id: existing.id },
-          data: { userId: user.id, p256dh, auth, platform, revokedAt: null, failureCount: 0 },
+          data: { userId: user.id, p256dh, auth, platform, revokedAt: null, revokedReason: null, failureCount: 0, authSessionId },
           select: { id: true },
         });
       }
-      return tx.pushSubscription.create({ data: { businessId, userId: user.id, endpoint, p256dh, auth, platform, updatedAt: now }, select: { id: true } });
+      return tx.pushSubscription.create({ data: { businessId, userId: user.id, endpoint, p256dh, auth, platform, updatedAt: now, authSessionId }, select: { id: true } });
     });
     return NextResponse.json({ ok: true, id: row.id }, { status: 201 });
   } catch {

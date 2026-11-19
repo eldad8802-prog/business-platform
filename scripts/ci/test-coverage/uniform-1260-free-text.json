@@ -1,0 +1,9 @@
+{
+  "note": "Uniform export field 1260 (D110 line description, alpha 30): free text normalised so a newline / tab / control character can never break a fixed-width record; plain descriptions stay byte-identical. Prepared for focused A0 review, 2026-11-11. Run by billing-a0-characterization-ci.yml with a negative proof.",
+  "tests": {
+    "lib/services/billing/uniform/uniform-1260-free-text.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): before/after samples (Hebrew, LF, CRLF, TAB, niqqud, maqaf, RLM, emoji, long text), 30 bytes each, plain text byte-identical; end to end the built BKMVDATA keeps one D110 record per line"
+    }
+  }
+}

@@ -120,13 +120,32 @@ export function generateLocalLineKey(): string {
   return `n-local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function newEmptyLocalLine(): LocalLine {
+/**
+ * Israel's standard VAT rate by date (חוק מע"מ, סעיף 2 and the rate orders): 17% until 31.12.2024, 18% from 1.1.2025.
+ * Newest first; a date before every entry falls back to the oldest rate listed.
+ */
+const STANDARD_VAT_RATES: readonly { from: string; percent: string }[] = [
+  { from: "2025-01-01", percent: "18" },
+  { from: "2015-10-01", percent: "17" },
+];
+
+/** The standard rate in force on `date` (Israel time), as the percent string a line carries. */
+export function standardVatRatePercent(date: Date = new Date()): string {
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+  return (STANDARD_VAT_RATES.find((r) => day >= r.from) ?? STANDARD_VAT_RATES[STANDARD_VAT_RATES.length - 1]).percent;
+}
+
+/**
+ * A new draft line. Its VAT default is the standard rate in force today — never a hard-coded rate — and 0 for an
+ * exempt dealer, who charges no VAT (s.31(3)). The server still validates every line; this is only the default.
+ */
+export function newEmptyLocalLine(options: { businessKind?: string | null; today?: Date } = {}): LocalLine {
   return {
     key: generateLocalLineKey(),
     description: "",
     quantity: "1",
     unitPrice: "0",
-    vatRatePercent: "17",
+    vatRatePercent: options.businessKind === "EXEMPT_DEALER" ? "0" : standardVatRatePercent(options.today),
   };
 }
 

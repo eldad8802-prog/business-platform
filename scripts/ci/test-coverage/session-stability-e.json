@@ -1,0 +1,15 @@
+{
+  "note": "Session stability PR-E (owner-approved 2026-11-10): one decision for a refused session (refresh once, or leave for /login with the page hidden), the session coordinator on every authenticated screen, no token removal outside the auth modules.",
+  "tests": {
+    "lib/auth/session-guard.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network; real refresh client underneath): 401 → recovered (a read retried once, a write never re-run) | ended by the server (token/user/sessionId cleared, page hidden, /login, no loop on /login, pending-revoke marker kept) | transient (offline/429/500: nothing cleared, no navigation); loop guard (no second refresh for a just-recovered token); 3 concurrent 401s → one refresh; no token + live cookie → reload; also run by auth-plane-write-ci.yml"
+    },
+    "lib/auth/session-guard-coverage.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure source lock: only lib/client-session.ts, lib/auth/refresh-client.ts and lib/auth/session-guard.ts remove the token; every token-reading app page is under the session coordinator (ShellChrome / RefreshCoordinator) or on the explicit public allowlist; the coordinator is mounted by ShellChrome and the admin console; also run by auth-plane-write-ci.yml"
+    }
+  }
+}

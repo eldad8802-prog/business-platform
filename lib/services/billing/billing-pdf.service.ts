@@ -22,6 +22,7 @@ import {
   BillingPdfRenderStatus,
 } from "@prisma/client";
 import {
+  AppError,
   ForbiddenError,
   NotFoundError,
   UnauthorizedError,
@@ -33,7 +34,9 @@ import { logAuditEvent } from "@/lib/services/audit.service";
 import { createBillingAuditEventBestEffort } from "@/lib/services/billing/billing-audit.service";
 import { deriveAllocationNumber } from "@/lib/services/billing/billing-allocation-number";
 import { renderBillingPdfHtmlFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
+import type { PdfReceiptPayment } from "@/lib/services/billing/pdf/billing-pdf-html-template";
 import { renderBillingPdfFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-renderer";
+import { RECEIPT_CURRENT_HTML_TEMPLATE_VERSION } from "@/lib/services/billing/pdf/receipt-template-version";
 import {
   assertSnapshotV1,
   BILLING_PDF_TEMPLATE_VERSION,
@@ -84,6 +87,38 @@ function billingPdfDebugEnabled(): boolean {
  */
 function billingPdfSkipCache(): boolean {
   return process.env.BILLING_PDF_SKIP_CACHE === "1";
+}
+
+/**
+ * Owner decision 2026-11-12: an issued receipt is NOT re-rendered automatically — the PDF produced for it stays exactly
+ * as it was, also after a template change (#1108). Once a receipt's PDF has been produced (RENDERED, with a storage key
+ * and a hash), it is served from storage only: whatever its template version, and never replaced by a fresh render when
+ * the stored file is missing, unreadable or does not match its hash (the request is refused instead, nothing is written).
+ * A receipt that never got a PDF (PENDING / FAILED) is rendered for the first time with the current template.
+ * `BILLING_PDF_SKIP_CACHE=1` stays an explicit operator/debug override.
+ */
+export const RECEIPT_STORED_PDF_UNAVAILABLE_CODE = "RECEIPT_STORED_PDF_UNAVAILABLE" as const;
+
+export function isFrozenReceiptPdf(doc: {
+  documentType: string;
+  pdfRenderStatus: BillingPdfRenderStatus | string | null;
+  pdfStorageKey: string | null;
+  pdfHash: string | null;
+}): boolean {
+  return (
+    doc.documentType === "RECEIPT" &&
+    doc.pdfRenderStatus === BillingPdfRenderStatus.RENDERED &&
+    typeof doc.pdfStorageKey === "string" && doc.pdfStorageKey.length > 0 &&
+    typeof doc.pdfHash === "string" && doc.pdfHash.length > 0
+  );
+}
+
+function storedReceiptPdfUnavailable(): AppError {
+  return new AppError(
+    "קובץ ה-PDF המקורי של הקבלה אינו זמין כרגע. הקבלה עצמה רשומה ולא השתנתה, ולא יופק במקומה מסמך אחר. נסו שוב בעוד כמה דקות; אם זה חוזר — פנו לתמיכה לשחזור המקור המאומת.",
+    503,
+    RECEIPT_STORED_PDF_UNAVAILABLE_CODE
+  );
 }
 
 export type GetOrRenderBillingPdfInput = {
@@ -164,6 +199,15 @@ export async function getOrRenderBillingPdf(
           heldDecisionReportedAt: true,
         },
       },
+      // A receipt's payment lines (method, amount, date, details) for its PDF. They are not in the frozen
+      // snapshot; the rows are fiscally immutable once the receipt is issued (secf_fiscal_immutable).
+      receiptPayments: {
+        orderBy: { lineIndex: "asc" },
+        select: {
+          method: true, amount: true, currency: true, paymentDate: true, bankName: true, bankBranch: true,
+          bankAccountNumber: true, checkNumber: true, checkDueDate: true, cardBrand: true, cardLast4: true, reference: true,
+        },
+      },
     },
   })
   );
@@ -232,7 +276,12 @@ export async function getOrRenderBillingPdf(
   }
 
   const documentNumberFormatted = doc.documentNumberFormatted;
-  const effectivePdfTemplateVersion = billingPdfTemplateVersionForRenderer();
+  // A receipt produced by today's HTML template records its own version, so every produced receipt PDF names the template
+  // that made it (controlled restore relies on it). Other types and the pdfmake renderer keep their version unchanged.
+  const effectivePdfTemplateVersion =
+    doc.documentType === "RECEIPT" && shouldUseHtmlBillingPdfRenderer()
+      ? RECEIPT_CURRENT_HTML_TEMPLATE_VERSION
+      : billingPdfTemplateVersionForRenderer();
 
   const firstLineDescription =
     snapshot.lines.length > 0 ? snapshot.lines[0].description : "(no lines)";
@@ -264,6 +313,10 @@ export async function getOrRenderBillingPdf(
     doc.pdfHash.length > 0 &&
     doc.pdfTemplateVersion === effectivePdfTemplateVersion;
 
+  // An issued receipt's produced PDF is frozen (see isFrozenReceiptPdf): served whatever its template version.
+  const frozenReceipt = isFrozenReceiptPdf(doc) && !billingPdfSkipCache();
+  if (frozenReceipt) cacheCandidate = true;
+
   if (billingPdfSkipCache()) {
     cacheCandidate = false;
     if (billingPdfDebugEnabled()) {
@@ -285,6 +338,11 @@ export async function getOrRenderBillingPdf(
     if (fileExists) {
       try {
         const buffer = await readByKey(storageKey);
+        if (frozenReceipt && sha256Hex(buffer) !== pdfHash) {
+          // never serve altered bytes, and never replace them with a fresh render
+          console.error("billing-pdf: stored receipt PDF does not match its hash", { billingDocumentId: doc.id, businessId: input.businessId });
+          throw storedReceiptPdfUnavailable();
+        }
         if (billingPdfDebugEnabled()) {
           console.log("[billing-pdf-debug] CACHE_HIT — returning bytes from storage (no renderer)", {
             billingDocumentId: doc.id,
@@ -298,14 +356,23 @@ export async function getOrRenderBillingPdf(
         return {
           buffer,
           pdfHash,
-          pdfTemplateVersion: effectivePdfTemplateVersion,
+          // a frozen receipt reports the version it was actually produced with
+          pdfTemplateVersion: frozenReceipt ? (doc.pdfTemplateVersion ?? effectivePdfTemplateVersion) : effectivePdfTemplateVersion,
           documentNumberFormatted,
           renderedNow: false,
         };
-      } catch {
+      } catch (readError) {
+        if (frozenReceipt) {
+          throw readError instanceof AppError ? readError : storedReceiptPdfUnavailable();
+        }
         // Fall through to a fresh render if the cached file became
         // unreadable between the existence check and the actual read.
       }
+    }
+    if (frozenReceipt) {
+      // stored file missing (or the storage check failed): refuse — an issued receipt's PDF is never re-rendered
+      console.error("billing-pdf: stored receipt PDF unavailable; not re-rendering", { billingDocumentId: doc.id, businessId: input.businessId });
+      throw storedReceiptPdfUnavailable();
     }
     // file missing or unreadable → fall through to render
   }
@@ -326,8 +393,16 @@ export async function getOrRenderBillingPdf(
           : "renderBillingPdfFromSnapshot (pdfmake)",
       });
     }
+    const receiptPayments: PdfReceiptPayment[] = doc.documentType === "RECEIPT"
+      ? doc.receiptPayments.map((p) => ({
+          method: p.method, amount: p.amount.toFixed(2), currency: p.currency, paymentDate: p.paymentDate.toISOString(),
+          bankName: p.bankName, bankBranch: p.bankBranch, bankAccountNumber: p.bankAccountNumber, checkNumber: p.checkNumber,
+          checkDueDate: p.checkDueDate ? p.checkDueDate.toISOString() : null, cardBrand: p.cardBrand, cardLast4: p.cardLast4,
+          reference: p.reference,
+        }))
+      : [];
     buffer = shouldUseHtmlBillingPdfRenderer()
-      ? await renderBillingPdfHtmlFromSnapshot(snapshot)
+      ? await renderBillingPdfHtmlFromSnapshot(snapshot, receiptPayments)
       : await renderBillingPdfFromSnapshot(snapshot);
     if (!buffer || buffer.length === 0) {
       throw new Error("Renderer produced empty buffer");
@@ -396,6 +471,13 @@ export async function getOrRenderBillingPdf(
       console.error("billing-pdf: audit log (FAILED) error", auditErr);
     }
     throw renderError;
+  }
+
+  // A frozen receipt reaches the renderer only through the explicit BILLING_PDF_SKIP_CACHE override: the fresh bytes are
+  // returned for inspection, but its recorded PDF (row + stored object) is never replaced.
+  if (isFrozenReceiptPdf(doc)) {
+    if (storageKey !== doc.pdfStorageKey) await unlinkByKeyQuiet(storageKey);
+    return { buffer, pdfHash, pdfTemplateVersion: effectivePdfTemplateVersion, documentNumberFormatted, renderedNow: true };
   }
 
   // ---------------------------------------------------------------------

@@ -1,0 +1,167 @@
+/**
+ * Styles of the "הפקת מסמך" list (owner-approved compact design, 2026-11-11). Rendered as a <style> element inside
+ * the open list only, so the invoices page loads no extra stylesheet or chunk for it (its server HTML stays unchanged).
+ * Class names are prefixed dz-dps- (document production sheet) to stay unique.
+ */
+export const PRODUCTION_SHEET_CSS = `
+/*
+ * "הפקת מסמך" — the compact document-type list (owner-approved design, 2026-11-11): rows of icon + document name +
+ * a short explanation, no row arrows, no per-document group headings, a clear close button. On a phone (< 768px)
+ * the dimmed backdrop covers the whole screen, the bottom navigation bar included (it is not visible or tappable
+ * while the panel is open), and the panel rises from the bottom over the bar with a safe bottom margin. On wider
+ * screens it is a centered dialog. The page behind does not scroll while it is open (the component locks it).
+ */
+.dz-dps-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 130; /* above the bottom bar (100, components/navigation/bottom-bar.tsx) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(35, 48, 43, 0.45);
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+
+.dz-dps-panel {
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  border-radius: 18px;
+  box-shadow: 0 18px 48px rgba(17, 24, 39, 0.18);
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* phone: the panel rises from the bottom, over the bottom bar, with a safe margin below it */
+@media (max-width: 767px) {
+  .dz-dps-backdrop {
+    align-items: flex-end;
+    padding: 12px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  .dz-dps-panel {
+    max-width: none;
+    max-height: calc(100dvh - 22px - env(safe-area-inset-bottom, 0px) - env(safe-area-inset-top, 0px));
+  }
+}
+
+.dz-dps-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dz-dps-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.dz-dps-subtitle {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  opacity: 0.72;
+}
+
+.dz-dps-close {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: inherit;
+}
+.dz-dps-close:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.dz-dps-list {
+  display: grid;
+  gap: 0;
+}
+
+.dz-dps-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 9px 10px;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  text-decoration: none;
+  font: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+/* a fine divider between rows (none above the first) */
+.dz-dps-row + .dz-dps-row {
+  border-top: 1px solid rgba(17, 24, 39, 0.08);
+}
+.dz-dps-row:hover {
+  background: rgba(17, 24, 39, 0.04);
+}
+.dz-dps-row:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+.dz-dps-icon {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(31, 107, 92, 0.1);
+  color: #1f6b5c;
+}
+
+.dz-dps-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dz-dps-name {
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.dz-dps-help {
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.72;
+  overflow-wrap: anywhere;
+}
+
+.dz-dps-foot {
+  text-align: center;
+  font-size: 12.5px;
+  padding: 4px 0 2px;
+  color: inherit;
+  opacity: 0.8;
+}
+`;

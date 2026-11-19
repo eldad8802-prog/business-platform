@@ -6,43 +6,16 @@
  * the invoices screen, which runs its own create flow (identity gate, draft) exactly as before.
  */
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { IconBox, IconFileCheck, IconMail, IconReceipt } from "@/components/navigation/nav-icons";
 import { TOKEN } from "@/lib/design/billing-theme";
 
-import {
-  groupedProductionOptions,
-  productionOptions,
-  type ProductionBusinessKind,
-} from "./document-production-model";
-
-function getAuthToken(): string {
-  if (typeof window === "undefined") return "1";
-  return localStorage.getItem("token") || "1";
-}
-
-/** The business kind from the existing invoice profile route (read only); unknown → null. */
-function useBusinessKind(): ProductionBusinessKind {
-  const [kind, setKind] = useState<ProductionBusinessKind>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/billing/invoice-profile", { headers: { Authorization: `Bearer ${getAuthToken()}` }, cache: "no-store" });
-        if (!res.ok) return;
-        const raw = (await res.json())?.profile?.billingBusinessKind;
-        if (!cancelled && (raw === "EXEMPT_DEALER" || raw === "AUTHORIZED_DEALER" || raw === "LTD_COMPANY")) setKind(raw);
-      } catch {
-        /* unknown kind: the list shows what the screen shows today */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return kind;
-}
+import { productionOptions, type ProductionOption } from "./document-production-model";
+import { PRODUCTION_SHEET_CSS } from "./document-production-sheet-styles";
+import { useBusinessKind } from "./use-business-kind";
 
 export function DocumentProductionSheet({
   customerName,
@@ -54,74 +27,126 @@ export function DocumentProductionSheet({
   onBillingDocument: (type: "TAX_INVOICE" | "QUOTE") => void;
 }) {
   const { t } = useI18n();
-  const businessKind = useBusinessKind();
-  const groups = groupedProductionOptions(productionOptions({ businessKind }));
+  // undefined (still loading) lists what the screen shows today; the server still refuses an exempt tax invoice
+  const businessKind = useBusinessKind() ?? null;
+  const options = productionOptions({ businessKind });
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
-  const rowStyle = {
-    display: "flex",
-    flexDirection: "column" as const,
-    alignItems: "flex-start",
-    gap: 2,
-    width: "100%",
-    textAlign: "start" as const,
-    padding: "12px 14px",
-    borderRadius: 14,
-    border: `1px solid ${TOKEN.border.DEFAULT}`,
-    background: TOKEN.surface.card,
-    color: TOKEN.ink.primary,
-    textDecoration: "none",
-    cursor: "pointer",
-    font: "inherit",
-    boxSizing: "border-box" as const,
+  // While open: the page behind does not scroll, focus starts on the close button and stays inside the panel
+  // (Tab / Shift+Tab wrap, Escape closes); on close, focus goes back to the button that opened the panel.
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    const html = document.documentElement;
+    const prev = { body: document.body.style.overflow, html: html.style.overflow };
+    document.body.style.overflow = "hidden";
+    html.style.overflow = "hidden";
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !panelRef.current) return;
+      const items = [...panelRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      } else if (!panelRef.current.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev.body;
+      html.style.overflow = prev.html;
+      const back = opener && document.contains(opener) ? opener : document.querySelector<HTMLElement>('[data-testid="document-production-button"]');
+      back?.focus();
+    };
+  }, []);
+
+  const iconFor: Record<ProductionOption["key"], ReactNode> = {
+    TAX_INVOICE: <IconReceipt size={20} />,
+    QUOTE: <IconFileCheck size={20} />,
+    LETTER: <IconMail size={20} />,
+    SUPPLIER_ORDER: <IconBox size={20} />,
   };
+  const row = (key: ProductionOption["key"]) => (
+    <>
+      <span className="dz-dps-icon" aria-hidden>
+        {iconFor[key]}
+      </span>
+      <span className="dz-dps-text">
+        <span className="dz-dps-name">{t(`billing.production.option.${key}.title`)}</span>
+        <span className="dz-dps-help" style={{ color: TOKEN.ink.secondary }}>
+          {t(`billing.production.option.${key}.help`)}
+        </span>
+      </span>
+    </>
+  );
 
-  return (
+  // rendered into <body>: the page content is its own stacking context (shell-content, z-index 1), under the fixed
+  // bottom bar — inside it the backdrop could not cover the bar
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={t("billing.production.title")}
+      aria-labelledby="document-production-title"
       data-testid="document-production-sheet"
+      className="dz-dps-backdrop"
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(35, 48, 43, 0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 130, padding: 16 }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: "100%", maxWidth: 480, maxHeight: "calc(100dvh - 32px)", overflowY: "auto", background: TOKEN.surface.card, borderRadius: 18, padding: 20, display: "flex", flexDirection: "column", gap: 14, boxShadow: TOKEN.shadow.floating }}
-      >
-        <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: TOKEN.ink.primary }}>{t("billing.production.title")}</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 13, color: TOKEN.ink.muted }}>
-            {customerName ? <><bdi>{t("billing.production.forCustomer", { name: customerName })}</bdi> </> : null}
-            {t("billing.production.chooseType")}
-          </p>
+      <style>{PRODUCTION_SHEET_CSS}</style>
+      <div ref={panelRef} className="dz-dps-panel" style={{ background: TOKEN.surface.card, color: TOKEN.ink.primary }} onClick={(e) => e.stopPropagation()}>
+        <div className="dz-dps-head">
+          <div>
+            <h2 id="document-production-title" className="dz-dps-title">
+              {t("billing.production.title")}
+            </h2>
+            <p className="dz-dps-subtitle">
+              {customerName ? <><bdi>{t("billing.production.forCustomer", { name: customerName })}</bdi> </> : null}
+              {t("billing.production.chooseType")}
+            </p>
+          </div>
+          <button ref={closeRef} type="button" className="dz-dps-close" onClick={onClose} aria-label={t("billing.production.close")} data-testid="document-production-close">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden focusable="false">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
         </div>
 
-        {groups.map((g) => (
-          <section key={g.group} style={{ display: "grid", gap: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.muted }}>{t(`billing.production.group.${g.group}`)}</div>
-            {g.options.map((o) =>
-              o.kind === "billing" ? (
-                <button key={o.key} type="button" data-option={o.key} style={rowStyle} onClick={() => onBillingDocument(o.key)}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>{t(`billing.production.option.${o.key}.title`)}</span>
-                  <span style={{ fontSize: 12, color: TOKEN.ink.secondary }}>{t(`billing.production.option.${o.key}.help`)}</span>
-                </button>
-              ) : (
-                <Link key={o.key} href={o.href} data-option={o.key} style={rowStyle}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>{t(`billing.production.option.${o.key}.title`)}</span>
-                  <span style={{ fontSize: 12, color: TOKEN.ink.secondary }}>{t(`billing.production.option.${o.key}.help`)}</span>
-                </Link>
-              )
-            )}
-          </section>
-        ))}
+        <div className="dz-dps-list">
+          {options.map((o) =>
+            o.kind === "billing" ? (
+              <button key={o.key} type="button" data-option={o.key} className="dz-dps-row" onClick={() => onBillingDocument(o.key)}>
+                {row(o.key)}
+              </button>
+            ) : (
+              <Link key={o.key} href={o.href} data-option={o.key} className="dz-dps-row">
+                {row(o.key)}
+              </Link>
+            )
+          )}
+        </div>
 
-        <Link href="/business-documents" style={{ fontSize: 13, color: TOKEN.ink.secondary, textAlign: "center" }}>
+        <Link href="/business-documents" className="dz-dps-foot">
           {t("billing.production.followUp")}
         </Link>
-        <button type="button" onClick={onClose} style={{ border: "none", background: "transparent", color: TOKEN.ink.muted, fontSize: 13, cursor: "pointer", padding: 6 }}>
-          {t("billing.production.close")}
-        </button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
