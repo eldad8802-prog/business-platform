@@ -5,6 +5,7 @@
  */
 import type { Widen } from "../types";
 import type { homeHe } from "./home";
+import { homeV4En } from "./home-v4.en";
 
 export const homeEn: Widen<typeof homeHe> = {
   page: {
@@ -401,4 +402,5 @@ export const homeEn: Widen<typeof homeHe> = {
     loading: "Loading",
     hereNow: "You are here",
   },
+  v4: homeV4En,
 };
