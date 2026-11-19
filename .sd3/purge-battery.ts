@@ -1,14 +1,13 @@
 /**
- * Service Desk 1.3-0 / PR-1 — the REAL account-deletion purge (prismaAccountDeletionStore.purgeOperationalData, the
- * code account deletion runs, unchanged by this PR) on a database where 20261120090000 is applied and the business
- * has rows in the new tables. Proves condition 3.6 of the owner's approval ("does not harm the existing account
- * deletion") and pins the PR-2 gap explicitly:
+ * Service Desk 1.3-0 — the REAL account-deletion purge (prismaAccountDeletionStore.purgeOperationalData, the code
+ * account deletion runs) on a database where 20261120090000 is applied and the business has rows in the new tables.
+ * PR-1 proved it unharmed (condition 3.6) and pinned the gap; PR-2 wires the door, so P3 / P4 now prove the wiring:
  *   P1. the purge succeeds with 1.3-0 rows present (no new guard, FK or trigger stands in its way);
  *   P2. the purge's own erasures still run (users anonymised, staff blanked, the 1.2a case scrubbed);
- *   P3. the new rows are NOT scrubbed and no storage-erasure job is opened — PR-1 does not wire the door; PR-2 adds
- *       `SELECT public.service_desk_ui_erase_business()` to the purge. Inert in Production until then: flag OFF, no
- *       code writes the new tables, so no business can have such rows;
- *   P4. the door and the 1.2a erasure run together in one transaction (the PR-2 wiring) and open the job;
+ *   P3. the purge itself scrubs the new rows in place (who acted, the warranty change reason) and opens the durable
+ *       storage-erasure job — service_desk_ui_erase_business() runs in the purge transaction;
+ *   P4. the door re-run by hand changes nothing more (already erased) and the one job stays PENDING_OBJECTS — objects
+ *       are deleted only after commit (.sd3/storage-erasure-battery.ts);
  *   P5. a second purge after the door still succeeds (the job refuses only Service Desk UI writes, never the purge).
  *
  * env: OWNER_URL, DATABASE_URL / DIRECT_URL / AUTH_DATABASE_URL (runtime), AUTH_TOKEN_SECRET. Synthetic only.
@@ -79,17 +78,18 @@ async function main() {
   const kc = (await q(`SELECT "problemDescription" AS p, "erasedAt" IS NOT NULL AS e FROM "ServiceCase" WHERE id = $1`, kase))[0];
   ok("P2 the purge's own erasures still run (user anonymised, staff blanked, 1.2a case scrubbed)",
     !!u && u.email !== `sd3-purge-${biz}@lab.invalid` && st?.d === "" && kc?.p === null && kc?.e === true, JSON.stringify({ u, st, kc }));
-  ok("P3 PR-2 gap pinned: the new rows are not scrubbed and no storage-erasure job is opened by the current purge",
-    await n(`SELECT count(*)::int AS n FROM "ServiceWarrantyOffer" WHERE "businessId" = $1 AND "erasedAt" IS NULL AND "presentedByUserId" IS NOT NULL`, biz) === 1
-    && await n(`SELECT count(*)::int AS n FROM "ServiceStorageErasure" WHERE "businessId" = $1`, biz) === 0);
+  ok("P3 the purge scrubs the new rows in place and opens the storage-erasure job (service_desk_ui_erase_business() wired)",
+    await n(`SELECT count(*)::int AS n FROM "ServiceWarrantyOffer" WHERE "businessId" = $1 AND "erasedAt" IS NOT NULL AND "presentedByUserId" IS NULL AND "createdByUserId" IS NULL`, biz) === 1
+    && await n(`SELECT count(*)::int AS n FROM "ServiceTextVersion" WHERE "businessId" = $1 AND "erasedAt" IS NOT NULL AND "createdByUserId" IS NULL AND "legallyApprovedByUserId" IS NULL`, biz) === 2
+    && await n(`SELECT count(*)::int AS n FROM "ServiceIntakePhoto" WHERE "businessId" = $1 AND "erasedAt" IS NOT NULL AND "createdByUserId" IS NULL`, biz) === 1
+    && await n(`SELECT count(*)::int AS n FROM "ServiceStorageErasure" WHERE "businessId" = $1 AND state = 'PENDING_OBJECTS'`, biz) === 1);
   const r4 = await runtime.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', '${biz}', true)`);
     await tx.$queryRawUnsafe(`SELECT public.service_erase_business() AS n`);
     return Number(((await tx.$queryRawUnsafe(`SELECT public.service_desk_ui_erase_business() AS n`)) as Rows)[0].n);
   }).catch((e: Error) => e.message);
-  ok("P4 the 1.2a erasure and the 1.3-0 door run together in one transaction (6 rows scrubbed, job opened)",
-    r4 === 6 && await n(`SELECT count(*)::int AS n FROM "ServiceStorageErasure" WHERE "businessId" = $1 AND state = 'PENDING_OBJECTS'`, biz) === 1
-    && await n(`SELECT count(*)::int AS n FROM "ServiceWarrantyOffer" WHERE "businessId" = $1 AND "erasedAt" IS NOT NULL AND "presentedByUserId" IS NULL`, biz) === 1, String(r4));
+  ok("P4 the door re-run changes nothing more (0 rows) and the one job stays PENDING_OBJECTS",
+    r4 === 0 && await n(`SELECT count(*)::int AS n FROM "ServiceStorageErasure" WHERE "businessId" = $1 AND state = 'PENDING_OBJECTS'`, biz) === 1, String(r4));
   const r5 = await purge(biz);
   ok("P5 a second purge with the job open still succeeds", r5 === null, String(r5));
 }

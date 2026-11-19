@@ -19,6 +19,8 @@
  * the type does not have to come back through the browser to be known.
  */
 
+import { GMAIL_ROOT_PART_ID } from "@/lib/services/email-import/attachment-key";
+
 export type GmailMessagePart = {
   partId?: string;
   mimeType?: string;
@@ -98,7 +100,7 @@ export type AttachmentResolution =
       part: GmailMessagePart;
       /** The id from THIS fetch of the message — the one to download with. */
       attachmentId: string;
-      matchedBy: "attachment_id" | "part_id";
+      matchedBy: "attachment_id" | "part_id" | "root_part";
     }
   | {
       ok: false;
@@ -113,8 +115,12 @@ export type AttachmentResolution =
  *    message tree — and never by position alone: the part must ALSO carry the
  *    filename and the byte size discovery reported. A missing, repeated or
  *    non-attachment partId, or any disagreement, is refused rather than guessed.
+ * 3. partId GMAIL_ROOT_PART_ID names the top-level payload itself — by object,
+ *    never by string, so it cannot reach a nested part — and only when that
+ *    payload carries the attachment. It needs the filename AND the size, both
+ *    agreeing (2026-11-09 B3-a).
  *
- * The second step exists because the attachment id discovery saw is not
+ * The fallbacks exist because the attachment id discovery saw is not
  * guaranteed to come back identical when import fetches the message again.
  */
 export function resolveAttachmentInMessage(
@@ -129,7 +135,10 @@ export function resolveAttachmentInMessage(
   const partId = ref.partId ?? "";
   if (!partId) return { ok: false, reason: "no_part_id" };
 
-  const matches = collectAttachmentParts(payload).filter((p) => p.partId === partId);
+  if (partId === GMAIL_ROOT_PART_ID) return resolveRootPart(payload, ref);
+
+  // The top-level payload is never matched by string: it has no path of its own.
+  const matches = collectAttachmentParts(payload).filter((p) => p !== payload && p.partId === partId);
   if (matches.length !== 1) return { ok: false, reason: "part_not_found" };
   const part = matches[0];
 
@@ -146,4 +155,25 @@ export function resolveAttachmentInMessage(
 
   // collectAttachmentParts only returns parts that carry an attachment id.
   return { ok: true, part, attachmentId: String(part.body?.attachmentId), matchedBy: "part_id" };
+}
+
+/** Step 3 of resolveAttachmentInMessage: the message's own top-level payload. */
+function resolveRootPart(
+  payload: GmailMessagePart | undefined,
+  ref: AttachmentReference
+): AttachmentResolution {
+  // Not an attachment at the top (the usual multipart message): nothing to name.
+  if (!payload || !collectAttachmentParts(payload).includes(payload)) {
+    return { ok: false, reason: "part_not_found" };
+  }
+
+  const expectedName = ref.filename ?? "";
+  if (expectedName.length === 0 || typeof ref.sizeBytes !== "number") {
+    return { ok: false, reason: "part_unverifiable" };
+  }
+  if (String(payload.filename || "") !== expectedName || payload.body?.size !== ref.sizeBytes) {
+    return { ok: false, reason: "part_mismatch" };
+  }
+
+  return { ok: true, part: payload, attachmentId: String(payload.body?.attachmentId), matchedBy: "root_part" };
 }

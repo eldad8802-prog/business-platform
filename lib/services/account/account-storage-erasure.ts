@@ -22,11 +22,12 @@
  * any insert or commit once Business.deletionRequestedAt / deletedAt is set or a job exists); an upload already in
  * flight is closed by the fence (its object is deleted, or its late create-once put is refused by the marker).
  *
- * A module joins by adding one entry to ACCOUNT_STORAGE_ERASURES (Service Desk 1.3-0's ServiceStorageErasure is
- * designed for the same stage — service_desk_ui_erase_business() in the purge transaction, objects after commit).
+ * A module joins by adding one entry to ACCOUNT_STORAGE_ERASURES (Service Desk 1.3-0 joined as "service-desk":
+ * service_desk_ui_erase_business() in the purge transaction, objects after commit).
  */
 import { prisma } from "@/lib/prisma";
 import { continueBusinessDocumentsErasure } from "@/lib/services/business-documents/erasure/business-docs-erasure";
+import { continueServiceStorageErasure } from "@/lib/services/service-desk/erasure/service-storage-erasure";
 
 export type StorageErasureModule = {
   module: string;
@@ -36,6 +37,10 @@ export type StorageErasureModule = {
 
 export const ACCOUNT_STORAGE_ERASURES: readonly StorageErasureModule[] = [
   { module: "business-documents", resume: (businessId) => continueBusinessDocumentsErasure(businessId) },
+  // Service Desk 1.3-0: service_desk_ui_erase_business() opens the job in the purge transaction; this deletes
+  // biz/{id}/service/, verifies with a fresh listing and records the pass. The job closes (DONE) only on a pass at
+  // least one hour after the deletion request — so the post-commit pass deletes, and a later sweep closes.
+  { module: "service-desk", resume: (businessId) => continueServiceStorageErasure(businessId) },
 ];
 
 export type StorageErasureOutcome = { module: string; done: boolean; error?: string };

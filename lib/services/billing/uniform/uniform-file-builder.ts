@@ -9,6 +9,7 @@
 
 import { randomInt } from "node:crypto";
 import type {
+  UniformBaseDocument,
   UniformCustomer,
   UniformDocumentRecord,
   UniformExportProjection,
@@ -17,6 +18,7 @@ import type {
 } from "@/lib/services/billing/uniform/uniform-export.types";
 import type { UniformSoftwareConfig } from "@/lib/services/billing/uniform/uniform-config";
 import { encodeIso8859_8i } from "@/lib/services/billing/uniform/uniform-encoding";
+import { normalizeFreeText } from "@/lib/services/billing/uniform/uniform-field-format";
 import {
   A000_LAYOUT,
   A100_LAYOUT,
@@ -182,18 +184,19 @@ function c100Values(rec: UniformDocumentRecord, business: { billingTaxId: string
   };
 }
 
-function d110Values(line: UniformLineRecord, docType: string, docNum: string, docDateIso: string | null, business: { billingTaxId: string | null }, recordNumber: number): FieldValues {
+function d110Values(line: UniformLineRecord, docType: string, docNum: string, docDateIso: string | null, business: { billingTaxId: string | null }, recordNumber: number, base: UniformBaseDocument | null): FieldValues {
   return {
     1251: String(recordNumber),
     1252: vat9(business.billingTaxId),
     1253: documentTypeToCode(docType),
     1254: docNum,
     1255: String(line.lineIndex + 1),
-    1256: "",
-    1257: "",
+    // base document (a credit note's source invoice): its appendix-1 code and the number printed on it
+    1256: base ? documentTypeToCode(base.documentType) : "",
+    1257: base ? base.numberPrinted : "",
     1258: "0",
     1259: "",
-    1260: line.description,
+    1260: normalizeFreeText(line.description), // one record, one line: no raw CR / LF / TAB (BKMVDATA structure)
     1261: "",
     1262: "",
     1263: "יחידה",
@@ -359,7 +362,7 @@ export function buildUniformExportFiles(
       recNo += 1;
       bkmv += serializeRecordLine(
         D110_LAYOUT,
-        d110Values(line, doc.documentType, dNum, doc.issuedAt, business, recNo)
+        d110Values(line, doc.documentType, dNum, doc.issuedAt, business, recNo, doc.baseDocument ?? null)
       );
     }
     for (const pay of paymentsByDoc.get(doc.documentId) ?? []) {

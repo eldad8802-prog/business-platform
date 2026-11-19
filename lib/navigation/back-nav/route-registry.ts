@@ -57,6 +57,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/inbox", root: true, identityParams: ["conversationId", "list"] },
   { pattern: "/documents", root: true },
   { pattern: "/notifications", root: true },
+  // HOME v4: "כלים" is a bottom-bar tab — a root, like the other tabs.
+  { pattern: "/tools", root: true },
   { pattern: "/search", root: true },
   { pattern: "/inventory", root: true },
   { pattern: "/leads", root: true },
@@ -69,6 +71,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/tasks", root: true },
   // Appointments milestone B (flag appointments): the calendar; its settings screens return to it.
   { pattern: "/calendar", root: true },
+  // Service Desk UI 1.3a (flag service_desk, off): the module home in «ניהול העסק»; its settings return to it.
+  { pattern: "/service-desk", root: true },
   { pattern: "/settings", root: true },
   // Sidebar business card (desktop / tablet) and the Settings hub.
   { pattern: "/profile", root: true },
@@ -84,6 +88,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/admin/authority-pilot-gate", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
   { pattern: "/admin/businesses/[id]", parent: "/admin/businesses", parentLabelKey: "toBusinessList" },
   { pattern: "/admin/businesses/[id]/features", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
+  { pattern: "/admin/businesses/[id]/issuer-declaration", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
 
   // ---- screens reached from Home (not in the main navigation) ------------
   { pattern: "/pricing", parent: "/app", parentLabelKey: "toHome", identityParams: ["step"] },
@@ -137,11 +142,19 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
 
   // ---- billing / payables / collection -----------------------------------
   { pattern: "/billing/[id]", parent: "/billing", parentLabelKey: "toInvoiceList" },
+  // Issuer declaration (#1081, switch ISSUER_DECLARATION_ENABLED): the screen, and the emailed link's page. The link
+  // page carries a one-time token in its fragment, so it is never a back destination.
+  { pattern: "/billing/issuer-declaration", parent: "/billing", parentLabelKey: "toInvoiceList" },
+  { pattern: "/billing/issuer-declaration/confirm", transient: true, parent: "/billing", parentLabelKey: "toInvoiceList" },
   // Business documents (business_documents): additions next to the invoices, never inside them.
   { pattern: "/business-documents", parent: "/billing", parentLabelKey: "toInvoiceList" },
   { pattern: "/business-documents/letters", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   { pattern: "/business-documents/letters/new", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
   { pattern: "/business-documents/quotes/[id]", parent: "/business-documents", parentLabelKey: "toBusinessDocuments" },
+  // ---- Service Desk (UI 1.3a, flag service_desk) ---------------------------
+  { pattern: "/service-desk/settings", parent: "/service-desk", parentLabelKey: "toServiceDesk" },
+  // 1.3b: the intake of one case. Back goes to the module home until the 1.3a case card exists (then: the case).
+  { pattern: "/service-desk/cases/[id]/intake", parent: "/service-desk", parentLabelKey: "toServiceDesk" },
   { pattern: "/payables/[id]", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/bank", parent: "/payables", parentLabelKey: "toAllPayables" },
   { pattern: "/payables/bank/import", parent: "/payables", parentLabelKey: "toAllPayables" },
@@ -205,6 +218,9 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/settings/security", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/team", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/workspace", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/notifications", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/notifications/privacy", parent: "/settings/notifications", parentLabelKey: "toNotificationSettings" },
+  { pattern: "/settings/notifications/types", parent: "/settings/notifications", parentLabelKey: "toNotificationSettings" },
   { pattern: "/settings/import-export", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/import-export/documents", parent: "/settings/import-export", parentLabelKey: "toImportExport" },
   { pattern: "/settings/import-export/export", parent: "/settings/import-export", parentLabelKey: "toImportExport" },
@@ -213,8 +229,9 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/settings/import-export/historical", parent: "/settings/import-export", parentLabelKey: "toImportExport" },
   { pattern: "/settings/import-export/historical/records", parent: "/settings/import-export/historical", parentLabelKey: "toHistoricalData" },
   { pattern: "/settings/import-export/historical/records/[id]", parent: "/settings/import-export/historical/records", parentLabelKey: "toRecordList" },
-  // The /tools catalogue is retired (next.config → /app); each family screen is reached from Home.
-  { pattern: "/tools/[category]", parent: "/app", parentLabelKey: "toHome" },
+  // HOME v4: "הכלים שלי" (/tools) is back; the family screens and "יכולות נוספות" return to it.
+  { pattern: "/tools/more", parent: "/tools", parentLabelKey: "toTools" },
+  { pattern: "/tools/[category]", parent: "/tools", parentLabelKey: "toTools" },
   { pattern: "/business", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/business/identity", parent: "/business", parentLabelKey: "toBusinessProfile" },
   { pattern: "/business/landing-strategy", parent: "/business/identity", parentLabelKey: "toDigitalPresence" },

@@ -8,6 +8,7 @@ import BackButton from "@/components/ui/back-button";
 import { useFlowStep } from "@/hooks/useFlowStep";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
+import { redirectToLogin } from "@/lib/client-session";
 
 type PricingItem = {
   id: number;
@@ -275,9 +276,7 @@ export default function PricingPage() {
         const profileData = await profileRes.json();
 
         if (profileRes.status === 401) {
-          localStorage.removeItem("token");
-          localStorage.removeItem("user");
-          router.replace("/login");
+          redirectToLogin();
           return;
         }
 
@@ -293,9 +292,8 @@ export default function PricingPage() {
         setBusinessProfile(profileData.profile);
         setToken(savedToken);
       } catch {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        router.replace("/login");
+        // A network failure says nothing about the session: show an error, keep it.
+        setError(t("content.pricing.page.errors.profileCheck"));
       } finally {
         setBootLoading(false);
       }
@@ -338,9 +336,7 @@ export default function PricingPage() {
       const data = await res.json();
 
       if (res.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        router.replace("/login");
+        redirectToLogin();
         return;
       }
 
@@ -451,8 +447,7 @@ export default function PricingPage() {
       const data = await res.json();
 
       if (res.status === 401) {
-        localStorage.removeItem("token");
-        router.replace("/login");
+        redirectToLogin();
         return;
       }
 
@@ -505,8 +500,7 @@ export default function PricingPage() {
       const data = await res.json();
 
       if (res.status === 401) {
-        localStorage.removeItem("token");
-        router.replace("/login");
+        redirectToLogin();
         return;
       }
 
@@ -553,8 +547,7 @@ export default function PricingPage() {
       const data = await res.json();
 
       if (res.status === 401) {
-        localStorage.removeItem("token");
-        router.replace("/login");
+        redirectToLogin();
         return;
       }
 

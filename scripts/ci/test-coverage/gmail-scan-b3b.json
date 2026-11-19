@@ -1,0 +1,10 @@
+{
+  "note": "Gmail extended scan screen B3-b (2026-11-09): manual scan only (period + account, then \"סרוק מסמכים\"), /scan pages merged by the stable key, honest completion (complete / more / cap / partial / stopped / quota / unavailable / expired), results kept on every error, nothing that changes the list during an import, recommended-only bulk import behind a confirmation, possibly-relevant and low-score files read-only, sender display name (display only), phone import bar above the shell navigation. Import route, OCR, Document, review queue, DB dedup, OAuth and Gmail budgets unchanged. Browser checks: scripts/qa/documents/gmail-extended-scan-qa.mjs.",
+  "tests": {
+    "lib/services/email-import/extended-scan-state.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): untrusted /scan answers parsed to fixed shapes (a partial page can never advance, unknown fields dropped); pages merged without duplicates by the stable key; results never removed on partial/stopped/quota/unavailable/expired/error/network; 'finished' only on a server-confirmed complete window; no load-more/rescan/period/account change during an import; the page never scans from an effect, bulk import is recommended-only behind a confirmation, the import request is unchanged and uses the results' account, the display name is never sent to import, the phone bar offset equals the shell bar height"
+    }
+  }
+}

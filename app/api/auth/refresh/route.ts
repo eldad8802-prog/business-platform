@@ -26,6 +26,7 @@ import {
   setRefreshCookie,
 } from "@/lib/auth/refresh-cookie";
 import { refreshSession, type RefreshOutcome } from "@/lib/auth/refresh-session";
+import { platformClass, type PlatformClass } from "@/lib/auth/device-label";
 
 export type RefreshDeps = {
   now?: () => Date;
@@ -58,6 +59,47 @@ function logSecurityEvent(event: string, fields: Record<string, string | number>
   );
 }
 
+export type RefreshTelemetry = {
+  event: "refresh_outcome";
+  outcome: RefreshOutcome["kind"] | "csrf_refused" | "rate_limited" | "error";
+  reason?: string;
+  platform: PlatformClass;
+  /** A session SELECTOR prefix: enough to follow one device's chain, useless as a credential. */
+  sid?: string;
+};
+
+/**
+ * One line per refresh, whatever it decided.
+ *
+ * Without it a refused refresh was invisible: the client saw 401, the person
+ * saw a sign-in screen, and nothing on the server said whether the session had
+ * been revoked, had expired, had lost a response, or had never sent its cookie
+ * at all — the last of which is the question the Android shell still has to
+ * answer. The REASON stays here, server-side; the response body is unchanged
+ * and still says only "Unauthorized".
+ *
+ * Closed vocabulary only: the outcome and reason come from the engine's own
+ * union, the platform from a five-value classifier, the sid is truncated. No
+ * User-Agent string, no IP, no cookie, no token.
+ */
+export function refreshTelemetry(
+  req: Request,
+  outcome: RefreshTelemetry["outcome"],
+  extra: { reason?: string; sessionId?: string } = {}
+): RefreshTelemetry {
+  return {
+    event: "refresh_outcome",
+    outcome,
+    ...(extra.reason !== undefined ? { reason: extra.reason } : {}),
+    platform: platformClass(req.headers.get("user-agent")),
+    ...(extra.sessionId !== undefined ? { sid: extra.sessionId.slice(0, 8) } : {}),
+  };
+}
+
+function logRefresh(line: RefreshTelemetry): void {
+  console.log(JSON.stringify(line));
+}
+
 export async function handleRefresh(
   req: Request,
   deps: RefreshDeps = {}
@@ -69,6 +111,7 @@ export async function handleRefresh(
     const csrf = checkBrowserCsrf(req);
     if (!csrf.ok) {
       logSecurityEvent("refresh_csrf_refused", { reason: csrf.reason });
+      logRefresh(refreshTelemetry(req, "csrf_refused", { reason: csrf.reason }));
       // The cookie is untouched: a cross-site caller must not be able to log
       // anyone out by being refused.
       return refuse(403, false);
@@ -77,6 +120,7 @@ export async function handleRefresh(
     const ip = getClientIp(req);
     const rl = await consumeRateLimit({ key: `auth:refresh:${ip}`, limit: 30, windowMs: 60_000 });
     if (!rl.allowed) {
+      logRefresh(refreshTelemetry(req, "rate_limited"));
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "cache-control": "no-store" } }
@@ -85,6 +129,12 @@ export async function handleRefresh(
 
     const credential = readRefreshCookie(req);
     const outcome: RefreshOutcome = await run(authDb(), { credential, now });
+    logRefresh(
+      refreshTelemetry(req, outcome.kind, {
+        reason: "reason" in outcome ? outcome.reason : undefined,
+        sessionId: "sessionId" in outcome ? outcome.sessionId : undefined,
+      })
+    );
 
     switch (outcome.kind) {
       case "rotated": {
@@ -137,6 +187,7 @@ export async function handleRefresh(
       "REFRESH_ERROR:",
       error instanceof Error ? error.name : "UnknownError"
     );
+    logRefresh(refreshTelemetry(req, "error"));
     return NextResponse.json(
       { error: "Server error" },
       { status: 500, headers: { "cache-control": "no-store" } }

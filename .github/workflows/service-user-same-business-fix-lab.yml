@@ -1,0 +1,246 @@
+# Service Desk — migration 20261124090000_service_user_same_business_fix (DRAFT — never applied without a separate owner
+# approval): deleting a user named in TWO user columns of one row no longer fails; a user of another business still can
+# never be attached. Proof on PostgreSQL BEFORE it reaches Production (ephemeral PG17). Synthetic credentials; ZERO
+# secrets; ZERO network.
+#
+#   0. Evidence files are SELECT-only, selectable in prod-readonly-evidence.yml, pass the output guard; the proof pins
+#      migration.sql's sha256 and both function texts; the migration names only the function and "User"; no other
+#      migration defines or drops the function.
+#   1. Baseline (pending, on Production's Service Desk state 20261112 … 20261122): the preflight passes whole; the proof
+#      refuses; the LEGACY rows are written (a quote, an external work, a text, an offer, each with one user in both of
+#      its user columns) and the defect is proven live (each of those users cannot be deleted); preflight check 11 sees
+#      an illegal attachment; the migration's premises refuse a function that is not the foundation's and a checked
+#      column whose foreign key does not set NULL — nothing changed.
+#   2. Atomicity: the migration failing on its last statement leaves the foundation function in place.
+#   3. `prisma migrate deploy` applies exactly it: proof 12 PASS + 1 INFO; the preflight then fails exactly its "not
+#      there yet" checks; a second application by hand is refused.
+#   4. Faults: each injected defect is caught by the proof check meant for it.
+#   5. Battery (.sdusb/battery.ts) as the real roles: the legacy users deleted, one user in both columns of every
+#      double-column table deleted in one statement, cross-business refused on every INSERT and attaching UPDATE, the
+#      function's every combination on a scratch table, erasure.
+#   5b. Regressions on copies with the fix: the 1.3-0 battery (.sd3/battery.ts) and the P4 battery (.sd3p4/battery.ts).
+#   6. Mutation test (.sdusb/mutate.sh): every weakened copy of the fix is caught by the battery.
+#   7. Rollback (.sdusb/rollback.sql, on a copy): the foundation text back byte for byte, the ledger row gone, the
+#      preflight whole again; a plain deploy re-applies it and the proof is whole.
+
+name: service user same business fix — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261124090000_service_user_same_business_fix/**"
+      - "prisma/migrations/20261112090000_service_desk_foundation/**"
+      - "ops/evidence/service-user-same-business-fix-*.sql"
+      - ".sdusb/**"
+      - ".sd3p4/lab.sh"
+      - ".sd3/lab.sh"
+      - ".sd3/battery.ts"
+      - ".sd3p4/battery.ts"
+      - ".github/workflows/service-user-same-business-fix-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service user same business fix (PG17, Production's Service Desk state + this migration)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdusb_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdusb_ci_synthetic_super_pw
+      LAB_PASSWORD: sdusb_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/service-user-same-business-fix-preflight.sql
+      EVIDENCE: ops/evidence/service-user-same-business-fix-production-evidence.sql
+      USB: prisma/migrations/20261124090000_service_user_same_business_fix/migration.sql
+      USB_NAME: 20261124090000_service_user_same_business_fix
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files are SELECT-only and selectable; checksum pinned; the migration names only the function and "User"
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            if grep -inE '(default_)?transaction_read_only|read[[:space:]]+write|session[[:space:]]+characteristics|reset[[:space:]]+all|session[[:space:]]+authorization' "$f"; then
+              echo "$f touches the read-only boundary"; exit 1
+            fi
+            grep -q "^          - '$f'$" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          node scripts/ci/evidence-output-guard.mjs
+          sum=$(sha256sum "$USB" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "the proof pins a different checksum"; exit 1; }
+          echo "$USB sha256 $sum (pinned)"
+          others=$(sed 's/--.*$//' "$USB" | grep -oE '"[A-Z][A-Za-z_]*"' | sort -u | grep -vxE '"User"' || true)
+          test -z "$others" || { echo "the migration names other relations: $others"; exit 1; }
+          fns=$(sed 's/--.*$//' "$USB" | grep -oiE 'function[[:space:]]+public\.[a-z_]+' | sort -u | tr '\n' ' ')
+          test "$fns" = "FUNCTION public.service_user_same_business " || { echo "the migration defines or changes other functions: $fns"; exit 1; }
+          if sed 's/--.*$//' "$USB" | grep -inE '\b(alter|drop|create)[[:space:]]+(table|trigger|policy|index|type|role)\b|\bgrant\b'; then
+            echo "the migration changes something other than the function body"; exit 1
+          fi
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d")
+            [[ "$n" != "20261112090000_service_desk_foundation" && "$n" != "$USB_NAME" ]] || continue
+            if sed 's/--.*$//' "$d/migration.sql" | grep -inE '(create|drop|alter)[[:space:]]+(or[[:space:]]+replace[[:space:]]+)?function[[:space:]]+(public\.)?service_user_same_business'; then
+              echo "$n defines, drops or alters service_user_same_business"; exit 1
+            fi
+          done
+          echo "the migration replaces only the function body; no other migration defines it after the foundation"
+
+      - name: 1. Baseline (pending) — preflight whole; the proof refuses; legacy rows + the defect live; premises refuse
+        run: |
+          set -euo pipefail
+          bash .sdusb/lab.sh usb
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
+          super() { psql -X -q -v ON_ERROR_STOP=1 -d postgres -U "$SUPER" -c "$1"; }
+          failing() { lab "$1" -f "$2" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          lab usb -f "$PREFLIGHT" | tee /tmp/pre.out
+          test -z "$(failing usb "$PREFLIGHT")" || { echo "baseline: expected no preflight failure, got: $(failing usb "$PREFLIGHT")"; exit 1; }
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/pre.out)" = "11" || { echo "expected 11 PASS"; exit 1; }
+          lab usb -f "$EVIDENCE" | grep -qE '^ +[0-9]+ \| FAIL' || { echo "the proof passed before the migration"; exit 1; }
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/usb" RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/usb" \
+            npx tsx .sdusb/battery.ts seed | tee /tmp/seed.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/seed.out || { echo "the legacy seed is not green (or the defect is not live)"; exit 1; }
+          test -z "$(failing usb "$PREFLIGHT")" || { echo "after the seed: expected no preflight failure"; exit 1; }
+          c12=$(lab usb -f "$PREFLIGHT" | grep -E '^ +12 \|' | tr -d ' ')
+          test "$c12" = "12|INFO|5" || { echo "check 12 should count the 5 legacy rows with one user in two columns (4 seeded + the notice): $c12"; exit 1; }
+          # Check 11 is live: one illegal attachment forced in (FKs and triggers off) on a copy.
+          super "DROP DATABASE IF EXISTS usb_illegal"; super "CREATE DATABASE usb_illegal TEMPLATE usb OWNER lab_owner"
+          psql -X -q -v ON_ERROR_STOP=1 -U "$SUPER" -d usb_illegal             -c "WITH b AS (INSERT INTO \"Business\" (name, \"updatedAt\") VALUES ('usb-other', now()) RETURNING id) INSERT INTO \"User\" (email, \"businessId\", \"updatedAt\") SELECT 'usb-other@lab.invalid', id, now() FROM b"             -c "SET session_replication_role = replica; UPDATE \"ServiceQuote\" SET \"sentByUserId\" = (SELECT id FROM \"User\" WHERE email = 'usb-other@lab.invalid') WHERE id = (SELECT min(id) FROM \"ServiceQuote\")"
+          test "$(failing usb_illegal "$PREFLIGHT")" = "11 " || { echo "check 11 did not see the illegal attachment: $(failing usb_illegal "$PREFLIGHT")"; exit 1; }
+          super "DROP DATABASE usb_illegal"
+          # The premises refuse, nothing changed: a function that is not the foundation's; a checked column whose FK does not set NULL.
+          super "DROP DATABASE IF EXISTS usb_prem"; super "CREATE DATABASE usb_prem TEMPLATE usb OWNER lab_owner"
+          lab usb_prem -q -c "ALTER FUNCTION public.service_user_same_business() SET search_path = pg_catalog, public"
+          if lab usb_prem -q -1 -f "$USB" 2>/tmp/prem1.err; then echo "the migration applied over a changed function"; exit 1; fi
+          grep -q "is not the 20261112090000 function" /tmp/prem1.err || { cat /tmp/prem1.err; exit 1; }
+          lab usb_prem -q -c "ALTER FUNCTION public.service_user_same_business() SET search_path = pg_catalog, public, pg_temp"
+          lab usb_prem -q -c 'ALTER TABLE "ServiceQuote" DROP CONSTRAINT "ServiceQuote_decidedByUserId_fkey", ADD CONSTRAINT "ServiceQuote_decidedByUserId_fkey" FOREIGN KEY ("decidedByUserId") REFERENCES "User"("id") ON DELETE NO ACTION ON UPDATE CASCADE'
+          if lab usb_prem -q -1 -f "$USB" 2>/tmp/prem2.err; then echo "the migration applied over an FK that does not set NULL"; exit 1; fi
+          grep -q 'ServiceQuote_user_same_business(decidedByUserId)' /tmp/prem2.err || { cat /tmp/prem2.err; exit 1; }
+          test "$(lab usb_prem -At -c "SELECT md5(prosrc) FROM pg_proc WHERE proname = 'service_user_same_business'")" = "b64faf1eb6700089bf6529ae76542036"
+          super "DROP DATABASE usb_prem"
+          echo "baseline whole; the defect is live on the legacy rows; check 11 and the premises refuse, nothing changed"
+
+      - name: 2. Atomicity — failing on its last statement leaves the foundation function in place
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 -d postgres -U "$SUPER" -c "DROP DATABASE IF EXISTS usb_broken" -c "CREATE DATABASE usb_broken TEMPLATE usb OWNER lab_owner"
+          bash .sdusb/lab.sh usb_broken --broken-deploy-only
+          got=$(PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d usb_broken -c "SELECT md5(prosrc) FROM pg_proc WHERE proname = 'service_user_same_business'")
+          test "$got" = "b64faf1eb6700089bf6529ae76542036" || { echo "NOT atomic: the function changed ($got)"; exit 1; }
+          psql -X -q -d postgres -U "$SUPER" -c "DROP DATABASE usb_broken"
+          echo "atomic"
+
+      - name: 3. prisma migrate deploy applies exactly it — proof 12 PASS + 1 INFO; preflight fails exactly 2 4 5; a second application is refused
+        run: |
+          set -euo pipefail
+          bash .sdusb/lab.sh usb --deploy-only
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d usb -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out; then echo "proof FAILS after the release"; exit 1; fi
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "12" || { echo "expected 12 PASS"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 4 5 " || { echo "after the release: expected '2 4 5 ', got: $fails"; exit 1; }
+          if lab -q -1 -f "$USB" 2>/tmp/again.err; then echo "a second application must be refused"; exit 1; fi
+          grep -q "already applied" /tmp/again.err || { cat /tmp/again.err; exit 1; }
+          psql -X -q -v ON_ERROR_STOP=1 -d postgres -U "$SUPER" -c "DROP DATABASE IF EXISTS usb_tpl" -c "CREATE DATABASE usb_tpl TEMPLATE usb OWNER lab_owner"
+
+      - name: 4. Faults — each is caught by the proof, by the check meant for it
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d usb -v ON_ERROR_STOP=1 "$@"; }
+          failing() { lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' '; }
+          test -z "$(failing)" || { echo "unexpected baseline: $(failing)"; exit 1; }
+          fault() {  # fault <label> <expected> <inject> <undo>
+            lab -q -c "$3"; got=$(failing); lab -q -c "$4"
+            test "$got" = "$2" || { echo "$1: expected '$2', got '$got'"; exit 1; }
+            echo "fault detected [$1] → FAIL $got"
+          }
+          sum=$(sha256sum "$USB" | cut -d' ' -f1)
+          fault "a ledger checksum that is not the reviewed file" "3 " \
+            "UPDATE \"_prisma_migrations\" SET checksum = repeat('0', 64) WHERE migration_name = '$USB_NAME'" \
+            "UPDATE \"_prisma_migrations\" SET checksum = '$sum' WHERE migration_name = '$USB_NAME'"
+          fault "SECURITY DEFINER" "5 " 'ALTER FUNCTION public.service_user_same_business() SECURITY DEFINER' 'ALTER FUNCTION public.service_user_same_business() SECURITY INVOKER'
+          fault "search_path without pg_temp last" "5 " \
+            'ALTER FUNCTION public.service_user_same_business() SET search_path = pg_catalog, public' \
+            'ALTER FUNCTION public.service_user_same_business() SET search_path = pg_catalog, public, pg_temp'
+          fault "PUBLIC EXECUTE" "6 " 'GRANT EXECUTE ON FUNCTION public.service_user_same_business() TO PUBLIC' 'REVOKE EXECUTE ON FUNCTION public.service_user_same_business() FROM PUBLIC'
+          fault "a guard trigger disabled" "8 " 'ALTER TABLE "ServiceQuote" DISABLE TRIGGER "ServiceQuote_user_same_business"' 'ALTER TABLE "ServiceQuote" ENABLE TRIGGER "ServiceQuote_user_same_business"'
+          fault "a guard trigger dropped" "7 " 'DROP TRIGGER "ServiceTextVersion_user_same_business" ON "ServiceTextVersion"' \
+            'CREATE TRIGGER "ServiceTextVersion_user_same_business" BEFORE INSERT OR UPDATE OF "businessId", "createdByUserId", "legallyApprovedByUserId" ON "ServiceTextVersion" FOR EACH ROW EXECUTE FUNCTION public.service_user_same_business('"'createdByUserId'"', '"'legallyApprovedByUserId'"')'
+          # The function text reverted to the foundation's (the rollback), then the fix put back by a plain redeploy of its body.
+          lab -q -f .sdusb/rollback.sql; got=$(failing)
+          test "$got" = "1 3 4 " || { echo "the foundation text: expected '1 3 4 ', got '$got'"; exit 1; }
+          echo "fault detected [the foundation text, ledger row gone] → FAIL $got"
+          bash .sdusb/lab.sh usb --deploy-only
+          test -z "$(failing)" || { echo "proof not back to baseline: $(failing)"; exit 1; }
+
+      - name: 5. Battery as the real roles
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/usb" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/usb" \
+          SUPER_URL="postgresql://lab_super:$PGPASSWORD@localhost:5432/usb" \
+            npx tsx .sdusb/battery.ts | tee /tmp/battery.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/battery.out || { echo "the battery is not green"; exit 1; }
+          PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d usb -v ON_ERROR_STOP=1 -f "$EVIDENCE" | tee /tmp/ev2.out
+          if grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev2.out; then echo "proof FAILS after the battery"; exit 1; fi
+
+      - name: 5b. Regressions with the fix (on copies) — the 1.3-0 battery and the P4 battery
+        run: |
+          set -euo pipefail
+          for d in usb_rg1 usb_rg2; do psql -X -q -v ON_ERROR_STOP=1 -d postgres -U "$SUPER" -c "DROP DATABASE IF EXISTS $d" -c "CREATE DATABASE $d TEMPLATE usb_tpl OWNER lab_owner"; done
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/usb_rg1" RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/usb_rg1" \
+            npx tsx .sd3/battery.ts | tee /tmp/sd3.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sd3.out || { echo "the 1.3-0 battery is not green with the fix"; exit 1; }
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/usb_rg2" RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/usb_rg2" \
+            npx tsx .sd3p4/battery.ts | tee /tmp/sd3p4.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/sd3p4.out || { echo "the P4 battery is not green with the fix"; exit 1; }
+          for d in usb_rg1 usb_rg2; do psql -X -q -d postgres -U "$SUPER" -c "DROP DATABASE $d"; done
+
+      - name: 6. Mutation test — every weakened fix is caught
+        run: |
+          set -euo pipefail
+          TSX="npx tsx" bash .sdusb/mutate.sh usb_tpl | tee /tmp/mutate.out
+          grep -qE '^[0-9]+ killed, 0 survived$' /tmp/mutate.out || { echo "a mutant survived"; exit 1; }
+
+      - name: 7. Rollback (on a copy) — the foundation text back, ledger row gone, preflight whole again; a plain deploy re-applies it
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 -d postgres -U "$SUPER" -c "DROP DATABASE IF EXISTS usb_rb" -c "CREATE DATABASE usb_rb TEMPLATE usb_tpl OWNER lab_owner"
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d usb_rb -v ON_ERROR_STOP=1 "$@"; }
+          lab -q -f .sdusb/rollback.sql
+          lab -q -f .sdusb/rollback.sql
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test -z "$fails" || { echo "after rollback the preflight is not whole: $fails"; exit 1; }
+          bash .sdusb/lab.sh usb_rb --deploy-only
+          test -z "$(lab -f "$EVIDENCE" | { grep -E '^ +[0-9]+ \| FAIL' || true; })" || { echo "re-apply after rollback is not whole"; exit 1; }
+          echo "rollback whole (twice: idempotent); the release re-applies cleanly"

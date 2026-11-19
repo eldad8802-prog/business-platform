@@ -34,6 +34,8 @@ export const PLATFORM_FEATURE_KEYS = {
   DOCUMENT_SUPPLIER_LINKING: "document_supplier_linking",
   BUSINESS_DOCUMENTS: "business_documents",
   INTAKE_STATUS_VISIBILITY: "intake_status_visibility",
+  SERVICE_DESK: "service_desk",
+  NOTIFICATIONS_ENGINE: "notifications_engine",
 } as const;
 
 export type PlatformFeatureKey =
@@ -52,7 +54,8 @@ export type PlatformFeatureCategory =
   | "reports"
   | "intelligence"
   | "tasks"
-  | "scheduling";
+  | "scheduling"
+  | "service";
 
 export type PlatformFeatureCatalogEntry = {
   key: PlatformFeatureKey;
@@ -337,6 +340,16 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       defaultEnabled: false,
       mutable: true,
     },
+    {
+      // Seeded OFF by migration 20261120090000 (same name, category and text). Nothing reads it yet: the module's
+      // screens are 1.3a+; account erasure must be complete (the object sweep scheduled) before any business gets it.
+      key: PLATFORM_FEATURE_KEYS.SERVICE_DESK,
+      displayName: "תיקונים ושירות",
+      category: "service",
+      description: "קריאות שירות ותיקונים: קבלת מכשיר, טיפול, ספק חיצוני, הצעת מחיר ומסירה — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
     // Leads L1.5-b · PR-3 — what the owner sees about the intake of their own leads (held while paused, not
     // included, failed, a connection to check). OFF for every business — no policy row, no override: the resolver
     // falls back to this default. Opening it (a policy / seed row or a business override; a pilot is business 9 only)
@@ -346,6 +359,18 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "מצב קליטת פניות",
       category: "integrations",
       description: "הצגת מצב קליטת הפניות ממקורות חיצוניים לבעל העסק (ממתינות, לא נקלטו, חיבור לבדיקה) — לקריאה בלבד — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // Notifications track PR 3 — the central notification engine: the push worker (owed pushes → web push / the
+    // Android app through FCM), the daily digest and the device registration. OFF for every business — no policy
+    // row, no override: the resolver falls back to this default, so the worker, the digest and the device routes
+    // are inert. A business override needs the definition row (a seed migration) — a separate owner decision.
+    {
+      key: PLATFORM_FEATURE_KEYS.NOTIFICATIONS_ENGINE,
+      displayName: "מנוע התראות",
+      category: "integrations",
+      description: "שליחת התראות לטלפון ולדפדפן (דחיפה), סיכום יומי ורישום מכשירים — כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },

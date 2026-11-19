@@ -28,7 +28,9 @@ import {
   REJECTED_TYPE_GROUPS,
   type RejectedTypeCounts,
 } from "@/lib/services/email-import/rejected-types";
-import { GmailReauthRequiredError } from "./gmail-errors";
+import { GMAIL_ROOT_PART_ID } from "@/lib/services/email-import/attachment-key";
+import { GmailReauthRequiredError, GmailScanConnectionMismatchError } from "./gmail-errors";
+import { scheduleConnectionDisconnected } from "@/lib/notifications/producers/connection-notifications";
 import {
   collectAttachmentParts,
   type GmailMessagePart,
@@ -42,6 +44,8 @@ export type GmailAttachmentMetadata = {
   mimeType: string;
   sizeBytes: number | null;
   fromEmail: string | null;
+  /** The sender's display name from the From header ("Vercel Inc."), when it has one. Display only. */
+  fromName: string | null;
   subject: string | null;
   sentAt: string | null; // ISO string
   /** The part's position in the message tree; lets import re-find it. */
@@ -66,6 +70,23 @@ function headerValue(
 ): string | null {
   const h = headers?.find((x) => x.name.toLowerCase() === name.toLowerCase());
   return h?.value ?? null;
+}
+
+/**
+ * The display-name part of a From header, or null: `"Vercel Inc." <billing@vercel.com>` → `Vercel Inc.`.
+ * Null for a bare address, a name that is only the address again, or an encoded word Gmail left
+ * undecoded (`=?utf-8?…`) — the screen then shows the address alone. Display text only; never
+ * stored, logged or used to decide anything (B3-b, 2026-11-09).
+ */
+export function extractDisplayName(fromHeader: string | null): string | null {
+  if (!fromHeader) return null;
+  const lt = fromHeader.indexOf("<");
+  if (lt <= 0) return null;
+  let name = fromHeader.slice(0, lt).trim();
+  if (name.length >= 2 && name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1);
+  name = name.replace(/\\(.)/g, "$1").replace(/\s+/g, " ").trim();
+  if (!name || name.includes("=?") || name.includes("@")) return null;
+  return name.length > 80 ? `${name.slice(0, 79)}…` : name;
 }
 
 function extractEmailAddress(fromHeader: string | null): string | null {
@@ -111,15 +132,21 @@ async function gmailFetchJson<T>(url: string, accessToken: string): Promise<T> {
  * attachments.length === attachmentParts - unsupportedType;
  * rejectedByType = the unsupported ones by declared-type group (sums to
  * unsupportedType; counting only, 2026-11-08 B1).
+ *
+ * `root` is the message's top-level payload. When that payload is itself the
+ * attachment its partId is "" — no path — so it is reported as
+ * GMAIL_ROOT_PART_ID instead of null, which import can resolve (B3-a).
  */
 export function classifyAttachmentParts(
   parts: GmailMessagePart[],
   meta: {
     messageId: string;
     fromEmail: string | null;
+    fromName?: string | null;
     subject: string | null;
     sentAt: string | null;
-  }
+  },
+  root?: GmailMessagePart
 ): {
   attachments: GmailAttachmentMetadata[];
   attachmentParts: number;
@@ -156,28 +183,41 @@ export function classifyAttachmentParts(
       mimeType,
       sizeBytes,
       fromEmail: meta.fromEmail,
+      fromName: meta.fromName ?? null,
       subject: meta.subject,
       sentAt: meta.sentAt,
-      partId: p.partId ? String(p.partId) : null,
+      partId: root !== undefined && p === root ? GMAIL_ROOT_PART_ID : p.partId ? String(p.partId) : null,
     });
   }
 
   return { attachments, attachmentParts, unsupportedType, rejectedByType };
 }
 
-export async function discoverGmailAttachments(params: {
+/** One fetched message → its classified attachments (headers read once, root passed). */
+export function classifyGmailMessage(messageId: string, msg: GmailMessageResponse) {
+  const topHeaders = msg.payload?.headers || [];
+  const fromHeader = headerValue(topHeaders, "From");
+  const fromEmail = extractEmailAddress(fromHeader);
+  const fromName = extractDisplayName(fromHeader);
+  const subject = headerValue(topHeaders, "Subject");
+  const dateHeader = headerValue(topHeaders, "Date");
+  const sentAt = parseSentAtIso({ dateHeader, internalDate: msg.internalDate });
+
+  const parts = collectAttachmentParts(msg.payload);
+  return classifyAttachmentParts(parts, { messageId, fromEmail, fromName, subject, sentAt }, msg.payload);
+}
+
+/**
+ * The tenant's connected Gmail account and a usable access token for it,
+ * refreshing (and persisting) the token when it is about to expire. The DB
+ * steps run on the tenant transaction; the Google call never runs inside one.
+ */
+export async function loadGmailAccess(params: {
   businessId: number;
   connectionId?: number;
-  maxMessages?: number;
-  query?: string;
-}): Promise<{
-  scannedMessages: number;
-  foundAttachments: number;
-  attachmentParts: number;
-  unsupportedType: number;
-  rejectedByType: RejectedTypeCounts;
-  attachments: GmailAttachmentMetadata[];
-}> {
+  /** A scan cursor's account: any other resolved account is refused before Google is called. */
+  expectConnectionId?: number;
+}): Promise<{ connectionId: number; accessToken: string }> {
   const connection = await dbStep((db) => db.emailConnection.findFirst({
     where: {
       businessId: params.businessId,
@@ -190,6 +230,9 @@ export async function discoverGmailAttachments(params: {
 
   if (!connection || !connection.token) {
     throw new GmailReauthRequiredError("no_connection");
+  }
+  if (params.expectConnectionId !== undefined && connection.id !== params.expectConnectionId) {
+    throw new GmailScanConnectionMismatchError();
   }
   const tokenRow = connection.token;
 
@@ -218,6 +261,9 @@ export async function discoverGmailAttachments(params: {
       clientId: requireEnv("GOOGLE_OAUTH_CLIENT_ID"),
       clientSecret: requireEnv("GOOGLE_OAUTH_CLIENT_SECRET"),
       refreshToken,
+      // Notifications side effect only (after the response, engine-gated); the refresh outcome is unchanged.
+      onRevoked: () =>
+        scheduleConnectionDisconnected({ businessId: params.businessId, provider: "gmail", connectionId: connection.id }),
     });
 
     const enc = encryptToken(refreshed.access_token);
@@ -244,6 +290,27 @@ export async function discoverGmailAttachments(params: {
     effectiveAccessToken = refreshed.access_token;
   }
 
+  return { connectionId: connection.id, accessToken: effectiveAccessToken };
+}
+
+export async function discoverGmailAttachments(params: {
+  businessId: number;
+  connectionId?: number;
+  maxMessages?: number;
+  query?: string;
+}): Promise<{
+  scannedMessages: number;
+  foundAttachments: number;
+  attachmentParts: number;
+  unsupportedType: number;
+  rejectedByType: RejectedTypeCounts;
+  attachments: GmailAttachmentMetadata[];
+}> {
+  const { accessToken: effectiveAccessToken } = await loadGmailAccess({
+    businessId: params.businessId,
+    connectionId: params.connectionId,
+  });
+
   const maxMessages = Math.min(Math.max(params.maxMessages ?? 30, 1), 100);
   const q = params.query || "has:attachment newer_than:30d";
 
@@ -265,14 +332,7 @@ export async function discoverGmailAttachments(params: {
 
     const msg = await gmailFetchJson<GmailMessageResponse>(msgUrl.toString(), effectiveAccessToken);
 
-    const topHeaders = msg.payload?.headers || [];
-    const fromEmail = extractEmailAddress(headerValue(topHeaders, "From"));
-    const subject = headerValue(topHeaders, "Subject");
-    const dateHeader = headerValue(topHeaders, "Date");
-    const sentAt = parseSentAtIso({ dateHeader, internalDate: msg.internalDate });
-
-    const parts = collectAttachmentParts(msg.payload);
-    const classified = classifyAttachmentParts(parts, { messageId, fromEmail, subject, sentAt });
+    const classified = classifyGmailMessage(messageId, msg);
     attachments.push(...classified.attachments);
     attachmentParts += classified.attachmentParts;
     unsupportedType += classified.unsupportedType;

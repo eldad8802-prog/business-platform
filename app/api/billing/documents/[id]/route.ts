@@ -4,6 +4,7 @@ import { handleError } from "@/lib/handle-error";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
+import { buildAuthorityDocumentState } from "@/lib/services/billing/authority/billing-authority-document-state";
 import {
   updateBillingDraftHeader,
   UpdateBillingDraftHeaderInput,
@@ -43,6 +44,10 @@ export async function GET(
         },
         include: {
           lines: { orderBy: { lineIndex: "asc" } },
+          // Read-only: the allocation state the screen shows after a reload.
+          authoritySubmission: {
+            select: { status: true, errorCode: true, heldDecisionType: true, heldDecisionReportedAt: true },
+          },
         },
       })
     );
@@ -51,7 +56,17 @@ export async function GET(
       throw new NotFoundError("Billing document not found");
     }
 
-    return NextResponse.json({ document }, { status: 200 });
+    // The raw submission row stays server-side; the screen gets the derived state,
+    // decided by the same delivery rule as the PDF route.
+    const { authoritySubmission, ...rest } = document;
+    const authorityState = buildAuthorityDocumentState({
+      documentStatus: document.status,
+      documentType: document.documentType,
+      allocationNumber: document.allocationNumber,
+      submission: authoritySubmission,
+    });
+
+    return NextResponse.json({ document: { ...rest, authorityState } }, { status: 200 });
   } catch (error) {
     return handleError(error);
   }

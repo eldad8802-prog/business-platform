@@ -60,6 +60,10 @@ async function main() {
 
   installBrowser(fakeToken(Math.floor(NOW / 1000) + 3600));
   const mod = await import("@/lib/auth/refresh-client");
+  // Transient failures are retried on a 77 s schedule; these cases are about the
+  // verdict, not the clock. lib/auth/refresh-client.concurrency.test.ts owns
+  // the schedule and the cross-tab lock.
+  mod.__testing.useEnv({ sleep: async () => {} });
 
   // ---- pure helpers -------------------------------------------------------
   {
@@ -343,6 +347,108 @@ async function main() {
 
     ok("SIMULTANEOUS boot, focus and timer make ONE network refresh", network === 1, `${network}`);
     handle.stop();
+  }
+
+  // ---- a LATE response never undoes a sign-out or a new sign-in ------------
+  {
+    const A = fakeToken(Math.floor(NOW / 1000) - 60);
+    const B = fakeToken(Math.floor(NOW / 1000) + 3600);
+    const LATE = fakeToken(Math.floor(NOW / 1000) + 7200);
+    const gated = () => {
+      let release: (() => void) | null = null;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      (globalThis as unknown as { fetch: unknown }).fetch = async () => {
+        await gate;
+        return { ok: true, status: 200, json: async () => ({ token: LATE }) } as unknown as Response;
+      };
+      return () => release?.();
+    };
+
+    // signed out while the refresh was on the way ("clear anyway" included)
+    {
+      mod.__testing.resetInFlight();
+      const b = installBrowser(A);
+      const release = gated();
+      const p = mod.refreshAccessToken();
+      await new Promise((r) => setImmediate(r));
+      b.store.delete("token");
+      release();
+      const r = await p;
+      ok("LATE after sign-out: the token is NOT written back", b.store.get("token") === undefined, String(b.store.get("token")));
+      ok("...and the result is unauthenticated, never 'refreshed'", r === "unauthenticated", r);
+    }
+    // signed in to another account while the refresh was on the way
+    {
+      mod.__testing.resetInFlight();
+      const b = installBrowser(A);
+      const release = gated();
+      const p = mod.refreshAccessToken();
+      await new Promise((r) => setImmediate(r));
+      b.store.set("token", B);
+      release();
+      const r = await p;
+      ok("LATE after a new sign-in: the new session's token is kept", b.store.get("token") === B);
+      ok("...reported refreshed (the device holds a usable token)", r === "refreshed", r);
+    }
+    // offline, retrying — the person signs out ("clear anyway") during the wait,
+    // then the network returns: the retry must NOT bring session A back
+    {
+      mod.__testing.resetInFlight();
+      const b = installBrowser(A);
+      let calls = 0;
+      (globalThis as unknown as { fetch: unknown }).fetch = async () => {
+        calls += 1;
+        if (calls === 1) {
+          b.store.delete("token"); // signed out while the first attempt was failing
+          throw new TypeError("network down");
+        }
+        return { ok: true, status: 200, json: async () => ({ token: LATE }) } as unknown as Response;
+      };
+      const r = await mod.refreshAccessToken();
+      ok("RETRY after sign-out: no further request is made", calls === 1, `${calls}`);
+      ok("...nothing written back, unauthenticated", r === "unauthenticated" && b.store.get("token") === undefined, r);
+    }
+    // a refusal (401) that lands after a NEW sign-in never wipes the new token
+    {
+      mod.__testing.resetInFlight();
+      const b = installBrowser(A);
+      let release: (() => void) | null = null;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      (globalThis as unknown as { fetch: unknown }).fetch = async () => {
+        await gate;
+        return { ok: false, status: 401, json: async () => ({}) } as unknown as Response;
+      };
+      const p = mod.refreshAccessToken();
+      await new Promise((r) => setImmediate(r));
+      b.store.set("token", B);
+      release?.();
+      const r = await p;
+      ok("LATE 401 after a new sign-in: reported refreshed, the new token stays", r === "refreshed" && b.store.get("token") === B, r);
+    }
+    // unchanged storage: the ordinary case still writes
+    {
+      mod.__testing.resetInFlight();
+      const b = installBrowser(A);
+      const release = gated();
+      const p = mod.refreshAccessToken();
+      release();
+      const r = await p;
+      ok("ordinary refresh: the new token is written", r === "refreshed" && b.store.get("token") === LATE, r);
+    }
+    // no token at all (recovery from the cookie alone, e.g. Google sign-in): still writes
+    {
+      mod.__testing.resetInFlight();
+      const b = installBrowser(null);
+      const release = gated();
+      const p = mod.recoverSession(null);
+      release();
+      const r = await p;
+      ok("recovery with no token: the token is written", r === "refreshed" && b.store.get("token") === LATE, r);
+    }
   }
 
   console.log(failed === 0 ? "\nALL PASS" : `\n${failed} FAILED`);

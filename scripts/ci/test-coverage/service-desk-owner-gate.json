@@ -1,0 +1,10 @@
+{
+  "note": "Service Desk 1.3-0 PR-2: the owner gate on the platform-admin feature override path (lib/services/feature-access/owner-gated-features.ts). service_desk may be closed (DISABLED) or cleared (INHERIT) by a platform admin, never opened — ENABLED or any unknown value → 403 FEATURE_OWNER_GATED before any database work. Removing the gate is a separate owner-approved PR. The database half (as the real control-plane role, row + audit) is phase 12b of .pw2/battery.mjs in d2-pw2-ci.yml.",
+  "tests": {
+    "lib/services/feature-access/owner-gated-features.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the gated list is exactly { service_desk }; only DISABLED and INHERIT pass for it, ENABLED and every unknown value are refused (fail closed); no other catalog feature is affected; the real write service refuses service_desk ENABLED with 403 FEATURE_OWNER_GATED before the state check, the reason check and the control-plane transaction (static order + no database configured); an unauthenticated PATCH is 401 and learns nothing about the gate"
+    }
+  }
+}

@@ -3,7 +3,7 @@
   "tests": {
     ".i18n/en-chunk-rules.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "pure: the chunk-name rule of the en-chunk proof accepts the build's hashed names (incl. `09-fn8k_4ub0p.js`, which failed CI run 41706563200) and still refuses unhashed ones; the dictionary file is the English-only file with the sentinels; a missing / partial / Hebrew-shared / >3-file dictionary still fails; the proof uses these rules and its DOM / byte assertions are unchanged; run on pull_request by i18n-en-chunk-proof.yml"
+      "reason": "pure: the chunk-name rule of the en-chunk proof accepts the build's hashed names (incl. `09-fn8k_4ub0p.js`, which failed CI run 41706563200) and still refuses unhashed ones; the dictionary file is the English-only file with the sentinels; a missing / partial / Hebrew-shared / >3-file dictionary still fails; the proof uses these rules and its DOM / byte assertions are unchanged; the ONE owner-approved exception (2026-11-15): /tasks English HTML may grow by <= 251 B only for the split push-client chunk (exactly one more chunk, JavaScript unique to /tasks <= 310 B raw (owner 2026-11-16) beyond the shared growth measured on /app, never once main has the split chunk - not cumulative), every other route strict; run on pull_request by i18n-en-chunk-proof.yml"
     }
   }
 }

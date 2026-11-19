@@ -13,10 +13,13 @@ import assert from "node:assert/strict";
 
 import {
   MIN_PASSWORD_LENGTH,
+  SIGNUP_BUSINESS_KINDS,
   SignupValidationError,
   normalizeEmail,
+  normalizeGoogleSignupInput,
   normalizeSignupInput,
 } from "@/lib/auth/signup-identity";
+import { BILLING_BUSINESS_KIND_VALUES } from "@/lib/billing/business-identity";
 
 let checks = 0;
 function check(label: string, fn: () => void) {
@@ -49,7 +52,8 @@ const valid = {
   email: "owner@example.com",
   password: "sup3rsecret",
   name: "אלדד",
-  businessName: "מספרה",
+  businessName: "מספרה", businessKind: "AUTHORIZED_DEALER",
+  legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid",
   acceptTerms: true,
 };
 
@@ -128,7 +132,13 @@ function main() {
 
   expectInvalid({ ...valid, name: "" }, "name", "missing name");
   expectInvalid({ ...valid, name: "א" }, "name", "one-character name");
-  expectInvalid({ ...valid, businessName: "" }, "businessName", "missing business");
+  expectInvalid({ ...valid, legalName: "" }, "legalName", "missing legal name");
+  for (const field of ["legalName", "taxId", "address", "phone", "businessEmail"]) {
+    expectInvalid({ ...valid, [field]: undefined }, field, `missing ${field}`);
+  }
+  check("an empty legacy business name is no trade name: the legal name is shown", () => {
+    assert.equal(normalizeSignupInput({ ...valid, businessName: "" }).businessName, "דנה כהן");
+  });
   expectInvalid({ ...valid, email: "" }, "email", "missing email");
   expectInvalid({ ...valid, email: "not-an-email" }, "email", "email without @");
   expectInvalid({ ...valid, email: "a@b" }, "email", "email without dot");
@@ -162,6 +172,16 @@ function main() {
       password: "sup3rsecret",
       name: "אלדד",
       businessName: "מספרה",
+      businessKind: "AUTHORIZED_DEALER",
+      legalIdentity: {
+        kind: "AUTHORIZED_DEALER",
+        legalName: "דנה כהן",
+        taxId: "000000018",
+        tradeName: "מספרה",
+        address: "הרצל 1, תל אביב",
+        phone: "0501234567",
+        businessEmail: "biz@lab.invalid",
+      },
       attribution: null,
     });
   });
@@ -175,7 +195,7 @@ function main() {
 
   /* ---------------------------------------------------------- name bounds -- */
 
-  expectInvalid({ ...valid, businessName: "א".repeat(121) }, "businessName", "business name over 120");
+  expectInvalid({ ...valid, businessName: "א".repeat(121) }, "tradeName", "trade name (legacy businessName) over 120");
   check("a business name of exactly 120 is accepted", () => {
     assert.equal(normalizeSignupInput({ ...valid, businessName: "א".repeat(120) }).businessName.length, 120);
   });
@@ -204,6 +224,28 @@ function main() {
     assert.equal(normalizeSignupInput({ ...valid, attribution: { referrer: "not a url" } }).attribution, null);
     assert.equal(normalizeSignupInput({ ...valid, attribution: "utm_source=x" }).attribution, null);
     assert.equal(normalizeSignupInput({ ...valid, attribution: ["x"] }).attribution, null);
+  });
+
+  // ── business kind (owner decision 2026-11-11) ──
+  check("the signup kinds are exactly billing's three kinds, in the same order", () => {
+    assert.deepEqual([...SIGNUP_BUSINESS_KINDS], [...BILLING_BUSINESS_KIND_VALUES]);
+  });
+  check("each kind is accepted and kept verbatim", () => {
+    for (const k of SIGNUP_BUSINESS_KINDS) assert.equal(normalizeSignupInput({ ...valid, businessKind: k }).businessKind, k);
+  });
+  for (const [label, v] of [["missing", undefined], ["empty", ""], ["unknown", "VAT_FREE"], ["lower case", "exempt_dealer"], ["padded", " LTD_COMPANY "], ["number", 2], ["array", ["LTD_COMPANY"]]] as const) {
+    expectInvalid({ ...valid, businessKind: v }, "businessKind", `business kind ${label} is refused`);
+  }
+  check("the Google completion requires the same kind", () => {
+    const g = { name: "דנה כהן", businessName: "מאפייה", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018",
+                address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid" };
+    assert.equal(normalizeGoogleSignupInput({ ...g, businessKind: "LTD_COMPANY" }).businessKind, "LTD_COMPANY");
+    for (const v of [undefined, "", "OTHER"]) {
+      assert.throws(() => normalizeGoogleSignupInput({ ...g, businessKind: v }), (e: unknown) => e instanceof SignupValidationError && e.field === "businessKind");
+    }
+  });
+  check("the kind is checked before the password (a person fixing the form sees it next to the business name)", () => {
+    assert.throws(() => normalizeSignupInput({ ...valid, businessKind: "", password: "x" } as never), (e: unknown) => e instanceof SignupValidationError && e.field === "businessKind");
   });
 
   console.log(`signup.verify.test.ts: ok (${checks} checks)`);

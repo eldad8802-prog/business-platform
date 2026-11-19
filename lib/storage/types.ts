@@ -14,6 +14,12 @@ export const STORAGE_DOMAINS = [
    * refused, so no write in this domain can ever overwrite an object or land after a deletion fence.
    */
   "business-docs",
+  /**
+   * Service Desk (1.3-0) — PRIVATE. Keys biz/{id}/service/… (CHECK-limited in every Service table: intake photos,
+   * signatures, the intake slip, the sent quote copy). Conditional writes only, like business-docs: no write here can
+   * overwrite an object. Account erasure deletes the whole prefix after commit (service-storage-erasure.ts).
+   */
+  "service",
 ] as const;
 
 export type StorageDomain = (typeof STORAGE_DOMAINS)[number];

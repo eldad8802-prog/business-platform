@@ -32,7 +32,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { brotliCompressSync, constants as zc, gzipSync } from "zlib";
 import { signAuthToken } from "../lib/auth-token";
 import { en } from "../lib/i18n/messages/en";
-import { dictionaryChunkVerdict, isHashedChunkPath, selectDictionaryChunks } from "./en-chunk-rules";
+import { APPROVED_TASKS_PUSH_CHUNK_EXCEPTION, chunkPathsInHtml, dictionaryChunkVerdict, isHashedChunkPath, selectDictionaryChunks, tasksPushChunkExceptionVerdict, type MeasuredPage } from "./en-chunk-rules";
 
 const OUT = process.env.PERF_OUT ?? "perf-out";
 const B = { mainOff: "http://localhost:3621", mainOn: "http://localhost:3622", branchOff: "http://localhost:3612", branchOn: "http://localhost:3611" };
@@ -187,6 +187,17 @@ async function identityPhase(s: Seed) {
   console.log(`identity: ${report.identity.comparisons} comparisons, ${report.identity.exact} exact, ${report.identity.volatileOnly} volatile-only, ${report.identity.different} different`);
 }
 
+/** The English document of a route and every JS chunk it references (raw and brotli bytes) — for the exception. */
+async function measurePage(base: string, path: string): Promise<MeasuredPage> {
+  const html = Buffer.from(await (await fetch(base + path, { headers: { "accept-language": "he-IL", "accept-encoding": "identity", cookie: "dz_locale=en" }, redirect: "manual" })).arrayBuffer());
+  const chunks = [];
+  for (const p of chunkPathsInHtml(html.toString("utf8"))) {
+    const body = Buffer.from(await (await fetch(base + p, { headers: { "accept-encoding": "identity" } })).arrayBuffer());
+    chunks.push({ path: p, bytes: body.byteLength, brBytes: brotliCompressSync(body, { params: { [zc.BROTLI_PARAM_QUALITY]: 11 } }).byteLength, body: body.toString("utf8") });
+  }
+  return { htmlBytes: html.byteLength, chunks };
+}
+
 // ───────────────────────────── 2 · bytes ─────────────────────────────
 async function bytesPhase(s: Seed) {
   console.log("\n== 2 · server HTML / RSC bytes per route (raw, br q5, br q11, gzip) + dictionary sentinels ==");
@@ -213,7 +224,15 @@ async function bytesPhase(s: Seed) {
     // Only 200 documents carry a page (redirects are tiny either way).
     if (row.branchOnEn.status === 200) {
       ok(`bytes ${row.route} — BRANCH English HTML carries no dictionary (MAIN ${row.mainOnEn.sentinels}/${SENT.length} sentinels → BRANCH < 25%: only what the page renders)`, row.branchOnEn.sentinels < SENT.length * 0.25, `sentinels=${row.branchOnEn.sentinels}`);
-      ok(`bytes ${row.route} — BRANCH English HTML not larger than MAIN`, englishHtmlNotLarger(row.mainOnEn.raw, row.branchOnEn.raw), `${row.mainOnEn.raw} → ${row.branchOnEn.raw}`);
+      if (!englishHtmlNotLarger(row.mainOnEn.raw, row.branchOnEn.raw) && row.route === APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.route) {
+        // The one owner-approved exception (.i18n/en-chunk-rules.ts): every condition is measured here, or it fails.
+        const sharedPath = APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.sharedBaselineRoute;
+        const v = tasksPushChunkExceptionVerdict(row.route, await measurePage(B.mainOn, r.path), await measurePage(B.branchOn, r.path), { main: await measurePage(B.mainOn, sharedPath), branch: await measurePage(B.branchOn, sharedPath) });
+        report.tasksPushChunkException = v;
+        ok(`bytes ${row.route} — BRANCH English HTML within the owner-approved push-client chunk exception (≤ ${APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.maxExtraBytes} B, one more chunk, unique JS ≤ ${APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.maxUniqueJsRawBytes} B raw beyond ${APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.sharedBaselineRoute})`, v.ok, `${row.mainOnEn.raw} → ${row.branchOnEn.raw}; ${JSON.stringify({ conditions: v.conditions, js: v.js })}`);
+      } else {
+        ok(`bytes ${row.route} — BRANCH English HTML not larger than MAIN`, englishHtmlNotLarger(row.mainOnEn.raw, row.branchOnEn.raw), `${row.mainOnEn.raw} → ${row.branchOnEn.raw}`);
+      }
     }
     // Hebrew: the change must not grow a Hebrew document beyond the next/dynamic loader reference.
     ok(`bytes ${row.route} — BRANCH Hebrew HTML within ±2 KB of MAIN`, Math.abs(row.branchOnHe.raw - row.mainOnHe.raw) <= 2048 && Math.abs(row.branchOff.raw - row.mainOff.raw) <= 2048, `ON ${row.mainOnHe.raw}→${row.branchOnHe.raw}, OFF ${row.mainOff.raw}→${row.branchOff.raw}`);

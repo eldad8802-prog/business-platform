@@ -484,10 +484,39 @@ async function main() {
   console.log("\n== R6 — account emails follow the stored locale ==");
   {
     // Route → getServerI18n().locale → TransactionalEmail.locale → rendered from the row (delivery.ts).
-    // Routes that enqueue an account email read the locale exactly through the flag-gated resolver:
-    const routesWithLocale = ["app/api/auth/register/route.ts", "app/api/auth/password/forgot/route.ts", "app/api/auth/email/resend/route.ts", "app/api/auth/email/verify/route.ts"];
-    const { readFileSync } = await import("fs");
-    for (const f of routesWithLocale) ok(`R6 ${f} — locale comes from getServerI18n (cookie, flag-gated)`, /const \{[^}]*locale[^}]*\} = await getServerI18n\(\)/.test(readFileSync(f, "utf8")));
+    // Every route that records an account email — derived from the code, not listed by hand — must read the
+    // locale exactly through the flag-gated resolver. (Email verification records none since #1074, so it is
+    // not one of them; a route that starts recording one is picked up here automatically.)
+    const { readFileSync, readdirSync } = await import("fs");
+    const { join } = await import("path");
+    const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+    // A reference, not only a call: several routes inject these as dependencies (`request: requestPasswordReset`).
+    const RECORDS_ACCOUNT_EMAIL = /\b(createAccount|createAccountFromGoogle|requestEmailVerification|requestPasswordReset|issueAccountLink|enqueue(Welcome|AccountLink|Transactional)Email)\b/;
+    const READS_LOCALE = /const \{[^}]*locale[^}]*\} = await getServerI18n\(\)/;
+    const r6Violates = (src: string) => RECORDS_ACCOUNT_EMAIL.test(stripComments(src)) && !READS_LOCALE.test(src);
+    const routeFiles: string[] = [];
+    const walkRoutes = (d: string) => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, e.name).split("\\").join("/");
+        if (e.isDirectory()) walkRoutes(p);
+        else if (e.name === "route.ts") routeFiles.push(p);
+      }
+    };
+    walkRoutes("app/api");
+    const routesWithLocale = routeFiles.filter((f) => RECORDS_ACCOUNT_EMAIL.test(stripComments(readFileSync(f, "utf8")))).sort();
+    for (const f of routesWithLocale) ok(`R6 ${f} — locale comes from getServerI18n (cookie, flag-gated)`, !r6Violates(readFileSync(f, "utf8")));
+    ok("R6 — the account-email routes are found (register, forgot-password, resend-verification, Google signup)",
+      ["app/api/auth/register/route.ts", "app/api/auth/password/forgot/route.ts", "app/api/auth/email/resend/route.ts", "app/api/auth/google/complete/route.ts"].every((f) => routesWithLocale.includes(f)),
+      routesWithLocale.join(", "));
+    const verifySrc = stripComments(readFileSync("app/api/auth/email/verify/route.ts", "utf8"));
+    ok("R6 — email verification records and delivers no email (so it needs no locale)",
+      !routesWithLocale.includes("app/api/auth/email/verify/route.ts") && !/scheduleDelivery|deliverTransactionalEmail|enqueue\w*Email/.test(verifySrc));
+    // Negative control: the rule still bites — a route that records an account email without the resolver fails.
+    ok("R6 — negative control: recording an account email WITHOUT getServerI18n's locale is a violation",
+      r6Violates(`const { t } = await getServerI18n();\nawait requestPasswordReset(email, new Date());`) &&
+        r6Violates(`await createAccount({ email });`) &&
+        r6Violates(`const defaultDeps = { request: requestEmailVerification };`) &&
+        !r6Violates(`const { t, locale } = await getServerI18n();\nawait requestPasswordReset(email, new Date(), locale);`));
     const { enqueueAccountLinkEmail } = await import("../lib/email/transactional/store");
     const { renderStored } = await import("../lib/email/transactional/registry");
     const { getRequestLocale } = await import("../lib/i18n/server");

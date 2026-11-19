@@ -11,6 +11,7 @@ import {
   StorageKeyError,
   assertSafeListPrefix,
   assertUnconditionalPutAllowed,
+  getDefaultVisibility,
   getRequiredVisibility,
   isConditionalOnlyDomain,
   type PutObjectInput,
@@ -50,6 +51,10 @@ async function main() {
     console.log("--- domain policy ---");
     ok("business-docs is private", getRequiredVisibility("business-docs") === "private");
     ok("business-docs is conditional-only", isConditionalOnlyDomain("business-docs"));
+    ok("service is private", getRequiredVisibility("service") === "private" && getDefaultVisibility("service") === "private");
+    ok("service is conditional-only", isConditionalOnlyDomain("service"));
+    ok("a plain putObject in service is refused", await throwsKeyError(() => s.putObject({ ...doc("biz/42/service/cases/1/x.pdf", "x"), metadata: { businessId: 42, domain: "service", visibility: "private" } })));
+    ok("public visibility in service is refused", await throwsKeyError(() => s.putObjectIfAbsent({ ...doc("biz/42/service/cases/1/p.pdf", "x"), metadata: { businessId: 42, domain: "service", visibility: "public" } })));
     ok("no existing domain became conditional-only", (["documents", "billing", "content", "inventory", "offers", "crm", "trust", "exports"] as const).every((d) => !isConditionalOnlyDomain(d)));
     ok("assertUnconditionalPutAllowed refuses business-docs", await throwsKeyError(() => assertUnconditionalPutAllowed("business-docs")));
     ok("a plain putObject in business-docs is refused", await throwsKeyError(() => s.putObject(doc("biz/42/business-docs/a.pdf", "x"))));

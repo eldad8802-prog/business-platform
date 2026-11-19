@@ -67,8 +67,17 @@ const exists = (href: string) => ROUTES.has(href.split(/[?#]/)[0].replace(/\/$/,
 
 /* ============================================ 1. navigation ============== */
 
-const HUB = buildSettingsHub();
+// Every per-business feature ON, so a gated area (settings-categories.ts featureKey) is checked like any other.
+const HUB = buildSettingsHub(undefined, () => true);
 const HUB_ROWS = HUB.flatMap((g) => g.rows);
+
+check("a gated Settings area is hidden while its feature is off (fail-closed default)", () => {
+  const gated = SETTINGS_CATEGORIES.filter((c) => c.featureKey);
+  assert.ok(gated.some((c) => c.key === "notifications"), "notifications is gated by notifications_engine");
+  const closed = new Set(buildSettingsHub().flatMap((g) => g.rows).map((r) => r.key));
+  for (const c of gated) assert.equal(closed.has(c.key), false, `${c.key} listed with its feature off`);
+  for (const c of SETTINGS_CATEGORIES.filter((x) => !x.featureKey)) assert.ok(closed.has(c.key), `${c.key} dropped`);
+});
 
 check("the hub has the reference's five groups, in order", () => {
   assert.deepEqual(
@@ -115,6 +124,7 @@ check("existing icons are kept — each Settings area keeps its emoji", () => {
     security: "🛡️",
     "account-privacy": "🔒",
     "import-export": "🔄",
+    notifications: "🔔",
   };
   for (const c of SETTINGS_CATEGORIES) assert.equal(c.icon, expected[c.key], c.key);
 });
@@ -238,7 +248,14 @@ check("category: one shared map; sub-category label first; 'Other' is not shown 
   assert.equal(businessCategoryLabel("Other", "General"), null);
   assert.equal(businessCategoryLabel(null, null), null);
   assert.equal(businessCategoryLabel("Legacy free text", null), "Legacy free text");
-  assert.ok(BUSINESS_CATEGORY_OPTIONS.length === 7);
+  // D6 (2026-11-10): five service categories added after the existing seven; "Other" stays last.
+  assert.ok(BUSINESS_CATEGORY_OPTIONS.length === 12);
+  assert.deepEqual(
+    BUSINESS_CATEGORY_OPTIONS.slice(0, 6).map((c) => c.value),
+    ["Beauty", "Food", "Fitness", "Home Services", "Events", "Retail"],
+    "the existing categories keep their values and order",
+  );
+  assert.equal(BUSINESS_CATEGORY_OPTIONS[BUSINESS_CATEGORY_OPTIONS.length - 1].value, "Other");
   const onboarding = read("app/onboarding/page.tsx");
   assert.ok(onboarding.includes("@/lib/business/business-categories"), "onboarding must import the shared map");
   assert.ok(!onboarding.includes('label: "יופי וטיפוח"'), "onboarding still keeps its own copy");

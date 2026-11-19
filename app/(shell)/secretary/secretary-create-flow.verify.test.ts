@@ -35,8 +35,10 @@ check(findCategoryObligation("חשמל", [{ obligeeName: "מים" }]) === null, 
 
 // ── Entry points lead to P3 ("נגדיר את ההתחייבויות")
 const P3_START = "/secretary?screen=bank";
-const sheet = read("components/navigation/action-sheet.tsx");
-check(sheet.includes(`{ label: "התחייבות חדשה", href: "${P3_START}"`), '"+" → "התחייבות חדשה" opens P3');
+// HOME v4: the "+" entries live in the Home model (CREATE_ACTIONS); the label comes from home.v4 i18n.
+const sheet = read("features/home/v4/home-v4-model.ts");
+const createLabels = read("lib/i18n/messages/areas/home-v4.ts");
+check(sheet.includes(`{ key: "commitment", labelKey: "commitment", href: "${P3_START}"`) && createLabels.includes('commitment: "התחייבות חדשה"'), '"+" → "התחייבות חדשה" opens P3');
 check(!sheet.includes('"/payables?new=1"'), '"+" no longer opens the payables form');
 for (const other of ['"/tasks?new=1"', '"/billing?create=1"', '"/collection/new"', '"/leads?new=1"', '"/documents/upload"', '"/inventory/items/create"']) {
   check(sheet.includes(other), `"+" keeps its other action ${other}`);

@@ -178,41 +178,99 @@ const del = (x: Biz, store: AccountDeletionStore = prismaAccountDeletionStore) =
 
 /**
  * Lab infrastructure only: the base lab records some older migrations in the ledger without running them, so an erasure
- * function the purge calls may be missing. Each missing one is created from its own migration's text, EXECUTE to the
- * runtime alone (the same as .ad2a/battery.mjs does) — no erasure logic is written here.
+ * function the purge — or a module of the shared post-commit stage (ACCOUNT_STORAGE_ERASURES) — calls may be missing.
+ * Each missing one is created from the REAL definition in the latest migration that creates it (any arguments, e.g.
+ * service_storage_erasure_record_pass(integer, integer, text)), EXECUTE to the runtime alone (as .ad2a/battery.mjs does).
+ * No erasure logic is written here, nothing is stubbed: a required function no migration defines is an error.
  */
-async function mirrorMissingEraseFunctions(): Promise<string[]> {
+type LabMigration = { dir: string; sql: string };
+async function labMigrations(): Promise<LabMigration[]> {
   const fs = await import("node:fs");
   const path = await import("node:path");
-  const adapter = fs.readFileSync(path.join(process.cwd(), "lib/services/account/account-deletion.prisma-store.ts"), "utf8");
-  const fns = [...new Set([...adapter.matchAll(/SELECT public\.([a-z_]+)\(\) AS n/g)].map((m) => m[1]))];
+  const dir = path.join(process.cwd(), "prisma/migrations");
+  return fs.readdirSync(dir).sort()
+    .filter((d) => fs.existsSync(path.join(dir, d, "migration.sql")))
+    .map((d) => ({ dir: d, sql: fs.readFileSync(path.join(dir, d, "migration.sql"), "utf8") }));
+}
+/** The real CREATE OR REPLACE FUNCTION public.<fn>(<args>) … $fn$; of the latest migration that creates it; throws if none. */
+function definitionFromMigrations(fn: string, migrations: LabMigration[]): string {
+  const re = new RegExp(String.raw`CREATE OR REPLACE FUNCTION public\.${fn}\([^)]*\)[\s\S]*?\$fn\$;`);
+  for (const m of [...migrations].reverse()) {
+    const d = m.sql.match(re)?.[0];
+    if (d) return d;
+  }
+  throw new Error(`${fn}() not found in any migration`);
+}
+/** Every public.<fn>( called by the purge adapter and by the erasure code of each registered storage-erasure module. */
+async function requiredEraseFunctions(): Promise<string[]> {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const read = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const registry = read("lib/services/account/account-storage-erasure.ts");
+  const moduleFiles = [...registry.matchAll(/from "@\/(lib\/services\/[^"]+\/erasure\/[^"]+)"/g)].map((m) => `${m[1]}.ts`);
+  const sources = [read("lib/services/account/account-deletion.prisma-store.ts"), ...moduleFiles.map(read)];
+  return [...new Set(sources.flatMap((s) => [...s.matchAll(/\bpublic\.([a-z_]+)\(/g)].map((m) => m[1])))].sort();
+}
+/** public.<fn>(<types>) of a definition's header — parameter names dropped, so to_regprocedure() can match it exactly. */
+function signatureOf(fn: string, definition: string): string {
+  const args = definition.match(new RegExp(String.raw`^CREATE OR REPLACE FUNCTION public\.${fn}\(([^)]*)\)`))?.[1] ?? "";
+  const types = args.split(",").map((a) => a.trim()).filter(Boolean).map((a) => {
+    const t = a.split(/\s+/);
+    return t.length > 1 ? t.slice(1).join(" ") : t[0];
+  });
+  return `public.${fn}(${types.join(", ")})`;
+}
+const installed = async (signature: string) =>
+  Boolean(((await own.$queryRawUnsafe(`SELECT to_regprocedure($1) IS NOT NULL AS ok`, signature)) as { ok: boolean }[])[0].ok);
+async function mirrorMissingEraseFunctions(): Promise<string[]> {
+  const migrations = await labMigrations();
   const mirrored: string[] = [];
-  for (const fn of fns) {
-    const present = Number(((await own.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_proc WHERE proname = $1`, fn)) as { n: number }[])[0].n);
-    if (present > 0) continue;
-    const dir = path.join(process.cwd(), "prisma/migrations");
-    const sql = fs.readdirSync(dir).map((d) => path.join(dir, d, "migration.sql")).filter((f) => fs.existsSync(f)).map((f) => fs.readFileSync(f, "utf8"))
-      .find((s) => s.includes(`FUNCTION public.${fn}()`));
-    const body = sql?.match(new RegExp(String.raw`CREATE OR REPLACE FUNCTION public\.${fn}\(\)[\s\S]*?\$fn\$;`))?.[0];
-    if (!body) throw new Error(`${fn}() not found in any migration`);
+  for (const fn of await requiredEraseFunctions()) {
+    // The definition is always taken first: a required function that no migration defines fails here, installed or not.
+    const body = definitionFromMigrations(fn, migrations);
+    const sig = signatureOf(fn, body);
+    if (await installed(sig)) continue;
     // Created by the lab superuser (the lab owner holds no CREATE on the schema), then owned by the table owner, as
     // the migration role owns it in Production.
     const sup = new PrismaClient({ datasources: { db: { url: process.env.SUPER_URL } } });
     try {
       await sup.$executeRawUnsafe(body);
-      await sup.$executeRawUnsafe(`ALTER FUNCTION public.${fn}() OWNER TO lab_owner`);
-      await sup.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.${fn}() FROM PUBLIC`);
-      await sup.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.${fn}() TO app_runtime`);
+      await sup.$executeRawUnsafe(`ALTER FUNCTION ${sig} OWNER TO lab_owner`);
+      await sup.$executeRawUnsafe(`REVOKE ALL ON FUNCTION ${sig} FROM PUBLIC`);
+      await sup.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION ${sig} TO app_runtime`);
     } finally {
       await sup.$disconnect();
     }
-    mirrored.push(fn);
+    mirrored.push(sig);
   }
   return mirrored;
 }
 
 async function main() {
+  // The lab mirror itself must be honest (hard stops, not counted checks): it refuses a function no migration defines,
+  // and what it installs is the migration's own text, matched by name AND argument types — never a stand-in.
+  {
+    const migrations = await labMigrations();
+    let refusedMissing = false;
+    try { definitionFromMigrations("lab_no_such_erase_function", migrations); } catch { refusedMissing = true; }
+    if (!refusedMissing) throw new Error("lab mirror self-check: a function no migration defines was not refused");
+    const required = await requiredEraseFunctions();
+    if (!required.includes("service_storage_erasure_record_pass")) throw new Error(`lab mirror self-check: the module's record_pass is not required (${required.join(", ")})`);
+    const rp = definitionFromMigrations("service_storage_erasure_record_pass", migrations);
+    if (!migrations.some((m) => m.sql.includes(rp)) || !/SECURITY DEFINER/.test(rp) || rp.length < 500
+        || signatureOf("service_storage_erasure_record_pass", rp) !== "public.service_storage_erasure_record_pass(integer, integer, text)") {
+      throw new Error("lab mirror self-check: record_pass is not the migration's own definition with its exact signature");
+    }
+    console.log("lab mirror self-check: refuses an undefined function; record_pass(integer, integer, text) taken verbatim from its migration");
+  }
   console.log(`lab: erase functions mirrored from their migrations: ${(await mirrorMissingEraseFunctions()).join(", ") || "none"}`);
+  {
+    const migrations = await labMigrations();
+    for (const fn of await requiredEraseFunctions()) {
+      const sig = signatureOf(fn, definitionFromMigrations(fn, migrations));
+      if (!(await installed(sig))) throw new Error(`lab: required erase function ${sig} is not installed`);
+    }
+  }
   const N = await seed("neighbour");
   const neighbourBefore = { records: await records(N.b), bytes: await Promise.all(N.keys.map(async (k) => sha((await local.getObject(k)).body))) };
 

@@ -1,0 +1,74 @@
+# Gmail scan B3-a — the quota-unit budget on a REAL Redis (owner-approved isolated check, 2026-11-09).
+#
+# The production Lua scripts (gmail-quota-budget.ts RESERVE_LUA / REFUND_LUA) run inside a real
+# Redis 7.4, reached through serverless-redis-http — the Upstash REST emulator the @upstash/redis
+# client speaks to, exactly as Production reaches Upstash. Same pinned images as the auth ledger
+# battery (auth-account-recovery-ci.yml). The battery pauses and stops the Redis container mid-burst
+# to prove fail-closed behaviour and that no reservation is ever half-charged.
+#
+# Ephemeral containers; synthetic token; ZERO secrets; ZERO Gmail; ZERO database; nothing reaches
+# Production. The battery refuses to run against anything but localhost.
+
+name: gmail scan budget — real Redis battery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/integrations/gmail/**"
+      - "app/api/integrations/gmail/scan/**"
+      - "lib/security/rate-limiter/**"
+      - ".github/workflows/gmail-scan-budget-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gmail-scan-budget-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  budget:
+    name: gmail scan budget (real Redis 7.4 via Upstash REST emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      redis:
+        image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis-http:
+        image: hiett/serverless-redis-http:0.0.10@sha256:65128347949bca511e448fd7238780d624573d74c22b79155a7563db19e9b678
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: gsb_ci_synthetic_upstash_token
+          SRH_CONNECTION_STRING: redis://redis:6379
+        ports:
+          - 8079:80
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: 1. Pure B3-a suite (memory store)
+        run: npx tsx lib/services/integrations/gmail/gmail-scan-b3a.verify.test.ts
+
+      - name: 2. Real Redis battery (production Lua, parallel bursts, hang + crash mid-burst)
+        env:
+          RATE_LIMIT_BACKEND: redis
+          UPSTASH_REDIS_REST_URL: http://localhost:8079
+          UPSTASH_REDIS_REST_TOKEN: gsb_ci_synthetic_upstash_token
+          REDIS_CONTAINER: ${{ job.services.redis.id }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do curl -sf -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN" "$UPSTASH_REDIS_REST_URL/ping" >/dev/null && break; sleep 1; done
+          npx tsx lib/services/integrations/gmail/gmail-quota-budget.redis-battery.test.ts

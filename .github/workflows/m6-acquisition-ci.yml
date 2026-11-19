@@ -276,6 +276,13 @@ jobs:
           test -z "$(fails)" || { echo "after the lead: expected no FAIL, got: $(fails)"; exit 1; }
           test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/gev.out)" = "21" || { echo "expected 21 PASS"; exit 1; }
           test "$(receipts)" = "2" || { echo "Google's retry made a second receipt"; exit 1; }
+          echo "== C3 (owner decision 2026-11-09): business 9 web forms stay ENABLED — tolerated only while no web.form connection is live anywhere and no other business has web forms"
+          for c in c3-web-live-9 c3-web-live-y c3-web-flag-y; do
+            rehearse "$c"; evidence
+            test "$(fails)" = "3 " || { echo "$c: expected only 3 (C3) to fail, got: $(fails)"; exit 1; }
+            rehearse c3-back; evidence
+            test -z "$(fails)" || { echo "after $c then c3-back: expected no FAIL, got: $(fails)"; exit 1; }
+          done
           echo "== a lead typed with an EXISTING customer's phone: the identity checks must fail"
           rehearse collide; evidence
           test "$(fails)" = "13 14 15 " || { echo "collided: expected 13 14 15 to fail, got: $(fails)"; exit 1; }

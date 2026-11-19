@@ -6,6 +6,7 @@ import { encryptToken } from "@/lib/services/integrations/gmail/token-crypto.pla
 import { verifySignedGmailState } from "@/lib/services/integrations/gmail/signed-state.service";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { scheduleConnectionRestored } from "@/lib/notifications/producers/connection-notifications";
 
 export const runtime = "nodejs";
 
@@ -248,13 +249,17 @@ export async function GET(req: NextRequest) {
           },
         });
 
-        return { kind: "connected" as const };
+        return { kind: "connected" as const, connectionId: connection.id };
       })
     );
 
     if (persistOutcome.kind === "max_accounts") {
       return redirectError(req, "max_accounts");
     }
+
+    // Notifications side effect only, after the commit: the reconnected account closes its open "disconnected"
+    // notification (scheduled after the response, engine-gated, never throws).
+    scheduleConnectionRestored({ businessId, provider: "gmail", connectionId: persistOutcome.connectionId });
 
     return redirectSuccess(req);
   } catch (error) {

@@ -26,11 +26,22 @@ on:
       - "app/api/preferences/**"
       - "docs/i18n-multicurrency/**"
       - ".i18n/**"
+      # R6 (account emails follow the stored locale) reads these routes: a change to any of them runs it.
+      - "app/api/auth/register/route.ts"
+      - "app/api/auth/password/forgot/route.ts"
+      - "app/api/auth/email/resend/route.ts"
+      - "app/api/auth/email/verify/route.ts"
+      - "app/api/auth/google/complete/route.ts"
       - ".github/workflows/i18n-multicurrency-ci.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  # The TypeScript check (tsc / next build) needs more than Node's default ~4 GB heap on this codebase: main alone sits at
+  # the limit (clean build, Node 22). The runner has 16 GB. Measured 2026-11-14 on CI preview #1160.
+  NODE_OPTIONS: --max-old-space-size=6144
 
 jobs:
   i18n-multicurrency:

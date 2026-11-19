@@ -34,9 +34,11 @@ on:
       - "prisma/schema.prisma"
       - "package-lock.json"
       - ".billing-a0/**"
+      - ".billing-receipt-pdf/**"
       - "scripts/ci/billing-protected-paths-guard.mjs"
       - "scripts/ci/test-coverage/billing-a0.json"
       - ".github/workflows/billing-a0-characterization-ci.yml"
+      - ".tax-classification-lab/vat-default-regression.test.ts"
   workflow_dispatch:
 
 permissions:
@@ -57,6 +59,68 @@ jobs:
 
       - name: Golden characterization
         run: npx tsx .billing-a0/golden.test.ts
+
+      # Receipt PDF: titled קבלה, money received, payment lines, an exempt dealer stated as עוסק פטור.
+      - name: Receipt PDF wording and payment lines (pure)
+        # runs even while the golden step above is red for the approved receipt observations (the job stays red)
+        if: ${{ !cancelled() }}
+        run: npx tsx lib/services/billing/pdf/billing-pdf-receipt.test.ts
+
+      # The pre-#1108 template frozen byte-for-byte (controlled restore of receipts produced with it) + restore verification.
+      - name: Frozen pre-#1108 template reproduces the recorded golden HTML; restore verification (pure)
+        # runs even while the golden step above is red for the approved receipt observations (the job stays red)
+        if: ${{ !cancelled() }}
+        run: npx tsx lib/services/billing/pdf/receipt-template-v1.fidelity.test.ts
+
+      - name: Negative proof (an edited frozen template must be caught)
+        # runs even while the golden step above is red for the approved receipt observations (the job stays red)
+        if: ${{ !cancelled() }}
+        run: |
+          set -uo pipefail
+          F="lib/services/billing/pdf/billing-pdf-html-template.receipt-v1.ts"
+          cp "$F" "$F.bak"
+          perl -pi -e 's/TAX_INVOICE: "חשבונית מס",/TAX_INVOICE: "חשבונית-מס",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:receipt-v1:frozen" --expect 'FAIL: F1' --expect 'FAIL: F2' -- npx tsx lib/services/billing/pdf/receipt-template-v1.fidelity.test.ts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an edited frozen template went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+      # New-line VAT default: the standard rate in force today (18% from 1.1.2025), 0 for an exempt dealer.
+      - name: VAT default of a new draft line (pure)
+        # runs even while the golden step above is red for the approved receipt observations (the job stays red)
+        if: ${{ !cancelled() }}
+        run: npx tsx lib/billing/document-view-model.vat-default.test.ts
+
+      # #1111 regression proof: kind from the session business, exempt refusal before numbering, no issued path
+      # imports the client view model, server issues from stored rates (the client default is only a default).
+      - name: VAT default regression boundaries (pure + structural)
+        # runs even while the golden step above is red for the approved receipt observations (the job stays red)
+        if: ${{ !cancelled() }}
+        run: npx tsx .tax-classification-lab/vat-default-regression.test.ts
+
+      # Credit note → source invoice (D110 1256 / 1257) from the existing referenceDocumentId; no schema change.
+      - name: Uniform credit note base document (pure)
+        run: npx tsx lib/services/billing/uniform/uniform-credit-base-document.test.ts
+
+      # Field 1260: a newline in a line description must never reach a D110 record; plain text stays byte-identical
+      # (the golden above proves the existing files did not change).
+      - name: Uniform field 1260 — free text in one record (pure)
+        run: npx tsx lib/services/billing/uniform/uniform-1260-free-text.test.ts
+
+      - name: Negative proof (1260 without the normalisation must be caught)
+        run: |
+          set -uo pipefail
+          F="lib/services/billing/uniform/uniform-file-builder.ts"
+          cp "$F" "$F.bak"
+          sed -i 's/1260: normalizeFreeText(line.description),/1260: line.description,/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "NEGATIVE-PROOF SETUP FAIL: the 1260 line was not found"; exit 1; fi
+          if npx tsx lib/services/billing/uniform/uniform-1260-free-text.test.ts > np1260.log 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a raw newline in 1260 went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          grep -q "FAIL: E2E: every record starts with a known record code" np1260.log || { echo "NEGATIVE-PROOF FAIL: red, but not on the record split"; tail -20 np1260.log; exit 1; }
+          echo "negative proof OK — a raw newline in 1260 splits a D110 record and is caught"
 
       - name: Protected-paths guard self-test
         run: node scripts/ci/billing-protected-paths-guard.mjs --self-test
@@ -117,6 +181,9 @@ jobs:
       - name: Rendered-PDF characterization
         run: npx tsx .billing-a0/pdf-render.test.ts
 
+      - name: Receipt exception — the snapshot validator across all five types (only a RECEIPT may have no goods lines)
+        run: npx tsx .billing-receipt-pdf/assert-snapshot.test.ts
+
       - name: Negative proof (a changed printed label must be caught)
         run: |
           F="lib/services/billing/pdf/billing-pdf-html-template.ts"
@@ -176,6 +243,78 @@ jobs:
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:database:number-format" --expect 'FAIL: baseline: numbering.sequential' -- npx tsx .billing-a0/battery.mts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a changed document number went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+  receipt-pdf:
+    name: Receipt PDF through the real PDF service (ephemeral PG17)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: a0_owner
+          POSTGRES_PASSWORD: a0_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_rcpt_pdf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U a0_owner -d dubiz_rcpt_pdf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://a0_owner:a0_ci_synthetic_owner_pw@localhost:5432/dubiz_rcpt_pdf
+      DIRECT_URL: postgresql://a0_owner:a0_ci_synthetic_owner_pw@localhost:5432/dubiz_rcpt_pdf
+      AUTH_TOKEN_SECRET: a0_ci_auth_secret_synthetic
+      STORAGE_PROVIDER: local
+      LOCAL_STORAGE_ROOT: /tmp/a0-receipt-pdf
+      BILLING_PDF_STORAGE_ROOT: /tmp/a0-receipt-pdf/billing
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Install the Playwright Chromium (html renderer)
+        run: npx playwright install --with-deps chromium
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+      - name: Settlement receipt + screen receipt + invoice control, both renderers
+        run: npx tsx .billing-receipt-pdf/battery.mts
+
+      # Owner decision 2026-11-12: an issued receipt's produced PDF is never re-rendered automatically (template change).
+      - name: Issued receipt PDF is not re-rendered (stored bytes served; refused when missing / altered)
+        run: npx tsx .billing-receipt-pdf/no-rerender.battery.mts
+
+      - name: Negative proof (without the freeze, an issued receipt is re-rendered — must be caught)
+        run: |
+          set -uo pipefail
+          F="lib/services/billing/billing-pdf.service.ts"
+          cp "$F" "$F.bak"
+          perl -pi -e 's/doc\.documentType === "RECEIPT" &&/doc.documentType === "NO_SUCH_TYPE" \&\&/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:receipt-pdf:no-rerender" --expect '[FAIL] N3' --expect '[FAIL] N4' --expect '[FAIL] N5' --expect '[FAIL] N6' --expect '[FAIL] N7' -- npx tsx .billing-receipt-pdf/no-rerender.battery.mts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: re-rendering an issued receipt went unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (restore without hash verification would write a non-original — must be caught)
+        run: |
+          set -uo pipefail
+          F="lib/services/billing/receipt-pdf-restore.service.ts"
+          cp "$F" "$F.bak"
+          perl -pi -e 's/const match = matchRenderedAtWindow\(candidate, doc\.pdfRenderedAt, want\);/const match = candidate;/; s/if \(sha256\(check\) !== want\) throw /if (false) throw /' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if ! node scripts/ci/expect-red.mjs --id "billing-a0-characterization-ci.yml:receipt-pdf:restore-verify" --expect '[FAIL] R1 --apply' --expect '[FAIL] R2 restore' -- npx tsx .billing-receipt-pdf/no-rerender.battery.mts; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unverified restore went unnoticed"; exit 1
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"

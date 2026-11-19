@@ -1,0 +1,10 @@
+{
+  "note": "Issue 2 (Android status-bar overlap): inside the Android Capacitor shell the root layout drops viewport-fit=cover before DOMContentLoaded, so Capacitor SystemBars pads the WebView by the system bars on every screen instead of passing the insets through to pages that never reserved the top.",
+  "tests": {
+    "lib/native/android-viewport-fit.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "layout/viewport behaviour of the Android shell only; no data, auth or permission path",
+      "reason": "pure: runs the shipped inline script in a vm — cover dropped only when the SystemBars Android interface exists, every viewport meta normalised, untouched elsewhere, never throws; root layout keeps viewport-fit=cover for iOS and ships the script; the installed Capacitor SystemBars still keys passthrough on viewport-fit=cover"
+    }
+  }
+}

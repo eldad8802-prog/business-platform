@@ -694,6 +694,61 @@ async function main() {
   const auditAfterReplay = await auditCount();
   ok("rejected replay writes no audit row", auditAfterReplay === auditAfter + 1, `n=${auditAfterReplay}`);
 
+  // ── Phase 12b: owner gate (service_desk may be closed or cleared, never opened) ──
+  // pg only: it seeds the service_desk catalog rows, which a shared database (neon target) gets from its migration.
+  if (TARGET === "pg") {
+  console.log("--- phase 12b: owner gate ---");
+  // The definition + policy rows as 20261120090000 seeds them in Production: OFF by default and globally.
+  await owner.$executeRawUnsafe(
+    `INSERT INTO "PlatformFeatureDefinition" ("key","displayName","category","description","defaultEnabled","mutable","createdAt")
+     VALUES ('service_desk','service_desk','service','',false,true,CURRENT_TIMESTAMP) ON CONFLICT ("key") DO NOTHING`
+  );
+  await owner.$executeRawUnsafe(
+    `INSERT INTO "PlatformFeaturePolicy" ("featureKey","globalEnabled","emergencyDisabled","updatedAt")
+     VALUES ('service_desk',false,false,CURRENT_TIMESTAMP) ON CONFLICT ("featureKey") DO NOTHING`
+  );
+  const sdRow = () =>
+    owner.businessFeatureAccess.findUnique({ where: { businessId_featureKey: { businessId: bizA.id, featureKey: "service_desk" } } });
+  const auditBeforeGate = await auditCount();
+  const gated = await throws(() =>
+    updateBusinessFeatureAccess({
+      actorUserId: adminUser.id,
+      businessId: bizA.id,
+      featureKey: "service_desk",
+      state: "ENABLED",
+      reason: "pw2 try to open service_desk for A",
+    })
+  );
+  ok("owner gate: platform admin ENABLED on service_desk → 403 FEATURE_OWNER_GATED", gated?.code === "FEATURE_OWNER_GATED" && gated?.statusCode === 403, String(gated));
+  ok("owner gate: the refused request wrote no row and no audit", (await sdRow()) === null && (await auditCount()) === auditBeforeGate);
+  await updateBusinessFeatureAccess({
+    actorUserId: adminUser.id,
+    businessId: bizA.id,
+    featureKey: "service_desk",
+    state: "DISABLED",
+    reason: "pw2 close service_desk for A",
+  });
+  ok("owner gate: DISABLED on service_desk is allowed (row + audit)", (await sdRow())?.state === "DISABLED" && (await auditCount()) === auditBeforeGate + 1);
+  await updateBusinessFeatureAccess({
+    actorUserId: adminUser.id,
+    businessId: bizA.id,
+    featureKey: "service_desk",
+    state: "INHERIT",
+    reason: "pw2 clear the service_desk override for A",
+  });
+  ok("owner gate: INHERIT on service_desk is allowed (back to the default)", (await sdRow())?.state === "INHERIT" && (await auditCount()) === auditBeforeGate + 2);
+  const gatedAgain = await throws(() =>
+    updateBusinessFeatureAccess({
+      actorUserId: adminUser.id,
+      businessId: bizA.id,
+      featureKey: "service_desk",
+      state: "ENABLED",
+      reason: "pw2 try again after the clear",
+    })
+  );
+  ok("owner gate: still refused after a clear; the row stays INHERIT", gatedAgain?.code === "FEATURE_OWNER_GATED" && (await sdRow())?.state === "INHERIT");
+  }
+
   // ── Phase 13: resolver fail-open regression (dormant defect A) ────────────
   console.log("--- phase 13: resolver ---");
   const capsA = await runWithTenantContext({ businessId: bizA.id }, () =>

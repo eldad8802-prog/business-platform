@@ -28,6 +28,7 @@ import { safeErrorSummary } from "@/lib/security/log-safe-error";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
 import { deliverTransactionalEmail } from "@/lib/email/transactional/delivery";
 import { runTenantJob } from "@/lib/tenant/job";
+import { LegalIdentityRejectedError } from "@/lib/auth/signup-legal-identity-seed";
 import {
   PRODUCT_USAGE_ACTIONS,
   PRODUCT_USAGE_FEATURES,
@@ -217,6 +218,9 @@ export async function handleRegister(
       passwordHash,
       name: input.name,
       businessName: input.businessName,
+      // The legal identity (kind included) is written and confirmed in the account's own transaction:
+      // the account and its identity exist together or not at all.
+      legalIdentity: input.legalIdentity,
       now,
       userAgent: req.headers.get("user-agent"),
       attribution: input.attribution,
@@ -299,6 +303,16 @@ export async function handleRegister(
       await recordSignupFailure(deps, `invalid_${error.field}`);
       return NextResponse.json(
         { error: error.message, field: error.field },
+        { status: 400 }
+      );
+    }
+
+    if (error instanceof LegalIdentityRejectedError) {
+      // The database's backstop refused a value the form's rules accepted. Nothing was written. Field only.
+      if (admitted) return signupDisabledResponse();
+      await recordSignupFailure(deps, `invalid_legal_identity_${error.field ?? "unknown"}`);
+      return NextResponse.json(
+        { error: "חלק מפרטי העסק אינם תקינים. יש לבדוק אותם ולנסות שוב.", field: error.field ?? undefined, code: "LEGAL_IDENTITY_INVALID" },
         { status: 400 }
       );
     }

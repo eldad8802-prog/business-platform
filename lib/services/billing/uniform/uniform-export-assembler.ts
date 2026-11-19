@@ -168,6 +168,18 @@ function projectDocument(doc: UniformDocumentInput): {
     });
   }
 
+  // A credit note is written against its source invoice (D110 1256 / 1257). The issue path requires the source, so a
+  // credit without one is old data: the fields stay empty and the export says so — never a guessed source.
+  const baseDocument = doc.documentType === "CREDIT_NOTE" ? doc.baseDocument ?? null : null;
+  if (doc.documentType === "CREDIT_NOTE" && !baseDocument) {
+    warnings.push({
+      code: "CREDIT_WITHOUT_SOURCE_DOCUMENT",
+      scope: "document",
+      ref,
+      message: "Credit note has no issued source invoice in this business; base-document fields left empty.",
+    });
+  }
+
   const record: UniformDocumentRecord = {
     documentId: doc.id,
     documentType: doc.documentType,
@@ -186,6 +198,7 @@ function projectDocument(doc: UniformDocumentInput): {
     lineCount: lines.length,
     paymentCount: payments.length,
     source,
+    baseDocument,
   };
 
   return { record, lines, payments, warnings };

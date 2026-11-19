@@ -20,13 +20,18 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import { AuthTokenConfigError } from "@/lib/auth-token";
 
 export type EmailTokenPurpose = "EMAIL_VERIFY" | "PASSWORD_RESET";
-/** Every purpose a link secret is derived for. LINK_GOOGLE is issued only through lib/auth/google-link.ts. */
-export type LinkSecretPurpose = EmailTokenPurpose | "LINK_GOOGLE";
+/**
+ * Every purpose a link secret is derived for. LINK_GOOGLE is issued only through lib/auth/google-link.ts;
+ * ISSUER_DECLARATION only through lib/auth/issuer-declaration-link.ts (migration 20261126090000).
+ */
+export type LinkSecretPurpose = EmailTokenPurpose | "LINK_GOOGLE" | "ISSUER_DECLARATION";
 
 export const EMAIL_LINK_PATHS: Record<LinkSecretPurpose, string> = {
   EMAIL_VERIFY: "/verify-email",
   PASSWORD_RESET: "/reset-password",
   LINK_GOOGLE: "/link/google/confirm",
+  // Billing's confirmation page (#1081): it requires a signed-in session of the same account.
+  ISSUER_DECLARATION: "/billing/issuer-declaration/confirm",
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

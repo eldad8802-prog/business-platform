@@ -9,8 +9,8 @@
  *   A  not signed in          → CTA → /login → sign in → /app (Home)
  *   B  signed in               → CTA → /app directly, /login never shown
  *   C  signed in, token spent  → CTA → /app (refreshed from the cookie), /login never shown
- *   D  contrast: the same state as C, but /login as the target → the login FORM is shown to a signed-in
- *      owner — which is why the CTA is not /login.
+ *   D  the same state as C, but /login as the target → /login renews the spent token and continues to
+ *      /app (it used to show the form; the shared refused-session decision changed that).
  * Synthetic data only.
  */
 import { chromium, type Page } from "playwright";
@@ -110,13 +110,15 @@ async function main() {
   ok("C · …without ever showing /login", !c.includes("/login"), c.join(" → "));
   ok("C · …because the shell refreshed the token from the cookie", typeof after === "string" && after !== spent && after !== live);
 
-  // D — contrast: the same spent state, with /login as the target.
+  // D — the same spent state, with /login as the target. /login used to show the form
+  // here; it now renews the spent token through the shared decision (lib/auth/session-guard.ts)
+  // and continues to Home, so a signed-in owner never meets the form. /app stays the CTA:
+  // it is the canonical entry for every state above.
   await page.evaluate((t) => localStorage.setItem("token", t), spend(after!));
   await page.goto(`${BASE}/login`);
   await settle(page, 3500);
-  const formShown = await page.locator('input[type="password"]').first().isVisible().catch(() => false);
-  ok("D · contrast: /login as the target shows the LOGIN FORM to a signed-in owner (why the CTA is /app)",
-    new URL(page.url()).pathname === "/login" && formShown, page.url());
+  ok("D · /login with a spent token renews it and continues to Home (no login form for a signed-in owner)",
+    new URL(page.url()).pathname === "/app", page.url());
 
   await browser.close();
   await owner.$disconnect();

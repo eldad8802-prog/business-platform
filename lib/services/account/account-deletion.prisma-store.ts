@@ -405,12 +405,18 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // Web Push subscriptions: the push address and keys go and the row is revoked (no DELETE for the
           // runtime). erased:<id> satisfies PushSubscription_endpoint_shape and keeps (businessId, endpoint)
           // unique; a business has a handful of these rows (one per browser that accepted push).
+          // The Android app's FCM devices (notification engine, endpoint fcm:<token>) are rows of the same table:
+          // the token goes the same way.
           for (const sub of await tx.pushSubscription.findMany({ where: { businessId }, select: { id: true } })) {
             await tx.pushSubscription.updateMany({
               where: { id: sub.id, businessId },
               data: { endpoint: `erased:${sub.id}`, p256dh: "", auth: "", revokedAt: new Date() },
             });
           }
+          // Notification engine (migration 20261210090000): every user's notification settings and overrides.
+          // The runtime holds DELETE on both, bound by RLS to this business.
+          await tx.notificationSettings.deleteMany({ where: { businessId } });
+          await tx.notificationPreference.deleteMany({ where: { businessId } });
 
           // ── Monthly accountant workflow ─────────────────────────────────────
           //
@@ -486,6 +492,39 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // guards refuse that change from the runtime itself. Supplier, amounts, dates, stages and results stay as
           // the business's history. It refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.service_external_erase_business() AS n`;
+          // Service Desk spare parts M2 (migration 20261115090000). The hand-typed name and sku of a part line with no
+          // inventory item (NON_STOCK and supplier parts), its reason, note and creating user, and in its journal the
+          // acting users, request digests and reasons, are blanked in place by this SECURITY DEFINER function: the
+          // tables' guards refuse that change from the runtime itself. Item names copied from the inventory, states,
+          // quantities, costs, prices, links and times stay as the business's history. It refuses unless the business
+          // in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_parts_erase_business() AS n`;
+          // Service Desk UI foundation 1.3-0 (migration 20261120090000). The acting users of terms versions, intake
+          // terms snapshots, warranty offers, intake photos, share events and phone reminders, a warranty change reason and
+          // a reminder note, are blanked in place by this SECURITY DEFINER function (the tables' guards refuse that change
+          // from the runtime itself), and it opens the durable object-erasure job (ServiceStorageErasure) in THIS
+          // transaction: a failed purge rolls the job back too and no object is touched. The objects under
+          // biz/{id}/service/ are deleted only after every database stage committed (eraseStoredObjects, then the sweep).
+          // It refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_desk_ui_erase_business() AS n`;
+          // Service Desk P4 audit journal (migration 20261122090000). The acting user and the request digest of every
+          // settings-change event of the business are blanked in place by this SECURITY DEFINER function (the journal is
+          // append-only: its guard refuses that change from the runtime itself). The events stay as the business's audit
+          // record — version, changed field names and time, never values. The case journal's P4 records are blanked by
+          // service_erase_business() above. It refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_settings_journal_erase_business() AS n`;
+          // Service Desk case charge (migration 20261126090000). Who acted and the free-text reasons of the charge
+          // history and of the billing links are blanked in place by this SECURITY DEFINER function (both tables are
+          // append-only: their guards refuse that change from the runtime itself). Amounts, modes, document ids and
+          // times stay as the business's financial record. It refuses unless the business in this tenant context is
+          // being deleted.
+          await tx.$queryRaw`SELECT public.service_case_charge_erase_business() AS n`;
+          // Service Desk tracks (migration 20261127090000). The site address and notes and the original sale reference of
+          // a case, the subject's display name and attributes, the completion's confirmer name and note, and the details
+          // changes' reasons and addresses are blanked in place by this SECURITY DEFINER function (service_erase_business
+          // blanks the case by a fixed column list that cannot know these; the completion and the details changes are
+          // append-only). Who acted is cleared too. It refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_tracks_erase_business() AS n`;
           // Business documents (migration 20261114090000). Quote share copies and their events, saved letters and
           // idempotency keys are deleted, and every stored file is marked DELETING with its object key kept, by this
           // SECURITY DEFINER function — it also writes the durable erasure job, in THIS transaction, so a failed purge
@@ -493,6 +532,12 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // after every database stage committed (eraseStoredObjects, then the sweep). It refuses unless the business
           // in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.business_documents_erase() AS n`;
+          // Issuer declarations (#1081, migration 20261126100000). Anonymises in place (placeholders — the table's CHECKs
+          // refuse NULL / '') every declaration NO fiscal document was issued under, and keeps the others unchanged
+          // (RETAINED_BY_DESIGN, legal/fiscal: the documents issued under them name that issuer). Never deletes a row;
+          // the declaring users are anonymised above, so the RESTRICT foreign keys hold. It refuses unless the business in
+          // this tenant context is being deleted. Requires the migration — the #1117 code ships only after it is applied.
+          await tx.$queryRaw`SELECT public.issuer_declaration_erase() AS n`;
 
           // ── C12-E1 — the two procurement notes ─────────────────────────────
           //

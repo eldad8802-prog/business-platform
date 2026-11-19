@@ -48,6 +48,7 @@ import {
   getPlatformFeatureCatalogEntry,
   isPlatformFeatureKey,
 } from "@/lib/services/feature-access/platform-feature-catalog";
+import { FEATURE_OWNER_GATED, refusedByOwnerGate } from "@/lib/services/feature-access/owner-gated-features";
 import { resolveFeatureAccessFromInputs } from "@/lib/services/feature-access/resolve-feature-access";
 import type {
   BusinessFeatureOverrideState,
@@ -145,6 +146,11 @@ export async function updateBusinessFeatureAccess(
 
   if (!catalogEntry.mutable) {
     throw new ForbiddenError("Feature is not mutable", "FEATURE_NOT_MUTABLE");
+  }
+
+  // A feature waiting for the owner's go may be closed or cleared, never opened (owner-gated-features.ts).
+  if (refusedByOwnerGate(featureKey, input.state)) {
+    throw new ForbiddenError("Feature is waiting for the owner's approval", FEATURE_OWNER_GATED);
   }
 
   if (

@@ -25,8 +25,12 @@ if [ "$MODE" != "--deploy-only" ] && [ "$MODE" != "--broken-deploy-only" ]; then
 bash "$ROOT/.sdf/lab.sh" "$DB" --with-sdf >/dev/null
 # schema.prisma models 1.2b (PR-2), so the base chain's `db push` built its tables and enums without the migration's
 # checks, triggers, functions, policies and grants. .sdf/lab.sh already drops them before the foundation deploy;
-# make sure nothing of them is left, so the migration builds them the way Production has them.
+# make sure nothing of them is left, so the migration builds them the way Production has them. The same for the M2
+# spare-parts tables (schema.prisma models them too; .sdp/lab.sh deploys M2 on top of this lab).
 psql_owner <<'SQL'
+DROP TABLE IF EXISTS "ServicePartEvent", "ServicePart" CASCADE;
+DROP TYPE IF EXISTS "ServicePartEventKind", "ServicePartWriteOffReason", "ServicePartCostSource", "ServicePartSource",
+  "ServicePartState";
 DROP TABLE IF EXISTS "ServiceExternalWorkEvent", "ServiceExternalWork" CASCADE;
 DROP TYPE IF EXISTS "ServiceExternalWorkEventKind", "ServiceExternalReturnResult", "ServiceExternalProgress",
   "ServiceExternalWorkState";

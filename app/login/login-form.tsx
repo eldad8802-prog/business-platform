@@ -7,6 +7,15 @@ import { PrimaryCta } from "@/components/ui/primary-cta";
 import { AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-in";
+import {
+  clearPendingRevoke,
+  completePendingRevoke,
+  consumeSignOutUnconfirmed,
+  finishPendingRevokeBeforeSignIn,
+  hasPendingRevoke,
+} from "@/lib/client-session";
+import { handleUnauthorized } from "@/lib/auth/session-guard";
+import { flushAuthCookies } from "@/lib/native/auth-cookies";
 
 const LOGIN_A11Y_STYLE: React.CSSProperties = {
   position: "absolute",
@@ -59,6 +68,36 @@ export default function LoginForm({
   const [errors, setErrors] = useState<LoginErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
+  // A sign-out that was cleared on this device before the server confirmed it
+  // (Settings → "clear this device anyway") is finished here: on every load and
+  // whenever the device comes back online, until the server gives a verdict.
+  // The proof is the HttpOnly refresh cookie, attached by the browser; nothing
+  // secret lives in localStorage, and the marker pins the session id so a new
+  // sign-in on this device can never be ended by it.
+  const [pendingRevoke, setPendingRevoke] = useState<"none" | "pending" | "unproven">("none");
+  useEffect(() => {
+    let alive = true;
+    const attempt = async () => {
+      const r = await completePendingRevoke();
+      if (!alive) return;
+      setPendingRevoke(r === "still_pending" ? "pending" : r === "unproven" ? "unproven" : "none");
+    };
+    // The notice appears with the first verdict (always after a request), so
+    // nothing is set synchronously here.
+    if (hasPendingRevoke()) void attempt();
+    // A sign-out that cleared the device without the server's confirmation is
+    // said so here — never shown as a success.
+    if (consumeSignOutUnconfirmed()) queueMicrotask(() => alive && setPendingRevoke("unproven"));
+    const onOnline = () => {
+      if (hasPendingRevoke()) void attempt();
+    };
+    window.addEventListener("online", onOnline);
+    return () => {
+      alive = false;
+      window.removeEventListener("online", onOnline);
+    };
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -93,11 +132,17 @@ export default function LoginForm({
           return; // keep the boot loader visible while navigating away
         }
 
-        // Definitively unauthorized → clear the stale credentials.
-        if (status === 401 || status === 403) {
-          window.localStorage.removeItem("token");
-          window.localStorage.removeItem("sessionId");
-          window.localStorage.removeItem("user");
+        // 401: the one decision (lib/auth/session-guard.ts). An expired token
+        // with a live refresh session is renewed and goes straight to /app; a
+        // session the server ended is cleared here (already on /login, so no
+        // redirect loop); a network failure clears nothing. 403 is not a
+        // sign-out and is left alone — the form simply shows.
+        if (status === 401) {
+          const outcome = await handleUnauthorized({
+            rejectedToken: token,
+            retry: () => window.location.replace(`${window.location.origin}/app`),
+          });
+          if (outcome === "recovered") return; // keep the boot loader while navigating
         }
 
         // Any non-200 (incl. transient network/5xx): show the form so the user
@@ -111,7 +156,22 @@ export default function LoginForm({
 
     void boot();
 
+    // The check above could not reach the server (no network, or a 5xx) and
+    // kept the stored session. When the device comes back online, check again:
+    // a session that is still valid goes straight to /app instead of leaving the
+    // person on a sign-in form they do not need. Without a stored token nothing
+    // happens, so this never interrupts someone typing their password.
+    const onOnline = () => {
+      try {
+        if (isMounted && window.localStorage.getItem("token")) void boot();
+      } catch {
+        /* storage refused: stay on the form */
+      }
+    };
+    window.addEventListener("online", onOnline);
+
     return () => {
+      window.removeEventListener("online", onOnline);
       isMounted = false;
     };
   }, [router]);
@@ -205,6 +265,10 @@ export default function LoginForm({
         form: undefined,
       }));
 
+      // An earlier "clear anyway" sign-out still pending: finish it now, while
+      // the cookie that proves it is in the jar — this sign-in replaces it.
+      await finishPendingRevokeBeforeSignIn();
+
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
@@ -236,6 +300,10 @@ export default function LoginForm({
       }
 
       window.localStorage.setItem("token", data.token);
+      // Android app: the session cookie this response set goes to disk now, not ~30 s later.
+      void flushAuthCookies();
+      // The new cookie replaced the one an older pending sign-out was about.
+      clearPendingRevoke();
 
       if (data.sessionId) {
         window.localStorage.setItem("sessionId", data.sessionId);
@@ -493,6 +561,15 @@ export default function LoginForm({
     );
   }
 
+  // Android app (marked before the first paint, lib/native/android-shell-entry.ts): the compact
+  // sign-in screen — app title, no badge / long subtitle / divider, no autofocus (the keyboard would
+  // cover the screen on launch). Read here, after the boot screen: the server only ever renders that
+  // screen, so the form is client-only and this cannot mismatch; in a browser nothing changes.
+  const inAndroidApp = document.documentElement.getAttribute("data-shell") === "android";
+  // Field help keeps its space in the app but is not shown, so the inline error that replaces it
+  // never shifts the links below it mid-tap.
+  const fieldHelpStyle: React.CSSProperties = inAndroidApp ? { ...helperTextStyle, visibility: "hidden" } : helperTextStyle;
+
   return (
     <div style={pageStyle}>
       {/* The accessibility entry has a fixed place here, so the floating button stands down. */}
@@ -503,18 +580,27 @@ export default function LoginForm({
             <DubizLogo height={38} priority />
           </div>
 
-          <div style={badgeStyle}>
-            <span>🔐</span>
-            <span>{t("account.auth.login.badge")}</span>
-          </div>
+          {inAndroidApp ? null : (
+            <div style={badgeStyle}>
+              <span>🔐</span>
+              <span>{t("account.auth.login.badge")}</span>
+            </div>
+          )}
 
-          <h1 style={titleStyle}>{t("account.auth.login.title")}</h1>
+          <h1 style={titleStyle}>{t(inAndroidApp ? "account.auth.login.appTitle" : "account.auth.login.title")}</h1>
 
-          <p style={subtitleStyle}>{t("account.auth.login.subtitle")}</p>
+          {inAndroidApp ? null : <p style={subtitleStyle}>{t("account.auth.login.subtitle")}</p>}
         </div>
 
         <form style={bodyStyle} onSubmit={handleLogin} noValidate>
           <GoogleNotice notice={googleNotice} />
+          {pendingRevoke !== "none" ? (
+            <div role="status" style={warningStyle} data-testid="login-pending-revoke">
+              {pendingRevoke === "pending"
+                ? t("account.settings.logout.pendingNotice")
+                : t("account.settings.logout.pendingUnproven")}
+            </div>
+          ) : null}
           <GoogleSignInButton enabled={googleEnabled} from="login" />
 
           <div style={fieldWrapStyle}>
@@ -523,6 +609,7 @@ export default function LoginForm({
               <input
                 type="email"
                 id="login-email"
+                name="email"
                 aria-invalid={touched.email && !!errors.email}
                 aria-describedby="login-email-msg"
                 value={email}
@@ -546,16 +633,16 @@ export default function LoginForm({
                       : "0 1px 2px rgba(52, 60, 50, 0.04)",
                 }}
                 placeholder="name@example.com"
-                autoComplete="email"
+                autoComplete="username"
                 spellCheck={false}
-                autoFocus
+                autoFocus={!inAndroidApp}
               />
             </div>
 
             {touched.email && errors.email ? (
               <p id="login-email-msg" role="alert" style={fieldErrorStyle}>{errors.email}</p>
             ) : (
-              <p id="login-email-msg" style={helperTextStyle}>
+              <p id="login-email-msg" style={fieldHelpStyle}>
                 {t("account.auth.login.emailHelp")}
               </p>
             )}
@@ -567,6 +654,7 @@ export default function LoginForm({
               <input
                 type={showPassword ? "text" : "password"}
                 id="login-password"
+                name="password"
                 aria-invalid={touched.password && !!errors.password}
                 aria-describedby="login-password-msg"
                 value={password}
@@ -609,7 +697,7 @@ export default function LoginForm({
             {touched.password && errors.password ? (
               <p id="login-password-msg" role="alert" style={fieldErrorStyle}>{errors.password}</p>
             ) : (
-              <p id="login-password-msg" style={helperTextStyle}>{t("account.auth.login.passwordHelp")}</p>
+              <p id="login-password-msg" style={fieldHelpStyle}>{t("account.auth.login.passwordHelp")}</p>
             )}
             {passwordResetEnabled ? (
               <p style={{ ...helperTextStyle, marginTop: 6 }}>
@@ -650,11 +738,13 @@ export default function LoginForm({
             {loading ? t("account.auth.login.submitting") : t("account.auth.login.submit")}
           </PrimaryCta>
 
-          <div style={dividerStyle}>
-            <div style={lineStyle} />
-            <span>{t("account.auth.login.divider")}</span>
-            <div style={lineStyle} />
-          </div>
+          {inAndroidApp ? null : (
+            <div style={dividerStyle}>
+              <div style={lineStyle} />
+              <span>{t("account.auth.login.divider")}</span>
+              <div style={lineStyle} />
+            </div>
+          )}
 
           {signupEnabled ? (
             <p style={footerTextStyle}>

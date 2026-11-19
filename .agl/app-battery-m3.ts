@@ -374,7 +374,7 @@ async function main() {
   await owner.user.create({ data: { email: lateEmail.replace("agl-m3-late", "AGL-M3-LATE"), password: await bcrypt.hash(PASSWORD, 4), name: "מאוחר", businessId: lateBiz.id } });
   const lateDone = await read(await handleGoogleComplete(new Request("https://app.dubiz.test/api/auth/google/complete", {
     method: "POST", headers: { origin: "https://app.dubiz.test", host: "app.dubiz.test", "sec-fetch-site": "same-origin", "x-forwarded-for": ip(), "content-type": "application/json",
-      cookie: `${GOOGLE_TICKET_COOKIE}=${cLate.ticket}` }, body: JSON.stringify({ name: "מאוחר", businessName: "עסק מאוחר", acceptTerms: true }) }), m2CompleteDeps));
+      cookie: `${GOOGLE_TICKET_COOKIE}=${cLate.ticket}` }, body: JSON.stringify({ name: "מאוחר", businessName: "עסק מאוחר", businessKind: "AUTHORIZED_DEALER", legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid", acceptTerms: true }) }), m2CompleteDeps));
   ok("L4 completing that signup → 409 EMAIL_ALREADY_REGISTERED (the case-folded index), no second account", lateDone.status === 409 && lateDone.body.code === "EMAIL_ALREADY_REGISTERED"
     && (await holders(lateEmail)) === 1);
 

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { BottomBar } from "./bottom-bar";
 import { NavRail, NavSidebar } from "./side-nav";
 import { useShellChromeHidden } from "./shell-chrome-visibility";
+import { RefreshCoordinator } from "@/components/auth/refresh-coordinator";
 
 type ShellChromeProps = {
   children: ReactNode;
@@ -35,14 +36,16 @@ const WARM_GROUND_PATHS = new Set(["/profile", "/settings", "/business/identity"
  * the offsets via `data-chrome="off"` — the existing contract, now centralized.
  */
 const shellCss = `
-[data-shell-root] .shell-content { padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)); }
+/* Bottom padding: the bar (or the edge), and never less than the strip the floating accessibility button
+   occupies (--dz-fab-clearance, measured by accessibility-fab), so the end of a screen scrolls above it. */
+[data-shell-root] .shell-content { padding-bottom: max(calc(100px + env(safe-area-inset-bottom, 0px)), var(--dz-fab-clearance, 0px)); }
 @media (min-width: 768px) {
-  [data-shell-root][data-chrome="on"] .shell-content { padding-bottom: 32px; padding-inline-start: 100px; }
+  [data-shell-root][data-chrome="on"] .shell-content { padding-bottom: max(32px, var(--dz-fab-clearance, 0px)); padding-inline-start: 100px; }
 }
 @media (min-width: 1280px) {
   [data-shell-root][data-chrome="on"] .shell-content { padding-inline-start: 264px; }
 }
-[data-shell-root][data-chrome="off"] .shell-content { padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); padding-inline-start: 0; }
+[data-shell-root][data-chrome="off"] .shell-content { padding-bottom: max(calc(8px + env(safe-area-inset-bottom, 0px)), var(--dz-fab-clearance, 0px)); padding-inline-start: 0; }
 
 /* Mutually-exclusive nav visibility — pure CSS, no JS, no hydration branch. */
 [data-shell-root] .shell-nav-mobile { display: block; }
@@ -60,25 +63,26 @@ const shellCss = `
 /* The references use the browser default line height, not the app's 1.5. */
 .dz-rail, .dz-sidebar, [data-component="shell-bottom-bar"] { line-height: normal; }
 
-/* ---- mobile bottom bar (reference: mobile.html) ---- */
+/* ---- mobile bottom bar — HOME v4 floating bar (reference image) ---- */
 .dz-bottom__item {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  min-height: 48px; justify-content: center;
-  color: #5E6B69; font-size: 11px; font-weight: 500; text-decoration: none;
-  touch-action: manipulation;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  min-height: 52px; margin: 0 2px; border-radius: 22px;
+  color: #23302B; font-size: 12px; font-weight: 500; text-decoration: none;
+  touch-action: manipulation; min-width: 0;
 }
-.dz-bottom__item[data-active] { color: #1D5552; font-weight: 600; }
-.dz-bottom__icon { position: relative; height: 30px; display: flex; align-items: center; justify-content: center; }
-.dz-bottom__item[data-active] .dz-bottom__icon { width: 56px; border-radius: 999px; background: #E3F2F0; }
-.dz-bottom__dot { position: absolute; top: 4px; inset-inline-end: -2px; width: 7px; height: 7px; border-radius: 999px; background: #D2553D; }
-.dz-bottom__item[data-active] .dz-bottom__dot { inset-inline-end: 16px; }
+.dz-bottom__label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dz-bottom__item[data-active] { color: #1F4A46; font-weight: 600; background: #E3EEE7; }
+.dz-bottom__icon { position: relative; height: 24px; display: flex; align-items: center; justify-content: center; }
+.dz-bottom__dot { position: absolute; top: -2px; inset-inline-end: -5px; width: 8px; height: 8px; border-radius: 999px; background: #F1CC76; border: 1.5px solid #FFFDF8; }
+/* The "+": centred in the bar on both axes, never raised above the row. */
 .dz-bottom__new {
-  width: 58px; height: 58px; margin-top: -30px; border-radius: 999px;
-  border: 4px solid #FEF8F2; background: #246966; color: #FFFFFF;
+  width: 48px; height: 48px; margin: 0; border-radius: 999px; border: 0;
+  background: #2F615C; color: #FFFFFF;
   display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
-  box-shadow: 0 8px 18px -8px rgba(29,85,82,0.7);
+  box-shadow: 0 6px 14px -8px rgba(31,74,70,0.75);
   touch-action: manipulation;
 }
+.dz-bottom__new:active { background: #1F4A46; }
 
 /* ---- tablet rail (reference: tablet.html) ---- */
 .dz-rail {
@@ -211,8 +215,15 @@ export function ShellChrome({ children, topSlot = null }: ShellChromeProps) {
         className="shell-content min-h-0 min-w-0 flex-1 overflow-x-hidden"
         style={{ position: "relative", zIndex: 1 }}
       >
-        {chromeHidden ? null : topSlot}
-        {children}
+        {/* Every authenticated screen that draws the chrome — inside (shell) and
+            outside it (settings, business, billing, offers, …) — keeps its
+            session fresh and leaves for /login when the server ends it. Nested
+            instances (a page that draws ShellChrome inside a layout that also
+            does) defer to the outer one. */}
+        <RefreshCoordinator>
+          {chromeHidden ? null : topSlot}
+          {children}
+        </RefreshCoordinator>
       </div>
 
       {chromeHidden ? null : (

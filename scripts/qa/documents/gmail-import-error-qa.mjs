@@ -32,7 +32,8 @@ async function run(browser, viewport, reply) {
   await page.route("**/api/**", async (route) => {
     const p = new URL(route.request().url()).pathname;
     if (p === "/api/integrations/gmail/status") return route.fulfill({ json: { success: true, connected: true, emailAddress: "owner@example.com", connections: [{ id: 7, emailAddress: "owner@example.com", status: "connected" }] } });
-    if (p === "/api/integrations/gmail/sync") return route.fulfill({ json: { success: true, scannedMessages: 1, attachmentParts: 1, unsupportedType: 0, attachments: [PDF] } });
+    // B3-b (2026-11-09): the screen scans through /scan, only after "סרוק מסמכים".
+    if (p === "/api/integrations/gmail/scan") return route.fulfill({ json: { success: true, status: "complete", pageComplete: true, window: 30, scannedMessages: 1, scannedTotal: 1, capReached: false, hasMore: false, nextCursor: null, retryCursor: null, attachmentParts: 1, unsupportedType: 0, attachments: [PDF] } });
     if (p === "/api/integrations/gmail/import") {
       sent.push(route.request().postDataJSON());
       if (reply === "network") return route.abort();
@@ -41,6 +42,7 @@ async function run(browser, viewport, reply) {
     return route.fulfill({ json: {} });
   });
   await page.goto(`${BASE}/documents/email`, { waitUntil: "domcontentloaded" });
+  await page.locator(".dz-email-scan-button >> visible=true").click({ timeout: 60_000 });
   await page.locator("text=invoice-100.pdf >> visible=true").first().waitFor({ timeout: 60_000 });
   const scope = viewport.width >= 1200 ? page.locator(".dz-email-table tr", { hasText: "invoice-100.pdf" }) : page.locator(".dz-email-rows article", { hasText: "invoice-100.pdf" });
   await scope.getByRole("button", { name: "קלוט" }).click();

@@ -126,6 +126,20 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "ip", limit: 120, windowSeconds: 60 * 60 },
     ],
   },
+  // Extended Gmail scan (B3-a), counted in PAGES — one admitted request = one page. These are ceilings ON TOP
+  // of the Gmail quota-unit budget (lib/services/integrations/gmail/gmail-quota-budget.ts), which is what
+  // actually keeps the scan inside Gmail's quotas; never a substitute for it. Per user AND per business: a
+  // business cannot get past its own ceiling by using more users. Fail-CLOSED: with the limiter down, no new
+  // extended scan page starts (import and /sync do not use this bucket).
+  GMAIL_SCAN: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 3, windowSeconds: 60 },
+      { scope: "user", limit: 60, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 6, windowSeconds: 60 },
+      { scope: "business", limit: 120, windowSeconds: 60 * 60 },
+    ],
+  },
   // Regular Documents read API (inbox / list). Keyed by user.
   DOCUMENTS_API: {
     failMode: "open",
@@ -203,6 +217,16 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "business", limit: 30, windowSeconds: 60 * 60 },
       { scope: "business", limit: 100, windowSeconds: 24 * 60 * 60 },
       { scope: "global", limit: 600, windowSeconds: 60 * 60 },
+    ],
+  },
+  // The owner's FCM credential check (POST /api/platform-admin/notifications/fcm-auth-check): each admitted request
+  // is one token exchange at Google. Platform-admin + MFA only; fail-CLOSED so a limiter outage never means unbounded
+  // calls with the service-account key.
+  FCM_AUTH_CHECK: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 3, windowSeconds: 10 * 60 },
+      { scope: "global", limit: 20, windowSeconds: 24 * 60 * 60 },
     ],
   },
 };

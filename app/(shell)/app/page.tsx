@@ -5,22 +5,22 @@ import { useRouter } from "next/navigation";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { IconInfo } from "@/components/navigation/nav-icons";
-import { DESKTOP_QUERY, HomeV3 } from "@/features/home/v3/home-v3";
-import { useHomeData } from "@/features/home/v3/use-home-data";
-import { useMediaQuery } from "@/lib/ui/use-breakpoint";
+import { HomeV4 } from "@/features/home/v4/home-v4";
+import { useHomeV4Data } from "@/features/home/v4/use-home-v4-data";
 
 // The canonical shape, imported rather than re-declared. A local copy of this
 // type had already drifted from the server contract once — it was missing a
 // field the API was returning, and nothing caught it because the duplicate
 // type-checked happily against itself.
 import type { HomeResponse } from "@/features/home/types/home.types";
+import { redirectToLogin, clearClientSession } from "@/lib/client-session";
 
 /**
- * Home (`/app`) — the session/auth boundary for HOME v3.
+ * Home (`/app`) — the session/auth boundary for HOME v4 (features/home/v4).
  *
  * `/api/home` is the gate: it proves the session and names the owner and the
- * business. Once it answers, `useHomeData` makes the one shared read every
- * layout draws from (see features/home/v3/use-home-data.ts) — each source
+ * business. Once it answers, `useHomeV4Data` makes the one shared read the
+ * screen draws from (see features/home/v4/use-home-v4-data.ts) — each source
  * independent, none able to break the screen, none replaced by a plausible
  * number when it fails.
  */
@@ -34,16 +34,16 @@ const HOME_FETCH_TIMEOUT_MS = 28_000;
 // the loading state below. On the rare no-token "stuck" path the fallback
 // button below still appears over it.
 function HomeAuthBootstrap() {
-  return <main aria-hidden="true" className="min-h-screen" style={{ background: "#FEF8F2" }} />;
+  return <main aria-hidden="true" className="min-h-screen" style={{ background: "#F6F3EC" }} />;
 }
 
 /** First paint while `/api/home` answers — the Home canvas, quiet blocks. */
 function HomeLoadingState() {
   const block = (h: number, r = 20) => (
-    <div aria-hidden className="animate-pulse" style={{ height: h, borderRadius: r, background: "#F6EDE2" }} />
+    <div aria-hidden className="animate-pulse" style={{ height: h, borderRadius: r, background: "#ECE7DC" }} />
   );
   return (
-    <main style={{ minHeight: "100vh", background: "#FEF8F2", padding: "20px", display: "flex", flexDirection: "column", gap: 20 }}>
+    <main style={{ minHeight: "100vh", background: "#F6F3EC", padding: "20px", display: "flex", flexDirection: "column", gap: 20 }}>
       {block(48, 16)}
       {block(360, 24)}
       {block(180, 18)}
@@ -61,7 +61,7 @@ function HomeErrorState({
 }) {
   const { t } = useI18n();
   return (
-    <main style={{ minHeight: "100vh", background: "#FEF8F2", color: "#1E2B2A" }}>
+    <main style={{ minHeight: "100vh", background: "#F6F3EC", color: "#1E2B2A" }}>
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-4 py-10 text-center">
         <div className="w-full p-6" style={{ borderRadius: 24, background: "#FFFDFA", border: "1px solid #F0E3D3" }}>
           <div className="mb-3 flex justify-center" style={{ color: "#B4432F" }}>
@@ -110,8 +110,7 @@ function HomePage() {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
 
-  const desktop = useMediaQuery(DESKTOP_QUERY);
-  const { data: homeData, loadWeek } = useHomeData(data !== null, desktop);
+  const { data: homeData, retry: retryHome } = useHomeV4Data(data !== null);
   const router = useRouter();
 
   // A business that has not finished (or skipped) setup is sent there once —
@@ -170,9 +169,8 @@ function HomePage() {
       const json = await res.json();
 
       if (res.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        window.location.replace(`${window.location.origin}/login`);
+        // Refreshable → stays (the next load succeeds); ended by the server → /login.
+        redirectToLogin();
         return;
       }
 
@@ -229,12 +227,8 @@ function HomePage() {
   };
 
   const goReLogin = () => {
-    try {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-    } catch {
-      /* ignore */
-    }
+    // The person asked to sign in again: a deliberate local clear.
+    clearClientSession();
     window.location.href = `${window.location.origin}/login`;
   };
 
@@ -260,7 +254,7 @@ function HomePage() {
     );
   } else if (showLoginGate) {
     body = (
-      <main className="min-h-screen" style={{ background: "#FEF8F2", color: "#1E2B2A" }}>
+      <main className="min-h-screen" style={{ background: "#F6F3EC", color: "#1E2B2A" }}>
         <div className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-6 px-4 sm:max-w-2xl sm:px-6">
           <p className="text-center text-sm" style={{ color: "#5E6B69" }}>
             {storageError ? t("home.page.storageError") : t("home.page.redirecting")}
@@ -283,7 +277,7 @@ function HomePage() {
   } else {
     const ownerName = data.businessSnapshot.ownerName?.trim() || "";
     const businessName = data.businessSnapshot.businessName?.trim() || ownerName;
-    body = <HomeV3 data={homeData} loadWeek={loadWeek} businessName={businessName} ownerName={ownerName} />;
+    body = <HomeV4 data={homeData} retry={retryHome} businessName={businessName} />;
   }
 
   return body;

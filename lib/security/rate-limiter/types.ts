@@ -38,7 +38,9 @@ export type BucketName =
   | "PUBLIC_BOOKING_SUBMIT"
   | "PUBLIC_BOOKING_SUBMIT_BUSINESS"
   | "PUBLIC_BOOKING_READ"
-  | "PUBLIC_BOOKING_MANAGE";
+  | "PUBLIC_BOOKING_MANAGE"
+  | "GMAIL_SCAN"
+  | "FCM_AUTH_CHECK";
 
 export type BucketConfig = {
   failMode: FailMode;

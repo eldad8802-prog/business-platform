@@ -1,0 +1,207 @@
+# email-verify-delivery-counts.sql — proves the Production evidence query BEFORE it is run there:
+#   0. SELECT-only (the same static guard prod-readonly-evidence.yml applies) and selectable in that workflow;
+#   1. it runs without error on an ephemeral PG17 built from prisma/schema.prisma, with synthetic rows;
+#   2. through scripts/ci/evidence-redact.mjs every value survives (all columns are *_count) — no "<redacted>";
+#   3. the counts match the synthetic rows (so the numbers read from the Production log mean what they say);
+#   4. section 5 splits signups at the #1074 cutoff (10:49:17 UTC) by method, with the WELCOME status.
+# Synthetic data only; ZERO secrets; ZERO Production.
+
+name: email verify evidence — query lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ops/evidence/email-verify-delivery-counts.sql"
+      - ".github/workflows/email-verify-evidence-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: email verify evidence (PG17, schema from prisma, synthetic rows, redaction)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: evl_ci_synthetic_super_pw
+          POSTGRES_DB: evl
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d evl"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: lab_super
+      PGPASSWORD: evl_ci_synthetic_super_pw
+      PGDATABASE: evl
+      SQL_FILE: ops/evidence/email-verify-delivery-counts.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. SELECT-only guard (as in prod-readonly-evidence.yml) and selectable there
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          if grep -inE "$FORBIDDEN" "$SQL_FILE"; then echo "::error::write keyword"; exit 1; fi
+          if grep -inE '(default_)?transaction_read_only|read[[:space:]]+write|session[[:space:]]+characteristics|reset[[:space:]]+all|session[[:space:]]+authorization' "$SQL_FILE"; then echo "::error::boundary"; exit 1; fi
+          grep -q "'$SQL_FILE'" .github/workflows/prod-readonly-evidence.yml || { echo "::error::not selectable in prod-readonly-evidence.yml"; exit 1; }
+          echo "guard OK"
+
+      - name: 1. Schema from prisma/schema.prisma (tables only)
+        run: |
+          set -euo pipefail
+          npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > "$RUNNER_TEMP/schema.sql"
+          psql -X -q -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/schema.sql"
+
+      - name: 2. Synthetic rows
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO "Business" ("id", "name", "createdAt", "updatedAt") VALUES (1, 'lab', now(), now());
+          -- 1: password, verified (link used); 2: password, unverified, email SENT, link expired;
+          -- 3: password, unverified, email FAILED; 4: Google (verified at link); 5: password, no verify row
+          INSERT INTO "User" ("id", "email", "name", "password", "businessId", "createdAt", "updatedAt", "emailVerifiedAt", "lastLoginAt") VALUES
+            (1, 'u1@lab.invalid', 'u1', 'x', 1, timestamp '2026-10-25', now(), timestamp '2026-10-25', now()),
+            (2, 'u2@lab.invalid', 'u2', 'x', 1, timestamp '2026-10-26', now(), NULL, now()),
+            (3, 'u3@lab.invalid', 'u3', 'x', 1, timestamp '2026-10-27', now(), NULL, NULL),
+            (4, 'u4@lab.invalid', 'u4', NULL, 1, timestamp '2026-10-28', now(), timestamp '2026-10-28', now()),
+            (5, 'u5@lab.invalid', 'u5', 'x', 1, timestamp '2026-10-29', now(), NULL, NULL);
+          INSERT INTO "UserIdentity" ("userId", "businessId", "provider", "providerSubject", "emailAtLink", "linkedAt")
+            VALUES (4, 1, 'google', 'sub-4', 'u4@lab.invalid', timestamp '2026-10-28');
+          INSERT INTO "TransactionalEmail" ("kind", "dedupeKey", "userId", "businessId", "toEmail", "status", "attempts", "expiresAt", "createdAt", "updatedAt", "sentAt", "providerMessageId", "lastErrorCode") VALUES
+            ('EMAIL_VERIFY', 'v1', 1, 1, 'u1@lab.invalid', 'SENT',   1, now() + interval '1 day', timestamp '2026-10-25', now(), now(), 'p1', NULL),
+            ('EMAIL_VERIFY', 'v2', 2, 1, 'u2@lab.invalid', 'SENT',   1, now() + interval '1 day', timestamp '2026-10-26', now(), now(), 'p2', NULL),
+            ('EMAIL_VERIFY', 'v3', 3, 1, 'u3@lab.invalid', 'FAILED', 3, now() + interval '1 day', timestamp '2026-10-27', now(), NULL, NULL, 'E_PROVIDER'),
+            ('WELCOME',      'w1', 1, 1, 'u1@lab.invalid', 'SENT',   1, now() + interval '1 day', timestamp '2026-10-25', now(), now(), 'p3', NULL),
+            ('WELCOME',      'w4', 4, 1, 'u4@lab.invalid', 'PENDING',0, now() + interval '1 day', timestamp '2026-10-28', now(), NULL, NULL, NULL);
+          INSERT INTO "AuthEmailToken" ("id", "userId", "businessId", "purpose", "email", "tokenHash", "createdAt", "expiresAt", "consumedAt", "invalidatedAt") VALUES
+            ('00000000-0000-0000-0000-000000000001', 1, 1, 'EMAIL_VERIFY', 'u1@lab.invalid', 'h1', timestamp '2026-10-25', timestamp '2026-10-27', timestamp '2026-10-25', NULL),
+            ('00000000-0000-0000-0000-000000000002', 2, 1, 'EMAIL_VERIFY', 'u2@lab.invalid', 'h2', timestamp '2026-10-26', timestamp '2026-10-28', NULL, NULL),
+            ('00000000-0000-0000-0000-000000000003', 3, 1, 'EMAIL_VERIFY', 'u3@lab.invalid', 'h3', now(), now() + interval '1 day', NULL, NULL);
+          SQL
+
+      - name: 3. The query runs, nothing is redacted, the counts match the synthetic rows
+        run: |
+          set -euo pipefail
+          psql -X --no-psqlrc -v ON_ERROR_STOP=1 -f "$SQL_FILE" | node scripts/ci/evidence-redact.mjs | tee "$RUNNER_TEMP/out.txt"
+          if grep -q "<redacted>" "$RUNNER_TEMP/out.txt"; then echo "::error::a value is redacted — rename the column *_count"; exit 1; fi
+          # Expected: section 1 (verify rows 3, sent 2, failed 1, provider id 2, retried 1, error code 1),
+          # section 2 (signups 5, password 4, google 1, with verify 3, password-no-verify 1, verified 2, unverified 3,
+          # unverified+sent 1, unverified never sent 1, unverified signed in 1, welcome 2, without welcome 3),
+          # section 3 (links 3, used 1, superseded 0, expired unused 1, live 1), section 4 (welcome 2, pending 1, sent 1).
+          node - "$RUNNER_TEMP/out.txt" <<'JS'
+          const fs = require("fs");
+          const lines = fs.readFileSync(process.argv[2], "utf8").split("\n");
+          const got = {};
+          for (let i = 0; i < lines.length - 2; i++) {
+            if (/^-+(\+-+)*$/.test(lines[i + 1].trim()) && lines[i].includes("|")) {
+              const h = lines[i].split("|").map((s) => s.trim());
+              const v = lines[i + 2].split("|").map((s) => s.trim());
+              h.forEach((k, j) => (got[k] = Number(v[j])));
+            }
+          }
+          const want = {
+            verify_rows_count: 3, verify_pending_count: 0, verify_sent_count: 2, verify_failed_count: 1, verify_expired_count: 0,
+            verify_with_provider_id_count: 2, verify_retried_count: 1, verify_with_error_code_count: 1,
+            signups_count: 5, signups_password_count: 4, signups_google_count: 1, signups_with_verify_email_count: 3,
+            signups_password_no_verify_email_count: 1, signups_verified_count: 2, signups_unverified_count: 3,
+            unverified_verify_sent_count: 1, unverified_verify_never_sent_count: 1, unverified_signed_in_count: 1,
+            signups_with_welcome_count: 2, signups_without_welcome_count: 3,
+            verify_links_count: 3, verify_links_used_count: 1, verify_links_superseded_count: 0,
+            verify_links_expired_unused_count: 1, verify_links_live_count: 1,
+            welcome_rows_count: 2, welcome_pending_count: 1, welcome_sent_count: 1, welcome_failed_count: 0,
+          };
+          const bad = Object.entries(want).filter(([k, n]) => got[k] !== n).map(([k, n]) => `${k}: want ${n}, got ${got[k]}`);
+          console.log(`columns read: ${Object.keys(got).length}`);
+          if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+          console.log(`all ${Object.keys(want).length} expected counts match`);
+          JS
+
+      # Section 5 (before / after #1074, cutoff 2026-11-10 10:49:17 UTC). Signups AFTER the cutoff are added
+      # here, so step 3's expectations above stay exactly as they were.
+      #   pre  (u1..u5, step 2): u1 password+WELCOME, u2/u3/u5 password without, u4 Google (linked at creation) +WELCOME
+      #   post: u6 password SENT +verify, u7 Google PENDING, u8 password FAILED +verify, u9 password none,
+      #         u10 password EXPIRED, u11 password SENDING, u12 password SENT that linked Google 2 days later
+      #         (must stay "password"), u13 created exactly at the cutoff (post) with SENT.
+      - name: 4. Before / after #1074 — the split, the method, the WELCOME status
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO "User" ("id", "email", "name", "password", "businessId", "createdAt", "updatedAt", "emailVerifiedAt", "lastLoginAt") VALUES
+            (6,  'u6@lab.invalid',  'u6',  'x',  1, timestamp '2026-11-10 11:00:00', now(), NULL, NULL),
+            (7,  'u7@lab.invalid',  'u7',  NULL, 1, timestamp '2026-11-10 11:05:00', now(), timestamp '2026-11-10 11:05:00', now()),
+            (8,  'u8@lab.invalid',  'u8',  'x',  1, timestamp '2026-11-10 11:10:00', now(), NULL, NULL),
+            (9,  'u9@lab.invalid',  'u9',  'x',  1, timestamp '2026-11-10 11:15:00', now(), NULL, NULL),
+            (10, 'u10@lab.invalid', 'u10', 'x',  1, timestamp '2026-11-10 11:20:00', now(), NULL, NULL),
+            (11, 'u11@lab.invalid', 'u11', 'x',  1, timestamp '2026-11-10 11:25:00', now(), NULL, NULL),
+            (12, 'u12@lab.invalid', 'u12', 'x',  1, timestamp '2026-11-10 11:30:00', now(), NULL, NULL),
+            (13, 'u13@lab.invalid', 'u13', 'x',  1, timestamp '2026-11-10 10:49:17', now(), NULL, NULL),
+            (14, 'u14@lab.invalid', 'u14', 'x',  1, timestamp '2026-11-10 10:49:16', now(), NULL, NULL);
+          INSERT INTO "UserIdentity" ("userId", "businessId", "provider", "providerSubject", "emailAtLink", "linkedAt") VALUES
+            (7,  1, 'google', 'sub-7',  'u7@lab.invalid',  timestamp '2026-11-10 11:05:00'),
+            (12, 1, 'google', 'sub-12', 'u12@lab.invalid', timestamp '2026-11-12 11:30:00');
+          INSERT INTO "TransactionalEmail" ("kind", "dedupeKey", "userId", "businessId", "toEmail", "status", "attempts", "expiresAt", "createdAt", "updatedAt") VALUES
+            ('WELCOME',      'w6',  6,  1, 'u6@lab.invalid',  'SENT',    1, now() + interval '1 day', timestamp '2026-11-10 11:00:00', now()),
+            ('EMAIL_VERIFY', 'v6',  6,  1, 'u6@lab.invalid',  'SENT',    1, now() + interval '1 day', timestamp '2026-11-10 11:00:00', now()),
+            ('WELCOME',      'w7',  7,  1, 'u7@lab.invalid',  'PENDING', 0, now() + interval '1 day', timestamp '2026-11-10 11:05:00', now()),
+            ('WELCOME',      'w8',  8,  1, 'u8@lab.invalid',  'FAILED',  1, now() + interval '1 day', timestamp '2026-11-10 11:10:00', now()),
+            ('EMAIL_VERIFY', 'v8',  8,  1, 'u8@lab.invalid',  'SENT',    1, now() + interval '1 day', timestamp '2026-11-10 11:10:00', now()),
+            ('WELCOME',      'w10', 10, 1, 'u10@lab.invalid', 'EXPIRED', 7, now() + interval '1 day', timestamp '2026-11-10 11:20:00', now()),
+            ('WELCOME',      'w11', 11, 1, 'u11@lab.invalid', 'SENDING', 1, now() + interval '1 day', timestamp '2026-11-10 11:25:00', now()),
+            ('WELCOME',      'w12', 12, 1, 'u12@lab.invalid', 'SENT',    1, now() + interval '1 day', timestamp '2026-11-10 11:30:00', now()),
+            ('WELCOME',      'w13', 13, 1, 'u13@lab.invalid', 'SENT',    1, now() + interval '1 day', timestamp '2026-11-10 10:49:17', now());
+          SQL
+          psql -X --no-psqlrc -v ON_ERROR_STOP=1 -f "$SQL_FILE" | node scripts/ci/evidence-redact.mjs | tee "$RUNNER_TEMP/out4.txt"
+          if grep -q "<redacted>" "$RUNNER_TEMP/out4.txt"; then echo "::error::a value is redacted — rename the column *_count"; exit 1; fi
+          node - "$RUNNER_TEMP/out4.txt" <<'JS'
+          const fs = require("fs");
+          const lines = fs.readFileSync(process.argv[2], "utf8").split("\n");
+          const got = {};
+          for (let i = 0; i < lines.length - 2; i++) {
+            if (/^-+(\+-+)*$/.test(lines[i + 1].trim()) && lines[i].includes("|")) {
+              const h = lines[i].split("|").map((s) => s.trim());
+              const v = lines[i + 2].split("|").map((s) => s.trim());
+              h.forEach((k, j) => (got[k] = Number(v[j])));
+            }
+          }
+          const want = {
+            // pre: u1..u5 and u14 (one second before the cutoff, password, no WELCOME)
+            pre_fix_signups_count: 6, pre_fix_with_welcome_count: 2, pre_fix_without_welcome_count: 4,
+            pre_fix_password_signups_count: 5, pre_fix_password_with_welcome_count: 1, pre_fix_password_without_welcome_count: 4,
+            pre_fix_google_signups_count: 1, pre_fix_google_with_welcome_count: 1, pre_fix_google_without_welcome_count: 0,
+            // post: u6..u13 (u13 exactly at the cutoff counts as post)
+            post_fix_signups_count: 8, post_fix_with_welcome_count: 7, post_fix_without_welcome_count: 1,
+            post_fix_password_signups_count: 7, post_fix_password_with_welcome_count: 6, post_fix_password_without_welcome_count: 1,
+            post_fix_password_with_verify_email_count: 2,
+            post_fix_google_signups_count: 1, post_fix_google_with_welcome_count: 1, post_fix_google_without_welcome_count: 0,
+            post_fix_welcome_pending_count: 1, post_fix_welcome_sending_count: 1, post_fix_welcome_sent_count: 3,
+            post_fix_welcome_failed_count: 1, post_fix_welcome_expired_count: 1,
+            post_fix_password_welcome_pending_count: 0, post_fix_password_welcome_sending_count: 1, post_fix_password_welcome_sent_count: 3,
+            post_fix_password_welcome_failed_count: 1, post_fix_password_welcome_expired_count: 1,
+            post_fix_google_welcome_pending_count: 1, post_fix_google_welcome_sending_count: 0, post_fix_google_welcome_sent_count: 0,
+            post_fix_google_welcome_failed_count: 0, post_fix_google_welcome_expired_count: 0,
+          };
+          const bad = Object.entries(want).filter(([k, n]) => got[k] !== n).map(([k, n]) => `${k}: want ${n}, got ${got[k]}`);
+          console.log(`columns read: ${Object.keys(got).length}`);
+          if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+          console.log(`all ${Object.keys(want).length} section-5 counts match`);
+          JS

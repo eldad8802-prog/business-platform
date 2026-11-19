@@ -17,6 +17,31 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!--
+          Credential sharing with the website (password manager). Declares the
+          site statement in @string/asset_statements; the matching
+          /.well-known/assetlinks.json on promaxgroup.co.il completes the pair.
+          Grants nothing by itself and opens no links in the app.
+        -->
+        <meta-data
+            android:name="asset_statements"
+            android:resource="@string/asset_statements" />
+
+        <!--
+          Push (FCM): notifications the system draws while the app is in the
+          background land on the app's own channel (created at start-up by
+          NotificationChannels.java) with the app's existing monochrome Dubiz logo
+          (the Android 13+ themed-icon layer, owner 2026-11-16) as the status-bar
+          icon, instead of FCM's fallback channel and the launcher icon (whose
+          opaque ground would show as a white blob).
+        -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="dubiz_default" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher_monochrome" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
@@ -53,6 +78,13 @@
     -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!--
+      POST_NOTIFICATIONS (Android 13+): declared only. Nothing requests it at
+      start-up — the web app asks from an explicit action by the person
+      (lib/native/push-notifications.ts requestPushPermission).
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
       Package visibility (Android 11+): without this, Capacitor's file chooser

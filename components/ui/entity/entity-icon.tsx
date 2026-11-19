@@ -151,6 +151,14 @@ const DRAW: Record<string, (t: EntityTone) => ReactNode> = {
       <path d="M9.5 17.5h2M9.5 22h2" {...S} />
     </>
   ),
+  // the service desk — a wrench over a device being repaired
+  service: (t) => (
+    <>
+      <rect x="5" y="9" width="15" height="19" rx="2.2" fill={PAPER} {...S} />
+      <rect x="8" y="12" width="9" height="10" rx="1" fill={t.tint} {...S} />
+      <path d="M21.4 4.6a4 4 0 0 0-4.6 5.5l-4.5 4.5a1.8 1.8 0 0 0 2.5 2.5l4.5-4.5a4 4 0 0 0 5.5-4.6l-2.4 2.4-2.5-.5-.5-2.5z" fill={t.solid} {...S} />
+    </>
+  ),
   inventory: (t) => (
     <>
       <path d="M16 4l11 5.5L16 15 5 9.5z" fill={t.solid} {...S} />

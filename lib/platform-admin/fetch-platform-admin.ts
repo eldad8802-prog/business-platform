@@ -406,6 +406,19 @@ export type AuthorityAppRegistrationSummaryView = {
   created: boolean;
 };
 
+/**
+ * FCM credential check (notifications track). ONE POST to the existing route, through the canonical
+ * privileged path (Bearer + MFA elevation + step-up). The server performs one token exchange at Google,
+ * sends no push and returns only `{ result }`; the raw body is validated by the caller, never trusted.
+ */
+export async function postPlatformAdminFcmAuthCheck(): Promise<TokenProbeInvocation> {
+  const { status, data } = await adminRequest<unknown>(
+    "/api/platform-admin/notifications/fcm-auth-check",
+    { method: "POST" }
+  );
+  return { routeHttpStatus: status, result: data };
+}
+
 export async function postPlatformAdminAuthorityAppRegistration(
   body: AuthorityAppRegistrationRequest
 ): Promise<AuthorityAppRegistrationSummaryView> {
@@ -423,6 +436,34 @@ export async function postPlatformAdminAuthorityAppRegistration(
 export function fetchPlatformAdminAuthorityPilotGate(businessId: number, userId: number) {
   const q = new URLSearchParams({ businessId: String(businessId), userId: String(userId) });
   return platformAdminFetch<AuthorityPilotGateReport>(`/api/platform-admin/authority/pilot-gate?${q.toString()}`);
+}
+
+/** Issuer declaration — designation of the authorized declarant for a business with more than one user (#1081). */
+export type IssuerDesignationView = {
+  businessId: number;
+  details: Record<string, string | null>;
+  problems: { field: string; code: string; message: string }[];
+  users: { id: number; name: string | null; email: string }[];
+  current: { version: number; kind: string; track: string; legalName: string; authorizedUserId: number; createdAt: string } | null;
+  adminUserId: number;
+  /** What this screen shows, digested; sent back on POST so a stale screen cannot designate. */
+  detailsDigest: string;
+};
+
+export function fetchIssuerDesignation(businessId: number) {
+  return platformAdminFetch<IssuerDesignationView>(`/api/platform-admin/businesses/${businessId}/issuer-designation`);
+}
+
+/** Records the designation (and, for a first declaration, the declaration itself). Through the canonical core: MFA step-up applies. */
+export async function postIssuerDesignation(
+  businessId: number,
+  body: { authorizedUserId: number; evidenceRef: string; reason: string; expectedDigest: string }
+): Promise<{ declarationId: number; mode: "INITIAL" | "TRANSFER" }> {
+  const { data } = await adminRequest<{ declarationId: number; mode: "INITIAL" | "TRANSFER" }>(
+    `/api/platform-admin/businesses/${businessId}/issuer-designation`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+  return data;
 }
 
 /** Test seam — exercises the request core directly. Not used by the console. */

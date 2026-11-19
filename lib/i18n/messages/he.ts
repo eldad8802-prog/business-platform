@@ -10,6 +10,7 @@ import { customersHe } from "./areas/customers";
 import { tasksHe } from "./areas/tasks";
 import { accountHe } from "./areas/account";
 import { contentHe } from "./areas/content";
+import { notificationsHubHe } from "./areas/notifications-hub";
 
 /**
  * Hebrew — the SOURCE dictionary. Every other language must provide exactly these keys
@@ -68,10 +69,14 @@ export const he = {
     leads: "לידים",
     tasks: "משימות",
     calendar: "יומן ותורים",
+    serviceDesk: "שירות ואחריות",
     secretary: "המזכירה שלי",
     payables: "התחייבויות",
     inventory: "מלאי",
     settings: "הגדרות",
+    tools: "כלים",
+    /** The floating bottom bar's short labels (home redesign v4). */
+    bar: { calendar: "יומן", updates: "עדכונים", tools: "כלים" },
     a11y: {
       mainNav: "ניווט ראשי",
       bottomNav: "ניווט תחתון",
@@ -127,4 +132,5 @@ export const he = {
   api: apiHe,
   insights: insightsHe,
   system: systemHe,
+  notifications: notificationsHubHe,
 } as const;

@@ -10,6 +10,7 @@ import {
 } from "@prisma/client";
 import { createHash } from "crypto";
 import {
+  ConflictError,
   ForbiddenError,
   NotFoundError,
   UnauthorizedError,
@@ -32,6 +33,11 @@ import {
   type AuthorityIssueOutcome,
 } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
 import {
+  AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE,
+  AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE,
+  resolveIssueAllocationGate,
+} from "@/lib/services/billing/authority/billing-authority-issue-gate";
+import {
   assertCanReferenceSourceInvoice,
   assertCreditAmountWithinRemaining,
 } from "@/lib/services/billing/billing-credit-reversal.service";
@@ -52,6 +58,7 @@ import {
   type BillingPdfTemplateStyle,
 } from "@/lib/billing/billing-pdf-template-style";
 import { billingTenantTx } from "./billing-tenant-tx";
+import { assertIssuerDeclarationForIssueTx } from "./issuer-declaration/issuer-declaration-gates";
 
 const SNAPSHOT_SCHEMA_VERSION = 1;
 const DOCUMENT_NUMBER_PAD = 6;
@@ -741,6 +748,14 @@ export async function issueBillingDocumentTx(
     business.profile?.billingBusinessKind,
     doc.documentType
   );
+  // #1081: once the owner-approved enforcement row exists, a governed document needs complete issuer details and
+  // a live issuer declaration — refused here, before numbering. Without that row this reads one empty table and
+  // changes nothing.
+  await assertIssuerDeclarationForIssueTx(tx, {
+    businessId: input.businessId,
+    documentType: doc.documentType,
+    profile: business.profile,
+  });
 
   let customerData:
     | {
@@ -771,6 +786,29 @@ export async function issueBillingDocumentTx(
     });
     if (customer) {
       customerData = customer;
+    }
+  }
+
+  // An invoice that needs an allocation number is not issued while sending that
+  // request is known to be closed: refused here, before the number sequence, so
+  // the draft keeps no number and no undeliverable invoice is created. Only a
+  // person's issuance can need one — a system issuance is a pure receipt.
+  if (core.actor.kind === "USER") {
+    const gate = resolveIssueAllocationGate({
+      businessId: input.businessId,
+      documentType: doc.documentType,
+      invoiceDate: issuedAt,
+      vatAmount: issuedTotals.vatAmount,
+      subtotalAmount: issuedTotals.subtotalAmount,
+      currency: doc.currency,
+      customerTaxIdType: customerData?.taxIdType ?? null,
+      customerTaxId: customerData?.taxId ?? null,
+    });
+    if (gate.blocked) {
+      throw new ConflictError(
+        AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE,
+        AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE
+      );
     }
   }
 

@@ -127,6 +127,7 @@ export default function ResetPasswordPage() {
           <div className={s.inputShell}>
             <input
               id="reset-password"
+              name="password"
               type={show ? "text" : "password"}
               className={`${s.input} ${s.inputWithToggle} ${fieldError.password ? s.inputBad : ""}`}
               value={password}
@@ -151,6 +152,7 @@ export default function ResetPasswordPage() {
           <label className={s.label} htmlFor="reset-confirm">{t("account.auth.reset.confirmLabel")}</label>
           <input
             id="reset-confirm"
+            name="confirmPassword"
             type={show ? "text" : "password"}
             className={`${s.input} ${fieldError.confirm ? s.inputBad : ""}`}
             value={confirm}

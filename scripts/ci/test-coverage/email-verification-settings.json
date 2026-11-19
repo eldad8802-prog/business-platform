@@ -1,0 +1,10 @@
+{
+  "note": "Email verification moves from the shell-wide banner (above every screen, no close control) to Settings → Security: status 'האימייל מאומת' / 'האימייל טרם אומת' and 'send the verification link again'. The token / verify / emailVerifiedAt path and the status / resend / verify routes are unchanged; no gate on unverified accounts is added.",
+  "tests": {
+    "lib/auth/email-verification-client.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network/browser): drives the REAL status / resend / verify route handlers in-process through the settings client — verified, unverified, never-asked and verification-off views; an expired / used / superseded / invalid link stamps nothing and a new link is offered; resend outcomes (sent, already verified, per-user limit, database ceiling, feature off, server failure, delivery-scheduling failure, offline, 401); the status is read again when the app returns from Chrome (one read per burst of resume events, none while hidden, none after unsubscribe); static guards — no verification notice in the shell layout, the rest of the layout intact, no dismiss / storage switch, no navigation except sign-in on 401, the client never decides 'verified' itself and adds no caller to the token / stamp path; also run by auth-account-recovery-ci.yml"
+    }
+  }
+}

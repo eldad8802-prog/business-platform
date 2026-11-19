@@ -5,6 +5,8 @@
 // upload screen and the new `/documents/email` screen without pulling in
 // any UI dependencies. No backend, no schema, no API contract changes.
 
+import { gmailAttachmentKey } from "./attachment-key";
+
 export type GmailDiscoveryAttachment = {
   messageId: string;
   attachmentId: string;
@@ -12,6 +14,8 @@ export type GmailDiscoveryAttachment = {
   mimeType: string;
   sizeBytes: number | null;
   fromEmail: string | null;
+  /** Sender display name for the screen only; absent from older servers. */
+  fromName?: string | null;
   subject: string | null;
   sentAt: string | null;
   /** Passed back to import; not used by scoring. Absent from older servers. */
@@ -48,8 +52,10 @@ function normalizeText(v: string | null | undefined): string {
     .trim();
 }
 
+// messageId + partId, stable across scans (attachment-key.ts). It used to be
+// messageId + attachmentId, which Gmail does not keep stable.
 export function attachmentKey(a: GmailDiscoveryAttachment): string {
-  return `${a.messageId}:${a.attachmentId}`;
+  return gmailAttachmentKey(a);
 }
 
 export function scoreAttachment(a: GmailDiscoveryAttachment): {

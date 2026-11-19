@@ -1,0 +1,114 @@
+# Notification settings screen (Settings → התראות; owner-approved design, Gate B 2026-11-13).
+#
+#   1. Pure: the view model, the wording (owner glossary — no technical word, plural "אתם", required texts), every
+#      listed type is a catalog category, every control maps to a real settings field / preference aspect the
+#      backend's own validators accept and resolve to what the screen shows, device / test / page states, and the
+#      wiring guards (permission only from a tap; the Settings row gated by notifications_engine).
+#   2. The Settings navigation suite (hub / rail listing, icons) that this PR touches.
+#   3. A real browser (Chromium): this build under `next start`, every /api/** answered by the script
+#      (scripts/qa/notifications/notification-settings.browser.mjs) — Android WebView UA at 320 px and 390 px and
+#      desktop 1440 px: RTL, no horizontal scroll, no clipped text, switches accessible, touch targets ≥ 44 px,
+#      contrast ≥ 4.5:1, round trips + rollback, test answers, reset confirmation, engine OFF ⇒ calm state.
+#
+# Synthetic only; ZERO secrets; ZERO Production; ZERO Neon; no notification is ever sent.
+
+name: notification settings — screen (pure + browser)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/settings/notifications/**"
+      - "components/settings/notifications/**"
+      - "components/settings/settings-categories.ts"
+      - "components/settings/settings-hub.ts"
+      - "components/settings/SettingsRail.tsx"
+      - "components/settings/use-settings-features.ts"
+      - "features/account/settings/SettingsHubScreen.tsx"
+      - "lib/i18n/messages/areas/notifications*.ts"
+      - "lib/notifications/catalog.ts"
+      - "lib/notifications/preferences.ts"
+      - "lib/notifications/preferences.test.ts"
+      - "lib/notifications/engine/worker-decision.ts"
+      - "lib/native/push-notifications.ts"
+      - "lib/push/push-client.ts"
+      - "app/api/notifications/settings/**"
+      - "app/api/notifications/test/**"
+      - "scripts/qa/notifications/notification-settings.browser.mjs"
+      - "scripts/ci/test-coverage/notification-settings-ui.json"
+      - ".github/workflows/notification-settings-ui-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The TypeScript check inside next build needs more than Node's default ~4 GB heap (same setting as #1162).
+  NODE_OPTIONS: --max-old-space-size=6144
+
+jobs:
+  pure:
+    name: notification settings — view model, wording, wiring (pure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: View model, wording and wiring (incl. the appointment reminder lead time)
+        run: npx tsx components/settings/notifications/notification-settings-model.test.ts
+      - name: The settings API's validation (the lead time accepted / refused exactly as the screen offers it)
+        run: npx tsx lib/notifications/preferences.test.ts
+      - name: Settings navigation (hub / rail listing)
+        run: npx tsx lib/services/profile/profile-settings.verify.test.ts
+
+  browser:
+    name: notification settings — browser (320 / 390 WebView + 1440 desktop)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      # Built before the Chromium install (see i18n-multicurrency-ci.yml: the font resolution after
+      # `playwright install --with-deps`).
+      - name: Build
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser check
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          AUTH_TOKEN_SECRET: nsu_ci_synthetic_auth_token_secret_0123456789abcdef0123456789abcdef
+          RATE_LIMIT_BACKEND: memory
+        run: |
+          set -euo pipefail
+          (nohup npx next start -p 3631 > "$RUNNER_TEMP/next.log" 2>&1 &)
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3631/login && break; sleep 2; done
+          BASE=http://localhost:3631 OUT="$GITHUB_WORKSPACE/notification-settings-shots" \
+            node scripts/qa/notifications/notification-settings.browser.mjs || { tail -50 "$RUNNER_TEMP/next.log"; exit 1; }
+
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: notification-settings-shots
+          path: notification-settings-shots/
+          retention-days: 7

@@ -11,6 +11,7 @@ import { customersEn } from "./areas/customers.en";
 import { tasksEn } from "./areas/tasks.en";
 import { accountEn } from "./areas/account.en";
 import { contentEn } from "./areas/content.en";
+import { notificationsHubEn } from "./areas/notifications-hub.en";
 
 /** English. Must provide every key of the Hebrew source dictionary (the type enforces it). */
 export const en: Messages = {
@@ -62,10 +63,13 @@ export const en: Messages = {
     leads: "Leads",
     tasks: "Tasks",
     calendar: "Calendar",
+    serviceDesk: "Service & warranty",
     secretary: "My secretary",
     payables: "Commitments",
     inventory: "Inventory",
     settings: "Settings",
+    tools: "Tools",
+    bar: { calendar: "Calendar", updates: "Updates", tools: "Tools" },
     a11y: {
       mainNav: "Main navigation",
       bottomNav: "Bottom navigation",
@@ -125,4 +129,5 @@ export const en: Messages = {
   api: apiEn,
   insights: insightsEn,
   system: systemEn,
+  notifications: notificationsHubEn,
 };

@@ -62,6 +62,12 @@ fi
 # the rotating cookie for a short access token, which is session resolution by
 # another name and belongs to the same plane as login and logout.
 #
+# Its sibling app/api/auth/refresh/revoke/route.ts is logout BY THAT COOKIE: it
+# ends the one session whose refresh credential the device proves it holds (the
+# current secret, or a rotated one inside its grace), for the cases with no live
+# access token. It sits under the cookie's path for that reason and touches
+# AuthSession and AuthSessionSecret only, through lib/auth/refresh-session.ts.
+#
 # lib/auth/session-directory.ts joins it for device management. Every query the
 # owner-facing session list and its revokes make lives in that ONE module, so the
 # ownership predicate sits in one place instead of three routes remembering it.
@@ -108,6 +114,12 @@ fi
 # re-authentication — compared in the route, under login's attempt limits), and writes what
 # login writes for a session plus the security notice (TransactionalEmail). Never a password.
 #
+# lib/auth/issuer-declaration-link.ts issues and checks the issuer-declaration link (#1081, migration
+# 20261126090000_auth_issuer_declaration_link). It reaches AuthEmailToken ONLY through its SECURITY DEFINER
+# functions (auth_issuer_declaration_issue, auth_email_token_check), reads the account's name for the email
+# greeting, and records the ISSUER_DECLARATION email (TransactionalEmail). Its consume runs on the TENANT
+# transaction the caller passes in — never through authDb(). Never a password.
+#
 # app/api/health/db/route.ts joins it as a READ-ONLY availability probe (lib/ops/db-health.ts): it
 # runs `SELECT 1` through authDb() — the exact client login resolves — so the uptime monitor sees
 # an auth-plane outage the runtime client would not. No table, no row, no write; it is reached only
@@ -117,6 +129,7 @@ ci2a="$(
     "$ROOT/app" "$ROOT/lib" \
     --include="*.ts" --include="*.tsx" 2>/dev/null \
     | grep -vE "(^|/)app/api/auth/(login|logout|me|refresh)/route\.ts:" \
+    | grep -vE "(^|/)app/api/auth/refresh/revoke/route\.ts:" \
     | grep -vE "(^|/)lib/auth\.ts:" \
     | grep -vE "(^|/)lib/auth/signup\.ts:" \
     | grep -vE "(^|/)lib/auth/session-directory\\.ts:" \
@@ -126,6 +139,7 @@ ci2a="$(
     | grep -vE "(^|/)lib/auth/email-tokens\\.ts:" \
     | grep -vE "(^|/)lib/auth/oauth-ticket\\.ts:" \
     | grep -vE "(^|/)lib/auth/google-link\\.ts:" \
+    | grep -vE "(^|/)lib/auth/issuer-declaration-link\\.ts:" \
     | grep -vE "(^|/)lib/auth/google-sign-in\\.ts:" \
     | grep -vE "(^|/)app/api/health/db/route\\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \

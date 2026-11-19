@@ -31,10 +31,13 @@ async function run(browser, viewport, sync) {
   await page.route("**/api/**", async (route) => {
     const p = new URL(route.request().url()).pathname;
     if (p === "/api/integrations/gmail/status") return route.fulfill({ json: { success: true, connected: true, emailAddress: "owner@example.com", connections: [{ id: 7, emailAddress: "owner@example.com", status: "connected" }] } });
-    if (p === "/api/integrations/gmail/sync") return route.fulfill({ json: { success: true, scannedMessages: 5, attachments: [PDF], ...sync } });
+    // B3-b (2026-11-09): the screen scans through /scan, only after "סרוק מסמכים".
+    if (p === "/api/integrations/gmail/scan") return route.fulfill({ json: { success: true, status: "complete", pageComplete: true, window: 30, scannedMessages: 5, scannedTotal: 5, capReached: false, hasMore: false, nextCursor: null, retryCursor: null, attachments: [PDF], ...sync } });
     return route.fulfill({ json: {} });
   });
   await page.goto(`${BASE}/documents/email`, { waitUntil: "domcontentloaded" });
+  await page.locator(".dz-email-scan-button >> visible=true").click({ timeout: 60_000 });
+  await page.locator(".dz-email-scan-details summary >> visible=true").click({ timeout: 60_000 });
   await page.locator(".dz-email-scan-diag >> visible=true").first().waitFor({ timeout: 60_000 });
   await page.waitForTimeout(500);
   const diag = await page.locator(".dz-email-scan-diag").first().innerText();

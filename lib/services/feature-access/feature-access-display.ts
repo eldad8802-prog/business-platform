@@ -147,6 +147,8 @@ export function categoryLabelHe(category: string): string {
       return "בוט";
     case "reports":
       return "דוחות";
+    case "service":
+      return "שירות";
     default:
       return category;
   }

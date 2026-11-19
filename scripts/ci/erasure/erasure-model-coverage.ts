@@ -121,8 +121,14 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   Task: { disposition: "ERASURE_MANAGED" },
   TaskSeries: { disposition: "ERASURE_MANAGED" },
   TaskRequestLedger: { disposition: "ERASURE_MANAGED" },
-  // Web Push subscriptions — blanked and revoked in place by account deletion (migration 20261022090000).
+  // Web Push subscriptions — blanked and revoked in place by account deletion (migration 20261022090000). The
+  // Android app's FCM devices (migration 20261210090000) are rows of the same table, erased the same way: the
+  // `fcm:<token>` endpoint becomes erased:<id>.
   PushSubscription: { disposition: "ERASURE_MANAGED" },
+  // Notification engine (migration 20261210090000): each user's notification settings and overrides (booleans,
+  // minutes, catalog keys) are deleted with the account — the runtime holds DELETE on both, bound by RLS.
+  NotificationSettings: { disposition: "ERASURE_MANAGED" },
+  NotificationPreference: { disposition: "ERASURE_MANAGED" },
   // Monthly accountant workflow: the recipient row is deleted; every delivery's recipient snapshot is
   // erased in place and its link revoked (account-erasure-manifest.ts).
   AccountantRecipient: { disposition: "ERASURE_MANAGED" },
@@ -150,11 +156,41 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   QuoteShareCopy: { disposition: "ERASURE_MANAGED" },
   QuoteShareEvent: { disposition: "ERASURE_MANAGED" },
   BusinessLetter: { disposition: "ERASURE_MANAGED" },
+  PurchaseOrderSheet: { disposition: "ERASURE_MANAGED" },
   // Service Desk 1.2b (migration 20261113090000). Both carry personal text — the work its six free texts and the
   // supplier reference, the journal the correction reason — and are erased in place by
   // service_external_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
   ServiceExternalWork: { disposition: "ERASURE_MANAGED" },
   ServiceExternalWorkEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk spare parts M2 (migration 20261115090000). The line carries hand-typed names, a reason and a note,
+  // the journal a reason — erased in place by service_parts_erase_business(), declared in DB_FUNCTION_ERASURES and
+  // proven by the contract (C24–C27).
+  ServicePart: { disposition: "ERASURE_MANAGED" },
+  ServicePartEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk UI foundation 1.3-0 (migration 20261120090000). Who acted, a warranty change reason and a reminder
+  // note are erased in place by service_desk_ui_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the
+  // contract (C24–C27); their stored objects go after commit (OBJECT_SURFACES).
+  ServiceTextVersion: { disposition: "ERASURE_MANAGED" },
+  ServiceIntakeTermsSnapshot: { disposition: "ERASURE_MANAGED" },
+  ServiceWarrantyOffer: { disposition: "ERASURE_MANAGED" },
+  ServiceIntakePhoto: { disposition: "ERASURE_MANAGED" },
+  ServiceShareEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk 1.3-0 erasure texts (migration 20261123090000, ex-#1026): the business's settings row is DELETED by
+  // service_desk_ui_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceSettings: { disposition: "ERASURE_MANAGED" },
+  // Service Desk P4 audit journal (migration 20261122090000): who acted and the request digest are erased in place by
+  // service_settings_journal_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceSettingsEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk case charge (migration 20261126090000): who acted and the reasons are erased in place by
+  // service_case_charge_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceCaseCharge: { disposition: "ERASURE_MANAGED" },
+  ServiceCaseBillingLink: { disposition: "ERASURE_MANAGED" },
+  // Service Desk tracks (migration 20261127090000): the completion's confirmer / note / actor and the details changes'
+  // reasons / addresses / actor are erased in place by service_tracks_erase_business(), declared in
+  // DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceCompletion: { disposition: "ERASURE_MANAGED" },
+  ServiceCaseDetailChange: { disposition: "ERASURE_MANAGED" },
+  ServicePhoneReminder: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },
   Customer: { disposition: "ERASURE_MANAGED" },
@@ -307,6 +343,8 @@ const RETAINED: Record<string, ModelCoverage> = {
     reason: "policy-lineage substrate; inert, no consumers",
     basis: "PRODUCT",
   },
+  // Issuer declaration (#1081, migration 20261126100000): the declared opening number of a numbering series.
+  BillingSeriesOpening: FISCAL("the declared opening number of a document numbering series, the previous tool's name and last number, and who declared it — numbering integrity"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -386,6 +424,13 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   ),
   InboundEmailAddress: unmanaged("localPartPreview, label, and the encrypted local part with its key id"),
   InboundEmailAttachmentImport: unmanaged("filename, plus the link to the message and the document"),
+  // Issuer declaration (#1081, migration 20261126100000). issuer_declaration_erase() exists (anonymises a declaration
+  // nothing was issued under; keeps the others, LEGAL/FISCAL) but the purge does not call it yet, and the
+  // DB-function contract only knows NULL / '' clearing — the table's CHECKs force placeholders. Recorded as debt.
+  BusinessIssuerDeclaration: unmanaged(
+    "legalName, tradeName, idNumber, vatRegistrationNumber, address, phone, email, declarantName, declarantCapacity",
+    "the purge calls issuer_declaration_erase() (#1117, proven by the account-deletion lab W8/C); still debt until the DB-function contract learns placeholder anonymisation and conditional retention"
+  ),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -409,6 +454,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // tenant transaction (the runtime holds no UPDATE on the table). The payload can hold no text (DB CHECK).
   AccountantWorkflowEvent: operational("append-only accountant workflow trail: event type, actor role, times, ids and short tokens (no text by DB CHECK); the acting user is erased with the account by accountant_erase_business()"),
   TaskPreferences: operational("which task sources a business turned off, the morning-summary hour and sync bookkeeping"),
+  // Notification engine activation (migration 20261212090000): a business id, four times and a closed source token
+  // (DB CHECK: override | policy | worker | migration). Written only by the database (triggers + a SECURITY DEFINER
+  // function); the runtime holds SELECT only. It goes with the business (FK ON DELETE CASCADE).
+  NotificationEngineActivation: operational("when the notification engine was first / last switched on and off for the business: four times and a closed source token (no text by DB CHECK); cascades with the business"),
   // G5 milestone 1 (migration 20261107090000): the monitor's alert about one business — a finding code, a subject (a
   // month key or a delivery id), a severity, times and counts (closed detail by DB CHECK); no address, link or text.
   // It goes with the business (FK ON DELETE CASCADE); nothing in it identifies a person.
@@ -435,6 +484,14 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // Business documents (migration 20261114090000): technical records with no text.
   BusinessDocumentFile: operational("one stored object of the private business-docs domain: an object key (CHECK-limited to the business's prefix), a digest, a size, a state, a lease token and times — no text"),
   BusinessDocumentRequest: operational("a server-issued idempotency key: an operation token, a random uuid, a request digest, a state, lease and result ids, the issuing user id and times — no text"),
+  // Service Desk 1.3-0: the durable object-erasure job of an account deletion — a state, counts and times. Its one
+  // text column, lastError, is written only by service_storage_erasure_record_pass() with a FIXED code from
+  // SERVICE_ERASURE_ERROR_CODES (never a message, key or path); the runtime holds SELECT only, so no Prisma writer.
+  ServiceStorageErasure: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "the durable object-erasure job of an account deletion: a state, attempt and object counts, times and a fixed error code",
+    evidence: { textualSurface: ["lastError"], writeSites: [] },
+  },
   BusinessDocumentErasure: operational("the durable job record of an account erasure of the business-documents tables: a state and two times"),
   ServiceCaseEvent: operational("append-only service case journal: event type, action, statuses, ids, times and a closed payload of short tokens and numbers (no text by DB CHECK); the acting user and the request digest are erased with the account by service_erase_business()"),
   ServiceQuote: operational("one sent quote version: ids, an integer total, ILS, content hashes and the private PDF object key (CHECK-limited to the business's service prefix), state and times — no text; the sending and deciding users are erased with the account by service_erase_business()"),
@@ -632,6 +689,7 @@ const INTERNAL: Record<string, ModelCoverage> = {
   BillingAuthorityApp: internal("Dubiz's own OAuth client credentials with the tax authority"),
   DerivationPolicy: internal("policy definitions in the inert derivation substrate"),
   DerivationPolicyVersion: internal("versions of the same"),
+  IssuerDeclarationEnforcement: internal("the platform-wide one-way switch of issuer-declaration enforcement: a time and the approval reference; names no business"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,10 @@
+{
+  "note": "Session stability — Android cookie persistence (owner-approved 2026-11-10): the WebView's cookie jar is flushed to disk after every received auth response and when the app leaves the foreground.",
+  "tests": {
+    "lib/native/auth-cookies.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure: the refresh client requests persistence exactly once per RECEIVED auth response (200 rotated, 401 refused, 500) and never when no response arrived (network failure); the helper is a silent no-op outside the Android app. Device proof (kill 3 s after sign-in / refresh / sign-out, relaunch) is in the emulator QA."
+    }
+  }
+}

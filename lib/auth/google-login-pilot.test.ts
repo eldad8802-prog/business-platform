@@ -172,7 +172,7 @@ async function main() {
     createAccount: async () => { calls.created += 1; return account; },
     recordUsage: async () => undefined, scheduleWelcome: () => {},
   });
-  const body = { name: "דנה", businessName: "עסק", acceptTerms: true };
+  const body = { name: "דנה", businessName: "עסק", businessKind: "AUTHORIZED_DEALER", acceptTerms: true, legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid" };
   const refused = await handleGoogleComplete(req("/api/auth/google/complete", GOOGLE_TICKET_COOKIE, body), completeDeps(pilot, OTHER));
   ok("E1 signup: an unlisted ticket → 403 GOOGLE_NOT_AVAILABLE, nothing created, the rate limit untouched, the ticket cookie cleared",
     refused.status === 403 && (await refused.json()).code === GOOGLE_NOT_IN_PILOT.code && calls.created === 0 && calls.limited === 0 && clearedCookie(refused, GOOGLE_TICKET_COOKIE)

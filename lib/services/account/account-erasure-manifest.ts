@@ -34,6 +34,8 @@ export const RETAIN_MODELS = [
   "billingReceiptPayment",
   "billingAuditEvent",
   "billingDocumentNumberSequence",
+  // issuer declaration (#1081): the declared opening number of a series — numbering integrity, like the sequence
+  "billingSeriesOpening",
   "billingPaymentAllocation",
   "financialEvent",
   "billingAuthoritySubmission",
@@ -158,7 +160,8 @@ export const ANONYMIZE_MODELS = [
   { model: "taskSeries", fields: { title: "blank", note: "null", erasedAt: "now" } },
   // Web Push subscriptions (migration 20261022090000): the browser's push address and keys are blanked in place
   // (endpoint = 'erased:<id>', keys empty) and the row is revoked — the runtime holds no DELETE on the table, and
-  // with no address and no keys nothing can ever be sent to that device again.
+  // with no address and no keys nothing can ever be sent to that device again. The Android app's FCM devices
+  // (migration 20261210090000, endpoint `fcm:<token>`) are rows of the same table and are erased the same way.
   { model: "pushSubscription", fields: { endpoint: "erased-id", p256dh: "blank", auth: "blank", revokedAt: "now" } },
   // Monthly accountant workflow. The recipient snapshot of every send is erased in place (the delivery's
   // approval columns are immutable and its outcome is the business's history) and every download link is
@@ -187,6 +190,10 @@ export const ANONYMIZE_MODELS = [
   // DB_FUNCTION_ERASURES below; the tables' guards refuse that change from the runtime itself.
   // Service Desk 1.2b (migration 20261113090000): erased in place by service_external_erase_business() — see
   // DB_FUNCTION_ERASURES below; same reason.
+  // Service Desk spare parts M2 (migration 20261115090000): erased in place by service_parts_erase_business() — see
+  // DB_FUNCTION_ERASURES below; same reason.
+  // Service Desk UI foundation 1.3-0 (migration 20261120090000): erased in place by service_desk_ui_erase_business() —
+  // see DB_FUNCTION_ERASURES below; same reason. Its objects go after commit (account-storage-erasure.ts).
 
   // ── the conversation graph ────────────────────────────────────────────────
   //
@@ -292,6 +299,10 @@ export const DELETE_MODELS = [
   // The accountant recipient of the monthly package (a third person's name and address). Deleted under the
   // tenant context through its tenant-scoped DELETE policy (accountant_recipient_runtime_delete).
   "accountantRecipient",
+  // Notification engine (migration 20261210090000): each user's notification settings and per-domain / category
+  // overrides. Deleted under the tenant context through their tenant-scoped DELETE policies.
+  "notificationSettings",
+  "notificationPreference",
 ] as const;
 
 /** The two shapes of a Bucket-C entry, as types rather than as a convention.
@@ -354,6 +365,12 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
         cleared: ["problemDescription", "diagnosisNote", "cancelReason", "abandonReason"],
         kept: {
           qaChecklist: "QA checklist results: item keys with pass / fail flags, no free text — the writer (task 1.3) must keep it so or add it to service_erase_business()",
+          // M1 (20261127090000): this function's fixed column list cannot know these — a second declared function clears them.
+          siteAddress: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          siteNotes: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          originalSaleRef: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          profileKey: "the service profile key (one of eight code tokens) the case was opened under — not personal",
+          profileSnapshot: "the requirement rules copied from the code catalog at the opening (tokens and booleans) — no personal data",
         },
       },
       {
@@ -363,13 +380,15 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
           category: "the product category (e.g. phone), not the person",
           brand: "the maker (e.g. Samsung), not the person",
           model: "the product model (e.g. A54), not the person",
+          displayName: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          attributes: "cleared by service_tracks_erase_business() (M1) — see its declaration",
         },
       },
       {
         model: "ServiceCaseIntake",
         cleared: ["deviceSnapshot", "conditionNote", "accessoriesNote", "signatureKey"],
         kept: {
-          slipPdfKey: "a private object key under biz/{id}/service/ (CHECK); the bytes are an object surface (OPEN_INERT, SD-1.3), and a key column is not the object",
+          slipPdfKey: "a private object key under biz/{id}/service/ (CHECK); the bytes are an object surface, erased after commit with the biz/{id}/service/ prefix (OBJECT_SURFACES), and a key column is not the object",
           termsVersion: "the version token of the intake terms text the customer signed",
         },
       },
@@ -405,6 +424,95 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
       },
     ],
   },
+  // Service Desk spare parts M2. The account-deletion adapter calls it in the purge transaction, next to
+  // service_external_erase_business(). M2-3: only names typed by hand are personal; a name or sku copied from the
+  // business's own inventory item stays, with states, quantities, costs, prices, links and times.
+  {
+    fn: "service_parts_erase_business",
+    migration: "20261115090000_service_parts",
+    models: [
+      {
+        model: "ServicePart",
+        cleared: ["reason", "note", "createdByUserId"],
+        kept: {
+          nameSnapshot: "replaced by a fixed text when typed by hand (no inventory item); otherwise the inventory item's own name, not the person (M2-3)",
+          skuSnapshot: "cleared when typed by hand (no inventory item); otherwise the inventory item's own sku, not the person (M2-3)",
+        },
+      },
+      {
+        model: "ServicePartEvent",
+        cleared: ["actorUserId", "requestDigest", "digestKeyId", "reason"],
+        kept: {
+          payload: "a closed JSON object of short tokens and numbers (no free text by DB CHECK ServicePartEvent_payload_closed)",
+          idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9:_#-]{8,200}$), not the person",
+        },
+      },
+    ],
+  },
+  // Service Desk UI foundation 1.3-0. The account-deletion adapter calls it in the purge transaction, after
+  // service_parts_erase_business(). Who acted (users), a warranty change reason and a phone-reminder note are personal;
+  // the business's own texts, hashes, keys, times and states stay as the case's history. The function also opens the
+  // durable object-erasure job (ServiceStorageErasure, one row per business, the tenant's own id) — the objects under
+  // biz/{id}/service/ go after commit (OBJECT_SURFACES, service-storage-erasure.ts).
+  {
+    fn: "service_desk_ui_erase_business",
+    // Its current text: 20261123090000 (ex-#1026, owner option A 2026-11-09) replaced the 1.3-0 version — it also deletes
+    // the business's ServiceSettings row and replaces the warranty offers' free texts by a fixed placeholder.
+    migration: "20261123090000_service_desk_ui_erasure_text",
+    models: [
+      {
+        model: "ServiceTextVersion",
+        cleared: ["createdByUserId", "legallyApprovedByUserId"],
+        kept: {
+          body: "the business's own service terms / statutory-rights text shown to customers (ו4: versioned, legally approved) — not about a person; the consumer-law record of what was presented",
+          bodySha256: "the sha256 of that text (CHECK-bound to the body), not the person",
+        },
+      },
+      {
+        model: "ServiceIntakeTermsSnapshot",
+        cleared: ["presentedByUserId"],
+        kept: {
+          termsSha256: "the hash of the terms version presented at intake, not the person",
+          statutorySha256: "the hash of the statutory notice presented at intake, not the person",
+        },
+      },
+      {
+        model: "ServiceWarrantyOffer",
+        cleared: ["changeReason", "presentedByUserId", "createdByUserId", "exclusionsText"],
+        kept: {
+          scopeText: "replaced by the fixed placeholder '[נמחק]' (NOT NULL column; owner option A 2026-11-09) — no owner free text remains, only that constant",
+          contentSha256: "the hash of the offer's content, not the person",
+        },
+      },
+      // The business's Service Desk settings (warranty template texts, default staff member): deleted with the account.
+      { model: "ServiceSettings", deleted: true, cleared: [], kept: {} },
+      {
+        model: "ServiceIntakePhoto",
+        cleared: ["createdByUserId"],
+        kept: {
+          storageKey: "biz/{id}/service/cases/{caseId}/intake/photos/{sha256}.{ext} by CHECK — ids and a hash; the object itself is deleted after commit (OBJECT_SURFACES)",
+          sha256: "the photo's content hash, not the person",
+          mimeType: "image/jpeg | image/png | image/webp by CHECK",
+        },
+      },
+      {
+        model: "ServiceShareEvent",
+        cleared: ["actorUserId"],
+        kept: {
+          objectKey: "the stored copy's key under biz/{id}/service/ (CHECK + guard); the object is deleted after commit (OBJECT_SURFACES)",
+          objectSha256: "the stored copy's hash, not the person",
+          idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9._:-]{16,128}$), not the person",
+        },
+      },
+      {
+        model: "ServicePhoneReminder",
+        cleared: ["actorUserId", "note"],
+        kept: {
+          idempotencyKey: "a client request token (CHECK ^[A-Za-z0-9._:-]{16,128}$), not the person",
+        },
+      },
+    ],
+  },
   // Business documents (migration 20261114090000). The account-deletion adapter calls it in the purge transaction,
   // next to the Service Desk functions. Unlike those it DELETES the records — nothing of a quote share copy, a share
   // event or a saved letter is history the business keeps — and it writes the durable erasure job and marks every
@@ -413,11 +521,124 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
   // declared here.
   {
     fn: "business_documents_erase",
-    migration: "20261114090000_business_documents_records",
+    // Redefined (same name, contract and grants) by the purchase-order sheet migration, which adds that table.
+    migration: "20261121090000_business_documents_po_sheets",
     models: [
       { model: "QuoteShareCopy", deleted: true, cleared: [], kept: {} },
       { model: "QuoteShareEvent", deleted: true, cleared: [], kept: {} },
       { model: "BusinessLetter", deleted: true, cleared: [], kept: {} },
+      { model: "PurchaseOrderSheet", deleted: true, cleared: [], kept: {} },
+    ],
+  },
+  // Service Desk P4 audit journal (migration 20261122090000). The account-deletion adapter calls it in the purge
+  // transaction, after service_desk_ui_erase_business(). Who acted and the request digest are personal / linkable; the
+  // rest is RETAINED as the business's audit record of settings changes — pseudonymised (no acting user), not anonymous:
+  // it stays linked to the (anonymised) business row. The P4 case records live in ServiceCaseEvent and are blanked by
+  // service_erase_business() (actorUserId, requestDigest, digestKeyId) — their payload is closed (tokens, numbers,
+  // booleans; staff ids whose display names the purge blanks).
+  {
+    fn: "service_settings_journal_erase_business",
+    migration: "20261122090000_service_desk_audit_journal",
+    models: [
+      {
+        model: "ServiceSettingsEvent",
+        cleared: ["actorUserId", "requestDigest", "digestKeyId"],
+        kept: {
+          settingsVersion: "the settings version the change produced — a counter, not the person",
+          changedFields: "names of the settings fields that changed, from a closed set (CHECK) — never their values",
+          actor: "always OWNER_USER (CHECK) — a role token, not the person once actorUserId is cleared",
+          occurredAt: "when the settings changed — the audit time of the business's own configuration",
+          idempotencyKey: "a client request token (a random UUIDv7: its only content is its creation time), not the person",
+        },
+      },
+    ],
+  },
+  // Service Desk case charge (migration 20261126090000). The account-deletion adapter calls it in the purge transaction,
+  // after service_settings_journal_erase_business(). Who acted and the free-text reasons are personal; the amounts,
+  // modes, document ids and times are RETAINED as the business's financial record — pseudonymised, linked to the
+  // (anonymised) business row.
+  {
+    fn: "service_case_charge_erase_business",
+    migration: "20261126090000_service_desk_case_charge",
+    models: [
+      {
+        model: "ServiceCaseCharge",
+        cleared: ["reason", "actorUserId"],
+        kept: {
+          seq: "the record's place in the case's charge history — a counter, not the person",
+          mode: "CHARGEABLE or NO_CHARGE (enum) — what the case was charged, not who decided",
+          amountAgorot: "the agreed amount — the business's financial record of the case",
+          currency: "always ILS (CHECK)",
+          source: "APPROVED_QUOTE or OWNER_ENTERED (enum) — where the amount came from",
+          quoteVersion: "the quote version an approved amount came from — a counter",
+          actor: "a role token (OWNER_USER / CUSTOMER_LINK / SYSTEM), not the person once actorUserId is cleared",
+          createdAt: "when the charge was recorded — the financial record's time",
+        },
+      },
+      {
+        model: "ServiceCaseBillingLink",
+        cleared: ["linkedByUserId", "unlinkedByUserId", "unlinkReason"],
+        kept: {
+          billingDocumentId: "which billing document belonged to the case — an id into a retained fiscal record",
+          role: "CHARGE or STANDALONE_PAYMENT (enum)",
+          linkedAt: "when the document was linked",
+          unlinkedAt: "when it was unlinked, if it was",
+        },
+      },
+    ],
+  },
+  // Service Desk tracks (migration 20261127090000). The account-deletion adapter calls it in the purge transaction, after
+  // service_case_charge_erase_business(). It scrubs the M1 personal columns that service_erase_business()'s fixed column
+  // list cannot know; the work type, place, profile snapshot and completion type stay as the case's record.
+  {
+    fn: "service_tracks_erase_business",
+    migration: "20261127090000_service_desk_tracks",
+    models: [
+      {
+        model: "ServiceCase",
+        cleared: ["siteAddress", "siteNotes", "originalSaleRef"],
+        kept: {
+          profileKey: "the service profile key (one of eight code tokens) the case was opened under — not personal",
+          profileSnapshot: "the requirement rules copied from the code catalog at the opening (tokens and booleans) — no personal data",
+          problemDescription: "cleared by service_erase_business() (foundation) — see its declaration",
+          diagnosisNote: "cleared by service_erase_business() (foundation) — see its declaration",
+          cancelReason: "cleared by service_erase_business() (foundation) — see its declaration",
+          abandonReason: "cleared by service_erase_business() (foundation) — see its declaration",
+          qaChecklist: "item keys with pass / fail flags — declared kept by service_erase_business() (foundation)",
+        },
+      },
+      {
+        model: "ServiceDevice",
+        cleared: ["displayName", "attributes"],
+        kept: {
+          serialNumber: "cleared by service_erase_business() (foundation) — see its declaration",
+          serialNormalized: "cleared by service_erase_business() (foundation) — see its declaration",
+          description: "cleared by service_erase_business() (foundation) — see its declaration",
+          category: "the product category, not the person — declared kept by service_erase_business()",
+          brand: "the maker, not the person — declared kept by service_erase_business()",
+          model: "the product model, not the person — declared kept by service_erase_business()",
+        },
+      },
+      {
+        model: "ServiceCompletion",
+        cleared: ["confirmedByName", "note", "debtOverrideReason", "actorUserId", "debtApprovedByUserId"],
+        kept: {
+          completionType: "where the owner confirmed the work (enum) — not who",
+          completedAt: "when the case was completed",
+          openBalanceAgorot: "the open balance the case was closed with (an amount) — not who",
+          overpaidAgorot: "the overpayment the case was closed with (an amount) — not who",
+          debtApprovedAt: "when the debt was approved — a time, not who (the approver is cleared)",
+        },
+      },
+      {
+        model: "ServiceCaseDetailChange",
+        cleared: ["reason", "actorUserId", "siteAddressBefore", "siteAddressAfter"],
+        kept: {
+          changedFields: "names of the changed fields (a closed set of tokens) — never values",
+          caseVersion: "the case version the change produced — a counter",
+          occurredAt: "when the details changed",
+        },
+      },
     ],
   },
 ];

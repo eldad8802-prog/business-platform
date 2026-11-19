@@ -1,0 +1,8 @@
+ok   secretary-w768-z100-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w900-z100-loaded-full    ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w1194-z100-loaded-full   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   secretary-w1440-z100-loaded-full   ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+FAIL home-w768-z100-loaded-full         ox=0 broken=[] clipped=1 spill=[] covered=[] reach=ok
+ok   home-w900-z100-loaded-full         ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+ok   home-w1194-z100-loaded-full        ox=0 broken=[] clipped=0 spill=[] covered=[] reach=ok
+FAIL home-w1440-z100-loaded-full        ox=0 broken=[] clipped=2 spill=[] covered=[] reach=ok

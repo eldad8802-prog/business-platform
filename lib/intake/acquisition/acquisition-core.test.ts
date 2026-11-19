@@ -224,6 +224,101 @@ t("ready-made form: the real script gives ONE submission id per page load; a res
   assert.notEqual(load(page()).submission_id.value, first.submission_id.value);
 });
 
+t("ready-made form: back + resubmit is the same in every browser — unchanged = same id, edited = new id; only a hash is stored", () => {
+  // A browser tab: one sessionStorage that survives navigations; each page = one form + one run of the real script.
+  const tab = () => {
+    const store = new Map<string, string>();
+    const sessionStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v); } };
+    return { store, sessionStorage };
+  };
+  type Page = { fields: Record<string, { name: string; value: string }>; submit: () => string; pageshow: () => void };
+  const open = (t0: ReturnType<typeof tab>, nav: "navigate" | "back_forward", restored: Record<string, string> = {}, opts: { noStorage?: boolean } = {}): Page => {
+    const names = ["name", "phone", "email", "message", "_hp", "submission_id", "page_url"];
+    const fields = Object.fromEntries(names.map((nm) => [nm, { name: nm, value: "" }]));
+    const onSubmit: Array<() => void> = [];
+    const onPageshow: Array<() => void> = [];
+    const form = {
+      querySelector: (sel: string) => fields[/name="([^"]+)"/.exec(sel)![1]] ?? null,
+      getAttribute: (a: string) => (a === "action" ? "https://promaxgroup.co.il/api/intake/acquisition/web/abc" : null),
+      elements: names.map((nm) => fields[nm]),
+      addEventListener: (ev: string, fn: () => void) => { if (ev === "submit") onSubmit.push(fn); },
+    };
+    const self = { crypto: { randomUUID: () => crypto.randomUUID() }, addEventListener: (ev: string, fn: () => void) => { if (ev === "pageshow") onPageshow.push(fn); } };
+    vm.runInContext(WEB_FORM_SCRIPT, vm.createContext({
+      document: { querySelectorAll: () => [form] }, location: { href: "https://site.example/contact" },
+      self, crypto: self.crypto, Date, Math, JSON,
+      sessionStorage: opts.noStorage ? { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } } : t0.sessionStorage,
+      performance: { getEntriesByType: () => [{ type: nav }] },
+    }));
+    // Chromium restores the visible fields AFTER the script ran (the hidden id is not restored) — then fires pageshow.
+    for (const [k, v] of Object.entries(restored)) fields[k].value = v;
+    const pageshow = () => onPageshow.forEach((fn) => fn());
+    return { fields, pageshow, submit: () => { onSubmit.forEach((fn) => fn()); return fields.submission_id.value; } };
+  };
+  const fill = (p: Page, v: Record<string, string>) => { for (const [k, x] of Object.entries(v)) p.fields[k].value = x; };
+  const answers = { name: "Noa Levi", phone: "050-1234567", email: "noa@example.test", message: "quote please" };
+
+  const T = tab();
+  const p1 = open(T, "navigate"); p1.pageshow(); fill(p1, answers);
+  const A = p1.submit();
+  assert.equal(p1.submit(), A, "a double-click sends the same id");
+  for (const v of [...Object.values(answers), "Noa", "1234567"]) assert.ok(![...T.store.values()].join("").includes(v), `no "${v}" in sessionStorage`);
+
+  // Chromium "back": a new page, the script mints a new id, then the visible fields come back unchanged.
+  const p2 = open(T, "back_forward", answers);
+  assert.notEqual(p2.fields.submission_id.value, A, "(the bug: the script alone minted a new id)");
+  p2.pageshow();
+  assert.equal(p2.submit(), A, "back + unchanged resubmit = the SAME id (one receipt, no duplicate Lead)");
+
+  // ...then edited: a new enquiry, never dropped as a replay.
+  const p3 = open(T, "back_forward", answers); p3.pageshow(); fill(p3, { message: "a different question" });
+  const B = p3.submit();
+  assert.notEqual(B, A, "back + EDIT + resubmit = a NEW id (the edited enquiry is not lost)");
+
+  // WebKit "back": the page itself is kept (id still in the form), the visitor edits and sends.
+  fill(p3, { message: "edited again on the kept page" });
+  const C = p3.submit();
+  assert.ok(C !== B && C !== A, "kept page + edit = a new id");
+  assert.equal(p3.submit(), C, "and a double-click of that is still one id");
+
+  // A fresh page load with identical text is a new enquiry.
+  const p4 = open(T, "navigate"); p4.pageshow(); fill(p4, { ...answers, message: "edited again on the kept page" });
+  assert.ok(![A, B, C].includes(p4.submit()), "a new page load = a new id, even for identical text");
+
+  // Back to a form whose fields were NOT restored: no id is reused for different content.
+  const p5 = open(T, "back_forward", {}); p5.pageshow();
+  assert.ok(![A, B, C].includes(p5.fields.submission_id.value));
+
+  // A field changed and changed BACK to what was sent is the same enquiry: the same id (one receipt, nothing lost).
+  const T2 = tab();
+  const q1 = open(T2, "navigate"); q1.pageshow(); fill(q1, answers);
+  const E = q1.submit();
+  fill(q1, { phone: "050-7654321" }); fill(q1, { phone: answers.phone });
+  assert.equal(q1.submit(), E, "changed then restored on the same page = the same id");
+  const q2 = open(T2, "back_forward", answers); q2.pageshow();
+  fill(q2, { message: "something else" }); fill(q2, { message: answers.message });
+  assert.equal(q2.submit(), E, "back + change + restore = the same id");
+
+  // No sessionStorage (blocked / private mode): exactly the old behaviour, and nothing throws.
+  const p6 = open(tab(), "back_forward", answers, { noStorage: true }); p6.pageshow(); fill(p6, answers);
+  const D = p6.submit();
+  assert.match(D, /^[0-9a-f-]{36}$/);
+  assert.equal(p6.submit(), D);
+});
+
+t("ready-made form: the honeypot is a real, submitted field, hidden in place — never an off-screen offset", () => {
+  const snippet = webFormSnippet("https://promaxgroup.co.il/api/intake/acquisition/web/abc");
+  const hp = /<input name="_hp"[^>]*>/.exec(snippet)?.[0] ?? "";
+  assert.ok(hp, "the honeypot is still in the form (bots fill it; the endpoint drops such posts)");
+  assert.match(hp, /tabindex="-1"/, "never reached by Tab");
+  assert.match(hp, /aria-hidden="true"/, "never read by a screen reader");
+  assert.match(hp, /autocomplete="off"/, "never autofilled for a real visitor");
+  assert.doesNotMatch(hp, /type="hidden"|disabled/, "a real text input, submitted with the form");
+  assert.doesNotMatch(hp, /(left|right|top|margin-left|margin-right)\s*:\s*-\d{3,}/, "no large off-screen offset (it widened RTL pages)");
+  assert.match(hp, /width:1px;height:1px/);
+  assert.match(hp, /pointer-events:none/);
+});
+
 t("receipt key: the submission id decides — same id = one receipt whatever the time; two ids = two, even for identical text", () => {
   const lead = (extra: Record<string, string>, iso: string) => {
     const p = parseWebForm(flattenFields({ name: "Noa Levi", phone: "050-1234567", email: "noa@example.test", message: "quote please", ...extra })!);

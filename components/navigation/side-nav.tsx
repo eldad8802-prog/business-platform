@@ -18,6 +18,7 @@ import {
   type NavDestination,
 } from "./nav-destinations";
 import { IconPlus, IconSearch } from "./nav-icons";
+import { isResolvedActive, useLocationSearch, useNavHref } from "./use-nav-href";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { AccessibilityGlyph, AccessibilityTrigger } from "@/components/ui/accessibility/accessibility-trigger";
 import {
@@ -92,12 +93,17 @@ export function NavRail() {
   );
 }
 
-function RailItem({ dest, active, dot }: { dest: NavDestination; active: boolean; dot: boolean }) {
+function RailItem({ dest, active: activeByPath, dot }: { dest: NavDestination; active: boolean; dot: boolean }) {
   const Icon = dest.icon;
   const { t } = useI18n();
+  const pathname = usePathname() || "/";
+  const search = useLocationSearch();
+  // The fixed "יומן" tab resolves to what the business has (use-nav-href); every other item is unchanged.
+  const href = useNavHref(dest);
+  const active = href === dest.href ? activeByPath : isResolvedActive(pathname, search, href, isNavActive);
   return (
     <Link
-      href={dest.href}
+      href={href}
       prefetch={false}
       aria-current={active ? "page" : undefined}
       className="dz-rail__item"
@@ -107,7 +113,7 @@ function RailItem({ dest, active, dot }: { dest: NavDestination; active: boolean
         <Icon size={21} strokeWidth={active ? 2 : 1.8} />
         {dot ? <span className="dz-rail__dot" aria-hidden /> : null}
       </span>
-      {t(dest.labelKey)}
+      {t(dest.barLabelKey ?? dest.labelKey)}
       {dot ? <span className="sr-only">{t("nav.a11y.unreadNotifications")}</span> : null}
     </Link>
   );
@@ -120,6 +126,7 @@ export function NavSidebar() {
   const visible = useMediaQuery(SIDEBAR_QUERY);
   const tasksOn = useFeatureEnabled("daily_tasks", visible);
   const appointmentsOn = useFeatureEnabled("appointments", visible);
+  const serviceDeskOn = useFeatureEnabled("service_desk", visible);
   const hasUnread = useHasUnreadNotifications(pathname, visible);
   const badges = useNavBadges(visible, pathname, tasksOn);
   const { businessName } = useSessionIdentity(visible);
@@ -171,9 +178,11 @@ export function NavSidebar() {
           </Link>
         </div>
 
+        {/* HOME v4 (owner 11-19): the same fixed actions as the phone bar and the tablet rail — בית · יומן · עדכונים ·
+            כלים, with יצירה as "פעולה חדשה" above. שיחות and מסמכים are reached from כלים (owner decision 18.11). */}
         <div className="dz-sidebar__group">
-          {destinationsIn("main").map((d) => (
-            <SidebarItem key={d.key} dest={d} active={isNavActive(pathname, d.href)} badge={badgeFor(d.key)} />
+          {PRIMARY_DESTINATIONS.map((d) => (
+            <PrimarySidebarItem key={d.key} dest={d} badge={badgeFor(d.key)} />
           ))}
         </div>
 
@@ -183,7 +192,7 @@ export function NavSidebar() {
               <span style={{ width: 7, height: 7, borderRadius: 2, background: g.dot }} />
               {t(g.labelKey)}
             </div>
-            {destinationsIn(g.key).filter((d) => !d.feature || (d.feature === "daily_tasks" && tasksOn) || (d.feature === "appointments" && appointmentsOn)).map((d) => (
+            {destinationsIn(g.key).filter((d) => !d.feature || (d.feature === "daily_tasks" && tasksOn) || (d.feature === "appointments" && appointmentsOn) || (d.feature === "service_desk" && serviceDeskOn)).filter((d) => !PRIMARY_KEYS.has(d.key)).map((d) => (
               <SidebarItem key={d.key} dest={d} active={isNavActive(pathname, d.href)} badge={badgeFor(d.key)} />
             ))}
           </div>
@@ -205,6 +214,17 @@ export function NavSidebar() {
       <ActionSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
     </>
   );
+}
+
+const PRIMARY_KEYS = new Set(PRIMARY_DESTINATIONS.map((d) => d.key));
+
+/** A fixed action in the sidebar: the bar's short label, and "יומן" resolved to what the business has. */
+function PrimarySidebarItem({ dest, badge }: { dest: NavDestination; badge: NavBadge | undefined }) {
+  const pathname = usePathname() || "/";
+  const search = useLocationSearch();
+  const href = useNavHref(dest);
+  const active = isResolvedActive(pathname, search, href, isNavActive);
+  return <SidebarItem dest={{ ...dest, href, labelKey: dest.barLabelKey ?? dest.labelKey }} active={active} badge={badge} />;
 }
 
 const BADGE_TONES = {

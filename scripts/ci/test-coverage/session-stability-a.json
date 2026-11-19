@@ -1,0 +1,10 @@
+{
+  "note": "Session stability PR-A (owner-approved 2026-11-09): one closed-vocabulary refresh_outcome line per refresh decision, no behaviour change.",
+  "tests": {
+    "lib/auth/refresh-telemetry.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): every refresh outcome is logged exactly once with outcome/reason/platform class/8-char sid prefix only; no secret, credential, User-Agent string or connection string reaches any log line (incl. hostile UAs and a driver error that embeds a credential); the 401 body stays {error:Unauthorized} (no oracle); CSRF refusal logged and still inert; also run by auth-plane-write-ci.yml"
+    }
+  }
+}

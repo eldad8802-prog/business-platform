@@ -25,6 +25,10 @@ const nextConfig: NextConfig = {
     "/api/business-documents/letters": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/business-documents/letters/pdf": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/business-documents/quotes/\\[id\\]/share/copies": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/service-desk/cases/\\[id\\]/intake/slip": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    // 1.3c: sending / revising a service quote renders the billing quote PDF (getOrRenderQuotePdf) to freeze its copy.
+    "/api/service-desk/cases/\\[id\\]/quotes": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/service-desk/cases/\\[id\\]/quotes/revise": ["./node_modules/@sparticuz/chromium/bin/**/*"],
   },
 
   // Retire the legacy duplicate homepage `/corporate-home` (superseded by
@@ -47,15 +51,7 @@ const nextConfig: NextConfig = {
         destination: "/home",
         permanent: true,
       },
-      // The /tools catalogue, retired: it repeated the sidebar and Home's three family tiles. The
-      // family screens (/tools/money · customers · operations) stay; a direct visit to the root —
-      // including an old /tools#group-* link — lands on Home, where those tiles are. Temporary (307),
-      // so the decision stays reversible without browsers caching it.
-      {
-        source: "/tools",
-        destination: "/app",
-        permanent: false,
-      },
+      // (HOME v4: the /tools → /app redirect was removed — /tools is "הכלים שלי", the bottom bar's "כלים" tab.)
     ];
   },
 

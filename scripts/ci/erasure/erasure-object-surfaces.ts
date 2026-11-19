@@ -231,45 +231,71 @@ export const OBJECT_SURFACES: readonly ObjectSurface[] = [
       "the raw MIME object an ingestion path would write. No ingestion path exists and nothing writes this column, so no object can exist today — but the surface is declared now so the first writer cannot arrive unnoticed",
     target: "S5-INBOUND",
   },
-  // Service Desk (migration 20261112090000). Private objects under biz/{id}/service/ (CHECK-limited). No route,
-  // service or job writes any of these columns yet (task 1.3 / 1.2e), so no object can exist today.
-  // service_erase_business() blanks the two signature keys (the quote PDF and slip keys stay), but deleting the
-  // bytes is not wired — declared now so the first writer cannot arrive unnoticed.
+  // Service Desk (migrations 20261112090000 + 20261120090000). Private objects under biz/{id}/service/ (CHECK-limited
+  // in every table; the "service" domain is create-once). Erased AFTER COMMIT, as ONE prefix: the purge transaction
+  // calls service_desk_ui_erase_business(), which opens the durable job (ServiceStorageErasure); the post-commit stage
+  // (runAccountStorageErasure → service-storage-erasure.ts) deletes everything under biz/{id}/service/, verifies with a
+  // fresh listing and records the pass; the job closes only on a clean pass ≥ 1 hour after the deletion request. The
+  // rows keep their keys (service_erase_business() blanks the two signature keys) and receive no write from the adapter.
   {
     model: "ServiceQuote",
     field: "sentPdfKey",
     kind: "STORAGE_KEY",
-    state: "OPEN_INERT",
+    domain: "service",
+    state: "ERASED",
     reason:
-      "the private copy of a sent quote PDF (ז-2 A). Nothing writes this column yet, so no object can exist today; the row keeps the key and the hash as the quote's history and no object delete is wired into account erasure",
-    target: "SD-1.3",
+      "the private copy of a sent quote PDF (ז-2 A). The row keeps the key and the hash as the quote's history; the object goes with the whole biz/{id}/service/ prefix after commit",
+    erasedAfterCommit: { jobFn: "service_desk_ui_erase_business", objectFn: "runAccountStorageErasure", keyDelegate: "serviceQuote" },
   },
   {
     model: "ServiceCaseIntake",
     field: "signatureKey",
     kind: "STORAGE_KEY",
-    state: "OPEN_INERT",
+    domain: "service",
+    state: "ERASED",
     reason:
-      "the customer's check-in signature image. Nothing writes this column yet, so no object can exist today; service_erase_business() blanks the key, but no object delete is wired into account erasure",
-    target: "SD-1.3",
+      "the customer's check-in signature image. service_erase_business() blanks the key in the purge transaction; the object goes with the biz/{id}/service/ prefix after commit",
+    erasedAfterCommit: { jobFn: "service_desk_ui_erase_business", objectFn: "runAccountStorageErasure", keyDelegate: "serviceCaseIntake" },
   },
   {
     model: "ServiceCaseIntake",
     field: "slipPdfKey",
     kind: "STORAGE_KEY",
-    state: "OPEN_INERT",
+    domain: "service",
+    state: "ERASED",
     reason:
-      "the signed intake slip PDF. Nothing writes this column yet, so no object can exist today; service_erase_business() keeps this key (the intake row is frozen once signed) and no object delete is wired into account erasure",
-    target: "SD-1.3",
+      "the signed intake slip PDF. The row keeps the key (frozen once signed); the object goes with the biz/{id}/service/ prefix after commit",
+    erasedAfterCommit: { jobFn: "service_desk_ui_erase_business", objectFn: "runAccountStorageErasure", keyDelegate: "serviceCaseIntake" },
   },
   {
     model: "ServiceHandover",
     field: "signatureKey",
     kind: "STORAGE_KEY",
-    state: "OPEN_INERT",
+    domain: "service",
+    state: "ERASED",
     reason:
-      "the receiver's handover signature image. Nothing writes this column yet, so no object can exist today; service_erase_business() blanks the key, but no object delete is wired into account erasure",
-    target: "SD-1.3",
+      "the receiver's handover signature image. service_erase_business() blanks the key in the purge transaction; the object goes with the biz/{id}/service/ prefix after commit",
+    erasedAfterCommit: { jobFn: "service_desk_ui_erase_business", objectFn: "runAccountStorageErasure", keyDelegate: "serviceHandover" },
+  },
+  {
+    model: "ServiceIntakePhoto",
+    field: "storageKey",
+    kind: "STORAGE_KEY",
+    domain: "service",
+    state: "ERASED",
+    reason:
+      "an intake photo (1.3-0; ≤ 10 per case, ≤ 10 MB, jpeg/png/webp by CHECK). The row keeps the key; the object goes with the biz/{id}/service/ prefix after commit",
+    erasedAfterCommit: { jobFn: "service_desk_ui_erase_business", objectFn: "runAccountStorageErasure", keyDelegate: "serviceIntakePhoto" },
+  },
+  {
+    model: "ServiceShareEvent",
+    field: "objectKey",
+    kind: "STORAGE_KEY",
+    domain: "service",
+    state: "ERASED",
+    reason:
+      "the stored copy a share event points at — the same object as ServiceQuote.sentPdfKey or ServiceCaseIntake.slipPdfKey (guard). The row keeps the key; the object goes with the biz/{id}/service/ prefix after commit",
+    erasedAfterCommit: { jobFn: "service_desk_ui_erase_business", objectFn: "runAccountStorageErasure", keyDelegate: "serviceShareEvent" },
   },
   // Business documents (migration 20261114090000). Private objects under biz/{id}/business-docs/ (CHECK-limited),
   // written only by create-once puts. Erased AFTER COMMIT: business_documents_erase() in the purge transaction writes

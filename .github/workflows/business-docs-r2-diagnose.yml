@@ -1,0 +1,74 @@
+# Business documents — R2 TEST BUCKET connection diagnosis (owner-approved, read-only, prints no value).
+#
+# Why: run 42725350210 (business-docs-r2-candidate.yml) failed on the first R2 request of both jobs with a TLS
+# "alert handshake failure" from Cloudflare. The client matches Cloudflare's documented aws-sdk-js-v3 setup, so the
+# diagnosis checks the secrets' SHAPE and which documented endpoint (default / eu / us / fedramp) the account and the
+# bucket answer on — see .business-documents/r2-endpoint-diagnose.mts. It prints labels, booleans, error codes and HTTP
+# statuses only: never a secret, never a host name built from one, never a raw error message.
+#
+# Runs ONLY main's own code (no PR input, no candidate checkout). The same secret-free guard as the candidate workflow
+# runs first: dispatched from main, and the Environment exists with its protections — so a dispatch can never
+# auto-create an unprotected Environment. Then the job waits for the owner's approval in business-docs-r2-test.
+# Reads only: DNS, TLS handshakes with full certificate verification, and one signed HeadBucket per reachable endpoint.
+name: business documents — R2 test bucket, connection diagnosis (owner-approved, read-only)
+run-name: "R2 test bucket — connection diagnosis @ ${{ github.sha }}"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: business-docs-r2-test
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Guard — main only, the protected Environment exists (no secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatched from main
+        run: |
+          [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "::error::only from refs/heads/main (got $GITHUB_REF)"; exit 1; }
+      - name: The Environment exists with its protections (never created by this run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          e=$(gh api "repos/$GITHUB_REPOSITORY/environments/business-docs-r2-test") || { echo "::error::Environment business-docs-r2-test does not exist — create it with its protections first"; exit 1; }
+          reviewers=$(jq -r '[.protection_rules[] | select(.type=="required_reviewers") | .reviewers[].reviewer.login] | join(",")' <<<"$e")
+          # Explicit comparisons, never jq's `//` (it replaces false as well as null). A missing field fails closed.
+          custom=$(jq -r 'if .deployment_branch_policy.custom_branch_policies == true then "true" else "false" end' <<<"$e")
+          bypass=$(jq -r 'if .can_admins_bypass == false then "false" else "true" end' <<<"$e")
+          policies=$(gh api "repos/$GITHUB_REPOSITORY/environments/business-docs-r2-test/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | join(",")')
+          echo "reviewers=$reviewers custom_branch_policies=$custom policies=$policies admins_bypass=$bypass"
+          [[ ",$reviewers," == *",eldad8802-prog,"* ]] || { echo "::error::required reviewer eldad8802-prog missing"; exit 1; }
+          [ "$custom" = "true" ] && [ "$policies" = "branch:main" ] || { echo "::error::deployment branches must be exactly: main"; exit 1; }
+          [ "$bypass" = "false" ] || { echo "::error::administrators must not bypass the Environment's protections"; exit 1; }
+
+  diagnose:
+    name: Diagnosis — values' shape, DNS + verified TLS per documented endpoint, read-only HeadBucket (no value printed)
+    needs: guard
+    environment: business-docs-r2-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: The checkout is main at the dispatched commit
+        run: '[ "$GITHUB_REF" = "refs/heads/main" ] && [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || { echo "::error::not main at $GITHUB_SHA"; exit 1; }'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Diagnosis (report only)
+        env:
+          R2_TEST_ACCOUNT_ID: ${{ secrets.R2_TEST_ACCOUNT_ID }}
+          R2_TEST_ACCESS_KEY_ID: ${{ secrets.R2_TEST_ACCESS_KEY_ID }}
+          R2_TEST_SECRET_ACCESS_KEY: ${{ secrets.R2_TEST_SECRET_ACCESS_KEY }}
+          R2_TEST_BUCKET: ${{ secrets.R2_TEST_BUCKET }}
+        run: npx tsx .business-documents/r2-endpoint-diagnose.mts

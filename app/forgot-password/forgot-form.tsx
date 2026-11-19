@@ -71,11 +71,12 @@ export default function ForgotForm() {
           <label className={s.label} htmlFor="forgot-email">{t("account.auth.common.emailLabel")}</label>
           <input
             id="forgot-email"
+            name="email"
             type="email"
             className={`${s.input} ${fieldError ? s.inputBad : ""}`}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
+            autoComplete="username"
             spellCheck={false}
             autoFocus
             placeholder="name@example.com"

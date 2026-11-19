@@ -3,9 +3,11 @@ import {
   IconBox,
   IconCalendar,
   IconCalendarSimple,
+  IconWrench,
   IconCash,
   IconChat,
   IconFile,
+  IconGrid,
   IconHome,
   IconLeads,
   IconReceipt,
@@ -44,6 +46,8 @@ export type NavDestination = {
   group: NavGroupKey;
   /** Shown in the mobile bottom bar and the tablet rail (the four primary tabs). */
   primary?: boolean;
+  /** The short label the floating bottom bar uses, when it differs from `labelKey`. */
+  barLabelKey?: MessageKey;
   /** Shown only while this platform feature is ON for the business (fail-closed until known). */
   feature?: string;
 };
@@ -78,12 +82,13 @@ export function isNavActive(pathname: string, href: string): boolean {
 }
 
 export const NAV_DESTINATIONS: NavDestination[] = [
+  // HOME v4 (owner-approved redesign): the bar is בית · יומן · [+] · עדכונים · כלים — the same five, in the same
+  // order, for every business and plan. שיחות and מסמכים stay main destinations (sidebar) and live under כלים.
   { key: "home", label: "בית", labelKey: "nav.home", href: "/app", icon: IconHome, group: "main", primary: true },
-  { key: "chats", label: "שיחות", labelKey: "nav.chats", href: "/inbox", icon: IconChat, group: "main", primary: true },
-  { key: "docs", label: "מסמכים", labelKey: "nav.docs", href: "/documents", icon: IconFile, group: "main", primary: true },
-  // Notifications take the fourth tab, because "what happened that mattered"
-  // is something the owner comes back for many times a day.
-  { key: "notifications", label: "התראות", labelKey: "nav.notifications", href: "/notifications", icon: IconBell, group: "main", primary: true },
+  { key: "chats", label: "שיחות", labelKey: "nav.chats", href: "/inbox", icon: IconChat, group: "main" },
+  { key: "docs", label: "מסמכים", labelKey: "nav.docs", href: "/documents", icon: IconFile, group: "main" },
+  { key: "notifications", label: "התראות", labelKey: "nav.notifications", barLabelKey: "nav.bar.updates", href: "/notifications", icon: IconBell, group: "main", primary: true },
+  { key: "tools", label: "כלים", labelKey: "nav.tools", barLabelKey: "nav.bar.tools", href: "/tools", icon: IconGrid, group: "main", primary: true },
   { key: "payments", label: "גבייה", labelKey: "nav.payments", href: "/collection", icon: IconCash, group: "money" },
   { key: "billing", label: "חשבוניות", labelKey: "nav.billing", href: "/billing", icon: IconReceipt, group: "money" },
   { key: "customers", label: "לקוחות", labelKey: "nav.customers", href: "/customers", icon: IconUsers, group: "customers" },
@@ -92,7 +97,10 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   // a placement move only; every route, screen and permission is unchanged. Tasks appear only with daily_tasks ON.
   { key: "tasks", label: "משימות", labelKey: "nav.tasks", href: "/tasks", icon: IconTasks, group: "business", feature: "daily_tasks" },
   // Appointments milestone B (decision 12): the calendar sits in ניהול העסק, only while appointments is ON.
-  { key: "calendar", label: "יומן ותורים", labelKey: "nav.calendar", href: "/calendar", icon: IconCalendarSimple, group: "business", feature: "appointments" },
+  // In the bottom bar / rail it is the fixed "יומן" tab (HOME v4); in the sidebar it stays gated by appointments.
+  { key: "calendar", label: "יומן ותורים", labelKey: "nav.calendar", barLabelKey: "nav.bar.calendar", href: "/calendar", icon: IconCalendarSimple, group: "business", feature: "appointments", primary: true },
+  // Service Desk UI 1.3a (decision ה4: entry via ניהול העסק): only while service_desk is ON for the business — off by default.
+  { key: "service-desk", label: "שירות ואחריות", labelKey: "nav.serviceDesk", href: "/service-desk", icon: IconWrench, group: "business", feature: "service_desk" },
   { key: "secretary", label: "המזכירה שלי", labelKey: "nav.secretary", href: "/secretary", icon: IconSecretary, group: "business" },
   { key: "payables", label: "התחייבויות", labelKey: "nav.payables", href: "/payables", icon: IconCalendar, group: "business" },
   { key: "inventory", label: "מלאי", labelKey: "nav.inventory", href: "/inventory", icon: IconBox, group: "business" },
@@ -100,7 +108,9 @@ export const NAV_DESTINATIONS: NavDestination[] = [
 ];
 
 /** Primary destinations only — the mobile bottom-bar tabs and the tablet rail. */
-export const PRIMARY_DESTINATIONS = NAV_DESTINATIONS.filter((d) => d.primary);
+const PRIMARY_ORDER = ["home", "calendar", "notifications", "tools"];
+/** In bar order (RTL: first = rightmost): בית · יומן · [+] · עדכונים · כלים. */
+export const PRIMARY_DESTINATIONS = PRIMARY_ORDER.map((k) => NAV_DESTINATIONS.find((d) => d.key === k && d.primary)!);
 
 export const SETTINGS_DESTINATION = NAV_DESTINATIONS.find((d) => d.key === "settings")!;
 

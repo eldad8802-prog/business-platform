@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { AdminStepUpDialog } from "@/components/platform-admin/admin-step-up-dialog";
+import { RefreshCoordinator } from "@/components/auth/refresh-coordinator";
 
 export const metadata = {
   title: "Platform Admin",
@@ -22,7 +23,9 @@ export default function PlatformAdminLayout({
         color: TOKEN.ink.primary,
       }}
     >
-      {children}
+      {/* The admin console does not draw ShellChrome, so it carries the session
+          coordinator itself: kept fresh, and /login when the server ends it. */}
+      <RefreshCoordinator>{children}</RefreshCoordinator>
       {/* Answers the server's ADMIN_MFA_REQUIRED challenge for every
           privileged call made from this console. */}
       <AdminStepUpDialog />

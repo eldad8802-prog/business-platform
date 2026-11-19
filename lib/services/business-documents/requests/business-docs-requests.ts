@@ -17,8 +17,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { BdTx } from "../bd-tx";
 import { abandonPendingFile } from "../files/business-docs-files";
 
-export type RequestOperation = "QUOTE_SHARE_COPY" | "QUOTE_SHARE_EVENT" | "LETTER_SAVE";
-export const REQUEST_OPERATIONS: readonly RequestOperation[] = ["QUOTE_SHARE_COPY", "QUOTE_SHARE_EVENT", "LETTER_SAVE"];
+export type RequestOperation = "QUOTE_SHARE_COPY" | "QUOTE_SHARE_EVENT" | "LETTER_SAVE" | "PURCHASE_ORDER_SHEET";
+export const REQUEST_OPERATIONS: readonly RequestOperation[] = ["QUOTE_SHARE_COPY", "QUOTE_SHARE_EVENT", "LETTER_SAVE", "PURCHASE_ORDER_SHEET"];
 export const REQUEST_KEY_WINDOW_HOURS = 24;
 export const REQUEST_LEASE_SECONDS = 120;
 

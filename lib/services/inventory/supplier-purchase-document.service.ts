@@ -91,12 +91,28 @@ type DownloadPdfOptions = {
   windowTitle?: string;
 };
 
+/** The two values the browser takes from its environment; a server rendering passes them explicitly. */
+export type SupplierPurchaseOrderDocumentContext = {
+  /** The header line (the browser uses its `document.title`). */
+  headerTitle: string;
+  /** The date shown (the browser formats it in its own time zone); defaults to formatSupplierDraftDisplayDate. */
+  displayDate?: string;
+};
+
+/** The font family the document uses, mapped to the Hebrew font file — the same mapping in browser and server. */
+export const SUPPLIER_ORDER_PDF_FONTS = {
+  Hebrew: {
+    normal: "NotoSansHebrew-Regular.ttf",
+    bold: "NotoSansHebrew-Regular.ttf",
+    italics: "NotoSansHebrew-Regular.ttf",
+    bolditalics: "NotoSansHebrew-Regular.ttf",
+  },
+};
+
 export function downloadSupplierPurchaseOrderPdf(
   draft: SupplierPurchaseDraftForDocument,
   options?: DownloadPdfOptions
 ): void {
-  const nbsp = "\u00A0";
-  const rtlText = (value: string) => value.replaceAll(" ", nbsp);
   const pdf = pdfMake as any;
 
   const customVfs = {
@@ -110,22 +126,35 @@ export function downloadSupplierPurchaseOrderPdf(
     pdf.addVirtualFileSystem(customVfs);
   }
 
-  const fonts = {
-    Hebrew: {
-      normal: "NotoSansHebrew-Regular.ttf",
-      bold: "NotoSansHebrew-Regular.ttf",
-      italics: "NotoSansHebrew-Regular.ttf",
-      bolditalics: "NotoSansHebrew-Regular.ttf",
-    },
-  };
+  const fonts = SUPPLIER_ORDER_PDF_FONTS;
 
   pdf.fonts = fonts;
 
-  const supplierName = draft.supplierName || "ספק";
-  const today = formatSupplierDraftDisplayDate(draft);
   const headerTitle =
     options?.windowTitle?.trim() ||
     (typeof document !== "undefined" ? document.title : "").trim();
+
+  const docDefinition = buildSupplierPurchaseOrderDocDefinition(draft, { headerTitle });
+
+  pdf
+    .createPdf(docDefinition, undefined, fonts, customVfs)
+    .download(`supplier-order-${draft.id}.pdf`);
+}
+
+/**
+ * The supplier order PDF's pdfmake document definition — the SAME content and design the browser download uses.
+ * Pure: no window / document access, no pdfmake globals; font family "Hebrew" (SUPPLIER_ORDER_PDF_FONTS).
+ */
+export function buildSupplierPurchaseOrderDocDefinition(
+  draft: SupplierPurchaseDraftForDocument,
+  context: SupplierPurchaseOrderDocumentContext
+): any {
+  const nbsp = "\u00A0";
+  const rtlText = (value: string) => value.replaceAll(" ", nbsp);
+
+  const supplierName = draft.supplierName || "ספק";
+  const today = context.displayDate ?? formatSupplierDraftDisplayDate(draft);
+  const headerTitle = context.headerTitle;
 
   const totalUnits = draft.lines.reduce(
     (sum, line) => sum + Number(line.quantity || 0),
@@ -376,7 +405,5 @@ export function downloadSupplierPurchaseOrderPdf(
     },
   };
 
-  pdf
-    .createPdf(docDefinition, undefined, fonts, customVfs)
-    .download(`supplier-order-${draft.id}.pdf`);
+  return docDefinition;
 }

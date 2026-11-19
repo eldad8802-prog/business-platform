@@ -99,13 +99,26 @@ function ctx(o: Partial<ServiceCaseContext> = {}): ServiceCaseContext {
     ...o,
   };
 }
+/** M1: a T3 case (on site, nothing handed back, QA optional, D15) — finished work goes to WORK_DONE. */
+const T3_FACTS: NonNullable<ServiceCaseContext["track"]> = {
+  track: "T3",
+  workType: "REPAIR",
+  location: "AT_CUSTOMER",
+  itemAtBusiness: false,
+  requirements: { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "FIELD.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false },
+  afterSaleResolution: null,
+  siteAddressSet: true,
+  moneyCommitment: false,
+  creditDocumentLinked: false,
+};
+const NO_BLOCKERS = { binding: false, intakeStarted: false, appointmentStarted: false };
 function sentQuote(version = 1, totalAgorot = 45_000, docHash = "h1"): ServiceQuoteSnapshot {
   return { version, totalAgorot, docHash, state: "SENT", approval: null };
 }
 function approvedQuote(version = 1, totalAgorot = 45_000, docHash = "h1"): ServiceQuoteSnapshot {
   return { version, totalAgorot, docHash, state: "APPROVED", approval: { version, totalAgorot, docHash, method: "PHONE" } };
 }
-const RECEIPT = { receivedByName: "ישראל ישראלי", signatureCaptured: true };
+const RECEIPT = { handoverConfirmed: true, receivedByName: "ישראל ישראלי" };
 // Every decision any test produces is kept, so §8 can prove the journal payload rule over all of them.
 type OkDecision = Extract<ServiceTransitionDecision, { ok: true }>;
 const OK_DECISIONS: OkDecision[] = [];
@@ -118,23 +131,26 @@ const ev = (c: ServiceCaseContext, a: ServiceCaseAction, actor: ServiceCaseActor
 };
 
 // ── 1. Status matrix ───────────────────────────────────────────────────────────────────────────────────────
-console.log("— 1. the 13 × 13 status matrix (spec part B)");
+// Expectation changed by M1 (migration 20261127090000): WORK_DONE is the 14th status; edges into it from every place
+// finished work can come from, WORK_DONE → CLOSED (COMPLETE), and SCHEDULED → OPEN (CHANGE_DETAILS UNSCHEDULE, D13).
+console.log("— 1. the 14 × 14 status matrix (spec part B + M1)");
 const EXPECTED: Record<ServiceCaseStatus, ServiceCaseStatus[]> = {
   OPEN: ["SCHEDULED", "CHECKED_IN", "CANCELLED"],
-  SCHEDULED: ["CHECKED_IN", "CANCELLED"],
+  SCHEDULED: ["CHECKED_IN", "CANCELLED", "OPEN"], // M1 D13
   CHECKED_IN: ["DIAGNOSING", "READY", "CANCELLED"],
-  DIAGNOSING: ["QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "READY", "CANCELLED"], // owner decision 11-03: cancel from any stage
-  QUOTE_PENDING: ["IN_REPAIR", "READY", "CANCELLED"],
-  IN_REPAIR: ["QA", "EXTERNAL", "QUOTE_PENDING", "READY", "CANCELLED"], // owner decision 11-03
-  EXTERNAL: ["IN_REPAIR", "QA", "READY"],
-  QA: ["READY", "IN_REPAIR"],
+  DIAGNOSING: ["QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "READY", "WORK_DONE", "CANCELLED"], // owner decision 11-03: cancel from any stage
+  QUOTE_PENDING: ["IN_REPAIR", "READY", "WORK_DONE", "CANCELLED"],
+  IN_REPAIR: ["QA", "EXTERNAL", "QUOTE_PENDING", "READY", "WORK_DONE", "CANCELLED"], // owner decision 11-03
+  EXTERNAL: ["IN_REPAIR", "QA", "READY", "WORK_DONE"],
+  QA: ["READY", "WORK_DONE", "IN_REPAIR"],
   READY: ["DELIVERED", "ABANDONED", "CANCELLED"], // owner decision 11-03 (nothing held)
+  WORK_DONE: ["CLOSED"], // M1: only COMPLETE
   DELIVERED: ["CLOSED"],
   CLOSED: [],
   CANCELLED: [],
   ABANDONED: ["DELIVERED", "CLOSED"],
 };
-check("13 statuses", SERVICE_CASE_STATUSES.length === 13);
+check("14 statuses", SERVICE_CASE_STATUSES.length === 14);
 let matrixOk = 0;
 for (const from of SERVICE_CASE_STATUSES) {
   for (const to of SERVICE_CASE_STATUSES) {
@@ -142,7 +158,7 @@ for (const from of SERVICE_CASE_STATUSES) {
     else check(`pair ${from} → ${to}`, false, `graph says ${canMove(from, to)}`);
   }
 }
-check("all 169 pairs match the spec matrix", matrixOk === 169, `${matrixOk}/169`);
+check("all 196 pairs match the spec matrix", matrixOk === 196, `${matrixOk}/196`);
 check("no status moves to itself", SERVICE_CASE_STATUSES.every((s) => !canMove(s, s)));
 check("terminal = CLOSED and CANCELLED only", TERMINAL_STATUSES.length === 2 && isTerminal("CLOSED") && isTerminal("CANCELLED"));
 check("ABANDONED is not terminal", !isTerminal("ABANDONED"));
@@ -172,6 +188,9 @@ const EXPECTED_FROM: Record<ServiceCaseActionType, ServiceCaseStatus[]> = {
   CLOSE: ["DELIVERED", "ABANDONED"],
   CANCEL: ["OPEN", "SCHEDULED", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "QA", "READY"], // owner decision 11-03
   ABANDON: ["READY"],
+  RESCHEDULE: ["SCHEDULED"], // M1
+  COMPLETE: ["WORK_DONE"], // M1
+  CHANGE_DETAILS: ["OPEN", "SCHEDULED"], // M1 D3
 };
 for (const [type, froms] of Object.entries(EXPECTED_FROM) as [ServiceCaseActionType, ServiceCaseStatus[]][]) {
   const actual = ACTION_FROM[type];
@@ -183,7 +202,7 @@ function samples(kind: ServiceCaseKind): Sample[] {
   const authorized = { coverage: { source: "MANUFACTURER" as const, decision: "APPROVED" as const }, currentQuote: approvedQuote() };
   return [
     { action: { type: "SCHEDULE", appointmentId: 11 }, actor: OWNER, over: { siteId: 4 } },
-    { action: { type: "CHECK_IN" }, actor: OWNER },
+    { action: { type: "CHECK_IN", intakeConfirmed: true }, actor: OWNER },
     { action: { type: "START_DIAGNOSIS" }, actor: OWNER },
     { action: { type: "SEND_QUOTE", quote: { version: 2, totalAgorot: 1000, docHash: "h2" } }, actor: OWNER, over: authorized },
     { action: { type: "APPROVE_QUOTE", approval: { version: 1, totalAgorot: 45_000, docHash: "h1", method: "PHONE" } }, actor: OWNER, over: { currentQuote: sentQuote() } },
@@ -205,6 +224,19 @@ function samples(kind: ServiceCaseKind): Sample[] {
     { action: { type: "CLOSE" }, actor: SYSTEM, over: { outcome: "REPAIRED" } },
     { action: { type: "CANCEL", reason: "הלקוח ביטל" }, actor: OWNER },
     { action: { type: "ABANDON", reason: "לא נאסף אחרי 3 תזכורות" }, actor: OWNER, over: { outcome: "REPAIRED", pickupRemindersSent: 3 } },
+    // M1: the same finishing actions on a track that hands nothing back (→ WORK_DONE), and the three new actions
+    { action: { type: "FINISH_REPAIR", outcome: "REPAIRED" }, actor: OWNER, over: { track: T3_FACTS } },
+    { action: { type: "PASS_QA", outcome: "REPAIRED" }, actor: OWNER, over: { track: T3_FACTS } },
+    { action: { type: "MARK_NOT_REPAIRABLE" }, actor: OWNER, over: { track: T3_FACTS } },
+    { action: { type: "REJECT_QUOTE", version: 1 }, actor: CUSTOMER, over: { currentQuote: sentQuote(), track: T3_FACTS } },
+    { action: { type: "RETURN_FROM_EXTERNAL", next: "WORK_DONE", outcome: "REPAIRED" }, actor: OWNER, over: { ...authorized, track: T3_FACTS } },
+    { action: { type: "COMPLETE", completion: { completionType: "OWNER_CONFIRMED_ON_SITE", ownerConfirmed: true } }, actor: OWNER, over: { track: T3_FACTS, outcome: "REPAIRED" } },
+    { action: { type: "RESCHEDULE", appointmentId: 12 }, actor: OWNER, over: { appointmentId: 11 } },
+    {
+      action: { type: "CHANGE_DETAILS", next: { kind: kind === "IN_SHOP" ? "FIELD" : "IN_SHOP", workType: null, serviceLocation: null, siteAddress: null, returnReason: null }, appointmentImpact: "UNSCHEDULE" },
+      actor: OWNER,
+      over: { details: { kind, workType: null, serviceLocation: null, siteAddress: null, returnReason: null }, detailBlockers: NO_BLOCKERS },
+    },
   ];
 }
 const realised = new Set<string>();
@@ -214,7 +246,7 @@ for (const kind of SERVICE_CASE_KINDS) {
     const problems: string[] = [];
     for (const s of samples(kind)) {
       sweepActions.add(s.action.type);
-      const outcome = ["READY", "DELIVERED", "ABANDONED"].includes(status) ? s.over?.outcome ?? "REPAIRED" : null;
+      const outcome = ["READY", "WORK_DONE", "DELIVERED", "ABANDONED"].includes(status) ? s.over?.outcome ?? "REPAIRED" : null;
       const d = ev(ctx({ kind, status, staffMemberId: 5, siteId: 4, ...s.over, outcome }), s.action, s.actor);
       const startsHere = EXPECTED_FROM[s.action.type].includes(status);
       if (!startsHere || isTerminal(status)) {
@@ -228,7 +260,7 @@ for (const kind of SERVICE_CASE_KINDS) {
       if (d.statusChanged ? !canMove(status, d.to) : d.to !== status) problems.push(`${s.action.type} → ${d.to} off-graph`);
       if (d.statusChanged) realised.add(`${status}>${d.to}`);
       if (d.holdReason !== null && d.to !== "IN_REPAIR") problems.push(`${s.action.type}: hold outside IN_REPAIR`);
-      const needsOutcome = ["READY", "DELIVERED", "CLOSED", "ABANDONED", "CANCELLED"].includes(d.to);
+      const needsOutcome = ["READY", "WORK_DONE", "DELIVERED", "CLOSED", "ABANDONED", "CANCELLED"].includes(d.to);
       if (needsOutcome !== (d.outcome !== null)) problems.push(`${s.action.type}: outcome ${d.outcome} at ${d.to}`);
       if (d.event.fromStatus !== status || d.event.toStatus !== d.to) problems.push(`${s.action.type}: event statuses`);
       if (typeof d.cancellationRequestedAfter !== "boolean") problems.push(`${s.action.type}: no explicit cancellationRequestedAfter`);
@@ -246,20 +278,39 @@ const graphEdges = SERVICE_CASE_STATUSES.flatMap((f) => TRANSITION_GRAPH[f].map(
 const unrealised = graphEdges.filter((e) => !realised.has(e));
 check("every graph edge is reachable by some action (no dead rule)", unrealised.length === 0, unrealised.join(", "));
 check("no action realises an edge outside the graph", [...realised].every((e) => graphEdges.includes(e)));
-// Expectation changed by 1.1b: REVISE_QUOTE is the 20th action (was 19).
-check("the sweep exercised all 20 actions", sweepActions.size === Object.keys(ACTION_FROM).length && sweepActions.size === 20);
+// Expectation changed by 1.1b: REVISE_QUOTE is the 20th action (was 19); by M1: RESCHEDULE, COMPLETE, CHANGE_DETAILS (23).
+check("the sweep exercised all 23 actions", sweepActions.size === Object.keys(ACTION_FROM).length && sweepActions.size === 23);
 
 // ── 3. Business validations ────────────────────────────────────────────────────────────────────────────────
 console.log("— 3. validations");
 refusedWith("missing data: schedule without an appointment", ev(ctx(), { type: "SCHEDULE", appointmentId: 0 }, OWNER), "INVALID_INPUT");
-refusedWith("missing data: diagnosis without a staff member", ev(ctx({ status: "CHECKED_IN", staffMemberId: null }), { type: "START_DIAGNOSIS" }, OWNER), "STAFF_REQUIRED");
 {
-  const d = ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: false, customerSigned: false } }), { type: "CHECK_IN" }, OWNER);
-  refusedWith("missing data: IN_SHOP check-in without accessories and signature", d, "INTAKE_INCOMPLETE");
-  check("  …the refusal names what is missing", !d.ok && /accessories, customerSignature/.test(d.violations[0].detail));
+  // Owner decision 2 (1.3a): no technician → the signed-in owner handles it; an assigned one is a server check.
+  const own = ev(ctx({ status: "CHECKED_IN", staffMemberId: null }), { type: "START_DIAGNOSIS" }, OWNER);
+  allowedTo("diagnosis with no technician assigned → the owner handles it", own, "DIAGNOSING");
+  check("  …the event says the owner handled it, and asks no staff check", own.ok && own.event.payload.handledByOwner === true && !own.serverChecks.includes("STAFF_BELONGS_TO_BUSINESS"));
+  check("  …and the journal names the acting owner", own.ok && own.event.actor.kind === "OWNER" && (own.event.actor as { userId: number }).userId === OWNER.userId);
+  const staffed = ev(ctx({ status: "CHECKED_IN", staffMemberId: 7 }), { type: "START_DIAGNOSIS" }, OWNER);
+  check("diagnosis with an assigned technician asks the service to verify them (STAFF_BELONGS_TO_BUSINESS)", staffed.ok && staffed.serverChecks.includes("STAFF_BELONGS_TO_BUSINESS") && staffed.event.payload.handledByOwner === false);
+  refusedWith("a malformed technician id is refused, never read as \"none\"", ev(ctx({ status: "CHECKED_IN", staffMemberId: 0 }), { type: "START_DIAGNOSIS" }, OWNER), "INVALID_INPUT");
 }
-refusedWith("missing data: IN_SHOP check-in with no intake at all", ev(ctx({ intake: null }), { type: "CHECK_IN" }, OWNER), "INTAKE_INCOMPLETE");
-allowedTo("IN_SHOP check-in with a full intake", ev(ctx(), { type: "CHECK_IN" }, OWNER), "CHECKED_IN");
+{
+  const d = ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: false, customerSigned: false } }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER);
+  refusedWith("missing data: IN_SHOP check-in without accessories and signature", d, "INTAKE_INCOMPLETE");
+  check("  …the refusal names what is missing — the accessories record, never a customer signature", !d.ok && /accessories/.test(d.violations[0].detail) && !/ignature/.test(d.violations[0].detail));
+}
+refusedWith("missing data: IN_SHOP check-in with no intake at all", ev(ctx({ intake: null }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "INTAKE_INCOMPLETE");
+allowedTo("IN_SHOP check-in with a full intake, confirmed by the owner", ev(ctx(), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "CHECKED_IN");
+// Owner decision 2026-11-11: no customer signature anywhere. The owner's explicit confirmation replaces it.
+allowedTo("no signature: a documented intake that was never signed checks in on the owner's confirmation",
+  ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: true, customerSigned: false } }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "CHECKED_IN");
+refusedWith("the owner's confirmation is explicit: a CHECK_IN of a held item without it is refused",
+  ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: true, customerSigned: false } }), { type: "CHECK_IN" }, OWNER), "INTAKE_NOT_CONFIRMED");
+{
+  const d = ev(ctx({ intake: { conditionRecorded: true, accessoriesRecorded: true, customerSigned: false } }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER);
+  check("  …no stored-signature server check any more, and the journal payload records the confirmation",
+    d.ok && !(d.serverChecks as readonly string[]).includes("INTAKE_ARTIFACTS_STORED") && (d.event.payload as Record<string, unknown>).intakeConfirmed === true);
+}
 
 // unapproved quote
 refusedWith("unapproved quote: back from the supplier into repair", ev(ctx({ status: "EXTERNAL", currentQuote: sentQuote() }), { type: "RETURN_FROM_EXTERNAL", next: "IN_REPAIR" }, OWNER), "REPAIR_NOT_AUTHORIZED");
@@ -302,8 +353,20 @@ refusedWith("open balance: owner decision without a reason", ev(ready({ settleme
   check("  …and no effect touches the debt", d.ok && d.effects.every((e) => e === "ATTEMPT_AUTO_CLOSE"));
 }
 refusedWith("unknown balance: delivery refuses (fail closed)", ev(ready({ settlement: { known: false } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "x" } }, OWNER), "BALANCE_UNKNOWN");
-refusedWith("delivery needs the receiver's signature", ev(ready(), { type: "DELIVER", receipt: { receivedByName: "דנה", signatureCaptured: false } }, OWNER), "RECEIPT_INCOMPLETE");
-refusedWith("delivery needs the receiver's name", ev(ready(), { type: "DELIVER", receipt: { receivedByName: "", signatureCaptured: true } }, OWNER), "RECEIPT_INCOMPLETE");
+// owner decision 2026-11-11 (the same rule for DELIVER and COMPLETE): a known balance is debt XOR overpayment, never negative
+refusedWith("malformed balance: a negative open balance is refused (an overpayment is reported separately)", ev(ready({ settlement: { known: true, openBalanceAgorot: -100 } }), { type: "DELIVER", receipt: RECEIPT }, OWNER), "INVALID_INPUT");
+refusedWith("malformed balance: a debt and an overpayment together are refused", ev(ready({ settlement: { known: true, openBalanceAgorot: 100, overpaidAgorot: 20 } }), { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "x" } }, OWNER), "INVALID_INPUT");
+refusedWith("malformed balance: a negative overpayment is refused", ev(ready({ settlement: { known: true, openBalanceAgorot: 0, overpaidAgorot: -5 } }), { type: "DELIVER", receipt: RECEIPT }, OWNER), "INVALID_INPUT");
+refusedWith("delivery needs the owner's confirmation (no customer signature — owner decision 2026-11-11)", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: false, receivedByName: "דנה" } }, OWNER), "HANDOVER_NOT_CONFIRMED");
+allowedTo("delivery without a receiver's name, on the owner's confirmation", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: true } }, OWNER), "DELIVERED");
+refusedWith("a receiver's name over 200 characters is refused", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: true, receivedByName: "א".repeat(201) } }, OWNER), "INVALID_INPUT");
+{
+  const d = ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: true } }, OWNER);
+  check("  …the event records the confirmation and that no name was given; no signature field anywhere",
+    d.ok && (d.event.payload as Record<string, unknown>).handoverConfirmed === true && (d.event.payload as Record<string, unknown>).receiverNamed === false
+      && !JSON.stringify(d.event.payload).includes("ign"));
+}
+refusedWith("a blank receiver's name is not a name (send none instead)", ev(ready(), { type: "DELIVER", receipt: { handoverConfirmed: true, receivedByName: "  " } }, OWNER), "INVALID_INPUT");
 refusedWith("the customer link may not deliver", ev(ready(), { type: "DELIVER", receipt: RECEIPT }, CUSTOMER), "ACTOR_NOT_ALLOWED");
 {
   const d = ev(ready(), { type: "DELIVER", receipt: RECEIPT }, OWNER);
@@ -322,7 +385,7 @@ refusedWith("early close from READY", ev(ready(), { type: "CLOSE" }, OWNER), "IN
 refusedWith("early close from IN_REPAIR", ev(ctx({ status: "IN_REPAIR" }), { type: "CLOSE" }, OWNER), "INVALID_TRANSITION");
 refusedWith("the system may not deliver", ev(ready(), { type: "DELIVER", receipt: RECEIPT }, SYSTEM), "ACTOR_NOT_ALLOWED");
 refusedWith("an owner without a user is not an actor", ev(ready(), { type: "DELIVER", receipt: RECEIPT }, { kind: "OWNER", userId: 0 }), "ACTOR_NOT_ALLOWED");
-refusedWith("a CLOSED case does not reopen", ev(ctx({ status: "CLOSED", outcome: "REPAIRED" }), { type: "CHECK_IN" }, OWNER), "TERMINAL_STATUS");
+refusedWith("a CLOSED case does not reopen", ev(ctx({ status: "CLOSED", outcome: "REPAIRED" }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "TERMINAL_STATUS");
 
 // ── 4. The 12 alternative paths ────────────────────────────────────────────────────────────────────────────
 console.log("— 4. alternative paths");
@@ -337,19 +400,38 @@ refusedWith("a ₪0 quote without a cover", ev(ctx({ status: "DIAGNOSING" }), { 
 
 console.log("  4.2 repeat repair");
 {
-  const r = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-10-01" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
-  check("within the repair warranty (33 days of 90)", r.ok && r.withinRepairWarranty && r.daysSinceDelivery === 33);
-  const late = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-01-01" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
-  check("past the repair warranty → a regular repeat, charged", late.ok && !late.withinRepairWarranty);
-  const notRepaired = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "NOT_REPAIRED", deliveredOn: "2026-10-30" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
-  check("a parent that was not repaired carries no repair warranty", notRepaired.ok && !notRepaired.withinRepairWarranty);
-  const open = evaluateRepeatCase({ parent: { status: "IN_REPAIR", outcome: null, deliveredOn: null }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
+  // Owner decision ש4 (1.3a): the parent's LOCKED warranty end date, inclusive, as Israel calendar days.
+  const rep = (deliveredOn: string | null, openedOn: string, ends: string | null, o: Partial<{ status: "CLOSED" | "DELIVERED" | "IN_REPAIR"; outcome: "REPAIRED" | "NOT_REPAIRED" | "REPLACED" | null }> = {}) =>
+    evaluateRepeatCase({ parent: { status: o.status ?? "CLOSED", outcome: o.outcome === undefined ? "REPAIRED" : o.outcome, deliveredOn }, openedOn, parentWarrantyEndsOn: ends });
+  const r = rep("2026-10-01", "2026-11-03", "2026-12-30");
+  check("within the locked warranty (opened 2026-11-03, ends 2026-12-30)", r.ok && r.withinRepairWarranty && r.daysSinceDelivery === 33 && r.warrantyEndsOn === "2026-12-30");
+  const lastDay = rep("2026-10-01", "2026-12-30", "2026-12-30");
+  check("opened ON the end date → still within (the end date is inclusive)", lastDay.ok && lastDay.withinRepairWarranty);
+  const dayAfter = rep("2026-10-01", "2026-12-31", "2026-12-30");
+  check("opened the day after the end date → past the warranty, never extended", dayAfter.ok && !dayAfter.withinRepairWarranty);
+  const leap = rep("2028-01-31", "2028-02-29", "2028-02-29");
+  check("a leap-day end date is a real date and is honoured", leap.ok && leap.withinRepairWarranty);
+  const late = rep("2026-01-01", "2026-11-03", "2026-03-31");
+  check("past the locked warranty → a regular repeat, charged", late.ok && !late.withinRepairWarranty);
+  const notRepaired = rep("2026-10-30", "2026-11-03", "2027-01-28", { outcome: "NOT_REPAIRED" });
+  check("a parent that was not repaired carries no repair warranty, even with a locked offer", notRepaired.ok && !notRepaired.withinRepairWarranty);
+  const open = rep(null, "2026-11-03", "2027-01-28", { status: "IN_REPAIR", outcome: null });
   check("a parent still in repair cannot have a repeat", !open.ok);
-  const bad = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-02-30" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
-  check("an impossible date is refused", !bad.ok);
-  const backwards = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-05" }, openedOn: "2026-11-03", repairWarrantyDays: 90 });
-  check("a repeat opened before the delivery is refused", !backwards.ok);
+  check("an impossible date is refused", !rep("2026-02-30", "2026-11-03", "2026-12-30").ok);
+  check("an impossible end date is refused", !rep("2026-10-01", "2026-11-03", "2026-02-30").ok);
+  check("an end date before the delivery is refused", !rep("2026-10-01", "2026-11-03", "2026-09-30").ok);
+  check("a repeat opened before the delivery is refused", !rep("2026-11-05", "2026-11-03", "2026-12-30").ok);
   check("the closed parent itself never reopens", !ev(ctx({ status: "CLOSED", outcome: "REPAIRED" }), { type: "START_DIAGNOSIS" }, OWNER).ok);
+  check("a locked warranty is reported as set", r.ok && r.commercialWarrantySet === true);
+  const none = rep("2026-11-01", "2026-11-03", null);
+  check("no locked offer (null) → a valid repeat, never within a commercial warranty, no period guessed", none.ok && !none.withinRepairWarranty && none.daysSinceDelivery === 2 && none.warrantyEndsOn === null);
+  check("… and the decision says none was RECORDED — not that the customer has no warranty", none.ok && none.commercialWarrantySet === false);
+  const sameDay = rep("2026-11-03", "2026-11-03", "2026-11-03");
+  check("delivered, ending and reopened the same day → within", sameDay.ok && sameDay.withinRepairWarranty);
+  const missing = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", parentWarrantyEndsOn: undefined as unknown as null });
+  check("undefined is not null — an absent value is refused, never read as \"none recorded\"", !missing.ok);
+  const numeric = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-11-01" }, openedOn: "2026-11-03", parentWarrantyEndsOn: 90 as unknown as string });
+  check("a number of days is not an end date — refused", !numeric.ok);
 }
 
 console.log("  4.3 not repairable");
@@ -381,7 +463,7 @@ console.log("  4.5 cancelled");
   allowedTo("a FIELD case holds nothing → CANCELLED", ev(ctx({ kind: "FIELD", status: "CHECKED_IN" }), { type: "CANCEL" }, OWNER), "CANCELLED");
   // Expectation changed by the owner decision of 11-03 (was: INVALID_TRANSITION — cancel during repair not implemented).
   allowedTo("cancel during repair (owner decision 11-03) → READY", ev(ctx({ status: "IN_REPAIR", currentQuote: approvedQuote() }), { type: "CANCEL", reason: "x" }, OWNER), "READY");
-  refusedWith("a CANCELLED case is final", ev(ctx({ status: "CANCELLED", outcome: "CANCELLED" }), { type: "CHECK_IN" }, OWNER), "TERMINAL_STATUS");
+  refusedWith("a CANCELLED case is final", ev(ctx({ status: "CANCELLED", outcome: "CANCELLED" }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "TERMINAL_STATUS");
   check("cancelling never deletes: it is an event like any other", open.ok && open.event.type === "case.cancelled");
 }
 
@@ -461,7 +543,7 @@ console.log("  4.5a cancel from every stage before handover (owner decision 11-0
   // after a cancel the handover rules are the normal ones
   const cancelledReady = ready({ outcome: "CANCELLED", settlement: { known: true, openBalanceAgorot: 12_000 } });
   refusedWith("cancelled + open balance: delivery still needs the owner's decision", ev(cancelledReady, { type: "DELIVER", receipt: RECEIPT }, OWNER), "OPEN_BALANCE_NEEDS_OWNER_DECISION");
-  refusedWith("cancelled: delivery still needs the receiver's signature", ev(ready({ outcome: "CANCELLED" }), { type: "DELIVER", receipt: { receivedByName: "x", signatureCaptured: false } }, OWNER), "RECEIPT_INCOMPLETE");
+  refusedWith("cancelled: delivery still needs the owner's confirmation", ev(ready({ outcome: "CANCELLED" }), { type: "DELIVER", receipt: { handoverConfirmed: false, receivedByName: "x" } }, OWNER), "HANDOVER_NOT_CONFIRMED");
   allowedTo("cancelled: handed back with the owner's decision on the balance", ev(cancelledReady, { type: "DELIVER", receipt: RECEIPT, debtOverride: { reason: "יקוזז" } }, OWNER), "DELIVERED");
   const balCancel = ev(ctx({ status: "IN_REPAIR", settlement: { known: true, openBalanceAgorot: 12_000 } }), { type: "CANCEL", reason: "x" }, OWNER);
   check("cancel with an open balance is not blocked and changes no money", balCancel.ok && balCancel.effects.length === 0);
@@ -509,7 +591,7 @@ console.log("  4.5c the cancel request is an explicit part of every decision (co
 
   // state 3: the normal handover still applies
   const done = ready({ outcome: "CANCELLED" });
-  refusedWith("after the completed cancel, delivery still needs the signature", ev(done, { type: "DELIVER", receipt: { receivedByName: "x", signatureCaptured: false } }, OWNER), "RECEIPT_INCOMPLETE");
+  refusedWith("after the completed cancel, delivery still needs the owner's confirmation", ev(done, { type: "DELIVER", receipt: { handoverConfirmed: false, receivedByName: "x" } }, OWNER), "HANDOVER_NOT_CONFIRMED");
   const delivered3 = ev(done, { type: "DELIVER", receipt: RECEIPT }, OWNER);
   check("after the completed cancel, the normal delivery → DELIVERED, request stays false", delivered3.ok && delivered3.to === "DELIVERED" && delivered3.cancellationRequestedAfter === false);
 
@@ -622,8 +704,14 @@ console.log("  4.11 field visit not finished on the first visit (contract compat
 {
   const f = (o: Partial<ServiceCaseContext>) => ctx({ kind: "FIELD", intake: null, siteId: 4, ...o });
   refusedWith("an on-site visit needs the site", ev(f({ siteId: null }), { type: "SCHEDULE", appointmentId: 11 }, OWNER), "SITE_REQUIRED");
-  refusedWith("an on-site visit needs a technician", ev(f({ staffMemberId: null }), { type: "SCHEDULE", appointmentId: 11 }, OWNER), "STAFF_REQUIRED");
-  allowedTo("technician on site → CHECKED_IN without a shop intake", ev(f({ status: "SCHEDULED" }), { type: "CHECK_IN" }, OWNER), "CHECKED_IN");
+  {
+    // Owner decision 3 (1.3a): the owner may schedule and make the visit with no technician assigned.
+    const own = ev(f({ staffMemberId: null }), { type: "SCHEDULE", appointmentId: 11 }, OWNER);
+    allowedTo("an on-site visit with no technician → the owner makes it", own, "SCHEDULED");
+    check("  …marked as handled by the owner", own.ok && own.event.payload.handledByOwner === true);
+    allowedTo("on-site check-in with no technician → the owner", ev(f({ status: "SCHEDULED", staffMemberId: null }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "CHECKED_IN");
+  }
+  allowedTo("technician on site → CHECKED_IN without a shop intake", ev(f({ status: "SCHEDULED" }), { type: "CHECK_IN", intakeConfirmed: true }, OWNER), "CHECKED_IN");
   const wait = ev(f({ status: "IN_REPAIR", currentQuote: approvedQuote() }), { type: "SET_HOLD", reason: "PARTS" }, OWNER);
   check("first visit ends waiting for a part: the case stays open in IN_REPAIR", wait.ok && wait.to === "IN_REPAIR" && wait.holdReason === "PARTS");
   allowedTo("the follow-up visit finishes → READY (no QA on site)", ev(f({ status: "IN_REPAIR", holdReason: "PARTS" }), { type: "FINISH_REPAIR", outcome: "REPAIRED" }, OWNER), "READY");
@@ -793,7 +881,7 @@ console.log("— 5. three separate fields");
 console.log("— 6. command envelope, event");
 {
   const c = ctx({ version: 7 });
-  const cmd = { caseId: 12, action: { type: "CHECK_IN" } as ServiceCaseAction, expectedVersion: 7, idempotencyKey: "0192f4b2-7c1e-7a3b-9f00-1a2b3c4d5e6f" };
+  const cmd = { caseId: 12, action: { type: "CHECK_IN", intakeConfirmed: true } as ServiceCaseAction, expectedVersion: 7, idempotencyKey: "0192f4b2-7c1e-7a3b-9f00-1a2b3c4d5e6f" };
   check("a well-formed command at the current version", checkCommandEnvelope(c, cmd).ok);
   const stale = checkCommandEnvelope(c, { ...cmd, expectedVersion: 6 });
   check("a stale version → VERSION_CONFLICT", !stale.ok && stale.violations.some((v) => v.code === "VERSION_CONFLICT"));
@@ -830,15 +918,17 @@ console.log("— 7. purity, immutability, determinism");
   check("inputs are unchanged", JSON.stringify(frozen) === before);
   check("same input → same output", a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b));
   check("two results do not share objects", a !== null && b !== null && a.ok && b.ok && a.event !== b.event && a.effects !== b.effects);
-  const r1 = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-10-01" }, openedOn: "2026-11-03", repairWarrantyDays: 30 });
-  const r2 = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-10-01" }, openedOn: "2026-11-03", repairWarrantyDays: 30 });
+  const r1 = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-10-01" }, openedOn: "2026-11-03", parentWarrantyEndsOn: "2026-10-31" });
+  const r2 = evaluateRepeatCase({ parent: { status: "CLOSED", outcome: "REPAIRED", deliveredOn: "2026-10-01" }, openedOn: "2026-11-03", parentWarrantyEndsOn: "2026-10-31" });
   check("repeat evaluation is deterministic (no clock)", JSON.stringify(r1) === JSON.stringify(r2) && r1.ok && !r1.withinRepairWarranty);
 
   const dir = path.join(process.cwd(), "lib/services/service-desk");
-  for (const f of ["service-case.core.ts", "contracts.ts"]) {
+  // Expectation changed by M1: the core also reads the two pure track modules, which are held to the same rule here.
+  const PURE_SIBLINGS = ["./contracts", "./tracks.core", "./service-profiles"];
+  for (const f of ["service-case.core.ts", "contracts.ts", "tracks.core.ts", "service-profiles.ts"]) {
     const src = fs.readFileSync(path.join(dir, f), "utf8");
     const imports = [...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
-    check(`${f} imports only ./contracts`, imports.every((i) => i === "./contracts"), imports.join(","));
+    check(`${f} imports only the pure siblings (${PURE_SIBLINGS.join(", ")})`, imports.every((i) => PURE_SIBLINGS.includes(i)), imports.join(","));
     const impure = /Date\.now|new Date\(\)|Math\.random|process\.env|fetch\(|prisma|setTimeout|crypto/.exec(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""));
     check(`${f} uses no clock, randomness, env, network or database`, impure === null, impure?.[0] ?? "");
   }
@@ -869,8 +959,17 @@ const OPEN_INPUT: ServiceCaseOpenInput = { kind: "IN_SHOP", customerId: 41, devi
   const repeat = op({ kind: "IN_SHOP", customerId: 41, deviceId: 7, parentCaseId: 300 }, OWNER);
   check("a repeat repair names its parent → PARENT_CASE_BELONGS_TO_BUSINESS", repeat.ok && repeat.serverChecks.includes("PARENT_CASE_BELONGS_TO_BUSINESS") && repeat.event.payload.parentCaseId === 300);
   for (const kind of SERVICE_CASE_KINDS) {
-    const k = op({ ...OPEN_INPUT, kind }, OWNER);
+    // M1: REMOTE exists only with a track (T6 here); every other kind opens with or without one.
+    const k = op({ ...OPEN_INPUT, kind, ...(kind === "REMOTE" ? { track: "T6" as const } : {}) }, OWNER);
     check(`${kind}: opens at OPEN / version 1 / seq 1`, k.ok && k.status === "OPEN" && k.version === 1 && k.seq === 1 && k.event.payload.kind === kind);
+  }
+  {
+    const noTrack = op({ ...OPEN_INPUT, kind: "REMOTE" }, OWNER);
+    check("M1: REMOTE without a track → TRACK_REQUIRED", !noTrack.ok && noTrack.violations.some((v) => v.code === "TRACK_REQUIRED"));
+    const withTrack = op({ ...OPEN_INPUT, kind: "FIELD", track: "T3" }, OWNER);
+    check("M1: a track case's opening event names its track (a token)", withTrack.ok && withTrack.event.payload.track === "T3");
+    const badTrack = op({ ...OPEN_INPUT, track: "T9" as never }, OWNER);
+    check("M1: an unknown track → INVALID_INPUT", !badTrack.ok && badTrack.violations.some((v) => v.code === "INVALID_INPUT"));
   }
 
   // who may open
@@ -883,7 +982,7 @@ const OPEN_INPUT: ServiceCaseOpenInput = { kind: "IN_SHOP", customerId: 41, devi
     const x = op(input as ServiceCaseOpenInput, OWNER);
     check(name, !x.ok && openCodes(x).includes("INVALID_INPUT"), x.ok ? "opened" : openCodes(x).join(","));
   };
-  bad("unknown kind → INVALID_INPUT", { ...OPEN_INPUT, kind: "REMOTE" });
+  bad("unknown kind → INVALID_INPUT", { ...OPEN_INPUT, kind: "AIRBORNE" }); // M1: REMOTE is a kind now
   bad("no customer → INVALID_INPUT", { ...OPEN_INPUT, customerId: 0 });
   bad("deviceId must be an id or an explicit null", { ...OPEN_INPUT, deviceId: undefined });
   bad("fractional deviceId → INVALID_INPUT", { ...OPEN_INPUT, deviceId: 1.5 });
@@ -900,7 +999,7 @@ const OPEN_INPUT: ServiceCaseOpenInput = { kind: "IN_SHOP", customerId: 41, devi
     }
   }
   check("OPEN on an existing case is refused (INVALID_TRANSITION) — every status × every kind", refusedEverywhere);
-  check("OPEN is not a transition: absent from ACTION_FROM, which keeps its 20 actions", !("OPEN" in ACTION_FROM) && Object.keys(ACTION_FROM).length === 20);
+  check("OPEN is not a transition: absent from ACTION_FROM, which keeps its 23 actions (M1: +3)", !("OPEN" in ACTION_FROM) && Object.keys(ACTION_FROM).length === 23);
   check("no transition decision of this file is an opening event", OK_DECISIONS.length >= 200 && OK_DECISIONS.every((x) => (x.event.type as string) !== "case.opened" && (x.event.action as string) !== "OPEN" && x.event.fromStatus !== null));
 
   // the journal: one case.opened at seq 1, then seq = the version each transition sets
@@ -908,7 +1007,7 @@ const OPEN_INPUT: ServiceCaseOpenInput = { kind: "IN_SHOP", customerId: 41, devi
     type Row = { seq: number; type: string };
     const journal: Row[] = [{ seq: d.seq, type: d.event.type }];
     let c = ctx({ status: d.status, version: d.version });
-    const steps: ServiceCaseAction[] = [{ type: "CHECK_IN" }, { type: "START_DIAGNOSIS" }, { type: "MARK_NOT_REPAIRABLE" }, { type: "DELIVER", receipt: RECEIPT }, { type: "CLOSE" }];
+    const steps: ServiceCaseAction[] = [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "MARK_NOT_REPAIRABLE" }, { type: "DELIVER", receipt: RECEIPT }, { type: "CLOSE" }];
     let chainOk = true;
     for (const a of steps) {
       const t = ev(c, a, OWNER);
@@ -974,11 +1073,11 @@ console.log("— 8. payload sweep: every ok decision of every section above");
   const failing = OK_DECISIONS.map((d) => ({ d, problems: problemsOf(d.event.payload) })).filter((x) => x.problems.length > 0);
   check(`all ${OK_DECISIONS.length} ok decisions: payload = tokens / numbers / booleans / nulls within 4096 bytes`, OK_DECISIONS.length >= 200 && failing.length === 0, failing.slice(0, 3).map((x) => `${x.d.action}: ${x.problems.join("; ")}`).join(" | "));
   const actionsSeen = new Set(OK_DECISIONS.map((d) => d.action));
-  check("the sweep saw an ok decision of all 20 actions", actionsSeen.size === 20, [...Object.keys(ACTION_FROM)].filter((a) => !actionsSeen.has(a as ServiceCaseActionType)).join(","));
+  check("the sweep saw an ok decision of all 23 actions", actionsSeen.size === 23, [...Object.keys(ACTION_FROM)].filter((a) => !actionsSeen.has(a as ServiceCaseActionType)).join(","));
   const textKeys = ["cancelReason", "abandonReason", "debtOverrideReason", "loanerOverrideReason"];
   check("every ok decision carries the four texts, each string or null", OK_DECISIONS.every((d) => JSON.stringify(Object.keys(d.texts).sort()) === JSON.stringify([...textKeys].sort()) && Object.values(d.texts).every((t) => t === null || typeof t === "string")));
   check("no text of any decision appears anywhere in its event", OK_DECISIONS.every((d) => Object.values(d.texts).every((t) => t === null || !JSON.stringify(d.event).includes(t))));
-  check("a reason text exists only on the actions that carry one", OK_DECISIONS.every((d) => (d.texts.cancelReason === null || d.action === "CANCEL") && (d.texts.abandonReason === null || d.action === "ABANDON") && (d.texts.debtOverrideReason === null && d.texts.loanerOverrideReason === null || d.action === "DELIVER")));
+  check("a reason text exists only on the actions that carry one", OK_DECISIONS.every((d) => (d.texts.cancelReason === null || d.action === "CANCEL") && (d.texts.abandonReason === null || d.action === "ABANDON") && (d.texts.debtOverrideReason === null || d.action === "DELIVER" || d.action === "COMPLETE") && (d.texts.loanerOverrideReason === null || d.action === "DELIVER")));
   check("no refusal carries texts or a transition", REFUSED_DECISIONS.every((d) => !("texts" in d) && !("to" in d)));
   // 1.1c: the opening events obey the same journal rule
   const openFailing = OPEN_OK.map((d) => problemsOf(d.event.payload)).filter((p) => p.length > 0);

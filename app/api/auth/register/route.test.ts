@@ -40,6 +40,8 @@ type Calls = {
   bodyReads: number;
   scheduled: number[];
   usage: number;
+  /** What createAccount received as the legal identity (written in the account transaction). */
+  identities: unknown[];
 };
 
 const FAKE_SESSION = {
@@ -58,6 +60,7 @@ function makeDeps(
     hash: 0,
     signToken: 0,
     bodyReads: 0,
+    identities: [],
     scheduled: [],
     usage: 0,
   };
@@ -83,6 +86,7 @@ function makeDeps(
     // is the implementation.
     createAccount: async (input) => {
       calls.createAccount += 1;
+      calls.identities.push(input.legalIdentity);
       return {
         userId: 99,
         businessId: 4242,
@@ -91,8 +95,8 @@ function makeDeps(
         businessName: input.businessName,
         tokenVersion: 0,
         session: FAKE_SESSION,
-        // As createAccount records them: a verification link replaces the signup WELCOME.
-        welcomeEmailId: input.sendVerification ? null : 501,
+        // As createAccount records them: the WELCOME always, the verification link only when asked for.
+        welcomeEmailId: 501,
         verificationEmailId: input.sendVerification ? 502 : null,
       };
     },
@@ -120,7 +124,8 @@ const VALID = {
   email: "new-owner@example.test",
   password: "sup3rsecret",
   name: "בעל עסק חדש",
-  businessName: "עסק חדש",
+  businessName: "עסק חדש", businessKind: "AUTHORIZED_DEALER",
+  legalName: "דנה כהן", taxId: "000000018", address: "הרצל 1, תל אביב", phone: "0501234567", businessEmail: "biz@lab.invalid",
   acceptTerms: true,
 };
 
@@ -531,8 +536,8 @@ async function main() {
   {
     const { deps, calls } = makeDeps(true, { isVerificationEnabled: () => true });
     const res = await handleRegister(req(), deps);
-    ok("verify -> ON: ONLY the verification email is scheduled after the response (the WELCOME follows the verification)",
-      res.status === 200 && JSON.stringify(calls.scheduled) === JSON.stringify([502]), JSON.stringify(calls.scheduled));
+    ok("verify -> ON: BOTH emails are scheduled after the response — the verification link and the WELCOME (it does not wait for verification)",
+      res.status === 200 && JSON.stringify(calls.scheduled) === JSON.stringify([502, 501]), JSON.stringify(calls.scheduled));
   }
   // ── honeypot ──
   {
@@ -570,6 +575,75 @@ async function main() {
     const { deps, calls } = makeDeps(false);
     await handleRegister(req(), deps);
     ok("welcome -> closed signup schedules nothing", calls.scheduled.length === 0);
+  }
+
+  // ── legal identity at signup (owner decision 2026-11-12): required; written INSIDE the account transaction ──
+  {
+    const { deps, calls } = makeDeps(true);
+    const res = await handleRegister(req({ ...VALID, taxId: "0-000001-8", tradeName: undefined, businessName: undefined }), deps);
+    const id = calls.identities[0] as Record<string, unknown> | undefined;
+    ok("identity -> createAccount receives the normalised identity (canonical tax id, kind)",
+      res.status === 200 && calls.createAccount === 1 && id?.taxId === "000000018" && id?.kind === "AUTHORIZED_DEALER"
+        && id?.legalName === "דנה כהן" && id?.address === "הרצל 1, תל אביב" && id?.phone === "0501234567" && id?.businessEmail === "biz@lab.invalid",
+      JSON.stringify(id));
+  }
+  {
+    let seenName = "";
+    const { deps } = makeDeps(true);
+    const inner = deps.createAccount;
+    deps.createAccount = async (input) => { seenName = input.businessName; return inner(input); };
+    await handleRegister(req({ ...VALID, businessName: undefined, tradeName: "סטודיו דנה" }), deps);
+    ok("identity -> Business.name is the trade name when given", seenName === "סטודיו דנה");
+    await handleRegister(req({ ...VALID, businessName: undefined, tradeName: undefined }), deps);
+    ok("identity -> Business.name falls back to the legal name", seenName === "דנה כהן");
+    await handleRegister(req({ ...VALID, tradeName: undefined, businessName: "עסק ישן" }), deps);
+    ok("identity -> the legacy businessName field is read as the trade name", seenName === "עסק ישן");
+  }
+  for (const kind of ["EXEMPT_DEALER", "LTD_COMPANY"]) {
+    const { deps, calls } = makeDeps(true);
+    const res = await handleRegister(req({ ...VALID, businessKind: kind }), deps);
+    ok(`identity -> ${kind} is accepted and passed as chosen`, res.status === 200 && (calls.identities[0] as { kind?: string })?.kind === kind);
+  }
+  for (const [label, body] of [
+    ["missing", { ...VALID, businessKind: undefined }],
+    ["empty", { ...VALID, businessKind: "" }],
+    ["unknown value", { ...VALID, businessKind: "VAT_FREE" }],
+    ["wrong type", { ...VALID, businessKind: 1 }],
+    ["lower case", { ...VALID, businessKind: "ltd_company" }],
+  ] as const) {
+    const { deps, calls } = makeDeps(true);
+    const res = await handleRegister(req(body), deps);
+    const b = await res.json();
+    ok(`kind -> ${label}: 400 field businessKind, nothing hashed or created`,
+      res.status === 400 && b.field === "businessKind" && typeof b.error === "string" && calls.hash === 0 && calls.createAccount === 0, JSON.stringify(b));
+  }
+  for (const field of ["legalName", "taxId", "address", "phone", "businessEmail"] as const) {
+    const { deps, calls } = makeDeps(true);
+    const res = await handleRegister(req({ ...VALID, [field]: undefined }), deps);
+    const b = await res.json();
+    ok(`identity -> missing ${field}: 400 naming it, nothing hashed or created`,
+      res.status === 400 && b.field === field && calls.hash === 0 && calls.createAccount === 0, JSON.stringify(b));
+  }
+  {
+    const typed = "123456789"; // fails the check digit
+    const { deps, calls } = makeDeps(true);
+    const res = await handleRegister(req({ ...VALID, taxId: typed }), deps);
+    const b = await res.json();
+    ok("identity -> an invalid tax id is 400 on taxId, and the reply never echoes the number",
+      res.status === 400 && b.field === "taxId" && !JSON.stringify(b).includes(typed) && calls.createAccount === 0, JSON.stringify(b));
+  }
+  {
+    const { LegalIdentityRejectedError } = await import("@/lib/auth/signup-legal-identity-seed");
+    const { deps, calls } = makeDeps(true, { createAccount: async () => { throw new LegalIdentityRejectedError("phone"); } });
+    const res = await handleRegister(req(), deps);
+    const b = await res.json();
+    ok("identity -> the database backstop's refusal is a 400 LEGAL_IDENTITY_INVALID naming the field, no session",
+      res.status === 400 && b.code === "LEGAL_IDENTITY_INVALID" && b.field === "phone" && calls.signToken === 0, JSON.stringify(b));
+  }
+  {
+    const { deps, calls } = makeDeps(false);
+    await handleRegister(req(), deps);
+    ok("identity -> a closed signup passes no identity anywhere", calls.identities.length === 0);
   }
 
   console.log(failed === 0 ? "\nPASS" : `\nFAIL (${failed})`);
