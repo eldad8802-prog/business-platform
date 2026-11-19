@@ -26,6 +26,9 @@ const nextConfig: NextConfig = {
     "/api/business-documents/letters/pdf": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/business-documents/quotes/\\[id\\]/share/copies": ["./node_modules/@sparticuz/chromium/bin/**/*"],
     "/api/service-desk/cases/\\[id\\]/intake/slip": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    // 1.3c: sending / revising a service quote renders the billing quote PDF (getOrRenderQuotePdf) to freeze its copy.
+    "/api/service-desk/cases/\\[id\\]/quotes": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/service-desk/cases/\\[id\\]/quotes/revise": ["./node_modules/@sparticuz/chromium/bin/**/*"],
   },
 
   // Retire the legacy duplicate homepage `/corporate-home` (superseded by

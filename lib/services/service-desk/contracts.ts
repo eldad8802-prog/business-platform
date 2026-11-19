@@ -114,7 +114,7 @@ export interface ServiceIntakeFacts {
  * charge agreed on the service side with no charge document yet — e.g. an exempt dealer; any remainder is a debt, never 0).
  */
 export type ServiceSettlementFacts =
-  | { known: true; openBalanceAgorot: number; basis?: "DOCUMENTED" | "NO_CHARGE" | "UNDOCUMENTED" }
+  | { known: true; openBalanceAgorot: number; basis?: "DOCUMENTED" | "NO_CHARGE" | "UNDOCUMENTED"; overpaidAgorot?: number }
   | { known: false };
 
 /** Everything the core judges a transition by. The service layer loads it, under lock, per command. */
