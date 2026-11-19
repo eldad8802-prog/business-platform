@@ -105,6 +105,14 @@ if [ "$MODE" != "--deploy-only" ]; then
   bash "$ROOT/.sdf/erasure-prereq.sh" "$DB" >/dev/null
   # Production on 2026-11-14: #1105 applied alone (release-migrate 43617171163), before this migration; any migration
   # still pending that sorts before this one is applied before it too (release-migrate's first-pending rule).
+  # The case charge (20261126090000_service_desk_case_charge, on main since #1104) sorts before this migration and is
+  # applied by deploy_before_me. When the code under test models its tables (the Service Desk charge code), db push
+  # already built copies of them: drop those copies so the migration builds them. No-op when nothing was pushed or the
+  # charge is already recorded. Lab-only; the declaration flow and its migration are unchanged.
+  CHARGE="20261126090000_service_desk_case_charge"
+  if staged "$CHARGE" && [ "$(psql -X -At "$OWNER_URL" -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '$CHARGE'")" = "0" ]; then
+    psql -X -q -v ON_ERROR_STOP=1 "$OWNER_URL" -c 'DROP TABLE IF EXISTS "ServiceCaseBillingLink", "ServiceCaseCharge" CASCADE; DROP TYPE IF EXISTS "ServiceBillingLinkRole", "ServiceChargeSource", "ServiceChargeMode";' >/dev/null
+  fi
   deploy_before_me >/dev/null
   # The code PR models the declaration tables: drop what db push built, so the migration builds them (no-op otherwise).
   psql -X -q -v ON_ERROR_STOP=1 "$OWNER_URL" -f "$ROOT/.issuer-declaration/drop-pushed.sql" >/dev/null 2>&1
