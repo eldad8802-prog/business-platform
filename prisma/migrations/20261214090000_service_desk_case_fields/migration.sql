@@ -46,12 +46,16 @@ CREATE TABLE "ServiceCaseLoaner" (
   "note"       TEXT,
   "createdAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "erasedAt"   TIMESTAMP(3),
+  -- One key per lend request: a retried request after a timeout returns the same loan, never a second one.
+  "idempotencyKey" TEXT    NOT NULL,
   CONSTRAINT "ServiceCaseLoaner_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "ServiceCaseLoaner_idem" CHECK ("idempotencyKey" ~ '^[A-Za-z0-9._:-]{16,128}$'),
   CONSTRAINT "ServiceCaseLoaner_item_name" CHECK (btrim("itemName") <> '' AND char_length("itemName") <= 120),
   CONSTRAINT "ServiceCaseLoaner_note" CHECK ("note" IS NULL OR char_length("note") <= 500),
   CONSTRAINT "ServiceCaseLoaner_returned_after_lent" CHECK ("returnedAt" IS NULL OR "returnedAt" >= "lentAt")
 );
 CREATE INDEX "ServiceCaseLoaner_case_idx" ON "ServiceCaseLoaner"("businessId", "caseId");
+CREATE UNIQUE INDEX "ServiceCaseLoaner_businessId_idempotencyKey_key" ON "ServiceCaseLoaner"("businessId", "idempotencyKey");
 ALTER TABLE "ServiceCaseLoaner" ADD CONSTRAINT "ServiceCaseLoaner_businessId_fkey"
   FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "ServiceCaseLoaner" ADD CONSTRAINT "ServiceCaseLoaner_case_fkey"

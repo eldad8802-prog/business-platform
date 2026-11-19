@@ -44,18 +44,25 @@ async function main() {
   ok("F3 estimatedReadyOn is a nullable DATE", Number((await q(`SELECT count(*)::int n FROM information_schema.columns WHERE table_name = 'ServiceCase' AND column_name = 'estimatedReadyOn' AND data_type = 'date' AND is_nullable = 'YES'`))[0].n) === 1);
 
   // ── loans, as the runtime role ──
-  const lend = (z: { b: number; c: number }, b = z.b) => asRuntime(z.b, `INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", note) VALUES ($1, $2, 'טלפון חלופי', 'בקופסה') RETURNING id`, b, z.c);
+  const lend = (z: { b: number; c: number }, b = z.b) => asRuntime(z.b, `INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", note, "idempotencyKey") VALUES ($1, $2, 'טלפון חלופי', 'בקופסה', gen_random_uuid()::text) RETURNING id`, b, z.c);
   const r1 = await attempt(() => lend(A));
   ok("L1 the runtime lends a replacement item on its own case", r1 === "OK", r1);
   const loanId = Number((await asRuntime(A.b, `SELECT id FROM "ServiceCaseLoaner" WHERE "caseId" = $1`, A.c))[0]?.id);
   ok("L2 another business cannot write a loan under this tenant (RLS)", (await attempt(() => lend(A, B.b))) !== "OK");
   ok("L3 another business sees no loan of A (RLS)", (await asRuntime(B.b, `SELECT count(*)::int n FROM "ServiceCaseLoaner"`))[0].n === 0);
-  ok("L4 a loan to a case of another business is refused (composite key)", (await attempt(() => asRuntime(A.b, `INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName") VALUES ($1, $2, 'x') RETURNING id`, A.b, B.c))) !== "OK");
+  ok("L4 a loan to a case of another business is refused (composite key)", (await attempt(() => asRuntime(A.b, `INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", "idempotencyKey") VALUES ($1, $2, 'x', gen_random_uuid()::text) RETURNING id`, A.b, B.c))) !== "OK");
   ok("L5 returning a loan is allowed", (await attempt(() => asRuntime(A.b, `UPDATE "ServiceCaseLoaner" SET "returnedAt" = now() WHERE id = $1 RETURNING id`, loanId))) === "OK");
   ok("L6 the lend time never changes", (await attempt(() => asRuntime(A.b, `UPDATE "ServiceCaseLoaner" SET "lentAt" = now() - interval '1 day' WHERE id = $1 RETURNING id`, loanId))).includes("SERVICE_LOANER_FIXED"));
   ok("L7 the runtime cannot delete a loan (no privilege)", (await attempt(() => asRuntime(A.b, `DELETE FROM "ServiceCaseLoaner" WHERE id = $1 RETURNING id`, loanId))) !== "OK");
   ok("L8 even the owner cannot delete a loan directly (guard)", (await attempt(() => asOwner(A.b, `DELETE FROM "ServiceCaseLoaner" WHERE id = $1 RETURNING id`, loanId))).includes("SERVICE_LOANER_KEPT"));
-  ok("L9 a loan is never born erased", (await attempt(() => asRuntime(A.b, `INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", "erasedAt") VALUES ($1, $2, 'x', now()) RETURNING id`, A.b, A.c))).includes("SERVICE_LOANER_ERASED_ON_WRITE"));
+  ok("L9 a loan is never born erased", (await attempt(() => asRuntime(A.b, `INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", "erasedAt", "idempotencyKey") VALUES ($1, $2, 'x', now(), gen_random_uuid()::text) RETURNING id`, A.b, A.c))).includes("SERVICE_LOANER_ERASED_ON_WRITE"));
+  {
+    const k = "sda7-idem-0123456789abcdef";
+    const first = await attempt(() => asRuntime(A.b, `INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", "idempotencyKey") VALUES ($1, $2, 'כבל', $3) RETURNING id`, A.b, A.c, k));
+    const again = await attempt(() => asRuntime(A.b, `INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", "idempotencyKey") VALUES ($1, $2, 'כבל', $3) RETURNING id`, A.b, A.c, k));
+    ok("L11 one lend request key makes one loan (a retry never lends twice)", first === "OK" && again !== "OK", again);
+    ok("L12 a malformed request key is refused by the CHECK", (await attempt(() => asRuntime(A.b, `INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", "idempotencyKey") VALUES ($1, $2, 'x', 'short') RETURNING id`, A.b, A.c))) !== "OK");
+  }
   ok("L10 no trigger blocks a handover: the guard is on the loan table only", Number((await q(`SELECT count(*)::int n FROM pg_trigger WHERE tgname ILIKE '%loaner%' AND tgrelid <> '"ServiceCaseLoaner"'::regclass`))[0].n) === 0);
 
   // ── the light fields from the runtime (the app writes them on its own case; another tenant reaches nothing) ──
