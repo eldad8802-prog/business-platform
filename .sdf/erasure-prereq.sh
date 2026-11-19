@@ -39,6 +39,16 @@ if [ -f "$CHG" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public
   PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$CHG"
   echo "ERASURE PREREQ: case charge applied verbatim from 20261126090000"
 fi
+# M1 tracks (migration 20261127090000): the purge also calls service_tracks_erase_business(), which blanks M1's columns
+# of ServiceCase / ServiceDevice and its two tables, under M1's guards. The lab chain drops their `db push` tables and
+# enums (.sdf/lab.sh) and rebuilds the case / device tables from the migrations, so where the lab does not carry M1, the
+# migration is applied VERBATIM (types, columns, CHECKs, tables, guards, policies, grants and function — never a copy),
+# on top of the charge (its premise). A lab that already has M1's tables is left as it is.
+M1="$ROOT/prisma/migrations/20261127090000_service_desk_tracks/migration.sql"
+if [ -f "$M1" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.\"ServiceCompletion\"') IS NULL")" = "t" ]; then
+  PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$M1"
+  echo "ERASURE PREREQ: M1 tracks applied verbatim from 20261127090000"
+fi
 # Issuer declaration (#1081, migration 20261126100000): the purge also calls issuer_declaration_erase(). Where the lab has
 # no declaration table, the migration is applied VERBATIM; where `db push` already built the table (schema.prisma models
 # it), only the function is taken verbatim from the migration and granted as the migration grants it.
