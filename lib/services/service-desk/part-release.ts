@@ -7,19 +7,20 @@
  * Kept apart from parts.service (which only the two closed parts routes import — parts-lock.test P4). The case row is
  * already locked FOR UPDATE by the caller, which is the parts triggers' lock order (case first, then the line).
  *
- * Each part event needs its own idempotency key (UNIQUE per business): the cancel's key + "#rel" + the part id, with the
+ * Each part event needs its own idempotency key (UNIQUE per business): deriveIdempotencyKey(the cancel's key, "rel" + the part id), with the
  * cancel's request digest. A replay of the cancel is answered from the case journal before this runs, so it never repeats.
  */
 import type { ServiceCaseContext } from "./contracts";
 import type { PartUnitType, ServicePartSnapshot } from "./parts.contracts";
 import { evaluatePartAction } from "./parts.core";
+import { deriveIdempotencyKey } from "./idempotency-key";
 import { ServiceDeskError } from "./service-desk-errors";
 import type { Prepared, Tx } from "./service-case.service";
 
 const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
-/** The part event key of a release done by the case command `caseKey` (≤ 200, the ServicePartEvent_tokens alphabet). */
-export const releaseEventKey = (caseKey: string, partId: number) => `${caseKey}#rel${partId}`;
+/** The part event key of a release done by the case command `caseKey` (deriveIdempotencyKey: ≤ 200, the ServicePartEvent_tokens alphabet). */
+export const releaseEventKey = (caseKey: string, partId: number) => deriveIdempotencyKey(caseKey, `rel${partId}`);
 
 export async function releaseCaseReservations(tx: Tx, b: number, caseId: number, context: ServiceCaseContext, userId: number, prepared: Prepared): Promise<number[]> {
   const approved = (await tx.$queryRaw<{ ok: boolean }[]>`

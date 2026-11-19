@@ -12,12 +12,18 @@
  *
  * Requirements are data the server will enforce later, never UI hints. Owner decision 2026-11-11: NO customer signature
  * anywhere — the owner (or an authorized user) confirms each action and the journal records who, when and what changed.
- * Three requirements are fixed for every profile, and an override may not loosen them:
+ * Two requirements are fixed for every profile, and an override may not loosen them:
  *   - an owner-confirmed intake when an item enters the business's custody (core: CHECK_IN on IN_SHOP needs the
  *     documented intake and the explicit confirmation);
- *   - an owner-confirmed handover when such an item is handed back (the receiver's name is optional);
- *   - QA on every case where the item is at the business (core: IN_SHOP FINISH_REPAIR → QA). Owner decision C1: an
- *     exchange keeps the QA step, with the short EXCHANGE.v1 checklist; the rule for other cases does not change.
+ *   - an owner-confirmed handover when such an item is handed back (the receiver's name is optional).
+ * Owner decisions 2026-11-19 (repairs vs service spec):
+ *   - decision 3: approval before a repair is a per-business setting (ALWAYS | BY_D15). Defaults: garage ALWAYS,
+ *     device lab BY_D15 ("only when there is a cost"). T2 (vehicle) is LOCKED at ALWAYS: Israeli garage regulations
+ *     forbid work not included in a written quote (Licensing of Services and Professions in the Vehicle Industry
+ *     (Garages) Regulations 2022, reg. 8(2); law §132) — an owner override cannot lower it (LEGAL_REQUIREMENT);
+ *   - decision 4: QA defaults by track (repair at the business / vehicle / installation REQUIRED; service OFF) and the
+ *     owner may change it BOTH ways; when it is on, the checklist blocks READY. This replaces C1 (exchange QA fixed).
+ *   - decision 1: the category only pre-selects the profile; it never blocks a track.
  */
 
 export const SERVICE_TRACKS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7"] as const;
@@ -125,7 +131,6 @@ export const PROFILES: Readonly<Record<ServiceProfileKey, ProfileDefinition>> = 
     defaultTracks: ["T1", "T7"],
     enabledTracks: ["T3", "T6"],
     terms: T("repair", "device", "technician", "repair", "intake", "handover"),
-    requirementAdjustments: { T1: { workApproval: "ALWAYS" } },
   },
   garage: {
     key: "garage",
@@ -170,20 +175,23 @@ export const PROFILES: Readonly<Record<ServiceProfileKey, ProfileDefinition>> = 
 function trackBase(track: ServiceTrack): Requirements {
   switch (track) {
     case "T1":
-      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
+      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v2" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
     case "T2":
-      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "VEHICLE.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
+      // Decision 3 + garage regulations: no vehicle work without an approved written quote (LOCKED, see LEGAL_APPROVAL_TRACKS).
+      return { intakeConfirmation: "OWNER", workApproval: "ALWAYS", qa: { mode: "REQUIRED", template: "VEHICLE.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
     case "T3":
-      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "FIELD.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
+      // Owner decision 2026-11-19: repair at the customer (T3) defaults to QA OFF; the owner may turn FIELD.v2 on.
+      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OFF", template: "FIELD.v2" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T4":
       return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "INSTALLATION.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T5":
       return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OFF", template: null }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T6":
-      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OPTIONAL", template: "REMOTE.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
+      // Decision 4: service tracks default to QA OFF; the owner may turn the REMOTE.v1 checklist on.
+      return { intakeConfirmation: "NONE", workApproval: "BY_D15", qa: { mode: "OFF", template: "REMOTE.v1" }, completion: "OWNER_CONFIRMATION", handoverByOwner: false };
     case "T7":
       // T7 has one row per resolution; this base is the repair row (afterSaleRequirements gives the others).
-      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v1" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
+      return { intakeConfirmation: "OWNER", workApproval: "BY_D15", qa: { mode: "REQUIRED", template: "IN_SHOP.v2" }, completion: "OWNER_HANDOVER", handoverByOwner: true };
   }
 }
 
@@ -219,7 +227,11 @@ export function suggestedResolution(reason: ReturnReason): AfterSaleResolution {
 
 /** Stored BusinessProfile values (lib/business/business-categories.ts) → profile. Unknown or empty → general. */
 const SUBCATEGORY_PROFILE: Readonly<Record<string, ServiceProfileKey>> = {
-  Repairs: "device_lab",
+  // Decision 1 fix: "Repairs" is a Home Services sub-category (repairs at home), not a lab that receives devices.
+  Repairs: "home_technician",
+  // Decision 1/2: cleaning and moving are general service (T5), not an item repair lab.
+  Cleaning: "professional",
+  Moving: "professional",
   "Air Conditioning": "home_technician",
   Plumbing: "home_technician",
   Electrical: "home_technician",
@@ -293,6 +305,8 @@ export type OverrideViolation = { code: string; path: string };
 const TERM_MAX = 40;
 const QA_STRICTNESS: Readonly<Record<QaMode, number>> = { OFF: 0, OPTIONAL: 1, REQUIRED: 2 };
 const APPROVAL_STRICTNESS: Readonly<Record<WorkApproval, number>> = { NONE: 0, BY_D15: 1, ALWAYS: 2 };
+/** Tracks whose approval before work is fixed by law, not by the business (decision 3 legal check, 2026-11-19). */
+export const LEGAL_APPROVAL_TRACKS: readonly ServiceTrack[] = ["T2"];
 const COMPLETION_PROOFS: readonly CompletionProof[] = ["OWNER_HANDOVER", "OWNER_CONFIRMATION", "OWNER_WITH_CREDIT_DOCUMENT"];
 
 function isTrack(value: unknown): value is ServiceTrack {
@@ -302,17 +316,18 @@ function isTrack(value: unknown): value is ServiceTrack {
 /** Bounds of an override against one track's base, before it is applied. */
 function checkRequirementOverride(track: ServiceTrack, base: Requirements, o: RequirementOverride, path: string): OverrideViolation[] {
   const v: OverrideViolation[] = [];
-  const def = TRACKS[track];
   if (o.qaMode !== undefined) {
     if (!(o.qaMode in QA_STRICTNESS)) v.push({ code: "INVALID_VALUE", path: `${path}.qaMode` });
-    // C1 / today's rule: QA stays REQUIRED wherever the item is at the business.
-    else if (def.itemAtBusiness && QA_STRICTNESS[o.qaMode] < QA_STRICTNESS[base.qa.mode]) v.push({ code: "FIXED_REQUIREMENT", path: `${path}.qaMode` });
+    // Decision 4 (2026-11-19): the owner may lower or raise QA on every track; only a track without a checklist
+    // cannot be raised.
     else if (o.qaMode !== "OFF" && base.qa.template === null) v.push({ code: "NO_QA_TEMPLATE", path: `${path}.qaMode` });
   }
   if (o.workApproval !== undefined) {
     if (!(o.workApproval in APPROVAL_STRICTNESS)) v.push({ code: "INVALID_VALUE", path: `${path}.workApproval` });
     // D15: never below "when there is a quote or a money commitment".
     else if (o.workApproval === "NONE") v.push({ code: "BELOW_D15", path: `${path}.workApproval` });
+    // Garage regulations (decision 3): vehicle work always needs an approved quote; no business setting lowers it.
+    else if (LEGAL_APPROVAL_TRACKS.includes(track) && APPROVAL_STRICTNESS[o.workApproval] < APPROVAL_STRICTNESS.ALWAYS) v.push({ code: "LEGAL_REQUIREMENT", path: `${path}.workApproval` });
   }
   if (o.completion !== undefined) {
     if (!COMPLETION_PROOFS.includes(o.completion)) v.push({ code: "INVALID_VALUE", path: `${path}.completion` });
