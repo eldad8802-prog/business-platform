@@ -195,7 +195,7 @@
 .input:focus, .textarea:focus { outline: none; border-color: var(--sc-accent); box-shadow: 0 0 0 3px var(--sc-accent-tint); }
 .choices { display: flex; gap: 8px; }
 .choice { flex: 1; height: 46px; border-radius: 12px; border: 1px solid var(--sc-line); background: var(--sc-surface); font: inherit; font-size: 15px; color: var(--sc-ink); cursor: pointer; }
-.choice[aria-pressed="true"] { border-color: var(--sc-accent); background: var(--sc-accent-tint); color: var(--sc-accent); font-weight: 600; }
+.choice[aria-pressed="true"], .choice[aria-checked="true"] { border-color: var(--sc-accent); background: var(--sc-accent-tint); color: var(--sc-accent); font-weight: 600; }
 .dialogActions { display: flex; flex-direction: column-reverse; gap: 8px; }
 @media (min-width: 700px) {
   .backdrop { align-items: center; }

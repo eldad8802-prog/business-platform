@@ -83,7 +83,7 @@ function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalI
         : { body: <p className={s.muted}>אין הצעת מחיר פתוחה.</p> };
     case "checks":
       return c.status === "QA"
-        ? { hint: "בתהליך", body: <p className={s.muted}>רשימת הבדיקות של סוג העבודה תופיע כאן.</p> }
+        ? { hint: "בתהליך", body: <p className={s.muted}>הבדיקות נרשמות בכרטיס "בדיקות לפני מסירה".</p> }
         : { body: <p className={s.muted}>הבדיקות מופעלות לפי הגדרות העסק לסוג העבודה.</p> };
     case "handover":
       return c.status === "READY"

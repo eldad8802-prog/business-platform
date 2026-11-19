@@ -34,8 +34,8 @@ export function QaPanel(p: { qa: CaseQa; editable: boolean; busy: boolean; onSav
           <li key={i.key} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className={s.tlText} style={{ flex: "1 1 160px" }}>{i.label}{i.required ? " *" : ""}</span>
             <span className={s.choices} role="group" aria-label={i.label} style={{ flex: "0 0 auto" }}>
-              <button type="button" className={s.choice} aria-pressed={draft[i.key] === "PASS"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "PASS")}>עבר</button>
-              <button type="button" className={s.choice} aria-pressed={draft[i.key] === "FAIL"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "FAIL")}>לא עבר</button>
+              <button type="button" className={s.choice} style={{ whiteSpace: "nowrap", paddingInline: 14 }} aria-pressed={draft[i.key] === "PASS"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "PASS")}>עבר</button>
+              <button type="button" className={s.choice} style={{ whiteSpace: "nowrap", paddingInline: 14 }} aria-pressed={draft[i.key] === "FAIL"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "FAIL")}>לא עבר</button>
             </span>
           </li>
         ))}

@@ -38,7 +38,7 @@ export function SetupView(p: SetupViewProps) {
           <p className={s.infoTitle} id="sd-setup-profile">באיזה תחום העסק עובד?</p>
           <div className={s.choices} style={{ flexWrap: "wrap" }} role="radiogroup" aria-label="תחום העסק">
             {PROFILE_ORDER.map((k) => (
-              <button key={k} type="button" role="radio" aria-checked={d.key === k} className={s.choice} style={{ flex: "1 1 220px", textAlign: "start", display: "flex", flexDirection: "column", gap: 2 }}
+              <button key={k} type="button" role="radio" aria-checked={d.key === k} className={s.choice} style={{ flex: "1 1 220px", textAlign: "start", display: "flex", flexDirection: "column", gap: 2, height: "auto", padding: "10px 14px" }}
                 onClick={() => p.onProfile(k)}>
                 <span>{PROFILE_TEXT[k].label}{k === p.suggestedKey ? <span className={s.sectionHint}> · מוצע לפי התחום</span> : null}</span>
                 <span className={s.muted} style={{ fontWeight: 400 }}>{PROFILE_TEXT[k].hint}</span>
@@ -52,7 +52,7 @@ export function SetupView(p: SetupViewProps) {
           <ul className={s.list} aria-label="סוגי פעילות">
             {SERVICE_TRACKS.map((t) => (
               <li key={t}>
-                <label className={s.row} style={{ gridTemplateColumns: "auto 1fr", cursor: "pointer", alignItems: "center" }}>
+                <label className={s.row} style={{ display: "flex", gap: 12, cursor: "pointer", alignItems: "center" }}>
                   <input type="checkbox" checked={d.tracks.includes(t)} onChange={() => p.onTrack(t)} style={{ width: 20, height: 20 }} />
                   <span className={s.rowMain}><span className={s.rowCustomer}>{TRACK_TEXT[t].label}</span><span className={s.rowDesc}>{TRACK_TEXT[t].hint}</span></span>
                 </label>
