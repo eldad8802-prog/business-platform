@@ -10,7 +10,7 @@ import BackButton from "@/components/ui/back-button";
 
 import type { CaseRowData, ListFilter } from "./cases-model";
 import { CasesListView } from "./cases-list-view";
-import { listCases } from "./service-desk-client";
+import { listCases, getProfileChoice } from "./service-desk-client";
 import { LoadError, Loading, NotOpen } from "./ui";
 import { useServiceDeskAccess } from "./use-service-desk-access";
 import s from "./cases.module.css";
@@ -21,10 +21,12 @@ export function CasesScreen() {
   const [failed, setFailed] = useState(false);
   const [filter, setFilter] = useState<ListFilter>("all");
   const [query, setQuery] = useState("");
+  const [needsSetup, setNeedsSetup] = useState(false);
 
   const load = useCallback(() => {
     setFailed(false);
     listCases().then(setRows).catch(() => setFailed(true));
+    getProfileChoice().then((c) => setNeedsSetup(!c.chosen)).catch(() => setNeedsSetup(false));
   }, []);
   useEffect(() => { if (access.status === "open") load(); }, [access.status, load]);
 
@@ -60,6 +62,7 @@ export function CasesScreen() {
       readOnly={access.mode === "READ_ONLY"}
       openCaseEnabled={access.mode === "FULL"}
       newCaseHref="/service-desk/new"
+      setupHref={access.mode === "FULL" && needsSetup ? "/service-desk/setup" : null}
     />
   );
 }

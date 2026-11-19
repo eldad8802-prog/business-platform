@@ -65,6 +65,10 @@
     "features/service-desk/open-case-model.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "pure (no DB/network/clock): Service Desk UI 1.3 case-opening form — the business profile tracks offered first (defaults before enabled, the rest on request), fields per activity (an item and fault for a repair, the work and a required address for on-site work, no item for a service call), held items continue to intake, missing / over-long field checks in screen order, the exact POST body (no requirement ever set by the client, the accepted parent link), the warranty-link suggestion (same item, handed back inside the warranty, newest first, none without a warranty); run on pull_request by service-desk-ui-e2e.yml"
+    },
+    "features/service-desk/case-extras-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk UI 1.3 activation and case panels — the activity types pre-selected from the business category (decision 1) and changed by hand (a stored list wins, another profile replaces the list until the owner edits it, catalog order, never empty); the QA checklist progress by the server rule (every check recorded on a built-in template, a required FAIL keeps it open) and only known PASS/FAIL keys sent; the pickup-call summary; an open loan is a reminder at handover only (decision 5, never a block); quote documents offered from billing (not converted / cancelled / already sent) and the send / revise step by status; run on pull_request by service-desk-ui-e2e.yml"
     }
   }
 }

@@ -29,6 +29,8 @@ export type CasesListViewProps = {
   /** The opening form is not approved yet: the button is shown but not active. */
   openCaseEnabled?: boolean;
   newCaseHref?: string;
+  /** Set while the business has not chosen its activity types yet (decision 1): a banner to the activation screen. */
+  setupHref?: string | null;
 };
 
 function SearchIcon() {
@@ -108,7 +110,11 @@ export function CasesListView(p: CasesListViewProps) {
             </button>
           )}
         </div>
-        {!p.readOnly && !p.openCaseEnabled ? <p className={s.primaryNote}>טופס פתיחת התיק יתווסף אחרי אישור העיצוב שלו.</p> : null}
+        {!p.readOnly && p.setupHref ? (
+          <a className={s.msg} data-tone="ok" href={p.setupHref} data-setup-banner style={{ display: "block", textDecoration: "none", color: "inherit" }}>
+            <strong>לפני שמתחילים:</strong> בוחרים את סוגי הפעילות של העסק. בחרנו מראש לפי התחום, ואפשר לשנות. ←
+          </a>
+        ) : null}
 
         <div className={s.filters} role="group" aria-label="סינון">
           {LIST_FILTERS.map((f) => (

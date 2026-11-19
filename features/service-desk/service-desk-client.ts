@@ -141,13 +141,14 @@ export async function runCaseAction(caseId: number, action: Record<string, unkno
   }
 }
 
-export type QuoteSummary = { version: number; state: string; totalAgorot: number | null };
+export type QuoteSummary = { version: number; state: string; totalAgorot: number | null; billingDocumentId?: number };
 
 /** GET /api/service-desk/cases/:id/quotes — the case's quote versions. */
 export async function listQuotes(caseId: number): Promise<QuoteSummary[]> {
   const r = await call<{ quotes?: Array<Record<string, unknown>> }>("GET", `/api/service-desk/cases/${caseId}/quotes`);
   return (Array.isArray(r.quotes) ? r.quotes : []).map((q) => ({
     version: Number(q.version), state: String(q.state ?? ""), totalAgorot: typeof q.totalAgorot === "number" ? q.totalAgorot : null,
+    ...(typeof q.billingDocumentId === "number" ? { billingDocumentId: q.billingDocumentId } : {}),
   }));
 }
 
@@ -195,3 +196,67 @@ export async function openServiceCase(body: Record<string, unknown>): Promise<{ 
     throw e;
   }
 }
+
+// ── UI 1.3: the light features around a case (QA, quotes, pickup calls, loans, tasks, fields, activation) ────────
+
+/** One write with a fresh key per intent; the key is settled once the server answered (a retry after a timeout reuses it). */
+async function keyed<T>(intent: string, method: "PUT" | "POST", url: string, body: unknown): Promise<T> {
+  const key = keyFor(intent);
+  try {
+    const r = await call<T>(method, url, body, key);
+    settleKey(intent);
+    return r;
+  } catch (e) {
+    if (e instanceof ServiceDeskApiError && e.status !== null) settleKey(intent);
+    throw e;
+  }
+}
+
+export type CaseQa = {
+  mode: "REQUIRED" | "OPTIONAL" | "OFF";
+  template: { id: string; items: { key: string; label: string; required: boolean }[]; everyCheckRecorded: boolean } | null;
+  results: Record<string, "PASS" | "FAIL">;
+  completed: boolean;
+};
+export const getCaseQa = (caseId: number) => call<CaseQa>("GET", `/api/service-desk/cases/${caseId}/qa`);
+export const recordQa = (caseId: number, results: Record<string, "PASS" | "FAIL">, expectedVersion: number) =>
+  keyed<{ qa?: { completed: boolean } }>(`service-desk/cases/${caseId}/qa:${expectedVersion}:${JSON.stringify(results)}`, "PUT", `/api/service-desk/cases/${caseId}/qa`, { results, expectedVersion });
+
+export type QuoteDoc = { id: number; number: string | null; status: string; totalAmount: string | number; createdAt?: string; converted: boolean };
+/** The customer's billing QUOTE documents (read only — the billing module issues and keeps them). */
+export async function listCustomerQuoteDocs(customerId: number): Promise<QuoteDoc[]> {
+  const r = await call<{ documents?: Array<Record<string, unknown>> }>("GET", `/api/billing/documents?documentType=QUOTE&customerId=${customerId}&limit=20`);
+  return (r.documents ?? []).map((d) => ({
+    id: Number(d.id), number: (d.documentNumberFormatted as string) ?? null, status: String(d.status),
+    totalAmount: d.totalAmount as string, createdAt: d.createdAt as string | undefined, converted: d.convertedToInvoiceId !== null && d.convertedToInvoiceId !== undefined,
+  }));
+}
+export const sendCaseQuote = (caseId: number, billingDocumentId: number, expectedVersion: number, revise: boolean) =>
+  keyed<unknown>(`service-desk/cases/${caseId}/quotes:${revise ? "revise" : "send"}:${billingDocumentId}:${expectedVersion}`, "POST",
+    `/api/service-desk/cases/${caseId}/quotes${revise ? "/revise" : ""}`, { billingDocumentId, expectedVersion });
+
+export type PickupCall = { id: number; calledAt: string; outcome: "REACHED" | "LEFT_MESSAGE" | "NO_ANSWER"; note: string | null };
+export const listPickupCalls = async (caseId: number) => (await call<{ reminders: PickupCall[] }>("GET", `/api/service-desk/cases/${caseId}/pickup-reminders`)).reminders;
+export const recordPickupCall = (caseId: number, outcome: PickupCall["outcome"], note: string | null, attempt: number) =>
+  keyed<{ reminder: PickupCall }>(`service-desk/cases/${caseId}/pickup:${attempt}:${outcome}`, "POST", `/api/service-desk/cases/${caseId}/pickup-reminders`, { outcome, ...(note ? { note } : {}) });
+
+export type Loan = { id: number; itemName: string; lentAt: string; returnedAt: string | null; note: string | null };
+export const listLoans = (caseId: number) => call<{ available: boolean; loans: Loan[] }>("GET", `/api/service-desk/cases/${caseId}/loans`);
+export const lendItem = (caseId: number, itemName: string, note: string | null) =>
+  keyed<{ loan: Loan }>(`service-desk/cases/${caseId}/loans:${itemName}:${note ?? ""}`, "POST", `/api/service-desk/cases/${caseId}/loans`, { itemName, ...(note ? { note } : {}) });
+export const returnLoan = (caseId: number, loanId: number) => call<{ loan: Loan }>("POST", `/api/service-desk/cases/${caseId}/loans/${loanId}/return`, {});
+
+export type CaseTask = { id: number; title: string; done: boolean; dueOn: string | null };
+export const listCaseTasks = (caseId: number) => call<{ available: boolean; linked: CaseTask[]; open: CaseTask[] }>("GET", `/api/service-desk/cases/${caseId}/tasks`);
+export const setTaskLink = (caseId: number, taskId: number, link: boolean) => call<{ ok: true }>("PUT", `/api/service-desk/cases/${caseId}/tasks`, { taskId, link });
+
+export type CaseFields = { available: boolean; itemLocationNote: string | null; estimatedReadyOn: string | null };
+export const getCaseFields = (caseId: number) => call<CaseFields>("GET", `/api/service-desk/cases/${caseId}/fields`);
+export const setCaseFields = (caseId: number, itemLocationNote: string | null, estimatedReadyOn: string | null) =>
+  call<CaseFields>("PUT", `/api/service-desk/cases/${caseId}/fields`, { itemLocationNote, estimatedReadyOn });
+
+export type ProfileChoice = { version: number | null; chosen: boolean; key: string; suggestedKey: string; offeredTracks: string[] | null };
+export const getProfileChoice = () => call<ProfileChoice>("GET", "/api/service-desk/settings/profile");
+export const saveProfileChoice = (serviceProfileKey: string, offeredTracks: string[], expectedVersion: number | null) =>
+  keyed<ProfileChoice>(`service-desk/settings/profile:${expectedVersion}:${serviceProfileKey}:${offeredTracks.join(",")}`, "PUT", "/api/service-desk/settings/profile",
+    { serviceProfileKey, offeredTracks, expectedVersion });

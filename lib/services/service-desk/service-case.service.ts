@@ -841,6 +841,8 @@ async function auditJournalReady(tx: Tx): Promise<boolean> {
   return r[0]?.ok === true;
 }
 
+/** Exported for the settings writers outside this file (case-extras). */
+export async function requireAuditJournalFor(tx: Tx) { return requireAuditJournal(tx); }
 async function requireAuditJournal(tx: Tx) {
   if (!(await auditJournalReady(tx))) throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT");
 }
@@ -1013,6 +1015,12 @@ async function readProfile(tx: Tx, businessId: number): Promise<{ key: string; d
   const key = isServiceProfileKey(chosen) ? chosen : "general";
   const built = buildProfileSnapshot(key, (s?.overrides ?? null) as never);
   if (!built.ok) return { key, defaultTracks: [], enabledTracks: [] };
+  // Activation (decision 1): the owner's offered list orders the opening form; every track stays open to every business.
+  const offered = (s?.overrides as { offeredTracks?: unknown } | null)?.offeredTracks;
+  if (Array.isArray(offered) && offered.length) {
+    const defaults = built.snapshot.defaultTracks.filter((t) => offered.includes(t));
+    return { key, defaultTracks: [...defaults], enabledTracks: offered.filter((t: string) => !defaults.includes(t as never)) as string[] };
+  }
   return { key, defaultTracks: [...built.snapshot.defaultTracks], enabledTracks: [...built.snapshot.enabledTracks] };
 }
 

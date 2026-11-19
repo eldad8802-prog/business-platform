@@ -13,13 +13,41 @@ import { CaseActionDialog, type DialogResult } from "./case-action-dialog";
 import { buildActionBody, caseActions, needsDebtDecision, type CaseActionDef } from "./case-actions-model";
 import type { CaseCardData, JournalItem } from "./cases-model";
 import { CaseView } from "./case-view";
-import { decideQuote, getCase, listCaseEvents, listQuotes, runCaseAction, ServiceDeskApiError } from "./service-desk-client";
+import { loanReminder, pickupSummary, qaBody, quoteMode } from "./case-extras-model";
+import { FieldsPanel, LoansPanel, PickupPanel, QaPanel, QuotePanel, TasksPanel } from "./case-panels";
+import {
+  decideQuote, getCase, getCaseFields, getCaseQa, lendItem, listCaseEvents, listCaseTasks, listCustomerQuoteDocs, listLoans, listPickupCalls, listQuotes,
+  recordPickupCall, recordQa, returnLoan, runCaseAction, sendCaseQuote, ServiceDeskApiError, setCaseFields, setTaskLink,
+  type CaseFields, type CaseQa, type CaseTask, type Loan, type PickupCall, type QuoteDoc,
+} from "./service-desk-client";
 import { errorView } from "./service-desk-errors";
 import { LoadError, Loading, NotOpen } from "./ui";
 import { useServiceDeskAccess } from "./use-service-desk-access";
 import s from "./cases.module.css";
 
 type Message = { tone: "error" | "ok"; text: string };
+type Extras = {
+  qa: CaseQa | null; quoteDocs: QuoteDoc[]; sentDocIds: number[]; calls: PickupCall[];
+  loans: { available: boolean; loans: Loan[] }; tasks: { available: boolean; linked: CaseTask[]; open: CaseTask[] }; fields: CaseFields | null;
+};
+const NO_EXTRAS: Extras = { qa: null, quoteDocs: [], sentDocIds: [], calls: [], loans: { available: false, loans: [] }, tasks: { available: false, linked: [], open: [] }, fields: null };
+const soft = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
+
+/** The panels' data — each read on its own, so one failing read never hides the case. */
+async function loadExtras(card: CaseCardData): Promise<Extras> {
+  const id = card.id;
+  const mode = quoteMode(card.status);
+  const [qa, quotes, quoteDocs, calls, loans, tasks, fields] = await Promise.all([
+    card.status === "QA" ? soft(getCaseQa(id), null) : Promise.resolve(null),
+    mode ? soft(listQuotes(id), []) : Promise.resolve([]),
+    mode && card.customerId ? soft(listCustomerQuoteDocs(card.customerId), []) : Promise.resolve([]),
+    soft(listPickupCalls(id), []),
+    soft(listLoans(id), NO_EXTRAS.loans),
+    soft(listCaseTasks(id), NO_EXTRAS.tasks),
+    soft(getCaseFields(id), null),
+  ]);
+  return { qa, quoteDocs, sentDocIds: quotes.map((q) => q.billingDocumentId).filter((x): x is number => typeof x === "number"), calls, loans, tasks, fields };
+}
 
 export function CaseScreen({ caseId }: { caseId: number }) {
   const { access, retry } = useServiceDeskAccess();
@@ -28,12 +56,17 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const [pending, setPending] = useState<{ def: CaseActionDef; debtMode: boolean } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
+  const [extras, setExtras] = useState<Extras>(NO_EXTRAS);
+  const [extrasKey, setExtrasKey] = useState(0);
+  const [pickupAttempt, setPickupAttempt] = useState(0);
 
   const load = useCallback(async () => {
     try {
       const [card, events] = await Promise.all([getCase(caseId), listCaseEvents(caseId)]);
       setData({ card, events });
       setError("none");
+      setExtras(await loadExtras(card));
+      setExtrasKey((k) => k + 1); // panels restart from what the server holds
     } catch (e) {
       setError(e instanceof ServiceDeskApiError && e.status === 404 ? "missing" : "failed");
     }
@@ -77,6 +110,15 @@ export function CaseScreen({ caseId }: { caseId: number }) {
     else setPending({ def, debtMode: false });
   }, [send]);
 
+  /** One panel write: the server answers, the case is read again, a refusal is shown in Hebrew. */
+  const panelWrite = useCallback(async (id: string, f: () => Promise<unknown>, ok = "נשמר.") => {
+    setBusyId(id);
+    setMessage(null);
+    try { await f(); setMessage({ tone: "ok", text: ok }); }
+    catch (e) { setMessage({ tone: "error", text: errorView(e).text }); }
+    finally { setBusyId(null); await load(); }
+  }, [load]);
+
   const back = <BackButton fallback="/service-desk" fallbackLabel="לתיקים" />;
   if (access.status !== "open" || !data || error !== "none") {
     return (
@@ -92,10 +134,46 @@ export function CaseScreen({ caseId }: { caseId: number }) {
       </main>
     );
   }
-  const actions = access.mode === "FULL" ? caseActions(data.card) : [];
+  const full = access.mode === "FULL";
+  const actions = full ? caseActions(data.card) : [];
+  const card = data.card;
+  const now = new Date();
+  const v = card.version ?? 0;
+  const busy = busyId !== null;
+  const held = card.kind === "IN_SHOP";
+  const qMode = quoteMode(card.status);
+  const notes = [loanReminder(extras.loans.loans, card.status), card.status === "READY" ? pickupSummary(extras.calls, now) : null].filter((x): x is string => !!x);
+  const extraMain = (
+    <div key={extrasKey} style={{ display: "contents" }}>
+      {extras.qa && extras.qa.template ? (
+        <QaPanel qa={extras.qa} editable={full} busy={busy}
+          onSave={(r) => void panelWrite("qa", () => recordQa(card.id, qaBody(extras.qa!.template!.items, r), v), "הבדיקות נשמרו.")} />
+      ) : null}
+      {qMode ? (
+        <QuotePanel mode={qMode} docs={extras.quoteDocs} sentDocIds={extras.sentDocIds} editable={full} busy={busy}
+          newQuoteHref="/billing?create=QUOTE" onSend={(docId) => void panelWrite("quote", () => sendCaseQuote(card.id, docId, v, qMode === "revise"), "ההצעה נשלחה ונשמרה בתיק.")} />
+      ) : null}
+      {card.status === "READY" ? (
+        <PickupPanel calls={extras.calls} now={now} editable={full} busy={busy}
+          onRecord={(o, note) => { setPickupAttempt((n) => n + 1); void panelWrite("pickup", () => recordPickupCall(card.id, o, note, pickupAttempt), "השיחה תועדה."); }} />
+      ) : null}
+    </div>
+  );
+  const extraSide = (
+    <div key={extrasKey} style={{ display: "contents" }}>
+      {extras.fields ? <FieldsPanel fields={extras.fields} editable={full} busy={busy} held={held}
+        onSave={(loc, d) => void panelWrite("fields", () => setCaseFields(card.id, loc, d))} /> : null}
+      <LoansPanel available={extras.loans.available} loans={extras.loans.loans} now={now} editable={full} busy={busy}
+        onLend={(name, note) => void panelWrite("loan", () => lendItem(card.id, name, note), "נרשם.")}
+        onReturn={(id) => void panelWrite("loan", () => returnLoan(card.id, id), "סומן כהוחזר.")} />
+      <TasksPanel available={extras.tasks.available} linked={extras.tasks.linked} open={extras.tasks.open} editable={full} busy={busy}
+        onLink={(id, link) => void panelWrite("task", () => setTaskLink(card.id, id, link), link ? "המשימה קושרה." : "הקישור הוסר.")} />
+    </div>
+  );
   return (
     <>
-      <CaseView card={data.card} events={data.events} now={new Date()} back={back} actions={actions} onAction={onAction} busyId={busyId} message={message} />
+      <CaseView card={card} events={data.events} now={now} back={back} actions={actions} onAction={onAction} busyId={busyId} message={message}
+        notes={notes} extraMain={extraMain} extraSide={extraSide} />
       {pending ? (
         <CaseActionDialog def={pending.def} debtMode={pending.debtMode} busy={busyId !== null}
           onCancel={() => setPending(null)} onSubmit={(r) => void send(pending.def, r)} />

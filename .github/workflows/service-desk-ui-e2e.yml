@@ -75,6 +75,7 @@ jobs:
           npx tsx features/service-desk/cases-model.test.ts
           npx tsx features/service-desk/case-actions-model.test.ts
           npx tsx features/service-desk/open-case-model.test.ts
+          npx tsx features/service-desk/case-extras-model.test.ts
       - name: Lab — the Service Desk chain through M1 (P4 → handover → charge → tracks), Production role topology
         run: |
           set -euo pipefail

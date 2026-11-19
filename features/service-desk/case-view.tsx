@@ -26,6 +26,11 @@ export type CaseViewProps = {
   onAction?: (def: CaseActionDef) => void;
   busyId?: string | null;
   message?: { tone: "error" | "ok"; text: string } | null;
+  /** Reminders under the wait reason (an open loan at handover, the pickup calls) — never a block. */
+  notes?: readonly string[];
+  /** The case panels (QA, quote, pickup calls, loans, tasks, fields) — main column and side column. */
+  extraMain?: ReactNode;
+  extraSide?: ReactNode;
 };
 
 function Caret() {
@@ -104,7 +109,7 @@ function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalI
   }
 }
 
-export function CaseView({ card, events, now, back, actions = [], onAction, busyId = null, message = null }: CaseViewProps) {
+export function CaseView({ card, events, now, back, actions = [], onAction, busyId = null, message = null, notes = [], extraMain = null, extraSide = null }: CaseViewProps) {
   const noun = caseNoun(card.kind);
   const tone = statusTone(card.status, card.holdReason);
   const next = nextActionLabel(card.status, card.kind, card.holdReason);
@@ -131,6 +136,7 @@ export function CaseView({ card, events, now, back, actions = [], onAction, busy
               <span className={s.statusMeta}>עודכן {formatShortDate(card.updatedAt, now)}</span>
             </div>
             {waiting ? <p className={s.statusWait}>{waiting}</p> : null}
+            {notes.map((n) => <p key={n} className={s.statusWait} data-note>{n}</p>)}
             {next ? (
               <>
                 <p className={s.nextLabel} style={{ marginTop: 12 }}>הפעולה הבאה</p>
@@ -154,6 +160,7 @@ export function CaseView({ card, events, now, back, actions = [], onAction, busy
 
         <div className={s.columns}>
           <div className={s.mainCol}>
+            {extraMain}
             {main.map((sec) => {
               const { hint, body } = sectionBody(sec.key, card, events, now);
               return (
@@ -172,6 +179,7 @@ export function CaseView({ card, events, now, back, actions = [], onAction, busy
               <p className={s.infoTitle}>לקוח</p>
               <p className={s.infoMain}>{card.customerName ?? "לקוח ללא שם"}</p>
             </div>
+            {extraSide}
             {actions.some((a) => a.tone === "danger") ? (
               <div className={s.infoCard}>
                 {actions.filter((a) => a.tone === "danger").map((a) => (
