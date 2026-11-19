@@ -111,7 +111,13 @@ if [ "$MODE" != "--deploy-only" ]; then
   # charge is already recorded. Lab-only; the declaration flow and its migration are unchanged.
   CHARGE="20261126090000_service_desk_case_charge"
   if staged "$CHARGE" && [ "$(psql -X -At "$OWNER_URL" -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '$CHARGE'")" = "0" ]; then
-    psql -X -q -v ON_ERROR_STOP=1 "$OWNER_URL" -c 'DROP TABLE IF EXISTS "ServiceCaseBillingLink", "ServiceCaseCharge" CASCADE; DROP TYPE IF EXISTS "ServiceBillingLinkRole", "ServiceChargeSource", "ServiceChargeMode";' >/dev/null
+    if [ "$(psql -X -At "$OWNER_URL" -c "SELECT count(*) FROM pg_constraint WHERE conname = 'ServiceCaseEvent_charge_in_place'")" = "1" ]; then
+      # .sdf/erasure-prereq.sh already applied the migration VERBATIM (the purge needs its erase function): record it,
+      # exactly as release-migrate would, instead of applying it twice.
+      ( cd "$ROOT" && DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" node_modules/.bin/prisma migrate resolve --applied "$CHARGE" --schema prisma/schema.prisma ) >/dev/null
+    else
+      psql -X -q -v ON_ERROR_STOP=1 "$OWNER_URL" -c 'DROP TABLE IF EXISTS "ServiceCaseBillingLink", "ServiceCaseCharge" CASCADE; DROP TYPE IF EXISTS "ServiceBillingLinkRole", "ServiceChargeSource", "ServiceChargeMode";' >/dev/null
+    fi
   fi
   deploy_before_me >/dev/null
   # The code PR models the declaration tables: drop what db push built, so the migration builds them (no-op otherwise).
