@@ -179,7 +179,7 @@
 .msg { margin: 0; padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
 .msg[data-tone="error"] { background: #fbecec; color: #7a1f1f; }
 .msg[data-tone="ok"] { background: var(--sc-sunk); color: var(--sc-ink); }
-.backdrop { position: fixed; inset: 0; background: rgba(43, 36, 32, 0.38); display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
+.backdrop { position: fixed; inset: 0; background: rgba(43, 36, 32, 0.38); display: flex; align-items: flex-end; justify-content: center; z-index: 200; }
 .dialog {
   width: 100%; max-width: 520px; background: var(--sc-surface); border-radius: 22px 22px 0 0; padding: 20px 18px calc(18px + env(safe-area-inset-bottom));
   display: flex; flex-direction: column; gap: 14px; box-shadow: 0 -8px 30px rgba(43, 36, 32, 0.12);

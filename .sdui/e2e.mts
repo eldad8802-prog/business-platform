@@ -282,6 +282,7 @@ async function main() {
         await shot(pc, "real-case-qa-desktop");
         await panel.getByRole("button", { name: "לשמור את הבדיקות" }).click();
         await until(async () => (await own(seed.bizC, `SELECT "qaCompletedAt" IS NOT NULL ok FROM "ServiceCase" WHERE id = $1`, seed.c5))[0].ok === true, "qaCompletedAt not set");
+        await panel.getByText("הושלמו").waitFor({ timeout: 30_000 }); // the screen read the case again
         await pc.locator("section[aria-label='מצב ופעולה הבאה']").getByRole("button", { name: "הבדיקות עברו", exact: true }).waitFor();
         await clickAction(pc, "הבדיקות עברו");
         await until(async () => String((await own(seed.bizC, `SELECT status::text s FROM "ServiceCase" WHERE id = $1`, seed.c5))[0].s) === "READY", "not READY");
@@ -321,8 +322,10 @@ async function main() {
         const snap = (await own(seed.bizA, `SELECT "profileKey" k, "workType"::text w FROM "ServiceCase" WHERE id = $1`, after.m))[0] as { k: string; w: string };
         if (snap.k !== "device_lab" || snap.w !== "REPAIR") throw new Error(JSON.stringify(snap));
       });
-      await check("Q2 c6: the customer's billing quote is sent from the case → QUOTE_PENDING; the billing document is not changed", async () => {
-        const docBefore = JSON.stringify((await own(seed.bizA, `SELECT status::text s, "totalAmount"::text t, "updatedAt" u FROM "BillingDocument" WHERE id = $1`, seed.quoteC6))[0]);
+      await check("Q2 c6: the customer's billing quote is sent from the case → QUOTE_PENDING; the billing document's content (status, total, number, customer, lines) is not changed", async () => {
+        const docBefore = JSON.stringify((await own(seed.bizA, `SELECT d.status::text s, d."totalAmount"::text t, d."documentNumber" n, d."customerId" c,
+          (SELECT json_agg(json_build_array(l.description, l.quantity::text, l."unitPrice"::text, l."lineTotal"::text) ORDER BY l."lineIndex") FROM "BillingDocumentLine" l WHERE l."billingDocumentId" = d.id) lines
+          FROM "BillingDocument" d WHERE d.id = $1`, seed.quoteC6))[0]);
         await openCase(pa, seed.c6);
         const panel = pa.locator("[data-panel=quote]");
         await panel.waitFor({ timeout: 60_000 });
@@ -331,7 +334,9 @@ async function main() {
         await waitStatus(seed.c6, "QUOTE_PENDING");
         const n = Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceQuote" WHERE "caseId" = $1 AND "billingDocumentId" = $2`, seed.c6, seed.quoteC6))[0].n);
         if (n !== 1) throw new Error(`quote rows ${n}`);
-        const docAfter = JSON.stringify((await own(seed.bizA, `SELECT status::text s, "totalAmount"::text t, "updatedAt" u FROM "BillingDocument" WHERE id = $1`, seed.quoteC6))[0]);
+        const docAfter = JSON.stringify((await own(seed.bizA, `SELECT d.status::text s, d."totalAmount"::text t, d."documentNumber" n, d."customerId" c,
+          (SELECT json_agg(json_build_array(l.description, l.quantity::text, l."unitPrice"::text, l."lineTotal"::text) ORDER BY l."lineIndex") FROM "BillingDocumentLine" l WHERE l."billingDocumentId" = d.id) lines
+          FROM "BillingDocument" d WHERE d.id = $1`, seed.quoteC6))[0]);
         if (docAfter !== docBefore) throw new Error(`the billing document changed: ${docBefore} → ${docAfter}`);
       });
       await check("TK1 an open task is linked to c4 and unlinked", async () => {

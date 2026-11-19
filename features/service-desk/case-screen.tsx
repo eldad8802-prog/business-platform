@@ -99,8 +99,8 @@ export function CaseScreen({ caseId }: { caseId: number }) {
         setMessage({ tone: "error", text: errorView(e).text });
       }
     } finally {
-      setBusyId(null);
       await load();
+      setBusyId(null); // only after the fresh case is on screen: no action runs on a stale version
     }
   }, [caseId, data, load]);
 
@@ -116,7 +116,7 @@ export function CaseScreen({ caseId }: { caseId: number }) {
     setMessage(null);
     try { await f(); setMessage({ tone: "ok", text: ok }); }
     catch (e) { setMessage({ tone: "error", text: errorView(e).text }); }
-    finally { setBusyId(null); await load(); }
+    finally { await load(); setBusyId(null); }
   }, [load]);
 
   const back = <BackButton fallback="/service-desk" fallbackLabel="לתיקים" />;
