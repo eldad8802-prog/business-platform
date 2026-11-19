@@ -28,8 +28,7 @@ import { safeErrorSummary } from "@/lib/security/log-safe-error";
 import { isTransactionalEmailEnabled } from "@/lib/email/transactional/config";
 import { deliverTransactionalEmail } from "@/lib/email/transactional/delivery";
 import { runTenantJob } from "@/lib/tenant/job";
-import { seedSignupBusinessKind, type SeedBusinessKindOutcome } from "@/lib/auth/signup-business-kind";
-import type { SignupBusinessKind } from "@/lib/auth/signup-identity";
+import { LegalIdentityRejectedError } from "@/lib/auth/signup-legal-identity-seed";
 import {
   PRODUCT_USAGE_ACTIONS,
   PRODUCT_USAGE_FEATURES,
@@ -98,11 +97,6 @@ export type RegisterDeps = {
    * attempt does not happen or does not succeed.
    */
   scheduleWelcome: (welcomeEmailId: number, businessId: number) => void;
-  /**
-   * Seed BusinessProfile.billingBusinessKind with the kind chosen at signup — only when the profile has none
-   * (lib/auth/signup-business-kind.ts). Runs after the account committed; never fails the signup.
-   */
-  seedBusinessKind: (businessId: number, kind: SignupBusinessKind) => Promise<SeedBusinessKindOutcome>;
 };
 
 function scheduleWelcomeAfterResponse(welcomeEmailId: number, businessId: number): void {
@@ -127,7 +121,6 @@ const defaultDeps: RegisterDeps = {
   signToken: signAuthToken,
   recordUsage: recordProductUsageEvent,
   scheduleWelcome: scheduleWelcomeAfterResponse,
-  seedBusinessKind: seedSignupBusinessKind,
 };
 
 /** The one answer every closed path gives — byte-for-byte the gate's response. */
@@ -225,6 +218,9 @@ export async function handleRegister(
       passwordHash,
       name: input.name,
       businessName: input.businessName,
+      // The legal identity (kind included) is written and confirmed in the account's own transaction:
+      // the account and its identity exist together or not at all.
+      legalIdentity: input.legalIdentity,
       now,
       userAgent: req.headers.get("user-agent"),
       attribution: input.attribution,
@@ -242,14 +238,6 @@ export async function handleRegister(
     );
     // Telemetry correlation id, as in login — NOT the AuthSession id.
     const sessionId = randomUUID();
-
-    // The business kind chosen at signup, seeded before the response so /setup and billing already see it.
-    // Contained: the account is done; a failed seed only means billing's identity form asks for the kind.
-    try {
-      await deps.seedBusinessKind(account.businessId, input.businessKind);
-    } catch (error) {
-      console.error("[signup] business_kind_seed_failed", { error: error instanceof Error ? error.name : "unknown" });
-    }
 
     await deps.recordUsage({
       businessId: account.businessId,
@@ -315,6 +303,16 @@ export async function handleRegister(
       await recordSignupFailure(deps, `invalid_${error.field}`);
       return NextResponse.json(
         { error: error.message, field: error.field },
+        { status: 400 }
+      );
+    }
+
+    if (error instanceof LegalIdentityRejectedError) {
+      // The database's backstop refused a value the form's rules accepted. Nothing was written. Field only.
+      if (admitted) return signupDisabledResponse();
+      await recordSignupFailure(deps, `invalid_legal_identity_${error.field ?? "unknown"}`);
+      return NextResponse.json(
+        { error: "חלק מפרטי העסק אינם תקינים. יש לבדוק אותם ולנסות שוב.", field: error.field ?? undefined, code: "LEGAL_IDENTITY_INVALID" },
         { status: 400 }
       );
     }

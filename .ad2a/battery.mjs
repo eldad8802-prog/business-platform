@@ -236,6 +236,15 @@ async function main() {
   await owner.$executeRawUnsafe(
     `REVOKE DELETE ON "Notification","NotificationDelivery" FROM ${RT_ROLE}`
   );
+  // Notification engine (migration 20261210090000_notification_engine_foundation): the runtime holds all four
+  // verbs on a user's notification settings and overrides — "restore defaults" deletes them, and the erasure
+  // deletes every row of the business. Mirrored exactly (sequences included, for the INSERT the fixture does).
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON "NotificationSettings","NotificationPreference" TO ${RT_ROLE}`
+  );
+  await owner.$executeRawUnsafe(
+    `GRANT USAGE, SELECT ON SEQUENCE "NotificationSettings_id_seq","NotificationPreference_id_seq" TO ${RT_ROLE}`
+  );
   // C12-E1. `scripts/security/d2-p7-wave3-grants.sql` hands the runtime SELECT,
   // INSERT and UPDATE on these three — and NOT DELETE. Mirrored exactly, for the
   // same reason as Notification above: the question is whether a CLEAR can reach
@@ -464,6 +473,19 @@ async function main() {
     await owner.$executeRawUnsafe(fn[0]);
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_case_charge_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_case_charge_erase_business() TO ${RT_ROLE}`);
+  }
+  // Issuer declaration — migration 20261126100000_issuer_declaration. The same, for issuer_declaration_erase() (it
+  // anonymises declarations nothing was issued under; table from db push — the #1117 schema models it).
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261126100000_issuer_declaration/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.issuer_declaration_erase\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("issuer_declaration_erase() not found in migration 20261126100000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.issuer_declaration_erase() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.issuer_declaration_erase() TO ${RT_ROLE}`);
   }
 
   // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
@@ -740,6 +762,13 @@ async function main() {
     // (summary). `reason` and `href` are NOT seeded with a marker because they
     // are a fixed policy string and an internal route — they are not personal,
     // and an erasure that cleared them would be over-deleting.
+    // Notification engine: one user's settings and one per-type override — the erasure deletes both.
+    await owner.notificationSettings.create({
+      data: { businessId: b.id, userId: u.id, quietHoursEnabled: true, quietStartMinute: 1320, quietEndMinute: 420 },
+    });
+    await owner.notificationPreference.create({
+      data: { businessId: b.id, userId: u.id, key: "category:inbox.customer_waiting", push: false },
+    });
     await owner.notification.create({
       data: {
         businessId: b.id,
@@ -1536,6 +1565,15 @@ async function main() {
     notifRows.length > 0,
     `notifications=${notifRows.length}`
   );
+  const nsLeft = await owner.notificationSettings.count({ where: { businessId: A.biz.id } });
+  const npLeft = await owner.notificationPreference.count({ where: { businessId: A.biz.id } });
+  ok(
+    "NE-1 · A's notification settings and per-type overrides are gone (the runtime holds DELETE, bound by RLS)",
+    nsLeft === 0 && npLeft === 0,
+    `settings=${nsLeft} overrides=${npLeft}`
+  );
+  const nsB = await owner.notificationSettings.count({ where: { businessId: B.biz.id } });
+  ok("NE-2 · B's notification settings are untouched by A's erasure", nsB === 1, `B settings=${nsB}`);
   const w1e = ok(
     "W1-E · NO copied counterparty name or conversation content survives in a notification",
     notifRows.every((n) => n.title === "" && n.summary === null),

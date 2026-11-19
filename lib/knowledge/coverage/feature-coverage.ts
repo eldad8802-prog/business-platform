@@ -152,7 +152,9 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     rules: ["BILL-01", "BILL-02", "BILL-03", "BILL-04", "BILL-05"], temporalRules: ["T-BILL-01", "T-BILL-02"], otherUnits: ["cross-domain:X-COLL-01 (premise)"],
     l0: ["billing-review", "billing-pdf", "billing-draft-age"],
     models: ["BillingDocument", "BillingDocumentLine", "BillingReceiptPayment", "BillingPaymentAllocation", "BillingAuditEvent",
-      "BillingDocumentNumberSequence", "FinancialEvent", "HistoricalFiscalDocument"],
+      "BillingDocumentNumberSequence", "FinancialEvent", "HistoricalFiscalDocument",
+      // issuer declaration (#1081): who the issuer is, and where a series starts
+      "BusinessIssuerDeclaration", "BillingSeriesOpening"],
     sensors: [],
     legacyEvents: ["BILLING_DRAFT_CREATED", "BILLING_DRAFT_HEADER_UPDATED", "BILLING_DRAFT_LINES_REPLACED", "BILLING_DOC_ISSUED", "BILLING_DOC_SUBMITTED_FOR_REVIEW",
       "BILLING_DOC_REVERTED_TO_DRAFT", "BILLING_PDF_RENDERED", "BILLING_PDF_RENDER_FAILED", "BILLING_QUOTE_PDF_RENDERED", "BILLING_QUOTE_CONVERTED_TO_INVOICE",
@@ -281,7 +283,9 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     key: "notifications", name: "Notifications", coverage: "NOT_LEARNING_RELEVANT",
     reason: "Decided in SENSOR_COVERAGE.md (Notification read = NOT_LEARNING_RELEVANT): alerts are Dubiz talking to the owner, and their read/dismiss timing describes the inbox, not the business. The underlying domains learn from their own ledgers.",
     rules: [], temporalRules: [], otherUnits: [], l0: [],
-    models: ["Notification", "NotificationDelivery"], sensors: [], legacyEvents: [], routes: ["api/notifications", "page/notifications"],
+    // NotificationSettings / NotificationPreference: a user's delivery overrides; NotificationEngineActivation: the
+    // per-business cutover record (engine bookkeeping). Neither describes the business.
+    models: ["Notification", "NotificationDelivery", "NotificationSettings", "NotificationPreference", "NotificationEngineActivation"], sensors: [], legacyEvents: [], routes: ["api/notifications", "page/notifications"],
     target: { coverage: "LEARNS", plan: "Owner behaviour (observable only): responsiveness to alerts — first surfaced → read/resolved, per domain." },
     outcome: { observableAction: true, observableOutcome: false, ownerDecisionRelevant: false, recommendationPotential: "NONE" },
   },

@@ -18,6 +18,20 @@ import bcrypt from "bcrypt";
 import { chromium, type Browser, type BrowserContext } from "playwright";
 import { PrismaClient } from "@prisma/client";
 
+/** The Google completion form since 2026-11-12: step 2 (kind + legal identity; the trade name becomes Business.name), then the review and the terms. */
+async function fillGoogleBusiness(page: import("playwright").Page, tradeName: string) {
+  await page.locator("#g-kind").selectOption("AUTHORIZED_DEALER");
+  await page.locator("#g-legalName").fill("דנה כהן");
+  await page.locator("#g-taxId").fill("000000018");
+  await page.locator("#g-tradeName").fill(tradeName);
+  await page.locator("#g-address").fill("הרצל 1, תל אביב");
+  await page.locator("#g-phone").fill("0501234567");
+  await page.getByTestId("signup-next").click();
+  await page.getByTestId("signup-review").waitFor({ state: "visible" });
+  await page.locator("#g-terms").check();
+}
+
+
 const BASE = process.env.BASE ?? "http://localhost:3613";
 const MOCK = process.env.MOCK ?? "http://localhost:3902";
 const SHOTS = process.env.SHOTS ?? "";
@@ -104,9 +118,7 @@ async function main() {
     await p4.waitForURL(/\/register\/google$/, { timeout: 30_000 });
     await p4.getByTestId("google-signup-form").waitFor({ state: "visible" });
     ok("4 a listed new person → the completion form; no account yet", (await owner.user.count({ where: { email: LISTED_NEW } })) === 0);
-    await p4.locator("#g-business").fill(`עסק פיילוט ${stamp}`);
-    await p4.locator("#g-business-kind").selectOption("AUTHORIZED_DEALER");
-    await p4.locator("#g-terms").check();
+    await fillGoogleBusiness(p4, `עסק פיילוט ${stamp}`);
     await shot(p4, "pilot-phone-form");
     await p4.getByTestId("google-signup-submit").click();
     await p4.waitForURL(/\/setup/, { timeout: 30_000 });

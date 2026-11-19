@@ -387,7 +387,7 @@ async function main() {
   // ── H. Reminders ───────────────────────────────────────────────────────────────────────────────
   console.log("H. reminders");
   const rem = await reqOf(at("11:00"));
-  await owner.pushSubscription.create({ data: { businessId: bizA, userId: userA, endpoint: "https://push.example.invalid/sub-1", p256dh: "x", auth: "y", platform: "other" } });
+  await owner.pushSubscription.create({ data: { businessId: bizA, userId: userA, endpoint: "https://push.example.invalid/sub-1", p256dh: "x", auth: "y", platform: "other" }, select: { id: true } });
   // The daytime checks sweep at a daytime moment (the latest one not after now), whatever hour CI runs at.
   let dayNow = new Date();
   while (isQuietHours(dayNow, "Asia/Jerusalem")) dayNow = new Date(dayNow.getTime() - 30 * 60_000);

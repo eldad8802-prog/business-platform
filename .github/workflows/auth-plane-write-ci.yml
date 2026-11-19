@@ -52,9 +52,14 @@ on:
       - "app/(shell)/setup/**"
       - "app/register/**"
       - ".authfix/**"
+      - "prisma/migrations/20261128090000_signup_legal_identity/**"
+      - "lib/auth/signup-legal-identity*.ts"
       - "scripts/qa/auth/**"
       - "lib/native/**"
       - "android/app/src/main/java/**"
+      - "android/app/src/main/AndroidManifest.xml"
+      - "android/app/src/main/res/mipmap-*/ic_launcher_monochrome*"
+      - "public/sw.js"
       - ".github/workflows/auth-plane-write-ci.yml"
   workflow_dispatch:
 
@@ -194,6 +199,18 @@ jobs:
       # emulator QA); the helper is a no-op outside the app.
       - name: Android cookie persistence — requested once per received auth response
         run: npx tsx lib/native/auth-cookies.test.ts
+
+      # Android push (FCM): the permission is never requested at start-up, the
+      # device re-registers only when already permitted, the token goes to the
+      # server with the app's Bearer and never to a log, and a tapped
+      # notification opens only an internal path under an allowed section.
+      - name: Android push client — permission on demand, token upload, safe deep links
+        run: npx tsx lib/native/push-notifications.test.ts
+
+      # The FCM notification icon is the app's existing monochrome Dubiz logo, in the form Android needs (one colour on
+      # transparency, a bitmap per density, never adaptive XML); Web Push keeps /icons/dubiz-192.png (owner 2026-11-16).
+      - name: Android notification icon — existing monochrome logo; Web Push icon unchanged
+        run: npx tsx lib/native/notification-icon.test.ts
 
       # The device bug PR-E fixes, as two one-line regressions the suite must catch.
       - name: negative proof — a refused session that stays on screen / a chrome without the coordinator

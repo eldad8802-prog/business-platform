@@ -34,6 +34,8 @@ on:
       - "lib/security/rate-limiter/**"
       - ".appt/**"
       - ".bkg/**"
+      - "prisma/migrations/20261210090000_notification_engine_foundation/**"
+      - ".nte/**"
       - ".github/workflows/appointments-foundation-ci.yml"
   workflow_dispatch:
 
@@ -108,6 +110,9 @@ jobs:
         run: |
           set -euo pipefail
           bash .bkg/lab.sh appt_app --with-bkg
+          # The notification engine foundation (20261210090000) onto it: the lab rebuilds "PushSubscription" from the
+          # task reminders migration, and the schema models the columns 20261210090000 adds.
+          NTE_ONTO=1 bash .nte/lab.sh appt_app --with-nte
           TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/appt_app?$TZQ" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/appt_app?$TZQ&connection_limit=20" \
@@ -118,6 +123,7 @@ jobs:
         run: |
           set -euo pipefail
           bash .bkg/lab.sh bkg_app --with-bkg
+          NTE_ONTO=1 bash .nte/lab.sh bkg_app --with-nte
           TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/bkg_app?$TZQ" \
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bkg_app?$TZQ&connection_limit=20" \

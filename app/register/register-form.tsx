@@ -11,21 +11,39 @@ import { GoogleNotice, GoogleSignInButton } from "@/components/auth/google-sign-
 import { flushAuthCookies } from "@/lib/native/auth-cookies";
 import { clearPendingRevoke, finishPendingRevokeBeforeSignIn } from "@/lib/client-session";
 
+import {
+  LEGAL_IDENTITY_FIELDS,
+  LegalIdentityFields,
+  LegalIdentityReview,
+  emptyLegalIdentity,
+  legalIdentityBody,
+  validateLegalIdentityStep,
+  type LegalIdentityErrors,
+  type LegalIdentityValues,
+} from "./legal-identity-step";
 import styles from "./register.module.css";
 
 const TERMS_HREF = "/terms";
 const PRIVACY_HREF = "/privacy";
 
-type RegisterErrors = {
-  name?: string;
-  businessName?: string;
-  businessKind?: string;
-  email?: string;
-  password?: string;
-  acceptTerms?: string;
-  form?: string;
-};
+type AccountField = "name" | "email" | "password";
+type RegisterErrors = Partial<Record<AccountField | "acceptTerms" | "form", string>> & LegalIdentityErrors;
 
+/** Which step a server-named field is corrected on. */
+function stepOfField(field: string): 1 | 2 | 3 {
+  if (field === "name" || field === "email" || field === "password") return 1;
+  if (field === "acceptTerms") return 3;
+  return 2; // businessKind, the legal identity fields, and the legacy businessName (= trade name)
+}
+
+/**
+ * Signup in three steps (owner decision 2026-11-12):
+ *   1. the account — name, sign-in email, password (or Google, which continues on /register/google);
+ *   2. the business — its kind, and the legal details that kind needs;
+ *   3. review — every detail once more, why three of them lock, the terms; then one request.
+ * Nothing is sent before step 3: the account and its legal identity are created together, in one
+ * transaction, or not at all — there is no half-registered account to resume or to bypass.
+ */
 export default function RegisterForm({
   googleEnabled = false,
   googleNotice = null,
@@ -36,14 +54,15 @@ export default function RegisterForm({
   const router = useRouter();
   const { t } = useI18n();
 
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [name, setName] = useState("");
-  const [businessName, setBusinessName] = useState("");
-  const [businessKind, setBusinessKind] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [identity, setIdentity] = useState<LegalIdentityValues>(emptyLegalIdentity());
   const [acceptTerms, setAcceptTerms] = useState(false);
   // The honeypot (lib/auth/signup-honeypot.ts): uncontrolled, read once at submit.
   const honeypotRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   const [showPassword, setShowPassword] = useState(false);
 
@@ -74,8 +93,8 @@ export default function RegisterForm({
     }
     let score = 1;
     if (value.length >= 12) score += 1;
-    if (/[0-9]/.test(value) && /[A-Za-z\u05D0-\u05EA]/.test(value)) score += 1;
-    if (/[^A-Za-z0-9\u0590-\u05FF]/.test(value)) score += 1;
+    if (/[0-9]/.test(value) && /[A-Za-zא-ת]/.test(value)) score += 1;
+    if (/[^A-Za-z0-9֐-׿]/.test(value)) score += 1;
     const words = ["", t("account.auth.register.strength.fair"), t("account.auth.register.strength.good"), t("account.auth.register.strength.strong"), t("account.auth.register.strength.veryStrong")];
     return { segments: score, text: words[score] };
   }
@@ -83,80 +102,72 @@ export default function RegisterForm({
   // Cheap, and it reads the active language: computed on every render.
   const passwordStrength = getPasswordStrength(password);
 
-  function validateField(
-    field: "name" | "businessName" | "email" | "password",
-    value: string
-  ) {
+  function validateField(field: AccountField, value: string) {
     if (field === "name") {
       if (!value.trim()) return t("account.auth.register.errors.nameRequired");
       if (value.trim().length < 2) return t("account.auth.register.errors.nameTooShort");
       return "";
     }
-
-    if (field === "businessName") {
-      if (!value.trim()) return t("account.auth.register.errors.businessRequired");
-      if (value.trim().length < 2) return t("account.auth.register.errors.businessTooShort");
-      return "";
-    }
-
     if (field === "email") {
       if (!value.trim()) return t("account.auth.common.emailRequired");
       if (!emailRegex.test(value.trim())) return t("account.auth.common.emailInvalid");
       return "";
     }
-
-    if (field === "password") {
-      if (!value.trim()) return t("account.auth.common.passwordRequired");
-      if (value.length < MIN_PASSWORD_LENGTH)
-        return t("account.auth.common.passwordTooShort", { count: MIN_PASSWORD_LENGTH });
-      return "";
-    }
-
+    if (!value.trim()) return t("account.auth.common.passwordRequired");
+    if (value.length < MIN_PASSWORD_LENGTH) return t("account.auth.common.passwordTooShort", { count: MIN_PASSWORD_LENGTH });
     return "";
   }
 
-  function validateForm() {
-    const nextErrors: RegisterErrors = {};
-
-    const nameError = validateField("name", name);
-    const businessNameError = validateField("businessName", businessName);
-    const emailError = validateField("email", email);
-    const passwordError = validateField("password", password);
-
-    if (nameError) nextErrors.name = nameError;
-    if (businessNameError) nextErrors.businessName = businessNameError;
-    if (emailError) nextErrors.email = emailError;
-    if (passwordError) nextErrors.password = passwordError;
-    if (!businessKind) nextErrors.businessKind = t("account.auth.register.errors.businessKindRequired");
-    if (!acceptTerms) nextErrors.acceptTerms = t("account.auth.register.errors.termsRequired");
-
-    setErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
+  function accountErrors(): RegisterErrors {
+    const next: RegisterErrors = {};
+    const values = { name, email, password };
+    for (const f of ["name", "email", "password"] as const) {
+      const e = validateField(f, values[f]);
+      if (e) next[f] = e;
+    }
+    return next;
   }
 
-  function handleBlur(
-    field: "name" | "businessName" | "email" | "password"
-  ) {
+  const identityErrors = (): LegalIdentityErrors =>
+    validateLegalIdentityStep(identity, t("account.auth.register.errors.businessKindRequired"));
+
+  function handleBlur(field: AccountField) {
     setTouched((prev) => ({ ...prev, [field]: true }));
-
-    const valueMap = {
-      name,
-      businessName,
-      email,
-      password,
-    };
-
+    const valueMap = { name, email, password };
     const fieldError = validateField(field, valueMap[field]);
-
-    setErrors((prev) => ({
-      ...prev,
-      [field]: fieldError || undefined,
-    }));
+    setErrors((prev) => ({ ...prev, [field]: fieldError || undefined }));
   }
 
-  // The button stays live: pressing it is how the owner finds out what is still
-  // missing, the terms included. Only an in-flight request disables it.
-  const isSubmitDisabled = loading;
+  function handleIdentityBlur(field: (typeof LEGAL_IDENTITY_FIELDS)[number]) {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    const all = identityErrors();
+    setErrors((prev) => ({ ...prev, [field]: all[field] }));
+  }
+
+  function goTo(next: 1 | 2 | 3) {
+    setStep(next);
+    // The new step starts at its top, and assistive technology announces it.
+    window.scrollTo({ top: 0 });
+    requestAnimationFrame(() => headingRef.current?.focus());
+  }
+
+  function continueFromAccount() {
+    setTouched((prev) => ({ ...prev, name: true, email: true, password: true }));
+    const next = accountErrors();
+    setErrors(next);
+    if (Object.keys(next).length > 0) return;
+    // The business email starts as the sign-in address; the owner may change it.
+    if (!identity.businessEmail.trim()) setIdentity((prev) => ({ ...prev, businessEmail: email.trim() }));
+    goTo(2);
+  }
+
+  function continueFromBusiness() {
+    setTouched((prev) => ({ ...prev, ...Object.fromEntries(LEGAL_IDENTITY_FIELDS.map((f) => [f, true])) }));
+    const next = identityErrors();
+    setErrors(next);
+    if (Object.keys(next).length > 0) return;
+    goTo(3);
+  }
 
   /**
    * Campaign labels from the landing page, read at submit. The server keeps only
@@ -176,16 +187,19 @@ export default function RegisterForm({
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    setTouched({
-      name: true,
-      businessName: true,
-      businessKind: true,
-      email: true,
-      password: true,
-      acceptTerms: true,
-    });
+    // Enter on steps 1–2 moves forward; only step 3 sends.
+    if (step === 1) return continueFromAccount();
+    if (step === 2) return continueFromBusiness();
 
-    if (!validateForm()) {
+    // Step 3: everything once more — a value edited through the browser's back/forward cache is not trusted.
+    const all: RegisterErrors = { ...accountErrors(), ...identityErrors() };
+    if (!acceptTerms) all.acceptTerms = t("account.auth.register.errors.termsRequired");
+    setTouched({ name: true, email: true, password: true, acceptTerms: true, ...Object.fromEntries(LEGAL_IDENTITY_FIELDS.map((f) => [f, true])) });
+    setErrors(all);
+    const firstBad = Object.keys(all)[0];
+    if (firstBad) {
+      const target = stepOfField(firstBad);
+      if (target !== 3) goTo(target);
       return;
     }
 
@@ -204,10 +218,9 @@ export default function RegisterForm({
         },
         body: JSON.stringify({
           name: name.trim(),
-          businessName: businessName.trim(),
-          businessKind,
           email: email.trim(),
           password,
+          ...legalIdentityBody(identity),
           acceptTerms,
           attribution: readAttribution(),
           [SIGNUP_HONEYPOT_FIELD]: honeypotRef.current?.value ?? "",
@@ -231,14 +244,18 @@ export default function RegisterForm({
         if (registerData?.code === "EMAIL_ALREADY_REGISTERED") {
           setErrors({ email: registerData.error });
           setTouched((prev) => ({ ...prev, email: true }));
+          goTo(1);
           return;
         }
 
         // The server names the offending field when it can; honour that so the
-        // error lands where the correction has to be made.
+        // error lands where the correction has to be made — on its own step.
         if (typeof registerData?.field === "string") {
-          setErrors({ [registerData.field]: registerData.error });
-          setTouched((prev) => ({ ...prev, [registerData.field]: true }));
+          const field = registerData.field === "businessName" ? "tradeName" : registerData.field;
+          setErrors({ [field]: registerData.error });
+          setTouched((prev) => ({ ...prev, [field]: true }));
+          const target = stepOfField(field);
+          if (target !== 3) goTo(target);
           return;
         }
 
@@ -272,7 +289,7 @@ export default function RegisterForm({
       // A new business starts with one short, skippable screen about itself.
       router.replace("/setup");
     } catch (err) {
-      console.error("register error:", err);
+      console.error("register error:", err instanceof Error ? err.name : "unknown");
       setErrors({
         form: err instanceof Error ? err.message : t("account.auth.register.errors.registerFailed"),
       });
@@ -281,7 +298,7 @@ export default function RegisterForm({
     }
   };
 
-  const fieldError = (field: keyof RegisterErrors) => (touched[field] ? errors[field] : undefined);
+  const fieldError = (field: AccountField | "acceptTerms") => (touched[field] ? errors[field] : undefined);
 
   if (bootLoading) {
     return <div className={styles.page} aria-busy="true" />;
@@ -289,6 +306,10 @@ export default function RegisterForm({
 
   const termsError = fieldError("acceptTerms");
   const termsClass = [styles.terms, termsError ? styles.termsBad : acceptTerms ? styles.termsOn : ""].join(" ");
+  const stepTitle = t(
+    step === 1 ? "account.auth.register.legal.stepAccount" : step === 2 ? "account.auth.register.legal.stepBusiness" : "account.auth.register.legal.stepReview"
+  );
+  const brandStep = (n: 1 | 2 | 3) => `${styles.stepNum} ${n <= step ? styles.stepNumOn : ""}`;
 
   return (
     <div className={styles.page}>
@@ -303,22 +324,22 @@ export default function RegisterForm({
           </div>
           <p className={styles.brandTitle}>{t("account.auth.register.brand.title")}</p>
           <ol className={styles.steps}>
-            <li className={styles.step}>
-              <span className={`${styles.stepNum} ${styles.stepNumOn}`}>1</span>
+            <li className={styles.step} aria-current={step === 1 ? "step" : undefined}>
+              <span className={brandStep(1)}>1</span>
               <span className={styles.stepText}>
                 <span className={styles.stepTitle}>{t("account.auth.register.brand.step1Title")}</span>
                 <span className={styles.stepSub}>{t("account.auth.register.brand.step1Sub")}</span>
               </span>
             </li>
-            <li className={styles.step}>
-              <span className={styles.stepNum}>2</span>
+            <li className={styles.step} aria-current={step === 2 ? "step" : undefined}>
+              <span className={brandStep(2)}>2</span>
               <span className={styles.stepText}>
                 <span className={styles.stepTitle}>{t("account.auth.register.brand.step2Title")}</span>
                 <span className={styles.stepSub}>{t("account.auth.register.brand.step2Sub")}</span>
               </span>
             </li>
-            <li className={styles.step}>
-              <span className={styles.stepNum}>3</span>
+            <li className={styles.step} aria-current={step === 3 ? "step" : undefined}>
+              <span className={brandStep(3)}>3</span>
               <span className={styles.stepText}>
                 <span className={styles.stepTitle}>{t("account.auth.register.brand.step3Title")}</span>
                 <span className={styles.stepSub}>{t("account.auth.register.brand.step3Sub")}</span>
@@ -338,7 +359,7 @@ export default function RegisterForm({
           <AccessibilityTrigger className={styles.a11yBtn} label={t("account.auth.common.a11ySettings")} />
         </div>
 
-        <form className={styles.form} onSubmit={handleRegister} noValidate>
+        <form className={styles.form} onSubmit={handleRegister} noValidate data-step={step}>
           {/* Not for people: clipped to nothing, out of the tab order, hidden from assistive technology. */}
           <div
             aria-hidden="true"
@@ -348,178 +369,191 @@ export default function RegisterForm({
             <input ref={honeypotRef} id="dz-confirm-field" name={SIGNUP_HONEYPOT_FIELD} type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
           </div>
           <div className={styles.head}>
-            <h1 className={styles.title}>{t("account.auth.register.title")}</h1>
-            <p className={styles.loginLine}>
-              {t("account.auth.register.haveAccount")}{" "}
-              <Link href="/login" className={styles.link}>
-                {t("account.auth.register.toLogin")}
-              </Link>
+            <h1 className={styles.title} ref={headingRef} tabIndex={-1}>{t("account.auth.register.title")}</h1>
+            <p className={styles.stepper} data-testid="signup-step">
+              {t("account.auth.register.legal.stepOf", { step })} · {stepTitle}
             </p>
+            {step === 1 ? (
+              <p className={styles.loginLine}>
+                {t("account.auth.register.haveAccount")}{" "}
+                <Link href="/login" className={styles.link}>
+                  {t("account.auth.register.toLogin")}
+                </Link>
+              </p>
+            ) : null}
           </div>
 
-          <GoogleNotice notice={googleNotice} />
-          <GoogleSignInButton enabled={googleEnabled} from="register" />
+          {step === 1 ? (
+            <>
+              <GoogleNotice notice={googleNotice} />
+              <GoogleSignInButton enabled={googleEnabled} from="register" />
 
-          <div className={styles.grid}>
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="reg-name">{t("account.auth.register.nameLabel")}</label>
-              <input
-                id="reg-name"
-                name="name"
-                className={`${styles.input} ${fieldError("name") ? styles.invalid : ""}`}
-                autoComplete="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={() => handleBlur("name")}
-                aria-invalid={!!fieldError("name")}
-                aria-describedby={fieldError("name") ? "reg-name-msg" : undefined}
-              />
-              {fieldError("name") ? <p id="reg-name-msg" role="alert" className={styles.error}>{fieldError("name")}</p> : null}
-            </div>
+              <div className={styles.grid}>
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor="reg-name">{t("account.auth.register.nameLabel")}</label>
+                  <input
+                    id="reg-name"
+                    name="name"
+                    className={`${styles.input} ${fieldError("name") ? styles.invalid : ""}`}
+                    autoComplete="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    onBlur={() => handleBlur("name")}
+                    aria-invalid={!!fieldError("name")}
+                    aria-describedby={fieldError("name") ? "reg-name-msg" : undefined}
+                  />
+                  {fieldError("name") ? <p id="reg-name-msg" role="alert" className={styles.error}>{fieldError("name")}</p> : null}
+                </div>
 
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="reg-business">{t("account.auth.register.businessLabel")}</label>
-              <input
-                id="reg-business"
-                name="businessName"
-                className={`${styles.input} ${fieldError("businessName") ? styles.invalid : ""}`}
-                autoComplete="organization"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                onBlur={() => handleBlur("businessName")}
-                aria-invalid={!!fieldError("businessName")}
-                aria-describedby={fieldError("businessName") ? "reg-business-msg" : undefined}
-              />
-              {fieldError("businessName") ? (
-                <p id="reg-business-msg" role="alert" className={styles.error}>{fieldError("businessName")}</p>
-              ) : null}
-            </div>
+                <div className={`${styles.field} ${styles.gridWide}`}>
+                  <label className={styles.label} htmlFor="reg-email">{t("account.auth.common.emailLabel")}</label>
+                  <input
+                    id="reg-email"
+                    name="email"
+                    type="email"
+                    dir="ltr"
+                    inputMode="email"
+                    // "username", not "email": without it the password manager saves the full-name field above as the account.
+                    autoComplete="username"
+                    placeholder="name@example.com"
+                    className={`${styles.input} ${styles.ltr} ${fieldError("email") ? styles.invalid : ""}`}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onBlur={() => handleBlur("email")}
+                    aria-invalid={!!fieldError("email")}
+                    aria-describedby={fieldError("email") ? "reg-email-msg" : undefined}
+                  />
+                  {fieldError("email") ? <p id="reg-email-msg" role="alert" className={styles.error}>{fieldError("email")}</p> : null}
+                </div>
 
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="reg-business-kind">{t("account.auth.register.businessKind.label")}</label>
-              <select
-                id="reg-business-kind"
-                name="businessKind"
-                className={`${styles.input} ${fieldError("businessKind") ? styles.invalid : ""}`}
-                value={businessKind}
-                onChange={(e) => setBusinessKind(e.target.value)}
-                onBlur={() => setTouched((prev) => ({ ...prev, businessKind: true }))}
-                aria-invalid={!!fieldError("businessKind")}
-                aria-describedby={fieldError("businessKind") ? "reg-business-kind-msg" : undefined}
-                data-testid="signup-business-kind"
-              >
-                <option value="" disabled>{t("account.auth.register.businessKind.placeholder")}</option>
-                <option value="EXEMPT_DEALER">{t("account.auth.register.businessKind.EXEMPT_DEALER")}</option>
-                <option value="AUTHORIZED_DEALER">{t("account.auth.register.businessKind.AUTHORIZED_DEALER")}</option>
-                <option value="LTD_COMPANY">{t("account.auth.register.businessKind.LTD_COMPANY")}</option>
-              </select>
-              {fieldError("businessKind") ? <p id="reg-business-kind-msg" role="alert" className={styles.error}>{fieldError("businessKind")}</p> : null}
-            </div>
+                <div className={`${styles.field} ${styles.gridWide}`}>
+                  <label className={styles.label} htmlFor="reg-password">{t("account.auth.common.passwordLabel")}</label>
+                  <div className={styles.pw}>
+                    <input
+                      id="reg-password"
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      dir="ltr"
+                      autoComplete="new-password"
+                      className={`${styles.input} ${styles.ltr} ${fieldError("password") ? styles.invalid : ""}`}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      onBlur={() => handleBlur("password")}
+                      aria-invalid={!!fieldError("password")}
+                      aria-describedby="reg-password-msg"
+                    />
+                    <button
+                      type="button"
+                      className={styles.toggle}
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? t("account.auth.common.hidePasswordAria") : t("account.auth.common.showPasswordAria")}
+                      aria-pressed={showPassword}
+                    >
+                      {showPassword ? t("account.auth.common.hide") : t("account.auth.common.show")}
+                    </button>
+                  </div>
+                  <div className={styles.meterRow}>
+                    {fieldError("password") ? (
+                      <p id="reg-password-msg" role="alert" className={styles.error}>{fieldError("password")}</p>
+                    ) : (
+                      <span id="reg-password-msg">{passwordStrength.text}</span>
+                    )}
+                    <span className={styles.meter} aria-hidden="true">
+                      {[0, 1, 2, 3].map((i) => (
+                        <span key={i} className={`${styles.seg} ${i < passwordStrength.segments ? styles.segOn : ""}`} />
+                      ))}
+                    </span>
+                  </div>
+                </div>
+              </div>
 
-            <div className={`${styles.field} ${styles.gridWide}`}>
-              <label className={styles.label} htmlFor="reg-email">{t("account.auth.common.emailLabel")}</label>
-              <input
-                id="reg-email"
-                name="email"
-                type="email"
-                dir="ltr"
-                inputMode="email"
-                // "username", not "email": without it the password manager saves the full-name field above as the account.
-                autoComplete="username"
-                placeholder="name@example.com"
-                className={`${styles.input} ${styles.ltr} ${fieldError("email") ? styles.invalid : ""}`}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onBlur={() => handleBlur("email")}
-                aria-invalid={!!fieldError("email")}
-                aria-describedby={fieldError("email") ? "reg-email-msg" : undefined}
-              />
-              {fieldError("email") ? <p id="reg-email-msg" role="alert" className={styles.error}>{fieldError("email")}</p> : null}
-            </div>
-
-            <div className={`${styles.field} ${styles.gridWide}`}>
-              <label className={styles.label} htmlFor="reg-password">{t("account.auth.common.passwordLabel")}</label>
-              <div className={styles.pw}>
-                <input
-                  id="reg-password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  dir="ltr"
-                  autoComplete="new-password"
-                  className={`${styles.input} ${styles.ltr} ${fieldError("password") ? styles.invalid : ""}`}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onBlur={() => handleBlur("password")}
-                  aria-invalid={!!fieldError("password")}
-                  aria-describedby="reg-password-msg"
-                />
-                <button
-                  type="button"
-                  className={styles.toggle}
-                  onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? t("account.auth.common.hidePasswordAria") : t("account.auth.common.showPasswordAria")}
-                  aria-pressed={showPassword}
-                >
-                  {showPassword ? t("account.auth.common.hide") : t("account.auth.common.show")}
+              <div className={styles.actions}>
+                <button type="submit" className={styles.submit} data-testid="signup-next">
+                  {t("account.auth.register.legal.next")}
                 </button>
               </div>
-              <div className={styles.meterRow}>
-                {fieldError("password") ? (
-                  <p id="reg-password-msg" role="alert" className={styles.error}>{fieldError("password")}</p>
-                ) : (
-                  <span id="reg-password-msg">{passwordStrength.text}</span>
-                )}
-                <span className={styles.meter} aria-hidden="true">
-                  {[0, 1, 2, 3].map((i) => (
-                    <span key={i} className={`${styles.seg} ${i < passwordStrength.segments ? styles.segOn : ""}`} />
-                  ))}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <label className={termsClass} htmlFor="reg-terms">
-            <input
-              id="reg-terms"
-              type="checkbox"
-              checked={acceptTerms}
-              aria-invalid={!!termsError}
-              aria-describedby={termsError ? "reg-terms-msg" : undefined}
-              onChange={(e) => {
-                setAcceptTerms(e.target.checked);
-                if (e.target.checked) setErrors((prev) => ({ ...prev, acceptTerms: undefined }));
-              }}
-            />
-            <span className={styles.termsText}>
-              <span>
-                {t("account.auth.register.terms.prefix")}{" "}
-                <Link href={TERMS_HREF} target="_blank" rel="noopener noreferrer">
-                  {t("account.auth.register.terms.termsLink")}
-                </Link>{" "}
-                {t("account.auth.register.terms.join")}{" "}
-                <Link href={PRIVACY_HREF} target="_blank" rel="noopener noreferrer">
-                  {t("account.auth.register.terms.privacyLink")}
-                </Link>
-              </span>
-              {termsError ? (
-                <span id="reg-terms-msg" role="alert" className={styles.termsError}>
-                  {t("account.auth.register.terms.error")}
-                </span>
-              ) : null}
-            </span>
-          </label>
-
-          {errors.form ? (
-            <p role="alert" aria-live="assertive" className={styles.formError}>
-              {errors.form}
-            </p>
+            </>
           ) : null}
 
-          <div className={styles.actions}>
-            <button type="submit" className={styles.submit} disabled={isSubmitDisabled}>
-              {loading ? t("account.auth.register.submitting") : t("account.auth.register.submit")}
-            </button>
-          </div>
+          {step === 2 ? (
+            <>
+              <LegalIdentityFields
+                idPrefix="reg"
+                values={identity}
+                onChange={setIdentity}
+                errors={errors}
+                touched={touched}
+                onBlurField={handleIdentityBlur}
+              />
+              <div className={styles.actionsRow}>
+                <button type="button" className={styles.back} onClick={() => goTo(1)} data-testid="signup-back">
+                  {t("account.auth.register.legal.back")}
+                </button>
+                <button type="submit" className={styles.submit} data-testid="signup-next">
+                  {t("account.auth.register.legal.next")}
+                </button>
+              </div>
+            </>
+          ) : null}
+
+          {step === 3 ? (
+            <>
+              <LegalIdentityReview
+                values={identity}
+                account={[
+                  { label: t("account.auth.register.nameLabel"), value: name.trim() },
+                  { label: t("account.auth.common.emailLabel"), value: email.trim() },
+                ]}
+                onEdit={() => goTo(2)}
+              />
+
+              <label className={termsClass} htmlFor="reg-terms">
+                <input
+                  id="reg-terms"
+                  type="checkbox"
+                  checked={acceptTerms}
+                  aria-invalid={!!termsError}
+                  aria-describedby={termsError ? "reg-terms-msg" : undefined}
+                  onChange={(e) => {
+                    setAcceptTerms(e.target.checked);
+                    if (e.target.checked) setErrors((prev) => ({ ...prev, acceptTerms: undefined }));
+                  }}
+                />
+                <span className={styles.termsText}>
+                  <span>
+                    {t("account.auth.register.terms.prefix")}{" "}
+                    <Link href={TERMS_HREF} target="_blank" rel="noopener noreferrer">
+                      {t("account.auth.register.terms.termsLink")}
+                    </Link>{" "}
+                    {t("account.auth.register.terms.join")}{" "}
+                    <Link href={PRIVACY_HREF} target="_blank" rel="noopener noreferrer">
+                      {t("account.auth.register.terms.privacyLink")}
+                    </Link>
+                  </span>
+                  {termsError ? (
+                    <span id="reg-terms-msg" role="alert" className={styles.termsError}>
+                      {t("account.auth.register.terms.error")}
+                    </span>
+                  ) : null}
+                </span>
+              </label>
+
+              {errors.form ? (
+                <p role="alert" aria-live="assertive" className={styles.formError}>
+                  {errors.form}
+                </p>
+              ) : null}
+
+              <div className={styles.actionsRow}>
+                <button type="button" className={styles.back} onClick={() => goTo(2)} disabled={loading} data-testid="signup-back">
+                  {t("account.auth.register.legal.back")}
+                </button>
+                <button type="submit" className={styles.submit} disabled={loading} data-testid="signup-submit">
+                  {loading ? t("account.auth.register.submitting") : t("account.auth.register.submit")}
+                </button>
+              </div>
+            </>
+          ) : null}
         </form>
       </div>
     </div>

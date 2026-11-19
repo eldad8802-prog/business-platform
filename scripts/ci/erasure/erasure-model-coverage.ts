@@ -121,8 +121,14 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   Task: { disposition: "ERASURE_MANAGED" },
   TaskSeries: { disposition: "ERASURE_MANAGED" },
   TaskRequestLedger: { disposition: "ERASURE_MANAGED" },
-  // Web Push subscriptions — blanked and revoked in place by account deletion (migration 20261022090000).
+  // Web Push subscriptions — blanked and revoked in place by account deletion (migration 20261022090000). The
+  // Android app's FCM devices (migration 20261210090000) are rows of the same table, erased the same way: the
+  // `fcm:<token>` endpoint becomes erased:<id>.
   PushSubscription: { disposition: "ERASURE_MANAGED" },
+  // Notification engine (migration 20261210090000): each user's notification settings and overrides (booleans,
+  // minutes, catalog keys) are deleted with the account — the runtime holds DELETE on both, bound by RLS.
+  NotificationSettings: { disposition: "ERASURE_MANAGED" },
+  NotificationPreference: { disposition: "ERASURE_MANAGED" },
   // Monthly accountant workflow: the recipient row is deleted; every delivery's recipient snapshot is
   // erased in place and its link revoked (account-erasure-manifest.ts).
   AccountantRecipient: { disposition: "ERASURE_MANAGED" },
@@ -169,6 +175,9 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ServiceWarrantyOffer: { disposition: "ERASURE_MANAGED" },
   ServiceIntakePhoto: { disposition: "ERASURE_MANAGED" },
   ServiceShareEvent: { disposition: "ERASURE_MANAGED" },
+  // Service Desk 1.3-0 erasure texts (migration 20261123090000, ex-#1026): the business's settings row is DELETED by
+  // service_desk_ui_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
+  ServiceSettings: { disposition: "ERASURE_MANAGED" },
   // Service Desk P4 audit journal (migration 20261122090000): who acted and the request digest are erased in place by
   // service_settings_journal_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
   ServiceSettingsEvent: { disposition: "ERASURE_MANAGED" },
@@ -329,6 +338,8 @@ const RETAINED: Record<string, ModelCoverage> = {
     reason: "policy-lineage substrate; inert, no consumers",
     basis: "PRODUCT",
   },
+  // Issuer declaration (#1081, migration 20261126100000): the declared opening number of a numbering series.
+  BillingSeriesOpening: FISCAL("the declared opening number of a document numbering series, the previous tool's name and last number, and who declared it — numbering integrity"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -408,6 +419,13 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   ),
   InboundEmailAddress: unmanaged("localPartPreview, label, and the encrypted local part with its key id"),
   InboundEmailAttachmentImport: unmanaged("filename, plus the link to the message and the document"),
+  // Issuer declaration (#1081, migration 20261126100000). issuer_declaration_erase() exists (anonymises a declaration
+  // nothing was issued under; keeps the others, LEGAL/FISCAL) but the purge does not call it yet, and the
+  // DB-function contract only knows NULL / '' clearing — the table's CHECKs force placeholders. Recorded as debt.
+  BusinessIssuerDeclaration: unmanaged(
+    "legalName, tradeName, idNumber, vatRegistrationNumber, address, phone, email, declarantName, declarantCapacity",
+    "the purge calls issuer_declaration_erase() (#1117, proven by the account-deletion lab W8/C); still debt until the DB-function contract learns placeholder anonymisation and conditional retention"
+  ),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -431,6 +449,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   // tenant transaction (the runtime holds no UPDATE on the table). The payload can hold no text (DB CHECK).
   AccountantWorkflowEvent: operational("append-only accountant workflow trail: event type, actor role, times, ids and short tokens (no text by DB CHECK); the acting user is erased with the account by accountant_erase_business()"),
   TaskPreferences: operational("which task sources a business turned off, the morning-summary hour and sync bookkeeping"),
+  // Notification engine activation (migration 20261212090000): a business id, four times and a closed source token
+  // (DB CHECK: override | policy | worker | migration). Written only by the database (triggers + a SECURITY DEFINER
+  // function); the runtime holds SELECT only. It goes with the business (FK ON DELETE CASCADE).
+  NotificationEngineActivation: operational("when the notification engine was first / last switched on and off for the business: four times and a closed source token (no text by DB CHECK); cascades with the business"),
   // G5 milestone 1 (migration 20261107090000): the monitor's alert about one business — a finding code, a subject (a
   // month key or a delivery id), a severity, times and counts (closed detail by DB CHECK); no address, link or text.
   // It goes with the business (FK ON DELETE CASCADE); nothing in it identifies a person.
@@ -662,6 +684,7 @@ const INTERNAL: Record<string, ModelCoverage> = {
   BillingAuthorityApp: internal("Dubiz's own OAuth client credentials with the tax authority"),
   DerivationPolicy: internal("policy definitions in the inert derivation substrate"),
   DerivationPolicyVersion: internal("versions of the same"),
+  IssuerDeclarationEnforcement: internal("the platform-wide one-way switch of issuer-declaration enforcement: a time and the approval reference; names no business"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -678,13 +701,6 @@ const decide = (question: string, target = "E2"): ModelCoverage => ({
 });
 
 const DECIDE: Record<string, ModelCoverage> = {
-  // Service Desk 1.3-0 — not decided by default (owner, 1.3-0 PR-2 ש-3: no automatic retention). No writer exists yet.
-  ServiceSettings: decide(
-    "the business's warranty template scope / exclusions are owner free text and defaultStaffMemberId names a staff " +
-      "member; service_desk_ui_erase_business() does not touch the row and the table guard refuses runtime writes once " +
-      "the business is being deleted — keep (with a basis), or scrub through a NEW database function (a migration)?",
-    "SD-1.3a"
-  ),
   Business: decide(
     "Business.name survives. For a sole trader it IS the owner's name — but retained invoices " +
       "name the same business by legal necessity, so anonymising it may be incoherent. Product decision."

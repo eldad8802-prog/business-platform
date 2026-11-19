@@ -45,6 +45,24 @@ import { authDb } from "@/lib/prisma-auth";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { checkBrowserCsrf, clearRefreshCookie, readRefreshCookie } from "@/lib/auth/refresh-cookie";
 import { revokeSessionByCredential } from "@/lib/auth/refresh-session";
+import { revokeSessionDevicesBestEffort } from "@/lib/notifications/engine/devices";
+
+/**
+ * The ended session's push devices go with it (notification engine). Best effort and never throws: the business
+ * is looked up on the auth plane by the proven session (AuthSession → User.businessId, both granted to it), and the
+ * worker's own session-liveness check is the guarantee if this fails.
+ */
+async function endSessionPush(sessionId: string): Promise<void> {
+  try {
+    const row = await authDb().authSession.findUnique({
+      where: { id: sessionId },
+      select: { userId: true, user: { select: { businessId: true } } },
+    });
+    if (row?.user?.businessId) await revokeSessionDevicesBestEffort(row.user.businessId, sessionId, "logout", row.userId);
+  } catch {
+    /* best effort */
+  }
+}
 
 const NO_STORE = { "cache-control": "no-store" } as const;
 
@@ -104,6 +122,8 @@ export async function handleRefreshRevoke(
         ...(revoked ? { sid: outcome.sessionId.slice(0, 8) } : {}),
       })
     );
+
+    if (outcome.kind === "revoked") await endSessionPush(outcome.sessionId);
 
     const res = NextResponse.json({ revoked }, { headers: NO_STORE });
     clearRefreshCookie(res);
