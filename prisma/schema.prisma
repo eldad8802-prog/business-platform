@@ -1533,6 +1533,9 @@ model Task {
   supplierId        Int?
   leadId            Int?
   documentId        Int?
+  /// A7 (migration 20261214090000): the Service Desk case this task belongs to. Composite tenant FK
+  /// (businessId, serviceCaseId) → ServiceCase ON DELETE SET NULL (serviceCaseId) and a partial index, in the migration.
+  serviceCaseId     Int?
   erasedAt          DateTime?
   business          Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -8533,6 +8536,9 @@ model ServiceCase {
   returnReason          ServiceReturnReason?
   afterSaleResolution   ServiceAfterSaleResolution?
   originalSaleRef       String? // cleared by service_tracks_erase_business()
+  // A7 (migration 20261214090000). Both optional, no alerts, no SLA.
+  estimatedReadyOn      DateTime?                @db.Date
+  itemLocationNote      String? // CHECK ≤ 120, non-blank; cleared by service_case_fields_erase_business()
 
   @@unique([businessId, id])
   @@unique([businessId, caseNumber])
@@ -9037,6 +9043,27 @@ model ServiceCompletion {
 
   @@unique([businessId, id])
   @@unique([businessId, caseId])
+}
+
+/// Service Desk A7 (migration 20261214090000) — loaner equipment lent with a case: a reminder only, never a block.
+/// RLS forced; app_runtime may SELECT / INSERT / UPDATE (no DELETE). service_case_loaner_guard: the case and lentAt are
+/// fixed, erased rows are immutable, no delete except the case / business cascade. Composite tenant FK
+/// (businessId, caseId) → ServiceCase ON DELETE CASCADE, in the migration.
+model ServiceCaseLoaner {
+  id             Int       @id @default(autoincrement())
+  businessId     Int
+  caseId         Int
+  itemName       String // CHECK non-blank, ≤ 120; replaced by the fixed 'נמחק' by service_case_fields_erase_business()
+  lentAt         DateTime  @default(now())
+  returnedAt     DateTime? // CHECK ≥ lentAt
+  note           String? // CHECK ≤ 500; cleared by service_case_fields_erase_business()
+  createdAt      DateTime  @default(now())
+  erasedAt       DateTime?
+  /// one key per lend request (CHECK ^[A-Za-z0-9._:-]{16,128}$): a retried request returns the same loan
+  idempotencyKey String
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, caseId], map: "ServiceCaseLoaner_case_idx")
 }
 
 /// Service Desk M1 (D11) — one row per CHANGE_DETAILS, at the journal event's seq; append-only. Before / after values
