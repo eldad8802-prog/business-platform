@@ -244,7 +244,7 @@ export const ROUTE_FEATURE_MAP: readonly RouteFeatureEntry[] = [
 
   /* ---------------- reports ---------------- */
   { route: "reports/summary", feature: RP },
-  { route: "reports/uniform", exempt: FLOOR, note: "the uniform-structure export of tax documents (owner decision 2026-11-20): available in every state incl. FREE_LIMITED; the route keeps its own authentication and permission check" },
+  { route: "reports/uniform", exempt: FLOOR, note: "the uniform-structure export of tax documents (owner decision 2026-11-20): available in every state incl. FREE_LIMITED; the route keeps its own authentication and tenant isolation (it has no role check — pre-existing, flagged to the owner)" },
   { route: "reports/export", exempt: FLOOR },
   { route: "reports/export-zip", exempt: FLOOR },
 
