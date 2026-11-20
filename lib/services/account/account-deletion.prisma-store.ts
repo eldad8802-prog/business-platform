@@ -525,6 +525,12 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           // blanks the case by a fixed column list that cannot know these; the completion and the details changes are
           // append-only). Who acted is cleared too. It refuses unless the business in this tenant context is being deleted.
           await tx.$queryRaw`SELECT public.service_tracks_erase_business() AS n`;
+          // Service Desk A7 case fields (migration 20261214090000). The loaner items' names are replaced by a fixed
+          // placeholder and their notes cleared (the loan guard refuses that change from the runtime itself, and an erased
+          // loan is immutable after), and the case's item-location note is cleared, by this SECURITY DEFINER function.
+          // The lend / return times stay as the case's record. A task's link to a case is an id, not text — it stays.
+          // It refuses unless the business in this tenant context is being deleted.
+          await tx.$queryRaw`SELECT public.service_case_fields_erase_business() AS n`;
           // Business documents (migration 20261114090000). Quote share copies and their events, saved letters and
           // idempotency keys are deleted, and every stored file is marked DELETING with its object key kept, by this
           // SECURITY DEFINER function — it also writes the durable erasure job, in THIS transaction, so a failed purge
