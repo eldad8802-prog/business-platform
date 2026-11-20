@@ -155,9 +155,11 @@ async function main() {
       await clickAction(p, "למסור ללקוח");
       await p.getByRole("dialog").getByRole("textbox").fill("דנה");
       await confirmDialog(p, "לאשר מסירה");
-      await p.getByRole("alert").waitFor({ timeout: 30_000 });
-      const text = (await p.getByRole("alert").innerText()).trim();
-      if (!/[֐-׿]/.test(text)) throw new Error(`not a Hebrew message: ${text}`);
+      // the case's own message (Next's hidden route announcer is also role=alert)
+      const alert = p.locator("[role=alert]:not(#__next-route-announcer__)");
+      await alert.first().waitFor({ timeout: 30_000 });
+      const text = (await alert.first().innerText()).trim();
+      if (!text.includes("ללא חיוב")) throw new Error(`not the charge-decision message: ${text}`);
       await shot(p, "real-case-refused-phone");
       if ((await statusOf(seed.c1)) !== "READY") throw new Error("status changed");
     });

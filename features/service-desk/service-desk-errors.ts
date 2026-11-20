@@ -26,6 +26,8 @@ const REFUSAL: Record<string, string> = {
   HANDOVER_NOT_CONFIRMED: "אשרו את המסירה כדי לסיים.",
   OPEN_BALANCE_NEEDS_OWNER_DECISION: "יש יתרה פתוחה בתיק. מסירה עם חוב רק בידי בעל העסק ועם סיבה מתועדת.",
   NO_CHARGE_DECISION: "חסרה החלטת חיוב לתיק: לרשום חיוב או \"ללא חיוב\" לפני המסירה.",
+  // the handover's balance rule (core): unknown blocks — most often no charge decision yet, or documents that do not match it
+  BALANCE_UNKNOWN: "אי אפשר למסור כשיתרת התיק לא ידועה. לרשום חיוב או \"ללא חיוב\" לתיק, ולוודא שמסמכי החיוב המקושרים תואמים.",
   CHARGE_NOT_DOCUMENTED: "החיוב עוד לא תועד במסמך — אפשר למסור רק עם החלטת בעל העסק.",
   QA_ONLY_IN_QA: "הבדיקות נרשמות רק בשלב הבדיקה.",
   QA_NOT_FOR_KIND: "בסוג העבודה הזה הבדיקות כבויות.",
