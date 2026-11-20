@@ -406,6 +406,19 @@ export type AuthorityAppRegistrationSummaryView = {
   created: boolean;
 };
 
+/**
+ * FCM credential check (notifications track). ONE POST to the existing route, through the canonical
+ * privileged path (Bearer + MFA elevation + step-up). The server performs one token exchange at Google,
+ * sends no push and returns only `{ result }`; the raw body is validated by the caller, never trusted.
+ */
+export async function postPlatformAdminFcmAuthCheck(): Promise<TokenProbeInvocation> {
+  const { status, data } = await adminRequest<unknown>(
+    "/api/platform-admin/notifications/fcm-auth-check",
+    { method: "POST" }
+  );
+  return { routeHttpStatus: status, result: data };
+}
+
 export async function postPlatformAdminAuthorityAppRegistration(
   body: AuthorityAppRegistrationRequest
 ): Promise<AuthorityAppRegistrationSummaryView> {

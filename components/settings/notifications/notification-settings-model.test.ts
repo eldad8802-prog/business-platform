@@ -23,8 +23,11 @@ import fs from "node:fs";
 import { NOTIFICATION_CATEGORIES, getCategory, isCategoryKey } from "@/lib/notifications/catalog";
 import { decideOwed } from "@/lib/notifications/engine/worker-decision";
 import {
+  APPOINTMENT_REMINDER_CHOICES,
   DEFAULT_SETTINGS,
+  EMPTY_SETTINGS,
   SETTINGS_FIELDS,
+  effectiveSettings,
   resolveCategory,
   validatePreferenceBody,
   validateSettingsPatch,
@@ -48,8 +51,10 @@ import {
   CHOICES,
   DOMAIN_LABEL_KEYS,
   HIDDEN_CATEGORIES,
+  APPOINTMENT_LEAD_LABEL_KEYS,
   SETTINGS_CONTROLS,
   TEST_MESSAGE_KEYS,
+  appointmentLeadView,
   buildTypeGroups,
   categoryRow,
   deviceState,
@@ -211,7 +216,7 @@ check("every listed type and area has a Hebrew label", () => {
 check("every settings control writes a real settings field the backend accepts", () => {
   const sample: Record<string, boolean | number> = {
     pushEnabled: false, digestEnabled: false, quietHoursEnabled: false, lockScreenDetails: true,
-    digestMinute: 9 * 60, quietStartMinute: 23 * 60, quietEndMinute: 6 * 60 + 30,
+    digestMinute: 9 * 60, quietStartMinute: 23 * 60, quietEndMinute: 6 * 60 + 30, appointmentReminderMinutes: 120,
   };
   for (const field of Object.values(SETTINGS_CONTROLS)) {
     assert.ok((SETTINGS_FIELDS as readonly string[]).includes(field), field);
@@ -220,6 +225,43 @@ check("every settings control writes a real settings field the backend accepts",
   }
   // …and every settings field has a control (nothing the backend offers is silently missing).
   assert.deepEqual([...new Set(Object.values(SETTINGS_CONTROLS))].sort(), [...SETTINGS_FIELDS].sort());
+});
+
+check("appointment lead time: the four choices in order, labelled verbatim, default an hour, each accepted by the backend", () => {
+  assert.deepEqual([...APPOINTMENT_REMINDER_CHOICES], [30, 60, 120, 1440]);
+  assert.deepEqual(
+    APPOINTMENT_REMINDER_CHOICES.map((m) => trHe(APPOINTMENT_LEAD_LABEL_KEYS[m])),
+    ["30 דקות לפני", "שעה לפני", "שעתיים לפני", "יום לפני"],
+  );
+  assert.equal(notificationsHe.types.appointmentLead.title, "מתי להזכיר לפני תור");
+  assert.equal(DEFAULT_SETTINGS.appointmentReminderMinutes, 60);
+  for (const m of APPOINTMENT_REMINDER_CHOICES) {
+    const v = validateSettingsPatch({ [SETTINGS_CONTROLS.appointmentLead]: m });
+    assert.ok(v.ok, String(m));
+    // stored → effective: what the chip then shows is what the producer uses
+    assert.equal(effectiveSettings({ ...EMPTY_SETTINGS, appointmentReminderMinutes: m }).appointmentReminderMinutes, m);
+  }
+  for (const bad of [0, 15, 45, 90, 1441, -60, "60", true]) {
+    assert.ok(!validateSettingsPatch({ appointmentReminderMinutes: bad }).ok, String(bad));
+  }
+  assert.ok(validateSettingsPatch({ appointmentReminderMinutes: null }).ok, "null = back to the default");
+});
+
+check("appointment lead time: shown only when the appointment reminder is available; the effective value is pressed", () => {
+  const base = (available: boolean, lead: number): SettingsView => ({
+    settings: { ...DEFAULT_SETTINGS, appointmentReminderMinutes: lead },
+    categories: NOTIFICATION_CATEGORIES.map((c) => ({ key: c.key, available: c.key === "appointments.upcoming" ? available : true })),
+    overrides: [],
+  });
+  assert.equal(appointmentLeadView(base(false, 60)).shown, false);
+  const on = appointmentLeadView(base(true, 1440));
+  assert.equal(on.shown, true);
+  assert.deepEqual(on.options.filter((o) => o.pressed).map((o) => o.minutes), [1440]);
+  assert.deepEqual(appointmentLeadView(base(true, 60)).options.filter((o) => o.pressed).map((o) => o.minutes), [60]);
+  // the control sits in the appointments area of the types screen, gated on that view
+  const src = fs.readFileSync("components/settings/notifications/NotificationTypesScreen.tsx", "utf8");
+  assert.ok(src.includes('g.domain === "appointments" ? <AppointmentLead'), "rendered in the appointments area");
+  assert.ok(src.includes("if (!lead.shown) return null"), "hidden when unavailable");
 });
 
 const OVERRIDE_STATES: StoredPreference[][] = [
@@ -389,7 +431,7 @@ check("the system permission dialog is requested only from the tap handler", () 
 });
 
 check("every settings write goes through SETTINGS_CONTROLS (a real field)", () => {
-  for (const f of ["NotificationsMainScreen.tsx", "NotificationPrivacyScreen.tsx"]) {
+  for (const f of ["NotificationsMainScreen.tsx", "NotificationPrivacyScreen.tsx", "NotificationTypesScreen.tsx"]) {
     const src = read(`${DIR}/${f}`);
     for (const m of src.matchAll(/patchSettings\(\{\s*\[([^\]]+)\]/g)) {
       assert.ok(/^SETTINGS_CONTROLS\.\w+$|^field$/.test(m[1].trim()), `${f}: ${m[1]}`);

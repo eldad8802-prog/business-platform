@@ -25,6 +25,7 @@ const SETTINGS_SELECT = {
   digestEnabled: true,
   digestMinute: true,
   lockScreenDetails: true,
+  appointmentReminderMinutes: true,
 } as const;
 
 /** The user's stored settings row (null = all defaults) and overrides, inside an open tenant transaction. */

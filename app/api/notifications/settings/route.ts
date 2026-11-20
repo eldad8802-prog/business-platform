@@ -6,7 +6,8 @@
  *         quiet-hours bypass and which aspects are changeable; plus the caller's stored overrides. A category whose
  *         feature is unavailable is reported unavailable — its stored overrides are kept, never deleted here.
  * PATCH — { pushEnabled?, quietHoursEnabled?, quietStartMinute?, quietEndMinute?, digestEnabled?, digestMinute?,
- *           lockScreenDetails? }: each a value or null (= back to the default). Unknown fields refused (400).
+ *           lockScreenDetails?, appointmentReminderMinutes? (30 | 60 | 120 | 1440) }: each a value or null (= back to
+ *           the default). Unknown fields, and a lead time outside the four choices, refused (400).
  *
  * The actor is the session's user only: no user id is ever read from the request.
  */

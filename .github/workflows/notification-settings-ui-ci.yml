@@ -28,6 +28,7 @@ on:
       - "lib/i18n/messages/areas/notifications*.ts"
       - "lib/notifications/catalog.ts"
       - "lib/notifications/preferences.ts"
+      - "lib/notifications/preferences.test.ts"
       - "lib/notifications/engine/worker-decision.ts"
       - "lib/native/push-notifications.ts"
       - "lib/push/push-client.ts"
@@ -59,8 +60,10 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
-      - name: View model, wording and wiring
+      - name: View model, wording and wiring (incl. the appointment reminder lead time)
         run: npx tsx components/settings/notifications/notification-settings-model.test.ts
+      - name: The settings API's validation (the lead time accepted / refused exactly as the screen offers it)
+        run: npx tsx lib/notifications/preferences.test.ts
       - name: Settings navigation (hub / rail listing)
         run: npx tsx lib/services/profile/profile-settings.verify.test.ts
 

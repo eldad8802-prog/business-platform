@@ -306,8 +306,11 @@ const CATEGORY_LIST = [
     hrefPrefixes: ["/billing"],
   },
   {
-    // D. A document whose processing failed (status `failed`): the pipeline never retries on its own — only a person
-    // pressing "retry" re-runs it. Backlog, never an interruption: in-app + daily summary.
+    // D. A document whose processing failed (status `failed`) or is STUCK (still `processing` 30 minutes after its
+    // attempt started — the platform ended the invocation; state-facts.ts DOCUMENT_STUCK_MS): the pipeline never
+    // retries on its own — only a person pressing "retry" re-runs it. The file is saved and nothing is lost or late
+    // by waiting, so no push by default (the user may turn it on): backlog, never an interruption — in-app + daily
+    // summary. Deep link: the document's own screen (/documents/review/<id>, which offers the retry).
     key: "documents.processing_failed",
     domain: "documents",
     featureKey: PLATFORM_FEATURE_KEYS.DOCUMENTS,
@@ -318,13 +321,17 @@ const CATEGORY_LIST = [
     userMutable: { inApp: true, push: true, delivery: true },
     cooldownHours: 72,
     ttlMinutes: 12 * 60,
-    lockScreen: { title: GENERIC_PUSH_TITLE, body: "יש מסמך שהעיבוד שלו לא הצליח" },
+    lockScreen: { title: GENERIC_PUSH_TITLE, body: "יש מסמך שהעיבוד שלו לא הושלם" },
     hrefPrefixes: ["/documents"],
   },
   {
-    // E. A confirmed appointment starts within the lead time (catalog default: 60 minutes before). A reminder is only
-    // worth anything on the device: push by default. NOT a quiet-hours bypass (the time was not set by the user as a
-    // reminder): the worker defers it to the quiet end, and the 30-minute TTL drops it if that is after the start.
+    // E. A confirmed appointment, reminded to each user at THEIR lead time (NotificationSettings.
+    // appointmentReminderMinutes: 30 / 60 / 120 minutes or the day before; default 60). The owed push is created ahead
+    // with nextAttemptAt = the moment and expiresAt = the start (state-facts.ts appointmentReminderPlan), so the
+    // worker times it, never the sweep. A reminder is only worth anything on the device: push by default. NOT a
+    // quiet-hours bypass — decided conservatively: the appointment's time was set by whoever booked it, not chosen by
+    // the user as a "wake me" reminder; the worker defers it to the quiet end and drops it ('quiet') if that is after
+    // the start. ttlMinutes is unused for these rows (their expiry is explicit).
     key: "appointments.upcoming",
     domain: "appointments",
     featureKey: PLATFORM_FEATURE_KEYS.APPOINTMENTS,
