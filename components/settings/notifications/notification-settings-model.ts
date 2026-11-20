@@ -294,8 +294,14 @@ export function timeToMinute(t: string): number | null {
 
 export type NativePermission = "granted" | "denied" | "prompt" | "unavailable";
 
+/**
+ * This phone's registration as the card knows it. "connected" ONLY after the server answered 2xx to a registration
+ * made during this visit — never from the permission or the device-local opt-in. "idle" = not confirmed yet.
+ */
+export type NativeRegistration = "idle" | "connecting" | "connected" | "failed";
+
 export type DeviceInputs =
-  | { kind: "native"; configured: boolean; permission: NativePermission; optedIn: boolean; askedThisVisit: boolean; registration: "idle" | "connecting" | "connected" | "failed" }
+  | { kind: "native"; configured: boolean; permission: NativePermission; optedIn: boolean; askedThisVisit: boolean; registration: NativeRegistration }
   /** Inside the Dubiz Android app, but a build without the push plugin. */
   | { kind: "app-without-push" }
   | { kind: "browser"; browserPush: "on" | "off" | "denied" | "unavailable" };
@@ -333,9 +339,52 @@ export function deviceState(i: DeviceInputs): DeviceState {
   if (i.permission === "denied") return "native-denied";
   if (i.permission === "prompt") return i.askedThisVisit ? "native-ask-again" : "native-ask";
   if (!i.optedIn) return "native-ask";
-  if (i.registration === "connecting") return "native-connecting";
+  if (i.registration === "connected") return "native-connected";
   if (i.registration === "failed") return "native-connect-failed";
-  return "native-connected";
+  // "idle" with the permission and the opt-in: not confirmed by the server yet — the card is confirming it now.
+  return "native-connecting";
+}
+
+/* ───────────────────────────────────────────────── registration outcome → card ── */
+
+/** The client's outcome classes (lib/native/push-notifications PushRegistrationStatus) plus a disconnect. */
+export type RegistrationOutcomeLike = { status: string; code?: string };
+
+/**
+ * What a registration outcome means for the card. Only "registered" (the server's 2xx) connects; the permission
+ * and configuration ends go back to their own states; everything else is a failure with a reason.
+ */
+export function registrationFromOutcome(o: RegistrationOutcomeLike): "connected" | "not_configured" | "permission" | "failed" {
+  if (o.status === "registered") return "connected";
+  if (o.status === "not_configured") return "not_configured";
+  if (o.status === "permission_not_granted") return "permission";
+  return "failed";
+}
+
+const FAILURE_KEYS: Readonly<Record<string, NotificationKey>> = {
+  not_signed_in: "notifications.phone.failNotSignedIn",
+  server_rejected: "notifications.phone.failServer",
+  offline: "notifications.phone.failOffline",
+  registration_error: "notifications.phone.failGoogle",
+  registration_timeout: "notifications.phone.failTimeout",
+  unregistered: "notifications.phone.failDisconnected",
+};
+
+/** The reason line under "couldn't connect". */
+export function registrationFailureKey(o: RegistrationOutcomeLike | null): NotificationKey {
+  return (o && FAILURE_KEYS[o.status]) ?? "notifications.phone.failUnknown";
+}
+
+/**
+ * A short diagnostic code to read out to support: the class, plus the allow-listed code when there is one
+ * (e.g. "registration_error/SERVICE_NOT_AVAILABLE", "server_rejected/HTTP_404"). Only [A-Za-z0-9_] survives.
+ */
+export function registrationDiagnostic(o: RegistrationOutcomeLike | null): string {
+  if (!o) return "unknown";
+  const clean = (v: string) => v.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40);
+  const status = clean(o.status) || "unknown";
+  const code = typeof o.code === "string" ? clean(o.code) : "";
+  return code ? `${status}/${code}` : status;
 }
 
 /* ─────────────────────────────────────────────────────────── the test button ── */

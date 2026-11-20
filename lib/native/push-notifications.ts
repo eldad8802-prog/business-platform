@@ -23,6 +23,9 @@
  * Server contract (notifications engine, devices API):
  *   POST   /api/push/devices          {provider:"FCM", token, platform:"android", appVersion}
  *   DELETE /api/push/devices/current  revoke this session's devices (best effort)
+ *
+ * "Connected" is never inferred on the device: only a 2xx answer to this attempt's POST is a registration
+ * (PushRegistrationOutcome "registered"). Every other end has a class and, where useful, an allow-listed code.
  */
 
 import { Capacitor, registerPlugin } from "@capacitor/core";
@@ -112,18 +115,56 @@ export type PushPluginLike = {
 export const PUSH_RECEIVED_EVENT = "dubiz:push-received";
 export const PUSH_STATUS_EVENT = "dubiz:push-status";
 
-/** Non-sensitive registration outcome (never a token, never an error text from the device). */
+/**
+ * Non-sensitive registration outcome (never a token, never a raw error text from the device).
+ * "registered" is the ONLY success, and it means the server answered 2xx to this attempt's POST: nothing on the
+ * device alone (the permission, the local opt-in, an earlier upload) ever counts as connected.
+ */
 export type PushRegistrationStatus =
   | "registered"
-  | "unchanged"
   | "not_signed_in"
   | "server_rejected"
   | "offline"
+  /** FCM answered registrationError (or register() threw). */
   | "registration_error"
+  /** FCM never answered within REGISTER_TIMEOUT_MS. */
+  | "registration_timeout"
   | "permission_not_granted"
   /** The build has no Firebase config (no google-services.json): register() is never called. */
   | "not_configured"
   | "unavailable";
+
+/**
+ * A registration outcome plus a short, allow-listed diagnostic code: the HTTP status for server_rejected, a known
+ * Firebase error name for registration_error. Never a token, never free text from the device or the server.
+ */
+export type PushRegistrationOutcome = { status: PushRegistrationStatus; code?: string };
+
+/** Firebase Messaging / Installations error names that may be shown as a diagnostic (public constants). */
+export const FCM_ERROR_CODES = [
+  "SERVICE_NOT_AVAILABLE",
+  "AUTHENTICATION_FAILED",
+  "TOO_MANY_REGISTRATIONS",
+  "MISSING_INSTANCEID_SERVICE",
+  "INVALID_SENDER",
+  "PHONE_REGISTRATION_ERROR",
+  "INTERNAL_SERVER_ERROR",
+  "TIMEOUT",
+  "FIS_AUTH_ERROR",
+  "INVALID_PARAMETERS",
+  "MAIN_THREAD",
+  "UNREGISTERED",
+] as const;
+
+/** Pure. The first allow-listed Firebase error name inside a device error text; "OTHER" when none. Never the text. */
+export function fcmErrorCode(error: unknown): string {
+  if (typeof error !== "string") return "OTHER";
+  for (const m of error.match(/[A-Z][A-Z_]{3,40}/g) ?? []) {
+    if ((FCM_ERROR_CODES as readonly string[]).includes(m)) return m;
+  }
+  if (/firebase installations/i.test(error)) return "FIS_ERROR";
+  return "OTHER";
+}
 
 export type PushDeps = {
   /** The Android app with the push plugin compiled in. */
@@ -180,24 +221,29 @@ export function formatAppVersion(info: { version?: unknown; build?: unknown } | 
 
 export function createPushClient(deps: PushDeps) {
   let listenersReady: Promise<boolean> | null = null;
-  let lastPostedToken: string | null = null;
-  let postInFlight: { token: string; promise: Promise<PushRegistrationStatus> } | null = null;
+  let postInFlight: { token: string; promise: Promise<PushRegistrationOutcome> } | null = null;
   let startupScheduled = false;
-  let pendingRegistration: ((s: PushRegistrationStatus) => void) | null = null;
+  let pendingRegistration: ((o: PushRegistrationOutcome) => void) | null = null;
+  /** One registration at a time: a second caller (start-up + the settings screen, a double tap) shares the first. */
+  let registerInFlight: Promise<PushRegistrationOutcome> | null = null;
 
-  const report = (status: PushRegistrationStatus) => {
-    deps.emit(PUSH_STATUS_EVENT, { status });
+  const report = (outcome: PushRegistrationOutcome) => {
+    deps.emit(PUSH_STATUS_EVENT, outcome.code ? { status: outcome.status, code: outcome.code } : { status: outcome.status });
     const settle = pendingRegistration;
     pendingRegistration = null;
-    settle?.(status);
+    settle?.(outcome);
   };
 
-  async function postToken(token: string): Promise<PushRegistrationStatus> {
-    if (token === lastPostedToken) return "unchanged";
+  /**
+   * Upload the token. Every call POSTs (the server's upsert is idempotent), so a device the server revoked since an
+   * earlier upload — a sign-out, the session ending, a disconnect — is bound again instead of being assumed
+   * connected. The same token already on its way shares that request.
+   */
+  async function postToken(token: string): Promise<PushRegistrationOutcome> {
     if (postInFlight && postInFlight.token === token) return postInFlight.promise;
     const headers = deps.authHeaders();
-    if (!headers) return "not_signed_in";
-    const promise = (async (): Promise<PushRegistrationStatus> => {
+    if (!headers) return { status: "not_signed_in" };
+    const promise = (async (): Promise<PushRegistrationOutcome> => {
       try {
         const appVersion = await deps.appVersion().catch(() => null);
         const res = await deps.fetch("/api/push/devices", {
@@ -206,11 +252,10 @@ export function createPushClient(deps: PushDeps) {
           cache: "no-store",
           body: JSON.stringify({ provider: "FCM", token, platform: "android", appVersion }),
         });
-        if (!res.ok) return "server_rejected";
-        lastPostedToken = token;
-        return "registered";
+        if (!res.ok) return { status: "server_rejected", code: `HTTP_${Number.isInteger(res.status) ? res.status : 0}` };
+        return { status: "registered" };
       } catch {
-        return "offline";
+        return { status: "offline" };
       }
     })();
     postInFlight = { token, promise };
@@ -230,11 +275,11 @@ export function createPushClient(deps: PushDeps) {
         const p = await deps.plugin();
         await p.addListener("registration", (t) => {
           const token = typeof t?.value === "string" ? t.value : "";
-          if (!token) return report("registration_error");
+          if (!token) return report({ status: "registration_error", code: "EMPTY_TOKEN" });
           void postToken(token).then(report);
         });
-        // The device's error text is not forwarded: it can be long and is of no use to a screen.
-        await p.addListener("registrationError", () => report("registration_error"));
+        // The device's error text is never forwarded: only an allow-listed Firebase error name (fcmErrorCode).
+        await p.addListener("registrationError", (err) => report({ status: "registration_error", code: fcmErrorCode(err?.error) }));
         await p.addListener("pushNotificationReceived", (n) => {
           deps.emit(PUSH_RECEIVED_EVENT, safeData(n?.data));
         });
@@ -264,32 +309,40 @@ export function createPushClient(deps: PushDeps) {
    * Register with FCM when the permission is granted. Resolves with the outcome of the
    * resulting token upload (or of the failure). Never asks for the permission.
    */
-  async function registerDevice(): Promise<PushRegistrationStatus> {
-    if (!(await attachListeners())) return "unavailable";
-    if ((await permissionStatus()) !== "granted") return "permission_not_granted";
+  function registerDevice(): Promise<PushRegistrationOutcome> {
+    if (registerInFlight) return registerInFlight;
+    const run = registerOnce();
+    registerInFlight = run;
+    void run.finally(() => {
+      if (registerInFlight === run) registerInFlight = null;
+    });
+    return run;
+  }
+
+  async function registerOnce(): Promise<PushRegistrationOutcome> {
+    if (!(await attachListeners())) return { status: "unavailable" };
+    if ((await permissionStatus()) !== "granted") return { status: "permission_not_granted" };
     if (!(await deps.firebaseConfigured().catch(() => false))) {
-      report("not_configured");
-      return "not_configured";
+      const out: PushRegistrationOutcome = { status: "not_configured" };
+      report(out);
+      return out;
     }
     try {
       const p = await deps.plugin();
-      const settled = new Promise<PushRegistrationStatus>((resolve) => {
-        pendingRegistration?.("unchanged");
+      const settled = new Promise<PushRegistrationOutcome>((resolve) => {
         pendingRegistration = resolve;
         // FCM answers with 'registration' or 'registrationError'; never wait forever.
         deps.setTimeout(() => {
-          if (pendingRegistration === resolve) {
-            pendingRegistration = null;
-            resolve("registration_error");
-          }
+          if (pendingRegistration === resolve) report({ status: "registration_timeout" });
         }, REGISTER_TIMEOUT_MS);
       });
       await p.register();
       return await settled;
     } catch {
       // register() itself threw — e.g. no google-services.json in this build.
-      report("registration_error");
-      return "registration_error";
+      const out: PushRegistrationOutcome = { status: "registration_error", code: "REGISTER_THREW" };
+      report(out);
+      return out;
     }
   }
 
@@ -336,7 +389,7 @@ export function createPushClient(deps: PushDeps) {
     if (!headers) return false;
     try {
       const res = await deps.fetch("/api/push/devices/current", { method: "DELETE", headers, cache: "no-store" });
-      if (res.ok) lastPostedToken = null;
+      if (res.ok) deps.emit(PUSH_STATUS_EVENT, { status: "unregistered" });
       return res.ok;
     } catch {
       return false;
