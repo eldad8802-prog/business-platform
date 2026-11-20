@@ -3,15 +3,19 @@
  *   npx tsx lib/native/push-notifications.test.ts
  *
  * Locks: permission is never requested at start-up; re-registration only when already
- * granted, once per page lifetime; token upload shape + auth; rotation dedupe; error
- * paths; tap deep-link validation (attacks included); foreground data passthrough is
- * non-sensitive; tokens never logged; everything a silent no-op off the Android app.
+ * granted, once per page lifetime; token upload shape + auth; "registered" ONLY on the
+ * server's 2xx to this attempt (no "unchanged" shortcut — a revoked device is bound again);
+ * concurrent registrations share one FCM call and one POST; every failure has a class and
+ * an allow-listed code (never device text); disconnect; tap deep-link validation (attacks
+ * included); foreground data passthrough is non-sensitive; tokens never logged; everything
+ * a silent no-op off the Android app.
  * The device proof (no prompt at start-up, no crash without google-services.json)
  * is the emulator QA.
  */
 
 import {
   createPushClient,
+  fcmErrorCode,
   formatAppVersion,
   isAllowedPushHref,
   resolvePushHref,
@@ -209,7 +213,7 @@ async function main() {
     const un = await h.client.unregisterCurrentDevice();
     await settle();
     check("unavailable: permissionStatus → unavailable", st === "unavailable");
-    check("unavailable: request/register/unregister no-op", rq === "unavailable" && rg === "unavailable" && un === false);
+    check("unavailable: request/register/unregister no-op", rq === "unavailable" && rg.status === "unavailable" && un === false);
     check("unavailable: plugin never touched, no fetch, no timer", h.calls.check + h.calls.request + h.calls.register === 0 && h.calls.fetch.length === 0 && h.timers.length === 0);
   }
 
@@ -261,22 +265,65 @@ async function main() {
     check("status event: registered", h.calls.emit.some((e) => e.name === PUSH_STATUS_EVENT && (e.detail as { status: string }).status === "registered"));
     check("status events carry no token", !JSON.stringify(h.calls.emit).includes("fcm-token"));
 
-    // Rotation: same token again → no POST; new token → one POST.
-    h.fire("registration", { value: TOKEN_A });
-    await settle();
-    check("rotation: same token deduped", h.calls.fetch.length === 1);
+    // Rotation: the same token fired twice at once → one request; a new token → its own POST.
     h.fire("registration", { value: TOKEN_B });
     h.fire("registration", { value: TOKEN_B });
     await settle();
-    check("rotation: new token posted once", h.calls.fetch.length === 2 && JSON.parse(String(h.calls.fetch[1].init.body)).token === TOKEN_B, `${h.calls.fetch.length}`);
+    check("rotation: new token posted once (in-flight dedupe)", h.calls.fetch.length === 2 && JSON.parse(String(h.calls.fetch[1].init.body)).token === TOKEN_B, `${h.calls.fetch.length}`);
 
-    // Explicit registerDevice again: same token → "unchanged", no POST.
-    h.state.permission = "granted";
-    const again = await (async () => {
-      const p = h.client.registerDevice();
-      return p;
-    })();
-    check("registerDevice with unchanged token → unchanged", again === "unchanged" || again === "registered", again);
+    // Explicit registerDevice again with the SAME token: it POSTs again and is "registered" only on the server's 2xx
+    // (there is no "unchanged" shortcut that could report a device the server revoked as connected).
+    const before = h.calls.fetch.length;
+    const again = await h.client.registerDevice();
+    check("registerDevice again → POSTs again, registered on 2xx", again.status === "registered" && h.calls.fetch.length === before + 1, JSON.stringify(again));
+  }
+
+  // ── success is ONLY the server's 2xx ──
+  {
+    const statuses: string[] = [];
+    for (const code of [200, 201, 204]) {
+      const h = makeHarness({ permission: "granted", fetchStatus: code, onRegister: (fire) => fire("registration", { value: TOKEN_A }) });
+      statuses.push((await h.client.registerDevice()).status);
+    }
+    check("2xx → registered", statuses.every((x) => x === "registered"), statuses.join(","));
+    for (const code of [301, 400, 401, 403, 404, 409, 429, 500, 503]) {
+      const h = makeHarness({ permission: "granted", fetchStatus: code, onRegister: (fire) => fire("registration", { value: TOKEN_A }) });
+      const r = await h.client.registerDevice();
+      check(`HTTP ${code} → server_rejected/HTTP_${code}, never registered`, r.status === "server_rejected" && r.code === `HTTP_${code}`, JSON.stringify(r));
+      check(`HTTP ${code}: no "registered" status event`, !h.calls.emit.some((e) => (e.detail as { status?: string })?.status === "registered"));
+    }
+  }
+
+  // ── concurrent registrations share one FCM call and one POST ──
+  {
+    const h = makeHarness({ permission: "granted", onRegister: (fire) => setTimeout(() => fire("registration", { value: TOKEN_A }), 0) });
+    const [a, b, c] = await Promise.all([h.client.registerDevice(), h.client.registerDevice(), h.client.registerDevice()]);
+    check("concurrent: one register() call", h.calls.register === 1, `${h.calls.register}`);
+    check("concurrent: one POST", h.calls.fetch.length === 1, `${h.calls.fetch.length}`);
+    check("concurrent: every caller gets the server's outcome (no 'unchanged' for the earlier ones)", [a, b, c].every((o) => o.status === "registered"), JSON.stringify([a, b, c]));
+    // After it settled, a new call is a new registration.
+    const d = await h.client.registerDevice();
+    check("after settle: a new registration runs (second register(), second POST)", d.status === "registered" && h.calls.register === 2 && h.calls.fetch.length === 2);
+  }
+  {
+    // Start-up registration + the settings screen opening while it runs: one registration, both see a failure.
+    const h = makeHarness({ permission: "granted", fetchStatus: 404, onRegister: (fire) => setTimeout(() => fire("registration", { value: TOKEN_A }), 0) });
+    h.client.startOnAppStart();
+    h.runTimers(REREGISTER_DELAY_MS);
+    const screen = await h.client.registerDevice();
+    await settle();
+    check("startup + screen concurrently: one register(), one POST", h.calls.register === 1 && h.calls.fetch.length === 1, `${h.calls.register}/${h.calls.fetch.length}`);
+    check("startup + screen concurrently: the screen sees the failure, not a success", screen.status === "server_rejected" && screen.code === "HTTP_404", JSON.stringify(screen));
+  }
+  {
+    // A concurrent failure (timeout) is reported to every waiter as the timeout — never as connected.
+    const h = makeHarness({ permission: "granted", onRegister: () => {} });
+    const p1 = h.client.registerDevice();
+    const p2 = h.client.registerDevice();
+    await settle();
+    h.runTimers();
+    const [r1, r2] = await Promise.all([p1, p2]);
+    check("concurrent timeout: both waiters get registration_timeout", r1.status === "registration_timeout" && r2.status === "registration_timeout" && h.calls.register === 1, JSON.stringify([r1, r2]));
   }
 
   // ── start-up: granted but never opted in on this device (Android <= 12) → nothing ──
@@ -292,7 +339,7 @@ async function main() {
   {
     const h = makeHarness({ permission: "granted", configured: false });
     const r = await h.client.registerDevice();
-    check("not configured → not_configured, register() never called", r === "not_configured" && h.calls.register === 0 && h.calls.fetch.length === 0, r);
+    check("not configured → not_configured, register() never called", r.status === "not_configured" && h.calls.register === 0 && h.calls.fetch.length === 0, JSON.stringify(r));
     check("not configured → status event not_configured", h.calls.emit.some((e) => (e.detail as { status?: string })?.status === "not_configured"));
     const h2 = makeHarness({ permission: "granted", configured: false });
     h2.client.startOnAppStart();
@@ -318,43 +365,64 @@ async function main() {
 
   // ── error paths ──
   {
-    const h = makeHarness({ permission: "granted", onRegister: (fire) => fire("registrationError", { error: "SERVICE_NOT_AVAILABLE details" }) });
+    const h = makeHarness({ permission: "granted", onRegister: (fire) => fire("registrationError", { error: "java.io.IOException: SERVICE_NOT_AVAILABLE at com.google secret-detail" }) });
     const r = await h.client.registerDevice();
-    check("registrationError → registration_error, no POST", r === "registration_error" && h.calls.fetch.length === 0, r);
-    check("registrationError: device error text not forwarded", !JSON.stringify(h.calls.emit).includes("SERVICE_NOT_AVAILABLE"));
+    check("registrationError → registration_error/SERVICE_NOT_AVAILABLE, no POST", r.status === "registration_error" && r.code === "SERVICE_NOT_AVAILABLE" && h.calls.fetch.length === 0, JSON.stringify(r));
+    check("registrationError: only the allow-listed name leaves, never the device text", !JSON.stringify(h.calls.emit).includes("secret-detail") && !JSON.stringify(h.calls.emit).includes("java.io"));
+  }
+  {
+    check("fcmErrorCode: known names", fcmErrorCode("AUTHENTICATION_FAILED") === "AUTHENTICATION_FAILED" && fcmErrorCode("x: TOO_MANY_REGISTRATIONS") === "TOO_MANY_REGISTRATIONS" && fcmErrorCode("FIS_AUTH_ERROR") === "FIS_AUTH_ERROR");
+    check("fcmErrorCode: Firebase Installations text → FIS_ERROR", fcmErrorCode("Firebase Installations Service is unavailable. Please try again later.") === "FIS_ERROR");
+    check("fcmErrorCode: unknown / not a string → OTHER", fcmErrorCode("SOME_SECRET_VALUE abc") === "OTHER" && fcmErrorCode(undefined) === "OTHER" && fcmErrorCode(42) === "OTHER");
+  }
+  {
+    const h = makeHarness({ permission: "granted", onRegister: (fire) => fire("registration", { value: "" }) });
+    const r = await h.client.registerDevice();
+    check("empty token → registration_error/EMPTY_TOKEN, no POST", r.status === "registration_error" && r.code === "EMPTY_TOKEN" && h.calls.fetch.length === 0, JSON.stringify(r));
   }
   {
     const h = makeHarness({ permission: "granted", registerThrows: true });
     const r = await h.client.registerDevice();
-    check("register() throws (no google-services.json) → registration_error, no crash", r === "registration_error");
+    check("register() throws (no google-services.json) → registration_error/REGISTER_THREW, no crash", r.status === "registration_error" && r.code === "REGISTER_THREW", JSON.stringify(r));
   }
   {
     const h = makeHarness({ permission: "granted", onRegister: () => {} });
     const p = h.client.registerDevice();
     await settle();
     h.runTimers();
-    check("no answer from FCM → times out as registration_error", (await p) === "registration_error");
+    const r = await p;
+    check("no answer from FCM → registration_timeout (its own class)", r.status === "registration_timeout", JSON.stringify(r));
+    check("timeout: status event registration_timeout", h.calls.emit.some((e) => (e.detail as { status?: string })?.status === "registration_timeout"));
+    // A late token after the timeout still uploads, and its own outcome is reported (the screen may connect then).
+    h.fire("registration", { value: TOKEN_A });
+    await settle();
+    check("late token after timeout: uploaded and reported registered", h.calls.fetch.length === 1 && h.calls.emit.some((e) => (e.detail as { status?: string })?.status === "registered"));
   }
   {
     const h = makeHarness({ permission: "prompt" });
-    check("registerDevice without permission → permission_not_granted, no prompt", (await h.client.registerDevice()) === "permission_not_granted" && h.calls.request === 0 && h.calls.register === 0);
+    const r = await h.client.registerDevice();
+    check("registerDevice without permission → permission_not_granted, no prompt", r.status === "permission_not_granted" && h.calls.request === 0 && h.calls.register === 0);
   }
   {
     const h = makeHarness({ permission: "granted", signedIn: false, onRegister: (fire) => fire("registration", { value: TOKEN_A }) });
     const r = await h.client.registerDevice();
-    check("not signed in → no POST", r === "not_signed_in" && h.calls.fetch.length === 0, r);
+    check("not signed in → not_signed_in, no POST", r.status === "not_signed_in" && h.calls.fetch.length === 0, JSON.stringify(r));
   }
   {
     const h = makeHarness({ permission: "granted", fetchStatus: 500, onRegister: (fire) => fire("registration", { value: TOKEN_A }) });
     const r = await h.client.registerDevice();
-    check("server 500 → server_rejected", r === "server_rejected", r);
+    check("server 500 → server_rejected/HTTP_500", r.status === "server_rejected" && r.code === "HTTP_500", JSON.stringify(r));
     h.fire("registration", { value: TOKEN_A });
     await settle();
-    check("server 500: same token retried on next registration (not marked posted)", h.calls.fetch.length === 2);
+    check("server 500: same token retried on next registration", h.calls.fetch.length === 2);
   }
   {
     const h = makeHarness({ permission: "granted", fetchThrows: true, onRegister: (fire) => fire("registration", { value: TOKEN_A }) });
-    check("network down → offline", (await h.client.registerDevice()) === "offline");
+    check("network down → offline", (await h.client.registerDevice()).status === "offline");
+  }
+  {
+    const h = makeHarness({ permission: "granted", configured: true, available: false });
+    check("not the Android app → unavailable", (await h.client.registerDevice()).status === "unavailable" && h.calls.register === 0);
   }
 
   // ── tap handling ──
@@ -392,6 +460,21 @@ async function main() {
     const h = makeHarness({ permission: "granted" });
     const ok1 = await h.client.unregisterCurrentDevice();
     check("unregister: DELETE /api/push/devices/current with Bearer", ok1 && h.calls.fetch[0]?.url === "/api/push/devices/current" && h.calls.fetch[0]?.init.method === "DELETE" && (h.calls.fetch[0]?.init.headers as Record<string, string>).Authorization === "Bearer jwt");
+    check("unregister: status event 'unregistered' (the screen stops showing connected)", h.calls.emit.some((e) => e.name === PUSH_STATUS_EVENT && (e.detail as { status?: string })?.status === "unregistered"));
+  }
+  {
+    // Connected → disconnected → connect again: the same token is POSTed again (never assumed still registered).
+    const h = makeHarness({ permission: "granted", onRegister: (fire) => fire("registration", { value: TOKEN_A }) });
+    const first = await h.client.registerDevice();
+    await h.client.unregisterCurrentDevice();
+    const second = await h.client.registerDevice();
+    const posts = h.calls.fetch.filter((c) => c.url === "/api/push/devices");
+    check("disconnect then reconnect: POST, DELETE, POST again with the same token", first.status === "registered" && second.status === "registered" && posts.length === 2 && JSON.parse(String(posts[1].init.body)).token === TOKEN_A, `${posts.length}`);
+  }
+  {
+    const h = makeHarness({ permission: "granted", fetchStatus: 500 });
+    await h.client.unregisterCurrentDevice();
+    check("unregister failed (500): no 'unregistered' event", !h.calls.emit.some((e) => (e.detail as { status?: string })?.status === "unregistered"));
     const h2 = makeHarness({ permission: "granted", fetchThrows: true });
     check("unregister: offline → false, no throw", (await h2.client.unregisterCurrentDevice()) === false);
     const h3 = makeHarness({ permission: "granted", signedIn: false });
@@ -408,7 +491,7 @@ async function main() {
       const r = await mod.requestPushPermission();
       const g = await mod.registerDevice();
       const u = await mod.unregisterCurrentDevice();
-      check("default instance off-device: all unavailable/no-op", !mod.isNativePushAvailable() && s === "unavailable" && r === "unavailable" && g === "unavailable" && u === false);
+      check("default instance off-device: all unavailable/no-op", !mod.isNativePushAvailable() && s === "unavailable" && r === "unavailable" && g.status === "unavailable" && u === false);
     } catch {
       threw = true;
     }
