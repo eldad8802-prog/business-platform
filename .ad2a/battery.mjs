@@ -489,6 +489,21 @@ async function main() {
     await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_tracks_erase_business() FROM PUBLIC`);
     await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_tracks_erase_business() TO ${RT_ROLE}`);
   }
+  // Service Desk A7 case fields — migration 20261214090000_service_desk_case_fields. The same, for
+  // service_case_fields_erase_business() (it blanks the loans' texts and the case's item-location note; table and columns
+  // from db push). Its loan guard and the guard's helper are used only by triggers this lab does not create, so only the
+  // erase function is mirrored.
+  {
+    const migrationSql = readMigrationFile(
+      migrationPath.join(process.cwd(), "prisma/migrations/20261214090000_service_desk_case_fields/migration.sql"),
+      "utf8",
+    );
+    const fn = migrationSql.match(/CREATE OR REPLACE FUNCTION public\.service_case_fields_erase_business\(\)[\s\S]*?\$fn\$;/);
+    if (!fn) throw new Error("service_case_fields_erase_business() not found in migration 20261214090000");
+    await owner.$executeRawUnsafe(fn[0]);
+    await owner.$executeRawUnsafe(`REVOKE ALL ON FUNCTION public.service_case_fields_erase_business() FROM PUBLIC`);
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.service_case_fields_erase_business() TO ${RT_ROLE}`);
+  }
   // Issuer declaration — migration 20261126100000_issuer_declaration. The same, for issuer_declaration_erase() (it
   // anonymises declarations nothing was issued under; table from db push — the #1117 schema models it).
   {
