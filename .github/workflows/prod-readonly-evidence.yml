@@ -177,6 +177,8 @@ on:
           - 'ops/evidence/service-desk-case-charge-production-evidence.sql'
           - 'ops/evidence/service-desk-tracks-preflight.sql'
           - 'ops/evidence/service-desk-tracks-production-evidence.sql'
+          - 'ops/evidence/service-desk-case-fields-preflight.sql'
+          - 'ops/evidence/service-desk-case-fields-production-evidence.sql'
           - 'ops/evidence/service-desk-handover-owner-confirmed-preflight.sql'
           - 'ops/evidence/service-desk-handover-owner-confirmed-production-evidence.sql'
           - 'ops/evidence/service-desk-no-signature-counts.sql'
