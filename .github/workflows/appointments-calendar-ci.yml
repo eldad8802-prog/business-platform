@@ -143,7 +143,9 @@ jobs:
       # the next/font files (see i18n-multicurrency-ci.yml). The build needs no database.
       - name: Build the app
         run: mkdir -p "$OUT" && { npm run build > "$OUT/build.log" 2>&1 || { tail -n 80 "$OUT/build.log"; exit 1; }; }
-      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client faketime
+      - name: PROOF ONLY (#1198) — the shifted clock is Saturday in Jerusalem
+        run: FAKETIME_DONT_FAKE_MONOTONIC=1 faketime -f "+1d" node -e 'const d=new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Jerusalem",weekday:"long",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}).format(new Date());console.log("shifted now:",d);if(!d.startsWith("Saturday"))process.exit(1)'
 
       - name: Lab — the real migration in Production's role topology, then the synthetic businesses
         run: |
@@ -154,7 +156,7 @@ jobs:
           NTE_ONTO=1 bash .nte/lab.sh appt_ui --with-nte
 
       - name: Seed — through the real services AS the runtime role
-        run: npx tsx .appt/ui-seed.ts
+        run: FAKETIME_DONT_FAKE_MONOTONIC=1 faketime -f "+1d" npx tsx .appt/ui-seed.ts
 
       # Open for every business (owner decision 2026-11-08): the data migration released exactly as Production will run
       # it — read-only preflight, `prisma migrate deploy` applying only 20261115100000, read-only proof (no override
@@ -163,30 +165,30 @@ jobs:
         run: bash .appt/open-all-lab.sh appt_ui
 
       - name: Open-all battery — existing + new business ON by default, overlap, isolation, DISABLED kept, external booking closed, the stops (runtime role, real routes)
-        run: npx tsx .appt/open-all-battery.ts
+        run: FAKETIME_DONT_FAKE_MONOTONIC=1 faketime -f "+1d" npx tsx .appt/open-all-battery.ts
 
       # The follow-up API additions AS the runtime role: PATCH a catalog service, leads by customer, customer names on
       # the calendar — permissions, isolation between businesses, validation, regression, and a 400-appointment read.
       - name: API battery — services PATCH, leads by customer, customer names (runtime role, real routes)
-        run: npx tsx .appt/b-followups-battery.ts
+        run: FAKETIME_DONT_FAKE_MONOTONIC=1 faketime -f "+1d" npx tsx .appt/b-followups-battery.ts
 
       - run: npx playwright install --with-deps chromium
 
       - name: Start the app
         shell: bash
         run: |
-          (nohup npx next start -p 3700 > "$OUT/server.log" 2>&1 &)
+          (FAKETIME_DONT_FAKE_MONOTONIC=1 nohup faketime -f "+1d" npx next start -p 3700 > "$OUT/server.log" 2>&1 &)
           for i in $(seq 1 90); do curl -sf -o /dev/null http://localhost:3700/login && break; sleep 2; done
           curl -sf -o /dev/null http://localhost:3700/login
 
       - name: End to end — desktop and phone, ON and OFF
-        run: npx tsx .appt/ui-e2e.mts
+        run: FAKETIME_DONT_FAKE_MONOTONIC=1 faketime -f "+1d" npx tsx .appt/ui-e2e.mts
 
       # Milestone C, segment 3: the customer's page and own link (phone 375/390, tablet, desktop), with axe (WCAG A/AA).
       - name: End to end — the customer's booking page and own link
         run: |
           set -euo pipefail
-          BUSINESS_ID=$(node -e "console.log(require(process.env.SEED_OUT).bizA)") OUT="$OUT/public-booking" npx tsx .bkg/public-ui-e2e.mts
+          BUSINESS_ID=$(node -e "console.log(require(process.env.SEED_OUT).bizA)") OUT="$OUT/public-booking" FAKETIME_DONT_FAKE_MONOTONIC=1 faketime -f "+1d" npx tsx .bkg/public-ui-e2e.mts
 
       - name: Result table
         if: always()
