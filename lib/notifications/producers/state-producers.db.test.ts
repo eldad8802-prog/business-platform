@@ -5,8 +5,9 @@
  *
  *   write          an engine-ON business: obligation due today + overdue (legacy secretary store) + a payables-ledger
  *                  commitment of its own (a backfilled copy is NOT read twice), a customer payment that failed, a link
- *                  expired > 24 h unpaid, a failed document, a confirmed appointment in 45 minutes ⇒ one whole-business
- *                  row each; PUSH owed only for the payment and the appointment (catalog defaults), with the TTL;
+ *                  expired > 24 h unpaid, a failed document ⇒ one whole-business row each; a confirmed appointment in
+ *                  45 minutes ⇒ one row for the business's user (personal reminder at the default 60-min lead, owed
+ *                  push due now — its moment passed inside the grace — and expiring at the start);
  *                  no row for: a link-creation failure, a request paid by another request of the same invoice, a
  *                  processing document, a cancelled appointment, a later appointment, a MET obligation
  *   isolation      the other business gets only its own facts; neither runtime sees the other's rows
@@ -65,6 +66,7 @@ async function main() {
       VALUES ($1, $1, 'lab', 'lab', $2, true) ON CONFLICT ("key") DO NOTHING`, key, def);
   }
   const stamp = Date.now();
+  const userOf = new Map<number, number>();
   const biz = async (name: string, engine: boolean, off: string[] = []) => {
     const b = await owner.business.create({ data: { name: `${name}-${stamp}` } });
     await owner.businessFeatureAccess.createMany({
@@ -72,7 +74,8 @@ async function main() {
         businessId: b.id, featureKey, state: featureKey === "notifications_engine" ? (engine ? "ENABLED" as const : "DISABLED" as const) : off.includes(featureKey) ? "DISABLED" as const : "ENABLED" as const,
       })),
     });
-    await owner.user.create({ data: { email: `u-${name}-${stamp}@nte6b.lab`, password: "x", businessId: b.id } });
+    const u = await owner.user.create({ data: { email: `u-${name}-${stamp}@nte6b.lab`, password: "x", businessId: b.id } });
+    userOf.set(b.id, u.id);
     return b.id;
   };
   const A = await biz("st-A", true);
@@ -141,6 +144,8 @@ async function main() {
   await invoice(A, "PENDING_REVIEW");
   await owner.supplierPurchaseDraft.create({ data: { businessId: A, status: "PENDING_REVIEW", supplierName: "ספק" } as never });
 
+  // An appointment reminder's key: the start, the user (one per user) and the user's lead (default 60).
+  const apKey = (businessId: number, id: number, start: Date) => `st:appointments.upcoming:appointment:${id}:${start.toISOString()}:u${userOf.get(businessId)}:l60`;
   const PROD = ["obligations.due", "payments.request_failed", "billing.allocation_failed", "documents.processing_failed", "appointments.upcoming"];
   const rows = (businessId: number) => owner.notification.findMany({ where: { businessId, semanticCategory: { in: PROD } }, orderBy: { id: "asc" } });
   const open = async (businessId: number) => (await rows(businessId)).filter((n) => n.resolvedAt === null);
@@ -159,13 +164,14 @@ async function main() {
     `st:payments.request_failed:payment_request:${aPayFailed.id}:failed`,
     `st:payments.request_failed:payment_request:${aPayExpired.id}:expired`,
     `st:documents.processing_failed:document_processing:${aDocFailed.id}`,
-    `st:appointments.upcoming:appointment:${aAppt.id}:${at(45 * MIN).toISOString()}`,
-    `st:appointments.upcoming:appointment:${aMove.id}:${at(50 * MIN).toISOString()}`,
+    apKey(A, aAppt.id, at(45 * MIN)),
+    apKey(A, aMove.id, at(50 * MIN)),
   ].sort();
   ok("A: exactly the real facts, one row each (no link-creation failure, no paid-elsewhere, no grace-period link, no processing doc, no cancelled / later appointment, no MET obligation, the ledger copy not read twice, ITA off)",
     JSON.stringify(aKeys) === JSON.stringify(want), { aKeys, want });
   const aRows = await open(A);
-  ok("A: whole-business rows (userId NULL) with the catalog category in semanticCategory", aRows.every((n) => n.userId === null && PROD.includes(n.semanticCategory)));
+  ok("A: whole-business rows (userId NULL) — the appointment reminders the user's own — with the catalog category in semanticCategory",
+    aRows.every((n) => (n.semanticCategory === "appointments.upcoming" ? n.userId === userOf.get(A) : n.userId === null) && PROD.includes(n.semanticCategory)));
   ok("A: deep links — secretary / payables / the request / the document / the calendar",
     aRows.some((n) => n.href === "/secretary") && aRows.some((n) => n.href === "/payables") && aRows.some((n) => n.href === `/payments/${aPayFailed.id}`) &&
     aRows.some((n) => n.href === `/documents/review/${aDocFailed.id}`) && aRows.some((n) => n.href === "/calendar"));
@@ -175,14 +181,17 @@ async function main() {
   ok("A: in-app delivery for every row", aRows.every((n) => aDel.some((d) => d.notificationId === n.id && d.channel === "IN_APP" && d.status === "SENT")));
   // notify() owes ONE push row per notification whenever the category MAY push (a user can switch it on); the worker
   // decides with the user's preferences — under the catalog defaults obligations / documents end 'pref_off' (never sent).
-  ok("A: one owed PUSH per row (PENDING, whole business) — the worker applies the defaults", pushRows.length === aRows.length && pushRows.every((d) => d.status === "PENDING" && d.userId === null), { n: pushRows.length, pushCats: [...pushCats] });
+  ok("A: one owed PUSH per row (PENDING; whole business, the reminders the user's) — the worker applies the defaults",
+    pushRows.length === aRows.length && pushRows.every((d) => d.status === "PENDING" && d.userId === (aRows.find((n) => n.id === d.notificationId)!.userId)), { n: pushRows.length, pushCats: [...pushCats] });
   const { getCategory } = await import("../catalog");
   ok("catalog defaults: push for payments / appointments, digest (no push) for obligations / documents",
     getCategory("payments.request_failed")!.defaults.push && getCategory("appointments.upcoming")!.defaults.push &&
     !getCategory("obligations.due")!.defaults.push && getCategory("obligations.due")!.defaults.delivery === "digest" &&
     !getCategory("documents.processing_failed")!.defaults.push && getCategory("documents.processing_failed")!.defaults.delivery === "digest");
   const apptPush = pushRows.find((d) => aRows.find((n) => n.id === d.notificationId)?.semanticCategory === "appointments.upcoming")!;
-  ok("A: the appointment push expires 30 min after creation — before the start", Math.abs(apptPush.expiresAt!.getTime() - T0.getTime() - 30 * MIN) < 5_000);
+  ok("A: the appointment push is due now (its 60-min moment passed 15 min ago, inside the grace) and expires at the start",
+    apptPush.nextAttemptAt !== null && Math.abs(apptPush.nextAttemptAt.getTime() - T0.getTime()) < 5_000 &&
+    [at(45 * MIN).getTime(), at(50 * MIN).getTime()].includes(apptPush.expiresAt!.getTime()), apptPush);
   const oblPush = pushRows.find((d) => aRows.find((n) => n.id === d.notificationId)?.semanticCategory === "obligations.due")!;
   ok("A: an obligation's owed row carries the 12 h TTL", Math.abs(oblPush.expiresAt!.getTime() - T0.getTime() - 12 * HOUR) < 5_000);
   ok("the sweep kicked the worker for the businesses that owe a push (no-op outside a request)", r1.kicked >= 2, r1);
@@ -190,7 +199,7 @@ async function main() {
   console.log("2. isolation / feature off / engine off");
   const bKeys = (await open(B)).map((n) => n.dedupeKey).sort();
   ok("B: only its own failed document and appointment", JSON.stringify(bKeys) === JSON.stringify([
-    `st:appointments.upcoming:appointment:${bAppt.id}:${at(45 * MIN).toISOString()}`, `st:documents.processing_failed:document_processing:${bDoc.id}`,
+    apKey(B, bAppt.id, at(45 * MIN)), `st:documents.processing_failed:document_processing:${bDoc.id}`,
   ].sort()), bKeys);
   ok("B's runtime cannot read A's rows (RLS)", (await tenantTx(B, (tx) => tx.notification.count({ where: { businessId: A } }))) === 0);
   ok("A's runtime cannot read B's rows (RLS)", (await tenantTx(A, (tx) => tx.notification.count({ where: { businessId: B } }))) === 0);
@@ -220,10 +229,10 @@ async function main() {
       `st:obligations.due:business_obligation:${aDue.id}:${day(at(0))}:due`,
       `st:payments.request_failed:payment_request:${aPayFailed.id}:failed`,
       `st:documents.processing_failed:document_processing:${aDocFailed.id}`,
-      `st:appointments.upcoming:appointment:${aAppt.id}:${at(45 * MIN).toISOString()}`,
-      `st:appointments.upcoming:appointment:${aMove.id}:${at(50 * MIN).toISOString()}`,
+      apKey(A, aAppt.id, at(45 * MIN)),
+      apKey(A, aMove.id, at(50 * MIN)),
     ].sort()), { resolvedKeys, r3 });
-  const moved = (await open(A)).find((n) => n.dedupeKey === `st:appointments.upcoming:appointment:${aMove.id}:${at(55 * MIN).toISOString()}`);
+  const moved = (await open(A)).find((n) => n.dedupeKey === apKey(A, aMove.id, at(55 * MIN)));
   ok("rescheduled ⇒ the new start is a new row with its own owed push", moved !== undefined && (await deliveries(A)).some((d) => d.notificationId === moved.id && d.channel === "PUSH"));
   ok("B untouched by A's handling", (await open(B)).length === 2);
   const r4 = await runStatusSweep(at(4 * DAY), { ...q, businessIds: [A] });

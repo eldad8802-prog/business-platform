@@ -101,7 +101,9 @@ async function main() {
   // 1d-B two parts routes (closed until 1.3b); 1.3b added six intake routes (terms, photos, one photo, sign, signature, slip);
   // the case charge added three (charges, billing-links, billing-links/unlink); 1.3c added four quote routes (list + send,
   // revise, one version's decision, one version's stored PDF); M1 added one (the T7 after-sale resolution).
-  ok("R1 thirty route files (the staff read, three external-work, two parts, six intake, three charge, four quote and the after-sale routes)", files.length === 30 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
+  // UI 1.3 (owner-approved spec 2026-11-19) added six: pickup reminders, loans, a loan's return, the task link, the case
+  // light fields and the activation profile (the A7 ones answer NOT_AVAILABLE_UNTIL_MIGRATION until A7 is applied).
+  ok("R1 thirty-six route files (the staff read, three external-work, two parts, six intake, three charge, four quote, the after-sale and six UI 1.3 routes)", files.length === 36 && files.some((f) => f.split(path.sep).join("/").endsWith("staff/route.ts")), String(files.length));
   let allGuarded = true, kindsRight = true;
   for (const f of files) {
     const src = fs.readFileSync(f, "utf8");
@@ -140,6 +142,15 @@ async function main() {
       const post = /export async function POST\([\s\S]*?\n}\n/.exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
       return /serviceDeskRoute\(req, "write"/.test(post) && /const key = idempotencyKeyOf\(req\);/.test(post) && call.test(post);
     }) && /serviceDeskRoute\(req, "read", async \(\{ principal \}\) => json\(await getCaseCharges\(principal\.businessId,/.test(fs.readFileSync(path.join(root, "cases/[id]/charges/route.ts"), "utf8")));
+  const uiWrites: [string, string, RegExp][] = [
+    ["cases/[id]/pickup-reminders/route.ts", "POST", /recordPickupReminder\(principal, id, \{ outcome: b\.outcome, note: b\.note \}, \{ idempotencyKey: key \}\)/],
+    ["cases/[id]/loans/route.ts", "POST", /lendItem\(principal, id, \{ itemName: b\.itemName, note: b\.note \}, \{ idempotencyKey: key \}\)/],
+    ["settings/profile/route.ts", "PUT", /saveProfileChoice\(principal, \{[\s\S]*\}, \{ idempotencyKey: key \}\)/],
+  ];
+  ok("R7 UI 1.3 writes with a record (pickup call, loan, activation) take an Idempotency-Key and call their service", uiWrites.every(([r, m, call]) => {
+    const h = new RegExp(`export async function ${m}\\([\\s\\S]*?\\n}\\n`).exec(fs.readFileSync(path.join(root, r), "utf8"))?.[0] ?? "";
+    return /serviceDeskRoute\(req, "write"/.test(h) && /const key = idempotencyKeyOf\(req\);/.test(h) && call.test(h);
+  }));
   const saved = { db: process.env.DATABASE_URL, direct: process.env.DIRECT_URL };
   delete process.env.DATABASE_URL;
   delete process.env.DIRECT_URL;

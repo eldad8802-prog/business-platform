@@ -14,15 +14,20 @@
  *                                  arrived by another path or the owner already re-asked / cancelled
  *   C billing.allocation_failed    FAILED / REJECTED / outcome uncertain / HELD undecided / stuck > 60 min; only
  *                                  with the PRODUCTION integration on (the runner's gate)
- *   D documents.processing_failed  status `failed` (the pipeline never retries by itself)
- *   E appointments.upcoming        CONFIRMED, starts within the lead time (60 min); cancelled / moved ⇒ absent
+ *   D documents.processing_failed  status `failed` (the pipeline never retries by itself), or STUCK: still
+ *                                  `processing` more than DOCUMENT_STUCK_MS after the attempt started
+ *                                  (Document.statusChangedAt, stamped by the database); never during an attempt
+ *   E appointments.upcoming        CONFIRMED; ONE reminder per user per appointment start, at that user's own lead
+ *                                  time (NotificationSettings.appointmentReminderMinutes, default 60), owed for the
+ *                                  exact moment (nextAttemptAt) so the 5-minute worker — not the sweep — times it;
+ *                                  cancelled / moved / lead changed ⇒ absent (resolved)
  *
  * Stored title / summary are generic too (no customer, payee, amount or number); the push uses the catalog's
  * lock-screen text unless the user opted into details.
  */
 import type { CategoryKey } from "../catalog";
 import type { NotifyEvent } from "../engine/notify";
-import { localDayKey, localParts } from "../notification-time";
+import { addDaysToKey, localDayKey, localMinuteOfDay, localParts, wallClockToInstant } from "../notification-time";
 import { daysBetweenDayKeys } from "@/lib/utils/jerusalem-day";
 
 export type StateFacts = { events: NotifyEvent[]; present: string[] };
@@ -227,19 +232,51 @@ export function allocationFacts(businessId: number, rows: readonly AllocationSub
 
 /* ───────────────────────────────────────────────────────────── D. documents ── */
 
-export type DocumentFact = { id: number; status: string };
+/**
+ * A document still `processing` this long after its attempt started is STUCK. The attempt's real window: the pipeline
+ * runs inside the serverless invocation that started it — `after()` of the upload route or the retry route
+ * (app/api/documents/upload, app/api/documents/[id]/process: maxDuration 60 s) or of the bulk documents import
+ * (app/api/data-transfer/documents/execute: maxDuration 300 s); OCR itself times out at 60 s (OCR_TIMEOUT_MS). The
+ * pipeline never throws and never retries by itself: it ends in `needs_review` or `failed` — unless the platform
+ * killed the invocation at maxDuration (or the final status write failed), which leaves the row in `processing` for
+ * good. 30 minutes = 6 × the longest window (300 s): an attempt still inside its window is never flagged, and a
+ * document the platform abandoned is surfaced at the latest one sweep interval after that.
+ */
+export const DOCUMENT_STUCK_MS = 30 * MIN;
+
+export type DocumentFact = {
+  id: number;
+  status: string;
+  /** When the current status began (the database trigger's stamp). NULL = older than the stamp: never stuck. */
+  statusChangedAt: Date | null;
+};
+
+/** Pure: is this document stuck in processing at `now`? */
+export function documentStuck(d: DocumentFact, now: Date): boolean {
+  return d.status === "processing" && d.statusChangedAt !== null && now.getTime() - d.statusChangedAt.getTime() > DOCUMENT_STUCK_MS;
+}
 
 export function documentFacts(businessId: number, rows: readonly DocumentFact[], now: Date): StateFacts {
   const out: StateFacts = { events: [], present: [] };
   for (const d of rows) {
-    if (d.status !== "failed") continue;
-    const k = key("documents.processing_failed", "document_processing", d.id);
-    out.present.push(k);
-    out.events.push(event(
-      businessId, "documents.processing_failed", k, { type: "document_processing", id: d.id },
-      "עיבוד של מסמך לא הצליח", "הקובץ נשמר. אפשר לנסות שוב או להשלים את הפרטים ידנית.",
-      `/documents/review/${d.id}`, "document_failed", now,
-    ));
+    if (d.status === "failed") {
+      const k = key("documents.processing_failed", "document_processing", d.id);
+      out.present.push(k);
+      out.events.push(event(
+        businessId, "documents.processing_failed", k, { type: "document_processing", id: d.id },
+        "עיבוד של מסמך לא הצליח", "הקובץ נשמר. אפשר לנסות שוב או להשלים את הפרטים ידנית.",
+        `/documents/review/${d.id}`, "document_failed", now,
+      ));
+    } else if (documentStuck(d, now)) {
+      // The attempt's start is part of the fact: a retry that gets stuck again is a new fact, a finished one is gone.
+      const k = key("documents.processing_failed", "document_processing", d.id, "stuck", d.statusChangedAt!.toISOString());
+      out.present.push(k);
+      out.events.push(event(
+        businessId, "documents.processing_failed", k, { type: "document_processing", id: d.id },
+        "עיבוד של מסמך לא הסתיים", "הקובץ נשמר. אפשר לנסות שוב או להשלים את הפרטים ידנית.",
+        `/documents/review/${d.id}`, "document_stuck", now,
+      ));
+    }
   }
   return out;
 }
@@ -254,35 +291,104 @@ export type AppointmentFact = {
   erasedAt: Date | null;
 };
 
-/** Catalog default lead time: the reminder is due 60 minutes before the start (a per-user lead needs a column). */
-export const APPOINTMENT_REMINDER_LEAD_MS = 60 * MIN;
+/** A user who receives appointment reminders and the lead time they chose (effectiveSettings: default 60). */
+export type ReminderRecipient = { userId: number; leadMinutes: number };
 
 /**
- * The latest moment a reminder may still be CREATED: start − the category TTL (30 min), so the owed push always
- * expires no later than the start — never a reminder for something that already began. A sweep cadence ≤ 30 min
- * therefore never misses a reminder; it arrives between 60 and (60 − cadence) minutes before the start.
+ * The cadence the status sweep is planned to run at (owner: every 15 minutes; the sweep is not scheduled by this code).
+ * A reminder is CREATED by the first sweep pass inside [moment − SWEEP_INTERVAL, moment + grace]: up to one interval
+ * ahead, so the bell is never filled days ahead, and its owed push carries nextAttemptAt = the moment, so the 5-minute
+ * worker delivers it within ~5 minutes of the moment — the sweep's cadence never decides the timing. A slower sweep
+ * still creates it (late, by the grace); none slower than the grace creates it at all.
  */
-export function appointmentCreateWindow(ttlMinutes: number): { fromMs: number; untilMs: number } {
-  return { fromMs: APPOINTMENT_REMINDER_LEAD_MS, untilMs: ttlMinutes * MIN };
+export const APPOINTMENT_SWEEP_INTERVAL_MS = 15 * MIN;
+
+/** The longest lead (a day — 25 h across a clock change) + one interval: how far ahead the reader must look. */
+export const APPOINTMENT_READ_HORIZON_MS = 25 * HOUR + APPOINTMENT_SWEEP_INTERVAL_MS;
+
+/**
+ * The moment a reminder is due. 30 / 60 / 120: that many REAL minutes before the start (a clock change in between
+ * does not stretch it). 1440 ("the day before"): the SAME LOCAL TIME on the previous calendar day in the business
+ * time zone — 23 or 25 real hours across a clock change (notification-time.ts wallClockToInstant: a skipped wall time
+ * moves forward, an ambiguous one takes the earlier instant).
+ */
+export function appointmentReminderMoment(startsAt: Date, leadMinutes: number, timeZone: string): Date {
+  if (leadMinutes === 1440) {
+    const day = addDaysToKey(localDayKey(startsAt, timeZone), -1);
+    return wallClockToInstant(day, localMinuteOfDay(startsAt, timeZone), timeZone);
+  }
+  return new Date(startsAt.getTime() - leadMinutes * MIN);
 }
 
-export function appointmentFacts(businessId: number, rows: readonly AppointmentFact[], now: Date, timeZone: string, ttlMinutes: number): StateFacts {
+/**
+ * How late a reminder may still be created after its moment (a sweep that did not run, an appointment confirmed
+ * inside the lead): half the lead. Later than that it is no longer the reminder the user chose — none is created.
+ */
+export function appointmentLateGraceMs(leadMinutes: number): number {
+  return (leadMinutes * MIN) / 2;
+}
+
+export type ReminderPlan =
+  | { kind: "too_early" }
+  | { kind: "too_late" }
+  | { kind: "create"; moment: Date; notBefore: Date; expiresAt: Date };
+
+/** Pure: what the sweep does at `now` about one user's reminder for one appointment start. */
+export function appointmentReminderPlan(startsAt: Date, leadMinutes: number, now: Date, timeZone: string): ReminderPlan {
+  const moment = appointmentReminderMoment(startsAt, leadMinutes, timeZone);
+  const t = now.getTime();
+  if (t >= startsAt.getTime()) return { kind: "too_late" };
+  if (t < moment.getTime() - APPOINTMENT_SWEEP_INTERVAL_MS) return { kind: "too_early" };
+  if (t > moment.getTime() + appointmentLateGraceMs(leadMinutes)) return { kind: "too_late" };
+  // Never sent after the start: the owed push expires at the start (the worker closes it 'expired' or 'quiet').
+  return { kind: "create", moment, notBefore: new Date(Math.max(moment.getTime(), t)), expiresAt: startsAt };
+}
+
+/** The dedupe key: the start time (a move is a new fact), the user (one per user) and the lead (a change re-plans). */
+export function appointmentReminderKey(appointmentId: number, startsAt: Date, userId: number, leadMinutes: number): string {
+  return key("appointments.upcoming", "appointment", appointmentId, startsAt.toISOString(), `u${userId}`, `l${leadMinutes}`);
+}
+
+function eligibleAppointment(a: AppointmentFact, now: Date): a is AppointmentFact & { startsAt: Date } {
+  return a.status === "CONFIRMED" && a.kind !== "BLOCK" && a.erasedAt === null && a.startsAt !== null && a.startsAt.getTime() > now.getTime();
+}
+
+/**
+ * Every eligible appointment × every recipient. PRESENT (kept unresolved) while the appointment is confirmed, not
+ * started, with that start, and the user still has that lead — independent of the window, so a reminder created
+ * ahead is never resolved before its moment. An EVENT only inside the create window (appointmentReminderPlan).
+ */
+export function appointmentFacts(
+  businessId: number,
+  rows: readonly AppointmentFact[],
+  recipients: readonly ReminderRecipient[],
+  now: Date,
+  timeZone: string,
+): StateFacts {
   const out: StateFacts = { events: [], present: [] };
-  const win = appointmentCreateWindow(ttlMinutes);
   for (const a of rows) {
-    if (a.status !== "CONFIRMED" || a.kind === "BLOCK" || a.erasedAt !== null || a.startsAt === null) continue;
-    const until = a.startsAt.getTime() - now.getTime();
-    if (until <= 0 || until > win.fromMs) continue;
-    const k = key("appointments.upcoming", "appointment", a.id, a.startsAt.toISOString());
-    out.present.push(k);
-    if (until < win.untilMs) continue;
+    if (!eligibleAppointment(a, now)) continue;
     const p = localParts(a.startsAt, timeZone);
     const hhmm = `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
-    out.events.push(event(
-      businessId, "appointments.upcoming", k, { type: "appointment", id: a.id },
-      "תזכורת: יש לך תור בקרוב", `התור מתחיל ב-${hhmm}.`,
-      "/calendar", "appointment_upcoming", now,
-    ));
+    const dm = `${p.day}.${p.month}`;
+    for (const r of recipients) {
+      const k = appointmentReminderKey(a.id, a.startsAt, r.userId, r.leadMinutes);
+      out.present.push(k);
+      const plan = appointmentReminderPlan(a.startsAt, r.leadMinutes, now, timeZone);
+      if (plan.kind !== "create") continue;
+      const dayBefore = r.leadMinutes === 1440;
+      out.events.push({
+        ...event(
+          businessId, "appointments.upcoming", k, { type: "appointment", id: a.id },
+          // The day-before reminder names the date (a quiet-hours deferral can move it to the appointment's own day).
+          dayBefore ? "תזכורת לתור" : "תזכורת: יש לך תור בקרוב",
+          dayBefore ? `התור ב-${dm} בשעה ${hhmm}.` : `התור מתחיל ב-${hhmm}.`,
+          "/calendar", `appointment_upcoming_${r.leadMinutes}`, now,
+        ),
+        userId: r.userId,
+        push: { notBefore: plan.notBefore, expiresAt: plan.expiresAt },
+      });
+    }
   }
   return out;
 }

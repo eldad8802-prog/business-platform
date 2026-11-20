@@ -271,9 +271,14 @@ check("the artifact and the tenant cannot be deleted out from under a fiscal rec
   assert.match(histBlock, /importRun ImportRun\? @relation\([^)]*onDelete: SetNull/);
 });
 
-check("Document is changed by an index only — it gains no column", () => {
+check("Document is changed by an index only — it gains no column but the notification status clock", () => {
   assert.match(docBlock, /@@unique\(\[businessId, id\]\)/);
   const docFields = scalarFields(docBlock);
+  // The ONE exception, approved by the owner on 2026-11-14: "statusChangedAt" (migration
+  // 20261213090000_notification_docs_stuck_appointment_lead) — when the document entered its
+  // current status, stamped by a BEFORE trigger on the row itself, read only by the notification
+  // engine's stuck-document check. Nullable, no default, not fiscal, never written by the
+  // application. Any other new column still fails here.
   assert.deepEqual(docFields.slice().sort(), [
     "businessId",
     "contentHashSha256",
@@ -286,6 +291,7 @@ check("Document is changed by an index only — it gains no column", () => {
     "sizeBytes",
     "source",
     "status",
+    "statusChangedAt",
   ]);
 });
 
