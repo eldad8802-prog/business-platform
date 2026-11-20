@@ -57,6 +57,14 @@ async function main() {
   await config.setStaffServices(principal, avi, { services: [{ businessServiceId: haircut }, { businessServiceId: consult }] });
   const week = [0, 1, 2, 3, 4].flatMap((weekday) => [{ weekday, startMinute: 9 * 60, endMinute: 18 * 60 }]);
   await config.replaceWeeklyRules(principal, { rules: [...week, { weekday: 5, startMinute: 9 * 60, endMinute: 13 * 60 }] });
+  // The checks treat "today" as a full working day: D9 books 17:00, D11 asks for the nearest free times, D13/D14 drag
+  // inside and before the hours, M1 shows free time. The job runs on any day, so when it runs on a Friday or Saturday
+  // (Jerusalem) today gets a special day of 09:00–18:00. The weekly pattern itself stays as it is (D23/D24 read it).
+  // Without this, every run on a Friday or Saturday failed D9–D12, and D13 on Saturday (issue #1198). Test data only.
+  const runDay = jerusalemDayKey(new Date());
+  if (new Date(runDay + "T12:00:00Z").getUTCDay() >= 5) {
+    await config.addException(principal, { dayKey: runDay, kind: "OPEN_HOURS", startMinute: 9 * 60, endMinute: 18 * 60 });
+  }
   await config.upsertServicePolicy(principal, color, { bufferAfterMinutes: 15 });
 
   const today = jerusalemDayKey(new Date());
