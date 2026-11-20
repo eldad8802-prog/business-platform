@@ -9,6 +9,11 @@
  *  - Dubiz app without push in its build (older Android build, iOS): "not available in this version".
  *  - A browser: phone notifications are the Android app's; the browser option (lib/push/push-client.ts — the
  *    engine sends to these subscriptions too) only where it really works.
+ *
+ * "Connected" is shown ONLY after the server confirmed a registration made during this visit (registerDevice's
+ * "registered" = a 2xx to POST /api/push/devices). The permission and the device-local opt-in alone never show it:
+ * with both, the card registers on open and shows "connecting" until the server answers. A failure shows its
+ * reason and a short diagnostic code (never a token).
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
@@ -23,12 +28,20 @@ import {
   permissionStatus,
   registerDevice,
   requestPushPermission,
-  type PushRegistrationStatus,
+  type PushRegistrationOutcome,
 } from "@/lib/native/push-notifications";
 import { buildClientAuthHeaders } from "@/lib/client-session";
 import { disablePush, enablePush, pushState, pushSupport } from "@/lib/push/push-client";
 
-import { deviceState, type DeviceInputs, type NativePermission } from "./notification-settings-model";
+import {
+  deviceState,
+  registrationDiagnostic,
+  registrationFailureKey,
+  registrationFromOutcome,
+  type DeviceInputs,
+  type NativePermission,
+  type RegistrationOutcomeLike,
+} from "./notification-settings-model";
 import s from "./notification-settings.module.css";
 
 type Env = "native" | "app-without-push" | "browser";
@@ -60,33 +73,42 @@ async function browserPushState(): Promise<"on" | "off" | "denied" | "unavailabl
   }
 }
 
-type Registration = "idle" | "connecting" | "connected" | "failed";
+/** registerDevice always settles (its own FCM timeout); this is only a guard against a bridge call that hangs. */
+const CONFIRM_GUARD_MS = REGISTER_TIMEOUT_MS + 5000;
 
-function registrationOf(status: PushRegistrationStatus): Registration | "not_configured" | "permission" {
-  if (status === "registered" || status === "unchanged") return "connected";
-  if (status === "not_configured") return "not_configured";
-  if (status === "permission_not_granted") return "permission";
-  return "failed";
+function confirmWithGuard(): Promise<PushRegistrationOutcome> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ status: "registration_timeout" }), CONFIRM_GUARD_MS);
+    registerDevice().then(
+      (o) => {
+        clearTimeout(timer);
+        resolve(o);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve({ status: "registration_error", code: "CLIENT" });
+      }
+    );
+  });
 }
 
 export function PhoneDeviceCard() {
   const t = useNotificationT();
   const [inputs, setInputs] = useState<DeviceInputs | null>(null);
+  const [failure, setFailure] = useState<RegistrationOutcomeLike | null>(null);
   const [busy, setBusy] = useState(false);
   const [browserFailed, setBrowserFailed] = useState(false);
-  const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The automatic confirmation on open runs once per visit; after that only the person's tap retries. */
+  const autoConfirmed = useRef(false);
+  const mounted = useRef(true);
 
   const readNative = useCallback(async (patch: Partial<Extract<DeviceInputs, { kind: "native" }>> = {}) => {
     const [configured, permission] = await Promise.all([isPushConfigured(), permissionStatus()]);
     setInputs((prev) => {
       const p = prev && prev.kind === "native" ? prev : null;
       const optedIn = isPushOptedIn();
-      const registration: Registration =
-        p?.registration && p.registration !== "idle"
-          ? p.registration
-          : permission === "granted" && optedIn
-            ? "connected"
-            : "idle";
+      // Never inferred from the permission or the opt-in: only a server-confirmed registration is "connected".
+      const registration = p?.registration ?? "idle";
       return {
         kind: "native",
         configured,
@@ -98,6 +120,49 @@ export function PhoneDeviceCard() {
       };
     });
   }, []);
+
+  /** Apply a registration outcome. Only the server's 2xx ("registered") connects. */
+  const applyOutcome = useCallback(
+    async (o: PushRegistrationOutcome | RegistrationOutcomeLike) => {
+      if (!mounted.current) return;
+      const r = registrationFromOutcome(o);
+      if (r === "not_configured") {
+        setFailure(null);
+        await readNative({ configured: false, registration: "idle" });
+      } else if (r === "permission") {
+        setFailure(null);
+        await readNative({ registration: "idle" });
+      } else if (r === "connected") {
+        setFailure(null);
+        setInputs((prev) => (prev && prev.kind === "native" ? { ...prev, optedIn: isPushOptedIn(), registration: "connected" } : prev));
+      } else {
+        setFailure({ status: o.status, code: o.code });
+        setInputs((prev) => (prev && prev.kind === "native" ? { ...prev, registration: "failed" } : prev));
+      }
+    },
+    [readNative]
+  );
+
+  /** Register now and wait for the server's answer (shared with any registration already running). */
+  const confirm = useCallback(async () => {
+    setInputs((prev) => (prev && prev.kind === "native" ? { ...prev, registration: "connecting" } : prev));
+    await applyOutcome(await confirmWithGuard());
+  }, [applyOutcome]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  // Opened with the permission and the opt-in already there: confirm with the server instead of assuming.
+  useEffect(() => {
+    if (!inputs || inputs.kind !== "native" || autoConfirmed.current) return;
+    if (!inputs.configured || inputs.permission !== "granted" || !inputs.optedIn || inputs.registration !== "idle") return;
+    autoConfirmed.current = true;
+    void Promise.resolve().then(() => confirm());
+  }, [inputs, confirm]);
 
   useEffect(() => {
     const env = detectEnv();
@@ -117,18 +182,11 @@ export function PhoneDeviceCard() {
     void Promise.resolve().then(() => {
       if (!cancelled) void readNative();
     });
-    // Registration outcomes (the client emits them; never a token).
+    // Outcomes the client reports on its own (a token rotation, a disconnect); never a token.
     const onStatus = (e: Event) => {
-      const status = (e as CustomEvent<{ status: PushRegistrationStatus }>).detail?.status;
-      if (!status) return;
-      const r = registrationOf(status);
-      if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
-      setInputs((prev) => {
-        if (!prev || prev.kind !== "native") return prev;
-        if (r === "not_configured") return { ...prev, configured: false, registration: "idle" };
-        if (r === "permission") return { ...prev, registration: "idle" };
-        return { ...prev, optedIn: isPushOptedIn(), registration: r };
-      });
+      const detail = (e as CustomEvent<RegistrationOutcomeLike>).detail;
+      if (!detail || typeof detail.status !== "string") return;
+      void applyOutcome({ status: detail.status, code: typeof detail.code === "string" ? detail.code : undefined });
     };
     // Back from the phone's settings: read the permission again.
     const onVisible = () => {
@@ -140,9 +198,8 @@ export function PhoneDeviceCard() {
       cancelled = true;
       window.removeEventListener(PUSH_STATUS_EVENT, onStatus);
       document.removeEventListener("visibilitychange", onVisible);
-      if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
     };
-  }, [readNative]);
+  }, [readNative, applyOutcome]);
 
   /** The person's tap — the only place the system permission dialog can appear. */
   async function ask() {
@@ -150,12 +207,10 @@ export function PhoneDeviceCard() {
     try {
       const state = await requestPushPermission();
       if (state === "granted") {
-        // requestPushPermission connects the phone; the outcome arrives as a status event. Never wait forever.
+        // requestPushPermission started the registration; confirm() shares it and waits for the server's answer.
+        autoConfirmed.current = true;
         setInputs((prev) => (prev && prev.kind === "native" ? { ...prev, permission: "granted", optedIn: true, askedThisVisit: true, registration: "connecting" } : prev));
-        if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
-        fallbackTimer.current = setTimeout(() => {
-          setInputs((prev) => (prev && prev.kind === "native" && prev.registration === "connecting" ? { ...prev, registration: "failed" } : prev));
-        }, REGISTER_TIMEOUT_MS + 5000);
+        await confirm();
       } else {
         await readNative({ askedThisVisit: true, registration: "idle" });
       }
@@ -166,12 +221,8 @@ export function PhoneDeviceCard() {
 
   async function retryConnect() {
     setBusy(true);
-    setInputs((prev) => (prev && prev.kind === "native" ? { ...prev, registration: "connecting" } : prev));
     try {
-      const r = registrationOf(await registerDevice());
-      if (r === "not_configured") await readNative({ configured: false, registration: "idle" });
-      else if (r === "permission") await readNative({ registration: "idle" });
-      else setInputs((prev) => (prev && prev.kind === "native" ? { ...prev, registration: r } : prev));
+      await confirm();
     } finally {
       setBusy(false);
     }
@@ -254,7 +305,10 @@ export function PhoneDeviceCard() {
         <>
           {permissionLine(true)}
           <p className={`${s.note} ${s.noteError}`} role="alert">
-            {t("notifications.phone.connectFailed")}
+            {t("notifications.phone.connectFailed")} {t(registrationFailureKey(failure))}
+          </p>
+          <p className={muted} data-testid="notif-registration-code">
+            {t("notifications.phone.diagnosticCode", { code: registrationDiagnostic(failure) })}
           </p>
           <button type="button" className={`${s.button} mt-3`} disabled={busy} onClick={retryConnect}>
             {t("notifications.phone.connectRetry")}
