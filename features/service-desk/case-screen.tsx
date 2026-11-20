@@ -57,7 +57,6 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [extras, setExtras] = useState<Extras>(NO_EXTRAS);
-  const [extrasKey, setExtrasKey] = useState(0);
   const [pickupAttempt, setPickupAttempt] = useState(0);
 
   const load = useCallback(async () => {
@@ -65,8 +64,7 @@ export function CaseScreen({ caseId }: { caseId: number }) {
       const [card, events] = await Promise.all([getCase(caseId), listCaseEvents(caseId)]);
       setData({ card, events });
       setError("none");
-      setExtras(await loadExtras(card));
-      setExtrasKey((k) => k + 1); // panels restart from what the server holds
+      setExtras(await loadExtras(card)); // each panel restarts only when its own server data changed (keys below)
     } catch (e) {
       setError(e instanceof ServiceDeskApiError && e.status === 404 ? "missing" : "failed");
     }
@@ -144,29 +142,29 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const qMode = quoteMode(card.status);
   const notes = [loanReminder(extras.loans.loans, card.status), card.status === "READY" ? pickupSummary(extras.calls, now) : null].filter((x): x is string => !!x);
   const extraMain = (
-    <div key={extrasKey} style={{ display: "contents" }}>
+    <div style={{ display: "contents" }}>
       {card.status === "QA" && extras.qa && extras.qa.template ? (
-        <QaPanel qa={extras.qa} editable={full} busy={busy}
+        <QaPanel key={sig(extras.qa)} qa={extras.qa} editable={full} busy={busy}
           onSave={(r) => void panelWrite("qa", () => recordQa(card.id, qaBody(extras.qa!.template!.items, r), v), "הבדיקות נשמרו.")} />
       ) : null}
       {qMode ? (
-        <QuotePanel mode={qMode} docs={extras.quoteDocs} sentDocIds={extras.sentDocIds} editable={full} busy={busy}
+        <QuotePanel key={sig([qMode, extras.quoteDocs, extras.sentDocIds])} mode={qMode} docs={extras.quoteDocs} sentDocIds={extras.sentDocIds} editable={full} busy={busy}
           newQuoteHref="/billing?create=QUOTE" onSend={(docId) => void panelWrite("quote", () => sendCaseQuote(card.id, docId, v, qMode === "revise"), "ההצעה נשלחה ונשמרה בתיק.")} />
       ) : null}
       {card.status === "READY" ? (
-        <PickupPanel calls={extras.calls} now={now} editable={full} busy={busy}
+        <PickupPanel key={sig(extras.calls)} calls={extras.calls} now={now} editable={full} busy={busy}
           onRecord={(o, note) => { setPickupAttempt((n) => n + 1); void panelWrite("pickup", () => recordPickupCall(card.id, o, note, pickupAttempt), "השיחה תועדה."); }} />
       ) : null}
     </div>
   );
   const extraSide = (
-    <div key={extrasKey} style={{ display: "contents" }}>
-      {extras.fields ? <FieldsPanel fields={extras.fields} editable={full} busy={busy} held={held}
+    <div style={{ display: "contents" }}>
+      {extras.fields ? <FieldsPanel key={sig(extras.fields)} fields={extras.fields} editable={full} busy={busy} held={held}
         onSave={(loc, d) => void panelWrite("fields", () => setCaseFields(card.id, loc, d))} /> : null}
-      <LoansPanel available={extras.loans.available} loans={extras.loans.loans} now={now} editable={full} busy={busy}
+      <LoansPanel key={sig(extras.loans)} available={extras.loans.available} loans={extras.loans.loans} now={now} editable={full} busy={busy}
         onLend={(name, note) => void panelWrite("loan", () => lendItem(card.id, name, note), "נרשם.")}
         onReturn={(id) => void panelWrite("loan", () => returnLoan(card.id, id), "סומן כהוחזר.")} />
-      <TasksPanel available={extras.tasks.available} linked={extras.tasks.linked} open={extras.tasks.open} editable={full} busy={busy}
+      <TasksPanel key={sig(extras.tasks)} available={extras.tasks.available} linked={extras.tasks.linked} open={extras.tasks.open} editable={full} busy={busy}
         onLink={(id, link) => void panelWrite("task", () => setTaskLink(card.id, id, link), link ? "המשימה קושרה." : "הקישור הוסר.")} />
     </div>
   );
@@ -181,3 +179,6 @@ export function CaseScreen({ caseId }: { caseId: number }) {
     </>
   );
 }
+
+/** A panel's key: what the server holds for it. A reload that changed nothing there keeps what is being typed. */
+function sig(v: unknown): string { return JSON.stringify(v ?? null); }

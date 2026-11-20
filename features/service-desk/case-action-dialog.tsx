@@ -6,6 +6,7 @@
  * an open balance. Hebrew, RTL; a bottom sheet on the phone, a centred dialog from tablet up.
  */
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import type { CaseActionDef } from "./case-actions-model";
 import s from "./cases.module.css";
@@ -38,7 +39,8 @@ export function CaseActionDialog({ def, debtMode, busy, onCancel, onSubmit }: {
   const methodMissing = input.kind === "quoteMethod" && !method;
   const disabled = busy || reasonMissing || debtMissing || methodMissing;
 
-  return (
+  // Rendered on the page body: the shell's layers (its bottom bar among them) cannot cover it.
+  return createPortal(
     <div className={s.backdrop} role="presentation" onClick={() => { if (!busy) onCancel(); }}>
       <div className={s.dialog} role="dialog" aria-modal="true" aria-labelledby="sd-action-title" onClick={(e) => e.stopPropagation()}>
         <h2 id="sd-action-title" className={s.dialogTitle}>{def.label}</h2>
@@ -81,6 +83,7 @@ export function CaseActionDialog({ def, debtMode, busy, onCancel, onSubmit }: {
           <button type="button" className={s.secondary} disabled={busy} onClick={onCancel}>ביטול</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

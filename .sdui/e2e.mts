@@ -322,7 +322,7 @@ async function main() {
         const snap = (await own(seed.bizA, `SELECT "profileKey" k, "workType"::text w FROM "ServiceCase" WHERE id = $1`, after.m))[0] as { k: string; w: string };
         if (snap.k !== "device_lab" || snap.w !== "REPAIR") throw new Error(JSON.stringify(snap));
       });
-      await check("Q2 c6: the customer's billing quote is sent from the case → QUOTE_PENDING; the billing document's content (status, total, number, customer, lines) is not changed", async () => {
+      await check("Q2 c6: the customer's billing quote is sent from the case → QUOTE_PENDING; the billing document's content (status, total, customer, lines) is not changed; billing's own quote numbering may give it its number", async () => {
         const docBefore = JSON.stringify((await own(seed.bizA, `SELECT d.status::text s, d."totalAmount"::text t, d."documentNumber" n, d."customerId" c,
           (SELECT json_agg(json_build_array(l.description, l.quantity::text, l."unitPrice"::text, l."lineTotal"::text) ORDER BY l."lineIndex") FROM "BillingDocumentLine" l WHERE l."billingDocumentId" = d.id) lines
           FROM "BillingDocument" d WHERE d.id = $1`, seed.quoteC6))[0]);
@@ -337,7 +337,12 @@ async function main() {
         const docAfter = JSON.stringify((await own(seed.bizA, `SELECT d.status::text s, d."totalAmount"::text t, d."documentNumber" n, d."customerId" c,
           (SELECT json_agg(json_build_array(l.description, l.quantity::text, l."unitPrice"::text, l."lineTotal"::text) ORDER BY l."lineIndex") FROM "BillingDocumentLine" l WHERE l."billingDocumentId" = d.id) lines
           FROM "BillingDocument" d WHERE d.id = $1`, seed.quoteC6))[0]);
-        if (docAfter !== docBefore) throw new Error(`the billing document changed: ${docBefore} → ${docAfter}`);
+        // Billing's own quote PDF (getOrRenderQuotePdf, called as is) numbers a quote the first time it is produced —
+        // billing's existing mechanism, the same as producing the PDF in billing. Only that may change; nothing else.
+        const b = JSON.parse(docBefore), a = JSON.parse(docAfter);
+        const numberOk = b.n === null ? Number.isInteger(a.n) && a.n > 0 : a.n === b.n;
+        delete b.n; delete a.n;
+        if (!numberOk || JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`the billing document changed: ${docBefore} → ${docAfter}`);
       });
       await check("TK1 an open task is linked to c4 and unlinked", async () => {
         await openCase(pa, seed.c4);
