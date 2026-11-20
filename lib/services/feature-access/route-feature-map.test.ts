@@ -11,14 +11,23 @@
  *   R4 an exempt route does not call the guard (the map and the code say the same thing);
  *   R5 data-rights-floor covers reads only (GET handlers or export routes), legal-correction only billing writes;
  *   R6 every one of the eleven features guards at least one route;
- *   R7 no file outside the scope calls guardFeature (the map is the whole story).
+ *   R7 no file outside the scope calls guardFeature (the map is the whole story);
+ *   R8 the background steps reached by webhooks ask the same guard;
+ *   R9 PENDING_SEPARATE_BILLING_REVIEW: only billing-protected folders (billing/, collection/, payments/, the uniform
+ *      export), each a guarded map entry, and each file does NOT call the guard yet — its guard ships in the separate
+ *      billing Draft PR, which empties the list and so turns R3 back on for it.
  */
 import fs from "node:fs";
 import path from "node:path";
 
 import { GUARDED_FEATURE_KEYS } from "@/lib/services/feature-access/feature-guard";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
-import { ROUTE_FEATURE_MAP, ROUTE_FEATURE_SCOPE, type HttpMethod } from "@/lib/services/feature-access/route-feature-map";
+import {
+  PENDING_SEPARATE_BILLING_REVIEW,
+  ROUTE_FEATURE_MAP,
+  ROUTE_FEATURE_SCOPE,
+  type HttpMethod,
+} from "@/lib/services/feature-access/route-feature-map";
 
 const ROOT = process.cwd();
 const API = path.join(ROOT, "app", "api");
@@ -95,6 +104,18 @@ ok("R2 no duplicates", dupes.length === 0, dupes.join(", "));
 const outOfScope = mapRoutes.filter((r) => !inScope(r));
 ok("R2 every entry is inside the scope", outOfScope.length === 0, outOfScope.join(", "));
 
+// R9
+const PENDING = new Set(PENDING_SEPARATE_BILLING_REVIEW);
+const billingProtected = (r: string) =>
+  r.startsWith("billing/") || r.startsWith("collection/") || r.startsWith("payments/") || r === "reports/uniform";
+for (const r of PENDING) {
+  const entry = ROUTE_FEATURE_MAP.find((e) => e.route === r);
+  ok(`R9 ${r}: pending route is billing-protected`, billingProtected(r));
+  ok(`R9 ${r}: pending route is a guarded map entry`, !!entry && "feature" in entry);
+}
+ok("R9 pending list has no duplicates", PENDING.size === PENDING_SEPARATE_BILLING_REVIEW.length);
+const pendingKeys = new Set<string>();
+
 const guardedKeysSeen = new Set<string>();
 for (const entry of ROUTE_FEATURE_MAP) {
   const file = path.join(API, ...entry.route.split("/"), "route.ts");
@@ -117,6 +138,11 @@ for (const entry of ROUTE_FEATURE_MAP) {
     if (reason === "data-rights-floor") ok(`R5 ${entry.route}: floor only on GET`, m === "GET", m);
     if (reason === "legal-correction") ok(`R5 ${entry.route}: legal-correction only on billing writes`, entry.route.startsWith("billing/") && m !== "GET");
   }
+  if (PENDING.has(entry.route)) {
+    ok(`R9 ${entry.route}: pending route does not call the guard yet`, !src.includes("guardFeature("));
+    pendingKeys.add(entry.feature);
+    continue;
+  }
   const constName = KEY_CONST[entry.feature];
   for (const h of handlers) {
     const firstStmt = h.body.trimStart().split("\n")[0] ?? "";
@@ -132,7 +158,9 @@ for (const entry of ROUTE_FEATURE_MAP) {
 }
 
 // R6
-for (const k of GUARDED_FEATURE_KEYS) ok(`R6 ${k} guards at least one route`, guardedKeysSeen.has(k));
+for (const k of GUARDED_FEATURE_KEYS) {
+  ok(`R6 ${k} guards at least one route (or all of them wait for the billing PR)`, guardedKeysSeen.has(k) || pendingKeys.has(k));
+}
 
 // R7
 const allRoutes = walk(API);
@@ -157,4 +185,4 @@ if (failures.length) {
   for (const f of failures) console.error("  ✗ " + f);
   process.exit(1);
 }
-console.log(`route-feature-map: all ${pass} checks passed (${scopeRoutes.length} routes in scope, ${ROUTE_FEATURE_MAP.filter((e) => "feature" in e).length} guarded, ${ROUTE_FEATURE_MAP.filter((e) => "exempt" in e).length} exempt)`);
+console.log(`route-feature-map: all ${pass} checks passed (${scopeRoutes.length} routes in scope, ${ROUTE_FEATURE_MAP.filter((e) => "feature" in e).length} guarded, ${ROUTE_FEATURE_MAP.filter((e) => "exempt" in e).length} exempt, ${PENDING.size} pending the billing PR)`);

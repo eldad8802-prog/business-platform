@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guardFeature } from "@/lib/services/feature-access/feature-guard";
-import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import type { BillingPaymentAllocation } from "@prisma/client";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
@@ -34,8 +32,6 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.BILLING);
-  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) {

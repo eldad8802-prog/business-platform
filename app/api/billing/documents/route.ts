@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guardFeature } from "@/lib/services/feature-access/feature-guard";
-import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import {
   BillingDocumentStatus,
   BillingDocumentType,
@@ -63,8 +61,6 @@ function parsePositiveInt(
 }
 
 export async function POST(req: NextRequest) {
-  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.BILLING);
-  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) {

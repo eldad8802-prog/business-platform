@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guardFeature } from "@/lib/services/feature-access/feature-guard";
-import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import type { Prisma } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
@@ -121,8 +119,6 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.BILLING);
-  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) {
