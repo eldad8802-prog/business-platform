@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ComingSoonPill } from "@/components/ui/coming-soon/ComingSoonPill";
-import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
+
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { createActionsFor, type CreateAction } from "@/features/home/v4/home-v4-model";
+import { useHomeAccess } from "@/features/home/v4/use-home-access";
 
 type ActionSheetProps = {
   open: boolean;
@@ -18,60 +20,21 @@ const EASE_OUT = "cubic-bezier(0.32, 0.72, 0, 1)";
 const EASE_IN = "cubic-bezier(0.4, 0, 1, 1)";
 
 /**
- * "+" OWNS CREATION, and every entry here must START something.
+ * "+" OWNS CREATION, and every entry here must START something (a deep link that opens the real create flow).
  *
- * The rule this list now keeps: a label that says "new" opens a create flow,
- * full stop. It used to be broken in both directions — "ליד חדש" opened the
- * lead LIST, "חשבונית חדשה" opened the invoice list, and "שיחה חדשה" opened
- * an inbox that cannot start a conversation at all (conversations arrive from
- * the customer). Meanwhile "המזכירה", "גבייה" and "מלאי" were navigation
- * wearing a creation button's clothes, and the one creation the owner asks for
- * most — a payment request — was missing.
+ * HOME v4: the list is no longer static. It is `createActionsFor(access)` — only actions whose module is ON for
+ * the business (GET /api/business/capabilities) and whose scope the person holds, ordered by what this kind of
+ * business creates most. Nothing locked, nothing "coming soon": those belong to "יכולות נוספות", not to "+".
+ * Until capabilities answer, nothing module-bound is shown (fail-closed); a failed read says so, with a retry.
  *
- * So: navigation moved out (the three families own it), the conversation entry
- * is gone because the product cannot honour it, and each remaining action
- * carries a deep link that opens the real create flow on arrival.
- */
-const QUICK_ACTIONS: {
-  label: string;
-  href: string;
-  icon:
-    | "upload"
-    | "invoice"
-    | "content"
-    | "inventory"
-    | "secretary"
-    | "payments"
-    | "lead"
-    | "task"
-    | "calendar";
-  /** Shown but not open yet: inactive, marked "בקרוב" (UI only). */
-  comingSoon?: boolean;
-  /** Listed only while this platform feature is ON for the business. */
-  feature?: string;
-}[] = [
-  { label: "משימה חדשה", href: "/tasks?new=1", icon: "task", feature: "daily_tasks" },
-  // Appointments (design direction A): booking starts from "+" only where the calendar is open for the business.
-  { label: "קביעת תור", href: "/calendar?new=1", icon: "calendar", feature: "appointments" },
-  { label: "חשבונית חדשה", href: "/billing?create=1", icon: "invoice" },
-  { label: "בקשת תשלום", href: "/collection/new", icon: "payments" },
-  { label: "ליד חדש", href: "/leads?new=1", icon: "lead" },
-  { label: "העלאת מסמך", href: "/documents/upload", icon: "upload" },
-  // P3 creation flow (owner decision 23.10.2026): a new commitment starts at "נגדיר את ההתחייבויות".
-  { label: "התחייבות חדשה", href: "/secretary?screen=bank", icon: "secretary" },
-  { label: "מוצר חדש", href: "/inventory/items/create", icon: "inventory" },
-  { label: "יצירת תוכן", href: "/content/create", icon: "content", comingSoon: true },
-];
-
-/**
- * Static quick actions from the FAB — no server / AI / registry.
- * When fully closed after exit animation, renders nothing (no overlay in DOM).
+ * The sheet overlays the current screen without navigating, so closing it returns to the same place and the
+ * same scroll position (only `overflow` is toggled on <body>; the scroll offset is never touched).
  */
 export function ActionSheet({ open, onClose }: ActionSheetProps) {
   const router = useRouter();
-  const tasksOn = useFeatureEnabled("daily_tasks", open);
-  const appointmentsOn = useFeatureEnabled("appointments", open);
-  const actions = QUICK_ACTIONS.filter((a) => !a.feature || (a.feature === "daily_tasks" && tasksOn) || (a.feature === "appointments" && appointmentsOn));
+  const { t } = useI18n();
+  const { access, retry } = useHomeAccess(open);
+  const actions: CreateAction[] = access.state === "ready" ? createActionsFor(access.value) : [];
   const [isPresent, setIsPresent] = useState(open);
   const [visualOpen, setVisualOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -115,7 +78,6 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
 
   useEffect(() => {
     if (!isPresent || !visualOpen) return;
-
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
@@ -125,22 +87,14 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
 
   useEffect(() => {
     if (!isPresent) return;
-
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
+      if (event.key === "Escape") onClose();
     }
-
     window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [isPresent, onClose]);
 
-  if (!isPresent) {
-    return null;
-  }
+  if (!isPresent) return null;
 
   function go(href: string) {
     router.push(href);
@@ -152,8 +106,8 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
 
   return (
     <div
-      dir="rtl"
       inert={!visualOpen}
+      data-component="create-sheet"
       style={{
         position: "fixed",
         inset: 0,
@@ -161,9 +115,9 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
         display: "flex",
         alignItems: "flex-end",
         justifyContent: "center",
-        /* Root must not steal hits when children are pointer-events: none (e.g. exit / pre-open). */
         pointerEvents: "none",
         WebkitTapHighlightColor: "transparent",
+        fontFamily: "var(--font-rubik), 'Heebo', system-ui, sans-serif",
       }}
     >
       <div
@@ -173,7 +127,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
         style={{
           position: "absolute",
           inset: 0,
-          background: "rgba(52, 60, 50, 0.26)",
+          background: "rgba(35, 48, 43, 0.28)",
           opacity: overlayOpacity,
           transition: `opacity ${TRANS_MS}ms ${visualOpen ? EASE_OUT : EASE_IN}`,
           pointerEvents: visualOpen ? "auto" : "none",
@@ -182,152 +136,76 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="פעולות מהירות"
+        aria-labelledby="dz-create-title"
         onClick={(e) => e.stopPropagation()}
         style={{
           position: "relative",
           zIndex: 1,
           width: "100%",
-          maxWidth: 440,
-          maxHeight: "min(78vh, 560px)",
+          maxWidth: 480,
+          maxHeight: "min(80vh, 600px)",
           overflowY: "auto",
           WebkitOverflowScrolling: "touch",
-          borderTopLeftRadius: 24,
-          borderTopRightRadius: 24,
-          background: "rgba(255, 255, 255, 0.98)",
-          boxShadow:
-            "0 -8px 32px rgba(52, 60, 50, 0.08), 0 -2px 12px rgba(52, 60, 50, 0.04)",
+          borderTopLeftRadius: 28,
+          borderTopRightRadius: 28,
+          background: "#FFFDF8",
+          boxShadow: "0 -10px 34px rgba(35, 48, 43, 0.12)",
           transform: sheetTransform,
           transition: `transform ${TRANS_MS}ms ${visualOpen ? EASE_OUT : EASE_IN}`,
           willChange: "transform",
-          padding:
-            "10px 14px calc(18px + env(safe-area-inset-bottom, 0px)) 14px",
+          padding: "10px 16px calc(18px + env(safe-area-inset-bottom, 0px)) 16px",
           pointerEvents: visualOpen ? "auto" : "none",
+          color: "#23302B",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            marginBottom: 10,
-          }}
-        >
-          <div
-            aria-hidden
-            style={{
-              width: 40,
-              height: 4,
-              borderRadius: 999,
-              background: "rgba(52, 60, 50, 0.12)",
-              marginBottom: 12,
-            }}
-          />
-        </div>
+        <div aria-hidden style={{ width: 40, height: 4, borderRadius: 999, background: "rgba(35, 48, 43, 0.14)", margin: "0 auto 14px" }} />
+        <h2 id="dz-create-title" style={{ margin: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-0.01em" }}>
+          {t("home.v4.create.title")}
+        </h2>
+        <p style={{ margin: "2px 0 16px", fontSize: 14, color: "#566159" }}>{t("home.v4.create.subtitle")}</p>
 
-        <div
-          style={{
-            fontSize: 17,
-            fontWeight: 800,
-            color: "var(--dz-text-primary)",
-            marginBottom: 4,
-            textAlign: "right",
-            letterSpacing: "-0.02em",
-          }}
-        >
-          פעולות מהירות
-        </div>
-        <p
-          style={{
-            margin: "0 0 16px",
-            fontSize: 13,
-            color: "var(--dz-text-muted)",
-            lineHeight: 1.45,
-            textAlign: "right",
-          }}
-        >
-          קיצורי דרך לפעולות הנפוצות
-        </p>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-            gap: 10,
-          }}
-        >
-          {actions.map((item, index) => (
-            <button
-              key={item.href}
-              type="button"
-              onClick={item.comingSoon ? undefined : () => go(item.href)}
-              disabled={item.comingSoon}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "stretch",
-                justifyContent: "center",
-                gap: 10,
-                minHeight: 76,
-                padding: "14px 12px",
-                borderRadius: 16,
-                border: "1px solid rgba(102, 111, 101, 0.35)",
-                background:
-                  "linear-gradient(180deg, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 100%)",
-                cursor: item.comingSoon ? "not-allowed" : "pointer",
-                textAlign: "right",
-                touchAction: "manipulation",
-                WebkitTapHighlightColor: "transparent",
-                boxShadow: "0 1px 2px rgba(52, 60, 50, 0.04)",
-                transition:
-                  "transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease",
-                ...(index === actions.length - 1 &&
-                actions.length % 2 === 1
-                  ? { gridColumn: "1 / -1" }
-                  : {}),
-              }}
-            >
-              <span
+        {access.state === "loading" ? (
+          <p role="status" style={{ margin: "8px 0 4px", fontSize: 14, color: "#566159" }}>{t("home.v4.create.loading")}</p>
+        ) : access.state === "failed" ? (
+          <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderRadius: 14, background: "#F8F1EE", color: "#7A3E2E", fontSize: 14 }}>
+            <span>{t("home.v4.create.failed")}</span>
+            <button type="button" onClick={retry} style={{ minHeight: 40, border: 0, background: "transparent", color: "#1F4A46", fontWeight: 600, font: "inherit", cursor: "pointer" }}>
+              {t("home.v4.create.retry")}
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+            {actions.map((item, index) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => go(item.href)}
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "flex-end",
                   gap: 10,
+                  minHeight: 64,
+                  padding: "12px",
+                  borderRadius: 18,
+                  border: "1px solid #E3E5DD",
+                  background: "#FFFFFF",
+                  cursor: "pointer",
+                  textAlign: "start",
+                  font: "inherit",
+                  color: "#23302B",
+                  touchAction: "manipulation",
+                  boxShadow: "0 1px 2px rgba(35, 48, 43, 0.04)",
+                  ...(index === actions.length - 1 && actions.length % 2 === 1 ? { gridColumn: "1 / -1" } : {}),
                 }}
               >
-                <span
-                  style={{
-                    flex: 1,
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: item.comingSoon ? "var(--dz-text-muted)" : "var(--dz-text-primary)",
-                    lineHeight: 1.25,
-                  }}
-                >
-                  {item.label}
-                </span>
-                {item.comingSoon ? <ComingSoonPill /> : null}
-                <span
-                  style={{
-                    flexShrink: 0,
-                    width: 40,
-                    height: 40,
-                    borderRadius: 12,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "rgba(43, 90, 133, 0.08)",
-                    color: "var(--dz-info)",
-                    opacity: item.comingSoon ? 0.5 : 1,
-                  }}
-                  aria-hidden
-                >
+                <span aria-hidden style={{ flexShrink: 0, width: 40, height: 40, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "#E3EEE7", color: "#2F615C" }}>
                   <ActionGlyph kind={item.icon} />
                 </span>
-              </span>
-            </button>
-          ))}
-        </div>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, lineHeight: 1.25 }}>{t(`home.v4.create.action.${item.labelKey}`)}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <button
           type="button"
@@ -336,191 +214,44 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
             width: "100%",
             marginTop: 14,
             minHeight: 50,
-            borderRadius: 16,
-            border: "1px solid rgba(102, 111, 101, 0.4)",
-            background: "var(--dz-surface)",
+            borderRadius: 999,
+            border: "1px solid #E3E5DD",
+            background: "transparent",
             fontSize: 15,
-            fontWeight: 700,
-            color: "var(--dz-text-secondary)",
+            fontWeight: 600,
+            font: "inherit",
+            color: "#566159",
             cursor: "pointer",
             touchAction: "manipulation",
-            WebkitTapHighlightColor: "transparent",
           }}
         >
-          סגור
+          {t("home.v4.create.close")}
         </button>
       </div>
     </div>
   );
 }
 
-function ActionGlyph({
-  kind,
-}: {
-  kind:
-    | "upload"
-    | "invoice"
-    | "chat"
-    | "content"
-    | "inventory"
-    | "secretary"
-    | "payments"
-    | "lead"
-    | "task"
-    | "calendar";
-}) {
-  const stroke = 1.85;
-  const size = 22;
+function ActionGlyph({ kind }: { kind: CreateAction["icon"] }) {
+  const p = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.85, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (kind) {
     case "calendar":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M4 6.5h16v13.5H4zM4 10.5h16M8.5 3.5v4M15.5 3.5v4M12 13.5v4M10 15.5h4"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
+      return <svg {...p}><path d="M4 6.5h16v13.5H4zM4 10.5h16M8.5 3.5v4M15.5 3.5v4M12 13.5v4M10 15.5h4" /></svg>;
     case "task":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M9 6h11M9 12h11M9 18h7M4 6l1 1 2-2M4 12l1 1 2-2"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
+      return <svg {...p}><path d="M9 6h11M9 12h11M9 18h7M4 6l1 1 2-2M4 12l1 1 2-2" /></svg>;
     case "lead":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M4 6h16M6.5 12h11M9.5 18h5"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-          />
-        </svg>
-      );
+      return <svg {...p}><path d="M4 6h16M6.5 12h11M9.5 18h5" /></svg>;
+    case "customer":
+      return <svg {...p}><circle cx="10" cy="8" r="3.5" /><path d="M3.5 19.5c.6-3 3.1-4.8 6.5-4.8 1.5 0 2.8.3 3.9 1M18 14v6M15 17h6" /></svg>;
     case "secretary":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1z"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinejoin="round"
-          />
-          <path
-            d="M9 13l2 2 4-4"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
+      return <svg {...p}><path d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1z" /><path d="M9 13l2 2 4-4" /></svg>;
     case "upload":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M12 5v10M8 9l4-4 4 4M5 19h14"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
+      return <svg {...p}><path d="M12 5v10M8 9l4-4 4 4M5 19h14" /></svg>;
     case "invoice":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M7 3h10l3 3v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinejoin="round"
-          />
-          <path
-            d="M14 3v4h4M8 12h8M8 16h5"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-          />
-        </svg>
-      );
-    case "chat":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
-    case "content":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
+      return <svg {...p}><path d="M7 3h10l3 3v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M14 3v4h4M8 12h8M8 16h5" /></svg>;
     case "inventory":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinejoin="round"
-          />
-          <path
-            d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
+      return <svg {...p}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" /></svg>;
     case "payments":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <rect
-            x="2.5"
-            y="5"
-            width="19"
-            height="14"
-            rx="2.5"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinejoin="round"
-          />
-          <path
-            d="M2.5 9.5h19"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-          />
-          <path
-            d="M6 15h4"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-          />
-        </svg>
-      );
+      return <svg {...p}><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><path d="M2.5 9.5h19M6 15h4" /></svg>;
   }
 }

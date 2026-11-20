@@ -28,7 +28,7 @@
     },
     "lib/services/service-desk/qa-templates.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "pure (no DB/network/clock): Service Desk P3 base QA checklists — one template per kind (IN_SHOP / FIELD / MAINTENANCE) with token keys; QA completes only when every required item is PASS; a failed or missing required item keeps it open; optional items never block; unknown keys, other kinds’ keys and values other than PASS / FAIL refused; the stored checklist is tokens only; run on pull_request by service-desk-ci.yml"
+      "reason": "pure (no DB/network/clock): Service Desk built-in QA checklists — owner 2026-11-12: all 7 built-in templates (30 checks) are suggestions, every check optional, complete only when every check is recorded (PASS or FAIL); the evaluator REQUIRED semantics (a failed or missing required check keeps QA open; optional checks never block) on a synthetic template and the frozen retired v1 templates (10 required checks kept for history, never offered, a v1 snapshot judged by its v2 successor); unknown keys, other kinds’ keys, unknown template ids and values other than PASS / FAIL refused; the stored checklist is tokens only; run on pull_request by service-desk-ci.yml"
     },
     "features/service-desk/settings-model.test.ts": {
       "class": "PRODUCT_REQUIRED",
@@ -36,7 +36,39 @@
     },
     "lib/services/service-desk/settlement.test.ts": {
       "class": "PRODUCT_REQUIRED",
-      "reason": "pure (no DB): 1.3c — the balance a handover reads: only SETTLED and OPEN (integer agorot > 0) are known; UNKNOWN (any reason) and NO_CHARGE_DOCUMENT keep the handover blocked and are never read as 0; today's only reader answers UNKNOWN / NOT_LINKED (no billing link yet, no inference); run on pull_request by service-desk-ci.yml"
+      "reason": "pure (no DB): 1.3c — the balance a handover reads (contract v2): NO_CHARGE (explicit) and SETTLED are 0, an overpayment is carried; OPEN and CHARGE_NOT_DOCUMENTED carry the debt; UNKNOWN (any reason) keeps the handover blocked and is never read as 0; today's only reader answers UNKNOWN / NOT_LINKED; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/case-balance.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/clock): the balance of a service case from its charge, active billing links and billing's settlement facts (#1102 shape) — the five handover cases, exempt dealer, overpayment shown never zeroed, another business's / vanished / draft / foreign / wrong-type document → UNKNOWN, a double link → UNKNOWN, no double count of allocated receipts / tax invoice-receipts / credits, partial payments and one receipt over several invoices, documented above the charge → UNKNOWN, and charge changes against issued documents; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/case-charge-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): the case charge and its billing links (migration 20261126090000) — input parsing (modes, positive integer agorot ≤ int4, reasons 1–1000 characters trimmed, link roles, unlink reason required), decisions (CLOSED / CANCELLED final, NO_CHARGE and every change need a reason, an identical record is NO_CHANGE, seq last + 1, OWNER_ENTERED only, closed payload with no reason text, no link to a NO_CHARGE case, a correction after DELIVERED allowed), the link guard refusals and the one-active-link UNIQUE mapped to stable codes, and the real settlement reader over a fake transaction (no migration → NOT_LINKED, no charge → NO_CHARGE_DECISION, exempt dealer settled by a standalone receipt, overpayment carried, billing read error → READ_ERROR, draft → DRAFT_PENDING, vanished document → CONFLICT); run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/quote-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk 1.3c quotes — the canonical quote content (\"sdq1\" array) and its docHash: exact, deterministic, line-order and decimal-scale independent, changed by every content field and by nothing else; exact agorot from decimal text (never a float, int4 bound); the billing document check (another business = not found, not a QUOTE, not ILS, another customer, no lines, converted, issued); the owner's decision (APPROVE / REJECT by PHONE / IN_PERSON, LINK refused, the approval names the row's exact version / total / docHash, superseded / withdrawn rows named by their state); the approval's charge = the approved total, none for ₪0; the frozen-copy key under the business's service prefix; fit with the unchanged case core; run on pull_request by service-desk-ci.yml"
+    },
+    "lib/services/service-desk/tracks-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk M1 tracks — universal track opening (never reads the business category), subject fits track, track facts from the case snapshot (work approval, QA REQUIRED/OPTIONAL/OFF, handover by owner), after-sale resolutions (exchange blocked), completion with an open debt only with approval + reason and never on an UNKNOWN balance, overpayment kept; run on pull_request by service-desk-ci.yml"
+    },
+    "features/service-desk/cases-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk UI 1.3 cases list and case screen view model — Hebrew status labels and tones, attention reasons that name what waits and for how long (never a score), next action per status and activity (repair vs service call), search by number / customer / subject / problem, filter sections with closed cases only under their filter or a search, sections per activity (intake / handover only for a held item) that open when they need attention, history newest first; run on pull_request by service-desk-ui-e2e.yml"
+    },
+    "features/service-desk/case-actions-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk UI 1.3 case actions — exactly what the case screen offers per status and kind (intake link or owner-confirmed check-in, diagnosis, repair, hold set / clear, finish, QA pass / fail, the customer quote answer through the quote endpoint, handover, complete, close; cancel with a required reason once the item is held; nothing on a closed case), and the exact request bodies the server contract expects (DELIVER with an owner-confirmed handover and optional receiver name, the open-balance reason, COMPLETE with the owner-confirmed completion type of the place, CANCEL reason trimmed); the server stays the authority; run on pull_request by service-desk-ui-e2e.yml"
+    },
+    "features/service-desk/open-case-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk UI 1.3 case-opening form — the business profile tracks offered first (defaults before enabled, the rest on request), fields per activity (an item and fault for a repair, the work and a required address for on-site work, no item for a service call), held items continue to intake, missing / over-long field checks in screen order, the exact POST body (no requirement ever set by the client, the accepted parent link), the warranty-link suggestion (same item, handed back inside the warranty, newest first, none without a warranty); run on pull_request by service-desk-ui-e2e.yml"
+    },
+    "features/service-desk/case-extras-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): Service Desk UI 1.3 activation and case panels — the activity types pre-selected from the business category (decision 1) and changed by hand (a stored list wins, another profile replaces the list until the owner edits it, catalog order, never empty); the QA checklist progress by the server rule (every check recorded on a built-in template, a required FAIL keeps it open) and only known PASS/FAIL keys sent; the pickup-call summary; an open loan is a reminder at handover only (decision 5, never a block); quote documents offered from billing (not converted / cancelled / already sent) and the send / revise step by status; run on pull_request by service-desk-ui-e2e.yml"
     }
   }
 }

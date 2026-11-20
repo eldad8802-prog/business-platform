@@ -461,11 +461,13 @@ export const insightsEn: Widen<typeof insightsHe> = {
   backNav: {
     back: "Back",
     toHome: "To Home",
+    toTools: "To my tools",
     toSettings: "To Settings",
     toOrderCenter: "To the order center",
     toDocuments: "To Documents",
     toInventory: "To Inventory",
     toImportExport: "To Import & export",
+    toNotificationSettings: "To Notifications",
     toCollection: "To Collection",
     toAllPayables: "To all commitments",
     toCalendar: "To the calendar",

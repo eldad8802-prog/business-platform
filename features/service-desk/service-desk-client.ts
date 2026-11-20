@@ -16,6 +16,8 @@ export type ServiceSettings = {
   warrantyTemplate: WarrantyTemplate | null;
   activeTermsVersionId: number | null;
   activeStatutoryNoticeVersionId: number | null;
+  /** UI 1.3: the profile's activity types (what the opening form offers first). */
+  profile?: { key: string; defaultTracks: string[]; enabledTracks: string[] };
 };
 export type StaffMember = { id: number; displayName: string };
 
@@ -32,7 +34,7 @@ export class ServiceDeskApiError extends Error {
   }
 }
 
-async function call<T>(method: "GET" | "PUT", url: string, body?: unknown, key?: string, timeoutMs = 15000): Promise<T> {
+async function call<T>(method: "GET" | "PUT" | "POST", url: string, body?: unknown, key?: string, timeoutMs = 15000): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
@@ -99,3 +101,162 @@ export async function saveSettings(body: SaveSettingsBody): Promise<ServiceSetti
     throw e;
   }
 }
+
+// ── UI 1.3: the cases list and the case screen (reads only) ─────────────────────────────────────────
+
+/** GET /api/service-desk/cases — newest first (one page of up to 100). */
+export async function listCases(): Promise<import("./cases-model").CaseRowData[]> {
+  const r = await call<{ cases?: import("./cases-model").CaseRowData[] }>("GET", "/api/service-desk/cases?limit=100");
+  return Array.isArray(r.cases) ? r.cases : [];
+}
+
+/** GET /api/service-desk/cases/:id — the case card. */
+export function getCase(id: number): Promise<import("./cases-model").CaseCardData> {
+  return call<import("./cases-model").CaseCardData>("GET", `/api/service-desk/cases/${id}`);
+}
+
+/** GET /api/service-desk/cases/:id/events — the journal, oldest first. */
+export async function listCaseEvents(id: number): Promise<import("./cases-model").JournalItem[]> {
+  const r = await call<{ events?: import("./cases-model").JournalItem[] } | import("./cases-model").JournalItem[]>("GET", `/api/service-desk/cases/${id}/events`);
+  return Array.isArray(r) ? r : Array.isArray(r.events) ? r.events : [];
+}
+
+// ── UI 1.3: case actions (writes; the server decides what is legal) ─────────────────────────────────
+
+/**
+ * One state-machine action on the case. The server runs the real case machine (legality, approval, QA, balance,
+ * permissions, version); the screen only offers what the action model allows. One key per intent: a retry of the same
+ * action at the same version reuses it, so a lost answer never acts twice.
+ */
+export async function runCaseAction(caseId: number, action: Record<string, unknown>, expectedVersion: number): Promise<{ case: import("./cases-model").CaseRowData }> {
+  const intent = `service-desk/cases/${caseId}:action:${expectedVersion}:${JSON.stringify(action)}`;
+  const key = keyFor(intent);
+  try {
+    const r = await call<{ case: import("./cases-model").CaseRowData }>("POST", `/api/service-desk/cases/${caseId}/actions`, { action, expectedVersion }, key);
+    settleKey(intent);
+    return r;
+  } catch (e) {
+    if (e instanceof ServiceDeskApiError && e.status !== null) settleKey(intent);
+    throw e;
+  }
+}
+
+export type QuoteSummary = { version: number; state: string; totalAgorot: number | null; billingDocumentId?: number };
+
+/** GET /api/service-desk/cases/:id/quotes — the case's quote versions. */
+export async function listQuotes(caseId: number): Promise<QuoteSummary[]> {
+  const r = await call<{ quotes?: Array<Record<string, unknown>> }>("GET", `/api/service-desk/cases/${caseId}/quotes`);
+  return (Array.isArray(r.quotes) ? r.quotes : []).map((q) => ({
+    version: Number(q.version), state: String(q.state ?? ""), totalAgorot: typeof q.totalAgorot === "number" ? q.totalAgorot : null,
+    ...(typeof q.billingDocumentId === "number" ? { billingDocumentId: q.billingDocumentId } : {}),
+  }));
+}
+
+/** The owner records the customer's answer to a quote (by phone or in person). */
+export async function decideQuote(caseId: number, version: number, decision: "APPROVE" | "REJECT", method: "PHONE" | "IN_PERSON", expectedVersion: number): Promise<unknown> {
+  const intent = `service-desk/cases/${caseId}:quote:${version}:${decision}:${expectedVersion}`;
+  const key = keyFor(intent);
+  try {
+    const r = await call<unknown>("POST", `/api/service-desk/cases/${caseId}/quotes/${version}/decision`, { decision, method, expectedVersion }, key);
+    settleKey(intent);
+    return r;
+  } catch (e) {
+    if (e instanceof ServiceDeskApiError && e.status !== null) settleKey(intent);
+    throw e;
+  }
+}
+
+// ── UI 1.3: opening a case ─────────────────────────────────────────────────────────────────────
+
+export type CustomerHit = { id: number; name: string; phone: string | null };
+
+/** GET /api/customers?q= — the business's customers by name or phone (the canonical customers list). */
+export async function searchCustomers(q: string): Promise<CustomerHit[]> {
+  const r = await call<{ customers?: Array<Record<string, unknown>> }>("GET", `/api/customers?q=${encodeURIComponent(q)}&limit=8`);
+  return (Array.isArray(r.customers) ? r.customers : []).map((c) => ({ id: Number(c.id), name: String(c.name ?? ""), phone: (c.phone as string) ?? null }));
+}
+
+/** POST /api/customers — a new customer from the opening form (name, optional phone). */
+export async function createCustomer(name: string, phone: string | null): Promise<CustomerHit> {
+  const r = await call<Record<string, unknown>>("POST", "/api/customers", { name, ...(phone ? { phone } : {}) });
+  const c = (r.customer && typeof r.customer === "object" ? r.customer : r) as Record<string, unknown>;
+  return { id: Number(c.id), name: String(c.name ?? name), phone: (c.phone as string) ?? phone };
+}
+
+/** POST /api/service-desk/cases — open a case on a track (the server snapshots the profile). One key per intent. */
+export async function openServiceCase(body: Record<string, unknown>): Promise<{ case: import("./cases-model").CaseRowData }> {
+  const intent = `service-desk/cases:open:${JSON.stringify(body)}`;
+  const key = keyFor(intent);
+  try {
+    const r = await call<{ case: import("./cases-model").CaseRowData }>("POST", "/api/service-desk/cases", body, key);
+    settleKey(intent);
+    return r;
+  } catch (e) {
+    if (e instanceof ServiceDeskApiError && e.status !== null) settleKey(intent);
+    throw e;
+  }
+}
+
+// ── UI 1.3: the light features around a case (QA, quotes, pickup calls, loans, tasks, fields, activation) ────────
+
+/** One write with a fresh key per intent; the key is settled once the server answered (a retry after a timeout reuses it). */
+async function keyed<T>(intent: string, method: "PUT" | "POST", url: string, body: unknown): Promise<T> {
+  const key = keyFor(intent);
+  try {
+    const r = await call<T>(method, url, body, key);
+    settleKey(intent);
+    return r;
+  } catch (e) {
+    if (e instanceof ServiceDeskApiError && e.status !== null) settleKey(intent);
+    throw e;
+  }
+}
+
+export type CaseQa = {
+  mode: "REQUIRED" | "OPTIONAL" | "OFF";
+  template: { id: string; items: { key: string; label: string; required: boolean }[]; everyCheckRecorded: boolean } | null;
+  results: Record<string, "PASS" | "FAIL">;
+  completed: boolean;
+};
+export const getCaseQa = (caseId: number) => call<CaseQa>("GET", `/api/service-desk/cases/${caseId}/qa`);
+export const recordQa = (caseId: number, results: Record<string, "PASS" | "FAIL">, expectedVersion: number) =>
+  keyed<{ qa?: { completed: boolean } }>(`service-desk/cases/${caseId}/qa:${expectedVersion}:${JSON.stringify(results)}`, "PUT", `/api/service-desk/cases/${caseId}/qa`, { results, expectedVersion });
+
+export type QuoteDoc = { id: number; number: string | null; status: string; totalAmount: string | number; createdAt?: string; converted: boolean };
+/** The customer's billing QUOTE documents (read only — the billing module issues and keeps them). */
+export async function listCustomerQuoteDocs(customerId: number): Promise<QuoteDoc[]> {
+  const r = await call<{ documents?: Array<Record<string, unknown>> }>("GET", `/api/billing/documents?documentType=QUOTE&customerId=${customerId}&limit=20`);
+  return (r.documents ?? []).map((d) => ({
+    id: Number(d.id), number: (d.documentNumberFormatted as string) ?? null, status: String(d.status),
+    totalAmount: d.totalAmount as string, createdAt: d.createdAt as string | undefined, converted: d.convertedToInvoiceId !== null && d.convertedToInvoiceId !== undefined,
+  }));
+}
+export const sendCaseQuote = (caseId: number, billingDocumentId: number, expectedVersion: number, revise: boolean) =>
+  keyed<unknown>(`service-desk/cases/${caseId}/quotes:${revise ? "revise" : "send"}:${billingDocumentId}:${expectedVersion}`, "POST",
+    `/api/service-desk/cases/${caseId}/quotes${revise ? "/revise" : ""}`, { billingDocumentId, expectedVersion });
+
+export type PickupCall = { id: number; calledAt: string; outcome: "REACHED" | "LEFT_MESSAGE" | "NO_ANSWER"; note: string | null };
+export const listPickupCalls = async (caseId: number) => (await call<{ reminders: PickupCall[] }>("GET", `/api/service-desk/cases/${caseId}/pickup-reminders`)).reminders;
+export const recordPickupCall = (caseId: number, outcome: PickupCall["outcome"], note: string | null, attempt: number) =>
+  keyed<{ reminder: PickupCall }>(`service-desk/cases/${caseId}/pickup:${attempt}:${outcome}`, "POST", `/api/service-desk/cases/${caseId}/pickup-reminders`, { outcome, ...(note ? { note } : {}) });
+
+export type Loan = { id: number; itemName: string; lentAt: string; returnedAt: string | null; note: string | null };
+export const listLoans = (caseId: number) => call<{ available: boolean; loans: Loan[] }>("GET", `/api/service-desk/cases/${caseId}/loans`);
+export const lendItem = (caseId: number, itemName: string, note: string | null) =>
+  keyed<{ loan: Loan }>(`service-desk/cases/${caseId}/loans:${itemName}:${note ?? ""}`, "POST", `/api/service-desk/cases/${caseId}/loans`, { itemName, ...(note ? { note } : {}) });
+export const returnLoan = (caseId: number, loanId: number) => call<{ loan: Loan }>("POST", `/api/service-desk/cases/${caseId}/loans/${loanId}/return`, {});
+
+export type CaseTask = { id: number; title: string; done: boolean; dueOn: string | null };
+export const listCaseTasks = (caseId: number) => call<{ available: boolean; linked: CaseTask[]; open: CaseTask[] }>("GET", `/api/service-desk/cases/${caseId}/tasks`);
+export const setTaskLink = (caseId: number, taskId: number, link: boolean) => call<{ ok: true }>("PUT", `/api/service-desk/cases/${caseId}/tasks`, { taskId, link });
+
+export type CaseFields = { available: boolean; itemLocationNote: string | null; estimatedReadyOn: string | null };
+export const getCaseFields = (caseId: number) => call<CaseFields>("GET", `/api/service-desk/cases/${caseId}/fields`);
+export const setCaseFields = (caseId: number, itemLocationNote: string | null, estimatedReadyOn: string | null) =>
+  call<CaseFields>("PUT", `/api/service-desk/cases/${caseId}/fields`, { itemLocationNote, estimatedReadyOn });
+
+export type ProfileChoice = { version: number | null; chosen: boolean; key: string; suggestedKey: string; offeredTracks: string[] | null; catalog: Record<string, string[]> };
+export const getProfileChoice = () => call<ProfileChoice>("GET", "/api/service-desk/settings/profile");
+export const saveProfileChoice = (serviceProfileKey: string, offeredTracks: string[], expectedVersion: number | null) =>
+  keyed<ProfileChoice>(`service-desk/settings/profile:${expectedVersion}:${serviceProfileKey}:${offeredTracks.join(",")}`, "PUT", "/api/service-desk/settings/profile",
+    { serviceProfileKey, offeredTracks, expectedVersion });

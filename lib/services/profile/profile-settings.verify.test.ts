@@ -67,8 +67,17 @@ const exists = (href: string) => ROUTES.has(href.split(/[?#]/)[0].replace(/\/$/,
 
 /* ============================================ 1. navigation ============== */
 
-const HUB = buildSettingsHub();
+// Every per-business feature ON, so a gated area (settings-categories.ts featureKey) is checked like any other.
+const HUB = buildSettingsHub(undefined, () => true);
 const HUB_ROWS = HUB.flatMap((g) => g.rows);
+
+check("a gated Settings area is hidden while its feature is off (fail-closed default)", () => {
+  const gated = SETTINGS_CATEGORIES.filter((c) => c.featureKey);
+  assert.ok(gated.some((c) => c.key === "notifications"), "notifications is gated by notifications_engine");
+  const closed = new Set(buildSettingsHub().flatMap((g) => g.rows).map((r) => r.key));
+  for (const c of gated) assert.equal(closed.has(c.key), false, `${c.key} listed with its feature off`);
+  for (const c of SETTINGS_CATEGORIES.filter((x) => !x.featureKey)) assert.ok(closed.has(c.key), `${c.key} dropped`);
+});
 
 check("the hub has the reference's five groups, in order", () => {
   assert.deepEqual(
@@ -115,6 +124,7 @@ check("existing icons are kept — each Settings area keeps its emoji", () => {
     security: "🛡️",
     "account-privacy": "🔒",
     "import-export": "🔄",
+    notifications: "🔔",
   };
   for (const c of SETTINGS_CATEGORIES) assert.equal(c.icon, expected[c.key], c.key);
 });

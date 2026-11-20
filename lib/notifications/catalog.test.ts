@@ -41,7 +41,7 @@ function ok(name: string, cond: boolean, detail?: unknown) {
 console.log("1. completeness");
 const REQUIRED = [
   "tasks.reminder", "booking.request_waiting", "inbox.customer_waiting", "inventory.critical_stock", "billing.failure",
-  "accountant.send_failed", "connections.disconnected", "security.new_device", "digest.daily", "system.test",
+  "accountant.send_failed", "connections.disconnected", "connections.account_disconnected", "security.new_device", "digest.daily", "system.test",
 ];
 for (const k of REQUIRED) ok(`spec category ${k} exists`, getCategory(k) !== null);
 ok("keys are unique", new Set(NOTIFICATION_CATEGORIES.map((c) => c.key)).size === NOTIFICATION_CATEGORIES.length);

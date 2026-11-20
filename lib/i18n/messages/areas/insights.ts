@@ -470,11 +470,13 @@ export const insightsHe = {
   backNav: {
     back: "חזרה",
     toHome: "לבית",
+    toTools: "לכלים שלי",
     toSettings: "להגדרות",
     toOrderCenter: "למרכז ההזמנות",
     toDocuments: "למסמכים",
     toInventory: "למלאי",
     toImportExport: "לייבוא וייצוא",
+    toNotificationSettings: "להתראות",
     toCollection: "לגבייה",
     toAllPayables: "לכל ההתחייבויות",
     toCalendar: "ליומן",

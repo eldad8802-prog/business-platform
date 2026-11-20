@@ -48,6 +48,16 @@ export const IconHome: IconComponent = (p) => (
   </Svg>
 );
 
+/** "כלים" — four rounded tiles (home redesign v4 bottom bar). */
+export const IconGrid: IconComponent = (p) => (
+  <Svg {...p}>
+    <rect x="4" y="4" width="6.5" height="6.5" rx="1.8" />
+    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8" />
+    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8" />
+    <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8" />
+  </Svg>
+);
+
 export const IconChat: IconComponent = (p) => (
   <Svg {...p}>
     <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />

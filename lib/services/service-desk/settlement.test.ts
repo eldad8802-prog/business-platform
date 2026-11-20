@@ -24,6 +24,11 @@ async function main() {
     JSON.stringify(settlementForCore({ state: "CHARGE_NOT_DOCUMENTED", openBalanceAgorot: 30000 })) === '{"known":true,"openBalanceAgorot":30000,"basis":"UNDOCUMENTED"}'
       && settlementForCore({ state: "CHARGE_NOT_DOCUMENTED", openBalanceAgorot: 0 }).known === true
       && !settlementForCore({ state: "CHARGE_NOT_DOCUMENTED", openBalanceAgorot: -1 }).known && !settlementForCore({ state: "CHARGE_NOT_DOCUMENTED", openBalanceAgorot: 1.5 }).known);
+  ok("S9 SETTLED with an overpayment → known 0, the overpayment carried (never dropped)",
+    JSON.stringify(settlementForCore({ state: "SETTLED", openBalanceAgorot: 0, overpaidAgorot: 2000 })) === '{"known":true,"openBalanceAgorot":0,"basis":"DOCUMENTED","overpaidAgorot":2000}'
+      && !settlementForCore({ state: "SETTLED", openBalanceAgorot: 0, overpaidAgorot: -1 }).known);
+  ok("S10 UNKNOWN NO_CHARGE_DECISION / CONFLICT → not known", (["NO_CHARGE_DECISION", "CONFLICT"] as const)
+    .every((reason) => !settlementForCore({ state: "UNKNOWN", openBalanceAgorot: null, reason }).known));
   ok("S8 a malformed NO_CHARGE / SETTLED amount → not known", !settlementForCore({ state: "NO_CHARGE", openBalanceAgorot: 5 as never }).known && !settlementForCore({ state: "SETTLED", openBalanceAgorot: 1 as never }).known);
   const today = await readSettlementNotLinked({} as never, 1, 1);
   ok("S6 today's reader: UNKNOWN / NOT_LINKED — no inference from customer or dates", today.state === "UNKNOWN" && today.reason === "NOT_LINKED" && today.openBalanceAgorot === null);
