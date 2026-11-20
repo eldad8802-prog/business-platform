@@ -1,0 +1,15 @@
+{
+  "note": "Subscriptions phase 1: server guard for the eleven core features (lib/services/feature-access/feature-guard.ts + route-feature-map.ts). FEATURE_ACCESS_ENFORCEMENT defaults to shadow (log only, no behaviour change); enforce returns 403 FEATURE_NOT_AVAILABLE fail-closed. Switching to enforce is a separate owner decision. No migration.",
+  "tests": {
+    "lib/services/feature-access/feature-guard.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): mode parsing (unset/unknown → shadow), the allow/log/deny decision, enforce is fail-closed when the resolver throws, an unauthenticated request is left to the route's own 401, background-step answers, the per-business cache and its expiry"
+    },
+    "lib/services/feature-access/route-feature-map.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "static (reads route files): every API route under the eleven features' folders is mapped; every guarded handler calls guardFeature with the right key as its first statement; exempt routes and ungated methods (data-rights floor, legal corrections, webhooks, cron, public, frozen track) do not guard; no guard outside the scope; the two webhook-reached background steps ask the guard"
+    }
+  }
+}
