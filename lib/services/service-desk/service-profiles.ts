@@ -298,6 +298,9 @@ export type ProfileOverrides = {
   terms?: Partial<Record<string, string>>;
   /** Per-track requirement changes; loosening a fixed requirement is refused, never silently ignored. */
   requirements?: Partial<Record<string, RequirementOverride>>;
+  /** Activation (decision 1): the activity types the opening form offers first, in this order. Display only — every
+   *  track stays open to every business (owner decision 2026-11-11); the snapshot ignores it. */
+  offeredTracks?: readonly string[];
 };
 
 export type OverrideViolation = { code: string; path: string };
@@ -353,8 +356,13 @@ export function validateOverrides(profileKey: ServiceProfileKey, overrides: Prof
   if (overrides === null || overrides === undefined) return [];
   const v: OverrideViolation[] = [];
   if (typeof overrides !== "object" || Array.isArray(overrides)) return [{ code: "INVALID_SHAPE", path: "overrides" }];
-  const known = new Set(["enabledTracks", "terms", "requirements"]);
+  const known = new Set(["enabledTracks", "terms", "requirements", "offeredTracks"]);
   for (const k of Object.keys(overrides)) if (!known.has(k)) v.push({ code: "UNKNOWN_KEY", path: k });
+  if (overrides.offeredTracks !== undefined) {
+    const o = overrides.offeredTracks;
+    if (!Array.isArray(o) || o.length === 0 || new Set(o).size !== o.length) v.push({ code: "INVALID_SHAPE", path: "offeredTracks" });
+    else o.forEach((t, i) => { if (!isTrack(t)) v.push({ code: "UNKNOWN_TRACK", path: `offeredTracks[${i}]` }); });
+  }
   if (overrides.enabledTracks !== undefined) {
     if (!Array.isArray(overrides.enabledTracks)) v.push({ code: "INVALID_SHAPE", path: "enabledTracks" });
     else overrides.enabledTracks.forEach((t, i) => { if (!isTrack(t)) v.push({ code: "UNKNOWN_TRACK", path: `enabledTracks[${i}]` }); });

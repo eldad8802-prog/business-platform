@@ -22,6 +22,18 @@ const REFUSAL: Record<string, string> = {
   QA_INCOMPLETE: "השלם את רשימת הבדיקות לפני «עבר בדיקה»",
   REASON_REQUIRED: "ביטול כשהמכשיר אצלנו או אצל ספק דורש סיבה",
   TERMINAL_STATUS: "התיק סגור או מבוטל — אפשר רק לצפות בו.",
+  // UI 1.3 — case actions
+  HANDOVER_NOT_CONFIRMED: "אשרו את המסירה כדי לסיים.",
+  OPEN_BALANCE_NEEDS_OWNER_DECISION: "יש יתרה פתוחה בתיק. מסירה עם חוב רק בידי בעל העסק ועם סיבה מתועדת.",
+  NO_CHARGE_DECISION: "חסרה החלטת חיוב לתיק: לרשום חיוב או \"ללא חיוב\" לפני המסירה.",
+  // the handover's balance rule (core): unknown blocks — most often no charge decision yet, or documents that do not match it
+  BALANCE_UNKNOWN: "אי אפשר למסור כשיתרת התיק לא ידועה. לרשום חיוב או \"ללא חיוב\" לתיק, ולוודא שמסמכי החיוב המקושרים תואמים.",
+  CHARGE_NOT_DOCUMENTED: "החיוב עוד לא תועד במסמך — אפשר למסור רק עם החלטת בעל העסק.",
+  QA_ONLY_IN_QA: "הבדיקות נרשמות רק בשלב הבדיקה.",
+  QA_NOT_FOR_KIND: "בסוג העבודה הזה הבדיקות כבויות.",
+  QUOTE_PENDING: "יש הצעת מחיר שממתינה לתשובת הלקוח.",
+  QUOTE_NOT_AWAITING_DECISION: "ההצעה כבר לא ממתינה לתשובה — רעננו.",
+  QUOTE_DOCUMENT_CHANGED: "מסמך ההצעה שונה אחרי השליחה — צריך לשלוח הצעה מעודכנת.",
   // 1.3b — the intake signature path
   INTAKE_ONLY_IN_SHOP: "קליטה חתומה קיימת רק לתיק מעבדה.",
   INTAKE_ONLY_BEFORE_CHECK_IN: "אחרי קבלת המכשיר אי אפשר לשנות את הקליטה.",
@@ -55,6 +67,8 @@ export function errorView(e: unknown): ErrorView {
   switch (e.code) {
     case "VERSION_CONFLICT":
       return { text: "המידע עודכן בינתיים — רענן ונסה שוב.", reload: true };
+    case "BALANCE_UNKNOWN":
+      return { text: "לא הצלחנו לוודא את יתרת התיק. לא נשמר דבר — נסו שוב." };
     case "READ_ONLY":
       return { text: "מערכת השירות פתוחה אצלך לצפייה בלבד." };
     case "NOT_AVAILABLE_UNTIL_AUDIT":

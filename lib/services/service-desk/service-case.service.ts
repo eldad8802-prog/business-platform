@@ -257,6 +257,8 @@ export type CaseSummary = {
   id: number; caseNumber: number; kind: ServiceCaseKind; status: ServiceCaseStatus; holdReason: string | null; outcome: string | null;
   version: number; customerId: number; customerName: string | null; deviceId: number | null; staffMemberId: number | null;
   openedAt: string; updatedAt: string;
+  /** List only (UI 1.3, read-only): a short excerpt of the problem, the subject's name and the M1 work type. */
+  problemExcerpt?: string | null; subjectName?: string | null; workType?: string | null;
 };
 
 const SUMMARY_COLUMNS = Prisma.sql`c.id, c."caseNumber", c.kind::text AS kind, c.status::text AS status, c."holdReason"::text AS "holdReason",
@@ -283,12 +285,17 @@ export async function listCases(businessId: number, q: { status?: unknown; befor
   if (status !== undefined && !/^[A-Z_]{2,20}$/.test(status)) throw new ServiceDeskError("INVALID_INPUT", { field: "status" });
   return tenantTx(businessId, async (tx) => {
     const rows = await tx.$queryRaw<Record<string, unknown>[]>`
-      SELECT ${SUMMARY_COLUMNS} FROM "ServiceCase" c LEFT JOIN "Customer" cu ON cu.id = c."customerId" AND cu."businessId" = c."businessId"
+      SELECT ${SUMMARY_COLUMNS}, left(c."problemDescription", 140) AS "problemExcerpt", d."displayName" AS "subjectName", c."workType"::text AS "workType"
+        FROM "ServiceCase" c LEFT JOIN "Customer" cu ON cu.id = c."customerId" AND cu."businessId" = c."businessId"
+        LEFT JOIN "ServiceDevice" d ON d.id = c."deviceId" AND d."businessId" = c."businessId"
        WHERE c."businessId" = ${businessId}::int
          ${status !== undefined ? Prisma.sql`AND c.status::text = ${status}::text` : Prisma.empty}
          ${q.beforeId !== undefined ? Prisma.sql`AND c.id < ${q.beforeId as number}::int` : Prisma.empty}
        ORDER BY c.id DESC LIMIT ${limit + 1}::int`;
-    const cases = rows.slice(0, limit).map(toSummary);
+    const cases = rows.slice(0, limit).map((r) => ({
+      ...toSummary(r),
+      problemExcerpt: (r.problemExcerpt as string) ?? null, subjectName: (r.subjectName as string) ?? null, workType: (r.workType as string) ?? null,
+    }));
     return { cases, nextBeforeId: rows.length > limit ? cases[cases.length - 1].id : null };
   });
 }
@@ -834,6 +841,8 @@ async function auditJournalReady(tx: Tx): Promise<boolean> {
   return r[0]?.ok === true;
 }
 
+/** Exported for the settings writers outside this file (case-extras). */
+export async function requireAuditJournalFor(tx: Tx) { return requireAuditJournal(tx); }
 async function requireAuditJournal(tx: Tx) {
   if (!(await auditJournalReady(tx))) throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT");
 }
@@ -993,7 +1002,27 @@ export type ServiceSettingsView = {
   version: number | null; defaultStaffMemberId: number | null;
   warrantyTemplate: { value: number; unit: "DAYS" | "MONTHS"; scope: string; exclusions: string | null } | null;
   activeTermsVersionId: number | null; activeStatutoryNoticeVersionId: number | null;
+  /** UI 1.3 (read only): the business's profile and its activity types — what the opening form offers first. */
+  profile?: { key: string; defaultTracks: string[]; enabledTracks: string[] };
 };
+
+/** The profile the opening would snapshot now (tracks.service planOpening), for the form to offer its tracks first. */
+async function readProfile(tx: Tx, businessId: number): Promise<{ key: string; defaultTracks: string[]; enabledTracks: string[] }> {
+  const { buildProfileSnapshot, isServiceProfileKey } = await import("./service-profiles");
+  const s = (await tx.$queryRaw<{ key: string | null; overrides: unknown }[]>`
+    SELECT "serviceProfileKey" AS key, "profileOverrides" AS overrides FROM "ServiceSettings" WHERE "businessId" = ${businessId}::int`)[0];
+  const chosen = typeof s?.key === "string" ? s.key.trim() : "";
+  const key = isServiceProfileKey(chosen) ? chosen : "general";
+  const built = buildProfileSnapshot(key, (s?.overrides ?? null) as never);
+  if (!built.ok) return { key, defaultTracks: [], enabledTracks: [] };
+  // Activation (decision 1): the owner's offered list orders the opening form; every track stays open to every business.
+  const offered = (s?.overrides as { offeredTracks?: unknown } | null)?.offeredTracks;
+  if (Array.isArray(offered) && offered.length) {
+    const defaults = built.snapshot.defaultTracks.filter((t) => offered.includes(t));
+    return { key, defaultTracks: [...defaults], enabledTracks: offered.filter((t: string) => !defaults.includes(t as never)) as string[] };
+  }
+  return { key, defaultTracks: [...built.snapshot.defaultTracks], enabledTracks: [...built.snapshot.enabledTracks] };
+}
 
 async function readSettings(tx: Tx, businessId: number): Promise<ServiceSettingsView> {
   const s = (await tx.$queryRaw<Record<string, unknown>[]>`
@@ -1013,7 +1042,7 @@ async function readSettings(tx: Tx, businessId: number): Promise<ServiceSettings
 }
 
 export async function getSettings(businessId: number): Promise<ServiceSettingsView> {
-  return tenantTx(businessId, (tx) => readSettings(tx, businessId));
+  return tenantTx(businessId, async (tx) => ({ ...(await readSettings(tx, businessId)), profile: await readProfile(tx, businessId) }));
 }
 
 export type ServiceStaffMember = { id: number; displayName: string };
