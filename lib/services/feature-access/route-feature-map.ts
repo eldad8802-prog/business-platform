@@ -16,6 +16,12 @@
  *   legal-correction  — correcting or finishing a tax document already in flight (credit note, the authority's
  *                       held decision, issuing/submitting an existing draft). Never blocked automatically; the exact
  *                       list for FREE_LIMITED is mapped separately in phase 4 with the accountant.
+ *   existing-operation — finishing or undoing a money operation that ALREADY exists (owner decision 2026-11-20):
+ *                       cancelling an open payment request, refunding / verifying the refund of money already
+ *                       received, retrying the settlement of a payment already verified. Each acts on an id in the
+ *                       path, keeps its own authentication and permission check, and cannot create a request, a
+ *                       charge or a connection — opening NEW collection stays guarded (payments/requests POST,
+ *                       collection/actions, payments/connections*).
  *   frozen-track      — the legal-identity / issuer-declaration track is frozen by the owner; not touched here.
  *   provider-webhook  — called by a payment or messaging provider, not by the owner; money and messages already
  *                       sent must be recorded. Background effects are guarded downstream where they exist.
@@ -33,6 +39,7 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type UngatedReason =
   | "data-rights-floor"
   | "legal-correction"
+  | "existing-operation"
   | "frozen-track"
   | "provider-webhook"
   | "cron"
@@ -85,6 +92,7 @@ const RP = PLATFORM_FEATURE_KEYS.REPORTS;
 
 const FLOOR = "data-rights-floor" as const;
 const LEGAL = "legal-correction" as const;
+const EXISTING = "existing-operation" as const;
 
 export const ROUTE_FEATURE_MAP: readonly RouteFeatureEntry[] = [
   /* ---------------- documents ---------------- */
@@ -127,7 +135,7 @@ export const ROUTE_FEATURE_MAP: readonly RouteFeatureEntry[] = [
   { route: "collection/inbox", feature: B },
   { route: "collection/invoices/[id]", feature: B },
   { route: "collection/readiness", feature: B },
-  { route: "collection/settlements/[paymentTransactionId]/retry", feature: B },
+  { route: "collection/settlements/[paymentTransactionId]/retry", feature: B, ungated: { POST: EXISTING }, note: "settles a payment already verified; the settlement row must exist" },
   { route: "payments/attention", feature: B },
   { route: "payments/collection-workspace", feature: B },
   { route: "payments/connections", feature: B },
@@ -136,9 +144,9 @@ export const ROUTE_FEATURE_MAP: readonly RouteFeatureEntry[] = [
   { route: "payments/providers", feature: B },
   { route: "payments/requests", feature: B },
   { route: "payments/requests/[id]", feature: B },
-  { route: "payments/requests/[id]/cancel", feature: B },
-  { route: "payments/requests/[id]/refund", feature: B },
-  { route: "payments/requests/[id]/refund/verify", feature: B },
+  { route: "payments/requests/[id]/cancel", feature: B, ungated: { POST: EXISTING }, note: "open (PENDING), unpaid requests only" },
+  { route: "payments/requests/[id]/refund", feature: B, ungated: { GET: EXISTING, POST: EXISTING }, note: "money already received; amount bounded by the refundable balance" },
+  { route: "payments/requests/[id]/refund/verify", feature: B, ungated: { POST: EXISTING }, note: "asks the provider about a reversal already started" },
   { route: "payments/webhook/[provider]", exempt: "provider-webhook" },
   { route: "payments/webhook/cardcom", exempt: "provider-webhook" },
   { route: "payments/webhook/paypal", exempt: "provider-webhook" },
@@ -236,7 +244,7 @@ export const ROUTE_FEATURE_MAP: readonly RouteFeatureEntry[] = [
 
   /* ---------------- reports ---------------- */
   { route: "reports/summary", feature: RP },
-  { route: "reports/uniform", feature: RP },
+  { route: "reports/uniform", exempt: FLOOR, note: "the uniform-structure export of tax documents (owner decision 2026-11-20): available in every state incl. FREE_LIMITED; the route keeps its own authentication and permission check" },
   { route: "reports/export", exempt: FLOOR },
   { route: "reports/export-zip", exempt: FLOOR },
 
