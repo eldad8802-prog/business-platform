@@ -282,34 +282,4 @@ export const ROUTE_FEATURE_MAP: readonly RouteFeatureEntry[] = [
  * final decision; until that PR lands, the test checks that these files do NOT call the guard yet.
  * That PR empties this list, which turns the full R3 check back on for every one of them.
  */
-export const PENDING_SEPARATE_BILLING_REVIEW: readonly string[] = [
-  "billing/collection/awaiting",
-  "billing/customers/[id]",
-  "billing/customers",
-  "billing/documents/[id]/allocations",
-  "billing/documents/[id]/convert-to-invoice",
-  "billing/documents/[id]/lines",
-  "billing/documents/[id]/payments",
-  "billing/documents/[id]/revert",
-  "billing/documents/[id]",
-  "billing/documents",
-  "billing/invoice-profile",
-  "collection/actions",
-  "collection/customers/[customerId]",
-  "collection/inbox",
-  "collection/invoices/[id]",
-  "collection/readiness",
-  "collection/settlements/[paymentTransactionId]/retry",
-  "payments/attention",
-  "payments/collection-workspace",
-  "payments/connections/cardcom",
-  "payments/connections",
-  "payments/connections/tranzila",
-  "payments/providers",
-  "payments/requests/[id]/cancel",
-  "payments/requests/[id]/refund",
-  "payments/requests/[id]/refund/verify",
-  "payments/requests/[id]",
-  "payments/requests",
-  "reports/uniform",
-];
+export const PENDING_SEPARATE_BILLING_REVIEW: readonly string[] = [];
