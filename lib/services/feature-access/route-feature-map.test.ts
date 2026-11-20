@@ -9,13 +9,17 @@
  *      its FIRST statement — before any work — except the methods listed in `ungated`, which must exist and must not
  *      call the guard (an ungated method that guards anyway is a mistake in one direction or the other);
  *   R4 an exempt route does not call the guard (the map and the code say the same thing);
- *   R5 data-rights-floor covers reads only (GET handlers or export routes), legal-correction only billing writes;
+ *   R5 data-rights-floor covers reads only (GET handlers, export routes, or the uniform-structure export
+ *      reports/uniform), legal-correction only billing writes, existing-operation only an id-addressed route under
+ *      payments/ or collection/ whose file still authenticates and checks the payment permission;
  *   R6 every one of the eleven features guards at least one route;
  *   R7 no file outside the scope calls guardFeature (the map is the whole story);
  *   R8 the background steps reached by webhooks ask the same guard;
  *   R9 PENDING_SEPARATE_BILLING_REVIEW: only billing-protected folders (billing/, collection/, payments/, the uniform
  *      export), each a guarded map entry, and each file does NOT call the guard yet — its guard ships in the separate
- *      billing Draft PR, which empties the list and so turns R3 back on for it.
+ *      billing Draft PR, which empties the list and so turns R3 back on for it;
+ *   R10 opening NEW collection stays guarded: creating a payment request, collection actions and connecting a payment
+ *      provider are guarded on every handler (owner decision 2026-11-20 — existing operations only).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -126,7 +130,8 @@ for (const entry of ROUTE_FEATURE_MAP) {
 
   if ("exempt" in entry) {
     ok(`R4 ${entry.route}: exempt route does not call the guard`, !src.includes("guardFeature("));
-    if (entry.exempt === "data-rights-floor") ok(`R5 ${entry.route}: floor-exempt route is an export`, /export/.test(entry.route), entry.route);
+    if (entry.exempt === "data-rights-floor") ok(`R5 ${entry.route}: floor-exempt route is an export`, /export/.test(entry.route) || entry.route === "reports/uniform", entry.route);
+    if (entry.exempt === "data-rights-floor") ok(`R5 ${entry.route}: floor-exempt route still authenticates`, src.includes("getCurrentUser("));
     continue;
   }
 
@@ -136,6 +141,12 @@ for (const entry of ROUTE_FEATURE_MAP) {
     ok(`R3 ${entry.route}: ungated ${m} exists`, handlers.some((h) => h.method === m));
     const reason = ungated[m];
     if (reason === "data-rights-floor") ok(`R5 ${entry.route}: floor only on GET`, m === "GET", m);
+    if (reason === "existing-operation") {
+      ok(`R5 ${entry.route}: existing-operation only under payments/ or collection/`, entry.route.startsWith("payments/") || entry.route.startsWith("collection/"));
+      ok(`R5 ${entry.route}: existing-operation acts on an id in the path`, entry.route.includes("/[") && entry.route.includes("]"));
+      ok(`R5 ${entry.route}: existing-operation still authenticates`, src.includes("getCurrentUser("));
+      ok(`R5 ${entry.route}: existing-operation still checks the payment permission`, src.includes("authorizePaymentAction("));
+    }
     if (reason === "legal-correction") ok(`R5 ${entry.route}: legal-correction only on billing writes`, entry.route.startsWith("billing/") && m !== "GET");
   }
   if (PENDING.has(entry.route)) {
@@ -155,6 +166,14 @@ for (const entry of ROUTE_FEATURE_MAP) {
     ok(`R3 ${entry.route} ${h.method}: refusal is returned`, h.body.includes("if (featureDenied) return featureDenied;"));
     guardedKeysSeen.add(entry.feature);
   }
+}
+
+// R10
+const NEW_COLLECTION = ["payments/requests", "collection/actions", "payments/connections", "payments/connections/cardcom", "payments/connections/tranzila"];
+for (const r of NEW_COLLECTION) {
+  const entry = ROUTE_FEATURE_MAP.find((e) => e.route === r);
+  ok(`R10 ${r}: new collection is guarded`, !!entry && "feature" in entry && entry.feature === PLATFORM_FEATURE_KEYS.BILLING);
+  ok(`R10 ${r}: no handler is ungated`, !!entry && "feature" in entry && Object.keys(entry.ungated ?? {}).length === 0);
 }
 
 // R6

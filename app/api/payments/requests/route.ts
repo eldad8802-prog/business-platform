@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
@@ -53,6 +55,8 @@ function parseStatus(value: string | null): PaymentRequestStatus | undefined {
 }
 
 export async function POST(req: NextRequest) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.BILLING);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.CREATE_CHARGE);
@@ -136,6 +140,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.BILLING);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.VIEW_TRANSACTIONS);
