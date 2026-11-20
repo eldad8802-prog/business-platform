@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { NextResponse } from "next/server";
 import { updateLearningFromAction } from "@/lib/learning/update-learning";
 import { getCurrentUser } from "@/lib/auth";
@@ -6,6 +8,8 @@ import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export async function POST(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.INBOX);
+  if (featureDenied) return featureDenied;
   const user = await getCurrentUser(req);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

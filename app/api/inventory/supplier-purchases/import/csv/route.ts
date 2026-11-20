@@ -1,4 +1,6 @@
 import { runWithTenantContext } from "@/lib/tenant/context";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -75,6 +77,8 @@ function resolveDraftSource(order: {
 }
 
 export async function POST(request: NextRequest) {
+  const featureDenied = await guardFeature(request, PLATFORM_FEATURE_KEYS.INVENTORY);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getAuthenticatedUser(request);
 

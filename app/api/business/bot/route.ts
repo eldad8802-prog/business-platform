@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { Prisma } from "@prisma/client";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -36,6 +38,8 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 export async function GET(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.STARTER_BOT);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
@@ -74,6 +78,8 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.STARTER_BOT);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);

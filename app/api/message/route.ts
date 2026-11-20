@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 // Value import (not `import type`): P2002 detection needs the runtime class.
 import { Prisma } from "@prisma/client";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
@@ -40,6 +42,8 @@ const INBOUND_REFUSED =
   "This route writes business messages only. Customer messages arrive through the provider intake.";
 
 export async function GET(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.INBOX);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
 
@@ -142,6 +146,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.INBOX);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
 

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 
 /**
@@ -13,6 +15,8 @@ export async function POST(
   req: Request,
   _ctx: { params: Promise<{ id: string }> }
 ) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.STARTER_BOT);
+  if (featureDenied) return featureDenied;
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
 

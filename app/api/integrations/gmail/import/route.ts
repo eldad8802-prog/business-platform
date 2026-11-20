@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getServerI18n } from "@/lib/i18n/server";
 import type { Translator } from "@/lib/i18n/translate";
 import { getCurrentUser } from "@/lib/auth";
@@ -72,6 +74,8 @@ function safeNullableNumber(v: unknown): number | null {
 }
 
 export async function POST(req: NextRequest) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.GMAIL_IMPORT);
+  if (featureDenied) return featureDenied;
   const { t } = await getServerI18n();
   const user = await getCurrentUser(req);
   if (!user) {

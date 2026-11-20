@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getServerI18n } from "@/lib/i18n/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
@@ -19,6 +21,8 @@ function getItemId(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const featureDenied = await guardFeature(request, PLATFORM_FEATURE_KEYS.INVENTORY);
+  if (featureDenied) return featureDenied;
   const { t } = await getServerI18n();
   try {
     const user = await getCurrentUser(request);

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { generateAIContent } from "@/lib/services/ai-content.service";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.CONTENT);
+  if (featureDenied) return featureDenied;
   const user = await getCurrentUser(req);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

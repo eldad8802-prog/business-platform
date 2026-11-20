@@ -86,6 +86,8 @@ import {
   logEvent,
   type WhatsAppPipelineEvent,
 } from "@/lib/services/integrations/whatsapp/webhook-events";
+import { featureAllowedForBusiness } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 
 type StageLabel = "early" | "middle" | "closing" | string | null | undefined;
 
@@ -468,7 +470,13 @@ export async function runInboundMessagePipeline(
       requiresHandoff: policy.requiresHandoff,
     });
 
-    if (policy.decision === "STARTER_BOT_ELIGIBLE" && botRow) {
+    // Subscriptions phase 1: the starter-bot step asks the platform feature `starter_bot` (feature-guard.ts).
+    // Shadow (the default) only logs what enforce would skip; the message itself is always recorded above.
+    if (
+      policy.decision === "STARTER_BOT_ELIGIBLE" &&
+      botRow &&
+      (await featureAllowedForBusiness(businessId, PLATFORM_FEATURE_KEYS.STARTER_BOT, "inbound-pipeline:starter-bot"))
+    ) {
       let starterBotFlowAlreadyCompleted = false;
       try {
         starterBotFlowAlreadyCompleted = await withTenantTransaction((tx) =>

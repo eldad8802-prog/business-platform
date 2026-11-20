@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { guardFeature } from "@/lib/services/feature-access/feature-guard";
+import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
@@ -42,6 +44,8 @@ async function loadBridges(db: TenantTx | typeof prisma, businessId: number) {
 }
 
 export async function GET(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.STARTER_BOT);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
@@ -75,6 +79,8 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
+  const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.STARTER_BOT);
+  if (featureDenied) return featureDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
