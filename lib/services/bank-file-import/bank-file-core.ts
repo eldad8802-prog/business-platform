@@ -553,6 +553,437 @@ export function checkBalanceChain(lines: readonly BankLine[]): BalanceCheck {
   return breaks.length === 0 ? { status: "OK", order, checked } : { status: "BROKEN", order, checked, breaks };
 }
 
+/* ───────────────────────────── guards: the file's currency and account ───────────────────────────── */
+
+/**
+ * Bank file import records every line in shekels (ExternalTransaction.currency keeps its ILS default and
+ * BusinessBankAccount has no currency), so a statement of a dollar, euro or other foreign-currency account
+ * would be recorded as shekels with the wrong value. It is REFUSED, never converted. The signals, in order:
+ *
+ *   TITLE_MARK      a foreign currency sign, code or word ($ € £ ¥, USD EUR GBP CHF JPY CAD AUD, דולר, אירו /
+ *                   יורו, ליש"ט / שטרלינג, מט"ח) in a title row above the header, or in a column title;
+ *   CURRENCY_COLUMN a column titled as a currency (מטבע, סוג מטבע, currency, …) holding any value that is not
+ *                   the shekel (ILS, NIS, ש"ח, ₪, שקל, 376) — an unknown value is refused too, never guessed;
+ *   AMOUNT_MARK     a foreign sign / code / word inside an amount, debit, credit or balance cell;
+ *   NUMBER_FORMAT   (Excel only, xlsx-number-formats.ts) the NUMBER FORMAT of an amount, debit, credit or balance
+ *                   cell names a foreign currency ("$#,##0.00", "[$USD] #,##0", "€ #,##0").
+ *
+ * Two verdicts: FOREIGN (a currency other than the shekel is named) and UNVERIFIABLE (the file names a currency
+ * Dubiz cannot classify — an unknown value in a currency column, an unknown token in a number format — or Excel
+ * would show the amounts in the viewer's own local currency, which a server cannot know). Both refuse the file;
+ * neither is ever read as "probably shekels".
+ *
+ * The description, reference and counterparty are never read for this: a line such as "המרת מט"ח" or a fee
+ * text appears in a shekel account too.
+ *
+ * # Positive evidence of shekels (owner, 2026-11-03 round 2)
+ *
+ * The absence of a foreign mark is NOT evidence of shekels: a dollar statement whose "$" was stripped (a re-saved
+ * CSV, an Excel column switched to "General") has no foreign mark either. So a file passes only with POSITIVE
+ * evidence that its money is in shekels (`ilsEvidenceIn`, then `requireIlsEvidence`), one of:
+ *
+ *   MONEY_HEADER_MARK   the title of a MAPPED money column (amount, debit, credit, balance) carries ₪ / ש"ח / ILS /
+ *                       NIS / שקל ("זכות/חובה ₪", "יתרה בש״ח");
+ *   TITLE_MARK          a title row above the header names the shekel ("דוח תנועות בש"ח", "מטבע: ILS");
+ *   CURRENCY_COLUMN     a currency column whose every non-empty value is the shekel (and at least one is);
+ *   AMOUNT_MARK         a money cell itself carries the shekel mark ("₪ 1,250.00");
+ *   NUMBER_FORMAT       (Excel only, xlsx-number-formats.ts) a numeric money cell's number format is a shekel format.
+ *
+ * None of them ⇒ UNVERIFIABLE with the signal NO_ILS_EVIDENCE: refused, and the owner is asked for the bank's
+ * ORIGINAL export, unedited. There is no "known layout ⇒ shekels" rule: a layout alone does not say which
+ * currency an account is held in (the same bank exports its foreign-currency accounts in the same layout).
+ */
+export type ForeignCurrencySignal = "TITLE_MARK" | "CURRENCY_COLUMN" | "AMOUNT_MARK" | "NUMBER_FORMAT" | "NO_ILS_EVIDENCE";
+export type CurrencyVerdict = "FOREIGN" | "UNVERIFIABLE";
+/** What showed that the money is in shekels (see above). */
+export type IlsEvidence = "MONEY_HEADER_MARK" | "TITLE_MARK" | "CURRENCY_COLUMN" | "AMOUNT_MARK" | "NUMBER_FORMAT";
+export type CurrencyCheck =
+  | { ok: true; evidence?: IlsEvidence }
+  | { ok: false; verdict: CurrencyVerdict; signal: ForeignCurrencySignal; currency: string; rowNumber: number | null };
+
+const HEB = "\\u0590-\\u05FF";
+/** A Hebrew word standing alone (an optional one-letter prefix ב/ל/ה/ו/מ), not part of a longer word. */
+const hebWord = (core: string) => new RegExp(`(?<![${HEB}])[בלהומ]?(?:${core})(?![${HEB}])`);
+const FOREIGN_MARKS: ReadonlyArray<{ code: string; re: RegExp }> = [
+  { code: "USD", re: /\$|\bUSD\b/i },
+  { code: "USD", re: hebWord("דולר|דולרים") },
+  { code: "EUR", re: /€|\bEUR\b/i },
+  { code: "EUR", re: hebWord("אירו|יורו") },
+  { code: "GBP", re: /£|\bGBP\b/i },
+  { code: "GBP", re: hebWord(`ליש["״'׳]?ט|שטרלינג`) },
+  { code: "CHF", re: /\bCHF\b/i },
+  { code: "JPY", re: /¥|\bJPY\b/i },
+  { code: "CAD", re: /\bCAD\b/i },
+  { code: "AUD", re: /\bAUD\b/i },
+  { code: "FX", re: hebWord(`מט["״'׳]ח`) },
+];
+
+/** The foreign currency a text names, or null. A shekel mark is never one. */
+export function foreignCurrencyIn(text: string): string | null {
+  for (const { code, re } of FOREIGN_MARKS) if (re.test(text)) return code;
+  return null;
+}
+
+const CURRENCY_HEADERS = new Set(
+  ["מטבע", "סוג מטבע", "מטבע חשבון", "מטבע עסקה", "מטבע פעולה", "מטבע התנועה", "currency", "ccy", "curr", "currency code"].map(bankHeaderKey)
+);
+const ILS_VALUES = new Set(["ils", "nis", "שח", "שקל", "שקלים", "שקלחדש", "376"]);
+
+/** True when a currency cell names the shekel (or is only the ₪ sign). */
+export function isShekelValue(cell: SheetCell): boolean {
+  const raw = String(cell ?? "");
+  const v = normalizeHeaderForMatch(raw).replace(/₪/g, "").replace(/\s+/g, "");
+  return v === "" ? raw.includes("₪") : ILS_VALUES.has(v);
+}
+
+const blank = (c: SheetCell | undefined) => c === null || c === undefined || (typeof c === "string" && c.trim() === "");
+
+/** The rows above the header row (titles about the account and the period), as the grid holds them. */
+function titleRows(table: SheetTable, located: LocatedTable): SheetCell[][] {
+  return [table.headers, ...table.rows].slice(0, located.headerRow);
+}
+
+/**
+ * Refuse a statement that is not in shekels. `mapping` null (the header is found but not yet mapped) checks the
+ * titles and a currency column only; with a mapping, the money cells too. Never converts, never guesses.
+ */
+export function checkFileCurrency(table: SheetTable, located: LocatedTable, mapping: BankMapping | null): CurrencyCheck {
+  for (const [r, row] of titleRows(table, located).entries()) {
+    for (const c of row) {
+      if (typeof c !== "string") continue;
+      const code = foreignCurrencyIn(c);
+      if (code) return { ok: false, verdict: "FOREIGN", signal: "TITLE_MARK", currency: code, rowNumber: r + 1 };
+    }
+  }
+  for (const h of located.headers) {
+    if (typeof h !== "string") continue;
+    const code = foreignCurrencyIn(h);
+    if (code) return { ok: false, verdict: "FOREIGN", signal: "TITLE_MARK", currency: code, rowNumber: located.headerRow + 1 };
+  }
+  const currencyCols = located.headers.flatMap((h, i) => (CURRENCY_HEADERS.has(bankHeaderKey(h)) ? [i] : []));
+  for (const { rowNumber, cells } of located.rows) {
+    for (const col of currencyCols) {
+      const c = cells[col] ?? null;
+      if (blank(c) || isShekelValue(c)) continue;
+      const text = String(c).trim();
+      const known = foreignCurrencyIn(text);
+      // A value Dubiz does not recognise is not "probably shekels": UNVERIFIABLE, refused all the same.
+      if (known) return { ok: false, verdict: "FOREIGN", signal: "CURRENCY_COLUMN", currency: known, rowNumber };
+      return { ok: false, verdict: "UNVERIFIABLE", signal: "CURRENCY_COLUMN", currency: /^[A-Za-z]{3}$/.test(text) ? text.toUpperCase() : "UNKNOWN", rowNumber };
+    }
+  }
+  if (mapping) {
+    const moneyCols = (["amount", "debit", "credit", "balance"] as const).flatMap((f) => (mapping[f] !== undefined ? [mapping[f] as number] : []));
+    for (const { rowNumber, cells } of located.rows) {
+      for (const col of moneyCols) {
+        const c = cells[col];
+        if (typeof c !== "string") continue;
+        const code = foreignCurrencyIn(c);
+        if (code) return { ok: false, verdict: "FOREIGN", signal: "AMOUNT_MARK", currency: code, rowNumber };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+/** A shekel mark in a text: ₪, ש"ח / ש״ח / שח (with a one-letter prefix, "בש"ח"), שקל / שקלים, ILS, NIS. */
+const SHEKEL_MARKS: readonly RegExp[] = [/₪/, hebWord(`ש["״'׳]?ח|שקל|שקלים`), /(?<![A-Za-z])(?:ILS|NIS)(?![A-Za-z])/i];
+export function shekelMarkIn(text: string): boolean {
+  return SHEKEL_MARKS.some((re) => re.test(text));
+}
+
+/**
+ * The POSITIVE evidence that the file's money is in shekels, or null (see the module note on currency). Run after
+ * `checkFileCurrency` has found no foreign or unclassifiable mark; it never overrides one.
+ */
+export function ilsEvidenceIn(table: SheetTable, located: LocatedTable, mapping: BankMapping): IlsEvidence | null {
+  const moneyCols = (["amount", "debit", "credit", "balance"] as const).flatMap((f) => (mapping[f] !== undefined ? [mapping[f] as number] : []));
+  if (moneyCols.some((c) => typeof located.headers[c] === "string" && shekelMarkIn(located.headers[c] as string))) return "MONEY_HEADER_MARK";
+  if (titleRows(table, located).some((row) => row.some((c) => typeof c === "string" && shekelMarkIn(c)))) return "TITLE_MARK";
+  const currencyCols = located.headers.flatMap((h, i) => (CURRENCY_HEADERS.has(bankHeaderKey(h)) ? [i] : []));
+  if (currencyCols.length > 0) {
+    let seen = false;
+    let allShekel = true;
+    for (const { cells } of located.rows) {
+      for (const col of currencyCols) {
+        const c = cells[col] ?? null;
+        if (blank(c)) continue;
+        seen = true;
+        if (!isShekelValue(c)) allShekel = false;
+      }
+    }
+    if (seen && allShekel) return "CURRENCY_COLUMN";
+  }
+  for (const { cells } of located.rows) {
+    for (const col of moneyCols) {
+      const c = cells[col];
+      if (typeof c === "string" && shekelMarkIn(c)) return "AMOUNT_MARK";
+    }
+  }
+  return null;
+}
+
+/** No positive evidence of shekels ⇒ UNVERIFIABLE (NO_ILS_EVIDENCE). Never "probably shekels". */
+export function requireIlsEvidence(evidence: IlsEvidence | null): CurrencyCheck {
+  return evidence ? { ok: true, evidence } : { ok: false, verdict: "UNVERIFIABLE", signal: "NO_ILS_EVIDENCE", currency: "UNKNOWN", rowNumber: null };
+}
+
+/* ── Excel number formats ── */
+
+export type NumberFormatClass =
+  | { kind: "PLAIN" }
+  | { kind: "ILS" }
+  | { kind: "FOREIGN"; currency: string }
+  /** Excel shows the viewer's own local currency (built-in formats 5–8, 42, 44) or a token Dubiz cannot classify. */
+  | { kind: "UNVERIFIABLE"; reason: "LOCALE_CURRENCY_FORMAT" | "UNKNOWN_FORMAT_TOKEN" | "UNKNOWN_BUILTIN_FORMAT" };
+
+/**
+ * Built-in number formats (no format code in the file, only an id). Ids whose code is fixed and carries no
+ * currency are PLAIN; 5–8 and 42 / 44 are "currency" / "accounting" formats whose symbol is the viewer's
+ * locale — the same file shows ₪ in Israel and $ in the US — so they are UNVERIFIABLE; any other id below 164
+ * (locale date formats and ids Excel does not define) is UNVERIFIABLE on a money cell too.
+ */
+const PLAIN_BUILTIN_IDS = new Set([0, 1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 37, 38, 39, 40, 41, 43, 45, 46, 47, 48, 49]);
+const LOCALE_CURRENCY_IDS = new Set([5, 6, 7, 8, 42, 44]);
+
+export function classifyBuiltinNumberFormat(id: number): NumberFormatClass {
+  if (PLAIN_BUILTIN_IDS.has(id)) return { kind: "PLAIN" };
+  if (LOCALE_CURRENCY_IDS.has(id)) return { kind: "UNVERIFIABLE", reason: "LOCALE_CURRENCY_FORMAT" };
+  return { kind: "UNVERIFIABLE", reason: "UNKNOWN_BUILTIN_FORMAT" };
+}
+
+const ILS_SYMBOLS = new Set(["₪", "שח", "ש\"ח", "ש״ח", "ils", "nis", "שקל", "שקלים"]);
+const FORMAT_COLOR = /^(black|blue|cyan|green|magenta|red|white|yellow|color\s*\d+)$/i;
+const FORMAT_CONDITION = /^[<>=]/;
+const FORMAT_ELAPSED = /^(h+|m+|s+)$/i;
+
+function classifySymbol(sym: string): NumberFormatClass {
+  const t = sym.trim();
+  if (t === "") return { kind: "PLAIN" };
+  if (ILS_SYMBOLS.has(t.toLowerCase())) return { kind: "ILS" };
+  const foreign = foreignCurrencyIn(t);
+  if (foreign) return { kind: "FOREIGN", currency: foreign };
+  return { kind: "UNVERIFIABLE", reason: "UNKNOWN_FORMAT_TOKEN" };
+}
+
+/**
+ * The currency an Excel number FORMAT CODE shows, read token by token:
+ *   [$SYM-LCID] / [$SYM]  the currency token: ₪ / ש"ח / ILS / NIS ⇒ ILS; $ / € / £ / ¥ / a known code ⇒ FOREIGN;
+ *                         an empty symbol ("[$-40D]", a locale only) is nothing; anything else ⇒ UNVERIFIABLE;
+ *   other [ … ]           a colour, a condition ("[<0]") or elapsed time ("[h]") is nothing; anything else ⇒
+ *                         UNVERIFIABLE (fail closed: an unknown token is never assumed harmless);
+ *   "…" and \X literals   ₪ / ש"ח ⇒ ILS; a foreign sign, code or word ⇒ FOREIGN; a three-letter upper-case code
+ *                         ("XYZ") ⇒ UNVERIFIABLE; other text ("CR", " ") is nothing;
+ *   bare characters       $ € £ ¥ ⇒ FOREIGN, ₪ ⇒ ILS.
+ * FOREIGN wins over UNVERIFIABLE, which wins over ILS / PLAIN. "General", "0.00", "#,##0.00" are PLAIN.
+ */
+export function classifyNumberFormatCode(code: string | null | undefined): NumberFormatClass {
+  if (code === null || code === undefined) return { kind: "PLAIN" };
+  const found: NumberFormatClass[] = [];
+  let rest = "";
+  for (let i = 0; i < code.length; i += 1) {
+    const ch = code[i];
+    if (ch === '"') {
+      const end = code.indexOf('"', i + 1);
+      const lit = end < 0 ? code.slice(i + 1) : code.slice(i + 1, end);
+      i = end < 0 ? code.length : end;
+      const c = classifySymbol(lit);
+      // Free text in a format (CR / DR, a space) is harmless; only a currency-code-shaped literal is suspect.
+      if (c.kind !== "UNVERIFIABLE" || /^[A-Z]{3}$/.test(lit.trim())) found.push(c);
+      continue;
+    }
+    if (ch === "\\") {
+      rest += code[i + 1] ?? "";
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      const end = code.indexOf("]", i + 1);
+      const tok = end < 0 ? code.slice(i + 1) : code.slice(i + 1, end);
+      i = end < 0 ? code.length : end;
+      if (tok.startsWith("$")) found.push(classifySymbol(tok.slice(1).split("-")[0]));
+      else if (!(FORMAT_COLOR.test(tok) || FORMAT_CONDITION.test(tok) || FORMAT_ELAPSED.test(tok))) {
+        found.push({ kind: "UNVERIFIABLE", reason: "UNKNOWN_FORMAT_TOKEN" });
+      }
+      continue;
+    }
+    rest += ch;
+  }
+  for (const [sign, cur] of [["$", "USD"], ["€", "EUR"], ["£", "GBP"], ["¥", "JPY"]] as const) {
+    if (rest.includes(sign)) found.push({ kind: "FOREIGN", currency: cur });
+  }
+  if (rest.includes("₪")) found.push({ kind: "ILS" });
+  const foreign = found.find((f) => f.kind === "FOREIGN");
+  if (foreign) return foreign;
+  const unverifiable = found.find((f) => f.kind === "UNVERIFIABLE");
+  if (unverifiable) return unverifiable;
+  return found.some((f) => f.kind === "ILS") ? { kind: "ILS" } : { kind: "PLAIN" };
+}
+
+/**
+ * The account number(s) the file itself prints, so a statement uploaded to the wrong account can be stopped.
+ * Read from two places only:
+ *   - a title row above the header: a cell "מספר חשבון: 12-345-678901" (also "מס' חשבון", "חשבון מס'",
+ *     "account no."), or a cell holding only that label followed by a cell holding only the number;
+ *   - a column titled מספר חשבון / מס' חשבון / חשבון / account (number / no): every distinct value.
+ * The label must stand alone ("יתרה בחשבון 1,234.56" is not an account number: a prefixed word is not the
+ * label, and a comma or decimal point after the digits is not a number; no spaces inside the number, so a
+ * date printed after it is not read into it). Masked digits (*, x, •) are allowed;
+ * only the digits after the last mask count. A value with fewer than four digits is unreadable and dropped.
+ */
+const ACCOUNT_LABEL = `(?:מספר\\s+חשבון|מס["'׳״]?\\s*חשבון|חשבון(?:\\s*עו["'׳״]?ש)?\\s*(?:מס["'׳״]?|מספר)?|account\\s*(?:number|no\\.?|#)?)`;
+/** No spaces inside: a date or a period printed after the number must not be read as part of it. */
+const ACCOUNT_VALUE = "[0-9*xX•][0-9*xX•\\-/]{2,40}[0-9]";
+const INLINE_ACCOUNT = new RegExp(`(?<![${HEB}A-Za-z])${ACCOUNT_LABEL}\\s*[:#]?\\s*(${ACCOUNT_VALUE})(?![0-9.,])`, "i");
+const LABEL_ONLY = new RegExp(`^\\s*${ACCOUNT_LABEL}\\s*[:#]?\\s*$`, "i");
+const VALUE_ONLY = new RegExp(`^\\s*(${ACCOUNT_VALUE})\\s*$`);
+const ACCOUNT_HEADERS = new Set(["מספר חשבון", "מס חשבון", "חשבון", "account", "account number", "account no"].map(bankHeaderKey));
+
+/** The comparable digits of a printed account number: the digits after the last mask; null below four. */
+export function accountDigits(raw: string): string | null {
+  const afterMask = raw.split(/[*xX•]/).pop() ?? "";
+  const digits = afterMask.replace(/\D/g, "");
+  return digits.length >= 4 ? digits : null;
+}
+
+export function fileAccountNumbers(table: SheetTable, located: LocatedTable): string[] {
+  const found = new Set<string>();
+  for (const row of titleRows(table, located)) {
+    row.forEach((c, i) => {
+      if (typeof c !== "string") return;
+      const inline = INLINE_ACCOUNT.exec(c);
+      if (inline) {
+        found.add(inline[1].trim());
+        return;
+      }
+      if (!LABEL_ONLY.test(c)) return;
+      const next = row.slice(i + 1).find((x) => !blank(x));
+      const text = typeof next === "number" && Number.isInteger(next) ? String(next) : typeof next === "string" ? next : "";
+      const m = VALUE_ONLY.exec(text);
+      if (m) found.add(m[1].trim());
+    });
+  }
+  const cols = located.headers.flatMap((h, i) => (ACCOUNT_HEADERS.has(bankHeaderKey(h)) ? [i] : []));
+  for (const { cells } of located.rows) {
+    for (const col of cols) {
+      const c = cells[col];
+      if (typeof c === "number" && Number.isInteger(c)) found.add(String(c));
+      else if (typeof c === "string" && VALUE_ONLY.test(c)) found.add(c.trim());
+    }
+  }
+  return [...found].filter((v) => accountDigits(v) !== null);
+}
+
+/** A full account as a bank prints it: bank (2 digits), branch (3), account (4–13). Digits stay TEXT. */
+export type PrintedAccount = { bankCode: string; branchCode: string; accountNumber: string };
+
+/**
+ * The full account in a printed value, or null. Only the unambiguous form is read: exactly three digit groups
+ * separated by "-", "/", "." or spaces — bank 2 digits, branch 3, account 4–13 ("12-345-678901",
+ * "12/345/0678901"). Digits are never turned into numbers: "0678901" and "678901" are different accounts. A
+ * masked value, a value without the bank or branch, or one run of digits ("12345678901": where would the
+ * branch end?) is not a full account.
+ */
+export function parsePrintedAccount(raw: string): PrintedAccount | null {
+  if (/[*xX•]/.test(raw)) return null;
+  const groups = raw.trim().split(/[\s\-/.]+/).filter(Boolean);
+  if (groups.length !== 3 || !groups.every((g) => /^\d+$/.test(g))) return null;
+  const [bankCode, branchCode, accountNumber] = groups;
+  if (bankCode.length !== 2 || branchCode.length !== 3 || accountNumber.length < 4 || accountNumber.length > 13) return null;
+  return { bankCode, branchCode, accountNumber };
+}
+
+/**
+ * VERIFIED_FULL  the file prints the FULL account (bank, branch, account) and it IS the chosen account — the only
+ *                outcome the screen may call verified;
+ * PARTIAL_MATCH  only the last four digits could be compared, and they agree: NOT a verification;
+ * NOT_IN_FILE    the file prints no readable account number: the file does not identify the account;
+ * MISMATCH       the full account, or the last four digits, disagree: refused;
+ * MULTIPLE_ACCOUNTS  the file prints more than one account (two full accounts that differ, or values whose last
+ *                four digits cannot be the same account): refused at this stage, whichever account was chosen —
+ *                one file is one account (owner, 2026-11-03 round 2).
+ */
+export type AccountNumberCheck =
+  | { status: "VERIFIED_FULL" }
+  | { status: "PARTIAL_MATCH" }
+  | { status: "NOT_IN_FILE" }
+  | { status: "MISMATCH"; fileLast4: string; basis: "FULL" | "LAST4" }
+  | { status: "MULTIPLE_ACCOUNTS"; accounts: number };
+
+/** The last four digits a printed value can stand for: its own, and (for a non-full value) without a 1–3 digit suffix. */
+function last4Candidates(raw: string): string[] {
+  const full = parsePrintedAccount(raw);
+  if (full) return [full.accountNumber.slice(-4)];
+  const out: string[] = [];
+  const digits = accountDigits(raw);
+  if (digits) out.push(digits.slice(-4));
+  const suffix = /[\s\-/]+(\d{1,3})\s*$/.exec(raw);
+  const withoutSuffix = suffix ? accountDigits(raw.slice(0, suffix.index)) : null;
+  if (withoutSuffix) out.push(withoutSuffix.slice(-4));
+  return out;
+}
+
+/** Could two printed values be the same account? Two full accounts must be equal as text; otherwise the last four. */
+function sameAccount(a: string, b: string): boolean {
+  const fa = parsePrintedAccount(a);
+  const fb = parsePrintedAccount(b);
+  if (fa && fb) return fa.bankCode === fb.bankCode && fa.branchCode === fb.branchCode && fa.accountNumber === fb.accountNumber;
+  const cb = last4Candidates(b);
+  return last4Candidates(a).some((x) => cb.includes(x));
+}
+
+/** How many different accounts the readable printed values stand for (values that could be one account are one). */
+export function distinctPrintedAccounts(found: readonly string[]): number {
+  const groups: string[] = [];
+  for (const raw of found.filter((v) => accountDigits(v) !== null)) {
+    if (!groups.some((g) => sameAccount(g, raw))) groups.push(raw);
+  }
+  return groups.length;
+}
+
+/**
+ * The file's account number(s) against the chosen account.
+ *
+ * `fullMatch` answers whether a full printed account IS the chosen account (true / false), or null when that
+ * cannot be known (the comparison is unavailable). The service answers it with the account's keyed fingerprint
+ * — the same identity the bank-account screen uses to refuse an account entered twice — never by decrypting it.
+ *
+ * Per printed value: a full account with an answer decides (equal ⇒ verified, different ⇒ MISMATCH even when the
+ * last four digits agree — "012345" is not "12345"). Otherwise the last four digits: they must end the printed
+ * digits, or do so after dropping a trailing 1–3 digit sub-account / check suffix ("678901/23"); agreeing is only
+ * a PARTIAL_MATCH. EVERY readable value must agree — one file is one account: values that stand for more than one
+ * account are MULTIPLE_ACCOUNTS before any comparison. VERIFIED_FULL only when every readable value was verified
+ * in full.
+ */
+export function compareAccountNumber(
+  found: readonly string[],
+  accountLast4: string,
+  fullMatch: ((account: PrintedAccount) => boolean | null) | null = null
+): AccountNumberCheck {
+  const last4 = accountLast4.replace(/\D/g, "");
+  const readable = found.filter((v) => accountDigits(v) !== null);
+  if (readable.length === 0) return { status: "NOT_IN_FILE" };
+  const accounts = distinctPrintedAccounts(readable);
+  if (accounts > 1) return { status: "MULTIPLE_ACCOUNTS", accounts };
+  let allFull = true;
+  for (const raw of readable) {
+    const digits = accountDigits(raw) as string;
+    const full = parsePrintedAccount(raw);
+    const answer = full && fullMatch ? fullMatch(full) : null;
+    if (answer === true) continue;
+    if (answer === false) return { status: "MISMATCH", fileLast4: digits.slice(-4), basis: "FULL" };
+    allFull = false;
+    if (last4.length !== 4) continue;
+    if (digits.endsWith(last4)) continue;
+    const suffix = /[\s\-/]+(\d{1,3})\s*$/.exec(raw);
+    const withoutSuffix = suffix ? accountDigits(raw.slice(0, suffix.index)) : null;
+    if (withoutSuffix && withoutSuffix.endsWith(last4)) continue;
+    return { status: "MISMATCH", fileLast4: digits.slice(-4), basis: "LAST4" };
+  }
+  if (allFull) return { status: "VERIFIED_FULL" };
+  return last4.length === 4 ? { status: "PARTIAL_MATCH" } : { status: "NOT_IN_FILE" };
+}
+
 /* ───────────────────────────── identities ───────────────────────────── */
 
 /**
@@ -568,6 +999,11 @@ export function bankLineIdentities(
     withAccount: statementLineIdentities(businessId, accountId, [...lines]),
     withoutAccount: statementLineIdentities(businessId, null, [...lines]),
   };
+}
+
+/** The identities the lines would have under another account of the business (the cross-account check). */
+export function bankLineIdentitiesUnder(businessId: number, accountId: number, lines: readonly BankLine[]): string[] {
+  return statementLineIdentities(businessId, accountId, [...lines]);
 }
 
 /** How many lines repeat an earlier line of the same file exactly (kept as separate lines, as today). */

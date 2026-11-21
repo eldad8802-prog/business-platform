@@ -4,7 +4,7 @@
     "lib/services/bank-file-import/bank-file-core.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "notSecurityBecause": "pure parsing and identity over in-memory synthetic files: no DB, network, session, tenant or authorization code is exercised; tenant isolation, tokens and the flag are proven AS the restricted runtime by .bfi/battery.ts in bank-file-import-ci.yml",
-      "reason": "pure (no DB/network/clock): parity with parseStatementCsv on the same CSV files (same lines, same skipped rows, same identities with and without an account), windows-1255, CSV vs Excel of one statement, header below a preamble, identity fields locked to the old parser's columns, balance chain both orders, value date and balance warnings; run on pull_request by bank-file-import-ci.yml"
+      "reason": "pure (no DB/network/clock): parity with parseStatementCsv on the same CSV files (same lines, same skipped rows, same identities with and without an account), windows-1255, CSV vs Excel of one statement, header below a preamble, identity fields locked to the old parser's columns, balance chain both orders, value date and balance warnings, positive evidence of shekels (a stripped $ or a General Excel format is refused), several accounts in one file refused, the keyed fingerprint and its canonical form; run on pull_request by bank-file-import-ci.yml"
     },
     "lib/services/bank-file-import/old-upload-routing.test.ts": {
       "class": "SECURITY_REQUIRED",
@@ -14,12 +14,12 @@
     "lib/services/bank-file-import/http.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
-      "reason": "pure (real Request/FormData, no DB): the commit form as the routes read it — decisions keyed by row number accepted (the lost-backslash regression), non-digit / negative / fractional keys, other values and malformed JSON refused, mapping parsing, business and user from the session actor never the form; run on pull_request by security-gate (lab pure) and bank-file-import-ci.yml"
+      "reason": "pure (real Request/FormData, no DB): the commit form as the routes read it — decisions keyed by row number accepted (the lost-backslash regression), non-digit / negative / fractional keys, other values and malformed JSON refused, mapping parsing, business and user from the session actor never the form, the account confirmation read as digits only and a cross-account confirmation field ignored, error responses and the 500 log line never carrying an account number, fingerprint or key; run on pull_request by security-gate (lab pure) and bank-file-import-ci.yml"
     },
     "lib/bank-file-import/bank-import-client.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
-      "reason": "pure (stubbed fetch and localStorage): every bank import request from the browser carries the session Bearer token (the missing-token regression found in a browser walkthrough), multipart bodies with no forced Content-Type, decisions keyed by row number, statuses and server codes preserved, no header invented when signed out; run on pull_request by security-gate (lab pure) and bank-file-import-ci.yml"
+      "reason": "pure (stubbed fetch and localStorage): every bank import request from the browser carries the session Bearer token (the missing-token regression found in a browser walkthrough), multipart bodies with no forced Content-Type, decisions keyed by row number, statuses and server codes preserved, no header invented when signed out, the account sentence never says verified when full verification is unavailable, refusal texts never advise re-saving or reformatting a file and ask for the original export; run on pull_request by security-gate (lab pure) and bank-file-import-ci.yml"
     }
   }
 }

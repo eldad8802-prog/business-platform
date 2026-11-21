@@ -84,3 +84,60 @@
   padding: 0;
   white-space: nowrap;
 }
+
+/* Guidance before the upload, and the target-account confirmation on the preview (2026-11-03). */
+.guide {
+  border: 1px solid var(--pay-line);
+  border-radius: 10px;
+  background: var(--pay-card);
+  padding: 10px 12px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.guide summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--pay-ink);
+}
+
+.guide ul {
+  margin: 8px 0 0;
+  padding-inline-start: 18px;
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.accountBox {
+  border: 2px solid var(--pay-ink);
+  border-radius: 12px;
+  background: var(--pay-card);
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.accountName {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--pay-ink);
+}
+
+.confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.confirm input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}

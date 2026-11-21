@@ -48,6 +48,38 @@ const file = () => new File([new Uint8Array([0x61, 0x62])], "statement.csv");
   check("no file ⇒ refused", (await codeOf(readImportForm(request({ accountId: "9" }), actor))) === "FILE_UNREADABLE");
   check("a non-numeric account is read as no account (the service then refuses ACCOUNT_REQUIRED)", (await readImportForm(request({ file: file(), accountId: "abc" }), actor)).input.accountId === null);
 
+  console.log("The owner's confirmation (target account); no cross-account confirmation any more");
+  const conf = await readImportForm(request({ file: file(), accountId: "9", token: "t", confirmAccountId: "9", confirmCrossAccount: "4" }), actor);
+  check("confirmAccountId is read as a number", conf.confirmedAccountId === 9, JSON.stringify(conf));
+  check("a confirmCrossAccount field is IGNORED (lines held under another account are refused; nothing can confirm them)",
+    !Object.keys(conf).some((k) => /cross/i.test(k)), JSON.stringify(Object.keys(conf)));
+  check("absent ⇒ null (the service then refuses ACCOUNT_CONFIRMATION_REQUIRED)", none.confirmedAccountId === null);
+  const junk = await readImportForm(request({ file: file(), accountId: "9", confirmAccountId: "9; 10" }), actor);
+  check("anything but digits ⇒ null, never a guess", junk.confirmedAccountId === null);
+
+  console.log("Errors never carry or log an account number, a fingerprint or a key");
+  const { bankImportError } = await import("./http");
+  const { BankImportError } = await import("./bank-file-import.service");
+  const logged: string[] = [];
+  const realError = console.error;
+  console.error = (...args: unknown[]) => void logged.push(args.map((x) => (x instanceof Error ? x.name + ":" + x.message : String(x))).join(" "));
+  try {
+    const mismatch = await bankImportError(new BankImportError("ACCOUNT_NUMBER_MISMATCH", 409, { fileLast4: "8999", accountLast4: "8901", basis: "FULL" })).json();
+    check("ACCOUNT_NUMBER_MISMATCH answers its code and the two last-four digits only",
+      JSON.stringify(mismatch) === JSON.stringify({ error: "ACCOUNT_NUMBER_MISMATCH", details: { fileLast4: "8999", accountLast4: "8901", basis: "FULL" } }), JSON.stringify(mismatch));
+    const multi = await bankImportError(new BankImportError("MULTIPLE_ACCOUNTS_IN_FILE", 409, { accounts: 2 })).json();
+    check("MULTIPLE_ACCOUNTS_IN_FILE answers how many accounts, never which", JSON.stringify(multi) === JSON.stringify({ error: "MULTIPLE_ACCOUNTS_IN_FILE", details: { accounts: 2 } }), JSON.stringify(multi));
+    // An unexpected error whose message holds a full account, a fingerprint and a key (e.g. thrown by a lower layer).
+    const key = Buffer.alloc(32, 5).toString("base64");
+    const res = bankImportError(new Error("12-345-678901 fp=" + "ab".repeat(32) + " key=" + key));
+    const body = await res.json();
+    check("an unexpected error answers 500 INTERNAL with no detail", res.status === 500 && JSON.stringify(body) === JSON.stringify({ error: "INTERNAL" }), JSON.stringify(body));
+    check("…and its log line holds the error's name only: no account number, no fingerprint, no key",
+      logged.length === 1 && !logged[0].includes("678901") && !logged[0].includes("abab") && !logged[0].includes(key), JSON.stringify(logged));
+  } finally {
+    console.error = realError;
+  }
+
   console.log(`\n${total - failures}/${total} passed`);
   if (failures) process.exit(1);
 })().catch((e) => {
