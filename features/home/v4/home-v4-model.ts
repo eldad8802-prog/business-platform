@@ -648,8 +648,9 @@ const CREATE_FIRST: Record<BusinessKind, string[]> = {
 };
 
 function permittedActions(access: HomeAccess): CreateAction[] {
-  const activity = access.activity ?? null;
-  return CREATE_ACTIONS.filter((a) => (!a.packOnly || activity !== null) && allows(access, a.req));
+  const permitted = CREATE_ACTIONS.filter((a) => allows(access, a.req));
+  // Pack-only actions exist only once the owner chose packs (accounts that never chose keep today's sheet).
+  return (access.activity ?? null) !== null ? permitted : permitted.filter((a) => !a.packOnly);
 }
 
 export function createActionsFor(access: HomeAccess): CreateAction[] {
