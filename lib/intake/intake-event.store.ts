@@ -38,6 +38,7 @@ import {
 } from "@/lib/intake/core/contract";
 import { isValidReceiptKey } from "@/lib/intake/core/event-identity";
 import { NOT_EXPIRED_WHERE, notExpiredSql } from "@/lib/intake/core/expired";
+import { holdClockCalcSql, withClockSql } from "@/lib/intake/core/hold-clock";
 import {
   oldest,
   RECOVERY_LAG_MS,
@@ -662,6 +663,87 @@ export async function deferHeldSiblings(
          AND ((e."status" = 'RECEIVED' AND e."nextAttemptAt" IS NULL)
               OR (e."status" IN ('RECEIVED', 'PERSISTED', 'FAILED') AND e."nextAttemptAt" <= ${utc(now)}))`;
   });
+}
+
+export type HoldClockLook = { expire: boolean; warned: boolean };
+
+/**
+ * L1.5-b · A2 — the probe's look with the hold clock ON (hold-clock.ts): in ONE statement, on the row this worker
+ * holds under its lease, the clock advances; then the receipt either waits (exactly as markDeferred: attempt not
+ * counted, next look at `until`, the hold code) or — when the clock says it expired — is left to the caller, which
+ * settles it "expired:<reason>" through the processor's terminal path (A1). Nothing is deleted.
+ */
+export async function markDeferredWithClock(
+  businessId: number,
+  event: Pick<ClaimedEvent, "id">,
+  until: Date,
+  code: string,
+  now: Date = new Date()
+): Promise<HoldClockLook> {
+  const rows = await withTenantTransaction((tx) =>
+    tx.$queryRaw<{ expire: boolean; warned: boolean }[]>`
+      WITH picked AS MATERIALIZED (
+        SELECT s."id", s."metadata" -> 'holdClock' AS "hc" FROM "IntakeEvent" s
+         WHERE s."id" = ${event.id}::int AND s."businessId" = ${businessId}::int
+           FOR UPDATE
+      ), calc AS MATERIALIZED (${holdClockCalcSql(code, now)})
+      UPDATE "IntakeEvent" e
+         SET "metadata" = ${withClockSql(Prisma.sql`e."metadata"`, Prisma.sql`calc.clock`)},
+             "attempts" = CASE WHEN calc.expire THEN e."attempts" ELSE e."attempts" - 1 END,
+             "nextAttemptAt" = CASE WHEN calc.expire THEN e."nextAttemptAt" ELSE ${utc(until)} END,
+             "lastErrorCode" = CASE WHEN calc.expire THEN e."lastErrorCode" ELSE ${boundedCode(code)} END,
+             "updatedAt" = ${utc(now)}
+        FROM calc
+       WHERE e."id" = calc."id" AND e."businessId" = ${businessId}::int
+      RETURNING calc.expire AS "expire", calc.warned AS "warned"`
+  );
+  return { expire: rows[0]?.expire === true, warned: rows[0]?.warned === true };
+}
+
+/**
+ * L1.5-b · A2 — deferHeldSiblings with the hold clock ON: the same receipts, the same bound, lock rule and timeout,
+ * and each one's clock advances in the same statement. A sibling whose clock says it expired is NOT deferred: it
+ * stays due, so its own look settles it through the processor (one expiry path, logged and sensed per receipt).
+ */
+export async function deferHeldSiblingsWithClock(
+  businessId: number,
+  probe: { id: number; sourceKey: string; providerAccountRef: string | null },
+  until: Date,
+  code: string,
+  now: Date = new Date()
+): Promise<{ count: number; warned: number }> {
+  if (!code.startsWith("held:")) return { count: 0, warned: 0 };
+  const rows = await withTenantTransaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(SIBLING_STATEMENT_TIMEOUT_MS)}, true)`;
+    return tx.$queryRaw<{ warned: boolean }[]>`
+      WITH picked AS MATERIALIZED (
+        SELECT s."id", s."metadata" -> 'holdClock' AS "hc" FROM "IntakeEvent" s
+         WHERE s."businessId" = ${businessId}::int
+           AND s."sourceKey" = ${probe.sourceKey}::text
+           AND s."providerAccountRef" IS NOT DISTINCT FROM ${probe.providerAccountRef}::text
+           AND s."id" <> ${probe.id}::int
+           AND s."lastErrorCode" LIKE 'held:%'
+           AND ((s."status" = 'RECEIVED' AND s."nextAttemptAt" IS NULL)
+                OR (s."status" IN ('RECEIVED', 'PERSISTED', 'FAILED') AND s."nextAttemptAt" <= ${utc(now)}))
+         ORDER BY s."receivedAt", s."id"
+         LIMIT ${SIBLING_BATCH}::int
+           FOR UPDATE SKIP LOCKED
+      ), calc AS MATERIALIZED (${holdClockCalcSql(code, now)}),
+      -- each clock is computed ONCE (materialized) and only the receipts that wait are joined: an expensive look
+      -- must never be re-evaluated per candidate row (a nested loop over it timed out at 3,000 receipts).
+      waits AS MATERIALIZED (SELECT "id", clock, warned FROM calc WHERE NOT expire)
+      UPDATE "IntakeEvent" e
+         SET "metadata" = ${withClockSql(Prisma.sql`e."metadata"`, Prisma.sql`waits.clock`)},
+             "nextAttemptAt" = ${utc(until)}, "lastErrorCode" = ${boundedCode(code)}, "updatedAt" = ${utc(now)}
+        FROM waits
+       WHERE e."id" = waits."id"
+         AND e."businessId" = ${businessId}::int
+         AND e."lastErrorCode" LIKE 'held:%'
+         AND ((e."status" = 'RECEIVED' AND e."nextAttemptAt" IS NULL)
+              OR (e."status" IN ('RECEIVED', 'PERSISTED', 'FAILED') AND e."nextAttemptAt" <= ${utc(now)}))
+      RETURNING waits.warned AS "warned"`;
+  });
+  return { count: rows.length, warned: rows.filter((r) => r.warned).length };
 }
 
 /**
