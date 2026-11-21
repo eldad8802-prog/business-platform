@@ -255,9 +255,12 @@ async function main() {
   {
     const b = await business();
     const cookie = await passwordProof(b);
+    // Warm the connection pool first: a cold pool on a slow local machine can miss Prisma 2 s "start a
+    // transaction" window (P2028, a 500 "nothing written": safe, but not the point of this check).
+    await Promise.all(Array.from({ length: 10 }, () => handleKindTransitionGet(req(b, ""), deps())));
     const results = await Promise.all(Array.from({ length: 8 }, () =>
       handleKindTransitionConfirm(req(b, "", { ...input(b), statementSha256: shaFor(b) }, cookie), deps()).then((r) => r.status)));
-    ok("A13 exactly one 200 of 8", results.filter((s) => s === 200).length === 1, results.join(","));
+    ok("A13 exactly one 200 of 8; the other 7 a clean 409 (already moved)", results.filter((s) => s === 200).length === 1 && results.filter((s) => s === 409).length === 7, results.join(","));
     ok("A13 one history row", (await history(b.businessId)).length === 1);
   }
 
