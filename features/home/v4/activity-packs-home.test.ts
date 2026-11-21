@@ -15,15 +15,10 @@ import { he } from "@/lib/i18n/messages/he";
 import { en } from "@/lib/i18n/messages/en";
 import { createTranslator } from "@/lib/i18n/translate";
 import type { HomeHistory } from "@/lib/services/home/home-history-model";
-import {
-  ACTIVITY_PACK_KEYS,
-  businessModelFor,
-  parseActivitySelection,
-  selectionFromRow,
-  suggestionFor,
-  type ActivitySelection,
-} from "@/lib/activity-packs/activity-packs";
+import { ACTIVITY_PACK_KEYS, parseActivitySelection, selectionFromRow, type ActivitySelection } from "@/lib/activity-packs/activity-packs";
+import { businessModelFor, suggestionFor } from "@/lib/activity-packs/activity-pack-suggestions";
 import { BUSINESS_CATEGORY_OPTIONS } from "@/lib/business/business-categories";
+import { activityPickerCopy } from "@/components/activity-packs/activity-picker-copy";
 import { TOOLS } from "@/lib/navigation/home-routes";
 import { NAV_DESTINATIONS, PRIMARY_DESTINATIONS, primaryDestinationsFor } from "@/components/navigation/nav-destinations";
 
@@ -37,7 +32,7 @@ import {
   type HomeModule,
   type HomeScope,
 } from "./home-access";
-import { PACK_HOME, barSlotFor } from "./activity-packs-home";
+import { PACK_ENGINE, PACK_HOME, barSlotFor } from "./activity-packs-home";
 import {
   CREATE_ACTIONS,
   METRICS,
@@ -73,7 +68,8 @@ function sel(primary: ActivitySelection["primary"], ...additional: ActivitySelec
   return { primary, additional };
 }
 function access(modules: HomeModule[], activity: ActivitySelection | null = null, extra: Partial<HomeAccess> = {}): HomeAccess {
-  return { businessId: 7, modules: new Set(modules), kind: "general", permissions: resolveUserPermissions(), activity, ...extra };
+  // The engine is what the hooks load on demand for a business with packs; tests hand it over directly.
+  return { businessId: 7, modules: new Set(modules), kind: "general", permissions: resolveUserPermissions(), activity, packs: activity ? PACK_ENGINE : null, ...extra };
 }
 
 /* ----------------------------------------------------- selection basics -- */
@@ -125,6 +121,16 @@ for (const kind of KINDS) {
 ok("P1 bar without packs = today's bar", barSlotFor(null, new Set(ALL)) === "calendar" && primaryDestinationsFor("calendar") === PRIMARY_DESTINATIONS);
 ok("P1 label without packs = פגישות היום", t(metricLabelKey("todayAppointments", access(DEFAULTS)) as never) === "פגישות היום");
 
+/* ------------------------------- P1b: a selection whose engine did not load -- */
+
+for (const p of ACTIVITY_PACK_KEYS) {
+  const noEngine = access(ALL, sel(p), { packs: null });
+  const legacy: HomeAccess = { businessId: 7, modules: new Set(ALL), kind: "general", permissions: resolveUserPermissions() };
+  ok(`P1b ${p}: no engine → pre-packs metrics`, eq(metricOrder(noEngine, null), metricOrder(legacy, null)));
+  ok(`P1b ${p}: no engine → pre-packs "+"`, eq(createActionsFor(noEngine).map((a) => a.key), createActionsFor(legacy).map((a) => a.key)));
+  ok(`P1b ${p}: no engine → no ready-for-pickup item`, buildSecretary({ waiting: ready(waiting([])), partial: false, access: noEngine, history: null, dismissals: {}, now: NOW, t, serviceReady: { ids: [5], exact: true } }).state !== "ready");
+}
+
 /* -------------------------------------------------- P2: the five packs -- */
 
 const pair = (a: HomeAccess) => metricOrder(a, null).slice(0, 2);
@@ -145,10 +151,10 @@ ok("P2 '+' inventory starts with חשבונית חדשה then מוצר חדש", 
 ok("P2 '+' leads starts with ליד חדש", first(access(DEFAULTS, sel("LEADS"))) === "lead");
 ok("P2 '+' orders: ליד, חשבונית, בקשת תשלום (no orders action)", eq(createActionsFor(access(DEFAULTS, sel("ORDERS"))).slice(0, 3).map((a) => a.key), ["lead", "invoice", "payment-request"]));
 
-const favs = (a: HomeAccess) => favoriteTools(availableTools(TOOLS, a), a.kind, null, a.activity ?? null).map((x) => x.key);
+const favs = (a: HomeAccess) => favoriteTools(availableTools(TOOLS, a), a.kind, null, a).map((x) => x.key);
 ok("P2 tools: the bar leavers first, then the pack's", eq(favs(access(DEFAULTS, sel("APPOINTMENTS"))).slice(0, 3), ["conversations", "documents", "calendar"]));
 ok("P2 tools service (desk ON) put שירות ואחריות first", favs(access(ALL, sel("SERVICE")))[2] === "service-desk");
-ok("P2 tools: the owner's own favourites still win", eq(favoriteTools(availableTools(TOOLS, access(DEFAULTS, sel("LEADS"))), "general", ["invoices"], sel("LEADS")).map((x) => x.key), ["invoices"]));
+ok("P2 tools: the owner's own favourites still win", eq(favoriteTools(availableTools(TOOLS, access(DEFAULTS, sel("LEADS"))), "general", ["invoices"], access(DEFAULTS, sel("LEADS"))).map((x) => x.key), ["invoices"]));
 
 /* --------------------------------------- P3: packs never add capability -- */
 
@@ -246,9 +252,15 @@ for (const k of ["lowStock", "readyForPickup"] as const) {
   ok(`i18n metric ${k} he + en`, ["label", "meaning", "zero"].every((p) => t(`home.v4.snapshot.metric.${k}.${p}` as never) !== `home.v4.snapshot.metric.${k}.${p}` && tEn(`home.v4.snapshot.metric.${k}.${p}` as never) !== `home.v4.snapshot.metric.${k}.${p}`));
 }
 ok("i18n '+' קריאה חדשה he + en", t("home.v4.create.action.serviceCase") === "קריאה חדשה" && tEn("home.v4.create.action.serviceCase") !== "home.v4.create.action.serviceCase");
-for (const p of [...ACTIVITY_PACK_KEYS, "SERVICE_OFF"]) {
-  ok(`i18n pack ${p} he + en`, ["name", "desc"].every((part) => t(`account.settings.activityPacks.pack.${p}.${part}` as never) !== `account.settings.activityPacks.pack.${p}.${part}` && tEn(`account.settings.activityPacks.pack.${p}.${part}` as never) !== `account.settings.activityPacks.pack.${p}.${part}`));
+// The activity screens' copy lives in its own module (not the global dictionary — Hebrew JS budget on every page).
+const heCopy = activityPickerCopy("he");
+const enCopy = activityPickerCopy("en");
+for (const p of [...ACTIVITY_PACK_KEYS, "SERVICE_OFF"] as const) {
+  ok(`copy pack ${p} he + en`, !!heCopy.pack[p].name && !!heCopy.pack[p].desc && !!enCopy.pack[p].name && !!enCopy.pack[p].desc && heCopy.pack[p].name !== enCopy.pack[p].name);
 }
+ok("copy: same keys in he and en", eq(Object.keys(heCopy).sort(), Object.keys(enCopy).sort()));
+ok("copy: step line", heCopy.stepOf(1) === "שלב 1 מתוך 2" && enCopy.stepOf(2) === "Step 2 of 2");
+ok("copy: the picker strings left the global dictionary", t("account.settings.activityPacks.next" as never) === "account.settings.activityPacks.next");
 
 if (failed > 0) {
   console.error(`\n${failed} check(s) FAILED`);

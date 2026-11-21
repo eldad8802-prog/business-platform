@@ -49,7 +49,7 @@ export function MyToolsScreen() {
   const available = useMemo(() => (access.state === "ready" ? availableTools(TOOLS, access.value) : []), [access]);
   const simple = available.length <= SIMPLE_TOOLS_MAX;
   // Phase 2: with activity packs the default favourites follow the packs (the owner's own choice still wins).
-  const favorites = access.state === "ready" ? favoriteTools(available, access.value.kind, chosenFavs, access.value.activity ?? null) : [];
+  const favorites = access.state === "ready" ? favoriteTools(available, access.value.kind, chosenFavs, access.value) : [];
   const favKeys = favorites.map((f) => f.key);
   const q = query.trim().toLowerCase();
   const matches = (tool: Tool) => !q || t(tool.labelKey).toLowerCase().includes(q) || t(tool.descriptionKey).toLowerCase().includes(q);

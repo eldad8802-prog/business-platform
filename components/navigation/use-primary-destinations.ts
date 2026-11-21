@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import type { BarSlotKey } from "@/features/home/v4/activity-packs-home";
 import { activityFromCapabilities, modulesFromCapabilities, resolveUserPermissions, type CapabilitiesWire } from "@/features/home/v4/home-access";
-import { barSlotFor, type BarSlotKey } from "@/features/home/v4/activity-packs-home";
+import { loadPackEngine } from "@/features/home/v4/pack-engine-loader";
 import { fetchJsonCached } from "@/lib/ui/cached-json";
 
 import { primaryDestinationsFor, type NavDestination } from "./nav-destinations";
@@ -15,16 +16,20 @@ const CAPABILITIES_TTL_MS = 60_000;
  * The bar / rail / sidebar fixed actions with the second slot resolved for this business (phase 2, direction B).
  *
  * Fail-safe to TODAY's bar: until the capabilities answer — and whenever the activity packs feature is OFF, the
- * owner never chose, or the read fails — the slot is יומן, exactly the pre-packs HOME v4 bar. The same cached read
- * the Home makes, so it costs no extra request.
+ * owner never chose, the pack engine cannot load, or any read fails — the slot is יומן, exactly the pre-packs HOME v4
+ * bar. The same cached capabilities read the Home makes; the pack engine is downloaded only for a business that chose
+ * packs (so every other business ships none of it).
  */
 export function usePrimaryDestinations(): NavDestination[] {
   const [slot, setSlot] = useState<BarSlotKey>("calendar");
   useEffect(() => {
     let cancelled = false;
     fetchJsonCached<CapabilitiesWire>(CAPS, CAPABILITIES_TTL_MS)
-      .then((caps) => {
-        if (!cancelled) setSlot(barSlotFor(activityFromCapabilities(caps), modulesFromCapabilities(caps), resolveUserPermissions().scopes));
+      .then(async (caps) => {
+        const activity = activityFromCapabilities(caps);
+        if (!activity) return;
+        const engine = await loadPackEngine();
+        if (!cancelled && engine) setSlot(engine.barSlot(activity, modulesFromCapabilities(caps), resolveUserPermissions().scopes));
       })
       .catch(() => {
         /* keep the fixed יומן */

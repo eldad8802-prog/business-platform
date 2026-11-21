@@ -18,7 +18,8 @@ import type { Locale } from "@/lib/i18n/config";
 import type { HomeHistory } from "@/lib/services/home/home-history-model";
 
 import { allows, type BusinessKind, type HomeAccess, type HomeModule, type HomeScope, type Requirement } from "./home-access";
-import { PACK_HOME, orderKeysByPacks, orderMetricsByPacks, secretaryPackRank, type PackSecretaryKind } from "./activity-packs-home";
+// Type only: the pack engine itself is loaded on demand (pack-engine-loader.ts) and reaches this model as access.packs.
+import type { PackSecretaryKind } from "./activity-packs-home";
 import {
   formatShekel,
   israelDateKey,
@@ -72,6 +73,16 @@ export const METRICS: Record<MetricKey, MetricDef> = {
   readyForPickup: { key: "readyForPickup", format: "count", req: { modules: ["service_desk"], scope: "operations" }, href: "/service-desk" },
 };
 
+/**
+ * The pack selection AND its loaded engine, or neither. Everything pack-related needs both: without the engine (not
+ * loaded yet, or failed to load) the Home is the pre-packs one — never a wrong capability, at worst the old order.
+ */
+function packsOf(access: HomeAccess): { activity: NonNullable<HomeAccess["activity"]>; engine: NonNullable<HomeAccess["packs"]> } | { activity: null; engine: null } {
+  const activity = access.activity ?? null;
+  const engine = access.packs ?? null;
+  return activity && engine ? { activity, engine } : { activity: null, engine: null };
+}
+
 /** Metrics drawn only when the owner chose activity packs — the pre-packs Home never shows them (accounts unchanged). */
 const PACK_ONLY_METRICS: readonly MetricKey[] = ["lowStock", "readyForPickup"];
 
@@ -85,11 +96,11 @@ export const DEFAULT_METRIC_ORDER: Record<BusinessKind, MetricKey[]> = {
 
 /** The metrics this business + person may see, in display order (the owner's chosen pair first, when still valid). */
 export function metricOrder(access: HomeAccess, chosenPrimary: readonly string[] | null): MetricKey[] {
-  const activity = access.activity ?? null;
+  const { activity, engine } = packsOf(access);
   const base: MetricKey[] = activity ? [...DEFAULT_METRIC_ORDER[access.kind], ...PACK_ONLY_METRICS] : DEFAULT_METRIC_ORDER[access.kind];
   const permitted = base.filter((k) => allows(access, METRICS[k].req));
   // Packs reorder only what is already permitted (feature access / scope filter first).
-  const available = activity ? orderMetricsByPacks(activity, permitted) : permitted;
+  const available = activity && engine ? engine.orderMetrics(activity, permitted) : permitted;
   const chosen = (chosenPrimary ?? []).filter((k): k is MetricKey => (available as string[]).includes(k)).slice(0, 2);
   return [...chosen, ...available.filter((k) => !chosen.includes(k))];
 }
@@ -269,7 +280,7 @@ export function buildSecretary(input: {
   const { waiting, access, t } = input;
   if (waiting.state !== "ready") return waiting;
   const today = israelDateKey(input.now);
-  const activity = access.activity ?? null;
+  const { activity, engine } = packsOf(access);
 
   const ready = activity && input.serviceReady ? serviceReadyItems(input.serviceReady.ids) : [];
   const all: SecretaryItem[] = [...waiting.value.items, ...ready];
@@ -289,11 +300,11 @@ export function buildSecretary(input: {
   let groups = [...groupMap.entries()];
   // Activity packs: among groups of the SAME urgency, the packs' kinds come first. A more urgent group (a payment due,
   // a critical stock alert) is never pushed down by a pack. Without packs the order is untouched.
-  if (activity) {
+  if (activity && engine) {
     const minRank = (items: SecretaryItem[]) => Math.min(...items.map((i) => i.rank));
     groups = groups
       .map((g, i) => ({ g, i }))
-      .sort((a, b) => minRank(a.g[1]) - minRank(b.g[1]) || secretaryPackRank(activity, a.g[0]) - secretaryPackRank(activity, b.g[0]) || a.i - b.i)
+      .sort((a, b) => minRank(a.g[1]) - minRank(b.g[1]) || engine.secretaryRank(activity, a.g[0]) - engine.secretaryRank(activity, b.g[0]) || a.i - b.i)
       .map(({ g }) => g);
   }
 
@@ -650,15 +661,15 @@ const CREATE_FIRST: Record<BusinessKind, string[]> = {
 function permittedActions(access: HomeAccess): CreateAction[] {
   const permitted = CREATE_ACTIONS.filter((a) => allows(access, a.req));
   // Pack-only actions exist only once the owner chose packs (accounts that never chose keep today's sheet).
-  return (access.activity ?? null) !== null ? permitted : permitted.filter((a) => !a.packOnly);
+  return packsOf(access).activity !== null ? permitted : permitted.filter((a) => !a.packOnly);
 }
 
 export function createActionsFor(access: HomeAccess): CreateAction[] {
-  const activity = access.activity ?? null;
+  const { activity, engine } = packsOf(access);
   let permitted = permittedActions(access);
   if (access.subscription === "FREE_LIMITED") permitted = permitted.filter((a) => FREE_LIMITED_CREATE.has(a.key));
   // Activity packs reorder only what is permitted: the primary pack's actions, then one per additional pack.
-  if (activity) return orderKeysByPacks(activity, permitted, (a) => a.key, (p) => p.create);
+  if (activity && engine) return engine.orderKeys(activity, permitted, (a) => a.key, "create");
   const first = CREATE_FIRST[access.kind];
   const rank = (a: CreateAction) => {
     const i = first.indexOf(a.key);
@@ -746,22 +757,10 @@ export function favoriteTools<T extends ToolLite>(
   available: readonly T[],
   kind: BusinessKind,
   chosen: readonly string[] | null,
-  activity: HomeAccess["activity"] = null,
+  access: HomeAccess | null = null,
 ): T[] {
-  const keys = chosen ?? (activity ? packFavoriteKeys(activity) : DEFAULT_FAVORITES[kind]);
+  // With activity packs (and their engine loaded) the default favourites follow the packs; the owner's choice wins.
+  const packs = access ? packsOf(access) : { activity: null, engine: null };
+  const keys = chosen ?? (packs.activity && packs.engine ? packs.engine.favoriteKeys(packs.activity, BAR_LEAVERS) : DEFAULT_FAVORITES[kind]);
   return keys.map((k) => available.find((t) => t.key === k)).filter((t): t is T => Boolean(t));
-}
-
-/** Default favourites with activity packs: the tools that left the bar, the primary pack's, one per additional pack. */
-function packFavoriteKeys(activity: NonNullable<HomeAccess["activity"]>): string[] {
-  const keys: string[] = [...BAR_LEAVERS];
-  const push = (k: string) => {
-    if (!keys.includes(k)) keys.push(k);
-  };
-  PACK_HOME[activity.primary].favorites.forEach(push);
-  for (const p of activity.additional) {
-    const first = PACK_HOME[p].favorites.find((k) => !keys.includes(k));
-    if (first) push(first);
-  }
-  return keys;
 }

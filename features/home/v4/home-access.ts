@@ -16,6 +16,7 @@
  */
 
 import { parseActivitySelection, type ActivitySelection } from "@/lib/activity-packs/activity-packs";
+import type { BarSlotKey } from "./activity-packs-home";
 
 /** The modules the Home knows how to draw. Each maps to exactly one real platform feature key (or none = core). */
 export type HomeModule =
@@ -127,6 +128,20 @@ export function planHrefFromCapabilities(wire: CapabilitiesWire | null | undefin
   return typeof h === "string" && h.startsWith("/") && !h.startsWith("//") ? h : null;
 }
 
+/**
+ * The pack ordering engine (features/home/v4/activity-packs-home.ts). It is loaded ON DEMAND, only for a business
+ * that chose packs (pack-engine-loader.ts) — every other business never downloads it. It only REORDERS what feature
+ * access and the person's scope already permit; it never adds a capability. Until it is loaded (or if loading
+ * fails) the Home uses the pre-packs order: never a wrong capability, at worst the old order.
+ */
+export type PackEngine = {
+  orderMetrics: <K extends string>(selection: ActivitySelection, permitted: readonly K[]) => K[];
+  orderKeys: <T>(selection: ActivitySelection, items: readonly T[], keyOf: (t: T) => string, list: "create" | "favorites") => T[];
+  secretaryRank: (selection: ActivitySelection, kind: string) => number;
+  favoriteKeys: (selection: ActivitySelection, lead: readonly string[]) => string[];
+  barSlot: (selection: ActivitySelection | null, modules: ReadonlySet<HomeModule>, scopes?: ReadonlySet<HomeScope>) => BarSlotKey;
+};
+
 export type HomeAccess = {
   /** The session business (from the capabilities answer) — keys the per-business display preferences. */
   businessId: number | null;
@@ -135,6 +150,8 @@ export type HomeAccess = {
   permissions: UserPermissions;
   /** Phase 2 activity packs (display only). Absent or null = the pre-packs Home. */
   activity?: ActivitySelection | null;
+  /** The loaded pack engine — present only with `activity`. Absent = the pre-packs order. */
+  packs?: PackEngine | null;
   /** FREE_LIMITED when the subscription says so (never today). Absent or null = unchanged. */
   subscription?: SubscriptionView;
   /** The plan screen, when the subscription mechanism names one (null today). */

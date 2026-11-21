@@ -17,18 +17,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
-import {
-  ACTIVITY_PACK_KEYS,
-  businessModelFor,
-  suggestionFor,
-  type ActivityPackKey,
-  type ActivitySelection,
-} from "@/lib/activity-packs/activity-packs";
+import { ACTIVITY_PACK_KEYS, type ActivityPackKey, type ActivitySelection } from "@/lib/activity-packs/activity-packs";
+import { businessModelFor, suggestionFor } from "@/lib/activity-packs/activity-pack-suggestions";
 import { BUSINESS_CATEGORY_OPTIONS } from "@/lib/business/business-categories";
 import { buildClientAuthHeaders } from "@/lib/client-session";
-import type { MessageKey } from "@/lib/i18n/translate";
 import { invalidateCachedJson } from "@/lib/ui/cached-json";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
+
+import { activityPickerCopy } from "./activity-picker-copy";
 
 const ACTIVITY_URL = "/api/business/activity";
 const PROFILE_URL = "/api/business/profile";
@@ -39,7 +35,8 @@ type ProfileWire = { profile?: { category?: string | null; subCategory?: string 
 type LoadState = "loading" | "ready" | "failed" | "unavailable";
 
 export function ActivityPicker({ mode, onDone, onSkip }: { mode: "setup" | "settings"; onDone: () => void; onSkip?: () => void }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const c = activityPickerCopy(locale);
   const serviceDesk = useFeatureState("service_desk");
 
   const [load, setLoad] = useState<LoadState>("loading");
@@ -131,7 +128,7 @@ export function ActivityPicker({ mode, onDone, onSkip }: { mode: "setup" | "sett
 
   const packText = (p: ActivityPackKey, part: "name" | "desc"): string => {
     const key = p === "SERVICE" && serviceDesk !== true ? "SERVICE_OFF" : p;
-    return t(`account.settings.activityPacks.pack.${key}.${part}` as MessageKey);
+    return c.pack[key][part];
   };
 
   return (
@@ -140,40 +137,40 @@ export function ActivityPicker({ mode, onDone, onSkip }: { mode: "setup" | "sett
       {load === "loading" ? (
         <p className="ap-lead" role="status">…</p>
       ) : load === "unavailable" ? (
-        <p className="ap-lead" role="status">{t("account.settings.activityPacks.notAvailable")}</p>
+        <p className="ap-lead" role="status">{c.notAvailable}</p>
       ) : load === "failed" ? (
         <div className="ap-note" role="status">
-          <span>{t("account.settings.activityPacks.loadFailed")}</span>
+          <span>{c.loadFailed}</span>
           <button type="button" className="ap-textbtn" onClick={() => { setLoad("loading"); setNonce((n) => n + 1); }}>
-            {t("account.settings.activityPacks.retry")}
+            {c.retry}
           </button>
         </div>
       ) : step === 1 ? (
         <>
-          <div className="ap-step">{t("account.settings.activityPacks.stepOf", { n: 1 })}</div>
-          <h1 className="ap-title">{t("account.settings.activityPacks.categoryTitle")}</h1>
-          <p className="ap-lead">{t("account.settings.activityPacks.categoryLead")}</p>
-          <div className="ap-cats" role="group" aria-label={t("account.settings.activityPacks.categoryTitle")}>
-            {BUSINESS_CATEGORY_OPTIONS.map((c) => (
+          <div className="ap-step">{c.stepOf(1)}</div>
+          <h1 className="ap-title">{c.categoryTitle}</h1>
+          <p className="ap-lead">{c.categoryLead}</p>
+          <div className="ap-cats" role="group" aria-label={c.categoryTitle}>
+            {BUSINESS_CATEGORY_OPTIONS.map((cat) => (
               <button
-                key={c.value}
+                key={cat.value}
                 type="button"
-                className={`ap-cat${category === c.value ? " is-sel" : ""}`}
-                aria-pressed={category === c.value}
+                className={`ap-cat${category === cat.value ? " is-sel" : ""}`}
+                aria-pressed={category === cat.value}
                 onClick={() => {
-                  setCategory(c.value);
-                  if (c.value !== category) setSubCategory(c.subCategories.length === 1 ? c.subCategories[0].value : null);
+                  setCategory(cat.value);
+                  if (cat.value !== category) setSubCategory(cat.subCategories.length === 1 ? cat.subCategories[0].value : null);
                 }}
               >
-                <CategoryGlyph value={c.value} />
-                <span>{t(c.labelKey)}</span>
+                <CategoryGlyph value={cat.value} />
+                <span>{t(cat.labelKey)}</span>
               </button>
             ))}
           </div>
           {categoryOption && categoryOption.subCategories.length > 1 ? (
             <>
-              <div className="ap-label">{t("account.settings.activityPacks.subTitle")}</div>
-              <div className="ap-subs" role="group" aria-label={t("account.settings.activityPacks.subTitle")}>
+              <div className="ap-label">{c.subTitle}</div>
+              <div className="ap-subs" role="group" aria-label={c.subTitle}>
                 {categoryOption.subCategories.map((s) => (
                   <button key={s.value} type="button" className={`ap-sub${subCategory === s.value ? " is-sel" : ""}`} aria-pressed={subCategory === s.value} onClick={() => setSubCategory(s.value)}>
                     {t(s.labelKey)}
@@ -184,25 +181,25 @@ export function ActivityPicker({ mode, onDone, onSkip }: { mode: "setup" | "sett
           ) : null}
           <div className="ap-foot">
             <button type="button" className="ap-btn" onClick={goToPacks}>
-              {t("account.settings.activityPacks.next")}
+              {c.next}
             </button>
             {onSkip ? (
               <button type="button" className="ap-skip" onClick={onSkip}>
-                {t("account.settings.activityPacks.skip")}
+                {c.skip}
               </button>
             ) : null}
           </div>
         </>
       ) : (
         <>
-          {mode === "setup" ? <div className="ap-step">{t("account.settings.activityPacks.stepOf", { n: 2 })}</div> : null}
-          {mode === "setup" ? <h1 className="ap-title">{t("account.settings.activityPacks.packsTitle")}</h1> : null}
+          {mode === "setup" ? <div className="ap-step">{c.stepOf(2)}</div> : null}
+          {mode === "setup" ? <h1 className="ap-title">{c.packsTitle}</h1> : null}
           <p className="ap-lead">
             {mode === "setup" && suggestionFor(category, subCategory) && !hadSelection
-              ? t("account.settings.activityPacks.packsLeadSuggested")
-              : t("account.settings.activityPacks.packsLead")}
+              ? c.packsLeadSuggested
+              : c.packsLead}
           </p>
-          <div className="ap-packs" role="group" aria-label={t("account.settings.activityPacks.packsTitle")}>
+          <div className="ap-packs" role="group" aria-label={c.packsTitle}>
             {ACTIVITY_PACK_KEYS.map((p) => {
               const on = selected.includes(p);
               const primary = selected[0] === p;
@@ -215,7 +212,7 @@ export function ActivityPicker({ mode, onDone, onSkip }: { mode: "setup" | "sett
                     <span className="ap-pack-body">
                       <span className="ap-pack-name">
                         {packText(p, "name")}
-                        {primary ? <span className="ap-badge">{t("account.settings.activityPacks.primaryBadge")}</span> : null}
+                        {primary ? <span className="ap-badge">{c.primaryBadge}</span> : null}
                       </span>
                       <span className="ap-pack-desc">{packText(p, "desc")}</span>
                     </span>
@@ -225,7 +222,7 @@ export function ActivityPicker({ mode, onDone, onSkip }: { mode: "setup" | "sett
                   </button>
                   {on && !primary ? (
                     <button type="button" className="ap-textbtn ap-make" onClick={() => makePrimary(p)}>
-                      {t("account.settings.activityPacks.makePrimary")}
+                      {c.makePrimary}
                     </button>
                   ) : null}
                 </div>
@@ -233,18 +230,18 @@ export function ActivityPicker({ mode, onDone, onSkip }: { mode: "setup" | "sett
             })}
           </div>
           {error ? (
-            <p className="ap-error" role="alert">{t("account.settings.activityPacks.failed")}</p>
+            <p className="ap-error" role="alert">{c.failed}</p>
           ) : savedNote ? (
-            <p className="ap-saved" role="status">{t("account.settings.activityPacks.saved")}</p>
+            <p className="ap-saved" role="status">{c.saved}</p>
           ) : null}
           <div className="ap-foot">
-            <p className="ap-footnote">{t("account.settings.activityPacks.footNote")}</p>
+            <p className="ap-footnote">{c.footNote}</p>
             <button type="button" className="ap-btn" disabled={selected.length === 0 || saving} onClick={save}>
-              {saving ? t("account.settings.activityPacks.saving") : mode === "setup" ? t("account.settings.activityPacks.start") : t("account.settings.activityPacks.save")}
+              {saving ? c.saving : mode === "setup" ? c.start : c.save}
             </button>
             {mode === "setup" && onSkip ? (
               <button type="button" className="ap-skip" onClick={onSkip}>
-                {t("account.settings.activityPacks.skip")}
+                {c.skip}
               </button>
             ) : null}
           </div>

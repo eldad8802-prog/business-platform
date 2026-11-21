@@ -11,7 +11,7 @@
  */
 import type { ActivityPackKey, ActivitySelection } from "@/lib/activity-packs/activity-packs";
 
-import type { HomeModule, HomeScope } from "./home-access";
+import type { HomeModule, HomeScope, PackEngine } from "./home-access";
 
 /** The metrics the Home knows how to draw (home-v4-model's MetricKey, repeated as a type-only import target). */
 export type PackMetric =
@@ -194,3 +194,33 @@ export function secretaryPackRank(selection: ActivitySelection, kind: PackSecret
   }
   return Number.POSITIVE_INFINITY;
 }
+
+/**
+ * Default favourite tool keys with packs: `lead` (the tools that left the bar) first, the primary pack's, then one
+ * per additional pack.
+ */
+export function packFavoriteKeys(selection: ActivitySelection, lead: readonly string[]): string[] {
+  const keys: string[] = [...lead];
+  const push = (k: string) => {
+    if (!keys.includes(k)) keys.push(k);
+  };
+  PACK_HOME[selection.primary].favorites.forEach(push);
+  for (const p of selection.additional) {
+    const first = PACK_HOME[p].favorites.find((k) => !keys.includes(k));
+    if (first) push(first);
+  }
+  return keys;
+}
+
+/**
+ * The engine object the Home / bar / "+" / tools receive once it is loaded (pack-engine-loader.ts). Loaded on demand,
+ * only for a business that chose packs, so none of these tables ship with the pages of a business that did not.
+ */
+export const PACK_ENGINE: PackEngine = {
+  orderMetrics: <K extends string>(selection: ActivitySelection, permitted: readonly K[]): K[] =>
+    orderMetricsByPacks(selection, permitted as readonly string[] as readonly PackMetric[]) as string[] as K[],
+  orderKeys: (selection, items, keyOf, list) => orderKeysByPacks(selection, items, keyOf, (p) => p[list]),
+  secretaryRank: (selection, kind) => secretaryPackRank(selection, kind as PackSecretaryKind),
+  favoriteKeys: packFavoriteKeys,
+  barSlot: barSlotFor,
+};

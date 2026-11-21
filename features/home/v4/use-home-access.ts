@@ -16,6 +16,7 @@ import {
   type CapabilitiesWire,
   type HomeAccess,
 } from "./home-access";
+import { loadPackEngine } from "./pack-engine-loader";
 
 const CAPS = "/api/business/capabilities";
 const PROFILE = "/api/business/profile";
@@ -36,6 +37,9 @@ export function useHomeAccess(enabled = true): { access: Load<HomeAccess>; retry
     fetchJsonCached<CapabilitiesWire>(CAPS, 60_000)
       .then(async (caps) => {
         const kind = await kindP;
+        // Phase 2: the pack engine is downloaded only for a business that chose packs (null otherwise / on failure).
+        const activity = activityFromCapabilities(caps);
+        const packs = activity ? await loadPackEngine() : null;
         if (!cancelled) {
           setAccess(
             ready({
@@ -44,7 +48,8 @@ export function useHomeAccess(enabled = true): { access: Load<HomeAccess>; retry
               kind,
               permissions: resolveUserPermissions(),
               // Phase 2: the packs and the subscription view ride on the same answer (absent = unchanged).
-              activity: activityFromCapabilities(caps),
+              activity,
+              packs,
               subscription: subscriptionFromCapabilities(caps),
               planHref: planHrefFromCapabilities(caps),
             }),
