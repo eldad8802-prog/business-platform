@@ -196,6 +196,8 @@ export const ANONYMIZE_MODELS = [
   // DB_FUNCTION_ERASURES below; same reason.
   // Service Desk UI foundation 1.3-0 (migration 20261120090000): erased in place by service_desk_ui_erase_business() —
   // see DB_FUNCTION_ERASURES below; same reason. Its objects go after commit (account-storage-erasure.ts).
+  // Service Desk A7 case fields (migration 20261214090000): erased in place by service_case_fields_erase_business() —
+  // see DB_FUNCTION_ERASURES below; the loan guard refuses that change from the runtime itself.
 
   // ── the conversation graph ────────────────────────────────────────────────
   //
@@ -373,6 +375,8 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
           originalSaleRef: "cleared by service_tracks_erase_business() (M1) — see its declaration",
           profileKey: "the service profile key (one of eight code tokens) the case was opened under — not personal",
           profileSnapshot: "the requirement rules copied from the code catalog at the opening (tokens and booleans) — no personal data",
+          // A7 (20261214090000): a third declared function clears it.
+          itemLocationNote: "cleared by service_case_fields_erase_business() (A7) — see its declaration",
         },
       },
       {
@@ -607,6 +611,7 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
           cancelReason: "cleared by service_erase_business() (foundation) — see its declaration",
           abandonReason: "cleared by service_erase_business() (foundation) — see its declaration",
           qaChecklist: "item keys with pass / fail flags — declared kept by service_erase_business() (foundation)",
+          itemLocationNote: "cleared by service_case_fields_erase_business() (A7) — see its declaration",
         },
       },
       {
@@ -639,6 +644,42 @@ export const DB_FUNCTION_ERASURES: readonly DbFunctionErasure[] = [
           changedFields: "names of the changed fields (a closed set of tokens) — never values",
           caseVersion: "the case version the change produced — a counter",
           occurredAt: "when the details changed",
+        },
+      },
+    ],
+  },
+  // Service Desk A7 case fields (migration 20261214090000). The account-deletion adapter calls it in the purge
+  // transaction, after service_tracks_erase_business(). The loans' free texts go (the name by a fixed placeholder: the
+  // column is NOT NULL and non-blank by CHECK) and the erased loan becomes immutable; the case's item-location note is
+  // cleared. Task."serviceCaseId" is an id, not text — Task is erased by the adapter as before.
+  {
+    fn: "service_case_fields_erase_business",
+    migration: "20261214090000_service_desk_case_fields",
+    models: [
+      {
+        model: "ServiceCase",
+        cleared: ["itemLocationNote"],
+        kept: {
+          problemDescription: "cleared by service_erase_business() (foundation) — see its declaration",
+          diagnosisNote: "cleared by service_erase_business() (foundation) — see its declaration",
+          cancelReason: "cleared by service_erase_business() (foundation) — see its declaration",
+          abandonReason: "cleared by service_erase_business() (foundation) — see its declaration",
+          qaChecklist: "item keys with pass / fail flags — declared kept by service_erase_business() (foundation)",
+          siteAddress: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          siteNotes: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          originalSaleRef: "cleared by service_tracks_erase_business() (M1) — see its declaration",
+          profileKey: "the service profile key (one of eight code tokens) the case was opened under — not personal",
+          profileSnapshot: "the requirement rules copied from the code catalog at the opening (tokens and booleans) — no personal data",
+        },
+      },
+      {
+        model: "ServiceCaseLoaner",
+        cleared: ["note"],
+        kept: {
+          itemName: "replaced by the fixed placeholder 'נמחק' (NOT NULL, non-blank CHECK) — no owner free text remains, only that constant",
+          idempotencyKey: "a client-generated request token (CHECK ^[A-Za-z0-9._:-]{16,128}$) — not personal",
+          lentAt: "when the item was lent — a time, not who",
+          returnedAt: "when it came back — a time, not who",
         },
       },
     ],

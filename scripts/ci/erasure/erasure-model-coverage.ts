@@ -190,6 +190,10 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   // DB_FUNCTION_ERASURES and proven by the contract (C24–C27).
   ServiceCompletion: { disposition: "ERASURE_MANAGED" },
   ServiceCaseDetailChange: { disposition: "ERASURE_MANAGED" },
+  // Service Desk A7 case fields (migration 20261214090000): the loans' item names (fixed placeholder) and notes are
+  // erased in place by service_case_fields_erase_business(), declared in DB_FUNCTION_ERASURES and proven by the
+  // contract (C24–C27).
+  ServiceCaseLoaner: { disposition: "ERASURE_MANAGED" },
   ServicePhoneReminder: { disposition: "ERASURE_MANAGED" },
   User: { disposition: "ERASURE_MANAGED" },
   BusinessProfile: { disposition: "ERASURE_MANAGED" },

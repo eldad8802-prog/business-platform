@@ -4,7 +4,7 @@
     "lib/native/push-notifications.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
-      "reason": "pure (mocked Capacitor plugin): no permission prompt at start-up; re-register once per page lifetime and only when granted; POST /api/push/devices body {provider,token,platform,appVersion} with the Bearer header, nothing sent without a session; rotation dedupe; registrationError / register() throwing (no google-services.json) / FCM timeout end as registration_error; tap href validation incl. scheme, //, backslash, .., percent-encoded traversal and unknown sections → /notifications; foreground event carries only notificationId/href/category; tokens never logged; every function a no-op off the Android app."
+      "reason": "pure (mocked Capacitor plugin): no permission prompt at start-up; re-register once per page lifetime and only when granted; POST /api/push/devices body {provider,token,platform,appVersion} with the Bearer header, nothing sent without a session; registered ONLY on the server 2xx to this attempt (no unchanged shortcut: every registration POSTs, disconnect then reconnect POSTs again); concurrent registrations share one register() and one POST and every waiter gets the server outcome; every failure has a class (not_signed_in, server_rejected/HTTP_n, offline, registration_error/<allow-listed Firebase name>, registration_timeout) and never device text; tap href validation incl. scheme, //, backslash, .., percent-encoded traversal and unknown sections -> /notifications; foreground event carries only notificationId/href/category; tokens never logged; every function a no-op off the Android app."
     }
   }
 }

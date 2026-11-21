@@ -148,8 +148,9 @@ export async function updateBusinessFeatureAccess(
     throw new ForbiddenError("Feature is not mutable", "FEATURE_NOT_MUTABLE");
   }
 
-  // A feature waiting for the owner's go may be closed or cleared, never opened (owner-gated-features.ts).
-  if (refusedByOwnerGate(featureKey, input.state)) {
+  // A feature waiting for the owner's go may be closed or cleared, never opened — except ENABLED for an owner-named
+  // pilot business of that feature (owner-gated-features.ts).
+  if (refusedByOwnerGate(featureKey, input.state, input.businessId)) {
     throw new ForbiddenError("Feature is waiting for the owner's approval", FEATURE_OWNER_GATED);
   }
 

@@ -58,6 +58,9 @@ import {
   buildTypeGroups,
   categoryRow,
   deviceState,
+  registrationDiagnostic,
+  registrationFailureKey,
+  registrationFromOutcome,
   loadOutcome,
   minuteToTime,
   preferenceBodyFor,
@@ -94,7 +97,7 @@ const EN = [...leaves(notificationsEn), ...leaves(notificationsHubEn).map(([k, v
 /* ════════════════════════════════════════════════════════ 1. wording ═══ */
 
 check("the Hebrew area has no Latin letter at all (no Push / FCM / Token / Digest / Override / Permission / Cooldown / in-app)", () => {
-  for (const [k, v] of HE) assert.ok(!/[A-Za-z]/.test(v.replace(/\{name\}/g, "")), `${k}: "${v}"`);
+  for (const [k, v] of HE) assert.ok(!/[A-Za-z]/.test(v.replace(/\{(name|code)\}/g, "")), `${k}: "${v}"`);
 });
 
 check("no transliterated technical words", () => {
@@ -377,6 +380,11 @@ check("device card states", () => {
   assert.equal(n({ permission: "granted", optedIn: true, registration: "connecting" }), "native-connecting");
   assert.equal(n({ permission: "granted", optedIn: true, registration: "failed" }), "native-connect-failed");
   assert.equal(n({ permission: "granted", optedIn: true, registration: "connected" }), "native-connected");
+  assert.equal(
+    n({ permission: "granted", optedIn: true, registration: "idle" }),
+    "native-connecting",
+    "permission + local opt-in WITHOUT a server confirmation is never 'connected' (the card is confirming)"
+  );
   assert.equal(deviceState({ kind: "app-without-push" }), "app-not-configured");
   assert.equal(deviceState({ kind: "browser", browserPush: "unavailable" }), "browser-app-only");
   assert.equal(deviceState({ kind: "browser", browserPush: "off" }), "browser-off");
@@ -412,6 +420,47 @@ check("time conversion", () => {
   assert.equal(minuteToTime(1320), "22:00");
 });
 
+check("registration outcome → card: only the server's 2xx connects", () => {
+  assert.equal(registrationFromOutcome({ status: "registered" }), "connected");
+  for (const status of [
+    "unchanged", // the old shortcut: never a connection on its own
+    "superseded",
+    "cancelled",
+    "not_signed_in",
+    "server_rejected",
+    "offline",
+    "registration_error",
+    "registration_timeout",
+    "unavailable",
+    "unregistered",
+    "",
+  ]) {
+    assert.equal(registrationFromOutcome({ status }), "failed", `${status || "(empty)"} is a failure, never connected`);
+  }
+  assert.equal(registrationFromOutcome({ status: "not_configured" }), "not_configured");
+  assert.equal(registrationFromOutcome({ status: "permission_not_granted" }), "permission");
+});
+
+check("registration failure: a reason per class and a safe diagnostic code", () => {
+  assert.equal(registrationFailureKey({ status: "not_signed_in" }), "notifications.phone.failNotSignedIn");
+  assert.equal(registrationFailureKey({ status: "server_rejected", code: "HTTP_404" }), "notifications.phone.failServer");
+  assert.equal(registrationFailureKey({ status: "offline" }), "notifications.phone.failOffline");
+  assert.equal(registrationFailureKey({ status: "registration_error" }), "notifications.phone.failGoogle");
+  assert.equal(registrationFailureKey({ status: "registration_timeout" }), "notifications.phone.failTimeout");
+  assert.equal(registrationFailureKey({ status: "unregistered" }), "notifications.phone.failDisconnected");
+  assert.equal(registrationFailureKey({ status: "whatever" }), "notifications.phone.failUnknown");
+  assert.equal(registrationFailureKey(null), "notifications.phone.failUnknown");
+  for (const k of ["failNotSignedIn", "failServer", "failOffline", "failGoogle", "failTimeout", "failDisconnected", "failUnknown", "diagnosticCode"] as const) {
+    assert.ok(notificationsHe.phone[k] && notificationsEn.phone[k], `copy ${k} in both languages`);
+  }
+  assert.equal(registrationDiagnostic({ status: "registration_error", code: "SERVICE_NOT_AVAILABLE" }), "registration_error/SERVICE_NOT_AVAILABLE");
+  assert.equal(registrationDiagnostic({ status: "server_rejected", code: "HTTP_404" }), "server_rejected/HTTP_404");
+  assert.equal(registrationDiagnostic({ status: "offline" }), "offline");
+  assert.equal(registrationDiagnostic(null), "unknown");
+  assert.equal(registrationDiagnostic({ status: "x<script>", code: "a b/c" }), "xscript/abc", "only [A-Za-z0-9_] survives");
+  assert.ok(registrationDiagnostic({ status: "s", code: "A".repeat(500) }).length <= 43, "bounded length");
+});
+
 /* ════════════════════════════════════════════════════════ 4. wiring ═══ */
 
 const read = (p: string) => fs.readFileSync(p, "utf8");
@@ -428,6 +477,29 @@ check("the system permission dialog is requested only from the tap handler", () 
     const body = src.slice(e, src.indexOf("}, [", e));
     assert.ok(!body.includes("requestPushPermission") && !body.includes("ask()"), "never from an effect");
   }
+});
+
+check("the device card shows 'connected' only from a server-confirmed outcome", () => {
+  const src = read(`${DIR}/PhoneDeviceCard.tsx`);
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(!code.includes('"unchanged"'), "no 'unchanged' shortcut in the card");
+  const sets = [...code.matchAll(/registration: "connected"/g)].map((m) => m.index!);
+  assert.equal(sets.length, 1, "exactly one place sets connected");
+  const guard = code.lastIndexOf('r === "connected"', sets[0]);
+  assert.ok(guard > 0 && sets[0] - guard < 300, "and it is the registrationFromOutcome(...) === 'connected' branch");
+  const readNative = code.slice(code.indexOf("const readNative"), code.indexOf("}, []);", code.indexOf("const readNative")));
+  assert.ok(!readNative.includes('"connected"'), "readNative never derives connected from the permission / opt-in");
+  const client = read("lib/native/push-notifications.ts").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(!client.includes('"unchanged"'), "the client has no 'unchanged' outcome");
+  assert.ok(/if \(!res\.ok\) return \{ status: "server_rejected"/.test(client) && client.includes('return { status: "registered" }'), "registered only after res.ok");
+});
+
+check("the device card is never invisible: a checking state, and a diagnostic when the device never answers", () => {
+  const src = read(`${DIR}/PhoneDeviceCard.tsx`);
+  assert.ok(!/if \(!inputs\) return null;/.test(src), "no silent null render while the device check runs");
+  assert.ok(src.includes('t("notifications.phone.checking")') && src.includes('t("notifications.phone.checkStuck")'), "checking + stuck copy");
+  assert.ok(src.includes("device_check_timeout/"), "stuck state shows a diagnostic code");
+  assert.ok(notificationsHe.phone.checking && notificationsEn.phone.checking && notificationsHe.phone.checkStuck && notificationsEn.phone.checkStuck);
 });
 
 check("every settings write goes through SETTINGS_CONTROLS (a real field)", () => {

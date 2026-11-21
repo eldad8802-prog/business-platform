@@ -49,6 +49,27 @@ if [ -f "$M1" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regclass('public.
   PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$M1"
   echo "ERASURE PREREQ: M1 tracks applied verbatim from 20261127090000"
 fi
+# A7 case fields (migration 20261214090000, applied in Production 2026-11-20): the purge also calls
+# service_case_fields_erase_business(), which blanks the loans' texts and the case's item-location note. Where the lab
+# rebuilt ServiceCase from the migrations (no A7 column), the copies `db push` built from schema.prisma (the loan table,
+# Task."serviceCaseId") are dropped and the migration is applied VERBATIM (columns, CHECKs, table, guard, policies,
+# grants, functions, Task FK — never a copy), on top of M1 and 1.3-0 (its premises). Where db push already built the
+# columns and the table, only the function is taken verbatim and granted as the migration grants it. A lab that already
+# has the function is left as it is.
+A7="$ROOT/prisma/migrations/20261214090000_service_desk_case_fields/migration.sql"
+if [ -f "$A7" ] && [ "$(psql -X -At "$OWNER_URL" -c "SELECT to_regprocedure('public.service_case_fields_erase_business()') IS NULL")" = "t" ]; then
+  if [ "$(psql -X -At "$OWNER_URL" -c "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ServiceCase' AND column_name = 'itemLocationNote'")" = "0" ]; then
+    psql -X -q -v ON_ERROR_STOP=1 "$OWNER_URL" -c 'DROP TABLE IF EXISTS "ServiceCaseLoaner" CASCADE; ALTER TABLE "Task" DROP COLUMN IF EXISTS "serviceCaseId";' >/dev/null
+    PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" -f "$A7"
+    echo "ERASURE PREREQ: A7 case fields applied verbatim from 20261214090000"
+  else
+    A7FN="$(sed -n '/^CREATE OR REPLACE FUNCTION public\.service_case_fields_erase_business()/,/^REVOKE ALL ON FUNCTION public\.service_case_fields_erase_business() FROM PUBLIC;$/p' "$A7")"
+    [ -n "$A7FN" ] || { echo "service_case_fields_erase_business() not found in $A7"; exit 1; }
+    { echo "$A7FN"; echo "GRANT EXECUTE ON FUNCTION public.service_case_fields_erase_business() TO app_runtime;"; } \
+      | PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL"
+    echo "ERASURE PREREQ: service_case_fields_erase_business() taken verbatim from 20261214090000"
+  fi
+fi
 # Issuer declaration (#1081, migration 20261126100000): the purge also calls issuer_declaration_erase(). Where the lab has
 # no declaration table, the migration is applied VERBATIM; where `db push` already built the table (schema.prisma models
 # it), only the function is taken verbatim from the migration and granted as the migration grants it.
