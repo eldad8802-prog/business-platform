@@ -175,7 +175,7 @@ async function main() {
     await owner.authSession.update({ where: { id: sE1 }, data: { revokedAt: NOW, revokedReason: "lab" } });
     const t5 = await task(E, e1, r1);
     m = mark();
-    await dispatch(E, t5, at(NOW, 5));
+    await dispatch(E, t5, r1, at(NOW, 5));
     s = since(m);
     const owed5 = (await push(E, t5)).map((r) => ({ sub: r.subscriptionId !== null, status: r.status, error: r.error }));
     ok("the phone's session ended: the phone is skipped, the browser still gets it", s.fcm.length === 0 && s.web.length === 1, { f: s.fcm.length, w: s.web.length, owed5 });
