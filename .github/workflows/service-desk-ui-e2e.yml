@@ -87,9 +87,13 @@ jobs:
         run: |
           set -euo pipefail
           # A7 was merged (#1194) and its branch deleted: the file comes from this checkout. Synthetic, thrown-away database.
-          if [ "$(psql "$OWNER_URL" -X -tA -c "SELECT to_regclass('public.\"ServiceCaseLoaner\"') IS NOT NULL")" != "t" ]; then
+          # An earlier lab step may leave copies of the loan table / Task."serviceCaseId" built from schema.prisma without A7's
+          # ServiceCase columns (the same situation .sdf/erasure-prereq.sh handles): drop those copies, then apply A7 verbatim.
+          if [ "$(psql "$OWNER_URL" -X -tA -c "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ServiceCase' AND column_name = 'itemLocationNote'")" = "0" ]; then
+            psql "$OWNER_URL" -X -q -v ON_ERROR_STOP=1 -c 'DROP TABLE IF EXISTS "ServiceCaseLoaner" CASCADE; ALTER TABLE "Task" DROP COLUMN IF EXISTS "serviceCaseId";'
             psql "$OWNER_URL" -X -q -v ON_ERROR_STOP=1 -1 -f prisma/migrations/20261214090000_service_desk_case_fields/migration.sql
           fi
+          psql "$OWNER_URL" -X -tA -c "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ServiceCase' AND column_name = 'itemLocationNote'"
           psql "$OWNER_URL" -X -tA -c "SELECT to_regclass('public.\"ServiceCaseLoaner\"') IS NOT NULL"
       - name: Seed — business A (service_desk ON in this lab only) with four cases; business B (default OFF)
         run: mkdir -p "$LOCAL_STORAGE_ROOT" && npx tsx .sdui/seed.mts
