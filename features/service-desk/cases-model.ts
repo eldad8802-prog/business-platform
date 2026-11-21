@@ -341,7 +341,7 @@ export function mergedHistory(events: readonly JournalItem[], side: readonly Sid
     ...events.map((e) => ({ key: `e${e.seq}`, text: eventLabel(e), occurredAt: e.occurredAt, actor: actorLabel(e.actor), order: e.seq })),
     ...side.map((x) => ({ key: x.key, text: x.text, occurredAt: x.occurredAt, actor: null as string | null, order: 0 })),
   ];
-  return rows.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt) || b.order - a.order).map(({ order: _o, ...r }) => r);
+  return rows.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt) || b.order - a.order).map((r) => ({ key: r.key, text: r.text, occurredAt: r.occurredAt, actor: r.actor }));
 }
 
 /** Newest first, for the history section. */

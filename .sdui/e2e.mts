@@ -8,7 +8,7 @@
  *   W4 finish (QA turned off by the owner) → READY
  *   B1 handover without a charge decision is REFUSED: a Hebrew error, the status stays READY (server-enforced)
  *   W5 after the owner records "no charge": handover with the receiver's name → DELIVERED, one ServiceHandover row
- *   W6 close → CLOSED; no action is offered any more; the history lists every step
+ *   W6 delivered: no owner action is offered any more (closing is the system's step); the history lists every step
  *   Q1 c2: "the customer approved" (by phone) → the quote is APPROVED in the database
  *   X1 an illegal action sent straight to the API (PASS_QA on an OPEN case) → 409, nothing changes
  *   X2 a write with a stale version → refused (VERSION_CONFLICT), nothing changes
@@ -151,26 +151,28 @@ async function main() {
       await statusPill(p, "מוכן למסירה").waitFor();
       await shot(p, "real-case-ready-phone");
     });
-    await check("B1 handover without a charge decision is refused in Hebrew; the status stays READY", async () => {
-      await clickAction(p, "למסור ללקוח");
-      await p.getByRole("dialog").getByRole("textbox").fill("דנה");
-      await confirmDialog(p, "לאשר מסירה");
-      // the case's own message (Next's hidden route announcer is also role=alert)
-      const alert = p.locator("[role=alert]:not(#__next-route-announcer__)");
-      await alert.first().waitFor({ timeout: 30_000 });
-      const text = (await alert.first().innerText()).trim();
-      if (!text.includes("ללא חיוב")) throw new Error(`not the charge-decision message: ${text}`);
+    await check("B1 without a charge decision the handover is shown blocked with the reason (never sent); the status stays READY", async () => {
+      const status = p.locator("section[aria-label='מצב ופעולה הבאה']");
+      const btn = status.getByRole("button", { name: "למסור ללקוח", exact: true });
+      await btn.waitFor({ timeout: 30_000 });
+      if (!(await btn.isDisabled())) throw new Error("the handover is active with an unknown balance");
+      const note = (await status.locator("[role=note]").first().innerText()).trim();
+      if (!note.includes("ללא חיוב")) throw new Error(`not the charge-decision reason: ${note}`);
+      await p.locator("[data-panel=charge]").waitFor({ timeout: 30_000 });
       await shot(p, "real-case-refused-phone");
       if ((await statusOf(seed.c1)) !== "READY") throw new Error("status changed");
     });
-    await check("W5 after 'no charge' is recorded: handover with the receiver's name → DELIVERED, one handover row", async () => {
-      const { recordCharge } = await import("@/lib/services/service-desk/case-charge.service");
-      const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
-      const { runWithTenantContext } = await import("@/lib/tenant/context");
-      await runWithTenantContext({ businessId: seed.bizA }, async () =>
-        recordCharge({ businessId: seed.bizA, userId: seed.userA } as never, seed.c1, { mode: "NO_CHARGE", reason: "תיקון באחריות", expectedVersion: await versionOf(seed.c1) }, { idempotencyKey: uuidV7(new Date()) }));
-      await p.reload();
-      await p.locator("section[aria-label='מצב ופעולה הבאה']").waitFor();
+    await check("W5 'no charge' with its reason in the case's charge panel; the dialog is opaque; handover with the receiver's name → DELIVERED, one handover row", async () => {
+      await p.locator("[data-panel=charge]").getByRole("button", { name: "ללא חיוב", exact: true }).click();
+      const dlg = p.getByRole("dialog");
+      await dlg.waitFor();
+      const bg = await dlg.evaluate((el) => getComputedStyle(el).backgroundColor);
+      if (!/^rgb\(255, 255, 255\)$/.test(bg)) throw new Error(`dialog background ${bg}`);
+      await dlg.getByRole("textbox").fill("תיקון באחריות");
+      await confirmDialog(p, "לשמור");
+      await until(async () => Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceCaseCharge" WHERE "caseId" = $1 AND mode::text = 'NO_CHARGE'`, seed.c1))[0].n) === 1, "no NO_CHARGE record");
+      const status = p.locator("section[aria-label='מצב ופעולה הבאה']");
+      await until(async () => !(await status.getByRole("button", { name: "למסור ללקוח", exact: true }).isDisabled()), "handover still blocked");
       await clickAction(p, "למסור ללקוח");
       await p.getByRole("dialog").getByRole("textbox").fill("דנה");
       await confirmDialog(p, "לאשר מסירה");
@@ -178,13 +180,12 @@ async function main() {
       const n = Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceHandover" WHERE "caseId" = $1`, seed.c1))[0].n);
       if (n !== 1) throw new Error(`handover rows ${n}`);
     });
-    await check("W6 close → CLOSED; no action offered; the history lists the steps", async () => {
-      await clickAction(p, "לסגור את התיק");
-      await waitStatus(seed.c1, "CLOSED");
-      await statusPill(p, "נסגר").waitFor();
+    await check("W6 delivered: no owner action is offered (closing is the system's step); the history lists the steps and the charge", async () => {
+      await statusPill(p, "נמסר").waitFor();
       const buttons = await p.locator("section[aria-label='מצב ופעולה הבאה'] button").count();
-      if (buttons !== 0) throw new Error(`${buttons} action buttons on a closed case`);
-      for (const step of ["הפריט נקלט", "התחיל אבחון", "העבודה התחילה", "העבודה הסתיימה", "נמסר ללקוח", "נסגר"]) await p.getByText(step, { exact: true }).first().waitFor();
+      if (buttons !== 0) throw new Error(`${buttons} action buttons on a delivered case`);
+      for (const step of ["הפריט נקלט", "התחיל אבחון", "העבודה התחילה", "העבודה הסתיימה", "נמסר ללקוח"]) await p.getByText(step, { exact: true }).first().waitFor();
+      await p.getByText("החיוב נרשם · ללא חיוב").first().waitFor();
       await shot(p, "real-case-closed-phone");
     });
 
@@ -280,6 +281,24 @@ async function main() {
         const pass = panel.getByRole("button", { name: "עבר", exact: true });
         const n = await pass.count();
         if (n < 3) throw new Error(`only ${n} checks`);
+        // A — one check FAILED: saved, not completed, "passed" shown blocked with the check named; the server refuses too.
+        for (let i = 0; i < n; i++) await pass.nth(i).click();
+        await panel.getByRole("button", { name: "לא עבר", exact: true }).first().click();
+        await panel.getByRole("button", { name: "לשמור את הבדיקות" }).click();
+        await until(async () => String((await own(seed.bizC, `SELECT "qaChecklist"::text c FROM "ServiceCase" WHERE id = $1`, seed.c5))[0].c ?? "").includes("FAIL"), "the failed round was not saved");
+        if ((await own(seed.bizC, `SELECT "qaCompletedAt" IS NULL x FROM "ServiceCase" WHERE id = $1`, seed.c5))[0].x !== true) throw new Error("a failed check completed QA");
+        const passBtn = pc.locator("section[aria-label='מצב ופעולה הבאה']").getByRole("button", { name: "הבדיקות עברו", exact: true });
+        await until(async () => await passBtn.isDisabled(), "passed is active over a failed check");
+        const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
+        const refused = await pc.evaluate(async ({ id, k }) => {
+          const h = { Authorization: `Bearer ${localStorage.getItem("token")}`, "Content-Type": "application/json", "Idempotency-Key": k };
+          const c = await (await fetch(`/api/service-desk/cases/${id}`, { headers: h })).json();
+          const r = await fetch(`/api/service-desk/cases/${id}/actions`, { method: "POST", headers: h, body: JSON.stringify({ action: { type: "PASS_QA", outcome: "REPAIRED" }, expectedVersion: c.version }) });
+          return { status: r.status, body: await r.text() };
+        }, { id: seed.c5, k: uuidV7(new Date()) });
+        if (refused.status < 400 || !refused.body.includes("QA_INCOMPLETE")) throw new Error(`PASS_QA over a failed check: ${refused.status} ${refused.body.slice(0, 200)}`);
+        await shot(pc, "real-case-qa-failed-desktop");
+        // then the round passes
         for (let i = 0; i < n; i++) await pass.nth(i).click();
         await shot(pc, "real-case-qa-desktop");
         await panel.getByRole("button", { name: "לשמור את הבדיקות" }).click();
@@ -332,7 +351,13 @@ async function main() {
         const panel = pa.locator("[data-panel=quote]");
         await panel.waitFor({ timeout: 60_000 });
         await shot(pa, "real-case-quote-send-desktop");
-        await panel.getByRole("button", { name: "לשלוח ללקוח" }).first().click();
+        await panel.getByRole("button", { name: "לצרף לתיק" }).first().click();
+        const dlg = pa.getByRole("dialog");
+        await dlg.waitFor();
+        if (!(await dlg.innerText()).includes("המערכת לא שולחת את ההצעה ללקוח")) throw new Error("the confirmation does not say the system does not deliver it");
+        if ((await statusOf(seed.c6)) === "QUOTE_PENDING") throw new Error("sent before the confirmation");
+        await shot(pa, "real-case-quote-confirm-desktop");
+        await confirmDialog(pa, "לצרף לתיק");
         await waitStatus(seed.c6, "QUOTE_PENDING");
         const n = Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceQuote" WHERE "caseId" = $1 AND "billingDocumentId" = $2`, seed.c6, seed.quoteC6))[0].n);
         if (n !== 1) throw new Error(`quote rows ${n}`);

@@ -102,8 +102,8 @@ function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalI
             {items.map((e) => (
               <li key={e.key}>
                 <span className={s.dot} aria-hidden="true" />
-                <span className={s.tlText}>{e.text}{e.actor ? <span className={s.sectionHint}> · {e.actor}</span> : null}</span>
-                <span className={s.tlDate}>{formatShortDate(e.occurredAt, now)}</span>
+                <span className={s.tlText}>{e.text}</span>
+                <span className={s.tlDate}>{formatShortDate(e.occurredAt, now)}{e.actor ? ` · ${e.actor}` : ""}</span>
               </li>
             ))}
           </ol>
