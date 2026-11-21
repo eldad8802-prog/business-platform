@@ -1,16 +1,38 @@
--- Activity packs (20261216090000_activity_packs) — PREFLIGHT. SELECT-only, safe to run in Production.
--- Prints one line per check (PASS/FAIL) and PREFLIGHT_OK only when every check passes. Changes nothing.
-WITH checks(n, name, ok) AS (
-  VALUES
-    (1, 'Business table exists', to_regclass('public."Business"') IS NOT NULL),
-    (2, 'platform feature tables exist', to_regclass('public."PlatformFeatureDefinition"') IS NOT NULL AND to_regclass('public."PlatformFeaturePolicy"') IS NOT NULL),
-    (3, 'role app_runtime exists', EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime')),
-    (4, 'BusinessActivityProfile does not exist yet', to_regclass('public."BusinessActivityProfile"') IS NULL),
-    (5, 'guard function does not exist yet', to_regprocedure('public.business_activity_profile_guard()') IS NULL),
-    (6, 'feature definition activity_packs absent', NOT EXISTS (SELECT 1 FROM "PlatformFeatureDefinition" WHERE "key" = 'activity_packs')),
-    (7, 'feature policy activity_packs absent', NOT EXISTS (SELECT 1 FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'activity_packs')),
-    (8, 'no per-business override for activity_packs', NOT EXISTS (SELECT 1 FROM "BusinessFeatureAccess" WHERE "featureKey" = 'activity_packs'))
+-- ============================================================================
+-- activity-packs-preflight.sql — read-only PREFLIGHT before migration
+--   20261216090000_activity_packs   (NOT applied)
+-- Proves Production is the shape the migration expects. Catalog, ledger and counts only — no write, no data read
+-- beyond counts. OUTPUT: n | result | observed_count (the release-migrate gate reads the PASS / FAIL cells).
+-- ============================================================================
+\echo '== activity packs preflight: legend (n -> check) =='
+\echo ' 1 ledger: no unfinished and no rolled-back row'
+\echo ' 2 20261216090000_activity_packs is NOT recorded'
+\echo ' 3 prerequisite 20261214090000_service_desk_case_fields (the last migration on main) is recorded and finished'
+\echo ' 4 Business exists'
+\echo ' 5 PlatformFeatureDefinition and PlatformFeaturePolicy exist'
+\echo ' 6 role app_runtime exists'
+\echo ' 7 BusinessActivityProfile does not exist yet'
+\echo ' 8 the guard function business_activity_profile_guard does not exist yet'
+\echo ' 9 no feature definition activity_packs yet'
+\echo '10 no feature policy activity_packs yet'
+\echo '11 no per-business override for activity_packs'
+\echo '12 businesses (informational)'
+WITH c AS (
+  SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want
+  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261216090000_activity_packs'), 0
+  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261214090000_service_desk_case_fields' AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 1
+  UNION ALL SELECT 4, (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname = 'Business' AND relkind = 'r'), 1
+  UNION ALL SELECT 5, (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname IN ('PlatformFeatureDefinition', 'PlatformFeaturePolicy') AND relkind = 'r'), 2
+  UNION ALL SELECT 6, (SELECT count(*) FROM pg_roles WHERE rolname = 'app_runtime'), 1
+  UNION ALL SELECT 7, (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname = 'BusinessActivityProfile'), 0
+  UNION ALL SELECT 8, (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'business_activity_profile_guard'), 0
+  UNION ALL SELECT 9, (SELECT count(*) FROM "PlatformFeatureDefinition" WHERE "key" = 'activity_packs'), 0
+  UNION ALL SELECT 10, (SELECT count(*) FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'activity_packs'), 0
+  UNION ALL SELECT 11, (SELECT count(*) FROM "BusinessFeatureAccess" WHERE "featureKey" = 'activity_packs'), 0
+  UNION ALL SELECT 12, (SELECT COALESCE(sum(n_live_tup), 0) FROM pg_stat_user_tables WHERE schemaname = 'public' AND relname = 'Business'), NULL
 )
-SELECT format('%s %s — %s', CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END, n, name) FROM checks
-UNION ALL
-SELECT CASE WHEN bool_and(ok) THEN 'PREFLIGHT_OK' ELSE 'PREFLIGHT_FAILED' END FROM checks;
+SELECT n,
+       CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,
+       observed AS observed_count
+  FROM c
+ ORDER BY n;
