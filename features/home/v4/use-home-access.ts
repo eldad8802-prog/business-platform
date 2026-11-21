@@ -6,9 +6,12 @@ import { fetchJsonCached, invalidateCachedJson } from "@/lib/ui/cached-json";
 
 import { FAILED, LOADING, ready, type Load } from "../v3/home-v3-model";
 import {
+  activityFromCapabilities,
   businessKindOf,
   modulesFromCapabilities,
+  planHrefFromCapabilities,
   resolveUserPermissions,
+  subscriptionFromCapabilities,
   type BusinessProfileWire,
   type CapabilitiesWire,
   type HomeAccess,
@@ -34,7 +37,18 @@ export function useHomeAccess(enabled = true): { access: Load<HomeAccess>; retry
       .then(async (caps) => {
         const kind = await kindP;
         if (!cancelled) {
-          setAccess(ready({ businessId: typeof caps.businessId === "number" ? caps.businessId : null, modules: modulesFromCapabilities(caps), kind, permissions: resolveUserPermissions() }));
+          setAccess(
+            ready({
+              businessId: typeof caps.businessId === "number" ? caps.businessId : null,
+              modules: modulesFromCapabilities(caps),
+              kind,
+              permissions: resolveUserPermissions(),
+              // Phase 2: the packs and the subscription view ride on the same answer (absent = unchanged).
+              activity: activityFromCapabilities(caps),
+              subscription: subscriptionFromCapabilities(caps),
+              planHref: planHrefFromCapabilities(caps),
+            }),
+          );
         }
       })
       .catch(() => !cancelled && setAccess(FAILED));

@@ -7,9 +7,9 @@ import { usePathname } from "next/navigation";
 import { useMediaQuery } from "@/lib/ui/use-breakpoint";
 import { useFeatureEnabled } from "@/lib/ui/use-feature-enabled";
 import { ActionSheet } from "./action-sheet";
+import { usePrimaryDestinations } from "./use-primary-destinations";
 import {
   NAV_GROUPS,
-  PRIMARY_DESTINATIONS,
   PROFILE_HREF,
   SEARCH_HREF,
   SETTINGS_DESTINATION,
@@ -55,6 +55,7 @@ export function NavRail() {
   const hasUnread = useHasUnreadNotifications(pathname, visible);
   const [sheetOpen, setSheetOpen] = useState(false);
   const { t } = useI18n();
+  const primary = usePrimaryDestinations();
 
   return (
     <>
@@ -71,7 +72,7 @@ export function NavRail() {
         >
           <IconPlus size={24} strokeWidth={2.2} />
         </button>
-        {PRIMARY_DESTINATIONS.map((d) => (
+        {primary.map((d) => (
           <RailItem
             key={d.key}
             dest={d}
@@ -132,6 +133,9 @@ export function NavSidebar() {
   const { businessName } = useSessionIdentity(visible);
   const [sheetOpen, setSheetOpen] = useState(false);
   const { t } = useI18n();
+  // Phase 2: the fixed actions with the pack's second slot; that destination then leaves its group (never twice).
+  const primary = usePrimaryDestinations();
+  const primaryKeys = new Set(primary.map((d) => d.key));
 
   const badgeFor = (key: string): NavBadge | undefined =>
     key === "notifications" ? (hasUnread ? { kind: "dot", tone: "alert" } : undefined) : badges[key];
@@ -181,7 +185,7 @@ export function NavSidebar() {
         {/* HOME v4 (owner 11-19): the same fixed actions as the phone bar and the tablet rail — בית · יומן · עדכונים ·
             כלים, with יצירה as "פעולה חדשה" above. שיחות and מסמכים are reached from כלים (owner decision 18.11). */}
         <div className="dz-sidebar__group">
-          {PRIMARY_DESTINATIONS.map((d) => (
+          {primary.map((d) => (
             <PrimarySidebarItem key={d.key} dest={d} badge={badgeFor(d.key)} />
           ))}
         </div>
@@ -192,7 +196,7 @@ export function NavSidebar() {
               <span style={{ width: 7, height: 7, borderRadius: 2, background: g.dot }} />
               {t(g.labelKey)}
             </div>
-            {destinationsIn(g.key).filter((d) => !d.feature || (d.feature === "daily_tasks" && tasksOn) || (d.feature === "appointments" && appointmentsOn) || (d.feature === "service_desk" && serviceDeskOn)).filter((d) => !PRIMARY_KEYS.has(d.key)).map((d) => (
+            {destinationsIn(g.key).filter((d) => !d.feature || (d.feature === "daily_tasks" && tasksOn) || (d.feature === "appointments" && appointmentsOn) || (d.feature === "service_desk" && serviceDeskOn)).filter((d) => !primaryKeys.has(d.key)).map((d) => (
               <SidebarItem key={d.key} dest={d} active={isNavActive(pathname, d.href)} badge={badgeFor(d.key)} />
             ))}
           </div>
@@ -215,8 +219,6 @@ export function NavSidebar() {
     </>
   );
 }
-
-const PRIMARY_KEYS = new Set(PRIMARY_DESTINATIONS.map((d) => d.key));
 
 /** A fixed action in the sidebar: the bar's short label, and "יומן" resolved to what the business has. */
 function PrimarySidebarItem({ dest, badge }: { dest: NavDestination; badge: NavBadge | undefined }) {

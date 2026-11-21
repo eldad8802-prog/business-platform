@@ -15,6 +15,8 @@
  * and tenant on the server (tasks-http, appointments-http, service-desk gate, business-documents route…).
  */
 
+import { parseActivitySelection, type ActivitySelection } from "@/lib/activity-packs/activity-packs";
+
 /** The modules the Home knows how to draw. Each maps to exactly one real platform feature key (or none = core). */
 export type HomeModule =
   | "billing"
@@ -43,7 +45,14 @@ export const HOME_MODULES: readonly HomeModule[] = [
   "revenue",
 ];
 
-export type CapabilitiesWire = { businessId?: number; features?: Record<string, { allowed?: boolean } | undefined> };
+export type CapabilitiesWire = {
+  businessId?: number;
+  features?: Record<string, { allowed?: boolean } | undefined>;
+  /** Phase 2: present only while `activity_packs` is ON for the business (null = on, never chose). */
+  activity?: { primary?: unknown; additional?: unknown } | null;
+  /** Reserved for the subscription mechanism (not built yet): only `FREE_LIMITED` changes what the Home draws. */
+  subscription?: { state?: unknown } | null;
+};
 
 /** Layer 1. Fail-closed: a module is in the set only when the server said `allowed: true`. */
 export type HomeModules = ReadonlySet<HomeModule>;
@@ -86,12 +95,50 @@ export function resolveUserPermissions(): UserPermissions {
   return { scopes: ALL_SCOPES };
 }
 
+/**
+ * Layer 2b (phase 2). The activity packs the owner chose — display only, like `kind`, and it replaces `kind` as the
+ * source of order when present. `null` = the feature is OFF or the owner never chose: the Home is the pre-packs one.
+ * Only the server's answer counts, and only while the feature is ON for the business (fail-closed: never guessed).
+ */
+export function activityFromCapabilities(wire: CapabilitiesWire | null | undefined): ActivitySelection | null {
+  if (wire?.features?.activity_packs?.allowed !== true || !wire.activity) return null;
+  const parsed = parseActivitySelection(wire.activity);
+  return parsed.ok ? parsed.value : null;
+}
+
+/**
+ * The subscription state the Home must reflect. The plan / subscription model does not exist yet (phase 1 shipped
+ * only the shadow guard): today this is always `null`. When the mechanism lands it adds `subscription.state` to the
+ * capabilities answer and FREE_LIMITED switches the Home to its view-and-export form (status line, one plan card,
+ * allowed "+" actions only). Anything else, or nothing, means "draw what feature access allows" — unchanged.
+ */
+export type SubscriptionView = "FREE_LIMITED" | null;
+
+export function subscriptionFromCapabilities(wire: CapabilitiesWire | null | undefined): SubscriptionView {
+  return wire?.subscription?.state === "FREE_LIMITED" ? "FREE_LIMITED" : null;
+}
+
+/**
+ * Where "בחירת מסלול" leads — supplied by the subscription mechanism with its state (an in-app path only). No such
+ * screen exists today, so this is null and the Home draws the plan text WITHOUT a link rather than a dead one.
+ */
+export function planHrefFromCapabilities(wire: CapabilitiesWire | null | undefined): string | null {
+  const h = (wire?.subscription as { manageHref?: unknown } | null | undefined)?.manageHref;
+  return typeof h === "string" && h.startsWith("/") && !h.startsWith("//") ? h : null;
+}
+
 export type HomeAccess = {
   /** The session business (from the capabilities answer) — keys the per-business display preferences. */
   businessId: number | null;
   modules: HomeModules;
   kind: BusinessKind;
   permissions: UserPermissions;
+  /** Phase 2 activity packs (display only). Absent or null = the pre-packs Home. */
+  activity?: ActivitySelection | null;
+  /** FREE_LIMITED when the subscription says so (never today). Absent or null = unchanged. */
+  subscription?: SubscriptionView;
+  /** The plan screen, when the subscription mechanism names one (null today). */
+  planHref?: string | null;
 };
 
 /** A requirement: every listed module ON (none = core), and the person holds the scope. */

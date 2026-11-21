@@ -1,0 +1,107 @@
+# Activity packs / migration 20261216090000_activity_packs — proof on PostgreSQL 17 BEFORE it reaches Production.
+# Migration-only PR: the table BusinessActivityProfile (one row per business, FORCE RLS, runtime SELECT/INSERT/UPDATE
+# only) and the feature activity_packs (OFF). The Prisma model and the code that reads it come in a separate PR, after
+# the owner approves applying this migration.
+#
+#   1. Current schema (prisma db push of this branch = main's schema) + the app_runtime role, as in Production.
+#   2. The read-only preflight passes (nothing of the migration exists yet).
+#   3. The migration applies in ONE transaction; applying it again is refused and changes nothing.
+#   4. The lab: feature OFF, FORCE RLS, exact grants, tenant isolation as app_runtime, integrity checks, cascade.
+#   5. The read-only evidence passes after the migration.
+#   6. Rollback restores the previous state; the migration then applies again and the lab passes again.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network beyond the image and npm.
+
+name: activity packs — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261216090000_activity_packs/**"
+      - ".activity-packs/**"
+      - "ops/evidence/activity-packs-*.sql"
+      - ".github/workflows/activity-packs-migration-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: activity packs migration (PG17, one transaction, tenant isolation, rollback)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_owner
+          POSTGRES_PASSWORD: ap_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_ap
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_owner -d dubiz_ap"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: lab_owner
+      PGDATABASE: dubiz_ap
+      PGPASSWORD: ap_ci_synthetic_owner_pw
+      OWNER_URL: postgresql://lab_owner:ap_ci_synthetic_owner_pw@localhost:5432/dubiz_ap
+      MIGRATION: prisma/migrations/20261216090000_activity_packs/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. current schema + Production's runtime role
+        run: |
+          DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" npx prisma db push --skip-generate
+          # A branch stacked on this one carries the Prisma model, so db push builds a copy of the table: drop it, so the
+          # migration (the real thing) is what creates it — exactly as in Production, where the table does not exist.
+          psql -v ON_ERROR_STOP=1 -c 'DROP TABLE IF EXISTS "BusinessActivityProfile";'
+          psql -v ON_ERROR_STOP=1 -c "CREATE ROLE app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;" -c "GRANT USAGE ON SCHEMA public TO app_runtime;"
+
+      - name: 2. preflight (read-only) passes before the migration
+        run: |
+          out=$(psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/activity-packs-preflight.sql)
+          echo "$out"
+          echo "$out" | grep -q "^PREFLIGHT_OK$"
+
+      - name: 3. migration in one transaction; a second run is refused and changes nothing
+        run: |
+          psql -1 -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          if psql -1 -v ON_ERROR_STOP=1 -f "$MIGRATION" 2> second.err; then echo "second run was accepted"; exit 1; fi
+          grep -q "ACTIVITY_PACKS: BusinessActivityProfile already exists" second.err
+          test "$(psql -tAc "SELECT count(*) FROM \"PlatformFeatureDefinition\" WHERE key = 'activity_packs'")" = "1"
+
+      - name: 4. lab — feature OFF, FORCE RLS, grants, isolation, integrity, cascade
+        run: psql -v ON_ERROR_STOP=1 -tA -f .activity-packs/migration-lab.sql | tee lab.out && grep -q "^MIGRATION_LAB_OK$" lab.out
+
+      - name: 5. evidence (read-only) passes after the migration
+        run: |
+          out=$(psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/activity-packs-production-evidence.sql)
+          echo "$out"
+          echo "$out" | grep -q "^EVIDENCE_OK$"
+
+      - name: 6. rollback restores the previous state; apply again; lab again
+        run: |
+          psql -1 -v ON_ERROR_STOP=1 -tA -f .activity-packs/rollback.sql | grep -q "^ROLLBACK_OK$"
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/activity-packs-preflight.sql | grep -q "^PREFLIGHT_OK$"
+          psql -c "DELETE FROM \"Business\" WHERE id IN (910001, 910002);"
+          psql -1 -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -tA -f .activity-packs/migration-lab.sql | grep -q "^MIGRATION_LAB_OK$"

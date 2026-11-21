@@ -39,6 +39,12 @@ export type BusinessCapabilitiesResponse = {
       reasonLabel: string;
     }
   >;
+  /**
+   * Phase 2 activity packs: what the business chose (display only). Present ONLY while `activity_packs` is ON for
+   * the business; `null` there means "on, but never chose". Absent while the feature is OFF — every surface then
+   * draws exactly what it drew before.
+   */
+  activity?: { primary: string; additional: string[] } | null;
 };
 
 export type PlatformAdminBusinessFeatureItem = {

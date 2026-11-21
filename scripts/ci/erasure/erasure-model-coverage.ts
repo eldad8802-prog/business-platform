@@ -505,6 +505,7 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   BookingSettings: operational("external booking switch, a random public id, an approval default, a hold lifetime and a staff-choice mode"),
   ProductUsageEvent: operational("feature-key telemetry; no free text, no identifiers beyond userId"),
   BusinessFeatureAccess: operational("which feature flags a business has, and a short enum-like reason"),
+  BusinessActivityProfile: operational("which activity packs the Home puts forward: a primary pack and up to four more from a closed list of five, the deciding user id and two times — no free text"),
   BusinessObligationOrientation: operational("a per-business orientation setting"),
   // Payables, secretary → ledger. Two timestamps and the id of the user who
   // pressed "טופל" — no name, no note, no free text. The row describes a
