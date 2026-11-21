@@ -47,6 +47,8 @@ export const notificationsEn: Widen<typeof notificationsHe> = {
     failDisconnected: "This phone was disconnected from notifications. You can connect it again.",
     failUnknown: "The connection didn't complete. Try again.",
     diagnosticCode: "Diagnostic code: {code}",
+    checking: "Checking this phone…",
+    checkStuck: "The phone check didn't finish. Close Dubiz, open it again and try again.",
     connectRetry: "Connect phone to notifications",
     notConfigured: "Phone notifications are not available in this version of the app yet.",
     notConfiguredHint: "Notifications keep appearing inside Dubiz.",

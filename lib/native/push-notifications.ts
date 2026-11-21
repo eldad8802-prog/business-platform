@@ -112,6 +112,27 @@ export type PushPluginLike = {
   ): Promise<ListenerHandleLike>;
 };
 
+/**
+ * A plain object that forwards the five methods the client uses to the Capacitor plugin.
+ *
+ * WHY: @capacitor/core's registerPlugin returns a Proxy that answers EVERY property with a method wrapper —
+ * including `then`. A promise that resolves with the proxy (`async () => PushNotifications`) therefore treats it as
+ * a thenable and calls `proxy.then(resolve, reject)`, a native call that never answers: the promise hangs forever.
+ * Proven in the app's WebView (Capacitor 8.5): returning the proxy from an async function → no answer in 10 s;
+ * the same proxy inside a plain object → resolved. With the hang, permissionStatus / registerDevice /
+ * startOnAppStart never finished: the settings card never rendered and no token was ever uploaded.
+ * The returned object has no `then`, so it is safe to resolve with.
+ */
+export function plainPushPlugin(p: PushPluginLike): PushPluginLike {
+  return {
+    checkPermissions: () => p.checkPermissions(),
+    requestPermissions: () => p.requestPermissions(),
+    register: () => p.register(),
+    addListener: ((event: string, fn: (arg: never) => void) =>
+      (p.addListener as (e: string, f: (arg: never) => void) => Promise<ListenerHandleLike>)(event, fn)) as PushPluginLike["addListener"],
+  };
+}
+
 export const PUSH_RECEIVED_EVENT = "dubiz:push-received";
 export const PUSH_STATUS_EVENT = "dubiz:push-status";
 
@@ -457,7 +478,8 @@ export function setPushNavigator(fn: ((href: string) => void) | null): void {
 
 const client = createPushClient({
   available: isNativePushAvailable,
-  plugin: async () => (await import("@capacitor/push-notifications")).PushNotifications as unknown as PushPluginLike,
+  // Never resolve with the Capacitor proxy itself (it looks like a thenable and the await hangs): see plainPushPlugin.
+  plugin: async () => plainPushPlugin((await import("@capacitor/push-notifications")).PushNotifications as unknown as PushPluginLike),
   fetch: (input, init) => fetch(input, init),
   authHeaders: () => (getClientAuthToken() ? buildClientAuthHeaders() : null),
   appVersion: async () => formatAppVersion(await (await import("@capacitor/app")).App.getInfo()),

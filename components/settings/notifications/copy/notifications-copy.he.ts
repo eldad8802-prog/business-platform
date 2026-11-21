@@ -57,6 +57,8 @@ export const notificationsHe = {
     failDisconnected: "הטלפון נותק מההתראות. אפשר לחבר אותו שוב.",
     failUnknown: "החיבור לא הושלם. נסו שוב.",
     diagnosticCode: "קוד לבדיקה: {code}",
+    checking: "בודקים את מצב הטלפון…",
+    checkStuck: "הבדיקה של הטלפון לא הסתיימה. סגרו את דוביז, פתחו אותה שוב ונסו שוב.",
     connectRetry: "חיבור הטלפון להתראות",
     notConfigured: "התראות לטלפון עוד לא זמינות בגרסה הזו של האפליקציה.",
     notConfiguredHint: "ההתראות ממשיכות להופיע בתוך דוביז.",

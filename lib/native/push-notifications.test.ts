@@ -13,9 +13,11 @@
  * is the emulator QA.
  */
 
+import { readFileSync } from "node:fs";
 import {
   createPushClient,
   fcmErrorCode,
+  plainPushPlugin,
   formatAppVersion,
   isAllowedPushHref,
   resolvePushHref,
@@ -479,6 +481,62 @@ async function main() {
     check("unregister: offline → false, no throw", (await h2.client.unregisterCurrentDevice()) === false);
     const h3 = makeHarness({ permission: "granted", signedIn: false });
     check("unregister: no session → nothing sent", (await h3.client.unregisterCurrentDevice()) === false && h3.calls.fetch.length === 0);
+  }
+
+  // ── the Capacitor proxy is a thenable: never resolve a promise with it ──
+  {
+    // Same shape as @capacitor/core's registerPlugin proxy: EVERY property is a method wrapper, `then` included,
+    // and a call to a method the native side does not have never answers.
+    const calls: string[] = [];
+    const capacitorLikeProxy = new Proxy({} as Record<string, unknown>, {
+      get(_t, prop) {
+        if (prop === "then") return () => { calls.push("then"); /* native "then" never answers */ };
+        return async (...args: unknown[]) => {
+          calls.push(String(prop));
+          if (prop === "checkPermissions") return { receive: "granted" };
+          if (prop === "addListener") return { remove: async () => {} };
+          void args;
+          return undefined;
+        };
+      },
+    }) as unknown as PushPluginLike;
+    const race = (p: Promise<unknown>, ms: number) =>
+      Promise.race([p.then(() => "resolved"), new Promise((r) => setTimeout(() => r("hung"), ms))]);
+
+    check("hazard reproduced: resolving with the raw proxy hangs (proxy.then is called)", (await race((async () => capacitorLikeProxy)(), 200)) === "hung" && calls.includes("then"));
+    calls.length = 0;
+    check("plainPushPlugin: resolving with the wrapper does not hang and never calls then", (await race((async () => plainPushPlugin(capacitorLikeProxy))(), 200)) === "resolved" && !calls.includes("then"));
+    const w = plainPushPlugin(capacitorLikeProxy);
+    check("plainPushPlugin: has no then", (w as unknown as { then?: unknown }).then === undefined);
+    await w.checkPermissions();
+    await w.requestPermissions();
+    await w.register();
+    await w.addListener("registration", () => {});
+    check("plainPushPlugin: forwards checkPermissions/requestPermissions/register/addListener", ["checkPermissions", "requestPermissions", "register", "addListener"].every((m) => calls.includes(m)), calls.join(","));
+
+    // The whole client with a deps.plugin() shaped like the app instance (async + wrapper) and that proxy: it finishes.
+    const deps: PushDeps = {
+      available: () => true,
+      plugin: async () => plainPushPlugin(capacitorLikeProxy),
+      fetch: async () => ({ ok: true, status: 201 }) as Response,
+      authHeaders: () => ({ Authorization: "Bearer jwt" }),
+      appVersion: async () => "1.1.0+2",
+      emit: () => {},
+      navigate: () => {},
+      setTimeout: () => 0,
+      firebaseConfigured: async () => true,
+      optedIn: () => true,
+      setOptedIn: () => {},
+    };
+    const c = createPushClient(deps);
+    check("client over the wrapped proxy: permissionStatus answers (the settings card can render)", (await race(c.permissionStatus(), 500)) === "resolved");
+
+    const src = readFileSync("lib/native/push-notifications.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    check(
+      "app instance: plugin() resolves with plainPushPlugin(...), never with the raw PushNotifications proxy",
+      /plugin: async \(\) => plainPushPlugin\(\(await import\("@capacitor\/push-notifications"\)\)\.PushNotifications/.test(src) &&
+        !/plugin: async \(\) => \(await import\("@capacitor\/push-notifications"\)\)\.PushNotifications/.test(src)
+    );
   }
 
   // ── the app's instance outside the Android app ──
