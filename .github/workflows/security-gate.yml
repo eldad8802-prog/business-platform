@@ -8,7 +8,8 @@
 #      pinned in an exact-set ratchet, privileged-client reachability, admin handlers);
 #   3. the delivery-pipeline policy guard (permissions, SHA pins, secrets only in protected
 #      main-only environments, no push/PR triggers on secret-bearing workflows);
-#   4. the evidence-output guard (Production evidence never prints row data);
+#   4. the evidence-output guard (Production evidence never prints row data), and the appointment
+#      time-write guard (no timed Appointment write outside the per-business lock);
 #   5. the test-coverage inventory (every test classified; every SECURITY_REQUIRED test
 #      invoked) and then EVERY SECURITY_REQUIRED test itself, straight from the manifest,
 #      in four labs: pure · test-db (app-layer, fresh DB per test) · rls-db (NOSUPERUSER
@@ -97,10 +98,16 @@ jobs:
           node scripts/ci/evidence-output-guard.mjs --self-test
           node scripts/ci/evidence-redact.mjs --self-test
           node scripts/ci/security-test-coverage.mjs --self-test
+          node scripts/ci/appointment-write-guard.mjs --self-test
 
       # ── 2-4. static guards on the real tree ───────────────────────────────
       - name: AST security guard (F-7 / F-11)
         run: node scripts/ci/ast-security-guard.mjs .
+
+      # Appointments (owner P0-2): every write that can make an appointment occupy time, or change the time it
+      # occupies, runs under the per-business lock — the cross-lane overlap rule (P0-1) depends on it.
+      - name: Appointment time-write guard (P0-2)
+        run: node scripts/ci/appointment-write-guard.mjs .
 
       # The legacy tenant guards used to run only on narrow path filters; here they run on
       # every change, beside the AST guard that supersedes their grep logic.

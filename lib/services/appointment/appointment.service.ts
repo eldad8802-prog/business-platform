@@ -16,8 +16,17 @@
  *   - Every write appends to the append-only journal (AppointmentEvent) in the same transaction.
  *   - Learning sensors fire for CUSTOMER appointments only: an internal meeting or a time block is not demand and
  *     must not move no-show / cancellation / reschedule shares (APPT-01..04).
- *   - A timed appointment (one with an end time) is moved by appointment-schedule.service, which checks overlap;
- *     `reschedule` here keeps moving the untimed rows the existing paths create, exactly as before.
+ *   - A timed appointment (one with an end time) is created and moved only by appointment-schedule.service, which
+ *     checks overlap under the lock.
+ *
+ * P0-2 (owner, 2026-11-01) — nothing here writes TIME without the per-business lock:
+ *   - `create` / `createFromPending` write untimed PROPOSED rows only (no start, no end): an untimed row occupies no
+ *     calendar time. `create` no longer accepts a start time (it was the one door to a timed row without the lock).
+ *   - the lock-less lifecycle and reschedule wrappers (confirm / complete / markNoShow / cancel / reschedule) are
+ *     removed: no product path called them, and they changed status or time outside the lock. Every status change
+ *     goes through appointment-schedule.service (changeStatus, under ownerWrite) or the public booking paths, all of
+ *     which take the lock and then call `transitionWithinTx`; every move goes through moveAppointment.
+ *   - scripts/ci/appointment-write-guard.mjs fails CI when a new time write appears outside the lock.
  */
 
 import { Prisma, type Appointment, type AppointmentCancelReason } from "@prisma/client";
@@ -27,8 +36,8 @@ import {
   clearPendingAppointmentRequestTx,
 } from "@/lib/services/conversation/pending-state.service";
 import { recordOfferingDemand } from "@/lib/services/offering/offering-demand";
-import { assertTransition, isTerminal } from "./appointment.lifecycle";
-import { appendAppointmentEvent, instantToken, type JournalDigest } from "./appointment-journal";
+import { assertTransition } from "./appointment.lifecycle";
+import { appendAppointmentEvent, type JournalDigest } from "./appointment-journal";
 import { mergeNote } from "./appointment-notes";
 import type {
   AppointmentResult,
@@ -36,9 +45,6 @@ import type {
   ActorContext,
   CreateInput,
   CreateFromPendingInput,
-  LifecycleInput,
-  CancelInput,
-  RescheduleInput,
 } from "./appointment.types";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { isValidActor, sensorWho } from "./appointment-actor";
@@ -119,7 +125,7 @@ async function createWithinTx(
     data: {
       businessId: input.businessId,
       status: "PROPOSED",
-      startsAt: input.details?.startsAt ?? null,
+      // Untimed by construction (P0-2): no startsAt / endsAt, so the row occupies no time and needs no lock.
       durationMinutes: input.details?.durationMinutes ?? service?.durationMinutes ?? null,
       title: input.details?.title ?? service?.name ?? null,
       notes: input.details?.notes ?? null,
@@ -341,122 +347,6 @@ export async function transitionWithinTx(
     });
   }
   return { ok: true, appointment };
-}
-
-/** Shared lifecycle transition with businessId scoping + single-source guard. */
-async function transition(
-  input: LifecycleInput,
-  to: AppointmentStatus,
-  opts: TransitionOptions = {}
-): Promise<AppointmentResult> {
-  if (!isPositiveInt(input?.appointmentId) || !isPositiveInt(input?.businessId)) {
-    return { ok: false, reason: "invalid_input" };
-  }
-  if (!isValidActor(input.actor)) {
-    return { ok: false, reason: "invalid_input" };
-  }
-
-  return tenantTx(input.businessId, async (tx) => {
-    const current = await tx.appointment.findFirst({
-      where: { id: input.appointmentId, businessId: input.businessId },
-    });
-    if (!current) return { ok: false, reason: "appointment_not_found" };
-    return transitionWithinTx(tx, current, to, input.actor, opts);
-  });
-}
-
-export function confirm(input: LifecycleInput): Promise<AppointmentResult> {
-  return transition(input, "CONFIRMED");
-}
-
-export function complete(input: LifecycleInput): Promise<AppointmentResult> {
-  return transition(input, "COMPLETED");
-}
-
-export function markNoShow(input: LifecycleInput): Promise<AppointmentResult> {
-  return transition(input, "NO_SHOW");
-}
-
-export function cancel(input: CancelInput): Promise<AppointmentResult> {
-  return transition(input, "CANCELED", { appendNote: input.reason ?? null, cancelReason: input.cancelReason ?? null });
-}
-
-/**
- * Reschedule times only; status preserved. Forbidden in terminal states.
- * Untimed appointments only (the shape the existing creation paths write). A timed appointment occupies the
- * calendar and moves through appointment-schedule.service, which checks overlap; it is refused here.
- */
-export async function reschedule(
-  input: RescheduleInput
-): Promise<AppointmentResult> {
-  if (!isPositiveInt(input?.appointmentId) || !isPositiveInt(input?.businessId)) {
-    return { ok: false, reason: "invalid_input" };
-  }
-  if (!isValidActor(input.actor)) {
-    return { ok: false, reason: "invalid_input" };
-  }
-  if (!(input.startsAt instanceof Date) || Number.isNaN(input.startsAt.getTime())) {
-    return { ok: false, reason: "invalid_input" };
-  }
-  const duration = input.durationMinutes ?? null;
-  if (duration !== null && !isPositiveInt(duration)) {
-    return { ok: false, reason: "invalid_input" };
-  }
-
-  return tenantTx(input.businessId, async (tx) => {
-    const current = await tx.appointment.findFirst({
-      where: { id: input.appointmentId, businessId: input.businessId },
-    });
-    if (!current) return { ok: false, reason: "appointment_not_found" };
-    if (isTerminal(current.status)) {
-      return { ok: false, reason: "invalid_transition" };
-    }
-    if (current.endsAt !== null) return { ok: false, reason: "invalid_input" };
-
-    const appointment = await tx.appointment.update({
-      where: { id: input.appointmentId },
-      data: {
-        startsAt: input.startsAt,
-        durationMinutes: duration,
-        version: { increment: 1 },
-      },
-    });
-
-    // M5.5 — only a real change of time or length is a reschedule; a same-value save is not.
-    const startChanged =
-      (current.startsAt?.getTime() ?? null) !== input.startsAt.getTime();
-    const durationChanged = (current.durationMinutes ?? null) !== duration;
-    if (startChanged || durationChanged) {
-      if (current.kind === "CUSTOMER") {
-        await recordSensor(
-          {
-            businessId: input.businessId,
-            sensor: "APPOINTMENT_RESCHEDULED",
-            entityId: appointment.id,
-            ...sensorWho(input.actor),
-            payload: {
-              previousStartsAt: current.startsAt ? current.startsAt.toISOString() : null,
-              startsAt: input.startsAt.toISOString(),
-              durationChanged,
-            },
-          },
-          { tx }
-        );
-      }
-      await appendAppointmentEvent(tx, {
-        businessId: input.businessId,
-        appointmentId: appointment.id,
-        eventType: "APPOINTMENT_RESCHEDULED",
-        ctx: input.actor,
-        payload: {
-          fromStartsAt: instantToken(current.startsAt),
-          toStartsAt: instantToken(input.startsAt),
-          durationChanged,
-        },
-      });
-    }
-    return { ok: true, appointment };
-  });
 }
 
 /** Read helpers (source of truth), scoped by businessId. */
