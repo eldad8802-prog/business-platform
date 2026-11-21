@@ -180,15 +180,14 @@ jobs:
           done
           echo "rollback refused with tokens; reverted whole without; earlier proofs whole"
 
-      - name: 6. Order independence with billing's #1091 (20261123090000_issuer_declaration) — both orders, same objects, battery whole
+      - name: 6. Order independence with billing's #1091 (20261126100000_issuer_declaration) — both orders, same objects, battery whole
         run: |
           set -euo pipefail
-          # Billing's migration lives on its own PR until merged; read it from there (read-only). When it is on main the
-          # file is already in the tree. Neither migration names the other's objects (asserted below).
-          F=prisma/migrations/20261123090000_issuer_declaration/migration.sql
-          if [ -f "$F" ]; then cp "$F" /tmp/m1091.sql
-          elif git fetch -q --depth=1 origin pull/1091/head:pr1091 2>/dev/null && git show "pr1091:$F" > /tmp/m1091.sql 2>/dev/null; then :
-          else echo "::notice::#1091's migration is not reachable — order check skipped"; exit 0; fi
+          # #1091 merged (ce2aef4a) as 20261126100000_issuer_declaration: the file is in the tree. A missing file FAILS
+          # (it used to skip with a notice and pass green). Neither migration names the other's objects (asserted below).
+          F=prisma/migrations/20261126100000_issuer_declaration/migration.sql
+          test -f "$F" || { echo "::error::$F not found — the order-independence check cannot run"; exit 1; }
+          cp "$F" /tmp/m1091.sql
           if sed 's/--.*$//' /tmp/m1091.sql | grep -nE 'AuthEmailToken|auth_issuer_declaration|bindingSha256'; then echo "::error::#1091 names this migration's objects"; exit 1; fi
           if sed 's/--.*$//' "$MIGRATION" | grep -nE 'BusinessIssuerDeclaration|BillingSeriesOpening|IssuerDeclarationEnforcement|(^|[^a-z_])issuer_(records|declaration_chain|designat|issue_requires)|series_opening'; then echo "::error::this migration names #1091's objects"; exit 1; fi
           lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
