@@ -16,10 +16,18 @@ feature branch → PR → release/verify (required) → merge to main
 Production database migrations are separate and manual, on purpose:
 
 ```
-release-migrate (workflow_dispatch) → production-db environment
-                                    → owner approval
-                                    → prisma migrate deploy
+migration PR merged → approval record PR (authority-changing migrations only) → preflight evidence run from main
+  → release-migrate (workflow_dispatch, expected_migrations = exact names)
+      plan    — no secrets: classify each migration, check approval records + preflight runs
+      ↓ production-db environment — owner approval
+      stage   — pin the SHA, read the Production ledger, stage ONLY the approved first pending migrations
+      deploy  — prisma migrate deploy over the staged directory, as the owner role
+      confirm — the ledger now holds exactly the approved set
+  → post-apply evidence (feature evidence + ops/evidence/privilege-model-production-assert.sql)
 ```
+
+Details and the incident behind them: `docs/security/RELEASE_MIGRATE_AUTHORITY_GATE.md`.
+Permissions rules every migration must follow: `docs/security/PERMISSIONS_CONTRACT.md`.
 
 There is deliberately **no** `VERCEL_TOKEN`, no GitHub-driven application
 deploy, no promote/rollback orchestration, and no custom release control plane.
@@ -38,8 +46,9 @@ rebuild it without opening explicitly designated RELEASE-INFRA work.
 - Ignored Build Step / `commandForIgnoringBuildStep`
 - `vercel.json`, `.vercelignore`
 - GitHub environments, environment secrets, repository secrets or variables
-- `.github/workflows/release-*.yml`
-- `scripts/ci/release-*`, `scripts/ci/migration-first-guard.mjs`
+- `.github/workflows/release-*.yml`, `.github/workflows/prod-readonly-evidence.yml` (its allow-list of evidence files)
+- `scripts/ci/release-*`, `scripts/ci/migration-first-guard.mjs`, `scripts/ci/migration-security-classifier.mjs`
+- `ops/release-approvals/**` (approval records are the owner's decision, landed through their own PR)
 - Branch protection and required status checks
 - The Production DB release flow (`release-migrate`, `production-db`)
 - Deployment architecture of any kind
@@ -62,9 +71,13 @@ A schema-sensitive change ships as **two** PRs. Never one.
 `prisma/migrations/**` only. Expand-only (add columns/tables; do not drop or
 rename in the same step). No `prisma/schema.prisma`, no runtime code.
 
-Then run **`release-migrate`** (Actions → release-migrate → Run workflow). It
-pauses on the `production-db` environment for owner approval, applies pending
-migrations over the direct connection, and re-checks status afterwards.
+Then run **`release-migrate`** (Actions → release-migrate → Run workflow) with
+`expected_migrations` = the exact names. It applies exactly that approved prefix
+of the pending migrations — never "whatever is pending on main" — after the
+`production-db` approval, and confirms the ledger afterwards. An authority-changing
+migration (roles, GRANT/REVOKE, RLS, policies, SECURITY DEFINER, default
+privileges) also needs its approval record in `ops/release-approvals/` and a
+successful preflight evidence run from main after the merge.
 
 **PR-2 — the code.**
 `prisma/schema.prisma` plus the runtime that depends on it. By now the column
@@ -114,6 +127,18 @@ It proves the *shape* of a PR, not that `release-migrate` actually ran. The
 `production-db` approval is what closes that: the person who approves the
 migration is the person who merges PR-2. Keep those together.
 
-It also does not cover **grants**. A migration can land while the runtime role
-still lacks privileges on the new table. When a change needs grants, the order
-is: migration → grants → verify → consumer.
+Grants now live **inside the migration** that creates the table, stated explicitly
+(GRANT what is needed, REVOKE what the owner's default privileges would add) —
+`docs/security/PERMISSIONS_CONTRACT.md` §2.2. Any change to privileges, policies,
+RLS flags or SECURITY DEFINER functions shows up as a diff of
+`ops/security/privilege-model.baseline.txt`, which `security-lab.yml` checks by
+rebuilding the shared security lab from every migration. After the apply, the
+Production model is compared with
+`ops/evidence/privilege-model-production-assert.sql` (PASS per section).
+
+## Other required checks today
+
+`release/verify` is the only required status. It runs the migration-first guard
+(from the base branch), the tenant-table RLS guard, the tenant-scoped access guard,
+validate and build. `security/gate` and `security-lab` run on every relevant PR but
+are not required statuses yet — making them required is an owner decision.
