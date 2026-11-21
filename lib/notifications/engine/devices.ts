@@ -73,6 +73,20 @@ export async function registerFcmDevice(
   });
 }
 
+/**
+ * Does THIS login session hold a live Android (FCM) device of this user in this business? Read-only, a yes / no:
+ * no token, no id. The "My day" reminders card shows the app's real registration with it.
+ */
+export async function sessionFcmDeviceLive(actor: { businessId: number; userId: number; sessionId: string }): Promise<boolean> {
+  if (!UUID.test(actor.sessionId)) return false;
+  const { businessId } = actor;
+  return tenantTx(businessId, async (tx) =>
+    (await tx.pushSubscription.count({
+      where: { businessId, userId: actor.userId, provider: "FCM", authSessionId: actor.sessionId, revokedAt: null },
+    })) > 0,
+  );
+}
+
 /** Revoke every live device bound to one login session (FCM and session-bound web push). */
 export type ProviderScope = "all" | "fcm_only";
 const providerWhere = (scope: ProviderScope) => (scope === "fcm_only" ? { provider: "FCM" } : {});

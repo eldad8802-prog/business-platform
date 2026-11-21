@@ -8,11 +8,24 @@
  *        provider, a malformed token / platform / version: 400. The token never appears in a log or an answer.
  */
 import { engineActor, json, readJson } from "@/lib/notifications/engine/notifications-http";
-import { registerFcmDevice, validateFcmRegistration } from "@/lib/notifications/engine/devices";
+import { registerFcmDevice, sessionFcmDeviceLive, validateFcmRegistration } from "@/lib/notifications/engine/devices";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+export async function GET(req: Request) {
+  try {
+    const actor = await engineActor(req);
+    if (actor instanceof Response) return actor;
+    if (actor.sessionId === null) return json({ registered: false });
+    const registered = await sessionFcmDeviceLive({ businessId: actor.businessId, userId: actor.userId, sessionId: actor.sessionId });
+    return json({ registered });
+  } catch (e) {
+    console.error("[notifications] device status failed", e instanceof Error ? e.name : "unknown");
+    return json({ error: "INTERNAL" }, 500);
+  }
+}
 
 export async function POST(req: Request) {
   try {

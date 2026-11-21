@@ -11,6 +11,11 @@
       "lab": "workflow",
       "workflow": "daily-tasks-b-ci.yml",
       "reason": "AS the restricted runtime on the real migrations: remindAt derivation, task_reminders_due lists only due reminders, one send under parallel dispatch (claim), the bell notification and recorded push attempts, snooze makes the old moment stale, completed / cancelled tasks never sent, recurring occurrences carry their own moment, a business without daily_tasks is never claimed, cross-business claims refused, the personal agenda has no business items; run on pull_request by daily-tasks-b-ci.yml"
+    },
+    "features/tasks/reminder-phone-note.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "lab": "pure",
+      "reason": "pure: the My day reminders card inside the Android app reads the app push state and the server answer for this login session (GET /api/push/devices), never the browser check; connected only on the server yes; never promises phone reminders before they go through the engine; Hebrew-only copy; the card is read-only (no registration, no permission prompt)."
     }
   }
 }
