@@ -94,6 +94,15 @@ const config: CapacitorConfig = {
       launchShowDuration: 2000,
       showSpinner: false,
     },
+    // Push (FCM) while the app is OPEN: the system draws a notification only while the app is in the background;
+    // in the foreground Firebase hands the message to the plugin, which posts a system notification ONLY when
+    // presentationOptions has "alert" / "banner" / "list" (PushNotificationsPlugin.fireNotification). Without it a
+    // push received while Dubiz is on screen never reached the notification shade (owner's phone, 2026-11-22: the
+    // test push arrived at 00:00:51 with Dubiz resumed since 00:00:31 — logcat, no notification posted). The
+    // notification uses the message's own channel (dubiz_urgent / dubiz_default) and a tap opens its link.
+    PushNotifications: {
+      presentationOptions: ["alert", "sound", "badge"],
+    },
     // Light product surfaces → dark status-bar content on both platforms.
     // Android: the WebView below the status bar from the first frame (Android 14 and older; 15+ is
     // edge-to-edge and padded by SystemBars either way), on the cream bar the theme also sets.

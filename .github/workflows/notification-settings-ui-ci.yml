@@ -31,6 +31,9 @@ on:
       - "lib/notifications/preferences.test.ts"
       - "lib/notifications/engine/worker-decision.ts"
       - "lib/native/push-notifications.ts"
+      - "capacitor.config.ts"
+      - "lib/native/android-foreground-push.test.ts"
+      - "scripts/ci/test-coverage/android-foreground-push.json"
       - "lib/push/push-client.ts"
       - "app/api/notifications/settings/**"
       - "app/api/notifications/test/**"
@@ -62,6 +65,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: View model, wording and wiring (incl. the appointment reminder lead time)
         run: npx tsx components/settings/notifications/notification-settings-model.test.ts
+      - name: Android push while the app is open reaches the shade (capacitor.config presentationOptions)
+        run: npx tsx lib/native/android-foreground-push.test.ts
       - name: The settings API's validation (the lead time accepted / refused exactly as the screen offers it)
         run: npx tsx lib/notifications/preferences.test.ts
       - name: Settings navigation (hub / rail listing)

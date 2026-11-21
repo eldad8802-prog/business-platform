@@ -1,0 +1,10 @@
+{
+  "note": "Android push while the app is open (owner's phone 2026-11-22, logcat): Firebase draws a notification only in the background; in the foreground the Capacitor push plugin posts one only with presentationOptions alert / banner / list.",
+  "tests": {
+    "lib/native/android-foreground-push.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "presentation of a notification the app already received; no data, auth or permission path",
+      "reason": "pure: capacitor.config PushNotifications.presentationOptions includes alert and sound; the installed plugin still posts the foreground notification only for alert / banner / list, on the message's channel; the app's channels and the server's channel names still match"
+    }
+  }
+}
