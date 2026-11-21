@@ -195,6 +195,16 @@ async function main() {
     assert.ok(cookiesOf(res).some((c) => c.startsWith("dz_google_reauth=") && /HttpOnly/i.test(c) && c.includes("Path=/api/auth/google/callback")));
   });
 
+  await check("H11 preview stage \"identity\" (step 2): checks id / VAT / date without confirmations; never answers a digest", async () => {
+    const okR = await read(await handleKindTransitionPreview(post({ ...body({ acknowledged: [] }), stage: "identity" }), make().deps));
+    assert.equal(okR.status, 200);
+    assert.equal(okR.body.statementSha256, undefined);
+    const bad = await read(await handleKindTransitionPreview(post({ ...body({ confirmTaxId: "000000018", acknowledged: [] }), stage: "identity" }), make().deps));
+    assert.equal(bad.status, 400);
+    assert.ok((bad.body.problems as { field: string }[]).every((p) => p.field !== "acknowledged"));
+    assert.equal((await handleKindTransitionPreview(post({ ...body(), stage: "identity" }), make({ snap: snapshot({ actorIsSoleUser: false }) }).deps)).status, 409);
+  });
+
   console.log(`kind-transition-handlers: ${checks} checks passed`);
 }
 

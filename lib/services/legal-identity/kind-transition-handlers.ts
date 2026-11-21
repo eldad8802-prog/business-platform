@@ -158,7 +158,18 @@ export async function handleKindTransitionPreview(req: Request, deps: KindTransi
   try {
     const ctx = await deps.context(req);
     if (!ctx) return authRequiredResponse(req);
-    const r = await validated(ctx, await readBody(req), deps);
+    const body = await readBody(req);
+    // stage "identity" (step 2): check what was typed so far — eligibility, id number, VAT number, date — before the
+    // confirmations exist. It answers no digest: a digest is only ever issued for the full statement.
+    if (body.stage === "identity") {
+      const snap = await deps.snapshot(ctx.user.businessId, ctx.user.id);
+      const elig = evaluateKindTransitionEligibility(snap.state);
+      if (!elig.eligible) return json({ code: elig.block, error: elig.message }, 409);
+      const v = validateKindTransitionInput(snap.state, { ...inputOf(body), acknowledged: KIND_TRANSITION_ACKNOWLEDGEMENTS.map((a) => a.id) });
+      if (!v.ok) return json({ code: "INVALID_INPUT", problems: v.problems }, 400);
+      return json({ ok: true });
+    }
+    const r = await validated(ctx, body, deps);
     if (!r.ok) return r.error;
     return json({ statementSha256: r.statementSha256, statusEffectiveDate: r.v.statusEffectiveDate, vatNumber: r.v.vatNumber });
   } catch (error) {
@@ -233,7 +244,12 @@ export async function handleKindTransitionReauthPassword(req: Request, deps: Kin
       return NextResponse.json({ code: "LOGIN_LOCKED", error: "יותר מדי ניסיונות שגויים. אפשר לנסות שוב מאוחר יותר.", retryAfterSeconds: s }, { status: 429, headers: { ...noStore, "Retry-After": String(s) } });
     }
     if (!(await deps.compare(password, creds.password ?? TIMING_EQUALISER_HASH))) {
-      if (attempt.count >= LOGIN_FAILURE_POLICY.limit) await attempt.lock(LOGIN_FAILURE_POLICY.lockMs);
+      if (attempt.count >= LOGIN_FAILURE_POLICY.limit) {
+        // As login: the failure that reaches the limit locks AND says so (not "wrong password, try again").
+        await attempt.lock(LOGIN_FAILURE_POLICY.lockMs);
+        const s = Math.ceil(LOGIN_FAILURE_POLICY.lockMs / 1000);
+        return NextResponse.json({ code: "LOGIN_LOCKED", error: "יותר מדי ניסיונות שגויים. אפשר לנסות שוב מאוחר יותר.", retryAfterSeconds: s }, { status: 429, headers: { ...noStore, "Retry-After": String(s) } });
+      }
       return json({ code: "INVALID_PASSWORD", error: "הסיסמה שגויה." }, 401);
     }
     await attempt.clear();
