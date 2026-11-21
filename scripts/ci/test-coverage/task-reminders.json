@@ -11,6 +11,11 @@
       "lab": "workflow",
       "workflow": "daily-tasks-b-ci.yml",
       "reason": "AS the restricted runtime on the real migrations: remindAt derivation, task_reminders_due lists only due reminders, one send under parallel dispatch (claim), the bell notification and recorded push attempts, snooze makes the old moment stale, completed / cancelled tasks never sent, recurring occurrences carry their own moment, a business without daily_tasks is never claimed, cross-business claims refused, the personal agenda has no business items; run on pull_request by daily-tasks-b-ci.yml"
+    },
+    "lib/services/tasks/task-reminders-engine.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "restricted runtime on every engine migration, fake providers: with notifications_engine ON a task reminder keeps its bell row and is pushed by the engine worker to every live device of its user exactly once (FCM + web push), never another user's or another business's; one claim under a race; push preference off suppresses; quiet hours bypassed (owner decision); an ended session skips its phone; a moment over a day old is not pushed; engine OFF is exactly the legacy web push path (no FCM, no owed engine row)."
     }
   }
 }
