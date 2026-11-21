@@ -1,0 +1,118 @@
+# "מעבר לעוסק מורשה" — end to end on an ephemeral PG17 with Production's role topology (.bkt/lab.sh --with-bkt):
+#   1. app battery (.bkt/app-battery.ts): the real handlers → service → definer function, real session + proof
+#   2. browser, flag ON (.bkt/ui-e2e.mts): next dev on the lab; Chromium desktop/phone + WebKit iPhone-sized viewport
+#      (emulation, not a physical phone); Google's page is intercepted (no real Google in CI)
+#   3. browser + API, flag OFF (.bkt/ui-off.mts): no entry, page "not available", every route 404
+# Needs migration 20261221090000 in the tree (PR #1210): it runs on a branch that carries it.
+# Synthetic only. ZERO secrets. ZERO network beyond localhost (and the npm / Playwright downloads). ZERO Production.
+
+name: business kind transition — end to end (PG17 + next dev + browsers)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/business/legal-identity/**"
+      - "app/api/business/legal-identity/**"
+      - "components/legal-identity/**"
+      - "lib/legal-identity/**"
+      - "lib/services/legal-identity/**"
+      - "lib/auth/sensitive-reauth.ts"
+      - "lib/auth/google-reauth.ts"
+      - "prisma/migrations/20261221090000_business_kind_transition/**"
+      - ".bkt/**"
+      - ".github/workflows/business-kind-transition-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: business-kind-transition-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: kind transition end to end (app battery, browsers flag ON, flag OFF)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: bkt_e2e_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: bkt_e2e_synthetic_super_pw
+      LAB_PASSWORD: bkt_e2e_synthetic_role_pw
+      OWNER_URL: postgresql://lab_owner:bkt_e2e_synthetic_role_pw@localhost:5432/bkt_e2e
+      DATABASE_URL: postgresql://app_runtime_prod:bkt_e2e_synthetic_role_pw@localhost:5432/bkt_e2e?connection_limit=20
+      DIRECT_URL: postgresql://app_runtime_prod:bkt_e2e_synthetic_role_pw@localhost:5432/bkt_e2e
+      AUTH_DATABASE_URL: postgresql://lab_owner:bkt_e2e_synthetic_role_pw@localhost:5432/bkt_e2e
+      AUTH_TOKEN_SECRET: bkt-e2e-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: bkt-e2e-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      CRON_SECRET: bkt_e2e_ci_cron_secret_synthetic_at_least_32
+      AUTH_PLANE_ENABLED: "true"
+      RATE_LIMIT_BACKEND: memory
+      STORAGE_PROVIDER: local
+      LOCAL_STORAGE_ROOT: /tmp/bkt-e2e-store
+      NEXT_TELEMETRY_DISABLED: "1"
+      AUTH_GOOGLE_LOGIN_ENABLED: "true"
+      AUTH_GOOGLE_LOGIN_MODE: open
+      GOOGLE_LOGIN_CLIENT_ID: lab-client.apps.googleusercontent.com
+      GOOGLE_LOGIN_CLIENT_SECRET: lab-secret
+      GOOGLE_LOGIN_REDIRECT_BASE_URL: http://localhost:3797
+      E2E_BASE: http://localhost:3797
+      OUT: /tmp/bkt-e2e
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab (Production role topology, 20261221090000 applied by migrate deploy)
+        run: |
+          test -d prisma/migrations/20261221090000_business_kind_transition || { echo "::error::needs migration 20261221090000 (PR #1210) in the tree"; exit 1; }
+          bash .bkt/lab.sh bkt_e2e --with-bkt
+      - name: 1. App battery (real handlers → service → definer function)
+        run: npx tsx .bkt/app-battery.ts
+      - run: npx playwright install --with-deps chromium webkit
+      - name: 2. Browser, flag ON
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT" "$LOCAL_STORAGE_ROOT"
+          (BUSINESS_KIND_TRANSITION_ENABLED=true nohup npx next dev -p 3797 > "$OUT/server-on.log" 2>&1 &)
+          for i in $(seq 1 150); do curl -sf -o /dev/null http://localhost:3797/login && break; sleep 2; done
+          curl -s -o /dev/null --max-time 300 http://localhost:3797/business/legal-identity/kind-transition
+          curl -s -o /dev/null --max-time 300 http://localhost:3797/business
+          npx tsx .bkt/ui-e2e.mts
+          pkill -f "next dev -p 3797" || true
+          sleep 3
+      - name: 3. Browser + API, flag OFF
+        run: |
+          set -euo pipefail
+          (nohup npx next dev -p 3797 > "$OUT/server-off.log" 2>&1 &)
+          for i in $(seq 1 150); do curl -sf -o /dev/null http://localhost:3797/login && break; sleep 2; done
+          curl -s -o /dev/null --max-time 300 http://localhost:3797/business/legal-identity/kind-transition
+          curl -s -o /dev/null --max-time 300 http://localhost:3797/business
+          npx tsx .bkt/ui-off.mts
+      - name: Server logs and screenshots (on failure)
+        if: failure()
+        run: |
+          tail -n 120 "$OUT/server-on.log" 2>/dev/null || true
+          tail -n 120 "$OUT/server-off.log" 2>/dev/null || true
+          ls -la "$OUT" || true
