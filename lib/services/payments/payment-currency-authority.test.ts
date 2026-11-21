@@ -60,7 +60,10 @@ async function main() {
   // SEC-05 is about what an ADAPTER can encode, which only matters once a
   // foreign currency may be requested at all. The foreign-currency kill switch
   // (DUBIZ_FX_COLLECTION_ENABLED, default OFF) is therefore switched ON for this
-  // suite; its OFF behaviour is proven in payment-currency-offer.test.ts.
+  // suite; its OFF behaviour is proven in payment-currency-offer.test.ts. A
+  // foreign currency is also only ever collected through a CardCom connection on
+  // which CardCom issues the documents (fx-provider-documents.test.ts), so every
+  // connection here is seeded PROVIDER_ISSUES — what is under test is encoding.
   process.env.DUBIZ_FX_COLLECTION_ENABLED = "true";
 
   // ── 1. SERVICE LAYER ────────────────────────────────────────────────────
@@ -68,7 +71,7 @@ async function main() {
   // A supported currency goes through untouched.
   {
     const store = createInMemoryPaymentStore();
-    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
+    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true, documentIssuer: "PROVIDER_ISSUES" });
     const res = await createPaymentRequest(
       { businessId: 1, amount: 100, currency: "ILS" },
       depsWith(store, createStubProvider({ supportedCurrencies: ["ILS", "USD"] }))
@@ -80,7 +83,7 @@ async function main() {
   // membership test, not "ILS only".
   {
     const store = createInMemoryPaymentStore();
-    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
+    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true, documentIssuer: "PROVIDER_ISSUES" });
     const res = await createPaymentRequest(
       { businessId: 1, amount: 100, currency: "USD" },
       depsWith(store, createStubProvider({ supportedCurrencies: ["ILS", "USD"] }))
@@ -94,7 +97,7 @@ async function main() {
   // The unsupported case: hard refusal, no row, no provider call.
   {
     const store = createInMemoryPaymentStore();
-    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
+    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true, documentIssuer: "PROVIDER_ISSUES" });
     let providerCalled = false;
     const adapter = createStubProvider({ supportedCurrencies: ["ILS", "USD"] });
     const watched: PaymentProviderAdapter = {
@@ -125,7 +128,7 @@ async function main() {
   // Lower case reaches the gate normalised, so it cannot slip past by casing.
   {
     const store = createInMemoryPaymentStore();
-    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
+    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true, documentIssuer: "PROVIDER_ISSUES" });
     await assert.rejects(
       () =>
         createPaymentRequest(
@@ -142,7 +145,7 @@ async function main() {
   // GBP is refused while EUR passes through.
   {
     const store = createInMemoryPaymentStore();
-    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
+    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true, documentIssuer: "PROVIDER_ISSUES" });
     await assert.rejects(
       () =>
         createPaymentRequest(

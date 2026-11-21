@@ -317,8 +317,9 @@ async function main() {
   ok(
     "the existing non-retryable reasons are unchanged",
     ["PROVIDER_ISSUED_DOCUMENT", "TEST_ENVIRONMENT_PAYMENT", "PROVIDER_IS_DOCUMENT_ISSUER", "DOCUMENT_ISSUER_NOT_CONFIGURED", "REFUND_ACCOUNTING_DECISION_REQUIRED"].every((r) => svc.NON_RETRYABLE_ATTENTION_REASONS.has(r)) &&
-      svc.NON_RETRYABLE_ATTENTION_REASONS.size === 6
+      svc.NON_RETRYABLE_ATTENTION_REASONS.size === 7
   );
+  ok("PROVIDER_DOCUMENT_MISSING (USD/EUR with CardCom documents) is the one reason added, and NON-RETRYABLE", svc.NON_RETRYABLE_ATTENTION_REASONS.has("PROVIDER_DOCUMENT_MISSING"));
 
   // A provider whose descriptor says it never issues documents (taxDocuments NEVER).
   const neverProvider = ["CARDCOM", "SUMIT", "PAYPLUS", "PAYPAL", "TRANZILA", "MESHULAM", "GROW", "STRIPE"].find(
@@ -464,6 +465,34 @@ async function main() {
     const report2 = await runSettlementRecovery({ now: () => at, listBusinessIds: async () => [BIZ] });
     ok("a second recovery run does not pick them up again", report2.attempted === 0, JSON.stringify(report2));
     ok("recovery — no receipt work at all", db.violations.length === 0, db.violations.join(","));
+  }
+
+  // ── PROVIDER_DOCUMENT_MISSING: opened paused at recording, nothing clears it ──
+  {
+    db.settlements.forEach((s) => {
+      if (s.status === "PENDING") s.status = "SETTLED"; // isolate: only the rows below
+    });
+    resetConnections();
+    const before = db.audits.length;
+    const usd = seedPayment({ currency: "USD", documentIssuer: "PROVIDER_ISSUES", status: "REQUIRES_ATTENTION", attentionReason: "PROVIDER_DOCUMENT_MISSING" });
+    const eur = seedPayment({ currency: "EUR", documentIssuer: "PROVIDER_ISSUES", status: "REQUIRES_ATTENTION", attentionReason: "PROVIDER_DOCUMENT_MISSING" });
+    for (const [label, ptx] of [["USD", usd], ["EUR", eur]] as const) {
+      const r = await svc.settleVerifiedPayment({ businessId: BIZ, paymentTransactionId: ptx }, deps);
+      ok(`${label} missing CardCom document — settle stays REQUIRES_ATTENTION PROVIDER_DOCUMENT_MISSING`, r.outcome === "REQUIRES_ATTENTION" && r.reason === "PROVIDER_DOCUMENT_MISSING", JSON.stringify(r));
+      const rq = await svc.requeueSettlement({ businessId: BIZ, paymentTransactionId: ptx }, deps);
+      ok(`${label} — requeue refused`, rq.requeued === false && settlementOf(ptx).attentionReason === "PROVIDER_DOCUMENT_MISSING");
+      const rr = await resolveAndRetrySettlement({ businessId: BIZ, paymentTransactionId: ptx, actorUserId: 1, customerId: null });
+      ok(`${label} — the owner's "try again" stays paused`, rr.outcome === "REQUIRES_ATTENTION" && rr.reason === "PROVIDER_DOCUMENT_MISSING", JSON.stringify(rr));
+      ok(`${label} — the money stays PAID`, paymentOf(ptx).status === "PAID");
+    }
+    for (const issuer of ["DUBIZ_ISSUES", "PROVIDER_ISSUES"]) {
+      const rel = await svc.releaseDocumentIssuerHolds({ businessId: BIZ, provider: "CARDCOM", documentIssuer: issuer as "DUBIZ_ISSUES" }, deps);
+      ok(`an issuer decision (${issuer}) does not touch PROVIDER_DOCUMENT_MISSING`, !rel.released.includes(usd) && !rel.released.includes(eur) && [usd, eur].every((id) => settlementOf(id).attentionReason === "PROVIDER_DOCUMENT_MISSING"), JSON.stringify(rel));
+    }
+    const report = await runSettlementRecovery({ now: () => at, listBusinessIds: async () => [BIZ] });
+    ok("scheduled recovery does not pick PROVIDER_DOCUMENT_MISSING up", report.attempted === 0 && [usd, eur].every((id) => settlementOf(id).attentionReason === "PROVIDER_DOCUMENT_MISSING"), JSON.stringify(report));
+    ok("PROVIDER_DOCUMENT_MISSING — no receipt work at all", db.violations.length === 0, db.violations.join(","));
+    ok("PROVIDER_DOCUMENT_MISSING — no new attempt and no new audit", [usd, eur].every((id) => settlementOf(id).attemptCount === 0) && db.audits.length === before, JSON.stringify(db.audits.slice(before)));
   }
 
   // ── what the owner sees ──────────────────────────────────────────────────

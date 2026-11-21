@@ -291,12 +291,17 @@ export async function createPaymentRequest(
     requestedCurrency ??
     (payableDocument ? normalizeCurrency(payableDocument.currency) : DEFAULT_CURRENCY);
 
-  // 2b''. FOREIGN-CURRENCY KILL SWITCH (DUBIZ_FX_COLLECTION_ENABLED, fail-closed).
-  // While it is off, a request in anything but ILS is refused here — whatever
-  // the provider supports, sent by the caller or taken from an invoice — and
-  // so before a PaymentRequest row, an audit event or any provider call. Only
-  // tenant-scoped reads have happened so far. ILS passes untouched.
-  assertForeignCurrencyCollectionAllowed(currency);
+  // 2b''. FOREIGN-CURRENCY KILL SWITCH (DUBIZ_FX_COLLECTION_ENABLED, fail-closed)
+  // and FOREIGN-CURRENCY COLLECTOR. While the switch is off, a request in
+  // anything but ILS is refused here — whatever the provider supports, sent by
+  // the caller or taken from an invoice. With it on, it is still refused unless
+  // the selected provider is CardCom AND this business's CardCom connection says
+  // CardCom issues the documents (PROVIDER_ISSUES): Dubiz issues no
+  // foreign-currency document itself, so the money must come with CardCom's.
+  // Either way before a PaymentRequest row, an audit event or any provider
+  // call; only tenant-scoped reads have happened so far. ILS passes untouched.
+  const collector = { provider, documentIssuer: connection.documentIssuer };
+  assertForeignCurrencyCollectionAllowed(currency, collector);
 
   // 2c. SEC-01 — AMOUNT AUTHORITY. Once a request names a document, the server
   // decides what may be collected against it; the client's number is a proposal
@@ -336,7 +341,7 @@ export async function createPaymentRequest(
   // so a pass-through adapter (supportedCurrencies = null) can no longer carry a
   // currency the rest of the product cannot present or reconcile.
   const adapter = deps.resolveProvider(provider);
-  assertCurrencyOfferable(adapter, currency);
+  assertCurrencyOfferable(adapter, currency, collector);
 
   // 2e. TEST / SANDBOX in Production: no link is issued through an account
   // that is not positively live, so a test card can never become a receipt.

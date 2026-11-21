@@ -13,6 +13,10 @@
  *   R1  readiness: no provider / ambiguous / identity incomplete / ready
  *   R2  readiness body = the old {ready, blockers} + offerableCurrencies only (ILS alone with no provider)
  *       + the foreign-currency kill switch: OFF (default) → ILS alone even with CardCom; ON → ILS, USD, EUR
+ *         only when CardCom issues the documents (PROVIDER_ISSUES); DUBIZ_ISSUES → still ILS alone
+ *   D1  CardCom's document on a foreign-currency payment: shown in inbox, thread and payment
+ *       detail (number, type, CardCom's own link) or stated missing; ILS items unchanged; never
+ *       visible to another tenant
  *   V1  invoice collection state: שולם / זוכה / נותר from the shared rule
  *   K1  tenant isolation on every new route
  *
@@ -30,6 +34,7 @@ import * as readinessRoute from "../app/api/collection/readiness/route";
 import * as retryRoute from "../app/api/collection/settlements/[paymentTransactionId]/retry/route";
 import * as invoiceRoute from "../app/api/collection/invoices/[id]/route";
 import * as cancelRoute from "../app/api/payments/requests/[id]/cancel/route";
+import * as requestDetailRoute from "../app/api/payments/requests/[id]/route";
 
 const prisma = new PrismaClient();
 const store = createPaymentPrismaStore();
@@ -242,13 +247,84 @@ async function main() {
   ok("R2 OFF — disabled SUMIT next to CardCom → ILS alone", JSON.stringify((await rd(r2)).offerableCurrencies) === '["ILS"]');
   process.env.DUBIZ_FX_COLLECTION_ENABLED = "true";
   try {
+    // ON, but Dubiz issues the documents: a foreign currency needs CardCom's own
+    // documents, so CardCom on DUBIZ_ISSUES is still ILS alone.
+    ok("R2 ON — CardCom with DUBIZ_ISSUES → ILS alone", JSON.stringify((await rd(a)).offerableCurrencies) === '["ILS"]');
+    await prisma.businessPaymentConnection.updateMany({ where: { businessId: a.businessId }, data: { documentIssuer: "NOT_CONFIGURED" } });
+    ok("R2 ON — CardCom with NOT_CONFIGURED → ILS alone", JSON.stringify((await rd(a)).offerableCurrencies) === '["ILS"]');
+    await prisma.businessPaymentConnection.updateMany({ where: { businessId: { in: [a.businessId, r2.businessId] }, provider: "CARDCOM" }, data: { documentIssuer: "PROVIDER_ISSUES" } });
     const onA = await rd(a);
     const onR2 = await rd(r2);
-    ok("R2 ON — CardCom → ILS, USD, EUR (ILS first)", JSON.stringify(onA.offerableCurrencies) === '["ILS","USD","EUR"]', JSON.stringify(onA.offerableCurrencies));
+    ok("R2 ON — CardCom with PROVIDER_ISSUES → ILS, USD, EUR (ILS first)", JSON.stringify(onA.offerableCurrencies) === '["ILS","USD","EUR"]', JSON.stringify(onA.offerableCurrencies));
     ok("R2 ON — disabled SUMIT next to CardCom does not narrow it", JSON.stringify(onR2.offerableCurrencies) === '["ILS","USD","EUR"]', JSON.stringify(onR2.offerableCurrencies));
     ok("R2 ON — no provider → still ILS alone", JSON.stringify((await rd(r0)).offerableCurrencies) === '["ILS"]');
   } finally {
     delete process.env.DUBIZ_FX_COLLECTION_ENABLED;
+    await prisma.businessPaymentConnection.updateMany({ where: { businessId: { in: [a.businessId, r2.businessId] } }, data: { documentIssuer: "DUBIZ_ISSUES" } });
+  }
+  ok("R2 OFF again — PROVIDER_ISSUES or not, the switch off means ILS alone", JSON.stringify((await rd(a)).offerableCurrencies) === '["ILS"]');
+
+  console.log("\n== D1 — CardCom's document on foreign-currency payments: shown, scoped ==");
+  {
+    const fx = await makeBusiness("FX");
+    const fxB = await makeBusiness("FXB");
+    await prisma.businessPaymentConnection.updateMany({ where: { businessId: { in: [fx.businessId, fxB.businessId] } }, data: { documentIssuer: "PROVIDER_ISSUES" } });
+    const DOC = { number: "880123", type: "TaxInvoiceAndReceipt", url: "https://secure.cardcom.solutions/Interface/ShowDoc.aspx?d=col" };
+    // The envelope payment-verification writes (payment-evidence.buildVerifiedPaymentEnvelope).
+    const envelope = (providerDocument: unknown) => ({
+      kind: "verified_payment", source: "WEBHOOK", callback: null, verifiedAt: new Date().toISOString(),
+      verification: { paymentMethod: "CARD", providerDocumentIssued: true, environment: "LIVE", evidence: {}, ...(providerDocument !== undefined ? { providerDocument } : {}) },
+    });
+    const fxPaid = async (ctx: Ctx, currency: string, providerDocument: unknown, reason: string) => {
+      const r = await prisma.paymentRequest.create({
+        data: {
+          businessId: ctx.businessId, customerId: ctx.customerId, billingDocumentId: null, provider: "CARDCOM", amount: "250.00", currency,
+          status: "PAID" as never, providerRequestId: `pr-${uniq()}`, paymentUrl: "https://pay.example/x", paidAt: new Date(),
+        },
+      });
+      const t = await runWithTenantContext({ businessId: ctx.businessId }, () =>
+        store.createTransaction({
+          paymentRequestId: r.id, provider: "CARDCOM", providerTransactionId: `ptx-${uniq()}`, amount: "250.00", currency,
+          status: "PAID", rawPayload: envelope(providerDocument), openAccountingSettlement: { businessId: ctx.businessId, attentionReason: reason },
+        })
+      );
+      return { r, t };
+    };
+    const withDoc = await fxPaid(fx, "USD", DOC, "PROVIDER_IS_DOCUMENT_ISSUER");
+    const missing = await fxPaid(fx, "EUR", null, "PROVIDER_DOCUMENT_MISSING");
+    const ils = await fxPaid(fx, "ILS", undefined, "PROVIDER_IS_DOCUMENT_ISSUER");
+    const other = await fxPaid(fxB, "USD", { ...DOC, number: "990777" }, "PROVIDER_IS_DOCUMENT_ISSUER");
+
+    const ib = (await inbox(fx)).body;
+    const paidOf = (id: number) => ib.paid.find((x: any) => x.paymentTransactionId === id);
+    const attOf = (id: number) => ib.attention.find((x: any) => x.kind === "RECEIPT_ATTENTION" && x.paymentTransactionId === id);
+    ok("D1 inbox — paid USD shows CardCom's document", JSON.stringify(paidOf(withDoc.t.id)?.providerDocument) === JSON.stringify(DOC), JSON.stringify(paidOf(withDoc.t.id)));
+    ok("D1 inbox — attention USD: PROVIDER_IS_DOCUMENT_ISSUER with the document", attOf(withDoc.t.id)?.reason === "PROVIDER_IS_DOCUMENT_ISSUER" && JSON.stringify(attOf(withDoc.t.id)?.providerDocument) === JSON.stringify(DOC));
+    ok("D1 inbox — EUR without a document: PROVIDER_DOCUMENT_MISSING, document null", attOf(missing.t.id)?.reason === "PROVIDER_DOCUMENT_MISSING" && attOf(missing.t.id)?.providerDocument === null && paidOf(missing.t.id)?.providerDocument === null, JSON.stringify(attOf(missing.t.id)));
+    ok("D1 inbox — the ILS item carries no document key (unchanged)", !!paidOf(ils.t.id) && !("providerDocument" in paidOf(ils.t.id)) && !!attOf(ils.t.id) && !("providerDocument" in attOf(ils.t.id)));
+    ok("D1 inbox — never another tenant's document", !JSON.stringify(ib).includes("990777"));
+
+    const th = await json(await threadRoute.GET(req(`/api/collection/customers/${fx.customerId}`, fx.token), { params: Promise.resolve({ customerId: String(fx.customerId) }) }));
+    const ev = (id: number) => th.body.events.find((x: any) => x.kind === "PAYMENT_VERIFIED" && x.paymentTransactionId === id);
+    ok("D1 thread — USD payment shows CardCom's document", th.status === 200 && JSON.stringify(ev(withDoc.t.id)?.providerDocument) === JSON.stringify(DOC), JSON.stringify(ev(withDoc.t.id)));
+    ok("D1 thread — EUR payment: document null, PROVIDER_DOCUMENT_MISSING", ev(missing.t.id)?.providerDocument === null && ev(missing.t.id)?.attentionReason === "PROVIDER_DOCUMENT_MISSING" && ev(missing.t.id)?.accounting === "RECEIPT_ATTENTION");
+    ok("D1 thread — ILS event carries no document key", !!ev(ils.t.id) && !("providerDocument" in ev(ils.t.id)));
+    ok("D1 thread — never another tenant's document", !JSON.stringify(th.body).includes("990777"));
+
+    const detail = await json(await requestDetailRoute.GET(req(`/api/payments/requests/${withDoc.r.id}`, fx.token), { params: Promise.resolve({ id: String(withDoc.r.id) }) }));
+    const dtx = detail.body.transactions?.find((x: any) => x.id === withDoc.t.id);
+    ok("D1 detail — the payment's document, never its raw payload", detail.status === 200 && JSON.stringify(dtx?.providerDocument) === JSON.stringify(DOC) && !("rawPayload" in (dtx ?? {})) && !JSON.stringify(detail.body).includes("verified_payment"), JSON.stringify(detail));
+
+    // Isolation: business B sees none of A's document data, through any route.
+    const ibB = (await inbox(fxB)).body;
+    ok("D1 isolation — B's inbox shows B's own document only", JSON.stringify(ibB).includes("990777") && !JSON.stringify(ibB).includes("880123") && ibB.paid.every((x: any) => x.paymentTransactionId !== withDoc.t.id));
+    const thB = await json(await threadRoute.GET(req(`/api/collection/customers/${fx.customerId}`, fxB.token), { params: Promise.resolve({ customerId: String(fx.customerId) }) }));
+    ok("D1 isolation — B asking for A's customer thread → 404", thB.status === 404 && !JSON.stringify(thB.body).includes("880123"), JSON.stringify(thB));
+    const dB = await json(await requestDetailRoute.GET(req(`/api/payments/requests/${withDoc.r.id}`, fxB.token), { params: Promise.resolve({ id: String(withDoc.r.id) }) }));
+    ok("D1 isolation — B asking for A's payment detail → 404, no document", dB.status === 404 && !JSON.stringify(dB.body).includes("880123"), JSON.stringify(dB));
+    const dA = await json(await requestDetailRoute.GET(req(`/api/payments/requests/${other.r.id}`, fx.token), { params: Promise.resolve({ id: String(other.r.id) }) }));
+    ok("D1 isolation — A asking for B's payment detail → 404", dA.status === 404 && !JSON.stringify(dA.body).includes("990777"), JSON.stringify(dA));
+    ok("D1 — no BillingDocument was created for any of these payments", (await prisma.billingDocument.count({ where: { businessId: { in: [fx.businessId, fxB.businessId] } } })) === 0);
   }
 
   console.log("\n== V1 — invoice collection state ==");

@@ -153,6 +153,7 @@ export const apiEn: Widen<typeof apiHe> = {
     currencyNotOffered: "A payment can't be requested in {currency} through the connected payment provider. Available: {allowed}.",
     currencyMustMatchInvoice: "A payment request for an invoice uses the invoice's currency ({currency}).",
     foreignCurrencyCollectionDisabled: "Collecting in {currency} isn't available yet. Payment requests can be made in {allowed} only.",
+    foreignCurrencyRequiresProviderDocuments: "Collecting in {currency} is available only through CardCom, when CardCom issues the documents (set in the CardCom connection). Payment requests can be made in {allowed} only.",
   },
   pricing: {
     profitLow: "Low",

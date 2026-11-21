@@ -14,6 +14,13 @@
  * DUBIZ_FX_COLLECTION_ENABLED, fail-closed): while it is off, ILS is the only
  * currency offered or accepted, whatever the provider could do.
  *
+ * And with the switch ON, a foreign currency is still offered or accepted only
+ * for ONE kind of collector: a CardCom connection whose business has said that
+ * CardCom issues the documents (documentIssuer PROVIDER_ISSUES). Dubiz issues
+ * no foreign-currency tax document of its own (#766), so a foreign-currency
+ * payment must arrive with CardCom's document — any other provider, or a
+ * CardCom connection set to DUBIZ_ISSUES / NOT_CONFIGURED, is ILS only.
+ *
  * ILS is the default everywhere and is first in the result whenever it is
  * offerable. No I/O apart from reading that one server variable.
  */
@@ -22,31 +29,73 @@ import { DEFAULT_BASE_CURRENCY, SUPPORTED_CURRENCIES, type CurrencyCode } from "
 import type { Translator } from "@/lib/i18n/translate";
 import { isForeignCurrencyCollectionEnabled } from "./fx-collection-flag";
 
+/** The one provider a foreign-currency request may be raised through. */
+export const FOREIGN_CURRENCY_COLLECTION_PROVIDER = "CARDCOM";
+
+/** Who would collect the money: the selected provider and its connection's document decision. */
+export interface ForeignCurrencyCollector {
+  provider: string;
+  documentIssuer: string | null | undefined;
+}
+
+/**
+ * Why a foreign currency may NOT be collected through this collector, or null
+ * when it may. The switch first, so while it is off the refusal is always the
+ * switch's, whatever the connection says.
+ */
+export function foreignCurrencyCollectionRefusal(
+  collector: ForeignCurrencyCollector | null | undefined,
+  foreignCurrencyEnabled: boolean = isForeignCurrencyCollectionEnabled()
+): "FX_COLLECTION_DISABLED" | "FX_REQUIRES_PROVIDER_DOCUMENTS" | null {
+  if (!foreignCurrencyEnabled) return "FX_COLLECTION_DISABLED";
+  if (
+    collector?.provider !== FOREIGN_CURRENCY_COLLECTION_PROVIDER ||
+    collector.documentIssuer !== "PROVIDER_ISSUES"
+  ) {
+    return "FX_REQUIRES_PROVIDER_DOCUMENTS";
+  }
+  return null;
+}
+
+/** True only when the switch is ON, the provider is CardCom and CardCom issues the documents. */
+export function isForeignCurrencyAllowedFor(
+  collector: ForeignCurrencyCollector | null | undefined,
+  foreignCurrencyEnabled: boolean = isForeignCurrencyCollectionEnabled()
+): boolean {
+  return foreignCurrencyCollectionRefusal(collector, foreignCurrencyEnabled) === null;
+}
+
 /**
  * The Dubiz set narrowed by what the provider adapter can encode (registry
- * order: ILS first) — and, while foreign-currency collection is switched off,
- * narrowed further to ILS alone.
+ * order: ILS first) — and, unless a foreign currency is allowed for this
+ * collector (`isForeignCurrencyAllowedFor`), narrowed further to ILS alone.
+ * Fail-closed: without that answer, ILS alone.
  */
 export function offerableCurrencies(
   providerSupported: readonly string[] | null | undefined,
-  foreignCurrencyEnabled: boolean = isForeignCurrencyCollectionEnabled()
+  foreignCurrencyAllowed: boolean = false
 ): CurrencyCode[] {
   const byProvider =
     providerSupported == null
       ? [...SUPPORTED_CURRENCIES]
       : SUPPORTED_CURRENCIES.filter((c) => providerSupported.includes(c));
-  return foreignCurrencyEnabled ? byProvider : byProvider.filter((c) => c === DEFAULT_BASE_CURRENCY);
+  return foreignCurrencyAllowed ? byProvider : byProvider.filter((c) => c === DEFAULT_BASE_CURRENCY);
 }
 
 /** What the UI may offer when no provider can be resolved yet: the default alone. */
 export const DEFAULT_OFFERABLE_CURRENCIES: readonly CurrencyCode[] = Object.freeze([DEFAULT_BASE_CURRENCY]);
 
-export type CurrencyRefusalReason = "NOT_OFFERABLE" | "INVOICE_CURRENCY" | "FX_COLLECTION_DISABLED";
+export type CurrencyRefusalReason =
+  | "NOT_OFFERABLE"
+  | "INVOICE_CURRENCY"
+  | "FX_COLLECTION_DISABLED"
+  | "FX_REQUIRES_PROVIDER_DOCUMENTS";
 
 const REFUSAL_CODE: Readonly<Record<CurrencyRefusalReason, string>> = {
   NOT_OFFERABLE: "UNSUPPORTED_CURRENCY",
   INVOICE_CURRENCY: "CURRENCY_MISMATCH",
   FX_COLLECTION_DISABLED: "FOREIGN_CURRENCY_COLLECTION_DISABLED",
+  FX_REQUIRES_PROVIDER_DOCUMENTS: "FOREIGN_CURRENCY_REQUIRES_PROVIDER_DOCUMENTS",
 };
 
 /**
@@ -57,6 +106,8 @@ const REFUSAL_CODE: Readonly<Record<CurrencyRefusalReason, string>> = {
  *   NOT_OFFERABLE          → code UNSUPPORTED_CURRENCY (the money registry's code)
  *   INVOICE_CURRENCY       → code CURRENCY_MISMATCH    (the money engine's code)
  *   FX_COLLECTION_DISABLED → code FOREIGN_CURRENCY_COLLECTION_DISABLED (the kill switch is off)
+ *   FX_REQUIRES_PROVIDER_DOCUMENTS → code FOREIGN_CURRENCY_REQUIRES_PROVIDER_DOCUMENTS
+ *                            (switch on, but the collector is not CardCom issuing the documents)
  */
 export class PaymentCurrencyNotOfferableError extends ValidationError {
   readonly currency: string;
@@ -79,33 +130,42 @@ export class PaymentCurrencyNotOfferableError extends ValidationError {
 }
 
 /**
- * The kill switch. While foreign-currency collection is off, a request in any
- * currency other than ILS is refused — whatever the provider supports and
- * whichever way the currency was arrived at (sent by the caller or taken from
- * an invoice). ILS passes without the switch being consulted.
+ * The kill switch, then the collector. A request in any currency other than ILS
+ * is refused — whatever the provider supports and whichever way the currency
+ * was arrived at (sent by the caller or taken from an invoice) — while the
+ * switch is off, and, with it on, unless the collector is CardCom issuing the
+ * documents. No collector named counts as "not that collector" (fail-closed).
+ * ILS passes without the switch or the collector being consulted.
  */
 export function assertForeignCurrencyCollectionAllowed(
   currency: string,
+  collector: ForeignCurrencyCollector | null = null,
   foreignCurrencyEnabled: boolean = isForeignCurrencyCollectionEnabled()
 ): void {
-  if (currency === DEFAULT_BASE_CURRENCY || foreignCurrencyEnabled) return;
+  if (currency === DEFAULT_BASE_CURRENCY) return;
+  const refusal = foreignCurrencyCollectionRefusal(collector, foreignCurrencyEnabled);
+  if (refusal === null) return;
   throw new PaymentCurrencyNotOfferableError({
     currency,
     offerable: [DEFAULT_BASE_CURRENCY],
-    reason: "FX_COLLECTION_DISABLED",
-    message: `Collecting in ${currency} is switched off. Payment requests are raised in ${DEFAULT_BASE_CURRENCY} only.`,
+    reason: refusal,
+    message:
+      refusal === "FX_COLLECTION_DISABLED"
+        ? `Collecting in ${currency} is switched off. Payment requests are raised in ${DEFAULT_BASE_CURRENCY} only.`
+        : `Collecting in ${currency} requires a ${FOREIGN_CURRENCY_COLLECTION_PROVIDER} connection on which ${FOREIGN_CURRENCY_COLLECTION_PROVIDER} issues the documents. Payment requests are raised in ${DEFAULT_BASE_CURRENCY} only.`,
   });
 }
 
 /** Refuse a currency outside the Dubiz set or outside what the provider adapter supports. */
 export function assertCurrencyOfferable(
   adapter: { provider: string; supportedCurrencies: readonly string[] | null },
-  currency: string
+  currency: string,
+  collector: ForeignCurrencyCollector | null = null
 ): void {
-  // The kill switch first, so a foreign currency is always refused for the
-  // same reason (and code) while it is off, whatever the adapter supports.
-  assertForeignCurrencyCollectionAllowed(currency);
-  const offerable = offerableCurrencies(adapter.supportedCurrencies);
+  // The kill switch and the collector first, so a foreign currency is always
+  // refused for the same reason (and code), whatever the adapter supports.
+  assertForeignCurrencyCollectionAllowed(currency, collector);
+  const offerable = offerableCurrencies(adapter.supportedCurrencies, isForeignCurrencyAllowedFor(collector));
   if ((offerable as readonly string[]).includes(currency)) return;
   throw new PaymentCurrencyNotOfferableError({
     currency,
@@ -141,7 +201,9 @@ export function paymentCurrencyRefusalBody(
         ? t("api.payments.currencyMustMatchInvoice", { currency: allowed })
         : error.reason === "FX_COLLECTION_DISABLED"
           ? t("api.payments.foreignCurrencyCollectionDisabled", { currency: error.currency, allowed })
-          : t("api.payments.currencyNotOffered", { currency: error.currency, allowed }),
+          : error.reason === "FX_REQUIRES_PROVIDER_DOCUMENTS"
+            ? t("api.payments.foreignCurrencyRequiresProviderDocuments", { currency: error.currency, allowed })
+            : t("api.payments.currencyNotOffered", { currency: error.currency, allowed }),
     code: error.code ?? "UNSUPPORTED_CURRENCY",
     offerableCurrencies: error.offerable,
   };

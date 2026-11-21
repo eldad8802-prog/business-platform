@@ -27,6 +27,7 @@ import {
   useCollectionFormat,
 } from "../collection-client";
 import { CustomerPicker } from "../customer-picker";
+import { ProviderDocumentNote } from "../provider-document";
 
 const W = TOKEN.warm;
 
@@ -476,6 +477,7 @@ function AttentionRow({
       <WarmCard>
         <RowHead title={r.customerName ?? t("money.collection.inbox.receivedPayment")} amount={money(r.amount, r.currency)} href={thread} />
         <Meta><WarmPill tone="partial">{t("money.collection.shared.needsAttention")}</WarmPill> {t("money.collection.inbox.attentionLine", { title: att.title })}</Meta>
+        {a.providerDocument ? <Meta><ProviderDocumentNote doc={a.providerDocument} t={t} /></Meta> : null}
         <Actions>
           {att.action === "NAME_CUSTOMER" ? (
             <WarmButton height={40} disabled={busy} onClick={() => onNameCustomer(a.paymentTransactionId)}>{t("money.collection.inbox.pickCustomer")}</WarmButton>
@@ -524,6 +526,7 @@ function PaidRow({ p }: { p: InboxPaidItem }) {
         <WarmPill tone="verified">{t("money.collection.shared.paid")}</WarmPill> {shortDate(p.paidAt)}
         {p.invoiceNumber ? ` · ${t("money.collection.shared.invoiceN", { number: p.invoiceNumber })}` : ""} · {line}
       </Meta>
+      {p.providerDocument ? <Meta><ProviderDocumentNote doc={p.providerDocument} t={t} /></Meta> : null}
     </WarmCard>
   );
 }

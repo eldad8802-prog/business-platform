@@ -470,7 +470,14 @@ const collectionEn: Widen<typeof collectionHe> = {
     REFUND_ACCOUNTING_DECISION_REQUIRED: "A refund was made to the customer — updating the books (the credit note) awaits a decision",
     FOREIGN_CURRENCY_DOCUMENT_HELD:
       "The payment arrived and was recorded — a foreign-currency receipt is not issued automatically until the accounting rules are approved",
+    PROVIDER_DOCUMENT_MISSING: "The payment arrived and was recorded — the CardCom document is missing and needs attention",
     fallback: "The payment arrived — the receipt needs attention",
+  },
+  providerDocumentType: {
+    TaxInvoiceAndReceipt: "Tax invoice/receipt",
+    Receipt: "Receipt",
+    TaxInvoice: "Tax invoice",
+    ReceiptForTaxInvoice: "Receipt for tax invoice",
   },
   blockers: {
     NO_PAYMENT_PROVIDER: {
@@ -502,6 +509,8 @@ const collectionEn: Widen<typeof collectionHe> = {
     none: "No customers found.",
   },
   shared: {
+    providerDocument: "Document issued by CardCom: {type} no. {number}",
+    providerDocumentOpen: "Open the document in CardCom",
     redirecting: "Opening the customer's file…",
     linkCopied: "The link was copied.",
     shareOpened: "The share sheet opened.",

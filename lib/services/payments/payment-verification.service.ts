@@ -54,7 +54,7 @@ import {
   classifyConnectionEnvironment,
   isEnvironmentAllowedForBusiness,
 } from "./payment-environment";
-import { buildVerifiedPaymentEnvelope } from "./payment-evidence";
+import { buildVerifiedPaymentEnvelope, verifiedProviderDocument } from "./payment-evidence";
 import { getProviderDescriptor } from "./providers/provider-registry";
 import type {
   PaymentConnectionRecord,
@@ -105,7 +105,13 @@ export type AccountingHoldReason =
   /** The business configured the PROVIDER as this connection's document issuer. */
   | "PROVIDER_IS_DOCUMENT_ISSUER"
   /** The provider may issue documents and the business has not decided who does. */
-  | "DOCUMENT_ISSUER_NOT_CONFIGURED";
+  | "DOCUMENT_ISSUER_NOT_CONFIGURED"
+  /**
+   * A foreign-currency payment on a PROVIDER_ISSUES connection whose verified
+   * answer names no document: the money is recorded, the provider's document
+   * is missing and a person must deal with it. Dubiz never issues one instead.
+   */
+  | "PROVIDER_DOCUMENT_MISSING";
 
 export type UnresolvedReason =
   /** No active connection — the authority cannot be asked. */
@@ -362,6 +368,17 @@ export async function resolvePaymentAuthoritatively(
     // Either way the money is RECORDED as stated — that is what happened — and
     // only the automatic receipt is withheld, for a person to decide.
     const environment = classifyConnectionEnvironment(adapter, connection.merchantId);
+    // A FOREIGN-currency request is only ever raised on a connection where the
+    // provider issues the documents (createPaymentRequest, step 2b''), and
+    // Dubiz issues no foreign-currency document itself. So for exactly that
+    // case the provider's own document is checked — from this verified answer
+    // only — and kept with the money. Every other request (all of ILS) is
+    // decided and recorded exactly as before: providerDocument stays undefined.
+    const checksProviderDocument =
+      normaliseCurrency(request.currency) !== "ILS" && connection.documentIssuer === "PROVIDER_ISSUES";
+    const providerDocument = checksProviderDocument
+      ? verifiedProviderDocument(status.providerDocument)
+      : undefined;
     const accountingHold: AccountingHoldReason | null = !isEnvironmentAllowedForBusiness(
       environment,
       request.businessId,
@@ -369,7 +386,9 @@ export async function resolvePaymentAuthoritatively(
     )
       ? "TEST_ENVIRONMENT_PAYMENT"
       : connection.documentIssuer === "PROVIDER_ISSUES"
-        ? "PROVIDER_IS_DOCUMENT_ISSUER"
+        ? checksProviderDocument && !providerDocument
+          ? "PROVIDER_DOCUMENT_MISSING"
+          : "PROVIDER_IS_DOCUMENT_ISSUER"
         : status.providerDocumentIssued === true
           ? "PROVIDER_ISSUED_DOCUMENT"
           : connection.documentIssuer !== "DUBIZ_ISSUES" &&
@@ -392,6 +411,7 @@ export async function resolvePaymentAuthoritatively(
           status,
           environment,
           verifiedAt: now(),
+          ...(providerDocument !== undefined ? { providerDocument } : {}),
         }),
         openAccountingSettlement: {
           businessId: request.businessId,
@@ -463,7 +483,14 @@ export async function resolvePaymentAuthoritatively(
       await audit(
         "PAYMENT_ACCOUNTING_HELD",
         `${provider} payment for request ${request.id} recorded; automatic receipt withheld (${accountingHold})`,
-        { ...evidence, accountingHold, environment }
+        {
+          ...evidence,
+          accountingHold,
+          environment,
+          ...(providerDocument !== undefined
+            ? { providerDocumentNumber: providerDocument?.number ?? null, providerDocumentType: providerDocument?.type ?? null }
+            : {}),
+        }
       );
     }
 

@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import { loadAwaitingPaymentList } from "@/lib/services/billing/collection/awaiting-payment.loader";
+import { readProviderDocument } from "@/lib/services/payments/payment-evidence";
+import type { ProviderIssuedDocument } from "@/lib/services/payments/providers/payment-provider.types";
 
 /**
  * The collection action inbox — ONE read model for /collection.
@@ -61,6 +63,13 @@ export type InboxPaidItem = InboxRequestItem & {
   receiptNumber: string | null;
   allocatedAmount: string | null;
   unappliedAmount: string | null;
+  /**
+   * Only on a payment whose provider document was checked (a foreign-currency
+   * request on a PROVIDER_ISSUES connection): the document the provider
+   * verified (number, type, its own link), or null when it named none. Absent
+   * on every other payment — an ILS item is exactly what it was.
+   */
+  providerDocument?: ProviderIssuedDocument | null;
 };
 
 export type InboxAttentionItem =
@@ -70,6 +79,8 @@ export type InboxAttentionItem =
       request: InboxRequestItem;
       paymentTransactionId: number;
       reason: string;
+      /** As on InboxPaidItem: present only when the provider document was checked. */
+      providerDocument?: ProviderIssuedDocument | null;
     }
   | {
       kind: "UNAPPLIED_EXCESS";
@@ -187,6 +198,7 @@ export async function loadCollectionInbox(
         amount: true,
         currency: true,
         createdAt: true,
+        rawPayload: true,
         paymentRequest: { select: requestSelect },
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -197,7 +209,7 @@ export async function loadCollectionInbox(
       select: {
         paymentTransactionId: true,
         attentionReason: true,
-        paymentTransaction: { select: { paymentRequest: { select: requestSelect } } },
+        paymentTransaction: { select: { rawPayload: true, paymentRequest: { select: requestSelect } } },
       },
       orderBy: { updatedAt: "desc" },
       take: 50,
@@ -297,11 +309,13 @@ export async function loadCollectionInbox(
   }
   for (const s of data.attentionSettlements) {
     const r = s.paymentTransaction.paymentRequest;
+    const providerDocument = readProviderDocument(s.paymentTransaction.rawPayload);
     attention.push({
       kind: "RECEIPT_ATTENTION",
       request: toItem(r, "PAID"),
       paymentTransactionId: s.paymentTransactionId,
       reason: s.attentionReason ?? "UNKNOWN",
+      ...(providerDocument !== undefined ? { providerDocument } : {}),
     });
   }
   for (const rc of data.excessReceipts) {
@@ -331,6 +345,7 @@ export async function loadCollectionInbox(
     const r = t.paymentRequest;
     const s = data.settlements.find((x) => x.paymentTransactionId === t.id);
     const rc = data.receipts.find((x) => x.sourcePaymentTransactionId === t.id);
+    const providerDocument = readProviderDocument(t.rawPayload);
     const accounting: InboxAccounting = rc
       ? "RECEIPTED"
       : !s
@@ -352,6 +367,7 @@ export async function loadCollectionInbox(
         ? dec(rc.paymentAllocationsAsReceipt.reduce((a, x) => a.plus(x.allocatedAmount), new Prisma.Decimal(0)))
         : null,
       unappliedAmount: rc ? dec(rc.unappliedAmount) : null,
+      ...(providerDocument !== undefined ? { providerDocument } : {}),
     };
   });
 
