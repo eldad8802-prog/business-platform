@@ -125,6 +125,8 @@ check("existing icons are kept — each Settings area keeps its emoji", () => {
     "account-privacy": "🔒",
     "import-export": "🔄",
     notifications: "🔔",
+    // Phase 2 — activity packs (listed only while activity_packs is ON).
+    activity: "🧭",
   };
   for (const c of SETTINGS_CATEGORIES) assert.equal(c.icon, expected[c.key], c.key);
 });

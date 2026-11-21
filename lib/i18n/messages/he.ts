@@ -76,7 +76,8 @@ export const he = {
     settings: "הגדרות",
     tools: "כלים",
     /** The floating bottom bar's short labels (home redesign v4). */
-    bar: { calendar: "יומן", updates: "עדכונים", tools: "כלים" },
+    // serviceDesk / inventory / leads: the second slot when it follows the primary activity pack (phase 2).
+    bar: { calendar: "יומן", updates: "עדכונים", tools: "כלים", serviceDesk: "קריאות", inventory: "מלאי", leads: "לידים" },
     a11y: {
       mainNav: "ניווט ראשי",
       bottomNav: "ניווט תחתון",

@@ -36,6 +36,7 @@ export const PLATFORM_FEATURE_KEYS = {
   INTAKE_STATUS_VISIBILITY: "intake_status_visibility",
   SERVICE_DESK: "service_desk",
   NOTIFICATIONS_ENGINE: "notifications_engine",
+  ACTIVITY_PACKS: "activity_packs",
 } as const;
 
 export type PlatformFeatureKey =
@@ -55,7 +56,8 @@ export type PlatformFeatureCategory =
   | "intelligence"
   | "tasks"
   | "scheduling"
-  | "service";
+  | "service"
+  | "experience";
 
 export type PlatformFeatureCatalogEntry = {
   key: PlatformFeatureKey;
@@ -371,6 +373,18 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       displayName: "מנוע התראות",
       category: "integrations",
       description: "שליחת התראות לטלפון ולדפדפן (דחיפה), סיכום יומי ורישום מכשירים — כבוי כברירת מחדל",
+      defaultEnabled: false,
+      mutable: true,
+    },
+    // Phase 2 — activity packs (owner-approved spec + design 2026-11-20): the Home, the "+" order, the tools order
+    // and the bottom bar's second slot follow the packs the owner chose (lib/activity-packs). DISPLAY ONLY — it
+    // grants nothing. OFF for every business (migration 20261216090000: definition + global policy OFF); while OFF
+    // the selection screens are not offered and every business sees exactly the Home it saw before.
+    {
+      key: PLATFORM_FEATURE_KEYS.ACTIVITY_PACKS,
+      displayName: "חבילות פעילות",
+      category: "experience",
+      description: "התאמת מסך הבית, הסרגל והכלים לתחומי הפעילות שבעל העסק בחר — תצוגה בלבד, כבוי כברירת מחדל",
       defaultEnabled: false,
       mutable: true,
     },
