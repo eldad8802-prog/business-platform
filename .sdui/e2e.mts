@@ -419,7 +419,9 @@ async function main() {
         await panel.getByRole("button", { name: "לרשום" }).click();
         await pp.getByText("לפני המסירה: לקבל בחזרה את טלפון חלופי").waitFor({ timeout: 30_000 });
         await shot(pp, "real-case-pickup-loan-phone");
-        if (!(await pp.locator("section[aria-label='מצב ופעולה הבאה']").getByRole("button", { name: "למסור ללקוח", exact: true }).isEnabled())) throw new Error("the handover is blocked");
+        // The loan is a reminder, never a block: c3 has no charge decided, so the only reason the handover waits is the charge.
+        const notes = (await pp.locator("section[aria-label='מצב ופעולה הבאה'] [role=note]").allInnerTexts()).join(" ");
+        if (notes.includes("טלפון חלופי") || !notes.includes("חיוב")) throw new Error(`the handover waits for something other than the charge: ${notes}`);
         await pp.locator("[data-panel=loans]").getByRole("button", { name: "הוחזר" }).click();
         await until(async () => Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceCaseLoaner" WHERE "caseId" = $1 AND "returnedAt" IS NOT NULL`, seed.c3))[0].n) === 1, "not returned");
       });
