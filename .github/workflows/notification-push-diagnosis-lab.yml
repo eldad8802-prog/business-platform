@@ -1,0 +1,77 @@
+name: notification push test diagnosis — evidence lab (ephemeral PG17)
+
+# Runs ops/evidence/notification-push-test-diagnosis-business-9.sql against the notification engine lab (every
+# engine migration applied by `prisma migrate deploy`, Production role topology) BEFORE it may ever run in
+# Production: it parses, every relation and column exists, it is read-only, it is selectable in the Production
+# evidence workflow and its output is counts / flags only (public logs). Synthetic data only. ZERO secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ops/evidence/notification-push-test-diagnosis-*.sql"
+      - ".github/workflows/notification-push-diagnosis-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: push test diagnosis SQL (PG17 lab, read-only, counts only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: nptd_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: nptd_ci_synthetic_super_pw
+      LAB_PASSWORD: nptd_ci_synthetic_role_pw
+      CHECKPOINT_DISABLE: "1"
+      DIAG: ops/evidence/notification-push-test-diagnosis-business-9.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. SELECT-only, selectable in Production, counts / flags only
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          if grep -inE "$FORBIDDEN" "$DIAG"; then echo "write keyword in $DIAG"; exit 1; fi
+          grep -q "'$DIAG'" .github/workflows/prod-readonly-evidence.yml || { echo "$DIAG not selectable"; exit 1; }
+          node scripts/ci/evidence-output-guard.mjs
+
+      - name: 1. Runs on the engine lab (all engine migrations applied) — every line answers
+        run: |
+          set -euo pipefail
+          NTE_SEED=.nte/seed.sql NTE2C_SEED=.nte2c/seed.sql bash .nte2c/lab.sh nptd --with-nte2c >/dev/null
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d nptd -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$DIAG" | tee /tmp/diag.out
+          rows=$(grep -cE '^ +[0-9]+ \|' /tmp/diag.out)
+          test "$rows" = "45" || { echo "expected 45 lines, got $rows"; exit 1; }
+          grep -qE '^ +1 \| t ' /tmp/diag.out || { echo "line 1: the lab owner must read unfiltered"; exit 1; }
+          echo "45 lines; read unfiltered"
