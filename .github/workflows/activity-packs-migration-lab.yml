@@ -71,6 +71,9 @@ jobs:
       - name: 1. current schema + Production's runtime role
         run: |
           DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" npx prisma db push --skip-generate
+          # A branch stacked on this one carries the Prisma model, so db push builds a copy of the table: drop it, so the
+          # migration (the real thing) is what creates it — exactly as in Production, where the table does not exist.
+          psql -v ON_ERROR_STOP=1 -c 'DROP TABLE IF EXISTS "BusinessActivityProfile";'
           psql -v ON_ERROR_STOP=1 -c "CREATE ROLE app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;" -c "GRANT USAGE ON SCHEMA public TO app_runtime;"
 
       - name: 2. preflight (read-only) passes before the migration
