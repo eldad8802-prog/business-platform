@@ -4,7 +4,7 @@
     "lib/native/android-notification-branding.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "notSecurityBecause": "notification icon and colour only; no data, auth or permission path",
-      "reason": "pure: manifest small icon ic_stat_dubiz + colour colorPrimary + default channel unchanged; the FCM colour equals colorPrimary; five densities, white silhouette on transparency, the mark fills the icon; pixel-identical to public/dubiz-mark.png resized (the same mark, no new logo)"
+      "reason": "pure: manifest small icon ic_notification_mark + colour colorPrimary + default channel unchanged; the FCM colour equals colorPrimary; five densities, white silhouette on transparency, the mark fills the icon; pixel-identical to public/dubiz-mark.png resized (the same mark, no new logo)"
     }
   }
 }

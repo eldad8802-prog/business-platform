@@ -117,7 +117,7 @@ async function notificationIcon(size, ratio) {
 async function writeNotificationIcons(res) {
   for (const [dir, size] of NOTIFICATION) {
     await mkdir(path.join(res, dir), { recursive: true });
-    await writeFile(path.join(res, dir, "ic_stat_dubiz.png"), await notificationIcon(size, NOTIFICATION_RATIO));
+    await writeFile(path.join(res, dir, "ic_notification_mark.png"), await notificationIcon(size, NOTIFICATION_RATIO));
   }
 }
 
@@ -125,7 +125,7 @@ async function main() {
   const res = "android/app/src/main/res";
   if (process.argv.includes("--notification-icon")) {
     await writeNotificationIcons(res);
-    console.log(`notification icon generated (mark=${MARK}, ic_stat_dubiz, white silhouette at ${NOTIFICATION_RATIO})`);
+    console.log(`notification icon generated (mark=${MARK}, ic_notification_mark, white silhouette at ${NOTIFICATION_RATIO})`);
     return;
   }
   await writeNotificationIcons(res);

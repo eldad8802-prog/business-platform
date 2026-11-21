@@ -31,7 +31,7 @@
           Push (FCM): notifications the system draws while the app is in the
           background land on the app's own channel (created at start-up by
           NotificationChannels.java) with the Dubiz mark as the status-bar icon
-          (ic_stat_dubiz: the same mark, generated from public/dubiz-mark.png by
+          (ic_notification_mark: the same mark, generated from public/dubiz-mark.png by
           scripts/native/generate-app-icons.mjs, filling the 24dp icon) on the
           app's teal, instead of FCM's fallback channel and the launcher icon (whose
           opaque ground would show as a white blob).
@@ -41,7 +41,7 @@
             android:value="dubiz_default" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@drawable/ic_stat_dubiz" />
+            android:resource="@drawable/ic_notification_mark" />
         <!-- The notification colour (the small icon's circle / accent): the app's own teal, colorPrimary.
              Without it Samsung One UI painted the circle in its system blue. -->
         <meta-data
