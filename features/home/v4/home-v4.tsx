@@ -181,7 +181,7 @@ export const HOME_V4_CSS = `
 /* Wider screens (owner 11-19): the SAME four areas and order, arranged — never more of them. Phones (<768) keep the
    approved single column above. Areas: the header, תמונת מצב, המזכירה שלי, היום שלי, בשבילך (absent when it has
    nothing true to show — the grid then closes the gap). Scoped to .h4-home: the tools screens share .h4-col. The shell supplies the navigation: rail 768–1279, sidebar 1280+. */
-.h4-head { grid-area:head; } .h4-a-snap { grid-area:snap; } .h4-sec { grid-area:sec; } .h4-a-today { grid-area:today; } .h4-a-fy { grid-area:fy; }
+.h4-header, .h4-head { grid-area:head; } .h4-a-snap { grid-area:snap; } .h4-sec { grid-area:sec; } .h4-a-today { grid-area:today; } .h4-a-fy { grid-area:fy; }
 @media (min-width: 768px) {
   /* Narrow tablet (portrait, beside the rail): one wider column — two would squeeze the secretary under ~300px. */
   .h4-home { max-width:680px; padding-inline:24px; display:grid; grid-template-columns:minmax(0,1fr);
@@ -214,6 +214,29 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
   const [now] = useState(() => new Date());
   const access = data.access;
   const businessId = access.state === "ready" ? access.value.businessId : null;
+  const limited = access.state === "ready" && access.value.subscription === "FREE_LIMITED";
+  const planHref = access.state === "ready" ? access.value.planHref ?? null : null;
+
+  const header = (
+    <header className="h4-header">
+      <div className="h4-hello">
+        <div className="h4-greet">
+          <span>{greetingForHour(israelHour(now), t)}</span>
+          <span aria-hidden>👋</span>
+        </div>
+        <h1 className="h4-name">{businessName}</h1>
+      </div>
+      <div className="h4-hbtns">
+        <Link href="/notifications" prefetch={false} className="h4-round h4-round--bell" aria-label={data.unread ? t("home.v4.header.withUnread", { label: t("home.v4.header.updates") }) : t("home.v4.header.updates")}>
+          <IconBellLine size={24} />
+          {data.unread ? <span className="h4-dot" style={{ background: "var(--h4-mustard)" }} aria-hidden /> : null}
+        </Link>
+        <Link href="/profile" prefetch={false} className="h4-round h4-round--profile" aria-label={t("home.v4.header.profile")}>
+          <IconUser size={24} />
+        </Link>
+      </div>
+    </header>
+  );
 
   return (
     <div className="h4">
@@ -222,36 +245,22 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
       <div className="h4-blob" aria-hidden style={{ width: 420, height: 300, top: -150, insetInlineEnd: -120, background: "radial-gradient(closest-side, rgba(211,230,220,.85), rgba(211,230,220,0))" }} />
       <div className="h4-blob" aria-hidden style={{ width: 300, height: 240, top: 30, insetInlineStart: -150, background: "radial-gradient(closest-side, rgba(223,234,244,.6), rgba(223,234,244,0))" }} />
       <main className="h4-col h4-home">
-        <div className="h4-head">
-        <header className="h4-header">
-          <div className="h4-hello">
-            <div className="h4-greet">
-              <span>{greetingForHour(israelHour(now), t)}</span>
-              <span aria-hidden>👋</span>
+        {/* FREE_LIMITED (owner decision 3): ONE status line under the header — the first of the only two upgrade
+            mentions. Only then is the header wrapped (the pair takes the header's grid area); otherwise the markup is
+            exactly the pre-packs HOME v4 (the subscription mechanism does not exist yet, so: always). */}
+        {limited ? (
+          <div className="h4-head">
+            {header}
+            <div className="h4-status" role="status">
+              <span>{t("home.v4.plan.statusLine")}</span>
+              {planHref ? (
+                <Link href={planHref} prefetch={false}>{t("home.v4.plan.statusLink")}</Link>
+              ) : null}
             </div>
-            <h1 className="h4-name">{businessName}</h1>
           </div>
-          <div className="h4-hbtns">
-            <Link href="/notifications" prefetch={false} className="h4-round h4-round--bell" aria-label={data.unread ? t("home.v4.header.withUnread", { label: t("home.v4.header.updates") }) : t("home.v4.header.updates")}>
-              <IconBellLine size={24} />
-              {data.unread ? <span className="h4-dot" style={{ background: "var(--h4-mustard)" }} aria-hidden /> : null}
-            </Link>
-            <Link href="/profile" prefetch={false} className="h4-round h4-round--profile" aria-label={t("home.v4.header.profile")}>
-              <IconUser size={24} />
-            </Link>
-          </div>
-        </header>
-        {/* FREE_LIMITED (owner decision 3): ONE status line — the first of the only two upgrade mentions. Never drawn
-            while the subscription is not FREE_LIMITED (always, until the subscription mechanism exists). */}
-        {access.state === "ready" && access.value.subscription === "FREE_LIMITED" ? (
-          <div className="h4-status" role="status">
-            <span>{t("home.v4.plan.statusLine")}</span>
-            {access.value.planHref ? (
-              <Link href={access.value.planHref} prefetch={false}>{t("home.v4.plan.statusLink")}</Link>
-            ) : null}
-          </div>
-        ) : null}
-        </div>
+        ) : (
+          header
+        )}
 
         <SnapshotCard data={data} businessId={businessId} retry={retry} locale={locale} />
         <SecretaryCard data={data} businessId={businessId} retry={retry} now={now} />
