@@ -5,6 +5,7 @@
  * changing public/dubiz-mark.png, then `npx cap sync`:
  *
  *   node scripts/native/generate-app-icons.mjs
+ *   node scripts/native/generate-app-icons.mjs --notification-icon   (only the notification icon below)
  *
  * Android adaptive icons: the foreground must keep the mark inside the 66%
  * safe zone of the 108dp canvas (the launcher masks and can parallax the
@@ -32,6 +33,18 @@ const ANDROID = [
   ["mipmap-xxhdpi", 324],
   ["mipmap-xxxhdpi", 432],
 ];
+// Notification small icon (status bar + notification header): 24dp, white silhouette on transparency — Android
+// tints it (with the notification colour, com.google.firebase.messaging.default_notification_color). The SAME mark,
+// filling the icon (the launcher's monochrome layer keeps it at 55% inside a 108dp safe zone, so at 24dp it read as
+// a small anonymous symbol).
+const NOTIFICATION = [
+  ["drawable-mdpi", 24],
+  ["drawable-hdpi", 36],
+  ["drawable-xhdpi", 48],
+  ["drawable-xxhdpi", 72],
+  ["drawable-xxxhdpi", 96],
+];
+const NOTIFICATION_RATIO = 0.92;
 // Legacy square/round launcher icons (pre-26 and some launchers).
 const LEGACY = [
   ["mipmap-mdpi", 48],
@@ -87,8 +100,35 @@ async function monochrome(size, ratio) {
     .toBuffer();
 }
 
+/** White silhouette of the mark at `ratio` of a square canvas (alpha carries the shape). */
+async function notificationIcon(size, ratio) {
+  const art = await markAt(size, ratio);
+  const { data, info } = await sharp(art).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 255; data[i + 1] = 255; data[i + 2] = 255;
+  }
+  const solid = await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
+  return sharp({ create: { width: size, height: size, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([{ input: solid, gravity: "centre" }])
+    .png()
+    .toBuffer();
+}
+
+async function writeNotificationIcons(res) {
+  for (const [dir, size] of NOTIFICATION) {
+    await mkdir(path.join(res, dir), { recursive: true });
+    await writeFile(path.join(res, dir, "ic_stat_dubiz.png"), await notificationIcon(size, NOTIFICATION_RATIO));
+  }
+}
+
 async function main() {
   const res = "android/app/src/main/res";
+  if (process.argv.includes("--notification-icon")) {
+    await writeNotificationIcons(res);
+    console.log(`notification icon generated (mark=${MARK}, ic_stat_dubiz, white silhouette at ${NOTIFICATION_RATIO})`);
+    return;
+  }
+  await writeNotificationIcons(res);
 
   for (const [dir, size] of ANDROID) {
     await mkdir(path.join(res, dir), { recursive: true });
