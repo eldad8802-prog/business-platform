@@ -19,6 +19,7 @@ import {
   israelHour,
   leadsWaitingClaim,
   ready,
+  stockAlertsClaim,
   valueOf,
   type ActivityItem,
   type CountClaim,
@@ -59,6 +60,7 @@ import {
   buildSecretary,
   buildToday,
   countMetric,
+  metricLabelKey,
   metricOrder,
   moneyMetric,
   restOfDayLine,
@@ -85,7 +87,11 @@ export const HOME_V4_CSS = `
 .h4 *, .h4 *::before, .h4 *::after { box-sizing:border-box; }
 .h4-blob { position:absolute; pointer-events:none; border-radius:50%; filter:blur(2px); }
 .h4-col { position:relative; max-width:600px; margin:0 auto; padding:14px 14px 8px; display:flex; flex-direction:column; gap:12px; }
+/* FREE_LIMITED status line (owner decision 3): one quiet line under the greeting, inside the header area. */
+.h4-status { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:6px; padding:8px 8px 8px 14px; border-radius:16px; background:#FBF7EF; border:1px solid #E6D7BE; color:#815A32; font-size:14px; }
+.h4-status a { display:inline-flex; align-items:center; min-height:40px; padding:0 8px; color:var(--h4-teal-deep); font-weight:600; text-decoration:none; white-space:nowrap; }
 .h4-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:6px 4px 2px; }
+.h4-head { display:flex; flex-direction:column; }
 .h4-hello { min-width:0; flex:1 1 auto; }
 .h4-greet { font-size:17px; color:var(--h4-ink); display:flex; align-items:center; gap:6px; }
 .h4-name { margin:2px 0 0; font-size:28px; font-weight:700; letter-spacing:-.3px; line-height:1.15; overflow-wrap:anywhere; }
@@ -175,7 +181,7 @@ export const HOME_V4_CSS = `
 /* Wider screens (owner 11-19): the SAME four areas and order, arranged — never more of them. Phones (<768) keep the
    approved single column above. Areas: the header, תמונת מצב, המזכירה שלי, היום שלי, בשבילך (absent when it has
    nothing true to show — the grid then closes the gap). Scoped to .h4-home: the tools screens share .h4-col. The shell supplies the navigation: rail 768–1279, sidebar 1280+. */
-.h4-header { grid-area:head; } .h4-a-snap { grid-area:snap; } .h4-sec { grid-area:sec; } .h4-a-today { grid-area:today; } .h4-a-fy { grid-area:fy; }
+.h4-head { grid-area:head; } .h4-a-snap { grid-area:snap; } .h4-sec { grid-area:sec; } .h4-a-today { grid-area:today; } .h4-a-fy { grid-area:fy; }
 @media (min-width: 768px) {
   /* Narrow tablet (portrait, beside the rail): one wider column — two would squeeze the secretary under ~300px. */
   .h4-home { max-width:680px; padding-inline:24px; display:grid; grid-template-columns:minmax(0,1fr);
@@ -216,6 +222,7 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
       <div className="h4-blob" aria-hidden style={{ width: 420, height: 300, top: -150, insetInlineEnd: -120, background: "radial-gradient(closest-side, rgba(211,230,220,.85), rgba(211,230,220,0))" }} />
       <div className="h4-blob" aria-hidden style={{ width: 300, height: 240, top: 30, insetInlineStart: -150, background: "radial-gradient(closest-side, rgba(223,234,244,.6), rgba(223,234,244,0))" }} />
       <main className="h4-col h4-home">
+        <div className="h4-head">
         <header className="h4-header">
           <div className="h4-hello">
             <div className="h4-greet">
@@ -234,6 +241,17 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
             </Link>
           </div>
         </header>
+        {/* FREE_LIMITED (owner decision 3): ONE status line — the first of the only two upgrade mentions. Never drawn
+            while the subscription is not FREE_LIMITED (always, until the subscription mechanism exists). */}
+        {access.state === "ready" && access.value.subscription === "FREE_LIMITED" ? (
+          <div className="h4-status" role="status">
+            <span>{t("home.v4.plan.statusLine")}</span>
+            {access.value.planHref ? (
+              <Link href={access.value.planHref} prefetch={false}>{t("home.v4.plan.statusLink")}</Link>
+            ) : null}
+          </div>
+        ) : null}
+        </div>
 
         <SnapshotCard data={data} businessId={businessId} retry={retry} locale={locale} />
         <SecretaryCard data={data} businessId={businessId} retry={retry} now={now} />
@@ -301,6 +319,8 @@ const METRIC_ICON: Record<MetricKey, (p: { size?: number }) => React.ReactElemen
   toCollect: IconWallet,
   docsReview: IconFile,
   todayAppointments: IconCalendar,
+  lowStock: IconLayers,
+  readyForPickup: IconCalendarCheck,
 };
 
 function metricValue(key: MetricKey, data: HomeV4Data, now: Date, locale: ReturnType<typeof useI18n>["locale"]): MetricValue {
@@ -309,8 +329,16 @@ function metricValue(key: MetricKey, data: HomeV4Data, now: Date, locale: Return
       return moneyMetric(data.receipts.state === "ready" ? ready(data.receipts.value.month) : data.receipts, locale);
     case "receiptsToday":
       return moneyMetric(data.receipts.state === "ready" ? ready(data.receipts.value.today) : data.receipts, locale);
-    case "openService":
-      return countMetric(fromSource(data.serviceCases));
+    case "openService": {
+      const s = fromSource(data.serviceCases);
+      return countMetric(s.state === "ready" ? ready(s.value.open) : s);
+    }
+    case "readyForPickup": {
+      const s = fromSource(data.serviceCases);
+      return countMetric(s.state === "ready" ? ready(s.value.ready) : s);
+    }
+    case "lowStock":
+      return countMetric(data.status.state === "ready" ? ready(stockAlertsClaim(data.status.value)) : data.status);
     case "todayTasks": {
       const a = fromSource(data.agenda);
       return countMetric(a.state === "ready" ? ready(a.value.count) : a);
@@ -347,7 +375,7 @@ function SnapshotCard({ data, businessId, retry, locale }: { data: HomeV4Data; b
   const order = access.state === "ready" ? metricOrder(access.value, chosen) : [];
   const primary = order.slice(0, 2);
   const secondary = order.slice(2);
-  const label = (k: MetricKey) => t(`home.v4.snapshot.metric.${k}.label` as MessageKey);
+  const label = (k: MetricKey) => t(metricLabelKey(k, access.state === "ready" ? access.value : null) as MessageKey);
   const meaning = (k: MetricKey) => t(`home.v4.snapshot.metric.${k}.meaning` as MessageKey);
 
   return (
@@ -499,13 +527,18 @@ function MetricCustomizer({ open, onClose, order, primary, label, onChange }: {
 
 /* =========================================================== secretary == */
 
+/** READY service cases for the secretary (drawn only with activity packs — buildSecretary decides). */
+function serviceReadyOf(data: HomeV4Data): { ids: number[]; exact: boolean } | null {
+  return data.serviceCases.state === "ready" ? { ids: data.serviceCases.value.readyIds, exact: data.serviceCases.value.ready.exact } : null;
+}
+
 function SecretaryCard({ data, businessId, retry, now }: { data: HomeV4Data; businessId: number | null; retry: () => void; now: Date }) {
   const { t, locale } = useI18n();
   const [dismissals, setDismissals] = useHomePref<SecretaryDismissals>(businessId, "secretary.dismissals", {});
   const view = useMemo(() => {
     if (data.access.state !== "ready") return data.access.state === "failed" ? FAILED : LOADING;
     const { waiting, partial } = waitingOf(data, now, t, locale);
-    return buildSecretary({ waiting, partial, access: data.access.value, history: valueOf(data.history), dismissals, now, t });
+    return buildSecretary({ waiting, partial, access: data.access.value, history: valueOf(data.history), dismissals, now, t, serviceReady: serviceReadyOf(data) });
   }, [data, now, t, locale, dismissals]);
 
   const chip =
@@ -707,7 +740,7 @@ function ForYouCard({ data, businessId, now }: { data: HomeV4Data; businessId: n
     if (data.access.state !== "ready") return data.access.state === "failed" ? ({ state: "none" } as const) : ({ state: "loading" } as const);
     const access: HomeAccess = data.access.value;
     const { waiting, partial } = waitingOf(data, now, t, locale);
-    const sec = buildSecretary({ waiting, partial, access, history: valueOf(data.history), dismissals: secDismissals, now, t });
+    const sec = buildSecretary({ waiting, partial, access, history: valueOf(data.history), dismissals: secDismissals, now, t, serviceReady: serviceReadyOf(data) });
     const today = buildToday({ appointments: data.appointments, tasks: { state: "off" }, now, t });
     return buildForYou({
       access,
@@ -726,6 +759,35 @@ function ForYouCard({ data, businessId, now }: { data: HomeV4Data; businessId: n
 
   // Nothing true to offer: the area stays out of the way rather than filling a card.
   if (view.state === "none") return null;
+
+  // FREE_LIMITED (owner decision 3): the area is one plan card — the second and last upgrade mention on the Home.
+  if (view.state === "plan") {
+    const planHref = data.access.state === "ready" ? data.access.value.planHref ?? null : null;
+    return (
+      <section className="h4-card h4-a-fy" aria-labelledby="h4-fy-title">
+        <div className="h4-chead">
+          <h2 className="h4-ctitle" id="h4-fy-title">
+            <IconLayers size={22} />
+            {t("home.v4.forYou.title")}
+          </h2>
+        </div>
+        <div className="h4-fy">
+          <div className="h4-fy-text">
+            <div className="h4-fy-eyebrow">{t("home.v4.plan.eyebrow")}</div>
+            <p className="h4-fy-title">{t("home.v4.plan.title")}</p>
+            <p className="h4-fy-desc">{t("home.v4.plan.body")}</p>
+            {planHref ? (
+              <div className="h4-sec-actions">
+                <Link href={planHref} prefetch={false} className="h4-btn">
+                  {t("home.v4.plan.cta")}
+                </Link>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="h4-card h4-a-fy" aria-labelledby="h4-fy-title">

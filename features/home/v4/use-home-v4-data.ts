@@ -22,16 +22,19 @@ import {
   type PaidWire,
 } from "../v3/home-v3-model";
 import {
+  activityFromCapabilities,
   businessKindOf,
   modulesFromCapabilities,
+  planHrefFromCapabilities,
   resolveUserPermissions,
+  subscriptionFromCapabilities,
   type BusinessKind,
   type BusinessProfileWire,
   type CapabilitiesWire,
   type HomeAccess,
   type HomeModule,
 } from "./home-access";
-import { openCasesClaim, type QuoteWire, type Source, type TodayAppointment, type TodayTask } from "./home-v4-model";
+import { serviceCasesSummary, type QuoteWire, type ServiceCasesSummary, type Source, type TodayAppointment, type TodayTask } from "./home-v4-model";
 import { RECOMMENDATIONS_URL } from "@/features/recommendations/recommendations-client";
 
 /**
@@ -53,7 +56,7 @@ export type HomeV4Data = {
   documents: Source<{ items: DocumentWire[]; totalPendingReview: number }>;
   agenda: Source<{ tasks: TodayTask[]; count: CountClaim }>;
   appointments: Source<TodayAppointment[]>;
-  serviceCases: Source<CountClaim>;
+  serviceCases: Source<ServiceCasesSummary>;
   quotes: Source<QuoteWire[]>;
   recommendation: Source<RecommendationHomeView | null>;
   insight: Load<InsightView | null>;
@@ -164,7 +167,18 @@ export function useHomeV4Data(enabled: boolean): { data: HomeV4Data; retry: () =
         const modules = modulesFromCapabilities(caps);
         const kind = await kindP;
         if (cancelled) return;
-        put("access", ready({ businessId: typeof caps.businessId === "number" ? caps.businessId : null, modules, kind, permissions: resolveUserPermissions() }));
+        put(
+          "access",
+          ready({
+            businessId: typeof caps.businessId === "number" ? caps.businessId : null,
+            modules,
+            kind,
+            permissions: resolveUserPermissions(),
+            activity: activityFromCapabilities(caps),
+            subscription: subscriptionFromCapabilities(caps),
+            planHref: planHrefFromCapabilities(caps),
+          }),
+        );
         const on = (m: HomeModule) => modules.has(m);
 
         /* ---- module sources: requested only while the module is ON ---- */
@@ -198,7 +212,7 @@ export function useHomeV4Data(enabled: boolean): { data: HomeV4Data; retry: () =
           settle("appointments", get<{ appointments?: TodayAppointment[] }>(`/api/appointments?${q}`), (j) => ready(j.appointments ?? []));
         } else put("appointments", OFF);
 
-        if (on("service_desk")) settle("serviceCases", get<{ cases?: { status: string }[]; nextBeforeId?: number | null }>("/api/service-desk/cases?limit=100"), (j) => ready(openCasesClaim(j)));
+        if (on("service_desk")) settle("serviceCases", get<{ cases?: { id?: number; status: string }[]; nextBeforeId?: number | null }>("/api/service-desk/cases?limit=100"), (j) => ready(serviceCasesSummary(j)));
         else put("serviceCases", OFF);
 
         if (on("business_documents")) settle("quotes", get<{ quotes?: QuoteWire[] }>("/api/business-documents/quotes"), (j) => ready(j.quotes ?? []));

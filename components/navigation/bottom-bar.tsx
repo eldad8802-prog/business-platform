@@ -6,7 +6,8 @@ import { usePathname } from "next/navigation";
 
 import { ActionSheet } from "./action-sheet";
 import { useShellChromeHidden } from "./shell-chrome-visibility";
-import { PRIMARY_DESTINATIONS, isNavActive, type NavDestination } from "./nav-destinations";
+import { isNavActive, type NavDestination } from "./nav-destinations";
+import { usePrimaryDestinations } from "./use-primary-destinations";
 import { IconPlus } from "./nav-icons";
 import { isResolvedActive, useLocationSearch, useNavHref } from "./use-nav-href";
 import { useI18n } from "@/components/i18n/I18nProvider";
@@ -37,12 +38,12 @@ export function BottomBar() {
   const chromeHidden = useShellChromeHidden();
   const hasUnread = useUnreadNotifications(pathname);
   const { t } = useI18n();
+  // Phase 2: the second slot follows the primary activity pack (יומן without packs — today's bar).
+  const tabs = usePrimaryDestinations();
 
   // A full-screen surface (e.g. a secretary sub-screen/modal) has requested the
   // shell chrome be hidden so its bottom CTA is not covered by the fixed bar.
   if (chromeHidden) return null;
-
-  const tabs = PRIMARY_DESTINATIONS;
 
   return (
     <>

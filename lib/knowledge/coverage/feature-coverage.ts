@@ -492,6 +492,8 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
  */
 export const INFRASTRUCTURE = {
   models: ["User", "Business", "ProductUsageEvent", "BusinessFeatureAccess", "Usage", "AuthSession", "AuthSessionSecret", "PlatformAdminMfa",
+    // Phase 2 activity packs: a display preference (which packs the Home puts forward), not business evidence.
+    "BusinessActivityProfile",
     "PlatformAuditEvent", "PlatformFeatureDefinition", "PlatformFeaturePolicy", "OAuthToken", "ExtractedData", "ExtractionEvidence", "MessageAnalysis",
     "BusinessBotProfile", "BotGoalSelection", "BusinessBotSetupDraft", "BusinessBotKnowledge", "BusinessBotRecommendation", "BusinessBotMemoryPolicy",
     "BusinessBotLearningSuggestion",

@@ -59,6 +59,17 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     icon: "👤",
     group: "account",
   }),
+  // Phase 2 — activity packs (owner-approved design): add / remove packs, change the main one. Listed only for a
+  // business where activity_packs is ON (OFF everywhere until a separate owner decision).
+  category({
+    key: "activity",
+    href: "/settings/activity",
+    titleKey: "account.settings.categories.activity.title",
+    descriptionKey: "account.settings.categories.activity.description",
+    icon: "🧭",
+    group: "account",
+    featureKey: PLATFORM_FEATURE_KEYS.ACTIVITY_PACKS,
+  }),
   // Listed as of I-3, when Export became a real capability. The definition
   // lives in `import-export/import-export-release.ts` (which imports only the
   // TYPE from here, so there is no runtime cycle); listing it in THIS array is

@@ -69,7 +69,7 @@ export const en: Messages = {
     inventory: "Inventory",
     settings: "Settings",
     tools: "Tools",
-    bar: { calendar: "Calendar", updates: "Updates", tools: "Tools" },
+    bar: { calendar: "Calendar", updates: "Updates", tools: "Tools", serviceDesk: "Cases", inventory: "Stock", leads: "Leads" },
     a11y: {
       mainNav: "Main navigation",
       bottomNav: "Bottom navigation",

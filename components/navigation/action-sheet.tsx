@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
-import { createActionsFor, type CreateAction } from "@/features/home/v4/home-v4-model";
+import { createActionsFor, createLimitedNote, type CreateAction } from "@/features/home/v4/home-v4-model";
 import { useHomeAccess } from "@/features/home/v4/use-home-access";
 
 type ActionSheetProps = {
@@ -35,6 +35,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
   const { t } = useI18n();
   const { access, retry } = useHomeAccess(open);
   const actions: CreateAction[] = access.state === "ready" ? createActionsFor(access.value) : [];
+  const limitedNote = access.state === "ready" && createLimitedNote(access.value);
   const [isPresent, setIsPresent] = useState(open);
   const [visualOpen, setVisualOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -207,6 +208,14 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
           </div>
         )}
 
+        {/* FREE_LIMITED (owner decision 4): what is not available is simply absent — one line says what returns with
+            an active plan. Never drawn otherwise. */}
+        {limitedNote ? (
+          <p role="note" style={{ margin: "12px 0 0", padding: "10px 12px", borderRadius: 14, background: "#F3F0E8", fontSize: 13.5, lineHeight: 1.45, color: "#566159" }}>
+            {t("home.v4.create.limitedNote")}
+          </p>
+        ) : null}
+
         <button
           type="button"
           onClick={onClose}
@@ -253,5 +262,7 @@ function ActionGlyph({ kind }: { kind: CreateAction["icon"] }) {
       return <svg {...p}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" /></svg>;
     case "payments":
       return <svg {...p}><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><path d="M2.5 9.5h19M6 15h4" /></svg>;
+    case "service":
+      return <svg {...p}><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z" /></svg>;
   }
 }

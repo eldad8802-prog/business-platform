@@ -566,6 +566,16 @@ export function leadsWaitingClaim(status: BusinessStatusItem[] | null): CountCla
   return { n, exact: status.length < STATUS_CAPS.global && n < STATUS_CAPS.leads };
 }
 
+/**
+ * Stock alerts (critical + low) — the same business-status inventory items the secretary's stock kind counts, as a
+ * count claim for the HOME v4 "מלאי נמוך" metric (activity packs). Exact only when no cap could have cut the list.
+ */
+export function stockAlertsClaim(status: BusinessStatusItem[] | null): CountClaim {
+  if (status === null) return { n: 0, exact: false };
+  const n = status.filter((s) => s.domain === "inventory" && stockAlertKind(s) !== null).length;
+  return { n, exact: status.length < STATUS_CAPS.global && n < STATUS_CAPS.inventory };
+}
+
 /** "5" when the count is proven whole, "5+" when a source may have cut it. */
 export function countText(c: CountClaim): string {
   return c.exact ? String(c.n) : `${c.n}+`;
