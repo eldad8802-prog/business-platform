@@ -53,6 +53,8 @@ on:
           - 'ops/evidence/m6-google-live-proof-evidence.sql'
           - 'ops/evidence/acquisition-resolve-paused-preflight.sql'
           - 'ops/evidence/acquisition-resolve-paused-production-evidence.sql'
+          - 'ops/evidence/platform-emergency-switch-preflight.sql'
+          - 'ops/evidence/platform-emergency-switch-production-evidence.sql'
           - 'ops/evidence/c594-control-plane-privileges-preflight.sql'
           - 'ops/evidence/c594-control-plane-privileges-production-evidence.sql'
           - 'ops/evidence/p2-business-identity-preflight.sql'
