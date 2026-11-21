@@ -1,0 +1,24 @@
+{
+  "baseCommit": "2851bfbc (origin/main)",
+  "tracedServerEntries": 457,
+  "entriesChanged": [
+    "app/api/billing/documents/[id]/pdf/route"
+  ],
+  "pdfFunction": {
+    "baselineMB": 236.5,
+    "newMB": 132,
+    "baselineFiles": 4566,
+    "newFiles": 3857,
+    "removedFiles": 709,
+    "removedOutsideQaEvidence": 0,
+    "baselineQaEvidenceMB": 104.5
+  },
+  "entriesWithQaEvidence": {
+    "baseline": 1,
+    "new": 0
+  },
+  "requiredAssetsInNewPdfTrace": {
+    "public/fonts/NotoSansHebrew-Regular.ttf": true,
+    "node_modules/playwright-core (external)": true
+  }
+}
