@@ -232,6 +232,11 @@ export type SecretaryView =
       title: string;
       body: string;
       cta: string;
+      /**
+       * FREE_LIMITED collection group: the card replaces body + cta with the limited texts (home-v4-limited-copy.ts,
+       * loaded on demand) — the reminder is never offered. Always false today (no subscription mechanism yet).
+       */
+      limited: boolean;
       href: string;
       /** Every update the person may see (the chip), with its exactness. */
       updates: CountClaim;
@@ -300,13 +305,7 @@ export function buildSecretary(input: {
   let groups = [...groupMap.entries()];
   // Activity packs: among groups of the SAME urgency, the packs' kinds come first. A more urgent group (a payment due,
   // a critical stock alert) is never pushed down by a pack. Without packs the order is untouched.
-  if (activity && engine) {
-    const minRank = (items: SecretaryItem[]) => Math.min(...items.map((i) => i.rank));
-    groups = groups
-      .map((g, i) => ({ g, i }))
-      .sort((a, b) => minRank(a.g[1]) - minRank(b.g[1]) || engine.secretaryRank(activity, a.g[0]) - engine.secretaryRank(activity, b.g[0]) || a.i - b.i)
-      .map(({ g }) => g);
-  }
+  if (activity && engine) groups = engine.secretaryGroups(activity, groups);
 
   for (const [kind, items] of groups) {
     const key = groupKeyOf(kind, items);
@@ -323,8 +322,9 @@ export function buildSecretary(input: {
       state: "ready",
       kind,
       title,
-      body: t((limited ? `${k}.bodyLimited` : `${k}.body`) as MessageKey),
-      cta: t((limited ? `${k}.ctaLimited` : `${k}.cta`) as MessageKey),
+      body: t(`${k}.body` as MessageKey),
+      cta: t(`${k}.cta` as MessageKey),
+      limited,
       href,
       updates,
       groupKey: key,

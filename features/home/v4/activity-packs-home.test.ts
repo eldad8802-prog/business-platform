@@ -11,6 +11,8 @@
  *   P6  FREE_LIMITED: one status line + one plan card, only allowed "+" actions with one note (test data only);
  *   P7  the secretary: packs rank kinds only among items of the SAME urgency; ready-for-pickup only with packs.
  */
+import { readFileSync } from "node:fs";
+
 import { he } from "@/lib/i18n/messages/he";
 import { en } from "@/lib/i18n/messages/en";
 import { createTranslator } from "@/lib/i18n/translate";
@@ -24,7 +26,7 @@ import { NAV_DESTINATIONS, PRIMARY_DESTINATIONS, primaryDestinationsFor } from "
 
 import { LOADING, ready, type WaitingItem, type WaitingModel } from "../v3/home-v3-model";
 import {
-  activityFromCapabilities,
+  rawActivityFromCapabilities,
   planHrefFromCapabilities,
   resolveUserPermissions,
   subscriptionFromCapabilities,
@@ -33,6 +35,7 @@ import {
   type HomeScope,
 } from "./home-access";
 import { PACK_ENGINE, PACK_HOME, barSlotFor } from "./activity-packs-home";
+import { LIMITED_CSS, limitedCopy } from "./home-v4-limited-copy";
 import {
   CREATE_ACTIONS,
   METRICS,
@@ -96,6 +99,11 @@ ok("business model derived only from packs", businessModelFor(sel("INVENTORY")) 
 /* ------------------------------------------- capabilities → access layer -- */
 
 const capsOn = (activity: unknown) => ({ features: { activity_packs: { allowed: true } }, activity });
+// The Home pipeline: the raw value only while the feature is ON, validated by the on-demand engine.
+const activityFromCapabilities = (w: Parameters<typeof rawActivityFromCapabilities>[0]) => {
+  const raw = rawActivityFromCapabilities(w);
+  return raw ? PACK_ENGINE.selectionOf(raw) : null;
+};
 ok("feature OFF → no selection even if a selection is sent", activityFromCapabilities({ features: { activity_packs: { allowed: false } }, activity: { primary: "LEADS", additional: [] } }) === null);
 ok("feature absent → no selection", activityFromCapabilities({ features: {} }) === null && activityFromCapabilities(null) === null);
 ok("feature ON + never chose → no selection", activityFromCapabilities(capsOn(null)) === null);
@@ -205,16 +213,22 @@ ok("P5 every pack's bar candidates are real destinations", Object.values(PACK_HO
 
 /* ------------------------------------------------------- P6: FREE_LIMITED -- */
 
+const HOME_CSS_SOURCE = /export const HOME_V4_CSS = `([\s\S]*?)`;/.exec(readFileSync("features/home/v4/home-v4.tsx", "utf8"))?.[1] ?? "MISSING .h4-status";
+
 const fl = access(DEFAULTS, sel("APPOINTMENTS"), { subscription: "FREE_LIMITED" });
 ok("P6 '+' only לקוח חדש + משימה חדשה", eq(createActionsFor(fl).map((a) => a.key).sort(), ["customer", "task"]));
 ok("P6 '+' shows its one note", createLimitedNote(fl) === true && createLimitedNote(access(DEFAULTS, sel("APPOINTMENTS"))) === false);
-ok("P6 the note has text in he + en", t("home.v4.create.limitedNote").length > 10 && tEn("home.v4.create.limitedNote").length > 10);
+const LH = limitedCopy("he"), LE = limitedCopy("en");
+const LIMITED_KEYS = ["statusLine", "statusLink", "eyebrow", "title", "body", "cta", "collectionBody", "collectionCta", "createNote"] as const;
+ok("P6 every FREE_LIMITED text exists in he + en (on-demand module, not the global dictionary)", LIMITED_KEYS.every((k) => LH[k].length > 3 && LE[k].length > 3 && LH[k] !== LE[k]));
+ok("P6 the note says what returns with a plan", LH.createNote.includes("מנוי פעיל") && LE.createNote.includes("active plan"));
+ok("P6 FREE_LIMITED texts are not in the global dictionary (nobody downloads them today)", t("home.v4.plan.title" as never) === "home.v4.plan.title" && t("home.v4.create.limitedNote" as never) === "home.v4.create.limitedNote");
 const NEVER: HomeHistory = { income: true, expenses: false, obligations: false, collection: true, documents: true, leads: true, conversations: false, inventory: false, insights: false, identityDescription: false, whatsapp: "NEVER" };
 const fyIn = (a: HomeAccess) =>
   buildForYou({ access: a, quotes: { state: "off" }, recommendation: { state: "off" }, insight: ready(null), activity: ready([]), history: ready(NEVER), secretaryKind: null, hasAppointmentsToday: false, prefs: { hiddenTypes: [], dismissedIds: [] }, now: NOW, t });
 ok("P6 בשבילך = the one plan card", fyIn(fl).state === "plan");
 ok("P6 no plan card when not FREE_LIMITED", fyIn(access(DEFAULTS, sel("APPOINTMENTS"))).state !== "plan" && fyIn(access(DEFAULTS)).state !== "plan");
-ok("P6 plan texts exist in he + en", ["statusLine", "statusLink", "eyebrow", "title", "body", "cta"].every((k) => t(`home.v4.plan.${k}` as never) !== `home.v4.plan.${k}` && tEn(`home.v4.plan.${k}` as never) !== `home.v4.plan.${k}`));
+ok("P6 the status line CSS ships with the line, not in the shared Home CSS", LIMITED_CSS.includes(".h4-status") && !HOME_CSS_SOURCE.includes(".h4-status"));
 
 /* ------------------------------------------------------- P7: secretary -- */
 
@@ -239,7 +253,9 @@ ok("P7 one ready case opens that case", ready1.state === "ready" && ready1.href 
 const ready2 = sec(access(ALL, sel("SERVICE")), [], { ids: [5, 6], exact: true });
 ok("P7 several open the Service Desk", ready2.state === "ready" && ready2.href === "/service-desk" && ready2.title === "2 קריאות מוכנות למסירה");
 const flSec = sec(access(DEFAULTS, sel("APPOINTMENTS"), { subscription: "FREE_LIMITED" }), [item("collection", "c1", 2)]);
-ok("P7 FREE_LIMITED collection says the reminder returns with a plan", flSec.state === "ready" && flSec.body === t("home.v4.secretary.kind.collection.bodyLimited") && flSec.cta === t("home.v4.secretary.kind.collection.ctaLimited"));
+ok("P7 FREE_LIMITED collection is marked limited (the card swaps in the no-reminder texts)", flSec.state === "ready" && flSec.limited === true && LH.collectionBody.includes("מנוי פעיל"));
+const plainSec = sec(access(DEFAULTS, sel("APPOINTMENTS")), [item("collection", "c1", 2)]);
+ok("P7 not FREE_LIMITED: collection is not limited (today, always)", plainSec.state === "ready" && plainSec.limited === false);
 ok("P7 loading stays loading", sec(access(DEFAULTS, sel("LEADS")), []).state === "calm" && buildSecretary({ waiting: LOADING, partial: false, access: access(DEFAULTS, sel("LEADS")), history: null, dismissals: {}, now: NOW, t }).state === "loading");
 
 const summary = serviceCasesSummary({ cases: [{ id: 1, status: "READY" }, { id: 2, status: "OPEN" }, { id: 3, status: "DELIVERED" }, { id: 4, status: "READY" }], nextBeforeId: null });

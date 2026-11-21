@@ -15,7 +15,7 @@
  * and tenant on the server (tasks-http, appointments-http, service-desk gate, business-documents route…).
  */
 
-import { parseActivitySelection, type ActivitySelection } from "@/lib/activity-packs/activity-packs";
+import type { ActivitySelection } from "@/lib/activity-packs/activity-packs";
 import type { BarSlotKey } from "./activity-packs-home";
 
 /** The modules the Home knows how to draw. Each maps to exactly one real platform feature key (or none = core). */
@@ -101,10 +101,10 @@ export function resolveUserPermissions(): UserPermissions {
  * source of order when present. `null` = the feature is OFF or the owner never chose: the Home is the pre-packs one.
  * Only the server's answer counts, and only while the feature is ON for the business (fail-closed: never guessed).
  */
-export function activityFromCapabilities(wire: CapabilitiesWire | null | undefined): ActivitySelection | null {
-  if (wire?.features?.activity_packs?.allowed !== true || !wire.activity) return null;
-  const parsed = parseActivitySelection(wire.activity);
-  return parsed.ok ? parsed.value : null;
+export function rawActivityFromCapabilities(wire: CapabilitiesWire | null | undefined): unknown {
+  // The selection is VALIDATED by the pack engine (selectionOf), downloaded only when this is non-null: the parser
+  // ships to no business without packs. No engine = no selection (fail-closed).
+  return wire?.features?.activity_packs?.allowed === true && wire.activity ? wire.activity : null;
 }
 
 /**
@@ -135,9 +135,15 @@ export function planHrefFromCapabilities(wire: CapabilitiesWire | null | undefin
  * fails) the Home uses the pre-packs order: never a wrong capability, at worst the old order.
  */
 export type PackEngine = {
+  /** The validated selection from the raw capabilities value, or null (garbage -> null: fail-closed). */
+  selectionOf: (raw: unknown) => ActivitySelection | null;
   orderMetrics: <K extends string>(selection: ActivitySelection, permitted: readonly K[]) => K[];
   orderKeys: <T>(selection: ActivitySelection, items: readonly T[], keyOf: (t: T) => string, list: "create" | "favorites") => T[];
-  secretaryRank: (selection: ActivitySelection, kind: string) => number;
+  /**
+   * The secretary's groups (kind + ranked items, most urgent first) reordered for the packs: among groups of the SAME
+   * urgency the packs' kinds come first; a more urgent group is never pushed down. Stable otherwise.
+   */
+  secretaryGroups: <G extends readonly [string, readonly { rank: number }[]]>(selection: ActivitySelection, groups: readonly G[]) => G[];
   favoriteKeys: (selection: ActivitySelection, lead: readonly string[]) => string[];
   barSlot: (selection: ActivitySelection | null, modules: ReadonlySet<HomeModule>, scopes?: ReadonlySet<HomeScope>) => BarSlotKey;
 };

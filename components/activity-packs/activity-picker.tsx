@@ -45,6 +45,9 @@ export function ActivityPicker({ mode, onDone, onSkip }: { mode: "setup" | "sett
   const [category, setCategory] = useState<string | null>(null);
   const [subCategory, setSubCategory] = useState<string | null>(null);
   const [savedProfile, setSavedProfile] = useState<ProfileWire["profile"]>(null);
+  // True only when the profile was actually read. If the read failed we never write the profile: we cannot know the
+  // business's existing values, and a write could replace a businessModel the owner already has.
+  const [profileRead, setProfileRead] = useState(false);
   const [selected, setSelected] = useState<ActivityPackKey[]>([]); // primary first
   const [hadSelection, setHadSelection] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -66,6 +69,7 @@ export function ActivityPicker({ mode, onDone, onSkip }: { mode: "setup" | "sett
         if (cancelled) return;
         const p = profile?.profile ?? null;
         setSavedProfile(p);
+        setProfileRead(profile !== null);
         setCategory(p?.category ?? null);
         setSubCategory(p?.subCategory ?? null);
         if (body.selection) {
@@ -110,7 +114,8 @@ export function ActivityPicker({ mode, onDone, onSkip }: { mode: "setup" | "sett
       const res = await fetch(ACTIVITY_URL, { method: "PUT", headers, body: JSON.stringify(selection) });
       if (!res.ok) throw new Error(String(res.status));
       // The category the owner picked on screen 1, through the existing profile endpoint (setup only, when changed).
-      if (mode === "setup" && category && subCategory && (category !== savedProfile?.category || subCategory !== savedProfile?.subCategory)) {
+      // Only when the profile was read; an existing businessModel is always kept, the packs only fill an empty one.
+      if (mode === "setup" && profileRead && category && subCategory && (category !== savedProfile?.category || subCategory !== savedProfile?.subCategory)) {
         const businessModel = savedProfile?.businessModel || businessModelFor(selection);
         await fetch(PROFILE_URL, { method: "POST", headers, body: JSON.stringify({ category, subCategory, businessModel }) }).catch(() => undefined);
         invalidateCachedJson(PROFILE_URL);

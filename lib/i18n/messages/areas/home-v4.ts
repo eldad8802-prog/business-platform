@@ -39,16 +39,6 @@ export const homeV4He = {
       readyForPickup: { label: "מוכנים למסירה", meaning: "קריאות שהעבודה בהן הסתיימה וממתינות למסירה", zero: "אין קריאות שממתינות למסירה" },
     },
   },
-  // Phase 2 — FREE_LIMITED (owner decision 3): the status line and the one plan card. Never drawn until the
-  // subscription mechanism reports FREE_LIMITED.
-  plan: {
-    statusLine: "המנוי במצב צפייה. כל הנתונים שמורים.",
-    statusLink: "המנוי שלי",
-    eyebrow: "המנוי שלך",
-    title: "חוזרים לעבוד כרגיל עם מנוי פעיל",
-    body: "הנתונים שלך שמורים וזמינים לצפייה ולייצוא. במסלול בסיסי כל הפעולות חוזרות.",
-    cta: "בחירת מסלול",
-  },
   secretary: {
     title: "המזכירה שלי",
     mascot: "המזכירה החכמה",
@@ -73,15 +63,7 @@ export const homeV4He = {
       payment: { one: "תשלום אחד ממתין לטיפול", many: "{count} תשלומים ממתינים לטיפול", body: "כדאי לטפל בהם בזמן כדי להימנע מאיחור.", cta: "טיפול בתשלומים" },
       lead: { one: "פנייה אחת ממתינה למענה", many: "{count} פניות ממתינות למענה", body: "כדאי לחזור ללקוחות כדי לא לפספס הזדמנויות.", cta: "טיפול בפניות" },
       stock: { one: "פריט אחד במלאי נמוך", many: "{count} פריטים במלאי נמוך", body: "כדאי להזמין מחדש לפני שייגמר.", cta: "לבדיקת המלאי" },
-      collection: {
-        one: "בקשת תשלום אחת ממתינה",
-        many: "{count} בקשות תשלום ממתינות",
-        body: "אפשר לשלוח תזכורת ללקוחות שעוד לא שילמו.",
-        cta: "למרכז הגבייה",
-        // FREE_LIMITED: what waits stays visible; sending a reminder returns with an active plan.
-        bodyLimited: "אפשר לראות מי עוד לא שילם. שליחת תזכורת חוזרת עם מנוי פעיל.",
-        ctaLimited: "לצפייה בבקשות",
-      },
+      collection: { one: "בקשת תשלום אחת ממתינה", many: "{count} בקשות תשלום ממתינות", body: "אפשר לשלוח תזכורת ללקוחות שעוד לא שילמו.", cta: "למרכז הגבייה" },
       intake: { one: "עדכון אחד בחיבור הפניות", many: "{count} עדכונים בחיבור הפניות", body: "כדאי לוודא שהפניות מגיעות כמו שצריך.", cta: "לבדיקת החיבורים" },
       // Phase 2 (activity packs, Service Desk ON): cases whose work is done and wait for handover.
       serviceReady: { one: "קריאה אחת מוכנה למסירה", many: "{count} קריאות מוכנות למסירה", body: "כדאי לעדכן את הלקוח שאפשר לאסוף.", cta: "לקריאות המוכנות" },
@@ -169,8 +151,6 @@ export const homeV4He = {
     loading: "בודק אילו פעולות זמינות",
     failed: "לא הצלחנו לבדוק אילו פעולות זמינות. אפשר לנסות שוב.",
     retry: "נסו שוב",
-    // FREE_LIMITED (owner decision 4): one line under the actions that are still allowed.
-    limitedNote: "קביעת תור, חשבונית ובקשת תשלום זמינות עם מנוי פעיל.",
     action: {
       task: "משימה חדשה",
       appointment: "קביעת תור",

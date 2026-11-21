@@ -5,7 +5,9 @@
  *
  * A failed load resolves to null: the caller keeps the pre-packs order. Never a wrong capability.
  */
-import type { PackEngine } from "./home-access";
+import type { ActivitySelection } from "@/lib/activity-packs/activity-packs";
+
+import { rawActivityFromCapabilities, type CapabilitiesWire, type PackEngine } from "./home-access";
 
 let pending: Promise<PackEngine | null> | null = null;
 
@@ -19,4 +21,18 @@ export function loadPackEngine(): Promise<PackEngine | null> {
       });
   }
   return pending;
+}
+
+/**
+ * The pack selection of the business and its engine: both, or neither. Only while activity_packs is ON and the owner
+ * chose does this download anything; the engine validates the selection. Engine missing or selection invalid ->
+ * neither: the pre-packs Home (fail-closed, never a wrong capability).
+ */
+export async function loadActivity(
+  caps: CapabilitiesWire | null | undefined,
+): Promise<{ activity: ActivitySelection; packs: PackEngine } | { activity: null; packs: null }> {
+  const raw = rawActivityFromCapabilities(caps);
+  const engine = raw ? await loadPackEngine() : null;
+  const activity = engine ? engine.selectionOf(raw) : null;
+  return activity && engine ? { activity, packs: engine } : { activity: null, packs: null };
 }

@@ -9,7 +9,7 @@
  * the Home is exactly the pre-packs HOME v4 (kind order from the category). That is how existing accounts stay as they
  * are until their owner explicitly chooses.
  */
-import type { ActivityPackKey, ActivitySelection } from "@/lib/activity-packs/activity-packs";
+import { parseActivitySelection, type ActivityPackKey, type ActivitySelection } from "@/lib/activity-packs/activity-packs";
 
 import type { HomeModule, HomeScope, PackEngine } from "./home-access";
 
@@ -217,10 +217,21 @@ export function packFavoriteKeys(selection: ActivitySelection, lead: readonly st
  * only for a business that chose packs, so none of these tables ship with the pages of a business that did not.
  */
 export const PACK_ENGINE: PackEngine = {
+  selectionOf: (raw) => {
+    const parsed = parseActivitySelection(raw);
+    return parsed.ok ? parsed.value : null;
+  },
   orderMetrics: <K extends string>(selection: ActivitySelection, permitted: readonly K[]): K[] =>
     orderMetricsByPacks(selection, permitted as readonly string[] as readonly PackMetric[]) as string[] as K[],
   orderKeys: (selection, items, keyOf, list) => orderKeysByPacks(selection, items, keyOf, (p) => p[list]),
-  secretaryRank: (selection, kind) => secretaryPackRank(selection, kind as PackSecretaryKind),
+  secretaryGroups: (selection, groups) => {
+    const minRank = (items: readonly { rank: number }[]) => Math.min(...items.map((i) => i.rank));
+    const packRank = (kind: string) => secretaryPackRank(selection, kind as PackSecretaryKind);
+    return groups
+      .map((g, i) => ({ g, i }))
+      .sort((a, b) => minRank(a.g[1]) - minRank(b.g[1]) || packRank(a.g[0]) - packRank(b.g[0]) || a.i - b.i)
+      .map(({ g }) => g);
+  },
   favoriteKeys: packFavoriteKeys,
   barSlot: barSlotFor,
 };

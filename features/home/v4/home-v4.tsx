@@ -51,6 +51,8 @@ import {
   SecretaryMascot,
 } from "./home-v4-icons";
 import { useHomePref } from "./home-prefs";
+import type { LimitedCopy } from "./home-v4-limited-copy";
+import { useLimitedCopy } from "./limited-copy-loader";
 import {
   FOR_YOU_TYPES,
   METRICS,
@@ -87,11 +89,7 @@ export const HOME_V4_CSS = `
 .h4 *, .h4 *::before, .h4 *::after { box-sizing:border-box; }
 .h4-blob { position:absolute; pointer-events:none; border-radius:50%; filter:blur(2px); }
 .h4-col { position:relative; max-width:600px; margin:0 auto; padding:14px 14px 8px; display:flex; flex-direction:column; gap:12px; }
-/* FREE_LIMITED status line (owner decision 3): one quiet line under the greeting, inside the header area. */
-.h4-status { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:6px; padding:8px 8px 8px 14px; border-radius:16px; background:#FBF7EF; border:1px solid #E6D7BE; color:#815A32; font-size:14px; }
-.h4-status a { display:inline-flex; align-items:center; min-height:40px; padding:0 8px; color:var(--h4-teal-deep); font-weight:600; text-decoration:none; white-space:nowrap; }
 .h4-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:6px 4px 2px; }
-.h4-head { display:flex; flex-direction:column; }
 .h4-hello { min-width:0; flex:1 1 auto; }
 .h4-greet { font-size:17px; color:var(--h4-ink); display:flex; align-items:center; gap:6px; }
 .h4-name { margin:2px 0 0; font-size:28px; font-weight:700; letter-spacing:-.3px; line-height:1.15; overflow-wrap:anywhere; }
@@ -181,7 +179,7 @@ export const HOME_V4_CSS = `
 /* Wider screens (owner 11-19): the SAME four areas and order, arranged — never more of them. Phones (<768) keep the
    approved single column above. Areas: the header, תמונת מצב, המזכירה שלי, היום שלי, בשבילך (absent when it has
    nothing true to show — the grid then closes the gap). Scoped to .h4-home: the tools screens share .h4-col. The shell supplies the navigation: rail 768–1279, sidebar 1280+. */
-.h4-header, .h4-head { grid-area:head; } .h4-a-snap { grid-area:snap; } .h4-sec { grid-area:sec; } .h4-a-today { grid-area:today; } .h4-a-fy { grid-area:fy; }
+.h4-header { grid-area:head; } .h4-a-snap { grid-area:snap; } .h4-sec { grid-area:sec; } .h4-a-today { grid-area:today; } .h4-a-fy { grid-area:fy; }
 @media (min-width: 768px) {
   /* Narrow tablet (portrait, beside the rail): one wider column — two would squeeze the secretary under ~300px. */
   .h4-home { max-width:680px; padding-inline:24px; display:grid; grid-template-columns:minmax(0,1fr);
@@ -216,6 +214,9 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
   const businessId = access.state === "ready" ? access.value.businessId : null;
   const limited = access.state === "ready" && access.value.subscription === "FREE_LIMITED";
   const planHref = access.state === "ready" ? access.value.planHref ?? null : null;
+  // FREE_LIMITED texts are downloaded only for a FREE_LIMITED business (never today) — nobody else ships them.
+  const lim = useLimitedCopy(limited, locale);
+  const limitedCopy = lim?.copy ?? null;
 
   const header = (
     <header className="h4-header">
@@ -248,13 +249,14 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
         {/* FREE_LIMITED (owner decision 3): ONE status line under the header — the first of the only two upgrade
             mentions. Only then is the header wrapped (the pair takes the header's grid area); otherwise the markup is
             exactly the pre-packs HOME v4 (the subscription mechanism does not exist yet, so: always). */}
-        {limited ? (
+        {lim ? (
           <div className="h4-head">
+            <style>{lim.css}</style>
             {header}
             <div className="h4-status" role="status">
-              <span>{t("home.v4.plan.statusLine")}</span>
+              <span>{lim.copy.statusLine}</span>
               {planHref ? (
-                <Link href={planHref} prefetch={false}>{t("home.v4.plan.statusLink")}</Link>
+                <Link href={planHref} prefetch={false}>{lim.copy.statusLink}</Link>
               ) : null}
             </div>
           </div>
@@ -263,9 +265,9 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
         )}
 
         <SnapshotCard data={data} businessId={businessId} retry={retry} locale={locale} />
-        <SecretaryCard data={data} businessId={businessId} retry={retry} now={now} />
+        <SecretaryCard data={data} businessId={businessId} retry={retry} now={now} limitedCopy={limitedCopy} />
         <TodayCard data={data} retry={retry} now={now} />
-        <ForYouCard data={data} businessId={businessId} now={now} />
+        <ForYouCard data={data} businessId={businessId} now={now} limitedCopy={limitedCopy} />
       </main>
     </div>
   );
@@ -541,7 +543,7 @@ function serviceReadyOf(data: HomeV4Data): { ids: number[]; exact: boolean } | n
   return data.serviceCases.state === "ready" ? { ids: data.serviceCases.value.readyIds, exact: data.serviceCases.value.ready.exact } : null;
 }
 
-function SecretaryCard({ data, businessId, retry, now }: { data: HomeV4Data; businessId: number | null; retry: () => void; now: Date }) {
+function SecretaryCard({ data, businessId, retry, now, limitedCopy }: { data: HomeV4Data; businessId: number | null; retry: () => void; now: Date; limitedCopy: LimitedCopy | null }) {
   const { t, locale } = useI18n();
   const [dismissals, setDismissals] = useHomePref<SecretaryDismissals>(businessId, "secretary.dismissals", {});
   const view = useMemo(() => {
@@ -595,9 +597,10 @@ function SecretaryCard({ data, businessId, retry, now }: { data: HomeV4Data; bus
   } else {
     const today = israelDateKey(now);
     body = (
-      <SecretaryBody title={view.title} desc={view.body}>
+      // FREE_LIMITED collection: the limited texts (never the reminder offer); empty until they load.
+      <SecretaryBody title={view.title} desc={view.limited ? limitedCopy?.collectionBody ?? "" : view.body}>
         <Link href={view.href} prefetch={false} className="h4-btn">
-          {view.cta}
+          {view.limited ? limitedCopy?.collectionCta ?? view.cta : view.cta}
           <IconArrowForward size={18} />
         </Link>
         <button
@@ -737,7 +740,7 @@ function activityOf(data: HomeV4Data, t: ReturnType<typeof useI18n>["t"], locale
   );
 }
 
-function ForYouCard({ data, businessId, now }: { data: HomeV4Data; businessId: number | null; now: Date }) {
+function ForYouCard({ data, businessId, now, limitedCopy }: { data: HomeV4Data; businessId: number | null; now: Date; limitedCopy: LimitedCopy | null }) {
   const { t, locale } = useI18n();
   const [prefs, setPrefs] = useHomePref<ForYouPrefs>(businessId, "forYou", { hiddenTypes: [], dismissedIds: [] });
   const [secDismissals] = useHomePref<SecretaryDismissals>(businessId, "secretary.dismissals", {});
@@ -771,6 +774,7 @@ function ForYouCard({ data, businessId, now }: { data: HomeV4Data; businessId: n
 
   // FREE_LIMITED (owner decision 3): the area is one plan card — the second and last upgrade mention on the Home.
   if (view.state === "plan") {
+    if (!limitedCopy) return null; // its texts are still loading (FREE_LIMITED only)
     const planHref = data.access.state === "ready" ? data.access.value.planHref ?? null : null;
     return (
       <section className="h4-card h4-a-fy" aria-labelledby="h4-fy-title">
@@ -782,13 +786,13 @@ function ForYouCard({ data, businessId, now }: { data: HomeV4Data; businessId: n
         </div>
         <div className="h4-fy">
           <div className="h4-fy-text">
-            <div className="h4-fy-eyebrow">{t("home.v4.plan.eyebrow")}</div>
-            <p className="h4-fy-title">{t("home.v4.plan.title")}</p>
-            <p className="h4-fy-desc">{t("home.v4.plan.body")}</p>
+            <div className="h4-fy-eyebrow">{limitedCopy.eyebrow}</div>
+            <p className="h4-fy-title">{limitedCopy.title}</p>
+            <p className="h4-fy-desc">{limitedCopy.body}</p>
             {planHref ? (
               <div className="h4-sec-actions">
                 <Link href={planHref} prefetch={false} className="h4-btn">
-                  {t("home.v4.plan.cta")}
+                  {limitedCopy.cta}
                 </Link>
               </div>
             ) : null}

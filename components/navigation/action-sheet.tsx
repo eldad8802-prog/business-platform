@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { createActionsFor, createLimitedNote, type CreateAction } from "@/features/home/v4/home-v4-model";
+import { useLimitedCopy } from "@/features/home/v4/limited-copy-loader";
 import { useHomeAccess } from "@/features/home/v4/use-home-access";
 
 type ActionSheetProps = {
@@ -32,10 +33,11 @@ const EASE_IN = "cubic-bezier(0.4, 0, 1, 1)";
  */
 export function ActionSheet({ open, onClose }: ActionSheetProps) {
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { access, retry } = useHomeAccess(open);
   const actions: CreateAction[] = access.state === "ready" ? createActionsFor(access.value) : [];
-  const limitedNote = access.state === "ready" && createLimitedNote(access.value);
+  // FREE_LIMITED only (never today): its one line is downloaded on demand, nobody else ships it.
+  const limitedNote = useLimitedCopy(access.state === "ready" && createLimitedNote(access.value), locale)?.copy.createNote ?? null;
   const [isPresent, setIsPresent] = useState(open);
   const [visualOpen, setVisualOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -212,7 +214,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
             an active plan. Never drawn otherwise. */}
         {limitedNote ? (
           <p role="note" style={{ margin: "12px 0 0", padding: "10px 12px", borderRadius: 14, background: "#F3F0E8", fontSize: 13.5, lineHeight: 1.45, color: "#566159" }}>
-            {t("home.v4.create.limitedNote")}
+            {limitedNote}
           </p>
         ) : null}
 

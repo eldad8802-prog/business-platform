@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { BarSlotKey } from "@/features/home/v4/activity-packs-home";
-import { activityFromCapabilities, modulesFromCapabilities, resolveUserPermissions, type CapabilitiesWire } from "@/features/home/v4/home-access";
-import { loadPackEngine } from "@/features/home/v4/pack-engine-loader";
+import { modulesFromCapabilities, resolveUserPermissions, type CapabilitiesWire } from "@/features/home/v4/home-access";
+import { loadActivity } from "@/features/home/v4/pack-engine-loader";
 import { fetchJsonCached } from "@/lib/ui/cached-json";
 
 import { primaryDestinationsFor, type NavDestination } from "./nav-destinations";
@@ -26,10 +26,8 @@ export function usePrimaryDestinations(): NavDestination[] {
     let cancelled = false;
     fetchJsonCached<CapabilitiesWire>(CAPS, CAPABILITIES_TTL_MS)
       .then(async (caps) => {
-        const activity = activityFromCapabilities(caps);
-        if (!activity) return;
-        const engine = await loadPackEngine();
-        if (!cancelled && engine) setSlot(engine.barSlot(activity, modulesFromCapabilities(caps), resolveUserPermissions().scopes));
+        const { activity, packs } = await loadActivity(caps);
+        if (!cancelled && activity) setSlot(packs.barSlot(activity, modulesFromCapabilities(caps), resolveUserPermissions().scopes));
       })
       .catch(() => {
         /* keep the fixed יומן */

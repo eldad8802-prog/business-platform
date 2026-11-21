@@ -36,14 +36,6 @@ export const homeV4En: Widen<typeof homeV4He> = {
       readyForPickup: { label: "Ready for pickup", meaning: "Cases whose work is done and wait for handover", zero: "No cases waiting for handover" },
     },
   },
-  plan: {
-    statusLine: "Your plan is view-only. All your data is kept.",
-    statusLink: "My plan",
-    eyebrow: "Your plan",
-    title: "Back to work as usual with an active plan",
-    body: "Your data is kept and available to view and export. On the Basic plan every action comes back.",
-    cta: "Choose a plan",
-  },
   secretary: {
     title: "My secretary",
     mascot: "The smart secretary",
@@ -68,14 +60,7 @@ export const homeV4En: Widen<typeof homeV4He> = {
       payment: { one: "1 payment needs attention", many: "{count} payments need attention", body: "Handle them on time to avoid being late.", cta: "Handle payments" },
       lead: { one: "1 enquiry is waiting for a reply", many: "{count} enquiries are waiting for a reply", body: "Get back to customers so no opportunity slips away.", cta: "Handle enquiries" },
       stock: { one: "1 item is low in stock", many: "{count} items are low in stock", body: "Reorder before it runs out.", cta: "Check inventory" },
-      collection: {
-        one: "1 payment request is waiting",
-        many: "{count} payment requests are waiting",
-        body: "You can remind customers who haven't paid yet.",
-        cta: "Collection centre",
-        bodyLimited: "You can see who hasn't paid yet. Sending a reminder comes back with an active plan.",
-        ctaLimited: "View requests",
-      },
+      collection: { one: "1 payment request is waiting", many: "{count} payment requests are waiting", body: "You can remind customers who haven't paid yet.", cta: "Collection centre" },
       intake: { one: "1 update in enquiry connections", many: "{count} updates in enquiry connections", body: "Make sure enquiries are arriving as they should.", cta: "Check connections" },
       serviceReady: { one: "1 case is ready for handover", many: "{count} cases are ready for handover", body: "Let the customer know it can be collected.", cta: "Ready cases" },
     },
@@ -162,7 +147,6 @@ export const homeV4En: Widen<typeof homeV4He> = {
     loading: "Checking which actions are available",
     failed: "We couldn't check which actions are available. Try again.",
     retry: "Try again",
-    limitedNote: "Appointments, invoices and payment requests come back with an active plan.",
     action: {
       task: "New task",
       appointment: "Book an appointment",

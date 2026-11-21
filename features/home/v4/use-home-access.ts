@@ -6,7 +6,6 @@ import { fetchJsonCached, invalidateCachedJson } from "@/lib/ui/cached-json";
 
 import { FAILED, LOADING, ready, type Load } from "../v3/home-v3-model";
 import {
-  activityFromCapabilities,
   businessKindOf,
   modulesFromCapabilities,
   planHrefFromCapabilities,
@@ -16,7 +15,7 @@ import {
   type CapabilitiesWire,
   type HomeAccess,
 } from "./home-access";
-import { loadPackEngine } from "./pack-engine-loader";
+import { loadActivity } from "./pack-engine-loader";
 
 const CAPS = "/api/business/capabilities";
 const PROFILE = "/api/business/profile";
@@ -38,8 +37,7 @@ export function useHomeAccess(enabled = true): { access: Load<HomeAccess>; retry
       .then(async (caps) => {
         const kind = await kindP;
         // Phase 2: the pack engine is downloaded only for a business that chose packs (null otherwise / on failure).
-        const activity = activityFromCapabilities(caps);
-        const packs = activity ? await loadPackEngine() : null;
+        const { activity, packs } = await loadActivity(caps);
         if (!cancelled) {
           setAccess(
             ready({

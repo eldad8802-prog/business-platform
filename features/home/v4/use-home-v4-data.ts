@@ -22,7 +22,6 @@ import {
   type PaidWire,
 } from "../v3/home-v3-model";
 import {
-  activityFromCapabilities,
   businessKindOf,
   modulesFromCapabilities,
   planHrefFromCapabilities,
@@ -34,7 +33,7 @@ import {
   type HomeAccess,
   type HomeModule,
 } from "./home-access";
-import { loadPackEngine } from "./pack-engine-loader";
+import { loadActivity } from "./pack-engine-loader";
 import { serviceCasesSummary, type QuoteWire, type ServiceCasesSummary, type Source, type TodayAppointment, type TodayTask } from "./home-v4-model";
 import { RECOMMENDATIONS_URL } from "@/features/recommendations/recommendations-client";
 
@@ -168,8 +167,7 @@ export function useHomeV4Data(enabled: boolean): { data: HomeV4Data; retry: () =
         const modules = modulesFromCapabilities(caps);
         const kind = await kindP;
         // Phase 2: the pack engine is downloaded only for a business that chose packs (null otherwise / on failure).
-        const activity = activityFromCapabilities(caps);
-        const packs = activity ? await loadPackEngine() : null;
+        const { activity, packs } = await loadActivity(caps);
         if (cancelled) return;
         put(
           "access",
