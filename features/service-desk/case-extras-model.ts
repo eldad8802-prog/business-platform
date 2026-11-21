@@ -92,8 +92,8 @@ export const ils = (agorot: number) => `₪${(agorot / 100).toLocaleString("he-I
 
 /** Shekels typed by the owner → integer agorot, or null when it is not a positive amount with at most 2 decimals. */
 export function parseShekels(raw: string): number | null {
-  const t = raw.trim().replace(/[₪,s]/g, "");
-  if (!/^d{1,9}(.d{1,2})?$/.test(t)) return null;
+  const t = raw.trim().replace(/[₪,\s]/g, "");
+  if (!/^\d{1,9}(\.\d{1,2})?$/.test(t)) return null;
   const agorot = Math.round(Number(t) * 100);
   return agorot > 0 && Number.isSafeInteger(agorot) ? agorot : null;
 }

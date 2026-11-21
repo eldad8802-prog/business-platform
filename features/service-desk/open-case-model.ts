@@ -72,11 +72,11 @@ export function draftHasWork(d: OpenCaseDraft, newCustomer: { open: boolean; nam
 export function phoneIssue(raw: string): string | null {
   const t = raw.trim();
   if (!t) return null;
-  if (!/^[+d][ds-()]*$/.test(t)) return "מספר טלפון יכול לכלול רק ספרות, רווחים, מקפים או + בהתחלה.";
-  let digits = t.replace(/D/g, "");
+  if (!/^[+\d][\d\s\-()]*$/.test(t)) return "מספר טלפון יכול לכלול רק ספרות, רווחים, מקפים או + בהתחלה.";
+  let digits = t.replace(/\D/g, "");
   if (t.startsWith("+") && !digits.startsWith("972")) return digits.length >= 8 && digits.length <= 15 ? null : "מספר בינלאומי צריך להכיל 8 עד 15 ספרות.";
   if (digits.startsWith("972")) digits = "0" + digits.slice(3);
-  if (/^0[57]d{8}$/.test(digits) || /^0[234689]d{7}$/.test(digits)) return null;
+  if (/^0[57]\d{8}$/.test(digits) || /^0[234689]\d{7}$/.test(digits)) return null;
   return "מספר הטלפון לא תקין. למשל 050-1234567 או 03-1234567.";
 }
 

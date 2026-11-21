@@ -46,7 +46,7 @@ function Card({ title, children }: { title?: string; children: ReactNode }) {
 export function OpenCaseView(p: OpenCaseViewProps) {
   const d = p.draft;
   // Shown once the number looks finished (or the owner moved on): no red line while the first digits are typed.
-  const phoneProblem = p.newCustomer.phone.replace(/D/g, "").length >= 9 || /[^ds-()+]/.test(p.newCustomer.phone) ? phoneIssue(p.newCustomer.phone) : null;
+  const phoneProblem = p.newCustomer.phone.replace(/\D/g, "").length >= 9 || /[^\d\s\-()+]/.test(p.newCustomer.phone) ? phoneIssue(p.newCustomer.phone) : null;
   const form = d.track ? TRACK_FORMS[d.track] : null;
   const issues = p.showIssues ? draftIssues(d) : [];
   const issue = (k: DraftIssue) =>
