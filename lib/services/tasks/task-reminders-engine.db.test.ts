@@ -171,20 +171,14 @@ async function main() {
     ok("…owed row SUPPRESSED pref_off; the bell still has it", owed3[0]?.status === "SUPPRESSED" && owed3[0]?.error === "pref_off" && (await bell(E, t3)) !== null, owed3);
     await store.resetPreferences({ businessId: E, userId: e1 });
 
-    console.log("quiet hours");
-    const rn = at(NIGHT, -1);
-    const t4 = await task(E, e1, rn);
-    m = mark();
-    await dispatch(E, t4, rn, NIGHT);
-    ok("23:00 business time: still sent (a reminder bypasses quiet hours)", since(m).fcm.length === 1 && since(m).web.length === 1);
-
     console.log("session");
     await owner.authSession.update({ where: { id: sE1 }, data: { revokedAt: NOW, revokedReason: "lab" } });
     const t5 = await task(E, e1, r1);
     m = mark();
     await dispatch(E, t5, at(NOW, 5));
     s = since(m);
-    ok("the phone's session ended: the phone is skipped, the browser still gets it", s.fcm.length === 0 && s.web.length === 1, { f: s.fcm.length, w: s.web.length });
+    const owed5 = (await push(E, t5)).map((r) => ({ sub: r.subscriptionId !== null, status: r.status, error: r.error }));
+    ok("the phone's session ended: the phone is skipped, the browser still gets it", s.fcm.length === 0 && s.web.length === 1, { f: s.fcm.length, w: s.web.length, owed5 });
 
     console.log("too old");
     const old = at(NOW, -25 * 60);
@@ -192,6 +186,15 @@ async function main() {
     m = mark();
     const outOld = await dispatch(E, t6, old);
     ok("a moment more than a day old: claimed, in the bell, no owed push, nothing sent", outOld.result === "sent" && (await push(E, t6)).length === 0 && (await bell(E, t6)) !== null && since(m).fcm.length + since(m).web.length === 0);
+
+    console.log("quiet hours");
+    // A new login on the phone (the earlier session ended above): the device is bound to it again.
+    await dev.registerFcmDevice({ businessId: E, userId: e1, sessionId: await session(e1) }, { token: tE1, platform: "android", appVersion: "1.1.0+2" }, NOW);
+    const rn = at(NIGHT, -1);
+    const t4 = await task(E, e1, rn);
+    m = mark();
+    await dispatch(E, t4, rn, NIGHT);
+    ok("23:00 business time: still sent (a reminder bypasses quiet hours)", since(m).fcm.length === 1 && since(m).web.length === 1);
 
     console.log("engine OFF — the legacy path, unchanged");
     const t7 = await task(L, l1, r1);
