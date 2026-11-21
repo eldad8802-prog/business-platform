@@ -2,7 +2,8 @@
  * Run: npx tsx lib/services/feature-access/owner-gated-features.test.ts   (from the repo root)
  *
  * The owner gate on the platform-admin feature override path — pure (no database, no network):
- *   G1 the list is exactly { service_desk } (adding or removing a key changes this test — a visible, reviewed change);
+ *   G1 the list is exactly { service_desk, activity_packs } (adding or removing a key changes this test — a visible,
+ *      reviewed change);
  *   G2 service_desk: only DISABLED and INHERIT pass; ENABLED and every unknown value are refused (fail closed);
  *   G3 every other catalog feature is untouched by the gate, whatever the state;
  *   G4 the real write service refuses service_desk ENABLED with 403 FEATURE_OWNER_GATED before any database work
@@ -13,6 +14,8 @@
  *      business created later, non-integers, strings, a missing id) is refused; closing / clearing stays open for every
  *      business, the pilot included; no other feature gains a pilot; the real service lets 9 through to the database
  *      layer and refuses any other business before it.
+ *   G8 activity_packs (phase 2): gated with NO pilot — ENABLED is refused for every business, business 9 included;
+ *      closing / clearing stays open for every business.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -44,10 +47,11 @@ function ok(name: string, cond: boolean, detail = "") {
 }
 
 const SD = PLATFORM_FEATURE_KEYS.SERVICE_DESK;
+const AP = PLATFORM_FEATURE_KEYS.ACTIVITY_PACKS;
 
 async function main() {
   // G1
-  ok("G1 the gated list is exactly { service_desk }", JSON.stringify([...OWNER_GATED_FEATURES]) === JSON.stringify(["service_desk"]) && SD === "service_desk");
+  ok("G1 the gated list is exactly { service_desk, activity_packs }", JSON.stringify([...OWNER_GATED_FEATURES]) === JSON.stringify(["service_desk", "activity_packs"]) && SD === "service_desk" && AP === "activity_packs");
   ok("G1 the refusal code is FEATURE_OWNER_GATED", FEATURE_OWNER_GATED === "FEATURE_OWNER_GATED");
 
   // G2
@@ -58,7 +62,7 @@ async function main() {
   }
 
   // G3
-  const others = PLATFORM_FEATURE_CATALOG.map((e) => e.key).filter((k) => k !== SD);
+  const others = PLATFORM_FEATURE_CATALOG.map((e) => e.key).filter((k) => k !== SD && k !== AP);
   ok("G3 the catalog has other features to compare with", others.length > 5, String(others.length));
   ok("G3 no other feature is gated, for any state", others.every((k) => !isOwnerGatedFeature(k) && ["ENABLED", "DISABLED", "INHERIT", "x"].every((s) => !refusedByOwnerGate(k, s))));
   ok("G3 an unknown feature key is not gated (it is refused as unknown elsewhere)", !isOwnerGatedFeature("not_a_feature"));
@@ -85,6 +89,15 @@ async function main() {
   ok("G7 no other feature gains a pilot: business 9 is not a pilot of any other key",
     PLATFORM_FEATURE_CATALOG.map((e) => e.key).filter((k) => k !== SD).every((k) => !isOwnerPilotBusiness(k, 9)) && !isOwnerPilotBusiness("not_a_feature", 9));
   ok("G7 other features stay ungated for business 9 and for others", others.every((k) => [9, 8].every((id) => !refusedByOwnerGate(k, "ENABLED", id))));
+
+  // G8 — activity_packs: gated, no pilot (nobody can be switched on through the admin path until the owner names one)
+  ok("G8 activity_packs is gated", isOwnerGatedFeature(AP));
+  ok("G8 activity_packs has no pilot business", !OWNER_PILOT_BUSINESSES.has(AP));
+  for (const id of [9, 1, 8, 10, 1000]) {
+    ok(`G8 activity_packs ENABLED for business ${id} is refused`, refusedByOwnerGate(AP, "ENABLED", id) && !isOwnerPilotBusiness(AP, id));
+    ok(`G8 business ${id}: activity_packs DISABLED and INHERIT pass`, !refusedByOwnerGate(AP, "DISABLED", id) && !refusedByOwnerGate(AP, "INHERIT", id));
+  }
+  ok("G8 activity_packs ENABLED without a business id is refused", refusedByOwnerGate(AP, "ENABLED"));
 
   // G4 — the real service, no database configured
   const saved = { db: process.env.DATABASE_URL, direct: process.env.DIRECT_URL, cp: process.env.CONTROL_PLANE_DATABASE_URL };
