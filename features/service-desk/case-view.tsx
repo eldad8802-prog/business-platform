@@ -11,14 +11,18 @@ import type { ReactNode } from "react";
 
 import type { CaseActionDef } from "./case-actions-model";
 import {
-  attentionReason, caseNoun, caseSections, eventLabel, formatShortDate, historyItems, nextActionLabel, statusLabel, statusTone,
-  type CaseCardData, type JournalItem, type SectionKey,
+  attentionReason, caseNoun, caseSections, formatShortDate, mergedHistory, nextActionLabel, statusLabel, statusTone,
+  type CaseCardData, type JournalItem, type NextActionContext, type SectionKey, type SideHistoryItem,
 } from "./cases-model";
 import s from "./cases.module.css";
 
 export type CaseViewProps = {
   card: CaseCardData;
   events: readonly JournalItem[];
+  /** Records kept outside the journal (loans, pickup calls), with their own stored times — merged into the history. */
+  sideHistory?: readonly SideHistoryItem[];
+  /** What is already done, so the "next action" never names a finished step. */
+  nextCtx?: NextActionContext;
   now: Date;
   back: ReactNode;
   /** The actions the model offers for this case (primary first). Empty / absent = view only (read-only mode). */
@@ -50,14 +54,14 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalItem[], now: Date): { hint?: string; body: ReactNode } {
+function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalItem[], now: Date, side: readonly SideHistoryItem[] = []): { hint?: string; body: ReactNode } {
   const held = c.kind === "IN_SHOP";
   switch (key) {
     case "details":
       return {
         body: (
           <dl className={s.fields}>
-            {c.subjectName ? <Field label={held ? "פריט" : "מערכת"}>{c.subjectName}</Field> : null}
+            <Field label={held ? "פריט" : "מערכת"}>{c.subjectName?.trim() || "לא צוין"}</Field>
             <Field label={held ? "התקלה" : "תיאור העבודה"}>{c.problemDescription ?? "—"}</Field>
             <Field label="נפתח">{formatShortDate(c.openedAt, now)}</Field>
             {c.coverage ? <Field label="כיסוי">{c.coverage.decision === "APPROVED" ? "אחריות מאושרת" : "בבדיקת אחריות"}</Field> : null}
@@ -79,26 +83,26 @@ function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalI
         : { hint: "עוד לא בוצעה", body: <p className={s.muted}>הקליטה מתעדת את מצב הפריט והאביזרים לפני תחילת העבודה.</p> };
     case "quote":
       return c.status === "QUOTE_PENDING"
-        ? { hint: "ממתינה לתשובה", body: <p className={s.muted}>הצעת המחיר נשלחה ללקוח. התשובה תירשם כאן.</p> }
-        : { body: <p className={s.muted}>אין הצעת מחיר פתוחה.</p> };
+        ? { hint: "ממתינה לתשובה", body: <p className={s.muted}>הצעת המחיר צורפה לתיק וממתינה לתשובת הלקוח. הפרטים בכרטיס &quot;הצעת מחיר&quot;.</p> }
+        : { body: <p className={s.muted}>הצעות המחיר של התיק מופיעות בכרטיס &quot;הצעת מחיר&quot;, כשיש כאלה.</p> };
     case "checks":
       return c.status === "QA"
         ? { hint: "בתהליך", body: <p className={s.muted}>הבדיקות נרשמות בכרטיס "בדיקות לפני מסירה".</p> }
         : { body: <p className={s.muted}>הבדיקות מופעלות לפי הגדרות העסק לסוג העבודה.</p> };
     case "handover":
       return c.status === "READY"
-        ? { hint: "מוכן", body: <p className={s.muted}>מסירה בלחיצה אחת, עם תיעוד המועד ואישור בעל העסק.</p> }
+        ? { hint: "מוכן", body: <p className={s.muted}>המסירה נרשמת עם המועד ואישור בעל העסק, אחרי שנקבע חיוב לתיק (סכום או &quot;ללא חיוב&quot;).</p> }
         : { body: <p className={s.muted}>{c.stamps.deliveredAt ? `נמסר ב־${formatShortDate(c.stamps.deliveredAt, now)}` : "עוד לא נמסר."}</p> };
     case "history": {
-      const items = historyItems(events);
+      const items = mergedHistory(events, side);
       return {
         hint: items.length ? `${items.length} עדכונים` : undefined,
         body: items.length ? (
           <ol className={s.timeline}>
             {items.map((e) => (
-              <li key={e.seq}>
+              <li key={e.key}>
                 <span className={s.dot} aria-hidden="true" />
-                <span className={s.tlText}>{eventLabel(e)}</span>
+                <span className={s.tlText}>{e.text}{e.actor ? <span className={s.sectionHint}> · {e.actor}</span> : null}</span>
                 <span className={s.tlDate}>{formatShortDate(e.occurredAt, now)}</span>
               </li>
             ))}
@@ -109,10 +113,11 @@ function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalI
   }
 }
 
-export function CaseView({ card, events, now, back, actions = [], onAction, busyId = null, message = null, notes = [], extraMain = null, extraSide = null }: CaseViewProps) {
+export function CaseView({ card, events, sideHistory = [], nextCtx = {}, now, back, actions = [], onAction, busyId = null, message = null, notes = [], extraMain = null, extraSide = null }: CaseViewProps) {
   const noun = caseNoun(card.kind);
   const tone = statusTone(card.status, card.holdReason);
-  const next = nextActionLabel(card.status, card.kind, card.holdReason);
+  const next = nextActionLabel(card.status, card.kind, card.holdReason, nextCtx);
+  const blocked = actions.filter((a) => a.blockedReason);
   const waiting = attentionReason(card, now);
   const sections = caseSections(card);
   const main = sections.filter((x) => x.key !== "history");
@@ -142,7 +147,8 @@ export function CaseView({ card, events, now, back, actions = [], onAction, busy
                 <p className={s.nextLabel} style={{ marginTop: 12 }}>הפעולה הבאה</p>
                 <p className={s.nextText}>{next}</p>
               </>
-            ) : <p className={s.nextText} style={{ marginTop: 12 }}>ה{noun} סגור</p>}
+            ) : <p className={s.nextText} style={{ marginTop: 12 }}>{card.status === "DELIVERED" ? `ה${noun} נמסר ללקוח` : `ה${noun} ${noun === "קריאה" ? "סגורה" : "סגור"}`}</p>}
+            {blocked.map((a) => <p key={a.id} id={`sd-blocked-${a.id}`} className={s.blockedNote} style={{ marginTop: 10 }} role="note">{a.blockedReason}</p>)}
           </div>
           {actions.length ? (
             <div className={s.statusActions}>
@@ -150,7 +156,8 @@ export function CaseView({ card, events, now, back, actions = [], onAction, busy
                 a.target.endpoint === "link" ? (
                   <a key={a.id} className={a.tone === "primary" ? s.primary : s.secondary} href={a.target.href}>{a.label}</a>
                 ) : (
-                  <button key={a.id} type="button" className={a.tone === "primary" ? s.primary : s.secondary} disabled={busyId !== null}
+                  <button key={a.id} type="button" className={a.tone === "primary" ? s.primary : s.secondary} disabled={busyId !== null || !!a.blockedReason}
+                    aria-describedby={a.blockedReason ? `sd-blocked-${a.id}` : undefined}
                     onClick={() => onAction?.(a)}>{busyId === a.id ? "שומר…" : a.label}</button>
                 ))}
             </div>
@@ -162,7 +169,7 @@ export function CaseView({ card, events, now, back, actions = [], onAction, busy
           <div className={s.mainCol}>
             {extraMain}
             {main.map((sec) => {
-              const { hint, body } = sectionBody(sec.key, card, events, now);
+              const { hint, body } = sectionBody(sec.key, card, events, now, sideHistory);
               return (
                 <details key={sec.key} className={s.section} open={sec.open}>
                   <summary>
@@ -188,7 +195,7 @@ export function CaseView({ card, events, now, back, actions = [], onAction, busy
               </div>
             ) : null}
             {history ? (() => {
-              const { hint, body } = sectionBody("history", card, events, now);
+              const { hint, body } = sectionBody("history", card, events, now, sideHistory);
               return (
                 <details className={s.section} open>
                   <summary>

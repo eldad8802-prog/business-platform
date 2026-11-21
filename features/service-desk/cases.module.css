@@ -3,7 +3,9 @@
  * cream ground, white cards, bordeaux for the main actions only, few colours, few icons, clear type. Hebrew, RTL,
  * mobile first (tablet ≥ 700px, desktop ≥ 1080px). Own tokens; no other feature's CSS. Heebo is inherited from the app.
  */
-.screen {
+/* The tokens also sit on .backdrop: the action dialog is rendered on the page body (a portal, above the shell's bottom
+   bar), outside .screen — without them its background resolved to nothing and the dialog was transparent. */
+.screen, .backdrop {
   --sc-bg: #fbf8f3;
   --sc-surface: #ffffff;
   --sc-sunk: #f5f0e8;
@@ -18,7 +20,8 @@
   --sc-attention-tint: #fbf1df;
   --sc-ready-tint: #f7ebec;
   --sc-radius: 18px;
-
+}
+.screen {
   min-height: 100dvh;
   background: var(--sc-bg);
   color: var(--sc-ink);
@@ -79,7 +82,7 @@
 .rowMain { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .rowTop { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .rowNumber { flex: none; font-size: 13px; color: var(--sc-ink-3); font-variant-numeric: tabular-nums; direction: ltr; }
-.rowCustomer { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rowCustomer { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .rowDesc { font-size: 14px; color: var(--sc-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rowReason { font-size: 13px; color: var(--sc-attention); }
 .rowSide { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
@@ -179,9 +182,9 @@
 .msg { margin: 0; padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
 .msg[data-tone="error"] { background: #fbecec; color: #7a1f1f; }
 .msg[data-tone="ok"] { background: var(--sc-sunk); color: var(--sc-ink); }
-.backdrop { position: fixed; inset: 0; background: rgba(43, 36, 32, 0.38); display: flex; align-items: flex-end; justify-content: center; z-index: 200; }
+.backdrop { position: fixed; inset: 0; background: rgba(43, 36, 32, 0.38); display: flex; align-items: flex-end; justify-content: center; z-index: 200; color: var(--sc-ink); }
 .dialog {
-  width: 100%; max-width: 520px; background: var(--sc-surface); border-radius: 22px 22px 0 0; padding: 20px 18px calc(18px + env(safe-area-inset-bottom));
+  width: 100%; max-width: 520px; box-sizing: border-box; max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; background: var(--sc-surface); border-radius: 22px 22px 0 0; padding: 20px 18px calc(18px + env(safe-area-inset-bottom));
   display: flex; flex-direction: column; gap: 14px; box-shadow: 0 -8px 30px rgba(43, 36, 32, 0.12);
 }
 .dialogTitle { margin: 0; font-size: 19px; font-weight: 700; }
@@ -196,6 +199,12 @@
 .choices { display: flex; gap: 8px; }
 .choice { flex: 1; height: 46px; border-radius: 12px; border: 1px solid var(--sc-line); background: var(--sc-surface); font: inherit; font-size: 15px; color: var(--sc-ink); cursor: pointer; }
 .choice[aria-pressed="true"], .choice[aria-checked="true"] { border-color: var(--sc-accent); background: var(--sc-accent-tint); color: var(--sc-accent); font-weight: 600; }
+/* QA: a check that passed and one that failed must never look alike (pilot review 2026-11-21). */
+.choice[data-result="PASS"][aria-pressed="true"] { border-color: #2f6b3f; background: #e7f2ea; color: #23512f; }
+.choice[data-result="FAIL"][aria-pressed="true"] { border-color: #9b2c2c; background: #fbecec; color: #7a1f1f; }
+.qaFailed { color: #7a1f1f; }
+.blockedNote { margin: 0; font-size: 13px; line-height: 1.5; color: var(--sc-attention); }
+.fieldError { margin: 0; font-size: 13px; color: #7a1f1f; }
 .dialogActions { display: flex; flex-direction: column-reverse; gap: 8px; }
 @media (min-width: 700px) {
   .backdrop { align-items: center; }

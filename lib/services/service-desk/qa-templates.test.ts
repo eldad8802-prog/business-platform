@@ -47,7 +47,11 @@ ok("T1 one template per kind, keys as tokens, unique per template",
 }
 {
   const e = evaluateQaAgainst(SYN, { ...synReq, opt: "FAIL" });
-  ok("T5 an optional check FAILED does not block", e.ok && e.completed && e.counts.failed === 1);
+  ok("T5 an optional check FAILED blocks (owner 2026-11-21: never \"passed\" over a failed check)", e.ok && !e.completed && e.counts.failed === 1 && e.counts.requiredFailed === 0);
+}
+{
+  const e = evaluateQaAgainst(SYN, { ...synReq });
+  ok("T5a an optional check LEFT OUT does not block (optional stays optional)", e.ok && e.completed && e.counts.failed === 0);
 }
 {
   // T2–T4 also hold on the frozen retired IN_SHOP.v1 content (history: what its stored results meant)
@@ -75,14 +79,16 @@ ok("T11b the current ids: IN_SHOP.v2, FIELD.v2, MAINTENANCE.v2, REMOTE.v1, VEHIC
   builtIns.map((t) => t.id).sort().join(",") === "EXCHANGE.v1,FIELD.v2,INSTALLATION.v1,IN_SHOP.v2,MAINTENANCE.v2,REMOTE.v1,VEHICLE.v1");
 ok("T12 every built-in check is optional (required: false) — 30 of 30", builtInItems.every((i) => i.required === false) && builtInItems.filter((i) => !i.required).length === 30);
 ok("T12b every built-in template completes by being performed (everyCheckRecorded), never by a category", builtIns.every((t) => t.everyCheckRecorded === true));
-ok("T13 every built-in template: every check recorded with every one FAILED → completed (no check must PASS)",
-  builtIns.every((t) => { const e = evaluateQaAgainst(t, every(t, "FAIL")); return e.ok && e.completed && e.counts.requiredFailed === 0 && e.counts.requiredMissing === 0 && e.counts.failed === t.items.length; }));
+ok("T13 every built-in template: every check recorded, one of them FAILED → NOT completed (owner 2026-11-21)",
+  builtIns.every((t) => { const r = every(t); r[t.items[0].key] = "FAIL"; const e = evaluateQaAgainst(t, r); return e.ok && !e.completed && e.counts.requiredMissing === 0 && e.counts.failed === 1; }));
+ok("T13a every built-in template: every check recorded and PASS → completed",
+  builtIns.every((t) => { const e = evaluateQaAgainst(t, every(t)); return e.ok && e.completed && e.counts.failed === 0; }));
 ok("T13b every built-in template: one check left unrecorded → NOT completed (REQUIRED QA means the checklist was performed)",
   builtIns.every((t) => { const r = every(t); delete r[t.items[t.items.length - 1].key]; const e = evaluateQaAgainst(t, r); return e.ok && !e.completed && e.counts.recorded === t.items.length - 1 && e.counts.requiredMissing === 1 && e.counts.requiredFailed === 0; }));
 ok("T13c a single recorded result never completes a built-in checklist",
   builtIns.every((t) => { const e = evaluateQaAgainst(t, { [t.items[0].key]: "PASS" }); return e.ok && !e.completed; }));
 ok("T13d through the kind / track entry points: IN_SHOP / FIELD / MAINTENANCE (kind) and every track template by id",
-  (["IN_SHOP", "FIELD", "MAINTENANCE"] as const).every((k) => { const e = evaluateQa(k, every(QA_TEMPLATES[k], "FAIL")); return e.ok && e.completed && e.template === QA_TEMPLATES[k].id; })
+  (["IN_SHOP", "FIELD", "MAINTENANCE"] as const).every((k) => { const e = evaluateQa(k, every(QA_TEMPLATES[k])), f = evaluateQa(k, every(QA_TEMPLATES[k], "FAIL")); return e.ok && e.completed && f.ok && !f.completed && e.template === QA_TEMPLATES[k].id; })
   && builtIns.every((t) => { const e = evaluateQa(t.kind, every(t), t.id); return e.ok && e.completed && e.template === t.id; }));
 ok("T14 the two reworded checks: replaced parts are documented, the remote health check is recorded (no customer confirmation)",
   TRACK_QA_TEMPLATES["VEHICLE.v1"].items.some((i) => i.key === "replaced_parts_handled") && !TRACK_QA_TEMPLATES["VEHICLE.v1"].items.some((i) => i.key === "replaced_parts_kept")
@@ -104,7 +110,7 @@ ok("T17 a retired id is never offered: not in QA_TEMPLATE_BY_ID (no track names 
   Object.keys(RETIRED_QA_TEMPLATES).every((id) => !Object.prototype.hasOwnProperty.call(QA_TEMPLATE_BY_ID, id)));
 ok("T18 a snapshot that still names a v1 id is judged, for a NEW result, by its successor (suggested)",
   Object.entries(QA_TEMPLATE_SUCCESSOR).every(([v1, v2]) => qaTemplateFor(RETIRED_QA_TEMPLATES[v1].kind, v1)?.id === v2)
-  && (() => { const e = evaluateQa("IN_SHOP", every(QA_TEMPLATES.IN_SHOP, "FAIL"), "IN_SHOP.v1"); return e.ok && e.completed && e.template === "IN_SHOP.v2"; })());
+  && (() => { const e = evaluateQa("IN_SHOP", every(QA_TEMPLATES.IN_SHOP), "IN_SHOP.v1"); return e.ok && e.completed && e.template === "IN_SHOP.v2"; })());
 ok("T19 reading history: a v1 id resolves to its frozen content, a current id to itself, an unknown id to nothing",
   qaTemplateForHistory("IN_SHOP.v1") === RETIRED_QA_TEMPLATES["IN_SHOP.v1"] && qaTemplateForHistory("VEHICLE.v1") === TRACK_QA_TEMPLATES["VEHICLE.v1"]
   && qaTemplateForHistory("NOPE.v1") === null && qaTemplateForHistory("constructor") === null);

@@ -7,6 +7,7 @@
  * the documented intake; the journal records who, when and the status change. Every action is offered only when the
  * server allows it (IntakeView.allowed) and the access is FULL; a refused action is explained.
  */
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { confirmIntake, createSlip, fetchIntakeBlob, getIntake, saveIntakeData, uploadPhoto, type IntakeView } from "./intake-client";
@@ -60,6 +61,7 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [okMessage, setOkMessage] = useState(false);
 
   const [tick, setTick] = useState(0);
   /** Reload the intake from the server (after every action, and on "retry"). */
@@ -83,14 +85,23 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
     try {
       await run();
       setMessage(done);
+      setOkMessage(true);
     } catch (e) {
       const ev = errorView(e);
       setMessage(ev.text);
+      setOkMessage(false);
     } finally {
       setBusy(null);
       load();
     }
   };
+
+  // A success line clears itself (pilot review 2026-11-21); an error stays until the next action.
+  useEffect(() => {
+    if (!message || !okMessage) return;
+    const t = setTimeout(() => setMessage((m) => (m === message ? null : m)), 4000);
+    return () => clearTimeout(t);
+  }, [message, okMessage]);
 
   const section = view ? currentSection(view) : null;
   const blocker = view ? confirmBlocker(view) : null;
@@ -101,8 +112,8 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
         <ScreenHead
           title={view ? `קליטה · תיק ${view.case.caseNumber}` : "קליטה"}
           subtitle="מצב הפריט, אביזרים, תמונות ואישור הקליטה"
-          fallback="/service-desk"
-          fallbackLabel="לשירות ואחריות"
+          fallback={`/service-desk/cases/${caseId}`}
+          fallbackLabel="לתיק"
         />
         {access.status === "loading" ? (
           <Loading />
@@ -174,7 +185,12 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
             <section className={s.card} aria-labelledby="in-confirm" data-current={section === "confirm" || undefined}>
               <h2 id="in-confirm" className={s.cardTitle}>אישור הקליטה</h2>
               {view.confirmation ? (
-                <p className={s.cardSub}>הקליטה אושרה על ידי {view.confirmation.byName ?? "משתמש העסק"} · {israelDateTime(view.confirmation.at)}</p>
+                <>
+                  <p className={s.cardSub}>הקליטה אושרה על ידי {view.confirmation.byName ?? "משתמש העסק"} · {israelDateTime(view.confirmation.at)}</p>
+                  <div className={s.actions}>
+                    <Link className={`${s.button} ${s.primary}`} href={`/service-desk/cases/${caseId}`} replace>המשך לתיק</Link>
+                  </div>
+                </>
               ) : can("confirm") ? (
                 <div className={s.actions}>
                   <p className={s.hint}>באישור הקליטה אתם מאשרים שמצב הפריט, האביזרים והתמונות תועדו, והפריט התקבל לטיפול. האישור נרשם ביומן התיק עם שמכם והשעה.</p>

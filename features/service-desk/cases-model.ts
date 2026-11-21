@@ -106,7 +106,11 @@ export function attentionReason(c: Pick<CaseRowData, "status" | "holdReason" | "
     case "QUOTE_PENDING":
       return `הצעת מחיר ממתינה לתשובת הלקוח · ${daysText(waited)}`;
     case "OPEN":
-      return c.kind === "FIELD" ? "צריך לתאם ביקור" : "צריך לקלוט את הפריט";
+      // A service call (on site or remote) is coordinated; only a repair at the business has an item to take in.
+      return c.kind === "FIELD" || c.kind === "REMOTE" ? "צריך לתאם ביקור" : "צריך לקלוט את הפריט";
+    case "CHECKED_IN":
+      // The item is here and nobody started on it (pilot review 2026-11-21: it was missing from "דורשים טיפול").
+      return `ממתין לאבחון · ${daysText(waited)}`;
     case "WORK_DONE":
       return "העבודה הסתיימה — לסגור את הקריאה";
     default:
@@ -116,21 +120,34 @@ export function attentionReason(c: Pick<CaseRowData, "status" | "holdReason" | "
 }
 
 /** The next step the owner takes, in plain words, for the case screen's top card. */
-export function nextActionLabel(status: CaseStatus, kind: CaseKind, holdReason: string | null = null): string | null {
+export type NextActionContext = {
+  /** The intake has its condition and accessories recorded: what is left is the owner's confirmation. */
+  intakeReady?: boolean;
+  /** READY / WORK_DONE with no charge decided yet: the handover waits for it. */
+  chargeMissing?: boolean;
+  /** QA: the saved checklist has a failed check (the case goes back to work). */
+  qaFailed?: boolean;
+};
+
+/**
+ * The next step the owner takes, in plain words, for the case screen's top card. A step already done is never named
+ * as the next one: a recorded intake asks for its confirmation, not for the intake again (pilot review 2026-11-21).
+ */
+export function nextActionLabel(status: CaseStatus, kind: CaseKind, holdReason: string | null = null, ctx: NextActionContext = {}): string | null {
   if (status === "IN_REPAIR" && holdReason === "PARTS") return "כשהחלקים מגיעים — להחזיר לעבודה";
   if (status === "IN_REPAIR" && holdReason) return "כשהלקוח חוזר — להחזיר לעבודה";
   const field = kind === "FIELD" || kind === "REMOTE";
   switch (status) {
-    case "OPEN": return field ? "לתאם ביקור" : "לקלוט את הפריט";
+    case "OPEN": return field ? "לתאם ביקור" : ctx.intakeReady ? "לאשר את הקליטה" : "לקלוט את הפריט";
     case "SCHEDULED": return "להתחיל את הביקור";
     case "CHECKED_IN": return "להתחיל אבחון";
     case "DIAGNOSING": return "להחליט: לתקן או לשלוח הצעת מחיר";
     case "QUOTE_PENDING": return "לרשום את תשובת הלקוח להצעה";
     case "IN_REPAIR": return field ? "לסיים את העבודה" : "לסיים את התיקון";
     case "EXTERNAL": return "לרשום חזרה מהספק";
-    case "QA": return "להשלים את הבדיקות";
-    case "READY": return "למסור ללקוח";
-    case "WORK_DONE": return "לסגור את הקריאה";
+    case "QA": return ctx.qaFailed ? "בדיקה לא עברה — להחזיר לעבודה" : "להשלים את הבדיקות";
+    case "READY": return ctx.chargeMissing ? "לקבוע חיוב ואז למסור ללקוח" : "למסור ללקוח";
+    case "WORK_DONE": return ctx.chargeMissing ? "לקבוע חיוב ואז לסגור את הקריאה" : "לסגור את הקריאה";
     default: return null;
   }
 }
@@ -224,7 +241,7 @@ export type CaseCardData = CaseRowData & {
   intake: { conditionNote: string | null; accessoriesNote: string | null; conditionRecorded: boolean; accessoriesRecorded: boolean } | null;
 };
 
-export type JournalItem = { seq: number; eventType: string; toStatus: string; occurredAt: string; actor: string };
+export type JournalItem = { seq: number; eventType: string; toStatus: string; occurredAt: string; actor: string; payload?: unknown };
 
 export type SectionKey = "details" | "intake" | "quote" | "checks" | "handover" | "history";
 
@@ -277,8 +294,54 @@ const EVENT_LABEL: Readonly<Record<string, string>> = {
   "case.cancellation_requested": "התבקש ביטול",
 };
 
-export function eventLabel(e: Pick<JournalItem, "eventType" | "toStatus">): string {
-  return EVENT_LABEL[e.eventType] ?? "עדכון בתיק";
+const ACTOR_LABEL: Readonly<Record<string, string>> = { OWNER_USER: "בעל העסק", CUSTOMER_LINK: "הלקוח", SYSTEM: "המערכת" };
+
+/** Who acted, as the journal records it (the actor kind; no name is stored on the event). */
+export function actorLabel(actor: string | undefined): string | null {
+  return actor ? ACTOR_LABEL[actor] ?? null : null;
+}
+
+const ils = (agorot: number) => `₪${(agorot / 100).toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
+const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/**
+ * The history line of an event: its name, and — only from what the journal actually stores (the closed payload of
+ * tokens and numbers) — the detail that matters: the QA counts, a handover with an open balance, the charge, the way
+ * the customer answered a quote. Nothing is inferred; a reason text is never in the journal, so it is never shown here.
+ */
+export function eventLabel(e: Pick<JournalItem, "eventType" | "toStatus"> & { payload?: unknown }): string {
+  const base = EVENT_LABEL[e.eventType] ?? "עדכון בתיק";
+  const p = (e.payload && typeof e.payload === "object" ? e.payload : {}) as Record<string, unknown>;
+  switch (e.eventType) {
+    case "qa.recorded": {
+      const passed = num(p.passed), failed = num(p.failed);
+      if (passed === null && failed === null) return base;
+      return `${base} · ${passed ?? 0} עברו${failed ? `, ${failed} לא עברו` : ""}`;
+    }
+    case "case.delivered":
+    case "case.completed":
+      return p.debtOverride === true ? `${base} · עם יתרה פתוחה, באישור בעל העסק (הסיבה נשמרה)` : base;
+    case "charge.recorded":
+      if (p.mode === "NO_CHARGE") return `${base} · ללא חיוב`;
+      return num(p.amountAgorot) !== null ? `${base} · ${ils(num(p.amountAgorot)!)}` : base;
+    case "quote.approved":
+    case "quote.rejected":
+      return p.method === "PHONE" ? `${base} · בטלפון` : p.method === "IN_PERSON" ? `${base} · פנים אל פנים` : base;
+    default:
+      return base;
+  }
+}
+
+/** A history line from a record kept outside the journal (a loan, a pickup call): real stored times only. */
+export type SideHistoryItem = { key: string; text: string; occurredAt: string };
+
+/** The journal and the side records, newest first, as one list for the history section. */
+export function mergedHistory(events: readonly JournalItem[], side: readonly SideHistoryItem[]): { key: string; text: string; occurredAt: string; actor: string | null }[] {
+  const rows = [
+    ...events.map((e) => ({ key: `e${e.seq}`, text: eventLabel(e), occurredAt: e.occurredAt, actor: actorLabel(e.actor), order: e.seq })),
+    ...side.map((x) => ({ key: x.key, text: x.text, occurredAt: x.occurredAt, actor: null as string | null, order: 0 })),
+  ];
+  return rows.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt) || b.order - a.order).map(({ order: _o, ...r }) => r);
 }
 
 /** Newest first, for the history section. */
