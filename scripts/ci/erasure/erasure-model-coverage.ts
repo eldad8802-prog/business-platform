@@ -345,6 +345,8 @@ const RETAINED: Record<string, ModelCoverage> = {
   },
   // Issuer declaration (#1081, migration 20261126100000): the declared opening number of a numbering series.
   BillingSeriesOpening: FISCAL("the declared opening number of a document numbering series, the previous tool's name and last number, and who declared it — numbering integrity"),
+  // Business kind transition (owner 11-20, migration 20261221090000): exempt → authorized dealer in the same file.
+  BusinessKindTransition: FISCAL("the record that a business became an authorized dealer: kinds, the declared status start date, the confirmation moment and digest — which kind every later document was issued under"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

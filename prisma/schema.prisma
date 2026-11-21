@@ -9504,6 +9504,25 @@ model BusinessIssuerDeclaration {
   @@index([businessId, effectiveFrom(sort: Desc)])
 }
 
+/// Exempt → authorized dealer in the same business file (owner decision 2026-11-20; migration 20261221090000).
+/// Append-only history, at most one row per business; written ONLY by business_kind_transition_to_authorized().
+/// statusEffectiveDate = the day the owner declares the status started at the Tax Authority (recorded only);
+/// confirmedAt = the moment the owner confirmed in Dubiz (new documents follow the new kind from then).
+model BusinessKindTransition {
+  id                  Int      @id @default(autoincrement())
+  businessId          Int      @unique
+  fromKind            String
+  toKind              String
+  statusEffectiveDate DateTime @db.Date
+  confirmedAt         DateTime @default(now()) @db.Timestamptz(6)
+  confirmedByUserId   Int
+  reauthMethod        String
+  reauthAt            DateTime @db.Timestamptz(6)
+  statementVersion    String
+  statementSha256     String
+  createdAt           DateTime @default(now()) @db.Timestamptz(6)
+}
+
 /// Declared opening number of a document series, accepted only while the series has never been used.
 model BillingSeriesOpening {
   id                       Int                 @id @default(autoincrement())

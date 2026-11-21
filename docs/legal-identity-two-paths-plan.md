@@ -1,61 +1,129 @@
-# Legal identity — two paths (owner decision 2026-11-20)
+# Legal identity — two paths (owner decisions 2026-11-20)
 
-Status: plan + pure core only. No schema change, migration, merge, flag or Production change is made or approved by this file.
+Status: branch work only. **No merge, no Production migration, no flag, no billing (A0) file.** Each step below needs
+its own owner approval.
 
 ## Rule
 
-A business file's legal identity (kind, legal name, id number) is never changed after the fact. No correction request, no approver.
+A business file's legal identity (kind, legal name, id number) is never changed after the fact. There is no correction
+request and no approver.
 
-- **Path A — "מעבר לעוסק מורשה":** same legal entity, same id number, same legal name; `EXEMPT_DEALER → AUTHORIZED_DEALER` inside the same business file, confirmed explicitly by the business owner in the flow.
-- **Path B — new business file:** any change of legal name or id number (even one character), and any individual ↔ company move. The old file and its documents stay as they are.
+- **Path A — "מעבר לעוסק מורשה":**
+  - same legal entity, same id number, same legal name, same file;
+  - `EXEMPT_DEALER → AUTHORIZED_DEALER`;
+  - VAT number = id number (individual);
+  - explicit owner confirmation after a server-side re-authentication (password, or Google for Google-only accounts);
+  - one transaction, full audit;
+  - issued documents never change;
+  - authorized → exempt stays blocked.
+- **Path B — new business file:**
+  - any change of legal name or id number (even one character), and individual ↔ company;
+  - the old file and its documents stay as they are;
+  - interim (B3, owner-accepted for planning): a separate signup;
+  - multi-business per user is NOT approved for development.
 
-Pure core on this branch: `lib/legal-identity/identity-change-policy.ts` (classifier), `lib/legal-identity/kind-transition.ts` (eligibility, input validation, acknowledgements, canonical statement + sha256, effects list). Tests: 13 + 16 checks, in `scripts/ci/test-coverage/legal-identity-two-paths.json`.
+## Delivered (branches / Drafts)
 
-## Findings that shape the design (origin/main b4a28809)
+| PR | Branch | Content |
+|---|---|---|
+| (new) | `db/business-kind-transition` | Migration `20261221090000_business_kind_transition` only, plus the lab, preflight, evidence, rollback and CI workflow |
+| #1204 | `feat/legal-identity-two-paths-core` | Pure core, Prisma model, erasure registration, re-auth proof (password + Google), routes behind `BUSINESS_KIND_TRANSITION_ENABLED` (OFF → 404), tests, docs (this file, screen spec, 4a package) |
 
-- Identity lives on `BusinessProfile.billingBusinessKind / billingLegalName / billingTaxId` (+ `billingVatNumber`). Locked after `legalIdentityConfirmedAt` by trigger `BusinessProfile_legal_identity_lock` (DZL04); only the table owner (migration / SECURITY DEFINER function) passes.
-- Issuer declaration (`20261126100000`): when a live declaration exists, `BusinessProfile_issuer_identity_lock` (DZD35) requires kind / name / tax id / VAT number to equal the latest declaration. The chain guard already supports kind `STATUS_CHANGE` (VAT status must change, same legal form / id type / id number, version+1, filed by the current authorized user). No code creates `STATUS_CHANGE` yet.
-- Issued documents carry a frozen `issuedSnapshot` (incl. `extensions.billingBusinessKind`), protected by `secf_billing_document_immutable` (DZ010); PDFs render from the snapshot. A kind switch cannot alter past documents.
-- Numbering: one counter per (business, documentType). After the switch `TAX_INVOICE` / `TAX_INVOICE_RECEIPT` have no counter → start at 1 (or a `BillingSeriesOpening`, allowed while unused). `RECEIPT` / `CREDIT_NOTE` continue.
-- Read live, not from a snapshot: uniform export loader (`lib/services/billing/uniform/uniform-export-loader.ts`), letters. An export of a pre-switch period run after the switch would show the new VAT number → 4a to decide (A0).
-- Server-side kind rule: `assertDocumentTypeAllowedForBusinessKind` refuses tax invoices for exempt. VAT 0% for exempt is a client default only.
-- One user ↔ one business: `User.businessId Int` (required), `User.email @unique`, no membership table, token has no business claim, 885 uses of `user.businessId`. RLS isolation is per business (`app.current_business_id`), so a second business is isolated correctly at the database level. No SaaS Subscription model yet; feature access is per business.
+### Migration (`20261221090000`)
 
-## Path A — design (needs owner approval: migration)
+- **`BusinessKindTransition`:**
+  - append-only (UPDATE refused to everyone, DELETE only to the owner);
+  - one row per business (unique);
+  - FORCE RLS with per-command tenant policies;
+  - runtime may SELECT only;
+  - `ON DELETE RESTRICT` (Business and User are never hard-deleted by the purge).
+- **Two dates:** `statusEffectiveDate` (declared; between 2000-01-01 and the confirmation day, Israel time) and
+  `confirmedAt` (now).
+- **`business_kind_transition_to_authorized(user, vat, date, reauth_method, reauth_at, statement_sha)`** is SECURITY
+  DEFINER and granted to `app_runtime` only. It returns a status and writes nothing unless:
+  - the user is in the session's business, the business is alive, and the user is its **sole** user;
+  - the re-auth is PASSWORD or GOOGLE and at most 10 minutes old;
+  - the kind is EXEMPT_DEALER and the identity is complete;
+  - the VAT number is valid and equals the id number;
+  - the date is valid;
+  - **no live issuer declaration** exists (4a item 1);
+  - the statement digest, recomputed in SQL, equals what the owner confirmed.
+- **What it writes:** the history row, then kind + VAT number on the profile. The name, id number and confirmation
+  state are untouched. The signup lock (DZL04) still refuses any later kind / name / id change.
+- **Statuses:**
+  - TRANSITIONED
+  - NOT_ALLOWED
+  - NOT_SOLE_USER
+  - REAUTH_REQUIRED
+  - IDENTITY_INCOMPLETE
+  - NOT_EXEMPT_DEALER
+  - VAT_NUMBER_INVALID
+  - VAT_NUMBER_DIFFERS_FROM_TAX_ID
+  - EFFECTIVE_DATE_INVALID
+  - ISSUER_DECLARATION_ACTIVE
+  - STATEMENT_STALE
+- **Static guarantees (CI step 0):** it names no Billing / Payment / FinancialEvent table, never writes the issuer
+  declaration, and the evidence files are SELECT-only.
 
-One migration (proposed `2026122xxxxxxx_business_kind_transition`), not written yet:
+### Re-authentication (no schema change)
 
-1. Table `BusinessKindTransition` (append-only, FORCE RLS by businessId): `id, businessId, fromKind, toKind, taxIdAtTransition, legalNameAtTransition, vatNumber, effectiveAt, confirmedByUserId, reauthMethod, statementVersion, statementSha256, issuerDeclarationId (nullable), createdAt`. UPDATE/DELETE refused (trigger), erasure disposition = keep with business (fiscal history) — to confirm.
-2. SECURITY DEFINER `business_kind_transition_exempt_to_authorized(p_user_id, p_vat_number, p_statement_sha)` granted to `app_runtime` only:
-   - business from `app.current_business_id`; user must belong to it; not being deleted; advisory lock per business;
-   - current kind must be `EXEMPT_DEALER`; tax id valid; VAT number valid (and = tax id, if the owner keeps that rule);
-   - recompute the canonical statement server-side and compare the sha (stale → refuse);
-   - if a live issuer declaration exists: INSERT version+1 `STATUS_CHANGE` (`AUTHORIZED_DEALER_INDIVIDUAL`, VAT number) in the same transaction, before the profile update (satisfies DZD35) — **4a's table; contract to agree with 4a**;
-   - UPDATE profile kind + VAT number (owner rights pass DZL04); INSERT the transition row; all or nothing.
-3. Route `POST /api/business/legal-identity/kind-transition` (+ GET for eligibility, statement, digest): PASSWORD re-verification (Google-only accounts: decision), 409 on stale digest, audit event. Flag `BUSINESS_KIND_TRANSITION_ENABLED` (OFF → 404).
-4. UI: one action "מעבר לעוסק מורשה" on the business details screen + a 3-step flow (explain → enter id + VAT number + acknowledgements → review & confirm). Design to be shown to the owner first.
+- **The proof:** a stateless HMAC envelope (the platform-admin elevation pattern, with its own key label). It is bound
+  to **user + session + action + method** and is valid for 5 minutes. It lives only as an httpOnly cookie on
+  `/api/business/legal-identity/kind-transition` and is cleared on success.
+- **Password:** login's per-IP limit and per-account ledger and lock, with a timing equaliser.
+- **Google:** `prompt=login&max_age=0`.
+  - The ID token is verified in full and Google's `auth_time` must be ≤ 5 minutes old.
+  - The Google account must resolve to the **same** signed-in user.
+  - It shares the registered callback. The branch is taken only when its own signed cookie's state matches, so the
+    ordinary sign-in is unchanged (tests C5 and C6).
+- A token without a session id cannot re-authenticate.
+- The method follows the account: a password → PASSWORD, none → GOOGLE.
 
-Billing touch points (A0, 4a): STATUS_CHANGE writer, uniform export period handling, warning on open 0%-VAT drafts, kind caches (`use-business-kind`).
+### Tests
 
-## Path B — options (needs owner decision)
+- **Lab (local PG18, Production role topology, real `migrate deploy`):**
+  - proof 11/11;
+  - preflight fails exactly 2, 3 and 4 after the apply (+7, a lab-ledger artefact);
+  - battery K1–K11: 52/52;
+  - rollback reverts whole;
+  - atomicity (fails on its last statement → nothing left).
+- **Pure / handler suites** (security-gate manifest `legal-identity-two-paths.json`):
+  - identity-change-policy;
+  - kind-transition;
+  - sensitive-reauth (proof, Google state, callback branch, shared-callback routing);
+  - kind-transition-handlers (OFF → 404, session-bound, proof checks, no DB call on refusal).
+- The SQL statement digest equals the app's on a fixed vector (evidence check 11, lab K2, unit S2).
 
-| Option | What | Schema | Effort | UX |
-|---|---|---|---|---|
-| B1 | New business file = new account with a different email (works today) + clear explanation screen | none | small | poor: second email, separate login |
-| B2 | Multi-business membership: `BusinessMembership`, active business resolved server-side (session row), switcher, "open new business file" | yes (new table, UserIdentity, deletion split) | large | good |
-| B3 | B1 now, B2 later as its own project | none now | small now | poor now, good later |
+## Old frozen work: verdict and what is reusable
 
-Recommendation: B3. B2 touches login, Google identity, account deletion (today deletes the whole business and anonymises its users), notifications recipients and every `user.businessId` resolution — a separate, planned project, ideally before a SaaS Subscription model is designed (per-business vs per-user plan).
+Development stopped (owner 11-20). Nothing is closed or deleted without separate approval.
 
-## Old frozen work
+| Item | Verdict | Reusable |
+|---|---|---|
+| #1148 correction migration (request table, four-eyes) | Not needed | `scripts/ci/tenant-table-rls-guard.mjs` R2 change (recognises column-level GRANTs): a general guard improvement, could be proposed on its own. `.sli/correction-battery.ts` structure (already mirrored in `.bkt/battery.ts`) |
+| #1152 correction request screens | Not needed | `lib/legal-identity/signed-in-as.ts` + `components/legal-identity/signed-in-as.tsx` (client guard against an account switch in another tab), for the transition page. The back-nav registration pattern. Not reused: attachment storage / erasure (no attachments); its password check (superseded by `lib/auth/sensitive-reauth.ts`, which adds the login ledger / lock and the Google path) |
+| #1154 approver console | Not needed (no approver) | `docs/legal-identity-activation-runbook.md` structure, for the new activation runbook. CI red at freeze (M6 battery, i18n en chunk, verify) not investigated, per owner |
+| #1179 preflight / evidence for #1148 | Not needed | The pattern only, re-done for 20261221090000 |
+| `feat/legal-identity-completion-prompt` (no PR) | Not needed now (32 test / pilot businesses) | — |
 
-| Item | Verdict |
-|---|---|
-| #1148 correction migration (request table, four-eyes, decide) | superseded — keep frozen, close when the owner approves |
-| #1152 correction request screens | superseded; reusable pieces: `signed-in-as` helper/component, PASSWORD re-verification wiring, attachment storage pattern |
-| #1154 approver console | superseded (no approver). CI red at freeze: M6 battery, i18n en chunk, verify (migration-first, tenant-table RLS, tenant-scoped access, validate, build) — not investigated further |
-| #1179 preflight/evidence for #1148 | superseded; pattern reused for the Path A migration |
-| `feat/legal-identity-completion-prompt` (no PR) | not needed now (32 businesses are test/pilot); keep |
-| #1183 (4a) forward technical correction after issuance | depends on the old "correction" concept; 4a/owner to re-evaluate |
+## Owner decisions still open
 
-Copy that now contradicts the rule (to fix after approval): `lib/legal-identity/lock.ts` message ("לפנות לתמיכה"), `lib/i18n/messages/areas/billing.ts` lockedNote, 4a's declaration screens ("תיקון — רק בבקשה מבוקרת"), `LEGAL_IDENTITY_CORRECTION_ENABLED` link in 4a's declared-status screen.
+1. Status start date earlier than the Dubiz update: the gap-notice proposal (4a package §2). Inform only, no blocking.
+2. Uniform export for historical periods (4a §3).
+3. Open 0%-VAT drafts after the transition: notice only, or block issuing until reviewed (4a §4).
+4. New wording for the messages that point to a correction request or to support (4a §5), and retiring
+   `LEGAL_IDENTITY_CORRECTION_ENABLED`.
+5. Businesses with several users: today refused (NOT_SOLE_USER). Who may transition later?
+6. The screen: design approval (screen spec). Placement; is the typed id number kept?
+7. Path B (B3) help text: "open a new account with another email".
+
+## Merge and activation order (each step = separate owner approval)
+
+1. Merge the migration PR, then the read-only Production preflight (`business-kind-transition-preflight.sql`) → all
+   PASS.
+2. Approval record → `release-migrate` of 20261221090000 → evidence 11/11. Announce to the other sessions first, and
+   keep only one release in flight.
+3. 4a ships its items 1–6 (STATUS_CHANGE writer, gap notice, uniform export, drafts, messages, numbering lab).
+4. Merge #1204 with the flag OFF; verify 404 in Production.
+5. Screen implementation after design approval; real-phone test on a test business in an isolated Preview.
+6. The owner sets `BUSINESS_KIND_TRANSITION_ENABLED=true`.

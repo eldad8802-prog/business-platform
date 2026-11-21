@@ -1,5 +1,5 @@
 {
-  "note": "Legal identity two paths (owner decision 2026-11-20): a business file's legal identity is never changed after the fact. Path A = exempt → authorized dealer inside the same file through a controlled flow; Path B = any change of legal name / id number / legal form opens a new business file. Pure suites, executed by security-gate.yml straight from this manifest (lab pure). No write path is built yet: the database function needs separate owner approval.",
+  "note": "Legal identity two paths (owner decision 2026-11-20): a business file's legal identity is never changed after the fact. Path A = exempt → authorized dealer inside the same file through a controlled flow; Path B = any change of legal name / id number / legal form opens a new business file. Pure suites, executed by security-gate.yml straight from this manifest (lab pure). The database half is .bkt/battery.ts in business-kind-transition-lab.yml (migration PR).",
   "tests": {
     "lib/legal-identity/identity-change-policy.test.ts": {
       "class": "SECURITY_REQUIRED",
@@ -10,6 +10,16 @@
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
       "reason": "pure (no DB/network): the exempt → authorized flow is offered only to an exempt dealer's authorized user on a complete, live business; same-entity proof (retyped id must match the file), valid VAT number, every acknowledgement required (no partial consent), canonical statement digest binds business, actor, identity and VAT number"
+    },
+    "lib/auth/sensitive-reauth.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the step-up proof is bound to user + session + action + method, expires in 5 minutes, refuses tampering and never validates as an admin elevation or a Google state; Google re-auth forces prompt=login/max_age=0, requires a fresh auth_time and the SAME linked user, sets the proof only as an httpOnly cookie on the action path; the shared callback takes the re-auth branch only on its own valid state cookie, ordinary sign-in unchanged"
+    },
+    "lib/services/legal-identity/kind-transition-handlers.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (injected deps): OFF → 404 before the session is read; the session decides user and business; confirm needs a proof for this user, session and action by the method the account requires (password account → PASSWORD); stale digest, ineligible business, missing or foreign proof reach no database call; database answers mapped; the proof is cleared only on success"
     }
   }
 }

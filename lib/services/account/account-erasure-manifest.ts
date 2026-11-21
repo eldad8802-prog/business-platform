@@ -36,6 +36,8 @@ export const RETAIN_MODELS = [
   "billingDocumentNumberSequence",
   // issuer declaration (#1081): the declared opening number of a series — numbering integrity, like the sequence
   "billingSeriesOpening",
+  // business kind transition (owner 11-20): which kind later documents were issued under — fiscal history
+  "businessKindTransition",
   "billingPaymentAllocation",
   "financialEvent",
   "billingAuthoritySubmission",
