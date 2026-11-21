@@ -114,6 +114,17 @@ async function storeCreateOnce(storage: StorageService, b: number, key: string, 
 }
 
 /**
+ * Under the case lock, right before a row starts to name an object: make sure the object is there. The orphan sweep
+ * (intake-orphan-sweep) deletes only while holding this same case lock and only objects no row names, so an upload that
+ * was swept before its command got the lock is written again here from the bytes in memory — a row never names a
+ * missing object.
+ */
+export async function ensureStoredUnderLock(storage: StorageService, b: number, key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+  if ((await storage.headObject(key)).exists) return;
+  await storeCreateOnce(storage, b, key, bytes, contentType);
+}
+
+/**
  * What the customer signed, as one hash: the intake notes and flags and the sorted photo hashes, in a fixed canonical
  * form. Journaled with the signature, so the event alone proves later that none of it was changed.
  */
@@ -173,6 +184,7 @@ export async function addIntakePhoto(
     const d = evaluateAddPhoto(f, { declaredMime: body.declaredMime, bytes: body.bytes });
     if (!d.ok) throw refused(d.violations);
     const key = intakePhotoKey({ businessId: b, caseId, sha256, mimeType: d.mimeType });
+    await ensureStoredUnderLock(storage, b, key, body.bytes, d.mimeType);
     await tx.$executeRaw`
       INSERT INTO "ServiceIntakePhoto" ("businessId", "caseId", "storageKey", sha256, "mimeType", "byteSize", "createdByUserId")
       VALUES (${b}::int, ${caseId}::int, ${key}, ${sha256}::char(64), ${d.mimeType}, ${d.byteSize}::int, ${p.userId}::int)`;
@@ -207,6 +219,7 @@ export async function signIntake(
     const d = evaluateSign(f, body.signaturePng);
     if (!d.ok) throw refused(d.violations);
     if (!f.termsSnapshot || !f.snapshotHashes || !f.intake) throw refused(["TERMS_NOT_PRESENTED"]);
+    await ensureStoredUnderLock(storage, b, key, body.signaturePng, "image/png");
     const n = await tx.$executeRaw`
       UPDATE "ServiceCaseIntake" SET "customerSigned" = true, "signedAt" = now(), "signatureKey" = ${key}, "termsVersion" = ${d.termsVersionLabel}, "updatedAt" = now()
        WHERE "businessId" = ${b}::int AND "caseId" = ${caseId}::int AND "signedAt" IS NULL`;
