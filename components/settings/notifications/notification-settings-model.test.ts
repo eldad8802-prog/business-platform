@@ -494,6 +494,14 @@ check("the device card shows 'connected' only from a server-confirmed outcome", 
   assert.ok(/if \(!res\.ok\) return \{ status: "server_rejected"/.test(client) && client.includes('return { status: "registered" }'), "registered only after res.ok");
 });
 
+check("the device card is never invisible: a checking state, and a diagnostic when the device never answers", () => {
+  const src = read(`${DIR}/PhoneDeviceCard.tsx`);
+  assert.ok(!/if \(!inputs\) return null;/.test(src), "no silent null render while the device check runs");
+  assert.ok(src.includes('t("notifications.phone.checking")') && src.includes('t("notifications.phone.checkStuck")'), "checking + stuck copy");
+  assert.ok(src.includes("device_check_timeout/"), "stuck state shows a diagnostic code");
+  assert.ok(notificationsHe.phone.checking && notificationsEn.phone.checking && notificationsHe.phone.checkStuck && notificationsEn.phone.checkStuck);
+});
+
 check("every settings write goes through SETTINGS_CONTROLS (a real field)", () => {
   for (const f of ["NotificationsMainScreen.tsx", "NotificationPrivacyScreen.tsx", "NotificationTypesScreen.tsx"]) {
     const src = read(`${DIR}/${f}`);

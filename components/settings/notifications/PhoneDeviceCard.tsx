@@ -73,6 +73,9 @@ async function browserPushState(): Promise<"on" | "off" | "denied" | "unavailabl
   }
 }
 
+/** If the device has not answered the first check by then, the card says so with a diagnostic code. */
+const DEVICE_CHECK_TIMEOUT_MS = 10000;
+
 /** registerDevice always settles (its own FCM timeout); this is only a guard against a bridge call that hangs. */
 const CONFIRM_GUARD_MS = REGISTER_TIMEOUT_MS + 5000;
 
@@ -98,6 +101,7 @@ export function PhoneDeviceCard() {
   const [failure, setFailure] = useState<RegistrationOutcomeLike | null>(null);
   const [busy, setBusy] = useState(false);
   const [browserFailed, setBrowserFailed] = useState(false);
+  const [checkStuck, setCheckStuck] = useState(false);
   /** The automatic confirmation on open runs once per visit; after that only the person's tap retries. */
   const autoConfirmed = useRef(false);
   const mounted = useRef(true);
@@ -151,8 +155,13 @@ export function PhoneDeviceCard() {
 
   useEffect(() => {
     mounted.current = true;
+    // The first device check never answering must be visible, never a card that silently does not render.
+    const stuckTimer = setTimeout(() => {
+      if (mounted.current) setCheckStuck(true);
+    }, DEVICE_CHECK_TIMEOUT_MS);
     return () => {
       mounted.current = false;
+      clearTimeout(stuckTimer);
     };
   }, []);
 
@@ -242,10 +251,24 @@ export function PhoneDeviceCard() {
     }
   }
 
-  if (!inputs) return null;
-  const state = deviceState(inputs);
   const text = "text-sm leading-6 text-[var(--dz-text-primary)]";
   const muted = "mt-1 text-xs leading-5 text-[var(--dz-text-secondary)]";
+  if (!inputs) {
+    return (
+      <div className="mt-3 rounded-2xl bg-[var(--dz-background)] px-3 py-3" data-testid="notif-device" data-state={checkStuck ? "checking-stuck" : "checking"}>
+        <p className="mb-2 text-xs font-bold text-[var(--dz-text-muted)]">{t("notifications.phone.deviceTitle")}</p>
+        <p className={text} role="status">
+          {checkStuck ? t("notifications.phone.checkStuck") : t("notifications.phone.checking")}
+        </p>
+        {checkStuck ? (
+          <p className={muted} data-testid="notif-registration-code">
+            {t("notifications.phone.diagnosticCode", { code: `device_check_timeout/${detectEnv()}` })}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+  const state = deviceState(inputs);
 
   const permissionLine = (granted: boolean) => (
     <p className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
