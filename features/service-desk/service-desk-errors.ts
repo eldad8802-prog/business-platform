@@ -19,7 +19,7 @@ const REFUSAL: Record<string, string> = {
   INTAKE_NOT_CONFIRMED: "אשרו את פרטי הקליטה כדי לקבל את המכשיר.",
   STAFF_REQUIRED: "בחר טכנאי מטפל לפני תחילת האבחון",
   COVERAGE_NOT_APPROVED: "תיקון בלי הצעת מחיר אפשרי רק עם אחריות מאושרת",
-  QA_INCOMPLETE: "השלם את רשימת הבדיקות לפני «עבר בדיקה»",
+  QA_INCOMPLETE: "אי אפשר לאשר שהבדיקות עברו: יש בדיקה שלא עברה או בדיקה שעוד לא נרשמה. אפשר להחזיר לעבודה ולבדוק שוב.",
   REASON_REQUIRED: "ביטול כשהמכשיר אצלנו או אצל ספק דורש סיבה",
   TERMINAL_STATUS: "התיק סגור או מבוטל — אפשר רק לצפות בו.",
   // UI 1.3 — case actions
@@ -34,6 +34,12 @@ const REFUSAL: Record<string, string> = {
   QUOTE_PENDING: "יש הצעת מחיר שממתינה לתשובת הלקוח.",
   QUOTE_NOT_AWAITING_DECISION: "ההצעה כבר לא ממתינה לתשובה — רעננו.",
   QUOTE_DOCUMENT_CHANGED: "מסמך ההצעה שונה אחרי השליחה — צריך לשלוח הצעה מעודכנת.",
+  QUOTE_DOCUMENT_OF_ANOTHER_CASE: "ההצעה הזו כבר שייכת לתיק אחר. לבחור הצעה אחרת או ליצור הצעה חדשה לתיק הזה.",
+  OPEN_QUOTE: "יש הצעת מחיר שממתינה לתשובת הלקוח.",
+  CASE_FINISHED: "התיק כבר הסתיים — אי אפשר לשנות את פרטי העבודה שלו.",
+  PICKUP_REMINDER_ONLY_WHEN_READY: "תזכורת איסוף נרשמת רק כשהפריט מוכן למסירה.",
+  NO_CHARGE_WITH_DOCUMENTS: "יש מסמכי חיוב מקושרים לתיק, ולכן אי אפשר לרשום \"ללא חיוב\".",
+  OVERRIDE_REASON_REQUIRED: "צריך לכתוב את הסיבה.",
   // 1.3b — the intake signature path
   INTAKE_ONLY_IN_SHOP: "קליטה חתומה קיימת רק לתיק מעבדה.",
   INTAKE_ONLY_BEFORE_CHECK_IN: "אחרי קבלת המכשיר אי אפשר לשנות את הקליטה.",
@@ -60,6 +66,20 @@ const SERVER_CHECK: Record<string, string> = {
 
 const GENERIC = "הפעולה לא זמינה במצב הנוכחי.";
 
+/** The field a refusal names, in the words of the screen (pilot review 2026-11-21: the error belongs to its field). */
+const FIELD_TEXT: Record<string, string> = {
+  itemName: "צריך לכתוב מה ניתן ללקוח (עד 120 תווים).",
+  note: "ההערה ארוכה מדי.",
+  itemLocationNote: "מיקום הפריט ארוך מדי (עד 120 תווים).",
+  estimatedReadyOn: "תאריך הסיום המשוער לא תקין.",
+  amountAgorot: "הסכום לא תקין. צריך סכום גדול מאפס.",
+  reason: "צריך לכתוב סיבה (עד 500 תווים).",
+  "receipt.receivedByName": "שם המקבל ארוך מדי (עד 200 תווים).",
+  "debtOverride.reason": "צריך לכתוב את סיבת המסירה עם יתרה פתוחה.",
+  customerId: "צריך לבחור לקוח.",
+  problemDescription: "צריך לתאר את התקלה.",
+};
+
 export function errorView(e: unknown): ErrorView {
   if (!(e instanceof ServiceDeskApiError)) return { text: "משהו השתבש. נסה שוב." };
   if (e.status === null) return { text: "אין חיבור כרגע. בדוק את החיבור ונסה שוב." };
@@ -80,7 +100,14 @@ export function errorView(e: unknown): ErrorView {
     case "IDEMPOTENCY_KEY_REUSED":
       return { text: "הבקשה פגה. נסה לשמור שוב." };
     case "INVALID_INPUT":
-      return { text: "אחד השדות לא תקין. בדוק ונסה שוב.", field };
+      return { text: (field && FIELD_TEXT[field]) || "אחד השדות לא תקין. בדוק ונסה שוב.", field };
+    case "NOT_FOUND":
+      // A missing row inside an open service desk (a task already linked elsewhere, a loan that is gone) — not "closed".
+      return { text: "הפריט לא נמצא או שעודכן בינתיים. רעננו ונסו שוב.", reload: true };
+    case "QUOTE_DOCUMENT_OF_ANOTHER_CASE":
+    case "NO_CHARGE_WITH_DOCUMENTS":
+    case "CASE_FINISHED":
+      return { text: REFUSAL[e.code] };
     case "SERVER_CHECK_FAILED": {
       const check = typeof e.details?.check === "string" ? (e.details.check as string) : "";
       return { text: SERVER_CHECK[check] ?? GENERIC, reload: check === "STAFF_BELONGS_TO_BUSINESS" };

@@ -8,15 +8,16 @@
  * optional) and marks it REQUIRED there; only a business's own list can make a check required.
  *
  * Completion (what sets ServiceCase.qaCompletedAt, which the case machine needs for PASS_QA):
- *   - a built-in template (`everyCheckRecorded`): the checklist was actually performed — EVERY check recorded, PASS or
- *     FAIL. No check has to PASS (a FAIL is recorded and journaled; the owner decides PASS_QA / FAIL_QA). So a track whose
- *     QA mode is REQUIRED still demands a real QA — never a single click — without making any check mandatory to pass.
+ *   - a built-in template (`everyCheckRecorded`): the checklist was actually performed — EVERY check recorded;
  *   - a template with REQUIRED checks (the retired v1 templates, a test's synthetic template; per-business lists follow
- *     the same rule): every REQUIRED check PASS; optional checks may be PASS, FAIL or absent.
+ *     the same rule): every REQUIRED check recorded; an optional check may stay unrecorded;
+ *   - and, on every template (owner decision 2026-11-21, after the business 9 pilot review — it replaces the 2026-11-12
+ *     "a FAIL is recorded, the owner still decides PASS_QA" rule): NO recorded check FAILED. "The checks passed" can never
+ *     be confirmed over a failed check; a failed check sends the case back to work (FAIL_QA) and a fresh round.
  *   In the counts, requiredMissing = the checks that must be recorded and are not (a REQUIRED check, or any check of a
- *   built-in template); requiredFailed = REQUIRED checks FAILED (always 0 on a built-in template). Completed ⇔ both 0.
- *   A FAILED or missing check that the rule needs keeps QA open: the result is stored and journaled, qaCompletedAt stays
- *   NULL and the case machine keeps refusing PASS_QA (QA_INCOMPLETE).
+ *   built-in template); requiredFailed = REQUIRED checks FAILED; failed = every FAILED check. Completed ⇔ requiredMissing
+ *   and failed are both 0. A FAILED or missing check keeps QA open: the result is stored and journaled, qaCompletedAt
+ *   stays NULL and the case machine keeps refusing PASS_QA (QA_INCOMPLETE).
  *
  * Versions (a template id names fixed content, like a business list version): the three P3 templates had REQUIRED checks
  * as IN_SHOP.v1 / FIELD.v1 / MAINTENANCE.v1; the all-suggested content is IN_SHOP.v2 / FIELD.v2 / MAINTENANCE.v2 (same
@@ -232,9 +233,9 @@ export function evaluateQaAgainst(t: QaTemplate, results: unknown): QaEvaluation
     clean[key] = value;
   }
   if (entries.length === 0) return { ok: false, field: "results" };
-  // A check MUST BE RECORDED when it is REQUIRED or the template is performed in full (every built-in template); only
-  // a REQUIRED check must PASS. requiredMissing counts the checks that must be recorded and are not — so "completed"
-  // keeps its one meaning everywhere (no required check failed, none missing), as the QA record table checks it.
+  // A check MUST BE RECORDED when it is REQUIRED or the template is performed in full (every built-in template); and
+  // NO recorded check may be FAILED (owner 2026-11-21) — an optional check may be left out, never recorded as failed and
+  // still "passed". requiredMissing counts the checks that must be recorded and are not.
   const mustRecord = t.items.filter((i) => i.required || t.everyCheckRecorded);
   const requiredFailed = t.items.filter((i) => i.required && clean[i.key] === "FAIL").length;
   const requiredMissing = mustRecord.filter((i) => clean[i.key] === undefined).length;
@@ -243,7 +244,7 @@ export function evaluateQaAgainst(t: QaTemplate, results: unknown): QaEvaluation
   return {
     ok: true,
     template: t.id,
-    completed: requiredFailed === 0 && requiredMissing === 0,
+    completed: failed === 0 && requiredMissing === 0,
     checklist: { template: t.id, results: clean },
     counts: { items: t.items.length, recorded: entries.length, passed, failed, requiredFailed, requiredMissing },
   };

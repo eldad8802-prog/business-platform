@@ -5,7 +5,7 @@
  * receiver name), the way the customer answered a quote, a cancel reason, or the owner's reason for handing over with
  * an open balance. Hebrew, RTL; a bottom sheet on the phone, a centred dialog from tablet up.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import type { CaseActionDef } from "./case-actions-model";
@@ -81,6 +81,35 @@ export function CaseActionDialog({ def, debtMode, busy, onCancel, onSubmit }: {
             {busy ? "שומר…" : def.input.kind === "receiver" ? "לאשר מסירה" : "לאשר"}
           </button>
           <button type="button" className={s.secondary} disabled={busy} onClick={onCancel}>ביטול</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * A plain confirmation sheet for a panel step (send a quote, record a charge, link a document): what will happen, then
+ * confirm / cancel. Same layer, tokens and focus rules as the action dialog; the body may hold the step's own fields.
+ */
+export function ConfirmDialog({ title, children, confirmLabel, confirmDisabled = false, busy, onCancel, onConfirm }: {
+  title: string; children: ReactNode; confirmLabel: string; confirmDisabled?: boolean; busy: boolean; onCancel: () => void; onConfirm: () => void;
+}) {
+  const first = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => { first.current?.focus(); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onCancel]);
+  return createPortal(
+    <div className={s.backdrop} role="presentation" onClick={() => { if (!busy) onCancel(); }}>
+      <div className={s.dialog} role="dialog" aria-modal="true" aria-labelledby="sd-confirm-title" onClick={(e) => e.stopPropagation()}>
+        <h2 id="sd-confirm-title" className={s.dialogTitle}>{title}</h2>
+        {children}
+        <div className={s.dialogActions}>
+          <button type="button" className={s.primary} disabled={busy || confirmDisabled} onClick={onConfirm}>{busy ? "שומר…" : confirmLabel}</button>
+          <button ref={first} type="button" className={s.secondary} disabled={busy} onClick={onCancel}>ביטול</button>
         </div>
       </div>
     </div>,
