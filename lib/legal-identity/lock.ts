@@ -5,8 +5,9 @@
  *
  * Once a business's identity is confirmed (BusinessProfile.legalIdentityConfirmedAt — at signup, or by the
  * controlled completion for an existing business), its business kind, legal name and tax id cannot be changed by
- * the business on its own. Everything else on the profile stays editable. A legal change is a separate,
- * controlled correction (authorization, reason, audit) that is NOT built yet and needs its own approval.
+ * the business on its own. Everything else on the profile stays editable. There is no correction request (owner
+ * 2026-11-20/21): exempt → authorized for the same person is "מעבר לעוסק מורשה"; another name or number is a new
+ * business file. The message below states that rule (4a T6; same text as LEGAL_IDENTITY_RULE_MESSAGE in billing).
  *
  * Pure: the caller reads the profile in its tenant transaction and hands the values in.
  */
@@ -19,7 +20,7 @@ export type LockedLegalIdentityField = (typeof LOCKED_LEGAL_IDENTITY_FIELDS)[num
 
 export const LEGAL_IDENTITY_LOCKED_CODE = "LEGAL_IDENTITY_LOCKED";
 export const LEGAL_IDENTITY_LOCKED_MESSAGE =
-  "סוג העסק, השם המשפטי ומספר העוסק / ח״פ ננעלו לאחר אישור פרטי העסק ואי אפשר לשנות אותם כאן. לתיקון פרטים חוקיים יש לפנות לתמיכה.";
+  "סוג העסק, השם המשפטי ומספר העוסק / ח״פ לא משתנים לאחר האישור. מעבר מעוסק פטור לעוסק מורשה — דרך ״מעבר לעוסק מורשה״. שם או מספר אחר — בתיק עסק חדש.";
 
 /** Thrown when a request would change a locked field. Names the fields, never their values. */
 export class LegalIdentityLockedError extends ConflictError {

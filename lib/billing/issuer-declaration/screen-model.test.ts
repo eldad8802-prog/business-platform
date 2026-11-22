@@ -17,6 +17,7 @@ import {
 import { COMPLETION_FIELD, confirmViewFor, declarationScreenFor, issuerNoticeVisible } from "@/lib/billing/issuer-declaration/screen-model";
 import { billingHe } from "@/lib/i18n/messages/areas/billing";
 import { billingEn } from "@/lib/i18n/messages/areas/billing.en";
+import { LEGAL_IDENTITY_LOCKED_MESSAGE } from "@/lib/legal-identity/lock";
 
 let failed = 0;
 let passed = 0;
@@ -95,6 +96,7 @@ ok("phone hint states the 9–10 digit rule", (COMPLETION_FIELD.billingPhone?.hi
   ok("T6: the rule constant is the owner-approved text, verbatim", LEGAL_IDENTITY_RULE_MESSAGE === RULE);
   ok("T6: ALREADY_DECLARED (confirm + request) ends with the rule", CONFIRM_MESSAGES.ALREADY_DECLARED.endsWith(RULE) && REQUEST_MESSAGES.ALREADY_DECLARED.endsWith(RULE));
   ok("T6: the 409 identity-lock message ends with the rule", ISSUER_IDENTITY_LOCKED_MESSAGE.endsWith(RULE));
+  ok("T6: the signup legal-identity lock (409 LEGAL_IDENTITY_LOCKED) is the rule", LEGAL_IDENTITY_LOCKED_MESSAGE === RULE);
   ok("T6: the signup identity note (he) is the rule", billingHe.identity.lockedNote === RULE);
   ok("T6: the signup identity note (en) names both paths, no support / correction",
     /authorized dealer/.test(billingEn.identity.lockedNote) && /new business file/.test(billingEn.identity.lockedNote)
