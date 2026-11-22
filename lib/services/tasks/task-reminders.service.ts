@@ -20,11 +20,22 @@
  * Quiet hours do NOT apply: a reminder the owner set for an explicit time is sent at that time (owner decision 3).
  * A reminder is never sent for a moment more than a day old (a long outage must not flood the phone): it is
  * claimed, shown in the bell, and not pushed.
+ *
+ * Businesses with the notification engine ON (`notifications_engine`): step 4 goes through the ENGINE instead —
+ * inside the same transaction ONE owed PUSH delivery (PENDING, the reminder's user, expiring a day after the
+ * moment) is written next to the notification, and after commit the engine's worker runs for exactly that row. It
+ * reaches every live device of the user — the Android app (FCM) and the browsers — and applies the engine's rules
+ * (the user's push preference for tasks.reminder, its live-session device check; tasks.reminder bypasses quiet
+ * hours and the rate limit, as above). The legacy web push loop then sends nothing for that business, so no device
+ * gets the reminder twice. Engine OFF ⇒ everything exactly as before.
  */
 import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import type { PushPayload } from "@/lib/push/web-push-sender";
 import { deliverLegacyPush } from "@/lib/notifications/push/push-sender";
+import { notificationsEngineEnabled } from "@/lib/notifications/engine/engine-gate";
+import { runPushWorker } from "@/lib/notifications/engine/push-worker";
+import type { SenderDeps } from "@/lib/notifications/push/push-sender";
 import { clockLabel } from "./task-schedule";
 import { dbDateToDayKey } from "./task-core";
 import { dailyTasksEnabled } from "./tasks-http";
@@ -121,8 +132,14 @@ export async function collectDueSkippingOff(
 }
 
 /** Claim, record and push one reminder. Safe to call twice and concurrently: only one call sends. */
-export async function dispatchReminder(due: DueReminder, now: Date): Promise<DispatchOutcome> {
+/** Test seam only: fake push providers (the engine's worker and the legacy web push loop). Production passes nothing. */
+export type DispatchOptions = { pushDeps?: SenderDeps };
+
+export async function dispatchReminder(due: DueReminder, now: Date, opts: DispatchOptions = {}): Promise<DispatchOutcome> {
   if (!(await dailyTasksEnabled(due.businessId))) return { taskId: due.taskId, result: "skipped", reason: "FLAG_OFF" };
+  // Read once, before the claim: the whole reminder takes ONE path (engine or legacy), never both.
+  const viaEngine = await notificationsEngineEnabled(due.businessId);
+  const pushable = now.getTime() - due.remindAt.getTime() <= PUSH_MAX_AGE_MS;
 
   const claimed = await tenantTx(due.businessId, async (tx) => {
     const n = await tx.task.updateMany({
@@ -153,6 +170,20 @@ export async function dispatchReminder(due: DueReminder, now: Date): Promise<Dis
       data: { businessId: due.businessId, notificationId: notification.id, channel: "IN_APP", status: "SENT", attemptedAt: now, createdAt: now },
     });
     const userId = task.assigneeUserId ?? task.createdByUserId;
+    if (viaEngine) {
+      // The engine's owed push (the same row notify() writes): the worker does the sending, to every live device.
+      const owed = pushable
+        ? await tx.notificationDelivery.create({
+            data: {
+              businessId: due.businessId, notificationId: notification.id, channel: "PUSH", status: "PENDING",
+              userId: userId ?? null, attempts: 0, nextAttemptAt: null,
+              expiresAt: new Date(due.remindAt.getTime() + PUSH_MAX_AGE_MS), attemptedAt: now, createdAt: now,
+            },
+            select: { id: true },
+          })
+        : null;
+      return { task, href, summary, notificationId: notification.id, subscriptions: [], owedDeliveryId: owed?.id ?? null };
+    }
     // Web push devices only (an https endpoint — every row that exists today): an Android app device (FCM,
     // endpoint fcm:<token>, notification engine) is reached by the engine's worker, never by this loop.
     const subscriptions = await tx.pushSubscription.findMany({
@@ -160,11 +191,25 @@ export async function dispatchReminder(due: DueReminder, now: Date): Promise<Dis
       select: { id: true, endpoint: true, p256dh: true, auth: true },
       take: 20,
     });
-    return { task, href, summary, notificationId: notification.id, subscriptions };
+    return { task, href, summary, notificationId: notification.id, subscriptions, owedDeliveryId: null as number | null };
   });
   if (!claimed) return { taskId: due.taskId, result: "skipped", reason: "NOT_CLAIMED" };
 
-  if (now.getTime() - due.remindAt.getTime() > PUSH_MAX_AGE_MS || claimed.subscriptions.length === 0) {
+  if (viaEngine) {
+    if (claimed.owedDeliveryId === null) return { taskId: due.taskId, result: "sent", pushed: 0, pushFailed: 0 };
+    // After commit: the worker for exactly this owed row (it claims it under a lease — a concurrent worker run cannot
+    // send it twice). A failure here leaves the row PENDING for the engine's next run; the bell already has it.
+    try {
+      const report = await runPushWorker(now, {
+        businessId: due.businessId, deliveryIds: [claimed.owedDeliveryId], quiet: true, ...(opts.pushDeps ? { deps: opts.pushDeps } : {}),
+      });
+      return { taskId: due.taskId, result: "sent", pushed: report.devicesSent, pushFailed: report.devicesFailed };
+    } catch {
+      return { taskId: due.taskId, result: "sent", pushed: 0, pushFailed: 0 };
+    }
+  }
+
+  if (!pushable || claimed.subscriptions.length === 0) {
     return { taskId: due.taskId, result: "sent", pushed: 0, pushFailed: 0 };
   }
   const payload: PushPayload = {
@@ -175,7 +220,8 @@ export async function dispatchReminder(due: DueReminder, now: Date): Promise<Dis
     taskId: claimed.task.id,
   };
   // The shared sender (lib/notifications/push/push-sender.ts): the same send, the same delivery rows and bookkeeping.
-  const out = await deliverLegacyPush(due.businessId, claimed.notificationId, claimed.subscriptions, payload, now);
+  const out = await deliverLegacyPush(due.businessId, claimed.notificationId, claimed.subscriptions, payload, now,
+    opts.pushDeps?.webPush ? { webPush: opts.pushDeps.webPush } : {});
   return { taskId: due.taskId, result: "sent", pushed: out.pushed, pushFailed: out.failed };
 }
 
