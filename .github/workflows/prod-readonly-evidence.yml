@@ -190,6 +190,8 @@ on:
           - 'ops/evidence/signup-legal-identity-preflight.sql'
           - 'ops/evidence/signup-legal-identity-production-evidence.sql'
           - 'ops/evidence/legal-identity-existing-accounts.sql'
+          - 'ops/evidence/business-kind-transition-preflight.sql'
+          - 'ops/evidence/business-kind-transition-production-evidence.sql'
           - 'ops/evidence/service-desk-ui-erasure-text-preflight.sql'
           - 'ops/evidence/service-desk-ui-erasure-text-production-evidence.sql'
           - 'ops/evidence/issuer-declaration-preflight.sql'
