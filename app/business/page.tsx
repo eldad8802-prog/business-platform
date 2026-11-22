@@ -13,6 +13,7 @@ import {
 } from "@/components/billing/BusinessIdentitySetupForm";
 import { BillingSignatureField } from "@/components/billing/BillingSignatureField";
 import { BusinessNameEditor } from "@/components/business/BusinessNameEditor";
+import { KindTransitionEntry } from "@/components/legal-identity/kind-transition-entry";
 import desk from "./business-desk.module.css";
 
 function getAuthToken(): string {
@@ -259,6 +260,8 @@ export default function BusinessProfilePage() {
                   }
                 />
               </div>
+              {/* "מעבר לעוסק מורשה" (owner 11-21): renders nothing while the feature is off. */}
+              <KindTransitionEntry />
               <div style={{ marginTop: 16 }}>
                 <BillingSignatureField />
               </div>
