@@ -164,6 +164,14 @@ async function main() {
     const tA1 = tok("a1");
     await register(A, a1, sA1, tA1);
 
+    console.log("this session's device (GET /api/push/devices)");
+    const sOther = await session(a1);
+    ok("the registering session holds a live FCM device", await dev.sessionFcmDeviceLive({ businessId: A, userId: a1, sessionId: sA1 }));
+    ok("…another session of the same user does not", !(await dev.sessionFcmDeviceLive({ businessId: A, userId: a1, sessionId: sOther })));
+    ok("…another user with that session id does not", !(await dev.sessionFcmDeviceLive({ businessId: A, userId: a2, sessionId: sA1 })));
+    ok("…another business with that session id does not", !(await dev.sessionFcmDeviceLive({ businessId: B, userId: a1, sessionId: sA1 })));
+    ok("…a malformed session id is a plain no", !(await dev.sessionFcmDeviceLive({ businessId: A, userId: a1, sessionId: "not-a-uuid" })));
+
     console.log("create → deliver");
     const n1 = await notifyIn(A, { userId: a1 });
     const before = await owed(A, n1.notificationId);
