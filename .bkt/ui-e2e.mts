@@ -315,6 +315,9 @@ async function main() {
   await ctxW.close();
   await wk.close();
 
+  // The password re-auth shares the login limit (10 per minute per IP, as login): every flow here re-authenticates
+  // from the same address, so let the window clear (a 429 here is the product working, not a failure of the screen).
+  await new Promise((res) => setTimeout(res, 61_000));
   // ── U15: failure mid-process, then a retry ──
   const cr = await chromium.launch();
   const r = await business();
@@ -401,6 +404,9 @@ async function main() {
   }
   await widths(cr, "chromium", [{ width: 360, height: 800 }, { width: 412, height: 915 }]);
   await cr.close();
+  // The password re-auth shares the login limit (10 per minute per IP, as login): every flow here re-authenticates
+  // from the same address, so let the window clear (a 429 here is the product working, not a failure of the screen).
+  await new Promise((res) => setTimeout(res, 61_000));
   const wk2 = await webkit.launch();
   await widths(wk2, "webkit", [{ width: 375, height: 667 }, { width: 430, height: 932 }]);
   await wk2.close();
