@@ -217,6 +217,12 @@ async function main() {
   ok("S12 the read model: the list, one version, and the stored bytes read back through the version's own row",
     list.quotes.length === 1 && list.quotes[0].state === "SENT" && one.docHash === row1.docHash && one.sentPdfSha256 === row1.s && sha(pdf.bytes) === row1.s
       && (await code(() => readQuotePdf(A.b, c1, 2, store))) === "NOT_FOUND");
+  {
+    // pilot review 2026-11-21: the list names the customer's documents already on ANOTHER case, so the screen stops offering them
+    const l1 = await listQuotes(A.b, c1), l2 = await listQuotes(A.b, c2);
+    ok("S12b the list names the documents already quoted on another case of the same customer (never this case's own)",
+      l2.otherCaseDocumentIds.includes(d1) && !l1.otherCaseDocumentIds.includes(d1), JSON.stringify([l1.otherCaseDocumentIds, l2.otherCaseDocumentIds]));
+  }
 
   console.log("R — revise");
   const d2 = await billingQuote(A, { lines: [["החלפת מסך", "1", "380.00"], ["עבודה", "1", "50.00"]] });

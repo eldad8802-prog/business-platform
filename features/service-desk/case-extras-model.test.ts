@@ -4,7 +4,7 @@ const CAT = { general: ["T1", "T3", "T5", "T6", "T7"], device_lab: ["T1", "T7", 
 const initialSetup = (c: { key: string; offeredTracks: string[] | null }) => init({ ...c, catalog: CAT });
 const chooseProfile = (d: Parameters<typeof choose>[1], k: Parameters<typeof choose>[2]) => choose(CAT, d, k);
 const tracksOfProfile = (k: Parameters<typeof tracksOf>[1]) => tracksOf(CAT, k);
-import { loanReminder, offerableQuoteDocs, pickupSummary, qaBody, qaProgress, quoteMode } from "./case-extras-model";
+import { chargeSummary, loanReminder, offerableQuoteDocs, parseShekels, pickupSummary, qaBody, qaPassBlocker, qaProgress, quoteMode } from "./case-extras-model";
 
 let passed = 0, failed = 0;
 const ok = (n: string, c: boolean, d = "") => { if (c) passed++; else { failed++; console.log(`  [FAIL] ${n}${d ? " — " + d : ""}`); } };
@@ -27,8 +27,9 @@ ok("S5 toggling keeps catalog order; an empty list cannot be saved", (() => {
   return order && !canSave(empty) && canSave(d); })());
 
 const items = [{ key: "a", label: "A", required: false }, { key: "b", label: "B", required: false }, { key: "c", label: "C", required: true }];
-ok("Q1 a built-in checklist needs every check recorded; a FAIL still counts as recorded", qaProgress(items, { a: "PASS", b: "FAIL", c: "PASS" }, true).complete
-  && !qaProgress(items, { a: "PASS", c: "PASS" }, true).complete && qaProgress(items, { a: "PASS", c: "PASS" }, true).missing === 1);
+ok("Q1 a built-in checklist needs every check recorded, and (owner 2026-11-21) none FAILED", !qaProgress(items, { a: "PASS", b: "FAIL", c: "PASS" }, true).complete
+  && qaProgress(items, { a: "PASS", b: "PASS", c: "PASS" }, true).complete && qaProgress(items, { a: "PASS", b: "FAIL", c: "PASS" }, true).missing === 0
+  &&!qaProgress(items, { a: "PASS", c: "PASS" }, true).complete && qaProgress(items, { a: "PASS", c: "PASS" }, true).missing === 1);
 ok("Q2 a required check that fails keeps it open", !qaProgress(items, { a: "PASS", b: "PASS", c: "FAIL" }, false).complete && qaProgress(items, { c: "PASS" }, false).complete);
 ok("Q3 only known keys with PASS/FAIL are sent", JSON.stringify(qaBody(items, { a: "PASS", z: "PASS", b: "x" as never })) === JSON.stringify({ a: "PASS" }));
 
@@ -40,6 +41,29 @@ ok("L1 an open loan is a reminder at handover only — never on other statuses",
 
 ok("Q4 quote docs: converted / cancelled / already sent are not offered", offerableQuoteDocs([{ id: 1, status: "ISSUED", converted: false }, { id: 2, status: "DRAFT", converted: true }, { id: 3, status: "CANCELLED", converted: false }, { id: 4, status: "DRAFT", converted: false }], [4]).map((d) => d.id).join(",") === "1");
 ok("Q5 quote step: send while diagnosing / repairing, revise while waiting", quoteMode("DIAGNOSING") === "send" && quoteMode("IN_REPAIR") === "send" && quoteMode("QUOTE_PENDING") === "revise" && quoteMode("READY") === null);
+
+
+// ── Pilot review 2026-11-21 ──
+{
+  const items = [{ key: "a", label: "נדלק", required: false }, { key: "b", label: "התקלה נפתרה", required: false }];
+  const tpl = { items, everyCheckRecorded: true };
+  ok("P1 a FAILED check blocks passed and names the check", (qaPassBlocker({ template: tpl, results: { a: "PASS", b: "FAIL" }, completed: false }) ?? "").includes("התקלה נפתרה"));
+  ok("P2 a check not recorded (built-in: every check) blocks and is named", (qaPassBlocker({ template: tpl, results: { a: "PASS" }, completed: false }) ?? "").includes("התקלה נפתרה"));
+  ok("P3 every check PASS and saved: nothing blocks", qaPassBlocker({ template: tpl, results: { a: "PASS", b: "PASS" }, completed: true }) === null);
+  ok("P4 unsaved changes in the panel block (PASS_QA reads only what was saved)", qaPassBlocker({ template: tpl, results: { a: "PASS", b: "PASS" }, completed: true }, { a: "PASS", b: "FAIL" }) !== null);
+  const opt = { items: [{ key: "r", label: "חובה", required: true }, { key: "o", label: "רשות", required: false }], everyCheckRecorded: false };
+  ok("P5 a business list: an optional check left out does not block", qaPassBlocker({ template: opt, results: { r: "PASS" }, completed: true }) === null);
+  ok("P6 but an optional check recorded as FAILED does", qaPassBlocker({ template: opt, results: { r: "PASS", o: "FAIL" }, completed: false }) !== null);
+  ok("P7 qaProgress: complete only with no failed check", qaProgress(items, { a: "PASS", b: "FAIL" }, true).complete === false && qaProgress(items, { a: "PASS", b: "PASS" }, true).complete === true);
+}
+ok("P8 balance UNKNOWN blocks the handover (never bypassed); a failed read blocks too", chargeSummary({ state: "UNKNOWN", openBalanceAgorot: null, reason: "NO_CHARGE_DECISION" }).blocksHandover && chargeSummary(null).blocksHandover);
+ok("P9 NO_CHARGE / SETTLED hand over freely; OPEN / not documented ask for the owner's reason",
+  !chargeSummary({ state: "NO_CHARGE", openBalanceAgorot: 0 }).blocksHandover && !chargeSummary({ state: "SETTLED", openBalanceAgorot: 0 }).needsDebtReason
+  && chargeSummary({ state: "OPEN", openBalanceAgorot: 5000 }).needsDebtReason && chargeSummary({ state: "CHARGE_NOT_DOCUMENTED", openBalanceAgorot: 5000, detail: { chargeAgorot: 5000, overpaidAgorot: 0 } }).needsDebtReason
+  && !chargeSummary({ state: "OPEN", openBalanceAgorot: 5000 }).blocksHandover);
+ok("P10 shekels to agorot: positive, at most 2 decimals; anything else refused", parseShekels("350") === 35000 && parseShekels("12.5") === 1250 && parseShekels("₪1,200") === 120000
+  && parseShekels("0") === null && parseShekels("-3") === null && parseShekels("1.234") === null && parseShekels("abc") === null);
+ok("P11 a quote document already on another case is not offered again", offerableQuoteDocs([{ id: 1, status: "DRAFT", converted: false }, { id: 2, status: "DRAFT", converted: false }], [], [2]).map((d) => d.id).join(",") === "1");
 
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

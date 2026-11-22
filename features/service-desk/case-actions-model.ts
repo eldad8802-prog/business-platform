@@ -22,6 +22,11 @@ export type CaseActionDef = {
   label: string;
   tone: "primary" | "secondary" | "danger";
   input: ActionInput;
+  /**
+   * Shown, but not active, with this explanation: the server would refuse the step now (QA not passed, no charge decided).
+   * The server still enforces the rule itself — this only spares the owner a refusal and says what to do first.
+   */
+  blockedReason?: string;
   /** Where the request goes. `link` navigates instead (the intake screen). */
   target:
     | { endpoint: "action"; action: Record<string, unknown> }
@@ -47,7 +52,15 @@ function cancelAction(c: Pick<CaseCardData, "kind" | "status">): CaseActionDef {
  */
 export type QaModeView = "REQUIRED" | "OPTIONAL" | "OFF";
 
-export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "holdReason" | "intake">, opts: { qaMode?: QaModeView } = {}): CaseActionDef[] {
+export type CaseActionOpts = {
+  qaMode?: QaModeView;
+  /** Why PASS_QA cannot be confirmed now (case-extras-model qaPassBlocker), or null. */
+  qaBlocker?: string | null;
+  /** Why the handover cannot go through now (no charge decided — the balance is unknown), or null. */
+  handoverBlocker?: string | null;
+};
+
+export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "holdReason" | "intake">, opts: CaseActionOpts = {}): CaseActionDef[] {
   const s: CaseStatus = c.status;
   const a = (type: string, extra: Record<string, unknown> = {}) => ({ endpoint: "action" as const, action: { type, ...extra } });
   // FINISH_REPAIR follows the case's own QA mode (the server refuses an outcome when the case goes through QA):
@@ -105,15 +118,19 @@ export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "ho
       ];
     case "QA":
       return [
-        { id: "qa-pass", label: "הבדיקות עברו", tone: "primary", input: { kind: "none" }, target: a("PASS_QA", { outcome: "REPAIRED" }) },
-        { id: "qa-fail", label: "הבדיקות לא עברו — חזרה לעבודה", tone: "secondary", input: { kind: "none" }, target: a("FAIL_QA") },
+        // A failed check makes "back to work" the natural next step (primary); "passed" stays visible with the reason.
+        { id: "qa-pass", label: "הבדיקות עברו", tone: opts.qaBlocker ? "secondary" : "primary", input: { kind: "none" }, target: a("PASS_QA", { outcome: "REPAIRED" }),
+          ...(opts.qaBlocker ? { blockedReason: opts.qaBlocker } : {}) },
+        { id: "qa-fail", label: "הבדיקות לא עברו — חזרה לעבודה", tone: opts.qaBlocker ? "primary" : "secondary", input: { kind: "none" }, target: a("FAIL_QA") },
       ];
     case "READY":
-      return [{ id: "deliver", label: "למסור ללקוח", tone: "primary", input: { kind: "receiver" }, target: a("DELIVER") }];
+      return [{ id: "deliver", label: "למסור ללקוח", tone: "primary", input: { kind: "receiver" }, target: a("DELIVER"),
+        ...(opts.handoverBlocker ? { blockedReason: opts.handoverBlocker } : {}) }];
     case "WORK_DONE":
-      return [{ id: "complete", label: "לסגור את הקריאה", tone: "primary", input: { kind: "confirm", text: "מאשר/ת שהעבודה בוצעה והקריאה נסגרת." }, target: a("COMPLETE") }];
-    case "DELIVERED":
-      return [{ id: "close", label: "לסגור את התיק", tone: "primary", input: { kind: "none" }, target: a("CLOSE") }];
+      return [{ id: "complete", label: "לסגור את הקריאה", tone: "primary", input: { kind: "confirm", text: "מאשר/ת שהעבודה בוצעה והקריאה נסגרת." }, target: a("COMPLETE"),
+        ...(opts.handoverBlocker ? { blockedReason: opts.handoverBlocker } : {}) }];
+    // DELIVERED: the handover is the end of the owner's work. CLOSE is the system's own step (service-case.core
+    // SYSTEM_ACTIONS) — offering it to the owner only produced a refusal, so nothing is offered.
     default:
       return [];
   }

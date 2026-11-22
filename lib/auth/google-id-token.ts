@@ -46,6 +46,11 @@ export type GoogleIdentity = {
   email: string;
   /** For prefilling the signup form only; may be null. */
   name: string | null;
+  /**
+   * When the person last actually authenticated at Google (`auth_time`, seconds), if Google sent it. Only a
+   * re-authentication (prompt=login + max_age) relies on it; sign-in ignores it.
+   */
+  authTime?: number | null;
 };
 
 export type GoogleIdTokenFailure =
@@ -162,5 +167,6 @@ export async function verifyGoogleIdToken(
     return { ok: false, reason: "CLAIMS" };
   }
 
-  return { ok: true, identity: { subject, email: normalizeEmail(rawEmail), name: nameOf(payload.name) } };
+  const authTime = typeof payload.auth_time === "number" && Number.isFinite(payload.auth_time) ? payload.auth_time : null;
+  return { ok: true, identity: { subject, email: normalizeEmail(rawEmail), name: nameOf(payload.name), authTime } };
 }

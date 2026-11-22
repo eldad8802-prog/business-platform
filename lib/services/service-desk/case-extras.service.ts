@@ -32,6 +32,12 @@ async function caseExists(tx: Tx, b: number, caseId: number): Promise<{ status: 
   return r;
 }
 
+/** A case whose work is over (handed back, closed, cancelled, not collected): its working details are no longer edited. */
+const FINISHED = ["DELIVERED", "CLOSED", "CANCELLED", "ABANDONED"];
+function refuseWhenFinished(status: string) {
+  if (FINISHED.includes(status)) throw new ServiceDeskError("REFUSED", { violations: ["CASE_FINISHED"] });
+}
+
 async function hasA7(tx: Tx): Promise<boolean> {
   const r = await tx.$queryRaw<{ ok: boolean }[]>`
     SELECT (to_regclass('public."ServiceCaseLoaner"') IS NOT NULL
@@ -133,8 +139,7 @@ export async function lendItem(p: ServiceDeskPrincipal, caseId: unknown, body: {
       if (Number(prior.caseId) !== caseId || prior.itemName !== name) throw new ServiceDeskError("IDEMPOTENCY_KEY_REUSED");
       return { loan: toLoan(prior), replayed: true };
     }
-    const c = await caseExists(tx, b, caseId);
-    if (["DELIVERED", "CLOSED", "CANCELLED", "ABANDONED"].includes(c.status)) throw new ServiceDeskError("REFUSED", { violations: ["CASE_FINISHED"] });
+    refuseWhenFinished((await caseExists(tx, b, caseId)).status);
     const row = (await tx.$queryRaw<Record<string, unknown>[]>`
       INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", note, "idempotencyKey")
       VALUES (${b}::int, ${caseId}::int, ${name}::text, ${note}::text, ${key}::text)
@@ -186,7 +191,9 @@ export async function setTaskLink(p: ServiceDeskPrincipal, caseId: unknown, body
   const b = p.businessId;
   return writing(() => tenantTx(b, async (tx) => {
     await requireA7(tx);
-    await caseExists(tx, b, caseId);
+    const c = await caseExists(tx, b, caseId);
+    // Linking a task to a finished case is refused (pilot review 2026-11-21); removing a link stays possible (clean-up).
+    if (body.link) refuseWhenFinished(c.status);
     const n = body.link
       ? await tx.$executeRaw`UPDATE "Task" SET "serviceCaseId" = ${caseId}::int WHERE id = ${body.taskId as number}::int AND "businessId" = ${b}::int AND ("serviceCaseId" IS NULL OR "serviceCaseId" = ${caseId}::int)`
       : await tx.$executeRaw`UPDATE "Task" SET "serviceCaseId" = NULL WHERE id = ${body.taskId as number}::int AND "businessId" = ${b}::int AND "serviceCaseId" = ${caseId}::int`;
@@ -218,7 +225,7 @@ export async function setCaseFields(p: ServiceDeskPrincipal, caseId: unknown, bo
   const b = p.businessId;
   return writing(() => tenantTx(b, async (tx) => {
     await requireA7(tx);
-    await caseExists(tx, b, caseId);
+    refuseWhenFinished((await caseExists(tx, b, caseId)).status);
     await tx.$executeRaw`UPDATE "ServiceCase" SET "itemLocationNote" = ${loc}::text, "estimatedReadyOn" = ${d as string | null}::date WHERE id = ${caseId}::int AND "businessId" = ${b}::int`;
     return { available: true, itemLocationNote: loc, estimatedReadyOn: d as string | null };
   }));

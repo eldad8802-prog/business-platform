@@ -3,7 +3,7 @@
  */
 import {
   attentionReason, buildListSections, caseNoun, caseSections, eventLabel, historyItems, isClosed, matchesQuery,
-  nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
+  mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
 } from "./cases-model";
 
 let passed = 0;
@@ -77,5 +77,28 @@ ok("C3 history newest first, with Hebrew labels", historyItems([{ seq: 1, eventT
   && eventLabel({ eventType: "case.checked_in", toStatus: "CHECKED_IN" }) === "הפריט נקלט" && eventLabel({ eventType: "x.unknown", toStatus: "READY" }) === "עדכון בתיק");
 
 ok("E9 a record names what was recorded; an unknown event is a plain update", eventLabel({ eventType: "intake.recorded", toStatus: "OPEN" }) === "פרטי הקליטה נרשמו" && eventLabel({ eventType: "x.y", toStatus: "OPEN" }) === "עדכון בתיק");
+
+// ── Pilot review 2026-11-21 ──
+{
+  const N = new Date("2026-11-21T12:00:00.000Z");
+  const row = (p: Partial<CaseRowData>): CaseRowData => ({ id: 1, caseNumber: 1, kind: "IN_SHOP", status: "OPEN", holdReason: null, customerName: "x", openedAt: N.toISOString(), updatedAt: N.toISOString(), ...p });
+  ok("H1 a case waiting for diagnosis (CHECKED_IN) is in needs-attention with its reason", (attentionReason(row({ status: "CHECKED_IN" }), N) ?? "").startsWith("ממתין לאבחון")
+    && buildListSections([row({ status: "CHECKED_IN" })], { filter: "attention", query: "", now: N }).attention.length === 1);
+  ok("H2 a REMOTE call waiting at OPEN is coordinated, never take-the-item-in", attentionReason(row({ kind: "REMOTE" }), N) === "צריך לתאם ביקור");
+  ok("H3 a recorded intake: the next step is its confirmation, not the intake again", nextActionLabel("OPEN", "IN_SHOP", null, { intakeReady: true }) === "לאשר את הקליטה"
+    && nextActionLabel("OPEN", "IN_SHOP") === "לקלוט את הפריט");
+  ok("H4 READY with no charge: the next step names the charge first", (nextActionLabel("READY", "IN_SHOP", null, { chargeMissing: true }) ?? "").includes("חיוב"));
+  ok("H5 QA with a failed check: the next step is back to work", (nextActionLabel("QA", "IN_SHOP", null, { qaFailed: true }) ?? "").includes("להחזיר לעבודה"));
+  ok("H6 history details only from the stored payload: QA counts, open balance, charge, quote answer",
+    eventLabel({ eventType: "qa.recorded", toStatus: "QA", payload: { passed: 4, failed: 1 } }).includes("1 לא עברו")
+    && eventLabel({ eventType: "case.delivered", toStatus: "DELIVERED", payload: { debtOverride: true } }).includes("יתרה פתוחה")
+    && eventLabel({ eventType: "case.delivered", toStatus: "DELIVERED", payload: {} }) === "נמסר ללקוח"
+    && eventLabel({ eventType: "charge.recorded", toStatus: "READY", payload: { mode: "NO_CHARGE" } }).includes("ללא חיוב")
+    && eventLabel({ eventType: "quote.approved", toStatus: "IN_REPAIR", payload: { method: "PHONE" } }).includes("בטלפון"));
+  ok("H7 side records (loans, pickup calls) merge into the history by their stored time, newest first",
+    mergedHistory([{ seq: 1, eventType: "case.opened", toStatus: "OPEN", occurredAt: "2026-11-20T10:00:00.000Z", actor: "OWNER_USER" }],
+      [{ key: "l", text: "ניתן ציוד חלופי: מטען", occurredAt: "2026-11-21T09:00:00.000Z" }]).map((x) => x.key).join(",") === "l,e1");
+}
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

@@ -5,9 +5,9 @@
  */
 import { useState, type ReactNode } from "react";
 
-import { offerableQuoteDocs, PICKUP_OUTCOME_TEXT, qaProgress, type QaResults } from "./case-extras-model";
+import { billingStatusText, chargeSummary, docName, ils, offerableQuoteDocs, PICKUP_OUTCOME_TEXT, qaProgress, QUOTE_STATE_TEXT, type QaResults } from "./case-extras-model";
 import { formatShortDate } from "./cases-model";
-import type { CaseFields, CaseQa, CaseTask, Loan, PickupCall, QuoteDoc } from "./service-desk-client";
+import type { CaseChargeView, CaseFields, CaseQa, CaseTask, Loan, PickupCall, QuoteDoc, QuoteSummary, SettlementDoc } from "./service-desk-client";
 import s from "./cases.module.css";
 
 function Panel({ title, hint, children, id }: { title: string; hint?: string | null; children: ReactNode; id: string }) {
@@ -21,26 +21,34 @@ function Panel({ title, hint, children, id }: { title: string; hint?: string | n
 const Later = () => <p className={s.muted}>יהיה זמין אחרי עדכון מסד הנתונים של המערכת (A7).</p>;
 
 // ── QA ──
-export function QaPanel(p: { qa: CaseQa; editable: boolean; busy: boolean; onSave: (r: QaResults) => void }) {
-  const [draft, setDraft] = useState<QaResults>(p.qa.results);
+export function QaPanel(p: { qa: CaseQa; editable: boolean; busy: boolean; onSave: (r: QaResults) => void; onDraft?: (r: QaResults) => void }) {
+  const [draft, setDraftState] = useState<QaResults>(p.qa.results);
   const t = p.qa.template;
   if (!t) return null;
   const prog = qaProgress(t.items, draft, t.everyCheckRecorded);
+  const setDraft = (next: QaResults) => { setDraftState(next); p.onDraft?.(next); };
   const set = (k: string, v: "PASS" | "FAIL") => setDraft({ ...draft, [k]: v });
+  const failedLabels = t.items.filter((i) => draft[i.key] === "FAIL").map((i) => i.label);
   return (
     <Panel id="qa" title="בדיקות לפני מסירה" hint={p.qa.mode === "OPTIONAL" ? "לא חובה" : p.qa.completed ? "הושלמו" : `${prog.recorded} מתוך ${prog.total}`}>
       <ul className={s.timeline} style={{ gap: 8 }}>
         {t.items.map((i) => (
           <li key={i.key} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span className={s.tlText} style={{ flex: "1 1 160px" }}>{i.label}{i.required ? " *" : ""}</span>
+            <span className={`${s.tlText} ${draft[i.key] === "FAIL" ? s.qaFailed : ""}`} style={{ flex: "1 1 160px" }}>
+              {draft[i.key] === "PASS" ? "✓ " : draft[i.key] === "FAIL" ? "✕ " : ""}{i.label}{i.required ? " *" : ""}
+            </span>
             <span className={s.choices} role="group" aria-label={i.label} style={{ flex: "0 0 auto" }}>
-              <button type="button" className={s.choice} style={{ whiteSpace: "nowrap", paddingInline: 14 }} aria-pressed={draft[i.key] === "PASS"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "PASS")}>עבר</button>
-              <button type="button" className={s.choice} style={{ whiteSpace: "nowrap", paddingInline: 14 }} aria-pressed={draft[i.key] === "FAIL"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "FAIL")}>לא עבר</button>
+              <button type="button" className={s.choice} data-result="PASS" style={{ whiteSpace: "nowrap", paddingInline: 14 }} aria-pressed={draft[i.key] === "PASS"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "PASS")}>עבר</button>
+              <button type="button" className={s.choice} data-result="FAIL" style={{ whiteSpace: "nowrap", paddingInline: 14 }} aria-pressed={draft[i.key] === "FAIL"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "FAIL")}>לא עבר</button>
             </span>
           </li>
         ))}
       </ul>
-      {prog.failed ? <p className={s.rowReason}>{prog.failed === 1 ? "בדיקה אחת לא עברה" : `${prog.failed} בדיקות לא עברו`}. אפשר לרשום ולהחליט אם להחזיר לעבודה.</p> : null}
+      {failedLabels.length ? (
+        <p className={s.blockedNote} role="note">
+          {failedLabels.length === 1 ? `הבדיקה "${failedLabels[0]}" לא עברה.` : `${failedLabels.length} בדיקות לא עברו: ${failedLabels.join(", ")}.`} אחרי השמירה אפשר רק להחזיר לעבודה — אי אפשר לאשר שהבדיקות עברו.
+        </p>
+      ) : prog.missing ? <p className={s.muted}>חסרות עוד {prog.missing === 1 ? "בדיקה אחת" : `${prog.missing} בדיקות`} כדי לאשר.</p> : null}
       {p.editable ? (
         <div className={s.actionsRow}>
           <button type="button" className={s.secondary} disabled={p.busy || prog.recorded === 0} onClick={() => p.onSave(draft)}>{p.busy ? "שומר…" : "לשמור את הבדיקות"}</button>
@@ -51,25 +59,99 @@ export function QaPanel(p: { qa: CaseQa; editable: boolean; busy: boolean; onSav
 }
 
 // ── Quote (from a billing QUOTE document; billing itself is not changed) ──
-export function QuotePanel(p: { mode: "send" | "revise"; docs: QuoteDoc[]; sentDocIds: number[]; editable: boolean; busy: boolean; newQuoteHref: string; onSend: (docId: number) => void }) {
-  const docs = offerableQuoteDocs(p.docs, p.sentDocIds);
+export function QuotePanel(p: {
+  mode: "send" | "revise" | null; docs: QuoteDoc[]; caseQuotes: QuoteSummary[]; otherCaseDocIds: number[]; editable: boolean; busy: boolean; newQuoteHref: string;
+  now: Date; onPick: (doc: QuoteDoc) => void;
+}) {
+  const sentIds = p.caseQuotes.map((q) => q.billingDocumentId).filter((x): x is number => typeof x === "number");
+  const docs = p.mode ? offerableQuoteDocs(p.docs, sentIds, p.otherCaseDocIds) : [];
+  const docOf = (id?: number) => p.docs.find((d) => d.id === id);
+  const history = [...p.caseQuotes].sort((a, b) => b.version - a.version);
+  if (!p.mode && history.length === 0) return null;
   return (
-    <Panel id="quote" title={p.mode === "send" ? "הצעת מחיר ללקוח" : "עדכון הצעת המחיר"} hint={p.mode === "revise" ? "ההצעה הקודמת תוחלף" : null}>
-      {docs.length ? (
-        <ul className={s.list} aria-label="הצעות מחיר של הלקוח">
-          {docs.map((d) => (
+    <Panel id="quote" title="הצעת מחיר" hint={p.mode === "revise" ? "ממתינה לתשובה" : null}>
+      {history.length ? (
+        <ul className={s.timeline} aria-label="הצעות המחיר של התיק">
+          {history.map((q) => {
+            const d = docOf(q.billingDocumentId);
+            return (
+              <li key={q.version}>
+                <span className={s.dot} aria-hidden="true" />
+                <span className={s.tlText}>
+                  גרסה {q.version}{q.totalAgorot !== null ? ` · ${ils(q.totalAgorot)}` : ""} · <strong>{QUOTE_STATE_TEXT[q.state] ?? q.state}</strong>
+                  {q.approvalMethod === "PHONE" ? " (בטלפון)" : q.approvalMethod === "IN_PERSON" ? " (פנים אל פנים)" : ""}
+                  {d ? <span className={s.rowDesc} style={{ display: "block" }}>{docName("מסמך הצעה", d.number)} · {billingStatusText(d.status)}</span> : null}
+                </span>
+                <span className={s.tlDate}>{formatShortDate(q.decidedAt ?? q.sentAt ?? "", p.now)}</span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {p.mode ? (
+        <>
+          {docs.length ? (
+            <ul className={s.list} aria-label="הצעות מחיר של הלקוח">
+              {docs.map((d) => (
+                <li key={d.id} className={s.row} style={{ gridTemplateColumns: "1fr auto" }}>
+                  <span className={s.rowMain}>
+                    <span className={s.rowCustomer}>{docName("הצעה", d.number)}</span>
+                    <span className={s.rowDesc}>₪{Number(d.totalAmount).toLocaleString("he-IL")} · {billingStatusText(d.status)}</span>
+                  </span>
+                  {p.editable ? <button type="button" className={s.secondary} disabled={p.busy} onClick={() => p.onPick(d)}>{p.mode === "send" ? "לצרף לתיק" : "להחליף בה"}</button> : null}
+                </li>
+              ))}
+            </ul>
+          ) : <p className={s.muted}>אין ללקוח הצעת מחיר שאפשר לצרף לתיק הזה.</p>}
+          {p.editable ? <a className={s.dangerLink} style={{ color: "inherit", alignSelf: "flex-start" }} href={p.newQuoteHref}>+ הצעת מחיר חדשה במסמכים</a> : null}
+          <p className={s.muted}>צירוף ההצעה שומר בתיק עותק קבוע שלה ומעביר את התיק להמתנה לתשובת הלקוח. המערכת לא שולחת את ההצעה ללקוח — מוסרים אותה בעצמכם (הדפסה, וואטסאפ או מייל ממסך המסמכים), ואת תשובת הלקוח רושמים כאן.</p>
+        </>
+      ) : null}
+    </Panel>
+  );
+}
+
+// ── Charge: what the case is charged, and the balance the handover is judged by (server: case-charge.service) ──
+const SETTLEMENT_TYPE: Record<string, string> = { TAX_INVOICE: "חשבונית מס", TAX_INVOICE_RECEIPT: "חשבונית מס קבלה", RECEIPT: "קבלה" };
+
+export function ChargePanel(p: {
+  charge: CaseChargeView | null; settlementDocs: SettlementDoc[]; editable: boolean; busy: boolean;
+  onNoCharge: () => void; onAmount: () => void; onLink: (doc: SettlementDoc) => void;
+}) {
+  const sum = chargeSummary(p.charge?.balance ?? null);
+  const c = p.charge?.current ?? null;
+  const linked = new Set((p.charge?.links ?? []).filter((l) => l.active).map((l) => l.billingDocumentId));
+  const linkable = c?.mode === "CHARGEABLE" ? p.settlementDocs.filter((d) => !linked.has(d.id)) : [];
+  return (
+    <Panel id="charge" title="חיוב ותשלום" hint={sum.blocksHandover ? "צריך לקבוע" : null}>
+      {c ? (
+        <p className={s.tlText} style={{ margin: 0 }}>
+          {c.mode === "NO_CHARGE" ? "ללא חיוב"
+            : `חיוב: ${ils(c.amountAgorot ?? 0)}${c.source === "APPROVED_QUOTE" ? ` (לפי הצעת המחיר שאושרה${c.quoteVersion ? `, גרסה ${c.quoteVersion}` : ""})` : ""}`}
+        </p>
+      ) : null}
+      <p className={sum.blocksHandover ? s.blockedNote : s.muted} role={sum.blocksHandover ? "note" : undefined}>{sum.text}</p>
+      {linked.size ? <p className={s.muted}>{linked.size === 1 ? "מסמך אחד מקושר" : `${linked.size} מסמכים מקושרים`} לתיק.</p> : null}
+      {p.editable ? (
+        <div className={s.actionsRow}>
+          <button type="button" className={s.secondary} disabled={p.busy} onClick={p.onAmount}>{c?.mode === "CHARGEABLE" ? "לשנות סכום" : "לקבוע סכום לחיוב"}</button>
+          {c?.mode !== "NO_CHARGE" && linked.size === 0 ? <button type="button" className={s.secondary} disabled={p.busy} onClick={p.onNoCharge}>ללא חיוב</button> : null}
+        </div>
+      ) : null}
+      {p.editable && linkable.length ? (
+        <ul className={s.list} aria-label="חשבוניות וקבלות של הלקוח">
+          {linkable.map((d) => (
             <li key={d.id} className={s.row} style={{ gridTemplateColumns: "1fr auto" }}>
               <span className={s.rowMain}>
-                <span className={s.rowCustomer}>הצעה {d.number ?? `#${d.id}`}</span>
-                <span className={s.rowDesc}>₪{Number(d.totalAmount).toLocaleString("he-IL")} · {d.status === "DRAFT" ? "טיוטה" : d.status === "ISSUED" ? "הופקה" : d.status}</span>
+                <span className={s.rowCustomer}>{docName(SETTLEMENT_TYPE[d.type] ?? "מסמך", d.number)}</span>
+                <span className={s.rowDesc}>₪{Number(d.totalAmount).toLocaleString("he-IL")}</span>
               </span>
-              {p.editable ? <button type="button" className={s.secondary} disabled={p.busy} onClick={() => p.onSend(d.id)}>{p.mode === "send" ? "לשלוח ללקוח" : "להחליף בה"}</button> : null}
+              <button type="button" className={s.secondary} disabled={p.busy} onClick={() => p.onLink(d)}>לקשר לתיק</button>
             </li>
           ))}
         </ul>
-      ) : <p className={s.muted}>אין ללקוח הצעת מחיר פתוחה.</p>}
-      {p.editable ? <a className={s.dangerLink} style={{ color: "inherit", alignSelf: "flex-start" }} href={p.newQuoteHref}>+ הצעת מחיר חדשה במסמכים</a> : null}
-      <p className={s.muted}>ההצעה נשמרת כעותק קבוע בתיק. הלקוח מאשר בטלפון או בעסק, ואת התשובה רושמים בתיק.</p>
+      ) : null}
+      <p className={s.muted}>החיוב בתיק לא מפיק מסמך. חשבונית או קבלה מפיקים במסך המסמכים, ומקשרים אותן לכאן.</p>
     </Panel>
   );
 }
@@ -101,7 +183,7 @@ export function PickupPanel(p: { calls: PickupCall[]; now: Date; editable: boole
 }
 
 // ── Loans (decision 5: a reminder only) ──
-export function LoansPanel(p: { available: boolean; loans: Loan[]; now: Date; editable: boolean; busy: boolean; onLend: (name: string, note: string | null) => void; onReturn: (id: number) => void }) {
+export function LoansPanel(p: { available: boolean; loans: Loan[]; now: Date; editable: boolean; busy: boolean; onLend: (name: string, note: string | null) => void; onReturn: (id: number) => void; finished?: boolean }) {
   const [form, setForm] = useState({ open: false, name: "", note: "" });
   const open = p.loans.filter((l) => !l.returnedAt).length;
   return (
@@ -119,7 +201,7 @@ export function LoansPanel(p: { available: boolean; loans: Loan[]; now: Date; ed
               ))}
             </ul>
           ) : <p className={s.muted}>לא ניתן ציוד חלופי.</p>}
-          {p.editable ? (form.open ? (
+          {p.editable && !p.finished ? (form.open ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <input className={s.input} id="sd-loan-name" value={form.name} maxLength={120} placeholder="מה ניתן ללקוח" onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input className={s.input} id="sd-loan-note" value={form.note} maxLength={500} placeholder="הערה (לא חובה)" onChange={(e) => setForm({ ...form, note: e.target.value })} />
@@ -133,7 +215,7 @@ export function LoansPanel(p: { available: boolean; loans: Loan[]; now: Date; ed
 }
 
 // ── Linked tasks (decision 7) ──
-export function TasksPanel(p: { available: boolean; linked: CaseTask[]; open: CaseTask[]; editable: boolean; busy: boolean; onLink: (id: number, link: boolean) => void }) {
+export function TasksPanel(p: { available: boolean; linked: CaseTask[]; open: CaseTask[]; editable: boolean; busy: boolean; onLink: (id: number, link: boolean) => void; finished?: boolean }) {
   const [pick, setPick] = useState("");
   return (
     <Panel id="tasks" title="משימות" hint={p.linked.length ? `${p.linked.length}` : null}>
@@ -150,7 +232,7 @@ export function TasksPanel(p: { available: boolean; linked: CaseTask[]; open: Ca
               ))}
             </ul>
           ) : <p className={s.muted}>אין משימות מקושרות.</p>}
-          {p.editable && p.open.length ? (
+          {p.editable && !p.finished && p.open.length ? (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <select className={s.input} id="sd-task-pick" style={{ flex: "1 1 180px" }} value={pick} onChange={(e) => setPick(e.target.value)} aria-label="משימה פתוחה לקישור">
                 <option value="">בחרו משימה פתוחה</option>
@@ -159,7 +241,7 @@ export function TasksPanel(p: { available: boolean; linked: CaseTask[]; open: Ca
               <button type="button" className={s.secondary} disabled={p.busy || !pick} onClick={() => { p.onLink(Number(pick), true); setPick(""); }}>לקשר</button>
             </div>
           ) : null}
-          {p.editable ? <a className={s.dangerLink} style={{ color: "inherit", alignSelf: "flex-start" }} href="/tasks">+ משימה חדשה במשימות</a> : null}
+          {p.editable && !p.finished ? <a className={s.dangerLink} style={{ color: "inherit", alignSelf: "flex-start" }} href="/tasks">+ משימה חדשה במשימות</a> : null}
         </>
       )}
     </Panel>
