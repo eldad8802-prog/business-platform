@@ -26,6 +26,7 @@ import { NAV_DESTINATIONS, PRIMARY_DESTINATIONS, primaryDestinationsFor } from "
 
 import { LOADING, ready, type WaitingItem, type WaitingModel } from "../v3/home-v3-model";
 import {
+  packTranslator,
   rawActivityFromCapabilities,
   planHrefFromCapabilities,
   resolveUserPermissions,
@@ -52,6 +53,9 @@ import {
 
 const t = createTranslator(he);
 const tEn = createTranslator(en);
+// Pack-only texts ride in the on-demand engine; the Home reads them through packTranslator.
+const pt = packTranslator(t, PACK_ENGINE, "he");
+const ptEn = packTranslator(tEn, PACK_ENGINE, "en");
 let failed = 0;
 function ok(name: string, cond: boolean, extra?: unknown): void {
   if (cond) console.log(`OK: ${name}`);
@@ -143,8 +147,8 @@ for (const p of ACTIVITY_PACK_KEYS) {
 
 const pair = (a: HomeAccess) => metricOrder(a, null).slice(0, 2);
 ok("P2 appointments: תורים היום + תקבולים היום", eq(pair(access(DEFAULTS, sel("APPOINTMENTS"))), ["todayAppointments", "receiptsToday"]));
-ok("P2 appointments label = תורים היום", t(metricLabelKey("todayAppointments", access(DEFAULTS, sel("APPOINTMENTS"))) as never) === "תורים היום");
-ok("P2 appointments label has English", tEn(metricLabelKey("todayAppointments", access(DEFAULTS, sel("APPOINTMENTS"))) as never) === "Bookings today");
+ok("P2 appointments label = תורים היום", pt(metricLabelKey("todayAppointments", access(DEFAULTS, sel("APPOINTMENTS"))) as never) === "תורים היום");
+ok("P2 appointments label has English", ptEn(metricLabelKey("todayAppointments", access(DEFAULTS, sel("APPOINTMENTS"))) as never) === "Bookings today");
 ok("P2 leads keeps פגישות היום (consultant)", t(metricLabelKey("todayAppointments", access(DEFAULTS, sel("LEADS"))) as never) === "פגישות היום");
 ok("P2 service (desk ON): קריאות פתוחות + מוכנים למסירה", eq(pair(access(ALL, sel("SERVICE"))), ["openService", "readyForPickup"]));
 ok("P2 service (desk OFF): falls to תקבולים היום + מלאי נמוך", eq(pair(access(DEFAULTS, sel("SERVICE"))), ["receiptsToday", "lowStock"]));
@@ -240,7 +244,7 @@ function waiting(items: WaitingItem[]): WaitingModel {
   return { items, total: { n: items.length, exact: true }, byKind: { payment: c("payment"), stock: c("stock"), collection: c("collection"), lead: c("lead"), intake: c("intake") } };
 }
 const sec = (a: HomeAccess, items: WaitingItem[], serviceReady?: { ids: number[]; exact: boolean }) =>
-  buildSecretary({ waiting: ready(waiting(items)), partial: false, access: a, history: null, dismissals: {}, now: NOW, t, serviceReady });
+  buildSecretary({ waiting: ready(waiting(items)), partial: false, access: a, history: null, dismissals: {}, now: NOW, t: pt, serviceReady });
 const sameRank = [item("collection", "c1", 2), item("lead", "l1", 2)];
 const kindOf = (v: ReturnType<typeof sec>) => (v.state === "ready" ? v.kind : v.state);
 ok("P7 without packs: source order (collection first)", kindOf(sec(access(DEFAULTS), sameRank)) === "collection");
@@ -265,9 +269,14 @@ ok("cases summary: a cut page is not exact", serviceCasesSummary({ cases: [], ne
 /* ------------------------------------------------------------- i18n -- */
 
 for (const k of ["lowStock", "readyForPickup"] as const) {
-  ok(`i18n metric ${k} he + en`, ["label", "meaning", "zero"].every((p) => t(`home.v4.snapshot.metric.${k}.${p}` as never) !== `home.v4.snapshot.metric.${k}.${p}` && tEn(`home.v4.snapshot.metric.${k}.${p}` as never) !== `home.v4.snapshot.metric.${k}.${p}`));
+  ok(`i18n metric ${k} he + en (pack engine)`, ["label", "meaning", "zero"].every((p) => pt(`home.v4.snapshot.metric.${k}.${p}` as never) !== `home.v4.snapshot.metric.${k}.${p}` && ptEn(`home.v4.snapshot.metric.${k}.${p}` as never) !== `home.v4.snapshot.metric.${k}.${p}`));
+  ok(`i18n metric ${k} is NOT in the global dictionary`, t(`home.v4.snapshot.metric.${k}.label` as never) === `home.v4.snapshot.metric.${k}.label`);
 }
-ok("i18n '+' קריאה חדשה he + en", t("home.v4.create.action.serviceCase") === "קריאה חדשה" && tEn("home.v4.create.action.serviceCase") !== "home.v4.create.action.serviceCase");
+ok("i18n '+' קריאה חדשה he + en (pack engine)", pt("home.v4.create.action.serviceCase" as never) === "קריאה חדשה" && ptEn("home.v4.create.action.serviceCase" as never) === "New service case");
+ok("i18n: without the engine the pack texts are not there (nobody downloads them)", packTranslator(t, null, "he") === t && t("home.v4.create.action.serviceCase" as never) === "home.v4.create.action.serviceCase");
+ok("i18n: {count} is filled in the pack texts", pt("home.v4.secretary.kind.serviceReady.many" as never, { count: 3 }) === "3 קריאות מוכנות למסירה");
+ok("i18n: every pack text exists in he and en", eq(Object.keys(PACK_ENGINE.messages("he")).sort(), Object.keys(PACK_ENGINE.messages("en")).sort()));
+ok("i18n: a dictionary key still comes from the dictionary", pt("home.v4.secretary.title") === t("home.v4.secretary.title"));
 // The activity screens' copy lives in its own module (not the global dictionary — Hebrew JS budget on every page).
 const heCopy = activityPickerCopy("he");
 const enCopy = activityPickerCopy("en");

@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/translate";
 import { createActionsFor, createLimitedNote, type CreateAction } from "@/features/home/v4/home-v4-model";
+import { packTranslator } from "@/features/home/v4/home-access";
 import { useLimitedCopy } from "@/features/home/v4/limited-copy-loader";
 import { useHomeAccess } from "@/features/home/v4/use-home-access";
 
@@ -33,8 +35,10 @@ const EASE_IN = "cubic-bezier(0.4, 0, 1, 1)";
  */
 export function ActionSheet({ open, onClose }: ActionSheetProps) {
   const router = useRouter();
-  const { t, locale } = useI18n();
+  const { t: baseT, locale } = useI18n();
   const { access, retry } = useHomeAccess(open);
+  // The pack-only "+" action (קריאה חדשה) carries its label in the on-demand pack engine.
+  const t = packTranslator(baseT, access.state === "ready" ? access.value.packs : null, locale);
   const actions: CreateAction[] = access.state === "ready" ? createActionsFor(access.value) : [];
   // FREE_LIMITED only (never today): its one line is downloaded on demand, nobody else ships it.
   const limitedNote = useLimitedCopy(access.state === "ready" && createLimitedNote(access.value), locale)?.copy.createNote ?? null;
@@ -204,7 +208,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                 <span aria-hidden style={{ flexShrink: 0, width: 40, height: 40, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "#E3EEE7", color: "#2F615C" }}>
                   <ActionGlyph kind={item.icon} />
                 </span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, lineHeight: 1.25 }}>{t(`home.v4.create.action.${item.labelKey}`)}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, lineHeight: 1.25 }}>{t(`home.v4.create.action.${item.labelKey}` as MessageKey)}</span>
               </button>
             ))}
           </div>

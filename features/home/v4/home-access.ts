@@ -16,6 +16,7 @@
  */
 
 import type { ActivitySelection } from "@/lib/activity-packs/activity-packs";
+import type { MessageKey, Translator } from "@/lib/i18n/translate";
 import type { BarSlotKey } from "./activity-packs-home";
 
 /** The modules the Home knows how to draw. Each maps to exactly one real platform feature key (or none = core). */
@@ -135,6 +136,8 @@ export function planHrefFromCapabilities(wire: CapabilitiesWire | null | undefin
  * fails) the Home uses the pre-packs order: never a wrong capability, at worst the old order.
  */
 export type PackEngine = {
+  /** The pack-only texts by full message key (see packTranslator). */
+  messages: (locale: string) => Readonly<Record<string, string>>;
   /** The validated selection from the raw capabilities value, or null (garbage -> null: fail-closed). */
   selectionOf: (raw: unknown) => ActivitySelection | null;
   orderMetrics: <K extends string>(selection: ActivitySelection, permitted: readonly K[]) => K[];
@@ -163,6 +166,20 @@ export type HomeAccess = {
   /** The plan screen, when the subscription mechanism names one (null today). */
   planHref?: string | null;
 };
+
+/**
+ * The translator with the pack-only texts in front of the dictionary. Without the engine it is `t` itself: those keys
+ * are requested only while packs are active (pack-only metrics, READY cases, the new-case action, the appointments
+ * label), and then the engine is always loaded (loadActivity gives the selection and the engine together).
+ */
+export function packTranslator(t: Translator, packs: PackEngine | null | undefined, locale: string): Translator {
+  if (!packs) return t;
+  const m = packs.messages(locale);
+  return (key: MessageKey, vars) => {
+    const s = m[key as string];
+    return s === undefined ? t(key, vars) : s.replace(/\{(\w+)\}/g, (all, name: string) => (vars && name in vars ? String(vars[name]) : all));
+  };
+}
 
 /** A requirement: every listed module ON (none = core), and the person holds the scope. */
 export type Requirement = { modules?: readonly HomeModule[]; scope: HomeScope };

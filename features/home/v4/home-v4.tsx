@@ -26,7 +26,7 @@ import {
   type Load,
   type WaitingModel,
 } from "../v3/home-v3-model";
-import type { HomeAccess } from "./home-access";
+import { packTranslator, type HomeAccess } from "./home-access";
 import {
   IconArrowForward,
   IconBars,
@@ -374,8 +374,15 @@ function metricValue(key: MetricKey, data: HomeV4Data, now: Date, locale: Return
   }
 }
 
+/** The translator for an area that may draw pack-only texts (they ride in the on-demand pack engine). */
+function usePackT(data: HomeV4Data) {
+  const { t, locale } = useI18n();
+  const packs = data.access.state === "ready" ? data.access.value.packs ?? null : null;
+  return useMemo(() => packTranslator(t, packs, locale), [t, packs, locale]);
+}
+
 function SnapshotCard({ data, businessId, retry, locale }: { data: HomeV4Data; businessId: number | null; retry: () => void; locale: ReturnType<typeof useI18n>["locale"] }) {
-  const { t } = useI18n();
+  const t = usePackT(data);
   const [expanded, setExpanded] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [chosen, setChosen] = useHomePref<string[] | null>(businessId, "metrics.primary", null);
@@ -414,7 +421,7 @@ function SnapshotCard({ data, businessId, retry, locale }: { data: HomeV4Data; b
         <>
           <div className={`h4-tiles${primary.length === 1 ? " h4-tiles--one" : ""}`}>
             {primary.map((k, i) => (
-              <MetricTile key={k} k={k} tone={i === 0 ? "a" : "b"} value={metricValue(k, data, now, locale)} label={label(k)} meaning={meaning(k)} onRetry={retry} />
+              <MetricTile key={k} k={k} tone={i === 0 ? "a" : "b"} value={metricValue(k, data, now, locale)} label={label(k)} meaning={meaning(k)} zero={t(`home.v4.snapshot.metric.${k}.zero` as MessageKey)} onRetry={retry} />
             ))}
           </div>
           {secondary.length > 0 ? (
@@ -458,7 +465,7 @@ function SnapshotCard({ data, businessId, retry, locale }: { data: HomeV4Data; b
   );
 }
 
-function MetricTile({ k, tone, value, label, meaning, onRetry }: { k: MetricKey; tone: "a" | "b"; value: MetricValue; label: string; meaning: string; onRetry: () => void }) {
+function MetricTile({ k, tone, value, label, meaning, zero, onRetry }: { k: MetricKey; tone: "a" | "b"; value: MetricValue; label: string; meaning: string; zero: string; onRetry: () => void }) {
   const { t } = useI18n();
   const Icon = METRIC_ICON[k];
   if (value.state === "loading") return <Skeleton h={92} r={18} />;
@@ -475,7 +482,7 @@ function MetricTile({ k, tone, value, label, meaning, onRetry }: { k: MetricKey;
       </div>
     );
   }
-  const note = value.zero ? t(`home.v4.snapshot.metric.${k}.zero` as MessageKey) : value.mixed ? t("home.v4.snapshot.mixedCurrency") : null;
+  const note = value.zero ? zero : value.mixed ? t("home.v4.snapshot.mixedCurrency") : null;
   return (
     <Link href={METRICS[k].href} prefetch={false} className={`h4-tile h4-tile--${tone}`} aria-label={`${label}: ${value.exact ? value.text : t("home.v4.snapshot.capped", { n: value.text.replace("+", "") })}. ${meaning}`}>
       <span className="h4-tile-label">
@@ -544,7 +551,8 @@ function serviceReadyOf(data: HomeV4Data): { ids: number[]; exact: boolean } | n
 }
 
 function SecretaryCard({ data, businessId, retry, now, limitedCopy }: { data: HomeV4Data; businessId: number | null; retry: () => void; now: Date; limitedCopy: LimitedCopy | null }) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
+  const t = usePackT(data);
   const [dismissals, setDismissals] = useHomePref<SecretaryDismissals>(businessId, "secretary.dismissals", {});
   const view = useMemo(() => {
     if (data.access.state !== "ready") return data.access.state === "failed" ? FAILED : LOADING;
@@ -741,7 +749,8 @@ function activityOf(data: HomeV4Data, t: ReturnType<typeof useI18n>["t"], locale
 }
 
 function ForYouCard({ data, businessId, now, limitedCopy }: { data: HomeV4Data; businessId: number | null; now: Date; limitedCopy: LimitedCopy | null }) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
+  const t = usePackT(data);
   const [prefs, setPrefs] = useHomePref<ForYouPrefs>(businessId, "forYou", { hiddenTypes: [], dismissedIds: [] });
   const [secDismissals] = useHomePref<SecretaryDismissals>(businessId, "secretary.dismissals", {});
   const [menuOpen, setMenuOpen] = useState(false);

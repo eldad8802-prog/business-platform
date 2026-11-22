@@ -32,11 +32,7 @@ export const homeV4He = {
       waitingLeads: { label: "פניות ממתינות", meaning: "פניות שמחכות לטיפול שלך", zero: "אין פניות ממתינות" },
       toCollect: { label: "ממתין לגבייה", meaning: "בקשות תשלום שעדיין לא שולמו", zero: "אין בקשות פתוחות" },
       docsReview: { label: "מסמכים לבדיקה", meaning: "מסמכים שממתינים לאישור שלך", zero: "אין מסמכים לבדיקה" },
-      // labelAppointments: the same figure when appointments is the primary activity pack (owner decision 1).
-      todayAppointments: { label: "פגישות היום", labelAppointments: "תורים היום", meaning: "תורים ופגישות שנקבעו להיום", zero: "אין פגישות היום" },
-      // Phase 2 — drawn only with activity packs.
-      lowStock: { label: "מלאי נמוך", meaning: "פריטים שכדאי להזמין מחדש", zero: "אין פריטים במלאי נמוך" },
-      readyForPickup: { label: "מוכנים למסירה", meaning: "קריאות שהעבודה בהן הסתיימה וממתינות למסירה", zero: "אין קריאות שממתינות למסירה" },
+      todayAppointments: { label: "פגישות היום", meaning: "תורים ופגישות שנקבעו להיום", zero: "אין פגישות היום" },
     },
   },
   secretary: {
@@ -65,8 +61,6 @@ export const homeV4He = {
       stock: { one: "פריט אחד במלאי נמוך", many: "{count} פריטים במלאי נמוך", body: "כדאי להזמין מחדש לפני שייגמר.", cta: "לבדיקת המלאי" },
       collection: { one: "בקשת תשלום אחת ממתינה", many: "{count} בקשות תשלום ממתינות", body: "אפשר לשלוח תזכורת ללקוחות שעוד לא שילמו.", cta: "למרכז הגבייה" },
       intake: { one: "עדכון אחד בחיבור הפניות", many: "{count} עדכונים בחיבור הפניות", body: "כדאי לוודא שהפניות מגיעות כמו שצריך.", cta: "לבדיקת החיבורים" },
-      // Phase 2 (activity packs, Service Desk ON): cases whose work is done and wait for handover.
-      serviceReady: { one: "קריאה אחת מוכנה למסירה", many: "{count} קריאות מוכנות למסירה", body: "כדאי לעדכן את הלקוח שאפשר לאסוף.", cta: "לקריאות המוכנות" },
     },
   },
   today: {
@@ -161,7 +155,6 @@ export const homeV4He = {
       upload: "העלאת מסמך",
       commitment: "התחייבות חדשה",
       product: "מוצר חדש",
-      serviceCase: "קריאה חדשה",
     },
   },
 } as const;

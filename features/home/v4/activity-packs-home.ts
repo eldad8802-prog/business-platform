@@ -216,7 +216,45 @@ export function packFavoriteKeys(selection: ActivitySelection, lead: readonly st
  * The engine object the Home / bar / "+" / tools receive once it is loaded (pack-engine-loader.ts). Loaded on demand,
  * only for a business that chose packs, so none of these tables ship with the pages of a business that did not.
  */
+/**
+ * The texts only a business with packs ever sees (pack-only metrics, the READY-cases secretary group, the "+" new-case
+ * action, the appointments-pack label), keyed by their full message keys. They ride in this on-demand module, not in
+ * the global dictionary, so no business without packs downloads them (i18n en-chunk proof). packTranslator()
+ * (home-access.ts) looks here first, then in the dictionary.
+ */
+const PACK_MESSAGES: Record<"he" | "en", Readonly<Record<string, string>>> = {
+  he: {
+    "home.v4.snapshot.metric.todayAppointments.labelAppointments": "תורים היום",
+    "home.v4.snapshot.metric.lowStock.label": "מלאי נמוך",
+    "home.v4.snapshot.metric.lowStock.meaning": "פריטים שכדאי להזמין מחדש",
+    "home.v4.snapshot.metric.lowStock.zero": "אין פריטים במלאי נמוך",
+    "home.v4.snapshot.metric.readyForPickup.label": "מוכנים למסירה",
+    "home.v4.snapshot.metric.readyForPickup.meaning": "קריאות שהעבודה בהן הסתיימה וממתינות למסירה",
+    "home.v4.snapshot.metric.readyForPickup.zero": "אין קריאות שממתינות למסירה",
+    "home.v4.secretary.kind.serviceReady.one": "קריאה אחת מוכנה למסירה",
+    "home.v4.secretary.kind.serviceReady.many": "{count} קריאות מוכנות למסירה",
+    "home.v4.secretary.kind.serviceReady.body": "כדאי לעדכן את הלקוח שאפשר לאסוף.",
+    "home.v4.secretary.kind.serviceReady.cta": "לקריאות המוכנות",
+    "home.v4.create.action.serviceCase": "קריאה חדשה",
+  },
+  en: {
+    "home.v4.snapshot.metric.todayAppointments.labelAppointments": "Bookings today",
+    "home.v4.snapshot.metric.lowStock.label": "Low stock",
+    "home.v4.snapshot.metric.lowStock.meaning": "Items worth reordering",
+    "home.v4.snapshot.metric.lowStock.zero": "No items low in stock",
+    "home.v4.snapshot.metric.readyForPickup.label": "Ready for pickup",
+    "home.v4.snapshot.metric.readyForPickup.meaning": "Cases whose work is done and wait for handover",
+    "home.v4.snapshot.metric.readyForPickup.zero": "No cases waiting for handover",
+    "home.v4.secretary.kind.serviceReady.one": "1 case is ready for handover",
+    "home.v4.secretary.kind.serviceReady.many": "{count} cases are ready for handover",
+    "home.v4.secretary.kind.serviceReady.body": "Let the customer know it can be collected.",
+    "home.v4.secretary.kind.serviceReady.cta": "Ready cases",
+    "home.v4.create.action.serviceCase": "New service case",
+  },
+};
+
 export const PACK_ENGINE: PackEngine = {
+  messages: (locale) => PACK_MESSAGES[locale === "en" ? "en" : "he"],
   selectionOf: (raw) => {
     const parsed = parseActivitySelection(raw);
     return parsed.ok ? parsed.value : null;

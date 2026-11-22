@@ -31,9 +31,7 @@ export const homeV4En: Widen<typeof homeV4He> = {
       waitingLeads: { label: "Waiting enquiries", meaning: "Enquiries waiting for you", zero: "No waiting enquiries" },
       toCollect: { label: "Waiting to collect", meaning: "Payment requests not yet paid", zero: "No open requests" },
       docsReview: { label: "Documents to review", meaning: "Documents waiting for your approval", zero: "Nothing to review" },
-      todayAppointments: { label: "Appointments today", labelAppointments: "Bookings today", meaning: "Appointments booked for today", zero: "No appointments today" },
-      lowStock: { label: "Low stock", meaning: "Items worth reordering", zero: "No items low in stock" },
-      readyForPickup: { label: "Ready for pickup", meaning: "Cases whose work is done and wait for handover", zero: "No cases waiting for handover" },
+      todayAppointments: { label: "Appointments today", meaning: "Appointments booked for today", zero: "No appointments today" },
     },
   },
   secretary: {
@@ -62,7 +60,6 @@ export const homeV4En: Widen<typeof homeV4He> = {
       stock: { one: "1 item is low in stock", many: "{count} items are low in stock", body: "Reorder before it runs out.", cta: "Check inventory" },
       collection: { one: "1 payment request is waiting", many: "{count} payment requests are waiting", body: "You can remind customers who haven't paid yet.", cta: "Collection centre" },
       intake: { one: "1 update in enquiry connections", many: "{count} updates in enquiry connections", body: "Make sure enquiries are arriving as they should.", cta: "Check connections" },
-      serviceReady: { one: "1 case is ready for handover", many: "{count} cases are ready for handover", body: "Let the customer know it can be collected.", cta: "Ready cases" },
     },
   },
   today: {
@@ -157,7 +154,6 @@ export const homeV4En: Widen<typeof homeV4He> = {
       upload: "Upload a document",
       commitment: "New commitment",
       product: "New product",
-      serviceCase: "New service case",
     },
   },
 };
