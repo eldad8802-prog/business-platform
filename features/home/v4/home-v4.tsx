@@ -52,7 +52,7 @@ import {
 } from "./home-v4-icons";
 import { useHomePref } from "./home-prefs";
 import type { LimitedCopy } from "./home-v4-limited-copy";
-import { useLimitedCopy } from "./limited-copy-loader";
+import { useLimitedCopy, type LimitedKit } from "./limited-copy-loader";
 import {
   FOR_YOU_TYPES,
   METRICS,
@@ -249,25 +249,12 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
         {/* FREE_LIMITED (owner decision 3): ONE status line under the header — the first of the only two upgrade
             mentions. Only then is the header wrapped (the pair takes the header's grid area); otherwise the markup is
             exactly the pre-packs HOME v4 (the subscription mechanism does not exist yet, so: always). */}
-        {lim ? (
-          <div className="h4-head">
-            <style>{lim.css}</style>
-            {header}
-            <div className="h4-status" role="status">
-              <span>{lim.copy.statusLine}</span>
-              {planHref ? (
-                <Link href={planHref} prefetch={false}>{lim.copy.statusLink}</Link>
-              ) : null}
-            </div>
-          </div>
-        ) : (
-          header
-        )}
+        {lim ? <lim.Header header={header} copy={lim.copy} planHref={planHref} /> : header}
 
         <SnapshotCard data={data} businessId={businessId} retry={retry} locale={locale} />
         <SecretaryCard data={data} businessId={businessId} retry={retry} now={now} limitedCopy={limitedCopy} />
         <TodayCard data={data} retry={retry} now={now} />
-        <ForYouCard data={data} businessId={businessId} now={now} limitedCopy={limitedCopy} />
+        <ForYouCard data={data} businessId={businessId} now={now} limited={lim} />
       </main>
     </div>
   );
@@ -748,7 +735,7 @@ function activityOf(data: HomeV4Data, t: ReturnType<typeof useI18n>["t"], locale
   );
 }
 
-function ForYouCard({ data, businessId, now, limitedCopy }: { data: HomeV4Data; businessId: number | null; now: Date; limitedCopy: LimitedCopy | null }) {
+function ForYouCard({ data, businessId, now, limited }: { data: HomeV4Data; businessId: number | null; now: Date; limited: LimitedKit | null }) {
   const { locale } = useI18n();
   const t = usePackT(data);
   const [prefs, setPrefs] = useHomePref<ForYouPrefs>(businessId, "forYou", { hiddenTypes: [], dismissedIds: [] });
@@ -783,32 +770,8 @@ function ForYouCard({ data, businessId, now, limitedCopy }: { data: HomeV4Data; 
 
   // FREE_LIMITED (owner decision 3): the area is one plan card — the second and last upgrade mention on the Home.
   if (view.state === "plan") {
-    if (!limitedCopy) return null; // its texts are still loading (FREE_LIMITED only)
-    const planHref = data.access.state === "ready" ? data.access.value.planHref ?? null : null;
-    return (
-      <section className="h4-card h4-a-fy" aria-labelledby="h4-fy-title">
-        <div className="h4-chead">
-          <h2 className="h4-ctitle" id="h4-fy-title">
-            <IconLayers size={22} />
-            {t("home.v4.forYou.title")}
-          </h2>
-        </div>
-        <div className="h4-fy">
-          <div className="h4-fy-text">
-            <div className="h4-fy-eyebrow">{limitedCopy.eyebrow}</div>
-            <p className="h4-fy-title">{limitedCopy.title}</p>
-            <p className="h4-fy-desc">{limitedCopy.body}</p>
-            {planHref ? (
-              <div className="h4-sec-actions">
-                <Link href={planHref} prefetch={false} className="h4-btn">
-                  {limitedCopy.cta}
-                </Link>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </section>
-    );
+    if (!limited) return null; // its texts and card are still loading (FREE_LIMITED only)
+    return <limited.PlanCard copy={limited.copy} planHref={data.access.state === "ready" ? data.access.value.planHref ?? null : null} title={t("home.v4.forYou.title")} />;
   }
 
   return (
