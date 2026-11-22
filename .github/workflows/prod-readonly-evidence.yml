@@ -208,6 +208,8 @@ on:
           - 'ops/evidence/notification-task-reminder-delivery-business-9.sql'
           - 'ops/evidence/notification-docs-appointments-preflight.sql'
           - 'ops/evidence/notification-docs-appointments-production-evidence.sql'
+          - 'ops/evidence/notifications-engine-open-all-preflight.sql'
+          - 'ops/evidence/notifications-engine-open-all-production-evidence.sql'
 
 permissions:
   contents: read

@@ -11,6 +11,7 @@ on:
     paths:
       - "ops/evidence/notification-push-test-diagnosis-*.sql"
       - "ops/evidence/notification-task-reminder-delivery-*.sql"
+      - "ops/evidence/notifications-engine-open-all-*.sql"
       - ".github/workflows/notification-push-diagnosis-lab.yml"
   workflow_dispatch:
 
@@ -47,6 +48,8 @@ jobs:
       CHECKPOINT_DISABLE: "1"
       DIAG: ops/evidence/notification-push-test-diagnosis-business-9.sql
       TRD: ops/evidence/notification-task-reminder-delivery-business-9.sql
+      OAP: ops/evidence/notifications-engine-open-all-preflight.sql
+      OAE: ops/evidence/notifications-engine-open-all-production-evidence.sql
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -63,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
-          for f in "$DIAG" "$TRD"; do
+          for f in "$DIAG" "$TRD" "$OAP" "$OAE"; do
             if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
             grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
           done
@@ -84,3 +87,14 @@ jobs:
           test "$rows" = "22" || { echo "task reminder evidence: expected 22 lines, got $rows"; exit 1; }
           grep -qE '^ +1 \| t ' /tmp/trd.out || { echo "task reminder evidence: line 1 must read unfiltered"; exit 1; }
           echo "task reminder evidence: 22 lines; read unfiltered"
+          for pair in "$OAP:31" "$OAE:24"; do
+            f="${pair%%:*}"; want="${pair##*:}"
+            lab -f "$f" | tee /tmp/oa.out
+            rows=$(grep -cE '^ +[0-9]+ \|' /tmp/oa.out)
+            test "$rows" = "$want" || { echo "$f: expected $want lines, got $rows"; exit 1; }
+            grep -qE '^ +1 \| t ' /tmp/oa.out || { echo "$f: line 1 must read unfiltered"; exit 1; }
+            echo "$f: $want lines; read unfiltered"
+          done
+          # Before the open-all migration (this lab): preflight line 2 (not recorded) and 11 (rows still OFF) read t.
+          lab -f "$OAP" | grep -qE '^ +2 \| t ' || { echo "preflight 2: the migration must read not recorded"; exit 1; }
+          lab -f "$OAP" | grep -qE '^ +11 \| t ' || { echo "preflight 11: the engine rows must read OFF"; exit 1; }
