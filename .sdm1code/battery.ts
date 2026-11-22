@@ -166,7 +166,7 @@ async function main() {
     ok("E1d PASS_QA without a fresh checklist is refused (QA_INCOMPLETE)", again.includes("QA_INCOMPLETE"), again);
   }
   {
-    // E1c — owner 2026-11-12: T1 QA is REQUIRED but its built-in IN_SHOP.v2 checklist is a suggestion: no check must PASS,
+    // E1c — owner 2026-11-12: T1 QA is REQUIRED but its built-in IN_SHOP.v2 checklist is a suggestion: (2026-11-21: and no recorded check may FAIL),
     // yet the checklist must have been performed (every check recorded) — a single click does not complete it.
     const c = await open(A, { track: "T1", subject: { displayName: "טלפון סינתטי ג" } });
     const pre = [await intake(A, c.id), await walk(A, c.id, [{ type: "CHECK_IN", intakeConfirmed: true }, { type: "START_DIAGNOSIS" }, { type: "START_REPAIR" }, { type: "FINISH_REPAIR" }])];
@@ -181,8 +181,10 @@ async function main() {
       return "OK";
     });
     const stored = (await own(A.b, `SELECT "qaCompletedAt" IS NOT NULL done, "qaChecklist"->>'template' t FROM "ServiceCase" WHERE id = $1`, c.id))[0];
-    ok("E1c every check recorded (all FAILED) → completed against IN_SHOP.v2 — no built-in check must PASS; the owner then decides FAIL_QA",
-      allFail === "OK" && stored.done === true && stored.t === "IN_SHOP.v2", `${allFail} ${JSON.stringify(stored)}`);
+    // owner 2026-11-21 (pilot review): a FAILED check never completes QA — it is stored and journaled, PASS_QA stays refused
+    ok("E1c every check recorded (all FAILED) → stored against IN_SHOP.v2 but NOT completed; PASS_QA refused (QA_INCOMPLETE)",
+      allFail === "OK" && stored.done === false && stored.t === "IN_SHOP.v2"
+        && (await act(A, c.id, { type: "PASS_QA", outcome: "REPAIRED" })).includes("QA_INCOMPLETE"), `${allFail} ${JSON.stringify(stored)}`);
     ok("E1c … FAIL_QA stays available (back to repair)", (await walk(A, c.id, [{ type: "FAIL_QA" }])) === "OK" && (await row(A, c.id)).status === "IN_REPAIR");
   }
   {

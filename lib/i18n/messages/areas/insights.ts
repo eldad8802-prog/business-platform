@@ -460,7 +460,7 @@ export const insightsHe = {
       secretary: { label: "המזכירה שלי", description: "ניהול משימות והתחייבויות העסק" },
       payables: { label: "התחייבויות", description: "מה העסק חייב, מתי, וכמה כבר שולם" },
       calendar: { label: "יומן ותורים", description: "תורים, פגישות, עובדים ושעות פעילות" },
-      serviceDesk: { label: "שירות ואחריות", description: "תיקי שירות, עבודות והגדרות אחריות" },
+      serviceDesk: { label: "שירות ואחריות", description: "תיקונים, תיקי שירות, עבודות והגדרות אחריות" },
       inventory: { label: "מלאי", description: "המוצרים והכמויות במלאי" },
       suppliers: { label: "ספקים", description: "ספקים, הזמנות ופרטי קשר" },
     },

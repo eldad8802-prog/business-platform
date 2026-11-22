@@ -141,15 +141,28 @@ export async function runCaseAction(caseId: number, action: Record<string, unkno
   }
 }
 
-export type QuoteSummary = { version: number; state: string; totalAgorot: number | null; billingDocumentId?: number };
+export type QuoteSummary = {
+  version: number; state: string; totalAgorot: number | null; billingDocumentId?: number;
+  sentAt?: string | null; decidedAt?: string | null; approvalMethod?: string | null;
+};
+
+/** GET /api/service-desk/cases/:id/quotes — the case's quote versions, and the customer's quote documents already on OTHER cases. */
+export async function listQuotesFull(caseId: number): Promise<{ quotes: QuoteSummary[]; otherCaseDocumentIds: number[] }> {
+  const r = await call<{ quotes?: Array<Record<string, unknown>>; otherCaseDocumentIds?: unknown[] }>("GET", `/api/service-desk/cases/${caseId}/quotes`);
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  return {
+    quotes: (Array.isArray(r.quotes) ? r.quotes : []).map((q) => ({
+      version: Number(q.version), state: String(q.state ?? ""), totalAgorot: typeof q.totalAgorot === "number" ? q.totalAgorot : null,
+      ...(typeof q.billingDocumentId === "number" ? { billingDocumentId: q.billingDocumentId } : {}),
+      sentAt: str(q.sentAt), decidedAt: str(q.decidedAt), approvalMethod: str(q.approvalMethod),
+    })),
+    otherCaseDocumentIds: (Array.isArray(r.otherCaseDocumentIds) ? r.otherCaseDocumentIds : []).filter((x): x is number => typeof x === "number"),
+  };
+}
 
 /** GET /api/service-desk/cases/:id/quotes — the case's quote versions. */
 export async function listQuotes(caseId: number): Promise<QuoteSummary[]> {
-  const r = await call<{ quotes?: Array<Record<string, unknown>> }>("GET", `/api/service-desk/cases/${caseId}/quotes`);
-  return (Array.isArray(r.quotes) ? r.quotes : []).map((q) => ({
-    version: Number(q.version), state: String(q.state ?? ""), totalAgorot: typeof q.totalAgorot === "number" ? q.totalAgorot : null,
-    ...(typeof q.billingDocumentId === "number" ? { billingDocumentId: q.billingDocumentId } : {}),
-  }));
+  return (await listQuotesFull(caseId)).quotes;
 }
 
 /** The owner records the customer's answer to a quote (by phone or in person). */
@@ -234,6 +247,36 @@ export async function listCustomerQuoteDocs(customerId: number): Promise<QuoteDo
 export const sendCaseQuote = (caseId: number, billingDocumentId: number, expectedVersion: number, revise: boolean) =>
   keyed<unknown>(`service-desk/cases/${caseId}/quotes:${revise ? "revise" : "send"}:${billingDocumentId}:${expectedVersion}`, "POST",
     `/api/service-desk/cases/${caseId}/quotes${revise ? "/revise" : ""}`, { billingDocumentId, expectedVersion });
+
+// ── The case charge and its billing documents (server: case-charge.service; billing is only read) ──────────
+
+export type CaseBalanceView = {
+  state: "NO_CHARGE" | "SETTLED" | "OPEN" | "CHARGE_NOT_DOCUMENTED" | "UNKNOWN";
+  openBalanceAgorot: number | null;
+  reason?: string;
+  detail?: { chargeAgorot: number | null; documentedAgorot: number | null; paidAgorot: number | null; overpaidAgorot: number };
+};
+export type CaseChargeView = {
+  version: number;
+  current: { mode: "CHARGEABLE" | "NO_CHARGE"; amountAgorot: number | null; source: string | null; quoteVersion: number | null } | null;
+  links: { billingDocumentId: number; role: string; active: boolean }[];
+  balance: CaseBalanceView;
+};
+export const getCaseCharges = (caseId: number) => call<CaseChargeView>("GET", `/api/service-desk/cases/${caseId}/charges`);
+export const recordCaseCharge = (caseId: number, body: { mode: "CHARGEABLE" | "NO_CHARGE"; amountAgorot?: number; reason?: string }, expectedVersion: number) =>
+  keyed<unknown>(`service-desk/cases/${caseId}/charge:${expectedVersion}:${body.mode}:${body.amountAgorot ?? ""}`, "POST", `/api/service-desk/cases/${caseId}/charges`, { ...body, expectedVersion });
+export const linkCaseBillingDocument = (caseId: number, billingDocumentId: number, role: "CHARGE" | "STANDALONE_PAYMENT", expectedVersion: number) =>
+  keyed<unknown>(`service-desk/cases/${caseId}/billing-link:${billingDocumentId}:${role}:${expectedVersion}`, "POST", `/api/service-desk/cases/${caseId}/billing-links`, { billingDocumentId, role, expectedVersion });
+
+export type SettlementDoc = { id: number; type: "TAX_INVOICE" | "TAX_INVOICE_RECEIPT" | "RECEIPT"; number: string | null; status: string; totalAmount: string | number };
+/** The customer's ISSUED invoices and receipts (read only — billing issues them; the case only links one). */
+export async function listCustomerSettlementDocs(customerId: number): Promise<SettlementDoc[]> {
+  const r = await call<{ documents?: Array<Record<string, unknown>> }>("GET", `/api/billing/documents?customerId=${customerId}&status=ISSUED&limit=50`);
+  const types = new Set(["TAX_INVOICE", "TAX_INVOICE_RECEIPT", "RECEIPT"]);
+  return (r.documents ?? [])
+    .filter((d) => types.has(String(d.documentType)) && String(d.status) === "ISSUED")
+    .map((d) => ({ id: Number(d.id), type: String(d.documentType) as SettlementDoc["type"], number: (d.documentNumberFormatted as string) ?? null, status: String(d.status), totalAmount: d.totalAmount as string }));
+}
 
 export type PickupCall = { id: number; calledAt: string; outcome: "REACHED" | "LEFT_MESSAGE" | "NO_ANSWER"; note: string | null };
 export const listPickupCalls = async (caseId: number) => (await call<{ reminders: PickupCall[] }>("GET", `/api/service-desk/cases/${caseId}/pickup-reminders`)).reminders;

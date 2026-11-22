@@ -63,7 +63,7 @@ const err = (status: number | null, code: string | null, details: Record<string,
 ok("E1 VERSION_CONFLICT asks for a reload", err(409, "VERSION_CONFLICT").reload === true && err(409, "VERSION_CONFLICT").text.includes("רענן"));
 ok("E2 an inactive technician (server check) asks to pick again and reloads the list",
   err(422, "SERVER_CHECK_FAILED", { check: "STAFF_BELONGS_TO_BUSINESS" }).reload === true && err(422, "SERVER_CHECK_FAILED", { check: "STAFF_BELONGS_TO_BUSINESS" }).text.includes("לא פעיל"));
-ok("E3 NO_CHANGE and the table's codes read in Hebrew", err(422, "REFUSED", { violations: ["NO_CHANGE"] }).text.includes("לא שינית") && err(422, "REFUSED", { violations: ["QA_INCOMPLETE"] }).text.includes("רשימת הבדיקות"));
+ok("E3 NO_CHANGE and the table's codes read in Hebrew", err(422, "REFUSED", { violations: ["NO_CHANGE"] }).text.includes("לא שינית") && err(422, "REFUSED", { violations: ["QA_INCOMPLETE"] }).text.includes("לאשר שהבדיקות עברו"));
 ok("E4 an unknown refusal or internal code never shows the code itself", !err(422, "REFUSED", { violations: ["INVALID_TRANSITION"] }).text.includes("INVALID") && !err(409, "CONFLICT").text.includes("CONFLICT"));
 ok("E5 the journal missing (P4) says nothing was saved", err(422, "NOT_AVAILABLE_UNTIL_AUDIT").text.includes("לא נשמר"));
 ok("E6 read-only, deleting, offline, 5xx, 401 and 429 have their own lines",

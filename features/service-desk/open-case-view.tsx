@@ -5,8 +5,10 @@
  */
 import type { ReactNode } from "react";
 
+import { formatPhoneForDisplay } from "@/lib/format/phone-display";
+
 import { formatShortDate, statusLabel, type CaseStatus } from "./cases-model";
-import { draftIssues, ISSUE_TEXT, TRACK_FORMS, type CustomerPick, type DraftIssue, type OpenCaseDraft, type PastCase, type Track } from "./open-case-model";
+import { draftIssues, phoneIssue, ISSUE_TEXT, TRACK_FORMS, type CustomerPick, type DraftIssue, type OpenCaseDraft, type PastCase, type Track } from "./open-case-model";
 import s from "./cases.module.css";
 
 export type OpenCaseViewProps = {
@@ -43,6 +45,8 @@ function Card({ title, children }: { title?: string; children: ReactNode }) {
 
 export function OpenCaseView(p: OpenCaseViewProps) {
   const d = p.draft;
+  // Shown once the number looks finished (or the owner moved on): no red line while the first digits are typed.
+  const phoneProblem = p.newCustomer.phone.replace(/\D/g, "").length >= 9 || /[^\d\s\-()+]/.test(p.newCustomer.phone) ? phoneIssue(p.newCustomer.phone) : null;
   const form = d.track ? TRACK_FORMS[d.track] : null;
   const issues = p.showIssues ? draftIssues(d) : [];
   const issue = (k: DraftIssue) =>
@@ -70,7 +74,7 @@ export function OpenCaseView(p: OpenCaseViewProps) {
         <Card title="לקוח">
           {d.customer ? (
             <div className={s.statusTop} style={{ background: "var(--sc-sunk)", borderRadius: 12, padding: "10px 12px" }}>
-              <span><strong>{d.customer.name}</strong>{d.customer.phone ? ` · ${d.customer.phone}` : ""}</span>
+              <span style={{ minWidth: 0, overflowWrap: "anywhere" }}><strong>{d.customer.name}</strong>{d.customer.phone ? <span dir="ltr"> · {formatPhoneForDisplay(d.customer.phone)}</span> : ""}</span>
               <button type="button" className={s.dangerLink} style={{ color: "inherit" }} onClick={() => pick(null)}>להחליף</button>
             </div>
           ) : (
@@ -84,7 +88,7 @@ export function OpenCaseView(p: OpenCaseViewProps) {
                   {p.customerHits.map((c) => (
                     <li key={c.id}>
                       <button type="button" className={s.row} style={{ width: "100%", border: 0, background: "none", font: "inherit", textAlign: "start", cursor: "pointer" }} onClick={() => pick(c)}>
-                        <span className={s.rowMain}><span className={s.rowCustomer}>{c.name}</span>{c.phone ? <span className={s.rowDesc}>{c.phone}</span> : null}</span>
+                        <span className={s.rowMain}><span className={s.rowCustomer}>{c.name}</span>{c.phone ? <span className={s.rowDesc} dir="ltr" style={{ textAlign: "end" }}>{formatPhoneForDisplay(c.phone)}</span> : null}</span>
                       </button>
                     </li>
                   ))}
@@ -93,8 +97,11 @@ export function OpenCaseView(p: OpenCaseViewProps) {
               {p.newCustomer.open ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   <input className={s.input} id="sd-new-customer-name" value={p.newCustomer.name} placeholder="שם הלקוח" onChange={(e) => p.onNewCustomer({ ...p.newCustomer, name: e.target.value })} />
-                  <input className={s.input} id="sd-new-customer-phone" value={p.newCustomer.phone} placeholder="טלפון (לא חובה)" inputMode="tel" onChange={(e) => p.onNewCustomer({ ...p.newCustomer, phone: e.target.value })} />
-                  <button type="button" className={s.secondary} disabled={!p.newCustomer.name.trim() || p.busy} onClick={p.onCreateCustomer}>להוסיף לקוח</button>
+                  <input className={s.input} id="sd-new-customer-phone" value={p.newCustomer.phone} placeholder="טלפון (לא חובה)" inputMode="tel" dir="ltr" style={{ textAlign: "end" }}
+                    aria-invalid={phoneProblem ? true : undefined} aria-describedby={phoneProblem ? "sd-new-customer-phone-err" : undefined}
+                    onChange={(e) => p.onNewCustomer({ ...p.newCustomer, phone: e.target.value })} />
+                  {phoneProblem ? <p id="sd-new-customer-phone-err" className={s.fieldError} role="alert">{phoneProblem}</p> : null}
+                  <button type="button" className={s.secondary} disabled={!p.newCustomer.name.trim() || !!phoneProblem || p.busy} onClick={p.onCreateCustomer}>להוסיף לקוח</button>
                 </div>
               ) : (
                 <button type="button" className={s.dangerLink} style={{ color: "inherit", alignSelf: "flex-start" }} onClick={() => p.onNewCustomer({ open: true, name: p.customerQuery, phone: "" })}>+ לקוח חדש</button>

@@ -12,7 +12,7 @@ ok("A1 OPEN repair without intake → the intake screen (a link, not a write)", 
 ok("A2 OPEN repair with the intake recorded → confirm check-in (intakeConfirmed)", (() => { const a = caseActions({ ...base, status: "OPEN", intake: intakeDone })[0];
   return a.id === "check-in" && a.target.endpoint === "action" && (a.target as { action: Record<string, unknown> }).action.intakeConfirmed === true; })());
 ok("A3 OPEN field call → start the visit, no intake", ids({ ...base, kind: "FIELD", status: "OPEN" }) === "start-visit,cancel");
-ok("A4 the main path offers exactly one primary per status", (["OPEN", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "QA", "READY", "WORK_DONE", "DELIVERED"] as const)
+ok("A4 the main path offers exactly one primary per status", (["OPEN", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "QA", "READY", "WORK_DONE"] as const)
   .every((s) => caseActions({ ...base, status: s, intake: intakeDone }).filter((a) => a.tone === "primary").length === 1));
 ok("A5 closed / cancelled cases offer nothing", caseActions({ ...base, status: "CLOSED" }).length === 0 && caseActions({ ...base, status: "CANCELLED" }).length === 0);
 ok("A6 hold: set when free, clear when held", ids({ ...base, status: "IN_REPAIR" }).includes("hold-parts") && ids({ ...base, status: "IN_REPAIR", holdReason: "PARTS" }).includes("clear-hold")
@@ -42,5 +42,19 @@ ok("A7 finishing follows the QA mode: REQUIRED → to QA without an outcome; OPT
   const req = body("REQUIRED"), opt = body("OPTIONAL"), off = body("OFF"), none = body();
   return req.length === 1 && !req[0].includes("outcome") && opt.length === 2 && opt[0].includes("\"qa\":true") && opt[1].includes("REPAIRED")
     && off.length === 1 && off[0].includes("REPAIRED") && none[0] === off[0]; })());
+
+// ── Pilot review 2026-11-21 ──
+ok("R1 DELIVERED offers nothing: CLOSE is the system's step (the owner's button only produced a refusal)", caseActions({ ...base, status: "DELIVERED" }).length === 0);
+ok("R2 QA with a blocker: passed is shown with its reason, not active; back to work becomes the primary", (() => {
+  const a = caseActions({ ...base, status: "QA" }, { qaMode: "REQUIRED", qaBlocker: "x" });
+  const pass = a.find((d) => d.id === "qa-pass"), fail = a.find((d) => d.id === "qa-fail");
+  return pass?.blockedReason === "x" && pass.tone === "secondary" && fail?.tone === "primary"; })());
+ok("R3 QA without a blocker: passed is the primary and active", (() => {
+  const pass = caseActions({ ...base, status: "QA" }, { qaMode: "REQUIRED", qaBlocker: null }).find((d) => d.id === "qa-pass");
+  return pass?.tone === "primary" && pass.blockedReason === undefined; })());
+ok("R4 READY with an unknown balance: the handover is shown with the reason, never sent", caseActions({ ...base, status: "READY" }, { handoverBlocker: "y" })[0].blockedReason === "y"
+  && caseActions({ ...base, status: "READY" })[0].blockedReason === undefined);
+ok("R5 WORK_DONE completion follows the same balance rule", caseActions({ ...base, kind: "FIELD", status: "WORK_DONE" }, { handoverBlocker: "y" })[0].blockedReason === "y");
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

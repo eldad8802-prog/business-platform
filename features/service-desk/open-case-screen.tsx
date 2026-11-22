@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
 
 import type { CaseRowData } from "./cases-model";
-import { draftIssues, EMPTY_DRAFT, offeredTracks, openCaseBody, TRACK_FORMS, warrantySuggestion, type OpenCaseDraft } from "./open-case-model";
+import { draftHasWork, draftIssues, EMPTY_DRAFT, phoneIssue, offeredTracks, openCaseBody, TRACK_FORMS, warrantySuggestion, type OpenCaseDraft } from "./open-case-model";
 import { OpenCaseView } from "./open-case-view";
 import { createCustomer, getSettings, listCases, openServiceCase, searchCustomers, type CustomerHit, type ServiceSettings } from "./service-desk-client";
 import { errorView } from "./service-desk-errors";
@@ -60,7 +60,21 @@ export function OpenCaseScreen() {
     return warrantySuggestion(pastCases, draft.subjectName, settings.warrantyTemplate, new Date());
   }, [draft.track, draft.subjectName, pastCases, settings]);
 
+  // Leaving with typed work: warn (pilot review 2026-11-21: the form lost what was typed silently). Not after a send.
+  const dirty = !busy && draftHasWork(draft, newCustomer);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  const onBeforeLeave = useCallback((proceed: () => void) => {
+    if (!dirty || window.confirm("הפרטים שמילאת עוד לא נשמרו ויימחקו אם תצא. לצאת בכל זאת?")) proceed();
+  }, [dirty]);
+
   const onCreateCustomer = useCallback(async () => {
+    const bad = phoneIssue(newCustomer.phone);
+    if (bad) { setError(bad); return; }
     setBusy(true); setError(null);
     try {
       const c = await createCustomer(newCustomer.name.trim(), newCustomer.phone.trim() || null);
@@ -78,14 +92,15 @@ export function OpenCaseScreen() {
     try {
       const r = await openServiceCase(openCaseBody(draft));
       const next = draft.track ? TRACK_FORMS[draft.track].next : "case";
-      router.push(next === "intake" ? `/service-desk/cases/${r.case.id}/intake` : `/service-desk/cases/${r.case.id}`);
+      // replace, not push: the (now empty) opening form must not be what "back" returns to from the new case / its intake.
+      router.replace(next === "intake" ? `/service-desk/cases/${r.case.id}/intake` : `/service-desk/cases/${r.case.id}`);
     } catch (e) {
       setError(errorView(e).text);
       setBusy(false);
     }
   }, [draft, router]);
 
-  const back = <BackButton fallback="/service-desk" fallbackLabel="לתיקים" />;
+  const back = <BackButton fallback="/service-desk" fallbackLabel="לתיקים" onBeforeLeave={onBeforeLeave} />;
   if (access.status !== "open" || failed || !settings) {
     return (
       <main className={s.screen} data-page-intent="content" dir="rtl">

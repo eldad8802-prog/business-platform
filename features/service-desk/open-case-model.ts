@@ -58,6 +58,28 @@ export type OpenCaseDraft = {
 
 export const EMPTY_DRAFT: OpenCaseDraft = { track: null, customer: null, subjectName: "", problem: "", siteAddress: "", parentCaseId: null };
 
+/** Something typed or chosen that leaving the form would silently lose (the track alone is not "work"). */
+export function draftHasWork(d: OpenCaseDraft, newCustomer: { open: boolean; name: string; phone: string } = { open: false, name: "", phone: "" }): boolean {
+  return d.customer !== null || d.subjectName.trim() !== "" || d.problem.trim() !== "" || d.siteAddress.trim() !== ""
+    || (newCustomer.open && (newCustomer.name.trim() !== "" || newCustomer.phone.trim() !== ""));
+}
+
+/**
+ * A phone typed for a new customer (pilot review 2026-11-21): empty is fine (optional); otherwise an Israeli number
+ * (05x / 07x mobile or virtual — 10 digits; 02/03/04/08/09 landline — 9 digits; with or without +972 / dashes / spaces)
+ * or an international number (+ and 8–15 digits). Anything else is refused on the field, before anything is sent.
+ */
+export function phoneIssue(raw: string): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  if (!/^[+\d][\d\s\-()]*$/.test(t)) return "מספר טלפון יכול לכלול רק ספרות, רווחים, מקפים או + בהתחלה.";
+  let digits = t.replace(/\D/g, "");
+  if (t.startsWith("+") && !digits.startsWith("972")) return digits.length >= 8 && digits.length <= 15 ? null : "מספר בינלאומי צריך להכיל 8 עד 15 ספרות.";
+  if (digits.startsWith("972")) digits = "0" + digits.slice(3);
+  if (/^0[57]\d{8}$/.test(digits) || /^0[234689]\d{7}$/.test(digits)) return null;
+  return "מספר הטלפון לא תקין. למשל 050-1234567 או 03-1234567.";
+}
+
 export const PROBLEM_MAX = 4000;
 export const SUBJECT_MAX = 120;
 export const ADDRESS_MAX = 300;

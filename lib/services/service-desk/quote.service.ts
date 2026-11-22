@@ -144,13 +144,22 @@ async function quoteOf(tx: Tx, b: number, caseId: number, version: number): Prom
 }
 
 /** The case's quote versions, oldest first. FULL and READ_ONLY. */
-export async function listQuotes(businessId: number, caseId: unknown): Promise<{ quotes: QuoteView[] }> {
+/**
+ * The case's quote versions, oldest first — and the billing QUOTE documents of the SAME customer that are already a
+ * quote of ANOTHER case of this business (one document belongs to one case: EXCLUDE ServiceQuote_billing_document_one_case).
+ * The screen uses those ids only to stop offering a document the server would refuse (QUOTE_DOCUMENT_OF_ANOTHER_CASE).
+ * Ids into the business's own records only; no other case's content.
+ */
+export async function listQuotes(businessId: number, caseId: unknown): Promise<{ quotes: QuoteView[]; otherCaseDocumentIds: number[] }> {
   if (!isPositiveInt(caseId)) throw new ServiceDeskError("NOT_FOUND");
   return tenantTx(businessId, async (tx) => {
-    await caseCustomer(tx, businessId, caseId); // NOT_FOUND for another business's case
+    const customerId = await caseCustomer(tx, businessId, caseId); // NOT_FOUND for another business's case
     const rows = await tx.$queryRaw<Record<string, unknown>[]>`
       SELECT ${QUOTE_COLUMNS} FROM "ServiceQuote" WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int ORDER BY version`;
-    return { quotes: rows.map(toView) };
+    const other = await tx.$queryRaw<{ id: number }[]>`
+      SELECT DISTINCT q."billingDocumentId" AS id FROM "ServiceQuote" q JOIN "ServiceCase" c ON c.id = q."caseId" AND c."businessId" = q."businessId"
+       WHERE q."businessId" = ${businessId}::int AND q."caseId" <> ${caseId}::int AND c."customerId" = ${customerId}::int`;
+    return { quotes: rows.map(toView), otherCaseDocumentIds: other.map((r) => Number(r.id)) };
   });
 }
 
