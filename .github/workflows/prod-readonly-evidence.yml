@@ -196,6 +196,8 @@ on:
           - 'ops/evidence/business-kind-transition-production-evidence.sql'
           - 'ops/evidence/service-desk-ui-erasure-text-preflight.sql'
           - 'ops/evidence/service-desk-ui-erasure-text-production-evidence.sql'
+          - 'ops/evidence/service-desk-case-records-preflight.sql'
+          - 'ops/evidence/service-desk-case-records-production-evidence.sql'
           - 'ops/evidence/issuer-declaration-preflight.sql'
           - 'ops/evidence/issuer-declaration-production-evidence.sql'
           - 'ops/evidence/notification-engine-foundation-preflight.sql'
