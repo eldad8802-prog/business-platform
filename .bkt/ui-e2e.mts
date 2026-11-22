@@ -21,6 +21,12 @@
  *   U12 keyboard: Tab reaches the date field and the continue button; Enter in the password field submits
  *   U13 phone 320px: no horizontal scroll on any step
  *   U14 WebKit, iPhone-sized viewport: the whole flow to success
+ *   U15 failure mid-process: the confirm call answers 500, then the network drops → "nothing changed", still on step 3,
+ *       confirmations kept, nothing written; the retry → success, exactly one history row
+ *   U16 cancel on step 3 → the business screen, nothing written, the action row still there; opening the flow again
+ *       starts empty (no date kept)
+ *   U17 screen widths (Chromium, Android-sized 360 / 412; WebKit, iPhone-sized 375 / 430): no horizontal scroll on
+ *       steps 1–3 and the success screen, the page stays RTL
  *
  * env: E2E_BASE, OWNER_URL, AUTH_TOKEN_SECRET, OUT.
  */
@@ -308,6 +314,96 @@ async function main() {
   });
   await ctxW.close();
   await wk.close();
+
+  // ── U15: failure mid-process, then a retry ──
+  const cr = await chromium.launch();
+  const r = await business();
+  const ctxR = await ctxFor(cr, r, PHONE);
+  const pr = await ctxR.newPage(); current = pr;
+  const CONFIRM_URL = /\/api\/business\/legal-identity\/kind-transition$/;
+  let mode: "500" | "abort" | "pass" = "500";
+  await pr.route(CONFIRM_URL, async (route) => {
+    if (route.request().method() !== "POST" || mode === "pass") return route.continue();
+    if (mode === "abort") return route.abort("internetdisconnected");
+    return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ code: "SERVER_ERROR", error: "x" }) });
+  });
+  await check("U15a the confirm call answers 500 → 'nothing changed', still step 3, confirmations kept, nothing written", async () => {
+    await toStep3(pr, r);
+    await tickAll(pr);
+    await pr.getByTestId("kt-confirm").click();
+    await pr.getByTestId("kt-confirm-error").waitFor({ timeout: 30_000 });
+    const msg = await pr.getByTestId("kt-confirm-error").innerText();
+    const kept = await pr.getByTestId("kt-confirm").isEnabled();
+    return msg.includes("שום דבר לא השתנה") && kept && (await history(r.businessId)).length === 0 && (await kind(r.businessId)) === "EXEMPT_DEALER";
+  });
+  await check("U15b the network drops on confirm → the same message, nothing written", async () => {
+    mode = "abort";
+    await pr.getByTestId("kt-confirm").click();
+    await pr.getByTestId("kt-confirm-error").waitFor({ timeout: 30_000 });
+    return (await pr.getByTestId("kt-confirm-error").innerText()).includes("שום דבר לא השתנה") && (await history(r.businessId)).length === 0;
+  });
+  await check("U15c the retry → success, exactly one history row", async () => {
+    mode = "pass";
+    await pr.getByTestId("kt-confirm").click();
+    await pr.getByTestId("kt-success").waitFor({ timeout: 30_000 });
+    return (await history(r.businessId)).length === 1 && (await kind(r.businessId)) === "AUTHORIZED_DEALER";
+  });
+  await ctxR.close();
+
+  // ── U16: cancel ──
+  const c = await business();
+  const ctxC = await ctxFor(cr, c, PHONE);
+  const pc = await ctxC.newPage(); current = pc;
+  await check("U16 cancel on step 3 → the business screen, nothing written, the action still there; the flow again starts empty", async () => {
+    await toStep3(pc, c);
+    await tickAll(pc);
+    await pc.getByTestId("kt-cancel").click();
+    await pc.waitForURL(/\/business$/, { timeout: 30_000 });
+    await pc.getByTestId("kt-entry-action").waitFor({ timeout: 60_000 });
+    await pc.goto(`${BASE}/business/legal-identity/kind-transition`);
+    await pc.getByTestId("kt-date").waitFor({ timeout: 60_000 });
+    const dateEmpty = (await pc.getByTestId("kt-date").inputValue()) === "";
+    return dateEmpty && (await history(c.businessId)).length === 0 && (await kind(c.businessId)) === "EXEMPT_DEALER";
+  });
+  await ctxC.close();
+
+  // ── U17: screen widths ──
+  async function widths(br: Browser, engine: string, sizes: { width: number; height: number }[]) {
+    for (const vp of sizes) {
+      const b = await business();
+      const ctx = await ctxFor(br, b, vp);
+      const pg = await ctx.newPage(); current = pg;
+      await check(`U17 ${engine} ${vp.width}×${vp.height}: no side scroll on steps 1–3 and success; RTL`, async () => {
+        const bad: string[] = [];
+        await pg.goto(`${BASE}/business/legal-identity/kind-transition`);
+        await pg.getByTestId("kt-date").waitFor({ timeout: 60_000 });
+        if ((await pg.evaluate(() => getComputedStyle(document.body).direction)) !== "rtl") bad.push("not rtl");
+        if (!(await noSideScroll(pg))) bad.push("step1");
+        await pg.getByTestId("kt-date").fill(EARLY);
+        await pg.getByTestId("kt-step1-next").click();
+        await pg.getByTestId("kt-tax").waitFor();
+        if (!(await noSideScroll(pg))) bad.push("step2");
+        await pg.getByTestId("kt-tax").fill(b.taxId);
+        await pg.getByTestId("kt-password").fill(PASSWORD);
+        await pg.getByTestId("kt-step2-next").click();
+        await pg.getByRole("heading", { name: "בדיקה ואישור" }).waitFor({ timeout: 30_000 });
+        await tickAll(pg);
+        if (!(await noSideScroll(pg))) bad.push("step3");
+        await pg.getByTestId("kt-confirm").click();
+        await pg.getByTestId("kt-success").waitFor({ timeout: 30_000 });
+        if (!(await noSideScroll(pg))) bad.push("success");
+        await pg.screenshot({ path: join(OUT, `width-${engine}-${vp.width}.png`), fullPage: true });
+        if (bad.length) throw new Error(bad.join(", "));
+        return true;
+      });
+      await ctx.close();
+    }
+  }
+  await widths(cr, "chromium", [{ width: 360, height: 800 }, { width: 412, height: 915 }]);
+  await cr.close();
+  const wk2 = await webkit.launch();
+  await widths(wk2, "webkit", [{ width: 375, height: 667 }, { width: 430, height: 932 }]);
+  await wk2.close();
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n  " + failures.join("\n  ")); process.exitCode = 1; }
