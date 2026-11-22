@@ -12,6 +12,7 @@
  *   Q1 c2: "the customer approved" (by phone) → the quote is APPROVED in the database
  *   X1 an illegal action sent straight to the API (PASS_QA on an OPEN case) → 409, nothing changes
  *   X2 a write with a stale version → refused (VERSION_CONFLICT), nothing changes
+ *   W360 / W360b the list, the opening form and every case fit 360 px; a dialog fits, is opaque, both buttons reachable
  *   N1 business B (module OFF): the screen says it is not open; its API answers 404
  *   S1 business C (garage, never set up): the list banner leads to the activation; "garage" is pre-selected from the
  *      category; the owner adds "service" by hand; saved + journaled; the banner is gone
@@ -426,6 +427,52 @@ async function main() {
         await until(async () => Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceCaseLoaner" WHERE "caseId" = $1 AND "returnedAt" IS NOT NULL`, seed.c3))[0].n) === 1, "not returned");
       });
       await cp.close();
+    }
+
+    // ── 360 px (the narrowest phone; pilot review 2026-11-21): no horizontal scroll on the list, the opening form and every
+    //    seeded case; a dialog fits the screen, is opaque, and its confirm / cancel buttons are reachable ──
+    {
+      const NARROW: Size = { width: 360, height: 740, phone: true };
+      const cn = await ctx(browser, seed.tokenA, NARROW);
+      const pn = await cn.newPage();
+      current = pn;
+      const noSideScroll = async (where: string) => {
+        const w = await pn.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
+        if (w > 360) throw new Error(`${where}: page is ${w}px wide at 360`);
+      };
+      await check("W360 the list, the opening form and every seeded case fit 360 px with no horizontal scroll", async () => {
+        await pn.goto("/service-desk");
+        await pn.getByRole("link", { name: /פתיחה חדשה|פתיחת תיק/ }).first().waitFor({ timeout: 120_000 }).catch(() => undefined);
+        await noSideScroll("list");
+        await shot(pn, "w360-list");
+        await pn.goto("/service-desk/new");
+        await pn.getByRole("button", { name: "תיקון במעבדה" }).waitFor({ timeout: 120_000 });
+        await noSideScroll("opening form");
+        await shot(pn, "w360-open");
+        for (const [k, id] of [["c1", seed.c1], ["c2", seed.c2], ["c3", seed.c3], ["c4", seed.c4], ["c6", seed.c6]] as const) {
+          await openCase(pn, id);
+          await pn.waitForTimeout(500);
+          await noSideScroll(k);
+          await shot(pn, `w360-case-${k}`);
+        }
+      });
+      await check("W360b a dialog at 360 px: inside the screen, opaque, confirm and cancel both visible; cancelled (nothing sent)", async () => {
+        await openCase(pn, seed.c4);
+        const before = await statusOf(seed.c4);
+        await pn.getByRole("button", { name: /ביטול ה(תיק|קריאה)/ }).first().click();
+        const dlg = pn.getByRole("dialog");
+        await dlg.waitFor();
+        const box = await dlg.boundingBox();
+        if (!box || box.x < 0 || box.x + box.width > 360.5 || box.y < 0 || box.y + box.height > 740.5) throw new Error(`dialog box ${JSON.stringify(box)}`);
+        const bg = await dlg.evaluate((el) => getComputedStyle(el).backgroundColor);
+        if (!/^rgb\(255, 255, 255\)$/.test(bg)) throw new Error(`dialog background ${bg}`);
+        for (const name of ["לאשר", "ביטול"]) if (!(await dlg.getByRole("button", { name, exact: true }).isVisible())) throw new Error(`${name} not visible`);
+        await shot(pn, "w360-dialog");
+        await dlg.getByRole("button", { name: "ביטול", exact: true }).click();
+        await dlg.waitFor({ state: "detached" });
+        if ((await statusOf(seed.c4)) !== before) throw new Error("the status changed");
+      });
+      await cn.close();
     }
 
     // ── business B: the module is off ──
