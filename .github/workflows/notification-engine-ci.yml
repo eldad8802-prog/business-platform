@@ -63,6 +63,10 @@ on:
       - "components/platform-admin/fcm-auth-check-*"
       - "app/(platform-admin)/admin/diagnostics/**"
       - "lib/platform-admin/fetch-platform-admin.ts"
+      - "android/app/src/main/AndroidManifest.xml"
+      - "android/app/src/main/res/**"
+      - "lib/native/android-notification-branding.test.ts"
+      - "scripts/native/generate-app-icons.mjs"
       - ".github/workflows/notification-engine-ci.yml"
   workflow_dispatch:
 
@@ -115,6 +119,7 @@ jobs:
           npx tsx lib/notifications/preferences.test.ts
           npx tsx lib/notifications/notification-time.test.ts
           npx tsx lib/notifications/push/push.test.ts
+          npx tsx lib/native/android-notification-branding.test.ts
           npx tsx app/api/platform-admin/notifications/fcm-auth-check/route.test.ts
           npx tsx components/platform-admin/fcm-auth-check-logic.test.ts
           npx tsx lib/notifications/engine/worker-decision.test.ts
@@ -140,6 +145,13 @@ jobs:
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_engine?$TZ_OPT" \
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/nte_engine" \
             npx tsx lib/notifications/engine/notification-engine.db.test.ts
+
+      - name: 3a. Task reminders through the engine as the restricted runtime — every live device once, preferences, quiet hours, sessions, engine OFF unchanged
+        run: |
+          set -euo pipefail
+          bash .nte2d/lab.sh nte_trpe --with-nte2d
+          TZ_OPT="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_trpe?$TZ_OPT&pool_timeout=30"           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/nte_trpe?$TZ_OPT&pool_timeout=30"           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/nte_trpe"             npx tsx lib/services/tasks/task-reminders-engine.db.test.ts
 
       - name: 3b. The status sweep, the state producers A–E, stuck documents and per-user reminders as the restricted runtime (session in Asia/Jerusalem)
         run: |

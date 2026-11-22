@@ -112,7 +112,10 @@ jobs:
             npm run verify:tasks-agenda-db
 
       - name: 5. Reminders (pure) — moment, snooze, journal, push allowlist, the dispatcher door
-        run: npx tsx lib/services/tasks/task-reminders.test.ts
+        run: |
+          set -euo pipefail
+          npx tsx lib/services/tasks/task-reminders.test.ts
+          npx tsx features/tasks/reminder-phone-note.test.ts
 
       - name: 6. Reminders as the restricted runtime — due, once, snooze, close, recurring, flag, isolation, personal list
         run: |

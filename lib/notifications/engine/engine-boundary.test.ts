@@ -85,6 +85,15 @@ for (const f of ["lib/services/tasks/task-reminders.service.ts", "lib/services/b
   ok(`${f}: the shared sender, no direct sendWebPush`, /deliverLegacyPush\(/.test(c) && !/sendWebPush\(/.test(c));
   ok(`${f}: web push devices only (https endpoints)`, c.includes(`endpoint: { startsWith: "https://" }`));
 }
+const trp = code("lib/services/tasks/task-reminders.service.ts");
+ok("task reminders: ONE path per reminder — the engine only when notifications_engine is ON, read before the claim",
+  trp.includes("const viaEngine = await notificationsEngineEnabled(due.businessId)") && trp.indexOf("const viaEngine") < trp.indexOf("const claimed = await tenantTx"));
+{
+  const engineBranch = trp.slice(trp.indexOf("    if (viaEngine) {"), trp.indexOf("const subscriptions = await tx.pushSubscription.findMany"));
+  ok("task reminders (engine): no web push subscription is handed to the legacy loop",
+    engineBranch.length > 0 && engineBranch.includes("subscriptions: []") && !engineBranch.includes("deliverLegacyPush"));
+}
+ok("task reminders (engine): the worker runs for exactly the reminder's owed row", /runPushWorker\(now, \{\s*businessId: due\.businessId, deliveryIds: \[claimed\.owedDeliveryId\]/.test(trp));
 const writer = code("lib/notifications/notification-writer.ts");
 ok("the writer gives owed PUSH rows an expiresAt", /channel === "PUSH" \? \{ expiresAt: pushExpiresAt \}/.test(writer));
 const wps = code("lib/push/web-push-sender.ts");

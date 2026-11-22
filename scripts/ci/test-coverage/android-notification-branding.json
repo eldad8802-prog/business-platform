@@ -1,0 +1,10 @@
+{
+  "note": "Android notification branding (owner's phone 2026-11-22: blue circle with a small symbol): the small icon is the Dubiz mark filling the 24dp icon, on the app's own colorPrimary.",
+  "tests": {
+    "lib/native/android-notification-branding.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "notSecurityBecause": "notification icon and colour only; no data, auth or permission path",
+      "reason": "pure: manifest small icon ic_notification_mark + colour colorPrimary + default channel unchanged; the FCM colour equals colorPrimary; five densities, white silhouette on transparency, the mark fills the icon; pixel-identical to public/dubiz-mark.png resized (the same mark, no new logo)"
+    }
+  }
+}
