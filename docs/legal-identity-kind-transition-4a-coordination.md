@@ -1,7 +1,7 @@
 # "מעבר לעוסק מורשה" — handover package for the billing / issuer-declaration track (4a)
 
 **For:** a new 4a session (billing, issuer declaration, numbering, uniform export), with no chat history.
-**From:** the legal identity track (session f3), 2026-11-22 (updated after the migration was applied).
+**From:** the legal identity track (session f3), 2026-11-23 (updated after #1210, #1204 and #1213 were all merged).
 **Status:** handover only. **This file approves nothing.** Each 4a task needs the owner's focused approval as usual.
 Billing (A0) code is changed only by 4a, never by the legal identity track.
 
@@ -29,14 +29,17 @@ Owner decisions of 2026-11-20 / 21:
 - The feature (`BUSINESS_KIND_TRANSITION_ENABLED`) stays **OFF in Production until every task marked "Gate" below is
   merged and tested**.
 
-## 2. What the legal identity track has built (not merged, nothing applied)
+## 2. What the legal identity track has built (all merged; flag OFF)
 
 | PR | Content | State 11-22 |
 |---|---|---|
 | #1210 | Migration `20261221090000_business_kind_transition`: append-only `BusinessKindTransition` (one row per business, FORCE RLS, runtime SELECT only) + definer `business_kind_transition_to_authorized(user, vat, date, reauth_method, reauth_at, statement_sha)` | **MERGED 19564556 and APPLIED in Production 2026-11-22** (record #1223, release-migrate 44969899339, ledger 228, evidence 44971617659 11/11) |
-| #1204 | API `/api/business/legal-identity/kind-transition` (GET, preview, reauth/password, reauth/google, confirm), re-auth proof `lib/auth/sensitive-reauth.ts` + `lib/auth/google-reauth.ts`, Prisma model, tests | Synced with main; awaiting the owner merge approval (flag stays OFF) |
-| #1213 | UI: entry in the legal identity card on `/business` + `/business/legal-identity/kind-transition` (3 steps + success) | Stacked on #1204 |
-| #1214 | CI proof only (#1210 + #1204 + #1213 joined) — **not for merge** | e2e: app 33/33, browsers 17/17, flag-off 4/4 |
+| #1204 | API `/api/business/legal-identity/kind-transition` (GET, preview, reauth/password, reauth/google, confirm), re-auth proof `lib/auth/sensitive-reauth.ts` + `lib/auth/google-reauth.ts`, Prisma model, tests | **MERGED 272125bb (2026-11-22)**, live; every route answers 404 while the flag is off |
+| #1213 | UI: entry in the legal identity card on `/business` + `/business/legal-identity/kind-transition` (3 steps + success) | **MERGED 8955bbce (2026-11-22)**, live; flag off → no entry, no API request, the page says not available |
+| #1214 | CI proof only (#1210 + #1204 + #1213 joined) | **Closed without merge** (owner-approved); evidence kept |
+
+The flag is read in one place, `lib/legal-identity/kind-transition-flag.ts` (`=== "true"`, server-only). The API
+enforces it per request; `app/business/layout.tsx` passes it to the screens. Turning it on or off = env change + redeploy.
 
 What the transition writes, in one transaction:
 
@@ -76,7 +79,11 @@ declaration. T1 removes this limit.
 - No new path that bypasses DZD35, the chain guard, DZ010, the signup lock DZL04 or the re-auth rules.
 - Schema / migration changes need the owner's approval and their own approval record (authority-changing migrations).
 - One Production release at a time; announce before dispatching; never merge a migration while another release is
-  pending.
+  pending. `release-migrate` applies **every** pending migration and its verify step requires `expected_migrations`
+  to equal the pending set exactly: on 2026-11-23 `20261216090000_activity_packs` (#1207, another track) is merged
+  but **not applied** — coordinate with its owner before any 4a migration is merged or released.
+- `ISSUER_DECLARATION_ENABLED` is not set in Production (the declaration flow is off there). Whether any Production
+  business already holds a live declaration is unknown until a read-only evidence query is run (owner approval).
 
 ## 5. Tasks, acceptance and tests
 

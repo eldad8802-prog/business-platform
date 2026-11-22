@@ -110,7 +110,9 @@ sessions first; one release in flight.
 
 - 4a tasks T1, T1a, T2, T3, T4, T5, T6 merged and tested (`docs/legal-identity-kind-transition-4a-coordination.md`).
 - Isolated Preview with a **real Google account** and a **physical phone** (§I).
-- Then the owner sets `BUSINESS_KIND_TRANSITION_ENABLED=true` in Production.
+- Then the owner sets `BUSINESS_KIND_TRANSITION_ENABLED=true` in Production **and redeploys** (as for every Vercel env
+  change: the API reads it at request time, the business layout passes it to the screens — `lib/legal-identity/kind-transition-flag.ts` is the
+  one reader). Turning it off is the same: remove it and redeploy.
 
 ## H. Evidence index
 
