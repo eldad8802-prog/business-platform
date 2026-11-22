@@ -28,7 +28,12 @@ const note = (over: Partial<AppPushInputs>, reach?: boolean) => appReminderNote(
 // ── the decision table ──
 check("registered phone, reminders not yet on the engine → connected, reminders in the app", note({}, false) === "connected_reminders_in_app");
 check("registered phone, reminders on the engine → reminders reach the phone", note({}, true) === "connected_reminders_on_phone");
-check("default: reminders do NOT reach the phone yet (no claim before the engine path exists)", TASK_REMINDERS_REACH_ANDROID === false && note({}) === "connected_reminders_in_app");
+check("default (since #1218): a registered phone with the engine on is told reminders reach the phone", TASK_REMINDERS_REACH_ANDROID === true && note({}) === "connected_reminders_on_phone");
+check("…the engine path really exists: the reminder service sends through the engine when it is on", (() => {
+  const svc = readFileSync("lib/services/tasks/task-reminders.service.ts", "utf8");
+  return svc.includes("const viaEngine = await notificationsEngineEnabled(due.businessId)") && svc.includes("runPushWorker(now, {");
+})());
+check("…engine off still says reminders stay in the app (never a phone promise)", note({ server: "engine_off" }) === "engine_off");
 check("a build without Firebase → app without push", note({ configured: false }) === "app_without_push");
 check("permission unavailable → app without push", note({ permission: "unavailable" }) === "app_without_push");
 check("Android permission denied → blocked (wins over everything but the build)", note({ permission: "denied", server: "registered" }) === "blocked");

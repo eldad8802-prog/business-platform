@@ -12,8 +12,12 @@
  * bell — never that they will arrive on the phone.
  */
 
-/** Task reminders reach the Android app (through the notification engine) — false until that path exists. */
-export const TASK_REMINDERS_REACH_ANDROID = false;
+/**
+ * Task reminders reach the Android app: since #1218 a business with the notification engine ON sends every task
+ * reminder through the engine to the user's live devices (lib/services/tasks/task-reminders.service.ts). The card
+ * says so only on the SERVER's yes for this session (registered) — engine OFF answers 404 (engine_off) first.
+ */
+export const TASK_REMINDERS_REACH_ANDROID = true;
 
 export type AppPermission = "granted" | "denied" | "prompt" | "unavailable";
 export type ServerDevice = "registered" | "not_registered" | "engine_off" | "unknown";
