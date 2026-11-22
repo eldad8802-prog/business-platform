@@ -79,5 +79,4 @@ jobs:
         run: |
           set -euo pipefail
           npx tsx .sdcr/battery.mts db | tee /tmp/db.out
-          grep -qE '^[0-9]+ passed, 0 failed
- /tmp/db.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/db.out

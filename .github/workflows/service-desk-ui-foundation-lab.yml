@@ -106,6 +106,7 @@ jobs:
             # A7 case fields (#1193, applied in Production 2026-11-20): its loan guard calls service_ui_business_writable()
             # (read only); its own lab (service-desk-a7-lab.yml) proves what it does.
             [[ "$n" != "20261214090000_service_desk_case_fields" ]] || continue
+            [[ "$n" != "20261222090000_service_desk_case_records" ]] || continue
             if sed 's/--.*$//' "$d/migration.sql" | grep -nE "\"($new)\"|service_ui_|service_text_version_|service_settings_guard|service_intake_terms_|service_warranty_|service_intake_photo_|service_share_event_|service_phone_reminder_|service_storage_erasure_|service_desk_ui_"; then
               echo "$n names a 1.3-0 object"; exit 1
             fi
