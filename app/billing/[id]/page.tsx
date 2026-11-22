@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -9,9 +10,10 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import BackButton from "@/components/ui/back-button";
+import { serviceCaseReturnPath } from "@/lib/navigation/service-case-return";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
 import { useMediaQuery } from "@/lib/ui/use-breakpoint";
 import { WorkspaceLayout } from "@/components/ui/workspace-layout";
@@ -181,6 +183,24 @@ const RAIL_WIDTH = 340;
 
 /** WorkspaceLayout owns the pane geometry here, so the page declares its own. */
 const SURFACE_INTENT: PageSurfaceIntent = "workspace";
+
+/**
+ * Opened from a service case (a quote created there, ?returnTo=/service-desk/cases/<id>): the way back to that case —
+ * an exact case path only (lib/navigation/service-case-return.ts). Its own component inside Suspense: the search params
+ * never hold back the rest of the page.
+ */
+function ServiceCaseBackLink() {
+  const { t } = useI18n();
+  const back = serviceCaseReturnPath(useSearchParams()?.get("returnTo"));
+  if (!back) return null;
+  return (
+    <p style={{ margin: "-8px 0 16px" }}>
+      <Link href={back} style={{ color: TOKEN.ink.primary, fontSize: 14, textDecoration: "underline", textUnderlineOffset: 3 }}>
+        {t("billing.detail.backToServiceCase")}
+      </Link>
+    </p>
+  );
+}
 
 export default function BillingDocumentWorkspacePage() {
   // Compact widths keep the focused-editor treatment: the page owns its own
@@ -1001,6 +1021,7 @@ export default function BillingDocumentWorkspacePage() {
           </div>
           {status ? <StatusBadge status={status} /> : null}
         </header>
+        <Suspense fallback={null}><ServiceCaseBackLink /></Suspense>
 
         {completionNotice ? (
           <div

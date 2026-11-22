@@ -140,6 +140,7 @@ export const billingHe = {
     openDocument: "פתח מסמך",
   },
   detail: {
+    backToServiceCase: "חזרה לתיק השירות",
     missingId: "מזהה מסמך חסר",
     loadError: "אירעה שגיאה בטעינת המסמך",
     badResponse: "התקבלה תגובה לא תקינה",
