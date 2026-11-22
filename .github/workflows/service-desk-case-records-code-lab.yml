@@ -1,0 +1,90 @@
+name: service desk — case records CODE lab (journaling once 20261222090000 is applied)
+
+# Migration 20261222090000 (the light case work in the case history) on the Service Desk lab (PG17, Production role
+# topology): A7 applied as in Production, the application BEFORE the migration (journals nothing new), the apply the way
+# release-migrate does it (prisma migrate deploy: what the ledger holds + this one only), then the application AFTER it
+# (only real changes journaled, with who acted; the CHECK refuses any other shape). Synthetic only: no Production.
+
+on:
+  pull_request:
+    paths:
+      - "lib/services/service-desk/case-extras.service.ts"
+      - "lib/services/service-desk/service-case.service.ts"
+      - ".sdcr/**"
+      - ".github/workflows/service-desk-case-records-code-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk case records code (PG17, runtime role, A7 + 20261222090000)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdcr_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdcr_ci_synthetic_super_pw
+      LAB_PASSWORD: sdcr_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: sdcr-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: sdcr-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      OWNER_URL: postgresql://lab_owner:sdcr_ci_synthetic_role_pw@localhost:5432/sdcr
+      DATABASE_URL: postgresql://app_runtime_prod:sdcr_ci_synthetic_role_pw@localhost:5432/sdcr?connection_limit=10
+      DIRECT_URL: postgresql://app_runtime_prod:sdcr_ci_synthetic_role_pw@localhost:5432/sdcr
+      AUTH_DATABASE_URL: postgresql://lab_owner:sdcr_ci_synthetic_role_pw@localhost:5432/sdcr
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab — the Service Desk chain through M1
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdcr >/dev/null
+          bash .sd3p4/lab.sh sdcr --deploy-only >/dev/null
+          bash .sdm1/chain.sh sdcr | tail -n 3
+      - name: A7 (20261214090000) as in Production — the release-migrate shape
+        run: bash .sdcr/stage.sh 20261214090000_service_desk_case_fields
+      - name: Battery BEFORE 20261222090000 — the application journals nothing new
+        run: |
+          set -euo pipefail
+          npx tsx .sdcr/battery.mts before | tee /tmp/before.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/before.out
+      - name: The migration — from main once merged, else from its migration-only PR branch (migration-first rule)
+        shell: bash
+        run: |
+          set -euo pipefail
+          M=prisma/migrations/20261222090000_service_desk_case_records
+          if [ ! -f "$M/migration.sql" ]; then
+            git fetch --no-tags --depth=1 origin db/service-desk-case-records
+            mkdir -p "$M" && git show FETCH_HEAD:$M/migration.sql > "$M/migration.sql"
+          fi
+      - name: Apply — prisma migrate deploy over what the ledger holds + 20261222090000 only
+        run: bash .sdcr/stage.sh 20261222090000_service_desk_case_records
+      - name: Battery AFTER — real changes journaled with who acted; the CHECK refuses any other shape (runtime role)
+        run: |
+          set -euo pipefail
+          npx tsx .sdcr/battery.mts after | tee /tmp/after.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/after.out

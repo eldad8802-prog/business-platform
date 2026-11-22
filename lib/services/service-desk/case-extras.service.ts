@@ -12,10 +12,12 @@
  * billing or a financial document.
  */
 import { tenantTx } from "@/lib/tenant/tenant-tx";
-import { checkIdempotencyKey } from "@/lib/services/tasks/task-idempotency";
+import { checkIdempotencyKey, uuidV7 } from "@/lib/services/tasks/task-idempotency";
 
 import { ServiceDeskError } from "./service-desk-errors";
-import { guardRefusal, isPositiveInt, prepare, requireAuditJournalFor, type ServiceDeskPrincipal, type WriteRequest } from "./service-case.service";
+import {
+  appendRecord, guardRefusal, isPositiveInt, lockCase, prepare, requireAuditJournalFor, type RecordAction, type ServiceDeskPrincipal, type WriteRequest,
+} from "./service-case.service";
 import { isServiceProfileKey, PROFILES, resolveProfileKey, SERVICE_PROFILE_KEYS, SERVICE_TRACKS, validateOverrides, type ProfileOverrides } from "./service-profiles";
 
 /** Each profile's tracks, suggested first then enabled — what the activation screen pre-selects per profile. */
@@ -36,6 +38,23 @@ async function caseExists(tx: Tx, b: number, caseId: number): Promise<{ status: 
 const FINISHED = ["DELIVERED", "CLOSED", "CANCELLED", "ABANDONED"];
 function refuseWhenFinished(status: string) {
   if (FINISHED.includes(status)) throw new ServiceDeskError("REFUSED", { violations: ["CASE_FINISHED"] });
+}
+
+/**
+ * Migration 20261222090000 (owner approval 2026-11-22): the light case work — location / estimated date, a loan lent or
+ * returned, a task linked or unlinked — is journaled in ServiceCaseEvent with who acted. Until that migration is applied
+ * (its CHECK is absent) nothing is journaled and every write behaves exactly as before. Only a REAL change is recorded:
+ * a save that changes nothing, a returned loan returned again, a task linked again writes no event (no invented history).
+ */
+async function caseRecordsReady(tx: Tx): Promise<boolean> {
+  const r = await tx.$queryRaw<{ ok: boolean }[]>`SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ServiceCaseEvent_case_records_in_place') AS ok`;
+  return r[0]?.ok === true;
+}
+async function journalCaseWork(tx: Tx, p: ServiceDeskPrincipal, caseId: number, action: RecordAction, payload: Record<string, string | number | boolean | null>, key?: string) {
+  if (!(await caseRecordsReady(tx))) return;
+  const locked = await lockCase(tx, p.businessId, caseId); // the case row FOR UPDATE: the version bump is serialized
+  const prepared = prepare(p, { idempotencyKey: key ?? uuidV7(new Date()) }, `service-desk/cases:${action}`, { caseId, ...payload });
+  await appendRecord(tx, p.businessId, caseId, locked.context, action, payload, p.userId, prepared);
 }
 
 async function hasA7(tx: Tx): Promise<boolean> {
@@ -144,6 +163,7 @@ export async function lendItem(p: ServiceDeskPrincipal, caseId: unknown, body: {
       INSERT INTO "ServiceCaseLoaner" ("businessId", "caseId", "itemName", note, "idempotencyKey")
       VALUES (${b}::int, ${caseId}::int, ${name}::text, ${note}::text, ${key}::text)
       RETURNING id, "itemName", "lentAt", "returnedAt", note`)[0];
+    await journalCaseWork(tx, p, caseId as number, "LEND_ITEM", { loanId: Number(row.id) }, key);
     return { loan: toLoan(row), replayed: false };
   }));
 }
@@ -154,11 +174,14 @@ export async function returnLoan(p: ServiceDeskPrincipal, caseId: unknown, loanI
   const b = p.businessId;
   return writing(() => tenantTx(b, async (tx) => {
     await requireA7(tx);
+    const wasOut = (await tx.$queryRaw<{ out: boolean }[]>`
+      SELECT "returnedAt" IS NULL AS out FROM "ServiceCaseLoaner" WHERE id = ${loanId}::int AND "caseId" = ${caseId}::int AND "businessId" = ${b}::int FOR UPDATE`)[0]?.out === true;
     const rows = await tx.$queryRaw<Record<string, unknown>[]>`
       UPDATE "ServiceCaseLoaner" SET "returnedAt" = COALESCE("returnedAt", now())
        WHERE id = ${loanId}::int AND "caseId" = ${caseId}::int AND "businessId" = ${b}::int
       RETURNING id, "itemName", "lentAt", "returnedAt", note`;
     if (!rows[0]) throw new ServiceDeskError("NOT_FOUND");
+    if (wasOut) await journalCaseWork(tx, p, caseId as number, "RETURN_ITEM", { loanId: loanId as number });
     return { loan: toLoan(rows[0]) };
   }));
 }
@@ -194,10 +217,14 @@ export async function setTaskLink(p: ServiceDeskPrincipal, caseId: unknown, body
     const c = await caseExists(tx, b, caseId);
     // Linking a task to a finished case is refused (pilot review 2026-11-21); removing a link stays possible (clean-up).
     if (body.link) refuseWhenFinished(c.status);
+    const before = (await tx.$queryRaw<{ c: number | null }[]>`
+      SELECT "serviceCaseId" AS c FROM "Task" WHERE id = ${body.taskId as number}::int AND "businessId" = ${b}::int FOR UPDATE`)[0];
     const n = body.link
       ? await tx.$executeRaw`UPDATE "Task" SET "serviceCaseId" = ${caseId}::int WHERE id = ${body.taskId as number}::int AND "businessId" = ${b}::int AND ("serviceCaseId" IS NULL OR "serviceCaseId" = ${caseId}::int)`
       : await tx.$executeRaw`UPDATE "Task" SET "serviceCaseId" = NULL WHERE id = ${body.taskId as number}::int AND "businessId" = ${b}::int AND "serviceCaseId" = ${caseId}::int`;
     if (n !== 1) throw new ServiceDeskError("NOT_FOUND");
+    if (body.link && before?.c === null) await journalCaseWork(tx, p, caseId as number, "LINK_TASK", { taskId: body.taskId as number });
+    if (!body.link) await journalCaseWork(tx, p, caseId as number, "UNLINK_TASK", { taskId: body.taskId as number });
     return { ok: true as const };
   }));
 }
@@ -226,7 +253,15 @@ export async function setCaseFields(p: ServiceDeskPrincipal, caseId: unknown, bo
   return writing(() => tenantTx(b, async (tx) => {
     await requireA7(tx);
     refuseWhenFinished((await caseExists(tx, b, caseId)).status);
+    const prev = (await tx.$queryRaw<{ loc: string | null; d: string | null }[]>`
+      SELECT "itemLocationNote" AS loc, to_char("estimatedReadyOn", 'YYYY-MM-DD') AS d FROM "ServiceCase" WHERE id = ${caseId}::int AND "businessId" = ${b}::int`)[0];
     await tx.$executeRaw`UPDATE "ServiceCase" SET "itemLocationNote" = ${loc}::text, "estimatedReadyOn" = ${d as string | null}::date WHERE id = ${caseId}::int AND "businessId" = ${b}::int`;
+    const locationChanged = (prev?.loc ?? null) !== loc, estimatedChanged = (prev?.d ?? null) !== (d as string | null);
+    if (locationChanged || estimatedChanged) {
+      await journalCaseWork(tx, p, caseId as number, "RECORD_WORK_DETAILS", {
+        locationChanged, locationSet: loc !== null, estimatedChanged, estimatedReadyOn: (d as string | null) ?? null,
+      });
+    }
     return { available: true, itemLocationNote: loc, estimatedReadyOn: d as string | null };
   }));
 }

@@ -852,7 +852,8 @@ async function requireAuditJournal(tx: Tx) {
   if (!(await auditJournalReady(tx))) throw new ServiceDeskError("NOT_AVAILABLE_UNTIL_AUDIT");
 }
 
-export type RecordAction = "ASSIGN_TECHNICIAN" | "RECORD_INTAKE" | "RECORD_QA" | "RECORD_CHARGE" | "LINK_BILLING_DOCUMENT" | "UNLINK_BILLING_DOCUMENT";
+export type RecordAction = "ASSIGN_TECHNICIAN" | "RECORD_INTAKE" | "RECORD_QA" | "RECORD_CHARGE" | "LINK_BILLING_DOCUMENT" | "UNLINK_BILLING_DOCUMENT"
+  | "RECORD_WORK_DETAILS" | "LEND_ITEM" | "RETURN_ITEM" | "LINK_TASK" | "UNLINK_TASK";
 const RECORD_EVENT: Record<RecordAction, string> = {
   ASSIGN_TECHNICIAN: "case.technician_assigned",
   RECORD_INTAKE: "intake.recorded",
@@ -861,6 +862,12 @@ const RECORD_EVENT: Record<RecordAction, string> = {
   RECORD_CHARGE: "charge.recorded",
   LINK_BILLING_DOCUMENT: "billing.linked",
   UNLINK_BILLING_DOCUMENT: "billing.unlinked",
+  // migration 20261222090000 (CHECK ServiceCaseEvent_case_records_in_place): the light case work, written only once applied
+  RECORD_WORK_DETAILS: "case.work_details_recorded",
+  LEND_ITEM: "loan.lent",
+  RETURN_ITEM: "loan.returned",
+  LINK_TASK: "task.linked",
+  UNLINK_TASK: "task.unlinked",
 };
 
 /** Bump the case version (status, hold, cancel request, outcome untouched) and append the record with seq = version. */

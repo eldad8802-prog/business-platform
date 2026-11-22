@@ -16,7 +16,7 @@ import BackButton from "@/components/ui/back-button";
 
 import { CaseActionDialog, ConfirmDialog, type DialogResult } from "./case-action-dialog";
 import { buildActionBody, caseActions, needsDebtDecision, type CaseActionDef } from "./case-actions-model";
-import { isClosed, type CaseCardData, type JournalItem, type SideHistoryItem } from "./cases-model";
+import { isClosed, journaledLoanIds, type CaseCardData, type JournalItem, type SideHistoryItem } from "./cases-model";
 import { CaseView } from "./case-view";
 import { chargeSummary, docName, ils, loanReminder, parseShekels, pickupSummary, PICKUP_OUTCOME_TEXT, qaBody, qaPassBlocker, quoteMode, type QaResults } from "./case-extras-model";
 import { ChargePanel, FieldsPanel, LoansPanel, PickupPanel, QaPanel, QuotePanel, TasksPanel } from "./case-panels";
@@ -69,9 +69,11 @@ async function loadExtras(card: CaseCardData): Promise<Extras> {
 }
 
 /** The side records as history lines — only what is stored, with its own stored time. */
-function sideHistory(x: Extras): SideHistoryItem[] {
+function sideHistory(x: Extras, events: readonly JournalItem[]): SideHistoryItem[] {
   const out: SideHistoryItem[] = [];
+  const journaled = journaledLoanIds(events); // once migration 20261222090000 is applied the journal carries them (with who)
   for (const l of x.loans.loans) {
+    if (journaled.has(l.id)) continue;
     out.push({ key: `loan-${l.id}`, text: `ניתן ציוד חלופי: ${l.itemName}`, occurredAt: l.lentAt });
     if (l.returnedAt) out.push({ key: `loan-${l.id}-r`, text: `הוחזר ציוד חלופי: ${l.itemName}`, occurredAt: l.returnedAt });
   }
@@ -241,7 +243,9 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   );
   return (
     <>
-      <CaseView card={card} events={data.events} sideHistory={sideHistory(extras)} nextCtx={nextCtx} now={now} back={back} actions={actions} onAction={onAction}
+      <CaseView card={card} events={data.events} sideHistory={sideHistory(extras, data.events)}
+        historyNames={{ loans: Object.fromEntries(extras.loans.loans.map((l) => [l.id, l.itemName])), tasks: Object.fromEntries([...extras.tasks.linked, ...extras.tasks.open].map((t) => [t.id, t.title])) }}
+        nextCtx={nextCtx} now={now} back={back} actions={actions} onAction={onAction}
         busyId={busyId} message={message} notes={notes} extraMain={extraMain} extraSide={extraSide} />
       {pending ? (
         <CaseActionDialog def={pending.def} debtMode={pending.debtMode} busy={busyId !== null}
