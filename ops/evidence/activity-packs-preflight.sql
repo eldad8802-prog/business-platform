@@ -7,7 +7,7 @@
 \echo '== activity packs preflight: legend (n -> check) =='
 \echo ' 1 ledger: no unfinished and no rolled-back row'
 \echo ' 2 20261216090000_activity_packs is NOT recorded'
-\echo ' 3 prerequisite 20261214090000_service_desk_case_fields (the last migration on main) is recorded and finished'
+\echo ' 3 prerequisite 20261221090000_business_kind_transition (the last migration on main, applied 2026-11-22) is recorded and finished'
 \echo ' 4 Business exists'
 \echo ' 5 PlatformFeatureDefinition and PlatformFeaturePolicy exist'
 \echo ' 6 role app_runtime exists'
@@ -20,7 +20,7 @@
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261216090000_activity_packs'), 0
-  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261214090000_service_desk_case_fields' AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 1
+  UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261221090000_business_kind_transition' AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 1
   UNION ALL SELECT 4, (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname = 'Business' AND relkind = 'r'), 1
   UNION ALL SELECT 5, (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname IN ('PlatformFeatureDefinition', 'PlatformFeaturePolicy') AND relkind = 'r'), 2
   UNION ALL SELECT 6, (SELECT count(*) FROM pg_roles WHERE rolname = 'app_runtime'), 1
