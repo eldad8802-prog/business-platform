@@ -164,16 +164,6 @@ export type HomeAccess = {
   planHref?: string | null;
 };
 
-/**
- * The pack selection AND its loaded engine, or neither. Everything pack-related needs both: without the engine (not
- * loaded yet, or failed to load) the Home is the pre-packs one — never a wrong capability, at worst the old order.
- */
-export function packsOf(access: HomeAccess): { activity: NonNullable<HomeAccess["activity"]>; engine: NonNullable<HomeAccess["packs"]> } | { activity: null; engine: null } {
-  const activity = access.activity ?? null;
-  const engine = access.packs ?? null;
-  return activity && engine ? { activity, engine } : { activity: null, engine: null };
-}
-
 /** A requirement: every listed module ON (none = core), and the person holds the scope. */
 export type Requirement = { modules?: readonly HomeModule[]; scope: HomeScope };
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
-import { createActionsFor, createLimitedNote, type CreateAction } from "@/features/home/v4/home-v4-create";
+import { createActionsFor, createLimitedNote, type CreateAction } from "@/features/home/v4/home-v4-model";
 import { useLimitedCopy } from "@/features/home/v4/limited-copy-loader";
 import { useHomeAccess } from "@/features/home/v4/use-home-access";
 

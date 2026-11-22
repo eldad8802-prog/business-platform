@@ -35,8 +35,8 @@ check(findCategoryObligation("חשמל", [{ obligeeName: "מים" }]) === null, 
 
 // ── Entry points lead to P3 ("נגדיר את ההתחייבויות")
 const P3_START = "/secretary?screen=bank";
-// HOME v4: the "+" entries live in home-v4-create.ts (CREATE_ACTIONS); the label comes from home.v4 i18n.
-const sheet = read("features/home/v4/home-v4-create.ts");
+// HOME v4: the "+" entries live in the Home model (CREATE_ACTIONS); the label comes from home.v4 i18n.
+const sheet = read("features/home/v4/home-v4-model.ts");
 const createLabels = read("lib/i18n/messages/areas/home-v4.ts");
 check(sheet.includes(`{ key: "commitment", labelKey: "commitment", href: "${P3_START}"`) && createLabels.includes('commitment: "התחייבות חדשה"'), '"+" → "התחייבות חדשה" opens P3');
 check(!sheet.includes('"/payables?new=1"'), '"+" no longer opens the payables form');

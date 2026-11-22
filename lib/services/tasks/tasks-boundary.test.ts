@@ -107,9 +107,9 @@ console.log("navigation (owner-approved placement)");
   const side = code("components/navigation/side-nav.tsx");
   // Another gated destination may follow daily_tasks in the same filter (appointments, milestone B).
   ok("the sidebar hides a gated destination until the flag is ON", /filter\(\(d\) => !d\.feature \|\| \(d\.feature === "daily_tasks" && tasksOn\)/.test(side));
-  // HOME v4: the "+" list lives in home-v4-create.ts (createActionsFor) and the sheet renders only what it permits.
+  // HOME v4: the "+" list lives in the Home model (createActionsFor) and the sheet renders only what it permits.
   const sheet = code("components/navigation/action-sheet.tsx");
-  const createModel = code("features/home/v4/home-v4-create.ts");
+  const createModel = code("features/home/v4/home-v4-model.ts");
   ok("\"+\" lists משימה חדשה only with the flag",
     /\{ key: "task", labelKey: "task", href: "\/tasks\?new=1"[^}]*req: \{ modules: \["daily_tasks"\]/.test(createModel)
       && /CREATE_ACTIONS\.filter\(\(a\) => allows\(access, a\.req\)\)/.test(createModel)
