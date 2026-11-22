@@ -8372,6 +8372,12 @@ enum ServiceCaseAction {
   RESCHEDULE
   COMPLETE
   CHANGE_DETAILS
+  // migration 20261222090000: location / estimated date, loans, task links — status-preserving records.
+  RECORD_WORK_DETAILS
+  LEND_ITEM
+  RETURN_ITEM
+  LINK_TASK
+  UNLINK_TASK
 }
 
 enum ServiceEventType {
@@ -8410,6 +8416,12 @@ enum ServiceEventType {
   case_rescheduled            @map("case.rescheduled")
   case_completed              @map("case.completed")
   case_details_changed        @map("case.details_changed")
+  // migration 20261222090000: the light case work in the history — status-preserving records.
+  case_work_details_recorded  @map("case.work_details_recorded")
+  loan_lent                   @map("loan.lent")
+  loan_returned               @map("loan.returned")
+  task_linked                 @map("task.linked")
+  task_unlinked               @map("task.unlinked")
 }
 
 // M1 (migration 20261127090000) — the universal service model. NULL work type / place on a case = derived from kind.
