@@ -9,7 +9,7 @@
  *      after check-in; event failure → rolled back.
  *   Q  QA (owner 2026-11-12: the built-in IN_SHOP.v2 checklist is a suggestion — no check required; it completes when it
  *      was performed): a check left unrecorded → stored, journaled, NOT completed, PASS_QA still refused; every check
- *      recorded with one FAILED → completed; every check PASS → completed, PASS_QA passes; not in QA / unknown key →
+ *      recorded with one FAILED → NOT completed (owner 2026-11-21), PASS_QA refused; every check PASS → completed, PASS_QA passes; not in QA / unknown key →
  *      refused, nothing written. (A REQUIRED check that fails keeps QA open — the business lists battery, .sdqacode.)
  *   S  settings: first save + ServiceSettingsEvent (field names only); replay; stale; no change; two at once → one;
  *      the journal insert failing → the settings unchanged.
@@ -144,9 +144,12 @@ async function main() {
   const oneFailed = Object.fromEntries(req.map((k, i) => [k, i === 0 ? "FAIL" : "PASS"]));
   const qa2 = await recordQa(A.p, s1, { results: oneFailed, expectedVersion: v }, { idempotencyKey: key() });
   const qe2 = String((await lastEvent(s1)).p);
-  ok("Q3 every check recorded, one FAILED → completed (no built-in check must PASS), journaled failed 1 / requiredFailed 0",
-    qa2.qa?.completed === true && qe2.includes('"failed": 1') && qe2.includes('"requiredFailed": 0') && qe2.includes('"completed": true'));
+  ok("Q3 every check recorded, one FAILED → NOT completed (owner 2026-11-21), journaled failed 1 / requiredFailed 0",
+    qa2.qa?.completed === false && qe2.includes('"failed": 1') && qe2.includes('"requiredFailed": 0') && qe2.includes('"completed": false')
+    && (await q(`SELECT "qaCompletedAt" IS NULL x FROM "ServiceCase" WHERE id = $1`, s1))[0].x === true);
   v = qa2.case.version;
+  ok("Q3b … and PASS_QA over the failed check is refused (QA_INCOMPLETE), nothing moves",
+    (await code(() => runCaseAction(A.p, s1, { action: { type: "PASS_QA", outcome: "REPAIRED" }, expectedVersion: v }, { idempotencyKey: key() }))).includes("QA_INCOMPLETE") && (await ver(s1)) === v);
   ok("Q4 an unknown key → INVALID_INPUT, nothing written", (await code(() => recordQa(A.p, s1, { results: { ...missing, hacked: "PASS" }, expectedVersion: v }, { idempotencyKey: key() }))).startsWith("INVALID_INPUT") && (await ver(s1)) === v);
   const qa3 = await recordQa(A.p, s1, { results: Object.fromEntries(req.map((k) => [k, "PASS"])), expectedVersion: v }, { idempotencyKey: key() });
   ok("Q5 every check PASS → completed (qaCompletedAt set)", qa3.qa?.completed === true && (await q(`SELECT "qaCompletedAt" IS NOT NULL x FROM "ServiceCase" WHERE id = $1`, s1))[0].x === true);

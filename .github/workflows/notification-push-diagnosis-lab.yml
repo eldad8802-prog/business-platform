@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - "ops/evidence/notification-push-test-diagnosis-*.sql"
+      - "ops/evidence/notification-task-reminder-delivery-*.sql"
       - ".github/workflows/notification-push-diagnosis-lab.yml"
   workflow_dispatch:
 
@@ -45,6 +46,7 @@ jobs:
       LAB_PASSWORD: nptd_ci_synthetic_role_pw
       CHECKPOINT_DISABLE: "1"
       DIAG: ops/evidence/notification-push-test-diagnosis-business-9.sql
+      TRD: ops/evidence/notification-task-reminder-delivery-business-9.sql
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -61,8 +63,10 @@ jobs:
         run: |
           set -euo pipefail
           FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
-          if grep -inE "$FORBIDDEN" "$DIAG"; then echo "write keyword in $DIAG"; exit 1; fi
-          grep -q "'$DIAG'" .github/workflows/prod-readonly-evidence.yml || { echo "$DIAG not selectable"; exit 1; }
+          for f in "$DIAG" "$TRD"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
           node scripts/ci/evidence-output-guard.mjs
 
       - name: 1. Runs on the engine lab (all engine migrations applied) — every line answers
@@ -75,3 +79,8 @@ jobs:
           test "$rows" = "45" || { echo "expected 45 lines, got $rows"; exit 1; }
           grep -qE '^ +1 \| t ' /tmp/diag.out || { echo "line 1: the lab owner must read unfiltered"; exit 1; }
           echo "45 lines; read unfiltered"
+          lab -f "$TRD" | tee /tmp/trd.out
+          rows=$(grep -cE '^ +[0-9]+ \|' /tmp/trd.out)
+          test "$rows" = "22" || { echo "task reminder evidence: expected 22 lines, got $rows"; exit 1; }
+          grep -qE '^ +1 \| t ' /tmp/trd.out || { echo "task reminder evidence: line 1 must read unfiltered"; exit 1; }
+          echo "task reminder evidence: 22 lines; read unfiltered"
