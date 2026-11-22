@@ -203,6 +203,7 @@ on:
           - 'ops/evidence/notification-engine-activation-preflight.sql'
           - 'ops/evidence/notification-engine-activation-production-evidence.sql'
           - 'ops/evidence/notification-push-test-diagnosis-business-9.sql'
+          - 'ops/evidence/notification-task-reminder-delivery-business-9.sql'
           - 'ops/evidence/notification-docs-appointments-preflight.sql'
           - 'ops/evidence/notification-docs-appointments-production-evidence.sql'
 
