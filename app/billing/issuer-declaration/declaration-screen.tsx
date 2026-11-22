@@ -6,7 +6,8 @@
  *     completed here, saved through the one profile write path (PATCH /api/billing/invoice-profile, which keeps both
  *     the legal-identity lock and the declaration lock);
  *   - REVIEW (screen 3): what is being confirmed, the exact statement, and "send the confirmation link";
- *   - DECLARED (screen 6): the status, the declared details, and the controlled correction path;
+ *   - DECLARED (screen 6): the status, the declared details, and the legal identity rule (4a T6: no correction
+ *     request — exempt→authorized through "מעבר לעוסק מורשה", another name or number is a new business file);
  *   - NEEDS_DESIGNATION: a business with more than one user — Dubiz designates who may declare.
  * Nothing is declared on this screen: the declaration is recorded only from the emailed link (confirm page).
  */
@@ -15,7 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { SUPPORT_EMAIL } from "@/components/settings/settings-hub";
 import type { IssuerDetailField, IssuerDetailProblem } from "@/lib/billing/issuer-declaration/details";
-import { DECLARANT_NAME_MISSING_MESSAGE, LEGAL_IDENTITY_CORRECTION_PATH } from "@/lib/billing/issuer-declaration/messages";
+import { DECLARANT_NAME_MISSING_MESSAGE, LEGAL_IDENTITY_RULE_MESSAGE } from "@/lib/billing/issuer-declaration/messages";
 import { COMPLETION_FIELD, declarationScreenFor } from "@/lib/billing/issuer-declaration/screen-model";
 import type { IssuerStatement } from "@/lib/billing/issuer-declaration/statement";
 import { TOKEN } from "@/lib/design/billing-theme";
@@ -60,7 +61,6 @@ type State = {
   lockedFields: IssuerDetailField[];
   editableFields: IssuerDetailField[];
   accountEmail: string | null;
-  correctionAvailable: boolean;
 };
 
 const inputStyle = {
@@ -81,16 +81,12 @@ function formatDate(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("he-IL", { day: "numeric", month: "long", year: "numeric" });
 }
 
-function CorrectionLine({ available }: { available: boolean }) {
-  return available ? (
-    <Muted>
-      פרט בזהות לא נכון? אפשר לתקן אותו רק דרך <a href={LEGAL_IDENTITY_CORRECTION_PATH} style={{ color: TOKEN.brand.mid }}>בקשת תיקון פרטים</a>, שנבדקת בידי צוות דוביז.
-    </Muted>
-  ) : (
-    <Muted>
-      פרט בזהות לא נכון? תיקון נעשה רק בבקשה מבוקרת שנבדקת בידי צוות דוביז — לפנייה:{" "}
-      <a href={`mailto:${SUPPORT_EMAIL}`} dir="ltr" style={{ color: TOKEN.brand.mid }}>{SUPPORT_EMAIL}</a>
-    </Muted>
+/** The owner-approved legal identity rule (4a T6). Plain text: no correction request, no link, no support address. */
+function IdentityRuleLine() {
+  return (
+    <div data-testid="issuer-identity-rule">
+      <Muted>{LEGAL_IDENTITY_RULE_MESSAGE}</Muted>
+    </div>
   );
 }
 
@@ -257,11 +253,7 @@ export default function DeclarationScreen() {
               ]}
             />
             <Muted>כתובת, טלפון ואימייל אפשר לעדכן כרגיל בפרטי העסק.</Muted>
-            {state.correctionAvailable ? (
-              <LinkButton href={LEGAL_IDENTITY_CORRECTION_PATH} testId="issuer-correction-link">בקשת תיקון פרטי זהות</LinkButton>
-            ) : (
-              <CorrectionLine available={false} />
-            )}
+            <IdentityRuleLine />
           </Card>
         ) : null}
       </Page>
@@ -335,14 +327,14 @@ export default function DeclarationScreen() {
         ) : null}
         {lockedProblems.length > 0 ? (
           <Card tone="attention" label="פרטים נעולים" testId="issuer-locked-problems">
-            <CardTitle tone="attention">פרט נעול שצריך תיקון</CardTitle>
+            <CardTitle tone="attention">פרט נעול שלא ניתן להשלים כאן</CardTitle>
             <ul style={{ margin: 0, paddingInlineStart: 18, fontSize: 14 }}>
               {lockedProblems.map((p) => <li key={`${p.field}-${p.code}`}>{p.message}</li>)}
             </ul>
           </Card>
         ) : null}
         {noticeCard}
-        <CorrectionLine available={state.correctionAvailable} />
+        <IdentityRuleLine />
       </Page>
     );
   }
@@ -357,7 +349,7 @@ export default function DeclarationScreen() {
         <ul style={{ margin: 0, paddingInlineStart: 18, fontSize: 14, lineHeight: 1.7 }}>
           <li>שהפרטים למטה נכונים, והם יופיעו על החשבוניות והקבלות שלך.</li>
           <li>שאת/ה מוסמך/ת להפיק מסמכים בשם העסק.</li>
-          <li>אחרי האישור פרטי הזהות ננעלים. תיקון — רק בבקשה מבוקרת.</li>
+          <li>{LEGAL_IDENTITY_RULE_MESSAGE}</li>
         </ul>
       </Card>
       <Card label="הפרטים שיירשמו בהצהרה">

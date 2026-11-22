@@ -8,7 +8,15 @@
  */
 import { readFileSync } from "node:fs";
 
+import {
+  CONFIRM_MESSAGES,
+  ISSUER_IDENTITY_LOCKED_MESSAGE,
+  LEGAL_IDENTITY_RULE_MESSAGE,
+  REQUEST_MESSAGES,
+} from "@/lib/billing/issuer-declaration/messages";
 import { COMPLETION_FIELD, confirmViewFor, declarationScreenFor, issuerNoticeVisible } from "@/lib/billing/issuer-declaration/screen-model";
+import { billingHe } from "@/lib/i18n/messages/areas/billing";
+import { billingEn } from "@/lib/i18n/messages/areas/billing.en";
 
 let failed = 0;
 let passed = 0;
@@ -29,7 +37,7 @@ ok("ALREADY_DECLARED → status screen", declarationScreenFor({ ...base, precond
 ok("several users → designation screen", declarationScreenFor({ ...base, precondition: "NEEDS_DESIGNATION", hasStatement: true }) === "NEEDS_DESIGNATION");
 ok("missing editable detail → completion screen", declarationScreenFor({ ...base, precondition: "INCOMPLETE", editableFields: ["billingVatNumber"] }) === "COMPLETE");
 ok("missing declarant name only → completion screen (explained)", declarationScreenFor({ ...base, precondition: "INCOMPLETE", declarantNameMissing: true }) === "COMPLETE");
-ok("missing only a locked detail → blocked (correction path)", declarationScreenFor({ ...base, precondition: "INCOMPLETE" }) === "BLOCKED");
+ok("missing only a locked detail → blocked (nothing editable here)", declarationScreenFor({ ...base, precondition: "INCOMPLETE" }) === "BLOCKED");
 ok("complete with a statement → review screen", declarationScreenFor({ ...base, hasStatement: true }) === "REVIEW");
 
 // ── the billing notice ───────────────────────────────────────────────────────
@@ -78,6 +86,47 @@ ok("phone hint states the 9–10 digit rule", (COMPLETION_FIELD.billingPhone?.hi
   ok("declaration screen: missing details are saved through the one profile write path", screen.includes('fetch("/api/billing/invoice-profile"')
     && !/businessProfile|prisma/.test(screen));
   ok("declaration screen: nothing is declared on it (only the emailed link confirms)", !screen.includes("/api/billing/issuer-declaration/confirm"));
+}
+
+// ── 4a T6: no correction request anywhere; the owner-approved rule instead ────
+{
+  const RULE =
+    "סוג העסק, השם המשפטי ומספר העוסק / ח״פ לא משתנים לאחר האישור. מעבר מעוסק פטור לעוסק מורשה — דרך ״מעבר לעוסק מורשה״. שם או מספר אחר — בתיק עסק חדש.";
+  ok("T6: the rule constant is the owner-approved text, verbatim", LEGAL_IDENTITY_RULE_MESSAGE === RULE);
+  ok("T6: ALREADY_DECLARED (confirm + request) ends with the rule", CONFIRM_MESSAGES.ALREADY_DECLARED.endsWith(RULE) && REQUEST_MESSAGES.ALREADY_DECLARED.endsWith(RULE));
+  ok("T6: the 409 identity-lock message ends with the rule", ISSUER_IDENTITY_LOCKED_MESSAGE.endsWith(RULE));
+  ok("T6: the signup identity note (he) is the rule", billingHe.identity.lockedNote === RULE);
+  ok("T6: the signup identity note (en) names both paths, no support / correction",
+    /authorized dealer/.test(billingEn.identity.lockedNote) && /new business file/.test(billingEn.identity.lockedNote)
+      && !/support|correct/i.test(billingEn.identity.lockedNote));
+
+  // Every surface the old wording lived on (handover §3). The phrases are the retired ones, not ordinary words.
+  const OLD = [/בקשת תיקון/, /בקשה מבוקרת/, /לתיקון פרטים/, /לפנות לתמיכה/, /legal-identity\/correction/, /LEGAL_IDENTITY_CORRECTION/,
+    /correctionAvailable/, /CorrectionLine/, /issuer-correction-link/, /contact support/i];
+  const FILES = [
+    "app/billing/issuer-declaration/declaration-screen.tsx",
+    "app/billing/issuer-declaration/confirm/confirm-screen.tsx",
+    "app/api/billing/issuer-declaration/route.ts",
+    "lib/billing/issuer-declaration/messages.ts",
+    "lib/billing/issuer-declaration/config.ts",
+    "lib/billing/issuer-declaration/screen-model.ts",
+  ];
+  for (const f of FILES) {
+    const src = readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ""); // code and texts, not comments
+    const hit = OLD.find((re) => re.test(src));
+    ok(`T6: ${f} has no correction-request wording or link`, !hit, hit?.source);
+  }
+  const he = billingHe.identity.lockedNote;
+  const en = billingEn.identity.lockedNote;
+  ok("T6: lockedNote (he/en) has none of the retired phrases", !OLD.some((re) => re.test(he) || re.test(en)));
+
+  const screen = readFileSync("app/billing/issuer-declaration/declaration-screen.tsx", "utf8");
+  ok("T6: declared + blocked screens show the rule line, review lists the rule",
+    (screen.match(/<IdentityRuleLine \/>/g) ?? []).length === 2 && screen.includes("<li>{LEGAL_IDENTITY_RULE_MESSAGE}</li>"));
+  ok("T6: the rule is plain text — no link to the transition flow (it has its own switch, 404 while off)",
+    !/href=\{?["'`][^"'`]*kind-transition/.test(screen));
+  const confirmSrc = readFileSync("app/billing/issuer-declaration/confirm/confirm-screen.tsx", "utf8");
+  ok("T6: the confirm page shows the rule", confirmSrc.includes("{LEGAL_IDENTITY_RULE_MESSAGE}"));
 }
 
 console.log(failed ? `\nD5: ${passed} passed, ${failed} FAILED` : `\nD5: ${passed}/${passed} passed`);

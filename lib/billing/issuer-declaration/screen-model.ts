@@ -20,7 +20,8 @@ export type DeclarationScreen = "DECLARED" | "NEEDS_DESIGNATION" | "COMPLETE" | 
 /**
  * The screen for a loaded state. COMPLETE = some details are still missing (screen 2); REVIEW = everything is in
  * place and the link can be sent (screen 3); DECLARED = the status screen (screen 6); BLOCKED = nothing the owner can
- * do here (a missing detail that only the correction path or Dubiz can fix).
+ * do here (a locked identity detail is missing or invalid; it is never edited after the fact — see
+ * LEGAL_IDENTITY_RULE_MESSAGE).
  */
 export function declarationScreenFor(s: DeclarationScreenState): DeclarationScreen {
   if (s.declared || s.precondition === "ALREADY_DECLARED") return "DECLARED";
