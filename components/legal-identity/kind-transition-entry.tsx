@@ -3,8 +3,8 @@
 /**
  * Entry point for "מעבר לעוסק מורשה" inside the "פרטים משפטיים" card on the business details screen.
  *
- * Renders NOTHING unless the server says the feature is on (GET answers 404 while BUSINESS_KIND_TRANSITION_ENABLED is
- * off), so with the flag off the screen is exactly as before. What it shows is the server's answer:
+ * Renders NOTHING unless the server says the feature is on: with BUSINESS_KIND_TRANSITION_ENABLED off the layout tells
+ * it so and it does not even ask the API (which would answer 404), so with the flag off the screen is exactly as before. What it shows is the server's answer:
  *   eligible       → the action row (a link to the flow);
  *   blocked        → the row, disabled, with the server's reason (e.g. several users, a live issuer declaration);
  *   already moved  → the history line instead of the action;
@@ -16,19 +16,23 @@ import { useEffect, useState } from "react";
 
 import s from "@/app/business/legal-identity/kind-transition/kind-transition.module.css";
 import { IconArrowStart, IconCheck, IconChevronStart, NewFileSheet, Note } from "@/components/legal-identity/kind-transition-parts";
+import { useKindTransitionEnabled } from "@/components/legal-identity/kind-transition-flag-context";
 import { displayDate, displayInstant, fetchKindTransitionInfo, KIND_TRANSITION_PAGE, type KindTransitionInfo } from "@/lib/legal-identity/kind-transition-client";
 
 export function KindTransitionEntry() {
+  // Off on the server → no request at all (the API would answer 404 anyway) and nothing rendered.
+  const enabled = useKindTransitionEnabled();
   const [info, setInfo] = useState<KindTransitionInfo | null>(null);
   const [sheet, setSheet] = useState(false);
 
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
     fetchKindTransitionInfo().then((r) => { if (alive) setInfo(r.info); });
     return () => { alive = false; };
-  }, []);
+  }, [enabled]);
 
-  if (!info) return null;
+  if (!enabled || !info) return null;
   const elig = info.eligibility;
   const blocked = !elig.eligible && elig.block !== "NOT_EXEMPT_DEALER" ? elig : null;
   const showAction = elig.eligible || blocked !== null;

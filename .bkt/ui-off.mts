@@ -3,9 +3,11 @@
  * lab database: the business screen is exactly as before (no entry), the flow page says it is not available, and every
  * API route answers 404 even to a signed-in owner with a valid session — including a direct POST.
  *
- *   F1  /business: no entry row, no "שם או מספר שגוי?" line
+ *   F1  /business: the screen sends NO request to the transition API (the layout passes the server flag); no entry row,
+ *       no "שם או מספר שגוי?" line
  *   F2  the flow page: "האפשרות לא זמינה כרגע"
- *   F3  GET / preview / reauth password / reauth Google / confirm → 404 (valid session token)
+ *   F3  GET / preview / reauth password / reauth Google / confirm → 404 (valid session token): a stale or forged client
+ *       that calls the API anyway is still refused on the server
  *   F4  the database: nothing written
  *
  * env: E2E_BASE, OWNER_URL, AUTH_TOKEN_SECRET.
@@ -41,12 +43,18 @@ const ok = (n: string, c: boolean, d = "") => { if (c) { pass++; console.log(`  
   const ctx = await br.newContext({ viewport: { width: 390, height: 844 } });
   await ctx.addInitScript(([t]) => localStorage.setItem("token", t as string), [token]);
   const p = await ctx.newPage();
-  // Wait for the entry point to have ASKED the server and got its answer, so "no row" cannot just mean "not loaded yet".
-  const asked = p.waitForResponse((r) => r.url().endsWith("/api/business/legal-identity/kind-transition") && r.request().method() === "GET", { timeout: 120_000 });
+  // Count every request to the transition API while the business screen loads. The screen is loaded once its own
+  // profile call answered and the network went quiet; then a few seconds more, so "no request" cannot mean "not yet".
+  const ktCalls: string[] = [];
+  p.on("request", (r) => { if (r.url().includes("/api/business/legal-identity/kind-transition")) ktCalls.push(`${r.method()} ${r.url()}`); });
+  const profile = p.waitForResponse((r) => r.url().includes("/api/billing/invoice-profile") && r.request().method() === "GET", { timeout: 120_000 });
   await p.goto(`${BASE}/business`);
-  const answer = await asked;
-  await p.waitForTimeout(1500);
-  ok("F1 /business: the entry asked and got 404; no entry row, no help line", answer.status() === 404 && (await p.getByTestId("kt-entry").count()) === 0 && (await p.getByText("שם או מספר שגוי?").count()) === 0, String(answer.status()));
+  const profileStatus = (await profile).status();
+  await p.waitForLoadState("networkidle").catch(() => undefined);
+  await p.waitForTimeout(4000);
+  ok("F1 /business (flag off): the screen loaded and sent NO request to the transition API; no entry row, no help line",
+    profileStatus === 200 && ktCalls.length === 0 && (await p.getByTestId("kt-entry").count()) === 0 && (await p.getByText("שם או מספר שגוי?").count()) === 0,
+    `profile=${profileStatus} calls=${ktCalls.join(" | ")}`);
   await p.goto(`${BASE}/business/legal-identity/kind-transition`);
   ok("F2 the flow page says it is not available", await p.getByText("האפשרות לא זמינה כרגע").waitFor({ timeout: 60_000 }).then(() => true).catch(() => false));
   await br.close();

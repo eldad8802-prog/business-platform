@@ -5,7 +5,7 @@
  * Google is intercepted and its URL checked; the return is simulated with ?reauth=…, and a simulated "ok" WITHOUT a
  * server proof must still be refused by the server (that is the point of U9).
  *
- *   U1  /business (phone): the action row inside the legal card; RTL
+ *   U1  /business (phone, flag on): the entry asks the API (200); the action row inside the legal card; RTL
  *   U2  step 1: continue disabled until a date; a future date → error + disabled; an early date → warning
  *   U3  step 2: wrong id number → error + "מה עושים?" opens the sheet; Escape closes it, focus returns
  *   U4  wrong password → error, still on step 2; correct password → step 3
@@ -135,11 +135,13 @@ async function main() {
   const a = await business();
   const ctxA = await ctxFor(browser, a, PHONE);
   const p = await ctxA.newPage(); current = p;
-  await check("U1 /business shows the action row inside the legal card, page is RTL", async () => {
+  await check("U1 /business (flag on): the entry asks the API (200) and shows the action row inside the legal card, page is RTL", async () => {
+    const asked = p.waitForResponse((r) => r.url().endsWith("/api/business/legal-identity/kind-transition") && r.request().method() === "GET", { timeout: 120_000 });
     await p.goto(`${BASE}/business`);
+    const status = (await asked).status();
     await p.getByTestId("kt-entry-action").waitFor({ timeout: 90_000 });
     const dir = await p.evaluate(() => document.documentElement.dir || getComputedStyle(document.body).direction);
-    return dir === "rtl";
+    return status === 200 && dir === "rtl";
   });
   await check("U2 step 1: continue disabled until a date; future → error; early → warning", async () => {
     await p.getByTestId("kt-entry-action").click();
