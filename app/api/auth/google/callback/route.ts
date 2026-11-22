@@ -13,7 +13,9 @@ import {
   setTicketCookie,
   type TokenExchange,
 } from "@/lib/auth/google-oauth";
+import { handleGoogleReauthCallback } from "@/lib/auth/google-reauth";
 import { resolveGoogleCallback, type CallbackOutcome } from "@/lib/auth/google-sign-in";
+import { GOOGLE_REAUTH_COOKIE, openGoogleReauthState } from "@/lib/auth/sensitive-reauth";
 import { setRefreshCookie } from "@/lib/auth/refresh-cookie";
 import { safeErrorSummary } from "@/lib/security/log-safe-error";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
@@ -39,6 +41,10 @@ export const dynamic = "force-dynamic";
  *   not on the pilot list (google-oauth.ts "who") → the generic "unavailable", nothing written.
  *   anything else  → /login or /register with a reason, nothing written.
  * The URL never carries a token. OFF → 404.
+ *
+ * Re-authentication of a SIGNED-IN user (lib/auth/google-reauth.ts) shares this registered callback: it is taken
+ * only when its own cookie (dz_google_reauth) is valid and its state equals the state Google echoed. It never
+ * creates a session or a link; every other request continues below exactly as before.
  */
 export type CallbackRouteDeps = {
   config: typeof readGoogleLoginConfig;
@@ -46,6 +52,8 @@ export type CallbackRouteDeps = {
   resolve: typeof resolveGoogleCallback;
   rateLimit: typeof consumeRateLimit;
   recordUsage: typeof recordProductUsageEvent;
+  /** The re-authentication branch (defaults to lib/auth/google-reauth.ts). */
+  reauth?: typeof handleGoogleReauthCallback;
 };
 const defaultDeps: CallbackRouteDeps = {
   config: readGoogleLoginConfig,
@@ -71,6 +79,8 @@ export async function handleGoogleCallback(req: Request, deps: CallbackRouteDeps
   if (!rl.allowed) return back(base, "/login", "busy");
 
   const params = new URL(req.url).searchParams;
+  const reauth = openGoogleReauthState(readCookie(req, GOOGLE_REAUTH_COOKIE));
+  if (reauth && sameState(params.get("state"), reauth.state)) return (deps.reauth ?? handleGoogleReauthCallback)(params, config, reauth);
   const started = openStartState(readCookie(req, GOOGLE_START_COOKIE));
   const page = started?.from === "register" ? "/register" : "/login";
 

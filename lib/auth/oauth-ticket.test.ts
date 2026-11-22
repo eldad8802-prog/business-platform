@@ -94,6 +94,9 @@ const ALLOWED_IMPORTERS = new Set([
   "lib/auth/google-sign-in.ts",
   "lib/auth/oauth-ticket.ts", // the GoogleIdentity type
   "lib/auth/signup.ts",
+  // Step-up re-authentication of a SIGNED-IN user (owner 11-20, "מעבר לעוסק מורשה"): verifies the ID token and
+  // resolves the Google subject to its user — never a session, a ticket or a link (lib/auth/google-reauth.ts).
+  "lib/auth/google-reauth.ts",
 ]);
 ok("the Google modules are imported only by the Google routes, the account transaction, the decision and the sweep",
   importers.every((f) => ALLOWED_IMPORTERS.has(f)), importers.filter((f) => !ALLOWED_IMPORTERS.has(f)).join(", "));
