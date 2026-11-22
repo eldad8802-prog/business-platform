@@ -147,6 +147,14 @@ export async function checkFcmAuth(deps: { env?: Env; fetch?: FetchLike; nowMs?:
   return ex.result.kind === "permanent" ? "authentication_failed" : "unavailable";
 }
 
+/**
+ * The notification's accent colour (Android tints the small icon / its circle with it): the app's own teal,
+ * android/app/src/main/res/values/colors.xml colorPrimary. Sent per message so the notification the system draws
+ * while the app is in the background carries it on every installed build (without it Samsung One UI used its
+ * system blue); the manifest's default_notification_color gives the same colour from the next Android build on.
+ */
+export const ANDROID_NOTIFICATION_COLOR = "#246966";
+
 /** The messages:send body (exported for the payload-privacy test). */
 export function fcmMessageBody(token: string, msg: PushMessage) {
   const urgent = msg.importance === "critical" || msg.importance === "high";
@@ -161,6 +169,7 @@ export function fcmMessageBody(token: string, msg: PushMessage) {
         collapse_key: msg.collapseKey,
         notification: {
           channel_id: androidChannelOf(msg.importance),
+          color: ANDROID_NOTIFICATION_COLOR,
           tag: msg.collapseKey,
           visibility: "PRIVATE",
           notification_priority: urgent ? "PRIORITY_HIGH" : "PRIORITY_DEFAULT",

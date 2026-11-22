@@ -63,6 +63,10 @@ on:
       - "components/platform-admin/fcm-auth-check-*"
       - "app/(platform-admin)/admin/diagnostics/**"
       - "lib/platform-admin/fetch-platform-admin.ts"
+      - "android/app/src/main/AndroidManifest.xml"
+      - "android/app/src/main/res/**"
+      - "lib/native/android-notification-branding.test.ts"
+      - "scripts/native/generate-app-icons.mjs"
       - ".github/workflows/notification-engine-ci.yml"
   workflow_dispatch:
 
@@ -115,6 +119,7 @@ jobs:
           npx tsx lib/notifications/preferences.test.ts
           npx tsx lib/notifications/notification-time.test.ts
           npx tsx lib/notifications/push/push.test.ts
+          npx tsx lib/native/android-notification-branding.test.ts
           npx tsx app/api/platform-admin/notifications/fcm-auth-check/route.test.ts
           npx tsx components/platform-admin/fcm-auth-check-logic.test.ts
           npx tsx lib/notifications/engine/worker-decision.test.ts

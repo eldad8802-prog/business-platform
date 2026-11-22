@@ -209,7 +209,7 @@ jobs:
 
       # The FCM notification icon is the app's existing monochrome Dubiz logo, in the form Android needs (one colour on
       # transparency, a bitmap per density, never adaptive XML); Web Push keeps /icons/dubiz-192.png (owner 2026-11-16).
-      - name: Android notification icon — existing monochrome logo; Web Push icon unchanged
+      - name: Android notification icon — the existing Dubiz mark (ic_notification_mark), never a placeholder; Web Push icon unchanged
         run: npx tsx lib/native/notification-icon.test.ts
 
       # The device bug PR-E fixes, as two one-line regressions the suite must catch.

@@ -26,7 +26,10 @@
 import { createVerify, generateKeyPairSync } from "node:crypto";
 
 import { getCategory } from "../catalog";
+import { readFileSync } from "node:fs";
+
 import {
+  ANDROID_NOTIFICATION_COLOR,
   FCM_SCOPE,
   OAUTH_TOKEN_URL,
   buildAssertion,
@@ -144,6 +147,10 @@ async function main() {
   ok("normal importance ⇒ dubiz_default, NORMAL priority",
     fcmMessageBody(TOKEN, msg({ importance: "normal" })).message.android.notification.channel_id === "dubiz_default" &&
     fcmMessageBody(TOKEN, msg({ importance: "low" })).message.android.priority === "NORMAL");
+  ok("the notification carries the app's teal (the small icon's circle), every importance",
+    ["critical", "high", "normal", "low"].every((imp) => (fcmMessageBody(TOKEN, msg({ importance: imp as never })).message.android.notification as { color?: string }).color === ANDROID_NOTIFICATION_COLOR));
+  ok("…the same colour as the app's colorPrimary (no new brand colour)",
+    new RegExp(`<color name="colorPrimary">${ANDROID_NOTIFICATION_COLOR}</color>`).test(readFileSync("android/app/src/main/res/values/colors.xml", "utf8")));
   ok("a malformed token is gone without any request", (await sendFcm("bad token!", msg(), { env: ENV, fetch: fakeFetch([sendOk]).f, nowMs: NOW })).kind === "gone");
 
   console.log("5. error classification");
