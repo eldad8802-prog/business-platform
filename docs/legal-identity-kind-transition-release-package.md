@@ -1,6 +1,9 @@
 # "מעבר לעוסק מורשה": controlled release package
 
-Prepared 2026-11-22. **Nothing here is approved by this file.** Each numbered step is a separate owner approval. The
+Prepared 2026-11-22. **Nothing here is approved by this file.**
+
+**Progress (2026-11-22):** steps 1–4 DONE. #1210 merged 19564556 → read-only preflight 44967275771 11/11 → owner apply decision (#1210 issuecomment-7071788368) → approval record #1223 (d37fda3b) → release-migrate 44969899339 (pending set exactly this migration; ledger 227 → 228; nothing pending) → evidence 44971617659 11/11, signup identity 44971804949 12/12; Production healthy, flag absent. Next: step 5 (#1204).
+ Each numbered step is a separate owner approval. The
 feature flag `BUSINESS_KIND_TRANSITION_ENABLED` is unset in every Vercel environment (checked 11-22: `vercel env ls`
 lists no such name) and the code treats anything but `"true"` as OFF (404).
 

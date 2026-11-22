@@ -1,7 +1,7 @@
 # "מעבר לעוסק מורשה" — handover package for the billing / issuer-declaration track (4a)
 
 **For:** a new 4a session (billing, issuer declaration, numbering, uniform export), with no chat history.
-**From:** the legal identity track (session f3), 2026-11-22.
+**From:** the legal identity track (session f3), 2026-11-22 (updated after the migration was applied).
 **Status:** handover only. **This file approves nothing.** Each 4a task needs the owner's focused approval as usual.
 Billing (A0) code is changed only by 4a, never by the legal identity track.
 
@@ -33,8 +33,8 @@ Owner decisions of 2026-11-20 / 21:
 
 | PR | Content | State 11-22 |
 |---|---|---|
-| #1210 | Migration `20261221090000_business_kind_transition`: append-only `BusinessKindTransition` (one row per business, FORCE RLS, runtime SELECT only) + definer `business_kind_transition_to_authorized(user, vat, date, reauth_method, reauth_at, statement_sha)` | CI green; classifier AUTHORITY (needs an approval record); not merged |
-| #1204 | API `/api/business/legal-identity/kind-transition` (GET, preview, reauth/password, reauth/google, confirm), re-auth proof `lib/auth/sensitive-reauth.ts` + `lib/auth/google-reauth.ts`, Prisma model, tests | Red only on checks that need #1210 on main |
+| #1210 | Migration `20261221090000_business_kind_transition`: append-only `BusinessKindTransition` (one row per business, FORCE RLS, runtime SELECT only) + definer `business_kind_transition_to_authorized(user, vat, date, reauth_method, reauth_at, statement_sha)` | **MERGED 19564556 and APPLIED in Production 2026-11-22** (record #1223, release-migrate 44969899339, ledger 228, evidence 44971617659 11/11) |
+| #1204 | API `/api/business/legal-identity/kind-transition` (GET, preview, reauth/password, reauth/google, confirm), re-auth proof `lib/auth/sensitive-reauth.ts` + `lib/auth/google-reauth.ts`, Prisma model, tests | Synced with main; awaiting the owner merge approval (flag stays OFF) |
 | #1213 | UI: entry in the legal identity card on `/business` + `/business/legal-identity/kind-transition` (3 steps + success) | Stacked on #1204 |
 | #1214 | CI proof only (#1210 + #1204 + #1213 joined) — **not for merge** | e2e: app 33/33, browsers 17/17, flag-off 4/4 |
 
