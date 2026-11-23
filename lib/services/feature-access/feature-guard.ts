@@ -19,6 +19,11 @@
  * override still reaches it through other surfaces today; enforcing blindly could change what it can do. Shadow
  * removes the guesswork without changing anything.
  *
+ * SUBSCRIPTION PLAN LAYER (stage A, shadow only): when the flags allow a request, the guard also asks what the
+ * business's plan would say (lib/services/subscriptions) and logs `subscription_would_deny` when the plan alone would
+ * refuse or limit it. That verdict NEVER changes the answer, in any mode — the return value is decided by the flags
+ * exactly as before. It has its own switch (SUBSCRIPTION_ENFORCEMENT: off | shadow) and no enforce mode at all.
+ *
  * Never throws. An unauthenticated request passes through untouched — the route's own auth answers 401 as before.
  * Errors resolving access: shadow lets the request through (and logs); enforce fails closed, like every other gate
  * in this codebase (tasks-http, appointments-http, service-desk-gate).
@@ -31,6 +36,9 @@ import { runWithTenantContext } from "@/lib/tenant/context";
 import { PLATFORM_FEATURE_KEYS, type PlatformFeatureKey } from "./platform-feature-catalog";
 import { resolveBusinessCapabilities } from "./resolve-feature-access";
 import type { FeatureAccessResult } from "./feature-access.types";
+import { resolvePlanEntitlement } from "@/lib/services/subscriptions/resolve-entitlement";
+import { loadSubscriptionSnapshot, subscriptionMode } from "@/lib/services/subscriptions/subscription-shadow";
+import type { SubscriptionSnapshot } from "@/lib/services/subscriptions/subscription.types";
 
 /** The eleven features this guard covers. Other keys already have their own server gates. */
 export const GUARDED_FEATURE_KEYS = [
@@ -82,7 +90,7 @@ type Resolver = (businessId: number) => Promise<Resolved>;
 
 const CACHE_TTL_MS = 30_000;
 const CACHE_MAX = 500;
-const cache = new Map<number, { at: number; value: Resolved }>();
+const cache = new Map<number, { at: number; value: Resolved; subscription: SubscriptionSnapshot | null }>();
 
 const defaultResolver: Resolver = (businessId) =>
   runWithTenantContext({ businessId }, () => resolveBusinessCapabilities(businessId));
@@ -104,19 +112,63 @@ export function __setFeatureGuardSessionForTests(next: SessionBusiness | null): 
   sessionBusiness = next ?? defaultSessionBusiness;
 }
 
-async function featureAllowed(businessId: number, key: GuardedFeatureKey): Promise<{ allowed: boolean | null; reasonCode: string }> {
+type Answer = { allowed: boolean | null; reasonCode: string };
+
+async function featureAllowed(businessId: number, key: GuardedFeatureKey, site: string): Promise<Answer> {
+  let answer: Answer;
+  let hit: { at: number; value: Resolved; subscription: SubscriptionSnapshot | null } | undefined;
   try {
     const now = Date.now();
-    let hit = cache.get(businessId);
+    hit = cache.get(businessId);
     if (!hit || now - hit.at > CACHE_TTL_MS) {
-      hit = { at: now, value: await resolver(businessId) };
+      const value = await resolver(businessId);
+      // The record is read only while the plan layer is on; loadSubscriptionSnapshot never throws.
+      const subscription = subscriptionMode() === "off" ? null : await loadSubscriptionSnapshot(businessId);
+      hit = { at: now, value, subscription };
       if (cache.size >= CACHE_MAX) cache.clear();
       cache.set(businessId, hit);
     }
     const r = hit.value[key];
-    return { allowed: r?.allowed === true, reasonCode: r?.reasonCode ?? "UNKNOWN" };
+    answer = { allowed: r?.allowed === true, reasonCode: r?.reasonCode ?? "UNKNOWN" };
   } catch {
     return { allowed: null, reasonCode: "RESOLVE_FAILED" };
+  }
+  shadowPlan(businessId, key, site, hit, answer);
+  return answer;
+}
+
+/**
+ * Plan layer, shadow only: log what the plan alone would refuse or limit. Reads nothing new (the record is cached with
+ * the flags), returns nothing, never throws — the caller's answer is already decided.
+ */
+function shadowPlan(
+  businessId: number,
+  key: GuardedFeatureKey,
+  site: string,
+  hit: { value: Resolved; subscription: SubscriptionSnapshot | null },
+  answer: Answer,
+): void {
+  try {
+    if (answer.allowed !== true || subscriptionMode() === "off") return;
+    const flag = hit.value[key];
+    const plan = resolvePlanEntitlement(key, { allowed: true, reasonCode: flag.reasonCode }, hit.subscription);
+    if (plan.access === "full") return;
+    console.warn(
+      JSON.stringify({
+        event: "subscription_would_deny",
+        featureKey: key,
+        site,
+        businessId,
+        access: plan.access,
+        planReason: plan.reasonCode,
+        requiredPlan: plan.requiredPlan,
+        accountType: hit.subscription?.accountType ?? null,
+        status: hit.subscription?.status ?? null,
+        plan: hit.subscription?.plan ?? null,
+      }),
+    );
+  } catch {
+    /* shadow logging must never affect the request */
   }
 }
 
@@ -141,7 +193,7 @@ function logWouldDeny(key: GuardedFeatureKey, site: string, businessId: number, 
 export async function featureAllowedForBusiness(businessId: number, key: GuardedFeatureKey, site: string): Promise<boolean> {
   const mode = featureEnforcementMode();
   if (mode === "off") return true;
-  const { allowed, reasonCode } = await featureAllowed(businessId, key);
+  const { allowed, reasonCode } = await featureAllowed(businessId, key, site);
   const decision = decideGuard(mode, allowed);
   if (decision !== "allow") logWouldDeny(key, site, businessId, reasonCode, mode);
   return decision !== "deny";
@@ -165,15 +217,15 @@ export async function guardFeature(req: Request, key: GuardedFeatureKey): Promis
   // No session: not this guard's call — the route's own auth answers exactly as it did before.
   if (!businessId) return null;
 
-  const { allowed, reasonCode } = await featureAllowed(businessId, key);
-  const decision = decideGuard(mode, allowed);
-  if (decision === "allow") return null;
   let site = "route";
   try {
     site = new URL(req.url).pathname;
   } catch {
     /* keep "route" */
   }
+  const { allowed, reasonCode } = await featureAllowed(businessId, key, site);
+  const decision = decideGuard(mode, allowed);
+  if (decision === "allow") return null;
   logWouldDeny(key, site, businessId, reasonCode, mode);
   if (decision === "log") return null;
   return NextResponse.json(
