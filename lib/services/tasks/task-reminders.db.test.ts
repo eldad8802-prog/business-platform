@@ -73,6 +73,14 @@ async function main() {
   const A = { businessId: bizA.id, userId: uA.id };
   const B = { businessId: bizB.id, userId: uB.id };
   await owner.businessFeatureAccess.create({ data: { businessId: A.businessId, featureKey: "daily_tasks", state: "ENABLED" } });
+  // This file proves the LEGACY path (notification engine OFF). Since the engine opened for every business (owner
+  // 2026-11-23) the code default is ON, so a lab without the engine's policy row would resolve it ON: pin the
+  // engine OFF the way Production stood before the opening (definition + policy rows OFF; a DISABLED override or the
+  // emergency switch does the same in Production). The engine path is task-reminders-engine.db.test.ts.
+  await owner.$executeRawUnsafe(`INSERT INTO "PlatformFeatureDefinition" ("key", "displayName", "category", "description", "defaultEnabled", "mutable")
+    VALUES ('notifications_engine', 'מנוע התראות', 'integrations', 'lab', false, true) ON CONFLICT ("key") DO NOTHING`);
+  await owner.$executeRawUnsafe(`INSERT INTO "PlatformFeaturePolicy" ("featureKey", "globalEnabled", "emergencyDisabled", "updatedAt")
+    VALUES ('notifications_engine', false, false, now()) ON CONFLICT ("featureKey") DO NOTHING`);
 
   try {
     console.log("moment");
