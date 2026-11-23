@@ -343,13 +343,15 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       mutable: true,
     },
     {
-      // Seeded OFF by migration 20261120090000 (same name, category and text). Nothing reads it yet: the module's
-      // screens are 1.3a+; account erasure must be complete (the object sweep scheduled) before any business gets it.
+      // Seeded OFF by migration 20261120090000; opened for every business, existing and new, by migration
+      // 20261221190000 (owner decision 2026-11-23: definition default ON + policy global ON — same text as here).
+      // Inert until that migration is applied: with the policy row global OFF the resolver stays GLOBAL_DEFAULT
+      // (closed). The emergency switch, the global switch and a per-business DISABLED override still close it.
       key: PLATFORM_FEATURE_KEYS.SERVICE_DESK,
       displayName: "תיקונים ושירות",
       category: "service",
-      description: "קריאות שירות ותיקונים: קבלת מכשיר, טיפול, ספק חיצוני, הצעת מחיר ומסירה — כבוי כברירת מחדל",
-      defaultEnabled: false,
+      description: "קריאות שירות ותיקונים: קבלת מכשיר, טיפול, ספק חיצוני, הצעת מחיר ומסירה — פתוח לכל העסקים",
+      defaultEnabled: true,
       mutable: true,
     },
     // Leads L1.5-b · PR-3 — what the owner sees about the intake of their own leads (held while paused, not
