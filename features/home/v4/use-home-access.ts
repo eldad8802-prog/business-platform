@@ -8,11 +8,14 @@ import { FAILED, LOADING, ready, type Load } from "../v3/home-v3-model";
 import {
   businessKindOf,
   modulesFromCapabilities,
+  planHrefFromCapabilities,
   resolveUserPermissions,
+  subscriptionFromCapabilities,
   type BusinessProfileWire,
   type CapabilitiesWire,
   type HomeAccess,
 } from "./home-access";
+import { loadActivity } from "./pack-engine-loader";
 
 const CAPS = "/api/business/capabilities";
 const PROFILE = "/api/business/profile";
@@ -33,8 +36,22 @@ export function useHomeAccess(enabled = true): { access: Load<HomeAccess>; retry
     fetchJsonCached<CapabilitiesWire>(CAPS, 60_000)
       .then(async (caps) => {
         const kind = await kindP;
+        // Phase 2: the pack engine is downloaded only for a business that chose packs (null otherwise / on failure).
+        const { activity, packs } = await loadActivity(caps);
         if (!cancelled) {
-          setAccess(ready({ businessId: typeof caps.businessId === "number" ? caps.businessId : null, modules: modulesFromCapabilities(caps), kind, permissions: resolveUserPermissions() }));
+          setAccess(
+            ready({
+              businessId: typeof caps.businessId === "number" ? caps.businessId : null,
+              modules: modulesFromCapabilities(caps),
+              kind,
+              permissions: resolveUserPermissions(),
+              // Phase 2: the packs and the subscription view ride on the same answer (absent = unchanged).
+              activity,
+              packs,
+              subscription: subscriptionFromCapabilities(caps),
+              planHref: planHrefFromCapabilities(caps),
+            }),
+          );
         }
       })
       .catch(() => !cancelled && setAccess(FAILED));

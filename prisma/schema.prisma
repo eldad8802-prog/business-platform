@@ -260,6 +260,7 @@ model Business {
   contentEvents                 ContentEvent[]
   productUsageEvents            ProductUsageEvent[]
   businessFeatureAccess         BusinessFeatureAccess[]
+  activityProfile               BusinessActivityProfile?
   notifications                 Notification[]
   pushSubscriptions             PushSubscription[]
   notificationDeliveries        NotificationDelivery[]
@@ -578,6 +579,23 @@ model PlatformFeaturePolicy {
   updatedByUserId   Int?
 
   definition PlatformFeatureDefinition @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+}
+
+/// Phase 2 activity packs (migration 20261216090000_activity_packs): what the business works on — one primary pack
+/// and up to four additional packs (APPOINTMENTS | SERVICE | INVENTORY | LEADS | ORDERS). DISPLAY ONLY: never grants a
+/// capability. At most one row per business; no row = the business never chose = the Home behaves as before. FORCE
+/// RLS by business; the runtime may read / insert / update its own row, never delete. CHECKs and a duplicate guard
+/// trigger live in the migration; lib/activity-packs/activity-packs.ts validates the same before every write.
+model BusinessActivityProfile {
+  businessId      Int      @id
+  primaryPack     String
+  additionalPacks String[] @default([])
+  source          String   @default("OWNER_SELECTED")
+  updatedByUserId Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }
 
 /// Sparse per-business overrides only (no row = inherit global/catalog).

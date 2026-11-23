@@ -18,6 +18,8 @@ import type { Locale } from "@/lib/i18n/config";
 import type { HomeHistory } from "@/lib/services/home/home-history-model";
 
 import { allows, type BusinessKind, type HomeAccess, type HomeModule, type HomeScope, type Requirement } from "./home-access";
+// Type only: the pack engine itself is loaded on demand (pack-engine-loader.ts) and reaches this model as access.packs.
+import type { PackSecretaryKind } from "./activity-packs-home";
 import {
   formatShekel,
   israelDateKey,
@@ -44,7 +46,11 @@ export type MetricKey =
   | "waitingLeads"
   | "toCollect"
   | "docsReview"
-  | "todayAppointments";
+  | "todayAppointments"
+  /** Phase 2 (packs only): critical + low stock alerts — the same business-status items the secretary's stock kind uses. */
+  | "lowStock"
+  /** Phase 2 (packs only): Service Desk cases in READY — from the same cases page as openService. */
+  | "readyForPickup";
 
 export type MetricDef = {
   key: MetricKey;
@@ -63,7 +69,22 @@ export const METRICS: Record<MetricKey, MetricDef> = {
   toCollect: { key: "toCollect", format: "count", req: { modules: ["billing"], scope: "money" }, href: "/collection" },
   docsReview: { key: "docsReview", format: "count", req: { modules: ["documents"], scope: "documents" }, href: "/documents/inbox" },
   todayAppointments: { key: "todayAppointments", format: "count", req: { modules: ["appointments"], scope: "operations" }, href: "/calendar" },
+  lowStock: { key: "lowStock", format: "count", req: { modules: ["inventory"], scope: "operations" }, href: "/inventory" },
+  readyForPickup: { key: "readyForPickup", format: "count", req: { modules: ["service_desk"], scope: "operations" }, href: "/service-desk" },
 };
+
+/**
+ * The pack selection AND its loaded engine, or neither. Everything pack-related needs both: without the engine (not
+ * loaded yet, or failed to load) the Home is the pre-packs one — never a wrong capability, at worst the old order.
+ */
+function packsOf(access: HomeAccess): { activity: NonNullable<HomeAccess["activity"]>; engine: NonNullable<HomeAccess["packs"]> } | { activity: null; engine: null } {
+  const activity = access.activity ?? null;
+  const engine = access.packs ?? null;
+  return activity && engine ? { activity, engine } : { activity: null, engine: null };
+}
+
+/** Metrics drawn only when the owner chose activity packs — the pre-packs Home never shows them (accounts unchanged). */
+const PACK_ONLY_METRICS: readonly MetricKey[] = ["lowStock", "readyForPickup"];
 
 /** Default order per business kind: the first two are the main pair. Money first everywhere it is available. */
 export const DEFAULT_METRIC_ORDER: Record<BusinessKind, MetricKey[]> = {
@@ -75,9 +96,22 @@ export const DEFAULT_METRIC_ORDER: Record<BusinessKind, MetricKey[]> = {
 
 /** The metrics this business + person may see, in display order (the owner's chosen pair first, when still valid). */
 export function metricOrder(access: HomeAccess, chosenPrimary: readonly string[] | null): MetricKey[] {
-  const available = DEFAULT_METRIC_ORDER[access.kind].filter((k) => allows(access, METRICS[k].req));
+  const { activity, engine } = packsOf(access);
+  const base: MetricKey[] = activity ? [...DEFAULT_METRIC_ORDER[access.kind], ...PACK_ONLY_METRICS] : DEFAULT_METRIC_ORDER[access.kind];
+  const permitted = base.filter((k) => allows(access, METRICS[k].req));
+  // Packs reorder only what is already permitted (feature access / scope filter first).
+  const available = activity && engine ? engine.orderMetrics(activity, permitted) : permitted;
   const chosen = (chosenPrimary ?? []).filter((k): k is MetricKey => (available as string[]).includes(k)).slice(0, 2);
   return [...chosen, ...available.filter((k) => !chosen.includes(k))];
+}
+
+/**
+ * The label a metric shows (owner decision 1: names follow the pack). Only today's appointments changes: "תורים
+ * היום" when appointments is the primary pack (a barbershop), "פגישות היום" everywhere else (a consultant).
+ */
+export function metricLabelKey(key: MetricKey, access: HomeAccess | null): string {
+  if (key === "todayAppointments" && access?.activity?.primary === "APPOINTMENTS") return "home.v4.snapshot.metric.todayAppointments.labelAppointments";
+  return `home.v4.snapshot.metric.${key}.label`;
 }
 
 export type MetricValue =
@@ -114,33 +148,75 @@ export const OPEN_CASE_STATUSES = new Set([
   "OPEN", "SCHEDULED", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "QA", "READY",
 ]);
 
+type CasesWire = { cases?: { id?: number; status: string }[]; nextBeforeId?: number | null };
+
 /** Open cases among the newest page; exact only when the page held every case (`nextBeforeId === null`). */
-export function openCasesClaim(wire: { cases?: { status: string }[]; nextBeforeId?: number | null }): CountClaim {
+export function openCasesClaim(wire: CasesWire): CountClaim {
   const n = (wire.cases ?? []).filter((c) => OPEN_CASE_STATUSES.has(c.status)).length;
   return { n, exact: (wire.nextBeforeId ?? null) === null };
 }
 
+/** The one cases read, summarised for the Home: open cases (metric), and READY ones (metric + secretary, packs only). */
+export type ServiceCasesSummary = { open: CountClaim; ready: CountClaim; readyIds: number[] };
+
+export function serviceCasesSummary(wire: CasesWire): ServiceCasesSummary {
+  const exact = (wire.nextBeforeId ?? null) === null;
+  const ready = (wire.cases ?? []).filter((c) => c.status === "READY");
+  return {
+    open: openCasesClaim(wire),
+    ready: { n: ready.length, exact },
+    readyIds: ready.map((c) => c.id).filter((id): id is number => typeof id === "number"),
+  };
+}
+
 /* ========================================================== secretary ===== */
 
-const KIND_REQ: Record<WaitingKind, Requirement> = {
+/** The secretary's kinds: the five shared with the waiting model, and READY service cases (activity packs only). */
+export type SecretaryKind = PackSecretaryKind;
+
+const KIND_REQ: Record<SecretaryKind, Requirement> = {
   payment: { scope: "money" },
   collection: { modules: ["billing"], scope: "money" },
   stock: { modules: ["inventory"], scope: "operations" },
   lead: { scope: "customers" },
   intake: { scope: "customers" },
+  serviceReady: { modules: ["service_desk"], scope: "operations" },
 };
 
 /** The list each kind opens when there is more than one item. */
-const KIND_LIST_HREF: Record<WaitingKind, string | null> = {
+const KIND_LIST_HREF: Record<SecretaryKind, string | null> = {
   payment: "/secretary?today=1",
   lead: "/leads?view=needsAction",
   stock: "/inventory",
   collection: "/collection",
   intake: null,
+  serviceReady: "/service-desk",
 };
 
 /** Kinds whose items must stay in view until handled: they can only be put off until tomorrow, never dismissed. */
-const LATER_ONLY: ReadonlySet<WaitingKind> = new Set<WaitingKind>(["payment"]);
+const LATER_ONLY: ReadonlySet<SecretaryKind> = new Set<SecretaryKind>(["payment"]);
+
+/** One secretary item: a waiting item, or a READY service case (same shape, its own kind). */
+type SecretaryItem = Omit<WaitingItem, "kind"> & { kind: SecretaryKind };
+
+/**
+ * READY service cases as secretary items (packs only, normal urgency — rank 2, like a waiting enquiry). Real data
+ * only: the ids come from the cases page the Home already reads; nothing is inferred about pickup beyond the status.
+ */
+function serviceReadyItems(ids: readonly number[]): SecretaryItem[] {
+  return ids.map((id) => ({
+    id: `service-ready:${id}`,
+    kind: "serviceReady",
+    tone: "todo",
+    tag: { label: "", style: "todo" },
+    title: "",
+    subtitle: null,
+    amount: null,
+    href: `/service-desk/cases/${id}`,
+    actionLabel: "",
+    rank: 2,
+  }));
+}
 
 /** Per group: "not relevant" holds while the same items are waiting; "later" holds for the rest of the Israeli day. */
 export type SecretaryDismissals = Record<string, { mode: "dismiss" } | { mode: "later"; day: string }>;
@@ -152,10 +228,15 @@ export type SecretaryView =
   | { state: "calm"; exact: boolean }
   | {
       state: "ready";
-      kind: WaitingKind;
+      kind: SecretaryKind;
       title: string;
       body: string;
       cta: string;
+      /**
+       * FREE_LIMITED collection group: the card replaces body + cta with the limited texts (home-v4-limited-copy.ts,
+       * loaded on demand) — the reminder is never offered. Always false today (no subscription mechanism yet).
+       */
+      limited: boolean;
       href: string;
       /** Every update the person may see (the chip), with its exactness. */
       updates: CountClaim;
@@ -173,7 +254,7 @@ export function pruneDismissals(d: SecretaryDismissals, today: string, keep = 30
   return Object.fromEntries(entries.slice(-keep));
 }
 
-export function groupKeyOf(kind: WaitingKind, items: WaitingItem[]): string {
+export function groupKeyOf(kind: SecretaryKind, items: { id: string }[]): string {
   return `${kind}:${items.map((i) => i.id).sort().join(",")}`;
 }
 
@@ -198,36 +279,52 @@ export function buildSecretary(input: {
   dismissals: SecretaryDismissals;
   now: Date;
   t: Translator;
+  /** READY service cases (from the Home's one cases read). Drawn only with activity packs; `null` / absent = none. */
+  serviceReady?: { ids: readonly number[]; exact: boolean } | null;
 }): SecretaryView {
   const { waiting, access, t } = input;
   if (waiting.state !== "ready") return waiting;
   const today = israelDateKey(input.now);
+  const { activity, engine } = packsOf(access);
 
-  const visible = waiting.value.items.filter((i) => allows(access, KIND_REQ[i.kind]));
+  const ready = activity && input.serviceReady ? serviceReadyItems(input.serviceReady.ids) : [];
+  const all: SecretaryItem[] = [...waiting.value.items, ...ready];
+  const claimOf = (k: SecretaryKind): CountClaim =>
+    k === "serviceReady" ? { n: ready.length, exact: input.serviceReady?.exact ?? false } : waiting.value.byKind[k];
+
+  const visible = all.filter((i) => allows(access, KIND_REQ[i.kind]));
   const visibleKinds = new Set(visible.map((i) => i.kind));
   const updates: CountClaim = {
     n: visible.length,
-    exact: !input.partial && [...visibleKinds].every((k) => waiting.value.byKind[k].exact),
+    exact: !input.partial && [...visibleKinds].every((k) => claimOf(k).exact),
   };
 
   // Groups in the order of their most urgent item (the list is already ranked).
-  const groups = new Map<WaitingKind, WaitingItem[]>();
-  for (const item of visible) groups.set(item.kind, [...(groups.get(item.kind) ?? []), item]);
+  const groupMap = new Map<SecretaryKind, SecretaryItem[]>();
+  for (const item of visible) groupMap.set(item.kind, [...(groupMap.get(item.kind) ?? []), item]);
+  let groups = [...groupMap.entries()];
+  // Activity packs: among groups of the SAME urgency, the packs' kinds come first. A more urgent group (a payment due,
+  // a critical stock alert) is never pushed down by a pack. Without packs the order is untouched.
+  if (activity && engine) groups = engine.secretaryGroups(activity, groups);
 
   for (const [kind, items] of groups) {
     const key = groupKeyOf(kind, items);
     if (isHidden(key, input.dismissals, today)) continue;
-    const claim = waiting.value.byKind[kind];
+    const claim = claimOf(kind);
     const count = items.length;
     const k = `home.v4.secretary.kind.${kind}` as const;
     const title = count === 1 && claim.exact ? t(`${k}.one` as MessageKey) : t(`${k}.many` as MessageKey, { count: claim.exact ? count : cappedText(count) });
     const href = count === 1 ? items[0].href : KIND_LIST_HREF[kind] ?? items[0].href;
+    // FREE_LIMITED (owner decision 4): the secretary still shows what waits and lets it be marked done; a reminder to
+    // the customer is not available, and the text says so instead of offering it.
+    const limited = access.subscription === "FREE_LIMITED" && kind === "collection";
     return {
       state: "ready",
       kind,
       title,
       body: t(`${k}.body` as MessageKey),
       cta: t(`${k}.cta` as MessageKey),
+      limited,
       href,
       updates,
       groupKey: key,
@@ -425,7 +522,12 @@ const TOOL_INTROS: ToolIntro[] = [
 const RECOMMENDATION_DUPLICATES: Record<string, WaitingKind> = { SETTLE_OVERDUE_INSTALLMENT: "payment" };
 const ACTIVITY_DUPLICATES: Record<string, WaitingKind> = { lead: "lead" };
 
-export type ForYouView = { state: "loading" } | { state: "none" } | { state: "ready"; item: ForYouItem };
+/**
+ * `plan`: FREE_LIMITED (owner decision 3) — the area holds ONE plan card and nothing else, the second of the only two
+ * places the Home offers an upgrade (the first is the status line). Never shown while the subscription is not
+ * FREE_LIMITED, which today is always (there is no subscription model yet).
+ */
+export type ForYouView = { state: "loading" } | { state: "none" } | { state: "ready"; item: ForYouItem } | { state: "plan" };
 
 export function buildForYou(input: {
   access: HomeAccess;
@@ -435,7 +537,7 @@ export function buildForYou(input: {
   activity: Load<ActivityItem[]>;
   history: Load<HomeHistory>;
   /** The kind the secretary is showing right now — never repeated here. */
-  secretaryKind: WaitingKind | null;
+  secretaryKind: SecretaryKind | null;
   /** The kind of the business's "My day" entry — the appointments intro is skipped when the day already has some. */
   hasAppointmentsToday: boolean;
   prefs: ForYouPrefs;
@@ -443,6 +545,7 @@ export function buildForYou(input: {
   t: Translator;
 }): ForYouView {
   const { access, prefs, t } = input;
+  if (access.subscription === "FREE_LIMITED") return { state: "plan" };
   const hidden = new Set(prefs.hiddenTypes);
   const dismissed = new Set(prefs.dismissedIds);
   const pending = (s: Source<unknown>) => s.state === "loading";
@@ -514,10 +617,12 @@ export function buildForYou(input: {
 
 export type CreateAction = {
   key: string;
-  labelKey: "task" | "appointment" | "invoice" | "paymentRequest" | "lead" | "customer" | "upload" | "commitment" | "product";
+  labelKey: "task" | "appointment" | "invoice" | "paymentRequest" | "lead" | "customer" | "upload" | "commitment" | "product" | "serviceCase";
   href: string;
-  icon: "task" | "calendar" | "invoice" | "payments" | "lead" | "customer" | "upload" | "secretary" | "inventory";
+  icon: "task" | "calendar" | "invoice" | "payments" | "lead" | "customer" | "upload" | "secretary" | "inventory" | "service";
   req: Requirement;
+  /** Offered only once the owner chose activity packs (accounts that never chose keep exactly today's sheet). */
+  packOnly?: boolean;
 };
 
 /**
@@ -534,7 +639,16 @@ export const CREATE_ACTIONS: CreateAction[] = [
   { key: "upload", labelKey: "upload", href: "/documents/upload", icon: "upload", req: { modules: ["documents"], scope: "documents" } },
   { key: "commitment", labelKey: "commitment", href: "/secretary?screen=bank", icon: "secretary", req: { scope: "money" } },
   { key: "product", labelKey: "product", href: "/inventory/items/create", icon: "inventory", req: { modules: ["inventory"], scope: "operations" } },
+  // Phase 2: opens the Service Desk's existing new-case screen — only while service_desk is ON (never turned on here).
+  { key: "service-case", labelKey: "serviceCase", href: "/service-desk/new", icon: "service", req: { modules: ["service_desk"], scope: "operations" }, packOnly: true },
 ];
+
+/**
+ * FREE_LIMITED (owner decision 4): only these creations stay in "+" (a customer added by hand, a simple personal task —
+ * the approved FREE_LIMITED table); everything else is simply not listed, never shown locked. The sheet adds one line
+ * that says what returns with an active plan (`createLimitedNote`).
+ */
+const FREE_LIMITED_CREATE: ReadonlySet<string> = new Set(["customer", "task"]);
 
 /** Business kind decides only the ORDER of the permitted actions (what this business creates most comes first). */
 const CREATE_FIRST: Record<BusinessKind, string[]> = {
@@ -544,14 +658,29 @@ const CREATE_FIRST: Record<BusinessKind, string[]> = {
   general: ["invoice", "payment-request", "upload", "lead"],
 };
 
-export function createActionsFor(access: HomeAccess): CreateAction[] {
+function permittedActions(access: HomeAccess): CreateAction[] {
   const permitted = CREATE_ACTIONS.filter((a) => allows(access, a.req));
+  // Pack-only actions exist only once the owner chose packs (accounts that never chose keep today's sheet).
+  return packsOf(access).activity !== null ? permitted : permitted.filter((a) => !a.packOnly);
+}
+
+export function createActionsFor(access: HomeAccess): CreateAction[] {
+  const { activity, engine } = packsOf(access);
+  let permitted = permittedActions(access);
+  if (access.subscription === "FREE_LIMITED") permitted = permitted.filter((a) => FREE_LIMITED_CREATE.has(a.key));
+  // Activity packs reorder only what is permitted: the primary pack's actions, then one per additional pack.
+  if (activity && engine) return engine.orderKeys(activity, permitted, (a) => a.key, "create");
   const first = CREATE_FIRST[access.kind];
   const rank = (a: CreateAction) => {
     const i = first.indexOf(a.key);
     return i === -1 ? first.length + CREATE_ACTIONS.indexOf(a) : i;
   };
   return [...permitted].sort((a, b) => rank(a) - rank(b));
+}
+
+/** FREE_LIMITED and something permitted was left out of "+": the sheet shows its one explanatory line. */
+export function createLimitedNote(access: HomeAccess): boolean {
+  return access.subscription === "FREE_LIMITED" && permittedActions(access).some((a) => !FREE_LIMITED_CREATE.has(a.key));
 }
 
 /* ============================================================== tools ===== */
@@ -624,7 +753,14 @@ export function simpleToolOrder<T extends ToolLite>(available: readonly T[]): T[
   return [...lead, ...available.filter((t) => !lead.includes(t))];
 }
 
-export function favoriteTools<T extends ToolLite>(available: readonly T[], kind: BusinessKind, chosen: readonly string[] | null): T[] {
-  const keys = chosen ?? DEFAULT_FAVORITES[kind];
+export function favoriteTools<T extends ToolLite>(
+  available: readonly T[],
+  kind: BusinessKind,
+  chosen: readonly string[] | null,
+  access: HomeAccess | null = null,
+): T[] {
+  // With activity packs (and their engine loaded) the default favourites follow the packs; the owner's choice wins.
+  const packs = access ? packsOf(access) : { activity: null, engine: null };
+  const keys = chosen ?? (packs.activity && packs.engine ? packs.engine.favoriteKeys(packs.activity, BAR_LEAVERS) : DEFAULT_FAVORITES[kind]);
   return keys.map((k) => available.find((t) => t.key === k)).filter((t): t is T => Boolean(t));
 }

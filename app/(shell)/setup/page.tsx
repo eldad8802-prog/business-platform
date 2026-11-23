@@ -24,7 +24,8 @@ import { buildClientAuthHeaders, getClientAuthToken, redirectToLogin } from "@/l
 import { consumeFlowEntries } from "@/lib/navigation/back-nav/trail-runtime";
 import { DESCRIPTION_MAX, type SetupAudience, type SetupView } from "@/lib/services/onboarding/setup-model";
 import type { MessageKey } from "@/lib/i18n/translate";
-import { invalidateCachedJson } from "@/lib/ui/cached-json";
+import { fetchJsonCached, invalidateCachedJson } from "@/lib/ui/cached-json";
+import { activitySkipped } from "@/lib/activity-packs/activity-skip";
 
 import styles from "./setup.module.css";
 
@@ -61,6 +62,22 @@ export default function SetupPage() {
   // The owner's own edits always win over a late prefill.
   const touchedText = useRef(false);
   const touchedAudience = useRef(false);
+
+  // Phase 2 — activity packs: while the feature is ON for this business and the owner has not chosen (and has not
+  // skipped in this session), the two activity screens come first (/setup/activity), then back here. While the
+  // feature is OFF — every business today — this does nothing and /setup is exactly as before.
+  useEffect(() => {
+    let cancelled = false;
+    fetchJsonCached<{ features?: Record<string, { allowed?: boolean }>; activity?: unknown }>("/api/business/capabilities", 60_000)
+      .then((caps) => {
+        if (cancelled) return;
+        if (caps.features?.activity_packs?.allowed === true && caps.activity == null && !activitySkipped()) router.replace("/setup/activity");
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   useEffect(() => {
     if (!getClientAuthToken()) {

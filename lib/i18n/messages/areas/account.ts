@@ -342,6 +342,7 @@ export const settingsCoreHe = {
     security: { title: "אבטחת חשבון", description: "המכשירים המחוברים והכניסה לחשבון" },
     accountPrivacy: { title: "פרטיות", description: "ייצוא המידע ומחיקת החשבון" },
     connections: { title: "חיבורים", description: "WhatsApp, Gmail, סליקה, רשות המסים ולידים" },
+    activity: { title: "תחומי הפעילות", description: "מה מוצג במסך הבית, בסרגל ובכלים" },
   },
   groups: {
     account: "החשבון והעסק",

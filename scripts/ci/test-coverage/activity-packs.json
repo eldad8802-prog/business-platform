@@ -1,0 +1,14 @@
+{
+  "note": "Phase 2 activity packs (owner-approved spec + design 2026-11-20): the pack catalog, the selection, the HOME v4 ordering by packs, the dynamic bottom-bar slot, FREE_LIMITED presentation (test data only — no subscription model yet) and the API's 404 while the activity_packs feature is OFF. Display only: a pack never grants a capability. Migration 20261216090000 (Draft #1207) is a separate PR.",
+  "tests": {
+    "features/home/v4/activity-packs-home.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): no selection = the pre-packs Home byte for byte (metrics, '+', tools, bar); each of the five packs' pair, '+', tools and bar slot; packs only reorder what feature access and the person's scope allow (never add); several packs; the service slot only while service_desk is ON (inventory fallback only when that pack is chosen, else the calendar); FREE_LIMITED status/plan card/allowed '+' only; secretary packs rank only within the same urgency, ready-for-pickup only with packs; he + en texts; run on pull_request by activity-packs-ci.yml"
+    },
+    "lib/activity-packs/activity-packs-api.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "static (reads route and service files): GET/PUT /api/business/activity require a session, answer 404 FEATURE_NOT_AVAILABLE unless activity_packs is ON (fail closed on a resolver error), take the tenant from the session only, validate the body with parseActivitySelection, write only through tenantTx; the capabilities answer reads the packs only while the feature is ON; the feature is OFF by default in the catalog; run on pull_request by activity-packs-ci.yml"
+    }
+  }
+}

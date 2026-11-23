@@ -95,6 +95,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   // Setup after signup: two steps; finishing consumes them, so Back from Home
   // never re-enters a completed setup.
   { pattern: "/setup", parent: "/app", parentLabelKey: "toHome", identityParams: ["step"] },
+  // Phase 2 — the activity screens after signup lead back to /setup (finished or skipped).
+  { pattern: "/setup/activity", parent: "/app", parentLabelKey: "toHome" },
   { pattern: "/revenue", parent: "/app", parentLabelKey: "toHome", identityParams: ["view", "cstep"] },
   { pattern: "/revenue/redeem", parent: "/revenue", parentLabelKey: "toMyCoupons", identityParams: ["step"] },
   { pattern: "/revenue/coupons/[id]", parent: "/revenue", parentLabelKey: "toCoupons" },
@@ -215,6 +217,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   // M7-B — the Dubiz Wix app's confirm page (Wix opens it after install).
   { pattern: "/settings/connections/wix", parent: "/settings/connections", parentLabelKey: "toConnections" },
   { pattern: "/settings/account", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/activity", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/business", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/connections", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/inbound-email", parent: "/settings", parentLabelKey: "toSettings" },

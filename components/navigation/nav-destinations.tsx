@@ -18,6 +18,7 @@ import {
   type IconComponent,
 } from "./nav-icons";
 import type { MessageKey } from "@/lib/i18n/translate";
+import type { BarSlotKey } from "@/features/home/v4/activity-packs-home";
 
 /**
  * Single source of truth for the app's primary navigation.
@@ -92,7 +93,7 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   { key: "payments", label: "גבייה", labelKey: "nav.payments", href: "/collection", icon: IconCash, group: "money" },
   { key: "billing", label: "חשבוניות", labelKey: "nav.billing", href: "/billing", icon: IconReceipt, group: "money" },
   { key: "customers", label: "לקוחות", labelKey: "nav.customers", href: "/customers", icon: IconUsers, group: "customers" },
-  { key: "leads", label: "לידים", labelKey: "nav.leads", href: "/leads", icon: IconLeads, group: "customers" },
+  { key: "leads", label: "לידים", labelKey: "nav.leads", barLabelKey: "nav.bar.leads", href: "/leads", icon: IconLeads, group: "customers" },
   // ניהול העסק (Daily Tasks B, owner-approved): the task centre, the secretary and the commitments sit together —
   // a placement move only; every route, screen and permission is unchanged. Tasks appear only with daily_tasks ON.
   { key: "tasks", label: "משימות", labelKey: "nav.tasks", href: "/tasks", icon: IconTasks, group: "business", feature: "daily_tasks" },
@@ -100,10 +101,10 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   // In the bottom bar / rail it is the fixed "יומן" tab (HOME v4); in the sidebar it stays gated by appointments.
   { key: "calendar", label: "יומן ותורים", labelKey: "nav.calendar", barLabelKey: "nav.bar.calendar", href: "/calendar", icon: IconCalendarSimple, group: "business", feature: "appointments", primary: true },
   // Service Desk UI 1.3a (decision ה4: entry via ניהול העסק): only while service_desk is ON for the business — off by default.
-  { key: "service-desk", label: "שירות ואחריות", labelKey: "nav.serviceDesk", href: "/service-desk", icon: IconWrench, group: "business", feature: "service_desk" },
+  { key: "service-desk", label: "שירות ואחריות", labelKey: "nav.serviceDesk", barLabelKey: "nav.bar.serviceDesk", href: "/service-desk", icon: IconWrench, group: "business", feature: "service_desk" },
   { key: "secretary", label: "המזכירה שלי", labelKey: "nav.secretary", href: "/secretary", icon: IconSecretary, group: "business" },
   { key: "payables", label: "התחייבויות", labelKey: "nav.payables", href: "/payables", icon: IconCalendar, group: "business" },
-  { key: "inventory", label: "מלאי", labelKey: "nav.inventory", href: "/inventory", icon: IconBox, group: "business" },
+  { key: "inventory", label: "מלאי", labelKey: "nav.inventory", barLabelKey: "nav.bar.inventory", href: "/inventory", icon: IconBox, group: "business" },
   { key: "settings", label: "הגדרות", labelKey: "nav.settings", href: "/settings", icon: IconSettings, group: "footer" },
 ];
 
@@ -111,6 +112,19 @@ export const NAV_DESTINATIONS: NavDestination[] = [
 const PRIMARY_ORDER = ["home", "calendar", "notifications", "tools"];
 /** In bar order (RTL: first = rightmost): בית · יומן · [+] · עדכונים · כלים. */
 export const PRIMARY_DESTINATIONS = PRIMARY_ORDER.map((k) => NAV_DESTINATIONS.find((d) => d.key === k && d.primary)!);
+
+/**
+ * Phase 2 (owner-approved direction B): the bar's SECOND slot follows the business's primary activity pack — יומן,
+ * קריאות, מלאי or לידים — resolved by barSlotFor() (features/home/v4/activity-packs-home.ts) from the packs AND the
+ * capabilities, so a slot is never a module that is OFF. The other four stay fixed: בית · [+] · עדכונים · כלים.
+ * `calendar` (the default, and the only answer without packs) is exactly PRIMARY_DESTINATIONS.
+ */
+export function primaryDestinationsFor(slot: BarSlotKey): NavDestination[] {
+  if (slot === "calendar") return PRIMARY_DESTINATIONS;
+  const dest = NAV_DESTINATIONS.find((d) => d.key === slot);
+  if (!dest) return PRIMARY_DESTINATIONS;
+  return [PRIMARY_DESTINATIONS[0], dest, ...PRIMARY_DESTINATIONS.slice(2)];
+}
 
 export const SETTINGS_DESTINATION = NAV_DESTINATIONS.find((d) => d.key === "settings")!;
 

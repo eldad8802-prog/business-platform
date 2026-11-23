@@ -334,6 +334,7 @@ const settingsCoreEn: Widen<typeof settingsCoreHe> = {
     security: { title: "Account security", description: "Signed-in devices and account sign-in" },
     accountPrivacy: { title: "Privacy", description: "Export your data and delete the account" },
     connections: { title: "Connections", description: "WhatsApp, Gmail, payments, Tax Authority and leads" },
+    activity: { title: "Activity areas", description: "What the Home, the bar and the tools put forward" },
   },
   groups: {
     account: "Account and business",

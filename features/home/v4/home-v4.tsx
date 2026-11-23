@@ -19,13 +19,14 @@ import {
   israelHour,
   leadsWaitingClaim,
   ready,
+  stockAlertsClaim,
   valueOf,
   type ActivityItem,
   type CountClaim,
   type Load,
   type WaitingModel,
 } from "../v3/home-v3-model";
-import type { HomeAccess } from "./home-access";
+import { packTranslator, type HomeAccess } from "./home-access";
 import {
   IconArrowForward,
   IconBars,
@@ -50,6 +51,8 @@ import {
   SecretaryMascot,
 } from "./home-v4-icons";
 import { useHomePref } from "./home-prefs";
+import type { LimitedCopy } from "./home-v4-limited-copy";
+import { useLimitedCopy, type LimitedKit } from "./limited-copy-loader";
 import {
   FOR_YOU_TYPES,
   METRICS,
@@ -59,6 +62,7 @@ import {
   buildSecretary,
   buildToday,
   countMetric,
+  metricLabelKey,
   metricOrder,
   moneyMetric,
   restOfDayLine,
@@ -208,6 +212,32 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
   const [now] = useState(() => new Date());
   const access = data.access;
   const businessId = access.state === "ready" ? access.value.businessId : null;
+  const limited = access.state === "ready" && access.value.subscription === "FREE_LIMITED";
+  const planHref = access.state === "ready" ? access.value.planHref ?? null : null;
+  // FREE_LIMITED texts are downloaded only for a FREE_LIMITED business (never today) — nobody else ships them.
+  const lim = useLimitedCopy(limited, locale);
+  const limitedCopy = lim?.copy ?? null;
+
+  const header = (
+    <header className="h4-header">
+      <div className="h4-hello">
+        <div className="h4-greet">
+          <span>{greetingForHour(israelHour(now), t)}</span>
+          <span aria-hidden>👋</span>
+        </div>
+        <h1 className="h4-name">{businessName}</h1>
+      </div>
+      <div className="h4-hbtns">
+        <Link href="/notifications" prefetch={false} className="h4-round h4-round--bell" aria-label={data.unread ? t("home.v4.header.withUnread", { label: t("home.v4.header.updates") }) : t("home.v4.header.updates")}>
+          <IconBellLine size={24} />
+          {data.unread ? <span className="h4-dot" style={{ background: "var(--h4-mustard)" }} aria-hidden /> : null}
+        </Link>
+        <Link href="/profile" prefetch={false} className="h4-round h4-round--profile" aria-label={t("home.v4.header.profile")}>
+          <IconUser size={24} />
+        </Link>
+      </div>
+    </header>
+  );
 
   return (
     <div className="h4">
@@ -216,29 +246,15 @@ export function HomeV4({ data, retry, businessName }: { data: HomeV4Data; retry:
       <div className="h4-blob" aria-hidden style={{ width: 420, height: 300, top: -150, insetInlineEnd: -120, background: "radial-gradient(closest-side, rgba(211,230,220,.85), rgba(211,230,220,0))" }} />
       <div className="h4-blob" aria-hidden style={{ width: 300, height: 240, top: 30, insetInlineStart: -150, background: "radial-gradient(closest-side, rgba(223,234,244,.6), rgba(223,234,244,0))" }} />
       <main className="h4-col h4-home">
-        <header className="h4-header">
-          <div className="h4-hello">
-            <div className="h4-greet">
-              <span>{greetingForHour(israelHour(now), t)}</span>
-              <span aria-hidden>👋</span>
-            </div>
-            <h1 className="h4-name">{businessName}</h1>
-          </div>
-          <div className="h4-hbtns">
-            <Link href="/notifications" prefetch={false} className="h4-round h4-round--bell" aria-label={data.unread ? t("home.v4.header.withUnread", { label: t("home.v4.header.updates") }) : t("home.v4.header.updates")}>
-              <IconBellLine size={24} />
-              {data.unread ? <span className="h4-dot" style={{ background: "var(--h4-mustard)" }} aria-hidden /> : null}
-            </Link>
-            <Link href="/profile" prefetch={false} className="h4-round h4-round--profile" aria-label={t("home.v4.header.profile")}>
-              <IconUser size={24} />
-            </Link>
-          </div>
-        </header>
+        {/* FREE_LIMITED (owner decision 3): ONE status line under the header — the first of the only two upgrade
+            mentions. Only then is the header wrapped (the pair takes the header's grid area); otherwise the markup is
+            exactly the pre-packs HOME v4 (the subscription mechanism does not exist yet, so: always). */}
+        {lim ? <lim.Header header={header} copy={lim.copy} planHref={planHref} /> : header}
 
         <SnapshotCard data={data} businessId={businessId} retry={retry} locale={locale} />
-        <SecretaryCard data={data} businessId={businessId} retry={retry} now={now} />
+        <SecretaryCard data={data} businessId={businessId} retry={retry} now={now} limitedCopy={limitedCopy} />
         <TodayCard data={data} retry={retry} now={now} />
-        <ForYouCard data={data} businessId={businessId} now={now} />
+        <ForYouCard data={data} businessId={businessId} now={now} limited={lim} />
       </main>
     </div>
   );
@@ -301,6 +317,8 @@ const METRIC_ICON: Record<MetricKey, (p: { size?: number }) => React.ReactElemen
   toCollect: IconWallet,
   docsReview: IconFile,
   todayAppointments: IconCalendar,
+  lowStock: IconLayers,
+  readyForPickup: IconCalendarCheck,
 };
 
 function metricValue(key: MetricKey, data: HomeV4Data, now: Date, locale: ReturnType<typeof useI18n>["locale"]): MetricValue {
@@ -309,8 +327,16 @@ function metricValue(key: MetricKey, data: HomeV4Data, now: Date, locale: Return
       return moneyMetric(data.receipts.state === "ready" ? ready(data.receipts.value.month) : data.receipts, locale);
     case "receiptsToday":
       return moneyMetric(data.receipts.state === "ready" ? ready(data.receipts.value.today) : data.receipts, locale);
-    case "openService":
-      return countMetric(fromSource(data.serviceCases));
+    case "openService": {
+      const s = fromSource(data.serviceCases);
+      return countMetric(s.state === "ready" ? ready(s.value.open) : s);
+    }
+    case "readyForPickup": {
+      const s = fromSource(data.serviceCases);
+      return countMetric(s.state === "ready" ? ready(s.value.ready) : s);
+    }
+    case "lowStock":
+      return countMetric(data.status.state === "ready" ? ready(stockAlertsClaim(data.status.value)) : data.status);
     case "todayTasks": {
       const a = fromSource(data.agenda);
       return countMetric(a.state === "ready" ? ready(a.value.count) : a);
@@ -335,8 +361,15 @@ function metricValue(key: MetricKey, data: HomeV4Data, now: Date, locale: Return
   }
 }
 
+/** The translator for an area that may draw pack-only texts (they ride in the on-demand pack engine). */
+function usePackT(data: HomeV4Data) {
+  const { t, locale } = useI18n();
+  const packs = data.access.state === "ready" ? data.access.value.packs ?? null : null;
+  return useMemo(() => packTranslator(t, packs, locale), [t, packs, locale]);
+}
+
 function SnapshotCard({ data, businessId, retry, locale }: { data: HomeV4Data; businessId: number | null; retry: () => void; locale: ReturnType<typeof useI18n>["locale"] }) {
-  const { t } = useI18n();
+  const t = usePackT(data);
   const [expanded, setExpanded] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [chosen, setChosen] = useHomePref<string[] | null>(businessId, "metrics.primary", null);
@@ -347,7 +380,7 @@ function SnapshotCard({ data, businessId, retry, locale }: { data: HomeV4Data; b
   const order = access.state === "ready" ? metricOrder(access.value, chosen) : [];
   const primary = order.slice(0, 2);
   const secondary = order.slice(2);
-  const label = (k: MetricKey) => t(`home.v4.snapshot.metric.${k}.label` as MessageKey);
+  const label = (k: MetricKey) => t(metricLabelKey(k, access.state === "ready" ? access.value : null) as MessageKey);
   const meaning = (k: MetricKey) => t(`home.v4.snapshot.metric.${k}.meaning` as MessageKey);
 
   return (
@@ -375,7 +408,7 @@ function SnapshotCard({ data, businessId, retry, locale }: { data: HomeV4Data; b
         <>
           <div className={`h4-tiles${primary.length === 1 ? " h4-tiles--one" : ""}`}>
             {primary.map((k, i) => (
-              <MetricTile key={k} k={k} tone={i === 0 ? "a" : "b"} value={metricValue(k, data, now, locale)} label={label(k)} meaning={meaning(k)} onRetry={retry} />
+              <MetricTile key={k} k={k} tone={i === 0 ? "a" : "b"} value={metricValue(k, data, now, locale)} label={label(k)} meaning={meaning(k)} zero={t(`home.v4.snapshot.metric.${k}.zero` as MessageKey)} onRetry={retry} />
             ))}
           </div>
           {secondary.length > 0 ? (
@@ -419,7 +452,7 @@ function SnapshotCard({ data, businessId, retry, locale }: { data: HomeV4Data; b
   );
 }
 
-function MetricTile({ k, tone, value, label, meaning, onRetry }: { k: MetricKey; tone: "a" | "b"; value: MetricValue; label: string; meaning: string; onRetry: () => void }) {
+function MetricTile({ k, tone, value, label, meaning, zero, onRetry }: { k: MetricKey; tone: "a" | "b"; value: MetricValue; label: string; meaning: string; zero: string; onRetry: () => void }) {
   const { t } = useI18n();
   const Icon = METRIC_ICON[k];
   if (value.state === "loading") return <Skeleton h={92} r={18} />;
@@ -436,7 +469,7 @@ function MetricTile({ k, tone, value, label, meaning, onRetry }: { k: MetricKey;
       </div>
     );
   }
-  const note = value.zero ? t(`home.v4.snapshot.metric.${k}.zero` as MessageKey) : value.mixed ? t("home.v4.snapshot.mixedCurrency") : null;
+  const note = value.zero ? zero : value.mixed ? t("home.v4.snapshot.mixedCurrency") : null;
   return (
     <Link href={METRICS[k].href} prefetch={false} className={`h4-tile h4-tile--${tone}`} aria-label={`${label}: ${value.exact ? value.text : t("home.v4.snapshot.capped", { n: value.text.replace("+", "") })}. ${meaning}`}>
       <span className="h4-tile-label">
@@ -499,13 +532,19 @@ function MetricCustomizer({ open, onClose, order, primary, label, onChange }: {
 
 /* =========================================================== secretary == */
 
-function SecretaryCard({ data, businessId, retry, now }: { data: HomeV4Data; businessId: number | null; retry: () => void; now: Date }) {
-  const { t, locale } = useI18n();
+/** READY service cases for the secretary (drawn only with activity packs — buildSecretary decides). */
+function serviceReadyOf(data: HomeV4Data): { ids: number[]; exact: boolean } | null {
+  return data.serviceCases.state === "ready" ? { ids: data.serviceCases.value.readyIds, exact: data.serviceCases.value.ready.exact } : null;
+}
+
+function SecretaryCard({ data, businessId, retry, now, limitedCopy }: { data: HomeV4Data; businessId: number | null; retry: () => void; now: Date; limitedCopy: LimitedCopy | null }) {
+  const { locale } = useI18n();
+  const t = usePackT(data);
   const [dismissals, setDismissals] = useHomePref<SecretaryDismissals>(businessId, "secretary.dismissals", {});
   const view = useMemo(() => {
     if (data.access.state !== "ready") return data.access.state === "failed" ? FAILED : LOADING;
     const { waiting, partial } = waitingOf(data, now, t, locale);
-    return buildSecretary({ waiting, partial, access: data.access.value, history: valueOf(data.history), dismissals, now, t });
+    return buildSecretary({ waiting, partial, access: data.access.value, history: valueOf(data.history), dismissals, now, t, serviceReady: serviceReadyOf(data) });
   }, [data, now, t, locale, dismissals]);
 
   const chip =
@@ -553,9 +592,10 @@ function SecretaryCard({ data, businessId, retry, now }: { data: HomeV4Data; bus
   } else {
     const today = israelDateKey(now);
     body = (
-      <SecretaryBody title={view.title} desc={view.body}>
+      // FREE_LIMITED collection: the limited texts (never the reminder offer); empty until they load.
+      <SecretaryBody title={view.title} desc={view.limited ? limitedCopy?.collectionBody ?? "" : view.body}>
         <Link href={view.href} prefetch={false} className="h4-btn">
-          {view.cta}
+          {view.limited ? limitedCopy?.collectionCta ?? view.cta : view.cta}
           <IconArrowForward size={18} />
         </Link>
         <button
@@ -695,8 +735,9 @@ function activityOf(data: HomeV4Data, t: ReturnType<typeof useI18n>["t"], locale
   );
 }
 
-function ForYouCard({ data, businessId, now }: { data: HomeV4Data; businessId: number | null; now: Date }) {
-  const { t, locale } = useI18n();
+function ForYouCard({ data, businessId, now, limited }: { data: HomeV4Data; businessId: number | null; now: Date; limited: LimitedKit | null }) {
+  const { locale } = useI18n();
+  const t = usePackT(data);
   const [prefs, setPrefs] = useHomePref<ForYouPrefs>(businessId, "forYou", { hiddenTypes: [], dismissedIds: [] });
   const [secDismissals] = useHomePref<SecretaryDismissals>(businessId, "secretary.dismissals", {});
   const [menuOpen, setMenuOpen] = useState(false);
@@ -707,7 +748,7 @@ function ForYouCard({ data, businessId, now }: { data: HomeV4Data; businessId: n
     if (data.access.state !== "ready") return data.access.state === "failed" ? ({ state: "none" } as const) : ({ state: "loading" } as const);
     const access: HomeAccess = data.access.value;
     const { waiting, partial } = waitingOf(data, now, t, locale);
-    const sec = buildSecretary({ waiting, partial, access, history: valueOf(data.history), dismissals: secDismissals, now, t });
+    const sec = buildSecretary({ waiting, partial, access, history: valueOf(data.history), dismissals: secDismissals, now, t, serviceReady: serviceReadyOf(data) });
     const today = buildToday({ appointments: data.appointments, tasks: { state: "off" }, now, t });
     return buildForYou({
       access,
@@ -726,6 +767,12 @@ function ForYouCard({ data, businessId, now }: { data: HomeV4Data; businessId: n
 
   // Nothing true to offer: the area stays out of the way rather than filling a card.
   if (view.state === "none") return null;
+
+  // FREE_LIMITED (owner decision 3): the area is one plan card — the second and last upgrade mention on the Home.
+  if (view.state === "plan") {
+    if (!limited) return null; // its texts and card are still loading (FREE_LIMITED only)
+    return <limited.PlanCard copy={limited.copy} planHref={data.access.state === "ready" ? data.access.value.planHref ?? null : null} title={t("home.v4.forYou.title")} />;
+  }
 
   return (
     <section className="h4-card h4-a-fy" aria-labelledby="h4-fy-title">
