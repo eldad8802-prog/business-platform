@@ -1,0 +1,90 @@
+name: service desk — open for every business lab (migration 20261221190000)
+
+# Migration 20261221190000 (service_desk definition default ON + policy global ON) on the Service Desk lab (PG17,
+# Production role topology): the chain as in Production, the real gate BEFORE the migration (pilot FULL, everyone else
+# NONE), the read-only preflight file, the apply the way release-migrate does it (prisma migrate deploy: what the ledger
+# holds + this one only), the read-only evidence file, then the real gate / services / RLS / HTTP edge AFTER it. The
+# battery follows the catalog default in code: OFF (migration-only PR) ⇒ nothing new opens; ON (application PR) ⇒ every
+# business, existing and new, is open, isolated, and the emergency + global switches still close. Synthetic only.
+
+on:
+  pull_request:
+    paths:
+      - "prisma/migrations/20261221190000_service_desk_open_all/**"
+      - "lib/services/feature-access/**"
+      - "lib/services/service-desk/service-desk-gate.ts"
+      - "lib/services/service-desk/service-desk-http.ts"
+      - ".sdoa/**"
+      - ".github/workflows/service-desk-open-all-lab.yml"
+      - "ops/evidence/service-desk-open-all-*.sql"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: service desk open-all (PG17, runtime role, 20261221190000)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: sdoa_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: sdoa_ci_synthetic_super_pw
+      LAB_PASSWORD: sdoa_ci_synthetic_role_pw
+      AUTH_TOKEN_SECRET: sdoa-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: sdoa-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      OWNER_URL: postgresql://lab_owner:sdoa_ci_synthetic_role_pw@localhost:5432/sdoa
+      DATABASE_URL: postgresql://app_runtime_prod:sdoa_ci_synthetic_role_pw@localhost:5432/sdoa?connection_limit=10
+      DIRECT_URL: postgresql://app_runtime_prod:sdoa_ci_synthetic_role_pw@localhost:5432/sdoa
+      AUTH_DATABASE_URL: postgresql://lab_owner:sdoa_ci_synthetic_role_pw@localhost:5432/sdoa
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab — the Service Desk chain through M1
+        run: |
+          set -euo pipefail
+          bash .sd3p4/lab.sh sdoa >/dev/null
+          bash .sd3p4/lab.sh sdoa --deploy-only >/dev/null
+          bash .sdm1/chain.sh sdoa | tail -n 3
+      - name: A7 (20261214090000) as in Production — the release-migrate shape
+        run: bash .sdcr/stage.sh 20261214090000_service_desk_case_fields
+      - name: Battery BEFORE 20261221190000 — pilot FULL, every other business NONE
+        run: |
+          set -euo pipefail
+          npx tsx .sdoa/battery.mts before | tee /tmp/before.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/before.out
+      - name: Read-only preflight file (ops/evidence/service-desk-open-all-preflight.sql) — READ ONLY, before the apply
+        run: bash .sdoa/evidence-proof.sh pre
+      - name: Apply — prisma migrate deploy over what the ledger holds + 20261221190000 only
+        run: bash .sdcr/stage.sh 20261221190000_service_desk_open_all
+      - name: Read-only evidence file (ops/evidence/service-desk-open-all-production-evidence.sql) — privileges, policies, rows unchanged
+        run: bash .sdoa/evidence-proof.sh post
+      - name: Battery AFTER — the gate, services, RLS and HTTP edge (expectations follow the catalog default in code)
+        run: |
+          set -euo pipefail
+          npx tsx .sdoa/battery.mts after | tee /tmp/after.out
+          grep -qE '^[0-9]+ passed, 0 failed$' /tmp/after.out
