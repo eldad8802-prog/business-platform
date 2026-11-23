@@ -388,8 +388,8 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       key: PLATFORM_FEATURE_KEYS.ACTIVITY_PACKS,
       displayName: "חבילות פעילות",
       category: "experience",
-      description: "התאמת מסך הבית, הסרגל והכלים לתחומי הפעילות שבעל העסק בחר — תצוגה בלבד, כבוי כברירת מחדל",
-      defaultEnabled: false,
+      description: "התאמת מסך הבית, הסרגל והכלים לתחומי הפעילות שבעל העסק בחר — תצוגה בלבד, פתוח לכל העסקים",
+      defaultEnabled: true,
       mutable: true,
     },
   ];
