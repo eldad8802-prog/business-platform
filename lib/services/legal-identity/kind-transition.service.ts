@@ -10,9 +10,7 @@
 import type { KindTransitionDbStatus, KindTransitionState } from "@/lib/legal-identity/kind-transition";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
-export function isBusinessKindTransitionEnabled(): boolean {
-  return process.env.BUSINESS_KIND_TRANSITION_ENABLED === "true";
-}
+export { isBusinessKindTransitionEnabled } from "@/lib/legal-identity/kind-transition-flag";
 
 export type KindTransitionHistory = {
   fromKind: string;

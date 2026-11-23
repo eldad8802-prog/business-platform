@@ -1,0 +1,10 @@
+{
+  "note": "Service Desk pilot review (2026-11-21): a quote opened from a service case links back to the case. The return path accepted on /billing and /billing/[id] is ONLY an exact /service-desk/cases/<id> path (no other path, query, host or scheme) — the open-redirect guard of the new ?returnTo= parameter.",
+  "tests": {
+    "lib/navigation/service-case-return.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): an exact case path is accepted; an empty value, id 0, a sub-path, a protocol-relative or absolute URL, a query, another app path, a javascript: URL and an over-long id are all refused (no open redirect through returnTo)"
+    }
+  }
+}

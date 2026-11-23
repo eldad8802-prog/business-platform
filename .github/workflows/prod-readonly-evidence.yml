@@ -196,6 +196,8 @@ on:
           - 'ops/evidence/business-kind-transition-production-evidence.sql'
           - 'ops/evidence/service-desk-ui-erasure-text-preflight.sql'
           - 'ops/evidence/service-desk-ui-erasure-text-production-evidence.sql'
+          - 'ops/evidence/service-desk-case-records-preflight.sql'
+          - 'ops/evidence/service-desk-case-records-production-evidence.sql'
           - 'ops/evidence/issuer-declaration-preflight.sql'
           - 'ops/evidence/issuer-declaration-production-evidence.sql'
           - 'ops/evidence/notification-engine-foundation-preflight.sql'
@@ -208,6 +210,8 @@ on:
           - 'ops/evidence/notification-task-reminder-delivery-business-9.sql'
           - 'ops/evidence/notification-docs-appointments-preflight.sql'
           - 'ops/evidence/notification-docs-appointments-production-evidence.sql'
+          - 'ops/evidence/notifications-engine-open-all-preflight.sql'
+          - 'ops/evidence/notifications-engine-open-all-production-evidence.sql'
 
 permissions:
   contents: read

@@ -139,6 +139,7 @@ export const billingEn: Widen<typeof billingHe> = {
     openDocument: "Open document",
   },
   detail: {
+    backToServiceCase: "Back to the service case",
     missingId: "Document ID is missing",
     loadError: "An error occurred while loading the document",
     badResponse: "Received an invalid response",

@@ -133,6 +133,7 @@ jobs:
             [[ "$n" != "20261127090000_service_desk_tracks" ]] || continue
             # A7 case fields (Draft): builds on ServiceCase (columns, loan table FK, Task link); its own lab (service-desk-a7-lab.yml).
             [[ "$n" != "20261214090000_service_desk_case_fields" ]] || continue
+            [[ "$n" != "20261222090000_service_desk_case_records" ]] || continue
             # The deleted-user fix: replaces the body of service_user_same_business() in place, nothing else; its own lab
             # (service-user-same-business-fix-lab.yml) proves what it does.
             [[ "$n" != "20261124090000_service_user_same_business_fix" ]] || continue

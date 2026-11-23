@@ -19,6 +19,7 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 import { DocumentProductionSheet } from "@/features/business-documents/document-production-sheet";
 import { blocksTaxInvoiceEntry, parseProductionEntry } from "@/features/business-documents/document-production-model";
+import { serviceCaseReturnPath } from "@/lib/navigation/service-case-return";
 import { useBusinessKind } from "@/features/business-documents/use-business-kind";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 import type { MessageKey, Translator } from "@/lib/i18n/translate";
@@ -141,6 +142,7 @@ export default function BillingHubPage() {
   const [queuedCreate, setQueuedCreate] = useState<"TAX_INVOICE" | "QUOTE" | null>(null);
   const [exemptNoticeOpen, setExemptNoticeOpen] = useState<boolean>(false);
   const [productionCustomer, setProductionCustomer] = useState<{ customerId: number | null; customerName: string | null }>({ customerId: null, customerName: null });
+  const [serviceCaseReturn, setServiceCaseReturn] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [createDocumentType, setCreateDocumentType] = useState<
     "TAX_INVOICE" | "QUOTE"
@@ -326,12 +328,20 @@ export default function BillingHubPage() {
       return;
     }
     const type = createParam === "QUOTE" ? "QUOTE" : "TAX_INVOICE";
+    // A quote opened from a service case: the case's customer pre-fills the dialog (still changeable) and the new
+    // document offers the way back to the case (lib/navigation/service-case-return.ts). Nothing else changes.
+    if (type === "QUOTE") prefillQuoteFromServiceCase(parseProductionEntry(searchParams), serviceCaseReturnPath(searchParams.get("returnTo")));
     router.replace("/billing");
     requestCreate(type);
     // openCreateFlow reads identity state that is settled by the time a user
     // can act; re-running on every change would re-open the modal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createParam, documentsState]);
+
+  function prefillQuoteFromServiceCase(customer: { customerId: number | null; customerName: string | null }, back: string | null) {
+    if (customer.customerId !== null) setProductionCustomer(customer);
+    setServiceCaseReturn(back);
+  }
 
   function openProductionList(customer: { customerId: number | null; customerName: string | null }) {
     setProductionCustomer(customer);
@@ -1024,7 +1034,7 @@ export default function BillingHubPage() {
           initialCustomer={productionCustomer.customerId !== null ? { id: productionCustomer.customerId, name: productionCustomer.customerName } : null}
           onClose={() => setCreateOpen(false)}
           onCreated={(id) => {
-            router.push(`/billing/${id}`);
+            router.push(serviceCaseReturn ? `/billing/${id}?returnTo=${encodeURIComponent(serviceCaseReturn)}` : `/billing/${id}`);
           }}
         />
       ) : null}
