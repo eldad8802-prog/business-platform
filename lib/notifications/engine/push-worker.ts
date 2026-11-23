@@ -28,9 +28,9 @@
  *      feature unavailable ⇒ 'feature_off'; preferences say no push ⇒ 'pref_off'; digest mode ⇒ 'to_digest';
  *      quiet hours (no bypass) ⇒ nextAttemptAt = their end (or 'quiet' when that is past the expiry); per-user rate
  *      limit ⇒ 'rate_limited'.
- *   4. Devices: the user's live subscriptions; FCM needs a LIVE login session (auth_sessions_live), web push bound
- *      to a session needs it live, legacy web push with no session is allowed; providers without configuration are
- *      skipped.
+ *   4. Devices: the user's live subscriptions; every device (FCM or web push) needs a LIVE login session
+ *      (auth_sessions_live) — a legacy web push row with no session is never pushed (open-all 2026-11-23); providers
+ *      without configuration are skipped.
  *   5. Send (unified sender), OUTSIDE any transaction; then one SENT / FAILED row per device (subscriptionId,
  *      userId). Gone ⇒ the subscription is revoked ('gone'). Transient ⇒ attempts + 1 and a backoff (1 m, 5 m,
  *      15 m, 1 h; the 5th failure ends it); only devices not yet done are tried again. Done ⇒ completedAt.

@@ -99,12 +99,14 @@ const SNAPSHOT: BusinessStatusItem[] = [...pending, ...pdfFailed, ...leads, ...s
 type Calls = {
   snapshot: number[]; scopes: SweepScopeId[][]; persist: { b: number; keys: string[]; now: Date }[]; resolve: { b: number; scope: string; keys: readonly string[] }[];
   reconcile: string[]; tenant: number[]; producers: number[]; kicked: number[];
+  /** Activation observations, in order, with the persist count at that moment (observed BEFORE any write). */
+  observed: { b: number; on: boolean; persistedBefore: number }[];
 };
 function gatesOf(engineOn: boolean, off: string[] = []): BusinessGates {
   return { engineOn, cutoverAt: null, categoryAvailable: (c: CategoryDefinition) => !(c.featureKey && off.includes(c.featureKey)) };
 }
 function fakes(opts: { engineOn?: boolean; off?: string[]; leadsComplete?: boolean; snapshot?: BusinessStatusItem[]; failFor?: number; producerPush?: boolean; writerPush?: boolean } = {}) {
-  const calls: Calls = { snapshot: [], scopes: [], persist: [], resolve: [], reconcile: [], tenant: [], producers: [], kicked: [] };
+  const calls: Calls = { snapshot: [], scopes: [], persist: [], resolve: [], reconcile: [], tenant: [], producers: [], kicked: [], observed: [] };
   let inTenant = 0;
   const deps: Partial<StatusSweepDeps> = {
     gates: async () => gatesOf(opts.engineOn ?? true, opts.off ?? []),
@@ -132,6 +134,7 @@ function fakes(opts: { engineOn?: boolean; off?: string[]; leadsComplete?: boole
       return { leaseBusy: false, ran: 4, unavailable: 1, incomplete: 0, failed: 0, events: 2, notified: 2, owedPush: opts.producerPush ? 1 : 0, resolved: 0 };
     },
     kick: (b) => { calls.kicked.push(b); },
+    observe: async (b, on) => { calls.observed.push({ b, on, persistedBefore: calls.persist.length }); return "observed"; },
   };
   return { calls, deps };
 }
@@ -146,6 +149,7 @@ async function main() {
     ok("engine OFF: no tenant work, no read, no write, no resolve, no reconcile, no state producer, no kick",
       calls.tenant.length === 0 && calls.snapshot.length === 0 && calls.persist.length === 0 && calls.resolve.length === 0 && calls.reconcile.length === 0 && calls.producers.length === 0 && calls.kicked.length === 0, calls);
     ok("engine OFF: counted", r.engineOff === 1 && r.swept === 0, r);
+    ok("engine OFF: no activation observation", calls.observed.length === 0 && r.observed === 0, calls.observed);
     const throwing: Partial<StatusSweepDeps> = { ...deps, gates: async () => { throw new Error("caps"); } };
     const r2 = await run(throwing);
     ok("a gate failure is an error, never a write", r2.errors === 1 && calls.persist.length === 0, r2);
@@ -155,6 +159,9 @@ async function main() {
   {
     const { calls, deps } = fakes();
     const r = await run(deps);
+    ok("engine ON: the activation is observed once, ON, BEFORE the pass writes anything (first pushes not pre_cutover)",
+      calls.observed.length === 1 && calls.observed[0]!.b === B && calls.observed[0]!.on === true && calls.observed[0]!.persistedBefore === 0 &&
+      calls.persist.length > 0 && r.observed === 1, { observed: calls.observed, r });
     const keys = calls.persist[0]?.keys ?? [];
     const want = [...pending, ...pdfFailed, ...leads, ...supplier].map((i) => buildDedupeKey(B, i)).sort();
     ok("one writer call, inside the business's tenant", calls.persist.length === 1 && calls.tenant.join() === String(B), calls.tenant);
@@ -373,7 +380,9 @@ async function main() {
   ok("route: maxDuration 60 and a budget under it", /maxDuration = 60/.test(route) && /BUDGET_MS = 45_000/.test(route));
   ok("sweep: the state producers and the kick are wired (default deps)", /stateProducers: \(businessId, gates, now\) => runStateProducers\(businessId, gates, now\)/.test(code("lib/notifications/producers/status-sweep.ts")) && /kick: kickPushWorkerAfterResponse/.test(code("lib/notifications/producers/status-sweep.ts")));
   const vercel = fs.existsSync(path.join(root, "vercel.json")) ? read("vercel.json") : "";
-  ok("route: not scheduled in vercel.json", !vercel.includes("/api/notifications/status-sweep"));
+  const sweepCrons = ((JSON.parse(vercel || "{}") as { crons?: { path: string; schedule: string }[] }).crons ?? []).filter((c) => c.path === "/api/notifications/status-sweep");
+  ok("route: scheduled once in vercel.json, every 15 minutes (owner 2026-11-23: the engine open for every business)", sweepCrons.length === 1 && sweepCrons[0]!.schedule === "*/15 * * * *", sweepCrons);
+  ok("sweep: the activation observation is wired (default deps)", /observe: observeActivation/.test(code("lib/notifications/producers/status-sweep.ts")));
   const sweep = code("lib/notifications/producers/status-sweep.ts");
   const logs = sweep.match(/console\.\w+\([^;]*;/g) ?? [];
   ok("sweep: one log line, counts only", logs.length === 1 && /JSON\.stringify\(report\)/.test(logs[0]!), logs);

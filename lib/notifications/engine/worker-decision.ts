@@ -223,16 +223,18 @@ export function retryAfter(attempts: number, now: Date): Date | null {
 export type DeviceRow = { id: number; provider: string; authSessionId: string | null };
 
 /**
- * Which of the user's live devices may be pushed to: an FCM device only with a LIVE login session; a web push
- * device bound to a session only while it is live; a legacy web push device with no session (subscribed before
- * the engine) is allowed — its own revocation is the guarantee. A provider this deployment has no configuration
- * for is skipped.
+ * Which of the user's live devices may be pushed to: every device (FCM or web push) only with a LIVE login session
+ * of its own user. A legacy web push row with no session (subscribed before session binding, or on a computer
+ * signed out while the engine was OFF — logout then revoked only FCM devices) is never pushed by the engine (owner
+ * decision 2026-11-23, the engine open for every business): its user's next visit re-binds it to the live session
+ * (POST /api/push/subscriptions { refresh: true } — the same user only, never re-assigned). A provider this
+ * deployment has no configuration for is skipped.
  */
 export function eligibleDevices<T extends DeviceRow>(devices: readonly T[], liveSessions: ReadonlySet<string>, configured: (provider: string) => boolean): T[] {
   return devices.filter((d) => {
     if (!configured(d.provider)) return false;
     if (d.provider === "FCM") return d.authSessionId !== null && liveSessions.has(d.authSessionId);
-    if (d.provider === "WEB_PUSH") return d.authSessionId === null || liveSessions.has(d.authSessionId);
+    if (d.provider === "WEB_PUSH") return d.authSessionId !== null && liveSessions.has(d.authSessionId);
     return false;
   });
 }

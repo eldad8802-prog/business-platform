@@ -101,14 +101,19 @@ async function main() {
       select: { id: true },
     })).id;
   };
-  const web = (b: number, u: number, tag: string) =>
-    owner.pushSubscription.create({ data: { businessId: b, userId: u, endpoint: `https://fcm.googleapis.com/fcm/send/${tag}-${stamp}`, p256dh: "BPk", auth: "au", platform: "desktop" } });
+  // A browser subscription bound to the login session that subscribed it (the subscribe route stores ctx.sessionId);
+  // sessionId null = a legacy row subscribed before session binding.
+  const web = (b: number, u: number, tag: string, sessionId: string | null = null) =>
+    owner.pushSubscription.create({ data: { businessId: b, userId: u, endpoint: `https://fcm.googleapis.com/fcm/send/${tag}-${stamp}`, p256dh: "BPk", auth: "au", platform: "desktop", authSessionId: sessionId } });
 
   // devices: e1 = phone (FCM, live session) + browser; e2 = phone; l1 (engine OFF) = phone + browser
   const sE1 = await session(e1);
   const tE1 = tok("e1");
   await dev.registerFcmDevice({ businessId: E, userId: e1, sessionId: sE1 }, { token: tE1, platform: "android", appVersion: "1.1.0+2" }, NOW);
-  const wE1 = await web(E, e1, "e1");
+  const wE1 = await web(E, e1, "e1", await session(e1)); // the browser has its own login session, not the phone's
+  // the same user's legacy browser row with no session (e.g. a shared computer signed out while the engine was OFF):
+  // the engine never pushes to it (owner 2026-11-23, open-all: a push needs a live session on every provider).
+  const wE1Legacy = await web(E, e1, "e1-legacy");
   const tE2 = tok("e2");
   await dev.registerFcmDevice({ businessId: E, userId: e2, sessionId: await session(e2) }, { token: tE2, platform: "android", appVersion: "1.1.0+2" }, NOW);
   const tL1 = tok("l1");
@@ -141,6 +146,7 @@ async function main() {
     ok("the phone (FCM) got it once, urgent channel", s.fcm.length === 1 && s.fcm[0].token === tE1 && s.fcm[0].channel === "dubiz_urgent", s.fcm.map((x) => x.channel));
     ok("…with the task's link and the category", s.fcm[0]?.data.href === `/tasks?task=${t1}` && s.fcm[0]?.data.category === "tasks.reminder", s.fcm[0]?.data);
     ok("the browser (web push) got it once", s.web.length === 1 && s.web[0].endpoint === wE1.endpoint);
+    ok("a browser row with NO session never gets an engine push", !s.web.some((x) => x.endpoint === wE1Legacy.endpoint), s.web.map((x) => x.endpoint));
     ok("another user's phone never", !s.fcm.some((x) => x.token === tE2));
     const b1 = await bell(E, t1);
     ok("the bell keeps the reminder (in-app row)", b1 !== null && (await owner.notificationDelivery.count({ where: { notificationId: b1!.id, channel: "IN_APP", status: "SENT" } })) === 1);

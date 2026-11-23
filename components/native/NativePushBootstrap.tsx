@@ -8,8 +8,9 @@ import { Capacitor } from "@capacitor/core";
  * Native push wiring for the authenticated app. Renders nothing.
  *
  * Mounted by the outermost RefreshCoordinator once its gate is open, i.e. only on
- * authenticated screens and only after the session was decided. In a browser it does
- * nothing at all. In the Android app it wires the tap / foreground listeners and
+ * authenticated screens and only after the session was decided. In a browser it only
+ * re-binds an ALREADY granted push subscription to this session (refreshPushBinding —
+ * silent, same user only, never a prompt). In the Android app it wires the tap / foreground listeners and
  * re-registers the device ONLY when the notification permission was already granted —
  * it never asks for the permission (lib/native/push-notifications.ts).
  *
@@ -26,7 +27,18 @@ export function NativePushBootstrap() {
     } catch {
       isAndroid = false;
     }
-    if (!isAndroid) return;
+    if (!isAndroid) {
+      // A browser whose person already turned push on: re-bind its subscription to this login session (silent, no
+      // prompt, same user only — the engine pushes only to devices with a live session). Loaded on demand.
+      let granted = false;
+      try {
+        granted = typeof Notification !== "undefined" && Notification.permission === "granted" && "serviceWorker" in navigator;
+      } catch {
+        granted = false;
+      }
+      if (granted) void import("@/lib/push/push-client").then((p) => p.refreshPushBinding()).catch(() => {});
+      return;
+    }
     let cancelled = false;
     let detach: (() => void) | null = null;
     void import("@/lib/native/push-notifications")

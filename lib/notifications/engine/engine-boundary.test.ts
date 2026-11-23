@@ -30,11 +30,23 @@ const code = (f: string) => read(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^
 
 console.log("1. cron routes");
 const vercel = fs.existsSync(path.join(root, "vercel.json")) ? read("vercel.json") : "";
-for (const r of ["app/api/notifications/worker/route.ts", "app/api/notifications/digest/route.ts"]) {
+// Scheduled since the engine opened for every business (owner 2026-11-23): without a worker pass nothing deferred to
+// the end of quiet hours, no retry and no appointment reminder would ever be sent; the sweep records each business's
+// activation and feeds the state producers; the digest is daily per user. Each route is CRON_SECRET-only and idempotent.
+const CRON_SCHEDULE: Record<string, string> = {
+  "app/api/notifications/worker/route.ts": "*/5 * * * *",
+  "app/api/notifications/status-sweep/route.ts": "*/15 * * * *",
+  "app/api/notifications/digest/route.ts": "*/30 * * * *",
+  "app/api/task-reminders/backstop/route.ts": "*/10 * * * *",
+};
+const crons = (JSON.parse(vercel || "{}") as { crons?: { path: string; schedule: string }[] }).crons ?? [];
+for (const [r, schedule] of Object.entries(CRON_SCHEDULE)) {
   const c = code(r);
+  const p = r.replace(/^app/, "").replace(/\/route\.ts$/, "");
   ok(`${r}: decideCronAuth`, /decideCronAuth\(req\.headers\.get\("authorization"\)\)/.test(c));
   ok(`${r}: never reads CRON_SECRET itself, never a session`, !/process\.env\.CRON_SECRET|getAuthContext|getCurrentUser/.test(c));
-  ok(`${r}: not scheduled in vercel.json`, !vercel.includes(r.replace(/^app/, "").replace(/\/route\.ts$/, "")));
+  ok(`${r}: answers GET (Vercel cron calls GET)`, /export async function GET\(/.test(c));
+  ok(`${r}: scheduled exactly once in vercel.json, ${schedule}`, crons.filter((x) => x.path === p).length === 1 && crons.find((x) => x.path === p)?.schedule === schedule, crons.filter((x) => x.path === p));
 }
 
 console.log("2. session routes");
@@ -98,6 +110,33 @@ const writer = code("lib/notifications/notification-writer.ts");
 ok("the writer gives owed PUSH rows an expiresAt", /channel === "PUSH" \? \{ expiresAt: pushExpiresAt \}/.test(writer));
 const wps = code("lib/push/web-push-sender.ts");
 ok("web-push-sender API intact", /export async function sendWebPush\(target: PushTarget, payload: PushPayload, env: Env = process\.env\): Promise<PushOutcome>/.test(wps) && /TTL: 24 \* 60 \* 60/.test(wps));
+
+console.log("6. open-all device guarantees (owner 2026-11-23)");
+const wd = code("lib/notifications/engine/worker-decision.ts");
+ok("every provider needs a LIVE session: web push with no session is never eligible",
+  /if \(d\.provider === "WEB_PUSH"\) return d\.authSessionId !== null && liveSessions\.has\(d\.authSessionId\);/.test(wd) &&
+  /if \(d\.provider === "FCM"\) return d\.authSessionId !== null && liveSessions\.has\(d\.authSessionId\);/.test(wd));
+const subs = code("app/api/push/subscriptions/route.ts");
+const refreshBranch = subs.slice(subs.indexOf("if (b?.refresh === true)"), subs.indexOf("const row = await tenantTx("));
+ok("refresh: a branch of its own, before the create/upsert", subs.includes("if (b?.refresh === true)") && refreshBranch.length > 0 && subs.indexOf("if (b?.refresh === true)") < subs.indexOf("pushSubscription.create("));
+ok("refresh: only the SAME user's NOT revoked web push row of this endpoint, in this business",
+  /updateMany\(\{\s*where: \{ businessId, endpoint, userId: user\.id, provider: "WEB_PUSH", revokedAt: null \}/.test(refreshBranch));
+ok("refresh: binds the request's session only; never creates, never re-assigns, never revives",
+  /data: \{ authSessionId, p256dh, auth, platform \}/.test(refreshBranch) && !/\.create\(|userId: user\.id, p256dh|revokedAt: null, revokedReason/.test(refreshBranch.replace(/where: \{[^}]*\}/, "")) &&
+  /if \(!authSessionId\) return NextResponse\.json\(\{ ok: true, refreshed: 0 \}\);/.test(refreshBranch));
+const pc = code("lib/push/push-client.ts");
+const refreshFn = pc.slice(pc.indexOf("export async function refreshPushBinding"), pc.indexOf("export async function disablePush"));
+ok("refreshPushBinding: never asks, never subscribes; only an already granted, existing subscription",
+  refreshFn.length > 0 && !/requestPermission|pushManager\.subscribe/.test(refreshFn) && /Notification\.permission !== "granted"/.test(refreshFn) && /if \(!sub\) return false;/.test(refreshFn) && /refresh: true/.test(refreshFn));
+const boot = code("components/native/NativePushBootstrap.tsx");
+ok("bootstrap: the browser branch only re-binds a granted subscription, loaded on demand",
+  /Notification\.permission === "granted"/.test(boot) && /import\("@\/lib\/push\/push-client"\)\.then\(\(p\) => p\.refreshPushBinding\(\)\)/.test(boot) && !/requestPermission|enablePush/.test(boot));
+const devRoute = code("app/api/push/devices/route.ts");
+ok("device answer: the account is the session's own business and user, nothing else (never the token)",
+  /account: `b\$\{actor\.businessId\}u\$\{actor\.userId\}`/.test(devRoute) && !/token[^A-Za-z]/.test(devRoute.slice(devRoute.indexOf("return json({ ok: true"), devRoute.indexOf("return json({ ok: true") + 160)));
+const np = code("lib/native/push-notifications.ts");
+ok("phone: the token is rotated only on an account change, once per page, after a delay; the account format is checked",
+  /\/\^b\\d\{1,10\}u\\d\{1,10\}\$\//.test(np) && /if \(prev === account\) return;/.test(np) && /rotated = true;/.test(np) && /await p\.unregister\(\);/.test(np) && /ROTATE_DELAY_MS/.test(np));
 
 console.log(`\n[engine-boundary] PASS=${passed} FAIL=${failed}`);
 if (failed > 0) process.exit(1);

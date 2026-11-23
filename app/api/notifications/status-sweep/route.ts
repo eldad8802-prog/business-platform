@@ -16,7 +16,7 @@ import { decideCronAuth } from "@/lib/services/billing/settlement/settlement-rec
  * Notification rows through the existing writer and the engine's notify() only. Bounded: a time budget under maxDuration; when it ends the
  * pass the answer carries `nextAfter` — call again with ?after=<nextAfter>. Counts only in the answer and the log.
  *
- * NOT scheduled in vercel.json: scheduling it is a separate owner decision.
+ * Scheduled in vercel.json since the engine opened for every business (owner decision 2026-11-23).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
