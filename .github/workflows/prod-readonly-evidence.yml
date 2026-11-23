@@ -182,6 +182,8 @@ on:
           - 'ops/evidence/activity-packs-preflight.sql'
           - 'ops/evidence/activity-packs-production-evidence.sql'
           - 'ops/evidence/activity-packs-pilot-business-9.sql'
+          - 'ops/evidence/activity-packs-open-all-preflight.sql'
+          - 'ops/evidence/activity-packs-open-all-production-evidence.sql'
           - 'ops/evidence/service-desk-pilot-business-9.sql'
           - 'ops/evidence/service-desk-handover-owner-confirmed-preflight.sql'
           - 'ops/evidence/service-desk-handover-owner-confirmed-production-evidence.sql'
