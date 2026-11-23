@@ -95,6 +95,14 @@ jobs:
           fi
           psql "$OWNER_URL" -X -tA -c "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ServiceCase' AND column_name = 'itemLocationNote'"
           psql "$OWNER_URL" -X -tA -c "SELECT to_regclass('public.\"ServiceCaseLoaner\"') IS NOT NULL"
+      - name: Lab only — 20261222090000 (the case history records the light case work) on top of A7, the shape Production has once it is applied
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(psql "$OWNER_URL" -X -tA -c "SELECT count(*) FROM pg_constraint WHERE conname = 'ServiceCaseEvent_case_records_in_place'")" = "0" ]; then
+            psql "$OWNER_URL" -X -q -v ON_ERROR_STOP=1 -f prisma/migrations/20261222090000_service_desk_case_records/migration.sql
+          fi
+          psql "$OWNER_URL" -X -tA -c "SELECT count(*) FROM pg_constraint WHERE conname = 'ServiceCaseEvent_case_records_in_place' AND convalidated"
       - name: Seed — business A (service_desk ON in this lab only) with four cases; business B (default OFF)
         run: mkdir -p "$LOCAL_STORAGE_ROOT" && npx tsx .sdui/seed.mts
       - run: npx playwright install --with-deps chromium
