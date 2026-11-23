@@ -14,7 +14,7 @@
  *      business created later, non-integers, strings, a missing id) is refused; closing / clearing stays open for every
  *      business, the pilot included; no other feature gains a pilot; the real service lets 9 through to the database
  *      layer and refuses any other business before it.
- *   G8 activity_packs (phase 2): gated with NO pilot — ENABLED is refused for every business, business 9 included;
+ *   G8 activity_packs (phase 2): pilot business 9 ONLY — ENABLED passes for 9 and is refused for every other id;
  *      closing / clearing stays open for every business.
  */
 import fs from "node:fs";
@@ -68,8 +68,8 @@ async function main() {
   ok("G3 an unknown feature key is not gated (it is refused as unknown elsewhere)", !isOwnerGatedFeature("not_a_feature"));
 
   // G7 — the pilot, pure
-  ok("G7 the pilot list is exactly { service_desk: [9] }",
-    JSON.stringify([...OWNER_PILOT_BUSINESSES].map(([k, v]) => [k, [...v]])) === JSON.stringify([["service_desk", [9]]]));
+  ok("G7 the pilot list is exactly { service_desk: [9], activity_packs: [9] }",
+    JSON.stringify([...OWNER_PILOT_BUSINESSES].map(([k, v]) => [k, [...v]])) === JSON.stringify([["service_desk", [9]], ["activity_packs", [9]]]));
   ok("G7 every pilot feature is a gated feature", [...OWNER_PILOT_BUSINESSES.keys()].every((k) => isOwnerGatedFeature(k)));
   ok("G7 service_desk ENABLED for business 9 passes", !refusedByOwnerGate(SD, "ENABLED", 9) && isOwnerPilotBusiness(SD, 9));
   for (const id of [8, 10, 1, 0, -9, 19, 90, 99, 109, 900, 10_000, 2_147_483_647, Number.MAX_SAFE_INTEGER]) {
@@ -87,15 +87,20 @@ async function main() {
     ok(`G7 business ${id}: DISABLED and INHERIT pass (instant switch-off stays open)`, !refusedByOwnerGate(SD, "DISABLED", id) && !refusedByOwnerGate(SD, "INHERIT", id));
   }
   ok("G7 no other feature gains a pilot: business 9 is not a pilot of any other key",
-    PLATFORM_FEATURE_CATALOG.map((e) => e.key).filter((k) => k !== SD).every((k) => !isOwnerPilotBusiness(k, 9)) && !isOwnerPilotBusiness("not_a_feature", 9));
+    PLATFORM_FEATURE_CATALOG.map((e) => e.key).filter((k) => k !== SD && k !== AP).every((k) => !isOwnerPilotBusiness(k, 9)) && !isOwnerPilotBusiness("not_a_feature", 9));
   ok("G7 other features stay ungated for business 9 and for others", others.every((k) => [9, 8].every((id) => !refusedByOwnerGate(k, "ENABLED", id))));
 
   // G8 — activity_packs: gated, no pilot (nobody can be switched on through the admin path until the owner names one)
   ok("G8 activity_packs is gated", isOwnerGatedFeature(AP));
-  ok("G8 activity_packs has no pilot business", !OWNER_PILOT_BUSINESSES.has(AP));
+  ok("G8 activity_packs ENABLED for business 9 passes (the owner-named pilot)", !refusedByOwnerGate(AP, "ENABLED", 9) && isOwnerPilotBusiness(AP, 9));
+  for (const v of ["enabled", "ON", "", null, undefined, 1, true]) {
+    ok(`G8 business 9 with state ${JSON.stringify(v) ?? "undefined"} is refused`, refusedByOwnerGate(AP, v, 9));
+  }
   for (const id of [9, 1, 8, 10, 1000]) {
-    ok(`G8 activity_packs ENABLED for business ${id} is refused`, refusedByOwnerGate(AP, "ENABLED", id) && !isOwnerPilotBusiness(AP, id));
     ok(`G8 business ${id}: activity_packs DISABLED and INHERIT pass`, !refusedByOwnerGate(AP, "DISABLED", id) && !refusedByOwnerGate(AP, "INHERIT", id));
+  }
+  for (const id of [1, 8, 10, 90, 99, 1000, 0, -9, 9.5, "9", Number.NaN]) {
+    ok(`G8 activity_packs ENABLED for business ${String(id)} is refused`, refusedByOwnerGate(AP, "ENABLED", id) && !isOwnerPilotBusiness(AP, id));
   }
   ok("G8 activity_packs ENABLED without a business id is refused", refusedByOwnerGate(AP, "ENABLED"));
 
