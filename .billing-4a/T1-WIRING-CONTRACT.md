@@ -72,9 +72,21 @@ Invariants the lab proved with this exact shape (`.billing-4a/t1-status-change.b
   today and must change with the wiring.
 - `.bkt/lab.sh` must stage 20261223090000 and 20261223100000 (or run on `.billing-4a/lab.sh --with-t1`).
 
-## 4. Release order (one release at a time; `release-migrate` applies every pending migration)
+- Legal-name whitespace: T1 compares the profile and the current declaration exactly, as DZD35 does. A legacy profile
+  whose legal name differs from the declaration only in edge whitespace gets `ISSUER_DECLARATION_IDENTITY_MISMATCH`
+  and nothing is written (lab: C5-ws, W5-ws). Such a profile is already stuck under DZD35/DZL04 today. Map the status
+  to a message that sends the owner to support; do not relax the comparison without an owner decision.
 
-1. Pending in Production before any of this: 20261216090000 (#1207) and 20261222090000 (#1224), each with its owner.
+## 4. Release order (`release-migrate` applies only the first pending migrations, in Prisma order)
+
+As of 2026-11-23 (read-only, from the release-migrate run history; #1207's `20261216090000_activity_packs` was applied
+on 2026-11-23 by run 45089844977):
+
+1. Pending in Production, ahead of 4a:
+   - `20261221190000_service_desk_open_all` (#1236, owner-approved);
+   - `20261222090000_service_desk_case_records` (#1224, "DO NOT APPLY", its owner decides).
+   Both belong to the Service Desk track. 4a cannot be applied before they are applied, or before one of them is
+   removed from main by its owner.
 2. 20261223090000 + 20261223100000 (this PR). Inert: no caller.
 3. The legal identity follow-up (wiring), in a later release, then the application changes from §3.
 4. Before the flag: an integrated test on the real migration, plus a Preview with a real Google account and a
@@ -82,6 +94,8 @@ Invariants the lab proved with this exact shape (`.billing-4a/t1-status-change.b
 
 ## 5. Still 4a's (not part of this contract)
 
-- The issuer-declaration status screen labels `KIND_LABEL` in `app/billing/issuer-declaration/shared.tsx` (A0).
-  Without a `STATUS_CHANGE` entry it falls back to showing the raw code; owner approval is needed (G1).
+- `KIND_LABEL` in `app/billing/issuer-declaration/shared.tsx` (A0) has no STATUS_CHANGE entry. It is reachable only
+  through `StatementTable showKind`, which has no caller today, so nothing shows the raw code. The status screen shows
+  the track ("עוסק מורשה"). An owner-approved one-line label is prepared separately (branch
+  `ui/billing-4a-status-change-label`).
 - T2, T3 and T4 are gates.

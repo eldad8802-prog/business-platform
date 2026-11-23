@@ -254,6 +254,25 @@ async function main() {
     const kindDrift = await business(); await declare(kindDrift);
     await owner.$executeRawUnsafe(`UPDATE "BusinessProfile" SET "billingBusinessKind" = 'AUTHORIZED_DEALER', "billingVatNumber" = "billingTaxId" WHERE "businessId" = $1`, kindDrift.businessId);
     ok("C5 profile already authorized while the declaration is exempt → IDENTITY_MISMATCH", (await writer(kindDrift.businessId, { user: kindDrift.userId, vat: kindDrift.taxId })).r === "IDENTITY_MISMATCH");
+    // Whitespace (4a T1 readiness item 3): the declaration records the trimmed profile name (issuer-declaration.service
+    // .trim()); every current profile write path trims too. Only a legacy row can carry edge whitespace.
+    for (const [label, name] of [["trailing space", LEGAL_NAME + " "], ["leading space", " " + LEGAL_NAME], ["double inner space", "דנה  כהן"]] as const) {
+      const ws = await business(); await declare(ws);
+      await owner.$executeRawUnsafe(`UPDATE "BusinessProfile" SET "billingLegalName" = $2 WHERE "businessId" = $1`, ws.businessId, name);
+      const r = await writer(ws.businessId, { user: ws.userId, vat: ws.taxId });
+      ok(`C5-ws profile legal name with a ${label} vs the declaration's → IDENTITY_MISMATCH, nothing written (exact comparison, as DZD35)`,
+        r.r === "IDENTITY_MISMATCH" && r.rows.length === 1, r.r);
+      // The same row under DZD35 today: re-sending the name as stored is accepted; writing the trimmed name is refused.
+      const same = await refusal(() => runtime.$transaction(async (tx) => {
+        await tx.$queryRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(ws.businessId));
+        await tx.$executeRawUnsafe(`UPDATE "BusinessProfile" SET "billingLegalName" = $2 WHERE "businessId" = $1`, ws.businessId, name);
+      }));
+      const trimmed = await refusal(() => runtime.$transaction(async (tx) => {
+        await tx.$queryRawUnsafe(`SELECT set_config('app.current_business_id', $1, true)`, String(ws.businessId));
+        await tx.$executeRawUnsafe(`UPDATE "BusinessProfile" SET "billingLegalName" = $2 WHERE "businessId" = $1`, ws.businessId, LEGAL_NAME);
+      }));
+      observed(`C5-ws DZD35/DZL04 today (${label}): re-send as stored / write the declaration's spelling`, { same, trimmed });
+    }
 
     const future = await business(); await declare(future, { effectiveFrom: "now() + interval '4 minutes'" });
     ok("C6 current record effective in the (near) future → DECLARATION_NOT_YET_EFFECTIVE, no chain-guard exception",
@@ -438,6 +457,15 @@ async function main() {
     const mres = await performKindTransition(mis.businessId, mis.userId, { vatNumber: mis.taxId, statusEffectiveDate: date, reauthMethod: "PASSWORD", reauthAt: new Date(), statementSha256: misSha });
     ok("W5 profile identity differs from the declaration → ISSUER_DECLARATION_IDENTITY_MISMATCH, nothing written",
       mres === "ISSUER_DECLARATION_IDENTITY_MISMATCH" && (await snap(mis.businessId)) === misBefore, mres);
+    // Legacy profile with a trailing space (every current write path trims; the declaration stored the trimmed name).
+    const wsW = await business(); await declare(wsW);
+    await owner.$executeRawUnsafe(`UPDATE "BusinessProfile" SET "billingLegalName" = $2 WHERE "businessId" = $1`, wsW.businessId, LEGAL_NAME + " ");
+    const wsBefore = await snap(wsW.businessId);
+    const wsSha = kindTransitionStatementSha256({ businessId: wsW.businessId, actorUserId: wsW.userId, legalName: LEGAL_NAME + " ", taxId: wsW.taxId, vatNumber: wsW.taxId, statusEffectiveDate: date });
+    const wsRes = await performKindTransition(wsW.businessId, wsW.userId, { vatNumber: wsW.taxId, statusEffectiveDate: date, reauthMethod: "PASSWORD", reauthAt: new Date(), statementSha256: wsSha });
+    observed("W5-ws transition of a legacy profile whose legal name has a trailing space (declaration trimmed)", wsRes);
+    ok("W5-ws trailing-space-only difference → ISSUER_DECLARATION_IDENTITY_MISMATCH, nothing written (today's exact rule: fail closed)",
+      wsRes === "ISSUER_DECLARATION_IDENTITY_MISMATCH" && (await snap(wsW.businessId)) === wsBefore, wsRes);
 
     // duplicates: parallel and repeated requests
     const par = await business(); await declare(par);
