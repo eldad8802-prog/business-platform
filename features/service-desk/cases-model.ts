@@ -33,7 +33,12 @@ export type CaseRowData = {
   updatedAt: string;
 };
 
-export type Tone = "attention" | "active" | "ready" | "done";
+/**
+ * The status colour family (owner-approved palette, 2026-11-24 — no green in the module): new = neutral, active = blue
+ * (work in progress), attention = amber (waiting), ready / done = light bordeaux with a check (positive, completed),
+ * danger = red (cancelled / not collected). Every tone is also carried by the status words, never by colour alone.
+ */
+export type Tone = "new" | "active" | "attention" | "ready" | "done" | "danger";
 
 const STATUS_LABEL: Readonly<Record<CaseStatus, string>> = {
   OPEN: "נפתח",
@@ -68,9 +73,11 @@ export function isClosed(status: CaseStatus): boolean {
 }
 
 export function statusTone(status: CaseStatus, holdReason: string | null = null): Tone {
+  if (status === "CANCELLED" || status === "ABANDONED") return "danger";
   if (isClosed(status)) return "done";
   if (status === "READY" || status === "WORK_DONE") return "ready";
-  if (status === "QUOTE_PENDING" || status === "OPEN" || holdReason) return "attention";
+  if (status === "QUOTE_PENDING" || holdReason) return "attention";
+  if (status === "OPEN" || status === "SCHEDULED" || status === "CHECKED_IN") return "new";
   return "active";
 }
 

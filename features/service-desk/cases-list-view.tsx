@@ -83,7 +83,7 @@ export function CasesListView(p: CasesListViewProps) {
         <header className={s.head}>
           {p.back}
           <div className={s.headTitles}>
-            <h1 className={s.title}>תיקי שירות</h1>
+            <h1 className={s.title}>תיקונים ושירות</h1>
             <p className={s.subtitle}>{counts.all} פתוחים{counts.attention ? ` · ${counts.attention} דורשים טיפול` : ""}</p>
           </div>
           <a className={s.headLink} href={p.settingsHref}>הגדרות</a>
