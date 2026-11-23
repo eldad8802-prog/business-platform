@@ -17,8 +17,10 @@
  * service_desk: the owner chose business 9 (the platform's test business) for the first pilot (2026-11-20). Before any
  * further business: the shared storage-erasure sweep (/api/account/storage-erasure-sweep) is still unscheduled and off.
  *
- * activity_packs (phase 2, 2026-11-22): gated from the day it exists, with NO pilot business — the platform admin
- * can only keep it closed until the owner names one (a separate pull request, as the rule below says).
+ * activity_packs (phase 2): gated from the day it exists. Pilot: business 9 only (the platform's test business, as for
+ * service_desk) — THIS pull request, which waits for the owner's approval. It opens nothing by itself: the ENABLED
+ * override for business 9 is a separate audited admin action, and closing it (DISABLED / INHERIT) keeps the saved
+ * selection in BusinessActivityProfile.
  *
  * Removing a key from OWNER_GATED_FEATURES, or adding a business to OWNER_PILOT_BUSINESSES, is an owner decision of
  * its own: a separate pull request with the owner's approval. Other features are not affected.
@@ -33,6 +35,7 @@ export const OWNER_GATED_FEATURES: ReadonlySet<PlatformFeatureKey> = new Set<Pla
 /** The owner's pilot businesses per gated feature: the only (feature, business) pairs ENABLED may be requested for. */
 export const OWNER_PILOT_BUSINESSES: ReadonlyMap<PlatformFeatureKey, ReadonlySet<number>> = new Map<PlatformFeatureKey, ReadonlySet<number>>([
   [PLATFORM_FEATURE_KEYS.SERVICE_DESK, new Set<number>([9])],
+  [PLATFORM_FEATURE_KEYS.ACTIVITY_PACKS, new Set<number>([9])],
 ]);
 
 export const FEATURE_OWNER_GATED = "FEATURE_OWNER_GATED";
