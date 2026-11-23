@@ -365,7 +365,7 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
     // Notifications track PR 3 — the central notification engine: the push worker (owed pushes → web push / the
     // Android app through FCM), the daily digest and the device registration. OPEN for every business, existing and
     // new (owner decision 2026-11-23, after the business 9 pilot): the policy row is globalEnabled (data migration
-    // 20261223090000), so the resolver falls back to this default. Until that migration is applied the policy row
+    // 20261215100000), so the resolver falls back to this default. Until that migration is applied the policy row
     // (globalEnabled false) keeps it closed for everyone without an ENABLED override. The emergency switch and a
     // per-business DISABLED override still close it.
     {

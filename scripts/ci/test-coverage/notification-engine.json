@@ -1,5 +1,5 @@
 {
-  "note": "Notification engine (notifications track PR 3; migration 20261210090000_notification_engine_foundation): catalog, preferences, quiet hours / digest time, the unified push sender (web push + FCM HTTP v1), notify(), the push worker, the daily digest, devices and the logout hooks — behind notifications_engine (open for every business since 2026-11-23: catalog default ON once data migration 20261223090000 sets the policy; Vercel crons for the worker / status sweep / digest; every pushed device needs a live session).",
+  "note": "Notification engine (notifications track PR 3; migration 20261210090000_notification_engine_foundation): catalog, preferences, quiet hours / digest time, the unified push sender (web push + FCM HTTP v1), notify(), the push worker, the daily digest, devices and the logout hooks — behind notifications_engine (open for every business since 2026-11-23: catalog default ON once data migration 20261215100000 sets the policy; Vercel crons for the worker / status sweep / digest; every pushed device needs a live session).",
   "tests": {
     "lib/notifications/catalog.test.ts": {
       "class": "SECURITY_REQUIRED",
