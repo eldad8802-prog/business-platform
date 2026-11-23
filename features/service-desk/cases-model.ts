@@ -277,7 +277,15 @@ export type CaseCardData = CaseRowData & {
   cancellationRequested: boolean;
   stamps: Partial<Record<"checkedInAt" | "readyAt" | "deliveredAt" | "closedAt" | "cancelledAt" | "abandonedAt", string | null>>;
   intake: { conditionNote: string | null; accessoriesNote: string | null; conditionRecorded: boolean; accessoriesRecorded: boolean } | null;
+  /** The customer's phone when known (the case read) — the head's call button. */
+  customerPhone?: string | null;
 };
+
+/** A tel: link for a stored phone (digits and a leading + only), or null. */
+export function telHref(phone: string | null | undefined): string | null {
+  const p = (phone ?? "").replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+  return p.replace(/\D/g, "").length >= 7 ? `tel:${p}` : null;
+}
 
 export type JournalItem = {
   seq: number; eventType: string; toStatus: string; occurredAt: string; actor: string; payload?: unknown;

@@ -16,7 +16,7 @@ import BackButton from "@/components/ui/back-button";
 
 import { CaseActionDialog, ConfirmDialog, type DialogResult } from "./case-action-dialog";
 import { buildActionBody, caseActions, needsDebtDecision, type CaseActionDef } from "./case-actions-model";
-import { caseNoun, isClosed, journaledLoanIds, type CaseCardData, type JournalItem, type SideHistoryItem } from "./cases-model";
+import { caseNoun, isClosed, journaledLoanIds, telHref, type CaseCardData, type JournalItem, type SideHistoryItem } from "./cases-model";
 import { CaseView, DetailsBody, IntakeBody, type MoreItem, type Step } from "./case-view";
 import { chargeSummary, docName, ils, loanReminder, parseShekels, pickupSummary, PICKUP_OUTCOME_TEXT, qaBody, qaPassBlocker, quoteMode, type QaResults } from "./case-extras-model";
 import { ChargePanel, FieldsPanel, LoansPanel, PickupPanel, QaPanel, QuotePanel, TasksPanel } from "./case-panels";
@@ -335,7 +335,7 @@ export function CaseScreen({ caseId }: { caseId: number }) {
       <CaseView card={card} events={data.events} sideHistory={sideHistory(extras, data.events)}
         historyNames={{ loans: Object.fromEntries(extras.loans.loans.map((l) => [l.id, l.itemName])), tasks: Object.fromEntries([...extras.tasks.linked, ...extras.tasks.open].map((t) => [t.id, t.title])) }}
         nextCtx={nextCtx} now={now} back={back} actions={actions} onAction={onAction}
-        busyId={busyId} message={message} notes={notes} steps={steps} nowPanels={nowPanels} more={more} />
+        busyId={busyId} message={message} notes={notes} steps={steps} nowPanels={nowPanels} more={more} callHref={telHref(card.customerPhone)} />
       {pending ? (
         <CaseActionDialog def={pending.def} debtMode={pending.debtMode} busy={busyId !== null}
           onCancel={() => setPending(null)} onSubmit={(r) => void send(pending.def, r)} />

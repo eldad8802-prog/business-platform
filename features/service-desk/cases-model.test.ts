@@ -3,7 +3,7 @@
  */
 import {
   attentionReason, buildListSections, nextStepHint, caseNoun, caseSections, eventLabel, historyItems, isClosed, matchesQuery,
-  actorText, journaledLoanIds, mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
+  actorText, journaledLoanIds, telHref, mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
 } from "./cases-model";
 
 let passed = 0;
@@ -143,5 +143,6 @@ ok("W1 the history names who acted; clear words when the name is not available; 
   && actorText({ actor: "SYSTEM", actorUserId: null, actorName: null, actorKnown: false }) === "המערכת"
   && actorText({ actor: "CUSTOMER_LINK" }) === "הלקוח" && actorText({ actor: "OWNER_USER" }) === "בעל העסק");
 ok("W2 the merged history carries the name", mergedHistory([{ seq: 1, eventType: "case.opened", toStatus: "OPEN", occurredAt: "2026-11-19T10:00:00.000Z", actor: "OWNER_USER", actorUserId: 3, actorName: "רון לוי", actorKnown: true }], [])[0].actor === "רון לוי");
+ok("T1 a call link only for a plausible phone, digits only", telHref("050-123 4567") === "tel:0501234567" && telHref("+972 50 1234567") === "tel:+972501234567" && telHref("12") === null && telHref(null) === null);
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
