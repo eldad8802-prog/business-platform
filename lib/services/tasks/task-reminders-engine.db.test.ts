@@ -110,7 +110,7 @@ async function main() {
   const sE1 = await session(e1);
   const tE1 = tok("e1");
   await dev.registerFcmDevice({ businessId: E, userId: e1, sessionId: sE1 }, { token: tE1, platform: "android", appVersion: "1.1.0+2" }, NOW);
-  const wE1 = await web(E, e1, "e1", sE1);
+  const wE1 = await web(E, e1, "e1", await session(e1)); // the browser has its own login session, not the phone's
   // the same user's legacy browser row with no session (e.g. a shared computer signed out while the engine was OFF):
   // the engine never pushes to it (owner 2026-11-23, open-all: a push needs a live session on every provider).
   const wE1Legacy = await web(E, e1, "e1-legacy");
