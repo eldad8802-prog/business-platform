@@ -71,7 +71,9 @@ async function main() {
   const recs = ev.filter((e) => ["RECORD_WORK_DETAILS", "LEND_ITEM", "RETURN_ITEM", "LINK_TASK", "UNLINK_TASK"].includes(String(e.a)));
 
   if (MODE === "db") {
-    ok("D1 the migration alone: the application of this PR still journals nothing new (its code comes in the code PR)", recs.length === 0, JSON.stringify(ev.map((e) => e.t)));
+    // The code (#1227) is in main since 2026-11-23: with the migration applied, the application journals the real changes.
+    ok("D1 the migration with the code in main: exactly the real changes are journaled",
+      recs.map((e) => e.t).join(",") === "loan.lent,loan.returned,task.linked,task.unlinked,case.work_details_recorded,case.work_details_recorded", JSON.stringify(ev.map((e) => e.t)));
     const vals = (await q(`SELECT string_agg(enumlabel, ',' ORDER BY enumlabel) v FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'ServiceEventType' AND enumlabel IN ('case.work_details_recorded','loan.lent','loan.returned','task.linked','task.unlinked')`))[0].v;
     ok("D2 the five event types exist", vals === "case.work_details_recorded,loan.lent,loan.returned,task.linked,task.unlinked", String(vals));
     const acts = (await q(`SELECT count(*)::int n FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'ServiceCaseAction' AND enumlabel IN ('RECORD_WORK_DETAILS','LEND_ITEM','RETURN_ITEM','LINK_TASK','UNLINK_TASK')`))[0].n;
