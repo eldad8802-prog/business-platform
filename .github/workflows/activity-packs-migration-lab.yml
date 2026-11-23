@@ -124,3 +124,72 @@ jobs:
           psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/activity-packs-production-evidence.sql | tee ev2.out
           if grep -qE "\|FAIL\|" ev2.out; then echo "FAIL row in ev2.out"; exit 1; fi
           grep -qE "\|PASS\|" ev2.out
+
+      - name: 8. pilot evidence (business 9) — S1 baseline, S2 after the switch-on, a non-pilot row is caught, S3 after a switch-off
+        run: |
+          set -euo pipefail
+          ev() { psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/activity-packs-pilot-business-9.sql | grep -E '^[0-9]+\|' > "$1"; cat "$1"; }
+          # expect FILE "n=value ..." — value is the flag (t/f) or the count of row n
+          expect() {
+            f="$1"; shift
+            for kv in "$@"; do
+              n="${kv%%=*}"; want="${kv#*=}"
+              got=$(awk -F'|' -v n="$n" '$1==n{print $2 $3}' "$f")
+              if [ "$got" != "$want" ]; then echo "::error::$f row $n: expected $want, got '$got'"; exit 1; fi
+            done
+            echo "$f: $# rows as expected"
+          }
+          # Production has no saved choice anywhere: remove the lab businesses of steps 4 / 7 (their rows cascade).
+          psql -v ON_ERROR_STOP=1 -q -c 'DELETE FROM "Business" WHERE id IN (910001, 910002);'
+          test "$(psql -tAc 'SELECT count(*) FROM "BusinessActivityProfile"')" = "0"
+          psql -v ON_ERROR_STOP=1 -q <<'SQL'
+          INSERT INTO "Business" ("id", "name", "createdAt", "updatedAt") VALUES (9, 'lab nine', now(), now()), (910003, 'lab other', now(), now());
+          INSERT INTO "User" (email, "businessId", role, "updatedAt") VALUES ('pilot-admin@lab.invalid', 9, 'PLATFORM_ADMIN', now());
+          INSERT INTO "PlatformFeatureDefinition" ("key", "displayName", "category", "description", "defaultEnabled", "mutable", "createdAt")
+            VALUES ('lab_other', 'lab other', 'service', 'lab', false, true, now());
+          INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", state, reason, "updatedAt") VALUES (9, 'lab_other', 'ENABLED', 'lab', now());
+          SQL
+          ev s1.out
+          expect s1.out 1=t 2=f 3=f 4=t 5=0 6=0 7=t 8=t 9=0 10=f 11=f 12=f 13=0 14=0 15=0 17=1 18=0 19=1
+          FP=$(awk -F'|' '$1==16{print $3}' s1.out); test -n "$FP"
+
+          # S2 — what the platform admin's ENABLED writes: the override row and one audit row with the owner's reason.
+          psql -v ON_ERROR_STOP=1 -q <<'SQL'
+          INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", state, reason, "updatedAt") VALUES (9, 'activity_packs', 'ENABLED', 'פיילוט מבוקר של חבילות הפעילות', now());
+          INSERT INTO "PlatformAuditEvent" ("actorUserId", action, "targetType", "targetId", metadata)
+            SELECT u.id, 'PLATFORM_FEATURE_ACCESS_UPDATED', 'Business', '9',
+                   jsonb_build_object('featureKey', 'activity_packs', 'newState', 'ENABLED', 'effectiveAllowedAfter', true, 'reason', 'פיילוט מבוקר של חבילות הפעילות')
+            FROM "User" u WHERE u.email = 'pilot-admin@lab.invalid';
+          SQL
+          ev s2.out
+          expect s2.out 1=t 2=t 3=f 4=f 5=0 6=0 7=t 8=t 9=1 10=t 11=t 12=t 13=0 14=0 15=0 16="$FP" 17=1 18=0 19=1
+
+          # The owner's choice on the phone (business 9 only) → 14 = 1, 15 still 0.
+          psql -v ON_ERROR_STOP=1 -q -c "INSERT INTO \"BusinessActivityProfile\" (\"businessId\", \"primaryPack\", \"additionalPacks\", \"updatedAt\") VALUES (9, 'SERVICE', ARRAY['INVENTORY'], now());"
+          ev s2b.out
+          expect s2b.out 14=1 15=0 16="$FP"
+
+          # A row for any other business is caught (5 / 6 / 15), then removed.
+          psql -v ON_ERROR_STOP=1 -q -c "INSERT INTO \"BusinessFeatureAccess\" (\"businessId\", \"featureKey\", state, reason, \"updatedAt\") VALUES (910003, 'activity_packs', 'ENABLED', 'lab', now());" \
+                                    -c "INSERT INTO \"BusinessActivityProfile\" (\"businessId\", \"primaryPack\", \"updatedAt\") VALUES (910003, 'LEADS', now());"
+          ev bad.out
+          expect bad.out 5=1 6=1 15=1
+          psql -v ON_ERROR_STOP=1 -q -c "DELETE FROM \"BusinessFeatureAccess\" WHERE \"businessId\" = 910003;" -c "DELETE FROM \"BusinessActivityProfile\" WHERE \"businessId\" = 910003;"
+
+          # A wrong reason text does not count as the owner's switch-on (10 = f).
+          psql -v ON_ERROR_STOP=1 -q -c "UPDATE \"PlatformAuditEvent\" SET metadata = jsonb_set(metadata::jsonb, '{reason}', '\"other\"') WHERE \"targetId\" = '9';"
+          ev wrong.out
+          expect wrong.out 10=f
+          psql -v ON_ERROR_STOP=1 -q -c "UPDATE \"PlatformAuditEvent\" SET metadata = jsonb_set(metadata::jsonb, '{reason}', to_jsonb('פיילוט מבוקר של חבילות הפעילות'::text)) WHERE \"targetId\" = '9';"
+
+          # S3 — the kill switch: DISABLED (+ its audit row). The choice is kept (14 = 1); nothing else moves.
+          psql -v ON_ERROR_STOP=1 -q <<'SQL'
+          UPDATE "BusinessFeatureAccess" SET state = 'DISABLED', "updatedAt" = now() WHERE "businessId" = 9 AND "featureKey" = 'activity_packs';
+          INSERT INTO "PlatformAuditEvent" ("actorUserId", action, "targetType", "targetId", metadata, "createdAt")
+            SELECT u.id, 'PLATFORM_FEATURE_ACCESS_UPDATED', 'Business', '9',
+                   jsonb_build_object('featureKey', 'activity_packs', 'newState', 'DISABLED', 'effectiveAllowedAfter', false, 'reason', 'כיבוי פיילוט'),
+                   now() + interval '1 second'
+            FROM "User" u WHERE u.email = 'pilot-admin@lab.invalid';
+          SQL
+          ev s3.out
+          expect s3.out 1=t 2=f 3=t 4=f 5=0 6=0 7=t 8=t 9=2 10=f 13=0 14=1 15=0 16="$FP" 17=1 18=0 19=1
