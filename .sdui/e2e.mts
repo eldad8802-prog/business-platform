@@ -111,12 +111,21 @@ async function main() {
       const c = await ctx(browser, seed.tokenA, size);
       const p = await c.newPage();
       current = p;
-      await check(`L1-${tag} the list shows the cases, attention first, with reasons`, async () => {
+      await check(`L1-${tag} the list: «ממתינים לך» only for overdue cases (none in a fresh lab), the rest with their next step`, async () => {
         await p.goto("/service-desk");
         await p.getByRole("heading", { name: "תיקונים ושירות" }).waitFor({ timeout: 180_000 });
-        await p.getByText("דורשים טיפול").first().waitFor();
-        await p.getByText("מוכן ולא נאסף").or(p.getByText("מוכן — לעדכן את הלקוח")).first().waitFor();
-        await p.getByText("ממתין לחלקים").first().waitFor();
+        // Every lab case entered its state minutes ago: below every threshold, so nothing waits yet (owner rule 2026-11-24).
+        await p.getByText("אין כרגע תיקים שממתינים לך").waitFor();
+        await p.getByText(/^בעבודה · d+$/).first().waitFor();
+        await p.getByText("הבא: להחזיר לעבודה").first().waitFor(); // c4, on hold for parts
+        await p.getByText("הבא: למסור ללקוח").first().waitFor(); // c3, READY
+        for (const label of ["פעילים", "מוכנים", "סגורים"]) await p.getByRole("group", { name: "סינון" }).getByRole("button", { name: new RegExp("^" + label) }).waitFor();
+        const since = await p.evaluate(async () => {
+          const r = await fetch("/api/service-desk/cases", { headers: { Authorization: "Bearer " + localStorage.getItem("token") } });
+          const j = await r.json();
+          return (j.cases as { statusSince?: string; openedAt: string }[]).map((c) => [c.statusSince ?? "", c.openedAt]);
+        });
+        if (!since.length || !since.every(([st, op]) => st !== "" && Date.parse(st) >= Date.parse(op) - 1000)) throw new Error(`statusSince ${JSON.stringify(since)}`);
         await shot(p, `real-list-${tag}`);
         if (tag === "phone") {
           const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

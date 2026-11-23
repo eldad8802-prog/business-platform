@@ -31,6 +31,8 @@ export type CaseRowData = {
   workType?: string | null;
   openedAt: string;
   updatedAt: string;
+  /** When the case entered its current state (the list API; absent elsewhere — the last update is used then). */
+  statusSince?: string;
 };
 
 /**
@@ -102,27 +104,54 @@ function daysText(n: number): string {
 }
 
 /**
- * Why a case needs the owner now — one short, explained sentence — or null. No score, no hidden weighting:
- * the reason names what is waiting and for how long.
+ * «ממתינים לך» (owner decision 2026-11-24): a case waits for the business only when the next step is the business's and
+ * it is overdue, or a finished call must be closed now. Existing statuses only; no score. The days count from when the
+ * case entered its current state (statusSince), not from the last update — a note or a location never resets them.
+ *   WORK_DONE immediately · READY ≥ 2 days · QUOTE_PENDING ≥ 3 · on hold ≥ 3 · EXTERNAL ≥ 7 · QA / CHECKED_IN / OPEN ≥ 1.
+ * Everything else (diagnosis, work in progress, scheduled, closed, or below its threshold) is not waiting.
  */
-export function attentionReason(c: Pick<CaseRowData, "status" | "holdReason" | "updatedAt" | "kind">, now: Date): string | null {
-  const waited = daysBetween(c.updatedAt, now);
+export const WAITING_THRESHOLD_DAYS = { READY: 2, QUOTE_PENDING: 3, HOLD: 3, EXTERNAL: 7, QA: 1, CHECKED_IN: 1, OPEN: 1 } as const;
+
+/** Days the case has been in its current state. */
+export function waitingDays(c: Pick<CaseRowData, "statusSince" | "updatedAt">, now: Date): number {
+  return daysBetween(c.statusSince ?? c.updatedAt, now);
+}
+
+/** The explained reason a case waits for the business now — or null (it is not in «ממתינים לך»). */
+export function attentionReason(c: Pick<CaseRowData, "status" | "holdReason" | "updatedAt" | "kind" | "statusSince">, now: Date): string | null {
+  const n = waitingDays(c, now);
+  const T = WAITING_THRESHOLD_DAYS;
+  const field = c.kind === "FIELD" || c.kind === "REMOTE";
   switch (c.status) {
-    case "READY":
-      return waited >= 2 ? `מוכן ולא נאסף · ${daysText(waited)}` : "מוכן — לעדכן את הלקוח";
-    case "QUOTE_PENDING":
-      return `הצעת מחיר ממתינה לתשובת הלקוח · ${daysText(waited)}`;
-    case "OPEN":
-      // A service call (on site or remote) is coordinated; only a repair at the business has an item to take in.
-      return c.kind === "FIELD" || c.kind === "REMOTE" ? "צריך לתאם ביקור" : "צריך לקלוט את הפריט";
-    case "CHECKED_IN":
-      // The item is here and nobody started on it (pilot review 2026-11-21: it was missing from "דורשים טיפול").
-      return `ממתין לאבחון · ${daysText(waited)}`;
-    case "WORK_DONE":
-      return "העבודה הסתיימה — לסגור את הקריאה";
+    case "WORK_DONE": return "העבודה הסתיימה — לקבוע חיוב ולסגור את הקריאה";
+    case "READY": return n >= T.READY ? `מוכן ולא נאסף · ${daysText(n)} — להתקשר ללקוח` : null;
+    case "QUOTE_PENDING": return n >= T.QUOTE_PENDING ? `הצעה בלי תשובה · ${daysText(n)} — להתקשר ללקוח` : null;
+    case "EXTERNAL": return n >= T.EXTERNAL ? `אצל ספק · ${daysText(n)} — לבדוק מול הספק` : null;
+    case "QA": return n >= T.QA ? `בבדיקות · ${daysText(n)} — לסיים את הבדיקות` : null;
+    case "CHECKED_IN": return n >= T.CHECKED_IN ? `ממתין לאבחון · ${daysText(n)}` : null;
+    case "OPEN": return n >= T.OPEN ? (field ? `לא תואם · ${daysText(n)}` : `לא נקלט · ${daysText(n)}`) : null;
     default:
-      if (c.holdReason) return `${HOLD_LABEL[c.holdReason] ?? "בהמתנה"} · ${daysText(waited)}`;
+      if (c.holdReason) return n >= T.HOLD ? `${HOLD_LABEL[c.holdReason] ?? "בהמתנה"} · ${daysText(n)} — לבדוק` : null;
       return null;
+  }
+}
+
+/** The next step of a case that is not waiting, as one short grey line in the list (nothing disappears from view). */
+export function nextStepHint(c: Pick<CaseRowData, "status" | "holdReason" | "kind">): string | null {
+  const field = c.kind === "FIELD" || c.kind === "REMOTE";
+  if (c.holdReason) return "הבא: להחזיר לעבודה";
+  switch (c.status) {
+    case "OPEN": return field ? "הבא: לתאם ולהתחיל" : "הבא: לקלוט את הפריט";
+    case "SCHEDULED": return "הבא: הביקור";
+    case "CHECKED_IN": return "הבא: להתחיל אבחון";
+    case "DIAGNOSING": return "הבא: לתקן או לשלוח הצעה";
+    case "QUOTE_PENDING": return "הבא: תשובת הלקוח להצעה";
+    case "IN_REPAIR": return field ? "הבא: לסיים את העבודה" : "הבא: לסיים את התיקון";
+    case "EXTERNAL": return "הבא: לקבל מהספק";
+    case "QA": return "הבא: לסמן את הבדיקות";
+    case "READY": return "הבא: למסור ללקוח";
+    case "WORK_DONE": return "הבא: לסגור את הקריאה";
+    default: return null;
   }
 }
 
@@ -161,10 +190,9 @@ export function nextActionLabel(status: CaseStatus, kind: CaseKind, holdReason: 
 
 export type ListFilter = "all" | "attention" | "active" | "ready" | "closed";
 
+/** Three filters (owner decision 2026-11-24): the active cases (with «ממתינים לך» first), ready, closed. */
 export const LIST_FILTERS: readonly { key: ListFilter; label: string }[] = [
-  { key: "all", label: "הכל" },
-  { key: "attention", label: "דורשים טיפול" },
-  { key: "active", label: "בעבודה" },
+  { key: "all", label: "פעילים" },
   { key: "ready", label: "מוכנים" },
   { key: "closed", label: "סגורים" },
 ];
@@ -216,6 +244,9 @@ export function buildListSections(rows: readonly CaseRowData[], opts: { filter: 
       if (reason) attention.push({ row: r, reason });
       else if (filter === "all") rest.push(r);
     }
+    // «ממתינים לך»: who waits longest comes first; a tie by case number (no score, no hidden weighting).
+    const since = (r: CaseRowData) => Date.parse(r.statusSince ?? r.updatedAt);
+    attention.sort((x, y) => since(x.row) - since(y.row) || x.row.caseNumber - y.row.caseNumber);
     return { attention, rest, total: rows.length, shown: attention.length + rest.length };
   }
   const rest = [...visible].sort(byUpdate);
