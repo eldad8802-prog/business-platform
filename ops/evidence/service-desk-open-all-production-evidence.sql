@@ -53,7 +53,7 @@ lines(n, flag, observed_count) AS (
   UNION ALL SELECT 10, NULL, (SELECT count(*) FROM "ServiceCase" WHERE "businessId" <> 9)
   UNION ALL SELECT 11, NULL, (SELECT count(*) FROM "ServiceCase" WHERE "businessId" = 9)
   UNION ALL SELECT 12, NULL, (SELECT ('x' || substr(md5(string_agg(relname || ':' || coalesce(relacl::text, '-'), ',' ORDER BY relname)), 1, 8))::bit(32)::int FROM svc)
-  UNION ALL SELECT 13, NULL, (SELECT ('x' || substr(md5(string_agg(pl.polname || ':' || pl.polcmd || ':' || pg_get_expr(pl.polqual, pl.polrelid), ',' ORDER BY pl.polname)), 1, 8))::bit(32)::int
+  UNION ALL SELECT 13, NULL, (SELECT ('x' || substr(md5(string_agg(pl.polname::text || ':' || pl.polcmd::text || ':' || pg_get_expr(pl.polqual, pl.polrelid), ',' ORDER BY pl.polname)), 1, 8))::bit(32)::int
                                FROM pg_policy pl JOIN svc ON svc.oid = pl.polrelid)
 )
 SELECT n, flag, observed_count FROM lines ORDER BY n;
