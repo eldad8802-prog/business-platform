@@ -19,6 +19,7 @@ on:
     branches: [main]
     paths:
       - "prisma/migrations/20261216090000_activity_packs/**"
+      - "prisma/migrations/20261221200000_activity_packs_open_all/**"
       - ".activity-packs/**"
       - "ops/evidence/activity-packs-*.sql"
       - ".github/workflows/activity-packs-migration-lab.yml"
@@ -78,7 +79,7 @@ jobs:
           # The ledger as Production has it: every migration on main recorded and finished, this one not recorded.
           psql -v ON_ERROR_STOP=1 -c 'CREATE TABLE "_prisma_migrations" (id varchar(36) PRIMARY KEY, checksum varchar(64) NOT NULL, finished_at timestamptz, migration_name varchar(255) NOT NULL, logs text, rolled_back_at timestamptz, started_at timestamptz NOT NULL DEFAULT now(), applied_steps_count integer NOT NULL DEFAULT 0);'
           for d in prisma/migrations/*/; do
-            n=$(basename "$d"); [ "$n" = "20261216090000_activity_packs" ] && continue
+            n=$(basename "$d"); case "$n" in 20261216090000_activity_packs|20261221200000_activity_packs_open_all) continue;; esac
             echo "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (md5('$n')::varchar(36), md5('$n'), now(), '$n', 1);"
           done | psql -v ON_ERROR_STOP=1 -q
           psql -tAc 'SELECT count(*) FROM "_prisma_migrations"'
@@ -193,3 +194,58 @@ jobs:
           SQL
           ev s3.out
           expect s3.out 1=t 2=f 3=t 4=f 5=0 6=0 7=t 8=t 9=2 10=f 13=0 14=1 15=0 16="$FP" 17=1 18=0 19=1
+
+      - name: 9. open for every business (20261221200000) — preflight, apply, evidence, emergency switch, the failure path, rollback
+        run: |
+          set -euo pipefail
+          run() { psql -v ON_ERROR_STOP=1 -tA -f "$1" | grep -E '^[0-9]+\|' > "$2"; cat "$2"; }
+          v() { awk -F'|' -v n="$2" '$1==n{print $2 $3}' "$1"; }
+          expect() {
+            f="$1"; shift
+            for kv in "$@"; do
+              n="${kv%%=*}"; want="${kv#*=}"; got=$(v "$f" "$n")
+              if [ "$got" != "$want" ]; then echo "::error::$f row $n: expected $want, got '$got'"; exit 1; fi
+            done
+            echo "$f: $# rows as expected"
+          }
+          OPEN=prisma/migrations/20261221200000_activity_packs_open_all/migration.sql
+          # Production's state after the pilot: business 9 ENABLED with its saved choice (step 8 ended on DISABLED).
+          psql -v ON_ERROR_STOP=1 -q -c "UPDATE \"BusinessFeatureAccess\" SET state = 'ENABLED' WHERE \"businessId\" = 9 AND \"featureKey\" = 'activity_packs';"
+
+          run ops/evidence/activity-packs-open-all-preflight.sql pre.out
+          test "$(wc -l < pre.out)" = "15"
+          expect pre.out 1=t 2=t 3=1 4=1 5=0 7=1 8=0 9=1 14=t
+
+          # A missing policy row fails the whole migration and changes nothing.
+          if psql -v ON_ERROR_STOP=1 -q 2> miss.err <<SQL
+          BEGIN;
+          DELETE FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'activity_packs';
+          \i $OPEN
+          COMMIT;
+          SQL
+          then echo "::error::migration accepted a missing policy row"; exit 1; fi
+          grep -q "activity_packs policy: expected 1 row, found 0" miss.err
+          run ops/evidence/activity-packs-open-all-preflight.sql pre-miss.out
+          cmp pre.out pre-miss.out
+
+          # Apply as release-migrate does: one transaction, then the ledger row.
+          psql -1 -v ON_ERROR_STOP=1 -f "$OPEN"
+          psql -v ON_ERROR_STOP=1 -q -c "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES ('ap-open-all-lab', md5('y'), now(), '20261221200000_activity_packs_open_all', 1);"
+          run ops/evidence/activity-packs-open-all-production-evidence.sql post.out
+          test "$(wc -l < post.out)" = "13"
+          expect post.out 1=t 2=t 3=1 4="$(v pre.out 7)" 5="$(v pre.out 8)" 6="$(v pre.out 9)" 7="$(v pre.out 12)" 8="$(v pre.out 13)" 9=t 10="$(v pre.out 15)" 13=0
+          # No choice was written for anyone: the only row is still business 9's.
+          test "$(psql -tAc 'SELECT count(*) FROM "BusinessActivityProfile" WHERE "businessId" <> 9')" = "0"
+
+          # The emergency switch still closes it for everyone, and lifting it restores the same state.
+          psql -v ON_ERROR_STOP=1 -q -c "UPDATE \"PlatformFeaturePolicy\" SET \"emergencyDisabled\" = true WHERE \"featureKey\" = 'activity_packs';"
+          run ops/evidence/activity-packs-open-all-production-evidence.sql emerg.out
+          expect emerg.out 2=f
+          psql -v ON_ERROR_STOP=1 -q -c "UPDATE \"PlatformFeaturePolicy\" SET \"emergencyDisabled\" = false WHERE \"featureKey\" = 'activity_packs';"
+
+          # Rollback: the exact reverse; the preflight passes again with business 9's choice kept.
+          psql -1 -v ON_ERROR_STOP=1 -tA -f .activity-packs/close-all.sql | grep -q "^CLOSE_ALL_OK$"
+          psql -v ON_ERROR_STOP=1 -q -c "DELETE FROM \"_prisma_migrations\" WHERE migration_name = '20261221200000_activity_packs_open_all';"
+          run ops/evidence/activity-packs-open-all-preflight.sql back.out
+          expect back.out 1=t 2=t 5=0 7=1 8=0 9=1 12="$(v pre.out 12)" 13="$(v pre.out 13)" 15="$(v pre.out 15)"
+          echo "open-all: preflight, failure path, apply, evidence, emergency switch and rollback as expected"
