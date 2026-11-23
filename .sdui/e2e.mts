@@ -115,11 +115,13 @@ async function main() {
         await p.goto("/service-desk");
         await p.getByRole("heading", { name: "תיקונים ושירות" }).waitFor({ timeout: 180_000 });
         // Every lab case entered its state minutes ago: below every threshold, so nothing waits yet (owner rule 2026-11-24).
-        await p.getByText("אין כרגע תיקים שממתינים לך").waitFor();
-        await p.getByText(/^בעבודה · d+$/).first().waitFor();
-        await p.getByText("הבא: להחזיר לעבודה").first().waitFor(); // c4, on hold for parts
-        await p.getByText("הבא: למסור ללקוח").first().waitFor(); // c3, READY
-        for (const label of ["פעילים", "מוכנים", "סגורים"]) await p.getByRole("group", { name: "סינון" }).getByRole("button", { name: new RegExp("^" + label) }).waitFor();
+        const want = async (what: string, l: import("playwright").Locator) => { await l.waitFor({ timeout: 20_000 }).catch(() => { throw new Error(`missing: ${what}`); }); };
+        await want("the calm line", p.getByText("אין כרגע תיקים שממתינים לך"));
+        await want("the בעבודה group title", p.locator("section[aria-label='שאר התיקים'] h2").filter({ hasText: "בעבודה" }));
+        await want("c4 next step", p.getByText("הבא: להחזיר לעבודה").first()); // on hold for parts
+        await want("c3 next step", p.getByText("הבא: למסור ללקוח").first()); // READY
+        const chips = await p.getByRole("group", { name: "סינון" }).getByRole("button").allInnerTexts();
+        if (!["פעילים", "מוכנים", "סגורים"].every((l, i) => (chips[i] ?? "").trim().startsWith(l))) throw new Error(`filters ${JSON.stringify(chips)}`);
         const since = await p.evaluate(async () => {
           const r = await fetch("/api/service-desk/cases", { headers: { Authorization: "Bearer " + localStorage.getItem("token") } });
           const j = await r.json();
