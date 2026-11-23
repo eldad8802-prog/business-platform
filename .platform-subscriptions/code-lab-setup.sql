@@ -8,7 +8,7 @@ DROP TABLE IF EXISTS "PlatformSubscription";
 GRANT USAGE ON SCHEMA public TO app_runtime, app_ctlplane;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime;
-GRANT SELECT ON "Business" TO app_ctlplane;
+GRANT SELECT ("id", "name") ON "Business" TO app_ctlplane;   -- as Production (20261003090000): id and name only
 GRANT INSERT ON "PlatformAuditEvent" TO app_ctlplane;
 GRANT USAGE ON SEQUENCE "PlatformAuditEvent_id_seq" TO app_ctlplane;
 INSERT INTO "Business" ("id", "name", "createdAt", "updatedAt") VALUES
