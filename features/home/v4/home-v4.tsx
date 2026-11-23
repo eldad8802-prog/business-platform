@@ -118,12 +118,18 @@ export const HOME_V4_CSS = `
 .h4-more { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; min-height:40px; margin-top:4px; margin-bottom:-6px; border:0; background:transparent; color:var(--h4-ink); font:inherit; font-size:15px; cursor:pointer; }
 .h4-more svg { transition:transform .2s ease; }
 .h4-more[aria-expanded="true"] svg { transform:rotate(180deg); }
-.h4-mlist { list-style:none; margin:2px 0 0; padding:0; display:flex; flex-direction:column; }
-.h4-mrow { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:56px; padding:8px 4px; border-top:1px solid var(--h4-line); color:inherit; text-decoration:none; }
-.h4-mrow-text { min-width:0; }
-.h4-mrow-label { font-size:15px; font-weight:600; }
-.h4-mrow-meaning { font-size:12.5px; color:var(--h4-muted); }
-.h4-mrow-value { font-size:18px; font-weight:700; direction:ltr; unicode-bidi:isolate; white-space:nowrap; }
+.h4-mgrid { list-style:none; margin:12px 0 0; padding:0; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; }
+.h4-mgrid > li { display:flex; min-width:0; }
+.h4-mcard { flex:1; min-width:0; min-height:132px; display:flex; flex-direction:column; gap:6px; padding:12px; border-radius:16px; background:#F7F5EF; border:1px solid var(--h4-line); color:var(--h4-ink); text-decoration:none; }
+.h4-mcard-head { display:flex; align-items:center; gap:8px; min-width:0; }
+.h4-mcard-icon { width:32px; height:32px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; background:var(--h4-sage); color:var(--h4-teal); }
+.h4-mcard--sky .h4-mcard-icon { background:var(--h4-sky); color:#2D5B83; }
+.h4-mcard--mustard .h4-mcard-icon { background:#FBEFD2; color:#8A6212; }
+.h4-mcard-label { min-width:0; font-size:14px; font-weight:600; line-height:1.25; overflow-wrap:break-word; }
+.h4-mcard-value { font-size:clamp(19px, 6.4vw, 22px); font-weight:700; letter-spacing:-.3px; line-height:1.15; text-align:end; direction:ltr; unicode-bidi:isolate; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.h4-mcard-value--long { font-size:clamp(15px, 4.8vw, 18px); }
+.h4-mcard-value--muted { font-size:14px; font-weight:600; color:var(--h4-muted); direction:inherit; white-space:normal; }
+.h4-mcard-meaning { font-size:12px; line-height:1.35; color:var(--h4-muted); }
 .h4-sec { background:linear-gradient(150deg,#E4EFE8 0%, var(--h4-sage) 55%, #CBE1D5 100%); border-color:rgba(184,214,199,.6); }
 .h4-sec::before { content:""; position:absolute; inset-inline-end:-60px; top:-80px; width:220px; height:200px; border-radius:50%; background:rgba(255,255,255,.28); }
 .h4-chip { display:inline-flex; align-items:center; gap:7px; min-height:32px; padding:4px 12px; border-radius:999px; background:rgba(255,253,248,.85); color:var(--h4-ink); font-size:14px; font-weight:600; text-decoration:none; white-space:nowrap; }
@@ -321,6 +327,19 @@ const METRIC_ICON: Record<MetricKey, (p: { size?: number }) => React.ReactElemen
   readyForPickup: IconCalendarCheck,
 };
 
+const METRIC_TONE: Record<MetricKey, "sage" | "sky" | "mustard"> = {
+  receiptsMonth: "sage",
+  receiptsToday: "sage",
+  toCollect: "sage",
+  todayTasks: "sky",
+  todayAppointments: "sky",
+  waitingLeads: "sky",
+  readyForPickup: "sky",
+  openService: "mustard",
+  docsReview: "mustard",
+  lowStock: "mustard",
+};
+
 function metricValue(key: MetricKey, data: HomeV4Data, now: Date, locale: ReturnType<typeof useI18n>["locale"]): MetricValue {
   switch (key) {
     case "receiptsMonth":
@@ -418,18 +437,23 @@ function SnapshotCard({ data, businessId, retry, locale }: { data: HomeV4Data; b
                 <IconChevronDown size={18} />
               </button>
               {expanded ? (
-                <ul className="h4-mlist" id={listId}>
+                <ul className="h4-mgrid" id={listId}>
                   {secondary.map((k) => {
                     const v = metricValue(k, data, now, locale);
+                    const Icon = METRIC_ICON[k];
+                    const text = v.state === "ready" ? v.text : v.state === "loading" ? "…" : t("home.v4.snapshot.failed");
+                    const size = v.state === "failed" ? " h4-mcard-value--muted" : text.length > 7 ? " h4-mcard-value--long" : "";
                     return (
                       <li key={k}>
-                        <Link href={METRICS[k].href} prefetch={false} className="h4-mrow">
-                          <span className="h4-mrow-text">
-                            <span className="h4-mrow-label">{label(k)}</span>
-                            <br />
-                            <span className="h4-mrow-meaning">{meaning(k)}</span>
+                        <Link href={METRICS[k].href} prefetch={false} className={`h4-mcard h4-mcard--${METRIC_TONE[k]}`}>
+                          <span className="h4-mcard-head">
+                            <span className="h4-mcard-icon" aria-hidden="true">
+                              <Icon size={18} />
+                            </span>
+                            <span className="h4-mcard-label">{label(k)}</span>
                           </span>
-                          <span className="h4-mrow-value">{v.state === "ready" ? v.text : v.state === "loading" ? "…" : t("home.v4.snapshot.failed")}</span>
+                          <span className={`h4-mcard-value${size}`}>{text}</span>
+                          <span className="h4-mcard-meaning">{meaning(k)}</span>
                         </Link>
                       </li>
                     );
