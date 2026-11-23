@@ -583,8 +583,17 @@ async function main() {
     const sG1 = await session(gUser); const tG1 = tok("gUser"); await register(G, gUser, sG1, tG1);
     await setPolicy(`"globalEnabled" = true`, at(D2, 100));
     ok("global ON: SQL cannot decide a business with no override (catalog default) — no record by the trigger", (await record(G)) === null);
-    // The catalog default of notifications_engine is OFF in code, so "ON through the policy alone" is simulated with
-    // the gates seam (as a catalog default flipped ON would resolve).
+    // Open-all (owner 2026-11-23): the catalog default of notifications_engine is ON in code, so with the policy ON a
+    // business with no override resolves ON through the REAL resolver — and so does a business created afterwards
+    // with no setup at all (a new signup gets the engine automatically).
+    {
+      const { notificationsEngineEnabled: realEngineOn } = await import("./engine-gate");
+      ok("open-all: policy ON + no override ⇒ ON through the real resolver (catalog default)", (await realEngineOn(G)) === true);
+      const H = await biz("nte3-H-new", false);
+      ok("open-all: a business created after the opening, no override, no setup ⇒ ON", (await realEngineOn(H)) === true);
+    }
+    // The runs below keep the gates seam: the refused-claim case further down needs a worker that claims ON while the
+    // database says the override DISABLED it.
     const globalOn = { gates: async () => ({ engineOn: true, categoryAvailable: () => true }) };
     const gOld = await notifyIn(G, { userId: gUser, now: at(D2, 110) });
     const dryG = await cutoverDryRun(at(D2, 120), { businessIds: [G], gates: globalOn.gates });

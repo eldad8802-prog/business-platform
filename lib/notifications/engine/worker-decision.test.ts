@@ -10,8 +10,8 @@
  *     for user-set reminders) → rate limit (exempt categories skip) → send.
  *  3. The rate limit: 4 per rolling hour, 15 per rolling 24 h; older sends do not count.
  *  4. Retries: 1 m, 5 m, 15 m, 1 h, then the 5th failure ends it.
- *  5. Devices: FCM only with a live session; session-bound web push only while live; legacy web push (no session)
- *     allowed; unconfigured providers skipped; unknown providers never.
+ *  5. Devices: FCM and web push only with a live session; legacy web push (no session) never (open-all 2026-11-23);
+ *     unconfigured providers skipped; unknown providers never.
  *  6. Clean-start cutover — the activation record (migration 20261212090000): first activation stable; nothing
  *     created before it or while OFF is pushable; one OFF → ON carries the previous ON period (quiet-hours
  *     deferrals), two toggles do not; moments only move forward; unreadable record ⇒ held; the dry run's arithmetic.
@@ -114,9 +114,9 @@ const devs = [
   { id: 7, provider: "APNS", authSessionId: S1 },
 ];
 const live = new Set([S1]);
-ok("FCM live / legacy web / live web only", JSON.stringify(eligibleDevices(devs, live, () => true).map((d) => d.id)) === JSON.stringify([1, 4, 6]));
-ok("no live session ⇒ only legacy web push", JSON.stringify(eligibleDevices(devs, new Set(), () => true).map((d) => d.id)) === JSON.stringify([4]));
-ok("FCM not configured ⇒ skipped", JSON.stringify(eligibleDevices(devs, live, (p) => p === "WEB_PUSH").map((d) => d.id)) === JSON.stringify([4, 6]));
+ok("FCM live / live web only — never a legacy web row with no session", JSON.stringify(eligibleDevices(devs, live, () => true).map((d) => d.id)) === JSON.stringify([1, 6]));
+ok("no live session ⇒ nothing at all (no legacy web push either)", eligibleDevices(devs, new Set(), () => true).length === 0);
+ok("FCM not configured ⇒ skipped", JSON.stringify(eligibleDevices(devs, live, (p) => p === "WEB_PUSH").map((d) => d.id)) === JSON.stringify([6]));
 ok("nothing configured ⇒ nothing", eligibleDevices(devs, live, () => false).length === 0);
 
 // ── 6. clean-start cutover: the activation record (owner decisions 2026-11-13, migration 20261212090000) ──

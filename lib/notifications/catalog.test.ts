@@ -65,8 +65,8 @@ const exempt = NOTIFICATION_CATEGORIES.filter((c) => c.rateExempt);
 ok("rate exemption: user-set reminders, critical, and the engine's own (digest, test) only",
   exempt.every((c) => c.key === "tasks.reminder" || c.importance === "critical" || c.domain === "system"), exempt.map((c) => c.key));
 ok("security.new_device: in-app is NOT user-mutable", getCategory("security.new_device")!.userMutable.inApp === false);
-ok("the engine's feature key exists and is OFF by default",
-  PLATFORM_FEATURE_KEYS.NOTIFICATIONS_ENGINE === "notifications_engine" && getPlatformFeatureCatalogEntry("notifications_engine").defaultEnabled === false);
+ok("the engine's feature key exists and is open by default (owner 2026-11-23; the policy row still decides)",
+  PLATFORM_FEATURE_KEYS.NOTIFICATIONS_ENGINE === "notifications_engine" && getPlatformFeatureCatalogEntry("notifications_engine").defaultEnabled === true);
 
 console.log("2. classification");
 const TUPLES: [ClassifiableRow, string | null][] = [

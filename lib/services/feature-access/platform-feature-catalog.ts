@@ -363,15 +363,17 @@ export const PLATFORM_FEATURE_CATALOG: readonly PlatformFeatureCatalogEntry[] =
       mutable: true,
     },
     // Notifications track PR 3 — the central notification engine: the push worker (owed pushes → web push / the
-    // Android app through FCM), the daily digest and the device registration. OFF for every business — no policy
-    // row, no override: the resolver falls back to this default, so the worker, the digest and the device routes
-    // are inert. A business override needs the definition row (a seed migration) — a separate owner decision.
+    // Android app through FCM), the daily digest and the device registration. OPEN for every business, existing and
+    // new (owner decision 2026-11-23, after the business 9 pilot): the policy row is globalEnabled (data migration
+    // 20261223090000), so the resolver falls back to this default. Until that migration is applied the policy row
+    // (globalEnabled false) keeps it closed for everyone without an ENABLED override. The emergency switch and a
+    // per-business DISABLED override still close it.
     {
       key: PLATFORM_FEATURE_KEYS.NOTIFICATIONS_ENGINE,
       displayName: "מנוע התראות",
       category: "integrations",
-      description: "שליחת התראות לטלפון ולדפדפן (דחיפה), סיכום יומי ורישום מכשירים — כבוי כברירת מחדל",
-      defaultEnabled: false,
+      description: "שליחת התראות לטלפון ולדפדפן (דחיפה), סיכום יומי ורישום מכשירים — פתוח לכל העסקים",
+      defaultEnabled: true,
       mutable: true,
     },
   ];

@@ -12,7 +12,7 @@ import { BACKSTOP_LAG_MINUTES, dispatchDueReminders } from "@/lib/services/tasks
  * are picked up, so while QStash is healthy it finds nothing; when both paths do run, each reminder's claim has one
  * winner, so nothing is sent twice. Counts only in the answer and the log.
  *
- * NOT scheduled in vercel.json: scheduling it is a separate owner decision.
+ * Scheduled in vercel.json since the engine opened for every business (owner decision 2026-11-23).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

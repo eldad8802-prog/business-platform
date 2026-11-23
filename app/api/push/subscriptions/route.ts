@@ -18,6 +18,10 @@ const B64URL = /^[A-Za-z0-9_-]+$/;
  *   (no arbitrary host is ever called by the server). The business and the user come from the session only.
  *   The subscription is bound to the request's login session (authSessionId = the access token's sid; NULL for a
  *   token without one): the notification engine never pushes to a browser whose session has ended.
+ *   Body { …, refresh: true } — the silent re-bind on every visit (lib/push/push-client.ts refreshPushBinding): ONLY an
+ *   existing, NOT revoked row of this endpoint that already belongs to the SAME user in the SAME business gets the
+ *   request's live session. It never creates a row, never re-assigns another user's row and never revives a revoked
+ *   one (the person turned push off): consent stays the explicit tap above. Without a session id it changes nothing.
  */
 export async function GET(req: Request) {
   const user = await getCurrentUser(req);
@@ -37,7 +41,7 @@ export async function POST(req: Request) {
     // Push serves task reminders only: while daily_tasks is off for the business, it does not exist.
     if (!(await dailyTasksEnabled(user.businessId))) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (!pushConfigured()) return NextResponse.json({ error: "PUSH_NOT_CONFIGURED" }, { status: 503 });
-    const b = (await req.json().catch(() => null)) as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown }; platform?: unknown } | null;
+    const b = (await req.json().catch(() => null)) as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown }; platform?: unknown; refresh?: unknown } | null;
     const endpoint = typeof b?.endpoint === "string" ? b.endpoint : "";
     const p256dh = typeof b?.keys?.p256dh === "string" ? b.keys.p256dh : "";
     const auth = typeof b?.keys?.auth === "string" ? b.keys.auth : "";
@@ -46,6 +50,16 @@ export async function POST(req: Request) {
     if (!B64URL.test(p256dh) || p256dh.length > 200 || !B64URL.test(auth) || auth.length > 64) return NextResponse.json({ error: "INVALID_KEYS" }, { status: 400 });
     const now = new Date();
     const businessId = user.businessId;
+    if (b?.refresh === true) {
+      if (!authSessionId) return NextResponse.json({ ok: true, refreshed: 0 });
+      const refreshed = await tenantTx(businessId, (tx) =>
+        tx.pushSubscription.updateMany({
+          where: { businessId, endpoint, userId: user.id, provider: "WEB_PUSH", revokedAt: null },
+          data: { authSessionId, p256dh, auth, platform },
+        }),
+      );
+      return NextResponse.json({ ok: true, refreshed: refreshed.count });
+    }
     const row = await tenantTx(businessId, async (tx) => {
       const existing = await tx.pushSubscription.findFirst({ where: { businessId, endpoint }, select: { id: true } });
       if (existing) {

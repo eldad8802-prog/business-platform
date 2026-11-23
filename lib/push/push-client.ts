@@ -104,6 +104,35 @@ export async function enablePush(): Promise<PushState> {
   return res.ok ? "on" : "off";
 }
 
+/**
+ * Silent, on every visit (components/native/NativePushBootstrap.tsx): re-bind THIS browser's existing subscription to
+ * the current login session, so the notification engine (which pushes only to devices with a live session) keeps
+ * reaching it. Never asks for the permission, never subscribes, never revives a subscription the person turned off;
+ * the server only touches a row that already belongs to the same user (app/api/push/subscriptions, refresh: true).
+ */
+export async function refreshPushBinding(): Promise<boolean> {
+  try {
+    if (pushSupport().kind !== "supported" || Notification.permission !== "granted") return false;
+    const reg = await navigator.serviceWorker.getRegistration("/");
+    const sub = await reg?.pushManager.getSubscription();
+    if (!sub) return false;
+    const res = await fetch("/api/push/subscriptions", {
+      method: "POST",
+      cache: "no-store",
+      headers: buildClientAuthHeaders(),
+      body: JSON.stringify({
+        endpoint: sub.endpoint,
+        keys: { p256dh: bytesToB64url(sub.getKey("p256dh")), auth: bytesToB64url(sub.getKey("auth")) },
+        platform: platformOf(),
+        refresh: true,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Stop push to this browser (server marks it revoked; the browser unsubscribes). */
 export async function disablePush(): Promise<PushState> {
   const reg = await navigator.serviceWorker.getRegistration("/");

@@ -14,7 +14,7 @@ import { decideCronAuth } from "@/lib/services/billing/settlement/settlement-rec
  * racing pass loses the claim. Counts only in the answer and the log (with a `health` block: the unhealthy signal,
  * expired and pre_cutover counts). GET ?dryRun=cutover answers the READ-ONLY clean-start dry run instead.
  *
- * NOT scheduled in vercel.json: scheduling it is a separate owner decision.
+ * Scheduled in vercel.json since the engine opened for every business (owner decision 2026-11-23).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -148,8 +148,10 @@ async function door() {
     /dispatchDueReminders\(new Date\(\), \{ minLagMinutes: BACKSTOP_LAG_MINUTES \}\)/.test(backstop) && !/businessId|searchParams|await req\.json/.test(backstop));
   const lag = Number((service.match(/BACKSTOP_LAG_MINUTES = (\d+)/) ?? [])[1]);
   ok("backstop: the lag is above QStash's 5-minute schedule (idle while QStash is healthy) and bounded", lag > 5 && lag <= 15, lag);
-  const vercel = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8")) as { crons?: { path: string }[] };
-  ok("backstop: NOT scheduled in vercel.json (scheduling is a separate owner decision)", !(vercel.crons ?? []).some((c) => c.path.startsWith("/api/task-reminders")));
+  const vercel = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8")) as { crons?: { path: string; schedule: string }[] };
+  const reminderCrons = (vercel.crons ?? []).filter((c) => c.path.startsWith("/api/task-reminders"));
+  ok("backstop: scheduled in vercel.json every 10 minutes (owner 2026-11-23), the dispatcher itself is never a Vercel cron (QStash only)",
+    reminderCrons.length === 1 && reminderCrons[0]!.path === "/api/task-reminders/backstop" && reminderCrons[0]!.schedule === "*/10 * * * *", reminderCrons);
   ok("poll: the in-app poll dispatches only the caller's own business", /dispatchDueReminders\(now, actor\.businessId\)/.test(poll));
   ok("poll: its due list is read inside that business's tenant tx (no global top-100 then filter)",
     /dueRemindersForBusiness\(opts\.onlyBusinessId, cutoff\)/.test(service) && /export async function dueRemindersForBusiness[\s\S]*?tenantTx\(businessId, \(tx\) =>\s*tx\.task\.findMany\(/.test(service) && !/\.filter\(\(d\) => onlyBusinessId/.test(service));

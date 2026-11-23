@@ -24,6 +24,7 @@ import {
   PUSH_RECEIVED_EVENT,
   PUSH_STATUS_EVENT,
   REREGISTER_DELAY_MS,
+  ROTATE_DELAY_MS,
   type PushDeps,
   type PushPluginLike,
 } from "@/lib/native/push-notifications";
@@ -53,11 +54,15 @@ function makeHarness(opts: {
   fetchThrows?: boolean;
   configured?: boolean;
   optedIn?: boolean;
+  /** The server's answer carries this account (POST /api/push/devices). */
+  account?: string;
+  /** Track the device-local account (undefined = the deps have no account functions: no rotation ever). */
+  lastAccount?: string | null;
 }) {
   const listeners = new Map<string, Listener[]>();
-  const calls = { check: 0, request: 0, register: 0, fetch: [] as { url: string; init: RequestInit }[], navigate: [] as string[], emit: [] as { name: string; detail: unknown }[] };
+  const calls = { check: 0, request: 0, register: 0, unregister: 0, fetch: [] as { url: string; init: RequestInit }[], navigate: [] as string[], emit: [] as { name: string; detail: unknown }[] };
   const timers: { fn: () => void; ms: number }[] = [];
-  const state = { permission: opts.permission ?? "prompt", optedIn: opts.optedIn ?? true, setOptedIn: 0 };
+  const state = { permission: opts.permission ?? "prompt", optedIn: opts.optedIn ?? true, setOptedIn: 0, lastAccount: opts.lastAccount ?? null };
   const fire = (event: string, arg: unknown) => (listeners.get(event) ?? []).forEach((fn) => fn(arg));
 
   const plugin: PushPluginLike = {
@@ -75,6 +80,9 @@ function makeHarness(opts: {
       if (opts.registerThrows) throw new Error("Default FirebaseApp is not initialized");
       opts.onRegister?.(fire);
     },
+    async unregister() {
+      calls.unregister += 1;
+    },
     addListener: (async (event: string, fn: Listener) => {
       listeners.set(event, [...(listeners.get(event) ?? []), fn]);
       return { remove: async () => {} };
@@ -87,7 +95,10 @@ function makeHarness(opts: {
     fetch: async (url, init) => {
       calls.fetch.push({ url, init });
       if (opts.fetchThrows) throw new TypeError("Failed to fetch");
-      return { ok: (opts.fetchStatus ?? 200) < 300, status: opts.fetchStatus ?? 200 } as Response;
+      const status = opts.fetchStatus ?? 200;
+      return (opts.account === undefined
+        ? { ok: status < 300, status }
+        : { ok: status < 300, status, json: async () => ({ ok: true, account: opts.account }) }) as Response;
     },
     authHeaders: () => (opts.signedIn === false ? null : { "Content-Type": "application/json", Authorization: "Bearer jwt" }),
     appVersion: async () => "1.0+2",
@@ -103,6 +114,9 @@ function makeHarness(opts: {
       state.optedIn = true;
       state.setOptedIn += 1;
     },
+    ...(opts.lastAccount === undefined
+      ? {}
+      : { lastAccount: () => state.lastAccount, setLastAccount: (a: string) => { state.lastAccount = a; } }),
   };
   const runTimers = (ms?: number) => {
     const due = timers.filter((t) => ms === undefined || t.ms === ms);
@@ -326,6 +340,54 @@ async function main() {
     h.runTimers();
     const [r1, r2] = await Promise.all([p1, p2]);
     check("concurrent timeout: both waiters get registration_timeout", r1.status === "registration_timeout" && r2.status === "registration_timeout" && h.calls.register === 1, JSON.stringify([r1, r2]));
+  }
+
+  // ── account switch: a phone whose token was registered to ANOTHER account gets a new token ──
+  {
+    // Same account as recorded: nothing rotates.
+    const h = makeHarness({ permission: "granted", account: "b9u3", lastAccount: "b9u3", onRegister: (fire) => setTimeout(() => fire("registration", { value: TOKEN_A }), 0) });
+    const o = await h.client.registerDevice();
+    await settle();
+    check("account: same account → no unregister, one register()", o.status === "registered" && h.calls.unregister === 0 && h.calls.register === 1 && h.timers.every((t) => t.ms !== ROTATE_DELAY_MS));
+  }
+  {
+    // Another business's account registered this phone before: delete the token, wait, take a new one, post it.
+    let n = 0;
+    const h = makeHarness({ permission: "granted", account: "b12u40", lastAccount: "b9u3",
+      onRegister: (fire) => { const t = n++ === 0 ? TOKEN_A : TOKEN_B; setTimeout(() => fire("registration", { value: t }), 0); } });
+    const o = await h.client.registerDevice();
+    await settle();
+    check("account switch: the first token is registered (the outcome is unchanged)", o.status === "registered");
+    check("account switch: unregister() (deleteToken) once, the new account recorded BEFORE the new token", h.calls.unregister === 1 && h.state.lastAccount === "b12u40");
+    check("account switch: register() waits ROTATE_DELAY_MS (deleteToken is not awaited natively)", h.calls.register === 1 && h.timers.some((t) => t.ms === ROTATE_DELAY_MS));
+    h.runTimers(ROTATE_DELAY_MS);
+    await settle();
+    const posted = h.calls.fetch.map((c) => JSON.parse(String(c.init.body)).token);
+    check("account switch: then register() again and the NEW token is posted for the current account", h.calls.register === 2 && JSON.stringify(posted) === JSON.stringify([TOKEN_A, TOKEN_B]), JSON.stringify({ r: h.calls.register, n: posted.length }));
+    const again = await h.client.registerDevice();
+    await settle();
+    check("account switch: at most one rotation per page lifetime", again.status === "registered" && h.calls.unregister === 1);
+  }
+  {
+    // A phone that never recorded an account (every phone once, after this ships): rotate once.
+    const h = makeHarness({ permission: "granted", account: "b9u3", lastAccount: null, onRegister: (fire) => setTimeout(() => fire("registration", { value: TOKEN_A }), 0) });
+    await h.client.registerDevice();
+    await settle();
+    check("account: none recorded → rotate once and record it", h.calls.unregister === 1 && h.state.lastAccount === "b9u3");
+  }
+  {
+    // A malformed account in the answer, a rejected POST, or deps without the account functions: never rotate.
+    const bad = makeHarness({ permission: "granted", account: "b9u3; x", lastAccount: "b1u1", onRegister: (fire) => setTimeout(() => fire("registration", { value: TOKEN_A }), 0) });
+    await bad.client.registerDevice();
+    await settle();
+    const rejected = makeHarness({ permission: "granted", fetchStatus: 404, account: "b9u4", lastAccount: "b1u1", onRegister: (fire) => setTimeout(() => fire("registration", { value: TOKEN_A }), 0) });
+    await rejected.client.registerDevice();
+    await settle();
+    const legacy = makeHarness({ permission: "granted", account: "b9u4", onRegister: (fire) => setTimeout(() => fire("registration", { value: TOKEN_A }), 0) });
+    await legacy.client.registerDevice();
+    await settle();
+    check("account: malformed answer / rejected POST / no account deps → no rotation",
+      bad.calls.unregister === 0 && bad.state.lastAccount === "b1u1" && rejected.calls.unregister === 0 && legacy.calls.unregister === 0);
   }
 
   // ── start-up: granted but never opted in on this device (Android <= 12) → nothing ──

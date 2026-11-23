@@ -5,7 +5,7 @@
       "class": "SECURITY_REQUIRED",
       "lab": "workflow",
       "workflow": "notification-engine-ci.yml",
-      "reason": "restricted runtime on every engine migration, fake providers: with notifications_engine ON a task reminder keeps its bell row and is pushed by the engine worker to every live device of its user exactly once (FCM + web push), never another user's or another business's; one claim under a race; push preference off suppresses; quiet hours bypassed (owner decision); an ended session skips its phone; a moment over a day old is not pushed; engine OFF is exactly the legacy web push path (no FCM, no owed engine row)."
+      "reason": "restricted runtime on every engine migration, fake providers: with notifications_engine ON a task reminder keeps its bell row and is pushed by the engine worker to every live device of its user exactly once (FCM + web push bound to a live session; a legacy browser row with no session never), never another user's or another business's; one claim under a race; push preference off suppresses; quiet hours bypassed (owner decision); an ended session skips its phone; a moment over a day old is not pushed; engine OFF is exactly the legacy web push path (no FCM, no owed engine row)."
     }
   }
 }

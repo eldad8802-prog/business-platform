@@ -103,6 +103,8 @@ export type PushPluginLike = {
   checkPermissions(): Promise<PermissionStatusLike>;
   requestPermissions(): Promise<PermissionStatusLike>;
   register(): Promise<void>;
+  /** Android: FirebaseMessaging.deleteToken() (fire-and-forget on the native side) — the next register() gets a new token. */
+  unregister(): Promise<void>;
   addListener(event: "registration", fn: (token: { value: string }) => void): Promise<ListenerHandleLike>;
   addListener(event: "registrationError", fn: (err: { error: string }) => void): Promise<ListenerHandleLike>;
   addListener(event: "pushNotificationReceived", fn: (n: { data?: unknown }) => void): Promise<ListenerHandleLike>;
@@ -128,6 +130,7 @@ export function plainPushPlugin(p: PushPluginLike): PushPluginLike {
     checkPermissions: () => p.checkPermissions(),
     requestPermissions: () => p.requestPermissions(),
     register: () => p.register(),
+    unregister: () => p.unregister(),
     addListener: ((event: string, fn: (arg: never) => void) =>
       (p.addListener as (e: string, f: (arg: never) => void) => Promise<ListenerHandleLike>)(event, fn)) as PushPluginLike["addListener"],
   };
@@ -207,10 +210,21 @@ export type PushDeps = {
   /** Did the person turn push on from this device (an explicit action)? Device-local, no token. */
   optedIn(): boolean;
   setOptedIn(): void;
+  /**
+   * The account (b<businessId>u<userId>, from the server's answer) this phone's token was last registered to —
+   * device-local, never a token. Optional: without it no rotation happens.
+   */
+  lastAccount?(): string | null;
+  setLastAccount?(account: string): void;
 };
 
 /** Startup re-registration waits this long, so it never competes with the first screen's requests. */
 export const REREGISTER_DELAY_MS = 3000;
+/**
+ * Account switch: after unregister() (deleteToken runs asynchronously on the native side and is not awaited by the
+ * plugin) wait this long before register(), so the new getToken() does not race the deletion of the old token.
+ */
+export const ROTATE_DELAY_MS = 3000;
 /** How long registerDevice waits for FCM's answer before reporting a registration error. */
 export const REGISTER_TIMEOUT_MS = 30000;
 
@@ -247,6 +261,31 @@ export function createPushClient(deps: PushDeps) {
   let pendingRegistration: ((o: PushRegistrationOutcome) => void) | null = null;
   /** One registration at a time: a second caller (start-up + the settings screen, a double tap) shares the first. */
   let registerInFlight: Promise<PushRegistrationOutcome> | null = null;
+  /** One token rotation per page lifetime at most. */
+  let rotated = false;
+
+  /**
+   * The token was just registered to `account`. If this phone's token was last registered to ANOTHER account (or
+   * the device never recorded one — every phone once, after this change ships), delete the token and take a new one:
+   * the business that still holds the old token (its session not ended — e.g. cookies lost without a logout) can no
+   * longer reach this phone (FCM answers UNREGISTERED, the worker revokes it 'gone'). The new token is registered to
+   * the current account by the 'registration' listener; the old row of this session is revoked 'replaced'.
+   */
+  async function rotateIfAccountChanged(account: string | null): Promise<void> {
+    if (!account || rotated || !deps.lastAccount || !deps.setLastAccount) return;
+    const prev = deps.lastAccount();
+    if (prev === account) return;
+    rotated = true;
+    deps.setLastAccount(account);
+    try {
+      const p = await deps.plugin();
+      await p.unregister();
+      await new Promise<void>((resolve) => { deps.setTimeout(resolve, ROTATE_DELAY_MS); });
+      await p.register();
+    } catch {
+      /* the next app start registers again; the server side stays bound to the current account */
+    }
+  }
 
   const report = (outcome: PushRegistrationOutcome) => {
     deps.emit(PUSH_STATUS_EVENT, outcome.code ? { status: outcome.status, code: outcome.code } : { status: outcome.status });
@@ -274,6 +313,9 @@ export function createPushClient(deps: PushDeps) {
           body: JSON.stringify({ provider: "FCM", token, platform: "android", appVersion }),
         });
         if (!res.ok) return { status: "server_rejected", code: `HTTP_${Number.isInteger(res.status) ? res.status : 0}` };
+        const body = (typeof res.json === "function" ? await res.json().catch(() => null) : null) as { account?: unknown } | null;
+        const account = typeof body?.account === "string" && /^b\d{1,10}u\d{1,10}$/.test(body.account) ? body.account : null;
+        void rotateIfAccountChanged(account);
         return { status: "registered" };
       } catch {
         return { status: "offline" };
@@ -436,6 +478,8 @@ export function isNativePushAvailable(): boolean {
 
 /** Device-local marker: the person turned push on here. A flag, never a token. */
 export const PUSH_OPT_IN_KEY = "dubiz.push.optedIn";
+/** Device-local: the account (b<businessId>u<userId>) this phone's token was last registered to. Never a token. */
+export const PUSH_ACCOUNT_KEY = "dubiz.push.account";
 
 const PushSupport = registerPlugin<{ status(): Promise<{ configured?: boolean }> }>("PushSupport");
 
@@ -503,6 +547,20 @@ const client = createPushClient({
       localStorage.setItem(PUSH_OPT_IN_KEY, "1");
     } catch {
       /* without the marker the next start just doesn't re-register on its own */
+    }
+  },
+  lastAccount: () => {
+    try {
+      return localStorage.getItem(PUSH_ACCOUNT_KEY);
+    } catch {
+      return null;
+    }
+  },
+  setLastAccount: (account) => {
+    try {
+      localStorage.setItem(PUSH_ACCOUNT_KEY, account);
+    } catch {
+      /* without it the next start rotates once more — the safe side */
     }
   },
 });

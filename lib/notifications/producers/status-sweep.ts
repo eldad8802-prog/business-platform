@@ -30,6 +30,10 @@
  *        engine's notify(), in ONE tenant transaction behind a per-business advisory lock;
  *     8. a push owed by this pass ⇒ the after-response worker kick for this business (trigger.ts), so a 30-minute
  *        appointment reminder does not wait for the worker route.
+ *   Before any of it, for a business whose engine is ON: the engine activation is observed (activation.ts
+ *   observeActivation — the worker's own door to the record). A business enabled through the global policy alone gets
+ *   its first-ON moment recorded by the first sweep that sees it, BEFORE this pass writes anything, so its first owed
+ *   pushes are not closed pre_cutover (the worker's own observation happens only after a row already exists).
  *
  * Deliberately NOT swept (owned elsewhere or silent by policy): inbox conversations (resolved per conversation by
  * their own consumer, never from absence), per-document review items (the queue is the identity — one row, not
@@ -55,6 +59,7 @@ import { runWithTenantContext } from "@/lib/tenant/context";
 import { classifyNotification, getCategory, type CategoryDefinition } from "../catalog";
 import { syncDocumentsReviewQueueNotification } from "../documents-review-queue-notifications";
 import { businessGates, type BusinessGates } from "../engine/engine-gate";
+import { observeActivation } from "../engine/activation";
 import { kickPushWorkerAfterResponse } from "../engine/trigger";
 import {
   declareExhaustive,
@@ -238,6 +243,8 @@ export type StatusSweepDeps = {
   stateProducers: (businessId: number, gates: BusinessGates, now: Date) => Promise<StateProducersReport>;
   /** A push is owed by this pass: wake the worker for this business after the response (no-op outside a request). */
   kick: (businessId: number) => void;
+  /** The engine is ON for this business: record its activation if this is the first time it is seen (never throws). */
+  observe: (businessId: number, engineOn: boolean, now: Date) => Promise<unknown>;
   liveBusinesses: (after: number, limit: number) => Promise<number[]>;
   clock: () => number;
 };
@@ -252,6 +259,7 @@ export const defaultStatusSweepDeps: StatusSweepDeps = {
     id === "inventory" ? syncInventoryAlertNotifications(businessId, now) : syncDocumentsReviewQueueNotification(businessId, now),
   stateProducers: (businessId, gates, now) => runStateProducers(businessId, gates, now),
   kick: kickPushWorkerAfterResponse,
+  observe: observeActivation,
   liveBusinesses: async (after, limit) => {
     const rows = await prisma.$queryRaw<{ businessId: number }[]>`
       SELECT "businessId" FROM public.notification_live_businesses(${after}::int, ${limit}::int)`;
@@ -283,6 +291,8 @@ export type StatusSweepReport = {
   producerResolved: number;
   producersFailed: number;
   leaseBusy: number;
+  /** Engine-ON businesses whose activation was observed by this pass (first-ON recorded where it was missing). */
+  observed: number;
   /** Businesses whose pass owed a push (the worker was kicked for them). */
   kicked: number;
   errors: number;
@@ -310,6 +320,9 @@ export async function sweepBusiness(businessId: number, now: Date, deps: StatusS
       report.engineOff += 1;
       return;
     }
+    // Fail safe: observeActivation never throws ("unavailable" on any error); a throw here is counted, nothing written.
+    await deps.observe(businessId, true, now);
+    report.observed += 1;
     let owedPush = false;
     await deps.inTenant(businessId, async () => {
       const scopes = availableScopes(gates);
@@ -380,7 +393,7 @@ export async function runStatusSweep(
   const report: StatusSweepReport = {
     businesses: 0, engineOff: 0, swept: 0, candidates: 0, decided: 0, written: 0, notified: 0, resolved: 0,
     scopesUnavailable: 0, scopesIncomplete: 0, reconciled: 0, reconcileFailed: 0,
-    producersRan: 0, producerEvents: 0, producerNotified: 0, producerResolved: 0, producersFailed: 0, leaseBusy: 0, kicked: 0,
+    producersRan: 0, producerEvents: 0, producerNotified: 0, producerResolved: 0, producersFailed: 0, leaseBusy: 0, observed: 0, kicked: 0,
     errors: 0, nextAfter: null,
   };
   const started = deps.clock();

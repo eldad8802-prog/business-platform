@@ -6,6 +6,9 @@
  *        required: a device is never pushed to once its session ends), revoke cleared; any other live FCM device of
  *        the same session (the app's previous token after a rotation) is revoked 'replaced'. Unknown fields, another
  *        provider, a malformed token / platform / version: 400. The token never appears in a log or an answer.
+ *        The answer carries `account` — the session's own business and user (b<id>u<id>, nothing else): the app keeps
+ *        it on the device and, when a DIFFERENT account registers the same phone, deletes its FCM token and takes a
+ *        new one (lib/native/push-notifications.ts), so the token another business still holds dies at FCM.
  */
 import { engineActor, json, readJson } from "@/lib/notifications/engine/notifications-http";
 import { registerFcmDevice, sessionFcmDeviceLive, validateFcmRegistration } from "@/lib/notifications/engine/devices";
@@ -37,7 +40,7 @@ export async function POST(req: Request) {
     const v = validateFcmRegistration(await readJson(req));
     if (!v.ok) return json({ error: v.error }, 400);
     const out = await registerFcmDevice({ businessId: actor.businessId, userId: actor.userId, sessionId: actor.sessionId }, v.value, new Date());
-    return json({ ok: true, id: out.id, replaced: out.replaced }, 201);
+    return json({ ok: true, id: out.id, replaced: out.replaced, account: `b${actor.businessId}u${actor.userId}` }, 201);
   } catch (e) {
     console.error("[notifications] device register failed", e instanceof Error ? e.name : "unknown");
     return json({ error: "INTERNAL" }, 500);

@@ -10,7 +10,7 @@ import { decideCronAuth } from "@/lib/services/billing/settlement/settlement-rec
  * what was already pushed. Then one push worker pass sends the digests it wrote.
  *
  * Authority: CRON_SECRET through decideCronAuth. Counts only in the answer and the log.
- * NOT scheduled in vercel.json: scheduling it is a separate owner decision.
+ * Scheduled in vercel.json since the engine opened for every business (owner decision 2026-11-23).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
