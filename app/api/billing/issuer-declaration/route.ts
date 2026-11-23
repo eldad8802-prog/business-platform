@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
-import { isIssuerDeclarationEnabled, isLegalIdentityCorrectionAvailable } from "@/lib/billing/issuer-declaration/config";
+import { isIssuerDeclarationEnabled } from "@/lib/billing/issuer-declaration/config";
 import { handleError } from "@/lib/handle-error";
 import { loadIssuerDeclarationContext } from "@/lib/services/billing/issuer-declaration/issuer-declaration.service";
 
@@ -32,7 +32,6 @@ export async function GET(req: Request) {
         lockedFields: ctx.lockedFields,
         editableFields: ctx.editableFields,
         accountEmail: ctx.accountEmail,
-        correctionAvailable: isLegalIdentityCorrectionAvailable(),
       },
       { status: 200, headers: NO_STORE }
     );

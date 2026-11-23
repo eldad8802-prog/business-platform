@@ -5,17 +5,10 @@
  *
  * This switch does NOT enforce anything: enforcement is the single row of "IssuerDeclarationEnforcement", written
  * only by an owner-approved step, never by the application.
+ *
+ * (4a T6: the old LEGAL_IDENTITY_CORRECTION_ENABLED switch and its link are retired — there is no correction request.
+ * The screens show the owner-approved rule instead, LEGAL_IDENTITY_RULE_MESSAGE in ./messages.)
  */
 export function isIssuerDeclarationEnabled(): boolean {
   return process.env.ISSUER_DECLARATION_ENABLED === "true";
-}
-
-/**
- * Whether the controlled legal-identity correction flow (the legal-identity session's request screen) is live, so
- * the declared-status screen may link to it. SERVER ONLY, the same exact-"true" test that flow uses for its own
- * switch (LEGAL_IDENTITY_CORRECTION_ENABLED); while it is off every correction route answers 404, so the screen
- * shows a "contact Dubiz" line instead of a link. Never decided on the client.
- */
-export function isLegalIdentityCorrectionAvailable(): boolean {
-  return process.env.LEGAL_IDENTITY_CORRECTION_ENABLED === "true";
 }

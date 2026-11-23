@@ -437,7 +437,7 @@ export const billingEn: Widen<typeof billingHe> = {
       LTD_COMPANY: "Ltd. company",
     },
     legalNameLabel: "Business name on documents",
-    lockedNote: "The business type, legal name and business / company ID were confirmed at signup and are locked. To correct legal details, contact support.",
+    lockedNote: "The business type, legal name and business / company ID do not change after confirmation. Moving from exempt dealer to authorized dealer — through “Move to authorized dealer”. A different name or number — in a new business file.",
     kindLabel: "Business type",
     choose: "Choose…",
     taxIdLabel: "Business / company ID",

@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { SUPPORT_EMAIL } from "@/components/settings/settings-hub";
+import { LEGAL_IDENTITY_RULE_MESSAGE } from "@/lib/billing/issuer-declaration/messages";
 import { confirmViewFor, type ConfirmAction } from "@/lib/billing/issuer-declaration/screen-model";
 import type { IssuerStatement } from "@/lib/billing/issuer-declaration/statement";
 import { TOKEN } from "@/lib/design/billing-theme";
@@ -172,7 +173,7 @@ export default function ConfirmScreen() {
       >
         <LockIcon color={TOKEN.semantic.attention.ink} />
         <p style={{ margin: 0, fontSize: 13, color: TOKEN.semantic.attention.ink }}>
-          לאחר האישור, סוג העסק, השם הרשמי, מספר הזהות ומספר העוסק המורשה ננעלים. שינוי שלהם — רק בבקשת תיקון מבוקרת.
+          {LEGAL_IDENTITY_RULE_MESSAGE}
         </p>
       </div>
       <PrimaryButton onClick={confirm} disabled={busy} testId="issuer-confirm-submit">
