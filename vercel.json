@@ -47,6 +47,10 @@
     {
       "path": "/api/task-reminders/backstop",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/account/storage-erasure-sweep",
+      "schedule": "40 * * * *"
     }
   ]
 }
