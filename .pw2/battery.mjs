@@ -814,6 +814,17 @@ async function main() {
   const { getBusinessCapabilities } = await import("@/lib/services/feature-access/business-capabilities.service");
   const { saveActivitySelection } = await import("@/lib/services/activity-packs/activity-profile.service");
   const AP = "activity_packs";
+  // The definition + policy rows as 20261216090000 seeds them in Production: OFF by default and globally.
+  await owner.$executeRawUnsafe(
+    `INSERT INTO "PlatformFeatureDefinition" ("key","displayName","category","description","defaultEnabled","mutable","createdAt")
+     VALUES ('activity_packs','activity_packs','experience','',false,true,CURRENT_TIMESTAMP) ON CONFLICT ("key") DO NOTHING`
+  );
+  await owner.$executeRawUnsafe(
+    `INSERT INTO "PlatformFeaturePolicy" ("featureKey","globalEnabled","emergencyDisabled","updatedAt")
+     VALUES ('activity_packs',false,false,CURRENT_TIMESTAMP) ON CONFLICT ("featureKey") DO NOTHING`
+  );
+  // The isolation witness: a business that is not 9 (bizA unless it happens to be 9).
+  const otherBiz = otherBiz.id !== 9 ? bizA : bizB;
   const b9 = (await owner.business.findUnique({ where: { id: 9 }, select: { id: true } }))
     ?? (await owner.business.create({ data: { id: 9, name: `${MARK}P9ap` }, select: { id: true } }));
   await owner.$executeRawUnsafe(`SELECT setval(pg_get_serial_sequence('"Business"', 'id'), GREATEST((SELECT max(id) FROM "Business"), 9))`);
@@ -838,7 +849,7 @@ async function main() {
   ok("ap pilot: before — business 9 closed, the capabilities answer carries no activity at all",
     capsBefore.features[AP]?.allowed === false && !("activity" in capsBefore), JSON.stringify(capsBefore.features[AP]));
   const others9Before = await others9();
-  const othersABefore = JSON.stringify((await caps(bizA.id)).features);
+  const othersABefore = JSON.stringify((await caps(otherBiz.id)).features);
   const profilesBefore = await profiles();
   const auditBefore = await allAudit();
   const apAuditBefore = await apAudit();
@@ -853,13 +864,13 @@ async function main() {
   const capsOnNoChoice = await caps(9);
   ok("ap pilot: on but never chose → capabilities say activity = null (the pre-packs Home)", "activity" in capsOnNoChoice && capsOnNoChoice.activity === null);
   ok("ap pilot: business 9's OTHER features and override rows are identical after the switch-on", (await others9()) === others9Before);
-  const offA = await apFa(bizA.id);
+  const offA = await apFa(otherBiz.id);
   ok("ap pilot isolation: another business stays closed (GLOBAL_DEFAULT) and its capabilities are unchanged",
-    offA.allowed === false && offA.reasonCode === "GLOBAL_DEFAULT" && JSON.stringify((await caps(bizA.id)).features) === othersABefore, JSON.stringify(offA));
+    offA.allowed === false && offA.reasonCode === "GLOBAL_DEFAULT" && JSON.stringify((await caps(otherBiz.id)).features) === othersABefore, JSON.stringify(offA));
   const auditMid = await allAudit();
-  const tryA = await throws(() => updateBusinessFeatureAccess({ actorUserId: adminUser.id, businessId: bizA.id, featureKey: AP, state: "ENABLED", reason: "pw2 try to open activity_packs for a non-pilot business" }));
+  const tryA = await throws(() => updateBusinessFeatureAccess({ actorUserId: adminUser.id, businessId: otherBiz.id, featureKey: AP, state: "ENABLED", reason: "pw2 try to open activity_packs for a non-pilot business" }));
   ok("ap pilot isolation: ENABLED for another business is 403 FEATURE_OWNER_GATED, nothing written",
-    tryA?.code === "FEATURE_OWNER_GATED" && tryA?.statusCode === 403 && (await apRow(bizA.id)) === null && (await allAudit()) === auditMid, String(tryA));
+    tryA?.code === "FEATURE_OWNER_GATED" && tryA?.statusCode === 403 && (await apRow(otherBiz.id)) === null && (await allAudit()) === auditMid, String(tryA));
   const bizLater = await owner.business.create({ data: { name: `${MARK}APN` }, select: { id: true } });
   const tryLater = await throws(() => updateBusinessFeatureAccess({ actorUserId: adminUser.id, businessId: bizLater.id, featureKey: AP, state: "ENABLED", reason: "pw2 try to open activity_packs for a business created later" }));
   ok("ap pilot isolation: a business created later is refused and stays closed",
@@ -872,7 +883,7 @@ async function main() {
     capsChose.activity?.primary === "SERVICE" && capsChose.activity?.additional?.join() === "INVENTORY", JSON.stringify(capsChose.activity));
   ok("ap pilot isolation: the choice exists only for business 9",
     (await profiles()) === profilesBefore + 1 && (await owner.businessActivityProfile.count({ where: { NOT: { businessId: 9 } } })) === 0);
-  ok("ap pilot isolation: another business still gets no activity in its capabilities", !("activity" in (await caps(bizA.id))));
+  ok("ap pilot isolation: another business still gets no activity in its capabilities", !("activity" in (await caps(otherBiz.id))));
 
   await updateBusinessFeatureAccess({ actorUserId: adminUser.id, businessId: b9.id, featureKey: AP, state: "DISABLED", reason: "pw2 owner pilot: switch activity_packs off for business 9" });
   const capsOff = await caps(9);

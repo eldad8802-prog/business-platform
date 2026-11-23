@@ -139,6 +139,9 @@ jobs:
             done
             echo "$f: $# rows as expected"
           }
+          # Production has no saved choice anywhere: remove the lab businesses of steps 4 / 7 (their rows cascade).
+          psql -v ON_ERROR_STOP=1 -q -c 'DELETE FROM "Business" WHERE id IN (910001, 910002);'
+          test "$(psql -tAc 'SELECT count(*) FROM "BusinessActivityProfile"')" = "0"
           psql -v ON_ERROR_STOP=1 -q <<'SQL'
           INSERT INTO "Business" ("id", "name", "createdAt", "updatedAt") VALUES (9, 'lab nine', now(), now()), (910003, 'lab other', now(), now());
           INSERT INTO "User" (email, "businessId", role, "updatedAt") VALUES ('pilot-admin@lab.invalid', 9, 'PLATFORM_ADMIN', now());
