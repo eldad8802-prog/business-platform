@@ -807,6 +807,90 @@ async function main() {
     (await rowOf(9))?.state === "INHERIT" && back9.allowed === false && back9.reasonCode === "GLOBAL_DEFAULT" && (await auditCount()) === auditBeforePilot + 3, JSON.stringify(back9));
   }
 
+  // ── Phase 12d: the owner's activity_packs pilot (#1219) — business 9 only, display only, nothing else moves ──
+  {
+  console.log("--- phase 12d: activity_packs pilot (business 9) ---");
+  const { resolveFeatureAccess: rfa } = await import("@/lib/services/feature-access/resolve-feature-access");
+  const { getBusinessCapabilities } = await import("@/lib/services/feature-access/business-capabilities.service");
+  const { saveActivitySelection } = await import("@/lib/services/activity-packs/activity-profile.service");
+  const AP = "activity_packs";
+  const b9 = (await owner.business.findUnique({ where: { id: 9 }, select: { id: true } }))
+    ?? (await owner.business.create({ data: { id: 9, name: `${MARK}P9ap` }, select: { id: true } }));
+  await owner.$executeRawUnsafe(`SELECT setval(pg_get_serial_sequence('"Business"', 'id'), GREATEST((SELECT max(id) FROM "Business"), 9))`);
+  const apFa = (b) => runWithTenantContext({ businessId: b }, () => rfa(b, AP));
+  const caps = (b) => runWithTenantContext({ businessId: b }, () => getBusinessCapabilities(b));
+  const apRow = (b) => owner.businessFeatureAccess.findUnique({ where: { businessId_featureKey: { businessId: b, featureKey: AP } } });
+  const apAudit = () => owner.platformAuditEvent.count({ where: { action: "PLATFORM_FEATURE_ACCESS_UPDATED", metadata: { path: ["featureKey"], equals: AP } } });
+  const allAudit = () => owner.platformAuditEvent.count({ where: { action: "PLATFORM_FEATURE_ACCESS_UPDATED" } });
+  const profiles = () => owner.businessActivityProfile.count();
+  // Everything about business 9 that is NOT activity_packs: every other feature's answer + every other override row.
+  const others9 = async () => {
+    const c = await caps(9);
+    const feats = Object.entries(c.features).filter(([k]) => k !== AP).map(([k, v]) => `${k}:${v.allowed}:${v.reasonCode}`).sort();
+    const rows = await owner.businessFeatureAccess.findMany({ where: { businessId: 9, NOT: { featureKey: AP } }, select: { featureKey: true, state: true, reason: true }, orderBy: { featureKey: "asc" } });
+    return JSON.stringify({ feats, rows });
+  };
+  const policyAp = () => owner.platformFeaturePolicy.findUnique({ where: { featureKey: AP } });
+  const defAp = () => owner.platformFeatureDefinition.findUnique({ where: { key: AP } });
+
+  ok("ap pilot: before — definition OFF by default and global policy OFF", (await defAp())?.defaultEnabled === false && (await policyAp())?.globalEnabled === false);
+  const capsBefore = await caps(9);
+  ok("ap pilot: before — business 9 closed, the capabilities answer carries no activity at all",
+    capsBefore.features[AP]?.allowed === false && !("activity" in capsBefore), JSON.stringify(capsBefore.features[AP]));
+  const others9Before = await others9();
+  const othersABefore = JSON.stringify((await caps(bizA.id)).features);
+  const profilesBefore = await profiles();
+  const auditBefore = await allAudit();
+  const apAuditBefore = await apAudit();
+
+  await updateBusinessFeatureAccess({ actorUserId: adminUser.id, businessId: b9.id, featureKey: AP, state: "ENABLED", reason: "pw2 owner pilot: open activity_packs for business 9" });
+  const on9 = await apFa(9);
+  ok("ap pilot: ENABLED for business 9 is allowed (row ENABLED, exactly one audit row, for activity_packs)",
+    (await apRow(9))?.state === "ENABLED" && (await allAudit()) === auditBefore + 1 && (await apAudit()) === apAuditBefore + 1);
+  ok("ap pilot: the resolver opens activity_packs for business 9 (BUSINESS_ENABLED)", on9.allowed === true && on9.reasonCode === "BUSINESS_ENABLED", JSON.stringify(on9));
+  ok("ap pilot: the global policy and the definition are untouched (still OFF)", (await policyAp())?.globalEnabled === false && (await defAp())?.defaultEnabled === false);
+  ok("ap pilot: no automatic choice — switching on wrote NO BusinessActivityProfile row", (await profiles()) === profilesBefore);
+  const capsOnNoChoice = await caps(9);
+  ok("ap pilot: on but never chose → capabilities say activity = null (the pre-packs Home)", "activity" in capsOnNoChoice && capsOnNoChoice.activity === null);
+  ok("ap pilot: business 9's OTHER features and override rows are identical after the switch-on", (await others9()) === others9Before);
+  const offA = await apFa(bizA.id);
+  ok("ap pilot isolation: another business stays closed (GLOBAL_DEFAULT) and its capabilities are unchanged",
+    offA.allowed === false && offA.reasonCode === "GLOBAL_DEFAULT" && JSON.stringify((await caps(bizA.id)).features) === othersABefore, JSON.stringify(offA));
+  const auditMid = await allAudit();
+  const tryA = await throws(() => updateBusinessFeatureAccess({ actorUserId: adminUser.id, businessId: bizA.id, featureKey: AP, state: "ENABLED", reason: "pw2 try to open activity_packs for a non-pilot business" }));
+  ok("ap pilot isolation: ENABLED for another business is 403 FEATURE_OWNER_GATED, nothing written",
+    tryA?.code === "FEATURE_OWNER_GATED" && tryA?.statusCode === 403 && (await apRow(bizA.id)) === null && (await allAudit()) === auditMid, String(tryA));
+  const bizLater = await owner.business.create({ data: { name: `${MARK}APN` }, select: { id: true } });
+  const tryLater = await throws(() => updateBusinessFeatureAccess({ actorUserId: adminUser.id, businessId: bizLater.id, featureKey: AP, state: "ENABLED", reason: "pw2 try to open activity_packs for a business created later" }));
+  ok("ap pilot isolation: a business created later is refused and stays closed",
+    bizLater.id !== 9 && tryLater?.code === "FEATURE_OWNER_GATED" && (await apRow(bizLater.id)) === null && (await apFa(bizLater.id)).allowed === false);
+
+  // The owner chooses on business 9 (what the phone test does), then the kill switch.
+  await saveActivitySelection(9, adminUser.id, { primary: "SERVICE", additional: ["INVENTORY"] });
+  const capsChose = await caps(9);
+  ok("ap pilot: after the owner's choice, business 9's capabilities carry it",
+    capsChose.activity?.primary === "SERVICE" && capsChose.activity?.additional?.join() === "INVENTORY", JSON.stringify(capsChose.activity));
+  ok("ap pilot isolation: the choice exists only for business 9",
+    (await profiles()) === profilesBefore + 1 && (await owner.businessActivityProfile.count({ where: { NOT: { businessId: 9 } } })) === 0);
+  ok("ap pilot isolation: another business still gets no activity in its capabilities", !("activity" in (await caps(bizA.id))));
+
+  await updateBusinessFeatureAccess({ actorUserId: adminUser.id, businessId: b9.id, featureKey: AP, state: "DISABLED", reason: "pw2 owner pilot: switch activity_packs off for business 9" });
+  const capsOff = await caps(9);
+  ok("ap kill switch: DISABLED closes business 9 at once and the answer carries no activity (the previous Home)",
+    capsOff.features[AP]?.allowed === false && capsOff.features[AP]?.reasonCode === "BUSINESS_DISABLED" && !("activity" in capsOff));
+  const kept = await owner.businessActivityProfile.findUnique({ where: { businessId: 9 } });
+  ok("ap kill switch: the saved choice is KEPT (not deleted, not changed)", kept?.primaryPack === "SERVICE" && kept?.additionalPacks?.join() === "INVENTORY");
+  await updateBusinessFeatureAccess({ actorUserId: adminUser.id, businessId: b9.id, featureKey: AP, state: "ENABLED", reason: "pw2 owner pilot: reopen activity_packs for business 9" });
+  ok("ap kill switch: reopening brings the same choice back", (await caps(9)).activity?.primary === "SERVICE");
+  await updateBusinessFeatureAccess({ actorUserId: adminUser.id, businessId: b9.id, featureKey: AP, state: "INHERIT", reason: "pw2 owner pilot: clear the activity_packs override for business 9" });
+  const capsBack = await caps(9);
+  ok("ap kill switch: INHERIT returns business 9 to the global default (closed), choice still kept",
+    capsBack.features[AP]?.allowed === false && capsBack.features[AP]?.reasonCode === "GLOBAL_DEFAULT" && !("activity" in capsBack)
+      && (await owner.businessActivityProfile.count({ where: { businessId: 9 } })) === 1);
+  ok("ap pilot: through the whole cycle business 9's OTHER features never moved", (await others9()) === others9Before);
+  ok("ap pilot: the whole cycle wrote exactly 4 audit rows, all for activity_packs", (await allAudit()) === auditBefore + 4 && (await apAudit()) === apAuditBefore + 4);
+  }
+
   // ── Phase 13: resolver fail-open regression (dormant defect A) ────────────
   console.log("--- phase 13: resolver ---");
   const capsA = await runWithTenantContext({ businessId: bizA.id }, () =>
