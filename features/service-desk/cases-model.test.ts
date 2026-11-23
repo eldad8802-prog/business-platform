@@ -3,7 +3,7 @@
  */
 import {
   attentionReason, buildListSections, nextStepHint, caseNoun, caseSections, eventLabel, historyItems, isClosed, matchesQuery,
-  journaledLoanIds, mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
+  actorText, journaledLoanIds, mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
 } from "./cases-model";
 
 let passed = 0;
@@ -135,5 +135,13 @@ ok("J2 a loan / task line takes its name from what the screen holds; without it,
   && eventLabel({ eventType: "task.unlinked", toStatus: "READY", payload: { taskId: 3 } }) === "הוסר קישור למשימה");
 ok("J3 journaled loans are known, so their side lines are not repeated", [...journaledLoanIds([{ seq: 4, eventType: "loan.lent", toStatus: "READY", occurredAt: "2026-11-22T10:00:00.000Z", actor: "OWNER_USER", payload: { loanId: 7 } }])].join(",") === "7");
 
+// ── who acted (owner decision 2026-11-24) ──
+ok("W1 the history names who acted; clear words when the name is not available; system / customer keep their words",
+  actorText({ actor: "OWNER_USER", actorUserId: 7, actorName: "שירה כהן", actorKnown: true }) === "שירה כהן"
+  && actorText({ actor: "OWNER_USER", actorUserId: 7, actorName: null, actorKnown: true }) === "משתמש ללא שם"
+  && actorText({ actor: "OWNER_USER", actorUserId: null, actorName: null, actorKnown: false }) === "משתמש לא מזוהה"
+  && actorText({ actor: "SYSTEM", actorUserId: null, actorName: null, actorKnown: false }) === "המערכת"
+  && actorText({ actor: "CUSTOMER_LINK" }) === "הלקוח" && actorText({ actor: "OWNER_USER" }) === "בעל העסק");
+ok("W2 the merged history carries the name", mergedHistory([{ seq: 1, eventType: "case.opened", toStatus: "OPEN", occurredAt: "2026-11-19T10:00:00.000Z", actor: "OWNER_USER", actorUserId: 3, actorName: "רון לוי", actorKnown: true }], [])[0].actor === "רון לוי");
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

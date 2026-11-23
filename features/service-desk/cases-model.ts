@@ -279,7 +279,11 @@ export type CaseCardData = CaseRowData & {
   intake: { conditionNote: string | null; accessoriesNote: string | null; conditionRecorded: boolean; accessoriesRecorded: boolean } | null;
 };
 
-export type JournalItem = { seq: number; eventType: string; toStatus: string; occurredAt: string; actor: string; payload?: unknown };
+export type JournalItem = {
+  seq: number; eventType: string; toStatus: string; occurredAt: string; actor: string; payload?: unknown;
+  /** The acting user (the journal read): their profile name, whether the row was found, and the stored id. */
+  actorUserId?: number | null; actorName?: string | null; actorKnown?: boolean;
+};
 
 export type SectionKey = "details" | "intake" | "quote" | "checks" | "handover" | "history";
 
@@ -346,6 +350,18 @@ const ACTOR_LABEL: Readonly<Record<string, string>> = { OWNER_USER: "בעל הע
 /** Who acted, as the journal records it (the actor kind; no name is stored on the event). */
 export function actorLabel(actor: string | undefined): string | null {
   return actor ? ACTOR_LABEL[actor] ?? null : null;
+}
+
+/**
+ * Who acted, for a history line (owner decision 2026-11-24): the user's real name as the system knows it; when it is
+ * missing, words that say so — never an invented name, never an e-mail. The system and the customer keep their words.
+ */
+export function actorText(e: Pick<JournalItem, "actor" | "actorUserId" | "actorName" | "actorKnown">): string | null {
+  if (e.actor !== "OWNER_USER") return actorLabel(e.actor);
+  if (e.actorName === undefined) return actorLabel(e.actor); // an older read without names
+  if (e.actorName) return e.actorName;
+  if (e.actorUserId === null || e.actorUserId === undefined || e.actorKnown === false) return "משתמש לא מזוהה";
+  return "משתמש ללא שם";
 }
 
 const ils = (agorot: number) => `₪${(agorot / 100).toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
@@ -415,7 +431,7 @@ export function journaledLoanIds(events: readonly JournalItem[]): Set<number> {
 /** The journal and the side records, newest first, as one list for the history section. */
 export function mergedHistory(events: readonly JournalItem[], side: readonly SideHistoryItem[], names: HistoryNames = {}): { key: string; text: string; occurredAt: string; actor: string | null }[] {
   const rows = [
-    ...events.map((e) => ({ key: `e${e.seq}`, text: eventLabel(e, names), occurredAt: e.occurredAt, actor: actorLabel(e.actor), order: e.seq })),
+    ...events.map((e) => ({ key: `e${e.seq}`, text: eventLabel(e, names), occurredAt: e.occurredAt, actor: actorText(e), order: e.seq })),
     ...side.map((x) => ({ key: x.key, text: x.text, occurredAt: x.occurredAt, actor: null as string | null, order: 0 })),
   ];
   return rows.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt) || b.order - a.order).map((r) => ({ key: r.key, text: r.text, occurredAt: r.occurredAt, actor: r.actor }));
