@@ -9516,6 +9516,7 @@ enum IssuerReauthMethod {
   PASSWORD
   EMAIL_LINK
   PLATFORM_ADMIN_ELEVATION
+  GOOGLE // 4a T1a: the transition re-authenticated a Google-only account at Google (20261223090000)
 }
 
 enum SeriesOpeningSource {
