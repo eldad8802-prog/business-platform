@@ -38,26 +38,32 @@ async function ctx(browser: Browser, token: string, size: Size): Promise<Browser
   return c;
 }
 
+// Plain JS in a string: tsx would inject its __name helper into a function passed to the page (absent there).
+const AUDIT_JS = [
+  "(function () {",
+  "  function vis(el) { var r = el.getBoundingClientRect(); var cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; }",
+  "  var targets = Array.prototype.filter.call(document.querySelectorAll('main a, main button, main input:not([type=hidden]), main select, main textarea, main summary, main [role=button]'), vis);",
+  "  var small = targets.filter(function (el) { return el.getBoundingClientRect().height < 44 && el.tagName !== 'TEXTAREA'; });",
+  "  var minFont = 99;",
+  "  Array.prototype.forEach.call(document.querySelectorAll('main *'), function (el) {",
+  "    if (!vis(el)) return;",
+  "    var hasText = Array.prototype.some.call(el.childNodes, function (c) { return c.nodeType === 3 && (c.textContent || '').trim(); });",
+  "    if (hasText) minFont = Math.min(minFont, parseFloat(getComputedStyle(el).fontSize));",
+  "  });",
+  "  return {",
+  "    overflowX: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth,",
+  "    screens: Math.round((document.documentElement.scrollHeight / window.innerHeight) * 10) / 10,",
+  "    smallTargets: small.length,",
+  "    smallTargetSamples: small.slice(0, 6).map(function (el) { return (el.textContent || el.placeholder || el.getAttribute('aria-label') || el.tagName).trim().slice(0, 30) + ' (' + Math.round(el.getBoundingClientRect().height) + 'px)'; }),",
+  "    minFont: minFont === 99 ? 0 : minFont,",
+  "    buttons: Array.prototype.filter.call(document.querySelectorAll('main button, main a[class]'), vis).length",
+  "  };",
+  "})()",
+].join("\n");
+
 async function audit(page: Page, errors: string[]): Promise<Audit> {
-  const a = await page.evaluate(() => {
-    const vis = (el: Element) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none"; };
-    const targets = [...document.querySelectorAll("main a, main button, main input:not([type=hidden]), main select, main textarea, main summary, main [role=button], main label:has(input[type=checkbox])")].filter(vis);
-    const small = targets.filter((el) => { const r = el.getBoundingClientRect(); return r.height < 44 && !(el instanceof HTMLTextAreaElement); });
-    let minFont = 99;
-    for (const el of document.querySelectorAll("main *")) {
-      if (!vis(el)) continue;
-      if (![...el.childNodes].some((c) => c.nodeType === 3 && (c.textContent ?? "").trim())) continue;
-      minFont = Math.min(minFont, parseFloat(getComputedStyle(el).fontSize));
-    }
-    return {
-      overflowX: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth,
-      screens: Math.round((document.documentElement.scrollHeight / window.innerHeight) * 10) / 10,
-      smallTargets: small.length,
-      smallTargetSamples: small.slice(0, 6).map((el) => `${(el.textContent || (el as HTMLInputElement).placeholder || el.getAttribute("aria-label") || el.tagName).trim().slice(0, 30)} (${Math.round(el.getBoundingClientRect().height)}px)`),
-      minFont: minFont === 99 ? 0 : minFont,
-      buttons: [...document.querySelectorAll("main button, main a[class]")].filter(vis).length,
-    };
-  });
+  // a plain string: tsx would inject its __name helper into a function body (absent in the page)
+  const a = (await page.evaluate(AUDIT_JS)) as Omit<Audit, "consoleErrors">;
   return { ...a, consoleErrors: errors.slice(0, 5) };
 }
 
@@ -92,8 +98,8 @@ async function capture(browser: Browser, o: { group: string; screen: string; sta
           e.element = `shots/${base}-el.jpg`;
         }
       }
-      e.audit = await audit(p, errors);
       e.ok = true;
+      e.audit = await audit(p, errors).catch((x) => { e.note = `audit: ${(x as Error).message.slice(0, 120)}`; return undefined; });
     } catch (err) {
       e.note = `not reached: ${(err as Error).message.split("\n")[0].slice(0, 200)}`;
       await p.screenshot({ path: join(SHOTS, `${base}-FAILED.jpg`), fullPage: true, type: "jpeg", quality: 60 }).catch(() => undefined);
@@ -163,10 +169,10 @@ async function main() {
       setup: async (p) => { await p.goto("/service-desk/settings"); await p.getByText("איש מקצוע ברירת מחדל").waitFor({ timeout: 120_000 }); } });
     await capture(browser, { group: "2 הפעלה והגדרות", screen: "הגדרות שירות", state: "אחריות מופעלת (שדות נפתחים)", token: A(), sizes: [W390],
       setup: async (p) => { await p.goto("/service-desk/settings"); await p.getByText("איש מקצוע ברירת מחדל").waitFor({ timeout: 120_000 });
-        await p.getByText("העסק נותן אחריות על השירות").click(); } });
+        await p.getByRole("checkbox").first().check(); } });
     await capture(browser, { group: "2 הפעלה והגדרות", screen: "הגדרות שירות", state: "יציאה עם שינויים שלא נשמרו", token: A(), sizes: [W390],
       setup: async (p) => { await p.goto("/service-desk/settings"); await p.getByText("איש מקצוע ברירת מחדל").waitFor({ timeout: 120_000 });
-        await p.getByText("העסק נותן אחריות על השירות").click(); await p.getByRole("button", { name: /חזרה|לתיקים|לשירות/ }).first().click();
+        await p.getByRole("checkbox").first().check(); await p.getByRole("button", { name: /חזרה|לתיקים|לשירות/ }).first().click();
         await p.getByText("יש שינויים שלא נשמרו.").waitFor({ timeout: 10_000 }); } });
 
     // ── 3. Opening a case ──
@@ -235,7 +241,7 @@ async function main() {
     await capture(browser, { group: "6 חלוניות והודעות", screen: "חלונית", state: "צירוף הצעת מחיר לתיק", token: A(), sizes: [W390],
       setup: async (p) => { await openCase(p, n("c6")); await p.locator("[data-panel=quote]").getByRole("button", { name: "לצרף לתיק" }).first().click(); await dlg(p).waitFor(); }, element: dlg });
     await capture(browser, { group: "6 חלוניות והודעות", screen: "חלונית", state: "סגירת קריאה", token: A(), sizes: [W390],
-      setup: async (p) => { await openCase(p, n("x3")); await statusBtn(p, "לסגור את הקריאה").click(); await dlg(p).waitFor(); }, element: dlg });
+      setup: async (p) => { await openCase(p, n("x3")); const b = statusBtn(p, "לסגור את הקריאה"); if (await b.isDisabled()) throw new Error("«לסגור את הקריאה» is disabled until a charge is decided (shown in 030)"); await b.click(); await dlg(p).waitFor(); }, element: dlg });
     await capture(browser, { group: "6 חלוניות והודעות", screen: "הודעת שגיאה", state: "פעולה שנדחתה (גרסה ישנה — מישהו שינה את התיק)", token: A(), sizes: [W390],
       setup: async (p) => {
         await openCase(p, n("x6"));
@@ -282,7 +288,7 @@ async function main() {
         try { await fn(); await p.waitForTimeout(700);
           await p.screenshot({ path: join(SHOTS, `${id}-390-full.jpg`), fullPage: true, type: "jpeg", quality: 72 }); e.full = `shots/${id}-390-full.jpg`;
           await p.evaluate(() => window.scrollTo(0, 0)); await p.screenshot({ path: join(SHOTS, `${id}-390-fold.jpg`), type: "jpeg", quality: 72 }); e.fold = `shots/${id}-390-fold.jpg`;
-          e.audit = await audit(p, []); e.ok = true;
+          e.ok = true; e.audit = await audit(p, []).catch(() => undefined);
         } catch (err) { e.note = `not reached: ${(err as Error).message.split("\n")[0].slice(0, 200)}`; }
         manifest.push(e); console.log(`  ${e.ok ? "ok " : "-- "} ${id}  390 flow — ${state}${e.note ? ` (${e.note})` : ""}`);
       };
