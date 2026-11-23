@@ -440,6 +440,25 @@ async function main() {
         if (kinds !== "task.linked,task.unlinked,case.work_details_recorded" || !rows.every((r) => Number(r.u) === seed.userA)) throw new Error(`journal ${JSON.stringify(rows)}`);
         await shot(pa, "real-case-history-records-desktop");
       });
+      await check("E1 the case changed in another tab: the action is not saved, a clear banner says why with a refresh, and no button stays on «שומר…»", async () => {
+        await openCase(pa, seed.c4);
+        const before = await versionOf(seed.c4);
+        const other = await ca.newPage();
+        await openCase(other, seed.c4);
+        const fields = other.locator("[data-panel=fields]");
+        await fields.locator("#sd-item-location").fill("מגירה 7");
+        await fields.getByRole("button", { name: "לשמור" }).click();
+        await until(async () => (await versionOf(seed.c4)) > before, "the other tab did not change the case");
+        await other.close();
+        const statusBefore = await statusOf(seed.c4);
+        await clickAction(pa, "להחזיר לעבודה");
+        await pa.getByRole("alert").filter({ hasText: "התיק עודכן ממקום אחר" }).waitFor({ timeout: 30_000 });
+        await until(async () => (await pa.locator("section[aria-label='מצב ופעולה הבאה']").getByText("שומר…").count()) === 0, "a button stays on «שומר…»");
+        if ((await statusOf(seed.c4)) !== statusBefore) throw new Error("the stale action changed the case");
+        await shot(pa, "real-case-conflict-desktop");
+        await pa.getByRole("button", { name: "לרענן שוב" }).click();
+        await pa.getByRole("alert").filter({ hasText: "התיק עודכן ממקום אחר" }).waitFor({ state: "detached", timeout: 15_000 });
+      });
       await ca.close();
     }
 
