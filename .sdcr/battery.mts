@@ -101,6 +101,28 @@ async function main() {
       && wd[1]?.locationChanged === true && wd[1]?.locationSet === false && wd[1]?.estimatedChanged === false, JSON.stringify(wd));
     ok("A6 another business sees none of A's records (RLS, as the runtime role)", (await asRuntime(B.b, `SELECT count(*)::int n FROM "ServiceCaseEvent" WHERE "caseId" = $1`, A.c))[0].n === 0
       && ((await asRuntime(A.b, `SELECT count(*)::int n FROM "ServiceCaseEvent" WHERE "caseId" = $1`, A.c))[0].n as number) > 0);
+    // A11: the same case worked on at the same moment (two people, two tabs): every real change is journaled once, none
+    // is lost to a lock conflict (the loan insert / task link take KEY SHARE on the case before the record's FOR UPDATE).
+    const C = await inA(async () => (await openCase(A.p, { kind: "IN_SHOP", customerId: Number((await asOwner(A.b, `SELECT id FROM "Customer" WHERE "businessId" = $1 LIMIT 1`, A.b))[0].id), problemDescription: "במקביל" } as never, { idempotencyKey: uuidV7(new Date()) })).case.id);
+    const ROUNDS = 6;
+    const failed: string[] = [];
+    for (let i = 0; i < ROUNDS; i++) {
+      const t1 = Number((await asOwner(A.b, `INSERT INTO "Task" ("businessId", title, "updatedAt") VALUES ($1, $2, now()) RETURNING id`, A.b, `משימה ${i}a`))[0].id);
+      const t2 = Number((await asOwner(A.b, `INSERT INTO "Task" ("businessId", title, "updatedAt") VALUES ($1, $2, now()) RETURNING id`, A.b, `משימה ${i}b`))[0].id);
+      const r = await Promise.allSettled([
+        inA(() => lendItem(A.p, C, { itemName: `חלופי ${i}a` }, { idempotencyKey: uuidV7(new Date()) })),
+        inA(() => lendItem(A.p, C, { itemName: `חלופי ${i}b` }, { idempotencyKey: uuidV7(new Date()) })),
+        inA(() => setTaskLink(A.p, C, { taskId: t1, link: true })),
+        inA(() => setTaskLink(A.p, C, { taskId: t2, link: true })),
+        inA(() => setCaseFields(A.p, C, { itemLocationNote: `מגירה ${i}`, estimatedReadyOn: null })),
+      ]);
+      for (const x of r) if (x.status === "rejected") failed.push(String((x.reason as Error)?.message ?? x.reason).replace(/\s+/g, " ").slice(0, 160));
+    }
+    const cev = await events({ b: A.b, c: C });
+    const crec = cev.filter((e) => ["RECORD_WORK_DETAILS", "LEND_ITEM", "LINK_TASK"].includes(String(e.a)));
+    const seqOk = cev.every((e, k) => Number(e.seq) === k + 1) && (await version({ b: A.b, c: C })) === cev.length;
+    ok("A11 the same case worked on in parallel: no write fails, every real change is journaled exactly once, seq stays gapless",
+      failed.length === 0 && crec.length === ROUNDS * 5 && seqOk, `failed=${failed.length} ${failed[0] ?? ""} records=${crec.length}/${ROUNDS * 5} seqOk=${seqOk}`);
     // the CHECK, as the table owner (the guard is the point): a wrong pair, a status change, a missing actor
   }
   if (MODE !== "before") {
