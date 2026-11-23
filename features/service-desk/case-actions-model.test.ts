@@ -9,8 +9,8 @@ const base = { id: 7, kind: "IN_SHOP", holdReason: null, intake: null } as const
 
 ok("A1 OPEN repair without intake → the intake screen (a link, not a write)", ids({ ...base, status: "OPEN" }) === "intake,cancel"
   && caseActions({ ...base, status: "OPEN" })[0].target.endpoint === "link");
-ok("A2 OPEN repair with the intake recorded → confirm check-in (intakeConfirmed)", (() => { const a = caseActions({ ...base, status: "OPEN", intake: intakeDone })[0];
-  return a.id === "check-in" && a.target.endpoint === "action" && (a.target as { action: Record<string, unknown> }).action.intakeConfirmed === true; })());
+ok("A2 OPEN repair with the intake recorded → «confirm» leads to the intake screen, the one place it is confirmed", (() => { const a = caseActions({ ...base, status: "OPEN", intake: intakeDone })[0];
+  return a.id === "intake" && a.label === "לאשר את הקליטה" && a.target.endpoint === "link" && (a.target as { href: string }).href.endsWith("/intake"); })());
 ok("A3 OPEN field call → start the visit, no intake", ids({ ...base, kind: "FIELD", status: "OPEN" }) === "start-visit,cancel");
 ok("A4 the main path offers exactly one primary per status", (["OPEN", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "QA", "READY", "WORK_DONE"] as const)
   .every((s) => caseActions({ ...base, status: s, intake: intakeDone }).filter((a) => a.tone === "primary").length === 1));

@@ -106,12 +106,52 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
   const section = view ? currentSection(view) : null;
   const blocker = view ? confirmBlocker(view) : null;
 
+  /**
+   * One confirmation (owner decision 2026-11-24): the details are saved when they changed, then the intake is confirmed
+   * on the fresh version — two existing server steps. A failure after the save says so plainly (the details are kept).
+   */
+  const dataChanged = !!view && !!form && (
+    (form.conditionNote.trim() || null) !== (view.intake?.conditionNote ?? null) || (form.accessoriesNote.trim() || null) !== (view.intake?.accessoriesNote ?? null)
+    || form.conditionRecorded !== !!view.intake?.conditionRecorded || form.accessoriesRecorded !== !!view.intake?.accessoriesRecorded);
+  const missing = form ? [!form.conditionRecorded ? "מצב הפריט" : null, !form.accessoriesRecorded ? "האביזרים" : null].filter((x): x is string => !!x) : [];
+  const confirmOne = async () => {
+    if (!view || !form) return;
+    if (missing.length) {
+      setMessage(`לפני האישור: לסמן שבדקתם ותיעדתם את ${missing.join(" ואת ")}.`);
+      setOkMessage(false);
+      return;
+    }
+    setBusy("confirm");
+    setMessage(null);
+    let saved = false;
+    try {
+      let version = view.case.version;
+      if (dataChanged && can("recordData")) {
+        await saveIntakeData(caseId, {
+          conditionNote: form.conditionNote.trim() || null, accessoriesNote: form.accessoriesNote.trim() || null,
+          conditionRecorded: form.conditionRecorded, accessoriesRecorded: form.accessoriesRecorded, expectedVersion: version,
+        });
+        saved = true;
+        version = (await getIntake(caseId)).case.version;
+      }
+      await confirmIntake(caseId, version);
+      setMessage("הקליטה אושרה והפריט התקבל לטיפול.");
+      setOkMessage(true);
+    } catch (e) {
+      setMessage(saved ? `פרטי הקליטה נשמרו, אבל האישור לא עבר: ${errorView(e).text}` : errorView(e).text);
+      setOkMessage(false);
+    } finally {
+      setBusy(null);
+      load();
+    }
+  };
+
   return (
     <main className={s.screen} data-page-intent="content">
       <div className={s.narrow}>
         <ScreenHead
-          title={view ? `קליטה · תיק ${view.case.caseNumber}` : "קליטה"}
-          subtitle="מצב הפריט, אביזרים, תמונות ואישור הקליטה"
+          title="קליטת הפריט"
+          subtitle={view ? `תיק #${view.case.caseNumber} · מתעדים את מצב הפריט כשהוא מגיע` : "מתעדים את מצב הפריט כשהוא מגיע"}
           fallback={`/service-desk/cases/${caseId}`}
           fallbackLabel="לתיק"
         />
@@ -131,7 +171,7 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
             {message ? <p className={s.toast} role="status" aria-live="polite">{message}</p> : null}
 
             <section className={s.card} aria-labelledby="in-data" data-current={section === "data" || undefined}>
-              <h2 id="in-data" className={s.cardTitle}>מצב המכשיר בקליטה</h2>
+              <h2 id="in-data" className={s.cardTitle}>מצב הפריט והאביזרים</h2>
               <label className={s.field}>
                 <span className={s.label}>מצב חיצוני (שריטות, סדקים, נזק)</span>
                 <textarea className={s.textarea} rows={3} maxLength={2000} value={form.conditionNote} disabled={!can("recordData") || !!busy}
@@ -139,7 +179,7 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
               </label>
               <label className={s.check}>
                 <input type="checkbox" checked={form.conditionRecorded} disabled={!can("recordData") || !!busy} onChange={(e) => setForm({ ...form, conditionRecorded: e.target.checked })} />
-                <span>מצב המכשיר נבדק ותועד</span>
+                <span>בדקתי ותיעדתי את מצב הפריט</span>
               </label>
               <label className={s.field}>
                 <span className={s.label}>אביזרים שנמסרו (מטען, כיסוי, כבל)</span>
@@ -148,16 +188,16 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
               </label>
               <label className={s.check}>
                 <input type="checkbox" checked={form.accessoriesRecorded} disabled={!can("recordData") || !!busy} onChange={(e) => setForm({ ...form, accessoriesRecorded: e.target.checked })} />
-                <span>האביזרים נבדקו ותועדו</span>
+                <span>בדקתי ותיעדתי את האביזרים</span>
               </label>
-              {can("recordData") ? (
+              {can("recordData") && dataChanged && !view.confirmation ? (
                 <div className={s.actions}>
-                  <button type="button" className={`${s.button} ${s.primary}`} disabled={!!busy}
+                  <button type="button" className={s.button} disabled={!!busy}
                     onClick={() => void act("data", () => saveIntakeData(caseId, {
                       conditionNote: form.conditionNote.trim() || null, accessoriesNote: form.accessoriesNote.trim() || null,
                       conditionRecorded: form.conditionRecorded, accessoriesRecorded: form.accessoriesRecorded, expectedVersion: view.case.version,
                     }), "פרטי הקליטה נשמרו.")}>
-                    {busy === "data" ? "שומר…" : "שמירת פרטי הקליטה"}
+                    {busy === "data" ? "שומר…" : "לשמור בלי לאשר"}
                   </button>
                 </div>
               ) : null}
@@ -191,12 +231,12 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
                     <Link className={`${s.button} ${s.primary}`} href={`/service-desk/cases/${caseId}`} replace>המשך לתיק</Link>
                   </div>
                 </>
-              ) : can("confirm") ? (
+              ) : can("confirm") || can("recordData") ? (
                 <div className={s.actions}>
-                  <p className={s.hint}>באישור הקליטה אתם מאשרים שמצב הפריט, האביזרים והתמונות תועדו, והפריט התקבל לטיפול. האישור נרשם ביומן התיק עם שמכם והשעה.</p>
-                  <button type="button" className={`${s.button} ${s.primary}`} disabled={!!busy}
-                    onClick={() => void act("confirm", () => confirmIntake(caseId, view.case.version), "הקליטה אושרה והפריט התקבל לטיפול.")}>
-                    {busy === "confirm" ? "שומר…" : "אישור קליטה וקבלת הפריט"}
+                  <p className={s.hint}>באישור הקליטה אתם מאשרים שמצב הפריט, האביזרים והתמונות תועדו, והפריט התקבל לטיפול. הפרטים נשמרים יחד עם האישור, והאישור נרשם ביומן התיק עם שמכם והשעה.</p>
+                  {missing.length ? <p className={s.problem} role="note">לפני האישור: לסמן את {missing.join(" ואת ")}.</p> : null}
+                  <button type="button" className={`${s.button} ${s.primary}`} disabled={!!busy} onClick={() => void confirmOne()}>
+                    {busy === "confirm" ? "שומר…" : "לאשר קליטה ולקבל את הפריט"}
                   </button>
                 </div>
               ) : (

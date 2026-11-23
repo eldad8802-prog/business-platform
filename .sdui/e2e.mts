@@ -143,10 +143,12 @@ async function main() {
     current = p;
     await openCase(p, seed.c1);
     await shot(p, "real-case-open-phone");
-    await check("W1 confirm the intake → CHECKED_IN", async () => {
-      await clickAction(p, "לאשר את הקליטה");
-      await confirmDialog(p);
+    await check("W1 «confirm the intake» leads to the intake screen — the one place it is confirmed (save + confirm in one action) → CHECKED_IN, back to the case", async () => {
+      await p.locator("section[aria-label='מצב ופעולה הבאה']").getByRole("link", { name: "לאשר את הקליטה", exact: true }).click();
+      await p.waitForURL(//service-desk/cases/d+/intake/, { timeout: 60_000 });
+      await p.getByRole("button", { name: "לאשר קליטה ולקבל את הפריט" }).click({ timeout: 120_000 });
       await waitStatus(seed.c1, "CHECKED_IN");
+      await openCase(p, seed.c1);
       await statusPill(p, "התקבל").waitFor();
     });
     await check("W2 start diagnosis → DIAGNOSING", async () => {
