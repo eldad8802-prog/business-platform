@@ -313,15 +313,18 @@ async function main() {
         // The server rule is unchanged: a SAVED failure refuses PASS_QA.
         const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
         const refused = await pc.evaluate(async ({ id, k1, k2 }) => {
-          const h = (k: string) => ({ Authorization: `Bearer ${localStorage.getItem("token")}`, "Content-Type": "application/json", "Idempotency-Key": k });
-          const qa = await (await fetch(`/api/service-desk/cases/${id}/qa`, { headers: h(k1) })).json();
+          // plain objects, no named helper: tsx wraps named functions in __name(), which does not exist in the page
+          const auth = `Bearer ${localStorage.getItem("token")}`;
+          const h1 = { Authorization: auth, "Content-Type": "application/json", "Idempotency-Key": k1 };
+          const h2 = { Authorization: auth, "Content-Type": "application/json", "Idempotency-Key": k2 };
+          const qa = await (await fetch(`/api/service-desk/cases/${id}/qa`, { headers: h1 })).json();
           const keys: string[] = (qa.qa?.template?.items ?? qa.template?.items ?? []).map((i: { key: string }) => i.key);
           const results: Record<string, string> = {};
           keys.forEach((key, idx) => { results[key] = idx === 0 ? "FAIL" : "PASS"; });
-          const c0 = await (await fetch(`/api/service-desk/cases/${id}`, { headers: h(k1) })).json();
-          await fetch(`/api/service-desk/cases/${id}/qa`, { method: "PUT", headers: h(k1), body: JSON.stringify({ results, expectedVersion: c0.version }) });
-          const c = await (await fetch(`/api/service-desk/cases/${id}`, { headers: h(k2) })).json();
-          const r = await fetch(`/api/service-desk/cases/${id}/actions`, { method: "POST", headers: h(k2), body: JSON.stringify({ action: { type: "PASS_QA", outcome: "REPAIRED" }, expectedVersion: c.version }) });
+          const c0 = await (await fetch(`/api/service-desk/cases/${id}`, { headers: h1 })).json();
+          await fetch(`/api/service-desk/cases/${id}/qa`, { method: "PUT", headers: h1, body: JSON.stringify({ results, expectedVersion: c0.version }) });
+          const c = await (await fetch(`/api/service-desk/cases/${id}`, { headers: h2 })).json();
+          const r = await fetch(`/api/service-desk/cases/${id}/actions`, { method: "POST", headers: h2, body: JSON.stringify({ action: { type: "PASS_QA", outcome: "REPAIRED" }, expectedVersion: c.version }) });
           return { status: r.status, body: await r.text(), keys: keys.length };
         }, { id: seed.c5, k1: uuidV7(new Date()), k2: uuidV7(new Date(Date.now() + 1)) });
         if (refused.status < 400 || !refused.body.includes("QA_INCOMPLETE")) throw new Error(`PASS_QA over a saved failed check: ${refused.status} ${refused.body.slice(0, 200)} (keys ${refused.keys})`);
