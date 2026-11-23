@@ -4,6 +4,8 @@
 -- Proves Production is the shape the migration expects. Catalog, ledger and counts only. Guard-clean.
 -- Rows 12-15 are fingerprints / counts to set side by side with the post-apply evidence
 -- (service-desk-case-records-production-evidence.sql rows 9-12): the migration must leave them as they are.
+-- Rows 16-18: the release order (nothing after it applied; billing 4a 20261223* stays pending). Row 19: a fingerprint of
+-- the journal history before a fixed instant (= evidence 16: no earlier record is touched).
 -- OUTPUT: n | result | observed_count.
 -- ============================================================================
 \echo '== service desk case records preflight: legend (n -> check) =='
@@ -22,6 +24,10 @@
 \echo '13 fingerprint: every row-level policy (informational, compare with evidence 10)'
 \echo '14 ServiceCaseEvent rows (informational, compare with evidence 11)'
 \echo '15 ServiceEventType + ServiceCaseAction labels (informational; evidence 12 = this + 10)'
+\echo '16 release order: applied migrations that sort after 20261222090000 (expected 0)'
+\echo '17 release order: 20261223090000 / 20261223100000 (billing 4a, another session) recorded (expected 0, they stay pending)'
+\echo '18 release order: 20261221190000_service_desk_open_all is recorded and finished'
+\echo '19 fingerprint: every journal row that occurred before 2026-11-23 18:00 UTC (informational, = evidence 16)'
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL) AS observed, 0 AS want
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261222090000_service_desk_case_records'), 0
@@ -45,6 +51,13 @@ WITH c AS (
                           FROM pg_policies y WHERE y.schemaname = 'public'), NULL
   UNION ALL SELECT 14, (SELECT count(*) FROM "ServiceCaseEvent"), NULL
   UNION ALL SELECT 15, (SELECT count(*) FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname IN ('ServiceEventType', 'ServiceCaseAction')), NULL
+  UNION ALL SELECT 16, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261222090000_service_desk_case_records'), 0
+  UNION ALL SELECT 17, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name LIKE '20261223090000\_%' OR migration_name LIKE '20261223100000\_%'), 0
+  UNION ALL SELECT 18, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261221190000_service_desk_open_all' AND finished_at IS NOT NULL AND rolled_back_at IS NULL), 1
+  UNION ALL SELECT 19, (SELECT ('x' || substr(md5(coalesce(string_agg(v."id"::text || ':' || v."businessId"::text || ':' || v."caseId"::text || ':' || v.seq::text || ':' || v."eventType"::text || ':'
+                                                         || v.action::text || ':' || v."toStatus"::text || ':' || v.actor::text || ':' || coalesce(v."actorUserId"::text, '-') || ':'
+                                                         || v."occurredAt"::text || ':' || coalesce(v.payload::text, '-'), ',' ORDER BY v."id"), '-')), 1, 8))::bit(32)::int
+                          FROM "ServiceCaseEvent" v WHERE v."occurredAt" < TIMESTAMP '2026-11-23 18:00:00'), NULL
 )
 SELECT n,
        CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,
