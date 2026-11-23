@@ -269,6 +269,7 @@ async function main() {
         await garage.waitFor({ timeout: 120_000 });
         if ((await garage.getAttribute("aria-checked")) !== "true") throw new Error("garage not pre-selected");
         await pc.getByText("מוצע לפי התחום").first().waitFor();
+        await pc.getByRole("button", { name: "המשך", exact: true }).click(); // the first activation is two short steps
         if (!(await pc.getByRole("checkbox", { name: /תיקון רכב/ }).isChecked())) throw new Error("T2 not pre-checked");
         await shot(pc, `real-setup-${tag}`);
         if (tag === "phone") return;
