@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # 4a T5 — numbering continuity across "מעבר לעוסק מורשה": Production-topology lab.
 #
-#   .billing-4a/lab.sh <db-name>
+#   .billing-4a/lab.sh <db-name> [--with-t1] [--with-t1-wiring]
+#
+#   --with-t1         also applies the 4a T1/T1a migrations (DRAFT, not approved) in the same migrate deploy:
+#                       20261223090000  IssuerReauthMethod + GOOGLE (T1a);
+#                       20261223100000  the issuer declaration STATUS_CHANGE writer + its origin guard (T1).
+#   --with-t1-wiring  implies --with-t1, then applies .billing-4a/t1-wiring.proposed.sql: the LAB-ONLY simulation of
+#                     the legal identity follow-up (the transition calls the writer). Never a migration.
 #
 # Builds on the signup legal identity lab (.sli/lab.sh <db> --with-sli: non-superuser BYPASSRLS owner, NOLOGIN
 # app_runtime + LOGIN app_runtime_prod, app_auth + te_auth_login, BusinessProfile under FORCE RLS with the runtime's
@@ -17,11 +23,23 @@
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional), T5_BASE_TEMPLATE (optional: an already built .sli lab database
 # to clone instead of rebuilding it). Synthetic only. ZERO secrets. ZERO network.
 set -euo pipefail
-DB="$1"
+DB="$1"; shift
+WITH_T1=0; WITH_WIRING=0
+for a in "$@"; do
+  case "$a" in
+    --with-t1) WITH_T1=1 ;;
+    --with-t1-wiring) WITH_T1=1; WITH_WIRING=1 ;;
+    *) echo "unknown option $a"; exit 2 ;;
+  esac
+done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DZ010="20260926140000_sec_f_append_only_audit_fiscal_immutability_security_events"
 DECL="20261126100000_issuer_declaration"
 BKT="20261221090000_business_kind_transition"
+T1A="20261223090000_issuer_reauth_google"
+T1="20261223100000_issuer_declaration_status_change"
+EXTRA=""
+if [ $WITH_T1 = 1 ]; then EXTRA="$T1A $T1"; fi
 SUPER_URL="postgresql://${SUPER}@${PGHOST}:${PGPORT}/postgres"
 if [ -n "${T5_BASE_TEMPLATE:-}" ]; then
   psql -X -q -v ON_ERROR_STOP=1 "$SUPER_URL" -c "DROP DATABASE IF EXISTS \"$DB\"" -c "CREATE DATABASE \"$DB\" TEMPLATE \"$T5_BASE_TEMPLATE\" OWNER lab_owner"
@@ -41,7 +59,7 @@ LEDGER="$(psql_owner -At -c 'SELECT migration_name FROM "_prisma_migrations" WHE
 TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
 cp "$ROOT/prisma/schema.prisma" "$TMP/prisma/schema.prisma"
 cp "$ROOT/prisma/migrations/migration_lock.toml" "$TMP/prisma/migrations/"
-for name in $LEDGER "$DZ010" "$DECL" "$BKT"; do
+for name in $LEDGER "$DZ010" "$DECL" "$BKT" $EXTRA; do
   cp -r "$ROOT/prisma/migrations/$name" "$TMP/prisma/migrations/$name"
 done
 set +e
@@ -61,8 +79,12 @@ if [ "$(psql_owner -At -c "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON 
   done
   psql_owner --single-transaction -f "$ROOT/prisma/migrations/$DZ010/migration.sql" >/dev/null
 fi
-for m in "$DECL" "$BKT"; do
+for m in "$DECL" "$BKT" $EXTRA; do
   [ "$(psql_owner -At -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '$m' AND finished_at IS NOT NULL AND rolled_back_at IS NULL")" = "1" ] \
     || { echo "$m not recorded"; exit 1; }
 done
-echo "LAB READY: $DB (signup identity + DZ010 + issuer declaration/series opening + business kind transition, migrate deploy)"
+if [ $WITH_WIRING = 1 ]; then
+  psql_owner --single-transaction -f "$ROOT/.billing-4a/t1-wiring.proposed.sql" >/dev/null
+  echo "LAB-ONLY: proposed T1 wiring applied (simulated legal identity follow-up, not a migration)"
+fi
+echo "LAB READY: $DB (signup identity + DZ010 + issuer declaration/series opening + business kind transition${EXTRA:+ + 4a T1/T1a}, migrate deploy)"
