@@ -3,6 +3,8 @@
 --   20261222090000_service_desk_case_records was applied. Catalog, ledger and counts only. Guard-clean.
 -- Rows 9-12 are set side by side with the preflight (service-desk-case-records-preflight.sql rows 12-15):
 -- privileges and policies identical, no existing journal row touched, exactly ten enum labels more.
+-- Rows 13-16: no record of the new kinds dated before the migration, billing 4a 20261223* still pending, nothing after
+-- it applied, and the journal history before a fixed instant has the preflight's fingerprint (row 19 there).
 -- OUTPUT: n | result | observed_count.
 -- ============================================================================
 \echo '== service desk case records evidence: legend (n -> check) =='
@@ -18,6 +20,10 @@
 \echo '10 fingerprint: every row-level policy (informational, = preflight 13)'
 \echo '11 ServiceCaseEvent rows (informational, >= preflight 14: rows are only ever added)'
 \echo '12 ServiceEventType + ServiceCaseAction labels (informational, = preflight 15 + 10)'
+\echo '13 journal rows of the five new event types that occurred before the migration started (expected 0: no backfill, no invented history)'
+\echo '14 20261223090000 / 20261223100000 (billing 4a, another session) recorded (expected 0, they stay pending)'
+\echo '15 applied migrations that sort after 20261222090000 (expected 0)'
+\echo '16 fingerprint: every journal row that occurred before 2026-11-23 18:00 UTC (informational, = preflight 19)'
 WITH c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261222090000_service_desk_case_records' AND finished_at IS NOT NULL AND rolled_back_at IS NULL) AS observed, 1 AS want
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL), 0
@@ -38,6 +44,15 @@ WITH c AS (
                           FROM pg_policies y WHERE y.schemaname = 'public'), NULL
   UNION ALL SELECT 11, (SELECT count(*) FROM "ServiceCaseEvent"), NULL
   UNION ALL SELECT 12, (SELECT count(*) FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname IN ('ServiceEventType', 'ServiceCaseAction')), NULL
+  UNION ALL SELECT 13, (SELECT count(*) FROM "ServiceCaseEvent" v
+                         WHERE v."eventType"::text IN ('case.work_details_recorded', 'loan.lent', 'loan.returned', 'task.linked', 'task.unlinked')
+                           AND v."occurredAt" < (SELECT min(m.started_at) FROM "_prisma_migrations" m WHERE m.migration_name = '20261222090000_service_desk_case_records')), 0
+  UNION ALL SELECT 14, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name LIKE '20261223090000\_%' OR migration_name LIKE '20261223100000\_%'), 0
+  UNION ALL SELECT 15, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261222090000_service_desk_case_records'), 0
+  UNION ALL SELECT 16, (SELECT ('x' || substr(md5(coalesce(string_agg(v."id"::text || ':' || v."businessId"::text || ':' || v."caseId"::text || ':' || v.seq::text || ':' || v."eventType"::text || ':'
+                                                         || v.action::text || ':' || v."toStatus"::text || ':' || v.actor::text || ':' || coalesce(v."actorUserId"::text, '-') || ':'
+                                                         || v."occurredAt"::text || ':' || coalesce(v.payload::text, '-'), ',' ORDER BY v."id"), '-')), 1, 8))::bit(32)::int
+                          FROM "ServiceCaseEvent" v WHERE v."occurredAt" < TIMESTAMP '2026-11-23 18:00:00'), NULL
 )
 SELECT n,
        CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,
