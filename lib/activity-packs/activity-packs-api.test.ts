@@ -27,7 +27,7 @@ const caps = read("lib/services/feature-access/business-capabilities.service.ts"
 
 ok("catalog: activity_packs exists", PLATFORM_FEATURE_KEYS.ACTIVITY_PACKS === "activity_packs");
 const entry = PLATFORM_FEATURE_CATALOG.find((e) => e.key === "activity_packs");
-ok("catalog: activity_packs is OFF by default", entry?.defaultEnabled === false);
+ok("catalog: activity_packs is ON by default (open for every business — the policy row decides first)", entry?.defaultEnabled === true);
 
 ok("route: GET and PUT only", /export async function GET\(/.test(route) && /export async function PUT\(/.test(route) && !/export async function (POST|DELETE|PATCH)\(/.test(route));
 ok("route: both require a session (401)", (route.match(/getCurrentUser\(req\)/g) ?? []).length === 2 && (route.match(/status: 401/g) ?? []).length === 2);
