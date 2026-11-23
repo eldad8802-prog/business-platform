@@ -35,8 +35,12 @@ BEGIN
      OR has_table_privilege('app_runtime', '"PlatformSubscription"', 'DELETE') OR has_table_privilege('app_runtime', '"PlatformSubscription"', 'TRUNCATE') THEN
     RAISE EXCEPTION 'L2: runtime may change a subscription';
   END IF;
-  IF has_table_privilege('app_runtime', '"PlatformSubscriptionEvent"', 'SELECT') OR has_table_privilege('app_runtime', '"PlatformSubscriptionEvent"', 'INSERT') THEN
-    RAISE EXCEPTION 'L2: runtime has access to the log';
+  IF has_table_privilege('app_runtime', '"PlatformSubscriptionEvent"', 'INSERT') OR has_table_privilege('app_runtime', '"PlatformSubscriptionEvent"', 'UPDATE')
+     OR has_table_privilege('app_runtime', '"PlatformSubscriptionEvent"', 'DELETE') THEN
+    RAISE EXCEPTION 'L2: runtime may write the log';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'PlatformSubscriptionEvent' AND ('app_runtime' = ANY (roles) OR 'public' = ANY (roles))) THEN
+    RAISE EXCEPTION 'L2: a policy lets the runtime see the log';
   END IF;
   IF NOT has_table_privilege('app_ctlplane', '"PlatformSubscription"', 'SELECT, INSERT')
      OR NOT has_column_privilege('app_ctlplane', '"PlatformSubscription"', 'plan', 'UPDATE')
@@ -65,6 +69,8 @@ BEGIN
   SELECT count(*) INTO n FROM "PlatformSubscription";
   IF n <> 1 THEN RAISE EXCEPTION 'L3: runtime of business A sees % rows, expected 1', n; END IF;
   IF (SELECT "businessId" FROM "PlatformSubscription") <> 920001 THEN RAISE EXCEPTION 'L3: runtime sees another business'; END IF;
+  SELECT count(*) INTO n FROM "PlatformSubscriptionEvent";
+  IF n <> 0 THEN RAISE EXCEPTION 'L3: runtime sees % log rows, expected 0 (no runtime policy)', n; END IF;
   BEGIN
     UPDATE "PlatformSubscription" SET "plan" = 'PREMIUM' WHERE "businessId" = 920001;
     RAISE EXCEPTION 'L3: runtime changed its own plan';
