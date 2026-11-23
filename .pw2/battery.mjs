@@ -823,6 +823,23 @@ async function main() {
     `INSERT INTO "PlatformFeaturePolicy" ("featureKey","globalEnabled","emergencyDisabled","updatedAt")
      VALUES ('activity_packs',false,false,CURRENT_TIMESTAMP) ON CONFLICT ("featureKey") DO NOTHING`
   );
+  // The table's runtime access as 20261216090000 sets it in Production (db push builds the table, not its RLS or
+  // grants): FORCE RLS, the three tenant policies, and SELECT / INSERT / UPDATE for the runtime role — no DELETE.
+  for (const sql of [
+    `ALTER TABLE "BusinessActivityProfile" ENABLE ROW LEVEL SECURITY`,
+    `ALTER TABLE "BusinessActivityProfile" FORCE ROW LEVEL SECURITY`,
+    `DROP POLICY IF EXISTS business_activity_profile_tenant_select ON "BusinessActivityProfile"`,
+    `DROP POLICY IF EXISTS business_activity_profile_tenant_insert ON "BusinessActivityProfile"`,
+    `DROP POLICY IF EXISTS business_activity_profile_tenant_update ON "BusinessActivityProfile"`,
+    `CREATE POLICY business_activity_profile_tenant_select ON "BusinessActivityProfile" FOR SELECT
+       USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`,
+    `CREATE POLICY business_activity_profile_tenant_insert ON "BusinessActivityProfile" FOR INSERT
+       WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`,
+    `CREATE POLICY business_activity_profile_tenant_update ON "BusinessActivityProfile" FOR UPDATE
+       USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)
+       WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`,
+    `GRANT SELECT, INSERT, UPDATE ON "BusinessActivityProfile" TO ${RT_ROLE}`,
+  ]) await owner.$executeRawUnsafe(sql);
   // The isolation witness: a business that is not 9 (bizA unless it happens to be 9).
   const otherBiz = bizA.id !== 9 ? bizA : bizB;
   const b9 = (await owner.business.findUnique({ where: { id: 9 }, select: { id: true } }))
