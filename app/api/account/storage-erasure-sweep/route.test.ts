@@ -154,7 +154,11 @@ async function main() {
     const auth = fs.readFileSync(path.join(root, "lib/services/billing/settlement/settlement-recovery-auth.test.ts"), "utf8");
     ok("E5 the route is registered in the cron authority registry (CRON_ROUTES and DECISION_CALLERS)", (auth.match(/"app\/api\/account\/storage-erasure-sweep\/route\.ts"/g) ?? []).length === 2);
     const vercel = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8")) as { crons?: { path: string }[] };
-    ok("E6 NOT scheduled: vercel.json has no cron for this route (scheduling is a separate owner decision)", !(vercel.crons ?? []).some((c) => c.path.startsWith("/api/account/storage-erasure-sweep")));
+    // Owner decision 2026-11-23 (with the Service Desk opened for every business): scheduled hourly. Safe to repeat and
+    // to overlap (every module's resume is idempotent); a pass is bounded by SWEEP_BUDGET_MS; the env switch still gates it.
+    const sweeps = (vercel.crons ?? []).filter((c) => c.path.startsWith("/api/account/storage-erasure-sweep")) as { path: string; schedule?: string }[];
+    ok("E6 scheduled exactly once, hourly, on the bare route (no query: the route takes nothing from the caller)",
+      sweeps.length === 1 && sweeps[0].path === "/api/account/storage-erasure-sweep" && sweeps[0].schedule === "40 * * * *", JSON.stringify(sweeps));
   }
 
   console.log(`\naccount storage-erasure-sweep route: ${pass} passed, ${failures.length} failed`);
