@@ -57,6 +57,10 @@ ok("Q5 quote step: send while diagnosing / repairing, revise while waiting", quo
   ok("P7 qaProgress: complete only with no failed check", qaProgress(items, { a: "PASS", b: "FAIL" }, true).complete === false && qaProgress(items, { a: "PASS", b: "PASS" }, true).complete === true);
 }
 ok("P8 balance UNKNOWN blocks the handover (never bypassed); a failed read blocks too", chargeSummary({ state: "UNKNOWN", openBalanceAgorot: null, reason: "NO_CHARGE_DECISION" }).blocksHandover && chargeSummary(null).blocksHandover);
+ok("P8b a service call speaks of closing, never of a handover (UX review 2026-11-23)",
+  chargeSummary({ state: "UNKNOWN", openBalanceAgorot: null, reason: "NO_CHARGE_DECISION" }, { field: true }).text.includes("לפני הסגירה")
+  && !chargeSummary({ state: "UNKNOWN", openBalanceAgorot: null, reason: "NO_CHARGE_DECISION" }, { field: true }).text.includes("מסירה")
+  && chargeSummary({ state: "UNKNOWN", openBalanceAgorot: null, reason: "NO_CHARGE_DECISION" }).text.includes("לפני המסירה"));
 ok("P9 NO_CHARGE / SETTLED hand over freely; OPEN / not documented ask for the owner's reason",
   !chargeSummary({ state: "NO_CHARGE", openBalanceAgorot: 0 }).blocksHandover && !chargeSummary({ state: "SETTLED", openBalanceAgorot: 0 }).needsDebtReason
   && chargeSummary({ state: "OPEN", openBalanceAgorot: 5000 }).needsDebtReason && chargeSummary({ state: "CHARGE_NOT_DOCUMENTED", openBalanceAgorot: 5000, detail: { chargeAgorot: 5000, overpaidAgorot: 0 } }).needsDebtReason

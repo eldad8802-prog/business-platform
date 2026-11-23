@@ -46,14 +46,22 @@ ok("A7 finishing follows the QA mode: REQUIRED → to QA without an outcome; OPT
 // ── Pilot review 2026-11-21 ──
 ok("R1 DELIVERED offers nothing: CLOSE is the system's step (the owner's button only produced a refusal)", caseActions({ ...base, status: "DELIVERED" }).length === 0);
 ok("R2 QA with a blocker: passed is shown with its reason, not active; back to work becomes the primary", (() => {
-  const a = caseActions({ ...base, status: "QA" }, { qaMode: "REQUIRED", qaBlocker: "x" });
-  const pass = a.find((d) => d.id === "qa-pass"), fail = a.find((d) => d.id === "qa-fail");
-  return pass?.blockedReason === "x" && pass.tone === "secondary" && fail?.tone === "primary"; })());
+  // Owner decision 2026-11-24: nothing announces a failure before a check is marked; the main action follows the checklist.
+  const inc = caseActions({ ...base, status: "QA" }, { qaMode: "REQUIRED", qaState: "incomplete" });
+  const ready = caseActions({ ...base, status: "QA" }, { qaMode: "REQUIRED", qaState: "ready" });
+  const failed = caseActions({ ...base, status: "QA" }, { qaMode: "REQUIRED", qaState: "failed" });
+  return inc.length === 1 && inc[0].id === "qa-mark" && inc[0].target.endpoint === "scroll" && !inc.some((d) => /לא עבר/.test(d.label))
+    && ready[0].id === "qa-pass" && ready[0].tone === "primary" && ready[0].target.endpoint === "qa" && (ready[0].target as { then: string }).then === "PASS"
+    && failed.length === 1 && failed[0].id === "qa-fail" && (failed[0].target as { then: string }).then === "FAIL"; })());
 ok("R3 QA without a blocker: passed is the primary and active", (() => {
   const pass = caseActions({ ...base, status: "QA" }, { qaMode: "REQUIRED", qaBlocker: null }).find((d) => d.id === "qa-pass");
   return pass?.tone === "primary" && pass.blockedReason === undefined; })());
 ok("R4 READY with an unknown balance: the handover is shown with the reason, never sent", caseActions({ ...base, status: "READY" }, { handoverBlocker: "y" })[0].blockedReason === "y"
   && caseActions({ ...base, status: "READY" })[0].blockedReason === undefined);
+ok("R6 READY / WORK_DONE with no charge decided: the main action sets the charge (no locked handover)",
+  (() => { const r = caseActions({ ...base, status: "READY" }, { chargeUndecided: true, handoverBlocker: "y" });
+    const w = caseActions({ ...base, kind: "FIELD", status: "WORK_DONE" }, { chargeUndecided: true, handoverBlocker: "y" });
+    return r.length === 1 && r[0].id === "set-charge" && r[0].target.endpoint === "charge" && !r[0].blockedReason && w[0].id === "set-charge"; })());
 ok("R5 WORK_DONE completion follows the same balance rule", caseActions({ ...base, kind: "FIELD", status: "WORK_DONE" }, { handoverBlocker: "y" })[0].blockedReason === "y");
 
 console.log(`${passed} passed, ${failed} failed`);

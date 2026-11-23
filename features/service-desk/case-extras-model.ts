@@ -105,23 +105,27 @@ export type BalanceLike = { state: string; openBalanceAgorot: number | null; rea
  * UNKNOWN blocks (the server refuses — never bypassed, never invented); an open debt needs the owner's reason at the
  * handover; settled / no charge hand over freely.
  */
-export function chargeSummary(b: BalanceLike | null): { text: string; blocksHandover: boolean; needsDebtReason: boolean } {
-  if (!b) return { text: "לא הצלחנו לקרוא את מצב החיוב. רעננו לפני המסירה.", blocksHandover: true, needsDebtReason: false };
+export function chargeSummary(b: BalanceLike | null, opts: { field?: boolean } = {}): { text: string; blocksHandover: boolean; needsDebtReason: boolean } {
+  // A service call (on site / remote) is closed, not handed over (UX review 2026-11-23): the words follow the activity.
+  const step = opts.field ? "הסגירה" : "המסירה";
+  const hand = opts.field ? "סגירה" : "מסירה";
+  const handVerb = opts.field ? "לסגור" : "למסור";
+  if (!b) return { text: `לא הצלחנו לקרוא את מצב החיוב. רעננו לפני ${step}.`, blocksHandover: true, needsDebtReason: false };
   switch (b.state) {
     case "NO_CHARGE": return { text: "נקבע: ללא חיוב.", blocksHandover: false, needsDebtReason: false };
     case "SETTLED":
       return { text: b.detail?.overpaidAgorot ? `שולם במלואו (שולם ביתר ${ils(b.detail.overpaidAgorot)}).` : "שולם במלואו.", blocksHandover: false, needsDebtReason: false };
     case "OPEN":
-      return { text: `יתרה פתוחה: ${ils(b.openBalanceAgorot ?? 0)} (מתועדת בחשבונית). מסירה עם יתרה רק באישור בעל העסק ועם סיבה.`, blocksHandover: false, needsDebtReason: true };
+      return { text: `יתרה פתוחה: ${ils(b.openBalanceAgorot ?? 0)} (מתועדת בחשבונית). ${hand} עם יתרה רק באישור בעל העסק ועם סיבה.`, blocksHandover: false, needsDebtReason: true };
     case "CHARGE_NOT_DOCUMENTED":
-      return { text: `חיוב של ${ils(b.detail?.chargeAgorot ?? b.openBalanceAgorot ?? 0)}, ועוד לא קושר לו מסמך תשלום. אפשר לקשר חשבונית או קבלה שהופקו, או למסור עם יתרה פתוחה באישור בעל העסק ועם סיבה.`, blocksHandover: false, needsDebtReason: (b.openBalanceAgorot ?? 0) > 0 };
+      return { text: `חיוב של ${ils(b.detail?.chargeAgorot ?? b.openBalanceAgorot ?? 0)}, ועוד לא קושר לו מסמך תשלום. אפשר לקשר חשבונית או קבלה שהופקו, או ${handVerb} עם יתרה פתוחה באישור בעל העסק ועם סיבה.`, blocksHandover: false, needsDebtReason: (b.openBalanceAgorot ?? 0) > 0 };
     default: {
       const why = b.reason === "NO_CHARGE_DECISION" || b.reason === "NOT_LINKED" ? "עוד לא נקבע חיוב לתיק."
         : b.reason === "DRAFT_PENDING" ? "אחד המסמכים המקושרים עדיין טיוטה."
         : b.reason === "FOREIGN_CURRENCY" ? "מסמך מקושר אינו בשקלים."
         : b.reason === "CONFLICT" ? "המסמכים המקושרים לא תואמים את החיוב שנקבע."
         : "לא הצלחנו לחשב את היתרה.";
-      return { text: `${why} לפני המסירה צריך לקבוע חיוב (סכום או "ללא חיוב").`, blocksHandover: true, needsDebtReason: false };
+      return { text: `${why} לפני ${step} צריך לקבוע חיוב (סכום או "ללא חיוב").`, blocksHandover: true, needsDebtReason: false };
     }
   }
 }
