@@ -23,6 +23,8 @@
  *   LN1 a replacement item lent on c3 → the handover reminder in the header (never a block); returned → returnedAt
  *   TK1 an open task linked to c4 and unlinked (Task.serviceCaseId)      F1 c4: item location + estimated date saved
  *   X3 another business (C) cannot read A's loans / tasks / fields / pickup calls / QA (404)
+ *   H1 / H2 (migration 20261222090000 applied in this lab, as in Production once applied): the case history shows the task
+ *      link / unlink, the work details and the loan lent / returned — once each, by the owner — and the journal holds who acted
  *
  * env: E2E_BASE, SEED_OUT, OUT, OWNER_URL, DATABASE_URL, STORAGE_PROVIDER=local, LOCAL_STORAGE_ROOT.
  */
@@ -394,6 +396,18 @@ async function main() {
         }, "not saved");
         await shot(pa, "real-case-panels-desktop");
       });
+      await check("H1 c4 history (20261222090000): task linked / unlinked and the work details are shown, by the owner, without a reload; journaled once each with who acted", async () => {
+        for (const line of ["קושרה משימה: להזמין מקלדת מהספק", "הוסר קישור למשימה: להזמין מקלדת מהספק", "מיקום הפריט עודכן · סיום משוער: 1.12"]) {
+          const li = pa.locator("ol li").filter({ hasText: line });
+          await li.first().waitFor({ timeout: 30_000 });
+          if ((await li.count()) !== 1) throw new Error(`"${line}" shown ${await li.count()} times`);
+          if (!(await li.first().innerText()).includes("בעל העסק")) throw new Error(`"${line}" without who acted`);
+        }
+        const rows = await own(seed.bizA, `SELECT "eventType"::text t, "actorUserId" u FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND "eventType"::text IN ('task.linked', 'task.unlinked', 'case.work_details_recorded') ORDER BY seq`, seed.c4);
+        const kinds = rows.map((r) => r.t).join(",");
+        if (kinds !== "task.linked,task.unlinked,case.work_details_recorded" || !rows.every((r) => Number(r.u) === seed.userA)) throw new Error(`journal ${JSON.stringify(rows)}`);
+        await shot(pa, "real-case-history-records-desktop");
+      });
       await ca.close();
     }
 
@@ -425,6 +439,17 @@ async function main() {
         if (notes.includes("טלפון חלופי") || !notes.includes("חיוב")) throw new Error(`the handover waits for something other than the charge: ${notes}`);
         await pp.locator("[data-panel=loans]").getByRole("button", { name: "הוחזר" }).click();
         await until(async () => Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceCaseLoaner" WHERE "caseId" = $1 AND "returnedAt" IS NOT NULL`, seed.c3))[0].n) === 1, "not returned");
+      });
+      await check("H2 c3 history (20261222090000): the replacement item lent and returned, once each (no side-line repeat), by the owner", async () => {
+        for (const line of ["ניתן ציוד חלופי: טלפון חלופי", "הוחזר ציוד חלופי: טלפון חלופי"]) {
+          const li = pp.locator("ol li").filter({ hasText: line });
+          await li.first().waitFor({ timeout: 30_000 });
+          if ((await li.count()) !== 1) throw new Error(`"${line}" shown ${await li.count()} times`);
+          if (!(await li.first().innerText()).includes("בעל העסק")) throw new Error(`"${line}" without who acted`);
+        }
+        const n = Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND "eventType"::text IN ('loan.lent', 'loan.returned') AND "actorUserId" = $2`, seed.c3, seed.userA))[0].n);
+        if (n !== 2) throw new Error(`loan records ${n}`);
+        await shot(pp, "real-case-history-loan-phone");
       });
       await cp.close();
     }
