@@ -1,0 +1,10 @@
+{
+  "note": "Subscriptions stage B (owner-approved 2026-11-24): the PlatformSubscription record reader (tenant path, FORCE RLS) and the platform-admin manual change (control plane, fresh second factor, SUBSCRIPTION_ADMIN_CHANGES_ENABLED off by default, append-only log + audit in one transaction). Shadow only. The database side is proven by platform-subscriptions-migration-lab.yml and platform-subscriptions-code-lab.yml (.platform-subscriptions/code-lab.ts, real roles).",
+  "tests": {
+    "lib/services/subscriptions/subscriptions-record-admin.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure + static (reads route and service files): unknown row values refused, a failing read degrades to today's access; the admin may set only TESTER / INTERNAL / CUSTOMER+BASIC|ADVANCED, Premium refused while not commercially open, no admin request yields a trial, past-due or FREE_LIMITED; reason bounds and NO_CHANGE; the write switch is off unless exactly 'true'; route order admin → fresh step-up → switch → write with the session admin as actor; one control-plane transaction with affected-row assertions, insert-only log and audit, no delete, no tenant singleton; the reader uses a tenant transaction, never the control plane"
+    }
+  }
+}

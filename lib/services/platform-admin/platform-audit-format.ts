@@ -13,6 +13,7 @@ const ACTION_LABELS: Record<string, string> = {
   [PLATFORM_AUDIT_ACTIONS.SESSION_VIEWED]: "גישה ל-Platform Admin",
   [PLATFORM_AUDIT_ACTIONS.HOME_VIEWED]: "צפייה בסקירה",
   [PLATFORM_AUDIT_ACTIONS.FEATURE_ACCESS_UPDATED]: "שינוי גישה לפיצ׳ר",
+  [PLATFORM_AUDIT_ACTIONS.SUBSCRIPTION_UPDATED]: "שינוי מנוי",
   [PLATFORM_AUDIT_ACTIONS.PAYMENT_REVERSAL_RESOLVED]: "סגירת החזר תשלום ידנית",
   [PLATFORM_AUDIT_ACTIONS.STEP_UP_SUCCEEDED]: "אימות נוסף הצליח",
   [PLATFORM_AUDIT_ACTIONS.STEP_UP_FAILED]: "אימות נוסף נכשל",
@@ -80,6 +81,7 @@ const SENSITIVE_ACTIONS = new Set<string>([
 /** Changes with business or security consequence — shown with emphasis. */
 const WARNING_ACTIONS = new Set<string>([
   PLATFORM_AUDIT_ACTIONS.FEATURE_ACCESS_UPDATED,
+  PLATFORM_AUDIT_ACTIONS.SUBSCRIPTION_UPDATED,
   PLATFORM_AUDIT_ACTIONS.PAYMENT_REVERSAL_RESOLVED,
   PLATFORM_AUDIT_ACTIONS.STEP_UP_FAILED,
   PLATFORM_AUDIT_ACTIONS.MFA_REPLACED,
@@ -148,6 +150,16 @@ export function formatAuditDetail(
       const change = from ? `${from} ← ${to}` : to;
       return `${key}: ${change}${reason ? ` · סיבה: ${reason}` : ""}`;
     }
+  }
+
+  if (action === PLATFORM_AUDIT_ACTIONS.SUBSCRIPTION_UPDATED) {
+    const side = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : null);
+    const label = (s: Record<string, unknown> | null) =>
+      s && typeof s.accountType === "string" ? `${s.accountType}${typeof s.plan === "string" ? ` ${s.plan}` : ""}` : null;
+    const from = label(side(meta.from));
+    const to = label(side(meta.to));
+    const reason = typeof meta.reason === "string" ? meta.reason : null;
+    if (to) return `${from ? `${from} ← ` : ""}${to}${reason ? ` · סיבה: ${reason}` : ""}`;
   }
 
   if (action === PLATFORM_AUDIT_ACTIONS.PAYMENT_REVERSAL_RESOLVED) {

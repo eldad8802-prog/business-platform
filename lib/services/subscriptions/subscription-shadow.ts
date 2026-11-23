@@ -8,11 +8,13 @@
  *             refuse what the flags allow. It never refuses anything. Enforcing the plan is stage C, behind a
  *             separate owner approval, and needs new code — no environment value can switch it on.
  *
- * SOURCE — where the subscription record comes from. Stage A has no table: every business resolves to "no record",
- * which the resolver computes as a tester (today's access). Stage B replaces `defaultSource` with the
- * PlatformSubscription read. A source that fails degrades to "no record" (today's access) and is logged — in shadow
- * a read failure must never become a denial.
+ * SOURCE — where the subscription record comes from: the business's PlatformSubscription row (stage B,
+ * subscription-record.ts). No row = "no record", which the resolver computes as a tester (today's access). A source
+ * that fails — including "the table is not there yet" if this code ever runs before migration
+ * 20261224090000_platform_subscriptions — degrades to "no record" and is logged: in shadow a read failure must never
+ * become a denial.
  */
+import { readSubscriptionRecord } from "./subscription-record";
 import type { SubscriptionSnapshot } from "./subscription.types";
 
 export const SUBSCRIPTION_ENFORCEMENT_ENV = "SUBSCRIPTION_ENFORCEMENT";
@@ -25,8 +27,8 @@ export function subscriptionMode(env: Record<string, string | undefined> = proce
 
 export type SubscriptionSource = (businessId: number) => Promise<SubscriptionSnapshot | null>;
 
-/** Stage A: no subscription table yet — every business has no record (computed as a tester). */
-const defaultSource: SubscriptionSource = async () => null;
+/** Stage B: the PlatformSubscription row, read in a tenant transaction for the business itself. */
+const defaultSource: SubscriptionSource = readSubscriptionRecord;
 
 let source: SubscriptionSource = defaultSource;
 

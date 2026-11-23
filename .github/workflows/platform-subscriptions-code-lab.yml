@@ -1,0 +1,88 @@
+# Platform subscriptions — CODE lab (stage B): the real record reader, admin service, capabilities answer and feature
+# guard against PostgreSQL 17 with migration 20261224090000_platform_subscriptions applied, connected as LOGIN roles
+# that are members of app_runtime (DATABASE_URL) and app_ctlplane (CONTROL_PLANE_DATABASE_URL) — so FORCE RLS, the
+# column grants and the insert-only log are exercised by the code that will run in Production.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network beyond the image and npm.
+
+name: platform subscriptions — code lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/subscriptions/**"
+      - "lib/services/feature-access/feature-guard.ts"
+      - "lib/services/feature-access/business-capabilities.service.ts"
+      - "lib/services/platform-admin/update-business-subscription.service.ts"
+      - "app/api/platform-admin/businesses/*/subscription/**"
+      - "prisma/migrations/20261224090000_platform_subscriptions/**"
+      - ".platform-subscriptions/**"
+      - ".github/workflows/platform-subscriptions-code-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: platform subscriptions code (PG17, runtime + control-plane roles)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_owner
+          POSTGRES_PASSWORD: psc_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_psc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_owner -d dubiz_psc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: lab_owner
+      PGDATABASE: dubiz_psc
+      PGPASSWORD: psc_ci_synthetic_owner_pw
+      OWNER_URL: postgresql://lab_owner:psc_ci_synthetic_owner_pw@localhost:5432/dubiz_psc
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. schema, roles (and login members), grants, businesses that exist before the migration
+        run: |
+          DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" npx prisma db push --skip-generate
+          psql -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "CREATE ROLE app_ctlplane NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "CREATE ROLE rt_login LOGIN PASSWORD 'psc_rt_pw' NOSUPERUSER NOBYPASSRLS IN ROLE app_runtime;" \
+            -c "CREATE ROLE ctl_login LOGIN PASSWORD 'psc_ctl_pw' NOSUPERUSER NOBYPASSRLS IN ROLE app_ctlplane;"
+          psql -v ON_ERROR_STOP=1 -f .platform-subscriptions/code-lab-setup.sql
+
+      - name: 2. the migration, then a business created after it
+        run: |
+          psql -1 -v ON_ERROR_STOP=1 -f prisma/migrations/20261224090000_platform_subscriptions/migration.sql
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO \"Business\" (\"id\", \"name\", \"createdAt\", \"updatedAt\") VALUES (930003, 'code lab C (after)', now(), now());"
+
+      - name: 3. code lab — reader, admin change, capabilities, guard, isolation
+        env:
+          DATABASE_URL: postgresql://rt_login:psc_rt_pw@localhost:5432/dubiz_psc
+          CONTROL_PLANE_DATABASE_URL: postgresql://ctl_login:psc_ctl_pw@localhost:5432/dubiz_psc
+          LAB_OWNER_URL: postgresql://lab_owner:psc_ci_synthetic_owner_pw@localhost:5432/dubiz_psc
+        run: npx tsx .platform-subscriptions/code-lab.ts | tee code-lab.out && grep -q "^CODE_LAB_OK$" code-lab.out
