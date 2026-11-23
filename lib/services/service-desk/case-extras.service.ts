@@ -50,6 +50,16 @@ async function caseRecordsReady(tx: Tx): Promise<boolean> {
   const r = await tx.$queryRaw<{ ok: boolean }[]>`SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ServiceCaseEvent_case_records_in_place') AS ok`;
   return r[0]?.ok === true;
 }
+/**
+ * Once the case is journaled, take its row FOR UPDATE FIRST — before the work itself. The work takes a weaker lock on the
+ * same row (the loan insert's and the task link's foreign key: KEY SHARE; the fields: NO KEY UPDATE), and the record's
+ * FOR UPDATE afterwards would be an upgrade: two writes on one case at the same moment would deadlock (40P01, lab A11).
+ * Locked first, they queue; the fields' "what changed" is also read under the lock. Before the migration: no change.
+ */
+async function lockCaseFirst(tx: Tx, businessId: number, caseId: number) {
+  if (!(await caseRecordsReady(tx))) return;
+  await tx.$queryRaw`SELECT 1 FROM "ServiceCase" WHERE id = ${caseId}::int AND "businessId" = ${businessId}::int FOR UPDATE`;
+}
 async function journalCaseWork(tx: Tx, p: ServiceDeskPrincipal, caseId: number, action: RecordAction, payload: Record<string, string | number | boolean | null>, key?: string) {
   if (!(await caseRecordsReady(tx))) return;
   const locked = await lockCase(tx, p.businessId, caseId); // the case row FOR UPDATE: the version bump is serialized
@@ -152,6 +162,7 @@ export async function lendItem(p: ServiceDeskPrincipal, caseId: unknown, body: {
   const b = p.businessId;
   return writing(() => tenantTx(b, async (tx) => {
     await requireA7(tx);
+    await lockCaseFirst(tx, b, caseId as number);
     const prior = (await tx.$queryRaw<Record<string, unknown>[]>`
       SELECT id, "caseId", "itemName", "lentAt", "returnedAt", note FROM "ServiceCaseLoaner" WHERE "businessId" = ${b}::int AND "idempotencyKey" = ${key}::text`)[0];
     if (prior) {
@@ -174,6 +185,7 @@ export async function returnLoan(p: ServiceDeskPrincipal, caseId: unknown, loanI
   const b = p.businessId;
   return writing(() => tenantTx(b, async (tx) => {
     await requireA7(tx);
+    await lockCaseFirst(tx, b, caseId as number);
     const wasOut = (await tx.$queryRaw<{ out: boolean }[]>`
       SELECT "returnedAt" IS NULL AS out FROM "ServiceCaseLoaner" WHERE id = ${loanId}::int AND "caseId" = ${caseId}::int AND "businessId" = ${b}::int FOR UPDATE`)[0]?.out === true;
     const rows = await tx.$queryRaw<Record<string, unknown>[]>`
@@ -214,6 +226,7 @@ export async function setTaskLink(p: ServiceDeskPrincipal, caseId: unknown, body
   const b = p.businessId;
   return writing(() => tenantTx(b, async (tx) => {
     await requireA7(tx);
+    await lockCaseFirst(tx, b, caseId as number);
     const c = await caseExists(tx, b, caseId);
     // Linking a task to a finished case is refused (pilot review 2026-11-21); removing a link stays possible (clean-up).
     if (body.link) refuseWhenFinished(c.status);
@@ -252,6 +265,7 @@ export async function setCaseFields(p: ServiceDeskPrincipal, caseId: unknown, bo
   const b = p.businessId;
   return writing(() => tenantTx(b, async (tx) => {
     await requireA7(tx);
+    await lockCaseFirst(tx, b, caseId as number);
     refuseWhenFinished((await caseExists(tx, b, caseId)).status);
     const prev = (await tx.$queryRaw<{ loc: string | null; d: string | null }[]>`
       SELECT "itemLocationNote" AS loc, to_char("estimatedReadyOn", 'YYYY-MM-DD') AS d FROM "ServiceCase" WHERE id = ${caseId}::int AND "businessId" = ${b}::int`)[0];
