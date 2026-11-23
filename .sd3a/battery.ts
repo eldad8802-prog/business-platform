@@ -28,6 +28,7 @@ import { PrismaClient } from "@prisma/client";
 
 import { uuidV7 } from "../lib/services/tasks/task-idempotency";
 import { resolveServiceDeskMode } from "../lib/services/service-desk/service-desk-gate";
+import { getPlatformFeatureCatalogEntry, PLATFORM_FEATURE_KEYS } from "../lib/services/feature-access/platform-feature-catalog";
 import { serviceDeskRoute } from "../lib/services/service-desk/service-desk-http";
 import { ServiceDeskError } from "../lib/services/service-desk/service-desk-errors";
 import {
@@ -275,7 +276,10 @@ async function main() {
   ok("F5 the emergency switch on top → NONE", (await resolveServiceDeskMode(A.b)) === "NONE");
   await setPolicy(true, false);
   await setOverride(A.b, null);
-  ok("F6 launched, no override, catalog default OFF → NONE", (await resolveServiceDeskMode(A.b)) === "NONE");
+  // Opened for every business (20261221190000 + catalog default ON, owner 2026-11-23): launched with no override follows
+  // the catalog default in code — ON ⇒ FULL (every business, a new one included); OFF ⇒ NONE.
+  const catalogOn = getPlatformFeatureCatalogEntry(PLATFORM_FEATURE_KEYS.SERVICE_DESK).defaultEnabled === true;
+  ok(`F6 launched, no override → the catalog default in code (${catalogOn ? "ON ⇒ FULL" : "OFF ⇒ NONE"})`, (await resolveServiceDeskMode(A.b)) === (catalogOn ? "FULL" : "NONE"));
   await setOverride(A.b, "DISABLED");
   const user = async () => ({ id: A.u, businessId: A.b });
   const req = (m: string) => new Request("https://lab.test/api/service-desk/cases", { method: m });
