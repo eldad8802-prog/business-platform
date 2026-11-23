@@ -45,7 +45,8 @@ BEGIN
      OR has_table_privilege('app_ctlplane', '"PlatformSubscription"', 'DELETE') OR has_table_privilege('app_ctlplane', '"PlatformSubscription"', 'TRUNCATE') THEN
     RAISE EXCEPTION 'L2: control-plane privileges on the subscription are not exact';
   END IF;
-  IF NOT has_table_privilege('app_ctlplane', '"PlatformSubscriptionEvent"', 'SELECT, INSERT')
+  IF NOT has_table_privilege('app_ctlplane', '"PlatformSubscriptionEvent"', 'INSERT')
+     OR has_table_privilege('app_ctlplane', '"PlatformSubscriptionEvent"', 'SELECT')
      OR has_table_privilege('app_ctlplane', '"PlatformSubscriptionEvent"', 'UPDATE') OR has_table_privilege('app_ctlplane', '"PlatformSubscriptionEvent"', 'DELETE')
      OR has_table_privilege('app_ctlplane', '"PlatformSubscriptionEvent"', 'TRUNCATE') THEN
     RAISE EXCEPTION 'L2: control-plane privileges on the log are not exact';
@@ -110,6 +111,11 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
   BEGIN
+    PERFORM count(*) FROM "PlatformSubscriptionEvent";
+    RAISE EXCEPTION 'L4: the control plane read the log back';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
     DELETE FROM "PlatformSubscription" WHERE "businessId" = 920001;
     RAISE EXCEPTION 'L4: control plane deleted a subscription';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
@@ -119,7 +125,6 @@ BEGIN
     RAISE EXCEPTION 'L4: control plane moved a subscription to another business';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
-  IF (SELECT count(*) FROM "PlatformSubscriptionEvent") <> 2 THEN RAISE EXCEPTION 'L4: control plane sees another business''s log'; END IF;
 END $$;
 -- one row per business: a second row for the same business is refused
 DO $$
@@ -130,6 +135,12 @@ BEGIN
 EXCEPTION WHEN unique_violation THEN NULL;
 END $$;
 RESET ROLE;
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM "PlatformSubscriptionEvent" WHERE "businessId" = 920001) <> 2 THEN RAISE EXCEPTION 'L4: the admin change was not logged'; END IF;
+  IF (SELECT count(*) FROM "PlatformSubscriptionEvent" WHERE "businessId" = 920002) <> 1 THEN RAISE EXCEPTION 'L4: another business''s log changed'; END IF;
+END $$;
 
 -- 5. Integrity: every impossible shape is refused (as the owner — constraints bind every role).
 DO $$

@@ -18,8 +18,9 @@
 --        app_runtime   SELECT own business's subscription row only (a business can never change its own plan);
 --                      nothing on the event log.
 --        app_ctlplane  the admin write path (control-plane transaction, GUC-scoped): subscription SELECT / INSERT /
---                      UPDATE of the lifecycle columns; event log SELECT / INSERT. No DELETE for anyone, no UPDATE
---                      on the log (a trigger refuses it as well).
+--                      UPDATE of the lifecycle columns; event log INSERT only — like PlatformAuditEvent, the writer
+--                      may not read back what it wrote. No DELETE for anyone, no UPDATE on the log (a trigger
+--                      refuses it as well).
 --
 -- Nothing reads these tables until the code PR (stage B code) is merged after this migration is applied; even then
 -- the plan verdict is shadow only. Unchanged: every existing table, row, constraint, policy, grant and function.
@@ -165,8 +166,6 @@ CREATE POLICY platform_subscription_ctl_update ON "PlatformSubscription" FOR UPD
 
 ALTER TABLE "PlatformSubscriptionEvent" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "PlatformSubscriptionEvent" FORCE ROW LEVEL SECURITY;
-CREATE POLICY platform_subscription_event_ctl_select ON "PlatformSubscriptionEvent" FOR SELECT TO app_ctlplane
-  USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
 CREATE POLICY platform_subscription_event_ctl_insert ON "PlatformSubscriptionEvent" FOR INSERT TO app_ctlplane
   WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
 
@@ -191,5 +190,5 @@ GRANT SELECT, INSERT ON "PlatformSubscription" TO app_ctlplane;
 GRANT UPDATE ("accountType", "status", "plan", "catalogVersion", "trialStartedAt", "trialEndsAt", "currentPeriodStart",
               "currentPeriodEnd", "cancelAtPeriodEnd", "source", "updatedByUserId", "updatedAt")
   ON "PlatformSubscription" TO app_ctlplane;
-GRANT SELECT, INSERT ON "PlatformSubscriptionEvent" TO app_ctlplane;
+GRANT INSERT ON "PlatformSubscriptionEvent" TO app_ctlplane;
 GRANT USAGE ON SEQUENCE "PlatformSubscriptionEvent_id_seq" TO app_ctlplane;
