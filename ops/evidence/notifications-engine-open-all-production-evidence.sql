@@ -1,7 +1,7 @@
 -- ============================================================================
 -- notifications-engine-open-all-production-evidence.sql
 --
--- Read-only Production EVIDENCE AFTER the notification engine is opened for every business (20261223090000 applied,
+-- Read-only Production EVIDENCE AFTER the notification engine is opened for every business (20261215100000 applied,
 -- the application PR live). Window for sends: the last 2 hours. Flags and counts only:
 --   A.  2-6   the migration is recorded once with the pinned checksum; the engine rows are ON; overrides unchanged;
 --   B.  7-9   activation: every live business gets its record as the status sweep / worker observes it ON;
@@ -15,7 +15,7 @@
 
 \echo '== notifications engine open-all proof: legend (n -> check) =='
 \echo ' 1 the evidence role is a superuser or has BYPASSRLS (flag; expected t)'
-\echo ' 2 20261223090000_notifications_engine_open_all recorded once, finished, not rolled back, pinned checksum (flag; expected t)'
+\echo ' 2 20261215100000_notifications_engine_open_all recorded once, finished, not rolled back, pinned checksum (flag; expected t)'
 \echo ' 3 ledger rows unfinished or rolled back (count; expected 0)'
 \echo ' 4 notifications_engine: definition default ON, policy global ON, emergency OFF (flag; expected t)'
 \echo ' 5 notifications_engine overrides ENABLED (count; expected = preflight 13)'
@@ -61,9 +61,9 @@ att AS (
 ),
 lines(n, flag, observed_count) AS (
             SELECT 1, (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user), NULL::bigint
-  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" m, pin WHERE m.migration_name = '20261223090000_notifications_engine_open_all'
+  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" m, pin WHERE m.migration_name = '20261215100000_notifications_engine_open_all'
                          AND m.finished_at IS NOT NULL AND m.rolled_back_at IS NULL AND m.checksum IN (pin.lf, pin.crlf)) = 1
-                    AND (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261223090000_notifications_engine_open_all') = 1, NULL
+                    AND (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261215100000_notifications_engine_open_all') = 1, NULL
   UNION ALL SELECT 3, NULL, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 4, EXISTS (SELECT 1 FROM "PlatformFeatureDefinition" fd JOIN "PlatformFeaturePolicy" fp ON fp."featureKey" = fd."key"
                                WHERE fd."key" = 'notifications_engine' AND fd."defaultEnabled" AND fp."globalEnabled" AND NOT fp."emergencyDisabled"), NULL

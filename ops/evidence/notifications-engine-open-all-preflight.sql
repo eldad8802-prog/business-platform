@@ -2,7 +2,7 @@
 -- notifications-engine-open-all-preflight.sql
 --
 -- Read-only Production preflight BEFORE the notification engine is opened for every business
--- (release-migrate of 20261223090000_notifications_engine_open_all, then the application PR that flips the catalog
+-- (release-migrate of 20261215100000_notifications_engine_open_all, then the application PR that flips the catalog
 -- default and schedules the worker / status sweep / digest). Flags and counts only:
 --   A.  1-9   the ledger: the migration is not recorded yet, nothing unfinished, and every migration on main before it
 --             is already applied (release-migrate applies a prefix only: anything pending before it would have to
@@ -21,13 +21,13 @@
 
 \echo '== notifications engine open-all preflight: legend (n -> check) =='
 \echo ' 1 the evidence role is a superuser or has BYPASSRLS (flag; expected t)'
-\echo ' 2 20261223090000_notifications_engine_open_all is not recorded yet (flag; expected t)'
+\echo ' 2 20261215100000_notifications_engine_open_all is not recorded yet (flag; expected t)'
 \echo ' 3 ledger rows unfinished or rolled back (count; expected 0)'
 \echo ' 4 20261212090000_notification_engine_activation applied (flag; expected t)'
 \echo ' 5 20261213090000_notification_docs_stuck_appointment_lead applied (flag; expected t)'
 \echo ' 6 20261214090000_service_desk_case_fields applied (flag; expected t)'
-\echo ' 7 20261216090000_activity_packs applied (flag; expected t, else it is pending before ours)'
-\echo ' 8 20261221090000_business_kind_transition applied (flag; expected t)'
+\echo ' 7 20261216090000_activity_packs applied (flag; info: it sorts AFTER ours, a pending one stays pending)'
+\echo ' 8 20261221090000_business_kind_transition applied (flag; info: sorts after ours)'
 \echo ' 9 ledger rows in total (count; info)'
 \echo '10 notifications_engine: one definition row and one policy row (flag; expected t)'
 \echo '11 notifications_engine: definition default OFF and policy global OFF (flag; expected t, the state the migration expects)'
@@ -80,7 +80,7 @@ dev AS (
 reach AS (SELECT DISTINCT "businessId", "userId" FROM dev WHERE live),
 lines(n, flag, observed_count) AS (
             SELECT 1, (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user), NULL::bigint
-  UNION ALL SELECT 2, NOT EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261223090000_notifications_engine_open_all'), NULL
+  UNION ALL SELECT 2, NOT EXISTS (SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '20261215100000_notifications_engine_open_all'), NULL
   UNION ALL SELECT 3, NULL, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL)
   UNION ALL SELECT 4, EXISTS (SELECT 1 FROM mig WHERE migration_name = '20261212090000_notification_engine_activation'), NULL
   UNION ALL SELECT 5, EXISTS (SELECT 1 FROM mig WHERE migration_name = '20261213090000_notification_docs_stuck_appointment_lead'), NULL
